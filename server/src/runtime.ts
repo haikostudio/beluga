@@ -176,11 +176,14 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
 }
 
 async function startTurn(
-  agent: Agent,
+  agentBefore: Agent,
   prompt: string,
   template: TemplateKind,
   onComplete?: PromptOptions['onComplete'],
 ): Promise<void> {
+  // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
+  // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
+  const agent = store.getAgent(agentBefore.id) ?? agentBefore;
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
 
@@ -247,7 +250,7 @@ async function startTurn(
     ...applyAccountEnv(account),
   };
 
-  const sessionId = store.getSessionId(agent.id);
+  const sessionId = store.getSessionId(agent.id, agent.run.engine);
 
   setStatus(agent, 'running', { startedAt: Date.now(), account: account.id });
 
@@ -269,7 +272,7 @@ async function startTurn(
       agentLog(PATHS.logs, agent.id, JSON.stringify(event));
       switch (event.kind) {
         case 'session':
-          if (event.sessionId) store.setSessionId(agent.id, event.sessionId);
+          if (event.sessionId) store.setSessionId(agent.id, event.sessionId, agent.run.engine);
           break;
         case 'text':
           if (event.text) {

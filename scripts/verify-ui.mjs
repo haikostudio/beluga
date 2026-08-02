@@ -228,6 +228,60 @@ async function main() {
   );
   record('Console : aucune erreur bloquante', realErrors.length === 0, realErrors.slice(0, 2).join(' | '));
 
+  /* ---------- 14 bis. Projets : liste du serveur, création, tri ---------- */
+  const plusButton = await page.evaluate(() => {
+    const aside = document.querySelector('aside');
+    const cible = Array.from(aside?.querySelectorAll('button') ?? []).find((b) =>
+      b.querySelector('.lucide-plus'),
+    );
+    cible?.click();
+    return !!cible;
+  });
+  await page.waitForTimeout(2500);
+  const dialogue = await page.evaluate(() => {
+    const text = document.body.innerText;
+    return {
+      titre: text.includes('Projets du serveur'),
+      onglets: text.includes('Déjà sur le serveur') && text.includes('Nouveau projet'),
+      trouves: (text.match(/Suivre/g) ?? []).length,
+    };
+  });
+  record(
+    'Projets : la liste des dossiers du serveur est consultable',
+    plusButton && dialogue.titre && dialogue.onglets,
+    `${dialogue.trouves} projet(s) proposés`,
+  );
+
+  await page.getByRole('tab', { name: 'Nouveau projet' }).click();
+  await page.waitForTimeout(800);
+  const creation = await page.evaluate(() =>
+    document.body.innerText.includes('Créer le projet') && document.body.innerText.includes('dépôt git'),
+  );
+  record('Projets : un nouveau projet peut être créé sur le serveur', creation);
+  await shot(page, '10-projets');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(600);
+
+  const poignees = await page.evaluate(
+    () => document.querySelectorAll('aside [draggable="true"]').length,
+  );
+  record('Projets : les entrées se réordonnent au glisser-déposer', poignees > 0, `${poignees} projet(s) déplaçables`);
+
+  /* ---------- 14 ter. Chef d'orchestre : le moteur choisi tient ---------- */
+  const reglage = await page.evaluate(() => {
+    const boutons = Array.from(document.querySelectorAll('button'));
+    const libelles = boutons.map((b) => b.textContent?.trim() ?? '');
+    return {
+      moteur: libelles.find((t) => t === 'Claude Code' || t === 'Codex') ?? '',
+      modele: libelles.find((t) => /^(Claude |GPT-)/.test(t)) ?? '',
+    };
+  });
+  record(
+    'Composeur : le moteur et le modèle affichés sont ceux réellement retenus',
+    !!reglage.moteur && !!reglage.modele,
+    `${reglage.moteur} · ${reglage.modele}`,
+  );
+
   /* ---------- 15. Mobile ---------- */
   const mobile = await context.newPage();
   await mobile.setViewportSize({ width: 390, height: 844 });

@@ -189,3 +189,34 @@ export function normaliseThinking(models: ModelInfo[], modelId: string | undefin
 export function engineOf(id: string): EngineId {
   return id === 'codex' ? 'codex' : 'claude';
 }
+
+/**
+ * Un réglage enregistré hier peut nommer un modèle qui n'existe plus, ou un
+ * raccourci (« sonnet ») absent du catalogue réel. On le ramène vers le modèle
+ * équivalent le plus récent plutôt que de laisser l'interface retomber au
+ * hasard sur le premier de la liste.
+ */
+export function resolveModel(models: ModelInfo[], wanted: string | undefined): string | undefined {
+  if (!models.length) return wanted;
+  if (wanted && models.some((m) => m.id === wanted)) return wanted;
+  if (!wanted) return models[0]?.id;
+
+  const needle = wanted.toLowerCase();
+  const famille = ['opus', 'sonnet', 'haiku', 'fable', 'codex', 'gpt'].find((f) => needle.includes(f));
+  if (famille) {
+    // Le plus récent de la famille : les identifiants récents trient en dernier.
+    const candidats = models
+      .filter((m) => m.id.toLowerCase().includes(famille) || m.label.toLowerCase().includes(famille))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    if (candidats.length) return candidats[candidats.length - 1].id;
+  }
+  return models[0]?.id;
+}
+
+/**
+ * Le modèle du chef d'orchestre : épinglé volontairement sur un modèle rapide
+ * et bon marché (PLAN §5), choisi dans le catalogue RÉEL et non deviné.
+ */
+export function orchestratorModel(models: ModelInfo[]): string | undefined {
+  return resolveModel(models, 'sonnet');
+}

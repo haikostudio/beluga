@@ -87,6 +87,8 @@ export const Project = z.object({
   deployCommand: z.string().optional(),
   deployUrl: z.string().optional(),
   billing: BillingLink.optional(),
+  /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
+  rank: z.number().default(1000),
   archived: z.boolean().default(false),
   createdAt: z.number(),
   updatedAt: z.number(),

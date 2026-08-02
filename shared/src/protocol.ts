@@ -47,6 +47,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.delete'), id: z.string() }),
   z.object({ type: z.literal('project.open'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
+  /** Range les projets dans l'ordre voulu (le plus important en haut). */
+  z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
+  /** Crée un dossier neuf sur le serveur, puis l'inscrit. */
+  z.object({
+    type: z.literal('project.new'),
+    name: z.string(),
+    folder: z.string().optional(),
+    git: z.boolean().optional(),
+    gitRemote: z.string().optional(),
+  }),
 
   // Cartes
   z.object({

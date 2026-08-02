@@ -2,7 +2,7 @@ import { EngineId, EngineInfo } from '@haikodev/shared';
 import { EngineAdapter } from './types.js';
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
-import { claudeCatalog, codexCatalog } from './catalog.js';
+import { claudeCatalog, codexCatalog, resolveModel } from './catalog.js';
 
 export * from './types.js';
 
@@ -38,8 +38,10 @@ export async function listEngines(force = false): Promise<EngineInfo[]> {
       installed: detected.installed,
       version: detected.version,
       models,
-      // Le modèle par défaut est celui du moteur s'il existe encore dans le catalogue.
-      defaultModel: models.find((m) => m.id === adapter.defaultModel)?.id ?? models[0]?.id,
+      // Le modèle par défaut suit l'intention de l'adaptateur (un modèle
+      // équilibré), ramenée vers un modèle qui existe vraiment — sinon on
+      // retomberait sur le premier de la liste, c'est-à-dire le plus cher.
+      defaultModel: resolveModel(models, adapter.defaultModel),
       live,
       fetchedAt: Date.now(),
     });

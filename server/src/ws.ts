@@ -27,7 +27,7 @@ import { archiveCard } from './archive.js';
 import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
-import { scanProjects, registerProject } from './projects.js';
+import { scanProjects, registerProject, reorderProjects, createProjectFolder } from './projects.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
@@ -154,6 +154,24 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'project.scan':
       return { found: await scanProjects() };
 
+    case 'project.reorder': {
+      const projects = reorderProjects(cmd.ids);
+      for (const project of projects) bus.emit({ type: 'project.upsert', project });
+      return { projects };
+    }
+
+    case 'project.new': {
+      const project = await createProjectFolder({
+        name: cmd.name,
+        folder: cmd.folder,
+        git: cmd.git,
+        gitRemote: cmd.gitRemote,
+      });
+      bus.emit({ type: 'project.upsert', project });
+      bus.toast('success', `Projet « ${project.name} » créé sur le serveur`);
+      return { project };
+    }
+
     /* -------- Cartes -------- */
 
     case 'card.create': {
@@ -267,7 +285,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     case 'agent.orchestrator': {
-      const agent = getOrCreateOrchestrator(cmd.projectId);
+      const agent = await getOrCreateOrchestrator(cmd.projectId);
       bus.emit({
         type: 'agent.snapshot',
         agentId: agent.id,

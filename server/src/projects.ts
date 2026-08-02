@@ -37,6 +37,7 @@ export function registerProject(input: {
   defaultEngine?: EngineId;
   deployCommand?: string;
   deployUrl?: string;
+  rank?: number;
 }): Project {
   const resolved = path.resolve(input.path);
   if (!fs.existsSync(resolved)) throw new Error(`le dossier ${resolved} n'existe pas`);
@@ -56,11 +57,90 @@ export function registerProject(input: {
     deployCommand: input.deployCommand ?? existing?.deployCommand,
     deployUrl: input.deployUrl ?? existing?.deployUrl,
     billing: existing?.billing,
+    rank: input.rank ?? existing?.rank ?? nextRank(),
     archived: false,
     createdAt: existing?.createdAt ?? store.now(),
     updatedAt: store.now(),
   });
   return store.saveProject(project);
+}
+
+function nextRank(): number {
+  const ranks = store.listProjects(true).map((p) => p.rank ?? 1000);
+  return ranks.length ? Math.max(...ranks) + 10 : 10;
+}
+
+/** Range les projets dans l'ordre voulu : le premier de la liste passe en haut. */
+export function reorderProjects(ids: string[]): Project[] {
+  ids.forEach((id, index) => {
+    const project = store.getProject(id);
+    if (project) store.saveProject({ ...project, rank: (index + 1) * 10 });
+  });
+  return store.listProjects();
+}
+
+/**
+ * Crée un dossier NEUF sur le serveur puis l'inscrit : un nouveau projet
+ * existe pour de vrai, il n'est pas seulement une ligne dans une liste.
+ */
+export async function createProjectFolder(input: {
+  name: string;
+  folder?: string;
+  git?: boolean;
+  gitRemote?: string;
+}): Promise<Project> {
+  const slug =
+    (input.folder?.trim() || input.name)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 50) || 'projet';
+
+  const target = path.resolve(CONFIG.projectsRoot, slug);
+  if (!target.startsWith(path.resolve(CONFIG.projectsRoot) + path.sep)) {
+    throw new Error('emplacement refusé');
+  }
+  if (fs.existsSync(target)) throw new Error(`le dossier ${slug} existe déjà`);
+
+  // Le dossier des projets appartient à l'administrateur du serveur : si le
+  // démon ne peut pas y écrire directement, il crée avec élévation puis se
+  // donne le dossier — c'est la convention en place sur cette machine.
+  try {
+    fs.mkdirSync(target, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== 'EACCES' && err?.code !== 'EPERM') throw err;
+    const user = process.env.USER || 'paseo';
+    await execFileAsync('sudo', ['-n', 'mkdir', '-p', target], { timeout: 20000 });
+    await execFileAsync('sudo', ['-n', 'chown', '-R', `${user}:${user}`, target], { timeout: 20000 });
+  }
+
+  fs.writeFileSync(
+    path.join(target, 'README.md'),
+    `# ${input.name}\n\nProjet créé depuis HaikoDev le ${new Date().toLocaleDateString('fr-CH')}.\n`,
+    'utf8',
+  );
+
+  if (input.git !== false) {
+    try {
+      await execFileAsync('git', ['init', '-q'], { cwd: target, timeout: 20000 });
+      await execFileAsync('git', ['add', '-A'], { cwd: target, timeout: 20000 });
+      await execFileAsync(
+        'git',
+        ['-c', 'user.email=haikodev@local', '-c', 'user.name=HaikoDev', 'commit', '-qm', 'Départ du projet'],
+        { cwd: target, timeout: 20000 },
+      );
+      if (input.gitRemote?.trim()) {
+        await execFileAsync('git', ['remote', 'add', 'origin', input.gitRemote.trim()], { cwd: target, timeout: 20000 });
+      }
+    } catch (err) {
+      log.warn('dépôt git non initialisé', err);
+    }
+  }
+
+  log.info(`nouveau projet créé sur le serveur : ${target}`);
+  return registerProject({ name: input.name, path: target, gitRemote: input.gitRemote, rank: 5 });
 }
 
 /** Parcourt le dossier des projets et propose ceux qui ne sont pas encore inscrits. */

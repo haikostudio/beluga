@@ -43,9 +43,12 @@ export function saveSettings(patch: Partial<Settings>): Settings {
 
 export function listProjects(includeArchived = false): Project[] {
   const rows = getDb()
-    .prepare(`SELECT data FROM projects ${includeArchived ? '' : 'WHERE archived = 0'} ORDER BY name`)
+    .prepare(`SELECT data FROM projects ${includeArchived ? '' : 'WHERE archived = 0'}`)
     .all() as { data: string }[];
-  return rows.map((r) => Project.parse(JSON.parse(r.data)));
+  // L'ordre est celui choisi à la main ; à rang égal, par nom.
+  return rows
+    .map((r) => Project.parse(JSON.parse(r.data)))
+    .sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000) || a.name.localeCompare(b.name));
 }
 
 export function getProject(id: string): Project | null {
@@ -201,7 +204,7 @@ export function saveAgent(agent: Agent): Agent {
       cardId: value.cardId ?? null,
       role: value.role,
       status: value.status,
-      sessionId: getSessionId(value.id),
+      sessionId: rawSessions(value.id),
       data: JSON.stringify(value),
       createdAt: value.createdAt,
       updatedAt: value.updatedAt,
@@ -209,15 +212,47 @@ export function saveAgent(agent: Agent): Agent {
   return value;
 }
 
-export function setSessionId(agentId: string, sessionId: string): void {
-  getDb().prepare('UPDATE agents SET session_id = ? WHERE id = ?').run(sessionId, agentId);
-}
-
-export function getSessionId(agentId: string): string | null {
+/**
+ * Chaque moteur a SA propre conversation : reprendre une session Claude avec
+ * Codex n'a aucun sens. La colonne garde un petit dictionnaire par moteur, tout
+ * en acceptant l'ancien format (une simple chaîne).
+ */
+function rawSessions(agentId: string): string | null {
   const row = getDb().prepare('SELECT session_id FROM agents WHERE id = ?').get(agentId) as
     | { session_id: string | null }
     | undefined;
   return row?.session_id ?? null;
+}
+
+function readSessions(agentId: string): Record<string, string> {
+  const row = getDb().prepare('SELECT session_id, role, data FROM agents WHERE id = ?').get(agentId) as
+    | { session_id: string | null; data: string }
+    | undefined;
+  if (!row?.session_id) return {};
+  const raw = row.session_id.trim();
+  if (raw.startsWith('{')) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  // Ancien format : la session appartenait au moteur de l'agent.
+  try {
+    const engine = JSON.parse(row.data)?.run?.engine ?? 'claude';
+    return { [engine]: raw };
+  } catch {
+    return { claude: raw };
+  }
+}
+
+export function setSessionId(agentId: string, sessionId: string, engine = 'claude'): void {
+  const sessions = { ...readSessions(agentId), [engine]: sessionId };
+  getDb().prepare('UPDATE agents SET session_id = ? WHERE id = ?').run(JSON.stringify(sessions), agentId);
+}
+
+export function getSessionId(agentId: string, engine = 'claude'): string | null {
+  return readSessions(agentId)[engine] ?? null;
 }
 
 export function deleteAgent(id: string): void {
