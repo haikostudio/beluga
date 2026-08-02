@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { Attachment } from '@haikodev/shared';
-import { CONFIG, PATHS } from './config.js';
+import { CONFIG, PATHS, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -215,8 +215,9 @@ export function createHttpServer(): http.Server {
       // Le manifeste, les icônes et le service worker doivent rester lisibles
       // sans session : sinon l'installation sur téléphone échoue silencieusement.
       if (['/manifest.json', '/sw.js', '/icon.svg', '/icon-192.png', '/icon-512.png'].includes(route)) {
-        const publicFile = path.join(CONFIG.webDir, route.replace(/^\/+/, ''));
-        if (publicFile.startsWith(CONFIG.webDir) && serveStatic(res, publicFile)) return;
+        const racine = webRoot();
+        const publicFile = path.join(racine, route.replace(/^\/+/, ''));
+        if (publicFile.startsWith(racine) && serveStatic(res, publicFile)) return;
       }
 
       /* ---------------- Mur d'accès ---------------- */
@@ -383,13 +384,13 @@ export function createHttpServer(): http.Server {
 
       /* ---------------- Interface web ---------------- */
 
-      const webRoot = CONFIG.webDir;
+      const racineWeb = webRoot();
       if (route !== '/' && !route.startsWith('/api/')) {
-        const candidate = path.join(webRoot, route.replace(/^\/+/, ''));
-        if (candidate.startsWith(webRoot) && serveStatic(res, candidate)) return;
+        const candidate = path.join(racineWeb, route.replace(/^\/+/, ''));
+        if (candidate.startsWith(racineWeb) && serveStatic(res, candidate)) return;
       }
 
-      const indexFile = path.join(webRoot, 'index.html');
+      const indexFile = path.join(racineWeb, 'index.html');
       if (fs.existsSync(indexFile)) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache, must-revalidate' });
         return res.end(fs.readFileSync(indexFile));

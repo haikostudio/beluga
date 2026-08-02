@@ -162,10 +162,35 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
       // 1. Fusion des branches des cartes du lot
       current = setStep(current, 'merge', 'running');
       if (isGit && cards.length) {
+        let mergeLog = '';
+
+        /*
+         * Le dossier de travail est PARTAGÉ : un agent peut avoir laissé des
+         * modifications non enregistrées. Git refuse alors de changer de
+         * branche et toute la publication s'arrêtait là (rencontré le
+         * 03/08/2026). On enregistre donc ce travail SUR SA PROPRE BRANCHE
+         * avant de bouger : publier commence par ne rien perdre.
+         */
+        const enCours = await runCommand(cwd, 'git status --porcelain');
+        if (enCours.out.trim()) {
+          const branche = (await runCommand(cwd, 'git rev-parse --abbrev-ref HEAD')).out.trim() || 'branche courante';
+          await runCommand(cwd, 'git add -A');
+          const enregistre = await runCommand(
+            cwd,
+            `git commit -m "Travaux en cours enregistrés avant publication" -m "Branche ${branche}"`,
+          );
+          mergeLog += `\n${branche} : travaux en cours enregistrés${enregistre.ok ? '' : ' (échec)'}`;
+          // La branche doit exister à distance pour être fusionnée plus tard.
+          await runCommand(cwd, `git push -u origin ${branche}`, 60000).catch(() => undefined);
+        }
+
         const mainBranch = await mainBranchOf(cwd);
         const checkout = await runCommand(cwd, `git checkout ${mainBranch}`);
-        if (!checkout.ok) throw new Error(`Impossible de revenir sur la branche principale (${mainBranch}).`);
-        let mergeLog = '';
+        if (!checkout.ok) {
+          throw new Error(
+            `Impossible de revenir sur la branche principale (${mainBranch}) : ${checkout.out.slice(-200)}`,
+          );
+        }
         for (const card of cards) {
           const branch = card.github?.branch;
           if (!branch) continue;

@@ -28,11 +28,8 @@ export const CONFIG = {
   port: Number(env('HAIKODEV_PORT', '7070')),
   host: env('HAIKODEV_HOST', '127.0.0.1'),
   dataDir,
-  webDir: env(
-    'HAIKODEV_WEB',
-    // Avant la première publication, on sert la construction du dossier.
-    fs.existsSync(path.join(liveDir, 'index.html')) ? liveDir : buildDir,
-  ),
+  /** Réglage forcé à la main ; sinon la décision est prise à CHAQUE requête. */
+  webDirForce: process.env.HAIKODEV_WEB?.trim() || '',
   /** Là où la publication installe l'application, et d'où elle est servie. */
   liveDir,
   /** Là où `npm run build` écrit, dans le dossier de travail. */
@@ -49,6 +46,17 @@ export const CONFIG = {
     baseUrl: env('HAIKODEV_COMPTA_URL', 'http://127.0.0.1:15010'),
   },
 };
+
+/**
+ * Le dossier réellement servi, décidé à chaque requête : l'application publiée
+ * si elle existe, sinon la construction du dossier de travail. Le décider une
+ * fois pour toutes au démarrage obligeait à redémarrer le démon après la
+ * première publication pour la voir.
+ */
+export function webRoot(): string {
+  if (CONFIG.webDirForce) return CONFIG.webDirForce;
+  return fs.existsSync(path.join(CONFIG.liveDir, 'index.html')) ? CONFIG.liveDir : CONFIG.buildDir;
+}
 
 export const PATHS = {
   db: path.join(CONFIG.dataDir, 'haikodev.db'),

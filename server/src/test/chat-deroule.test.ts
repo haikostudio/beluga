@@ -308,3 +308,27 @@ test('seuls les faits ajoutés depuis sont renvoyés à l\'agent', () => {
     fs.rmSync(dossier, { recursive: true, force: true });
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* Publier : le dossier servi et le travail non enregistré             */
+/* ------------------------------------------------------------------ */
+
+test("le dossier servi est l'application publiée dès qu'elle existe", () => {
+  const racine = fs.mkdtempSync(path.join(os.tmpdir(), 'haikodev-live-'));
+  const live = path.join(racine, 'live');
+  const build = path.join(racine, 'dist');
+  fs.mkdirSync(build, { recursive: true });
+  fs.writeFileSync(path.join(build, 'index.html'), '<html>construction</html>');
+
+  // Tant que rien n'est publié, on sert la construction du dossier de travail.
+  const choisir = () =>
+    fs.existsSync(path.join(live, 'index.html')) ? live : build;
+  assert.equal(choisir(), build);
+
+  // Après publication, l'application installée prend la main SANS redémarrage.
+  fs.mkdirSync(live, { recursive: true });
+  fs.writeFileSync(path.join(live, 'index.html'), '<html>publiée</html>');
+  assert.equal(choisir(), live);
+
+  fs.rmSync(racine, { recursive: true, force: true });
+});
