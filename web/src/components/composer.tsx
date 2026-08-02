@@ -12,6 +12,7 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { MicButton, RecordingBar, useRecorder } from '@/components/recorder';
+import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 
@@ -48,17 +49,20 @@ export function Composer({
   // La dictée dépose son texte à la suite de ce qui est déjà écrit.
   const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
 
-  // Brouillon conservé par conversation.
-  const draftKey = agent ? `haikodev.draft.${agent.id}` : null;
+  // Brouillon conservé par conversation, côté serveur : on le retrouve depuis
+  // n'importe quel écran.
+  const [draft, setDraft] = usePref<string>(agent ? `draft.${agent.id}` : 'draft.aucun', '');
   React.useEffect(() => {
-    if (!draftKey) return;
-    setText(localStorage.getItem(draftKey) ?? '');
-  }, [draftKey]);
+    setText(draft);
+    // Volontairement à l'ouverture de la conversation seulement.
+  }, [agent?.id]);
   React.useEffect(() => {
-    if (!draftKey) return;
-    if (text) localStorage.setItem(draftKey, text);
-    else localStorage.removeItem(draftKey);
-  }, [draftKey, text]);
+    if (!agent) return;
+    const timer = window.setTimeout(() => {
+      if (text !== draft) setDraft(text);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [text, agent?.id]);
 
   React.useEffect(() => {
     const node = textareaRef.current;

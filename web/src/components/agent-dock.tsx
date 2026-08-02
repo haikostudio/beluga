@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { AlertCircle, Bot, Check, ChevronUp, GripVertical, Info, TriangleAlert, X } from 'lucide-react';
 import { Badge, Button, Dot } from '@/components/ui';
+import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
@@ -16,13 +17,11 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
   const [, force] = React.useReducer((value: number) => value + 1, 0);
   // La pile est déplaçable si elle gêne, et sa position est mémorisée (§28).
-  const [offset, setOffset] = React.useState<{ x: number; y: number }>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('haikodev.dock') ?? '') ?? { x: 0, y: 0 };
-    } catch {
-      return { x: 0, y: 0 };
-    }
-  });
+  const [stored, storeOffset] = usePref<{ x: number; y: number }>('dock', { x: 0, y: 0 });
+  const [live, setLive] = React.useState<{ x: number; y: number } | null>(null);
+  const offset = live ?? stored;
+  const setOffset = (value: { x: number; y: number } | ((c: { x: number; y: number }) => { x: number; y: number })) =>
+    setLive((current) => (typeof value === 'function' ? value(current ?? offset) : value));
   const dragRef = React.useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   // « Tout effacer » reste annulable quelques secondes.
   const [undo, setUndo] = React.useState<Set<string> | null>(null);
@@ -44,8 +43,8 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
     const up = () => {
       if (!dragRef.current) return;
       dragRef.current = null;
-      setOffset((current) => {
-        localStorage.setItem('haikodev.dock', JSON.stringify(current));
+      setLive((current) => {
+        if (current) storeOffset(current);
         return current;
       });
     };

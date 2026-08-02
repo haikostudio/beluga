@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Activity, RefreshCw, Volume2, Settings2, Sun, Moon, Wifi, WifiOff } from 'lucide-react';
 import { Button, Tooltip } from '@/components/ui';
 import { QuotaBadge } from '@/components/quota-badge';
+import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -14,17 +15,18 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     Object.values(state.agents).find((agent) => agent.status === 'running')?.run.engine ??
     state.projects.find((p) => p.id === state.activeProjectId)?.defaultEngine ??
     'claude';
-  const [theme, setTheme] = React.useState<'dark' | 'light'>(
-    () => (localStorage.getItem('haikodev.theme') === 'light' ? 'light' : 'dark'),
-  );
+  const [theme, setTheme] = usePref<'dark' | 'light'>('theme', 'dark');
   const [speaking, setSpeaking] = React.useState(false);
 
   const applyTheme = (next: 'dark' | 'light') => {
     setTheme(next);
-    localStorage.setItem('haikodev.theme', next);
-    document.documentElement.classList.toggle('dark', next === 'dark');
-    document.documentElement.style.colorScheme = next;
   };
+
+  // Le thème choisi s'applique dès qu'il est connu, y compris au chargement.
+  React.useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme !== 'light');
+    document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
+  }, [theme]);
 
   const listen = async () => {
     setSpeaking(true);

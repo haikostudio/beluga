@@ -347,3 +347,114 @@ export function EmptyState({ icon, title, hint }: { icon?: React.ReactNode; titl
     </div>
   );
 }
+
+/* ----------------------- Demande et confirmation ------------------ */
+
+/**
+ * Remplace les fenêtres du navigateur : même vocabulaire visuel partout,
+ * jamais d'alerte native (elle casse le thème et bloque la page).
+ */
+export function PromptDialog({
+  open,
+  title,
+  description,
+  placeholder,
+  defaultValue = '',
+  confirmLabel = 'Valider',
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  placeholder?: string;
+  defaultValue?: string;
+  confirmLabel?: string;
+  onConfirm: (value: string) => void;
+  onClose: () => void;
+}) {
+  const [value, setValue] = React.useState(defaultValue);
+  React.useEffect(() => {
+    if (open) setValue(defaultValue);
+  }, [open, defaultValue]);
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="w-[min(420px,calc(100vw-16px))]">
+        <DialogTitle>{title}</DialogTitle>
+        {description ? <DialogDescription>{description}</DialogDescription> : null}
+        <Input
+          autoFocus
+          value={value}
+          placeholder={placeholder}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && value.trim()) {
+              onConfirm(value.trim());
+              onClose();
+            }
+          }}
+          className="mt-3"
+        />
+        <div className="mt-4 flex justify-end gap-1.5">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            disabled={!value.trim()}
+            onClick={() => {
+              onConfirm(value.trim());
+              onClose();
+            }}
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel = 'Confirmer',
+  danger,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  description?: React.ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="w-[min(440px,calc(100vw-16px))]">
+        <DialogTitle>{title}</DialogTitle>
+        {description ? <DialogDescription>{description}</DialogDescription> : null}
+        <div className="mt-4 flex justify-end gap-1.5">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button
+            variant={danger ? 'danger' : 'default'}
+            size="sm"
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

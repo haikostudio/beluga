@@ -50,6 +50,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('project.open'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
+  /** Crée l'adresse publique d'un projet (nom + reverse-proxy) en une fois. */
+  z.object({ type: z.literal('project.publishDomain'), id: z.string(), subdomain: z.string(), port: z.number() }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
   /** Ranger un projet dans un groupe (ou l'en sortir avec un groupe vide). */
@@ -59,6 +61,15 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('group.update'), id: z.string(), name: z.string().optional(), collapsed: z.boolean().optional() }),
   z.object({ type: z.literal('group.delete'), id: z.string() }),
   z.object({ type: z.literal('group.reorder'), ids: z.array(z.string()) }),
+  /**
+   * Range la colonne de gauche d'un bloc : projets hors groupe et groupes
+   * partagent le même classement, un projet peut donc passer au-dessus d'un
+   * groupe et inversement.
+   */
+  z.object({
+    type: z.literal('sidebar.reorder'),
+    items: z.array(z.object({ kind: z.enum(['project', 'group']), id: z.string(), groupId: z.string().optional() })),
+  }),
   /** Crée un dossier neuf sur le serveur, puis l'inscrit. */
   z.object({
     type: z.literal('project.new'),
@@ -164,6 +175,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
 
   // Système
   z.object({ type: z.literal('settings.get') }),
+  /** Réglages d'affichage (largeurs, thème, replis) : conservés en base. */
+  z.object({ type: z.literal('prefs.set'), key: z.string(), value: z.any() }),
   z.object({ type: z.literal('settings.update'), patch: z.record(z.any()) }),
   z.object({ type: z.literal('capacity.processes') }),
   z.object({ type: z.literal('capacity.history') }),
@@ -195,6 +208,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
     protocol: z.number(),
     version: z.string(),
     settings: Settings,
+    prefs: z.record(z.any()).default({}),
     projects: z.array(Project),
     groups: z.array(ProjectGroup).default([]),
     engines: z.array(EngineInfo),
@@ -234,6 +248,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('capacity'), capacity: CapacitySnapshot }),
   z.object({ type: z.literal('processes'), processes: z.array(SystemProcess) }),
   z.object({ type: z.literal('settings'), settings: Settings }),
+  z.object({ type: z.literal('prefs'), prefs: z.record(z.any()) }),
   z.object({ type: z.literal('attachments'), projectId: z.string(), items: z.array(Attachment) }),
   z.object({ type: z.literal('files'), projectId: z.string(), path: z.string(), nodes: z.array(FileNode) }),
   z.object({

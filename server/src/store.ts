@@ -104,6 +104,41 @@ export function deleteProject(id: string): void {
 }
 
 /* ------------------------------------------------------------------ */
+/* Préférences                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Tous les réglages d'affichage vivent EN BASE, pas dans le navigateur : on
+ * retrouve exactement la même mise en page sur l'ordinateur et sur le
+ * téléphone, et rien ne se perd en vidant un cache.
+ */
+export function readPreferences(): Record<string, unknown> {
+  const rows = getDb().prepare('SELECT key, value FROM preferences').all() as { key: string; value: string }[];
+  const out: Record<string, unknown> = {};
+  for (const row of rows) {
+    try {
+      out[row.key] = JSON.parse(row.value);
+    } catch {
+      out[row.key] = row.value;
+    }
+  }
+  return out;
+}
+
+export function writePreference(key: string, value: unknown): void {
+  if (value === undefined || value === null) {
+    getDb().prepare('DELETE FROM preferences WHERE key = ?').run(key);
+    return;
+  }
+  getDb()
+    .prepare(
+      `INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+    .run(key, JSON.stringify(value), now());
+}
+
+/* ------------------------------------------------------------------ */
 /* Groupes de projets                                                  */
 /* ------------------------------------------------------------------ */
 

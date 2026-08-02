@@ -1,8 +1,10 @@
 import * as React from 'react';
 import { Activity, Database, Loader2, Play, Power, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import { SystemProcess } from '@haikodev/shared';
 import {
   Badge,
   Button,
+  ConfirmDialog,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -22,6 +24,21 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
   const [history, setHistory] = React.useState<{ at: number; loadPct: number; running: number }[]>([]);
   const [backups, setBackups] = React.useState<{ name: string; size: number; at: number }[]>([]);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [aConfirmer, setAConfirmer] = React.useState<SystemProcess | null>(null);
+
+  const appliquer = async (cible: SystemProcess) => {
+    setBusy(cible.id);
+    try {
+      const result = await client.call<{ ok: boolean; error?: string }>({
+        type: cible.running ? 'process.stop' : 'process.start',
+        id: cible.id,
+      });
+      if (!result.ok) client.pushToast('error', result.error ?? 'opération refusée');
+      else client.send({ type: 'capacity.processes' });
+    } finally {
+      setBusy(null);
+    }
+  };
 
   React.useEffect(() => {
     if (!open) return;
@@ -96,21 +113,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={async () => {
-                        if (!confirm(`Confirmer : ${process.running ? 'éteindre' : 'rallumer'} « ${process.label} » ?`))
-                          return;
-                        setBusy(process.id);
-                        try {
-                          const result = await client.call<{ ok: boolean; error?: string }>({
-                            type: process.running ? 'process.stop' : 'process.start',
-                            id: process.id,
-                          });
-                          if (!result.ok) client.pushToast('error', result.error ?? 'opération refusée');
-                          else client.send({ type: 'capacity.processes' });
-                        } finally {
-                          setBusy(null);
-                        }
-                      }}
+                      onClick={() => setAConfirmer(process)}
                       disabled={busy === process.id}
                     >
                       {busy === process.id ? (

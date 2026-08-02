@@ -15,15 +15,17 @@ import {
   Settings2,
   X,
 } from 'lucide-react';
-import { Project } from '@haikodev/shared';
+import { Project, ProjectGroup } from '@haikodev/shared';
 import {
   Button,
+  ConfirmDialog,
   Dialog,
   DialogContent,
   DialogTitle,
   Dot,
   Input,
   Label,
+  PromptDialog,
   Switch,
   Tabs,
   TabsContent,
@@ -33,38 +35,53 @@ import {
 } from '@/components/ui';
 import { ProjectSettings } from '@/components/project-settings';
 import { client } from '@/lib/client';
+import { usePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
 
-export function Sidebar({
-  onOpenAgent,
-  width,
-}: {
-  onOpenAgent: (agentId: string) => void;
-  width?: number;
-}) {
+/** Un élément de la colonne : un projet hors groupe, ou un groupe entier. */
+type Entry =
+  | { kind: 'project'; id: string; rank: number; project: Project }
+  | { kind: 'group'; id: string; rank: number; group: ProjectGroup; members: Project[] };
+
+export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string) => void; width?: number }) {
   const state = useApp();
   const [adding, setAdding] = React.useState(false);
   const [settingsFor, setSettingsFor] = React.useState<string | null>(null);
-
-  // Glisser-déposer : l'ordre s'affiche tout de suite, puis se confirme.
-  const [order, setOrder] = React.useState<string[] | null>(null);
-  const [dragged, setDragged] = React.useState<string | null>(null);
-
   const [showArchived, setShowArchived] = React.useState(false);
-  const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
   const [archived, setArchived] = React.useState<Project[]>([]);
 
-  const projects = React.useMemo(() => {
-    const actifs = state.projects.filter((p) => !p.archived);
-    if (!order) return actifs;
-    const byId = new Map(actifs.map((p) => [p.id, p]));
-    const sorted = order.map((id) => byId.get(id)).filter(Boolean) as Project[];
-    for (const project of actifs) if (!order.includes(project.id)) sorted.push(project);
-    return sorted;
-  }, [state.projects, order]);
+  // Ce qui est replié est enregistré côté serveur, comme le reste.
+  const [collapsed, setCollapsed] = usePref<string[]>('sidebar.collapsed', []);
+  const [creatingGroup, setCreatingGroup] = React.useState(false);
+  const [renaming, setRenaming] = React.useState<ProjectGroup | null>(null);
+  const [deleting, setDeleting] = React.useState<ProjectGroup | null>(null);
 
-  // Les projets mis de côté restent consultables, repliés en bas.
+  const [dragged, setDragged] = React.useState<{ id: string; kind: 'project' | 'group' } | null>(null);
+  const [overId, setOverId] = React.useState<string | null>(null);
+
+  const actifs = state.projects.filter((p) => !p.archived);
+  const groups = state.groups;
+
+  /** Projets hors groupe et groupes rangés ENSEMBLE, par rang. */
+  const entries: Entry[] = React.useMemo(() => {
+    const list: Entry[] = [];
+    for (const project of actifs) {
+      if (project.groupId && groups.some((g) => g.id === project.groupId)) continue;
+      list.push({ kind: 'project', id: project.id, rank: project.rank ?? 1000, project });
+    }
+    for (const group of groups) {
+      list.push({
+        kind: 'group',
+        id: group.id,
+        rank: group.rank ?? 1000,
+        group,
+        members: actifs.filter((p) => p.groupId === group.id).sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000)),
+      });
+    }
+    return list.sort((a, b) => a.rank - b.rank);
+  }, [actifs, groups]);
+
   React.useEffect(() => {
     if (!showArchived) return;
     client
@@ -73,42 +90,103 @@ export function Sidebar({
       .catch(() => setArchived([]));
   }, [showArchived, state.projects]);
 
-  const activeAgents = Object.values(state.agents).filter(
+  const commit = async (ordre: { kind: 'project' | 'group'; id: string; groupId?: string }[]) => {
+    try {
+      await client.call({ type: 'sidebar.reorder', items: ordre });
+    } catch {
+      client.pushToast('error', 'Rangement non enregistré');
+    }
+  };
+
+  /** L'ordre visible mis à plat, membres des groupes compris. */
+  const flatten = (): { kind: 'project' | 'group'; id: string; groupId?: string }[] => {
+    const out: { kind: 'project' | 'group'; id: string; groupId?: string }[] = [];
+    for (const entry of entries) {
+      if (entry.kind === 'project') {
+        out.push({ kind: 'project', id: entry.id });
+      } else {
+        out.push({ kind: 'group', id: entry.id });
+        for (const member of entry.members) out.push({ kind: 'project', id: member.id, groupId: entry.id });
+      }
+    }
+    return out;
+  };
+
+  /** Déposer sur un projet : on prend sa place ET son groupe. */
+  const dropOnProject = async (cible: Project) => {
+    if (!dragged || dragged.id === cible.id) return;
+    const ordre = flatten();
+    const from = ordre.findIndex((e) => e.kind === dragged.kind && e.id === dragged.id);
+    const to = ordre.findIndex((e) => e.kind === 'project' && e.id === cible.id);
+    setDragged(null);
+    setOverId(null);
+    if (from < 0 || to < 0) return;
+
+    const [element] = ordre.splice(from, 1);
+    if (element.kind === 'project') element.groupId = cible.groupId;
+    ordre.splice(to, 0, element);
+    await commit(ordre);
+  };
+
+  /** Déposer sur l'en-tête d'un groupe : le projet y entre, en tête. */
+  const dropOnGroup = async (group: ProjectGroup) => {
+    if (!dragged || dragged.id === group.id) return;
+    const ordre = flatten();
+    const from = ordre.findIndex((e) => e.kind === dragged.kind && e.id === dragged.id);
+    setDragged(null);
+    setOverId(null);
+    if (from < 0) return;
+
+    const [element] = ordre.splice(from, 1);
+    if (element.kind === 'project') {
+      element.groupId = group.id;
+      const cible = ordre.findIndex((e) => e.kind === 'group' && e.id === group.id);
+      ordre.splice(cible + 1, 0, element);
+      // Un groupe qui reçoit un projet se déplie, sinon on ne le voit pas arriver.
+      if (collapsed.includes(group.id)) setCollapsed(collapsed.filter((id) => id !== group.id));
+    } else {
+      const cible = ordre.findIndex((e) => e.kind === 'group' && e.id === group.id);
+      ordre.splice(Math.max(0, cible), 0, element);
+    }
+    await commit(ordre);
+  };
+
+  /** Déposer dans le vide : le projet sort de son groupe et passe à la fin. */
+  const dropOutside = async () => {
+    if (!dragged || dragged.kind !== 'project') return;
+    const ordre = flatten();
+    const from = ordre.findIndex((e) => e.kind === 'project' && e.id === dragged.id);
+    setDragged(null);
+    setOverId(null);
+    if (from < 0) return;
+    const [element] = ordre.splice(from, 1);
+    element.groupId = undefined;
+    ordre.push(element);
+    await commit(ordre);
+  };
+
+  const toggle = (id: string) =>
+    setCollapsed(collapsed.includes(id) ? collapsed.filter((g) => g !== id) : [...collapsed, id]);
+
+  const runningOf = (projectId: string) =>
+    Object.values(state.agents).filter((a) => a.projectId === projectId && a.status === 'running').length;
+
+  const rowProps = (id: string, kind: 'project' | 'group') => ({
+    draggable: true,
+    onDragStart: () => setDragged({ id, kind }),
+    onDragEnd: () => {
+      setDragged(null);
+      setOverId(null);
+    },
+    onDragOver: (event: React.DragEvent) => {
+      event.preventDefault();
+      setOverId(id);
+    },
+  });
+
+  const agentsEnCours = Object.values(state.agents).filter(
     (agent) => agent.projectId === state.activeProjectId && agent.status === 'running',
   );
-
-  const dropOn = async (targetId: string) => {
-    if (!dragged || dragged === targetId) return;
-    const ids = projects.map((p) => p.id);
-    const from = ids.indexOf(dragged);
-    const to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    ids.splice(to, 0, ...ids.splice(from, 1));
-    setOrder(ids);
-    setDragged(null);
-    try {
-      await client.call({ type: 'project.reorder', ids });
-    } catch {
-      setOrder(null);
-      client.pushToast('error', 'Ordre non enregistré');
-    }
-  };
-
-  /** Déposer un projet sur un groupe l'y range ; sur « hors groupe », l'en sort. */
-  const dropInGroup = async (groupId: string | undefined) => {
-    if (!dragged) return;
-    const projet = state.projects.find((p) => p.id === dragged);
-    setDragged(null);
-    if (!projet || projet.groupId === groupId) return;
-    try {
-      await client.call({ type: 'project.group', id: dragged, groupId });
-    } catch {
-      client.pushToast('error', 'Rangement impossible');
-    }
-  };
-
-  const groupes = [...state.groups].sort((a, b) => a.rank - b.rank);
-  const sansGroupe = projects.filter((p) => !p.groupId || !groupes.some((g) => g.id === p.groupId));
 
   return (
     <aside
@@ -117,76 +195,79 @@ export function Sidebar({
     >
       <div className="flex items-center gap-1 px-2 py-2">
         <span className="text-[12px] uppercase tracking-wide text-faint">Projets</span>
+        <Tooltip label="Nouveau groupe">
+          <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setCreatingGroup(true)}>
+            <FolderPlus className="h-3 w-3" />
+          </Button>
+        </Tooltip>
         <Tooltip label="Ajouter ou créer un projet">
-          <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setAdding(true)}>
+          <Button variant="ghost" size="icon-sm" onClick={() => setAdding(true)}>
             <Plus className="h-3 w-3" />
           </Button>
         </Tooltip>
       </div>
 
       <div
-        className="flex-1 overflow-y-auto px-1.5"
+        className="flex-1 overflow-y-auto px-1.5 pb-2"
         onDragOver={(event) => event.preventDefault()}
-        onDrop={() => dropInGroup(undefined)}
+        onDrop={(event) => {
+          event.preventDefault();
+          void dropOutside();
+        }}
       >
-        {sansGroupe.map((project) => (
-          <ProjectRow
-            key={project.id}
-            project={project}
-            active={project.id === state.activeProjectId}
-            running={runningOf(state, project.id)}
-            dragged={dragged}
-            onDragStart={() => setDragged(project.id)}
-            onDragEnd={() => setDragged(null)}
-            onDrop={() => dropOn(project.id)}
-            onSettings={() => setSettingsFor(project.id)}
-          />
-        ))}
-
-        {groupes.map((group) => {
-          const membres = projects.filter((p) => p.groupId === group.id);
-          const replie = collapsed.has(group.id);
-          return (
+        {entries.map((entry) =>
+          entry.kind === 'project' ? (
+            <ProjectRow
+              key={entry.id}
+              project={entry.project}
+              active={entry.id === state.activeProjectId}
+              running={runningOf(entry.id)}
+              dimmed={dragged?.id === entry.id}
+              over={overId === entry.id}
+              rowProps={rowProps(entry.id, 'project')}
+              onDrop={() => dropOnProject(entry.project)}
+              onSettings={() => setSettingsFor(entry.id)}
+            />
+          ) : (
             <div
-              key={group.id}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.stopPropagation();
-                void dropInGroup(group.id);
-              }}
-              className={cn('mt-2 rounded-md', dragged && 'ring-1 ring-border')}
+              key={entry.id}
+              className={cn('mb-0.5 rounded-md', overId === entry.id && 'bg-surface ring-1 ring-border')}
             >
-              <div className="group/g flex items-center gap-1 px-1.5 py-1">
+              <div
+                {...rowProps(entry.id, 'group')}
+                onDrop={(event: React.DragEvent) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void dropOnGroup(entry.group);
+                }}
+                className={cn(
+                  'group/g flex items-center gap-1 rounded-md px-1.5 py-1.5',
+                  dragged?.id === entry.id && 'opacity-40',
+                )}
+              >
+                <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-0 group-hover/g:opacity-100 active:cursor-grabbing" />
                 <button
-                  onClick={() =>
-                    setCollapsed((current) => {
-                      const next = new Set(current);
-                      next.has(group.id) ? next.delete(group.id) : next.add(group.id);
-                      return next;
-                    })
-                  }
-                  className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12px] uppercase tracking-wide text-faint hover:text-muted"
+                  onClick={() => toggle(entry.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-muted hover:text-text"
                 >
-                  <ChevronRight className={cn('h-2.5 w-2.5 shrink-0 transition-transform', !replie && 'rotate-90')} />
-                  <span className="min-w-0 truncate">{group.name}</span>
-                  <span className="shrink-0 text-faint">{membres.length}</span>
+                  <ChevronRight
+                    className={cn(
+                      'h-2.5 w-2.5 shrink-0 transition-transform',
+                      !collapsed.includes(entry.id) && 'rotate-90',
+                    )}
+                  />
+                  <span className="min-w-0 truncate">{entry.group.name}</span>
+                  <span className="shrink-0 text-faint">{entry.members.length}</span>
                 </button>
                 <button
-                  onClick={() => {
-                    const nom = prompt('Nom du groupe', group.name);
-                    if (nom?.trim()) client.call({ type: 'group.update', id: group.id, name: nom.trim() });
-                  }}
+                  onClick={() => setRenaming(entry.group)}
                   className="shrink-0 text-faint opacity-0 hover:text-text group-hover/g:opacity-100"
-                  title="Renommer"
+                  title="Renommer le groupe"
                 >
                   <Pencil className="h-2.5 w-2.5" />
                 </button>
                 <button
-                  onClick={() => {
-                    if (confirm(`Supprimer le groupe « ${group.name} » ? Les projets reviennent hors groupe.`)) {
-                      client.call({ type: 'group.delete', id: group.id });
-                    }
-                  }}
+                  onClick={() => setDeleting(entry.group)}
                   className="shrink-0 text-faint opacity-0 hover:text-danger group-hover/g:opacity-100"
                   title="Supprimer le groupe"
                 >
@@ -194,46 +275,35 @@ export function Sidebar({
                 </button>
               </div>
 
-              {!replie
-                ? membres.map((project) => (
+              {!collapsed.includes(entry.id) ? (
+                entry.members.length ? (
+                  entry.members.map((project) => (
                     <ProjectRow
                       key={project.id}
                       project={project}
                       active={project.id === state.activeProjectId}
-                      running={runningOf(state, project.id)}
-                      dragged={dragged}
+                      running={runningOf(project.id)}
+                      dimmed={dragged?.id === project.id}
+                      over={overId === project.id}
                       indent
-                      onDragStart={() => setDragged(project.id)}
-                      onDragEnd={() => setDragged(null)}
-                      onDrop={() => dropOn(project.id)}
+                      rowProps={rowProps(project.id, 'project')}
+                      onDrop={() => dropOnProject(project)}
                       onSettings={() => setSettingsFor(project.id)}
                     />
                   ))
-                : null}
-
-              {!replie && !membres.length ? (
-                <p className="px-4 pb-1.5 text-[12px] text-faint">Glissez un projet ici.</p>
+                ) : (
+                  <p className="px-5 pb-1.5 text-[12px] text-faint">Glissez un projet ici.</p>
+                )
               ) : null}
             </div>
-          );
-        })}
+          ),
+        )}
 
-        <button
-          onClick={async () => {
-            const nom = prompt('Nom du nouveau groupe (par exemple : Clients)');
-            if (nom?.trim()) await client.call({ type: 'group.create', name: nom.trim() });
-          }}
-          className="mt-2 flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-[12px] text-faint hover:text-muted"
-        >
-          <FolderPlus className="h-2.5 w-2.5" />
-          Nouveau groupe
-        </button>
-
-        {!projects.length ? <p className="px-2 py-3 text-[13px] text-faint">Aucun projet inscrit.</p> : null}
+        {!entries.length ? <p className="px-2 py-3 text-[13px] text-faint">Aucun projet inscrit.</p> : null}
 
         <button
           onClick={() => setShowArchived((value) => !value)}
-          className="mt-1 flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-[12.5px] text-faint hover:text-muted"
+          className="mt-2 flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-[12.5px] text-faint hover:text-muted"
         >
           <Archive className="h-2.5 w-2.5" />
           Mis de côté
@@ -264,10 +334,10 @@ export function Sidebar({
         ) : null}
       </div>
 
-      {activeAgents.length ? (
+      {agentsEnCours.length ? (
         <div className="border-t border-border px-1.5 py-2">
           <p className="px-1 pb-1 text-[12px] uppercase tracking-wide text-faint">Agents en cours</p>
-          {activeAgents.map((agent) => (
+          {agentsEnCours.map((agent) => (
             <button
               key={agent.id}
               onClick={() => onOpenAgent(agent.id)}
@@ -287,50 +357,75 @@ export function Sidebar({
         open={!!settingsFor}
         onClose={() => setSettingsFor(null)}
       />
+
+      <PromptDialog
+        open={creatingGroup}
+        title="Nouveau groupe"
+        description="Un rangement pour vous y retrouver : « Clients », « Mes projets », « Capitaux »…"
+        placeholder="Nom du groupe"
+        confirmLabel="Créer"
+        onConfirm={(nom) => client.call({ type: 'group.create', name: nom })}
+        onClose={() => setCreatingGroup(false)}
+      />
+
+      <PromptDialog
+        open={!!renaming}
+        title="Renommer le groupe"
+        defaultValue={renaming?.name ?? ''}
+        placeholder="Nom du groupe"
+        confirmLabel="Renommer"
+        onConfirm={(nom) => renaming && client.call({ type: 'group.update', id: renaming.id, name: nom })}
+        onClose={() => setRenaming(null)}
+      />
+
+      <ConfirmDialog
+        open={!!deleting}
+        title={`Supprimer le groupe « ${deleting?.name ?? ''} » ?`}
+        description="Les projets qu'il contient ne sont pas supprimés : ils remontent simplement hors groupe."
+        confirmLabel="Supprimer le groupe"
+        danger
+        onConfirm={() => deleting && client.call({ type: 'group.delete', id: deleting.id })}
+        onClose={() => setDeleting(null)}
+      />
     </aside>
   );
-}
-
-function runningOf(state: ReturnType<typeof useApp>, projectId: string): number {
-  return Object.values(state.agents).filter((a) => a.projectId === projectId && a.status === 'running').length;
 }
 
 function ProjectRow({
   project,
   active,
   running,
-  dragged,
+  dimmed,
+  over,
   indent,
-  onDragStart,
-  onDragEnd,
+  rowProps,
   onDrop,
   onSettings,
 }: {
   project: Project;
   active: boolean;
   running: number;
-  dragged: string | null;
+  dimmed?: boolean;
+  over?: boolean;
   indent?: boolean;
-  onDragStart: () => void;
-  onDragEnd: () => void;
+  rowProps: Record<string, unknown>;
   onDrop: () => void;
   onSettings: () => void;
 }) {
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
+      {...rowProps}
+      onDrop={(event: React.DragEvent) => {
+        event.preventDefault();
         event.stopPropagation();
         onDrop();
       }}
       className={cn(
         'group mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1.5 text-[13.5px] transition-colors',
-        indent && 'ml-2.5',
+        indent && 'ml-3',
         active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
-        dragged === project.id && 'opacity-40',
+        dimmed && 'opacity-40',
+        over && 'ring-1 ring-muted',
       )}
     >
       <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
@@ -384,18 +479,15 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
   const [newRemote, setNewRemote] = React.useState('');
   const [withGit, setWithGit] = React.useState(true);
 
-  const refresh = React.useCallback(() => {
+  React.useEffect(() => {
+    if (!open) return;
     setLoading(true);
     client
       .call<{ found: Found[] }>({ type: 'project.scan' })
       .then((data) => setFound(data.found ?? []))
       .catch(() => setFound([]))
       .finally(() => setLoading(false));
-  }, []);
-
-  React.useEffect(() => {
-    if (open) refresh();
-  }, [open, refresh]);
+  }, [open]);
 
   const addExisting = async (entry: Found) => {
     setBusy(entry.path);
@@ -441,9 +533,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
     }
   };
 
-  const visible = filter
-    ? found.filter((entry) => entry.name.toLowerCase().includes(filter.toLowerCase()))
-    : found;
+  const visible = filter ? found.filter((entry) => entry.name.toLowerCase().includes(filter.toLowerCase())) : found;
 
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
@@ -456,7 +546,6 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
             <TabsTrigger value="new">Nouveau projet</TabsTrigger>
           </TabsList>
 
-          {/* ---------- Tous les dossiers présents sur le serveur ---------- */}
           <TabsContent value="existing" className="mt-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
@@ -492,7 +581,12 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                           {entry.git ? ' · suivi par git' : ''}
                         </p>
                       </div>
-                      <Button size="sm" variant="outline" disabled={busy === entry.path} onClick={() => addExisting(entry)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy === entry.path}
+                        onClick={() => addExisting(entry)}
+                      >
                         {busy === entry.path ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
                         Suivre
                       </Button>
@@ -501,13 +595,10 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                 </div>
               </>
             ) : (
-              <p className="mt-3 text-[13.5px] text-faint">
-                Tous les projets du serveur sont déjà dans votre liste.
-              </p>
+              <p className="mt-3 text-[13.5px] text-faint">Tous les projets du serveur sont déjà dans votre liste.</p>
             )}
           </TabsContent>
 
-          {/* ---------- Créer un projet neuf ---------- */}
           <TabsContent value="new" className="mt-3 space-y-2.5">
             <div>
               <Label>Nom du projet</Label>

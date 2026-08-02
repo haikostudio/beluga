@@ -13,17 +13,11 @@
     <title>HaikoDev</title>
     <script>
       // Le thème se décide AVANT le premier affichage : sinon l'application
-      // clignote en blanc à chaque chargement (PLAN §30).
-      (function () {
-        try {
-          var stored = localStorage.getItem('haikodev.theme');
-          var theme = stored === 'light' ? 'light' : 'dark';
-          document.documentElement.classList.toggle('dark', theme === 'dark');
-          document.documentElement.style.colorScheme = theme;
-        } catch (e) {
-          document.documentElement.classList.add('dark');
-        }
-      })();
+      // clignote en blanc à chaque chargement (PLAN §30). Le sombre est le
+      // défaut ; le choix enregistré côté serveur s'applique dès l'ouverture
+      // de la connexion, sans rien conserver dans le navigateur.
+      document.documentElement.classList.add('dark');
+      document.documentElement.style.colorScheme = 'dark';
     </script>
   </head>
   <body>

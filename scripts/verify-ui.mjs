@@ -6,7 +6,7 @@
 import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
 import fs from 'node:fs';
 
-const BASE = process.env.HAIKODEV_URL || 'https://haikodev.203.0.113.10.sslip.io';
+const BASE = process.env.HAIKODEV_URL || 'https://haikodev.haikostudio.cloud';
 const USER = process.env.HAIKODEV_USER;
 const PASS = process.env.HAIKODEV_PASSWORD;
 const SHOTS = '/root/haikodev/data/verification';
@@ -209,15 +209,15 @@ async function main() {
   await page.waitForTimeout(400);
 
   /* ---------- 12. Thème clair / sombre ---------- */
-  const themeToggled = await page.evaluate(() => {
-    const before = document.documentElement.classList.contains('dark');
+  const avantTheme = await page.evaluate(() => document.documentElement.classList.contains('dark'));
+  await page.evaluate(() => {
     const buttons = Array.from(document.querySelectorAll('button'));
     const toggle = buttons.find((b) => b.querySelector('.lucide-sun') || b.querySelector('.lucide-moon'));
     toggle?.click();
-    return { before, after: document.documentElement.classList.contains('dark') };
   });
-  await page.waitForTimeout(500);
-  record('Thème : bascule sombre / clair', themeToggled.before !== themeToggled.after);
+  await page.waitForTimeout(1500);
+  const apresTheme = await page.evaluate(() => document.documentElement.classList.contains('dark'));
+  record('Thème : bascule sombre / clair', avantTheme !== apresTheme);
   await shot(page, '07-theme-clair');
   await page.evaluate(() => {
     const buttons = Array.from(document.querySelectorAll('button'));
@@ -318,6 +318,14 @@ async function main() {
     return handles.length;
   });
   record('Panneaux : les poignées de redimensionnement sont en place', poignee >= 2, `${poignee} poignée(s)`);
+
+  // On repart d'une largeur connue : sans cela, les essais successifs finissent
+  // par atteindre la largeur maximale et le glissement n'a plus d'effet.
+  await page.evaluate(() => {
+    const handles = Array.from(document.querySelectorAll('div[title^="Glisser pour redimensionner"]'));
+    handles[0]?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  });
+  await page.waitForTimeout(1200);
 
   const largeurAvant = await page.evaluate(() => document.querySelector('aside')?.getBoundingClientRect().width ?? 0);
   const boite = await page.evaluate(() => {
@@ -505,9 +513,48 @@ async function main() {
 
   const groupes = await page.evaluate(() => {
     const aside = document.querySelector('aside');
-    return (aside?.innerText ?? '').includes('Nouveau groupe');
+    return !!Array.from(aside?.querySelectorAll('button') ?? []).find((b) => b.querySelector('.lucide-folder-plus'));
   });
   record('Projets : on peut créer des groupes de rangement', groupes);
+
+  /* ---------- 14 decies. Rien dans le navigateur, tout en base ---------- */
+  const stockage = await page.evaluate(() => ({
+    local: Object.keys(localStorage).filter((k) => k.startsWith('haikodev')),
+    session: Object.keys(sessionStorage).length,
+  }));
+  record(
+    'Réglages : rien n\'est conservé dans le navigateur',
+    stockage.local.length === 0,
+    stockage.local.join(', ') || 'aucune trace locale',
+  );
+
+  const prefs = await page.evaluate(async () => {
+    const avant = document.querySelector('aside')?.getBoundingClientRect().width ?? 0;
+    return { avant };
+  });
+  record('Réglages : la largeur vient du serveur', prefs.avant > 100, `${Math.round(prefs.avant)} px`);
+
+  /* ---------- 14 undecies. Groupes sans alerte native ---------- */
+  const groupe = await page.evaluate(() => {
+    const aside = document.querySelector('aside');
+    const bouton = Array.from(aside?.querySelectorAll('button') ?? []).find((b) =>
+      b.querySelector('.lucide-folder-plus'),
+    );
+    bouton?.click();
+    return !!bouton;
+  });
+  await page.waitForTimeout(900);
+  const dialogueGroupe = await page.evaluate(() => ({
+    titre: document.body.innerText.includes('Nouveau groupe'),
+    champ: !!document.querySelector('input[placeholder="Nom du groupe"]'),
+  }));
+  record(
+    'Groupes : la création passe par une fenêtre maison, pas une alerte du navigateur',
+    groupe && dialogueGroupe.titre && dialogueGroupe.champ,
+  );
+  await shot(page, '16-groupe');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
 
   /* ---------- 15. Mobile ---------- */
   const mobile = await context.newPage();

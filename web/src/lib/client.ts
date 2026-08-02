@@ -30,6 +30,7 @@ export interface AppState {
   connecting: boolean;
   version: string;
   settings: Settings | null;
+  prefs: Record<string, unknown>;
   projects: Project[];
   groups: ProjectGroup[];
   engines: EngineInfo[];
@@ -53,6 +54,7 @@ const initialState: AppState = {
   connecting: true,
   version: '',
   settings: null,
+  prefs: {},
   projects: [],
   groups: [],
   engines: [],
@@ -145,6 +147,7 @@ class Client {
         this.set({
           version: event.version,
           settings: event.settings,
+          prefs: event.prefs ?? {},
           projects: event.projects,
           groups: event.groups ?? [],
           engines: event.engines,
@@ -171,8 +174,9 @@ class Client {
 
       case 'project.upsert':
         this.set((state) => ({
-          projects: [...state.projects.filter((p) => p.id !== event.project.id), event.project].sort((a, b) =>
-            a.name.localeCompare(b.name),
+          // Le rang choisi à la main prime ; à rang égal seulement, par nom.
+          projects: [...state.projects.filter((p) => p.id !== event.project.id), event.project].sort(
+            (a, b) => (a.rank ?? 1000) - (b.rank ?? 1000) || a.name.localeCompare(b.name),
           ),
         }));
         break;
@@ -261,6 +265,10 @@ class Client {
         this.set({ settings: event.settings });
         break;
 
+      case 'prefs':
+        this.set({ prefs: event.prefs });
+        break;
+
       case 'attachments':
         this.set((state) => ({ attachments: { ...state.attachments, [event.projectId]: event.items } }));
         break;
@@ -286,6 +294,11 @@ class Client {
       default:
         break;
     }
+  }
+
+  /** Applique un réglage tout de suite, avant même la confirmation du serveur. */
+  setPrefLocally(key: string, value: unknown): void {
+    this.set((state) => ({ prefs: { ...state.prefs, [key]: value } }));
   }
 
   pushToast(level: Toast['level'], text: string, cardId?: string): void {

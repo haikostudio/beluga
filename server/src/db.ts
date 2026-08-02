@@ -169,6 +169,17 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 4,
+    name: 'preferences-utilisateur',
+    sql: `
+      CREATE TABLE preferences (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export function openDb(): DB {

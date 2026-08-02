@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { usePref } from '@/lib/prefs';
 import { cn } from '@/lib/utils';
 
 /**
@@ -6,13 +7,12 @@ import { cn } from '@/lib/utils';
  * mémorisée : on retrouve sa mise en page en rouvrant l'application.
  */
 export function useResizable(key: string, defaults: { initial: number; min: number; max: number }) {
-  const storageKey = `haikodev.width.${key}`;
-
-  const [width, setWidth] = React.useState<number>(() => {
-    const stored = Number(localStorage.getItem(storageKey));
-    if (!Number.isFinite(stored) || stored <= 0) return defaults.initial;
-    return Math.min(defaults.max, Math.max(defaults.min, stored));
-  });
+  // La largeur est enregistrée EN BASE : même mise en page sur tous les écrans.
+  const [stored, store] = usePref<number>(`width.${key}`, defaults.initial);
+  const width = Math.min(defaults.max, Math.max(defaults.min, stored || defaults.initial));
+  const [live, setLive] = React.useState<number | null>(null);
+  const setWidth = (value: number | ((c: number) => number)) =>
+    setLive((current) => (typeof value === 'function' ? value(current ?? width) : value));
 
   const dragging = React.useRef<{ startX: number; startWidth: number; side: 'left' | 'right' } | null>(null);
 
@@ -30,8 +30,8 @@ export function useResizable(key: string, defaults: { initial: number; min: numb
       dragging.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      setWidth((current) => {
-        localStorage.setItem(storageKey, String(current));
+      setLive((current) => {
+        if (current !== null) store(current);
         return current;
       });
     };
@@ -41,20 +41,20 @@ export function useResizable(key: string, defaults: { initial: number; min: numb
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
     };
-  }, [defaults.max, defaults.min, storageKey]);
+  }, [defaults.max, defaults.min, store]);
 
   const start = (event: React.PointerEvent, side: 'left' | 'right') => {
-    dragging.current = { startX: event.clientX, startWidth: width, side };
+    dragging.current = { startX: event.clientX, startWidth: live ?? width, side };
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
 
   const reset = () => {
-    setWidth(defaults.initial);
-    localStorage.setItem(storageKey, String(defaults.initial));
+    setLive(defaults.initial);
+    store(defaults.initial);
   };
 
-  return { width, start, reset };
+  return { width: live ?? width, start, reset };
 }
 
 export function ResizeHandle({

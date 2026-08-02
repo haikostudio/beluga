@@ -28,6 +28,7 @@ import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
 import { scanProjects, registerProject, reorderProjects, createProjectFolder } from './projects.js';
+import { publishSubdomain } from './dns.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
@@ -63,6 +64,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         protocol: PROTOCOL_VERSION,
         version: CONFIG.version,
         settings: store.getSettings(),
+        prefs: store.readPreferences(),
         projects: store.listProjects(),
         groups: store.listGroups(),
         engines: await listEngines(),
@@ -164,6 +166,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'project.scan':
       return { found: await scanProjects() };
 
+    case 'project.publishDomain': {
+      const project = store.getProject(cmd.id);
+      if (!project) throw new Error('projet introuvable');
+      const result = await publishSubdomain(cmd.subdomain, cmd.port);
+      if (!result.ok) throw new Error(result.error ?? 'publication du nom impossible');
+      const updated = store.saveProject({ ...project, deployUrl: result.url });
+      bus.emit({ type: 'project.upsert', project: updated });
+      bus.toast('success', `Adresse en ligne : ${result.url}`);
+      return result;
+    }
+
     case 'project.group': {
       const project = store.getProject(cmd.id);
       if (!project) throw new Error('projet introuvable');
@@ -212,6 +225,27 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       });
       bus.emit({ type: 'groups', groups: store.listGroups() });
       return { groups: store.listGroups() };
+    }
+
+    case 'sidebar.reorder': {
+      // Un seul classement pour les deux familles : le rang dit qui passe
+      // devant, qu'il s'agisse d'un projet ou d'un groupe.
+      cmd.items.forEach((item, index) => {
+        const rank = (index + 1) * 10;
+        if (item.kind === 'group') {
+          const group = store.listGroups().find((g) => g.id === item.id);
+          if (group) store.saveGroup({ ...group, rank });
+          return;
+        }
+        const project = store.getProject(item.id);
+        if (project) {
+          store.saveProject({ ...project, rank, groupId: item.groupId || undefined });
+        }
+      });
+      const projects = store.listProjects();
+      for (const project of projects) bus.emit({ type: 'project.upsert', project });
+      bus.emit({ type: 'groups', groups: store.listGroups() });
+      return { projects, groups: store.listGroups() };
     }
 
     case 'project.reorder': {
@@ -554,6 +588,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'settings.get':
       return { settings: store.getSettings() };
+
+    case 'prefs.set': {
+      store.writePreference(cmd.key, cmd.value);
+      // Tous les écrans ouverts suivent : même mise en page partout.
+      bus.emit({ type: 'prefs', prefs: store.readPreferences() });
+      return { ok: true };
+    }
 
     case 'settings.update': {
       const settings = store.saveSettings(cmd.patch as any);
