@@ -33,7 +33,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ping') }),
 
   // Projets
-  z.object({ type: z.literal('project.list') }),
+  z.object({ type: z.literal('project.list'), includeArchived: z.boolean().optional() }),
   z.object({
     type: z.literal('project.create'),
     name: z.string(),
@@ -45,6 +45,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('project.update'), id: z.string(), patch: z.record(z.any()) }),
   z.object({ type: z.literal('project.delete'), id: z.string() }),
+  /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
+  z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('project.open'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
@@ -195,6 +197,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ack'), id: z.string(), ok: z.boolean(), data: z.any().optional(), error: z.string().optional() }),
   z.object({ type: z.literal('project.upsert'), project: Project }),
   z.object({ type: z.literal('project.delete'), id: z.string() }),
+  /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
+  z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({
     type: z.literal('project.snapshot'),
     projectId: z.string(),

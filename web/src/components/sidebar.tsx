@@ -1,6 +1,9 @@
 import * as React from 'react';
 import {
+  Archive,
+  ArchiveRestore,
   Bot,
+  ChevronRight,
   CircleDollarSign,
   Folder,
   FolderPlus,
@@ -46,13 +49,26 @@ export function Sidebar({
   const [order, setOrder] = React.useState<string[] | null>(null);
   const [dragged, setDragged] = React.useState<string | null>(null);
 
+  const [showArchived, setShowArchived] = React.useState(false);
+  const [archived, setArchived] = React.useState<Project[]>([]);
+
   const projects = React.useMemo(() => {
-    if (!order) return state.projects;
-    const byId = new Map(state.projects.map((p) => [p.id, p]));
+    const actifs = state.projects.filter((p) => !p.archived);
+    if (!order) return actifs;
+    const byId = new Map(actifs.map((p) => [p.id, p]));
     const sorted = order.map((id) => byId.get(id)).filter(Boolean) as Project[];
-    for (const project of state.projects) if (!order.includes(project.id)) sorted.push(project);
+    for (const project of actifs) if (!order.includes(project.id)) sorted.push(project);
     return sorted;
   }, [state.projects, order]);
+
+  // Les projets mis de côté restent consultables, repliés en bas.
+  React.useEffect(() => {
+    if (!showArchived) return;
+    client
+      .call<{ projects: Project[] }>({ type: 'project.list', includeArchived: true })
+      .then((data) => setArchived((data.projects ?? []).filter((p) => p.archived)))
+      .catch(() => setArchived([]));
+  }, [showArchived, state.projects]);
 
   const activeAgents = Object.values(state.agents).filter(
     (agent) => agent.projectId === state.activeProjectId && agent.status === 'running',
@@ -146,6 +162,38 @@ export function Sidebar({
         })}
 
         {!projects.length ? <p className="px-2 py-3 text-[11.5px] text-faint">Aucun projet inscrit.</p> : null}
+
+        <button
+          onClick={() => setShowArchived((value) => !value)}
+          className="mt-1 flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-[11px] text-faint hover:text-muted"
+        >
+          <Archive className="h-2.5 w-2.5" />
+          Mis de côté
+          <ChevronRight className={cn('ml-auto h-2.5 w-2.5 transition-transform', showArchived && 'rotate-90')} />
+        </button>
+
+        {showArchived ? (
+          archived.length ? (
+            archived.map((project) => (
+              <div
+                key={project.id}
+                className="group mb-0.5 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-faint hover:bg-surface"
+              >
+                <Folder className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                <button
+                  onClick={() => client.call({ type: 'project.archive', id: project.id, archived: false })}
+                  className="shrink-0 opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+                  title="Remettre en service"
+                >
+                  <ArchiveRestore className="h-3 w-3" />
+                </button>
+              </div>
+            ))
+          ) : (
+            <p className="px-2 pb-2 text-[11px] text-faint">Aucun projet mis de côté.</p>
+          )
+        ) : null}
       </div>
 
       {activeAgents.length ? (

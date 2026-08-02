@@ -1,16 +1,5 @@
 import * as React from 'react';
-import {
-  ArrowUp,
-  Check,
-  ChevronDown,
-  GripVertical,
-  Loader2,
-  Mic,
-  Paperclip,
-  Square,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { ArrowUp, Check, ChevronDown, GripVertical, Loader2, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { Agent, EngineInfo, QueuedPrompt, RunConfig, ThinkingLevel } from '@haikodev/shared';
 import {
   Button,
@@ -22,6 +11,7 @@ import {
   Textarea,
   Tooltip,
 } from '@/components/ui';
+import { MicButton, RecordingBar, useRecorder } from '@/components/recorder';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 
@@ -54,6 +44,9 @@ export function Composer({
   const [uploading, setUploading] = React.useState(false);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  // La dictée dépose son texte à la suite de ce qui est déjà écrit.
+  const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
 
   // Brouillon conservé par conversation.
   const draftKey = agent ? `haikodev.draft.${agent.id}` : null;
@@ -210,7 +203,16 @@ export function Composer({
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-border bg-raised">
+      {recorder.recording ? (
+        <RecordingBar
+          levels={recorder.levels}
+          seconds={recorder.seconds}
+          onValidate={() => recorder.finish(true)}
+          onDiscard={() => recorder.finish(false)}
+        />
+      ) : null}
+
+      <div className={cn('rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
         <Textarea
           ref={textareaRef}
           value={text}
@@ -242,8 +244,6 @@ export function Composer({
             </Button>
           </Tooltip>
 
-          <Dictation onText={(dictated) => setText((current) => (current ? `${current} ${dictated}` : dictated))} />
-
           <div className="mx-0.5 h-4 w-px bg-border" />
 
           {/* Trois réglages EN CASCADE, alimentés par le serveur */}
@@ -264,7 +264,10 @@ export function Composer({
               id: m.id,
               label: m.label,
               description: m.description,
-              note: m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : undefined,
+              appetite: m.appetite,
+              note: m.releasedAt
+                ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
+                : undefined,
             }))}
             value={currentModel?.id}
             onSelect={(id) => updateRun({ model: id })}
@@ -301,6 +304,7 @@ export function Composer({
                 </Button>
               </Tooltip>
             ) : null}
+            <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
             <Button
               variant="default"
               size="icon"
@@ -324,7 +328,7 @@ function Selector({
   title,
 }: {
   label: string;
-  items: { id: string; label: string; note?: string; description?: string }[];
+  items: { id: string; label: string; note?: string; description?: string; appetite?: 'light' | 'medium' | 'heavy' }[];
   value?: string;
   onSelect: (id: string) => void;
   title: string;
@@ -344,8 +348,9 @@ function Selector({
           <DropdownMenuItem key={item.id} onSelect={() => onSelect(item.id)} className="items-start">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
+                {item.appetite ? <Appetite level={item.appetite} /> : null}
                 <span className="truncate text-text">{item.label}</span>
-                {item.note ? <span className="shrink-0 text-[10px] text-faint">{item.note}</span> : null}
+                {item.note ? <span className="ml-auto shrink-0 text-[10px] text-faint">{item.note}</span> : null}
               </div>
               {item.description ? (
                 <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-faint">{item.description}</p>
@@ -356,6 +361,40 @@ function Selector({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * L'appétit en quota, sans chiffre : trois traits pleins = gourmand, un seul =
+ * léger. On veut savoir si un modèle va manger le quota, pas combien il coûte.
+ */
+function Appetite({ level }: { level: 'light' | 'medium' | 'heavy' }) {
+  const rempli = level === 'heavy' ? 3 : level === 'medium' ? 2 : 1;
+  const titre =
+    level === 'heavy'
+      ? 'Gourmand : consomme beaucoup de quota'
+      : level === 'medium'
+        ? 'Moyen : consommation de quota raisonnable'
+        : 'Léger : consomme peu de quota';
+  return (
+    <span className="flex shrink-0 items-end gap-[1.5px]" title={titre} aria-label={titre}>
+      {[0, 1, 2].map((index) => (
+        <span
+          key={index}
+          className={cn(
+            'w-[3px] rounded-[1px]',
+            index < rempli
+              ? level === 'heavy'
+                ? 'bg-warning'
+                : level === 'medium'
+                  ? 'bg-muted'
+                  : 'bg-success'
+              : 'bg-border',
+          )}
+          style={{ height: `${4 + index * 3}px` }}
+        />
+      ))}
+    </span>
   );
 }
 
@@ -392,121 +431,5 @@ function QueuedItem({ item, index }: { item: QueuedPrompt; index: number }) {
         <Trash2 className="h-3 w-3" />
       </button>
     </div>
-  );
-}
-
-/**
- * La dictée (PLAN §21) : un clic enregistre, valider transcrit, la corbeille
- * abandonne. Le texte est DÉPOSÉ dans le champ — rien n'est envoyé.
- */
-function Dictation({ onText }: { onText: (text: string) => void }) {
-  const [recording, setRecording] = React.useState(false);
-  const [working, setWorking] = React.useState(false);
-  const [level, setLevel] = React.useState(0);
-  const recorderRef = React.useRef<MediaRecorder | null>(null);
-  const chunksRef = React.useRef<Blob[]>([]);
-  const analyserRef = React.useRef<{ context: AudioContext; raf: number } | null>(null);
-
-  const stopMeter = () => {
-    if (analyserRef.current) {
-      cancelAnimationFrame(analyserRef.current.raf);
-      void analyserRef.current.context.close();
-      analyserRef.current = null;
-    }
-    setLevel(0);
-  };
-
-  const start = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      chunksRef.current = [];
-      recorder.ondataavailable = (event) => event.data.size && chunksRef.current.push(event.data);
-      recorder.start();
-      recorderRef.current = recorder;
-      setRecording(true);
-
-      const context = new AudioContext();
-      const source = context.createMediaStreamSource(stream);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      const loop = () => {
-        analyser.getByteTimeDomainData(data);
-        const peak = Math.max(...Array.from(data).map((v) => Math.abs(v - 128))) / 128;
-        setLevel(peak);
-        const raf = requestAnimationFrame(loop);
-        if (analyserRef.current) analyserRef.current.raf = raf;
-      };
-      analyserRef.current = { context, raf: requestAnimationFrame(loop) };
-    } catch {
-      client.pushToast('error', 'Micro indisponible dans ce navigateur');
-    }
-  };
-
-  const finish = async (keep: boolean) => {
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    const stream = recorder.stream;
-    await new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
-      recorder.stop();
-    });
-    stream.getTracks().forEach((track) => track.stop());
-    stopMeter();
-    setRecording(false);
-    recorderRef.current = null;
-
-    if (!keep) {
-      chunksRef.current = [];
-      return;
-    }
-
-    setWorking(true);
-    try {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-      const response = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'content-type': 'application/octet-stream', 'x-audio-ext': 'webm' },
-        body: blob,
-      });
-      const data = await response.json();
-      if (data.ok && data.text) onText(data.text);
-      else client.pushToast('warning', data.error ?? 'transcription vide');
-    } catch {
-      client.pushToast('error', 'transcription impossible');
-    } finally {
-      setWorking(false);
-      chunksRef.current = [];
-    }
-  };
-
-  if (recording) {
-    return (
-      <div className="flex items-center gap-1">
-        <span className="relative flex h-6 w-6 items-center justify-center">
-          <span
-            className="absolute inset-0 rounded-full bg-danger/20"
-            style={{ transform: `scale(${1 + level * 0.8})` }}
-          />
-          <Mic className="relative h-3.5 w-3.5 text-danger" />
-        </span>
-        <Button variant="ghost" size="icon" onClick={() => finish(true)}>
-          <Check className="h-3.5 w-3.5 text-success" />
-        </Button>
-        <Button variant="ghost" size="icon" onClick={() => finish(false)}>
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <Tooltip label="Dicter">
-      <Button variant="ghost" size="icon" onClick={start} disabled={working}>
-        {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
-      </Button>
-    </Tooltip>
   );
 }

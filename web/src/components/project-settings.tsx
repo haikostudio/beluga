@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, CircleDollarSign, Loader2, Rocket, Trash2 } from 'lucide-react';
+import { Archive, Check, CircleDollarSign, Loader2, Rocket, Trash2 } from 'lucide-react';
 import { Project } from '@haikodev/shared';
 import {
   Button,
@@ -44,6 +44,7 @@ export function ProjectSettings({
   const [name, setName] = React.useState('');
   const [deployCommand, setDeployCommand] = React.useState('');
   const [deployUrl, setDeployUrl] = React.useState('');
+  const [engine, setEngine] = React.useState<string>('claude');
   const [clientId, setClientId] = React.useState('');
   const [rate, setRate] = React.useState('130');
   const [documentId, setDocumentId] = React.useState('');
@@ -54,6 +55,7 @@ export function ProjectSettings({
     setName(project.name);
     setDeployCommand(project.deployCommand ?? '');
     setDeployUrl(project.deployUrl ?? '');
+    setEngine(project.defaultEngine ?? 'claude');
     setClientId(project.billing?.clientId ?? '');
     setRate(String(project.billing?.hourlyRate ?? 130));
     setDocumentId(project.billing?.defaultDocumentId ?? '');
@@ -89,6 +91,7 @@ export function ProjectSettings({
         id: project.id,
         patch: {
           name: name.trim() || project.name,
+          defaultEngine: engine,
           deployCommand: deployCommand.trim() || undefined,
           deployUrl: deployUrl.trim() || undefined,
           billing: clientId
@@ -114,8 +117,18 @@ export function ProjectSettings({
     }
   };
 
+  const archive = async () => {
+    await client.call({ type: 'project.archive', id: project.id, archived: !project.archived });
+    onClose();
+  };
+
   const remove = async () => {
-    if (!confirm(`Retirer « ${project.name} » de HaikoDev ? Le dossier sur le serveur n'est pas touché.`)) return;
+    if (
+      !confirm(
+        `Effacer « ${project.name} » de HaikoDev, avec son tableau et ses conversations ?\n\nLe dossier sur le serveur n'est pas touché. Pour simplement le mettre de côté, utilisez « Mettre de côté ».`,
+      )
+    )
+      return;
     await client.call({ type: 'project.delete', id: project.id });
     onClose();
   };
@@ -129,6 +142,26 @@ export function ProjectSettings({
           <div>
             <Label>Nom</Label>
             <Input value={name} onChange={(event) => setName(event.target.value)} className="mt-1" />
+          </div>
+
+          <div>
+            <Label>Moteur par défaut de ce projet</Label>
+            <select
+              value={engine}
+              onChange={(event) => setEngine(event.target.value)}
+              className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[13px] text-text"
+            >
+              {state.engines
+                .filter((e) => e.installed)
+                .map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.label}
+                  </option>
+                ))}
+            </select>
+            <p className="mt-1 text-[11px] text-faint">
+              Les nouvelles cartes et le chef de ce projet partiront sur ce moteur.
+            </p>
           </div>
 
           <div className="rounded-md border border-border bg-surface px-2.5 py-2 text-[11.5px] text-faint">
@@ -249,8 +282,12 @@ export function ProjectSettings({
         </div>
 
         <div className="mt-4 flex items-center gap-1.5">
+          <Button variant="ghost" size="sm" onClick={archive}>
+            <Archive className="h-3 w-3" />
+            {project.archived ? 'Remettre en service' : 'Mettre de côté'}
+          </Button>
           <Button variant="ghost" size="sm" onClick={remove} className="text-danger hover:text-danger">
-            <Trash2 className="h-3 w-3" /> Retirer le projet
+            <Trash2 className="h-3 w-3" /> Effacer
           </Button>
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={onClose}>

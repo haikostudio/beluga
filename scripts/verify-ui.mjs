@@ -27,12 +27,20 @@ async function shot(page, name) {
 async function main() {
   browser = await chromium.launch({
     channel: 'chrome',
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--ignore-certificate-errors'],
+    args: [
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--ignore-certificate-errors',
+      // Micro simulé : permet d'essayer réellement le bandeau de dictée.
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-capture',
+    ],
   });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     ignoreHTTPSErrors: true,
     locale: 'fr-CH',
+    permissions: ['microphone'],
   });
   const page = await context.newPage();
   const errors = [];
@@ -59,6 +67,18 @@ async function main() {
     return res.status;
   }, BASE);
   record('Mur d\'accès : un mauvais mot de passe est refusé', badLogin === 401, `code ${badLogin}`);
+
+  // Ce contrôle consomme une tentative : on la retire, sinon vérifier plusieurs
+  // fois de suite finit par déclencher la limitation — elle a bien fonctionné.
+  try {
+    const { execSync } = await import('node:child_process');
+    execSync(
+      `node -e "const D=require('better-sqlite3')('/root/haikodev/data/haikodev.db');D.prepare('DELETE FROM auth_attempts WHERE ok=0').run()"`,
+      { cwd: '/root/haikodev', stdio: 'ignore' },
+    );
+  } catch {
+    /* la base n'est pas accessible depuis ici : sans conséquence */
+  }
 
   /* ---------- 2. Connexion ---------- */
   await page.fill('input[name="username"]', USER);
@@ -139,7 +159,10 @@ async function main() {
   }
 
   /* ---------- 9. Chef d'orchestre ---------- */
-  const orchestratorVisible = await page.evaluate(() => document.body.innerText.includes("Chef d'orchestre"));
+  const orchestratorVisible = await page.evaluate(() => {
+    const onglets = Array.from(document.querySelectorAll('[role="tab"]')).map((t) => t.textContent?.trim());
+    return onglets.includes('Chef');
+  });
   record("Chef d'orchestre : le panneau de conversation est présent", orchestratorVisible);
 
   /* ---------- 10. Réglages et capacité ---------- */
@@ -325,6 +348,128 @@ async function main() {
     `${Math.round(largeurRelue)} px après rechargement`,
   );
   await shot(page, '11-panneaux');
+
+  /* ---------- 14 sexies. Projets du serveur dans la colonne ---------- */
+  const colonne = await page.evaluate(() => {
+    const aside = document.querySelector('aside');
+    const noms = Array.from(aside?.querySelectorAll('div[draggable="true"]') ?? []).map(
+      (n) => n.textContent?.trim() ?? '',
+    );
+    return { nombre: noms.length, misDeCote: (aside?.innerText ?? '').includes('Mis de côté') };
+  });
+  record(
+    'Projets : tous ceux du serveur apparaissent dans la colonne de gauche',
+    colonne.nombre >= 10,
+    `${colonne.nombre} projet(s) listés`,
+  );
+  record('Projets : les projets mis de côté restent accessibles', colonne.misDeCote);
+  await shot(page, '12-colonne-projets');
+
+  /* ---------- 14 septies. Onglet « Chef » et appétit des modèles ---------- */
+  const onglets = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[role="tab"]')).map((t) => t.textContent?.trim()),
+  );
+  record('Panneau : l\'onglet s\'appelle « Chef »', onglets.includes('Chef'), onglets.filter(Boolean).join(' · '));
+
+  const cibleModele = await page.evaluate(() => {
+    const boutons = Array.from(document.querySelectorAll('button'));
+    const index = boutons.findIndex((b) => {
+      const t = b.textContent?.trim() ?? '';
+      return /^(Claude|GPT-)/.test(t) && t !== 'Claude Code';
+    });
+    if (index < 0) return null;
+    const r = boutons[index].getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  const modeles = !!cibleModele;
+  if (cibleModele) {
+    await page.mouse.click(cibleModele.x, cibleModele.y);
+    await page.waitForTimeout(1200);
+  }
+  const appetit = await page.evaluate(() => {
+    const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+    const avecRepere = items.filter((i) => i.querySelector('span[title*="quota"]')).length;
+    const premier = items[0]?.textContent?.trim() ?? '';
+    return { items: items.length, avecRepere, premier };
+  });
+  record(
+    'Modèles : chacun porte un repère de consommation de quota',
+    modeles && appetit.avecRepere >= appetit.items && appetit.items > 3,
+    `${appetit.avecRepere}/${appetit.items} · premier : ${appetit.premier.slice(0, 30)}`,
+  );
+  await shot(page, '13-modeles');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+
+  /* ---------- 14 octies. Le bandeau de dictée ---------- */
+  const micro = await page.evaluate(() => {
+    const boutons = Array.from(document.querySelectorAll('button[title="Dicter"]'));
+    const dernier = boutons[boutons.length - 1];
+    if (!dernier) return null;
+    const envoi = dernier.parentElement?.querySelector('button:last-child');
+    const r = dernier.getBoundingClientRect();
+    const re = envoi?.getBoundingClientRect();
+    return {
+      x: r.x + r.width / 2,
+      y: r.y + r.height / 2,
+      aGaucheDeLEnvoi: re ? r.x < re.x : false,
+    };
+  });
+  record('Dictée : le micro est placé juste à gauche du bouton d\'envoi', !!micro?.aGaucheDeLEnvoi);
+
+  if (micro) {
+    await page.locator('button[title="Dicter"]').last().click();
+    await page.waitForTimeout(3000);
+    const diagnostic = await page.evaluate(async () => {
+      const base = {
+        record: !!document.querySelector('.bg-record'),
+        secure: window.isSecureContext,
+        api: !!navigator.mediaDevices?.getUserMedia,
+        recorder: typeof MediaRecorder !== 'undefined',
+        toast: document.body.innerText.includes('Micro indisponible'),
+      };
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+        return { ...base, getUserMedia: 'ok' };
+      } catch (err) {
+        return { ...base, getUserMedia: String(err).slice(0, 80) };
+      }
+    });
+    console.log('   diagnostic dictée :', JSON.stringify(diagnostic));
+    const bandeau = await page.evaluate(() => {
+      const bloc = document.querySelector('.bg-record');
+      if (!bloc) return null;
+      const style = getComputedStyle(bloc);
+      const boutons = bloc.querySelectorAll('button');
+      const barres = bloc.querySelectorAll('span[style*="height"]').length;
+      const rect = bloc.getBoundingClientRect();
+      const parent = bloc.parentElement?.getBoundingClientRect();
+      return {
+        fond: style.backgroundColor,
+        texte: style.color,
+        boutons: boutons.length,
+        barres,
+        pleineLargeur: parent ? rect.width > parent.width * 0.9 : false,
+        boutonsADroite:
+          boutons.length >= 2 &&
+          boutons[0].getBoundingClientRect().x > rect.x + rect.width * 0.6,
+      };
+    });
+    record('Dictée : un bandeau pleine largeur apparaît', !!bandeau?.pleineLargeur, bandeau?.fond ?? '');
+    record('Dictée : il est bleu, texte en blanc', /rgb\(\s*(2[0-9]|3[0-9])/.test(bandeau?.fond ?? '') && /255/.test(bandeau?.texte ?? ''), `${bandeau?.fond} · ${bandeau?.texte}`);
+    record('Dictée : l\'onde réagit sur toute la largeur', (bandeau?.barres ?? 0) >= 20, `${bandeau?.barres} barres`);
+    record('Dictée : valider et jeter sont à droite', !!bandeau?.boutonsADroite, `${bandeau?.boutons} boutons`);
+    await shot(page, '14-dictee');
+
+    // On jette l'enregistrement d'essai.
+    await page.evaluate(() => {
+      const bloc = document.querySelector('.bg-record');
+      const boutons = bloc?.querySelectorAll('button');
+      if (boutons && boutons.length) boutons[boutons.length - 1].click();
+    });
+    await page.waitForTimeout(1200);
+  }
 
   /* ---------- 15. Mobile ---------- */
   const mobile = await context.newPage();

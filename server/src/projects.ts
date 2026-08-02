@@ -165,6 +165,28 @@ export async function scanProjects(): Promise<{ name: string; path: string; git:
   return found;
 }
 
+/**
+ * Tous les projets présents sur le serveur sont inscrits d'office : on doit
+ * les VOIR dans la colonne de gauche, comme avant. Ceux qui ne servent plus se
+ * mettent de côté par archivage, ils ne disparaissent pas d'eux-mêmes.
+ */
+export async function adoptServerProjects(): Promise<number> {
+  if (store.getMetaValue('projects.adopted') === '1') return 0;
+  const found = await scanProjects();
+  let count = 0;
+  for (const entry of found) {
+    try {
+      registerProject({ name: entry.name, path: entry.path });
+      count += 1;
+    } catch (err) {
+      log.warn(`projet ${entry.name} non inscrit`, err);
+    }
+  }
+  store.setMetaValue('projects.adopted', '1');
+  if (count) log.info(`${count} projet(s) du serveur inscrits automatiquement`);
+  return count;
+}
+
 /** Le projet HaikoDev lui-même, inscrit au premier démarrage. */
 export async function ensureSelfProject(): Promise<Project> {
   const selfPath = path.resolve(CONFIG.selfPath);

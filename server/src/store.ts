@@ -13,6 +13,8 @@ import {
 } from '@haikodev/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 
+export { getMeta as getMetaValue, setMeta as setMetaValue } from './db.js';
+
 export const now = () => Date.now();
 export const newId = () => randomUUID();
 

@@ -49,6 +49,19 @@ function byRecency(a: ModelInfo, b: ModelInfo): number {
   return a.label.localeCompare(b.label);
 }
 
+/**
+ * L'appétit en quota (PLAN §19, esprit) : aucun moteur ne publie ses tarifs
+ * dans son catalogue, mais les familles de modèles sont hiérarchisées de façon
+ * stable. On donne donc un repère — léger, moyen, gourmand — plutôt qu'un prix
+ * qui serait faux dès la semaine prochaine.
+ */
+function appetiteOf(id: string, label: string): 'light' | 'medium' | 'heavy' {
+  const nom = `${id} ${label}`.toLowerCase();
+  if (/haiku|mini|lite|flash|small/.test(nom)) return 'light';
+  if (/opus|fable|max|sol|terra|ultra|pro\b/.test(nom)) return 'heavy';
+  return 'medium';
+}
+
 function niveau(id: string, description?: string): ThinkingOption {
   return {
     id,
@@ -112,6 +125,7 @@ export async function claudeCatalog(): Promise<{ models: ModelInfo[]; live: bool
         defaultThinking: 'none',
         contextWindow: entry.max_input_tokens ?? undefined,
         releasedAt: Number.isFinite(sortie) ? sortie : undefined,
+        appetite: appetiteOf(entry.id, entry.display_name ?? ''),
       });
     });
 
@@ -179,6 +193,7 @@ export async function codexCatalog(version: string): Promise<{ models: ModelInfo
         thinking: niveaux.length ? niveaux : [NIVEAU_SANS],
         defaultThinking: entry.default_reasoning_level ?? niveaux[0]?.id,
         contextWindow: entry.context_window ?? undefined,
+        appetite: appetiteOf(entry.slug, entry.display_name ?? ''),
       });
     });
 

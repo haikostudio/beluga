@@ -19,6 +19,8 @@ export default {
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
         danger: 'hsl(var(--danger))',
+        record: 'hsl(var(--record))',
+        'record-fg': 'hsl(var(--record-fg))',
       },
       borderRadius: {
         lg: '10px',

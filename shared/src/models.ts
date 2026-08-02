@@ -34,6 +34,8 @@ export const ModelInfo = z.object({
   contextWindow: z.number().optional(),
   /** Date de sortie annoncée par le moteur : sert à classer du plus récent au plus ancien. */
   releasedAt: z.number().optional(),
+  /** Appétit en quota : « léger », « moyen » ou « gourmand ». Pas de prix, juste un repère. */
+  appetite: z.enum(['light', 'medium', 'heavy']).optional(),
   note: z.string().optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;

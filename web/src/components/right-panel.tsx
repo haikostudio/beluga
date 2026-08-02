@@ -47,7 +47,7 @@ export function RightPanel({ projectId }: { projectId: string }) {
         <div className="border-b border-border px-2 py-1.5">
           <TabsList className="w-full">
             <TabsTrigger value="chat" className="flex-1">
-              Chef d'orchestre
+              Chef
             </TabsTrigger>
             <TabsTrigger value="files" className="flex-1">
               Fichiers

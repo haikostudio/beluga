@@ -108,7 +108,16 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     /* -------- Projets -------- */
 
     case 'project.list':
-      return { projects: store.listProjects() };
+      return { projects: store.listProjects(cmd.includeArchived ?? false) };
+
+    case 'project.archive': {
+      const project = store.getProject(cmd.id);
+      if (!project) throw new Error('projet introuvable');
+      const updated = store.saveProject({ ...project, archived: cmd.archived });
+      bus.emit({ type: 'project.upsert', project: updated });
+      bus.toast('info', cmd.archived ? `« ${project.name} » mis de côté` : `« ${project.name} » remis en service`);
+      return { project: updated };
+    }
 
     case 'project.create': {
       const project = registerProject({

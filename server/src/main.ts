@@ -9,7 +9,7 @@ import { bus } from './bus.js';
 import { sampleCapacity } from './capacity.js';
 import { startScheduler } from './scheduler.js';
 import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
-import { ensureSelfProject, refreshGitInfo } from './projects.js';
+import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
 import { purgeOldArchives } from './files.js';
 import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
@@ -33,6 +33,7 @@ async function main(): Promise<void> {
   bootstrapAccounts();
   initPush();
   await ensureSelfProject();
+  await adoptServerProjects();
   await refreshGitInfo();
 
   // Reprise après redémarrage AVANT d'accepter des connexions : les agents

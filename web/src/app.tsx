@@ -205,7 +205,7 @@ export function App() {
             className={cn('flex-1', mobileView === 'chat' && 'text-text')}
             onClick={() => setMobileView('chat')}
           >
-            <MessageSquare className="h-3.5 w-3.5" /> Chef d'orchestre
+            <MessageSquare className="h-3.5 w-3.5" /> Chef
           </Button>
         </nav>
 
