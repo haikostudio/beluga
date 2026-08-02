@@ -58,7 +58,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.group'), id: z.string(), groupId: z.string().optional() }),
   z.object({ type: z.literal('group.list') }),
   z.object({ type: z.literal('group.create'), name: z.string() }),
-  z.object({ type: z.literal('group.update'), id: z.string(), name: z.string().optional(), collapsed: z.boolean().optional() }),
+  z.object({
+    type: z.literal('group.update'),
+    id: z.string(),
+    name: z.string().optional(),
+    collapsed: z.boolean().optional(),
+    color: z.string().optional(),
+  }),
   z.object({ type: z.literal('group.delete'), id: z.string() }),
   z.object({ type: z.literal('group.reorder'), ids: z.array(z.string()) }),
   /**
@@ -104,6 +110,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
 
   // Agents & conversations
   z.object({ type: z.literal('agent.open'), id: z.string() }),
+  /** Toute la conversation d'une carte : analyses, exécutions et relances. */
+  z.object({ type: z.literal('card.conversation'), cardId: z.string() }),
   z.object({ type: z.literal('agent.orchestrator'), projectId: z.string() }),
   z.object({
     type: z.literal('agent.prompt'),
@@ -128,6 +136,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('queue.reorder'), agentId: z.string(), ids: z.array(z.string()) }),
 
   // Propositions de tâche
+  /** Répondre à une question posée par un agent : il reprend aussitôt. */
+  z.object({
+    type: z.literal('question.answer'),
+    messageId: z.string(),
+    questionId: z.string(),
+    answer: z.string(),
+  }),
   z.object({
     type: z.literal('proposal.decide'),
     messageId: z.string(),
@@ -223,6 +238,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('groups'), groups: z.array(ProjectGroup) }),
+  /** Projets qui attendent une réponse : nombre de questions en attente. */
+  z.object({ type: z.literal('attention'), byProject: z.record(z.number()) }),
   z.object({
     type: z.literal('project.snapshot'),
     projectId: z.string(),
@@ -240,6 +257,13 @@ export const ServerEvent = z.discriminatedUnion('type', [
     agentId: z.string(),
     messages: z.array(Message),
     queue: z.array(QueuedPrompt),
+  }),
+  z.object({
+    type: z.literal('card.conversation'),
+    cardId: z.string(),
+    messages: z.array(Message),
+    /** L'agent qui reçoit les nouvelles demandes (le plus récent). */
+    activeAgentId: z.string().optional(),
   }),
   z.object({ type: z.literal('message.upsert'), message: Message }),
   z.object({ type: z.literal('queue.snapshot'), agentId: z.string(), queue: z.array(QueuedPrompt) }),

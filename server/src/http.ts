@@ -203,6 +203,7 @@ export function createHttpServer(): http.Server {
             );
             attachToCurrentMessage(agentId, { proposal: result.proposal });
           }
+          if (result.question) attachToCurrentMessage(agentId, { question: result.question });
           if (result.download) attachToCurrentMessage(agentId, { download: result.download });
           return json(res, 200, { ok: result.ok, text: result.text });
         }

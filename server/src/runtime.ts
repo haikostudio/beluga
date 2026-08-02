@@ -411,7 +411,11 @@ function pushMessage(run: LiveRun, patch: Partial<Message>): void {
 /** Ajoute une proposition ou un téléchargement au message en cours d'écriture. */
 export function attachToCurrentMessage(
   agentId: string,
-  patch: { proposal?: TaskProposal; download?: Message['downloads'][number] },
+  patch: {
+    proposal?: TaskProposal;
+    question?: Message['questions'][number];
+    download?: Message['downloads'][number];
+  },
 ): void {
   const run = live.get(agentId);
   const messageId = run?.messageId ?? store.listMessages(agentId, 1).slice(-1)[0]?.id;
@@ -421,9 +425,20 @@ export function attachToCurrentMessage(
   const updated = store.saveMessage({
     ...current,
     proposals: patch.proposal ? [...current.proposals, patch.proposal] : current.proposals,
+    questions: patch.question ? [...current.questions, patch.question] : current.questions,
     downloads: patch.download ? [...current.downloads, patch.download] : current.downloads,
   });
   bus.emit({ type: 'message.upsert', message: updated });
+  if (patch.question) {
+    bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
+    notify({
+      kind: 'waiting',
+      title: 'Une réponse est attendue',
+      body: patch.question.question.slice(0, 120),
+      projectId: store.getAgent(agentId)?.projectId,
+      cardId: store.getAgent(agentId)?.cardId,
+    });
+  }
 }
 
 export function stopAgent(agentId: string): boolean {

@@ -55,6 +55,7 @@ export async function getOrCreateOrchestrator(projectId: string): Promise<Agent>
       "Bonjour ! Je suis le chef d'orchestre de ce projet.\n\nPosez-moi une question, je réponds. Demandez une action, je crée la carte correspondante dans « À faire ». Dans un cas ambigu, je vous propose la tâche et vous décidez d'un clic.",
     steps: [],
     proposals: [],
+    questions: [],
     downloads: [],
     attachments: [],
     streaming: false,

@@ -9,10 +9,12 @@ import {
   FolderPlus,
   GripVertical,
   Loader2,
+  Palette,
   Pencil,
   Plus,
   Search,
   Settings2,
+  TriangleAlert,
   X,
 } from 'lucide-react';
 import { Project, ProjectGroup } from '@haikodev/shared';
@@ -23,6 +25,9 @@ import {
   DialogContent,
   DialogTitle,
   Dot,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
   Input,
   Label,
   PromptDialog,
@@ -236,6 +241,7 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                 project={entry.project}
                 active={entry.id === state.activeProjectId}
                 running={runningOf(entry.id)}
+                attention={state.attention[entry.id]}
                 dimmed={dragged?.id === entry.id}
                 rowProps={rowProps(entry.id, 'project', entry.project.name)}
                 onDrop={() => dropOnRow(entry.id, undefined)}
@@ -291,9 +297,20 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                       !collapsed.includes(entry.id) && 'rotate-90',
                     )}
                   />
+                  {entry.group.color ? (
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: entry.group.color }}
+                      aria-hidden
+                    />
+                  ) : null}
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
                 </button>
+                <ColorPicker
+                  value={entry.group.color}
+                  onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
+                />
                 <button
                   onClick={() => setRenaming(entry.group)}
                   className="shrink-0 text-faint opacity-0 hover:text-text group-hover/g:opacity-100"
@@ -323,6 +340,7 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                           project={project}
                           active={project.id === state.activeProjectId}
                           running={runningOf(project.id)}
+                          attention={state.attention[project.id]}
                           dimmed={dragged?.id === project.id}
                           rowProps={rowProps(project.id, 'project', project.name)}
                           onDrop={() => dropOnRow(project.id, entry.id)}
@@ -436,6 +454,46 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
   );
 }
 
+/** Une pastille de couleur par groupe : six teintes franches, ou aucune. */
+const COULEURS = ['#e11d48', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+
+function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="shrink-0 text-faint opacity-0 hover:text-text group-hover/g:opacity-100"
+          title="Couleur du groupe"
+        >
+          <Palette className="h-2.5 w-2.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-auto p-1.5">
+        <div className="flex items-center gap-1">
+          {COULEURS.map((couleur) => (
+            <button
+              key={couleur}
+              onClick={() => onPick(couleur)}
+              className={cn(
+                'h-5 w-5 rounded-full border transition-transform hover:scale-110',
+                value === couleur ? 'border-text' : 'border-transparent',
+              )}
+              style={{ backgroundColor: couleur }}
+              title={couleur}
+            />
+          ))}
+          <button
+            onClick={() => onPick('')}
+            className="ml-0.5 rounded px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
+          >
+            aucune
+          </button>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** L'aperçu de l'élément déplacé, à l'endroit exact où il se posera. */
 function Ghost({ show, label }: { show?: boolean; label?: string }) {
   if (!show) return null;
@@ -451,6 +509,7 @@ function ProjectRow({
   project,
   active,
   running,
+  attention,
   dimmed,
   rowProps,
   onDrop,
@@ -459,6 +518,7 @@ function ProjectRow({
   project: Project;
   active: boolean;
   running: number;
+  attention?: number;
   dimmed?: boolean;
   rowProps: Record<string, unknown>;
   onDrop: () => void;
@@ -483,19 +543,23 @@ function ProjectRow({
         onClick={() => client.setActiveProject(project.id)}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        <Folder className="h-3 w-3 shrink-0 text-faint" />
+        {running ? (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
+        ) : (
+          <Folder className="h-3 w-3 shrink-0 text-faint" />
+        )}
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
+        {attention ? (
+          <Tooltip label={`${attention} réponse${attention > 1 ? 's' : ''} attendue${attention > 1 ? 's' : ''}`}>
+            <TriangleAlert className="h-3 w-3 shrink-0 text-warning" />
+          </Tooltip>
+        ) : null}
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
             <CircleDollarSign className="h-2.5 w-2.5 shrink-0 text-faint" />
           </Tooltip>
         ) : null}
-        {running ? (
-          <span className="flex items-center gap-0.5 text-[11.5px] text-success">
-            <Dot tone="running" pulse />
-            {running}
-          </span>
-        ) : null}
+        {running ? <span className="shrink-0 text-[11.5px] text-success">{running}</span> : null}
       </button>
       <button
         onClick={onSettings}

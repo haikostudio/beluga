@@ -12,23 +12,32 @@ export function Chat({
   projectId,
   header,
   onProposeTask,
+  cardId,
 }: {
   agent: Agent | null;
   projectId: string;
   header?: React.ReactNode;
   onProposeTask?: (text: string) => void;
+  /** Depuis une carte : on affiche TOUTE son histoire, pas seulement le dernier agent. */
+  cardId?: string;
 }) {
   const state = useApp();
   const [picked, setPicked] = React.useState<string[]>([]);
   const bottomRef = React.useRef<HTMLDivElement>(null);
 
-  const messages = agent ? (state.messages[agent.id] ?? []) : [];
+  const conversation = cardId ? state.cardMessages[cardId] : undefined;
+  const messages = cardId
+    ? (conversation?.messages ?? [])
+    : agent
+      ? (state.messages[agent.id] ?? [])
+      : [];
   const queue = agent ? (state.queues[agent.id] ?? []) : [];
   const busy = agent?.status === 'running' || messages.some((m) => m.streaming);
 
   React.useEffect(() => {
+    if (cardId) client.send({ type: 'card.conversation', cardId });
     if (agent) client.send({ type: 'agent.open', id: agent.id });
-  }, [agent?.id]);
+  }, [agent?.id, cardId]);
 
   React.useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });

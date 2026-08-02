@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   AGENT_MOVABLE_COLUMNS,
+  AgentQuestion,
   COLUMN_LABELS,
   Card,
   ColumnKey,
@@ -122,6 +123,32 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'ask_user',
+    description:
+      "Pose une question à l'utilisateur et ATTEND sa réponse avant de continuer. À utiliser dès qu'un choix t'appartient pas : options possibles, préférence, information manquante.",
+    inputSchema: {
+      type: 'object',
+      required: ['question'],
+      properties: {
+        question: { type: 'string', description: 'La question, en une phrase claire' },
+        kind: {
+          type: 'string',
+          enum: ['single', 'multiple', 'text'],
+          description: 'single = un seul choix, multiple = plusieurs, text = réponse libre',
+        },
+        options: {
+          type: 'array',
+          description: 'Les réponses proposées (pour single ou multiple)',
+          items: {
+            type: 'object',
+            required: ['label'],
+            properties: { label: { type: 'string' }, description: { type: 'string' } },
+          },
+        },
+      },
+    },
+  },
+  {
     name: 'project_memory',
     description: 'Lit la mémoire vivante du projet (carte du projet, décisions, pièges, conventions).',
     inputSchema: { type: 'object', properties: {} },
@@ -161,6 +188,7 @@ export interface ToolResult {
   text: string;
   /** Effets à répercuter dans le fil de conversation. */
   proposal?: TaskProposal;
+  question?: AgentQuestion;
   download?: { id: string; label: string; size: number; expiresAt: number };
 }
 
@@ -275,6 +303,32 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       } catch (err: any) {
         return { ok: false, text: `Archive impossible : ${err?.message ?? err}` };
       }
+    }
+
+    case 'ask_user': {
+      const libelle = String(args.question ?? '').trim();
+      if (!libelle) return { ok: false, text: 'La question est vide.' };
+      const kind = ['single', 'multiple', 'text'].includes(args.kind) ? args.kind : 'single';
+      const options = Array.isArray(args.options)
+        ? args.options.slice(0, 8).map((opt: any, index: number) => ({
+            id: `o${index}`,
+            label: String(opt?.label ?? opt ?? '').slice(0, 120),
+            description: typeof opt?.description === 'string' ? opt.description.slice(0, 200) : undefined,
+          }))
+        : [];
+
+      const question = AgentQuestion.parse({
+        id: store.newId(),
+        question: libelle,
+        kind: options.length ? kind : 'text',
+        options,
+        allowFreeText: true,
+      });
+      return {
+        ok: true,
+        text: "Question posée à l'utilisateur. Attends sa réponse : elle arrivera dans la conversation.",
+        question,
+      };
     }
 
     case 'project_memory': {

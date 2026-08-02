@@ -271,6 +271,22 @@ export const TaskProposal = z.object({
 });
 export type TaskProposal = z.infer<typeof TaskProposal>;
 
+/**
+ * Une question posée par l'agent (PLAN §10, esprit) : il attend votre réponse
+ * avant de continuer. Choix unique, choix multiple, ou texte libre.
+ */
+export const AgentQuestion = z.object({
+  id: z.string(),
+  question: z.string(),
+  kind: z.enum(['single', 'multiple', 'text']).default('single'),
+  options: z.array(z.object({ id: z.string(), label: z.string(), description: z.string().optional() })).default([]),
+  /** Un complément libre est toujours possible, en plus des choix. */
+  allowFreeText: z.boolean().default(true),
+  answer: z.string().optional(),
+  answeredAt: z.number().optional(),
+});
+export type AgentQuestion = z.infer<typeof AgentQuestion>;
+
 export const DownloadOffer = z.object({
   id: z.string(),
   label: z.string(),
@@ -287,6 +303,7 @@ export const Message = z.object({
   /** Liste d'exécution attachée à ce tour (PLAN §26). */
   steps: z.array(RunStep).default([]),
   proposals: z.array(TaskProposal).default([]),
+  questions: z.array(AgentQuestion).default([]),
   downloads: z.array(DownloadOffer).default([]),
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */
@@ -435,6 +452,8 @@ export const ProjectGroup = z.object({
   name: z.string(),
   rank: z.number().default(100),
   collapsed: z.boolean().default(false),
+  /** Pastille de couleur, pour repérer le groupe d'un coup d'œil. */
+  color: z.string().optional(),
 });
 export type ProjectGroup = z.infer<typeof ProjectGroup>;
 

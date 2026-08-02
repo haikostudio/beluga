@@ -47,7 +47,8 @@ export async function refreshCard(cardId: string): Promise<GithubTracking | null
   });
 
   if (branch) {
-    const logOut = await git(['log', '--oneline', '-n', '10', '--format=%H|%s|%ad', '--date=short', branch], project.path);
+    // Date complète (heure comprise) : « le 2 à 09:14 » est plus utile que « le 2 ».
+    const logOut = await git(['log', '-n', '10', '--format=%H|%s|%aI', branch], project.path);
     tracking.commits = logOut
       .trim()
       .split('\n')

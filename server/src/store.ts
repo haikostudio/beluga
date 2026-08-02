@@ -353,6 +353,45 @@ export function listMessages(agentId: string, limit = 400): Message[] {
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
+/**
+ * TOUT ce qui a transité pour une carte, dans l'ordre : analyses, exécutions et
+ * relances. Une carte peut avoir eu plusieurs agents ; on ne perd jamais ce qui
+ * s'est dit avec les précédents.
+ */
+/** Les cartes d'un projet qui attendent une réponse de l'utilisateur. */
+export function projectsNeedingAttention(): Record<string, number> {
+  const rows = getDb()
+    .prepare(
+      `SELECT a.project_id AS projectId, m.data AS data FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+       WHERE m.data LIKE '%"questions":[{%'`,
+    )
+    .all() as { projectId: string; data: string }[];
+  const out: Record<string, number> = {};
+  for (const row of rows) {
+    try {
+      const message = Message.parse(JSON.parse(row.data));
+      const enAttente = message.questions.filter((q) => !q.answer).length;
+      if (enAttente) out[row.projectId] = (out[row.projectId] ?? 0) + enAttente;
+    } catch {
+      /* message illisible : on l'ignore */
+    }
+  }
+  return out;
+}
+
+export function listCardMessages(cardId: string, limit = 800): Message[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT m.data FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+       WHERE a.card_id = ?
+       ORDER BY m.created_at DESC LIMIT ?`,
+    )
+    .all(cardId, limit) as { data: string }[];
+  return rows.map((r) => Message.parse(JSON.parse(r.data))).sort((a, b) => a.createdAt - b.createdAt);
+}
+
 export function getMessage(id: string): Message | null {
   const row = getDb().prepare('SELECT data FROM messages WHERE id = ?').get(id) as { data: string } | undefined;
   return row ? Message.parse(JSON.parse(row.data)) : null;

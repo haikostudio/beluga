@@ -48,7 +48,12 @@ npm test                                    # règles, gabarits, facturation, co
 node scripts/verify-ui.mjs                  # l'interface, dans un vrai navigateur
 node scripts/verify-agents.mjs              # le cycle complet d'une tâche, avec de vrais agents
 node scripts/verify-agents2.mjs             # chef d'orchestre, dictée, file, reprise
+node scripts/nettoyer-essais.mjs            # À LANCER APRÈS : retire les cartes d'essai
 ```
+
+> Les scripts de vérification créent de vraies cartes dans l'application.
+> `nettoyer-essais.mjs` les retire : à lancer systématiquement après, pour que
+> le tableau reste celui de votre travail.
 
 Les trois scripts de vérification demandent `HAIKODEV_USER` et `HAIKODEV_PASSWORD`.
 

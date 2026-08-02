@@ -429,6 +429,14 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
 /* Onglet GitHub                                                       */
 /* ------------------------------------------------------------------ */
 
+/** Une date de dépôt s'affiche avec son heure : « 02.08 à 09:14 ». */
+function dateHeure(valeur?: string): string {
+  if (!valeur) return '—';
+  const date = new Date(valeur);
+  if (Number.isNaN(date.getTime())) return valeur;
+  return `${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 function GithubTab({ card }: { card: Card }) {
   const [busy, setBusy] = React.useState(false);
   const tracking = card.github;
@@ -533,7 +541,7 @@ function GithubTab({ card }: { card: Card }) {
               <li key={commit.sha} className="flex gap-2 text-[13px]">
                 <code className="text-faint">{commit.sha.slice(0, 7)}</code>
                 <span className="min-w-0 flex-1 truncate text-muted">{commit.message}</span>
-                <span className="text-faint">{commit.date}</span>
+                <span className="shrink-0 text-faint">{dateHeure(commit.date)}</span>
               </li>
             ))}
           </ul>
@@ -548,6 +556,7 @@ function GithubTab({ card }: { card: Card }) {
               <li key={index} className="rounded border border-border bg-surface px-2 py-1.5 text-[13px]">
                 <span className="text-text">{event.author}</span>{' '}
                 <span className="text-faint">— {event.kind}</span>
+                <span className="text-faint"> · {dateHeure(event.date)}</span>
                 {event.body ? <p className="mt-0.5 line-clamp-3 text-muted">{event.body}</p> : null}
               </li>
             ))}

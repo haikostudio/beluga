@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { AlertCircle, Check, Download, Paperclip, X } from 'lucide-react';
+import { AlertCircle, Check, Circle, Download, HelpCircle, Loader2, Paperclip, X } from 'lucide-react';
 import { Message } from '@haikodev/shared';
-import { Badge, Button } from '@/components/ui';
+import { Badge, Button, Textarea } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { client } from '@/lib/client';
@@ -92,6 +92,14 @@ export function MessageView({
         </div>
       ) : null}
 
+      {message.questions.length ? (
+        <div className="mt-2 space-y-2">
+          {message.questions.map((question) => (
+            <QuestionCard key={question.id} messageId={message.id} question={question} />
+          ))}
+        </div>
+      ) : null}
+
       {message.downloads.length ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {message.downloads.map((offer) => (
@@ -117,6 +125,108 @@ export function MessageView({
       <div className="mt-1 text-[12px] text-faint opacity-0 transition-opacity group-hover:opacity-100">
         {relativeTime(message.createdAt)}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Une question de l'agent : il attend votre réponse pour reprendre. Choix
+ * unique, choix multiple ou texte libre — et toujours la possibilité d'ajouter
+ * une précision.
+ */
+function QuestionCard({ messageId, question }: { messageId: string; question: Message['questions'][number] }) {
+  const [choisis, setChoisis] = React.useState<string[]>([]);
+  const [complement, setComplement] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+
+  if (question.answer) {
+    return (
+      <div className="rounded-md border border-border bg-surface/60 px-2.5 py-2">
+        <p className="text-[13px] text-faint">{question.question}</p>
+        <p className="mt-1 flex items-start gap-1.5 text-[14px] text-text">
+          <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />
+          {question.answer}
+        </p>
+      </div>
+    );
+  }
+
+  const envoyer = async () => {
+    const libelles = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
+    const reponse = [libelles.join(', '), complement.trim()].filter(Boolean).join(' — ');
+    if (!reponse) return;
+    setBusy(true);
+    try {
+      await client.call({ type: 'question.answer', messageId, questionId: question.id, answer: reponse });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'réponse impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const basculer = (id: string) =>
+    setChoisis((current) =>
+      question.kind === 'multiple'
+        ? current.includes(id)
+          ? current.filter((c) => c !== id)
+          : [...current, id]
+        : [id],
+    );
+
+  const pret = choisis.length > 0 || complement.trim().length > 0;
+
+  return (
+    <div className="rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2">
+      <p className="flex items-start gap-1.5 text-[14px] font-medium text-text">
+        <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+        {question.question}
+      </p>
+
+      {question.options.length ? (
+        <div className="mt-2 space-y-1">
+          {question.options.map((option) => {
+            const actif = choisis.includes(option.id);
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => basculer(option.id)}
+                className={cn(
+                  'flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors',
+                  actif ? 'border-accent/50 bg-raised text-text' : 'border-border bg-transparent text-muted hover:bg-raised',
+                )}
+              >
+                <span className="mt-0.5 shrink-0">
+                  {actif ? <Check className="h-3 w-3 text-success" /> : <Circle className="h-3 w-3 text-faint" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[14px] leading-snug">{option.label}</span>
+                  {option.description ? (
+                    <span className="block text-[12.5px] text-faint">{option.description}</span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })}
+          {question.kind === 'multiple' ? (
+            <p className="px-1 text-[12px] text-faint">Plusieurs réponses possibles.</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Textarea
+        value={complement}
+        onChange={(event) => setComplement(event.target.value)}
+        rows={2}
+        placeholder={question.options.length ? 'Précision (facultative)…' : 'Votre réponse…'}
+        className="mt-2"
+      />
+
+      <Button variant="default" size="sm" className="mt-2" disabled={!pret || busy} onClick={envoyer}>
+        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+        Répondre
+      </Button>
     </div>
   );
 }

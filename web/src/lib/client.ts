@@ -33,6 +33,8 @@ export interface AppState {
   prefs: Record<string, unknown>;
   projects: Project[];
   groups: ProjectGroup[];
+  /** Projets qui attendent une réponse : nombre de questions en attente. */
+  attention: Record<string, number>;
   engines: EngineInfo[];
   quotas: AccountQuota[];
   capacity: CapacitySnapshot | null;
@@ -40,6 +42,8 @@ export interface AppState {
   agents: Record<string, Agent>;
   cards: Record<string, Card>;
   messages: Record<string, Message[]>;
+  /** Toute la conversation d'une carte, tous ses agents confondus. */
+  cardMessages: Record<string, { messages: Message[]; activeAgentId?: string }>;
   queues: Record<string, QueuedPrompt[]>;
   attachments: Record<string, Attachment[]>;
   files: Record<string, FileNode[]>;
@@ -57,6 +61,7 @@ const initialState: AppState = {
   prefs: {},
   projects: [],
   groups: [],
+  attention: {},
   engines: [],
   quotas: [],
   capacity: null,
@@ -64,6 +69,7 @@ const initialState: AppState = {
   agents: {},
   cards: {},
   messages: {},
+  cardMessages: {},
   queues: {},
   attachments: {},
   files: {},
@@ -172,6 +178,10 @@ class Client {
         this.set({ groups: event.groups });
         break;
 
+      case 'attention':
+        this.set({ attention: event.byProject });
+        break;
+
       case 'project.upsert':
         this.set((state) => ({
           // Le rang choisi à la main prime ; à rang égal seulement, par nom.
@@ -231,13 +241,36 @@ class Client {
         }));
         break;
 
+      case 'card.conversation':
+        this.set((state) => ({
+          cardMessages: {
+            ...state.cardMessages,
+            [event.cardId]: { messages: event.messages, activeAgentId: event.activeAgentId },
+          },
+        }));
+        break;
+
       case 'message.upsert':
         this.set((state) => {
           const list = state.messages[event.message.agentId] ?? [];
           const index = list.findIndex((m) => m.id === event.message.id);
           const next = index >= 0 ? [...list] : [...list, event.message];
           if (index >= 0) next[index] = event.message;
-          return { messages: { ...state.messages, [event.message.agentId]: next } };
+
+          // Le message rejoint aussi la conversation de la carte concernée,
+          // pour que rien ne disparaisse quand un nouvel agent prend le relais.
+          const cardMessages = { ...state.cardMessages };
+          for (const [cardId, entry] of Object.entries(cardMessages)) {
+            const dansLaCarte = entry.messages.some((m) => m.agentId === event.message.agentId);
+            if (!dansLaCarte && entry.activeAgentId !== event.message.agentId) continue;
+            const liste = [...entry.messages];
+            const position = liste.findIndex((m) => m.id === event.message.id);
+            if (position >= 0) liste[position] = event.message;
+            else liste.push(event.message);
+            cardMessages[cardId] = { ...entry, messages: liste };
+          }
+
+          return { messages: { ...state.messages, [event.message.agentId]: next }, cardMessages };
         });
         break;
 

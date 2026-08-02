@@ -59,6 +59,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     const unsubscribe = bus.subscribe(send);
 
     void (async () => {
+      send({ type: 'attention', byProject: store.projectsNeedingAttention() });
       send({
         type: 'ready',
         protocol: PROTOCOL_VERSION,
@@ -206,6 +207,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         ...group,
         name: cmd.name?.trim() || group.name,
         collapsed: cmd.collapsed ?? group.collapsed,
+        color: cmd.color === '' ? undefined : (cmd.color ?? group.color),
       });
       bus.emit({ type: 'groups', groups: store.listGroups() });
       return { group: updated };
@@ -378,6 +380,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { agent };
     }
 
+    case 'card.conversation': {
+      const card = store.getCard(cmd.cardId);
+      if (!card) throw new Error('carte introuvable');
+      const messages = store.listCardMessages(cmd.cardId);
+      const dernier = store.getAgentByCard(cmd.cardId);
+      bus.emit({
+        type: 'card.conversation',
+        cardId: cmd.cardId,
+        messages,
+        activeAgentId: dernier?.id ?? card.agentId,
+      });
+      return { messages: messages.length };
+    }
+
     case 'agent.orchestrator': {
       const agent = await getOrCreateOrchestrator(cmd.projectId);
       bus.emit({
@@ -466,6 +482,27 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     /* -------- Propositions -------- */
+
+    case 'question.answer': {
+      const message = store.getMessage(cmd.messageId);
+      if (!message) throw new Error('message introuvable');
+      const question = message.questions.find((q) => q.id === cmd.questionId);
+      if (!question) throw new Error('question introuvable');
+      if (question.answer) return { already: true };
+
+      const updated = store.saveMessage({
+        ...message,
+        questions: message.questions.map((q) =>
+          q.id === cmd.questionId ? { ...q, answer: cmd.answer, answeredAt: Date.now() } : q,
+        ),
+      });
+      bus.emit({ type: 'message.upsert', message: updated });
+      bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
+
+      // L'agent reprend aussitôt, avec la réponse en main.
+      await sendPrompt(message.agentId, `Réponse à ta question « ${question.question} » : ${cmd.answer}`);
+      return { ok: true };
+    }
 
     case 'proposal.decide': {
       const message = store.getMessage(cmd.messageId);

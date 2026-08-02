@@ -127,6 +127,10 @@ async function main() {
   record('Carte : création depuis le tableau', after > before, `${before} → ${after} cartes`);
   await shot(page, '03-carte-creee');
 
+  /**
+   * Retire les cartes de vérification par les gestes réels de l'interface :
+   * l'essai ne doit jamais laisser de trace dans le vrai tableau.
+   */
   /* ---------- 6. Ouverture du panneau de carte ---------- */
   if (after > 0) {
     await page.locator('article').first().click();
