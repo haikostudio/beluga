@@ -48,6 +48,15 @@
     @apply border-border;
   }
 
+  /* L'application occupe TOUTE la fenêtre : sans ces trois hauteurs, elle
+     s'arrête à la fin de son contenu et laisse une bande vide en bas. */
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
     @apply bg-bg text-text antialiased;
     font-family: theme('fontFamily.sans');
