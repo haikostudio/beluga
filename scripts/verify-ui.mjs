@@ -289,9 +289,7 @@ async function main() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(600);
 
-  const poignees = await page.evaluate(
-    () => document.querySelectorAll('aside [draggable="true"]').length,
-  );
+  const poignees = await page.evaluate(() => document.querySelectorAll('aside [data-drag-id]').length);
   record('Projets : les entrées se réordonnent au glisser-déposer', poignees > 0, `${poignees} projet(s) déplaçables`);
 
   /* ---------- 14 ter. Chef d'orchestre : le moteur choisi tient ---------- */
@@ -364,7 +362,7 @@ async function main() {
   /* ---------- 14 sexies. Projets du serveur dans la colonne ---------- */
   const colonne = await page.evaluate(() => {
     const aside = document.querySelector('aside');
-    const noms = Array.from(aside?.querySelectorAll('div[draggable="true"]') ?? []).map(
+    const noms = Array.from(aside?.querySelectorAll('[data-drag-id]') ?? []).map(
       (n) => n.textContent?.trim() ?? '',
     );
     return { nombre: noms.length, misDeCote: (aside?.innerText ?? '').includes('Mis de côté') };
@@ -623,42 +621,34 @@ async function main() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(700);
 
-  /* ---------- 14 terdecies. L'aperçu de dépôt ---------- */
-  const apercu = await page.evaluate(() => {
-    const lignes = Array.from(document.querySelectorAll('aside div[draggable="true"]'));
-    if (lignes.length < 2) return null;
-    window.__dnd = { source: lignes[0], cible: lignes[1], dt: new DataTransfer() };
-    lignes[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: window.__dnd.dt }));
-    return { lignes: lignes.length };
+  /* ---------- 14 terdecies. L'aperçu de dépôt, à la souris ---------- */
+  const positions = await page.evaluate(() => {
+    const lignes = Array.from(document.querySelectorAll('aside [data-drag-id]'));
+    if (lignes.length < 3) return null;
+    const boite = (n) => {
+      const r = n.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2, haut: r.top + 4, bas: r.bottom - 4 };
+    };
+    return { source: boite(lignes[0]), cible: boite(lignes[2]) };
   });
-  // Le survol arrive après le rendu, comme lors d'un vrai glissement.
-  await page.waitForTimeout(400);
-  await page.evaluate(() => {
-    const { cible, dt } = window.__dnd ?? {};
-    if (!cible) return;
-    const rect = cible.getBoundingClientRect();
-    cible.dispatchEvent(
-      new DragEvent('dragover', {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: dt,
-        clientY: rect.top + rect.height * 0.2,
-      }),
-    );
-  });
-  await page.waitForTimeout(700);
-  const ghost = await page.evaluate(() => document.querySelectorAll('aside .border-dashed').length);
+
+  let apercus = 0;
+  if (positions) {
+    // Un vrai glissement à la souris, comme un humain.
+    await page.mouse.move(positions.source.x, positions.source.y);
+    await page.mouse.down();
+    await page.mouse.move(positions.cible.x, positions.cible.haut, { steps: 12 });
+    await page.waitForTimeout(500);
+    apercus = await page.evaluate(() => document.querySelectorAll('aside .border-dashed').length);
+    await shot(page, '18-apercu');
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+  }
   record(
-    'Glisser-déposer : un aperçu montre où l\'élément va se poser',
-    !!apercu && ghost > 0,
-    `${ghost} aperçu(s) affiché(s)`,
+    'Glisser-déposer : l\'aperçu suit le pointeur et montre où l\'élément se posera',
+    apercus > 0,
+    `${apercus} aperçu(s) affiché(s)`,
   );
-  await shot(page, '18-apercu');
-  await page.evaluate(() => {
-    const source = document.querySelector('aside div[draggable="true"]');
-    source?.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
-  });
-  await page.waitForTimeout(400);
 
   /* ---------- 15. Mobile ---------- */
   const mobile = await context.newPage();

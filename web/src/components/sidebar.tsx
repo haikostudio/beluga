@@ -40,6 +40,7 @@ import {
 } from '@/components/ui';
 import { ProjectSettings } from '@/components/project-settings';
 import { client } from '@/lib/client';
+import { usePointerDrag } from '@/lib/dnd';
 import { usePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
@@ -62,12 +63,28 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
   const [renaming, setRenaming] = React.useState<ProjectGroup | null>(null);
   const [deleting, setDeleting] = React.useState<ProjectGroup | null>(null);
 
-  const [dragged, setDragged] = React.useState<{ id: string; kind: 'project' | 'group'; label: string } | null>(null);
-  // Où l'élément se posera : sur quelle ligne, au-dessus ou en dessous, ou
-  // dans quel groupe. C'est ce qui s'affiche en aperçu pendant le glissement.
-  const [target, setTarget] = React.useState<
-    { kind: 'row'; id: string; side: 'before' | 'after' } | { kind: 'group'; id: string } | null
-  >(null);
+  // Le glissement suit le pointeur : l'aperçu se place exactement là où on vise,
+  // à la souris comme au doigt.
+  const entriesRef = React.useRef<Entry[]>([]);
+
+  const resolve = React.useCallback((element: Element, y: number) => {
+    const ligne = element.closest('[data-drag-id]') as HTMLElement | null;
+    if (ligne) {
+      const rect = ligne.getBoundingClientRect();
+      return {
+        id: ligne.dataset.dragId!,
+        kind: ligne.dataset.dragKind!,
+        position: (y < rect.top + rect.height / 2 ? 'before' : 'after') as 'before' | 'after',
+      };
+    }
+    // Survol du corps d'un groupe : on y range l'élément.
+    const zone = element.closest('[data-drop-group]') as HTMLElement | null;
+    if (zone) return { id: zone.dataset.dropGroup!, kind: 'group', position: 'inside' as const };
+    // Ailleurs dans la colonne : on sort du groupe.
+    const colonne = element.closest('[data-drop-root]');
+    if (colonne) return { id: '__racine__', kind: 'root', position: 'inside' as const };
+    return null;
+  }, []);
 
   const actifs = state.projects.filter((p) => !p.archived);
   const groups = state.groups;
@@ -99,6 +116,49 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
       .catch(() => setArchived([]));
   }, [showArchived, state.projects]);
 
+  const appliquer = React.useCallback(
+    async (item: { id: string; kind: string }, cible: { id: string; kind: string; position: string } | null) => {
+      if (!cible) return;
+      const liste = entriesRef.current;
+      const plat: { kind: 'project' | 'group'; id: string; groupId?: string }[] = [];
+      for (const entry of liste) {
+        if (entry.kind === 'project') plat.push({ kind: 'project', id: entry.id });
+        else {
+          plat.push({ kind: 'group', id: entry.id });
+          for (const membre of entry.members) plat.push({ kind: 'project', id: membre.id, groupId: entry.id });
+        }
+      }
+
+      const depuis = plat.findIndex((e) => e.id === item.id);
+      if (depuis < 0) return;
+      const [element] = plat.splice(depuis, 1);
+
+      if (cible.kind === 'root') {
+        if (element.kind === 'project') element.groupId = undefined;
+        plat.push(element);
+      } else if (cible.position === 'inside') {
+        // Déposé dans un groupe : il en prend la tête.
+        if (element.kind === 'project') element.groupId = cible.id;
+        const index = plat.findIndex((e) => e.kind === 'group' && e.id === cible.id);
+        plat.splice(index < 0 ? plat.length : index + 1, 0, element);
+      } else {
+        const index = plat.findIndex((e) => e.id === cible.id);
+        if (index < 0) return;
+        if (element.kind === 'project') element.groupId = plat[index].groupId;
+        plat.splice(cible.position === 'before' ? index : index + 1, 0, element);
+      }
+
+      try {
+        await client.call({ type: 'sidebar.reorder', items: plat });
+      } catch {
+        client.pushToast('error', 'Rangement non enregistré');
+      }
+    },
+    [],
+  );
+
+  const { dragging, target, start } = usePointerDrag({ resolve, onDrop: appliquer });
+
   const commit = async (ordre: { kind: 'project' | 'group'; id: string; groupId?: string }[]) => {
     try {
       await client.call({ type: 'sidebar.reorder', items: ordre });
@@ -107,74 +167,9 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
     }
   };
 
-  /** L'ordre visible mis à plat, membres des groupes compris. */
-  const flatten = (): { kind: 'project' | 'group'; id: string; groupId?: string }[] => {
-    const out: { kind: 'project' | 'group'; id: string; groupId?: string }[] = [];
-    for (const entry of entries) {
-      if (entry.kind === 'project') {
-        out.push({ kind: 'project', id: entry.id });
-      } else {
-        out.push({ kind: 'group', id: entry.id });
-        for (const member of entry.members) out.push({ kind: 'project', id: member.id, groupId: entry.id });
-      }
-    }
-    return out;
-  };
 
-  /** Déposer sur une ligne : on se place avant ou après, et on prend son groupe. */
-  const dropOnRow = async (cibleId: string, cibleGroupId?: string) => {
-    if (!dragged || dragged.id === cibleId) return;
-    const cote = target?.kind === 'row' && target.id === cibleId ? target.side : 'after';
-    const ordre = flatten();
-    const from = ordre.findIndex((e) => e.kind === dragged.kind && e.id === dragged.id);
-    setDragged(null);
-    setTarget(null);
-    if (from < 0) return;
 
-    const [element] = ordre.splice(from, 1);
-    const to = ordre.findIndex((e) => e.id === cibleId);
-    if (to < 0) return;
-    if (element.kind === 'project') element.groupId = cibleGroupId;
-    ordre.splice(cote === 'before' ? to : to + 1, 0, element);
-    await commit(ordre);
-  };
 
-  /** Déposer sur l'en-tête d'un groupe : le projet y entre, en tête. */
-  const dropOnGroup = async (group: ProjectGroup) => {
-    if (!dragged || dragged.id === group.id) return;
-    const ordre = flatten();
-    const from = ordre.findIndex((e) => e.kind === dragged.kind && e.id === dragged.id);
-    setDragged(null);
-    setTarget(null);
-    if (from < 0) return;
-
-    const [element] = ordre.splice(from, 1);
-    if (element.kind === 'project') {
-      element.groupId = group.id;
-      const cible = ordre.findIndex((e) => e.kind === 'group' && e.id === group.id);
-      ordre.splice(cible + 1, 0, element);
-      // Un groupe qui reçoit un projet se déplie, sinon on ne le voit pas arriver.
-      if (collapsed.includes(group.id)) setCollapsed(collapsed.filter((id) => id !== group.id));
-    } else {
-      const cible = ordre.findIndex((e) => e.kind === 'group' && e.id === group.id);
-      ordre.splice(Math.max(0, cible), 0, element);
-    }
-    await commit(ordre);
-  };
-
-  /** Déposer dans le vide : le projet sort de son groupe et passe à la fin. */
-  const dropOutside = async () => {
-    if (!dragged || dragged.kind !== 'project') return;
-    const ordre = flatten();
-    const from = ordre.findIndex((e) => e.kind === 'project' && e.id === dragged.id);
-    setDragged(null);
-    setTarget(null);
-    if (from < 0) return;
-    const [element] = ordre.splice(from, 1);
-    element.groupId = undefined;
-    ordre.push(element);
-    await commit(ordre);
-  };
 
   const toggle = (id: string) =>
     setCollapsed(collapsed.includes(id) ? collapsed.filter((g) => g !== id) : [...collapsed, id]);
@@ -182,24 +177,14 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
   const runningOf = (projectId: string) =>
     Object.values(state.agents).filter((a) => a.projectId === projectId && a.status === 'running').length;
 
+  React.useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
   const rowProps = (id: string, kind: 'project' | 'group', label: string) => ({
-    draggable: true,
-    onDragStart: (event: React.DragEvent) => {
-      setDragged({ id, kind, label });
-      // Une image de glissement neutre : l'aperçu, c'est notre repère.
-      event.dataTransfer.effectAllowed = 'move';
-    },
-    onDragEnd: () => {
-      setDragged(null);
-      setTarget(null);
-    },
-    onDragOver: (event: React.DragEvent) => {
-      event.preventDefault();
-      if (!dragged || dragged.id === id) return;
-      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-      const side = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-      setTarget({ kind: 'row', id, side });
-    },
+    'data-drag-id': id,
+    'data-drag-kind': kind,
+    onPointerDown: (event: React.PointerEvent) => start(event, { id, kind, label }),
   });
 
   const agentsEnCours = Object.values(state.agents).filter(
@@ -225,68 +210,44 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
         </Tooltip>
       </div>
 
-      <div
-        className="flex-1 overflow-y-auto px-1.5 pb-2"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
-          event.preventDefault();
-          void dropOutside();
-        }}
-      >
+      <div className="flex-1 touch-pan-y overflow-y-auto px-1.5 pb-2" data-drop-root>
         {entries.map((entry) =>
           entry.kind === 'project' ? (
             <React.Fragment key={entry.id}>
-              <Ghost show={target?.kind === 'row' && target.id === entry.id && target.side === 'before'} label={dragged?.label} />
+              <Ghost show={target?.id === entry.id && target.position === 'before'} label={dragging?.label} />
               <ProjectRow
                 project={entry.project}
                 active={entry.id === state.activeProjectId}
                 running={runningOf(entry.id)}
                 attention={state.attention[entry.id]}
-                dimmed={dragged?.id === entry.id}
+                dimmed={dragging?.id === entry.id}
                 rowProps={rowProps(entry.id, 'project', entry.project.name)}
-                onDrop={() => dropOnRow(entry.id, undefined)}
                 onSettings={() => setSettingsFor(entry.id)}
               />
-              <Ghost show={target?.kind === 'row' && target.id === entry.id && target.side === 'after'} label={dragged?.label} />
+              <Ghost show={target?.id === entry.id && target.position === 'after'} label={dragging?.label} />
             </React.Fragment>
           ) : (
             <div
               key={entry.id}
-              onDragOver={(event) => {
-                event.preventDefault();
-                // Survoler le groupe entier — pas seulement son titre — le
-                // désigne comme destination.
-                if (dragged && dragged.kind === 'project') setTarget({ kind: 'group', id: entry.id });
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                void dropOnGroup(entry.group);
-              }}
+              data-drop-group={entry.id}
               className={cn(
                 'mb-0.5 rounded-md border transition-colors',
-                target?.kind === 'group' && target.id === entry.id
+                // Survoler le corps du groupe l'éclaire en entier : on comprend
+                // que le projet va s'y ranger.
+                target?.kind === 'group' && target.id === entry.id && target.position === 'inside'
                   ? 'border-muted bg-surface'
                   : 'border-transparent',
               )}
             >
-              <Ghost show={target?.kind === 'row' && target.id === entry.id && target.side === 'before'} label={dragged?.label} />
+              <Ghost show={target?.id === entry.id && target.position === 'before'} label={dragging?.label} />
               <div
                 {...rowProps(entry.id, 'group', entry.group.name)}
-                onDrop={(event: React.DragEvent) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  // Sur le titre d'un groupe : soit on y range le projet, soit on
-                  // déplace le groupe lui-même parmi les autres.
-                  if (dragged?.kind === 'group') void dropOnRow(entry.id, undefined);
-                  else void dropOnGroup(entry.group);
-                }}
                 className={cn(
                   'group/g flex items-center gap-1 rounded-md px-1.5 py-1.5',
-                  dragged?.id === entry.id && 'opacity-40',
+                  dragging?.id === entry.id && 'opacity-40',
                 )}
               >
-                <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-0 group-hover/g:opacity-100 active:cursor-grabbing" />
+                <GripVertical className="h-3 w-3 shrink-0 cursor-grab touch-none text-faint opacity-40 group-hover/g:opacity-100 active:cursor-grabbing" />
                 <button
                   onClick={() => toggle(entry.id)}
                   className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-muted hover:text-text"
@@ -332,24 +293,17 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                   {entry.members.length ? (
                     entry.members.map((project) => (
                       <React.Fragment key={project.id}>
-                        <Ghost
-                          show={target?.kind === 'row' && target.id === project.id && target.side === 'before'}
-                          label={dragged?.label}
-                        />
+                        <Ghost show={target?.id === project.id && target.position === 'before'} label={dragging?.label} />
                         <ProjectRow
                           project={project}
                           active={project.id === state.activeProjectId}
                           running={runningOf(project.id)}
                           attention={state.attention[project.id]}
-                          dimmed={dragged?.id === project.id}
+                          dimmed={dragging?.id === project.id}
                           rowProps={rowProps(project.id, 'project', project.name)}
-                          onDrop={() => dropOnRow(project.id, entry.id)}
                           onSettings={() => setSettingsFor(project.id)}
                         />
-                        <Ghost
-                          show={target?.kind === 'row' && target.id === project.id && target.side === 'after'}
-                          label={dragged?.label}
-                        />
+                        <Ghost show={target?.id === project.id && target.position === 'after'} label={dragging?.label} />
                       </React.Fragment>
                     ))
                   ) : (
@@ -357,7 +311,7 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                   )}
                 </div>
               ) : null}
-              <Ghost show={target?.kind === 'row' && target.id === entry.id && target.side === 'after'} label={dragged?.label} />
+              <Ghost show={target?.id === entry.id && target.position === 'after'} label={dragging?.label} />
             </div>
           ),
         )}
@@ -512,7 +466,6 @@ function ProjectRow({
   attention,
   dimmed,
   rowProps,
-  onDrop,
   onSettings,
 }: {
   project: Project;
@@ -521,24 +474,18 @@ function ProjectRow({
   attention?: number;
   dimmed?: boolean;
   rowProps: Record<string, unknown>;
-  onDrop: () => void;
   onSettings: () => void;
 }) {
   return (
     <div
       {...rowProps}
-      onDrop={(event: React.DragEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onDrop();
-      }}
       className={cn(
         'group mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1.5 text-[13.5px] transition-colors',
         active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
         dimmed && 'opacity-40',
       )}
     >
-      <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
+      <GripVertical className="h-3 w-3 shrink-0 cursor-grab touch-none text-faint opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
       <button
         onClick={() => client.setActiveProject(project.id)}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"

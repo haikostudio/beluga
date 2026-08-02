@@ -180,6 +180,20 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 5,
+    name: 'historique-des-quotas',
+    sql: `
+      CREATE TABLE quota_samples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        session_pct REAL,
+        weekly_pct REAL
+      );
+      CREATE INDEX idx_quota_samples ON quota_samples(account, at);
+    `,
+  },
 ];
 
 export function openDb(): DB {

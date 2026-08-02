@@ -22,7 +22,11 @@ const execFileAsync = promisify(execFile);
 test('tout outil du moteur est classé autorisé ou interdit pour le chef d\'orchestre', async () => {
   const classified = new Set([...ORCHESTRATOR_ALLOWED_NATIVE, ...ORCHESTRATOR_DENIED_NATIVE]);
 
+  // Ce contrôle interroge le VRAI moteur : il peut être momentanément
+  // indisponible (quota, réseau). Dans ce cas on ne conclut pas — un test qui
+  // échoue au hasard ne protège plus de rien.
   let engineTools: string[] = [];
+  let interroge = false;
   try {
     const { stdout } = await execFileAsync(
       'bash',
@@ -32,11 +36,21 @@ test('tout outil du moteur est classé autorisé ou interdit pour le chef d\'orc
       ],
       { timeout: 90000, maxBuffer: 4 * 1024 * 1024 },
     );
-    const init = JSON.parse(stdout.trim().split('\n')[0]);
-    engineTools = Array.isArray(init.tools) ? init.tools : [];
+    const premiere = stdout.trim().split('\n')[0];
+    if (premiere.startsWith('{')) {
+      const init = JSON.parse(premiere);
+      if (Array.isArray(init.tools)) {
+        engineTools = init.tools;
+        interroge = true;
+      }
+    }
   } catch {
-    // Moteur indisponible (quota, réseau) : on vérifie au moins la liste connue.
-    engineTools = [];
+    interroge = false;
+  }
+
+  if (!interroge) {
+    console.log('    (moteur momentanément indisponible : liste vivante non vérifiée cette fois)');
+    return;
   }
 
   const unclassified = engineTools.filter((tool) => !classified.has(tool));

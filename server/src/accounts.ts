@@ -4,6 +4,7 @@ import os from 'node:os';
 import { AccountQuota, EngineId } from '@haikodev/shared';
 import { PATHS, CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
+import { recordQuotaSample } from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 
@@ -302,6 +303,9 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
       quota.fetchedAt = previous.fetchedAt ?? quota.fetchedAt;
     }
     quotaCache.set(account.id, quota);
+    if (!quota.error) {
+      recordQuotaSample(account.id, quota.session?.usedPct, quota.weekly?.usedPct);
+    }
     results.push(quota);
   }
   markActive(results);

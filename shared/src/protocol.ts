@@ -199,6 +199,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('process.start'), id: z.string() }),
   z.object({ type: z.literal('engines.list') }),
   z.object({ type: z.literal('quota.refresh') }),
+  /** Consommation des comptes sur les derniers jours, pour la courbe. */
+  z.object({ type: z.literal('quota.history'), days: z.number().optional() }),
   z.object({ type: z.literal('backup.now') }),
   z.object({ type: z.literal('backup.list') }),
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),

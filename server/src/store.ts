@@ -104,6 +104,38 @@ export function deleteProject(id: string): void {
 }
 
 /* ------------------------------------------------------------------ */
+/* Historique de consommation des comptes                              */
+/* ------------------------------------------------------------------ */
+
+/** Un relevé par compte, au plus un par quart d'heure : de quoi tracer une courbe. */
+export function recordQuotaSample(account: string, sessionPct?: number, weeklyPct?: number): void {
+  const recent = getDb()
+    .prepare('SELECT at FROM quota_samples WHERE account = ? ORDER BY at DESC LIMIT 1')
+    .get(account) as { at: number } | undefined;
+  if (recent && now() - recent.at < 15 * 60 * 1000) return;
+
+  getDb()
+    .prepare('INSERT INTO quota_samples (account, at, session_pct, weekly_pct) VALUES (?, ?, ?, ?)')
+    .run(account, now(), sessionPct ?? null, weeklyPct ?? null);
+
+  // On garde quatorze jours : au-delà, la courbe n'apprend plus rien.
+  getDb().prepare('DELETE FROM quota_samples WHERE at < ?').run(now() - 14 * 24 * 3600 * 1000);
+}
+
+export function quotaHistory(days = 7): Record<string, { at: number; session: number; weekly: number }[]> {
+  const rows = getDb()
+    .prepare(
+      'SELECT account, at, session_pct AS session, weekly_pct AS weekly FROM quota_samples WHERE at > ? ORDER BY at',
+    )
+    .all(now() - days * 24 * 3600 * 1000) as { account: string; at: number; session: number; weekly: number }[];
+  const out: Record<string, { at: number; session: number; weekly: number }[]> = {};
+  for (const row of rows) {
+    (out[row.account] ??= []).push({ at: row.at, session: row.session ?? 0, weekly: row.weekly ?? 0 });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /* Préférences                                                         */
 /* ------------------------------------------------------------------ */
 
