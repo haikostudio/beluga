@@ -26,6 +26,7 @@ import {
   TabsTrigger,
   Tooltip,
 } from '@/components/ui';
+import { AttachmentPreview } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -325,37 +326,7 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
         })}
       </div>
 
-      {zoom ? (
-        <Dialog open onOpenChange={(open) => !open && setZoom(null)}>
-          <DialogContent className="w-[min(900px,calc(100vw-16px))]">
-            <div className="flex items-center gap-2 pr-6">
-              <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{zoom.name}</DialogTitle>
-              <Tooltip label="Télécharger">
-                <Button variant="ghost" size="icon-sm" asChild>
-                  <a href={`/api/attachment?id=${zoom.id}&download=1`} download={zoom.name}>
-                    <Download className="h-3 w-3" />
-                  </a>
-                </Button>
-              </Tooltip>
-            </div>
-            <div className="mt-3 max-h-[72dvh] overflow-auto rounded-md border border-border bg-raised p-2">
-              {zoom.mime.startsWith('image/') ? (
-                <img src={`/api/attachment?id=${zoom.id}`} alt={zoom.name} className="mx-auto max-w-full" />
-              ) : zoom.mime === 'application/pdf' ? (
-                <iframe title={zoom.name} src={`/api/attachment?id=${zoom.id}`} className="h-[70dvh] w-full rounded" />
-              ) : (
-                <div className="p-6 text-center">
-                  <Button variant="outline" size="sm" asChild>
-                    <a href={`/api/attachment?id=${zoom.id}&download=1`}>
-                      <Download className="h-3 w-3" /> Télécharger
-                    </a>
-                  </Button>
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
-      ) : null}
+      <AttachmentPreview item={zoom} onClose={() => setZoom(null)} />
     </div>
   );
 }

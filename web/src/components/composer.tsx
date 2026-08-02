@@ -1,5 +1,16 @@
 import * as React from 'react';
-import { ArrowUp, Check, ChevronDown, GripVertical, Loader2, Paperclip, Square, Trash2, X } from 'lucide-react';
+import {
+  ArrowUp,
+  Check,
+  ChevronDown,
+  GripVertical,
+  Loader2,
+  Paperclip,
+  Pencil,
+  Square,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { Agent, EngineInfo, QueuedPrompt, RunConfig, ThinkingLevel } from '@haikodev/shared';
 import {
   Button,
@@ -41,6 +52,8 @@ export function Composer({
   onProposeTask,
 }: ComposerProps) {
   const [text, setText] = React.useState('');
+  /** Message en attente en cours de modification, et le texte mis de côté. */
+  const [edition, setEdition] = React.useState<{ id: string; texteMisDeCote: string } | null>(null);
   const [attachments, setAttachments] = React.useState<{ id: string; name: string }[]>([]);
   const [uploading, setUploading] = React.useState(false);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -82,6 +95,9 @@ export function Composer({
       premierPassage.current = false;
       return;
     }
+    // Pendant la modification d'un message en attente, le brouillon garde ce
+    // qui a été mis de côté : il ne prend pas la place du texte modifié.
+    if (edition) return;
     // Retenu tout de suite en mémoire, envoyé au serveur juste après.
     client.setPrefLocally(cleBrouillon, text);
     const timer = window.setTimeout(
@@ -149,7 +165,33 @@ export function Composer({
     }
   };
 
+  /*
+   * Modifier un message en attente : il s'ouvre ICI, dans la barre d'écriture.
+   * Ce qui était déjà écrit est mis de côté et revient intact une fois la
+   * modification envoyée (ou annulée) — on ne perd jamais un début de phrase.
+   */
+  const ouvrirEnEdition = (item: QueuedPrompt) => {
+    setEdition((courante) => ({ id: item.id, texteMisDeCote: courante?.texteMisDeCote ?? text }));
+    setText(item.text);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  };
+
+  const terminerEdition = (envoyer: boolean) => {
+    if (!edition) return;
+    if (envoyer && text.trim()) {
+      client.send({ type: 'queue.update', id: edition.id, text: text.trim() });
+    }
+    setText(edition.texteMisDeCote);
+    setEdition(null);
+  };
+
   const submit = async (asProposal = false) => {
+    // En cours de modification, le bouton d'envoi enregistre la modification.
+    if (edition) {
+      terminerEdition(true);
+      return;
+    }
+
     const body = [text.trim(), ...picked].filter(Boolean).join('\n');
     if (!body || !agent) return;
 
@@ -192,7 +234,13 @@ export function Composer({
       {queue.length ? (
         <div className="mb-1.5 space-y-1">
           {queue.map((item, index) => (
-            <QueuedItem key={item.id} item={item} index={index} />
+            <QueuedItem
+              key={item.id}
+              item={item}
+              index={index}
+              actif={edition?.id === item.id}
+              onEdit={() => ouvrirEnEdition(item)}
+            />
           ))}
           <p className="px-1 text-[12px] text-faint">
             {queue.length === 1
@@ -245,6 +293,23 @@ export function Composer({
         />
       ) : null}
 
+      {edition ? (
+        <div className="mb-1.5 flex items-center gap-2 rounded-md border border-accent/50 bg-surface px-2.5 py-1.5">
+          <Pencil className="h-3 w-3 shrink-0 text-accent" />
+          <span className="min-w-0 flex-1 truncate text-[13px] text-muted">
+            Modification d'un message en attente
+            {edition.texteMisDeCote ? ' — ce que vous écriviez revient juste après' : ''}
+          </span>
+          <button
+            type="button"
+            onClick={() => terminerEdition(false)}
+            className="shrink-0 text-[12.5px] text-faint hover:text-text"
+          >
+            Annuler
+          </button>
+        </div>
+      ) : null}
+
       <div className={cn('rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
         <Textarea
           ref={textareaRef}
@@ -258,7 +323,13 @@ export function Composer({
               void upload(files);
             }
           }}
-          placeholder={busy ? 'L\'agent travaille — votre message attendra son tour…' : 'Écrivez votre demande…'}
+          placeholder={
+            edition
+              ? 'Modifiez le message en attente…'
+              : busy
+                ? "L'agent travaille — votre message attendra son tour…"
+                : 'Écrivez votre demande…'
+          }
           rows={1}
           className="min-h-[38px] border-0 bg-transparent focus-visible:ring-0"
         />
@@ -329,7 +400,7 @@ export function Composer({
           ) : null}
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            {onProposeTask && (text.trim() || picked.length) ? (
+            {onProposeTask && !edition && (text.trim() || picked.length) ? (
               <Button variant="ghost" size="sm" onClick={() => submit(true)}>
                 En faire une tâche
               </Button>
@@ -349,10 +420,11 @@ export function Composer({
             <Button
               variant="default"
               size="icon"
-              disabled={!agent || (!text.trim() && !picked.length)}
+              title={edition ? 'Enregistrer la modification' : 'Envoyer'}
+              disabled={edition ? !text.trim() : !agent || (!text.trim() && !picked.length)}
               onClick={() => submit()}
             >
-              <ArrowUp className="h-3.5 w-3.5" />
+              {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
             </Button>
           </div>
         </div>
@@ -443,33 +515,48 @@ function Appetite({ level }: { level: 'light' | 'medium' | 'heavy' }) {
   );
 }
 
-function QueuedItem({ item, index }: { item: QueuedPrompt; index: number }) {
-  const [editing, setEditing] = React.useState(false);
-  const [value, setValue] = React.useState(item.text);
-
+/**
+ * Un message en attente. Le modifier l'ouvre dans la BARRE D'ÉCRITURE, en bas,
+ * avec toute la place — pas dans une ligne minuscule.
+ */
+function QueuedItem({
+  item,
+  index,
+  actif,
+  onEdit,
+}: {
+  item: QueuedPrompt;
+  index: number;
+  actif: boolean;
+  onEdit: () => void;
+}) {
   return (
-    <div className="flex items-start gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5">
+    <div
+      className={cn(
+        'flex items-start gap-1.5 rounded-md border bg-surface px-2 py-1.5',
+        actif ? 'border-accent/50' : 'border-border',
+      )}
+    >
       <GripVertical className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
       <span className="mt-0.5 text-[12px] text-faint">{index + 1}</span>
-      {editing ? (
-        <input
-          autoFocus
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onBlur={() => {
-            setEditing(false);
-            if (value !== item.text) client.send({ type: 'queue.update', id: item.id, text: value });
-          }}
-          onKeyDown={(event) => event.key === 'Enter' && (event.target as HTMLInputElement).blur()}
-          className="flex-1 bg-transparent text-[13.5px] text-text outline-none"
-        />
-      ) : (
-        <button type="button" onClick={() => setEditing(true)} className="flex-1 text-left text-[13.5px] text-muted">
-          {item.text}
-        </button>
-      )}
       <button
         type="button"
+        onClick={onEdit}
+        className="flex-1 text-left text-[13.5px] leading-snug text-muted hover:text-text"
+      >
+        {item.text}
+      </button>
+      <button
+        type="button"
+        title="Modifier"
+        onClick={onEdit}
+        className="mt-0.5 text-faint hover:text-text"
+      >
+        <Pencil className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        title="Retirer de la file"
         onClick={() => client.send({ type: 'queue.remove', id: item.id })}
         className="mt-0.5 text-faint hover:text-danger"
       >

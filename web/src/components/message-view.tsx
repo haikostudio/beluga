@@ -10,12 +10,14 @@ import {
   Paperclip,
   X,
 } from 'lucide-react';
-import { MEMORY_STEP_ID, Message } from '@haikodev/shared';
+import { Attachment, MEMORY_STEP_ID, Message } from '@haikodev/shared';
 import { Badge, Button, Textarea } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { MemoryNote, TodoList } from '@/components/todos';
+import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { client } from '@/lib/client';
+import { useApp } from '@/lib/use-app';
 import { cn, duration, relativeTime } from '@/lib/utils';
 
 /** Une ligne de repères : quand, combien de temps, combien de jetons. */
@@ -60,13 +62,7 @@ export function MessageView({
           <div className="rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
             <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-text">{message.content}</p>
             {message.attachments.length ? (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {message.attachments.map((id) => (
-                  <Badge key={id}>
-                    <Paperclip className="h-2.5 w-2.5" /> pièce jointe
-                  </Badge>
-                ))}
-              </div>
+              <PiecesJointes ids={message.attachments} projectId={projectId} />
             ) : null}
           </div>
           <div className="text-right">
@@ -150,6 +146,40 @@ export function MessageView({
         {relativeTime(message.createdAt)}
       </div>
     </div>
+  );
+}
+
+/**
+ * Les pièces jointes d'un message : les images se voient tout de suite, les
+ * autres fichiers se reconnaissent à leur nom. Un clic ouvre l'aperçu en grand.
+ */
+function PiecesJointes({ ids, projectId }: { ids: string[]; projectId?: string }) {
+  const state = useApp();
+  const [apercu, setApercu] = React.useState<Attachment | null>(null);
+  const connues = projectId ? (state.attachments[projectId] ?? []) : [];
+
+  // La liste du projet peut ne pas être encore chargée : on la demande.
+  React.useEffect(() => {
+    if (projectId && !state.attachments[projectId]) {
+      client.send({ type: 'attachments.list', projectId });
+    }
+  }, [projectId]);
+
+  const items = ids.map((id) => connues.find((item) => item.id === id)).filter(Boolean) as Attachment[];
+
+  return (
+    <>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {items.length
+          ? items.map((item) => <AttachmentThumb key={item.id} item={item} onOpen={() => setApercu(item)} />)
+          : ids.map((id) => (
+              <Badge key={id}>
+                <Paperclip className="h-2.5 w-2.5" /> pièce jointe
+              </Badge>
+            ))}
+      </div>
+      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
+    </>
   );
 }
 
