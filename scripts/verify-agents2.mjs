@@ -6,7 +6,7 @@
 import WebSocket from '/root/haikodev/node_modules/ws/index.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 const BASE = 'http://127.0.0.1:7070';
 const USER = process.env.HAIKODEV_USER;
@@ -28,6 +28,56 @@ async function login() {
   const cookie = res.headers.get('set-cookie')?.split(';')[0];
   if (!cookie) throw new Error('connexion refusée');
   return cookie;
+}
+
+function serviceInfo() {
+  const raw = execFileSync(
+    'sudo',
+    ['-n', 'systemctl', 'show', 'haikodev', '--property=ActiveState,SubState,MainPID,ExecMainStartTimestamp'],
+    { encoding: 'utf8' },
+  );
+  const values = Object.fromEntries(
+    raw
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => line.split('=', 2)),
+  );
+  return {
+    activeState: values.ActiveState ?? '',
+    subState: values.SubState ?? '',
+    mainPid: Number(values.MainPID ?? 0),
+    startedAt: values.ExecMainStartTimestamp ?? '',
+  };
+}
+
+async function waitForServiceRestart(before, timeoutMs = 120000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const after = serviceInfo();
+      const restarted =
+        after.activeState === 'active' &&
+        after.subState === 'running' &&
+        after.mainPid > 0 &&
+        (after.mainPid !== before.mainPid || after.startedAt !== before.startedAt);
+
+      if (restarted) {
+        const health = await fetch(`${BASE}/health`);
+        if (health.ok) return { after, health: await health.json() };
+      }
+    } catch (err) {
+      lastError = err;
+    }
+
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  throw new Error(
+    `redémarrage non confirmé après ${Math.round(timeoutMs / 1000)}s${lastError ? ` : ${lastError.message}` : ''}`,
+  );
 }
 
 class Session {
@@ -280,8 +330,9 @@ async function main() {
   });
   session.close();
 
+  const beforeRestart = serviceInfo();
   execSync('sudo systemctl restart haikodev');
-  await new Promise((r) => setTimeout(r, 6000));
+  await waitForServiceRestart(beforeRestart);
 
   const cookie2 = await login();
   const session2 = new Session(cookie2);

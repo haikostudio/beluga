@@ -74,7 +74,16 @@ function niveau(id: string, description?: string): ThinkingOption {
 /* Claude                                                              */
 /* ------------------------------------------------------------------ */
 
-function claudeToken(): string | null {
+/**
+ * TOUS les jetons Claude disponibles, du compte prioritaire au dernier, les
+ * jetons périmés relégués à la fin. Un seul compte ne doit pas décider du
+ * catalogue : son jeton peut être expiré alors qu'un autre compte répond très
+ * bien — sinon on retombe sur la liste locale à trois entrées (rencontré le
+ * 02/08/2026).
+ */
+function claudeTokens(): string[] {
+  const valides: string[] = [];
+  const perimes: string[] = [];
   const accounts = listAccountRecords()
     .filter((a) => a.engine === 'claude')
     .sort((a, b) => a.priority - b.priority);
@@ -82,19 +91,36 @@ function claudeToken(): string | null {
     try {
       const raw = JSON.parse(fs.readFileSync(path.join(account.configDir, '.credentials.json'), 'utf8'));
       const token = raw?.claudeAiOauth?.accessToken;
-      if (token) return token;
+      if (!token) continue;
+      const expire = Number(raw?.claudeAiOauth?.expiresAt);
+      if (Number.isFinite(expire) && expire <= Date.now()) perimes.push(token);
+      else valides.push(token);
     } catch {
       /* compte suivant */
     }
   }
-  return null;
+  return [...valides, ...perimes];
 }
 
 export async function claudeCatalog(): Promise<{ models: ModelInfo[]; live: boolean }> {
-  const token = claudeToken();
-  if (!token) return { models: claudeFallback(), live: false };
+  const tokens = claudeTokens();
+  if (!tokens.length) return { models: claudeFallback(), live: false };
 
-  try {
+  let dernierEchec = 'aucun compte joignable';
+  for (const token of tokens) {
+    try {
+      return await claudeCatalogAvec(token);
+    } catch (err: any) {
+      dernierEchec = err?.message ?? String(err);
+      // Compte suivant : un jeton périmé ne doit pas priver de tout le catalogue.
+    }
+  }
+  log.warn('catalogue Claude indisponible, repli local', dernierEchec);
+  return { models: claudeFallback(), live: false };
+}
+
+async function claudeCatalogAvec(token: string): Promise<{ models: ModelInfo[]; live: boolean }> {
+  {
     const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
       headers: {
         authorization: `Bearer ${token}`,
@@ -132,9 +158,6 @@ export async function claudeCatalog(): Promise<{ models: ModelInfo[]; live: bool
     // Le plus RÉCENT en haut, le plus ancien en bas — jamais l'ordre alphabétique.
     models.sort(byRecency);
     return { models, live: true };
-  } catch (err: any) {
-    log.warn('catalogue Claude indisponible, repli local', err?.message ?? err);
-    return { models: claudeFallback(), live: false };
   }
 }
 
@@ -151,7 +174,9 @@ function claudeFallback(): ModelInfo[] {
 /* Codex                                                               */
 /* ------------------------------------------------------------------ */
 
-function codexToken(): string | null {
+/** Tous les jetons Codex, du compte prioritaire au dernier (même règle que Claude). */
+function codexTokens(): string[] {
+  const tokens: string[] = [];
   const accounts = listAccountRecords()
     .filter((a) => a.engine === 'codex')
     .sort((a, b) => a.priority - b.priority);
@@ -159,19 +184,32 @@ function codexToken(): string | null {
     try {
       const raw = JSON.parse(fs.readFileSync(path.join(account.configDir, 'auth.json'), 'utf8'));
       const token = raw?.tokens?.access_token ?? raw?.OPENAI_API_KEY;
-      if (token) return token;
+      if (token) tokens.push(token);
     } catch {
       /* compte suivant */
     }
   }
-  return null;
+  return tokens;
 }
 
 export async function codexCatalog(version: string): Promise<{ models: ModelInfo[]; live: boolean }> {
-  const token = codexToken();
-  if (!token) return { models: codexFallback(), live: false };
+  const tokens = codexTokens();
+  if (!tokens.length) return { models: codexFallback(), live: false };
 
-  try {
+  let dernierEchec = 'aucun compte joignable';
+  for (const token of tokens) {
+    try {
+      return await codexCatalogAvec(version, token);
+    } catch (err: any) {
+      dernierEchec = err?.message ?? String(err);
+    }
+  }
+  log.warn('catalogue Codex indisponible, repli local', dernierEchec);
+  return { models: codexFallback(), live: false };
+}
+
+async function codexCatalogAvec(version: string, token: string): Promise<{ models: ModelInfo[]; live: boolean }> {
+  {
     const clientVersion = (version.match(/[\d.]+/)?.[0] ?? '0.146.0').trim();
     const res = await fetch(`https://chatgpt.com/backend-api/codex/models?client_version=${clientVersion}`, {
       headers: { authorization: `Bearer ${token}`, originator: 'codex_cli_rs' },
@@ -216,9 +254,6 @@ export async function codexCatalog(version: string): Promise<{ models: ModelInfo
     }
 
     return { models: [...parNom.values()], live: true };
-  } catch (err: any) {
-    log.warn('catalogue Codex indisponible, repli local', err?.message ?? err);
-    return { models: codexFallback(), live: false };
   }
 }
 

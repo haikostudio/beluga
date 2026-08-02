@@ -6,7 +6,7 @@ import path from 'node:path';
 import { MEMORY_STEP_ID, Message } from '@haikodev/shared';
 import { EngineEvent, normalizeTodos } from '../engines/types.js';
 import { emitFromClaude } from '../engines/claude.js';
-import { emitFromCodex } from '../engines/codex.js';
+import { buildCodexArgs, emitFromCodex } from '../engines/codex.js';
 import { appendMemory, memorySummary } from '../memory.js';
 import { ORCHESTRATOR_ALLOWED_NATIVE, ORCHESTRATOR_DENIED_NATIVE } from '../tools.js';
 
@@ -117,6 +117,27 @@ test('le flux de Codex sort la même liste, dans le même format', () => {
   assert.equal(events.length, 1);
   assert.equal(events[0].kind, 'todo');
   assert.deepEqual(events[0].todos, [{ label: 'Lire le chat', state: 'done' }]);
+});
+
+test('la reprise Codex n’utilise que les options acceptées par exec resume', () => {
+  const args = buildCodexArgs({
+    cwd: '/srv/projet',
+    prompt: 'Continue',
+    sessionId: '00000000-0000-0000-0000-000000000000',
+    fullAccess: false,
+    onEvent: () => undefined,
+  });
+
+  assert.deepEqual(args.slice(0, 5), [
+    'exec',
+    'resume',
+    '00000000-0000-0000-0000-000000000000',
+    '--json',
+    '--skip-git-repo-check',
+  ]);
+  assert.equal(args.includes('-C'), false);
+  assert.equal(args.includes('-s'), false);
+  assert.ok(args.includes('sandbox_mode="read-only"'));
 });
 
 test('le chef d\'orchestre peut annoncer sa liste de tâches, qui ne touche à rien', () => {

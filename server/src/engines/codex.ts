@@ -27,34 +27,7 @@ export const codexAdapter: EngineAdapter = {
   },
 
   run(options: EngineRunOptions): EngineHandle {
-    const args: string[] = ['exec', '--json', '--skip-git-repo-check', '-C', options.cwd];
-
-    if (options.sessionId) {
-      // Reprise de conversation : « exec resume <id> ».
-      args.splice(1, 0, 'resume', options.sessionId);
-    }
-    if (options.model) args.push('-m', options.model);
-    if (options.thinking && options.thinking !== 'none') {
-      args.push('-c', `model_reasoning_effort="${options.thinking}"`);
-    }
-    if (options.fullAccess) {
-      args.push('--dangerously-bypass-approvals-and-sandbox');
-    } else {
-      args.push('-s', 'read-only');
-    }
-    if (options.mcpConfigPath) {
-      // Codex reçoit ses serveurs d'outils par surcharge de configuration.
-      args.push('-c', `mcp_servers.haikodev.command="node"`);
-      args.push('-c', `mcp_servers.haikodev.args=["${options.mcpConfigPath}"]`);
-      if (options.env?.HAIKODEV_TOKEN) {
-        args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_TOKEN="${options.env.HAIKODEV_TOKEN}"`);
-        args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_URL="${options.env.HAIKODEV_URL ?? ''}"`);
-        args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_AGENT="${options.env.HAIKODEV_AGENT ?? ''}"`);
-      }
-    }
-
-    const prompt = options.systemPrompt ? `${options.systemPrompt}\n\n---\n\n${options.prompt}` : options.prompt;
-    args.push(prompt);
+    const args = buildCodexArgs(options);
 
     const child = spawn(codexAdapter.binary, args, {
       cwd: options.cwd,
@@ -123,6 +96,41 @@ export const codexAdapter: EngineAdapter = {
     };
   },
 };
+
+export function buildCodexArgs(options: EngineRunOptions): string[] {
+  const resuming = Boolean(options.sessionId);
+  const args: string[] = resuming
+    ? ['exec', 'resume', options.sessionId as string, '--json', '--skip-git-repo-check']
+    : ['exec', '--json', '--skip-git-repo-check', '-C', options.cwd];
+
+  if (options.model) args.push('-m', options.model);
+  if (options.thinking && options.thinking !== 'none') {
+    args.push('-c', `model_reasoning_effort="${options.thinking}"`);
+  }
+  if (options.fullAccess) {
+    args.push('--dangerously-bypass-approvals-and-sandbox');
+  } else if (resuming) {
+    // `codex exec resume` n'accepte ni `-C` ni `-s`. Le processus est déjà
+    // lancé dans options.cwd et la surcharge de configuration reste acceptée.
+    args.push('-c', 'sandbox_mode="read-only"');
+  } else {
+    args.push('-s', 'read-only');
+  }
+  if (options.mcpConfigPath) {
+    // Codex reçoit ses serveurs d'outils par surcharge de configuration.
+    args.push('-c', `mcp_servers.haikodev.command="node"`);
+    args.push('-c', `mcp_servers.haikodev.args=["${options.mcpConfigPath}"]`);
+    if (options.env?.HAIKODEV_TOKEN) {
+      args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_TOKEN="${options.env.HAIKODEV_TOKEN}"`);
+      args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_URL="${options.env.HAIKODEV_URL ?? ''}"`);
+      args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_AGENT="${options.env.HAIKODEV_AGENT ?? ''}"`);
+    }
+  }
+
+  const prompt = options.systemPrompt ? `${options.systemPrompt}\n\n---\n\n${options.prompt}` : options.prompt;
+  args.push(prompt);
+  return args;
+}
 
 export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): void {
   // Format « fil » (Codex ≥ 0.40) : thread.started / item.started / item.completed / turn.completed
