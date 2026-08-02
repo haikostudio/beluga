@@ -73,18 +73,34 @@ export function Composer({
   const [draft] = usePref<string>(cleBrouillon, '');
   const chargePour = React.useRef<string | undefined>(undefined);
   const premierPassage = React.useRef(true);
+  /** Le brouillon n'est posé qu'UNE fois par conversation ouverte. */
+  const brouillonPose = React.useRef<string | undefined>(undefined);
+  /** Le dernier texte parti : il ne doit JAMAIS revenir tout seul dans le champ. */
+  const dejaEnvoye = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     // Agent absent l'espace d'un instant : on ne touche surtout à rien.
     if (!agentId) return;
+
     if (chargePour.current !== agentId) {
       // Vraie ouverture d'une autre conversation : on affiche SON brouillon.
       chargePour.current = agentId;
       premierPassage.current = true;
+      brouillonPose.current = draft ? agentId : undefined;
+      dejaEnvoye.current = null;
       setText(draft);
       return;
     }
-    // Même conversation : le brouillon venu du serveur ne remplit que le vide.
+
+    /*
+     * Même conversation. Le brouillon peut arriver du serveur juste après
+     * l'ouverture : on le pose alors UNE seule fois. Passé ce moment, plus
+     * rien ne réécrit le champ tout seul — surtout pas un message déjà parti,
+     * dont l'écho tardif remettait le texte envoyé sous les yeux.
+     */
+    if (brouillonPose.current === agentId) return;
+    if (!draft || draft === dejaEnvoye.current) return;
+    brouillonPose.current = agentId;
     setText((current) => current || draft);
   }, [agentId, draft]);
 
@@ -98,6 +114,9 @@ export function Composer({
     // Pendant la modification d'un message en attente, le brouillon garde ce
     // qui a été mis de côté : il ne prend pas la place du texte modifié.
     if (edition) return;
+    // Dès que la personne écrit à nouveau, l'ancien envoi cesse d'être une
+    // référence : c'est un texte neuf.
+    if (text) dejaEnvoye.current = null;
     // Retenu tout de suite en mémoire, envoyé au serveur juste après.
     client.setPrefLocally(cleBrouillon, text);
     const timer = window.setTimeout(
@@ -195,13 +214,28 @@ export function Composer({
     const body = [text.trim(), ...picked].filter(Boolean).join('\n');
     if (!body || !agent) return;
 
+    /*
+     * Un message parti est parti. On efface le brouillon TOUT DE SUITE, en
+     * mémoire et sur le serveur, et on retient le texte envoyé : un écho tardif
+     * du serveur ne peut plus le remettre dans le champ. Seule la modification
+     * d'un message en attente remet du texte, et c'est un geste volontaire.
+     */
+    const oublierBrouillon = () => {
+      dejaEnvoye.current = text;
+      brouillonPose.current = agentId;
+      client.setPrefLocally(cleBrouillon, '');
+      client.send({ type: 'prefs.set', key: cleBrouillon, value: '' });
+    };
+
     if (asProposal && onProposeTask) {
       onProposeTask(body);
+      oublierBrouillon();
       setText('');
       onClearPicked();
       return;
     }
 
+    oublierBrouillon();
     setText('');
     onClearPicked();
     setAttachments([]);
@@ -213,7 +247,9 @@ export function Composer({
         attachments: attachments.map((a) => a.id),
       });
     } catch (err: any) {
+      // L'envoi a échoué : là, on rend le texte, sinon il serait perdu.
       client.pushToast('error', err?.message ?? 'envoi impossible');
+      dejaEnvoye.current = null;
       setText(body);
     }
   };
