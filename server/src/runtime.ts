@@ -20,7 +20,7 @@ import { CONFIG, PATHS } from './config.js';
 import { adapterFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
-import { briefing, memorySummary } from './memory.js';
+import { briefing, memoryFacts, memorySummary, newFactsSince } from './memory.js';
 import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
@@ -164,8 +164,26 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     // il travaille pour de vrai, sa réponse doit se lire comme les autres.
     (agent.role === 'orchestrator' ? 'free' : templateForColumn(card?.column, !!card?.deployedAt));
 
-  // Contexte : briefing du projet (mémoire vivante) + rôle + carte.
-  const contextParts: string[] = [briefing(project.path, project.name)];
+  /*
+   * La mémoire du projet part EN ENTIER au lancement d'une session — nouvelle
+   * tâche, nouveau chef d'orchestre, changement de moteur. Ensuite l'agent l'a
+   * déjà dans son contexte : lui renvoyer les cent lignes à chaque message ne
+   * lui apprend rien et coûte des jetons à chaque tour. Sur les tours suivants,
+   * on n'envoie donc que les faits AJOUTÉS depuis.
+   */
+  const nouvelleSession = !store.getSessionId(agent.id, agent.run.engine);
+  const contextParts: string[] = [briefing(project.path, project.name, nouvelleSession)];
+
+  if (nouvelleSession) {
+    store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+  } else {
+    const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
+    if (nouveaux.length) {
+      contextParts.push(`MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.join('\n')}`);
+      store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+    }
+  }
+
   if (options.context) contextParts.push(options.context);
   if (card) {
     contextParts.push(
@@ -183,7 +201,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   }
 
   const prompt = wrapPrompt(template, text, contextParts.join('\n\n'));
-  await startTurn(agent, prompt, template, options.onComplete);
+  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession);
 }
 
 async function startTurn(
@@ -191,6 +209,8 @@ async function startTurn(
   prompt: string,
   template: TemplateKind,
   onComplete?: PromptOptions['onComplete'],
+  /** Vrai au tout premier tour d'une session : c'est là qu'on lit la mémoire. */
+  nouvelleSession = true,
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -226,22 +246,26 @@ async function startTurn(
    * des centaines de fois pour rien, l'interface l'a déjà de son côté.
    */
   const memory = memorySummary(project.path);
-  const memoryStep: RunStep = {
-    id: MEMORY_STEP_ID,
-    label: memory.facts
-      ? `Lecture de la mémoire du projet — ${memory.facts} fait${memory.facts > 1 ? 's' : ''} retenu${memory.facts > 1 ? 's' : ''}`
-      : 'Mémoire du projet encore vide',
-    state: memory.facts ? 'done' : 'skipped',
-    startedAt: Date.now(),
-    endedAt: Date.now(),
-  };
+  const memoryStep: RunStep | null = nouvelleSession
+    ? {
+        id: MEMORY_STEP_ID,
+        label: memory.facts
+          ? `Lecture de la mémoire du projet — ${memory.facts} fait${memory.facts > 1 ? 's' : ''} retenu${memory.facts > 1 ? 's' : ''}`
+          : 'Mémoire du projet encore vide',
+        state: memory.facts ? 'done' : 'skipped',
+        startedAt: Date.now(),
+        endedAt: Date.now(),
+      }
+    : // Session déjà ouverte : la mémoire est dans le contexte de l'agent, on ne
+      // la relit pas et on n'affiche donc pas l'étape.
+      null;
 
   const assistantMessage = Message.parse({
     id: store.newId(),
     agentId: agent.id,
     role: 'assistant',
     content: '',
-    steps: [memoryStep],
+    steps: memoryStep ? [memoryStep] : [],
     streaming: true,
     createdAt: store.now(),
   });
@@ -253,7 +277,7 @@ async function startTurn(
     handle: null as unknown as EngineHandle,
     messageId: assistantMessage.id,
     startedAt: Date.now(),
-    steps: new Map([[memoryStep.id, memoryStep]]),
+    steps: new Map(memoryStep ? [[memoryStep.id, memoryStep]] : []),
     todos: [],
     text: '',
     account: account.id,

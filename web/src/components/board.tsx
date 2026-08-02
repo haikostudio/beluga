@@ -129,10 +129,14 @@ export function Board({
         );
       })}
 
-      {/* L'aperçu suit le doigt : on voit ce qu'on déplace et où on le pose. */}
+      {/*
+        L'aperçu suit le doigt. Il garde EXACTEMENT la largeur d'une carte dans
+        sa colonne : au doigt, un aperçu qui rétrécit donne l'impression que la
+        carte a changé de taille en route.
+      */}
       {dragging && pointer ? (
         <div
-          className="pointer-events-none fixed z-50 max-w-[240px] rounded-md border border-muted bg-raised px-2.5 py-2 text-[14px] font-medium text-text shadow-2xl"
+          className="pointer-events-none fixed z-50 w-[254px] rounded-md border border-muted bg-raised px-2.5 py-2 text-[14px] font-medium leading-snug text-text shadow-2xl"
           style={{ left: pointer.x + 12, top: pointer.y - 18 }}
         >
           {dragging.label}

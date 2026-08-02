@@ -85,11 +85,34 @@ export function memorySummary(projectPath: string): { facts: number; text: strin
   return { facts, text: memory };
 }
 
+/** Les faits de la mémoire, un par ligne, dans leur ordre d'écriture. */
+export function memoryFacts(projectPath: string): string[] {
+  return readMemory(projectPath)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '));
+}
+
+/**
+ * Les faits ajoutés DEPUIS un point donné. Une session d'agent garde la mémoire
+ * dans son contexte : la renvoyer en entier à chaque message la répéterait des
+ * dizaines de fois pour rien. Seul le complément est utile.
+ */
+export function newFactsSince(projectPath: string, alreadySeen: number): string[] {
+  const facts = memoryFacts(projectPath);
+  // La mémoire a été raccourcie ou réécrite : on repart du tout.
+  if (alreadySeen > facts.length) return facts;
+  return facts.slice(alreadySeen);
+}
+
 /**
  * Le briefing compact injecté au lancement de chaque agent : il sait déjà où
  * regarder au lieu de redécouvrir le projet de zéro.
+ *
+ * `avecMemoire` est faux pour les tours SUIVANTS d'une même session : l'agent a
+ * déjà la mémoire sous les yeux, on ne lui renvoie que les faits nouveaux.
  */
-export function briefing(projectPath: string, projectName: string): string {
+export function briefing(projectPath: string, projectName: string, avecMemoire = true): string {
   const memory = readMemory(projectPath).trim();
   const parts: string[] = [`Projet : ${projectName} (dossier ${projectPath}).`];
 
@@ -97,6 +120,8 @@ export function briefing(projectPath: string, projectName: string): string {
     fs.existsSync(path.join(projectPath, f)),
   );
   if (instructions.length) parts.push(`Fichiers d'instructions présents : ${instructions.join(', ')}.`);
+
+  if (!avecMemoire) return parts.join('\n\n');
 
   if (memory) {
     parts.push(`MÉMOIRE DU PROJET (à connaître avant d'explorer) :\n${memory}`);

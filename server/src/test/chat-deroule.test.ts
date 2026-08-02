@@ -7,7 +7,7 @@ import { MEMORY_STEP_ID, Message } from '@haikodev/shared';
 import { EngineEvent, normalizeTodos } from '../engines/types.js';
 import { SuiviDesTaches, emitFromClaude } from '../engines/claude.js';
 import { buildCodexArgs, emitFromCodex } from '../engines/codex.js';
-import { appendMemory, memorySummary } from '../memory.js';
+import { appendMemory, briefing, memoryFacts, memorySummary, newFactsSince } from '../memory.js';
 import { ORCHESTRATOR_ALLOWED_NATIVE, ORCHESTRATOR_DENIED_NATIVE } from '../tools.js';
 import { allDone, mergeTodos } from '../todos.js';
 
@@ -262,4 +262,49 @@ test('une tâche supprimée sort de la liste sans décaler les autres', () => {
     { label: 'Une', state: 'todo' },
     { label: 'Trois', state: 'done' },
   ]);
+});
+
+/* ------------------------------------------------------------------ */
+/* La mémoire ne repart pas en entier à chaque message                 */
+/* ------------------------------------------------------------------ */
+
+test("la mémoire n'est envoyée en entier qu'à l'ouverture d'une session", () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'haikodev-memoire-session-'));
+  try {
+    appendMemory(dossier, 'Le démon est la source de vérité.');
+    appendMemory(dossier, 'Une carte naît toujours dans « À faire ».');
+
+    // Ouverture de session : la mémoire entière part avec la demande.
+    const ouverture = briefing(dossier, 'Essai', true);
+    assert.match(ouverture, /MÉMOIRE DU PROJET/);
+    assert.match(ouverture, /source de vérité/);
+
+    // Tour suivant : plus de mémoire, seulement le repère du projet.
+    const suite = briefing(dossier, 'Essai', false);
+    assert.doesNotMatch(suite, /MÉMOIRE DU PROJET/);
+    assert.match(suite, /Projet : Essai/);
+  } finally {
+    fs.rmSync(dossier, { recursive: true, force: true });
+  }
+});
+
+test('seuls les faits ajoutés depuis sont renvoyés à l\'agent', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'haikodev-memoire-suite-'));
+  try {
+    appendMemory(dossier, 'Premier fait.');
+    appendMemory(dossier, 'Deuxième fait.');
+    const vus = memoryFacts(dossier).length;
+    assert.equal(vus, 2);
+    assert.deepEqual(newFactsSince(dossier, vus), []);
+
+    appendMemory(dossier, 'Troisième fait, appris en route.');
+    const nouveaux = newFactsSince(dossier, vus);
+    assert.equal(nouveaux.length, 1);
+    assert.match(nouveaux[0], /Troisième fait/);
+
+    // Mémoire raccourcie entre-temps : on repart du tout plutôt que de rien.
+    assert.equal(newFactsSince(dossier, 99).length, 3);
+  } finally {
+    fs.rmSync(dossier, { recursive: true, force: true });
+  }
 });

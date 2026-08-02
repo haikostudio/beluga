@@ -366,6 +366,21 @@ export function getSessionId(agentId: string, engine = 'claude'): string | null 
   return readSessions(agentId)[engine] ?? null;
 }
 
+/**
+ * Combien de faits de la mémoire du projet cet agent a DÉJÀ dans son contexte.
+ * Sert à ne lui renvoyer que les faits nouveaux au lieu de recoller la mémoire
+ * entière à chaque message.
+ */
+export function memorySeen(agentId: string): number {
+  const raw = getMeta(`memoire.vue.${agentId}`);
+  const n = raw ? Number(raw) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function setMemorySeen(agentId: string, facts: number): void {
+  setMeta(`memoire.vue.${agentId}`, String(Math.max(0, Math.round(facts))));
+}
+
 export function deleteAgent(id: string): void {
   const db = getDb();
   db.transaction(() => {
