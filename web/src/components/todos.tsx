@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BookOpen, Check, ChevronRight, Circle, CircleDot, Loader2 } from 'lucide-react';
+import { BookOpen, Check, ChevronRight, CircleDot, Loader2 } from 'lucide-react';
 import { RunStep, TodoItem } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -87,18 +87,26 @@ export function TodoList({ todos, streaming }: { todos?: TodoItem[]; streaming: 
         <ul className="space-y-0.5 border-t border-border px-2 py-1.5">
           {todos.map((todo, index) => (
             <li key={`${index}-${todo.label}`} className="flex items-start gap-2 px-1 py-1">
-              <span className="mt-[3px] shrink-0">
+              {/* Une vraie case à cocher : vide, en cours, ou cochée. */}
+              <span
+                className={cn(
+                  'mt-[2px] flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border',
+                  todo.state === 'done'
+                    ? 'border-success bg-success/15'
+                    : todo.state === 'running'
+                      ? 'border-accent'
+                      : 'border-border',
+                )}
+              >
                 {todo.state === 'done' ? (
-                  <Check className="h-3 w-3 text-success" />
+                  <Check className="h-2.5 w-2.5 text-success" />
                 ) : todo.state === 'running' ? (
                   streaming ? (
-                    <Loader2 className="h-3 w-3 animate-spin text-accent" />
+                    <Loader2 className="h-2.5 w-2.5 animate-spin text-accent" />
                   ) : (
-                    <CircleDot className="h-3 w-3 text-accent" />
+                    <CircleDot className="h-2.5 w-2.5 text-accent" />
                   )
-                ) : (
-                  <Circle className="h-3 w-3 text-faint" />
-                )}
+                ) : null}
               </span>
               <span
                 className={cn(

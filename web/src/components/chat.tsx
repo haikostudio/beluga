@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { MessageSquare } from 'lucide-react';
-import { Agent } from '@haikodev/shared';
+import { Loader2, MessageSquare } from 'lucide-react';
+import { Agent, Message } from '@haikodev/shared';
 import { EmptyState } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
@@ -77,6 +77,8 @@ export function Chat({
         <div ref={bottomRef} />
       </div>
 
+      <TravailEnCours agent={agent} messages={messages} busy={busy} />
+
       <Composer
         agent={agent}
         engines={state.engines}
@@ -88,6 +90,48 @@ export function Chat({
         projectId={projectId}
         onProposeTask={onProposeTask}
       />
+    </div>
+  );
+}
+
+/**
+ * Le témoin de travail, juste au-dessus de la barre d'écriture : on voit d'un
+ * coup d'œil si quelque chose tourne, quoi, et depuis combien de temps. Quand
+ * rien ne tourne, la ligne disparaît complètement.
+ */
+function TravailEnCours({
+  agent,
+  messages,
+  busy,
+}: {
+  agent: Agent | null;
+  messages: Message[];
+  busy: boolean;
+}) {
+  const [, forcer] = React.useState(0);
+
+  // Le temps écoulé avance tout seul, seconde par seconde.
+  React.useEffect(() => {
+    if (!busy) return;
+    const timer = window.setInterval(() => forcer((n) => n + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
+
+  if (!busy) return null;
+
+  const dernier = messages[messages.length - 1];
+  const todoEnCours = dernier?.todos?.find((todo) => todo.state === 'running');
+  const etapeEnCours = [...(dernier?.steps ?? [])].reverse().find((step) => step.state === 'running');
+  const quoi = todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…';
+
+  const depuis = agent?.startedAt ? Math.round((Date.now() - agent.startedAt) / 1000) : null;
+  const temps = depuis === null ? null : depuis < 60 ? `${depuis} s` : `${Math.floor(depuis / 60)} min ${depuis % 60} s`;
+
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-t border-border bg-surface/60 px-3 py-1.5">
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
+      <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
+      {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
     </div>
   );
 }
