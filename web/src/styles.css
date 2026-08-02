@@ -86,21 +86,26 @@
     @apply border-t border-border;
   }
 
-  /* Rendu Markdown des réponses d'agent */
+  /* Rendu Markdown des réponses d'agent.
+     Chaque section est un bloc : trait de séparation au-dessus du titre, et de
+     l'air entre les paragraphes — sinon la réponse se lit comme un pavé. */
   .prose-hd {
-    @apply text-[15px] leading-relaxed;
+    @apply text-[15px] leading-[1.7];
   }
   .prose-hd h2 {
-    @apply mt-5 mb-2 text-[15px] font-semibold tracking-tight text-text flex items-center gap-1.5;
+    @apply mt-7 mb-3 border-t border-border/70 pt-5 text-[15px] font-semibold tracking-tight text-text flex items-center gap-1.5;
+  }
+  .prose-hd > h2:first-child {
+    @apply mt-0 border-t-0 pt-0;
   }
   .prose-hd h3 {
-    @apply mt-4 mb-1.5 text-[14px] font-semibold text-text;
+    @apply mt-5 mb-2 text-[14px] font-semibold text-text;
   }
   .prose-hd p {
-    @apply my-1.5 text-muted;
+    @apply my-3 text-muted;
   }
   .prose-hd ul {
-    @apply my-1.5 space-y-1 pl-1;
+    @apply my-3 space-y-2 pl-1;
   }
   .prose-hd li {
     @apply text-muted flex gap-2;
@@ -113,7 +118,7 @@
     @apply rounded bg-raised px-1 py-0.5 text-[13px] font-mono text-text;
   }
   .prose-hd pre {
-    @apply my-2 overflow-x-auto rounded-md bg-raised p-3 text-[13px] leading-relaxed;
+    @apply my-3 overflow-x-auto rounded-md bg-raised p-3 text-[13px] leading-relaxed;
   }
   .prose-hd pre code {
     @apply bg-transparent p-0;
@@ -125,7 +130,7 @@
     @apply underline underline-offset-2 text-text;
   }
   .prose-hd table {
-    @apply my-2 w-full text-[13.5px];
+    @apply my-3 w-full text-[13.5px];
   }
   .prose-hd th {
     @apply border-b border-border pb-1 text-left font-medium text-text;

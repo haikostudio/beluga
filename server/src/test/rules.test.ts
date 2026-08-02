@@ -6,7 +6,9 @@ import {
   ColumnKey,
   canMove,
   checkTemplate,
+  denseSections,
   extractEvolutions,
+  paragraphBreakAfter,
   templateForColumn,
   wrapPrompt,
 } from '@haikodev/shared';
@@ -86,14 +88,63 @@ test('le chef d\'orchestre ne reçoit aucun gabarit', () => {
   assert.equal(prompt, 'Bonjour');
 });
 
-test('le contrôle de forme repère une réponse hors format', () => {
-  const good = '## 1. Ce qui est fait\n## 2. Ce qui change\n## 3. Impact\n## 4. Évolutions possibles';
-  assert.equal(checkTemplate('in_run', good).ok, true);
+const RAPPORT = [
+  '## 1. Analyse',
+  '## 2. Ce qui est fait',
+  '## 3. Conséquences',
+  '## 4. Impact',
+  '## 5. Évolutions possibles',
+  '## 6. Coûts',
+].join('\n\n');
 
-  const bad = '## 1. Ce qui est fait\n## 2. Bla';
+test('le contrôle de forme repère une réponse hors format', () => {
+  assert.equal(checkTemplate('in_run', RAPPORT).ok, true);
+
+  const bad = '## 1. Analyse\n## 2. Bla';
   const result = checkTemplate('in_run', bad);
   assert.equal(result.ok, false);
   assert.ok(result.missing.includes('Impact'));
+});
+
+/* ------------------------------------------------------------------ */
+/* Mise en forme : des blocs lisibles, pas un pavé                     */
+/* ------------------------------------------------------------------ */
+
+test('le compte rendu tient en six sections nettement séparées', () => {
+  const prompt = wrapPrompt('in_run', 'Range le tableau');
+  for (const titre of ['Analyse', 'Ce qui est fait', 'Conséquences', 'Impact', 'Évolutions possibles', 'Coûts']) {
+    assert.ok(prompt.includes(titre), `section manquante : ${titre}`);
+  }
+  assert.match(prompt, /## 1\. Analyse\n\n## 2\. Ce qui est fait/);
+  assert.match(prompt, /MISE EN FORME/);
+  assert.match(prompt, /LIGNE VIDE/);
+  assert.doesNotMatch(prompt, /Sois bref/);
+});
+
+test('une section tassée est signalée comme un pavé', () => {
+  const phrase = 'Le tableau a été repris de fond en comble pour que chaque partie se distingue. ';
+  const pave = `## 1. Analyse\n${phrase.repeat(6)}\n\n## 2. Impact\nDeux phrases courtes.\n\nEt un second paragraphe.`;
+  const dense = denseSections(pave);
+  assert.deepEqual(dense, ['Analyse']);
+  assert.equal(checkTemplate('in_run', pave).ok, false);
+
+  assert.deepEqual(denseSections(RAPPORT), []);
+});
+
+test('une longue liste ou un bloc de code ne passent pas pour un pavé', () => {
+  const puces = ['## 1. Analyse', ...Array.from({ length: 12 }, (_, i) => `- Un point de détail assez long numéro ${i}`)];
+  assert.deepEqual(denseSections(puces.join('\n')), []);
+
+  const code = '## 1. Analyse\n```\n' + 'const x = 1;\n'.repeat(60) + '```\n';
+  assert.deepEqual(denseSections(code), []);
+});
+
+test('un retour à la ligne du moteur ouvre un vrai paragraphe', () => {
+  assert.equal(paragraphBreakAfter('Le travail est terminé.', 'Les tests passent.'), true);
+  assert.equal(paragraphBreakAfter('Trois points restent :', '- un premier'), true);
+  // Une phrase coupée en plein milieu se recolle, elle.
+  assert.equal(paragraphBreakAfter('Le tableau affiche désormais', 'les six sections attendues.'), false);
+  assert.equal(paragraphBreakAfter('Voir M.', 'dupont pour la suite.'), false);
 });
 
 test('un journal de publication ne finit pas par une ligne de facture', () => {

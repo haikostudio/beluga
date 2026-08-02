@@ -336,7 +336,10 @@ async function startTurn(
   let finalText = runState.text.trim();
   const formCheck = checkTemplate(template, finalText);
   if (!formCheck.ok && finalText && template !== 'none') {
-    finalText += `\n\n> [!NOTE]\n> Réponse hors format : sections manquantes (${formCheck.missing.join(', ')}).`;
+    const griefs: string[] = [];
+    if (formCheck.missing.length) griefs.push(`sections manquantes (${formCheck.missing.join(', ')})`);
+    if (formCheck.dense.length) griefs.push(`texte tassé, sans paragraphes (${formCheck.dense.join(', ')})`);
+    finalText += `\n\n> [!NOTE]\n> Réponse hors format : ${griefs.join(' ; ')}.`;
   }
 
   const failed = !result.ok || !!sawError;

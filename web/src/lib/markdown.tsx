@@ -1,18 +1,25 @@
 import * as React from 'react';
 import { Lightbulb, Info, AlertTriangle, OctagonAlert, Plus, Check } from 'lucide-react';
+import { paragraphBreakAfter } from '@haikodev/shared';
 import { cn } from './utils';
 
 /**
  * Rendu Markdown maison : titres numérotés (l'application ajoute les icônes),
  * encadrés colorés, et surtout les « Évolutions possibles » CLIQUABLES (§15).
+ *
+ * Les paragraphes du moteur sont RESPECTÉS : deux lignes ne sont recollées que
+ * si la première s'arrête en plein milieu d'une phrase (voir
+ * `paragraphBreakAfter` dans le paquet partagé). Sans ça, une réponse écrite
+ * ligne par ligne se retrouvait fondue en un seul pavé.
  */
 
 const SECTION_ICONS: { test: RegExp; icon: string }[] = [
-  { test: /ce qui est fait|tâches publiées|ce qui a été publié|analyse de la demande/i, icon: '✅' },
-  { test: /ce qui change|approche retenue|déroulé|ce qui est en ligne/i, icon: '🔁' },
+  { test: /analyse/i, icon: '🔍' },
+  { test: /ce qui est fait|actions faites|tâches publiées|ce qui a été publié/i, icon: '✅' },
+  { test: /conséquences|ce qui change|approche retenue|déroulé|ce qui est en ligne/i, icon: '🔁' },
   { test: /impact|vérification|résultat/i, icon: '🎯' },
   { test: /évolutions possibles|suites éventuelles|état final/i, icon: '🌱' },
-  { test: /activation|facturation|temps et coût|estimation développeur/i, icon: '💳' },
+  { test: /coûts|activation|facturation|temps et coût|estimation développeur/i, icon: '💳' },
 ];
 
 function iconFor(title: string): string | null {
@@ -132,7 +139,7 @@ export function Markdown({ content, pickedEvolutions, onToggleEvolution, onToggl
           case 'callout': {
             const config = CALLOUTS[block.variant] ?? CALLOUTS.NOTE;
             return (
-              <div key={index} className={cn('my-2 flex gap-2 rounded-md border px-2.5 py-2', config.className)}>
+              <div key={index} className={cn('my-3 flex gap-2 rounded-md border px-2.5 py-2', config.className)}>
                 <span className="mt-0.5 shrink-0">{config.icon}</span>
                 <div className="text-[14px] leading-relaxed">
                   {block.lines.map((line, lineIndex) => (
@@ -292,6 +299,10 @@ function parse(content: string): Block[] {
       continue;
     }
 
+    // Retour à la ligne du moteur = nouveau paragraphe, sauf phrase coupée.
+    if (buffer.length && paragraphBreakAfter(buffer[buffer.length - 1], trimmed)) {
+      flushParagraph();
+    }
     buffer.push(trimmed);
   }
 
