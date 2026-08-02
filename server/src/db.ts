@@ -194,6 +194,11 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX idx_quota_samples ON quota_samples(account, at);
     `,
   },
+  {
+    id: 6,
+    name: 'couleur-des-groupes',
+    sql: `ALTER TABLE project_groups ADD COLUMN color TEXT;`,
+  },
 ];
 
 export function openDb(): DB {

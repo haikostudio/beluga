@@ -176,19 +176,22 @@ export function writePreference(key: string, value: unknown): void {
 
 export function listGroups(): ProjectGroup[] {
   const rows = getDb()
-    .prepare('SELECT id, name, rank, collapsed FROM project_groups ORDER BY rank, name')
-    .all() as { id: string; name: string; rank: number; collapsed: number }[];
-  return rows.map((r) => ProjectGroup.parse({ ...r, collapsed: !!r.collapsed }));
+    .prepare('SELECT id, name, rank, collapsed, color FROM project_groups ORDER BY rank, name')
+    .all() as { id: string; name: string; rank: number; collapsed: number; color: string | null }[];
+  return rows.map((r) =>
+    ProjectGroup.parse({ ...r, collapsed: !!r.collapsed, color: r.color ?? undefined }),
+  );
 }
 
 export function saveGroup(group: ProjectGroup): ProjectGroup {
   const value = ProjectGroup.parse(group);
   getDb()
     .prepare(
-      `INSERT INTO project_groups (id, name, rank, collapsed, created_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, rank = excluded.rank, collapsed = excluded.collapsed`,
+      `INSERT INTO project_groups (id, name, rank, collapsed, color, created_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, rank = excluded.rank,
+         collapsed = excluded.collapsed, color = excluded.color`,
     )
-    .run(value.id, value.name, value.rank, value.collapsed ? 1 : 0, now());
+    .run(value.id, value.name, value.rank, value.collapsed ? 1 : 0, value.color ?? null, now());
   return value;
 }
 

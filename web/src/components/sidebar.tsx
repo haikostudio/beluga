@@ -230,6 +230,7 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
             <div
               key={entry.id}
               data-drop-group={entry.id}
+              style={entry.group.color ? { borderLeftColor: entry.group.color, borderLeftWidth: 3 } : undefined}
               className={cn(
                 'mb-0.5 rounded-md border transition-colors',
                 // Survoler le corps du groupe l'éclaire en entier : on comprend
@@ -273,15 +274,17 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                   onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
                 />
                 <button
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => setRenaming(entry.group)}
-                  className="shrink-0 text-faint opacity-0 hover:text-text group-hover/g:opacity-100"
+                  className="shrink-0 text-faint opacity-40 hover:text-text group-hover/g:opacity-100"
                   title="Renommer le groupe"
                 >
                   <Pencil className="h-2.5 w-2.5" />
                 </button>
                 <button
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => setDeleting(entry.group)}
-                  className="shrink-0 text-faint opacity-0 hover:text-danger group-hover/g:opacity-100"
+                  className="shrink-0 text-faint opacity-40 hover:text-danger group-hover/g:opacity-100"
                   title="Supprimer le groupe"
                 >
                   <X className="h-2.5 w-2.5" />
@@ -408,41 +411,60 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
   );
 }
 
-/** Une pastille de couleur par groupe : six teintes franches, ou aucune. */
-const COULEURS = ['#e11d48', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+/** La palette des groupes : seize teintes franches, plus « aucune ». */
+const COULEURS = [
+  '#ef4444', '#f97316', '#f59e0b', '#eab308',
+  '#84cc16', '#22c55e', '#10b981', '#14b8a6',
+  '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6',
+  '#a855f7', '#d946ef', '#ec4899', '#f43f5e',
+];
 
 function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string) => void }) {
+  const [open, setOpen] = React.useState(false);
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
-          className="shrink-0 text-faint opacity-0 hover:text-text group-hover/g:opacity-100"
+          // Le glissement démarre sur la ligne : on l'empêche ici, sinon le clic
+          // sur la palette est avalé par le déplacement du groupe.
+          onPointerDown={(event) => event.stopPropagation()}
+          className="shrink-0 text-faint opacity-40 hover:text-text group-hover/g:opacity-100"
           title="Couleur du groupe"
         >
-          <Palette className="h-2.5 w-2.5" />
+          {value ? (
+            <span className="block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: value }} />
+          ) : (
+            <Palette className="h-2.5 w-2.5" />
+          )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-auto p-1.5">
-        <div className="flex items-center gap-1">
+      <DropdownMenuContent align="end" className="w-auto p-2">
+        <div className="grid grid-cols-8 gap-1.5">
           {COULEURS.map((couleur) => (
             <button
               key={couleur}
-              onClick={() => onPick(couleur)}
+              onClick={() => {
+                onPick(couleur);
+                setOpen(false);
+              }}
               className={cn(
-                'h-5 w-5 rounded-full border transition-transform hover:scale-110',
-                value === couleur ? 'border-text' : 'border-transparent',
+                'h-5 w-5 rounded-full ring-offset-2 ring-offset-surface transition-transform hover:scale-110',
+                value === couleur ? 'ring-2 ring-text' : '',
               )}
               style={{ backgroundColor: couleur }}
               title={couleur}
             />
           ))}
-          <button
-            onClick={() => onPick('')}
-            className="ml-0.5 rounded px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
-          >
-            aucune
-          </button>
         </div>
+        <button
+          onClick={() => {
+            onPick('');
+            setOpen(false);
+          }}
+          className="mt-2 w-full rounded border border-border px-2 py-1 text-[12px] text-muted hover:bg-raised hover:text-text"
+        >
+          Aucune couleur
+        </button>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -509,8 +531,9 @@ function ProjectRow({
         {running ? <span className="shrink-0 text-[11.5px] text-success">{running}</span> : null}
       </button>
       <button
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={onSettings}
-        className="shrink-0 text-faint opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+        className="shrink-0 text-faint opacity-40 transition-opacity hover:text-text group-hover:opacity-100"
         title="Réglages du projet"
       >
         <Settings2 className="h-3 w-3" />

@@ -650,6 +650,47 @@ async function main() {
     `${apercus} aperçu(s) affiché(s)`,
   );
 
+  /* ---------- 14 quaterdecies. Couleur d'un groupe ---------- */
+  const couleur = await page.evaluate(async () => {
+    const bouton = Array.from(document.querySelectorAll('aside button')).find(
+      (b) => b.getAttribute('title') === 'Couleur du groupe',
+    );
+    if (!bouton) return null;
+    bouton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    bouton.click();
+    return true;
+  });
+  await page.waitForTimeout(900);
+  const palette = await page.evaluate(() => {
+    const pastilles = Array.from(document.querySelectorAll('[role="menu"] button')).filter((b) =>
+      (b.getAttribute('title') ?? '').startsWith('#'),
+    );
+    return { nombre: pastilles.length, premiere: pastilles[0]?.getAttribute('title') };
+  });
+  record(
+    'Groupes : la palette de couleurs s\'ouvre et propose un vrai choix',
+    !!couleur && palette.nombre >= 12,
+    `${palette.nombre} teintes`,
+  );
+
+  if (palette.nombre) {
+    await page.evaluate(() => {
+      const pastilles = Array.from(document.querySelectorAll('[role="menu"] button')).filter((b) =>
+        (b.getAttribute('title') ?? '').startsWith('#'),
+      );
+      pastilles[9]?.click();
+    });
+    await page.waitForTimeout(1600);
+    const applique = await page.evaluate(() => {
+      const groupes = Array.from(document.querySelectorAll('aside [data-drop-group]'));
+      return groupes.some((g) => (g.getAttribute('style') ?? '').includes('border-left-color'));
+    });
+    record('Groupes : la couleur choisie s\'applique et se voit', applique);
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+  await shot(page, '19-couleur');
+
   /* ---------- 15. Mobile ---------- */
   const mobile = await context.newPage();
   await mobile.setViewportSize({ width: 390, height: 844 });
