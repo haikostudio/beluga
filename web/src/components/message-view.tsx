@@ -89,6 +89,7 @@ export function MessageView({
           pickedEvolutions={pickedEvolutions}
           onToggleEvolution={onToggleEvolution}
           onToggleAll={onToggleAll}
+          streaming={message.streaming}
         />
       ) : message.streaming && !message.steps.length ? (
         <p className="text-[14px] text-faint">L'agent réfléchit…</p>

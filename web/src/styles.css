@@ -93,7 +93,8 @@
     @apply text-[15px] leading-[1.7];
   }
   .prose-hd h2 {
-    @apply mt-7 mb-3 border-t border-border/70 pt-5 text-[15px] font-semibold tracking-tight text-text flex items-center gap-1.5;
+    /* scroll-mt : le titre visé par le sommaire ne se colle pas au bord haut. */
+    @apply mt-7 mb-3 scroll-mt-3 border-t border-border/70 pt-5 text-[15px] font-semibold tracking-tight text-text flex items-center gap-1.5 transition-colors;
   }
   .prose-hd > h2:first-child {
     @apply mt-0 border-t-0 pt-0;
