@@ -181,9 +181,17 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
     entriesRef.current = entries;
   }, [entries]);
 
-  const rowProps = (id: string, kind: 'project' | 'group', label: string) => ({
+  /*
+   * La ligne se contente de DIRE ce qu'elle est (pour le dépôt) ; c'est la
+   * poignée à gauche qui déclenche le glissement. Sinon un simple appui sur le
+   * nom du projet embarquait la ligne au moindre mouvement du doigt.
+   */
+  const rowProps = (id: string, kind: 'project' | 'group') => ({
     'data-drag-id': id,
     'data-drag-kind': kind,
+  });
+
+  const poigneeProps = (id: string, kind: 'project' | 'group', label: string) => ({
     onPointerDown: (event: React.PointerEvent) => start(event, { id, kind, label }),
   });
 
@@ -223,7 +231,8 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                 running={runningOf(entry.id)}
                 attention={state.attention[entry.id]}
                 dimmed={dragging?.id === entry.id}
-                rowProps={rowProps(entry.id, 'project', entry.project.name)}
+                rowProps={rowProps(entry.id, 'project')}
+                poigneeProps={poigneeProps(entry.id, 'project', entry.project.name)}
                 onSettings={() => setSettingsFor(entry.id)}
               />
               <Ghost show={target?.id === entry.id && target.position === 'after'} label={dragging?.label} />
@@ -244,13 +253,19 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
             >
               <Ghost show={target?.id === entry.id && target.position === 'before'} label={dragging?.label} />
               <div
-                {...rowProps(entry.id, 'group', entry.group.name)}
+                {...rowProps(entry.id, 'group')}
                 className={cn(
                   'group/g flex items-center gap-1 rounded-md px-1.5 py-1.5',
                   dragging?.id === entry.id && 'opacity-40',
                 )}
               >
-                <GripVertical className="h-3 w-3 shrink-0 cursor-grab touch-none text-faint opacity-40 group-hover/g:opacity-100 active:cursor-grabbing" />
+                <span
+                  {...poigneeProps(entry.id, 'group', entry.group.name)}
+                  title="Glisser pour ranger"
+                  className="-m-1 p-1 touch-none"
+                >
+                  <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-40 group-hover/g:opacity-100 active:cursor-grabbing" />
+                </span>
                 <button
                   onClick={() => toggle(entry.id)}
                   className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-muted hover:text-text"
@@ -305,7 +320,8 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                           running={runningOf(project.id)}
                           attention={state.attention[project.id]}
                           dimmed={dragging?.id === project.id}
-                          rowProps={rowProps(project.id, 'project', project.name)}
+                          rowProps={rowProps(project.id, 'project')}
+                          poigneeProps={poigneeProps(project.id, 'project', project.name)}
                           onSettings={() => setSettingsFor(project.id)}
                         />
                         <Ghost show={target?.id === project.id && target.position === 'after'} label={dragging?.label} />
@@ -490,6 +506,7 @@ function ProjectRow({
   attention,
   dimmed,
   rowProps,
+  poigneeProps,
   onSettings,
 }: {
   project: Project;
@@ -498,6 +515,8 @@ function ProjectRow({
   attention?: number;
   dimmed?: boolean;
   rowProps: Record<string, unknown>;
+  /** Le glissement part d'ICI, jamais de la ligne entière. */
+  poigneeProps: Record<string, unknown>;
   onSettings: () => void;
 }) {
   return (
@@ -509,7 +528,9 @@ function ProjectRow({
         dimmed && 'opacity-40',
       )}
     >
-      <GripVertical className="h-3 w-3 shrink-0 cursor-grab touch-none text-faint opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
+      <span {...poigneeProps} title="Glisser pour ranger" className="-m-1 shrink-0 touch-none p-1">
+        <GripVertical className="h-3 w-3 cursor-grab text-faint opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
+      </span>
       <button
         onClick={() => client.setActiveProject(project.id)}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
