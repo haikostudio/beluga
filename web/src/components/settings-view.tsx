@@ -274,6 +274,9 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
           </p>
         </section>
 
+        {/* ---------- Suivi : consommation et facturation ---------- */}
+        <UsageSection open={open} />
+
         {/* ---------- Sauvegardes ---------- */}
         <section className="mt-5">
           <h3 className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-text">
@@ -315,6 +318,87 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
         </section>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Cumuls de consommation (PLAN §24) et synthèse de facturation (PLAN §7).
+ * Ces chiffres éclairent ; ils ne modifient jamais tout seuls une facture.
+ */
+function UsageSection({ open }: { open: boolean }) {
+  const state = useApp();
+  const [usage, setUsage] = React.useState<{
+    byProject: { projectId: string; tokens: number; seconds: number; tasks: number }[];
+    byMonth: { month: string; tokens: number; seconds: number }[];
+  } | null>(null);
+  const [summary, setSummary] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    client.call({ type: 'stats.usage' }).then(setUsage).catch(() => setUsage(null));
+    client
+      .call({ type: 'billing.summary' }, 120000)
+      .then((data) => setSummary(data?.summary))
+      .catch(() => setSummary(null));
+  }, [open]);
+
+  const projectName = (id: string) => state.projects.find((p) => p.id === id)?.name ?? 'projet retiré';
+
+  return (
+    <section className="mt-5">
+      <h3 className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-text">
+        <Activity className="h-3.5 w-3.5 text-faint" /> Ce qui a été consommé
+      </h3>
+
+      {usage?.byProject?.length ? (
+        <div className="space-y-0.5">
+          {usage.byProject.map((row) => (
+            <div key={row.projectId} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5">
+              <span className="min-w-0 flex-1 truncate text-[12px] text-text">{projectName(row.projectId)}</span>
+              <span className="text-[11px] text-faint">{row.tasks} tâche(s)</span>
+              <span className="text-[11px] text-muted">{Math.round(row.seconds / 60)} min</span>
+              <span className="text-[11px] text-muted">{(row.tokens ?? 0).toLocaleString('fr-CH')} jetons</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11.5px] text-faint">Aucune consommation relevée pour l'instant.</p>
+      )}
+
+      {usage?.byMonth?.length ? (
+        <div className="mt-2">
+          <p className="mb-1 text-[10.5px] uppercase tracking-wide text-faint">Par mois</p>
+          <div className="flex flex-wrap gap-1">
+            {usage.byMonth.map((row) => (
+              <span key={row.month} className="rounded border border-border px-1.5 py-0.5 text-[10.5px] text-muted">
+                {row.month} · {Math.round(row.seconds / 60)} min
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {summary && !summary.error ? (
+        <div className="mt-3">
+          <p className="mb-1 text-[10.5px] uppercase tracking-wide text-faint">Facturation du mois</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              ['Facturé', summary.invoiced ?? summary.total_invoiced],
+              ['Encaissé', summary.paid ?? summary.total_paid],
+              ['En attente', summary.outstanding ?? summary.total_outstanding],
+              ['En retard', summary.overdue ?? summary.total_overdue],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded-md border border-border bg-surface px-2 py-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-faint">{label}</p>
+                <p className="mt-0.5 text-[13px] font-medium text-text">
+                  {typeof value === 'number' ? `${value.toLocaleString('fr-CH')} CHF` : '—'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
