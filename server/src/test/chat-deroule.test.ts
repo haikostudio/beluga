@@ -9,6 +9,7 @@ import { emitFromClaude } from '../engines/claude.js';
 import { buildCodexArgs, emitFromCodex } from '../engines/codex.js';
 import { appendMemory, memorySummary } from '../memory.js';
 import { ORCHESTRATOR_ALLOWED_NATIVE, ORCHESTRATOR_DENIED_NATIVE } from '../tools.js';
+import { allDone, mergeTodos } from '../todos.js';
 
 /* ------------------------------------------------------------------ */
 /* Le déroulé visible dans la conversation (PLAN §26)                  */
@@ -143,4 +144,56 @@ test('la reprise Codex n’utilise que les options acceptées par exec resume', 
 test('le chef d\'orchestre peut annoncer sa liste de tâches, qui ne touche à rien', () => {
   assert.ok(ORCHESTRATOR_ALLOWED_NATIVE.includes('TodoWrite'));
   assert.equal(ORCHESTRATOR_DENIED_NATIVE.includes('TodoWrite'), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Le temps passé sur chaque ligne de la liste de tâches               */
+/* ------------------------------------------------------------------ */
+
+test('une ligne qui passe en cours puis cochée garde son temps', () => {
+  const debut = Date.now() - 60_000;
+  const premiere = mergeTodos([], [{ label: 'Lire le chat', state: 'running' }], debut);
+  assert.ok(premiere[0].startedAt, 'une ligne en cours a un départ');
+  assert.equal(premiere[0].endedAt, undefined, 'elle n\'a pas encore de fin');
+
+  const ensuite = mergeTodos(premiere, [{ label: 'Lire le chat', state: 'done' }], debut);
+  assert.equal(ensuite[0].startedAt, premiere[0].startedAt, 'le départ ne bouge plus');
+  assert.ok(ensuite[0].endedAt, 'la ligne cochée a une fin');
+});
+
+test('une ligne cochée sans passer par « en cours » compte depuis la précédente', () => {
+  const debut = Date.now() - 120_000;
+  const premiere = mergeTodos(
+    [],
+    [
+      { label: 'Un', state: 'done' },
+      { label: 'Deux', state: 'todo' },
+    ],
+    debut,
+  );
+  assert.equal(premiere[0].startedAt, debut, 'la première part du début du tour');
+
+  const ensuite = mergeTodos(
+    premiere,
+    [
+      { label: 'Un', state: 'done' },
+      { label: 'Deux', state: 'done' },
+    ],
+    debut,
+  );
+  assert.equal(ensuite[0].endedAt, premiere[0].endedAt, 'la ligne déjà cochée ne rajeunit pas');
+  assert.equal(ensuite[1].startedAt, premiere[0].endedAt, 'la suivante part de la fin de la précédente');
+});
+
+test('une liste entièrement cochée se reconnaît, une liste vide non', () => {
+  assert.equal(allDone([]), false);
+  assert.equal(allDone([{ label: 'Un', state: 'done' }]), true);
+  assert.equal(allDone([{ label: 'Un', state: 'done' }, { label: 'Deux', state: 'running' }]), false);
+});
+
+test('une ligne remise en attente perd ses heures', () => {
+  const debut = Date.now();
+  const avant = mergeTodos([], [{ label: 'Un', state: 'done' }], debut);
+  const apres = mergeTodos(avant, [{ label: 'Un', state: 'todo' }], debut);
+  assert.deepEqual(apres, [{ label: 'Un', state: 'todo' }]);
 });

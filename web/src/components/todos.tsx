@@ -3,7 +3,7 @@ import { BookOpen, Check, ChevronRight, CircleDot, Loader2 } from 'lucide-react'
 import { RunStep, TodoItem } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
-import { cn } from '@/lib/utils';
+import { cn, duration } from '@/lib/utils';
 
 /**
  * Le premier repère de chaque réponse (PLAN §26) : l'agent a relu la mémoire du
@@ -55,6 +55,16 @@ export function MemoryNote({ step, projectId }: { step: RunStep; projectId?: str
  */
 export function TodoList({ todos, streaming }: { todos?: TodoItem[]; streaming: boolean }) {
   const [open, setOpen] = React.useState(true);
+
+  // Une horloge, seulement pendant le travail : la ligne en cours voit son
+  // temps avancer, comme un chronomètre.
+  const [maintenant, setMaintenant] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!streaming) return;
+    const timer = window.setInterval(() => setMaintenant(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [streaming]);
+
   // Un message enregistré avant cette version n'a pas de liste : rien à montrer.
   if (!todos?.length) return null;
 
@@ -120,6 +130,13 @@ export function TodoList({ todos, streaming }: { todos?: TodoItem[]; streaming: 
               >
                 {todo.label}
               </span>
+              {/* Le temps passé sur la ligne, exactement comme pour les étapes.
+                  Une ligne en cours affiche son temps qui court. */}
+              {todo.startedAt ? (
+                <span className="mt-[1px] shrink-0 text-[12px] text-faint">
+                  {duration(((todo.endedAt ?? maintenant) - todo.startedAt) / 1000)}
+                </span>
+              ) : null}
             </li>
           ))}
         </ul>

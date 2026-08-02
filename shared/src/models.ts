@@ -266,6 +266,9 @@ export type RunStep = z.infer<typeof RunStep>;
 export const TodoItem = z.object({
   label: z.string(),
   state: z.enum(['todo', 'running', 'done']).default('todo'),
+  /** Début et fin de la ligne : elle affiche son temps, comme une étape. */
+  startedAt: z.number().optional(),
+  endedAt: z.number().optional(),
 });
 export type TodoItem = z.infer<typeof TodoItem>;
 

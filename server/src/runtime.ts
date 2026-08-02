@@ -21,6 +21,7 @@ import { adapterFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
 import { briefing, memorySummary } from './memory.js';
+import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
 import { notify } from './notify.js';
@@ -32,6 +33,8 @@ export interface LiveRun {
   startedAt: number;
   steps: Map<string, RunStep>;
   todos: TodoItem[];
+  /** La liste entièrement cochée n'est annoncée qu'une fois par tour. */
+  todosNotified?: boolean;
   text: string;
   usage?: EngineEvent['usage'];
   account?: string;
@@ -320,11 +323,26 @@ async function startTurn(
           }
           break;
         case 'todo':
-          // Le moteur renvoie sa liste ENTIÈRE à chaque mise à jour : on la
-          // remplace telle quelle, c'est elle qui se coche sous les yeux.
+          // Le moteur renvoie sa liste ENTIÈRE à chaque mise à jour, sans
+          // aucune heure : on la rapproche de la précédente pour retenir le
+          // temps passé sur chaque ligne.
           if (event.todos?.length) {
-            runState.todos = event.todos;
+            const avant = runState.todos;
+            runState.todos = mergeTodos(avant, event.todos, runState.startedAt);
             pushMessage(runState, { todos: runState.todos, streaming: true });
+
+            // Liste entièrement cochée : on prévient, une seule fois.
+            if (!runState.todosNotified && allDone(runState.todos) && !allDone(avant)) {
+              runState.todosNotified = true;
+              notify({
+                kind: 'done',
+                title: 'Liste de tâches terminée',
+                body: `${agent.title} — ${runState.todos.length} tâche${runState.todos.length > 1 ? 's' : ''} cochée${runState.todos.length > 1 ? 's' : ''}`,
+                tag: `todos-${agent.id}`,
+                projectId: agent.projectId,
+                cardId: agent.cardId,
+              });
+            }
           }
           break;
         case 'usage':
@@ -376,7 +394,11 @@ async function startTurn(
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
-    todos: runState.todos,
+    // Une ligne restée « en cours » alors que le tour est fini garderait un
+    // temps qui court : on l'arrête ici.
+    todos: runState.todos.map((todo) =>
+      todo.state === 'running' && !todo.endedAt ? { ...todo, endedAt: Date.now() } : todo,
+    ),
     streaming: false,
     tokens: tokens || undefined,
     durationMs: Math.round(elapsedSeconds * 1000),

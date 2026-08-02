@@ -406,7 +406,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     case 'agent.prompt': {
-      await sendPrompt(cmd.agentId, cmd.text, { attachments: cmd.attachments });
+      // L'agent existe-t-il ? Ce contrôle-là doit répondre tout de suite.
+      if (!store.getAgent(cmd.agentId)) throw new Error('agent introuvable');
+      /*
+       * ON N'ATTEND PAS LA FIN DU TOUR. Un tour dure des minutes ; attendre
+       * ici faisait expirer la commande côté navigateur au bout de deux
+       * minutes, et le message semblait n'être jamais parti (il revenait
+       * même dans la barre d'écriture). La suite arrive par abonnement.
+       */
+      void sendPrompt(cmd.agentId, cmd.text, { attachments: cmd.attachments }).catch((err) =>
+        log.error('envoi de la demande impossible', err),
+      );
       return { ok: true };
     }
 
@@ -510,8 +520,11 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
 
-      // L'agent reprend aussitôt, avec la réponse en main.
-      await sendPrompt(message.agentId, `Réponse à ta question « ${question.question} » : ${cmd.answer}`);
+      // L'agent reprend aussitôt, avec la réponse en main — sans faire
+      // patienter le navigateur jusqu'à la fin de son tour.
+      void sendPrompt(message.agentId, `Réponse à ta question « ${question.question} » : ${cmd.answer}`).catch((err) =>
+        log.error('reprise après réponse impossible', err),
+      );
       return { ok: true };
     }
 

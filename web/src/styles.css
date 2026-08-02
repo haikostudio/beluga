@@ -48,20 +48,48 @@
     @apply border-border;
   }
 
-  /* L'application occupe TOUTE la fenêtre : sans ces trois hauteurs, elle
-     s'arrête à la fin de son contenu et laisse une bande vide en bas. */
-  html,
-  body,
+  /* LA HAUTEUR DE L'APPLICATION — recette éprouvée sur Aikomail et Eloya.
+     La page garde une VRAIE hauteur d'écran et reste dans le flux : rien n'est
+     « ancré aux quatre bords ». Une page dont tout le contenu est sorti du flux
+     voit sa hauteur s'effondrer, et le téléphone réserve alors une bande vide
+     en bas, impossible à rattraper. Le défilement vit dans les zones internes,
+     jamais sur la page. */
+  html {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text antialiased;
+    height: 100vh; /* navigateurs sans unité dynamique */
+    height: 100dvh; /* onglet de navigateur : suit la barre d'adresse */
+    height: var(--hauteur-app, 100dvh); /* installée sur le téléphone : l'écran réel */
+    font-family: theme('fontFamily.sans');
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Application installée : la hauteur d'écran mesurée est la plus fiable ;
+     à défaut, la fenêtre entière vaut mieux que l'unité dynamique, qui
+     sous-estime l'écran au démarrage à froid. */
+  @media (display-mode: standalone) {
+    body {
+      height: 100vh;
+      height: var(--hauteur-app, 100vh);
+    }
+  }
+
   #root {
     height: 100%;
     overflow: hidden;
   }
 
-  body {
-    @apply bg-bg text-text antialiased;
-    font-family: theme('fontFamily.sans');
-    overscroll-behavior: none;
-    -webkit-tap-highlight-color: transparent;
+  /* Les fenêtres et tiroirs figent la page en la décalant : on neutralise ce
+     décalage. Surtout, on ne sort JAMAIS la page du flux ici — ce serait le
+     retour de la bande vide en bas dès l'ouverture d'un tiroir. */
+  html body[data-scroll-locked] {
+    position: static !important;
+    top: auto !important;
   }
 
   ::-webkit-scrollbar {

@@ -44,29 +44,56 @@ export function App() {
   }, []);
 
   /*
-   * L'application est ancrée aux quatre bords de la fenêtre (voir la racine
-   * plus bas) : elle ne peut donc plus laisser de bande vide en bas.
+   * LA BANDE VIDE EN BAS (recette éprouvée sur Aikomail et Eloya).
    *
-   * Reste le clavier : quand il s'ouvre, il recouvre le bas de l'écran. On
-   * mesure exactement sa hauteur et on réserve ce creux, au lieu de laisser le
-   * téléphone décaler toute la page — c'était le sursaut du champ de saisie.
+   * Deux mesures, et deux seulement :
+   * — la hauteur d'écran, prise sur l'écran physique quand l'application est
+   *   installée sur le téléphone : les autres mesures sous-estiment l'écran au
+   *   démarrage à froid, et le manque se reporte en bande vide en bas ;
+   * — le clavier, réservé UNIQUEMENT s'il est vraiment ouvert (un champ a le
+   *   curseur et l'écart dépasse cent points). Sans cette condition, la barre
+   *   d'adresse du navigateur passait pour un clavier et creusait une marge
+   *   permanente en bas.
    */
   React.useEffect(() => {
     const vue = window.visualViewport;
+    const racine = document.documentElement;
+
     const appliquer = () => {
-      const cache = vue ? window.innerHeight - vue.height - vue.offsetTop : 0;
-      document.documentElement.style.setProperty('--clavier', `${Math.max(0, Math.round(cache))}px`);
+      const installee =
+        (window.navigator as any).standalone === true ||
+        window.matchMedia('(display-mode: standalone)').matches;
+      const hauteurEcran = installee ? window.screen?.height || 0 : 0;
+      if (hauteurEcran) racine.style.setProperty('--hauteur-app', `${hauteurEcran}px`);
+      else racine.style.removeProperty('--hauteur-app');
+
+      const actif = document.activeElement;
+      const saisieActive =
+        !!actif &&
+        (actif.tagName === 'INPUT' || actif.tagName === 'TEXTAREA' || (actif as HTMLElement).isContentEditable);
+      const ecart = vue ? window.innerHeight - vue.height - vue.offsetTop : 0;
+      const clavierOuvert = saisieActive && ecart > 100;
+      racine.style.setProperty('--clavier', `${clavierOuvert ? Math.round(ecart) : 0}px`);
     };
+
     appliquer();
+    const retarde = () => {
+      window.setTimeout(appliquer, 60);
+      window.setTimeout(appliquer, 350);
+    };
     vue?.addEventListener('resize', appliquer);
     vue?.addEventListener('scroll', appliquer);
-    window.addEventListener('orientationchange', appliquer);
     window.addEventListener('resize', appliquer);
+    window.addEventListener('focusin', appliquer);
+    window.addEventListener('focusout', retarde);
+    window.addEventListener('orientationchange', retarde);
     return () => {
       vue?.removeEventListener('resize', appliquer);
       vue?.removeEventListener('scroll', appliquer);
-      window.removeEventListener('orientationchange', appliquer);
       window.removeEventListener('resize', appliquer);
+      window.removeEventListener('focusin', appliquer);
+      window.removeEventListener('focusout', retarde);
+      window.removeEventListener('orientationchange', retarde);
     };
   }, []);
 
@@ -157,9 +184,15 @@ export function App() {
   return (
     <TooltipProvider>
       <div
-        // Ancrée aux quatre bords : aucune bande vide possible, sur aucun
-        // téléphone. Le creux du bas est réservé au clavier quand il s'ouvre.
-        className="fixed inset-0 flex flex-col overflow-hidden bg-bg"
+        /*
+         * L'application prend TOUTE la hauteur de la page, en flux normal.
+         * Surtout pas « ancrée aux quatre bords » : sur téléphone, une page
+         * dont plus rien n'est dans le flux voit sa hauteur s'effondrer, et
+         * le système réserve alors une bande vide en bas (le même piège avait
+         * été rencontré sur Aikomail et Eloya). Le creux du bas ne sert qu'au
+         * clavier, et seulement quand il est réellement ouvert.
+         */
+        className="flex h-full flex-col overflow-hidden bg-bg"
         style={{ paddingBottom: 'var(--clavier, 0px)' }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes('Files')) {
