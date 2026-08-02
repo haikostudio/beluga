@@ -57,3 +57,5 @@ Les trois scripts de vérification demandent `HAIKODEV_USER` et `HAIKODEV_PASSWO
 <!-- essai de suivi GitHub -->
 
 <!-- essai de suivi GitHub -->
+
+<!-- essai de suivi GitHub -->
