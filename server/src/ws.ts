@@ -525,23 +525,29 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const agent = store.getAgent(message.agentId);
       if (!agent) throw new Error('agent introuvable');
 
+      // On peut corriger le titre ou la description au moment de valider : la
+      // carte créée est celle qu'on a sous les yeux, pas celle proposée.
+      const retenu = {
+        title: cmd.title?.trim() || proposal.title,
+        description: cmd.description ?? proposal.description,
+        labels: cmd.labels ?? proposal.labels,
+      };
+
       let cardId: string | undefined;
       if (cmd.accept) {
-        const card = createCard(agent.projectId, {
-          title: proposal.title,
-          description: proposal.description,
-          labels: proposal.labels,
-          origin: 'agent',
-        });
+        const card = createCard(agent.projectId, { ...retenu, origin: 'agent' });
         cardId = card.id;
         bus.emit({ type: 'card.upsert', card });
       }
 
-      const decided = store.decideProposal(cmd.proposalId, cmd.accept ? 'accepted' : 'refused', cardId) ?? {
-        ...proposal,
-        decision: cmd.accept ? ('accepted' as const) : ('refused' as const),
-        cardId,
-        decidedAt: Date.now(),
+      const decided = {
+        ...(store.decideProposal(cmd.proposalId, cmd.accept ? 'accepted' : 'refused', cardId) ?? {
+          ...proposal,
+          decision: cmd.accept ? ('accepted' as const) : ('refused' as const),
+          cardId,
+          decidedAt: Date.now(),
+        }),
+        ...retenu,
       };
 
       // La décision est mémorisée SUR LE TABLEAU : elle survit au rechargement.

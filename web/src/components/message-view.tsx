@@ -1,5 +1,15 @@
 import * as React from 'react';
-import { AlertCircle, Check, Circle, Download, HelpCircle, Loader2, Paperclip, X } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  Circle,
+  Download,
+  HelpCircle,
+  LayoutGrid,
+  Loader2,
+  Paperclip,
+  X,
+} from 'lucide-react';
 import { Message } from '@haikodev/shared';
 import { Badge, Button, Textarea } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
@@ -231,7 +241,11 @@ function QuestionCard({ messageId, question }: { messageId: string; question: Me
   );
 }
 
-/** La pastille de proposition : rien n'est créé tant que vous n'avez pas validé (§10). */
+/**
+ * La carte présentée dans la conversation : elle a l'allure d'une carte du
+ * tableau, et RIEN n'entre dans une colonne tant que vous n'avez pas validé
+ * (§10). Le titre et la description se corrigent avant le clic.
+ */
 function ProposalChip({
   messageId,
   proposal,
@@ -240,12 +254,22 @@ function ProposalChip({
   proposal: Message['proposals'][number];
 }) {
   const [busy, setBusy] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [title, setTitle] = React.useState(proposal.title);
+  const [description, setDescription] = React.useState(proposal.description);
 
   const decide = async (accept: boolean) => {
     setBusy(true);
     try {
-      await client.call({ type: 'proposal.decide', messageId, proposalId: proposal.id, accept });
-      client.pushToast(accept ? 'success' : 'info', accept ? 'Tâche créée dans « À faire »' : 'Proposition refusée');
+      await client.call({
+        type: 'proposal.decide',
+        messageId,
+        proposalId: proposal.id,
+        accept,
+        title: title.trim() || proposal.title,
+        description,
+      });
+      client.pushToast(accept ? 'success' : 'info', accept ? 'Carte créée dans « À faire »' : 'Carte refusée');
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'décision impossible');
     } finally {
@@ -253,42 +277,96 @@ function ProposalChip({
     }
   };
 
-  if (proposal.decision !== 'pending') {
+  /* La carte, telle qu'elle apparaîtra sur le tableau. */
+  const corps = (
+    <>
+      {editing ? (
+        <>
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            className="w-full rounded border border-border bg-base px-2 py-1 text-[14.5px] font-medium text-text outline-none focus:border-accent"
+          />
+          <Textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={5}
+            className="mt-1.5 w-full text-[13.5px]"
+          />
+        </>
+      ) : (
+        <>
+          <p className="text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
+          {proposal.description ? (
+            <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted">
+              {proposal.description}
+            </p>
+          ) : null}
+        </>
+      )}
+      {proposal.labels.length ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {proposal.labels.map((label) => (
+            <Badge key={label}>{label}</Badge>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+
+  if (proposal.decision === 'accepted') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-border bg-surface/60 px-2.5 py-1.5 text-[13.5px] text-faint">
-        {proposal.decision === 'accepted' ? (
-          <Check className="h-3 w-3 text-success" />
-        ) : (
-          <X className="h-3 w-3 text-faint" />
-        )}
-        <span className="line-through">{proposal.title}</span>
-        <span className="ml-auto text-[12px]">
-          {proposal.decision === 'accepted' ? 'carte créée' : 'refusée'}
-        </span>
+      <button
+        onClick={() => proposal.cardId && client.openCard(proposal.cardId)}
+        className="w-full rounded-md border border-success/40 bg-surface px-3 py-2.5 text-left transition-colors hover:bg-raised"
+      >
+        <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-success">
+          <Check className="h-3 w-3" />
+          Carte créée dans « À faire »
+        </div>
+        <p className="text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
+        {proposal.description ? (
+          <p className="mt-1 line-clamp-2 text-[13.5px] leading-relaxed text-muted">{proposal.description}</p>
+        ) : null}
+        {proposal.labels.length ? (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {proposal.labels.map((label) => (
+              <Badge key={label}>{label}</Badge>
+            ))}
+          </div>
+        ) : null}
+      </button>
+    );
+  }
+
+  if (proposal.decision === 'refused') {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-border bg-surface/60 px-3 py-2 text-[13.5px] text-faint">
+        <X className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 flex-1 truncate line-through">{proposal.title}</span>
+        <span className="text-[12px]">carte refusée</span>
       </div>
     );
   }
 
   return (
-    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-medium text-text">{proposal.title}</p>
-          {proposal.description ? (
-            <p className="mt-0.5 line-clamp-3 text-[13.5px] leading-snug text-muted">{proposal.description}</p>
-          ) : null}
-          {proposal.labels.length ? (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {proposal.labels.map((label) => (
-                <Badge key={label}>{label}</Badge>
-              ))}
-            </div>
-          ) : null}
-        </div>
+    <div className="overflow-hidden rounded-md border border-accent/40 bg-surface">
+      <div className="flex items-center gap-1.5 border-b border-border bg-raised px-3 py-1.5 text-[12px] text-muted">
+        <LayoutGrid className="h-3 w-3 text-accent" />
+        Carte à valider — elle entrera dans « À faire »
+        <button
+          onClick={() => setEditing((current) => !current)}
+          className="ml-auto text-[12px] text-faint hover:text-text"
+        >
+          {editing ? 'Terminer' : 'Modifier'}
+        </button>
       </div>
-      <div className="mt-2 flex gap-1.5">
+
+      <div className="px-3 py-2.5">{corps}</div>
+
+      <div className="flex gap-1.5 border-t border-border px-3 py-2">
         <Button size="sm" variant="default" disabled={busy} onClick={() => decide(true)}>
-          Valider
+          <Check className="h-3 w-3" /> Créer la carte
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => decide(false)}>
           Refuser

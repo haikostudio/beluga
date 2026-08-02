@@ -39,7 +39,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'board_create_card',
     description:
-      "Crée une carte. Elle naît TOUJOURS dans « À faire » : la colonne ne peut pas être choisie. À n'utiliser que pour une demande d'ACTION, jamais pour une question.",
+      "Prépare une carte et l'affiche dans la conversation pour VALIDATION : rien n'entre dans le tableau tant que l'utilisateur n'a pas cliqué. Une fois validée, la carte naît TOUJOURS dans « À faire » — la colonne ne peut pas être choisie. À n'utiliser que pour une demande d'ACTION, jamais pour une question.",
     inputSchema: {
       type: 'object',
       required: ['title'],
@@ -85,7 +85,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'propose_task',
     description:
-      "Propose une tâche à l'utilisateur SANS créer de carte : une pastille à valider ou refuser apparaît dans la conversation. À utiliser dans les cas ambigus.",
+      "Propose une tâche à l'utilisateur SANS créer de carte : une carte à valider ou refuser apparaît dans la conversation. À utiliser dans les cas ambigus.",
     inputSchema: {
       type: 'object',
       required: ['title'],
@@ -211,16 +211,21 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
     case 'board_create_card': {
       if (!args.title || typeof args.title !== 'string') return { ok: false, text: 'Un titre est obligatoire.' };
-      // Invariant 1 : une carte naît TOUJOURS dans « À faire » (PLAN §4).
-      const card = createCard(ctx.projectId, {
+      // Aucune carte n'entre dans une colonne sans un clic : la carte s'affiche
+      // dans la conversation et attend la validation. Une fois validée, elle
+      // naît TOUJOURS dans « À faire » (invariant 1, PLAN §4).
+      const proposal: TaskProposal = {
+        id: store.newId(),
         title: args.title,
         description: typeof args.description === 'string' ? args.description : '',
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
-        origin: 'agent',
-      });
-      bus.emit({ type: 'card.upsert', card });
-      bus.toast('info', `Carte créée : ${card.title}`, card.id);
-      return { ok: true, text: `Carte créée dans « À faire » : ${card.title} (identifiant ${card.id}).` };
+        decision: 'pending',
+      };
+      return {
+        ok: true,
+        text: `Carte présentée pour validation : « ${proposal.title} ». Elle n'entre dans « À faire » qu'après le clic de l'utilisateur.`,
+        proposal,
+      };
     }
 
     case 'board_update_card': {

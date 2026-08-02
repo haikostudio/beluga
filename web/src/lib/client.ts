@@ -88,6 +88,7 @@ class Client {
   private retry = 0;
   private reconnectTimer: number | null = null;
   private notifyHandlers = new Set<(event: Extract<ServerEvent, { type: 'notify' }>) => void>();
+  private openCardHandlers = new Set<(cardId: string) => void>();
 
   state: AppState = initialState;
 
@@ -101,6 +102,16 @@ class Client {
   onNotify(handler: (event: Extract<ServerEvent, { type: 'notify' }>) => void): () => void {
     this.notifyHandlers.add(handler);
     return () => this.notifyHandlers.delete(handler);
+  }
+
+  /** Ouvrir une carte depuis n'importe où (une carte affichée dans le chat, par exemple). */
+  onOpenCard(handler: (cardId: string) => void): () => void {
+    this.openCardHandlers.add(handler);
+    return () => this.openCardHandlers.delete(handler);
+  }
+
+  openCard(cardId: string): void {
+    for (const handler of this.openCardHandlers) handler(cardId);
   }
 
   private set(patch: Partial<AppState> | ((current: AppState) => Partial<AppState>)): void {

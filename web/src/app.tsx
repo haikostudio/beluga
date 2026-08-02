@@ -43,6 +43,9 @@ export function App() {
     client.connect();
   }, []);
 
+  // Une carte affichée dans la conversation s'ouvre dans le tiroir.
+  React.useEffect(() => client.onOpenCard(setOpenCardId), []);
+
   // Notifications système, cliquables : elles ouvrent la carte concernée.
   React.useEffect(() => {
     return client.onNotify((event) => {

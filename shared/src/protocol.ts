@@ -148,6 +148,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
     messageId: z.string(),
     proposalId: z.string(),
     accept: z.boolean(),
+    /** Corrections faites au moment de valider (facultatif). */
+    title: z.string().optional(),
+    description: z.string().optional(),
+    labels: z.array(z.string()).optional(),
   }),
 
   // Publication
