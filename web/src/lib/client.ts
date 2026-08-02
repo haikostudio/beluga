@@ -1,0 +1,341 @@
+import {
+  AccountQuota,
+  Agent,
+  Attachment,
+  CapacitySnapshot,
+  Card,
+  ClientCommand,
+  DeployRun,
+  EngineInfo,
+  FileNode,
+  Message,
+  Project,
+  QueuedPrompt,
+  ServerEvent,
+  Settings,
+  SystemProcess,
+} from '@haikodev/shared';
+
+export interface Toast {
+  id: string;
+  level: 'info' | 'success' | 'warning' | 'error';
+  text: string;
+  cardId?: string;
+  at: number;
+}
+
+export interface AppState {
+  connected: boolean;
+  connecting: boolean;
+  version: string;
+  settings: Settings | null;
+  projects: Project[];
+  engines: EngineInfo[];
+  quotas: AccountQuota[];
+  capacity: CapacitySnapshot | null;
+  processes: SystemProcess[];
+  agents: Record<string, Agent>;
+  cards: Record<string, Card>;
+  messages: Record<string, Message[]>;
+  queues: Record<string, QueuedPrompt[]>;
+  attachments: Record<string, Attachment[]>;
+  files: Record<string, FileNode[]>;
+  memory: Record<string, string>;
+  deploys: Record<string, DeployRun>;
+  activeProjectId: string | null;
+  toasts: Toast[];
+}
+
+const initialState: AppState = {
+  connected: false,
+  connecting: true,
+  version: '',
+  settings: null,
+  projects: [],
+  engines: [],
+  quotas: [],
+  capacity: null,
+  processes: [],
+  agents: {},
+  cards: {},
+  messages: {},
+  queues: {},
+  attachments: {},
+  files: {},
+  memory: {},
+  deploys: {},
+  activeProjectId: null,
+  toasts: [],
+};
+
+type Listener = () => void;
+
+class Client {
+  private socket: WebSocket | null = null;
+  private listeners = new Set<Listener>();
+  private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  private retry = 0;
+  private reconnectTimer: number | null = null;
+  private notifyHandlers = new Set<(event: Extract<ServerEvent, { type: 'notify' }>) => void>();
+
+  state: AppState = initialState;
+
+  subscribe = (listener: Listener): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  getSnapshot = (): AppState => this.state;
+
+  onNotify(handler: (event: Extract<ServerEvent, { type: 'notify' }>) => void): () => void {
+    this.notifyHandlers.add(handler);
+    return () => this.notifyHandlers.delete(handler);
+  }
+
+  private set(patch: Partial<AppState> | ((current: AppState) => Partial<AppState>)): void {
+    const next = typeof patch === 'function' ? patch(this.state) : patch;
+    this.state = { ...this.state, ...next };
+    for (const listener of this.listeners) listener();
+  }
+
+  connect(): void {
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    this.set({ connecting: true });
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${protocol}//${location.host}/ws`);
+    this.socket = socket;
+
+    socket.onopen = () => {
+      this.retry = 0;
+      this.set({ connected: true, connecting: false });
+      this.send({ type: 'hello', protocol: 1 });
+    };
+
+    socket.onclose = () => {
+      this.set({ connected: false, connecting: true });
+      // Reconnexion automatique : fermer l'onglet n'arrête aucun agent, et le
+      // réseau qui tombe ne doit pas casser la session.
+      this.retry = Math.min(this.retry + 1, 8);
+      const delay = Math.min(500 * 2 ** this.retry, 12000);
+      if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = window.setTimeout(() => this.connect(), delay);
+    };
+
+    socket.onerror = () => socket.close();
+
+    socket.onmessage = (event) => {
+      let parsed: ServerEvent;
+      try {
+        parsed = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      this.handle(parsed);
+    };
+  }
+
+  private handle(event: ServerEvent): void {
+    switch (event.type) {
+      case 'ready':
+        this.set({
+          version: event.version,
+          settings: event.settings,
+          projects: event.projects,
+          engines: event.engines,
+          quotas: event.quotas,
+          capacity: event.capacity,
+          agents: Object.fromEntries(event.agents.map((agent) => [agent.id, agent])),
+          activeProjectId: this.state.activeProjectId ?? event.projects[0]?.id ?? null,
+        });
+        break;
+
+      case 'ack': {
+        const entry = this.pending.get(event.id);
+        if (entry) {
+          this.pending.delete(event.id);
+          if (event.ok) entry.resolve(event.data);
+          else entry.reject(new Error(event.error ?? 'commande refusée'));
+        }
+        break;
+      }
+
+      case 'project.upsert':
+        this.set((state) => ({
+          projects: [...state.projects.filter((p) => p.id !== event.project.id), event.project].sort((a, b) =>
+            a.name.localeCompare(b.name),
+          ),
+        }));
+        break;
+
+      case 'project.delete':
+        this.set((state) => ({
+          projects: state.projects.filter((p) => p.id !== event.id),
+          activeProjectId: state.activeProjectId === event.id ? null : state.activeProjectId,
+        }));
+        break;
+
+      case 'project.snapshot':
+        this.set((state) => ({
+          cards: {
+            ...Object.fromEntries(Object.entries(state.cards).filter(([, card]) => card.projectId !== event.projectId)),
+            ...Object.fromEntries(event.cards.map((card) => [card.id, card])),
+          },
+          agents: { ...state.agents, ...Object.fromEntries(event.agents.map((agent) => [agent.id, agent])) },
+          deploys: event.deploy ? { ...state.deploys, [event.projectId]: event.deploy } : state.deploys,
+          memory: event.memory !== undefined ? { ...state.memory, [event.projectId]: event.memory } : state.memory,
+        }));
+        break;
+
+      case 'card.upsert':
+        this.set((state) => ({ cards: { ...state.cards, [event.card.id]: event.card } }));
+        break;
+
+      case 'card.delete':
+        this.set((state) => {
+          const cards = { ...state.cards };
+          delete cards[event.id];
+          return { cards };
+        });
+        break;
+
+      case 'agent.upsert':
+        this.set((state) => ({ agents: { ...state.agents, [event.agent.id]: event.agent } }));
+        break;
+
+      case 'agent.delete':
+        this.set((state) => {
+          const agents = { ...state.agents };
+          delete agents[event.id];
+          return { agents };
+        });
+        break;
+
+      case 'agent.snapshot':
+        this.set((state) => ({
+          messages: { ...state.messages, [event.agentId]: event.messages },
+          queues: { ...state.queues, [event.agentId]: event.queue },
+        }));
+        break;
+
+      case 'message.upsert':
+        this.set((state) => {
+          const list = state.messages[event.message.agentId] ?? [];
+          const index = list.findIndex((m) => m.id === event.message.id);
+          const next = index >= 0 ? [...list] : [...list, event.message];
+          if (index >= 0) next[index] = event.message;
+          return { messages: { ...state.messages, [event.message.agentId]: next } };
+        });
+        break;
+
+      case 'queue.snapshot':
+        this.set((state) => ({ queues: { ...state.queues, [event.agentId]: event.queue } }));
+        break;
+
+      case 'deploy.upsert':
+        this.set((state) => ({ deploys: { ...state.deploys, [event.run.projectId]: event.run } }));
+        break;
+
+      case 'quotas':
+        this.set({ quotas: event.quotas });
+        break;
+
+      case 'capacity':
+        this.set({ capacity: event.capacity });
+        break;
+
+      case 'processes':
+        this.set({ processes: event.processes });
+        break;
+
+      case 'settings':
+        this.set({ settings: event.settings });
+        break;
+
+      case 'attachments':
+        this.set((state) => ({ attachments: { ...state.attachments, [event.projectId]: event.items } }));
+        break;
+
+      case 'files':
+        this.set((state) => ({ files: { ...state.files, [`${event.projectId}:${event.path}`]: event.nodes } }));
+        break;
+
+      case 'memory':
+        if (event.content) {
+          this.set((state) => ({ memory: { ...state.memory, [event.projectId]: event.content } }));
+        }
+        break;
+
+      case 'toast':
+        this.pushToast(event.level, event.text, event.cardId);
+        break;
+
+      case 'notify':
+        for (const handler of this.notifyHandlers) handler(event);
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  pushToast(level: Toast['level'], text: string, cardId?: string): void {
+    const toast: Toast = { id: Math.random().toString(36).slice(2), level, text, cardId, at: Date.now() };
+    this.set((state) => ({ toasts: [...state.toasts.slice(-5), toast] }));
+    // Les messages courts disparaissent seuls ; les erreurs attendent d'être lues.
+    if (level !== 'error') {
+      window.setTimeout(() => this.dismissToast(toast.id), 4200);
+    }
+  }
+
+  dismissToast(id: string): void {
+    this.set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+  }
+
+  send(cmd: ClientCommand): void {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ cmd }));
+    }
+  }
+
+  call<T = any>(cmd: ClientCommand, timeoutMs = 120000): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      if (this.socket?.readyState !== WebSocket.OPEN) {
+        reject(new Error('non connecté'));
+        return;
+      }
+      const id = Math.random().toString(36).slice(2);
+      this.pending.set(id, { resolve, reject });
+      this.socket.send(JSON.stringify({ id, cmd }));
+      window.setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          reject(new Error('le serveur ne répond pas'));
+        }
+      }, timeoutMs);
+    });
+  }
+
+  setActiveProject(id: string | null): void {
+    this.set({ activeProjectId: id });
+    if (id) {
+      this.send({ type: 'project.open', id });
+      this.send({ type: 'attachments.list', projectId: id });
+    }
+  }
+
+  /** Optimisme contrôlé : on affiche tout de suite, puis on réconcilie. */
+  async moveCard(card: Card, column: Card['column']): Promise<void> {
+    const previous = card;
+    this.set((state) => ({ cards: { ...state.cards, [card.id]: { ...card, column } } }));
+    try {
+      await this.call({ type: 'card.move', id: card.id, column });
+    } catch (err: any) {
+      this.set((state) => ({ cards: { ...state.cards, [card.id]: previous } }));
+      this.pushToast('error', err?.message ?? 'déplacement refusé');
+    }
+  }
+}
+
+export const client = new Client();

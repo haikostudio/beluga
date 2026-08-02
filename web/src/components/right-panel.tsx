@@ -1,0 +1,333 @@
+import * as React from 'react';
+import {
+  ChevronLeft,
+  Download,
+  File as FileIcon,
+  FileText,
+  Folder,
+  Image as ImageIcon,
+  Loader2,
+  Paperclip,
+  Search,
+  X,
+} from 'lucide-react';
+import { Attachment, FileNode } from '@haikodev/shared';
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  EmptyState,
+  Input,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Tooltip,
+} from '@/components/ui';
+import { Chat } from '@/components/chat';
+import { client } from '@/lib/client';
+import { useApp } from '@/lib/use-app';
+import { bytes, cn, relativeTime } from '@/lib/utils';
+
+export function RightPanel({ projectId }: { projectId: string }) {
+  const state = useApp();
+  const orchestrator = Object.values(state.agents).find(
+    (agent) => agent.projectId === projectId && agent.role === 'orchestrator',
+  );
+
+  React.useEffect(() => {
+    if (projectId) client.send({ type: 'agent.orchestrator', projectId });
+  }, [projectId]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <Tabs defaultValue="chat" className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b border-border px-2 py-1.5">
+          <TabsList className="w-full">
+            <TabsTrigger value="chat" className="flex-1">
+              Chef d'orchestre
+            </TabsTrigger>
+            <TabsTrigger value="files" className="flex-1">
+              Fichiers
+            </TabsTrigger>
+            <TabsTrigger value="attachments" className="flex-1">
+              Pièces jointes
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
+          {orchestrator ? (
+            <Chat agent={orchestrator} projectId={projectId} />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="h-4 w-4 animate-spin text-faint" />
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="files" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
+          <FilesTab projectId={projectId} />
+        </TabsContent>
+
+        <TabsContent value="attachments" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
+          <AttachmentsTab projectId={projectId} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Onglet Fichiers                                                     */
+/* ------------------------------------------------------------------ */
+
+function FilesTab({ projectId }: { projectId: string }) {
+  const state = useApp();
+  const [path, setPath] = React.useState('');
+  const [filter, setFilter] = React.useState('');
+  const [selection, setSelection] = React.useState<Set<string>>(new Set());
+  const [preview, setPreview] = React.useState<{ path: string; data: any } | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const nodes = state.files[`${projectId}:${path}`] ?? [];
+
+  React.useEffect(() => {
+    client.send({ type: 'files.list', projectId, path });
+  }, [projectId, path]);
+
+  // L'arborescence se rafraîchit quand un agent touche au projet.
+  React.useEffect(() => {
+    const timer = setInterval(() => client.send({ type: 'files.list', projectId, path }), 20000);
+    return () => clearInterval(timer);
+  }, [projectId, path]);
+
+  const visible = filter
+    ? nodes.filter((node) => node.name.toLowerCase().includes(filter.toLowerCase()))
+    : nodes;
+
+  const open = async (node: FileNode) => {
+    if (node.kind === 'dir') {
+      setPath(node.path);
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch(
+        `/api/file?project=${encodeURIComponent(projectId)}&path=${encodeURIComponent(node.path)}`,
+      );
+      setPreview({ path: node.path, data: await response.json() });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const downloadSelection = async () => {
+    const paths = selection.size ? [...selection] : path ? [path] : ['.'];
+    setBusy(true);
+    try {
+      const response = await fetch('/api/zip', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId, paths, label: 'fichiers' }),
+      });
+      const data = await response.json();
+      if (data.token) window.location.href = `/api/download?token=${encodeURIComponent(data.token)}`;
+      else client.pushToast('error', data.error ?? 'archive impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+        {path ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setPath(path.split('/').slice(0, -1).join('/'))}
+          >
+            <ChevronLeft className="h-3 w-3" />
+          </Button>
+        ) : null}
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
+          <Input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder={path || 'racine du projet'}
+            className="h-7 pl-6 text-[12px]"
+          />
+        </div>
+        <Tooltip label={selection.size ? `Télécharger ${selection.size} élément(s)` : 'Télécharger ce dossier'}>
+          <Button variant="ghost" size="icon-sm" onClick={downloadSelection} disabled={busy}>
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+          </Button>
+        </Tooltip>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
+        {visible.map((node) => (
+          <div
+            key={node.path}
+            className="group flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-surface"
+          >
+            <input
+              type="checkbox"
+              checked={selection.has(node.path)}
+              onChange={(event) =>
+                setSelection((current) => {
+                  const next = new Set(current);
+                  event.target.checked ? next.add(node.path) : next.delete(node.path);
+                  return next;
+                })
+              }
+              className="h-3 w-3 shrink-0 accent-current opacity-0 transition-opacity group-hover:opacity-100 checked:opacity-100"
+            />
+            <button onClick={() => open(node)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+              {node.kind === 'dir' ? (
+                <Folder className="h-3 w-3 shrink-0 text-faint" />
+              ) : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? (
+                <ImageIcon className="h-3 w-3 shrink-0 text-faint" />
+              ) : /\.(md|txt|json|ya?ml)$/i.test(node.name) ? (
+                <FileText className="h-3 w-3 shrink-0 text-faint" />
+              ) : (
+                <FileIcon className="h-3 w-3 shrink-0 text-faint" />
+              )}
+              <span className="min-w-0 flex-1 truncate text-[12px] text-muted">{node.name}</span>
+              {node.kind === 'file' ? <span className="text-[10px] text-faint">{bytes(node.size)}</span> : null}
+            </button>
+          </div>
+        ))}
+        {!visible.length ? <EmptyState title="Dossier vide" /> : null}
+      </div>
+
+      <FilePreview preview={preview} onClose={() => setPreview(null)} />
+    </div>
+  );
+}
+
+function FilePreview({ preview, onClose }: { preview: { path: string; data: any } | null; onClose: () => void }) {
+  if (!preview) return null;
+  const { data } = preview;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="w-[min(860px,calc(100vw-16px))]">
+        <DialogTitle className="truncate pr-6 text-[13px]">{preview.path}</DialogTitle>
+        <div className="mt-3 max-h-[70dvh] overflow-auto rounded-md border border-border bg-raised p-2">
+          {data.kind === 'text' ? (
+            <pre className="whitespace-pre-wrap text-[11.5px] leading-relaxed text-muted">{data.content}</pre>
+          ) : data.kind === 'image' ? (
+            <img src={`data:${data.mime};base64,${data.content}`} alt={preview.path} className="mx-auto max-w-full" />
+          ) : data.kind === 'pdf' ? (
+            <iframe
+              title={preview.path}
+              src={`data:application/pdf;base64,${data.content}`}
+              className="h-[70dvh] w-full rounded"
+            />
+          ) : data.kind === 'too_big' ? (
+            <p className="p-4 text-center text-[12.5px] text-faint">
+              Fichier trop lourd pour l'aperçu ({bytes(data.size)}). Téléchargez-le pour le consulter.
+            </p>
+          ) : (
+            <p className="p-4 text-center text-[12.5px] text-faint">Fichier binaire ({bytes(data.size)}).</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Onglet Pièces jointes                                               */
+/* ------------------------------------------------------------------ */
+
+function AttachmentsTab({ projectId }: { projectId: string }) {
+  const state = useApp();
+  const items = state.attachments[projectId] ?? [];
+  const [zoom, setZoom] = React.useState<Attachment | null>(null);
+
+  React.useEffect(() => {
+    client.send({ type: 'attachments.list', projectId });
+  }, [projectId]);
+
+  if (!items.length) {
+    return (
+      <EmptyState
+        icon={<Paperclip className="h-5 w-5" />}
+        title="Aucune pièce jointe"
+        hint="Tout ce qui transite par les conversations du projet apparaît ici."
+      />
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto p-2">
+      <div className="grid grid-cols-2 gap-1.5">
+        {items.map((item) => {
+          const isImage = item.mime.startsWith('image/');
+          return (
+            <div key={item.id} className="overflow-hidden rounded-md border border-border bg-surface">
+              <button onClick={() => setZoom(item)} className="block w-full">
+                {isImage ? (
+                  <img
+                    src={`/api/attachment?id=${item.id}`}
+                    alt={item.name}
+                    className="h-20 w-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="flex h-20 items-center justify-center text-faint">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                )}
+              </button>
+              <div className="px-1.5 py-1">
+                <p className="truncate text-[11px] text-muted">{item.name}</p>
+                <div className="flex items-center gap-1 text-[10px] text-faint">
+                  <span>{bytes(item.size)}</span>
+                  <span>·</span>
+                  <span>{relativeTime(item.createdAt)}</span>
+                  <a
+                    href={`/api/attachment?id=${item.id}&download=1`}
+                    className="ml-auto hover:text-text"
+                    title="Télécharger"
+                  >
+                    <Download className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {zoom ? (
+        <Dialog open onOpenChange={(open) => !open && setZoom(null)}>
+          <DialogContent className="w-[min(900px,calc(100vw-16px))]">
+            <DialogTitle className="truncate pr-6 text-[13px]">{zoom.name}</DialogTitle>
+            <div className="mt-3 max-h-[72dvh] overflow-auto rounded-md border border-border bg-raised p-2">
+              {zoom.mime.startsWith('image/') ? (
+                <img src={`/api/attachment?id=${zoom.id}`} alt={zoom.name} className="mx-auto max-w-full" />
+              ) : zoom.mime === 'application/pdf' ? (
+                <iframe title={zoom.name} src={`/api/attachment?id=${zoom.id}`} className="h-[70dvh] w-full rounded" />
+              ) : (
+                <div className="p-6 text-center">
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={`/api/attachment?id=${zoom.id}&download=1`}>
+                      <Download className="h-3 w-3" /> Télécharger
+                    </a>
+                  </Button>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </div>
+  );
+}

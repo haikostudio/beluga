@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * Palette volontairement pauvre : noir, anthracite, gris, blanc.
+   * Les SEULES couleurs sont des couleurs d'état (PLAN §17).
+   */
+  :root {
+    --bg: 240 10% 4%;
+    --surface: 240 6% 8%;
+    --raised: 240 5% 11%;
+    --border: 240 5% 17%;
+    --text: 0 0% 98%;
+    --muted: 240 4% 64%;
+    --faint: 240 4% 42%;
+    --accent: 0 0% 98%;
+    --accent-fg: 240 10% 4%;
+    --success: 142 45% 45%;
+    --warning: 38 75% 55%;
+    --danger: 0 62% 58%;
+    color-scheme: dark;
+  }
+
+  html:not(.dark) {
+    --bg: 0 0% 100%;
+    --surface: 240 12% 97%;
+    --raised: 0 0% 100%;
+    --border: 240 6% 88%;
+    --text: 240 10% 8%;
+    --muted: 240 4% 42%;
+    --faint: 240 4% 58%;
+    --accent: 240 10% 10%;
+    --accent-fg: 0 0% 100%;
+    --success: 142 55% 34%;
+    --warning: 32 85% 42%;
+    --danger: 0 65% 46%;
+    color-scheme: light;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-bg text-text antialiased;
+    font-family: theme('fontFamily.sans');
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full;
+    background: hsl(var(--border));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--faint));
+  }
+
+  input,
+  textarea,
+  button {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .surface {
+    @apply bg-surface border border-border rounded-lg;
+  }
+
+  .hairline {
+    @apply border-t border-border;
+  }
+
+  /* Rendu Markdown des réponses d'agent */
+  .prose-hd {
+    @apply text-[13.5px] leading-relaxed;
+  }
+  .prose-hd h2 {
+    @apply mt-4 mb-1.5 text-[13px] font-semibold tracking-tight text-text flex items-center gap-1.5;
+  }
+  .prose-hd h3 {
+    @apply mt-3 mb-1 text-[12.5px] font-semibold text-text;
+  }
+  .prose-hd p {
+    @apply my-1.5 text-muted;
+  }
+  .prose-hd ul {
+    @apply my-1.5 space-y-1 pl-1;
+  }
+  .prose-hd li {
+    @apply text-muted flex gap-2;
+  }
+  .prose-hd li::before {
+    content: '—';
+    @apply text-faint shrink-0;
+  }
+  .prose-hd code {
+    @apply rounded bg-raised px-1 py-0.5 text-[12px] font-mono text-text;
+  }
+  .prose-hd pre {
+    @apply my-2 overflow-x-auto rounded-md bg-raised p-2.5 text-[12px] leading-relaxed;
+  }
+  .prose-hd pre code {
+    @apply bg-transparent p-0;
+  }
+  .prose-hd strong {
+    @apply font-semibold text-text;
+  }
+  .prose-hd a {
+    @apply underline underline-offset-2 text-text;
+  }
+  .prose-hd table {
+    @apply my-2 w-full text-[12px];
+  }
+  .prose-hd th {
+    @apply border-b border-border pb-1 text-left font-medium text-text;
+  }
+  .prose-hd td {
+    @apply border-b border-border/60 py-1 text-muted align-top;
+  }
+}
+
+/* Barre de défilement horizontale du tableau, sans à-coups sur mobile */
+.snap-columns {
+  scroll-snap-type: x proximity;
+}
+.snap-columns > * {
+  scroll-snap-align: start;
+}

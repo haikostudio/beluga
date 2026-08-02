@@ -1,0 +1,408 @@
+import { z } from 'zod';
+import { ColumnKey } from './columns.js';
+
+/* ------------------------------------------------------------------ */
+/* Moteurs, modèles, niveaux de réflexion                              */
+/* ------------------------------------------------------------------ */
+
+export const EngineId = z.enum(['claude', 'codex']);
+export type EngineId = z.infer<typeof EngineId>;
+
+export const ThinkingLevel = z.enum(['none', 'low', 'medium', 'high']);
+export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
+
+export const ModelInfo = z.object({
+  id: z.string(),
+  label: z.string(),
+  /** Niveaux de réflexion réellement proposés par ce modèle. */
+  thinking: z.array(ThinkingLevel).default(['none']),
+  note: z.string().optional(),
+});
+export type ModelInfo = z.infer<typeof ModelInfo>;
+
+export const EngineInfo = z.object({
+  id: EngineId,
+  label: z.string(),
+  installed: z.boolean(),
+  version: z.string().optional(),
+  models: z.array(ModelInfo).default([]),
+  defaultModel: z.string().optional(),
+});
+export type EngineInfo = z.infer<typeof EngineInfo>;
+
+export const RunConfig = z.object({
+  engine: EngineId.default('claude'),
+  model: z.string().optional(),
+  thinking: ThinkingLevel.default('none'),
+  mode: z.enum(['direct', 'plan']).default('direct'),
+});
+export type RunConfig = z.infer<typeof RunConfig>;
+
+/* ------------------------------------------------------------------ */
+/* Projet                                                              */
+/* ------------------------------------------------------------------ */
+
+export const BillingLink = z.object({
+  clientId: z.string().optional(),
+  clientName: z.string().optional(),
+  companyId: z.string().optional(),
+  companyName: z.string().optional(),
+  hourlyRate: z.number().default(130),
+  currency: z.string().default('CHF'),
+  defaultDocumentId: z.string().optional(),
+  defaultDocumentType: z.enum(['offer', 'invoice']).optional(),
+});
+export type BillingLink = z.infer<typeof BillingLink>;
+
+export const Project = z.object({
+  id: z.string(),
+  name: z.string(),
+  path: z.string(),
+  gitRemote: z.string().optional(),
+  gitBranch: z.string().optional(),
+  defaultEngine: EngineId.default('claude'),
+  defaultModel: z.string().optional(),
+  /** Vrai uniquement pour le dépôt HaikoDev lui-même (PLAN §5, exception). */
+  isSelf: z.boolean().default(false),
+  /** Commande de publication, exécutée par l'agent de publication. */
+  deployCommand: z.string().optional(),
+  deployUrl: z.string().optional(),
+  billing: BillingLink.optional(),
+  archived: z.boolean().default(false),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type Project = z.infer<typeof Project>;
+
+/* ------------------------------------------------------------------ */
+/* Estimation & consommation                                           */
+/* ------------------------------------------------------------------ */
+
+export const Estimate = z.object({
+  /** Durée machine prévue, en secondes. Sert à l'ordonnanceur, JAMAIS à la facture. */
+  machineSeconds: z.number().optional(),
+  tokens: z.number().optional(),
+  quotaShare: z.number().optional(),
+  confidence: z.enum(['low', 'medium', 'high']).optional(),
+  summary: z.string().optional(),
+  /** Heures qu'un développeur senior facturerait à la main. Sert à la facture. */
+  seniorHours: z.number().optional(),
+  billingTitle: z.string().optional(),
+  billingDescription: z.string().optional(),
+  failed: z.boolean().default(false),
+  failureReason: z.string().optional(),
+  producedAt: z.number().optional(),
+});
+export type Estimate = z.infer<typeof Estimate>;
+
+export const Consumption = z.object({
+  tokens: z.number().optional(),
+  quotaShare: z.number().optional(),
+  /** Durée machine réelle, en secondes. */
+  machineSeconds: z.number().optional(),
+  account: z.string().optional(),
+  turns: z.number().optional(),
+  measuredAt: z.number().optional(),
+});
+export type Consumption = z.infer<typeof Consumption>;
+
+/* ------------------------------------------------------------------ */
+/* Carte                                                               */
+/* ------------------------------------------------------------------ */
+
+export const Attachment = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  name: z.string(),
+  mime: z.string(),
+  size: z.number(),
+  /** Empreinte du contenu : le même fichier envoyé dix fois n'apparaît qu'une fois. */
+  sha: z.string(),
+  cardId: z.string().optional(),
+  agentId: z.string().optional(),
+  createdAt: z.number(),
+});
+export type Attachment = z.infer<typeof Attachment>;
+
+export const BillingLine = z.object({
+  documentType: z.enum(['offer', 'invoice']),
+  documentId: z.string(),
+  documentNumber: z.string().optional(),
+  title: z.string().optional(),
+  hours: z.number().optional(),
+  amount: z.number().optional(),
+  addedAt: z.number(),
+});
+export type BillingLine = z.infer<typeof BillingLine>;
+
+export const GithubTracking = z.object({
+  branch: z.string().optional(),
+  prNumber: z.number().optional(),
+  prTitle: z.string().optional(),
+  prState: z.enum(['open', 'merged', 'closed']).optional(),
+  prUrl: z.string().optional(),
+  checks: z
+    .array(z.object({ name: z.string(), status: z.string(), conclusion: z.string().optional() }))
+    .default([]),
+  reviewDecision: z.string().optional(),
+  mergeable: z.string().optional(),
+  commits: z
+    .array(z.object({ sha: z.string(), message: z.string(), date: z.string().optional() }))
+    .default([]),
+  activity: z
+    .array(z.object({ kind: z.string(), author: z.string(), body: z.string(), date: z.string() }))
+    .default([]),
+  fetchedAt: z.number().optional(),
+});
+export type GithubTracking = z.infer<typeof GithubTracking>;
+
+export const SchedulingState = z.object({
+  waitingReason: z.string().optional(),
+  asap: z.boolean().default(false),
+  attempts: z.number().default(0),
+  /** Compteur séparé : un redémarrage du démon ne compte JAMAIS comme un essai raté (PLAN §30). */
+  restarts: z.number().default(0),
+  lastError: z.string().optional(),
+});
+export type SchedulingState = z.infer<typeof SchedulingState>;
+
+export const Card = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  title: z.string(),
+  description: z.string().default(''),
+  labels: z.array(z.string()).default([]),
+  column: ColumnKey,
+  position: z.number(),
+  origin: z.enum(['user', 'agent']).default('user'),
+  run: RunConfig,
+  estimate: Estimate.optional(),
+  consumption: Consumption.optional(),
+  scheduling: SchedulingState.optional(),
+  agentId: z.string().optional(),
+  billing: BillingLine.optional(),
+  github: GithubTracking.optional(),
+  /** Chemin du document de clôture, écrit à l'archivage. */
+  closureDoc: z.string().optional(),
+  excludedFromDeploy: z.boolean().default(false),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  doneAt: z.number().optional(),
+  /** Ce qui dit qu'une carte est publiée, c'est cette date — jamais sa colonne (PLAN §4). */
+  deployedAt: z.number().optional(),
+});
+export type Card = z.infer<typeof Card>;
+
+/* ------------------------------------------------------------------ */
+/* Agents & conversations                                              */
+/* ------------------------------------------------------------------ */
+
+export const AgentRole = z.enum(['task', 'orchestrator', 'analysis', 'deploy']);
+export type AgentRole = z.infer<typeof AgentRole>;
+
+export const AgentStatus = z.enum(['idle', 'starting', 'running', 'stopped', 'failed', 'done']);
+export type AgentStatus = z.infer<typeof AgentStatus>;
+
+export const Agent = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  cardId: z.string().optional(),
+  role: AgentRole,
+  title: z.string(),
+  run: RunConfig,
+  status: AgentStatus,
+  account: z.string().optional(),
+  pid: z.number().optional(),
+  startedAt: z.number().optional(),
+  endedAt: z.number().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type Agent = z.infer<typeof Agent>;
+
+/** Une étape de la liste d'exécution en direct (PLAN §26). */
+export const RunStep = z.object({
+  id: z.string(),
+  label: z.string(),
+  state: z.enum(['todo', 'running', 'done', 'failed', 'skipped']),
+  detail: z.string().optional(),
+  startedAt: z.number().optional(),
+  endedAt: z.number().optional(),
+});
+export type RunStep = z.infer<typeof RunStep>;
+
+export const TaskProposal = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().default(''),
+  labels: z.array(z.string()).default([]),
+  run: RunConfig.optional(),
+  /** Décision mémorisée : une proposition refusée ne revient jamais (PLAN §30). */
+  decision: z.enum(['pending', 'accepted', 'refused']).default('pending'),
+  cardId: z.string().optional(),
+  decidedAt: z.number().optional(),
+});
+export type TaskProposal = z.infer<typeof TaskProposal>;
+
+export const DownloadOffer = z.object({
+  id: z.string(),
+  label: z.string(),
+  size: z.number().optional(),
+  expiresAt: z.number(),
+});
+export type DownloadOffer = z.infer<typeof DownloadOffer>;
+
+export const Message = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  role: z.enum(['user', 'assistant', 'system', 'tool']),
+  content: z.string().default(''),
+  /** Liste d'exécution attachée à ce tour (PLAN §26). */
+  steps: z.array(RunStep).default([]),
+  proposals: z.array(TaskProposal).default([]),
+  downloads: z.array(DownloadOffer).default([]),
+  attachments: z.array(z.string()).default([]),
+  /** Vrai tant que l'agent écrit encore ce message. */
+  streaming: z.boolean().default(false),
+  error: z.string().optional(),
+  createdAt: z.number(),
+});
+export type Message = z.infer<typeof Message>;
+
+/** Un message écrit pendant que l'agent travaille : il attend son tour (PLAN §14). */
+export const QueuedPrompt = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  text: z.string(),
+  attachments: z.array(z.string()).default([]),
+  position: z.number(),
+  createdAt: z.number(),
+});
+export type QueuedPrompt = z.infer<typeof QueuedPrompt>;
+
+/* ------------------------------------------------------------------ */
+/* Quotas, capacité, publication                                       */
+/* ------------------------------------------------------------------ */
+
+export const QuotaWindow = z.object({
+  usedPct: z.number().optional(),
+  resetsAt: z.number().optional(),
+});
+export type QuotaWindow = z.infer<typeof QuotaWindow>;
+
+export const AccountQuota = z.object({
+  id: z.string(),
+  engine: EngineId,
+  label: z.string(),
+  plan: z.string().optional(),
+  priority: z.number().default(100),
+  active: z.boolean().default(false),
+  available: z.boolean().default(true),
+  session: QuotaWindow.optional(),
+  weekly: QuotaWindow.optional(),
+  error: z.string().optional(),
+  fetchedAt: z.number().optional(),
+});
+export type AccountQuota = z.infer<typeof AccountQuota>;
+
+export const CapacitySnapshot = z.object({
+  loadPct: z.number(),
+  memUsedMb: z.number(),
+  memTotalMb: z.number(),
+  cpuCount: z.number(),
+  runningAgents: z.number(),
+  maxAgents: z.number(),
+  /** Calculé sur la consommation mesurée, pas deviné (PLAN §27). */
+  slotsFree: z.number(),
+  paused: z.boolean().default(false),
+  pauseReason: z.string().optional(),
+  avgAgentMemMb: z.number().optional(),
+  at: z.number(),
+});
+export type CapacitySnapshot = z.infer<typeof CapacitySnapshot>;
+
+export const SystemProcess = z.object({
+  id: z.string(),
+  kind: z.enum(['agent', 'service']),
+  label: z.string(),
+  detail: z.string().optional(),
+  memMb: z.number(),
+  cpuPct: z.number(),
+  since: z.number().optional(),
+  canStop: z.boolean().default(false),
+  running: z.boolean().default(true),
+  projectId: z.string().optional(),
+  cardId: z.string().optional(),
+});
+export type SystemProcess = z.infer<typeof SystemProcess>;
+
+export const DeployStepKey = z.enum([
+  'merge',
+  'commit',
+  'push',
+  'verify',
+  'build',
+  'publish',
+  'restart',
+]);
+export type DeployStepKey = z.infer<typeof DeployStepKey>;
+
+export const DeployRun = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  state: z.enum(['running', 'success', 'failed', 'stopped']),
+  currentStep: DeployStepKey.optional(),
+  steps: z
+    .array(
+      z.object({
+        key: DeployStepKey,
+        state: z.enum(['todo', 'running', 'done', 'failed', 'skipped']),
+        log: z.string().default(''),
+        startedAt: z.number().optional(),
+        endedAt: z.number().optional(),
+      }),
+    )
+    .default([]),
+  cardIds: z.array(z.string()).default([]),
+  url: z.string().optional(),
+  targetCommit: z.string().optional(),
+  agentId: z.string().optional(),
+  error: z.string().optional(),
+  queued: z.boolean().default(false),
+  startedAt: z.number(),
+  endedAt: z.number().optional(),
+});
+export type DeployRun = z.infer<typeof DeployRun>;
+
+/* ------------------------------------------------------------------ */
+/* Réglages                                                            */
+/* ------------------------------------------------------------------ */
+
+export const Settings = z.object({
+  maxAgents: z.number().default(15),
+  quietHoursStart: z.number().optional(),
+  quietHoursEnd: z.number().optional(),
+  offPeakStart: z.number().default(22),
+  offPeakEnd: z.number().default(7),
+  heavyTaskSeconds: z.number().default(900),
+  theme: z.enum(['dark', 'light']).default('dark'),
+  notifyOnDone: z.boolean().default(true),
+  notifyOnFailed: z.boolean().default(true),
+  notifyOnProposal: z.boolean().default(true),
+  notifyOnDeploy: z.boolean().default(true),
+  alertThresholdPct: z.number().default(90),
+  alertMinutes: z.number().default(10),
+  dailyDigestHour: z.number().optional(),
+  backupHour: z.number().default(3),
+  ttsVoice: z.string().default('fr_FR-siwis-medium'),
+});
+export type Settings = z.infer<typeof Settings>;
+
+export const FileNode = z.object({
+  name: z.string(),
+  path: z.string(),
+  kind: z.enum(['file', 'dir']),
+  size: z.number().optional(),
+  mtime: z.number().optional(),
+});
+export type FileNode = z.infer<typeof FileNode>;

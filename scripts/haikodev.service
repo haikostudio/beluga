@@ -1,0 +1,27 @@
+[Unit]
+Description=HaikoDev — pilotage de projets par agents IA
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=paseo
+Group=paseo
+WorkingDirectory=/root/haikodev
+Environment=NODE_ENV=production
+Environment=HOME=/home/paseo
+Environment=HAIKODEV_HOST=127.0.0.1
+Environment=HAIKODEV_PORT=7070
+Environment=PATH=/home/paseo/.local/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/node /root/haikodev/server/dist/main.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+MemoryAccounting=true
+TasksMax=512
+StandardOutput=append:/root/haikodev/data/logs/service.log
+StandardError=append:/root/haikodev/data/logs/service.log
+
+[Install]
+WantedBy=multi-user.target
