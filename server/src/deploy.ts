@@ -1,13 +1,42 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { Card, DeployRun, DeployStepKey } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
+import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Installe la construction du dossier de travail dans le dossier SERVI. On
+ * écrit d'abord à côté, puis on échange : à aucun moment l'application n'est
+ * servie à moitié.
+ */
+function installerApplication(): string {
+  const source = CONFIG.buildDir;
+  if (!fs.existsSync(path.join(source, 'index.html'))) {
+    throw new Error(`Rien à installer : ${source} ne contient pas d'application construite.`);
+  }
+  const cible = CONFIG.liveDir;
+  const provisoire = `${cible}.nouveau`;
+  const ancien = `${cible}.ancien`;
+
+  fs.rmSync(provisoire, { recursive: true, force: true });
+  fs.cpSync(source, provisoire, { recursive: true });
+
+  fs.rmSync(ancien, { recursive: true, force: true });
+  if (fs.existsSync(cible)) fs.renameSync(cible, ancien);
+  fs.renameSync(provisoire, cible);
+  fs.rmSync(ancien, { recursive: true, force: true });
+
+  const fichiers = fs.readdirSync(path.join(cible, 'assets')).length;
+  return `Application installée dans ${cible} (${fichiers} fichiers). C'est elle qui est servie.`;
+}
 
 /* ------------------------------------------------------------------ */
 /* Le compteur du bouton doit dire la vérité (PLAN §30)                */
@@ -210,6 +239,33 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
 
         current = setStep(current, 'publish', 'done', 'commande de publication exécutée');
         current = setStep(current, 'restart', 'skipped', 'géré par la commande du projet');
+      } else if (project.isSelf) {
+        /*
+         * HaikoDev se publie lui-même. La fusion est déjà faite juste au-dessus :
+         * on construit CE lot fusionné, puis on INSTALLE le résultat dans le
+         * dossier servi. C'est le seul moment où ce que voit l'utilisateur
+         * change — une branche non envoyée ne peut plus rien y faire.
+         */
+        current = setStep(current, 'verify', 'running');
+        const verify = await runCommand(cwd, 'npm test', 10 * 60 * 1000);
+        current = setStep(current, 'verify', verify.ok ? 'done' : 'failed', verify.out.slice(-800));
+        if (!verify.ok) throw new Error('Les vérifications échouent : rien n\'est mis en ligne.');
+
+        current = setStep(current, 'build', 'running');
+        const build = await runCommand(cwd, 'npm run build', 10 * 60 * 1000);
+        current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.out.slice(-800));
+        if (!build.ok) throw new Error('La construction a échoué.');
+
+        current = setStep(current, 'publish', 'running');
+        const installe = installerApplication();
+        current = setStep(current, 'publish', 'done', installe);
+
+        current = setStep(
+          current,
+          'restart',
+          'skipped',
+          "L'interface est en ligne. Les changements côté serveur demandent un redémarrage du démon, qui reste votre geste.",
+        );
       } else {
         for (const key of ['verify', 'build', 'publish', 'restart'] as DeployStepKey[]) {
           current = setStep(current, key, 'skipped', 'aucune commande de publication configurée');

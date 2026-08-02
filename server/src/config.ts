@@ -12,11 +12,31 @@ function env(name: string, fallback: string): string {
   return v && v.trim() ? v.trim() : fallback;
 }
 
+const dataDir = env('HAIKODEV_DATA', path.join(ROOT, 'data'));
+/**
+ * L'application EN LIGNE vit dans son propre dossier, écrit uniquement par la
+ * publication. Le dossier de travail, lui, change de branche au gré des cartes :
+ * s'il servait l'application, la dernière construction d'un agent déciderait de
+ * ce que voit l'utilisateur (rencontré le 02/08/2026, une demi-journée de
+ * travail rendue invisible). Tant qu'une branche n'est pas envoyée, elle ne
+ * change rien à ce qui est servi.
+ */
+const liveDir = path.join(dataDir, 'live');
+const buildDir = path.join(ROOT, 'web', 'dist');
+
 export const CONFIG = {
   port: Number(env('HAIKODEV_PORT', '7070')),
   host: env('HAIKODEV_HOST', '127.0.0.1'),
-  dataDir: env('HAIKODEV_DATA', path.join(ROOT, 'data')),
-  webDir: env('HAIKODEV_WEB', path.join(ROOT, 'web', 'dist')),
+  dataDir,
+  webDir: env(
+    'HAIKODEV_WEB',
+    // Avant la première publication, on sert la construction du dossier.
+    fs.existsSync(path.join(liveDir, 'index.html')) ? liveDir : buildDir,
+  ),
+  /** Là où la publication installe l'application, et d'où elle est servie. */
+  liveDir,
+  /** Là où `npm run build` écrit, dans le dossier de travail. */
+  buildDir,
   /** Dossier où sont clonés les projets pilotables. */
   projectsRoot: env('HAIKODEV_PROJECTS_ROOT', '/root'),
   selfPath: ROOT,
