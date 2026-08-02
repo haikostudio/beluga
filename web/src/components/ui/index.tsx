@@ -230,7 +230,11 @@ export function Drawer({
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 animate-fade-in" />
         <DialogPrimitive.Content
           className={cn(
-            'fixed inset-x-0 z-50 flex flex-col overflow-hidden rounded-t-xl border-t border-border bg-bg shadow-2xl',
+            // Sur téléphone il occupe toute la largeur ; sur grand écran il se
+            // pose au centre, plafonné à 960 px : au-delà, les lignes de texte
+            // deviennent trop longues pour être lues confortablement.
+            'fixed inset-x-0 z-50 mx-auto flex w-full max-w-[960px] flex-col overflow-hidden border-border bg-bg shadow-2xl',
+            'rounded-t-xl border-t sm:rounded-t-2xl sm:border-x',
             'data-[state=open]:animate-slide-up',
             className,
           )}
