@@ -205,19 +205,38 @@ function FilesTab({ projectId }: { projectId: string }) {
         {!visible.length ? <EmptyState title="Dossier vide" /> : null}
       </div>
 
-      <FilePreview preview={preview} onClose={() => setPreview(null)} />
+      <FilePreview projectId={projectId} preview={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }
 
-function FilePreview({ preview, onClose }: { preview: { path: string; data: any } | null; onClose: () => void }) {
+function FilePreview({
+  projectId,
+  preview,
+  onClose,
+}: {
+  projectId: string;
+  preview: { path: string; data: any } | null;
+  onClose: () => void;
+}) {
   if (!preview) return null;
   const { data } = preview;
+  const href = `/api/file?project=${encodeURIComponent(projectId)}&path=${encodeURIComponent(preview.path)}&download=1`;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[min(860px,calc(100vw-16px))]">
-        <DialogTitle className="truncate pr-6 text-[14.5px]">{preview.path}</DialogTitle>
+        <div className="flex items-center gap-2 pr-6">
+          <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{preview.path}</DialogTitle>
+          {/* Le fichier se récupère tel quel, sans passer par une archive. */}
+          <Tooltip label="Télécharger">
+            <Button variant="ghost" size="icon-sm" asChild>
+              <a href={href} download>
+                <Download className="h-3 w-3" />
+              </a>
+            </Button>
+          </Tooltip>
+        </div>
         <div className="mt-3 max-h-[70dvh] overflow-auto rounded-md border border-border bg-raised p-2">
           {data.kind === 'text' ? (
             <pre className="whitespace-pre-wrap text-[13px] leading-relaxed text-muted">{data.content}</pre>
@@ -309,7 +328,16 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
       {zoom ? (
         <Dialog open onOpenChange={(open) => !open && setZoom(null)}>
           <DialogContent className="w-[min(900px,calc(100vw-16px))]">
-            <DialogTitle className="truncate pr-6 text-[14.5px]">{zoom.name}</DialogTitle>
+            <div className="flex items-center gap-2 pr-6">
+              <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{zoom.name}</DialogTitle>
+              <Tooltip label="Télécharger">
+                <Button variant="ghost" size="icon-sm" asChild>
+                  <a href={`/api/attachment?id=${zoom.id}&download=1`} download={zoom.name}>
+                    <Download className="h-3 w-3" />
+                  </a>
+                </Button>
+              </Tooltip>
+            </div>
             <div className="mt-3 max-h-[72dvh] overflow-auto rounded-md border border-border bg-raised p-2">
               {zoom.mime.startsWith('image/') ? (
                 <img src={`/api/attachment?id=${zoom.id}`} alt={zoom.name} className="mx-auto max-w-full" />

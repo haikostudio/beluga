@@ -443,6 +443,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const updated = store.saveAgent({ ...agent, run: run as any });
       bus.emit({ type: 'agent.upsert', agent: updated });
 
+      // Le réglage d'un chef d'orchestre devient le réglage retenu : les chefs
+      // d'orchestre créés ensuite le reprennent au lieu du modèle épinglé.
+      if (agent.role === 'orchestrator') {
+        const settings = store.saveSettings({
+          orchestratorEngine: run.engine,
+          orchestratorModel: run.model,
+          orchestratorThinking: run.thinking,
+        });
+        bus.emit({ type: 'settings', settings });
+      }
+
       // La carte garde le réglage pour ses prochains lancements.
       if (agent.cardId) {
         const card = store.getCard(agent.cardId);

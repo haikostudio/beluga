@@ -9,7 +9,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { callTool, toolsFor } from './tools.js';
 import { attachToCurrentMessage } from './runtime.js';
-import { readFilePreview, makeZip } from './files.js';
+import { readFilePreview, makeZip, safeJoin } from './files.js';
 import { transcribe, digestText, speak, voiceAvailable } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { log } from './logger.js';
@@ -296,7 +296,23 @@ export function createHttpServer(): http.Server {
       if (route === '/api/file') {
         const project = store.getProject(url.searchParams.get('project') ?? '');
         if (!project) return json(res, 404, { error: 'projet introuvable' });
-        const preview = readFilePreview(project.path, url.searchParams.get('path') ?? '');
+        const relative = url.searchParams.get('path') ?? '';
+
+        // Depuis l'aperçu, on peut aussi récupérer le fichier tel quel — pas
+        // d'archive pour une seule image.
+        if (url.searchParams.get('download')) {
+          const full = safeJoin(project.path, relative);
+          if (!full || !fs.existsSync(full) || !fs.statSync(full).isFile()) {
+            return json(res, 404, { error: 'fichier introuvable' });
+          }
+          res.writeHead(200, {
+            'content-type': 'application/octet-stream',
+            'content-disposition': `attachment; filename="${encodeURIComponent(path.basename(full))}"`,
+          });
+          return fs.createReadStream(full).pipe(res);
+        }
+
+        const preview = readFilePreview(project.path, relative);
         return json(res, 200, preview);
       }
 

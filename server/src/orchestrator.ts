@@ -3,7 +3,7 @@ import * as store from './store.js';
 import { createAgent } from './runtime.js';
 import { bus } from './bus.js';
 import { listEngines } from './engines/index.js';
-import { orchestratorModel, resolveModel } from './engines/catalog.js';
+import { normaliseThinking, orchestratorModel, resolveModel } from './engines/catalog.js';
 
 /**
  * Le chef d'orchestre (PLAN §5) : un agent permanent par projet, dont la
@@ -32,19 +32,29 @@ export async function getOrCreateOrchestrator(projectId: string): Promise<Agent>
   }
 
   const project = store.getProject(projectId);
-  const engineId = project?.defaultEngine ?? 'claude';
+  const settings = store.getSettings();
+
+  // Un réglage déjà choisi pour un chef d'orchestre l'emporte : on le retient
+  // d'un projet à l'autre. Sans réglage retenu, on retombe sur le modèle épinglé.
+  const memorisedEngine = engines.find((e) => e.id === settings.orchestratorEngine);
+  const engineId = memorisedEngine?.id ?? project?.defaultEngine ?? 'claude';
   const engine = engines.find((e) => e.id === engineId) ?? engines[0];
+
+  // Le modèle retenu peut avoir disparu du catalogue : on le ramène vers un
+  // modèle réel, sinon l'interface afficherait autre chose que ce qui tourne.
+  const memorisedModel = memorisedEngine
+    ? resolveModel(engine?.models ?? [], settings.orchestratorModel)
+    : undefined;
+  const model = memorisedModel ?? orchestratorModel(engine?.models ?? []);
+  const thinking = memorisedModel
+    ? normaliseThinking(engine?.models ?? [], model, settings.orchestratorThinking)
+    : 'none';
 
   const agent = createAgent({
     projectId,
     role: 'orchestrator',
     title: `Chef d'orchestre — ${project?.name ?? 'projet'}`,
-    run: {
-      engine: engineId,
-      // Épinglé sur un modèle rapide et bon marché, choisi dans le catalogue réel.
-      model: orchestratorModel(engine?.models ?? []),
-      thinking: 'none',
-    },
+    run: { engine: engineId, model, thinking },
   });
 
   const welcome = store.saveMessage({

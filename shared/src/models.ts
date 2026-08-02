@@ -443,6 +443,13 @@ export const Settings = z.object({
   dailyDigestHour: z.number().optional(),
   backupHour: z.number().default(3),
   ttsVoice: z.string().default('fr_FR-siwis-medium'),
+  /**
+   * Le dernier réglage choisi pour un chef d'orchestre : les chefs d'orchestre
+   * créés ensuite le reprennent, au lieu de retomber sur le modèle épinglé.
+   */
+  orchestratorEngine: z.string().optional(),
+  orchestratorModel: z.string().optional(),
+  orchestratorThinking: z.string().optional(),
 });
 export type Settings = z.infer<typeof Settings>;
 
