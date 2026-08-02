@@ -230,13 +230,14 @@ export function Drawer({
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 animate-fade-in" />
         <DialogPrimitive.Content
           className={cn(
-            'fixed inset-x-0 bottom-0 z-50 flex flex-col overflow-hidden rounded-t-xl border-t border-border bg-bg shadow-2xl',
+            'fixed inset-x-0 z-50 flex flex-col overflow-hidden rounded-t-xl border-t border-border bg-bg shadow-2xl',
             'data-[state=open]:animate-slide-up',
             className,
           )}
           style={{
-            // Même mesure que l'application : pas de bande vide sous le tiroir.
-            height: 'calc(var(--hauteur-visible, 100dvh) * 0.92)',
+            // Collé au bas de la fenêtre, et remonté quand le clavier s'ouvre.
+            top: '8%',
+            bottom: 'var(--clavier, 0px)',
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: decalage ? `translateY(${decalage}px)` : undefined,
             transition: depart.current === null ? 'transform 180ms ease-out' : undefined,

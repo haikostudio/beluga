@@ -44,17 +44,18 @@ export function App() {
   }, []);
 
   /*
-   * La hauteur de l'application suit la zone RÉELLEMENT visible, mesurée par le
-   * navigateur. Sans cela, sur téléphone, l'application s'arrête plus haut que
-   * l'écran et laisse une bande vide en bas (unité dvh mal supportée, barre du
-   * navigateur escamotable). Le clavier qui s'ouvre est géré par le même
-   * mécanisme.
+   * L'application est ancrée aux quatre bords de la fenêtre (voir la racine
+   * plus bas) : elle ne peut donc plus laisser de bande vide en bas.
+   *
+   * Reste le clavier : quand il s'ouvre, il recouvre le bas de l'écran. On
+   * mesure exactement sa hauteur et on réserve ce creux, au lieu de laisser le
+   * téléphone décaler toute la page — c'était le sursaut du champ de saisie.
    */
   React.useEffect(() => {
     const vue = window.visualViewport;
     const appliquer = () => {
-      const hauteur = Math.round(vue?.height ?? window.innerHeight);
-      document.documentElement.style.setProperty('--hauteur-visible', `${hauteur}px`);
+      const cache = vue ? window.innerHeight - vue.height - vue.offsetTop : 0;
+      document.documentElement.style.setProperty('--clavier', `${Math.max(0, Math.round(cache))}px`);
     };
     appliquer();
     vue?.addEventListener('resize', appliquer);
@@ -142,7 +143,7 @@ export function App() {
 
   if (!state.connected && !state.projects.length) {
     return (
-      <div className="grid h-dvh place-items-center bg-bg">
+      <div className="grid h-full place-items-center bg-bg">
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-5 w-5 animate-spin text-faint" />
           <p className="text-[14px] text-faint">
@@ -156,8 +157,10 @@ export function App() {
   return (
     <TooltipProvider>
       <div
-        className="flex flex-col overflow-hidden bg-bg"
-        style={{ height: 'var(--hauteur-visible, 100dvh)' }}
+        // Ancrée aux quatre bords : aucune bande vide possible, sur aucun
+        // téléphone. Le creux du bas est réservé au clavier quand il s'ouvre.
+        className="fixed inset-0 flex flex-col overflow-hidden bg-bg"
+        style={{ paddingBottom: 'var(--clavier, 0px)' }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes('Files')) {
             event.preventDefault();

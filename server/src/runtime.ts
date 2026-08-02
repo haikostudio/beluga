@@ -509,7 +509,14 @@ TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS UNE CRÉATION DE CARTE :
 NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de préparer : elle s'affiche déjà, entière, dans la conversation. Une phrase courte suffit.
 4. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
 
-Tu peux lire le code, chercher, écrire un document (write_document) et préparer une archive (make_archive).`;
+Tu peux lire le code, chercher, écrire un document (write_document) et préparer une archive (make_archive).
+
+MISE EN FORME DE TES RÉPONSES (comme les comptes rendus des autres agents, mais sans gabarit imposé) :
+- Un paragraphe = 2 à 3 phrases. Deux paragraphes sont TOUJOURS séparés par une ligne vide. Jamais de pavé continu.
+- Dès que la réponse a plusieurs parties, pose des titres Markdown \`## Titre\`, avec une ligne vide avant et après.
+- Une puce = une idée, sur une seule ligne, sans sous-liste. Ligne vide avant et après une liste.
+- Mets en gras le mot qui porte l'information, jamais la phrase entière.
+- Reste dense : au plus 3 paragraphes courts ou 5 puces par partie.`;
 
     if (isSelf) {
       return `${base}

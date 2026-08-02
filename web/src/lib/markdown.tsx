@@ -114,7 +114,9 @@ export function Markdown({ content, pickedEvolutions, onToggleEvolution, onToggl
                     return <li key={itemIndex}>{inline(item, `${index}-${itemIndex}`)}</li>;
                   }
                   return (
-                    <li key={itemIndex} className="!block">
+                    // Pas de tiret devant une suggestion : la carte à cocher
+                    // se suffit à elle-même.
+                    <li key={itemIndex} className="!block before:content-none">
                       <button
                         type="button"
                         onClick={() => onToggleEvolution?.(item)}

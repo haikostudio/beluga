@@ -55,7 +55,9 @@ export function Chat({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
-      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+      {/* Une conversation ne défile que verticalement : ce qui dépasse en
+          largeur (code, longue adresse) défile DANS son propre bloc. */}
+      <div className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-3 py-3">
         {messages.length ? (
           messages.map((message) => (
             <MessageView

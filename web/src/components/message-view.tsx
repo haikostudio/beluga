@@ -58,7 +58,7 @@ export function MessageView({
     // Vos demandes : à droite, sur une largeur réduite.
     return (
       <div className="flex justify-end">
-        <div className="w-[min(78%,520px)]">
+        <div className="w-[min(78%,520px)] min-w-0">
           <div className="rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
             <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-text">{message.content}</p>
             {message.attachments.length ? (
@@ -88,7 +88,7 @@ export function MessageView({
 
   // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
-    <div className="group w-[min(92%,860px)]">
+    <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
       {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}
       <TodoList todos={message.todos} streaming={message.streaming} />
       <Steps steps={etapes} streaming={message.streaming} />

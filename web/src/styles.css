@@ -100,6 +100,11 @@
      l'air entre les paragraphes — sinon la réponse se lit comme un pavé. */
   .prose-hd {
     @apply text-[15px] leading-[1.75];
+    /* Un mot interminable (adresse, chemin) va à la ligne au lieu d'élargir
+       toute la conversation. */
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
   }
   /* Les titres de section se voient de loin, et chaque paragraphe respire. */
   .prose-hd h2 {
@@ -126,6 +131,10 @@
   .prose-hd li::before {
     content: '—';
     @apply text-faint shrink-0;
+  }
+  /* Les suggestions cliquables portent déjà leur case : pas de tiret devant. */
+  .prose-hd li.before\:content-none::before {
+    content: none;
   }
   .prose-hd code {
     @apply rounded bg-raised px-1 py-0.5 text-[13px] font-mono text-text;
