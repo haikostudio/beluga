@@ -148,6 +148,35 @@ export async function speak(text: string): Promise<{ ok: boolean; file?: string;
   }
 }
 
+/**
+ * Le rendez-vous quotidien (PLAN §22) : à l'heure choisie, le point du jour est
+ * préparé et arrive en notification ; un appui lance la lecture.
+ */
+export function scheduleDailyDigest(hourGetter: () => number | undefined): NodeJS.Timeout {
+  let lastDay = -1;
+  return setInterval(
+    async () => {
+      const hour = hourGetter();
+      if (hour === undefined) return;
+      const now = new Date();
+      if (now.getHours() !== hour || now.getDate() === lastDay) return;
+      lastDay = now.getDate();
+
+      const text = digestText();
+      // L'audio est fabriqué à l'avance : au clic, la lecture démarre tout de suite.
+      const spoken = await speak(text);
+      const { notify } = await import('./notify.js');
+      notify({
+        kind: 'waiting',
+        title: 'Le point du jour est prêt',
+        body: text.slice(0, 160),
+      });
+      log.info(`point du jour préparé${spoken.ok ? ' (avec audio)' : ''}`);
+    },
+    5 * 60 * 1000,
+  );
+}
+
 export function purgeOldAudio(): void {
   try {
     const cutoff = Date.now() - 24 * 3600 * 1000;

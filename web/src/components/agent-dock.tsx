@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AlertCircle, Bot, Check, ChevronUp, Info, TriangleAlert, X } from 'lucide-react';
+import { AlertCircle, Bot, Check, ChevronUp, GripVertical, Info, TriangleAlert, X } from 'lucide-react';
 import { Badge, Button, Dot } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -15,11 +15,54 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
   const [collapsed, setCollapsed] = React.useState(false);
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
   const [, force] = React.useReducer((value: number) => value + 1, 0);
+  // La pile est déplaçable si elle gêne, et sa position est mémorisée (§28).
+  const [offset, setOffset] = React.useState<{ x: number; y: number }>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('haikodev.dock') ?? '') ?? { x: 0, y: 0 };
+    } catch {
+      return { x: 0, y: 0 };
+    }
+  });
+  const dragRef = React.useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
+  // « Tout effacer » reste annulable quelques secondes.
+  const [undo, setUndo] = React.useState<Set<string> | null>(null);
 
   React.useEffect(() => {
     const timer = setInterval(force, 5000);
     return () => clearInterval(timer);
   }, []);
+
+  React.useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      setOffset({
+        x: Math.min(0, drag.baseX + (event.clientX - drag.startX)),
+        y: Math.min(0, drag.baseY + (event.clientY - drag.startY)),
+      });
+    };
+    const up = () => {
+      if (!dragRef.current) return;
+      dragRef.current = null;
+      setOffset((current) => {
+        localStorage.setItem('haikodev.dock', JSON.stringify(current));
+        return current;
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+  }, []);
+
+  const clearAll = (ids: string[]) => {
+    const previous = new Set(dismissed);
+    setDismissed(new Set([...dismissed, ...ids]));
+    setUndo(previous);
+    window.setTimeout(() => setUndo(null), 6000);
+  };
 
   const agents = Object.values(state.agents)
     .filter((agent) => {
@@ -31,7 +74,10 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 
   return (
-    <div className="pointer-events-none fixed bottom-2 right-2 z-40 flex w-[248px] flex-col items-end gap-1.5 sm:bottom-3 sm:right-3">
+    <div
+      className="pointer-events-none fixed bottom-2 right-2 z-40 flex w-[248px] flex-col items-end gap-1.5 sm:bottom-3 sm:right-3"
+      style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
+    >
       {/* Messages courts */}
       <div className="pointer-events-auto flex w-full flex-col gap-1">
         {state.toasts.map((toast) => (
@@ -82,13 +128,38 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
           <div className="pointer-events-auto w-full space-y-1">
             <div className="flex items-center justify-end gap-1">
               <button
+                onPointerDown={(event) => {
+                  dragRef.current = {
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    baseX: offset.x,
+                    baseY: offset.y,
+                  };
+                }}
+                title="Déplacer la pile"
+                className="cursor-grab rounded border border-border bg-surface px-1 py-0.5 text-faint hover:text-text active:cursor-grabbing"
+              >
+                <GripVertical className="h-2.5 w-2.5" />
+              </button>
+              {undo ? (
+                <button
+                  onClick={() => {
+                    setDismissed(undo);
+                    setUndo(null);
+                  }}
+                  className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text"
+                >
+                  Annuler
+                </button>
+              ) : null}
+              <button
                 onClick={() => setCollapsed(true)}
                 className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-faint hover:text-text"
               >
                 Replier
               </button>
               <button
-                onClick={() => setDismissed(new Set(agents.map((a) => a.id)))}
+                onClick={() => clearAll(agents.map((a) => a.id))}
                 className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-faint hover:text-text"
               >
                 Tout effacer

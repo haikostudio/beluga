@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getDb } from './db.js';
@@ -43,6 +44,7 @@ export async function runBackup(reason = 'automatique'): Promise<{ ok: boolean; 
     await execFileAsync('tar', ['czf', archive, '-C', PATHS.backups, path.basename(dir)], { timeout: 300000 });
     fs.rmSync(dir, { recursive: true, force: true });
 
+    await copyOffSite(archive);
     prune();
     log.info(`sauvegarde ${reason} : ${path.basename(archive)}`);
     bus.toast('success', 'Sauvegarde effectuée');
@@ -50,6 +52,37 @@ export async function runBackup(reason = 'automatique'): Promise<{ ok: boolean; 
   } catch (err: any) {
     log.error('sauvegarde impossible', err);
     return { ok: false, error: err?.message ?? String(err) };
+  }
+}
+
+/**
+ * Copie hors du serveur, chiffrée (PLAN §23). La destination se déclare dans
+ * HAIKODEV_OFFSITE (une cible rsync/scp, ex. « sauvegardes@ailleurs:/haikodev »)
+ * et la phrase secrète dans HAIKODEV_OFFSITE_KEY. Sans ces deux réglages, la
+ * copie distante est simplement sautée : la sauvegarde locale reste faite.
+ * Les secrets du serveur ne partent JAMAIS dans la copie : ils se recréent.
+ */
+async function copyOffSite(archive: string): Promise<void> {
+  const target = process.env.HAIKODEV_OFFSITE?.trim();
+  const passphrase = process.env.HAIKODEV_OFFSITE_KEY?.trim();
+  if (!target || !passphrase) return;
+
+  const encrypted = `${archive}.enc`;
+  try {
+    // Chiffrement à clé symétrique : le fichier est illisible sans la phrase.
+    const key = crypto.scryptSync(passphrase, 'haikodev-sauvegarde', 32);
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const input = fs.readFileSync(archive);
+    const body = Buffer.concat([cipher.update(input), cipher.final()]);
+    fs.writeFileSync(encrypted, Buffer.concat([iv, cipher.getAuthTag(), body]));
+
+    await execFileAsync('rsync', ['-a', '--timeout=300', encrypted, target], { timeout: 900000 });
+    log.info(`copie hors serveur envoyée : ${path.basename(encrypted)}`);
+  } catch (err: any) {
+    log.warn('copie hors serveur impossible', err?.message ?? err);
+  } finally {
+    fs.rmSync(encrypted, { force: true });
   }
 }
 

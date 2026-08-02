@@ -12,7 +12,7 @@ import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
 import { ensureSelfProject, refreshGitInfo } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
 import { purgeOldArchives } from './files.js';
-import { purgeOldAudio } from './voice.js';
+import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
 import { getSettings } from './store.js';
 import { listEngines } from './engines/index.js';
 
@@ -59,6 +59,7 @@ async function main(): Promise<void> {
     void refreshQuotas(true).then((quotas) => bus.emit({ type: 'quotas', quotas }));
   }, 120_000);
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
+  const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
   const janitorTimer = setInterval(
     () => {
       purgeOldArchives();
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
     clearInterval(capacityTimer);
     clearInterval(quotaTimer);
     clearInterval(backupTimer);
+    clearInterval(digestTimer);
     clearInterval(janitorTimer);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);

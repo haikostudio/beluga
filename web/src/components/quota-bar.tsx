@@ -24,6 +24,24 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     setSpeaking(true);
     try {
       const audio = new Audio(`/api/digest?audio=1&project=${state.activeProjectId ?? ''}`);
+
+      // Lecture pilotable écran verrouillé, comme un podcast : commandes du
+      // téléphone et Bluetooth de la voiture (PLAN §22).
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: 'Le point du jour',
+          artist: 'HaikoDev',
+          artwork: [{ src: '/icon-512.png', sizes: '512x512', type: 'image/png' }],
+        });
+        navigator.mediaSession.setActionHandler('play', () => void audio.play());
+        navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+        navigator.mediaSession.setActionHandler('stop', () => {
+          audio.pause();
+          audio.currentTime = 0;
+          setSpeaking(false);
+        });
+      }
+
       audio.addEventListener('ended', () => setSpeaking(false));
       audio.addEventListener('error', async () => {
         setSpeaking(false);
