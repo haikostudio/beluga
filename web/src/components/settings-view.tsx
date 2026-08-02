@@ -142,7 +142,8 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
           <section className="mt-5 space-y-3">
             <h3 className="text-[13.5px] font-medium text-text">Fonctionnement</h3>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {/* Un champ par ligne sur téléphone : deux côte à côte deviennent illisibles. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Plafond d'agents">
                 <Input
                   type="number"
@@ -408,8 +409,8 @@ function UsageSection({ open }: { open: boolean }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <Label>{label}</Label>
-      <div className="mt-1">{children}</div>
+      <Label className="block">{label}</Label>
+      <div className="mt-1.5">{children}</div>
     </div>
   );
 }

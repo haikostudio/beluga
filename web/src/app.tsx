@@ -43,6 +43,32 @@ export function App() {
     client.connect();
   }, []);
 
+  /*
+   * La hauteur de l'application suit la zone RÉELLEMENT visible, mesurée par le
+   * navigateur. Sans cela, sur téléphone, l'application s'arrête plus haut que
+   * l'écran et laisse une bande vide en bas (unité dvh mal supportée, barre du
+   * navigateur escamotable). Le clavier qui s'ouvre est géré par le même
+   * mécanisme.
+   */
+  React.useEffect(() => {
+    const vue = window.visualViewport;
+    const appliquer = () => {
+      const hauteur = Math.round(vue?.height ?? window.innerHeight);
+      document.documentElement.style.setProperty('--hauteur-visible', `${hauteur}px`);
+    };
+    appliquer();
+    vue?.addEventListener('resize', appliquer);
+    vue?.addEventListener('scroll', appliquer);
+    window.addEventListener('orientationchange', appliquer);
+    window.addEventListener('resize', appliquer);
+    return () => {
+      vue?.removeEventListener('resize', appliquer);
+      vue?.removeEventListener('scroll', appliquer);
+      window.removeEventListener('orientationchange', appliquer);
+      window.removeEventListener('resize', appliquer);
+    };
+  }, []);
+
   // Une carte affichée dans la conversation s'ouvre dans le tiroir.
   React.useEffect(() => client.onOpenCard(setOpenCardId), []);
 
@@ -130,7 +156,8 @@ export function App() {
   return (
     <TooltipProvider>
       <div
-        className="flex h-dvh flex-col overflow-hidden bg-bg"
+        className="flex flex-col overflow-hidden bg-bg"
+        style={{ height: 'var(--hauteur-visible, 100dvh)' }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes('Files')) {
             event.preventDefault();

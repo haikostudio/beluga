@@ -195,7 +195,9 @@ export function Composer({
             <QueuedItem key={item.id} item={item} index={index} />
           ))}
           <p className="px-1 text-[12px] text-faint">
-            {queue.length}/10 en attente — l'agent enchaînera tout seul dès qu'il se taira.
+            {queue.length === 1
+              ? "Votre message part dès que l'agent a fini."
+              : `${queue.length} messages en attente : ils partiront l'un après l'autre.`}
           </p>
         </div>
       ) : null}

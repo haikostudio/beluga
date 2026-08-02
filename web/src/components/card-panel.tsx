@@ -90,28 +90,34 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         />
       </header>
 
-      <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col">
+      {/* La conversation a son propre onglet : les détails de l'agent ne la
+          compriment plus en haut de l'écran. */}
+      <Tabs
+        key={card.id}
+        defaultValue={agent ? 'chat' : 'details'}
+        className="flex min-h-0 flex-1 flex-col"
+      >
         <div className="border-b border-border px-4 py-2">
           <TabsList>
+            <TabsTrigger value="chat">Conversation</TabsTrigger>
             <TabsTrigger value="details">Détails</TabsTrigger>
             <TabsTrigger value="billing">Facturation</TabsTrigger>
             <TabsTrigger value="github">GitHub</TabsTrigger>
           </TabsList>
         </div>
 
-        <TabsContent value="details" className="min-h-0 flex-1 data-[state=inactive]:hidden">
-          <div className="flex h-full min-h-0 flex-col">
-            <CardSummary card={card} />
-            {agent ? (
-              <div className="min-h-0 flex-1 border-t border-border">
-                <Chat agent={agent} projectId={card.projectId} />
-              </div>
-            ) : (
-              <div className="border-t border-border px-4 py-4 text-[14px] text-faint">
-                Aucun agent n'a encore travaillé sur cette carte.
-              </div>
-            )}
-          </div>
+        <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
+          {agent ? (
+            <Chat agent={agent} projectId={card.projectId} cardId={card.id} />
+          ) : (
+            <div className="px-4 py-4 text-[14px] text-faint">
+              Aucun agent n'a encore travaillé sur cette carte.
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="details" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
+          <CardSummary card={card} />
         </TabsContent>
 
         <TabsContent value="billing" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
@@ -187,19 +193,23 @@ function CardSummary({ card }: { card: Card }) {
   React.useEffect(() => setDescription(card.description), [card.id]);
 
   return (
-    <div className="space-y-3 px-4 py-3">
-      <Textarea
-        value={description}
-        onChange={(event) => setDescription(event.target.value)}
-        onBlur={() => {
-          if (description !== card.description) {
-            client.call({ type: 'card.update', id: card.id, patch: { description } });
-          }
-        }}
-        rows={2}
-        placeholder="Description…"
-        className="text-[14px]"
-      />
+    <div className="space-y-4 px-4 py-3">
+      <div>
+        <Label htmlFor="carte-description">Description</Label>
+        <Textarea
+          id="carte-description"
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          onBlur={() => {
+            if (description !== card.description) {
+              client.call({ type: 'card.update', id: card.id, patch: { description } });
+            }
+          }}
+          rows={4}
+          placeholder="Ce qu'il faut faire…"
+          className="mt-1.5 text-[14px]"
+        />
+      </div>
 
       {card.scheduling?.waitingReason ? (
         <p className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[13.5px] text-warning">
@@ -207,7 +217,7 @@ function CardSummary({ card }: { card: Card }) {
         </p>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2">
         <Metric
           label="Durée machine prévue"
           value={duration(card.estimate?.machineSeconds)}
@@ -234,6 +244,29 @@ function CardSummary({ card }: { card: Card }) {
           <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted">{card.estimate.summary}</p>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Un champ de formulaire : l'étiquette au-dessus, le champ en dessous sur
+ * toute la largeur, et l'explication en dessous. Jamais côte à côte : sur
+ * téléphone, deux champs sur une ligne deviennent illisibles.
+ */
+export function Champ({
+  label,
+  aide,
+  children,
+}: {
+  label: string;
+  aide?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <Label className="block">{label}</Label>
+      <div className="mt-1.5">{children}</div>
+      {aide ? <p className="mt-1 text-[12.5px] leading-relaxed text-faint">{aide}</p> : null}
     </div>
   );
 }
@@ -318,7 +351,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
   };
 
   return (
-    <div className="space-y-3 px-4 py-3">
+    <div className="space-y-4 px-4 py-3">
       {card.billing ? (
         <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-[13.5px] text-success">
           <Check className="h-3.5 w-3.5" />
@@ -327,78 +360,65 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
         </div>
       ) : null}
 
-      <div>
-        <Label>Titre de la ligne</Label>
-        <Input value={title} onChange={(event) => setTitle(event.target.value)} className="mt-1" maxLength={80} />
-      </div>
+      <Champ label="Titre de la ligne">
+        <Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} />
+      </Champ>
 
-      <div>
-        <Label>Description</Label>
-        <Textarea
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          rows={3}
-          className="mt-1"
+      <Champ label="Description">
+        <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} />
+      </Champ>
+
+      <Champ
+        label="Heures (développeur senior)"
+        aide={`Les heures qu'un développeur senior mettrait à la main — jamais la durée machine de l'agent (${duration(
+          card.consumption?.machineSeconds,
+        )}).`}
+      >
+        <Input
+          value={hours}
+          onChange={(event) => setHours(event.target.value.replace(',', '.'))}
+          inputMode="decimal"
+          placeholder="ex. 2.5"
         />
-      </div>
+      </Champ>
 
-      <div className="grid grid-cols-3 gap-2">
-        <div>
-          <Label>Heures (développeur senior)</Label>
-          <Input
-            value={hours}
-            onChange={(event) => setHours(event.target.value.replace(',', '.'))}
-            className="mt-1"
-            inputMode="decimal"
-          />
-        </div>
-        <div>
-          <Label>Tarif horaire</Label>
-          <Input value={`${rate} CHF`} readOnly className="mt-1 opacity-60" />
-        </div>
-        <div>
-          <Label>Montant (calculé côté serveur)</Label>
-          <Input value={hours ? money(amount) : '—'} readOnly className="mt-1 opacity-60" />
-        </div>
+      {/* Le calcul est fait par l'outil de facturation : ici on ne fait que le montrer. */}
+      <div className="flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
+        <span className="text-[13.5px] text-muted">
+          {hours || '—'} h × {rate} CHF
+        </span>
+        <span className="text-[15.5px] font-semibold text-text">{hours ? money(amount) : '—'}</span>
       </div>
-
-      <p className="text-[12.5px] leading-relaxed text-faint">
-        Les heures facturées sont celles qu'un développeur senior mettrait à la main — jamais la durée machine de
-        l'agent ({duration(card.consumption?.machineSeconds)}).
-      </p>
 
       {available ? (
         <>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label>Type de document</Label>
-              <select
-                value={type}
-                onChange={(event) => setType(event.target.value as 'offer' | 'invoice')}
-                className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
-              >
-                <option value="invoice">Facture</option>
-                <option value="offer">Offre</option>
-              </select>
-            </div>
-            <div>
-              <Label>Document</Label>
-              <select
-                value={documentId}
-                onChange={(event) => setDocumentId(event.target.value)}
-                className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
-              >
-                <option value="">Nouveau document</option>
-                {documents
-                  .filter((doc) => doc.type === type)
-                  .map((doc) => (
-                    <option key={doc.id} value={doc.id}>
-                      {doc.number ?? doc.id} — {doc.title ?? 'sans titre'}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          </div>
+          <Champ label="Type de document">
+            <select
+              value={type}
+              onChange={(event) => setType(event.target.value as 'offer' | 'invoice')}
+              className="h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
+            >
+              <option value="invoice">Facture</option>
+              <option value="offer">Offre</option>
+            </select>
+          </Champ>
+
+          <Champ label="Document">
+            <select
+              value={documentId}
+              onChange={(event) => setDocumentId(event.target.value)}
+              className="h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
+            >
+              <option value="">Nouveau document</option>
+              {documents
+                .filter((doc) => doc.type === type)
+                .map((doc) => (
+                  <option key={doc.id} value={doc.id}>
+                    {doc.number ?? doc.id} — {doc.title ?? 'sans titre'}
+                  </option>
+                ))}
+            </select>
+          </Champ>
 
           {!defaut && !documentId ? (
             <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
@@ -416,7 +436,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
             </label>
           ) : null}
 
-          <Button variant="default" size="sm" disabled={busy} onClick={push}>
+          <Button variant="default" size="sm" className="w-full" disabled={busy} onClick={push}>
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CircleDollarSign className="h-3 w-3" />}
             Ajouter la ligne
           </Button>

@@ -274,41 +274,38 @@ export function ProjectSettings({
                   ))}
                 </select>
 
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div>
-                    <Label>Tarif horaire</Label>
-                    <Input
-                      value={rate}
-                      onChange={(event) => setRate(event.target.value.replace(',', '.'))}
-                      className="mt-1"
-                      inputMode="decimal"
-                    />
-                  </div>
-                  <div>
-                    <Label>Exemple : 3 heures</Label>
-                    <Input value={money((Number(rate) || 0) * 3)} readOnly className="mt-1 opacity-60" />
-                  </div>
+                <div className="mt-2">
+                  <Label className="block">Tarif horaire</Label>
+                  <Input
+                    value={rate}
+                    onChange={(event) => setRate(event.target.value.replace(',', '.'))}
+                    className="mt-1.5"
+                    inputMode="decimal"
+                  />
+                  <p className="mt-1 text-[12.5px] text-faint">
+                    Trois heures de travail seraient facturées {money((Number(rate) || 0) * 3)}.
+                  </p>
                 </div>
 
                 {clientId ? (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="mt-3 space-y-3">
                     <div>
-                      <Label>Document par défaut</Label>
+                      <Label className="block">Document par défaut</Label>
                       <select
                         value={documentType}
                         onChange={(event) => setDocumentType(event.target.value as 'offer' | 'invoice')}
-                        className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
+                        className="mt-1.5 h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
                       >
                         <option value="invoice">Facture</option>
                         <option value="offer">Offre</option>
                       </select>
                     </div>
                     <div>
-                      <Label>Lequel</Label>
+                      <Label className="block">Lequel</Label>
                       <select
                         value={documentId}
                         onChange={(event) => setDocumentId(event.target.value)}
-                        className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
+                        className="mt-1.5 h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
                       >
                         <option value="">Nouveau à chaque fois</option>
                         {documents
