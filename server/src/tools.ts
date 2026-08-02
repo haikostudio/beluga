@@ -401,6 +401,9 @@ export const ORCHESTRATOR_ALLOWED_NATIVE = [
   'WebFetch',
   'WebSearch',
   'ToolSearch',
+  // La liste de tâches ne touche à rien : elle affiche seulement le déroulé
+  // annoncé, coché en direct dans la conversation.
+  'TodoWrite',
 ];
 
 export const ORCHESTRATOR_DENIED_NATIVE = [
@@ -417,7 +420,6 @@ export const ORCHESTRATOR_DENIED_NATIVE = [
   'Workflow',
   'SlashCommand',
   'Skill',
-  'TodoWrite',
   'CronCreate',
   'CronDelete',
   'CronList',

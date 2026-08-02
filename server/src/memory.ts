@@ -75,6 +75,17 @@ function writeSafely(file: string, content: string): void {
 }
 
 /**
+ * Ce que l'agent vient de relire, en clair : combien de faits, et lesquels.
+ * Sert à afficher l'étape « lecture de la mémoire du projet » tout en haut de
+ * la conversation — on voit qu'il pioche dans la mémoire avant de répondre.
+ */
+export function memorySummary(projectPath: string): { facts: number; text: string } {
+  const memory = readMemory(projectPath).trim();
+  const facts = memory.split('\n').filter((line) => line.trim().startsWith('- ')).length;
+  return { facts, text: memory };
+}
+
+/**
  * Le briefing compact injecté au lancement de chaque agent : il sait déjà où
  * regarder au lieu de redécouvrir le projet de zéro.
  */

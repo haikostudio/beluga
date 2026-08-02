@@ -4,10 +4,12 @@ import {
   Agent,
   AgentRole,
   Card,
+  MEMORY_STEP_ID,
   Message,
   RunStep,
   TaskProposal,
   TemplateKind,
+  TodoItem,
   checkTemplate,
   templateForColumn,
   wrapPrompt,
@@ -18,7 +20,7 @@ import { CONFIG, PATHS } from './config.js';
 import { adapterFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
-import { briefing } from './memory.js';
+import { briefing, memorySummary } from './memory.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
 import { notify } from './notify.js';
@@ -29,6 +31,7 @@ export interface LiveRun {
   messageId: string;
   startedAt: number;
   steps: Map<string, RunStep>;
+  todos: TodoItem[];
   text: string;
   usage?: EngineEvent['usage'];
   account?: string;
@@ -209,12 +212,30 @@ async function startTurn(
     return;
   }
 
+  /*
+   * PREMIER REPÈRE DE LA CONVERSATION : la mémoire du projet est relue avant
+   * toute réponse — elle part avec la demande, dans le briefing. On l'affiche
+   * donc comme une étape déjà faite, tout en haut. Seul le NOMBRE de faits est
+   * enregistré : recopier la mémoire entière sous chaque message la stockerait
+   * des centaines de fois pour rien, l'interface l'a déjà de son côté.
+   */
+  const memory = memorySummary(project.path);
+  const memoryStep: RunStep = {
+    id: MEMORY_STEP_ID,
+    label: memory.facts
+      ? `Lecture de la mémoire du projet — ${memory.facts} fait${memory.facts > 1 ? 's' : ''} retenu${memory.facts > 1 ? 's' : ''}`
+      : 'Mémoire du projet encore vide',
+    state: memory.facts ? 'done' : 'skipped',
+    startedAt: Date.now(),
+    endedAt: Date.now(),
+  };
+
   const assistantMessage = Message.parse({
     id: store.newId(),
     agentId: agent.id,
     role: 'assistant',
     content: '',
-    steps: [],
+    steps: [memoryStep],
     streaming: true,
     createdAt: store.now(),
   });
@@ -226,7 +247,8 @@ async function startTurn(
     handle: null as unknown as EngineHandle,
     messageId: assistantMessage.id,
     startedAt: Date.now(),
-    steps: new Map(),
+    steps: new Map([[memoryStep.id, memoryStep]]),
+    todos: [],
     text: '',
     account: account.id,
   };
@@ -297,6 +319,14 @@ async function startTurn(
             pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
           }
           break;
+        case 'todo':
+          // Le moteur renvoie sa liste ENTIÈRE à chaque mise à jour : on la
+          // remplace telle quelle, c'est elle qui se coche sous les yeux.
+          if (event.todos?.length) {
+            runState.todos = event.todos;
+            pushMessage(runState, { todos: runState.todos, streaming: true });
+          }
+          break;
         case 'usage':
           runState.usage = event.usage;
           break;
@@ -346,6 +376,7 @@ async function startTurn(
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
+    todos: runState.todos,
     streaming: false,
     tokens: tokens || undefined,
     durationMs: Math.round(elapsedSeconds * 1000),
@@ -459,7 +490,11 @@ export function stopAgent(agentId: string): boolean {
 function rolePrompt(role: AgentRole, isSelf: boolean, template: TemplateKind): string {
   const common =
     "Tu travailles dans HaikoDev. Réponds en français simple, pour un lecteur non technique. " +
-    "Tu ne publies JAMAIS de ta propre initiative : la mise en ligne est un geste de l'utilisateur.";
+    "Tu ne publies JAMAIS de ta propre initiative : la mise en ligne est un geste de l'utilisateur.\n\n" +
+    "DÉROULÉ VISIBLE (obligatoire dès que la demande tient en plus d'une action) :\n" +
+    "1. AVANT d'agir, annonce ta liste de tâches avec l'outil de liste de tâches du moteur (TodoWrite pour Claude, update_plan pour Codex) : une ligne par action prévue, formulée en français simple.\n" +
+    "2. Passe la ligne en cours à « en cours », et coche-la dès qu'elle est terminée, AVANT d'attaquer la suivante. Une seule ligne en cours à la fois.\n" +
+    "Cette liste s'affiche dans la conversation et se coche sous les yeux de l'utilisateur : c'est ainsi qu'il suit ton avancement. Ne la recopie pas en texte, elle est déjà à l'écran.";
 
   if (role === 'orchestrator') {
     const base = `${common}

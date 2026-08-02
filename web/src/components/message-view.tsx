@@ -10,10 +10,11 @@ import {
   Paperclip,
   X,
 } from 'lucide-react';
-import { Message } from '@haikodev/shared';
+import { MEMORY_STEP_ID, Message } from '@haikodev/shared';
 import { Badge, Button, Textarea } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
+import { MemoryNote, TodoList } from '@/components/todos';
 import { client } from '@/lib/client';
 import { cn, duration, relativeTime } from '@/lib/utils';
 
@@ -37,11 +38,14 @@ function horodatage(at: number): string {
 
 export function MessageView({
   message,
+  projectId,
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
 }: {
   message: Message;
+  /** Pour déplier la mémoire du projet sous l'étape de lecture. */
+  projectId?: string;
   pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
@@ -78,10 +82,20 @@ export function MessageView({
     );
   }
 
+  /*
+   * L'ordre de lecture est toujours le même (PLAN §26) : d'abord la mémoire du
+   * projet relue, ensuite la liste des tâches annoncées, enfin le déroulé réel
+   * qui se coche au fur et à mesure.
+   */
+  const memoire = message.steps.find((step) => step.id === MEMORY_STEP_ID);
+  const etapes = message.steps.filter((step) => step.id !== MEMORY_STEP_ID);
+
   // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
     <div className="group w-[min(92%,860px)]">
-      <Steps steps={message.steps} streaming={message.streaming} />
+      {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}
+      <TodoList todos={message.todos} streaming={message.streaming} />
+      <Steps steps={etapes} streaming={message.streaming} />
 
       {message.content ? (
         <Markdown
@@ -90,7 +104,7 @@ export function MessageView({
           onToggleEvolution={onToggleEvolution}
           onToggleAll={onToggleAll}
         />
-      ) : message.streaming && !message.steps.length ? (
+      ) : message.streaming && !etapes.length ? (
         <p className="text-[14px] text-faint">L'agent réfléchit…</p>
       ) : null}
 

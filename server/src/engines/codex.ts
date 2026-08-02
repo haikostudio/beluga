@@ -1,6 +1,6 @@
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep } from './types.js';
+import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -124,7 +124,7 @@ export const codexAdapter: EngineAdapter = {
   },
 };
 
-function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): void {
+export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): void {
   // Format « fil » (Codex ≥ 0.40) : thread.started / item.started / item.completed / turn.completed
   switch (event.type) {
     case 'thread.started':
@@ -233,6 +233,10 @@ function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): void {
       break;
     case 'agent_message':
       if (msg.message) onEvent({ kind: 'text', text: msg.message });
+      break;
+    case 'plan_update':
+    case 'update_plan':
+      onEvent({ kind: 'todo', todos: normalizeTodos(msg.plan ?? msg.steps ?? msg.todos) });
       break;
     case 'exec_command_begin':
       onEvent({

@@ -61,6 +61,7 @@ export function Chat({
             <MessageView
               key={message.id}
               message={message}
+              projectId={projectId}
               pickedEvolutions={picked}
               onToggleEvolution={toggleEvolution}
               onToggleAll={toggleAll}

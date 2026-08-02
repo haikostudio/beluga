@@ -129,7 +129,7 @@ export const claudeAdapter: EngineAdapter = {
   },
 };
 
-function emitFromClaude(
+export function emitFromClaude(
   event: any,
   onEvent: (e: EngineEvent) => void,
   pendingSteps: Map<string, string>,

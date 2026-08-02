@@ -130,6 +130,13 @@ export function writeClosureDocument(cardId: string, context: { url?: string; co
   for (const message of messages) {
     const who = message.role === 'user' ? 'Vous' : message.role === 'assistant' ? "L'agent" : message.role;
     lines.push(`### ${who} — ${new Date(message.createdAt).toLocaleString('fr-CH')}`, '');
+    if (message.todos.length) {
+      lines.push('_Liste des tâches :_');
+      for (const todo of message.todos) {
+        lines.push(`- [${todo.state === 'done' ? 'x' : ' '}] ${todo.label}`);
+      }
+      lines.push('');
+    }
     if (message.steps.length) {
       lines.push('_Étapes :_');
       for (const step of message.steps) {
