@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Activity, RefreshCw, Volume2, Settings2, Sun, Moon, Wifi, WifiOff } from 'lucide-react';
-import { Button, Gauge, Tooltip } from '@/components/ui';
+import { Button, Tooltip } from '@/components/ui';
+import { QuotaBadge } from '@/components/quota-badge';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -8,6 +9,11 @@ import { cn } from '@/lib/utils';
 /** Le bandeau des quotas (PLAN §19) : où en sont les moteurs installés. */
 export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const state = useApp();
+  // Le moteur « en cours » : celui d'un agent qui travaille, sinon celui du projet.
+  const activeEngine =
+    Object.values(state.agents).find((agent) => agent.status === 'running')?.run.engine ??
+    state.projects.find((p) => p.id === state.activeProjectId)?.defaultEngine ??
+    'claude';
   const [theme, setTheme] = React.useState<'dark' | 'light'>(
     () => (localStorage.getItem('haikodev.theme') === 'light' ? 'light' : 'dark'),
   );
@@ -62,7 +68,15 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const capacity = state.capacity;
 
   return (
-    <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-bg px-2.5">
+    <header
+      className="flex shrink-0 items-center gap-2 border-b border-border bg-bg px-2.5"
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        height: 'calc(44px + env(safe-area-inset-top))',
+        paddingLeft: 'max(10px, env(safe-area-inset-left))',
+        paddingRight: 'max(10px, env(safe-area-inset-right))',
+      }}
+    >
       <div className="flex items-center gap-1.5">
         <span className="text-[13px] font-semibold tracking-tight text-text">HaikoDev</span>
         <Tooltip label={state.connected ? 'Connecté au serveur' : 'Reconnexion…'}>
@@ -76,45 +90,9 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
         </Tooltip>
       </div>
 
-      <div className="ml-1 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
-        {state.quotas.map((quota) => {
-          const session = quota.session?.usedPct ?? 0;
-          const weekly = quota.weekly?.usedPct ?? 0;
-          const worst = Math.max(session, weekly);
-          return (
-            <Tooltip
-              key={quota.id}
-              label={
-                <div className="space-y-0.5">
-                  <p className="font-medium">
-                    {quota.label} {quota.plan ? `· ${quota.plan}` : ''}
-                  </p>
-                  <p>Fenêtre courte : {Math.round(session)} %</p>
-                  <p>Semaine : {Math.round(weekly)} %</p>
-                  {quota.weekly?.resetsAt ? (
-                    <p>Remise à zéro : {new Date(quota.weekly.resetsAt).toLocaleString('fr-CH')}</p>
-                  ) : null}
-                  {quota.error ? <p className="text-warning">{quota.error}</p> : null}
-                </div>
-              }
-            >
-              <div className="flex w-[124px] shrink-0 flex-col gap-0.5">
-                <div className="flex items-center gap-1">
-                  <span
-                    className={cn(
-                      'h-1.5 w-1.5 shrink-0 rounded-full',
-                      !quota.available ? 'bg-danger' : quota.active ? 'bg-success' : 'bg-faint',
-                    )}
-                  />
-                  <span className="truncate text-[10.5px] text-muted">{quota.label}</span>
-                  <span className="ml-auto text-[10px] text-faint">{Math.round(worst)}%</span>
-                </div>
-                <Gauge value={worst} height="h-1" />
-              </div>
-            </Tooltip>
-          );
-        })}
-      </div>
+      <div className="flex-1" />
+
+      <QuotaBadge activeEngine={activeEngine} />
 
       {capacity ? (
         <Tooltip
@@ -136,11 +114,6 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
         <Tooltip label="Écouter le point">
           <Button variant="ghost" size="icon" onClick={listen} disabled={speaking}>
             <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
-          </Button>
-        </Tooltip>
-        <Tooltip label="Actualiser les quotas">
-          <Button variant="ghost" size="icon" onClick={() => client.send({ type: 'quota.refresh' })}>
-            <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         </Tooltip>
         <Tooltip label={theme === 'dark' ? 'Thème clair' : 'Thème sombre'}>

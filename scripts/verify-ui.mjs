@@ -165,12 +165,25 @@ async function main() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(600);
 
-  /* ---------- 11. Bandeau des quotas ---------- */
-  const quotas = await page.evaluate(() => {
-    const bar = document.querySelector('header');
-    return bar ? bar.innerText : '';
+  /* ---------- 11. Bouton de quota et son menu ---------- */
+  await page.click('button[title="Quotas des moteurs"]');
+  await page.waitForTimeout(900);
+  const quotaMenu = await page.evaluate(() => {
+    const text = document.body.innerText;
+    return {
+      fenetre: text.includes('Fenêtre 5 h'),
+      semaine: text.includes('Semaine'),
+      comptes: (text.match(/Claude|Codex/g) ?? []).length,
+    };
   });
-  record('Bandeau : les jauges de quota sont affichées', quotas.includes('%'), quotas.replace(/\n/g, ' ').slice(0, 90));
+  record(
+    'Quotas : le bouton ouvre le détail (fenêtre 5 h et semaine, tous les comptes)',
+    quotaMenu.fenetre && quotaMenu.semaine && quotaMenu.comptes >= 2,
+    `${quotaMenu.comptes} mentions de moteur`,
+  );
+  await shot(page, '09-quotas');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
 
   /* ---------- 12. Thème clair / sombre ---------- */
   const themeToggled = await page.evaluate(() => {

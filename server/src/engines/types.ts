@@ -46,7 +46,7 @@ export interface EngineAdapter {
   label: string;
   binary: string;
   detect: () => Promise<{ installed: boolean; version?: string }>;
-  models: () => Promise<{ id: string; label: string; thinking: ThinkingLevel[]; note?: string }[]>;
+  models: () => Promise<unknown[]>;
   defaultModel: string;
   run: (options: EngineRunOptions) => EngineHandle;
 }

@@ -5,11 +5,7 @@ import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
 
-const CODEX_MODELS = [
-  { id: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max', thinking: ['none', 'low', 'medium', 'high'] as const },
-  { id: 'gpt-5.1-codex', label: 'GPT-5.1 Codex', thinking: ['none', 'low', 'medium', 'high'] as const },
-  { id: 'gpt-5.1', label: 'GPT-5.1', thinking: ['none', 'low', 'medium', 'high'] as const },
-];
+
 
 export const codexAdapter: EngineAdapter = {
   id: 'codex',
@@ -27,7 +23,7 @@ export const codexAdapter: EngineAdapter = {
   },
 
   async models() {
-    return CODEX_MODELS.map((m) => ({ id: m.id, label: m.label, thinking: [...m.thinking] }));
+    return [];
   },
 
   run(options: EngineRunOptions): EngineHandle {

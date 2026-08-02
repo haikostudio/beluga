@@ -15,6 +15,7 @@ import { bus } from './bus.js';
 import { CONFIG } from './config.js';
 import { isAuthenticated } from './http.js';
 import { listEngines } from './engines/index.js';
+import { normaliseThinking } from './engines/catalog.js';
 import { cachedQuotas, refreshQuotas } from './accounts.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
@@ -283,6 +284,47 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'agent.stop':
       return { stopped: stopAgent(cmd.agentId) };
+
+    case 'agent.config': {
+      const agent = store.getAgent(cmd.agentId);
+      if (!agent) throw new Error('agent introuvable');
+
+      const engines = await listEngines();
+      const engineId = (cmd.run.engine as any) ?? agent.run.engine;
+      const engine = engines.find((e) => e.id === engineId) ?? engines[0];
+
+      // Changer un choix réinitialise ceux d'après : une combinaison
+      // impossible ne peut jamais être envoyée (PLAN §14).
+      const modelChanged = cmd.run.engine !== undefined || cmd.run.model !== undefined;
+      const model =
+        cmd.run.engine !== undefined
+          ? (engine?.defaultModel ?? engine?.models[0]?.id)
+          : (cmd.run.model ?? agent.run.model);
+      const thinking = normaliseThinking(
+        engine?.models ?? [],
+        model,
+        modelChanged ? undefined : (cmd.run.thinking ?? agent.run.thinking),
+      );
+
+      const run = {
+        engine: engine?.id ?? agent.run.engine,
+        model,
+        thinking,
+        mode: cmd.run.mode ?? agent.run.mode,
+      };
+      const updated = store.saveAgent({ ...agent, run: run as any });
+      bus.emit({ type: 'agent.upsert', agent: updated });
+
+      // La carte garde le réglage pour ses prochains lancements.
+      if (agent.cardId) {
+        const card = store.getCard(agent.cardId);
+        if (card) {
+          const updatedCard = store.saveCard({ ...card, run: run as any });
+          bus.emit({ type: 'card.upsert', card: updatedCard });
+        }
+      }
+      return { run };
+    }
 
     case 'agent.dismiss': {
       const agent = store.getAgent(cmd.agentId);

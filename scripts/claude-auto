@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+unset CLAUDE_ACCOUNT_ID
+exec /usr/local/bin/claude-account-router "$@"

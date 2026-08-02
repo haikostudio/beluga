@@ -2,6 +2,7 @@ import { EngineId, EngineInfo } from '@haikodev/shared';
 import { EngineAdapter } from './types.js';
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
+import { claudeCatalog, codexCatalog } from './catalog.js';
 
 export * from './types.js';
 
@@ -23,14 +24,24 @@ export async function listEngines(force = false): Promise<EngineInfo[]> {
   const engines: EngineInfo[] = [];
   for (const adapter of [claudeAdapter, codexAdapter]) {
     const detected = await adapter.detect();
-    const models = detected.installed ? await adapter.models() : [];
+    let models: EngineInfo['models'] = [];
+    let live = false;
+    if (detected.installed) {
+      const catalogue =
+        adapter.id === 'claude' ? await claudeCatalog() : await codexCatalog(detected.version ?? '');
+      models = catalogue.models;
+      live = catalogue.live;
+    }
     engines.push({
       id: adapter.id,
       label: adapter.label,
       installed: detected.installed,
       version: detected.version,
       models,
-      defaultModel: adapter.defaultModel,
+      // Le modèle par défaut est celui du moteur s'il existe encore dans le catalogue.
+      defaultModel: models.find((m) => m.id === adapter.defaultModel)?.id ?? models[0]?.id,
+      live,
+      fetchedAt: Date.now(),
     });
   }
   cache = { at: Date.now(), engines };

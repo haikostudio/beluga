@@ -167,7 +167,10 @@ export function App() {
         </div>
 
         {/* Barre de navigation mobile */}
-        <nav className="flex shrink-0 items-center justify-around border-t border-border bg-bg py-1 sm:hidden">
+        <nav
+          className="flex shrink-0 items-center justify-around border-t border-border bg-bg py-1 sm:hidden"
+          style={{ paddingBottom: 'calc(4px + env(safe-area-inset-bottom))' }}
+        >
           <Button
             variant="ghost"
             size="sm"

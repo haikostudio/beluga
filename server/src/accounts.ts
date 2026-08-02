@@ -42,11 +42,11 @@ export function saveAccountRecord(account: AccountRecord): void {
 
 /** Déclare les comptes déjà authentifiés sur le serveur au premier démarrage. */
 export function bootstrapAccounts(): void {
-  if (listAccountRecords().length) return;
+  const knownIds = new Set(listAccountRecords().map((account) => account.id));
   const home = CONFIG.homeDir || os.homedir();
 
   const claudeDir = path.join(home, '.claude');
-  if (fs.existsSync(path.join(claudeDir, '.credentials.json'))) {
+  if (!knownIds.has('claude-principal') && fs.existsSync(path.join(claudeDir, '.credentials.json'))) {
     saveAccountRecord({
       id: 'claude-principal',
       engine: 'claude',
@@ -58,7 +58,7 @@ export function bootstrapAccounts(): void {
   }
 
   const codexDir = path.join(home, '.codex');
-  if (fs.existsSync(path.join(codexDir, 'auth.json'))) {
+  if (!knownIds.has('codex-principal') && fs.existsSync(path.join(codexDir, 'auth.json'))) {
     saveAccountRecord({
       id: 'codex-principal',
       engine: 'codex',
@@ -74,15 +74,24 @@ export function bootstrapAccounts(): void {
       if (!entry.isDirectory()) continue;
       const metaFile = path.join(PATHS.accounts, entry.name, 'meta.json');
       if (!fs.existsSync(metaFile)) continue;
+      if (knownIds.has(entry.name)) continue;
       const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+      const accountDir = path.join(PATHS.accounts, entry.name);
+      const configuredDir = typeof meta.configDir === 'string' ? meta.configDir.trim() : '';
+      const configDir = configuredDir
+        ? path.isAbsolute(configuredDir)
+          ? configuredDir
+          : path.resolve(accountDir, configuredDir)
+        : accountDir;
       saveAccountRecord({
         id: entry.name,
         engine: meta.engine ?? 'claude',
         label: meta.label ?? entry.name,
-        plan: meta.plan,
+        plan: meta.plan ?? (meta.engine === 'codex' ? undefined : readClaudePlan(configDir)),
         priority: meta.priority ?? 50,
-        configDir: path.join(PATHS.accounts, entry.name),
+        configDir,
       });
+      knownIds.add(entry.name);
     }
   } catch {
     /* aucun compte de relève */
@@ -93,13 +102,12 @@ function readClaudePlan(configDir: string): string | undefined {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(configDir, '.credentials.json'), 'utf8'));
     const oauth = raw?.claudeAiOauth;
-    const tier = oauth?.rateLimitTier ?? oauth?.subscriptionType;
-    if (typeof tier === 'string') {
-      if (/20/.test(tier)) return 'Max x20';
-      if (/max/i.test(tier)) return 'Max';
-      if (/pro/i.test(tier)) return 'Pro';
-      return tier;
-    }
+    const tier = typeof oauth?.rateLimitTier === 'string' ? oauth.rateLimitTier : '';
+    const subscription = typeof oauth?.subscriptionType === 'string' ? oauth.subscriptionType : '';
+    if (/20/.test(tier)) return 'Max x20';
+    if (/max/i.test(tier) || /max/i.test(subscription)) return 'Max';
+    if (/pro/i.test(subscription)) return 'Pro';
+    return subscription || tier || undefined;
   } catch {
     /* plan inconnu */
   }
@@ -185,17 +193,26 @@ async function fetchCodexQuota(account: AccountRecord): Promise<AccountQuota> {
     if (!token) return { ...base, error: 'compte non connecté', available: false };
 
     const res = await fetch('https://chatgpt.com/backend-api/wham/usage', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: '{}',
+      headers: { authorization: `Bearer ${token}`, originator: 'codex_cli_rs' },
       signal: AbortSignal.timeout(12000),
     });
     if (!res.ok) return { ...base, error: `lecture impossible (${res.status})` };
     const data: any = await res.json();
     const win = (w: any) =>
-      w ? { usedPct: w.used_percent ?? undefined, resetsAt: w.reset_at ? w.reset_at * 1000 : undefined } : undefined;
+      w
+        ? {
+            usedPct: w.used_percent ?? undefined,
+            resetsAt:
+              typeof w.resets_in_seconds === 'number'
+                ? Date.now() + w.resets_in_seconds * 1000
+                : w.reset_at
+                  ? w.reset_at * 1000
+                  : undefined,
+          }
+        : undefined;
     const session = win(data?.rate_limit?.primary_window);
     const weekly = win(data?.rate_limit?.secondary_window);
+    if (typeof data?.plan_type === 'string') base.plan = data.plan_type.replace(/^plus$/i, 'Plus');
     const exhausted = (weekly?.usedPct ?? 0) >= 100 || (session?.usedPct ?? 0) >= 100;
     return { ...base, session, weekly, available: !exhausted };
   } catch (err: any) {
@@ -210,12 +227,22 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
   lastFetch = Date.now();
   const accounts = listAccountRecords();
   const results: AccountQuota[] = [];
-  for (const account of accounts) {
+  for (const [index, account] of accounts.entries()) {
+    // Les comptes sont interrogés l'un après l'autre, avec un souffle entre
+    // deux : deux lectures collées déclenchent un refus pour excès d'appels.
+    if (index > 0) await new Promise((resolve) => setTimeout(resolve, 700));
     const quota = account.engine === 'claude' ? await fetchClaudeQuota(account) : await fetchCodexQuota(account);
     // Un compte marqué indisponible par un événement de limite le reste jusqu'à sa remise à zéro.
     const previous = quotaCache.get(account.id);
     if (previous?.available === false && previous.weekly?.resetsAt && previous.weekly.resetsAt > Date.now()) {
       quota.available = false;
+    }
+    // Lecture momentanément refusée : on garde les derniers chiffres connus
+    // plutôt que d'afficher des zéros trompeurs.
+    if (quota.error && previous && !previous.error) {
+      quota.session = previous.session;
+      quota.weekly = previous.weekly;
+      quota.plan = previous.plan ?? quota.plan;
     }
     quotaCache.set(account.id, quota);
     results.push(quota);

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Folder, Plus, Loader2, Search, ChevronDown, Bot } from 'lucide-react';
+import { Folder, Plus, Loader2, Bot, Settings2, CircleDollarSign } from 'lucide-react';
 import {
   Button,
   Dialog,
@@ -10,6 +10,7 @@ import {
   Label,
   Tooltip,
 } from '@/components/ui';
+import { ProjectSettings } from '@/components/project-settings';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
@@ -17,6 +18,7 @@ import { cn, elapsed } from '@/lib/utils';
 export function Sidebar({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
   const state = useApp();
   const [adding, setAdding] = React.useState(false);
+  const [settingsFor, setSettingsFor] = React.useState<string | null>(null);
 
   const activeAgents = Object.values(state.agents).filter(
     (agent) => agent.projectId === state.activeProjectId && agent.status === 'running',
@@ -38,23 +40,39 @@ export function Sidebar({ onOpenAgent }: { onOpenAgent: (agentId: string) => voi
             (agent) => agent.projectId === project.id && agent.status === 'running',
           ).length;
           return (
-            <button
+            <div
               key={project.id}
-              onClick={() => client.setActiveProject(project.id)}
               className={cn(
-                'mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors',
+                'group mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] transition-colors',
                 active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
               )}
             >
-              <Folder className="h-3 w-3 shrink-0 text-faint" />
-              <span className="min-w-0 flex-1 truncate">{project.name}</span>
-              {running ? (
-                <span className="flex items-center gap-0.5 text-[10px] text-success">
-                  <Dot tone="running" pulse />
-                  {running}
-                </span>
-              ) : null}
-            </button>
+              <button
+                onClick={() => client.setActiveProject(project.id)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+              >
+                <Folder className="h-3 w-3 shrink-0 text-faint" />
+                <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                {project.billing?.clientId ? (
+                  <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
+                    <CircleDollarSign className="h-2.5 w-2.5 shrink-0 text-faint" />
+                  </Tooltip>
+                ) : null}
+                {running ? (
+                  <span className="flex items-center gap-0.5 text-[10px] text-success">
+                    <Dot tone="running" pulse />
+                    {running}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                onClick={() => setSettingsFor(project.id)}
+                className="shrink-0 text-faint opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+                title="Réglages du projet"
+              >
+                <Settings2 className="h-3 w-3" />
+              </button>
+            </div>
           );
         })}
 
@@ -81,6 +99,11 @@ export function Sidebar({ onOpenAgent }: { onOpenAgent: (agentId: string) => voi
       ) : null}
 
       <AddProjectDialog open={adding} onClose={() => setAdding(false)} />
+      <ProjectSettings
+        project={state.projects.find((p) => p.id === settingsFor) ?? null}
+        open={!!settingsFor}
+        onClose={() => setSettingsFor(null)}
+      />
     </aside>
   );
 }

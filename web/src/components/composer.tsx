@@ -25,13 +25,6 @@ import {
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 
-const THINKING_LABELS: Record<ThinkingLevel, string> = {
-  none: 'Sans réflexion',
-  low: 'Réflexion légère',
-  medium: 'Réflexion moyenne',
-  high: 'Réflexion poussée',
-};
-
 export interface ComposerProps {
   agent: Agent | null;
   engines: EngineInfo[];
@@ -81,26 +74,25 @@ export function Composer({
     node.style.height = `${Math.min(node.scrollHeight, 180)}px`;
   }, [text]);
 
-  const engine = engines.find((e) => e.id === agent?.run.engine) ?? engines[0];
+  const installed = engines.filter((e) => e.installed);
+  const engine = installed.find((e) => e.id === agent?.run.engine) ?? installed[0];
   const models = engine?.models ?? [];
-  const currentModel = models.find((m) => m.id === agent?.run.model) ?? models.find((m) => m.id === engine?.defaultModel);
-  const thinkingOptions = currentModel?.thinking ?? ['none'];
+  const currentModel =
+    models.find((m) => m.id === agent?.run.model) ?? models.find((m) => m.id === engine?.defaultModel) ?? models[0];
+  // Les niveaux affichés sont EXACTEMENT ceux que ce modèle propose.
+  const thinkingOptions = currentModel?.thinking ?? [];
+  const currentThinking =
+    thinkingOptions.find((t) => t.id === agent?.run.thinking) ?? thinkingOptions[0];
 
-  const updateRun = async (patch: Partial<RunConfig>) => {
+  // Le serveur tranche : il réinitialise les choix d'après et vérifie que la
+  // combinaison existe vraiment (PLAN §14).
+  const updateRun = async (patch: { engine?: string; model?: string; thinking?: string }) => {
     if (!agent) return;
-    // Changer un choix RÉINITIALISE ceux d'après : une combinaison impossible
-    // ne peut jamais être envoyée (PLAN §14).
-    const next: Partial<RunConfig> = { ...patch };
-    if (patch.engine) {
-      const target = engines.find((e) => e.id === patch.engine);
-      next.model = target?.defaultModel ?? target?.models[0]?.id;
-      next.thinking = 'none';
+    try {
+      await client.call({ type: 'agent.config', agentId: agent.id, run: patch });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'réglage impossible');
     }
-    if (patch.model) next.thinking = 'none';
-    client.state.agents[agent.id] = { ...agent, run: { ...agent.run, ...next } as RunConfig };
-    await client.call({ type: 'card.update', id: agent.cardId ?? '', patch: { run: { ...agent.run, ...next } } }).catch(() => {
-      /* agent sans carte : le réglage vaut pour le prochain envoi */
-    });
   };
 
   const upload = async (files: FileList | File[]) => {
@@ -168,7 +160,10 @@ export function Composer({
   };
 
   return (
-    <div className="border-t border-border bg-bg px-2.5 pb-2.5 pt-2">
+    <div
+      className="border-t border-border bg-bg px-2.5 pt-2"
+      style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
+    >
       {/* La file d'attente s'empile juste au-dessus de la barre d'écriture */}
       {queue.length ? (
         <div className="mb-1.5 space-y-1">
@@ -254,25 +249,40 @@ export function Composer({
           {/* Trois réglages EN CASCADE, alimentés par le serveur */}
           <Selector
             label={engine?.label ?? 'moteur'}
-            items={engines.filter((e) => e.installed).map((e) => ({ id: e.id, label: e.label, note: e.version }))}
-            value={agent?.run.engine}
-            onSelect={(id) => updateRun({ engine: id as any })}
+            items={installed.map((e) => ({
+              id: e.id,
+              label: e.label,
+              note: e.version?.replace(/[^\d.]/g, '').slice(0, 8),
+            }))}
+            value={engine?.id}
+            onSelect={(id) => updateRun({ engine: id })}
             title="Moteur"
           />
           <Selector
-            label={currentModel?.label.split('—')[0].trim() ?? 'modèle'}
-            items={models.map((m) => ({ id: m.id, label: m.label }))}
-            value={agent?.run.model}
+            label={currentModel?.label ?? 'modèle'}
+            items={models.map((m) => ({
+              id: m.id,
+              label: m.label,
+              description: m.description,
+              note: m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : undefined,
+            }))}
+            value={currentModel?.id}
             onSelect={(id) => updateRun({ model: id })}
-            title="Modèle"
+            title={engine?.live ? 'Modèle (liste du moteur)' : 'Modèle'}
           />
-          <Selector
-            label={THINKING_LABELS[(agent?.run.thinking ?? 'none') as ThinkingLevel]}
-            items={thinkingOptions.map((level) => ({ id: level, label: THINKING_LABELS[level] }))}
-            value={agent?.run.thinking}
-            onSelect={(id) => updateRun({ thinking: id as ThinkingLevel })}
-            title="Réflexion"
-          />
+          {thinkingOptions.length > 1 ? (
+            <Selector
+              label={currentThinking?.label ?? 'réflexion'}
+              items={thinkingOptions.map((level) => ({
+                id: level.id,
+                label: level.label,
+                description: level.description,
+              }))}
+              value={currentThinking?.id}
+              onSelect={(id) => updateRun({ thinking: id })}
+              title="Niveau de réflexion"
+            />
+          ) : null}
 
           <div className="ml-auto flex items-center gap-1">
             {onProposeTask && (text.trim() || picked.length) ? (
@@ -314,7 +324,7 @@ function Selector({
   title,
 }: {
   label: string;
-  items: { id: string; label: string; note?: string }[];
+  items: { id: string; label: string; note?: string; description?: string }[];
   value?: string;
   onSelect: (id: string) => void;
   title: string;
@@ -324,17 +334,24 @@ function Selector({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className="gap-1 px-1.5 text-[11.5px] text-faint hover:text-text">
-          <span className="max-w-[92px] truncate">{label}</span>
-          <ChevronDown className="h-2.5 w-2.5" />
+          <span className="max-w-[110px] truncate">{label}</span>
+          <ChevronDown className="h-2.5 w-2.5 shrink-0" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align="start" className="max-h-[320px] w-[268px] overflow-y-auto">
         <DropdownMenuLabel>{title}</DropdownMenuLabel>
         {items.map((item) => (
-          <DropdownMenuItem key={item.id} onSelect={() => onSelect(item.id)}>
-            <span className="flex-1">{item.label}</span>
-            {item.note ? <span className="text-[10px] text-faint">{item.note}</span> : null}
-            {value === item.id ? <Check className="h-3 w-3 text-success" /> : null}
+          <DropdownMenuItem key={item.id} onSelect={() => onSelect(item.id)} className="items-start">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="truncate text-text">{item.label}</span>
+                {item.note ? <span className="shrink-0 text-[10px] text-faint">{item.note}</span> : null}
+              </div>
+              {item.description ? (
+                <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-faint">{item.description}</p>
+              ) : null}
+            </div>
+            {value === item.id ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" /> : null}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

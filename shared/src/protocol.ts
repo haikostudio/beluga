@@ -81,6 +81,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     attachments: z.array(z.string()).optional(),
   }),
   z.object({ type: z.literal('agent.stop'), agentId: z.string() }),
+  z.object({
+    type: z.literal('agent.config'),
+    agentId: z.string(),
+    run: z.object({
+      engine: z.string().optional(),
+      model: z.string().optional(),
+      thinking: z.string().optional(),
+      mode: z.enum(['direct', 'plan']).optional(),
+    }),
+  }),
   z.object({ type: z.literal('agent.dismiss'), agentId: z.string() }),
   z.object({ type: z.literal('queue.update'), id: z.string(), text: z.string() }),
   z.object({ type: z.literal('queue.remove'), id: z.string() }),

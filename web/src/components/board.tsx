@@ -57,12 +57,12 @@ export function Board({
             onDragLeave={() => setOver((current) => (current === column ? null : current))}
             onDrop={() => drop(column)}
             className={cn(
-              'flex w-[268px] shrink-0 flex-col rounded-lg border transition-colors',
-              over === column && allowed ? 'border-muted bg-surface' : 'border-transparent',
+              'flex w-[268px] shrink-0 flex-col rounded-lg border bg-surface/70 transition-colors',
+              over === column && allowed ? 'border-muted bg-surface' : 'border-border/60',
               dragging && !allowed && 'opacity-40',
             )}
           >
-            <div className="flex items-center gap-1.5 px-1.5 pb-1.5 pt-0.5">
+            <div className="relative flex items-center gap-1.5 border-b border-border/50 px-2 py-1.5">
               <h2 className="text-[11.5px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
               <span className="text-[11px] text-faint">{columnCards.length}</span>
               {column === 'todo' ? <ComposerInline projectId={projectId} /> : null}
@@ -70,7 +70,7 @@ export function Board({
 
             {column === 'to_deploy' ? <DeployPanel projectId={projectId} cards={columnCards} /> : null}
 
-            <div className="flex-1 space-y-1.5 overflow-y-auto px-0.5 pb-4">
+            <div className="flex-1 space-y-1.5 overflow-y-auto p-1.5">
               {columnCards.map((card) => (
                 <CardTile
                   key={card.id}
@@ -177,7 +177,7 @@ export function CardTile({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onOpen}
-      className="cursor-pointer rounded-md border border-border bg-surface px-2.5 py-2 transition-colors hover:border-faint"
+      className="cursor-pointer rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint"
     >
       <div className="flex items-start gap-1.5">
         {running ? (

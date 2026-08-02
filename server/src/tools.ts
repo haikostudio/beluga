@@ -353,6 +353,9 @@ export const ORCHESTRATOR_DENIED_NATIVE = [
   'KillShell',
   'Task',
   'Agent',
+  // Apparu avec une mise à jour du moteur : lance des agents en masse, donc
+  // interdit au chef d'orchestre (repéré par le test de complétude, 02/08/2026).
+  'Workflow',
   'SlashCommand',
   'Skill',
   'TodoWrite',

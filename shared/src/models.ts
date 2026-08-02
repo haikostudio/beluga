@@ -8,14 +8,30 @@ import { ColumnKey } from './columns.js';
 export const EngineId = z.enum(['claude', 'codex']);
 export type EngineId = z.infer<typeof EngineId>;
 
-export const ThinkingLevel = z.enum(['none', 'low', 'medium', 'high']);
+/**
+ * Le niveau de réflexion est une chaîne LIBRE : chaque moteur a son propre
+ * vocabulaire (low, medium, high, xhigh, max, minimal…) et il change avec les
+ * mises à jour. Le serveur envoie la liste réelle, l'interface l'affiche telle
+ * quelle — jamais de liste écrite en dur côté client (PLAN §14, §30).
+ */
+export const ThinkingLevel = z.string();
 export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
+
+export const ThinkingOption = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+});
+export type ThinkingOption = z.infer<typeof ThinkingOption>;
 
 export const ModelInfo = z.object({
   id: z.string(),
   label: z.string(),
-  /** Niveaux de réflexion réellement proposés par ce modèle. */
-  thinking: z.array(ThinkingLevel).default(['none']),
+  description: z.string().optional(),
+  /** Niveaux de réflexion réellement proposés par CE modèle. */
+  thinking: z.array(ThinkingOption).default([]),
+  defaultThinking: z.string().optional(),
+  contextWindow: z.number().optional(),
   note: z.string().optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
@@ -27,6 +43,9 @@ export const EngineInfo = z.object({
   version: z.string().optional(),
   models: z.array(ModelInfo).default([]),
   defaultModel: z.string().optional(),
+  /** Vrai quand la liste vient du moteur lui-même, faux si c'est le repli local. */
+  live: z.boolean().default(false),
+  fetchedAt: z.number().optional(),
 });
 export type EngineInfo = z.infer<typeof EngineInfo>;
 

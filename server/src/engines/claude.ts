@@ -6,23 +6,13 @@ import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
 
-const CLAUDE_MODELS = [
-  { id: 'opus', label: 'Opus 5 — le plus capable', thinking: ['none', 'low', 'medium', 'high'] as const },
-  { id: 'sonnet', label: 'Sonnet 5 — équilibré', thinking: ['none', 'low', 'medium', 'high'] as const },
-  { id: 'haiku', label: 'Haiku 4.5 — rapide et léger', thinking: ['none'] as const },
-];
+
+
+/** Les niveaux acceptés par le CLI ; « none » signifie : ne rien passer. */
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
 function effortFor(thinking?: string): string | null {
-  switch (thinking) {
-    case 'low':
-      return 'low';
-    case 'medium':
-      return 'medium';
-    case 'high':
-      return 'high';
-    default:
-      return null;
-  }
+  return thinking && EFFORTS.has(thinking) ? thinking : null;
 }
 
 export const claudeAdapter: EngineAdapter = {
@@ -41,7 +31,9 @@ export const claudeAdapter: EngineAdapter = {
   },
 
   async models() {
-    return CLAUDE_MODELS.map((m) => ({ id: m.id, label: m.label, thinking: [...m.thinking] }));
+    // Le catalogue réel est construit par catalog.ts ; l'adaptateur ne
+    // maintient plus de liste de son côté.
+    return [];
   },
 
   run(options: EngineRunOptions): EngineHandle {
