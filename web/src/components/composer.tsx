@@ -1,27 +1,9 @@
 import * as React from 'react';
-import {
-  ArrowUp,
-  Check,
-  ChevronDown,
-  GripVertical,
-  Loader2,
-  Paperclip,
-  Pencil,
-  Trash2,
-  X,
-} from 'lucide-react';
-import { Agent, EngineInfo, QueuedPrompt, RunConfig, ThinkingLevel } from '@haikodev/shared';
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-  Textarea,
-  Tooltip,
-} from '@/components/ui';
+import { ArrowUp, Check, GripVertical, Loader2, Paperclip, Pencil, Trash2, X } from 'lucide-react';
+import { Agent, EngineInfo, QueuedPrompt } from '@haikodev/shared';
+import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecordingBar, useRecorder } from '@/components/recorder';
+import { RunChoix, RunSelectors } from '@/components/run-selectors';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
@@ -132,19 +114,9 @@ export function Composer({
     node.style.height = `${Math.min(node.scrollHeight, 180)}px`;
   }, [text]);
 
-  const installed = engines.filter((e) => e.installed);
-  const engine = installed.find((e) => e.id === agent?.run.engine) ?? installed[0];
-  const models = engine?.models ?? [];
-  const currentModel =
-    models.find((m) => m.id === agent?.run.model) ?? models.find((m) => m.id === engine?.defaultModel) ?? models[0];
-  // Les niveaux affichés sont EXACTEMENT ceux que ce modèle propose.
-  const thinkingOptions = currentModel?.thinking ?? [];
-  const currentThinking =
-    thinkingOptions.find((t) => t.id === agent?.run.thinking) ?? thinkingOptions[0];
-
   // Le serveur tranche : il réinitialise les choix d'après et vérifie que la
   // combinaison existe vraiment (PLAN §14).
-  const updateRun = async (patch: { engine?: string; model?: string; thinking?: string }) => {
+  const updateRun = async (patch: RunChoix) => {
     if (!agent) return;
     try {
       await client.call({ type: 'agent.config', agentId: agent.id, run: patch });
@@ -394,45 +366,7 @@ export function Composer({
           <div className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" />
 
           {/* Trois réglages EN CASCADE, alimentés par le serveur */}
-          <Selector
-            label={engine?.label ?? 'moteur'}
-            items={installed.map((e) => ({
-              id: e.id,
-              label: e.label,
-              note: e.version?.replace(/[^\d.]/g, '').slice(0, 8),
-            }))}
-            value={engine?.id}
-            onSelect={(id) => updateRun({ engine: id })}
-            title="Moteur"
-          />
-          <Selector
-            label={currentModel?.label ?? 'modèle'}
-            items={models.map((m) => ({
-              id: m.id,
-              label: m.label,
-              description: m.description,
-              appetite: m.appetite,
-              note: m.releasedAt
-                ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
-                : undefined,
-            }))}
-            value={currentModel?.id}
-            onSelect={(id) => updateRun({ model: id })}
-            title={engine?.live ? 'Modèle (liste du moteur)' : 'Modèle'}
-          />
-          {thinkingOptions.length > 1 ? (
-            <Selector
-              label={currentThinking?.label ?? 'réflexion'}
-              items={thinkingOptions.map((level) => ({
-                id: level.id,
-                label: level.label,
-                description: level.description,
-              }))}
-              value={currentThinking?.id}
-              onSelect={(id) => updateRun({ thinking: id })}
-              title="Niveau de réflexion"
-            />
-          ) : null}
+          <RunSelectors engines={engines} choix={agent?.run} onSelect={updateRun} />
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {onProposeTask && !edition && (text.trim() || picked.length) ? (
@@ -459,91 +393,11 @@ export function Composer({
   );
 }
 
-function Selector({
-  label,
-  items,
-  value,
-  onSelect,
-  title,
-}: {
-  label: string;
-  items: { id: string; label: string; note?: string; description?: string; appetite?: 'light' | 'medium' | 'heavy' }[];
-  value?: string;
-  onSelect: (id: string) => void;
-  title: string;
-}) {
-  if (!items.length) return null;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="min-w-0 shrink gap-0.5 px-1 text-[13px] text-faint hover:text-text sm:gap-1 sm:px-1.5"
-        >
-          <span className="max-w-[56px] truncate sm:max-w-[110px]">{label}</span>
-          <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="sm:max-h-[320px] sm:w-[268px] sm:overflow-y-auto">
-        <DropdownMenuLabel>{title}</DropdownMenuLabel>
-        {items.map((item) => (
-          <DropdownMenuItem key={item.id} onSelect={() => onSelect(item.id)} className="items-start">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                {item.appetite ? <Appetite level={item.appetite} /> : null}
-                <span className="truncate text-text">{item.label}</span>
-                {item.note ? <span className="ml-auto shrink-0 text-[11.5px] text-faint">{item.note}</span> : null}
-              </div>
-              {item.description ? (
-                <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-faint">{item.description}</p>
-              ) : null}
-            </div>
-            {value === item.id ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" /> : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /**
- * L'appétit en quota, sans chiffre : trois traits pleins = gourmand, un seul =
- * léger. On veut savoir si un modèle va manger le quota, pas combien il coûte.
- */
-function Appetite({ level }: { level: 'light' | 'medium' | 'heavy' }) {
-  const rempli = level === 'heavy' ? 3 : level === 'medium' ? 2 : 1;
-  const titre =
-    level === 'heavy'
-      ? 'Gourmand : consomme beaucoup de quota'
-      : level === 'medium'
-        ? 'Moyen : consommation de quota raisonnable'
-        : 'Léger : consomme peu de quota';
-  return (
-    <span className="flex shrink-0 items-end gap-[1.5px]" title={titre} aria-label={titre}>
-      {[0, 1, 2].map((index) => (
-        <span
-          key={index}
-          className={cn(
-            'w-[3px] rounded-[1px]',
-            index < rempli
-              ? level === 'heavy'
-                ? 'bg-warning'
-                : level === 'medium'
-                  ? 'bg-muted'
-                  : 'bg-success'
-              : 'bg-border',
-          )}
-          style={{ height: `${4 + index * 3}px` }}
-        />
-      ))}
-    </span>
-  );
-}
-
-/**
- * Un message en attente. Le modifier l'ouvre dans la BARRE D'ÉCRITURE, en bas,
- * avec toute la place — pas dans une ligne minuscule.
+ * Un message en attente tient sur UNE seule ligne : le numéro, le début du
+ * texte coupé proprement, le crayon et la corbeille. Le texte entier reste
+ * accessible en le modifiant — il s'ouvre alors dans la BARRE D'ÉCRITURE, en
+ * bas, avec toute la place.
  */
 function QueuedItem({
   item,
@@ -556,35 +410,34 @@ function QueuedItem({
   actif: boolean;
   onEdit: () => void;
 }) {
+  // Les retours à la ligne deviennent des espaces : sinon la ligne unique
+  // afficherait un texte coupé au premier saut plutôt qu'à sa largeur.
+  const apercu = item.text.replace(/\s+/g, ' ').trim();
   return (
     <div
       className={cn(
-        'flex items-start gap-1.5 rounded-md border bg-surface px-2 py-1.5',
+        'flex h-8 items-center gap-1.5 rounded-md border bg-surface px-2',
         actif ? 'border-accent/50' : 'border-border',
       )}
     >
-      <GripVertical className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
-      <span className="mt-0.5 text-[12px] text-faint">{index + 1}</span>
+      <GripVertical className="h-3 w-3 shrink-0 text-faint" />
+      <span className="shrink-0 text-[12px] text-faint">{index + 1}</span>
       <button
         type="button"
         onClick={onEdit}
-        className="flex-1 text-left text-[13.5px] leading-snug text-muted hover:text-text"
+        title={apercu}
+        className="min-w-0 flex-1 truncate text-left text-[13.5px] text-muted hover:text-text"
       >
-        {item.text}
+        {apercu}
       </button>
-      <button
-        type="button"
-        title="Modifier"
-        onClick={onEdit}
-        className="mt-0.5 text-faint hover:text-text"
-      >
+      <button type="button" title="Modifier" onClick={onEdit} className="shrink-0 text-faint hover:text-text">
         <Pencil className="h-3 w-3" />
       </button>
       <button
         type="button"
         title="Retirer de la file"
         onClick={() => client.send({ type: 'queue.remove', id: item.id })}
-        className="mt-0.5 text-faint hover:text-danger"
+        className="shrink-0 text-faint hover:text-danger"
       >
         <Trash2 className="h-3 w-3" />
       </button>

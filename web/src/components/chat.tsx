@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Loader2, MessageSquare, Square } from 'lucide-react';
 import { Agent, Message } from '@haikodev/shared';
-import { EmptyState, Tooltip } from '@/components/ui';
+import { ConfirmDialog, EmptyState, Tooltip } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { client } from '@/lib/client';
@@ -114,6 +114,7 @@ function TravailEnCours({
   busy: boolean;
 }) {
   const [, forcer] = React.useState(0);
+  const [aConfirmer, setAConfirmer] = React.useState(false);
 
   // Le temps écoulé avance tout seul, seconde par seconde.
   React.useEffect(() => {
@@ -132,6 +133,14 @@ function TravailEnCours({
   const depuis = agent?.startedAt ? Math.round((Date.now() - agent.startedAt) / 1000) : null;
   const temps = depuis === null ? null : depuis < 60 ? `${depuis} s` : `${Math.floor(depuis / 60)} min ${depuis % 60} s`;
 
+  /*
+   * Au-delà de cinq minutes, l'agent a déjà beaucoup avancé : un clic malheureux
+   * jetterait un vrai travail. On demande alors confirmation ; en deçà, l'arrêt
+   * reste immédiat, sinon la commande deviendrait pénible pour rien.
+   */
+  const longTravail = depuis !== null && depuis >= 300;
+  const arreter = () => agent && client.send({ type: 'agent.stop', agentId: agent.id });
+
   return (
     <div className="flex shrink-0 items-center gap-2 border-t border-border bg-surface/60 px-3 py-1.5">
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
@@ -142,13 +151,23 @@ function TravailEnCours({
           <button
             type="button"
             aria-label="Arrêter l'action en cours"
-            onClick={() => client.send({ type: 'agent.stop', agentId: agent.id })}
+            onClick={() => (longTravail ? setAConfirmer(true) : arreter())}
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border text-muted transition-colors hover:border-danger hover:bg-raised hover:text-danger"
           >
             <Square className="h-2.5 w-2.5 fill-current" />
           </button>
         </Tooltip>
       ) : null}
+
+      <ConfirmDialog
+        open={aConfirmer}
+        danger
+        title="Arrêter cet agent ?"
+        description={`Il travaille depuis ${temps ?? 'un moment'}. Tout ce qu'il n'a pas encore enregistré sera perdu.`}
+        confirmLabel="Arrêter quand même"
+        onConfirm={arreter}
+        onClose={() => setAConfirmer(false)}
+      />
     </div>
   );
 }

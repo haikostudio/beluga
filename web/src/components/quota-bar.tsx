@@ -1,13 +1,16 @@
 import * as React from 'react';
-import { Activity, MoreVertical, Network, Volume2, Settings2, Sun, Moon } from 'lucide-react';
+import { Activity, BookOpen, MoreVertical, Network, Square, Volume2, Settings2, Sun, Moon } from 'lucide-react';
 import {
   Button,
+  ConfirmDialog,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Tooltip,
 } from '@/components/ui';
+import { MemoryView } from '@/components/memory-view';
 import { QuotaBadge } from '@/components/quota-badge';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
@@ -24,6 +27,24 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     'claude';
   const [theme, setTheme] = usePref<'dark' | 'light'>('theme', 'dark');
   const [speaking, setSpeaking] = React.useState(false);
+  const [memoireOuverte, setMemoireOuverte] = React.useState(false);
+  const [arretGroupe, setArretGroupe] = React.useState(false);
+
+  /*
+   * Les agents qui travaillent à cet instant : tous pour le compteur du coin
+   * gauche (c'est l'état de la machine), ceux du projet affiché pour l'arrêt
+   * groupé (on n'arrête jamais le travail d'un autre projet sans le dire).
+   */
+  const enCours = Object.values(state.agents).filter((agent) => agent.status === 'running');
+  const duProjet = enCours.filter((agent) => agent.projectId === state.activeProjectId);
+
+  const arreterLeProjet = () => {
+    for (const agent of duProjet) client.send({ type: 'agent.stop', agentId: agent.id });
+    client.pushToast(
+      'info',
+      duProjet.length > 1 ? `${duProjet.length} agents arrêtés.` : 'Agent arrêté.',
+    );
+  };
 
   const applyTheme = (next: 'dark' | 'light') => {
     setTheme(next);
@@ -87,15 +108,30 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
       }}
     >
       {/* Le seul repère à gauche : des nœuds reliés, verts quand la liaison au
-          serveur tient, orange et clignotants quand elle est rompue. */}
-      <Tooltip label={state.connected ? 'Connecté au serveur' : 'Reconnexion…'}>
-        <span className="flex items-center">
+          serveur tient, orange et clignotants quand elle est rompue. Le nombre
+          d'agents ne s'affiche que lorsque PLUSIEURS travaillent en même temps :
+          seul, un agent n'apprend rien de plus que la bande « en cours ». */}
+      <Tooltip
+        label={
+          state.connected
+            ? enCours.length > 1
+              ? `Connecté au serveur · ${enCours.length} agents travaillent`
+              : 'Connecté au serveur'
+            : 'Reconnexion…'
+        }
+      >
+        <span className="flex items-center gap-1">
           <Network
             className={cn(
               'h-4 w-4',
               state.connected ? 'text-success' : 'animate-pulse-soft text-warning',
             )}
           />
+          {enCours.length > 1 ? (
+            <span className="rounded-full bg-raised px-1.5 text-[11.5px] font-medium tabular-nums text-muted">
+              {enCours.length}
+            </span>
+          ) : null}
         </span>
       </Tooltip>
 
@@ -128,6 +164,20 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            disabled={!state.activeProjectId}
+            onSelect={() => setMemoireOuverte(true)}
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Mémoire du projet
+          </DropdownMenuItem>
+          {duProjet.length ? (
+            <DropdownMenuItem className="text-danger" onSelect={() => setArretGroupe(true)}>
+              <Square className="h-3.5 w-3.5 fill-current" />
+              Arrêter les agents du projet ({duProjet.length})
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSeparator />
           <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
             <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
             Écouter le point
@@ -142,6 +192,26 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <MemoryView
+        open={memoireOuverte}
+        projectId={state.activeProjectId ?? undefined}
+        onClose={() => setMemoireOuverte(false)}
+      />
+
+      <ConfirmDialog
+        open={arretGroupe}
+        danger
+        title={
+          duProjet.length > 1
+            ? `Arrêter les ${duProjet.length} agents de ce projet ?`
+            : 'Arrêter l’agent de ce projet ?'
+        }
+        description="Le travail en cours sera perdu. Les agents des autres projets continuent."
+        confirmLabel="Tout arrêter"
+        onConfirm={arreterLeProjet}
+        onClose={() => setArretGroupe(false)}
+      />
     </header>
   );
 }
