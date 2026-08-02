@@ -193,8 +193,10 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
 
   return (
     <aside
-      className="flex shrink-0 flex-col border-r border-border bg-bg"
-      style={{ width: width ? `${width}px` : '196px' }}
+      // Sur téléphone la liste occupe tout l'écran ; la largeur réglée à la
+      // main ne vaut qu'à partir des écrans larges.
+      className="flex w-full shrink-0 flex-col border-r border-border bg-bg sm:w-[var(--largeur-projets)]"
+      style={{ ['--largeur-projets' as any]: `${width ?? 196}px` }}
     >
       <div className="flex items-center gap-1 px-2 py-2">
         <span className="text-[12px] uppercase tracking-wide text-faint">Projets</span>

@@ -173,6 +173,13 @@ class Client {
           agents: Object.fromEntries(event.agents.map((agent) => [agent.id, agent])),
           activeProjectId: this.state.activeProjectId ?? event.projects[0]?.id ?? null,
         });
+        // Le projet retenu à l'ouverture doit CHARGER ses cartes tout de suite :
+        // sans cette demande, le tableau reste vide tant qu'on n'a pas cliqué
+        // dans la colonne de gauche — invisible sur téléphone, où elle est repliée.
+        if (this.state.activeProjectId) {
+          this.send({ type: 'project.open', id: this.state.activeProjectId });
+          this.send({ type: 'attachments.list', projectId: this.state.activeProjectId });
+        }
         break;
 
       case 'ack': {

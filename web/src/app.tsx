@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PanelRight, LayoutGrid, MessageSquare, Loader2 } from 'lucide-react';
+import { PanelRight, FolderTree, LayoutGrid, MessageSquare, Loader2 } from 'lucide-react';
 import { TooltipProvider, Button, EmptyState } from '@/components/ui';
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
@@ -32,7 +32,7 @@ export function App() {
   const [openAgentId, setOpenAgentId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [rightOpen, setRightOpen] = React.useState(() => window.innerWidth >= 1100);
-  const [mobileView, setMobileView] = React.useState<'board' | 'chat'>('board');
+  const [mobileView, setMobileView] = React.useState<'projects' | 'board' | 'chat'>('board');
   const [dropTarget, setDropTarget] = React.useState(false);
 
   // Largeurs des deux panneaux, retenues d'une session à l'autre.
@@ -45,6 +45,16 @@ export function App() {
 
   // Une carte affichée dans la conversation s'ouvre dans le tiroir.
   React.useEffect(() => client.onOpenCard(setOpenCardId), []);
+
+  // Sur téléphone, choisir un projet dans la liste ramène au tableau.
+  const premierProjet = React.useRef(true);
+  React.useEffect(() => {
+    if (premierProjet.current) {
+      premierProjet.current = false;
+      return;
+    }
+    setMobileView('board');
+  }, [state.activeProjectId]);
 
   // Notifications système, cliquables : elles ouvrent la carte concernée.
   React.useEffect(() => {
@@ -144,7 +154,14 @@ export function App() {
         <QuotaBar onOpenSettings={() => setSettingsOpen(true)} />
 
         <div className="flex min-h-0 flex-1">
-          <div className="hidden sm:flex">
+          {/* Sur téléphone, la colonne de gauche est un onglet à part entière :
+              sans elle, on ne peut pas changer de projet. */}
+          <div
+            className={cn(
+              'sm:flex',
+              mobileView === 'projects' ? 'flex min-w-0 flex-1' : 'hidden',
+            )}
+          >
             <Sidebar onOpenAgent={setOpenAgentId} width={gauche.width} />
           </div>
           <ResizeHandle
@@ -153,7 +170,7 @@ export function App() {
             onDoubleClick={gauche.reset}
           />
 
-          <main className={cn('flex min-w-0 flex-1 flex-col', mobileView === 'chat' && 'hidden sm:flex')}>
+          <main className={cn('flex min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}>
             {activeProject ? (
               <Board projectId={activeProject.id} onOpenCard={setOpenCardId} />
             ) : (
@@ -194,6 +211,14 @@ export function App() {
           className="flex shrink-0 items-center justify-around border-t border-border bg-bg py-1 sm:hidden"
           style={{ paddingBottom: 'calc(4px + env(safe-area-inset-bottom))' }}
         >
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn('flex-1', mobileView === 'projects' && 'text-text')}
+            onClick={() => setMobileView('projects')}
+          >
+            <FolderTree className="h-3.5 w-3.5" /> Projets
+          </Button>
           <Button
             variant="ghost"
             size="sm"

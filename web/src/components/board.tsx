@@ -29,6 +29,15 @@ export function Board({
 
   const byColumn = (column: ColumnKey) => cards.filter((card) => card.column === column);
 
+  // Sur téléphone, une seule colonne tient à l'écran : on commence sur
+  // « À faire », sinon on ouvre le tableau sur des notes souvent vides.
+  const rail = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (window.innerWidth >= 640) return;
+    const cible = rail.current?.querySelector<HTMLElement>('[data-column="todo"]');
+    if (cible) rail.current!.scrollLeft = cible.offsetLeft - 12;
+  }, [projectId]);
+
   const drop = (column: ColumnKey) => {
     setOver(null);
     const card = dragging;
@@ -43,13 +52,14 @@ export function Board({
   };
 
   return (
-    <div className="flex h-full min-h-0 gap-2.5 overflow-x-auto px-3 py-3 snap-columns">
+    <div ref={rail} className="flex h-full min-h-0 gap-2.5 overflow-x-auto px-3 py-3 snap-columns">
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
         const allowed = !dragging || canMove('user', dragging.column, column).allowed;
         return (
           <div
             key={column}
+            data-column={column}
             onDragOver={(event) => {
               event.preventDefault();
               setOver(column);
