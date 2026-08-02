@@ -99,6 +99,7 @@ export function MessageView({
           pickedEvolutions={pickedEvolutions}
           onToggleEvolution={onToggleEvolution}
           onToggleAll={onToggleAll}
+          streaming={message.streaming}
         />
       ) : message.streaming && !etapes.length ? (
         <p className="text-[14px] text-faint">L'agent réfléchit…</p>

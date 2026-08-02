@@ -136,7 +136,8 @@
   }
   /* Les titres de section se voient de loin, et chaque paragraphe respire. */
   .prose-hd h2 {
-    @apply mt-8 mb-4 border-t border-border/70 pt-6 text-[19px] font-semibold leading-tight tracking-tight text-text flex items-center gap-2;
+    /* scroll-mt : le titre visé par le sommaire ne se colle pas au bord haut. */
+    @apply mt-8 mb-4 scroll-mt-3 border-t border-border/70 pt-6 text-[19px] font-semibold leading-tight tracking-tight text-text flex items-center gap-2 transition-colors;
   }
   .prose-hd > h2:first-child {
     @apply mt-0 border-t-0 pt-0;

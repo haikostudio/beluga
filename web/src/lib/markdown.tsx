@@ -70,16 +70,57 @@ export interface MarkdownProps {
   pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
+  /** Réponse encore en train d'arriver : pas de sommaire tant qu'elle bouge. */
+  streaming?: boolean;
   className?: string;
 }
 
-export function Markdown({ content, pickedEvolutions, onToggleEvolution, onToggleAll, className }: MarkdownProps) {
+export function Markdown({
+  content,
+  pickedEvolutions,
+  onToggleEvolution,
+  onToggleAll,
+  streaming,
+  className,
+}: MarkdownProps) {
   const blocks = React.useMemo(() => parse(content), [content]);
   const picked = new Set(pickedEvolutions ?? []);
   let inEvolutions = false;
 
+  const titres = React.useMemo(() => (streaming ? [] : sommaire(blocks, content)), [blocks, content, streaming]);
+  const ancres = React.useRef(new Map<number, HTMLHeadingElement>());
+  const [cible, setCible] = React.useState<number | null>(null);
+
+  /** Un clic sur le sommaire amène la partie en haut, et la fait ressortir un instant. */
+  const allerA = (index: number) => {
+    const titre = ancres.current.get(index);
+    if (!titre) return;
+    titre.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setCible(index);
+    window.setTimeout(() => setCible((actuelle) => (actuelle === index ? null : actuelle)), 1600);
+  };
+
   return (
     <div className={cn('prose-hd', className)}>
+      {titres.length ? (
+        <nav className="mb-4 rounded-md border border-border bg-raised/60 px-2.5 py-2">
+          <p className="mb-1.5 text-[12px] text-faint">Sommaire</p>
+          <div className="flex flex-wrap gap-1.5">
+            {titres.map((titre) => (
+              <button
+                key={titre.index}
+                type="button"
+                onClick={() => allerA(titre.index)}
+                className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-[13px] text-muted transition-colors hover:border-accent/50 hover:text-text"
+              >
+                {titre.icon ? <span aria-hidden>{titre.icon}</span> : null}
+                {titre.text}
+              </button>
+            ))}
+          </div>
+        </nav>
+      ) : null}
+
       {blocks.map((block, index) => {
         switch (block.kind) {
           case 'heading': {
@@ -88,7 +129,14 @@ export function Markdown({ content, pickedEvolutions, onToggleEvolution, onToggl
             const items = inEvolutions ? nextListItems(blocks, index) : [];
             const allPicked = items.length > 0 && items.every((item) => picked.has(item));
             return (
-              <h2 key={index}>
+              <h2
+                key={index}
+                ref={(node) => {
+                  if (node) ancres.current.set(index, node);
+                  else ancres.current.delete(index);
+                }}
+                className={cn(cible === index && 'text-accent')}
+              >
                 {icon ? <span aria-hidden>{icon}</span> : null}
                 <span>{block.text}</span>
                 {inEvolutions && items.length > 1 && onToggleAll ? (
@@ -200,6 +248,27 @@ type Block =
   | { kind: 'code'; text: string }
   | { kind: 'callout'; variant: string; lines: string[] }
   | { kind: 'table'; head: string[]; rows: string[][] };
+
+/*
+ * Le sommaire ne sert que sur une réponse qu'on ne voit pas d'un seul écran :
+ * en dessous de ces seuils, il ferait double emploi avec les titres eux-mêmes.
+ */
+const SOMMAIRE_TITRES_MIN = 4;
+const SOMMAIRE_SIGNES_MIN = 1200;
+
+interface EntreeSommaire {
+  index: number;
+  text: string;
+  icon: string | null;
+}
+
+function sommaire(blocks: Block[], content: string): EntreeSommaire[] {
+  if (content.length < SOMMAIRE_SIGNES_MIN) return [];
+  const titres = blocks.flatMap((block, index) =>
+    block.kind === 'heading' ? [{ index, text: block.text, icon: iconFor(block.text) }] : [],
+  );
+  return titres.length >= SOMMAIRE_TITRES_MIN ? titres : [];
+}
 
 function nextListItems(blocks: Block[], fromIndex: number): string[] {
   for (let i = fromIndex + 1; i < blocks.length; i++) {
