@@ -113,7 +113,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-[310px] p-2">
+      <DropdownMenuContent align="end" className="p-2 sm:w-[310px]">
         <div className="mb-1.5 flex items-center justify-between">
           <span className="text-[12px] uppercase tracking-wide text-faint">Quotas</span>
           <button
@@ -130,9 +130,12 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
             {quotas.map((quota) => (
               <div
                 key={quota.id}
+                // Chaque compte est une carte à part entière : bordure et fond
+                // pour tous. Le compte qui sert est marqué par sa bordure, pas
+                // par l'absence de carte chez les autres.
                 className={cn(
-                  'rounded-md border px-2 py-1.5',
-                  quota.active ? 'border-border bg-raised' : 'border-transparent',
+                  'rounded-md border bg-raised px-2 py-1.5',
+                  quota.active ? 'border-muted' : 'border-border',
                 )}
               >
                 <div className="flex items-center gap-1.5">

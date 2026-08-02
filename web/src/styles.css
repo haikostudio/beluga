@@ -191,6 +191,22 @@
   }
 }
 
+/*
+ * Sur téléphone, un menu déroulant se pose en TIROIR au bas de l'écran.
+ * La bibliothèque place le menu dans une enveloppe transformée : tant qu'on ne
+ * neutralise pas cette transformation, un enfant « fixé » reste accroché à
+ * l'enveloppe et non à l'écran.
+ */
+@media (max-width: 639.98px) {
+  [data-radix-popper-content-wrapper] {
+    position: fixed !important;
+    inset: auto 0 0 0 !important;
+    transform: none !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
 /* Barre de défilement horizontale du tableau, sans à-coups sur mobile */
 .snap-columns {
   scroll-snap-type: x proximity;

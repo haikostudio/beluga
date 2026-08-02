@@ -459,7 +459,7 @@ function Selector({
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-[320px] w-[268px] overflow-y-auto">
+      <DropdownMenuContent align="start" className="sm:max-h-[320px] sm:w-[268px] sm:overflow-y-auto">
         <DropdownMenuLabel>{title}</DropdownMenuLabel>
         {items.map((item) => (
           <DropdownMenuItem key={item.id} onSelect={() => onSelect(item.id)} className="items-start">

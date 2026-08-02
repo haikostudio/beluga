@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Lightbulb, Info, AlertTriangle, OctagonAlert, Plus, Check } from 'lucide-react';
+import { Lightbulb, Info, AlertTriangle, ChevronRight, OctagonAlert, Plus, Check } from 'lucide-react';
 import { paragraphBreakAfter } from '@haikodev/shared';
 import { cn } from './utils';
 
@@ -102,22 +102,25 @@ export function Markdown({
 
   return (
     <div className={cn('prose-hd', className)}>
+      {/* Une entrée = une LIGNE pleine largeur : un sommaire se lit de haut en
+          bas, pas comme une grappe de pastilles de tailles inégales. */}
       {titres.length ? (
-        <nav className="mb-4 rounded-md border border-border bg-raised/60 px-2.5 py-2">
-          <p className="mb-1.5 text-[12px] text-faint">Sommaire</p>
-          <div className="flex flex-wrap gap-1.5">
-            {titres.map((titre) => (
-              <button
-                key={titre.index}
-                type="button"
-                onClick={() => allerA(titre.index)}
-                className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-[13px] text-muted transition-colors hover:border-accent/50 hover:text-text"
-              >
-                {titre.icon ? <span aria-hidden>{titre.icon}</span> : null}
-                {titre.text}
-              </button>
-            ))}
-          </div>
+        <nav className="mb-4 overflow-hidden rounded-md border border-border bg-raised/60">
+          <p className="border-b border-border/70 px-3 py-1.5 text-[12px] uppercase tracking-wide text-faint">
+            Sommaire
+          </p>
+          {titres.map((titre) => (
+            <button
+              key={titre.index}
+              type="button"
+              onClick={() => allerA(titre.index)}
+              className="flex w-full items-center gap-2 border-b border-border/40 px-3 py-2 text-left text-[14px] text-muted transition-colors last:border-b-0 hover:bg-surface hover:text-text"
+            >
+              {titre.icon ? <span aria-hidden>{titre.icon}</span> : null}
+              <span className="min-w-0 flex-1 truncate">{titre.text}</span>
+              <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
+            </button>
+          ))}
         </nav>
       ) : null}
 

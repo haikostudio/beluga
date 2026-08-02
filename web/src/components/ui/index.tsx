@@ -301,14 +301,25 @@ export function DropdownMenuContent({
 }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Content>) {
   return (
     <DropdownPrimitive.Portal>
+      {/* Sur téléphone, un menu déroulant devient un TIROIR : posé en bas, sur
+          toute la largeur, avec sa poignée. Les classes « ! » sont nécessaires
+          pour couvrir le placement calculé par la bibliothèque. */}
       <DropdownPrimitive.Content
         sideOffset={4}
         className={cn(
-          'z-50 min-w-[170px] overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl animate-fade-in',
+          'z-50 min-w-[170px] overflow-hidden border border-border bg-surface p-1 shadow-xl animate-fade-in',
+          'max-sm:w-full max-sm:max-h-[72dvh] max-sm:overflow-y-auto max-sm:rounded-t-xl',
+          'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
+          'max-sm:animate-slide-up sm:rounded-md',
           className,
         )}
         {...props}
-      />
+      >
+        <div className="mb-1.5 flex justify-center sm:hidden">
+          <span className="h-1 w-10 rounded-full bg-border" />
+        </div>
+        {props.children}
+      </DropdownPrimitive.Content>
     </DropdownPrimitive.Portal>
   );
 }
