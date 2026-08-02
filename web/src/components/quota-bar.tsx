@@ -1,6 +1,13 @@
 import * as React from 'react';
-import { Activity, RefreshCw, Volume2, Settings2, Sun, Moon, Wifi, WifiOff } from 'lucide-react';
-import { Button, Tooltip } from '@/components/ui';
+import { Activity, MoreVertical, Network, Volume2, Settings2, Sun, Moon } from 'lucide-react';
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Tooltip,
+} from '@/components/ui';
 import { QuotaBadge } from '@/components/quota-badge';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
@@ -79,18 +86,18 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
         paddingRight: 'max(10px, env(safe-area-inset-right))',
       }}
     >
-      <div className="flex items-center gap-1.5">
-        <span className="text-[14.5px] font-semibold tracking-tight text-text">HaikoDev</span>
-        <Tooltip label={state.connected ? 'Connecté au serveur' : 'Reconnexion…'}>
-          <span>
-            {state.connected ? (
-              <Wifi className="h-3 w-3 text-success" />
-            ) : (
-              <WifiOff className="h-3 w-3 animate-pulse-soft text-warning" />
+      {/* Le seul repère à gauche : des nœuds reliés, verts quand la liaison au
+          serveur tient, orange et clignotants quand elle est rompue. */}
+      <Tooltip label={state.connected ? 'Connecté au serveur' : 'Reconnexion…'}>
+        <span className="flex items-center">
+          <Network
+            className={cn(
+              'h-4 w-4',
+              state.connected ? 'text-success' : 'animate-pulse-soft text-warning',
             )}
-          </span>
-        </Tooltip>
-      </div>
+          />
+        </span>
+      </Tooltip>
 
       <div className="flex-1" />
 
@@ -112,23 +119,29 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
         </Tooltip>
       ) : null}
 
-      <div className="flex items-center gap-0.5">
-        <Tooltip label="Écouter le point">
-          <Button variant="ghost" size="icon" onClick={listen} disabled={speaking}>
+      {/* Un seul bouton : son, thème et réglages vivent derrière les trois
+          points (menu sur ordinateur, tiroir en bas sur téléphone). */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label="Menu" title="Menu">
+            <MoreVertical className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
             <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
-          </Button>
-        </Tooltip>
-        <Tooltip label={theme === 'dark' ? 'Thème clair' : 'Thème sombre'}>
-          <Button variant="ghost" size="icon" onClick={() => applyTheme(theme === 'dark' ? 'light' : 'dark')}>
+            Écouter le point
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => applyTheme(theme === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-          </Button>
-        </Tooltip>
-        <Tooltip label="Réglages">
-          <Button variant="ghost" size="icon" onClick={onOpenSettings}>
+            {theme === 'dark' ? 'Thème clair' : 'Thème sombre'}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onOpenSettings}>
             <Settings2 className="h-3.5 w-3.5" />
-          </Button>
-        </Tooltip>
-      </div>
+            Réglages
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </header>
   );
 }

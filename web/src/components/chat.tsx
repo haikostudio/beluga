@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { Loader2, MessageSquare } from 'lucide-react';
+import { Loader2, MessageSquare, Square } from 'lucide-react';
 import { Agent, Message } from '@haikodev/shared';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, Tooltip } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { client } from '@/lib/client';
@@ -100,6 +100,9 @@ export function Chat({
  * Le témoin de travail, juste au-dessus de la barre d'écriture : on voit d'un
  * coup d'œil si quelque chose tourne, quoi, et depuis combien de temps. Quand
  * rien ne tourne, la ligne disparaît complètement.
+ *
+ * C'est aussi d'ici qu'on arrête l'agent : le bouton est posé sur la chose
+ * qu'il arrête, plutôt que perdu dans la rangée d'outils de la barre d'écriture.
  */
 function TravailEnCours({
   agent,
@@ -134,6 +137,18 @@ function TravailEnCours({
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
       {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
+      {agent ? (
+        <Tooltip label="Arrêter l'action en cours">
+          <button
+            type="button"
+            aria-label="Arrêter l'action en cours"
+            onClick={() => client.send({ type: 'agent.stop', agentId: agent.id })}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border text-muted transition-colors hover:border-danger hover:bg-raised hover:text-danger"
+          >
+            <Square className="h-2.5 w-2.5 fill-current" />
+          </button>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }

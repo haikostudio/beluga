@@ -7,7 +7,6 @@ import {
   Loader2,
   Paperclip,
   Pencil,
-  Square,
   Trash2,
   X,
 } from 'lucide-react';
@@ -441,17 +440,8 @@ export function Composer({
                 En faire une tâche
               </Button>
             ) : null}
-            {busy ? (
-              <Tooltip label="Arrêter l'agent">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => agent && client.send({ type: 'agent.stop', agentId: agent.id })}
-                >
-                  <Square className="h-3 w-3 fill-current" />
-                </Button>
-              </Tooltip>
-            ) : null}
+            {/* L'arrêt vit désormais sur la bande « en cours », juste au-dessus :
+                le bouton est posé sur l'action qu'il interrompt. */}
             <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
             <Button
               variant="default"
