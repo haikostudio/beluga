@@ -258,10 +258,10 @@ export function CardTile({
     analysing || analyseEnCours
       ? { icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, texte: 'Analyse en cours — chiffrage du travail…', ton: 'text-muted' }
       : waiting
-        ? { icon: <Clock className="mt-[1px] h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
+        ? { icon: <Clock className="h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
         : estimateFailed
           ? {
-              icon: <AlertTriangle className="mt-[1px] h-2.5 w-2.5 shrink-0" />,
+              icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,
               texte: card.estimate?.failureReason ?? 'analyse sans chiffres',
               ton: 'text-danger',
             }
@@ -366,15 +366,16 @@ export function CardTile({
         <div
           onClick={onOpen}
           className={cn(
-            // Décalée de quelques pixels : on dirait une étiquette glissée
-            // derrière la carte, qui dépasse par le bas.
-            'relative -mt-1 mx-1.5 cursor-pointer rounded-b-md border border-t-0 border-border bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-snug',
+            // Toute la largeur de la carte, sur UNE ligne, avec une ombre
+            // portée sur le haut : la carte a l'air de la recouvrir.
+            'relative -mt-1 cursor-pointer rounded-b-md bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-snug',
+            'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
             statut.ton,
           )}
         >
-          <span className="flex items-start gap-1">
+          <span className="flex items-center gap-1">
             {statut.icon}
-            {statut.texte}
+            <span className="min-w-0 flex-1 truncate">{statut.texte}</span>
           </span>
         </div>
       ) : null}
