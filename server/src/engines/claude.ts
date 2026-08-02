@@ -1,6 +1,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import { TodoItem } from '@haikodev/shared';
 import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
 import { log } from '../logger.js';
 
@@ -68,6 +69,7 @@ export const claudeAdapter: EngineAdapter = {
     child.stdin.end();
 
     const pendingSteps = new Map<string, string>();
+    const taches = new SuiviDesTaches();
     let buffer = '';
     let stderr = '';
 
@@ -80,7 +82,7 @@ export const claudeAdapter: EngineAdapter = {
       } catch {
         return;
       }
-      emitFromClaude(event, options.onEvent, pendingSteps);
+      emitFromClaude(event, options.onEvent, pendingSteps, taches);
     };
 
     child.stdout.on('data', (chunk: Buffer) => {
@@ -129,10 +131,63 @@ export const claudeAdapter: EngineAdapter = {
   },
 };
 
+/**
+ * La liste de tâches annoncée par le moteur. Les versions récentes de Claude
+ * Code ne proposent plus « TodoWrite » mais « TaskCreate » / « TaskUpdate » :
+ * une tâche par appel, mise à jour par son numéro. On rassemble ces appels en
+ * UNE liste, celle qui s'affiche et se coche dans la conversation.
+ */
+export class SuiviDesTaches {
+  private items: TodoItem[] = [];
+  private parNumero = new Map<string, number>();
+  /** Numéro attribué par le moteur à la dernière création, lu dans sa réponse. */
+  private creationEnAttente: string | null = null;
+
+  creer(subject: unknown, key: string): TodoItem[] | null {
+    const label = typeof subject === 'string' ? subject.trim() : '';
+    if (!label) return null;
+    this.items.push({ label, state: 'todo' });
+    this.creationEnAttente = key;
+    return this.liste();
+  }
+
+  /** « Task #3 created successfully » : c'est là qu'on apprend le numéro. */
+  noterNumero(key: string, texte: string): void {
+    if (this.creationEnAttente !== key) return;
+    this.creationEnAttente = null;
+    const numero = texte.match(/#(\d+)/)?.[1];
+    if (numero) this.parNumero.set(numero, this.items.length - 1);
+  }
+
+  mettreAJour(input: any): TodoItem[] | null {
+    const numero = input?.taskId != null ? String(input.taskId) : '';
+    const index = this.parNumero.get(numero);
+    if (index === undefined) return null;
+    const item = this.items[index];
+    if (!item) return null;
+    if (typeof input?.subject === 'string' && input.subject.trim()) item.label = input.subject.trim();
+    const statut = typeof input?.status === 'string' ? input.status : '';
+    if (/^completed$/i.test(statut)) item.state = 'done';
+    else if (/^in_progress$/i.test(statut)) item.state = 'running';
+    else if (/^pending$/i.test(statut)) item.state = 'todo';
+    else if (/^deleted$/i.test(statut)) {
+      this.items.splice(index, 1);
+      this.parNumero.delete(numero);
+      for (const [n, i] of this.parNumero) if (i > index) this.parNumero.set(n, i - 1);
+    }
+    return this.liste();
+  }
+
+  private liste(): TodoItem[] {
+    return this.items.map((item) => ({ ...item }));
+  }
+}
+
 export function emitFromClaude(
   event: any,
   onEvent: (e: EngineEvent) => void,
   pendingSteps: Map<string, string>,
+  taches?: SuiviDesTaches,
 ): void {
   switch (event.type) {
     case 'system':
@@ -164,6 +219,17 @@ export function emitFromClaude(
             onEvent({ kind: 'todo', todos: normalizeTodos(block.input?.todos) });
             continue;
           }
+          // Même chose avec le vocabulaire des versions récentes du moteur.
+          if (taches && (block.name === 'TaskCreate' || block.name === 'TaskUpdate')) {
+            const key = block.id ?? '';
+            const liste =
+              block.name === 'TaskCreate'
+                ? taches.creer(block.input?.subject, key)
+                : taches.mettreAJour(block.input);
+            if (liste) onEvent({ kind: 'todo', todos: liste });
+            if (block.name === 'TaskCreate') pendingSteps.set(key, '');
+            continue;
+          }
           const step = humanStep(block.name, block.input);
           const key = block.id ?? `${block.name}-${Date.now()}`;
           pendingSteps.set(key, step.label);
@@ -179,7 +245,7 @@ export function emitFromClaude(
         if (block.type === 'tool_result') {
           const key = block.tool_use_id;
           const label = pendingSteps.get(key);
-          if (label) {
+          if (label !== undefined) {
             pendingSteps.delete(key);
             const failed = block.is_error === true;
             const detail =
@@ -191,6 +257,12 @@ export function emitFromClaude(
                       .join(' ')
                       .slice(0, 400)
                   : undefined;
+            // Étiquette vide = création de tâche : pas une étape du journal,
+            // seulement le numéro à retenir pour pouvoir la cocher plus tard.
+            if (!label) {
+              taches?.noterNumero(key, detail ?? '');
+              continue;
+            }
             onEvent({ kind: 'step', step: { key, label, state: failed ? 'failed' : 'done', detail } });
           }
         }

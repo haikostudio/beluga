@@ -159,7 +159,10 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
 
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
   const template: TemplateKind =
-    options.template ?? (agent.role === 'orchestrator' ? 'none' : templateForColumn(card?.column, !!card?.deployedAt));
+    options.template ??
+    // Le chef d'orchestre rend le MÊME compte rendu que les agents de tâche :
+    // il travaille pour de vrai, sa réponse doit se lire comme les autres.
+    (agent.role === 'orchestrator' ? 'free' : templateForColumn(card?.column, !!card?.deployedAt));
 
   // Contexte : briefing du projet (mémoire vivante) + rôle + carte.
   const contextParts: string[] = [briefing(project.path, project.name)];
@@ -521,7 +524,7 @@ function rolePrompt(role: AgentRole, isSelf: boolean, template: TemplateKind): s
   if (role === 'orchestrator') {
     const base = `${common}
 
-TU ES LE CHEF D'ORCHESTRE du projet. Tu ne rends pas de compte-rendu formaté : tu discutes.
+TU ES LE CHEF D'ORCHESTRE du projet. Tu rends le MÊME compte rendu structuré que les agents de tâche : le gabarit imposé plus bas s'applique à ta réponse finale, à chaque fois.
 
 TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS UNE CRÉATION DE CARTE :
 1. Question ou demande d'information (y compris « fais-moi la doc de X ») → tu RÉPONDS, aucune carte. Lire n'est pas agir ; produire un document fait partie de la réponse.
@@ -533,7 +536,7 @@ NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de préparer : elle s'affiche 
 
 Tu peux lire le code, chercher, écrire un document (write_document) et préparer une archive (make_archive).
 
-MISE EN FORME DE TES RÉPONSES (comme les comptes rendus des autres agents, mais sans gabarit imposé) :
+MISE EN FORME DE TES RÉPONSES (elle s'ajoute au gabarit, elle ne le remplace pas) :
 - Un paragraphe = 2 à 3 phrases. Deux paragraphes sont TOUJOURS séparés par une ligne vide. Jamais de pavé continu.
 - Dès que la réponse a plusieurs parties, pose des titres Markdown \`## Titre\`, avec une ligne vide avant et après.
 - Une puce = une idée, sur une seule ligne, sans sous-liste. Ligne vide avant et après une liste.

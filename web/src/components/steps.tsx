@@ -9,14 +9,13 @@ import { cn, duration } from '@/lib/utils';
  * Quand l'agent a fini, elle se replie en une ligne de bilan.
  */
 export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boolean }) {
-  const [open, setOpen] = React.useState(streaming);
+  /*
+   * Le déroulé reste REPLIÉ : il raconte le détail du travail, pas la réponse.
+   * Sa ligne de titre montre la dernière action en date — on sait où on en est
+   * sans avoir trente lignes sous les yeux. Un clic déplie tout.
+   */
+  const [open, setOpen] = React.useState(false);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
-
-  React.useEffect(() => {
-    // Pendant le travail on déroule, à la fin on replie — sans écraser un
-    // choix explicite de l'utilisateur pendant qu'il regarde.
-    setOpen(streaming);
-  }, [streaming]);
 
   if (!steps.length) return null;
 
@@ -24,12 +23,14 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
   const failed = steps.filter((s) => s.state === 'failed').length;
   const skipped = steps.filter((s) => s.state === 'skipped').length;
   const running = steps.find((s) => s.state === 'running');
+  const derniere = running ?? [...steps].reverse().find((s) => s.state !== 'skipped') ?? steps[steps.length - 1];
 
-  const summary = streaming
-    ? (running?.label ?? 'préparation…')
-    : `${done} étape${done > 1 ? 's' : ''} terminée${done > 1 ? 's' : ''}${failed ? `, ${failed} en échec` : ''}${
-        skipped ? `, ${skipped} ignorée${skipped > 1 ? 's' : ''}` : ''
-      }`;
+  const bilan = `${done} étape${done > 1 ? 's' : ''} terminée${done > 1 ? 's' : ''}${
+    failed ? `, ${failed} en échec` : ''
+  }${skipped ? `, ${skipped} ignorée${skipped > 1 ? 's' : ''}` : ''}`;
+
+  // Pendant le travail : la dernière action. À la fin : le bilan.
+  const summary = streaming ? (derniere?.label ?? 'préparation…') : bilan;
 
   return (
     <div className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">
@@ -45,7 +46,11 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
         ) : (
           <Check className="h-3 w-3 shrink-0 text-success" />
         )}
-        <span className="flex-1 truncate text-[13.5px] text-muted">{summary}</span>
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">{summary}</span>
+        {/* Le compte des étapes reste visible même repliée. */}
+        {streaming && steps.length > 1 ? (
+          <span className="shrink-0 text-[12px] tabular-nums text-faint">{done}/{steps.length}</span>
+        ) : null}
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
       </button>
 

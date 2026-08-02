@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { MEMORY_STEP_ID, Message } from '@haikodev/shared';
 import { EngineEvent, normalizeTodos } from '../engines/types.js';
-import { emitFromClaude } from '../engines/claude.js';
+import { SuiviDesTaches, emitFromClaude } from '../engines/claude.js';
 import { buildCodexArgs, emitFromCodex } from '../engines/codex.js';
 import { appendMemory, memorySummary } from '../memory.js';
 import { ORCHESTRATOR_ALLOWED_NATIVE, ORCHESTRATOR_DENIED_NATIVE } from '../tools.js';
@@ -196,4 +196,70 @@ test('une ligne remise en attente perd ses heures', () => {
   const avant = mergeTodos([], [{ label: 'Un', state: 'done' }], debut);
   const apres = mergeTodos(avant, [{ label: 'Un', state: 'todo' }], debut);
   assert.deepEqual(apres, [{ label: 'Un', state: 'todo' }]);
+});
+
+/* ------------------------------------------------------------------ */
+/* Les tâches annoncées par les versions récentes du moteur            */
+/* ------------------------------------------------------------------ */
+
+test('TaskCreate et TaskUpdate forment une liste de tâches cochée', () => {
+  const vus: EngineEvent[] = [];
+  const pendingSteps = new Map<string, string>();
+  const taches = new SuiviDesTaches();
+  const rejouer = (event: any) => emitFromClaude(event, (e) => vus.push(e), pendingSteps, taches);
+
+  const creation = (id: string, subject: string) => ({
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', id, name: 'TaskCreate', input: { subject } }] },
+  });
+  const reponse = (id: string, texte: string) => ({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: id, content: texte }] },
+  });
+  const maj = (input: Record<string, unknown>) => ({
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', id: `u-${input.taskId}`, name: 'TaskUpdate', input }] },
+  });
+
+  rejouer(creation('a', 'Replier le déroulé'));
+  rejouer(reponse('a', 'Task #1 created successfully: Replier le déroulé'));
+  rejouer(creation('b', 'Traduire les tâches'));
+  rejouer(reponse('b', 'Task #2 created successfully: Traduire les tâches'));
+
+  // Une création n'est PAS une étape du journal : elle n'a que sa liste.
+  assert.equal(vus.filter((e) => e.kind === 'step').length, 0);
+
+  rejouer(maj({ taskId: '1', status: 'in_progress' }));
+  rejouer(maj({ taskId: '1', status: 'completed' }));
+  rejouer(maj({ taskId: '2', status: 'in_progress' }));
+
+  const derniere = [...vus].reverse().find((e) => e.kind === 'todo') as any;
+  assert.deepEqual(derniere.todos, [
+    { label: 'Replier le déroulé', state: 'done' },
+    { label: 'Traduire les tâches', state: 'running' },
+  ]);
+});
+
+test('une tâche supprimée sort de la liste sans décaler les autres', () => {
+  const vus: EngineEvent[] = [];
+  const taches = new SuiviDesTaches();
+  const pendingSteps = new Map<string, string>();
+  const rejouer = (event: any) => emitFromClaude(event, (e) => vus.push(e), pendingSteps, taches);
+
+  for (const [id, numero, sujet] of [
+    ['a', '1', 'Une'],
+    ['b', '2', 'Deux'],
+    ['c', '3', 'Trois'],
+  ] as const) {
+    rejouer({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'TaskCreate', input: { subject: sujet } }] } });
+    rejouer({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: `Task #${numero} created successfully` }] } });
+  }
+  rejouer({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'x', name: 'TaskUpdate', input: { taskId: '2', status: 'deleted' } }] } });
+  rejouer({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'y', name: 'TaskUpdate', input: { taskId: '3', status: 'completed' } }] } });
+
+  const derniere = [...vus].reverse().find((e) => e.kind === 'todo') as any;
+  assert.deepEqual(derniere.todos, [
+    { label: 'Une', state: 'todo' },
+    { label: 'Trois', state: 'done' },
+  ]);
 });
