@@ -1,7 +1,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
-import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep } from './types.js';
+import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -158,6 +158,12 @@ function emitFromClaude(
         if (block.type === 'text' && block.text) {
           onEvent({ kind: 'text', text: block.text });
         } else if (block.type === 'tool_use') {
+          // La liste de tâches n'est pas une étape : elle a son propre affichage,
+          // coché en direct. La noyer dans le journal reviendrait à la cacher.
+          if (block.name === 'TodoWrite') {
+            onEvent({ kind: 'todo', todos: normalizeTodos(block.input?.todos) });
+            continue;
+          }
           const step = humanStep(block.name, block.input);
           const key = block.id ?? `${block.name}-${Date.now()}`;
           pendingSteps.set(key, step.label);

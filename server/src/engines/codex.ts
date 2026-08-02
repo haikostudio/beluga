@@ -143,6 +143,13 @@ function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): void {
           return;
         case 'reasoning':
           return; // le raisonnement n'est pas une étape d'exécution
+        case 'todo_list':
+        case 'plan':
+        case 'plan_update':
+          // Le plan annoncé par Codex : même affichage que la liste de tâches
+          // de Claude, coché en direct.
+          onEvent({ kind: 'todo', todos: normalizeTodos(item.items ?? item.todos ?? item.plan) });
+          return;
         case 'command_execution': {
           const step = humanStep('Bash', { command: item.command ?? '' });
           const failed = done && typeof item.exit_code === 'number' && item.exit_code !== 0;

@@ -90,22 +90,26 @@
      Chaque section est un bloc : trait de séparation au-dessus du titre, et de
      l'air entre les paragraphes — sinon la réponse se lit comme un pavé. */
   .prose-hd {
-    @apply text-[15px] leading-[1.7];
+    @apply text-[15px] leading-[1.75];
   }
+  /* Les titres de section se voient de loin, et chaque paragraphe respire. */
   .prose-hd h2 {
-    @apply mt-7 mb-3 border-t border-border/70 pt-5 text-[15px] font-semibold tracking-tight text-text flex items-center gap-1.5;
+    @apply mt-8 mb-4 border-t border-border/70 pt-6 text-[19px] font-semibold leading-tight tracking-tight text-text flex items-center gap-2;
   }
   .prose-hd > h2:first-child {
     @apply mt-0 border-t-0 pt-0;
   }
   .prose-hd h3 {
-    @apply mt-5 mb-2 text-[14px] font-semibold text-text;
+    @apply mt-6 mb-3 text-[16px] font-semibold leading-snug text-text;
   }
   .prose-hd p {
-    @apply my-3 text-muted;
+    @apply mb-4 mt-0 text-muted;
   }
   .prose-hd ul {
-    @apply my-3 space-y-2 pl-1;
+    @apply mb-4 mt-0 space-y-2 pl-1;
+  }
+  .prose-hd > *:last-child {
+    @apply mb-0;
   }
   .prose-hd li {
     @apply text-muted flex gap-2;

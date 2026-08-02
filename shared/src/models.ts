@@ -258,6 +258,20 @@ export const RunStep = z.object({
 });
 export type RunStep = z.infer<typeof RunStep>;
 
+/**
+ * Une ligne de la liste de tâches que l'agent s'annonce à lui-même AVANT
+ * d'agir (PLAN §26). Elle se coche au fur et à mesure : c'est la promesse
+ * affichée, là où les étapes sont le journal de ce qui s'est réellement passé.
+ */
+export const TodoItem = z.object({
+  label: z.string(),
+  state: z.enum(['todo', 'running', 'done']).default('todo'),
+});
+export type TodoItem = z.infer<typeof TodoItem>;
+
+/** L'identifiant réservé à l'étape « lecture de la mémoire du projet ». */
+export const MEMORY_STEP_ID = 'memoire';
+
 export const TaskProposal = z.object({
   id: z.string(),
   title: z.string(),
@@ -302,6 +316,8 @@ export const Message = z.object({
   content: z.string().default(''),
   /** Liste d'exécution attachée à ce tour (PLAN §26). */
   steps: z.array(RunStep).default([]),
+  /** La liste de tâches annoncée par l'agent, cochée en direct (PLAN §26). */
+  todos: z.array(TodoItem).default([]),
   proposals: z.array(TaskProposal).default([]),
   questions: z.array(AgentQuestion).default([]),
   downloads: z.array(DownloadOffer).default([]),

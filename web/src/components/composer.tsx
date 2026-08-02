@@ -49,20 +49,47 @@ export function Composer({
   // La dictée dépose son texte à la suite de ce qui est déjà écrit.
   const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
 
-  // Brouillon conservé par conversation, côté serveur : on le retrouve depuis
-  // n'importe quel écran.
-  const [draft, setDraft] = usePref<string>(agent ? `draft.${agent.id}` : 'draft.aucun', '');
+  /*
+   * Brouillon conservé par conversation, côté serveur : on le retrouve depuis
+   * n'importe quel écran. Ce qui est écrit ne s'efface QUE sur un geste de
+   * l'utilisateur (envoi ou effacement) : ni un agent qui disparaît un instant,
+   * ni une reconnexion, ni un changement d'onglet n'y touchent.
+   */
+  const agentId = agent?.id;
+  const cleBrouillon = agentId ? `draft.${agentId}` : 'draft.aucun';
+  const [draft] = usePref<string>(cleBrouillon, '');
+  const chargePour = React.useRef<string | undefined>(undefined);
+  const premierPassage = React.useRef(true);
+
   React.useEffect(() => {
-    setText(draft);
-    // Volontairement à l'ouverture de la conversation seulement.
-  }, [agent?.id]);
+    // Agent absent l'espace d'un instant : on ne touche surtout à rien.
+    if (!agentId) return;
+    if (chargePour.current !== agentId) {
+      // Vraie ouverture d'une autre conversation : on affiche SON brouillon.
+      chargePour.current = agentId;
+      premierPassage.current = true;
+      setText(draft);
+      return;
+    }
+    // Même conversation : le brouillon venu du serveur ne remplit que le vide.
+    setText((current) => current || draft);
+  }, [agentId, draft]);
+
   React.useEffect(() => {
-    if (!agent) return;
-    const timer = window.setTimeout(() => {
-      if (text !== draft) setDraft(text);
-    }, 800);
+    if (!agentId || chargePour.current !== agentId) return;
+    // Le premier passage est l'affichage du brouillon, pas une saisie.
+    if (premierPassage.current) {
+      premierPassage.current = false;
+      return;
+    }
+    // Retenu tout de suite en mémoire, envoyé au serveur juste après.
+    client.setPrefLocally(cleBrouillon, text);
+    const timer = window.setTimeout(
+      () => client.send({ type: 'prefs.set', key: cleBrouillon, value: text }),
+      600,
+    );
     return () => window.clearTimeout(timer);
-  }, [text, agent?.id]);
+  }, [text, agentId, cleBrouillon]);
 
   React.useEffect(() => {
     const node = textareaRef.current;
@@ -234,7 +261,9 @@ export function Composer({
           className="min-h-[38px] border-0 bg-transparent focus-visible:ring-0"
         />
 
-        <div className="flex items-center gap-1 px-1.5 pb-1.5">
+        {/* Une seule ligne, même sur téléphone : les réglages rétrécissent,
+            les boutons d'envoi gardent leur taille. */}
+        <div className="flex min-w-0 items-center gap-0.5 px-1.5 pb-1.5 sm:gap-1">
           <input
             ref={fileRef}
             type="file"
@@ -243,12 +272,18 @@ export function Composer({
             onChange={(event) => event.target.files && upload(event.target.files)}
           />
           <Tooltip label="Joindre un fichier">
-            <Button variant="ghost" size="icon" onClick={() => fileRef.current?.click()} disabled={uploading}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+            >
               {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
             </Button>
           </Tooltip>
 
-          <div className="mx-0.5 h-4 w-px bg-border" />
+          <div className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" />
 
           {/* Trois réglages EN CASCADE, alimentés par le serveur */}
           <Selector
@@ -291,7 +326,7 @@ export function Composer({
             />
           ) : null}
 
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             {onProposeTask && (text.trim() || picked.length) ? (
               <Button variant="ghost" size="sm" onClick={() => submit(true)}>
                 En faire une tâche
@@ -341,8 +376,12 @@ function Selector({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-1 px-1.5 text-[13px] text-faint hover:text-text">
-          <span className="max-w-[110px] truncate">{label}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-w-0 shrink gap-0.5 px-1 text-[13px] text-faint hover:text-text sm:gap-1 sm:px-1.5"
+        >
+          <span className="max-w-[56px] truncate sm:max-w-[110px]">{label}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
         </Button>
       </DropdownMenuTrigger>

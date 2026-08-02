@@ -1,13 +1,15 @@
-import { EngineId, ThinkingLevel } from '@haikodev/shared';
+import { EngineId, ThinkingLevel, TodoItem } from '@haikodev/shared';
 
 export interface EngineEvent {
-  kind: 'session' | 'text' | 'step' | 'usage' | 'ratelimit' | 'error' | 'done';
+  kind: 'session' | 'text' | 'step' | 'todo' | 'usage' | 'ratelimit' | 'error' | 'done';
   /** kind=session */
   sessionId?: string;
   /** kind=text : fragment de réponse */
   text?: string;
   /** kind=step : une étape de la liste d'exécution, format unique entre moteurs */
   step?: { key: string; label: string; state: 'running' | 'done' | 'failed'; detail?: string };
+  /** kind=todo : la liste de tâches annoncée par l'agent, entière à chaque fois */
+  todos?: TodoItem[];
   /** kind=usage */
   usage?: { inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd?: number; durationMs?: number; turns?: number };
   /** kind=ratelimit */
@@ -49,6 +51,36 @@ export interface EngineAdapter {
   models: () => Promise<unknown[]>;
   defaultModel: string;
   run: (options: EngineRunOptions) => EngineHandle;
+}
+
+/**
+ * Traduit la liste de tâches d'un moteur en un format unique. Chaque moteur a
+ * son vocabulaire (Claude : content/status ; Codex : step/text + completed) ;
+ * l'interface, elle, n'en connaît qu'un seul.
+ */
+export function normalizeTodos(raw: unknown): TodoItem[] {
+  if (!Array.isArray(raw)) return [];
+  const todos: TodoItem[] = [];
+  for (const entry of raw) {
+    if (typeof entry === 'string') {
+      if (entry.trim()) todos.push({ label: entry.trim(), state: 'todo' });
+      continue;
+    }
+    if (!entry || typeof entry !== 'object') continue;
+    const item = entry as Record<string, unknown>;
+    const label = ['content', 'step', 'text', 'label', 'title', 'task', 'description']
+      .map((k) => (typeof item[k] === 'string' ? (item[k] as string) : ''))
+      .find((value) => value.trim());
+    if (!label) continue;
+
+    const rawState = typeof item.status === 'string' ? item.status : typeof item.state === 'string' ? item.state : '';
+    let state: TodoItem['state'] = 'todo';
+    if (/^(completed|complete|done|finished)$/i.test(rawState) || item.completed === true) state = 'done';
+    else if (/^(in_progress|in-progress|running|active|current)$/i.test(rawState)) state = 'running';
+
+    todos.push({ label: label.trim().slice(0, 200), state });
+  }
+  return todos;
 }
 
 /** Traduit un nom d'outil brut en une étape lisible par un humain. */
