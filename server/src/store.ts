@@ -7,6 +7,7 @@ import {
   DeployRun,
   Message,
   Project,
+  ProjectGroup,
   QueuedPrompt,
   Settings,
   TaskProposal,
@@ -100,6 +101,44 @@ export function deleteProject(id: string): void {
     db.prepare('DELETE FROM deploys WHERE project_id = ?').run(id);
     db.prepare('DELETE FROM projects WHERE id = ?').run(id);
   })();
+}
+
+/* ------------------------------------------------------------------ */
+/* Groupes de projets                                                  */
+/* ------------------------------------------------------------------ */
+
+export function listGroups(): ProjectGroup[] {
+  const rows = getDb()
+    .prepare('SELECT id, name, rank, collapsed FROM project_groups ORDER BY rank, name')
+    .all() as { id: string; name: string; rank: number; collapsed: number }[];
+  return rows.map((r) => ProjectGroup.parse({ ...r, collapsed: !!r.collapsed }));
+}
+
+export function saveGroup(group: ProjectGroup): ProjectGroup {
+  const value = ProjectGroup.parse(group);
+  getDb()
+    .prepare(
+      `INSERT INTO project_groups (id, name, rank, collapsed, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, rank = excluded.rank, collapsed = excluded.collapsed`,
+    )
+    .run(value.id, value.name, value.rank, value.collapsed ? 1 : 0, now());
+  return value;
+}
+
+export function deleteGroup(id: string): void {
+  const db = getDb();
+  db.transaction(() => {
+    // Les projets du groupe ne sont pas perdus : ils remontent hors groupe.
+    for (const project of listProjects(true).filter((p) => p.groupId === id)) {
+      saveProject({ ...project, groupId: undefined });
+    }
+    db.prepare('DELETE FROM project_groups WHERE id = ?').run(id);
+  })();
+}
+
+export function nextGroupRank(): number {
+  const ranks = listGroups().map((g) => g.rank);
+  return ranks.length ? Math.max(...ranks) + 10 : 10;
 }
 
 /* ------------------------------------------------------------------ */

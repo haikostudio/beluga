@@ -45,7 +45,9 @@ export function registerProject(input: {
   const existing = store.getProjectByPath(resolved);
   const project = Project.parse({
     id: existing?.id ?? store.newId(),
-    name: input.name,
+    // Un projet déjà inscrit garde le nom que vous lui avez donné : une
+    // nouvelle exploration du serveur ne doit jamais l'écraser.
+    name: existing?.name ?? input.name,
     path: resolved,
     gitRemote: input.gitRemote ?? existing?.gitRemote,
     gitBranch: existing?.gitBranch,

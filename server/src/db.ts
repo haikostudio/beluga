@@ -156,6 +156,19 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 3,
+    name: 'groupes-de-projets',
+    sql: `
+      CREATE TABLE project_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        rank REAL NOT NULL DEFAULT 100,
+        collapsed INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export function openDb(): DB {

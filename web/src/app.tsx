@@ -106,7 +106,7 @@ export function App() {
       <div className="grid h-dvh place-items-center bg-bg">
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-5 w-5 animate-spin text-faint" />
-          <p className="text-[12.5px] text-faint">
+          <p className="text-[14px] text-faint">
             {state.connecting ? 'Connexion au serveur…' : 'Serveur injoignable — nouvelle tentative…'}
           </p>
         </div>
@@ -233,7 +233,7 @@ export function App() {
               onClick={(event) => event.stopPropagation()}
             >
               <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{openAgent.title}</span>
+                <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{openAgent.title}</span>
                 <Button variant="ghost" size="sm" onClick={() => setOpenAgentId(null)}>
                   Fermer
                 </Button>

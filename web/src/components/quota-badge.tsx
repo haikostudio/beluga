@@ -47,7 +47,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
-          className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-muted transition-colors hover:text-text"
+          className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-1.5 py-1 text-[12.5px] text-muted transition-colors hover:text-text"
           title="Quotas des moteurs"
         >
           <span className="relative flex h-[22px] w-[22px] items-center justify-center">
@@ -63,7 +63,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                 strokeDasharray={dash}
               />
             </svg>
-            <span className="relative text-[8.5px] font-semibold text-text">{Math.round(pct)}</span>
+            <span className="relative text-[10px] font-semibold text-text">{Math.round(pct)}</span>
           </span>
           <span className="hidden max-w-[86px] truncate sm:inline">{current?.label ?? 'quotas'}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
@@ -72,7 +72,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
 
       <DropdownMenuContent align="end" className="w-[290px] p-2">
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[10.5px] uppercase tracking-wide text-faint">Quotas</span>
+          <span className="text-[12px] uppercase tracking-wide text-faint">Quotas</span>
           <button
             onClick={() => client.send({ type: 'quota.refresh' })}
             className="rounded p-1 text-faint hover:bg-raised hover:text-text"
@@ -99,7 +99,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                       !quota.available ? 'bg-danger' : quota.active ? 'bg-success' : 'bg-faint',
                     )}
                   />
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-text">{quota.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{quota.label}</span>
                   {quota.active ? <Badge tone="success">actif</Badge> : null}
                   {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
                 </div>
@@ -109,12 +109,12 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   <Window label="Semaine" window={quota.weekly} />
                 </div>
 
-                {quota.error ? <p className="mt-1 text-[10px] text-warning">{quota.error}</p> : null}
+                {quota.error ? <p className="mt-1 text-[11.5px] text-warning">{quota.error}</p> : null}
               </div>
             ))}
           </div>
         ) : (
-          <p className="px-1 py-2 text-[11.5px] text-faint">Aucun compte connecté.</p>
+          <p className="px-1 py-2 text-[13px] text-faint">Aucun compte connecté.</p>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -127,11 +127,11 @@ function Window({ label, window: win }: { label: string; window?: { usedPct?: nu
   return (
     <div>
       <div className="flex items-baseline gap-1.5">
-        <span className="text-[10.5px] text-faint">{label}</span>
-        <span className="ml-auto text-[10.5px] text-muted">{Math.round(pct)} %</span>
+        <span className="text-[12px] text-faint">{label}</span>
+        <span className="ml-auto text-[12px] text-muted">{Math.round(pct)} %</span>
       </div>
       <Gauge value={pct} height="h-1" />
-      {reset ? <p className="mt-0.5 text-[9.5px] text-faint">{reset}</p> : null}
+      {reset ? <p className="mt-0.5 text-[11px] text-faint">{reset}</p> : null}
     </div>
   );
 }

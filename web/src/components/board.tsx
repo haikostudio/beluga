@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Plus, Rocket, Clock, AlertTriangle, Bot, CircleDollarSign, GitBranch, Loader2 } from 'lucide-react';
 import { COLUMN_KEYS, COLUMN_LABELS, Card, ColumnKey, canMove } from '@haikodev/shared';
-import { Badge, Button, Dot, Input, Tooltip } from '@/components/ui';
+import { Badge, Button, Dot, Input, Textarea, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, relativeTime } from '@/lib/utils';
@@ -63,9 +63,11 @@ export function Board({
             )}
           >
             <div className="relative flex items-center gap-1.5 border-b border-border/50 px-2 py-1.5">
-              <h2 className="text-[11.5px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
-              <span className="text-[11px] text-faint">{columnCards.length}</span>
-              {column === 'todo' ? <ComposerInline projectId={projectId} /> : null}
+              <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
+              <span className="text-[12.5px] text-faint">{columnCards.length}</span>
+              {column === 'todo' || column === 'notes' ? (
+                <ComposerInline projectId={projectId} column={column} />
+              ) : null}
             </div>
 
             {column === 'to_deploy' ? <DeployPanel projectId={projectId} cards={columnCards} /> : null}
@@ -84,7 +86,7 @@ export function Board({
                 />
               ))}
               {!columnCards.length ? (
-                <p className="px-1.5 py-3 text-[11.5px] text-faint">
+                <p className="px-1.5 py-3 text-[13px] text-faint">
                   {column === 'notes'
                     ? 'Idées en vrac.'
                     : column === 'todo'
@@ -102,17 +104,29 @@ export function Board({
   );
 }
 
-function ComposerInline({ projectId }: { projectId: string }) {
+function ComposerInline({ projectId, column }: { projectId: string; column: ColumnKey }) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState('');
+  const [description, setDescription] = React.useState('');
   const [busy, setBusy] = React.useState(false);
 
   const create = async () => {
     if (!title.trim()) return;
     setBusy(true);
     try {
-      await client.call({ type: 'card.create', projectId, title: title.trim() });
+      const data = await client.call<{ card: Card }>({
+        type: 'card.create',
+        projectId,
+        title: title.trim(),
+        description: description.trim() || undefined,
+      });
+      // Une carte naît toujours dans « À faire » : pour une note, on la déplace
+      // ensuite — c'est le seul chemin autorisé par le serveur.
+      if (column === 'notes' && data?.card) {
+        await client.call({ type: 'card.move', id: data.card.id, column: 'notes' });
+      }
       setTitle('');
+      setDescription('');
       setOpen(false);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'création impossible');
@@ -123,25 +137,46 @@ function ComposerInline({ projectId }: { projectId: string }) {
 
   if (!open) {
     return (
-      <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setOpen(true)}>
-        <Plus className="h-3 w-3" />
-      </Button>
+      <Tooltip label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}>
+        <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setOpen(true)}>
+          <Plus className="h-3 w-3" />
+        </Button>
+      </Tooltip>
     );
   }
 
   return (
-    <div className="absolute left-0 right-0 top-7 z-10 px-1">
+    <div className="absolute left-0 right-0 top-0 z-20 rounded-md border border-border bg-raised p-2 shadow-xl">
       <Input
         autoFocus
         value={title}
-        placeholder="Titre de la tâche…"
+        placeholder={column === 'notes' ? 'Titre de la note…' : 'Titre de la tâche…'}
         onChange={(event) => setTitle(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') void create();
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void create();
           if (event.key === 'Escape') setOpen(false);
         }}
-        onBlur={() => !busy && !title && setOpen(false)}
       />
+      <Textarea
+        value={description}
+        placeholder="Description (facultative)…"
+        rows={3}
+        className="mt-1.5"
+        onChange={(event) => setDescription(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void create();
+          if (event.key === 'Escape') setOpen(false);
+        }}
+      />
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <Button variant="default" size="sm" disabled={!title.trim() || busy} onClick={create}>
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          {column === 'notes' ? 'Ajouter la note' : 'Ajouter la tâche'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Annuler
+        </Button>
+      </div>
     </div>
   );
 }
@@ -195,7 +230,7 @@ export function CardTile({
             }
           />
         )}
-        <h3 className="min-w-0 flex-1 text-[12.5px] font-medium leading-snug text-text">{card.title}</h3>
+        <h3 className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{card.title}</h3>
         {card.origin === 'agent' ? (
           <Tooltip label="Créée par le chef d'orchestre">
             <Bot className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
@@ -212,20 +247,20 @@ export function CardTile({
       ) : null}
 
       {waiting ? (
-        <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-warning">
+        <p className="mt-1.5 flex items-start gap-1 text-[12.5px] leading-snug text-warning">
           <Clock className="mt-[1px] h-2.5 w-2.5 shrink-0" />
           {waiting}
         </p>
       ) : null}
 
       {estimateFailed ? (
-        <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-danger">
+        <p className="mt-1.5 flex items-start gap-1 text-[12.5px] leading-snug text-danger">
           <AlertTriangle className="mt-[1px] h-2.5 w-2.5 shrink-0" />
           {card.estimate?.failureReason ?? 'analyse sans chiffres'}
         </p>
       ) : null}
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-faint">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-faint">
         {card.estimate?.machineSeconds ? (
           <Tooltip label="Durée machine annoncée par l'analyse">
             <span className="inline-flex items-center gap-0.5">

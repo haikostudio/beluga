@@ -159,7 +159,7 @@ export function RecordingBar({
         <Mic className="relative h-3 w-3" />
       </span>
 
-      <span className="shrink-0 font-mono text-[11.5px] tabular-nums">
+      <span className="shrink-0 font-mono text-[13px] tabular-nums">
         {minutes}:{String(reste).padStart(2, '0')}
       </span>
 

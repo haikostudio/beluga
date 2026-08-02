@@ -87,7 +87,7 @@ function DeployProgress({ run }: { run: DeployRun }) {
         ) : (
           <X className="h-3 w-3 shrink-0 text-danger" />
         )}
-        <span className="flex-1 truncate text-[11.5px] text-muted">
+        <span className="flex-1 truncate text-[13px] text-muted">
           {run.state === 'running'
             ? `${STEP_LABELS[run.currentStep ?? 'merge']} — ${elapsed(run.startedAt)}`
             : run.state === 'success'
@@ -98,14 +98,14 @@ function DeployProgress({ run }: { run: DeployRun }) {
       </button>
 
       {run.queued ? (
-        <p className="mt-1 text-[10.5px] text-warning">Une publication est en attente : elle partira ensuite.</p>
+        <p className="mt-1 text-[12px] text-warning">Une publication est en attente : elle partira ensuite.</p>
       ) : null}
 
       {open ? (
         <>
           <ul className="mt-1.5 space-y-0.5">
             {visible.map((step) => (
-              <li key={step.key} className="flex items-start gap-1.5 text-[11.5px]">
+              <li key={step.key} className="flex items-start gap-1.5 text-[13px]">
                 <span className="mt-[3px] shrink-0">
                   {step.state === 'running' ? (
                     <Loader2 className="h-2.5 w-2.5 animate-spin text-muted" />
@@ -122,7 +122,7 @@ function DeployProgress({ run }: { run: DeployRun }) {
                 <span className={cn('flex-1', step.state === 'failed' ? 'text-danger' : 'text-muted')}>
                   {STEP_LABELS[step.key]}
                   {step.log && step.state === 'failed' ? (
-                    <span className="mt-0.5 block whitespace-pre-wrap text-[10.5px] text-faint">
+                    <span className="mt-0.5 block whitespace-pre-wrap text-[12px] text-faint">
                       {step.log.slice(-300)}
                     </span>
                   ) : null}
@@ -136,7 +136,7 @@ function DeployProgress({ run }: { run: DeployRun }) {
               href={run.url}
               target="_blank"
               rel="noreferrer"
-              className="mt-1.5 block truncate text-[10.5px] text-muted underline underline-offset-2"
+              className="mt-1.5 block truncate text-[12px] text-muted underline underline-offset-2"
             >
               {run.url}
             </a>

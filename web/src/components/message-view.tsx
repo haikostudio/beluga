@@ -24,7 +24,7 @@ export function MessageView({
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
-          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-text">{message.content}</p>
+          <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-text">{message.content}</p>
           {message.attachments.length ? (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {message.attachments.map((id) => (
@@ -51,7 +51,7 @@ export function MessageView({
           onToggleAll={onToggleAll}
         />
       ) : message.streaming && !message.steps.length ? (
-        <p className="text-[12.5px] text-faint">L'agent réfléchit…</p>
+        <p className="text-[14px] text-faint">L'agent réfléchit…</p>
       ) : null}
 
       {message.proposals.length ? (
@@ -68,7 +68,7 @@ export function MessageView({
             <a
               key={offer.id}
               href={`/api/download?token=${encodeURIComponent(offer.id)}`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-raised px-2 py-1 text-[12px] text-text hover:bg-border"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-raised px-2 py-1 text-[13.5px] text-text hover:bg-border"
             >
               <Download className="h-3 w-3" />
               {offer.label}
@@ -78,13 +78,13 @@ export function MessageView({
       ) : null}
 
       {message.error ? (
-        <div className="mt-2 flex gap-2 rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-[12px] text-danger">
+        <div className="mt-2 flex gap-2 rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-[13.5px] text-danger">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span className="leading-relaxed">{message.error}</span>
         </div>
       ) : null}
 
-      <div className="mt-1 text-[10.5px] text-faint opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="mt-1 text-[12px] text-faint opacity-0 transition-opacity group-hover:opacity-100">
         {relativeTime(message.createdAt)}
       </div>
     </div>
@@ -115,14 +115,14 @@ function ProposalChip({
 
   if (proposal.decision !== 'pending') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-border bg-surface/60 px-2.5 py-1.5 text-[12px] text-faint">
+      <div className="flex items-center gap-2 rounded-md border border-border bg-surface/60 px-2.5 py-1.5 text-[13.5px] text-faint">
         {proposal.decision === 'accepted' ? (
           <Check className="h-3 w-3 text-success" />
         ) : (
           <X className="h-3 w-3 text-faint" />
         )}
         <span className="line-through">{proposal.title}</span>
-        <span className="ml-auto text-[10.5px]">
+        <span className="ml-auto text-[12px]">
           {proposal.decision === 'accepted' ? 'carte créée' : 'refusée'}
         </span>
       </div>
@@ -133,9 +133,9 @@ function ProposalChip({
     <div className="rounded-md border border-border bg-surface px-2.5 py-2">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-[12.5px] font-medium text-text">{proposal.title}</p>
+          <p className="text-[14px] font-medium text-text">{proposal.title}</p>
           {proposal.description ? (
-            <p className="mt-0.5 line-clamp-3 text-[12px] leading-snug text-muted">{proposal.description}</p>
+            <p className="mt-0.5 line-clamp-3 text-[13.5px] leading-snug text-muted">{proposal.description}</p>
           ) : null}
           {proposal.labels.length ? (
             <div className="mt-1.5 flex flex-wrap gap-1">

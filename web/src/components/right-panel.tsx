@@ -159,7 +159,7 @@ function FilesTab({ projectId }: { projectId: string }) {
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
             placeholder={path || 'racine du projet'}
-            className="h-7 pl-6 text-[12px]"
+            className="h-7 pl-6 text-[13.5px]"
           />
         </div>
         <Tooltip label={selection.size ? `Télécharger ${selection.size} élément(s)` : 'Télécharger ce dossier'}>
@@ -197,8 +197,8 @@ function FilesTab({ projectId }: { projectId: string }) {
               ) : (
                 <FileIcon className="h-3 w-3 shrink-0 text-faint" />
               )}
-              <span className="min-w-0 flex-1 truncate text-[12px] text-muted">{node.name}</span>
-              {node.kind === 'file' ? <span className="text-[10px] text-faint">{bytes(node.size)}</span> : null}
+              <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">{node.name}</span>
+              {node.kind === 'file' ? <span className="text-[11.5px] text-faint">{bytes(node.size)}</span> : null}
             </button>
           </div>
         ))}
@@ -217,10 +217,10 @@ function FilePreview({ preview, onClose }: { preview: { path: string; data: any 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[min(860px,calc(100vw-16px))]">
-        <DialogTitle className="truncate pr-6 text-[13px]">{preview.path}</DialogTitle>
+        <DialogTitle className="truncate pr-6 text-[14.5px]">{preview.path}</DialogTitle>
         <div className="mt-3 max-h-[70dvh] overflow-auto rounded-md border border-border bg-raised p-2">
           {data.kind === 'text' ? (
-            <pre className="whitespace-pre-wrap text-[11.5px] leading-relaxed text-muted">{data.content}</pre>
+            <pre className="whitespace-pre-wrap text-[13px] leading-relaxed text-muted">{data.content}</pre>
           ) : data.kind === 'image' ? (
             <img src={`data:${data.mime};base64,${data.content}`} alt={preview.path} className="mx-auto max-w-full" />
           ) : data.kind === 'pdf' ? (
@@ -230,11 +230,11 @@ function FilePreview({ preview, onClose }: { preview: { path: string; data: any 
               className="h-[70dvh] w-full rounded"
             />
           ) : data.kind === 'too_big' ? (
-            <p className="p-4 text-center text-[12.5px] text-faint">
+            <p className="p-4 text-center text-[14px] text-faint">
               Fichier trop lourd pour l'aperçu ({bytes(data.size)}). Téléchargez-le pour le consulter.
             </p>
           ) : (
-            <p className="p-4 text-center text-[12.5px] text-faint">Fichier binaire ({bytes(data.size)}).</p>
+            <p className="p-4 text-center text-[14px] text-faint">Fichier binaire ({bytes(data.size)}).</p>
           )}
         </div>
       </DialogContent>
@@ -287,8 +287,8 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
                 )}
               </button>
               <div className="px-1.5 py-1">
-                <p className="truncate text-[11px] text-muted">{item.name}</p>
-                <div className="flex items-center gap-1 text-[10px] text-faint">
+                <p className="truncate text-[12.5px] text-muted">{item.name}</p>
+                <div className="flex items-center gap-1 text-[11.5px] text-faint">
                   <span>{bytes(item.size)}</span>
                   <span>·</span>
                   <span>{relativeTime(item.createdAt)}</span>
@@ -309,7 +309,7 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
       {zoom ? (
         <Dialog open onOpenChange={(open) => !open && setZoom(null)}>
           <DialogContent className="w-[min(900px,calc(100vw-16px))]">
-            <DialogTitle className="truncate pr-6 text-[13px]">{zoom.name}</DialogTitle>
+            <DialogTitle className="truncate pr-6 text-[14.5px]">{zoom.name}</DialogTitle>
             <div className="mt-3 max-h-[72dvh] overflow-auto rounded-md border border-border bg-raised p-2">
               {zoom.mime.startsWith('image/') ? (
                 <img src={`/api/attachment?id=${zoom.id}`} alt={zoom.name} className="mx-auto max-w-full" />

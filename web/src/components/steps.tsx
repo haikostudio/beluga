@@ -45,7 +45,7 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
         ) : (
           <Check className="h-3 w-3 shrink-0 text-success" />
         )}
-        <span className="flex-1 truncate text-[12px] text-muted">{summary}</span>
+        <span className="flex-1 truncate text-[13.5px] text-muted">{summary}</span>
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
       </button>
 
@@ -85,20 +85,20 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
                   </span>
                   <span
                     className={cn(
-                      'flex-1 text-[12px] leading-snug',
+                      'flex-1 text-[13.5px] leading-snug',
                       step.state === 'done' ? 'text-muted' : step.state === 'failed' ? 'text-danger' : 'text-text',
                     )}
                   >
                     {step.label}
                   </span>
                   {step.startedAt && step.endedAt ? (
-                    <span className="mt-0.5 shrink-0 text-[10.5px] text-faint">
+                    <span className="mt-0.5 shrink-0 text-[12px] text-faint">
                       {duration((step.endedAt - step.startedAt) / 1000)}
                     </span>
                   ) : null}
                 </button>
                 {isOpen && step.detail ? (
-                  <pre className="mx-1 mb-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-raised p-2 text-[11px] leading-relaxed text-muted">
+                  <pre className="mx-1 mb-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-raised p-2 text-[12.5px] leading-relaxed text-muted">
                     {step.detail}
                   </pre>
                 ) : null}

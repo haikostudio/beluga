@@ -78,7 +78,7 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
       }}
     >
       <div className="flex items-center gap-1.5">
-        <span className="text-[13px] font-semibold tracking-tight text-text">HaikoDev</span>
+        <span className="text-[14.5px] font-semibold tracking-tight text-text">HaikoDev</span>
         <Tooltip label={state.connected ? 'Connecté au serveur' : 'Reconnexion…'}>
           <span>
             {state.connected ? (
@@ -102,7 +102,7 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
         >
           <button
             onClick={onOpenSettings}
-            className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:bg-raised sm:flex"
+            className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[12.5px] text-muted hover:bg-raised sm:flex"
           >
             <Activity className="h-3 w-3" />
             {capacity.slotsFree} places

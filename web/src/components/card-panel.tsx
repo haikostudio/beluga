@@ -59,7 +59,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <DialogTitle className="pr-6 leading-snug">{card.title}</DialogTitle>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px] text-faint">
               <Badge>{COLUMN_LABELS[card.column]}</Badge>
               {card.deployedAt ? (
                 <Badge tone="success">
@@ -136,7 +136,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                 <Chat agent={agent} projectId={card.projectId} />
               </div>
             ) : (
-              <div className="border-t border-border px-4 py-4 text-[12.5px] text-faint">
+              <div className="border-t border-border px-4 py-4 text-[14px] text-faint">
                 Aucun agent n'a encore travaillé sur cette carte.
               </div>
             )}
@@ -144,7 +144,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         </TabsContent>
 
         <TabsContent value="billing" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
-          <BillingTab card={card} rate={project?.billing?.hourlyRate ?? 130} />
+          <BillingTab card={card} rate={project?.billing?.hourlyRate ?? 130} project={project} />
         </TabsContent>
 
         <TabsContent value="github" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
@@ -171,11 +171,11 @@ function CardSummary({ card }: { card: Card }) {
         }}
         rows={2}
         placeholder="Description…"
-        className="text-[12.5px]"
+        className="text-[14px]"
       />
 
       {card.scheduling?.waitingReason ? (
-        <p className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[12px] text-warning">
+        <p className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[13.5px] text-warning">
           {card.scheduling.waitingReason}
         </p>
       ) : null}
@@ -203,8 +203,8 @@ function CardSummary({ card }: { card: Card }) {
 
       {card.estimate?.summary ? (
         <details className="rounded-md border border-border bg-surface px-2.5 py-2">
-          <summary className="cursor-pointer text-[12px] text-muted">Résumé de l'analyse</summary>
-          <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-relaxed text-muted">{card.estimate.summary}</p>
+          <summary className="cursor-pointer text-[13.5px] text-muted">Résumé de l'analyse</summary>
+          <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted">{card.estimate.summary}</p>
         </details>
       ) : null}
     </div>
@@ -225,8 +225,8 @@ function Metric({
   return (
     <Tooltip label={hint}>
       <div className="rounded-md border border-border bg-surface px-2 py-1.5">
-        <p className="text-[10px] uppercase tracking-wide text-faint">{label}</p>
-        <p className={cn('mt-0.5 text-[13px] font-medium', tone === 'warning' ? 'text-warning' : 'text-text')}>
+        <p className="text-[11.5px] uppercase tracking-wide text-faint">{label}</p>
+        <p className={cn('mt-0.5 text-[14.5px] font-medium', tone === 'warning' ? 'text-warning' : 'text-text')}>
           {value}
         </p>
       </div>
@@ -238,15 +238,19 @@ function Metric({
 /* Onglet Facturation                                                  */
 /* ------------------------------------------------------------------ */
 
-function BillingTab({ card, rate }: { card: Card; rate: number }) {
+function BillingTab({ card, rate, project }: { card: Card; rate: number; project?: { billing?: any; name?: string } }) {
   const [title, setTitle] = React.useState(card.billing?.title ?? card.estimate?.billingTitle ?? card.title);
   const [description, setDescription] = React.useState(card.estimate?.billingDescription ?? card.description);
   const [hours, setHours] = React.useState(String(card.billing?.hours ?? card.estimate?.seniorHours ?? ''));
   const [documents, setDocuments] = React.useState<any[]>([]);
-  const [documentId, setDocumentId] = React.useState<string>('');
-  const [type, setType] = React.useState<'offer' | 'invoice'>('invoice');
+  const defaut = project?.billing?.defaultDocumentId as string | undefined;
+  const [documentId, setDocumentId] = React.useState<string>(defaut ?? '');
+  const [type, setType] = React.useState<'offer' | 'invoice'>(
+    (project?.billing?.defaultDocumentType as 'offer' | 'invoice') ?? 'invoice',
+  );
   const [busy, setBusy] = React.useState(false);
   const [available, setAvailable] = React.useState(true);
+  const [confirmeNouveau, setConfirmeNouveau] = React.useState(false);
 
   React.useEffect(() => {
     client
@@ -260,6 +264,12 @@ function BillingTab({ card, rate }: { card: Card; rate: number }) {
   const push = async () => {
     if (!hours || Number.isNaN(Number(hours))) {
       client.pushToast('warning', 'Indiquez un nombre d\'heures');
+      return;
+    }
+    // Sans document par défaut sur le projet, on ne devine pas : il faut dire
+    // dans quelle facture ou quelle offre la ligne doit atterrir.
+    if (!defaut && !documentId && !confirmeNouveau) {
+      client.pushToast('warning', 'Choisissez le document, ou cochez « créer un nouveau document ».');
       return;
     }
     setBusy(true);
@@ -283,7 +293,7 @@ function BillingTab({ card, rate }: { card: Card; rate: number }) {
   return (
     <div className="space-y-3 px-4 py-3">
       {card.billing ? (
-        <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-[12px] text-success">
+        <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-[13.5px] text-success">
           <Check className="h-3.5 w-3.5" />
           Déjà facturée — {card.billing.documentType === 'offer' ? 'offre' : 'facture'}{' '}
           {card.billing.documentNumber ?? card.billing.documentId} · {money(card.billing.amount)}
@@ -325,7 +335,7 @@ function BillingTab({ card, rate }: { card: Card; rate: number }) {
         </div>
       </div>
 
-      <p className="text-[11px] leading-relaxed text-faint">
+      <p className="text-[12.5px] leading-relaxed text-faint">
         Les heures facturées sont celles qu'un développeur senior mettrait à la main — jamais la durée machine de
         l'agent ({duration(card.consumption?.machineSeconds)}).
       </p>
@@ -338,7 +348,7 @@ function BillingTab({ card, rate }: { card: Card; rate: number }) {
               <select
                 value={type}
                 onChange={(event) => setType(event.target.value as 'offer' | 'invoice')}
-                className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[13px] text-text"
+                className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
               >
                 <option value="invoice">Facture</option>
                 <option value="offer">Offre</option>
@@ -349,7 +359,7 @@ function BillingTab({ card, rate }: { card: Card; rate: number }) {
               <select
                 value={documentId}
                 onChange={(event) => setDocumentId(event.target.value)}
-                className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[13px] text-text"
+                className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
               >
                 <option value="">Nouveau document</option>
                 {documents
@@ -363,13 +373,29 @@ function BillingTab({ card, rate }: { card: Card; rate: number }) {
             </div>
           </div>
 
+          {!defaut && !documentId ? (
+            <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
+              <input
+                type="checkbox"
+                checked={confirmeNouveau}
+                onChange={(event) => setConfirmeNouveau(event.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              />
+              <span>
+                Ce projet n'a pas de document attitré : cochez pour créer une nouvelle{' '}
+                {type === 'offer' ? 'offre' : 'facture'} pour {project?.billing?.clientName ?? 'ce client'}, ou
+                choisissez un document existant ci-dessus.
+              </span>
+            </label>
+          ) : null}
+
           <Button variant="default" size="sm" disabled={busy} onClick={push}>
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CircleDollarSign className="h-3 w-3" />}
             Ajouter la ligne
           </Button>
         </>
       ) : (
-        <p className="text-[12px] text-faint">L'outil de facturation n'est pas joignable depuis ce serveur.</p>
+        <p className="text-[13.5px] text-faint">L'outil de facturation n'est pas joignable depuis ce serveur.</p>
       )}
     </div>
   );
@@ -410,7 +436,7 @@ function GithubTab({ card }: { card: Card }) {
     <div className="space-y-3 px-4 py-3">
       <div className="flex items-center gap-2">
         <GitBranch className="h-3.5 w-3.5 text-faint" />
-        <span className="text-[12.5px] text-text">{tracking?.branch ?? 'aucune branche'}</span>
+        <span className="text-[14px] text-text">{tracking?.branch ?? 'aucune branche'}</span>
         <Button size="sm" variant="ghost" className="ml-auto" onClick={refresh} disabled={busy}>
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           Actualiser
@@ -423,7 +449,7 @@ function GithubTab({ card }: { card: Card }) {
             <Badge tone={tracking.prState === 'merged' ? 'success' : tracking.prState === 'closed' ? 'neutral' : 'strong'}>
               #{tracking.prNumber} {tracking.prState}
             </Badge>
-            <span className="min-w-0 flex-1 truncate text-[12.5px] text-text">{tracking.prTitle}</span>
+            <span className="min-w-0 flex-1 truncate text-[14px] text-text">{tracking.prTitle}</span>
             {tracking.prUrl ? (
               <a href={tracking.prUrl} target="_blank" rel="noreferrer" className="text-faint hover:text-text">
                 <ExternalLink className="h-3 w-3" />
@@ -431,7 +457,7 @@ function GithubTab({ card }: { card: Card }) {
             ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[12.5px]">
             {tracking.reviewDecision ? <Badge>revue : {tracking.reviewDecision}</Badge> : null}
             {tracking.mergeable ? <Badge>fusion : {tracking.mergeable}</Badge> : null}
           </div>
@@ -439,7 +465,7 @@ function GithubTab({ card }: { card: Card }) {
           {tracking.checks.length ? (
             <ul className="mt-2 space-y-0.5">
               {tracking.checks.slice(0, 8).map((check, index) => (
-                <li key={index} className="flex items-center gap-1.5 text-[11.5px]">
+                <li key={index} className="flex items-center gap-1.5 text-[13px]">
                   <span
                     className={cn(
                       'h-1.5 w-1.5 rounded-full',
@@ -472,15 +498,15 @@ function GithubTab({ card }: { card: Card }) {
           ) : null}
         </div>
       ) : (
-        <p className="text-[12px] text-faint">Aucune demande de fusion liée pour l'instant.</p>
+        <p className="text-[13.5px] text-faint">Aucune demande de fusion liée pour l'instant.</p>
       )}
 
       {tracking?.commits.length ? (
         <div>
-          <p className="mb-1 text-[11px] uppercase tracking-wide text-faint">Derniers commits</p>
+          <p className="mb-1 text-[12.5px] uppercase tracking-wide text-faint">Derniers commits</p>
           <ul className="space-y-0.5">
             {tracking.commits.map((commit) => (
-              <li key={commit.sha} className="flex gap-2 text-[11.5px]">
+              <li key={commit.sha} className="flex gap-2 text-[13px]">
                 <code className="text-faint">{commit.sha.slice(0, 7)}</code>
                 <span className="min-w-0 flex-1 truncate text-muted">{commit.message}</span>
                 <span className="text-faint">{commit.date}</span>
@@ -492,10 +518,10 @@ function GithubTab({ card }: { card: Card }) {
 
       {tracking?.activity.length ? (
         <div>
-          <p className="mb-1 text-[11px] uppercase tracking-wide text-faint">Activité</p>
+          <p className="mb-1 text-[12.5px] uppercase tracking-wide text-faint">Activité</p>
           <ul className="space-y-1.5">
             {tracking.activity.slice(0, 10).map((event, index) => (
-              <li key={index} className="rounded border border-border bg-surface px-2 py-1.5 text-[11.5px]">
+              <li key={index} className="rounded border border-border bg-surface px-2 py-1.5 text-[13px]">
                 <span className="text-text">{event.author}</span>{' '}
                 <span className="text-faint">— {event.kind}</span>
                 {event.body ? <p className="mt-0.5 line-clamp-3 text-muted">{event.body}</p> : null}

@@ -163,7 +163,7 @@ export function Composer({
           {queue.map((item, index) => (
             <QueuedItem key={item.id} item={item} index={index} />
           ))}
-          <p className="px-1 text-[10.5px] text-faint">
+          <p className="px-1 text-[12px] text-faint">
             {queue.length}/10 en attente — l'agent enchaînera tout seul dès qu'il se taira.
           </p>
         </div>
@@ -177,7 +177,7 @@ export function Composer({
               key={item}
               type="button"
               onClick={() => onRemovePicked(item)}
-              className="group inline-flex max-w-[300px] items-center gap-1 rounded-md border border-border bg-raised px-1.5 py-1 text-[11.5px] text-muted hover:border-danger/40 hover:text-text"
+              className="group inline-flex max-w-[300px] items-center gap-1 rounded-md border border-border bg-raised px-1.5 py-1 text-[13px] text-muted hover:border-danger/40 hover:text-text"
             >
               <span className="truncate">{item}</span>
               <X className="h-2.5 w-2.5 shrink-0 text-faint group-hover:text-danger" />
@@ -193,7 +193,7 @@ export function Composer({
               key={file.id}
               type="button"
               onClick={() => setAttachments((current) => current.filter((a) => a.id !== file.id))}
-              className="group inline-flex items-center gap-1 rounded-md border border-border bg-raised px-1.5 py-1 text-[11.5px] text-muted"
+              className="group inline-flex items-center gap-1 rounded-md border border-border bg-raised px-1.5 py-1 text-[13px] text-muted"
             >
               <Paperclip className="h-2.5 w-2.5" />
               <span className="max-w-[160px] truncate">{file.name}</span>
@@ -337,7 +337,7 @@ function Selector({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-1 px-1.5 text-[11.5px] text-faint hover:text-text">
+        <Button variant="ghost" size="sm" className="gap-1 px-1.5 text-[13px] text-faint hover:text-text">
           <span className="max-w-[110px] truncate">{label}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
         </Button>
@@ -350,10 +350,10 @@ function Selector({
               <div className="flex items-center gap-1.5">
                 {item.appetite ? <Appetite level={item.appetite} /> : null}
                 <span className="truncate text-text">{item.label}</span>
-                {item.note ? <span className="ml-auto shrink-0 text-[10px] text-faint">{item.note}</span> : null}
+                {item.note ? <span className="ml-auto shrink-0 text-[11.5px] text-faint">{item.note}</span> : null}
               </div>
               {item.description ? (
-                <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-faint">{item.description}</p>
+                <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-faint">{item.description}</p>
               ) : null}
             </div>
             {value === item.id ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" /> : null}
@@ -405,7 +405,7 @@ function QueuedItem({ item, index }: { item: QueuedPrompt; index: number }) {
   return (
     <div className="flex items-start gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5">
       <GripVertical className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
-      <span className="mt-0.5 text-[10.5px] text-faint">{index + 1}</span>
+      <span className="mt-0.5 text-[12px] text-faint">{index + 1}</span>
       {editing ? (
         <input
           autoFocus
@@ -416,10 +416,10 @@ function QueuedItem({ item, index }: { item: QueuedPrompt; index: number }) {
             if (value !== item.text) client.send({ type: 'queue.update', id: item.id, text: value });
           }}
           onKeyDown={(event) => event.key === 'Enter' && (event.target as HTMLInputElement).blur()}
-          className="flex-1 bg-transparent text-[12px] text-text outline-none"
+          className="flex-1 bg-transparent text-[13.5px] text-text outline-none"
         />
       ) : (
-        <button type="button" onClick={() => setEditing(true)} className="flex-1 text-left text-[12px] text-muted">
+        <button type="button" onClick={() => setEditing(true)} className="flex-1 text-left text-[13.5px] text-muted">
           {item.text}
         </button>
       )}

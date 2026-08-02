@@ -10,6 +10,7 @@ import {
   FileNode,
   Message,
   Project,
+  ProjectGroup,
   QueuedPrompt,
   ServerEvent,
   Settings,
@@ -30,6 +31,7 @@ export interface AppState {
   version: string;
   settings: Settings | null;
   projects: Project[];
+  groups: ProjectGroup[];
   engines: EngineInfo[];
   quotas: AccountQuota[];
   capacity: CapacitySnapshot | null;
@@ -52,6 +54,7 @@ const initialState: AppState = {
   version: '',
   settings: null,
   projects: [],
+  groups: [],
   engines: [],
   quotas: [],
   capacity: null,
@@ -143,6 +146,7 @@ class Client {
           version: event.version,
           settings: event.settings,
           projects: event.projects,
+          groups: event.groups ?? [],
           engines: event.engines,
           quotas: event.quotas,
           capacity: event.capacity,
@@ -160,6 +164,10 @@ class Client {
         }
         break;
       }
+
+      case 'groups':
+        this.set({ groups: event.groups });
+        break;
 
       case 'project.upsert':
         this.set((state) => ({

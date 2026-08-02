@@ -64,6 +64,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         version: CONFIG.version,
         settings: store.getSettings(),
         projects: store.listProjects(),
+        groups: store.listGroups(),
         engines: await listEngines(),
         quotas: cachedQuotas().length ? cachedQuotas() : await refreshQuotas(),
         capacity: snapshot(),
@@ -162,6 +163,56 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'project.scan':
       return { found: await scanProjects() };
+
+    case 'project.group': {
+      const project = store.getProject(cmd.id);
+      if (!project) throw new Error('projet introuvable');
+      const updated = store.saveProject({ ...project, groupId: cmd.groupId || undefined });
+      bus.emit({ type: 'project.upsert', project: updated });
+      return { project: updated };
+    }
+
+    case 'group.list':
+      return { groups: store.listGroups() };
+
+    case 'group.create': {
+      const group = store.saveGroup({
+        id: store.newId(),
+        name: cmd.name.trim() || 'Nouveau groupe',
+        rank: store.nextGroupRank(),
+        collapsed: false,
+      });
+      bus.emit({ type: 'groups', groups: store.listGroups() });
+      return { group };
+    }
+
+    case 'group.update': {
+      const group = store.listGroups().find((g) => g.id === cmd.id);
+      if (!group) throw new Error('groupe introuvable');
+      const updated = store.saveGroup({
+        ...group,
+        name: cmd.name?.trim() || group.name,
+        collapsed: cmd.collapsed ?? group.collapsed,
+      });
+      bus.emit({ type: 'groups', groups: store.listGroups() });
+      return { group: updated };
+    }
+
+    case 'group.delete': {
+      store.deleteGroup(cmd.id);
+      bus.emit({ type: 'groups', groups: store.listGroups() });
+      for (const project of store.listProjects(true)) bus.emit({ type: 'project.upsert', project });
+      return { ok: true };
+    }
+
+    case 'group.reorder': {
+      cmd.ids.forEach((id, index) => {
+        const group = store.listGroups().find((g) => g.id === id);
+        if (group) store.saveGroup({ ...group, rank: (index + 1) * 10 });
+      });
+      bus.emit({ type: 'groups', groups: store.listGroups() });
+      return { groups: store.listGroups() };
+    }
 
     case 'project.reorder': {
       const projects = reorderProjects(cmd.ids);

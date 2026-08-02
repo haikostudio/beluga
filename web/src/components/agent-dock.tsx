@@ -84,7 +84,7 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
           <div
             key={toast.id}
             className={cn(
-              'flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] shadow-lg animate-slide-up',
+              'flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[13.5px] shadow-lg animate-slide-up',
               toast.level === 'error'
                 ? 'border-danger/40 bg-surface text-danger'
                 : toast.level === 'warning'
@@ -118,7 +118,7 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
         collapsed ? (
           <button
             onClick={() => setCollapsed(false)}
-            className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-[12px] text-muted shadow-lg hover:text-text"
+            className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13.5px] text-muted shadow-lg hover:text-text"
           >
             <Dot tone="running" pulse />
             {agents.length} agent{agents.length > 1 ? 's' : ''} en cours
@@ -147,20 +147,20 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
                     setDismissed(undo);
                     setUndo(null);
                   }}
-                  className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text"
+                  className="rounded border border-border bg-surface px-1.5 py-0.5 text-[11.5px] text-text"
                 >
                   Annuler
                 </button>
               ) : null}
               <button
                 onClick={() => setCollapsed(true)}
-                className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-faint hover:text-text"
+                className="rounded border border-border bg-surface px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
               >
                 Replier
               </button>
               <button
                 onClick={() => clearAll(agents.map((a) => a.id))}
-                className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-faint hover:text-text"
+                className="rounded border border-border bg-surface px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
               >
                 Tout effacer
               </button>
@@ -175,8 +175,8 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
                 >
                   <Bot className={cn('h-3 w-3 shrink-0', running ? 'text-success' : 'text-faint')} />
                   <button onClick={() => onOpenAgent(agent.id)} className="min-w-0 flex-1 text-left">
-                    <p className="truncate text-[11.5px] text-text">{agent.title}</p>
-                    <p className="truncate text-[10px] text-faint">
+                    <p className="truncate text-[13px] text-text">{agent.title}</p>
+                    <p className="truncate text-[11.5px] text-faint">
                       {project?.name} · {agent.run.engine} ·{' '}
                       {running ? elapsed(agent.startedAt) : agent.status === 'failed' ? 'échec' : 'terminé'}
                     </p>

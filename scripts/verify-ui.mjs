@@ -120,8 +120,8 @@ async function main() {
   const input = page.locator('input[placeholder="Titre de la tâche…"]');
   if (await input.count()) {
     await input.fill('Vérification automatique de l\'interface');
-    await input.press('Enter');
-    await page.waitForTimeout(1800);
+    await page.locator('button', { hasText: 'Ajouter la tâche' }).first().click();
+    await page.waitForTimeout(2000);
   }
   const after = await page.locator('article').count();
   record('Carte : création depuis le tableau', after > before, `${before} → ${after} cartes`);
@@ -470,6 +470,44 @@ async function main() {
     });
     await page.waitForTimeout(1200);
   }
+
+  /* ---------- 14 nonies. Contraste, notes et groupes ---------- */
+  const contraste = await page.evaluate(() => {
+    const style = getComputedStyle(document.body);
+    const corps = getComputedStyle(document.querySelector('.prose-hd') ?? document.body).fontSize;
+    return { fond: style.backgroundColor, texte: style.color, taille: corps };
+  });
+  record(
+    'Thème : texte blanc franc sur fond noir',
+    /rgb\(2[0-9]{2}, 2[0-9]{2}, 2[0-9]{2}\)|rgb\(255, 255, 255\)/.test(contraste.texte),
+    `${contraste.texte} sur ${contraste.fond} · corps ${contraste.taille}`,
+  );
+
+  const noteBouton = await page.evaluate(() => {
+    const colonnes = Array.from(document.querySelectorAll('h2'));
+    const notes = colonnes.find((h) => h.textContent?.trim() === 'Notes');
+    const bouton = notes?.parentElement?.querySelector('button');
+    bouton?.click();
+    return !!bouton;
+  });
+  await page.waitForTimeout(900);
+  const champNote = await page.evaluate(() => ({
+    titre: !!document.querySelector('input[placeholder="Titre de la note…"]'),
+    description: !!document.querySelector('textarea[placeholder="Description (facultative)…"]'),
+  }));
+  record(
+    'Notes : un bouton ouvre un champ avec titre et description',
+    noteBouton && champNote.titre && champNote.description,
+  );
+  await shot(page, '15-note');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+
+  const groupes = await page.evaluate(() => {
+    const aside = document.querySelector('aside');
+    return (aside?.innerText ?? '').includes('Nouveau groupe');
+  });
+  record('Projets : on peut créer des groupes de rangement', groupes);
 
   /* ---------- 15. Mobile ---------- */
   const mobile = await context.newPage();

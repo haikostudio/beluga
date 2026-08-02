@@ -93,6 +93,8 @@ export const Project = z.object({
   billing: BillingLink.optional(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
   rank: z.number().default(1000),
+  /** Groupe de rangement choisi par l'utilisateur (« Clients », « Perso »…). */
+  groupId: z.string().optional(),
   archived: z.boolean().default(false),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -422,6 +424,15 @@ export const Settings = z.object({
   ttsVoice: z.string().default('fr_FR-siwis-medium'),
 });
 export type Settings = z.infer<typeof Settings>;
+
+/** Un rangement libre pour la colonne de gauche : purement organisationnel. */
+export const ProjectGroup = z.object({
+  id: z.string(),
+  name: z.string(),
+  rank: z.number().default(100),
+  collapsed: z.boolean().default(false),
+});
+export type ProjectGroup = z.infer<typeof ProjectGroup>;
 
 export const FileNode = z.object({
   name: z.string(),

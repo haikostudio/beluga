@@ -31,9 +31,9 @@ const buttonVariants = cva(
         success: 'bg-success text-white hover:opacity-90',
       },
       size: {
-        sm: 'h-7 px-2.5 text-[12px]',
-        md: 'h-8 px-3 text-[13px]',
-        lg: 'h-9 px-4 text-[13px]',
+        sm: 'h-7 px-2.5 text-[13.5px]',
+        md: 'h-8 px-3 text-[14.5px]',
+        lg: 'h-9 px-4 text-[14.5px]',
         icon: 'h-7 w-7',
         'icon-sm': 'h-6 w-6',
       },
@@ -63,7 +63,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        'h-8 w-full rounded-md border border-border bg-raised px-2.5 text-[13px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint disabled:opacity-50',
+        'h-9 w-full rounded-md border border-border bg-raised px-3 text-[14.5px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint disabled:opacity-50',
         className,
       )}
       {...props}
@@ -77,7 +77,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
     <textarea
       ref={ref}
       className={cn(
-        'w-full resize-none rounded-md border border-border bg-raised px-2.5 py-2 text-[13px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint',
+        'w-full resize-none rounded-md border border-border bg-raised px-3 py-2.5 text-[14.5px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint',
         className,
       )}
       {...props}
@@ -87,13 +87,13 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
 Textarea.displayName = 'Textarea';
 
 export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
-  return <label className={cn('text-[11px] font-medium text-muted', className)} {...props} />;
+  return <label className={cn('text-[12.5px] font-medium text-muted', className)} {...props} />;
 }
 
 /* ----------------------------- Badge ------------------------------ */
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium leading-none',
+  'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[12px] font-medium leading-none',
   {
     variants: {
       tone: {
@@ -126,7 +126,7 @@ export const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
-    className={cn('inline-flex h-8 items-center gap-0.5 rounded-md bg-surface p-0.5', className)}
+    className={cn('inline-flex h-9 items-center gap-0.5 rounded-md bg-surface p-1', className)}
     {...props}
   />
 ));
@@ -139,7 +139,7 @@ export const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'inline-flex h-7 items-center justify-center gap-1.5 rounded px-2.5 text-[12px] font-medium text-muted transition-colors hover:text-text data-[state=active]:bg-raised data-[state=active]:text-text',
+      'inline-flex h-7 items-center justify-center gap-1.5 rounded px-3 text-[13.5px] font-medium text-muted transition-colors hover:text-text data-[state=active]:bg-raised data-[state=active]:text-text',
       className,
     )}
     {...props}
@@ -180,14 +180,14 @@ export function DialogContent({
 }
 
 export function DialogTitle({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title className={cn('text-[14px] font-semibold text-text', className)} {...props} />;
+  return <DialogPrimitive.Title className={cn('text-[15.5px] font-semibold text-text', className)} {...props} />;
 }
 
 export function DialogDescription({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>) {
-  return <DialogPrimitive.Description className={cn('mt-1 text-[12.5px] text-muted', className)} {...props} />;
+  return <DialogPrimitive.Description className={cn('mt-1 text-[14px] text-muted', className)} {...props} />;
 }
 
 /* ----------------------------- Infobulle -------------------------- */
@@ -202,7 +202,7 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content
           sideOffset={6}
-          className="z-50 max-w-[280px] rounded-md border border-border bg-raised px-2 py-1.5 text-[11.5px] text-text shadow-xl animate-fade-in"
+          className="z-50 max-w-[280px] rounded-md border border-border bg-raised px-2 py-1.5 text-[13px] text-text shadow-xl animate-fade-in"
         >
           {label}
         </TooltipPrimitive.Content>
@@ -241,7 +241,7 @@ export function DropdownMenuItem({
   return (
     <DropdownPrimitive.Item
       className={cn(
-        'flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-[12.5px] text-muted outline-none data-[highlighted]:bg-raised data-[highlighted]:text-text',
+        'flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-[14px] text-muted outline-none data-[highlighted]:bg-raised data-[highlighted]:text-text',
         className,
       )}
       {...props}
@@ -250,7 +250,7 @@ export function DropdownMenuItem({
 }
 
 export function DropdownMenuLabel({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('px-2 py-1 text-[10.5px] uppercase tracking-wide text-faint', className)} {...props} />;
+  return <div className={cn('px-2 py-1 text-[12px] uppercase tracking-wide text-faint', className)} {...props} />;
 }
 
 export function DropdownMenuSeparator() {
@@ -342,8 +342,8 @@ export function EmptyState({ icon, title, hint }: { icon?: React.ReactNode; titl
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
       {icon ? <div className="text-faint">{icon}</div> : null}
-      <p className="text-[13px] font-medium text-muted">{title}</p>
-      {hint ? <p className="max-w-[260px] text-[12px] text-faint">{hint}</p> : null}
+      <p className="text-[14.5px] font-medium text-muted">{title}</p>
+      {hint ? <p className="max-w-[260px] text-[13.5px] text-faint">{hint}</p> : null}
     </div>
   );
 }

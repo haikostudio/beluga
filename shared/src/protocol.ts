@@ -3,6 +3,7 @@ import { ColumnKey } from './columns.js';
 import {
   Agent,
   AccountQuota,
+  ProjectGroup,
   Attachment,
   Card,
   CapacitySnapshot,
@@ -51,6 +52,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.scan') }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
+  /** Ranger un projet dans un groupe (ou l'en sortir avec un groupe vide). */
+  z.object({ type: z.literal('project.group'), id: z.string(), groupId: z.string().optional() }),
+  z.object({ type: z.literal('group.list') }),
+  z.object({ type: z.literal('group.create'), name: z.string() }),
+  z.object({ type: z.literal('group.update'), id: z.string(), name: z.string().optional(), collapsed: z.boolean().optional() }),
+  z.object({ type: z.literal('group.delete'), id: z.string() }),
+  z.object({ type: z.literal('group.reorder'), ids: z.array(z.string()) }),
   /** Crée un dossier neuf sur le serveur, puis l'inscrit. */
   z.object({
     type: z.literal('project.new'),
@@ -188,6 +196,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
     version: z.string(),
     settings: Settings,
     projects: z.array(Project),
+    groups: z.array(ProjectGroup).default([]),
     engines: z.array(EngineInfo),
     quotas: z.array(AccountQuota),
     capacity: CapacitySnapshot,
@@ -199,6 +208,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.delete'), id: z.string() }),
   /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
+  z.object({ type: z.literal('groups'), groups: z.array(ProjectGroup) }),
   z.object({
     type: z.literal('project.snapshot'),
     projectId: z.string(),

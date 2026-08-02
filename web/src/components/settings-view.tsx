@@ -44,7 +44,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
 
         {/* ---------- Capacité du système ---------- */}
         <section className="mt-4">
-          <h3 className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-text">
+          <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
             <Activity className="h-3.5 w-3.5 text-faint" /> Capacité du système
           </h3>
 
@@ -52,16 +52,16 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
             <>
               <Gauge value={capacity.loadPct} height="h-2" />
               <div className="mt-1.5 flex items-baseline gap-2">
-                <span className="text-[15px] font-semibold text-text">
+                <span className="text-[17px] font-semibold text-text">
                   {capacity.slotsFree} agent{capacity.slotsFree > 1 ? 's' : ''} peuvent encore démarrer
                 </span>
-                <span className="text-[11px] text-faint">
+                <span className="text-[12.5px] text-faint">
                   {capacity.runningAgents} en cours · plafond {capacity.maxAgents} · mémoire moyenne mesurée{' '}
                   {capacity.avgAgentMemMb} Mo
                 </span>
               </div>
               {capacity.paused ? (
-                <p className="mt-1 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[11.5px] text-warning">
+                <p className="mt-1 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
                   {capacity.pauseReason}
                 </p>
               ) : null}
@@ -71,7 +71,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
           ) : null}
 
           <div className="mt-3">
-            <p className="mb-1 text-[10.5px] uppercase tracking-wide text-faint">Ce qui tourne en ce moment</p>
+            <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">Ce qui tourne en ce moment</p>
             <div className="max-h-52 space-y-0.5 overflow-y-auto">
               {state.processes.map((process) => (
                 <div
@@ -85,13 +85,13 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
                     )}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] text-text">{process.label}</p>
-                    <p className="truncate text-[10px] text-faint">
+                    <p className="truncate text-[13.5px] text-text">{process.label}</p>
+                    <p className="truncate text-[11.5px] text-faint">
                       {process.detail}
                       {process.since ? ` · ${elapsed(process.since)}` : ''}
                     </p>
                   </div>
-                  <span className="shrink-0 text-[11px] text-muted">{process.memMb} Mo</span>
+                  <span className="shrink-0 text-[12.5px] text-muted">{process.memMb} Mo</span>
                   {process.canStop ? (
                     <Button
                       variant="ghost"
@@ -137,7 +137,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
         {/* ---------- Réglages ---------- */}
         {settings ? (
           <section className="mt-5 space-y-3">
-            <h3 className="text-[12px] font-medium text-text">Fonctionnement</h3>
+            <h3 className="text-[13.5px] font-medium text-text">Fonctionnement</h3>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Field label="Plafond d'agents">
@@ -234,7 +234,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
                   ['notifyOnDeploy', 'Prévenir quand une publication est finie'],
                 ] as const
               ).map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 text-[12.5px] text-muted">
+                <label key={key} className="flex items-center gap-2 text-[14px] text-muted">
                   <Switch
                     checked={settings[key] as boolean}
                     onCheckedChange={(checked) => update({ [key]: checked })}
@@ -248,15 +248,15 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
 
         {/* ---------- Comptes ---------- */}
         <section className="mt-5">
-          <h3 className="mb-2 text-[12px] font-medium text-text">Comptes et quotas</h3>
+          <h3 className="mb-2 text-[13.5px] font-medium text-text">Comptes et quotas</h3>
           <div className="space-y-1">
             {state.quotas.map((quota) => (
               <div key={quota.id} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[12px] text-text">
+                  <p className="truncate text-[13.5px] text-text">
                     {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
                   </p>
-                  <p className="text-[10px] text-faint">
+                  <p className="text-[11.5px] text-faint">
                     fenêtre {Math.round(quota.session?.usedPct ?? 0)} % · semaine {Math.round(quota.weekly?.usedPct ?? 0)} %
                     {quota.weekly?.resetsAt
                       ? ` · remise à zéro ${new Date(quota.weekly.resetsAt).toLocaleDateString('fr-CH')}`
@@ -268,7 +268,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
               </div>
             ))}
           </div>
-          <p className="mt-1.5 text-[11px] text-faint">
+          <p className="mt-1.5 text-[12.5px] text-faint">
             L'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en
             premier, la relève ne sert qu'en cas d'épuisement.
           </p>
@@ -279,7 +279,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
 
         {/* ---------- Sauvegardes ---------- */}
         <section className="mt-5">
-          <h3 className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-text">
+          <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
             <Database className="h-3.5 w-3.5 text-faint" /> Sauvegardes
           </h3>
           <Button
@@ -308,12 +308,12 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
 
           <div className="mt-2 max-h-32 space-y-0.5 overflow-y-auto">
             {backups.map((backup) => (
-              <div key={backup.name} className="flex items-center gap-2 text-[11px] text-faint">
+              <div key={backup.name} className="flex items-center gap-2 text-[12.5px] text-faint">
                 <span className="min-w-0 flex-1 truncate">{backup.name}</span>
                 <span>{bytes(backup.size)}</span>
               </div>
             ))}
-            {!backups.length ? <p className="text-[11px] text-faint">Aucune sauvegarde pour l'instant.</p> : null}
+            {!backups.length ? <p className="text-[12.5px] text-faint">Aucune sauvegarde pour l'instant.</p> : null}
           </div>
         </section>
       </DialogContent>
@@ -346,7 +346,7 @@ function UsageSection({ open }: { open: boolean }) {
 
   return (
     <section className="mt-5">
-      <h3 className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-text">
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
         <Activity className="h-3.5 w-3.5 text-faint" /> Ce qui a été consommé
       </h3>
 
@@ -354,23 +354,23 @@ function UsageSection({ open }: { open: boolean }) {
         <div className="space-y-0.5">
           {usage.byProject.map((row) => (
             <div key={row.projectId} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5">
-              <span className="min-w-0 flex-1 truncate text-[12px] text-text">{projectName(row.projectId)}</span>
-              <span className="text-[11px] text-faint">{row.tasks} tâche(s)</span>
-              <span className="text-[11px] text-muted">{Math.round(row.seconds / 60)} min</span>
-              <span className="text-[11px] text-muted">{(row.tokens ?? 0).toLocaleString('fr-CH')} jetons</span>
+              <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{projectName(row.projectId)}</span>
+              <span className="text-[12.5px] text-faint">{row.tasks} tâche(s)</span>
+              <span className="text-[12.5px] text-muted">{Math.round(row.seconds / 60)} min</span>
+              <span className="text-[12.5px] text-muted">{(row.tokens ?? 0).toLocaleString('fr-CH')} jetons</span>
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-[11.5px] text-faint">Aucune consommation relevée pour l'instant.</p>
+        <p className="text-[13px] text-faint">Aucune consommation relevée pour l'instant.</p>
       )}
 
       {usage?.byMonth?.length ? (
         <div className="mt-2">
-          <p className="mb-1 text-[10.5px] uppercase tracking-wide text-faint">Par mois</p>
+          <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">Par mois</p>
           <div className="flex flex-wrap gap-1">
             {usage.byMonth.map((row) => (
-              <span key={row.month} className="rounded border border-border px-1.5 py-0.5 text-[10.5px] text-muted">
+              <span key={row.month} className="rounded border border-border px-1.5 py-0.5 text-[12px] text-muted">
                 {row.month} · {Math.round(row.seconds / 60)} min
               </span>
             ))}
@@ -380,7 +380,7 @@ function UsageSection({ open }: { open: boolean }) {
 
       {summary && !summary.error ? (
         <div className="mt-3">
-          <p className="mb-1 text-[10.5px] uppercase tracking-wide text-faint">Facturation du mois</p>
+          <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">Facturation du mois</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               ['Facturé', summary.invoiced ?? summary.total_invoiced],
@@ -389,8 +389,8 @@ function UsageSection({ open }: { open: boolean }) {
               ['En retard', summary.overdue ?? summary.total_overdue],
             ].map(([label, value]) => (
               <div key={String(label)} className="rounded-md border border-border bg-surface px-2 py-1.5">
-                <p className="text-[10px] uppercase tracking-wide text-faint">{label}</p>
-                <p className="mt-0.5 text-[13px] font-medium text-text">
+                <p className="text-[11.5px] uppercase tracking-wide text-faint">{label}</p>
+                <p className="mt-0.5 text-[14.5px] font-medium text-text">
                   {typeof value === 'number' ? `${value.toLocaleString('fr-CH')} CHF` : '—'}
                 </p>
               </div>

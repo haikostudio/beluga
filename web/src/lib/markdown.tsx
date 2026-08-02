@@ -88,7 +88,7 @@ export function Markdown({ content, pickedEvolutions, onToggleEvolution, onToggl
                   <button
                     type="button"
                     onClick={() => onToggleAll(items)}
-                    className="ml-auto rounded border border-border px-1.5 py-0.5 text-[10.5px] font-normal text-muted hover:bg-raised hover:text-text"
+                    className="ml-auto rounded border border-border px-1.5 py-0.5 text-[12px] font-normal text-muted hover:bg-raised hover:text-text"
                   >
                     {allPicked ? 'Tout retirer' : 'Tout ajouter'}
                   </button>
@@ -121,7 +121,7 @@ export function Markdown({ content, pickedEvolutions, onToggleEvolution, onToggl
                         <span className="mt-[3px] shrink-0">
                           {active ? <Check className="h-3 w-3 text-success" /> : <Plus className="h-3 w-3 text-faint" />}
                         </span>
-                        <span className="text-[12.5px] leading-snug">{item}</span>
+                        <span className="text-[14px] leading-snug">{item}</span>
                       </button>
                     </li>
                   );
@@ -134,7 +134,7 @@ export function Markdown({ content, pickedEvolutions, onToggleEvolution, onToggl
             return (
               <div key={index} className={cn('my-2 flex gap-2 rounded-md border px-2.5 py-2', config.className)}>
                 <span className="mt-0.5 shrink-0">{config.icon}</span>
-                <div className="text-[12.5px] leading-relaxed">
+                <div className="text-[14px] leading-relaxed">
                   {block.lines.map((line, lineIndex) => (
                     <p key={lineIndex} className="!my-0 !text-inherit">
                       {inline(line, `${index}-${lineIndex}`)}
