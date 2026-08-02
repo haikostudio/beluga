@@ -16,6 +16,7 @@ import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { MemoryNote, TodoList } from '@/components/todos';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
+import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, relativeTime } from '@/lib/utils';
@@ -108,7 +109,12 @@ export function MessageView({
       {message.proposals.length ? (
         <div className="mt-2 space-y-1.5">
           {message.proposals.map((proposal) => (
-            <ProposalChip key={proposal.id} messageId={message.id} proposal={proposal} />
+            <ProposalChip
+              key={proposal.id}
+              messageId={message.id}
+              agentId={message.agentId}
+              proposal={proposal}
+            />
           ))}
         </div>
       ) : null}
@@ -293,15 +299,36 @@ function QuestionCard({ messageId, question }: { messageId: string; question: Me
  */
 function ProposalChip({
   messageId,
+  agentId,
   proposal,
 }: {
   messageId: string;
+  /** L'agent de la conversation : la carte hérite de SES réglages par défaut. */
+  agentId?: string;
   proposal: Message['proposals'][number];
 }) {
+  const state = useApp();
   const [busy, setBusy] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [title, setTitle] = React.useState(proposal.title);
   const [description, setDescription] = React.useState(proposal.description);
+
+  /*
+   * Moteur, modèle et niveau de réflexion sont choisis AVANT que la carte
+   * existe : c'est avec eux que l'agent d'exécution sera lancé plus tard. Le
+   * point de départ est ce que la proposition demandait, sinon les réglages de
+   * la conversation en cours.
+   */
+  const agent = agentId ? state.agents[agentId] : undefined;
+  const [choix, setChoix] = React.useState<RunChoix | undefined>(proposal.run ?? agent?.run);
+  const retenu = resoudreRun(state.engines, choix);
+
+  // Changer de moteur remet le modèle et la réflexion à zéro : un modèle
+  // n'appartient qu'à son moteur, le garder n'aurait aucun sens.
+  const choisir = (patch: RunChoix) =>
+    setChoix((courant) =>
+      patch.engine ? { engine: patch.engine } : { ...(courant ?? {}), ...patch },
+    );
 
   const decide = async (accept: boolean) => {
     setBusy(true);
@@ -313,6 +340,9 @@ function ProposalChip({
         accept,
         title: title.trim() || proposal.title,
         description,
+        run: retenu.engine
+          ? { engine: retenu.engine.id, model: retenu.model?.id, thinking: retenu.thinking?.id }
+          : undefined,
       });
       client.pushToast(accept ? 'success' : 'info', accept ? 'Carte créée dans « À faire »' : 'Carte refusée');
     } catch (err: any) {
@@ -398,7 +428,7 @@ function ProposalChip({
     <div className="overflow-hidden rounded-md border border-accent/40 bg-surface">
       <div className="flex items-center gap-1.5 border-b border-border bg-raised px-3 py-1.5 text-[12px] text-muted">
         <LayoutGrid className="h-3 w-3 text-accent" />
-        Carte à valider — elle entrera dans « À faire »
+        À valider
         <button
           onClick={() => setEditing((current) => !current)}
           className="ml-auto text-[12px] text-faint hover:text-text"
@@ -409,13 +439,17 @@ function ProposalChip({
 
       <div className="px-3 py-2.5">{corps}</div>
 
-      <div className="flex gap-1.5 border-t border-border px-3 py-2">
-        <Button size="sm" variant="default" disabled={busy} onClick={() => decide(true)}>
-          <Check className="h-3 w-3" /> Créer la carte
-        </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => decide(false)}>
-          Refuser
-        </Button>
+      {/* Les réglages de l'agent qui exécutera la carte, choisis dès maintenant */}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-1 border-t border-border px-2 py-1.5 sm:gap-x-1">
+        <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} />
+        <div className="ml-auto flex shrink-0 gap-1.5">
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => decide(false)}>
+            Refuser
+          </Button>
+          <Button size="sm" variant="default" disabled={busy} onClick={() => decide(true)}>
+            <Check className="h-3 w-3" /> Créer la carte
+          </Button>
+        </div>
       </div>
     </div>
   );

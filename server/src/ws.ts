@@ -7,6 +7,7 @@ import {
   ColumnKey,
   PROTOCOL_VERSION,
   Project,
+  RunConfig,
   ServerEvent,
   canMove,
 } from '@haikodev/shared';
@@ -538,12 +539,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const agent = store.getAgent(message.agentId);
       if (!agent) throw new Error('agent introuvable');
 
-      // On peut corriger le titre ou la description au moment de valider : la
-      // carte créée est celle qu'on a sous les yeux, pas celle proposée.
+      // On peut corriger le titre, la description ou les réglages d'exécution
+      // au moment de valider : la carte créée est celle qu'on a sous les yeux,
+      // pas celle proposée.
+      // Réglages complétés par leurs valeurs par défaut : la carte porte un
+      // choix entier, jamais un demi-réglage impossible à relancer.
+      const run = cmd.run ? RunConfig.parse({ ...(proposal.run ?? {}), ...cmd.run }) : proposal.run;
       const retenu = {
         title: cmd.title?.trim() || proposal.title,
         description: cmd.description ?? proposal.description,
         labels: cmd.labels ?? proposal.labels,
+        ...(run ? { run } : {}),
       };
 
       let cardId: string | undefined;
