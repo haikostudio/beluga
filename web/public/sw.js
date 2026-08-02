@@ -21,6 +21,45 @@ self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
+// Notifications reçues même quand l'application est fermée.
+self.addEventListener('push', (event) => {
+  let payload = { title: 'HaikoDev', body: '' };
+  try {
+    payload = event.data ? event.data.json() : payload;
+  } catch {
+    payload.body = event.data ? event.data.text() : '';
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      // Même étiquette = une seule notification affichée, pas une avalanche.
+      tag: payload.tag || 'haikodev',
+      renotify: true,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { cardId: payload.cardId, projectId: payload.projectId },
+    }),
+  );
+});
+
+// Un appui ouvre directement la carte concernée.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const target = data.cardId ? `/?carte=${encodeURIComponent(data.cardId)}` : '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.postMessage({ type: 'OPEN_CARD', cardId: data.cardId, projectId: data.projectId });
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;

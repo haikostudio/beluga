@@ -11,6 +11,7 @@ import { callTool, toolsFor } from './tools.js';
 import { attachToCurrentMessage } from './runtime.js';
 import { readFilePreview, makeZip } from './files.js';
 import { transcribe, digestText, speak, voiceAvailable } from './voice.js';
+import { publicKey, subscribe, unsubscribe } from './push.js';
 import { log } from './logger.js';
 
 const COOKIE = 'haikodev_session';
@@ -228,7 +229,23 @@ export function createHttpServer(): http.Server {
       /* ---------------- API authentifiée ---------------- */
 
       if (route === '/api/me') {
-        return json(res, 200, { user: currentUsername(), version: CONFIG.version, voice: voiceAvailable() });
+        return json(res, 200, {
+          user: currentUsername(),
+          version: CONFIG.version,
+          voice: voiceAvailable(),
+          pushKey: publicKey(),
+        });
+      }
+
+      if (route === '/api/push/subscribe' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
+        return json(res, 200, { ok: subscribe(body) });
+      }
+
+      if (route === '/api/push/unsubscribe' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
+        if (body.endpoint) unsubscribe(String(body.endpoint));
+        return json(res, 200, { ok: true });
       }
 
       if (route === '/api/upload' && req.method === 'POST') {

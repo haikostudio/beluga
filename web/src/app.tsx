@@ -13,6 +13,18 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 
+
+/** La clé du serveur arrive en base64 « url » : le navigateur la veut en octets. */
+function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(base64);
+  const buffer = new ArrayBuffer(raw.length);
+  const view = new Uint8Array(buffer);
+  for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+  return buffer;
+}
+
 export function App() {
   const state = useApp();
   const [openCardId, setOpenCardId] = React.useState<string | null>(null);
@@ -39,11 +51,46 @@ export function App() {
     });
   }, []);
 
+  // Abonnement aux notifications poussées : l'application prévient même fermée.
   React.useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      const timer = setTimeout(() => Notification.requestPermission().catch(() => undefined), 8000);
-      return () => clearTimeout(timer);
-    }
+    const setup = async () => {
+      if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+      if (Notification.permission === 'default') {
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+        await Notification.requestPermission().catch(() => undefined);
+      }
+      if (Notification.permission !== 'granted') return;
+      try {
+        const me = await fetch('/api/me').then((r) => r.json());
+        if (!me?.pushKey) return;
+        const registration = await navigator.serviceWorker.ready;
+        const existing = await registration.pushManager.getSubscription();
+        const subscription =
+          existing ??
+          (await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(me.pushKey),
+          }));
+        await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(subscription),
+        });
+      } catch {
+        /* le navigateur refuse les notifications poussées : on s'en passe */
+      }
+    };
+    void setup();
+
+    // Un appui sur une notification ouvre la carte concernée.
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OPEN_CARD') {
+        if (event.data.projectId) client.setActiveProject(event.data.projectId);
+        if (event.data.cardId) setOpenCardId(event.data.cardId);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
   }, []);
 
   const activeProject = state.projects.find((project) => project.id === state.activeProjectId);

@@ -15,6 +15,7 @@ import { purgeOldArchives } from './files.js';
 import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
 import { getSettings } from './store.js';
 import { listEngines } from './engines/index.js';
+import { initPush } from './push.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
   }
 
   bootstrapAccounts();
+  initPush();
   await ensureSelfProject();
   await refreshGitInfo();
 

@@ -90,12 +90,15 @@ function flush(kind: Kind): void {
   const entry = pending.get(kind);
   if (!entry) return;
   pending.delete(kind);
-  bus.emit({
-    type: 'notify',
+  const payload = {
     title: entry.title,
     body: entry.body,
     tag: kind,
     cardId: entry.cardId,
     projectId: entry.projectId,
-  });
+  };
+  // Vers les onglets ouverts…
+  bus.emit({ type: 'notify', ...payload });
+  // …et vers les appareils où l'application est installée mais fermée.
+  void import('./push.js').then(({ sendPush }) => sendPush(payload));
 }

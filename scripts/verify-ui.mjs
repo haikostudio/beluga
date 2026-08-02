@@ -197,6 +197,14 @@ async function main() {
   });
   record('Application installable : manifeste et service worker', pwa.name === 'HaikoDev' && pwa.display === 'standalone' && pwa.sw);
 
+  /* ---------- 13 bis. Notifications poussées ---------- */
+  const push = await page.evaluate(async () => {
+    const me = await fetch('/api/me').then((r) => r.json());
+    const registration = await navigator.serviceWorker.getRegistration();
+    return { key: !!me?.pushKey, sw: !!registration };
+  });
+  record('Notifications : la clé du serveur et le service worker sont prêts', push.key && push.sw);
+
   /* ---------- 14. Aucune erreur console ---------- */
   // Le 401 sur /auth/login est provoqué par la vérification n° 2 (mot de passe
   // volontairement faux) : c'est le comportement attendu, pas une anomalie.
