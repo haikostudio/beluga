@@ -179,6 +179,44 @@ export function DialogContent({
   );
 }
 
+/**
+ * Le tiroir : il monte depuis le bas et occupe presque tout l'écran. On y
+ * travaille, contrairement à une fenêtre qui interrompt.
+ */
+export function Drawer({
+  open,
+  onClose,
+  children,
+  className,
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 animate-fade-in" />
+        <DialogPrimitive.Content
+          className={cn(
+            'fixed inset-x-0 bottom-0 z-50 flex h-[92dvh] flex-col overflow-hidden rounded-t-xl border-t border-border bg-bg shadow-2xl',
+            'data-[state=open]:animate-slide-up',
+            className,
+          )}
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
+          {/* La poignée : on comprend d'un coup d'œil que ça se referme vers le bas. */}
+          <div className="flex justify-center py-2">
+            <DialogPrimitive.Close className="h-1 w-10 rounded-full bg-border transition-colors hover:bg-muted" />
+          </div>
+          {children}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
 export function DialogTitle({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
   return <DialogPrimitive.Title className={cn('text-[15.5px] font-semibold text-text', className)} {...props} />;
 }

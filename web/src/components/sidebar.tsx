@@ -57,8 +57,12 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
   const [renaming, setRenaming] = React.useState<ProjectGroup | null>(null);
   const [deleting, setDeleting] = React.useState<ProjectGroup | null>(null);
 
-  const [dragged, setDragged] = React.useState<{ id: string; kind: 'project' | 'group' } | null>(null);
-  const [overId, setOverId] = React.useState<string | null>(null);
+  const [dragged, setDragged] = React.useState<{ id: string; kind: 'project' | 'group'; label: string } | null>(null);
+  // Où l'élément se posera : sur quelle ligne, au-dessus ou en dessous, ou
+  // dans quel groupe. C'est ce qui s'affiche en aperçu pendant le glissement.
+  const [target, setTarget] = React.useState<
+    { kind: 'row'; id: string; side: 'before' | 'after' } | { kind: 'group'; id: string } | null
+  >(null);
 
   const actifs = state.projects.filter((p) => !p.archived);
   const groups = state.groups;
@@ -112,19 +116,21 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
     return out;
   };
 
-  /** Déposer sur un projet : on prend sa place ET son groupe. */
-  const dropOnProject = async (cible: Project) => {
-    if (!dragged || dragged.id === cible.id) return;
+  /** Déposer sur une ligne : on se place avant ou après, et on prend son groupe. */
+  const dropOnRow = async (cibleId: string, cibleGroupId?: string) => {
+    if (!dragged || dragged.id === cibleId) return;
+    const cote = target?.kind === 'row' && target.id === cibleId ? target.side : 'after';
     const ordre = flatten();
     const from = ordre.findIndex((e) => e.kind === dragged.kind && e.id === dragged.id);
-    const to = ordre.findIndex((e) => e.kind === 'project' && e.id === cible.id);
     setDragged(null);
-    setOverId(null);
-    if (from < 0 || to < 0) return;
+    setTarget(null);
+    if (from < 0) return;
 
     const [element] = ordre.splice(from, 1);
-    if (element.kind === 'project') element.groupId = cible.groupId;
-    ordre.splice(to, 0, element);
+    const to = ordre.findIndex((e) => e.id === cibleId);
+    if (to < 0) return;
+    if (element.kind === 'project') element.groupId = cibleGroupId;
+    ordre.splice(cote === 'before' ? to : to + 1, 0, element);
     await commit(ordre);
   };
 
@@ -134,7 +140,7 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
     const ordre = flatten();
     const from = ordre.findIndex((e) => e.kind === dragged.kind && e.id === dragged.id);
     setDragged(null);
-    setOverId(null);
+    setTarget(null);
     if (from < 0) return;
 
     const [element] = ordre.splice(from, 1);
@@ -157,7 +163,7 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
     const ordre = flatten();
     const from = ordre.findIndex((e) => e.kind === 'project' && e.id === dragged.id);
     setDragged(null);
-    setOverId(null);
+    setTarget(null);
     if (from < 0) return;
     const [element] = ordre.splice(from, 1);
     element.groupId = undefined;
@@ -171,16 +177,23 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
   const runningOf = (projectId: string) =>
     Object.values(state.agents).filter((a) => a.projectId === projectId && a.status === 'running').length;
 
-  const rowProps = (id: string, kind: 'project' | 'group') => ({
+  const rowProps = (id: string, kind: 'project' | 'group', label: string) => ({
     draggable: true,
-    onDragStart: () => setDragged({ id, kind }),
+    onDragStart: (event: React.DragEvent) => {
+      setDragged({ id, kind, label });
+      // Une image de glissement neutre : l'aperçu, c'est notre repère.
+      event.dataTransfer.effectAllowed = 'move';
+    },
     onDragEnd: () => {
       setDragged(null);
-      setOverId(null);
+      setTarget(null);
     },
     onDragOver: (event: React.DragEvent) => {
       event.preventDefault();
-      setOverId(id);
+      if (!dragged || dragged.id === id) return;
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      const side = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      setTarget({ kind: 'row', id, side });
     },
   });
 
@@ -217,28 +230,50 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
       >
         {entries.map((entry) =>
           entry.kind === 'project' ? (
-            <ProjectRow
-              key={entry.id}
-              project={entry.project}
-              active={entry.id === state.activeProjectId}
-              running={runningOf(entry.id)}
-              dimmed={dragged?.id === entry.id}
-              over={overId === entry.id}
-              rowProps={rowProps(entry.id, 'project')}
-              onDrop={() => dropOnProject(entry.project)}
-              onSettings={() => setSettingsFor(entry.id)}
-            />
+            <React.Fragment key={entry.id}>
+              <Ghost show={target?.kind === 'row' && target.id === entry.id && target.side === 'before'} label={dragged?.label} />
+              <ProjectRow
+                project={entry.project}
+                active={entry.id === state.activeProjectId}
+                running={runningOf(entry.id)}
+                dimmed={dragged?.id === entry.id}
+                rowProps={rowProps(entry.id, 'project', entry.project.name)}
+                onDrop={() => dropOnRow(entry.id, undefined)}
+                onSettings={() => setSettingsFor(entry.id)}
+              />
+              <Ghost show={target?.kind === 'row' && target.id === entry.id && target.side === 'after'} label={dragged?.label} />
+            </React.Fragment>
           ) : (
             <div
               key={entry.id}
-              className={cn('mb-0.5 rounded-md', overId === entry.id && 'bg-surface ring-1 ring-border')}
+              onDragOver={(event) => {
+                event.preventDefault();
+                // Survoler le groupe entier — pas seulement son titre — le
+                // désigne comme destination.
+                if (dragged && dragged.kind === 'project') setTarget({ kind: 'group', id: entry.id });
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void dropOnGroup(entry.group);
+              }}
+              className={cn(
+                'mb-0.5 rounded-md border transition-colors',
+                target?.kind === 'group' && target.id === entry.id
+                  ? 'border-muted bg-surface'
+                  : 'border-transparent',
+              )}
             >
+              <Ghost show={target?.kind === 'row' && target.id === entry.id && target.side === 'before'} label={dragged?.label} />
               <div
-                {...rowProps(entry.id, 'group')}
+                {...rowProps(entry.id, 'group', entry.group.name)}
                 onDrop={(event: React.DragEvent) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  void dropOnGroup(entry.group);
+                  // Sur le titre d'un groupe : soit on y range le projet, soit on
+                  // déplace le groupe lui-même parmi les autres.
+                  if (dragged?.kind === 'group') void dropOnRow(entry.id, undefined);
+                  else void dropOnGroup(entry.group);
                 }}
                 className={cn(
                   'group/g flex items-center gap-1 rounded-md px-1.5 py-1.5',
@@ -276,25 +311,35 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
               </div>
 
               {!collapsed.includes(entry.id) ? (
-                entry.members.length ? (
-                  entry.members.map((project) => (
-                    <ProjectRow
-                      key={project.id}
-                      project={project}
-                      active={project.id === state.activeProjectId}
-                      running={runningOf(project.id)}
-                      dimmed={dragged?.id === project.id}
-                      over={overId === project.id}
-                      indent
-                      rowProps={rowProps(project.id, 'project')}
-                      onDrop={() => dropOnProject(project)}
-                      onSettings={() => setSettingsFor(project.id)}
-                    />
-                  ))
-                ) : (
-                  <p className="px-5 pb-1.5 text-[12px] text-faint">Glissez un projet ici.</p>
-                )
+                <div className="pl-3 pr-0.5">
+                  {entry.members.length ? (
+                    entry.members.map((project) => (
+                      <React.Fragment key={project.id}>
+                        <Ghost
+                          show={target?.kind === 'row' && target.id === project.id && target.side === 'before'}
+                          label={dragged?.label}
+                        />
+                        <ProjectRow
+                          project={project}
+                          active={project.id === state.activeProjectId}
+                          running={runningOf(project.id)}
+                          dimmed={dragged?.id === project.id}
+                          rowProps={rowProps(project.id, 'project', project.name)}
+                          onDrop={() => dropOnRow(project.id, entry.id)}
+                          onSettings={() => setSettingsFor(project.id)}
+                        />
+                        <Ghost
+                          show={target?.kind === 'row' && target.id === project.id && target.side === 'after'}
+                          label={dragged?.label}
+                        />
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    <p className="px-2 pb-1.5 text-[12px] text-faint">Glissez un projet ici.</p>
+                  )}
+                </div>
               ) : null}
+              <Ghost show={target?.kind === 'row' && target.id === entry.id && target.side === 'after'} label={dragged?.label} />
             </div>
           ),
         )}
@@ -391,13 +436,22 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
   );
 }
 
+/** L'aperçu de l'élément déplacé, à l'endroit exact où il se posera. */
+function Ghost({ show, label }: { show?: boolean; label?: string }) {
+  if (!show) return null;
+  return (
+    <div className="mb-0.5 flex items-center gap-1.5 rounded-md border border-dashed border-muted bg-surface/60 px-2 py-1.5 text-[13.5px] text-muted">
+      <Folder className="h-3 w-3 shrink-0 opacity-60" />
+      <span className="min-w-0 truncate">{label ?? 'ici'}</span>
+    </div>
+  );
+}
+
 function ProjectRow({
   project,
   active,
   running,
   dimmed,
-  over,
-  indent,
   rowProps,
   onDrop,
   onSettings,
@@ -406,8 +460,6 @@ function ProjectRow({
   active: boolean;
   running: number;
   dimmed?: boolean;
-  over?: boolean;
-  indent?: boolean;
   rowProps: Record<string, unknown>;
   onDrop: () => void;
   onSettings: () => void;
@@ -422,10 +474,8 @@ function ProjectRow({
       }}
       className={cn(
         'group mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1.5 text-[13.5px] transition-colors',
-        indent && 'ml-3',
         active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
         dimmed && 'opacity-40',
-        over && 'ring-1 ring-muted',
       )}
     >
       <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />

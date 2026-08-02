@@ -5,7 +5,25 @@ import { Badge, Button } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { client } from '@/lib/client';
-import { cn, relativeTime } from '@/lib/utils';
+import { cn, duration, relativeTime } from '@/lib/utils';
+
+/** Une ligne de repères : quand, combien de temps, combien de jetons. */
+function Meta({ items }: { items: (string | null)[] }) {
+  const visibles = items.filter(Boolean) as string[];
+  if (!visibles.length) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-faint">
+      {visibles.map((item, index) => (
+        <span key={index}>{item}</span>
+      ))}
+    </div>
+  );
+}
+
+function horodatage(at: number): string {
+  const date = new Date(at);
+  return `${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`;
+}
 
 export function MessageView({
   message,
@@ -21,26 +39,38 @@ export function MessageView({
   const isUser = message.role === 'user';
 
   if (isUser) {
+    // Vos demandes : à droite, sur une largeur réduite.
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
-          <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-text">{message.content}</p>
-          {message.attachments.length ? (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {message.attachments.map((id) => (
-                <Badge key={id}>
-                  <Paperclip className="h-2.5 w-2.5" /> pièce jointe
-                </Badge>
-              ))}
-            </div>
-          ) : null}
+        <div className="w-[min(78%,520px)]">
+          <div className="rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
+            <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-text">{message.content}</p>
+            {message.attachments.length ? (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {message.attachments.map((id) => (
+                  <Badge key={id}>
+                    <Paperclip className="h-2.5 w-2.5" /> pièce jointe
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="text-right">
+            <Meta
+              items={[
+                horodatage(message.createdAt),
+                message.tokens ? `${message.tokens.toLocaleString('fr-CH')} jetons envoyés` : null,
+              ]}
+            />
+          </div>
         </div>
       </div>
     );
   }
 
+  // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
-    <div className="group">
+    <div className="group w-[min(92%,860px)]">
       <Steps steps={message.steps} streaming={message.streaming} />
 
       {message.content ? (

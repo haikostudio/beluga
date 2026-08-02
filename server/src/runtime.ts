@@ -143,6 +143,8 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
         role: 'user',
         content: text,
         attachments: options.attachments ?? [],
+        // Estimation courante : environ quatre caractères par jeton.
+        tokens: Math.max(1, Math.round(text.length / 4)),
         createdAt: store.now(),
       }),
     );
@@ -342,6 +344,9 @@ async function startTurn(
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
     streaming: false,
+    tokens: tokens || undefined,
+    durationMs: Math.round(elapsedSeconds * 1000),
+    account: account.label,
     error: failed ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin." : undefined,
   });
 

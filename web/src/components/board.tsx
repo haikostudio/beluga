@@ -197,6 +197,12 @@ export function CardTile({
   const running = agent?.status === 'running';
   const waiting = card.scheduling?.waitingReason;
   const estimateFailed = card.estimate?.failed;
+  // Entre la validation et le chiffrage, la carte doit montrer qu'il se passe
+  // quelque chose — sinon on croit que rien ne démarre.
+  const analysing = card.column === 'validated' && !card.estimate;
+  const analyseEnCours = Object.values(state.agents).some(
+    (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
+  );
 
   const gap =
     card.estimate?.machineSeconds && card.consumption?.machineSeconds
@@ -215,7 +221,7 @@ export function CardTile({
       className="cursor-pointer rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint"
     >
       <div className="flex items-start gap-1.5">
-        {running ? (
+        {running || analysing || analyseEnCours ? (
           <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-success" />
         ) : (
           <Dot
@@ -244,6 +250,13 @@ export function CardTile({
             <Badge key={label}>{label}</Badge>
           ))}
         </div>
+      ) : null}
+
+      {analysing || analyseEnCours ? (
+        <p className="mt-1.5 flex items-center gap-1 text-[12.5px] text-muted">
+          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          Analyse en cours — chiffrage du travail…
+        </p>
       ) : null}
 
       {waiting ? (

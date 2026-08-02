@@ -556,6 +556,106 @@ async function main() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(500);
 
+  /* ---------- 14 duodecies. Le tiroir d'une carte ---------- */
+  // L'essai crée sa propre carte : il ne dépend pas de ce qui traîne au tableau.
+  await page.evaluate(() => {
+    const colonnes = Array.from(document.querySelectorAll('h2'));
+    const aFaire = colonnes.find((h) => h.textContent?.trim() === 'À faire');
+    (aFaire?.parentElement?.querySelector('button') ?? null)?.click();
+  });
+  await page.waitForTimeout(800);
+  const champ = page.locator('input[placeholder="Titre de la tâche…"]');
+  if (await champ.count()) {
+    await champ.fill('Carte d\'essai du tiroir');
+    await page.locator('button', { hasText: 'Ajouter la tâche' }).first().click();
+    await page.waitForTimeout(2000);
+  }
+
+  const cartes = await page.locator('article').count();
+  const carteOuverte = cartes > 0;
+  if (carteOuverte) {
+    await page.locator('article').first().click();
+    await page.waitForTimeout(1800);
+  }
+  const tiroir = await page.evaluate(() => {
+    const contenu = Array.from(document.querySelectorAll('[role="dialog"]')).find(
+      (n) => n.getBoundingClientRect().height > 50,
+    );
+    if (!contenu) return null;
+    const rect = contenu.getBoundingClientRect();
+    return {
+      colleEnBas: Math.abs(rect.bottom - window.innerHeight) < 4,
+      hauteur: Math.round(rect.height),
+      pleineLargeur: rect.width > window.innerWidth * 0.95,
+      supprimer: !!Array.from(contenu.querySelectorAll('button')).find((b) =>
+        (b.textContent ?? '').includes('Supprimer'),
+      ),
+      onglets: Array.from(contenu.querySelectorAll('[role="tab"]')).map((t) => t.textContent?.trim()),
+    };
+  });
+  record(
+    'Carte : elle s\'ouvre en tiroir depuis le bas, sur toute la largeur',
+    carteOuverte && !!tiroir?.colleEnBas && !!tiroir?.pleineLargeur,
+    `hauteur ${tiroir?.hauteur ?? 0} px`,
+  );
+  record('Carte : elle peut être supprimée depuis son tiroir', !!tiroir?.supprimer);
+  record(
+    'Carte : les onglets Détails, Facturation et GitHub sont présents',
+    ['Détails', 'Facturation', 'GitHub'].every((t) => tiroir?.onglets.includes(t)),
+    (tiroir?.onglets ?? []).filter(Boolean).join(' · '),
+  );
+  await shot(page, '17-tiroir');
+
+  // On supprime la carte d'essai depuis le tiroir : la suppression est donc
+  // vérifiée pour de bon, et le tableau reste propre.
+  if (tiroir?.supprimer) {
+    await page.locator('button', { hasText: 'Supprimer' }).first().click();
+    await page.waitForTimeout(900);
+    await page.locator('button', { hasText: 'Supprimer la carte' }).first().click();
+    await page.waitForTimeout(1500);
+    const restantes = await page.locator('article').count();
+    record('Carte : la suppression depuis le tiroir fonctionne', restantes < cartes, `${cartes} → ${restantes}`);
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(700);
+
+  /* ---------- 14 terdecies. L'aperçu de dépôt ---------- */
+  const apercu = await page.evaluate(() => {
+    const lignes = Array.from(document.querySelectorAll('aside div[draggable="true"]'));
+    if (lignes.length < 2) return null;
+    window.__dnd = { source: lignes[0], cible: lignes[1], dt: new DataTransfer() };
+    lignes[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: window.__dnd.dt }));
+    return { lignes: lignes.length };
+  });
+  // Le survol arrive après le rendu, comme lors d'un vrai glissement.
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const { cible, dt } = window.__dnd ?? {};
+    if (!cible) return;
+    const rect = cible.getBoundingClientRect();
+    cible.dispatchEvent(
+      new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: dt,
+        clientY: rect.top + rect.height * 0.2,
+      }),
+    );
+  });
+  await page.waitForTimeout(700);
+  const ghost = await page.evaluate(() => document.querySelectorAll('aside .border-dashed').length);
+  record(
+    'Glisser-déposer : un aperçu montre où l\'élément va se poser',
+    !!apercu && ghost > 0,
+    `${ghost} aperçu(s) affiché(s)`,
+  );
+  await shot(page, '18-apercu');
+  await page.evaluate(() => {
+    const source = document.querySelector('aside div[draggable="true"]');
+    source?.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+  });
+  await page.waitForTimeout(400);
+
   /* ---------- 15. Mobile ---------- */
   const mobile = await context.newPage();
   await mobile.setViewportSize({ width: 390, height: 844 });

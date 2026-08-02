@@ -286,7 +286,11 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
     }
     // Un compte marqué indisponible par un événement de limite le reste jusqu'à sa remise à zéro.
     const previous = quotaCache.get(account.id);
-    if (previous?.available === false && previous.weekly?.resetsAt && previous.weekly.resetsAt > Date.now()) {
+    // Une lecture RÉUSSIE fait foi : un compte remis à zéro, ou simplement mal
+    // classé la fois d'avant, redevient disponible. Sans cela, un compte marqué
+    // indisponible le restait jusqu'à la remise à zéro hebdomadaire, même quand
+    // le fournisseur annonçait qu'il restait du quota.
+    if (quota.error && previous?.available === false) {
       quota.available = false;
     }
     // Lecture refusée ou impossible : on garde les derniers chiffres RÉELLEMENT
@@ -341,14 +345,39 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
       return account;
     }
   }
-  return null; // les deux sont à sec : la carte attend et le dit, elle n'échoue pas
+  // Aucun compte n'est marqué disponible. Avant de faire attendre la carte, on
+  // regarde s'il en reste un qui n'est pas réellement à 100 % : mieux vaut
+  // travailler sur le compte le moins consommé que de refuser à tort.
+  const restant = accounts
+    .map((account) => ({ account, quota: quotas.find((q) => q.id === account.id) }))
+    .filter(({ quota }) => {
+      const pire = Math.max(quota?.session?.usedPct ?? 0, quota?.weekly?.usedPct ?? 0);
+      return pire < 100;
+    })
+    .sort(
+      (a, b) =>
+        Math.max(a.quota?.session?.usedPct ?? 0, a.quota?.weekly?.usedPct ?? 0) -
+        Math.max(b.quota?.session?.usedPct ?? 0, b.quota?.weekly?.usedPct ?? 0),
+    )[0];
+
+  if (restant) {
+    log.info(`aucun compte marqué disponible : on retient ${restant.account.label}, qui a encore du quota`);
+    return restant.account;
+  }
+
+  return null; // tous à sec : la carte attend et le dit, elle n'échoue pas
 }
 
 /** Un événement de limite reçu en cours d'exécution met le compte de côté. */
+/** Les statuts qui signifient vraiment « ce compte ne répond plus ». */
+const STATUTS_BLOQUANTS = new Set(['rejected', 'exceeded', 'blocked', 'exhausted', 'limit_reached']);
+
 export function noteAccountUse(accountId: string, rateLimit: { status: string; resetsAt?: number; type?: string }): void {
   const quota = quotaCache.get(accountId);
   if (!quota) return;
-  if (rateLimit.status && rateLimit.status !== 'allowed') {
+  // Un avertissement (« allowed_warning ») dit qu'on approche de la limite,
+  // pas qu'on l'a atteinte : le compte reste utilisable.
+  if (rateLimit.status && STATUTS_BLOQUANTS.has(rateLimit.status.toLowerCase())) {
     quota.available = false;
     if (rateLimit.type === 'seven_day' || rateLimit.type === 'weekly') {
       quota.weekly = { ...(quota.weekly ?? {}), resetsAt: rateLimit.resetsAt };

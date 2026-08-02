@@ -10,15 +10,18 @@ import {
   Play,
   RefreshCw,
   Rocket,
+  Trash2,
   Zap,
 } from 'lucide-react';
 import { COLUMN_LABELS, Card } from '@haikodev/shared';
 import {
   Badge,
   Button,
+  ConfirmDialog,
   Dialog,
   DialogContent,
   DialogTitle,
+  Drawer,
   Input,
   Label,
   Tabs,
@@ -40,22 +43,21 @@ export function CardPanel({ cardId, onClose }: { cardId: string | null; onClose:
   if (!card) return null;
 
   return (
-    <Dialog open={!!cardId} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(760px,calc(100vw-16px))] max-h-[88dvh] p-0">
-        <CardPanelBody card={card} onClose={onClose} />
-      </DialogContent>
-    </Dialog>
+    <Drawer open={!!cardId} onClose={onClose}>
+      <CardPanelBody card={card} onClose={onClose} />
+    </Drawer>
   );
 }
 
 function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
+  const [confirmSuppression, setConfirmSuppression] = React.useState(false);
   const state = useApp();
   const agent = card.agentId ? state.agents[card.agentId] : null;
   const project = state.projects.find((p) => p.id === card.projectId);
 
   return (
-    <div className="flex h-[80dvh] flex-col">
-      <header className="border-b border-border px-4 py-3">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="border-b border-border px-4 pb-3">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <DialogTitle className="pr-6 leading-snug">{card.title}</DialogTitle>
@@ -116,7 +118,29 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               </a>
             </Button>
           ) : null}
+
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto text-danger hover:text-danger"
+            onClick={() => setConfirmSuppression(true)}
+          >
+            <Trash2 className="h-3 w-3" /> Supprimer
+          </Button>
         </div>
+
+        <ConfirmDialog
+          open={confirmSuppression}
+          title={`Supprimer « ${card.title} » ?`}
+          description="La carte et sa conversation partent définitivement. Le travail déjà fait dans le projet, lui, reste."
+          confirmLabel="Supprimer la carte"
+          danger
+          onConfirm={async () => {
+            await client.call({ type: 'card.delete', id: card.id });
+            onClose();
+          }}
+          onClose={() => setConfirmSuppression(false)}
+        />
       </header>
 
       <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col">

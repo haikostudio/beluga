@@ -291,6 +291,10 @@ export const Message = z.object({
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */
   streaming: z.boolean().default(false),
+  /** Jetons de ce tour, durée d'exécution et compte utilisé : affichés sous le message. */
+  tokens: z.number().optional(),
+  durationMs: z.number().optional(),
+  account: z.string().optional(),
   error: z.string().optional(),
   createdAt: z.number(),
 });
