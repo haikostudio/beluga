@@ -31,7 +31,13 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
 
-export function Sidebar({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
+export function Sidebar({
+  onOpenAgent,
+  width,
+}: {
+  onOpenAgent: (agentId: string) => void;
+  width?: number;
+}) {
   const state = useApp();
   const [adding, setAdding] = React.useState(false);
   const [settingsFor, setSettingsFor] = React.useState<string | null>(null);
@@ -70,7 +76,10 @@ export function Sidebar({ onOpenAgent }: { onOpenAgent: (agentId: string) => voi
   };
 
   return (
-    <aside className="flex w-[196px] shrink-0 flex-col border-r border-border bg-bg">
+    <aside
+      className="flex shrink-0 flex-col border-r border-border bg-bg"
+      style={{ width: width ? `${width}px` : '196px' }}
+    >
       <div className="flex items-center gap-1 px-2 py-2">
         <span className="text-[10.5px] uppercase tracking-wide text-faint">Projets</span>
         <Tooltip label="Ajouter ou créer un projet">

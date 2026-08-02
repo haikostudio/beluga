@@ -57,9 +57,11 @@ async function main(): Promise<void> {
   // Boucles de fond
   const scheduler = startScheduler();
   const capacityTimer = setInterval(sampleCapacity, 30_000);
+  // Toutes les dix minutes : assez pour suivre la consommation, assez peu pour
+  // ne pas se faire refuser les lectures par excès d'appels.
   const quotaTimer = setInterval(() => {
     void refreshQuotas(true).then((quotas) => bus.emit({ type: 'quotas', quotas }));
-  }, 120_000);
+  }, 600_000);
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
   const janitorTimer = setInterval(

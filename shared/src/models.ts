@@ -32,6 +32,8 @@ export const ModelInfo = z.object({
   thinking: z.array(ThinkingOption).default([]),
   defaultThinking: z.string().optional(),
   contextWindow: z.number().optional(),
+  /** Date de sortie annoncée par le moteur : sert à classer du plus récent au plus ancien. */
+  releasedAt: z.number().optional(),
   note: z.string().optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;

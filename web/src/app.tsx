@@ -9,6 +9,7 @@ import { CardPanel } from '@/components/card-panel';
 import { AgentDock } from '@/components/agent-dock';
 import { SettingsView } from '@/components/settings-view';
 import { Chat } from '@/components/chat';
+import { useResizable, ResizeHandle } from '@/components/resizer';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,10 @@ export function App() {
   const [rightOpen, setRightOpen] = React.useState(() => window.innerWidth >= 1100);
   const [mobileView, setMobileView] = React.useState<'board' | 'chat'>('board');
   const [dropTarget, setDropTarget] = React.useState(false);
+
+  // Largeurs des deux panneaux, retenues d'une session à l'autre.
+  const gauche = useResizable('sidebar', { initial: 196, min: 150, max: 420 });
+  const droite = useResizable('panel', { initial: 360, min: 280, max: 720 });
 
   React.useEffect(() => {
     client.connect();
@@ -137,8 +142,13 @@ export function App() {
 
         <div className="flex min-h-0 flex-1">
           <div className="hidden sm:flex">
-            <Sidebar onOpenAgent={setOpenAgentId} />
+            <Sidebar onOpenAgent={setOpenAgentId} width={gauche.width} />
           </div>
+          <ResizeHandle
+            className="hidden sm:block"
+            onPointerDown={(event) => gauche.start(event, 'left')}
+            onDoubleClick={gauche.reset}
+          />
 
           <main className={cn('flex min-w-0 flex-1 flex-col', mobileView === 'chat' && 'hidden sm:flex')}>
             {activeProject ? (
@@ -153,9 +163,19 @@ export function App() {
           </main>
 
           {activeProject && rightOpen ? (
-            <aside className="hidden w-[360px] shrink-0 border-l border-border lg:flex lg:flex-col">
-              <RightPanel projectId={activeProject.id} />
-            </aside>
+            <>
+              <ResizeHandle
+                className="hidden lg:block"
+                onPointerDown={(event) => droite.start(event, 'right')}
+                onDoubleClick={droite.reset}
+              />
+              <aside
+                className="hidden shrink-0 border-l border-border lg:flex lg:flex-col"
+                style={{ width: `${droite.width}px` }}
+              >
+                <RightPanel projectId={activeProject.id} />
+              </aside>
+            </>
           ) : null}
 
           {/* Sur téléphone, la conversation prend toute la place */}

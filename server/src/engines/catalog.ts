@@ -32,6 +32,23 @@ const DESCRIPTIONS: Record<string, string> = {
   max: 'Réflexion maximale, la plus lente et la plus coûteuse',
 };
 
+/**
+ * Classe les modèles du plus récent au plus ancien : par date de sortie quand
+ * le moteur la donne, sinon par numéro de version lu dans le nom.
+ */
+function versionOf(model: { id: string; label: string }): number {
+  const match = `${model.label} ${model.id}`.match(/(\d+)[.\-_](\d+)/);
+  if (!match) return 0;
+  return Number(match[1]) * 1000 + Number(match[2]);
+}
+
+function byRecency(a: ModelInfo, b: ModelInfo): number {
+  if (a.releasedAt && b.releasedAt) return b.releasedAt - a.releasedAt;
+  const versions = versionOf(b) - versionOf(a);
+  if (versions !== 0) return versions;
+  return a.label.localeCompare(b.label);
+}
+
 function niveau(id: string, description?: string): ThinkingOption {
   return {
     id,
@@ -86,6 +103,7 @@ export async function claudeCatalog(): Promise<{ models: ModelInfo[]; live: bool
           if (effort[key]?.supported) niveaux.push(niveau(key));
         }
       }
+      const sortie = entry.created_at ? new Date(entry.created_at).getTime() : undefined;
       return ModelInfo.parse({
         id: entry.id,
         label: entry.display_name ?? entry.id,
@@ -93,11 +111,12 @@ export async function claudeCatalog(): Promise<{ models: ModelInfo[]; live: bool
         thinking: niveaux,
         defaultThinking: 'none',
         contextWindow: entry.max_input_tokens ?? undefined,
+        releasedAt: Number.isFinite(sortie) ? sortie : undefined,
       });
     });
 
-    // Le plus récent en premier, comme dans le reste de l'application.
-    models.sort((a, b) => a.label.localeCompare(b.label));
+    // Le plus RÉCENT en haut, le plus ancien en bas — jamais l'ordre alphabétique.
+    models.sort(byRecency);
     return { models, live: true };
   } catch (err: any) {
     log.warn('catalogue Claude indisponible, repli local', err?.message ?? err);
@@ -162,7 +181,26 @@ export async function codexCatalog(version: string): Promise<{ models: ModelInfo
         contextWindow: entry.context_window ?? undefined,
       });
     });
-    return { models, live: true };
+
+    // Codex n'annonce pas de date de sortie : le numéro de version fait foi.
+    models.sort(byRecency);
+
+    // Le catalogue contient des entrées internes qui portent le même nom qu'un
+    // modèle proposé : on n'en garde qu'une, celle dont l'identifiant colle au nom.
+    const parNom = new Map<string, ModelInfo>();
+    for (const model of models) {
+      const existant = parNom.get(model.label);
+      if (!existant) {
+        parNom.set(model.label, model);
+        continue;
+      }
+      const colle = (m: ModelInfo) => m.id.toLowerCase().includes(m.label.toLowerCase().replace(/[^a-z0-9]/gi, ''));
+      const naturel = (m: ModelInfo) =>
+        m.label.toLowerCase().replace(/[^a-z0-9]/gi, '') === m.id.toLowerCase().replace(/[^a-z0-9]/gi, '');
+      if (naturel(model) || (colle(model) && !colle(existant))) parNom.set(model.label, model);
+    }
+
+    return { models: [...parNom.values()], live: true };
   } catch (err: any) {
     log.warn('catalogue Codex indisponible, repli local', err?.message ?? err);
     return { models: codexFallback(), live: false };

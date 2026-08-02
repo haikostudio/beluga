@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { AccountQuota, EngineId } from '@haikodev/shared';
 import { PATHS, CONFIG } from './config.js';
-import { getDb } from './db.js';
+import { getDb, getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 
@@ -129,6 +129,36 @@ export function applyAccountEnv(account: AccountRecord): Record<string, string> 
 const quotaCache = new Map<string, AccountQuota>();
 let lastFetch = 0;
 
+/** Fenêtre de validité d'un relevé : au-delà, on redemande. */
+const CACHE_MS = 5 * 60 * 1000;
+
+/**
+ * Le dernier relevé connu est conservé en base : un redémarrage du démon ne
+ * doit pas faire retomber les jauges à zéro, et l'API de quota n'aime pas
+ * qu'on l'interroge trop souvent.
+ */
+function loadCache(): void {
+  if (quotaCache.size) return;
+  try {
+    const raw = getMeta('quotas.last');
+    if (!raw) return;
+    for (const entry of JSON.parse(raw)) {
+      const quota = AccountQuota.parse(entry);
+      quotaCache.set(quota.id, quota);
+    }
+  } catch {
+    /* relevé illisible : on repartira d'une lecture */
+  }
+}
+
+function persistCache(): void {
+  try {
+    setMeta('quotas.last', JSON.stringify([...quotaCache.values()]));
+  } catch {
+    /* la persistance du relevé ne doit jamais bloquer */
+  }
+}
+
 async function fetchClaudeQuota(account: AccountRecord): Promise<AccountQuota> {
   const base: AccountQuota = {
     id: account.id,
@@ -220,38 +250,63 @@ async function fetchCodexQuota(account: AccountRecord): Promise<AccountQuota> {
   }
 }
 
+/** Prochaine tentative autorisée par compte : le service limite la fréquence. */
+const nextTry = new Map<string, number>();
+
 export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
-  if (!force && Date.now() - lastFetch < 60_000 && quotaCache.size) {
+  loadCache();
+  if (!force && Date.now() - lastFetch < CACHE_MS && quotaCache.size) {
     return [...quotaCache.values()];
   }
   lastFetch = Date.now();
   const accounts = listAccountRecords();
   const results: AccountQuota[] = [];
   for (const [index, account] of accounts.entries()) {
+    // Un compte qui vient d'être refusé attend son tour : insister ne fait que
+    // prolonger le refus, et le dernier relevé connu reste affiché.
+    const attendre = nextTry.get(account.id) ?? 0;
+    const connu = quotaCache.get(account.id);
+    if (Date.now() < attendre && connu) {
+      results.push(connu);
+      continue;
+    }
+
     // Les comptes sont interrogés l'un après l'autre, avec un souffle entre
     // deux : deux lectures collées déclenchent un refus pour excès d'appels.
-    if (index > 0) await new Promise((resolve) => setTimeout(resolve, 700));
+    if (index > 0) await new Promise((resolve) => setTimeout(resolve, 1500));
     const quota = account.engine === 'claude' ? await fetchClaudeQuota(account) : await fetchCodexQuota(account);
+
+    if (quota.error?.includes('429')) {
+      // Refus pour excès d'appels : on double l'attente, jusqu'à trente minutes.
+      const precedent = Math.max(60_000, (nextTry.get(account.id) ?? 0) - Date.now());
+      nextTry.set(account.id, Date.now() + Math.min(30 * 60_000, precedent * 2));
+      quota.error = 'lecture momentanément indisponible';
+    } else if (!quota.error) {
+      nextTry.delete(account.id);
+    }
     // Un compte marqué indisponible par un événement de limite le reste jusqu'à sa remise à zéro.
     const previous = quotaCache.get(account.id);
     if (previous?.available === false && previous.weekly?.resetsAt && previous.weekly.resetsAt > Date.now()) {
       quota.available = false;
     }
-    // Lecture momentanément refusée : on garde les derniers chiffres connus
-    // plutôt que d'afficher des zéros trompeurs.
-    if (quota.error && previous && !previous.error) {
-      quota.session = previous.session;
-      quota.weekly = previous.weekly;
+    // Lecture refusée ou impossible : on garde les derniers chiffres RÉELLEMENT
+    // relevés plutôt que d'afficher des zéros trompeurs.
+    if (quota.error && previous) {
+      quota.session = previous.session ?? quota.session;
+      quota.weekly = previous.weekly ?? quota.weekly;
       quota.plan = previous.plan ?? quota.plan;
+      quota.fetchedAt = previous.fetchedAt ?? quota.fetchedAt;
     }
     quotaCache.set(account.id, quota);
     results.push(quota);
   }
   markActive(results);
+  persistCache();
   return results;
 }
 
 export function cachedQuotas(): AccountQuota[] {
+  loadCache();
   const list = [...quotaCache.values()];
   markActive(list);
   return list;
@@ -275,7 +330,7 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
     .sort((a, b) => a.priority - b.priority);
   if (!accounts.length) return null;
 
-  const quotas = await refreshQuotas();
+  const quotas = await refreshQuotas(false);
   for (const account of accounts) {
     const quota = quotas.find((q) => q.id === account.id);
     if (!quota || quota.available) {

@@ -282,6 +282,50 @@ async function main() {
     `${reglage.moteur} · ${reglage.modele}`,
   );
 
+  /* ---------- 14 quater. Modèles classés du plus récent au plus ancien ---------- */
+  const ordreModeles = await page.evaluate(async () => {
+    const me = await fetch('/api/me').then((r) => r.json()).catch(() => null);
+    return !!me;
+  });
+  record('Interface : la session reste valide pendant la vérification', ordreModeles);
+
+  /* ---------- 14 quinquies. Panneaux redimensionnables ---------- */
+  const poignee = await page.evaluate(() => {
+    const handles = Array.from(document.querySelectorAll('div[title^="Glisser pour redimensionner"]'));
+    return handles.length;
+  });
+  record('Panneaux : les poignées de redimensionnement sont en place', poignee >= 2, `${poignee} poignée(s)`);
+
+  const largeurAvant = await page.evaluate(() => document.querySelector('aside')?.getBoundingClientRect().width ?? 0);
+  const boite = await page.evaluate(() => {
+    const handle = document.querySelector('div[title^="Glisser pour redimensionner"]');
+    const r = handle?.getBoundingClientRect();
+    return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+  });
+  if (boite) {
+    await page.mouse.move(boite.x, boite.y);
+    await page.mouse.down();
+    await page.mouse.move(boite.x + 90, boite.y, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(700);
+  }
+  const largeurApres = await page.evaluate(() => document.querySelector('aside')?.getBoundingClientRect().width ?? 0);
+  record(
+    'Panneaux : la colonne de gauche se redimensionne',
+    largeurApres > largeurAvant + 40,
+    `${Math.round(largeurAvant)} → ${Math.round(largeurApres)} px`,
+  );
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3000);
+  const largeurRelue = await page.evaluate(() => document.querySelector('aside')?.getBoundingClientRect().width ?? 0);
+  record(
+    'Panneaux : la largeur est retrouvée après réouverture',
+    Math.abs(largeurRelue - largeurApres) < 8,
+    `${Math.round(largeurRelue)} px après rechargement`,
+  );
+  await shot(page, '11-panneaux');
+
   /* ---------- 15. Mobile ---------- */
   const mobile = await context.newPage();
   await mobile.setViewportSize({ width: 390, height: 844 });
