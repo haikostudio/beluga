@@ -27,14 +27,28 @@ interface Options {
   resolve: (element: Element, y: number) => DropTarget | null;
   /** Appelé au relâchement, avec la dernière cible valide. */
   onDrop: (item: DragItem, target: DropTarget | null) => void;
+  /**
+   * Au doigt, le glissement ne démarre qu'après un appui maintenu : sinon on ne
+   * pourrait plus faire défiler la page en partant d'un élément déplaçable.
+   * À la souris, il démarre au premier mouvement.
+   */
+  holdMs?: number;
 }
 
-export function usePointerDrag({ resolve, onDrop }: Options) {
+export function usePointerDrag({ resolve, onDrop, holdMs = 0 }: Options) {
   const [dragging, setDragging] = React.useState<DragItem | null>(null);
   const [target, setTarget] = React.useState<DropTarget | null>(null);
   const [pointer, setPointer] = React.useState<{ x: number; y: number } | null>(null);
 
-  const state = React.useRef<{ item: DragItem; started: boolean; originY: number } | null>(null);
+  const state = React.useRef<{
+    item: DragItem;
+    started: boolean;
+    originX: number;
+    originY: number;
+    /** Vrai tant que l'appui maintenu n'a pas abouti (doigt uniquement). */
+    attenteAppui: boolean;
+    minuteur?: number;
+  } | null>(null);
   const targetRef = React.useRef<DropTarget | null>(null);
 
   React.useEffect(() => {
@@ -42,10 +56,24 @@ export function usePointerDrag({ resolve, onDrop }: Options) {
       const current = state.current;
       if (!current) return;
 
+      const ecart = Math.max(
+        Math.abs(event.clientX - current.originX),
+        Math.abs(event.clientY - current.originY),
+      );
+
+      // Doigt : bouger avant la fin de l'appui maintenu = on voulait défiler.
+      if (current.attenteAppui) {
+        if (ecart > 8) {
+          window.clearTimeout(current.minuteur);
+          state.current = null;
+        }
+        return;
+      }
+
       // Quelques pixels avant de considérer que c'est un glissement : sinon un
       // simple clic déclencherait un déplacement.
       if (!current.started) {
-        if (Math.abs(event.clientY - current.originY) < 5) return;
+        if (ecart < 5) return;
         current.started = true;
         setDragging(current.item);
         document.body.style.cursor = 'grabbing';
@@ -64,6 +92,7 @@ export function usePointerDrag({ resolve, onDrop }: Options) {
 
     const up = () => {
       const current = state.current;
+      if (current?.minuteur) window.clearTimeout(current.minuteur);
       state.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -80,20 +109,47 @@ export function usePointerDrag({ resolve, onDrop }: Options) {
       onDrop(current.item, cible);
     };
 
+    // Pendant un glissement au doigt, on empêche la page de défiler sous lui.
+    const touche = (event: TouchEvent) => {
+      if (state.current?.started) event.preventDefault();
+    };
+
     window.addEventListener('pointermove', move, { passive: false });
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
+    window.addEventListener('touchmove', touche, { passive: false });
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      window.removeEventListener('touchmove', touche);
     };
   }, [resolve, onDrop]);
 
   const start = (event: React.PointerEvent, item: DragItem) => {
     // Seul le bouton principal démarre un glissement.
     if (event.button !== 0) return;
-    state.current = { item, started: false, originY: event.clientY };
+    const doigt = event.pointerType !== 'mouse' && holdMs > 0;
+    const entree = {
+      item,
+      started: false,
+      originX: event.clientX,
+      originY: event.clientY,
+      attenteAppui: doigt,
+      minuteur: undefined as number | undefined,
+    };
+    if (doigt) {
+      entree.minuteur = window.setTimeout(() => {
+        if (state.current !== entree) return;
+        entree.attenteAppui = false;
+        entree.started = true;
+        setDragging(entree.item);
+        setPointer({ x: entree.originX, y: entree.originY });
+        // Petite vibration : on sent que la carte s'est décrochée.
+        navigator.vibrate?.(10);
+      }, holdMs);
+    }
+    state.current = entree;
   };
 
   return { dragging, target, pointer, start };

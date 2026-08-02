@@ -194,6 +194,36 @@ export function Drawer({
   children: React.ReactNode;
   className?: string;
 }) {
+  /*
+   * Le tiroir se referme en le tirant vers le bas, comme une vraie feuille :
+   * on suit le doigt, et on ne referme que si le geste est franc.
+   */
+  const [decalage, setDecalage] = React.useState(0);
+  const depart = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (open) setDecalage(0);
+  }, [open]);
+
+  const poignee = {
+    onPointerDown: (event: React.PointerEvent) => {
+      depart.current = event.clientY;
+      (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      if (depart.current === null) return;
+      setDecalage(Math.max(0, event.clientY - depart.current));
+    },
+    onPointerUp: () => {
+      if (depart.current === null) return;
+      depart.current = null;
+      setDecalage((valeur) => {
+        if (valeur > 110) onClose();
+        return 0;
+      });
+    },
+  };
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
@@ -204,10 +234,18 @@ export function Drawer({
             'data-[state=open]:animate-slide-up',
             className,
           )}
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          style={{
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            transform: decalage ? `translateY(${decalage}px)` : undefined,
+            transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
+          }}
         >
-          {/* La poignée : on comprend d'un coup d'œil que ça se referme vers le bas. */}
-          <div className="flex justify-center py-2">
+          {/* La poignée : on la tire vers le bas pour refermer. */}
+          <div
+            {...poignee}
+            onPointerCancel={poignee.onPointerUp}
+            className="flex shrink-0 cursor-grab touch-none justify-center py-3 active:cursor-grabbing"
+          >
             <DialogPrimitive.Close className="h-1 w-10 rounded-full bg-border transition-colors hover:bg-muted" />
           </div>
           {children}

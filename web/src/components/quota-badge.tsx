@@ -106,7 +106,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                 strokeDasharray={dash}
               />
             </svg>
-            <span className="relative text-[10px] font-semibold text-text">{Math.round(pct)}</span>
+            <span className="relative text-[8.5px] font-medium leading-none text-text">{Math.round(pct)}</span>
           </span>
           <span className="hidden max-w-[86px] truncate sm:inline">{current?.label ?? 'quotas'}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />

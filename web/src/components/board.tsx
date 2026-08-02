@@ -3,6 +3,7 @@ import { Plus, Rocket, Clock, AlertTriangle, Bot, CircleDollarSign, GitBranch, L
 import { COLUMN_KEYS, COLUMN_LABELS, Card, ColumnKey, canMove } from '@haikodev/shared';
 import { Badge, Button, Dot, Input, Textarea, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
+import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, relativeTime } from '@/lib/utils';
 import { DeployPanel } from '@/components/deploy-panel';
@@ -15,8 +16,6 @@ export function Board({
   onOpenCard: (cardId: string) => void;
 }) {
   const state = useApp();
-  const [dragging, setDragging] = React.useState<Card | null>(null);
-  const [over, setOver] = React.useState<ColumnKey | null>(null);
 
   const cards = React.useMemo(
     () =>
@@ -38,10 +37,20 @@ export function Board({
     if (cible) rail.current!.scrollLeft = cible.offsetLeft - 12;
   }, [projectId]);
 
-  const drop = (column: ColumnKey) => {
-    setOver(null);
-    const card = dragging;
-    setDragging(null);
+  /*
+   * Le déplacement se fait AU POINTEUR, jamais avec le glisser-déposer natif :
+   * le natif ignore le doigt. Au doigt, il faut un appui maintenu, sinon on ne
+   * pourrait plus faire défiler le tableau en partant d'une carte.
+   */
+  const resolve = React.useCallback((element: Element): DropTarget | null => {
+    const colonne = element.closest('[data-column]')?.getAttribute('data-column');
+    return colonne ? { id: colonne, kind: 'column', position: 'inside' } : null;
+  }, []);
+
+  const deposer = React.useCallback((item: DragItem, cible: DropTarget | null) => {
+    if (!cible) return;
+    const card = client.getSnapshot().cards[item.id];
+    const column = cible.id as ColumnKey;
     if (!card || card.column === column) return;
     const decision = canMove('user', card.column, column);
     if (!decision.allowed) {
@@ -49,27 +58,39 @@ export function Board({
       return;
     }
     void client.moveCard(card, column);
-  };
+  }, []);
+
+  const { dragging, target, pointer, start } = usePointerDrag({ resolve, onDrop: deposer, holdMs: 260 });
+  const carteTiree = dragging ? cards.find((card) => card.id === dragging.id) : null;
+  const over = (target?.id ?? null) as ColumnKey | null;
+
+  // Le tableau suit : en approchant du bord, les colonnes défilent toutes seules.
+  React.useEffect(() => {
+    if (!dragging || !pointer) return;
+    const zone = 70;
+    const timer = window.setInterval(() => {
+      const node = rail.current;
+      if (!node) return;
+      const boite = node.getBoundingClientRect();
+      if (pointer.x < boite.left + zone) node.scrollLeft -= 14;
+      else if (pointer.x > boite.right - zone) node.scrollLeft += 14;
+    }, 16);
+    return () => window.clearInterval(timer);
+  }, [dragging, pointer]);
 
   return (
     <div ref={rail} className="flex h-full min-h-0 gap-2.5 overflow-x-auto px-3 py-3 snap-columns">
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
-        const allowed = !dragging || canMove('user', dragging.column, column).allowed;
+        const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
         return (
           <div
             key={column}
             data-column={column}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setOver(column);
-            }}
-            onDragLeave={() => setOver((current) => (current === column ? null : current))}
-            onDrop={() => drop(column)}
             className={cn(
               'flex w-[268px] shrink-0 flex-col rounded-lg border bg-surface/70 transition-colors',
               over === column && allowed ? 'border-muted bg-surface' : 'border-border/60',
-              dragging && !allowed && 'opacity-40',
+              carteTiree && !allowed && 'opacity-40',
             )}
           >
             <div className="relative flex items-center gap-1.5 border-b border-border/50 px-2 py-1.5">
@@ -88,11 +109,8 @@ export function Board({
                   key={card.id}
                   card={card}
                   onOpen={() => onOpenCard(card.id)}
-                  onDragStart={() => setDragging(card)}
-                  onDragEnd={() => {
-                    setDragging(null);
-                    setOver(null);
-                  }}
+                  onPointerDown={(event) => start(event, { id: card.id, kind: 'card', label: card.title })}
+                  dimmed={dragging?.id === card.id}
                 />
               ))}
               {!columnCards.length ? (
@@ -110,6 +128,16 @@ export function Board({
           </div>
         );
       })}
+
+      {/* L'aperçu suit le doigt : on voit ce qu'on déplace et où on le pose. */}
+      {dragging && pointer ? (
+        <div
+          className="pointer-events-none fixed z-50 max-w-[240px] rounded-md border border-muted bg-raised px-2.5 py-2 text-[14px] font-medium text-text shadow-2xl"
+          style={{ left: pointer.x + 12, top: pointer.y - 18 }}
+        >
+          {dragging.label}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -194,13 +222,13 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
 export function CardTile({
   card,
   onOpen,
-  onDragStart,
-  onDragEnd,
+  onPointerDown,
+  dimmed,
 }: {
   card: Card;
   onOpen: () => void;
-  onDragStart?: () => void;
-  onDragEnd?: () => void;
+  onPointerDown?: (event: React.PointerEvent) => void;
+  dimmed?: boolean;
 }) {
   const state = useApp();
   const agent = card.agentId ? state.agents[card.agentId] : null;
@@ -222,68 +250,67 @@ export function CardTile({
         }
       : null;
 
-  return (
-    <article
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={onOpen}
-      className="cursor-pointer rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint"
-    >
-      <div className="flex items-start gap-1.5">
-        {running || analysing || analyseEnCours ? (
-          <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-success" />
-        ) : (
-          <Dot
-            tone={
-              agent?.status === 'failed'
-                ? 'failed'
-                : waiting
-                  ? 'waiting'
-                  : card.deployedAt
-                    ? 'done'
-                    : 'idle'
+  /*
+   * L'état en cours ne s'affiche PAS dans le corps de la carte : il sort par le
+   * bas, comme une étiquette glissée derrière, sur un fond un peu plus clair.
+   */
+  const statut =
+    analysing || analyseEnCours
+      ? { icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, texte: 'Analyse en cours — chiffrage du travail…', ton: 'text-muted' }
+      : waiting
+        ? { icon: <Clock className="mt-[1px] h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
+        : estimateFailed
+          ? {
+              icon: <AlertTriangle className="mt-[1px] h-2.5 w-2.5 shrink-0" />,
+              texte: card.estimate?.failureReason ?? 'analyse sans chiffres',
+              ton: 'text-danger',
             }
-          />
+          : null;
+
+  return (
+    <div className={cn('relative', dimmed && 'opacity-40')}>
+      <article
+        onPointerDown={onPointerDown}
+        onClick={onOpen}
+        className={cn(
+          'relative z-10 cursor-pointer touch-manipulation select-none rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint',
+          statut && 'rounded-b-none',
         )}
-        <h3 className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{card.title}</h3>
-        {card.origin === 'agent' ? (
-          <Tooltip label="Créée par le chef d'orchestre">
-            <Bot className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
-          </Tooltip>
-        ) : null}
-      </div>
-
-      {card.labels.length ? (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {card.labels.slice(0, 3).map((label) => (
-            <Badge key={label}>{label}</Badge>
-          ))}
+      >
+        <div className="flex items-start gap-1.5">
+          <h3 className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{card.title}</h3>
+          {card.origin === 'agent' ? (
+            <Tooltip label="Créée par le chef d'orchestre">
+              <Bot className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
+            </Tooltip>
+          ) : null}
+          {/* Le voyant est à DROITE, au bout de la ligne du titre. */}
+          {running || analysing || analyseEnCours ? (
+            <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-success" />
+          ) : (
+            <Dot
+              tone={
+                agent?.status === 'failed'
+                  ? 'failed'
+                  : waiting
+                    ? 'waiting'
+                    : card.deployedAt
+                      ? 'done'
+                      : 'idle'
+              }
+            />
+          )}
         </div>
-      ) : null}
 
-      {analysing || analyseEnCours ? (
-        <p className="mt-1.5 flex items-center gap-1 text-[12.5px] text-muted">
-          <Loader2 className="h-2.5 w-2.5 animate-spin" />
-          Analyse en cours — chiffrage du travail…
-        </p>
-      ) : null}
+        {card.labels.length ? (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {card.labels.slice(0, 3).map((label) => (
+              <Badge key={label}>{label}</Badge>
+            ))}
+          </div>
+        ) : null}
 
-      {waiting ? (
-        <p className="mt-1.5 flex items-start gap-1 text-[12.5px] leading-snug text-warning">
-          <Clock className="mt-[1px] h-2.5 w-2.5 shrink-0" />
-          {waiting}
-        </p>
-      ) : null}
-
-      {estimateFailed ? (
-        <p className="mt-1.5 flex items-start gap-1 text-[12.5px] leading-snug text-danger">
-          <AlertTriangle className="mt-[1px] h-2.5 w-2.5 shrink-0" />
-          {card.estimate?.failureReason ?? 'analyse sans chiffres'}
-        </p>
-      ) : null}
-
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-faint">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-faint">
         {card.estimate?.machineSeconds ? (
           <Tooltip label="Durée machine annoncée par l'analyse">
             <span className="inline-flex items-center gap-0.5">
@@ -331,8 +358,26 @@ export function CardTile({
           </Tooltip>
         ) : null}
 
-        <span className="ml-auto">{relativeTime(card.updatedAt)}</span>
-      </div>
-    </article>
+          <span className="ml-auto">{relativeTime(card.updatedAt)}</span>
+        </div>
+      </article>
+
+      {statut ? (
+        <div
+          onClick={onOpen}
+          className={cn(
+            // Décalée de quelques pixels : on dirait une étiquette glissée
+            // derrière la carte, qui dépasse par le bas.
+            'relative -mt-1 mx-1.5 cursor-pointer rounded-b-md border border-t-0 border-border bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-snug',
+            statut.ton,
+          )}
+        >
+          <span className="flex items-start gap-1">
+            {statut.icon}
+            {statut.texte}
+          </span>
+        </div>
+      ) : null}
+    </div>
   );
 }

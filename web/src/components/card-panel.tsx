@@ -57,7 +57,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="border-b border-border px-4 pb-3">
+      <header className="shrink-0 border-b border-border px-4 pb-3">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <DialogTitle className="pr-6 leading-snug">{card.title}</DialogTitle>
@@ -76,7 +76,56 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           </div>
         </div>
 
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <ConfirmDialog
+          open={confirmSuppression}
+          title={`Supprimer « ${card.title} » ?`}
+          description="La carte et sa conversation partent définitivement. Le travail déjà fait dans le projet, lui, reste."
+          confirmLabel="Supprimer la carte"
+          danger
+          onConfirm={async () => {
+            await client.call({ type: 'card.delete', id: card.id });
+            onClose();
+          }}
+          onClose={() => setConfirmSuppression(false)}
+        />
+      </header>
+
+      <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b border-border px-4 py-2">
+          <TabsList>
+            <TabsTrigger value="details">Détails</TabsTrigger>
+            <TabsTrigger value="billing">Facturation</TabsTrigger>
+            <TabsTrigger value="github">GitHub</TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="details" className="min-h-0 flex-1 data-[state=inactive]:hidden">
+          <div className="flex h-full min-h-0 flex-col">
+            <CardSummary card={card} />
+            {agent ? (
+              <div className="min-h-0 flex-1 border-t border-border">
+                <Chat agent={agent} projectId={card.projectId} />
+              </div>
+            ) : (
+              <div className="border-t border-border px-4 py-4 text-[14px] text-faint">
+                Aucun agent n'a encore travaillé sur cette carte.
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="billing" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
+          <BillingTab card={card} rate={project?.billing?.hourlyRate ?? 130} project={project} />
+        </TabsContent>
+
+        <TabsContent value="github" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
+          <GithubTab card={card} />
+        </TabsContent>
+      </Tabs>
+
+      {/* Les gestes de décision restent en bas, toujours à portée de pouce. */}
+      <footer className="shrink-0 border-t border-border bg-bg px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {card.column === 'todo' ? (
             <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'validated')}>
               <Check className="h-3 w-3" /> Valider (autorise la dépense)
@@ -128,53 +177,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
             <Trash2 className="h-3 w-3" /> Supprimer
           </Button>
         </div>
-
-        <ConfirmDialog
-          open={confirmSuppression}
-          title={`Supprimer « ${card.title} » ?`}
-          description="La carte et sa conversation partent définitivement. Le travail déjà fait dans le projet, lui, reste."
-          confirmLabel="Supprimer la carte"
-          danger
-          onConfirm={async () => {
-            await client.call({ type: 'card.delete', id: card.id });
-            onClose();
-          }}
-          onClose={() => setConfirmSuppression(false)}
-        />
-      </header>
-
-      <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col">
-        <div className="border-b border-border px-4 py-2">
-          <TabsList>
-            <TabsTrigger value="details">Détails</TabsTrigger>
-            <TabsTrigger value="billing">Facturation</TabsTrigger>
-            <TabsTrigger value="github">GitHub</TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="details" className="min-h-0 flex-1 data-[state=inactive]:hidden">
-          <div className="flex h-full min-h-0 flex-col">
-            <CardSummary card={card} />
-            {agent ? (
-              <div className="min-h-0 flex-1 border-t border-border">
-                <Chat agent={agent} projectId={card.projectId} />
-              </div>
-            ) : (
-              <div className="border-t border-border px-4 py-4 text-[14px] text-faint">
-                Aucun agent n'a encore travaillé sur cette carte.
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="billing" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
-          <BillingTab card={card} rate={project?.billing?.hourlyRate ?? 130} project={project} />
-        </TabsContent>
-
-        <TabsContent value="github" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
-          <GithubTab card={card} />
-        </TabsContent>
-      </Tabs>
+      </footer>
     </div>
   );
 }
