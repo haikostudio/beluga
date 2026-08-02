@@ -51,3 +51,5 @@ node scripts/verify-agents2.mjs             # chef d'orchestre, dictée, file, r
 ```
 
 Les trois scripts de vérification demandent `HAIKODEV_USER` et `HAIKODEV_PASSWORD`.
+
+<!-- essai de suivi GitHub -->
