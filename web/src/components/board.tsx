@@ -8,6 +8,7 @@ import {
   canMove,
   cleColonneTableau,
   colonneAReprendre,
+  etatVisuelCarte,
 } from '@haikodev/shared';
 import { Badge, Button, Dot, Input, Textarea, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -398,7 +399,6 @@ export function CardTile({
 }) {
   const state = useApp();
   const agent = card.agentId ? state.agents[card.agentId] : null;
-  const running = agent?.status === 'running';
   const waiting = card.scheduling?.waitingReason;
   const estimateFailed = card.estimate?.failed;
   // Entre la validation et le chiffrage, la carte doit montrer qu'il se passe
@@ -425,6 +425,20 @@ export function CardTile({
               ton: 'text-danger',
             }
           : null;
+
+  /*
+   * Le voyant du titre : une seule règle, partagée et testée. Elle distingue
+   * « ça travaille » de « c'est rendu, il ne manque que votre clôture » —
+   * un point gris ne disait pas la différence.
+   */
+  const etat = etatVisuelCarte({
+    agentStatut: agent?.status,
+    analyseEnCours,
+    chiffrageEnCours: analysing,
+    enAttente: !!waiting,
+    estimationEchouee: estimateFailed,
+    enLigne: !!card.deployedAt,
+  });
 
   return (
     <div className={cn('relative', dimmed && 'opacity-40')}>
@@ -477,16 +491,24 @@ export function CardTile({
         <div className="flex items-start gap-1.5">
           <h3 className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{card.title}</h3>
           {/* Le voyant est à DROITE, au bout de la ligne du titre. */}
-          {running || analysing || analyseEnCours ? (
+          {etat === 'travaille' ? (
             <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-success" />
+          ) : etat === 'termine' ? (
+            // La coche verte : l'agent a rendu son travail, la carte attend
+            // votre clôture. Une relance la remplace aussitôt par la roue.
+            <Tooltip label="Travail rendu — la carte attend votre clôture">
+              <span className="mt-[2px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
+                <Check className="h-2.5 w-2.5" strokeWidth={3} />
+              </span>
+            </Tooltip>
           ) : (
             <Dot
               tone={
-                agent?.status === 'failed'
+                etat === 'echec'
                   ? 'failed'
-                  : waiting
+                  : etat === 'attente'
                     ? 'waiting'
-                    : card.deployedAt
+                    : etat === 'enligne'
                       ? 'done'
                       : 'idle'
               }
