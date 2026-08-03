@@ -40,7 +40,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'board_create_card',
     description:
-      "Prépare une carte et l'affiche dans la conversation pour VALIDATION : rien n'entre dans le tableau tant que l'utilisateur n'a pas cliqué. Une fois validée, la carte naît TOUJOURS dans « À faire » — la colonne ne peut pas être choisie. À n'utiliser que pour une demande d'ACTION, jamais pour une question.",
+      "Crée la carte et la LANCE : elle naît dans « À faire », est validée d'office, puis suit le parcours habituel (analyse, chiffrage, exécution). La colonne ne peut pas être choisie. À n'utiliser que pour une demande d'ACTION CLAIRE, jamais pour une question ni pour un cas douteux — le doute passe par propose_task, qui attend le clic de l'utilisateur.",
     inputSchema: {
       type: 'object',
       required: ['title'],
@@ -222,19 +222,38 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
     case 'board_create_card': {
       if (!args.title || typeof args.title !== 'string') return { ok: false, text: 'Un titre est obligatoire.' };
-      // Aucune carte n'entre dans une colonne sans un clic : la carte s'affiche
-      // dans la conversation et attend la validation. Une fois validée, elle
-      // naît TOUJOURS dans « À faire » (invariant 1, PLAN §4).
-      const proposal: TaskProposal = {
-        id: store.newId(),
+      /*
+       * Une demande d'action CLAIRE n'a plus rien à faire valider : l'utilisateur
+       * vient de la formuler. La carte naît donc pour de vrai dans « À faire »,
+       * puis passe aussitôt en « Validé » — et de là, c'est le parcours habituel
+       * qui prend le relais : analyse, chiffrage, exécution, lot à publier.
+       *
+       * Le passage par « À faire » n'est pas décoratif : c'est là que naît toute
+       * carte (invariant 1), et la trace du départ reste lisible sur la carte.
+       * Le doute, lui, garde son clic : c'est l'outil `propose_task`.
+       */
+      const card = lancerCarteDuChef(ctx.projectId, {
         title: args.title,
         description: typeof args.description === 'string' ? args.description : '',
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
-        decision: 'pending',
+      });
+
+      // La carte s'affiche quand même dans la conversation, mais déjà tranchée :
+      // on voit ce qui part, sans avoir à cliquer.
+      const proposal: TaskProposal = {
+        id: store.newId(),
+        title: card.title,
+        description: card.description,
+        labels: card.labels,
+        decision: 'accepted',
+        cardId: card.id,
+        decidedAt: Date.now(),
       };
       return {
         ok: true,
-        text: `Carte présentée pour validation : « ${proposal.title} ». Elle n'entre dans « À faire » qu'après le clic de l'utilisateur.`,
+        text:
+          `Carte « ${card.title} » créée dans « À faire » puis validée d'office : ` +
+          `elle suit maintenant le parcours habituel (analyse, chiffrage, exécution).`,
         proposal,
       };
     }
@@ -398,6 +417,45 @@ export function createCard(
     updatedAt: store.now(),
   });
   return store.saveCard(card);
+}
+
+/** L'étiquette qui dit d'où vient une carte partie sans clic de validation. */
+export const ETIQUETTE_LANCEE_PAR_LE_CHEF = 'lancée par le chef';
+
+/**
+ * La carte d'une demande d'action claire : elle NAÎT dans « À faire », comme
+ * toutes les autres, puis elle est validée dans la foulée.
+ *
+ * Deux gestes distincts, et non un raccourci vers « Validé » : la naissance
+ * dans « À faire » est l'invariant du tableau, et la validation est une
+ * décision — ici prise d'office parce que l'utilisateur vient justement de
+ * demander l'action. L'étiquette garde la trace de ce départ sans clic : sans
+ * elle, on ne saurait plus distinguer une carte validée à la main d'une carte
+ * partie toute seule.
+ */
+export function lancerCarteDuChef(
+  projectId: string,
+  input: { title: string; description?: string; labels?: string[] },
+): Card {
+  const etiquettes = [...(input.labels ?? [])];
+  if (!etiquettes.includes(ETIQUETTE_LANCEE_PAR_LE_CHEF)) etiquettes.push(ETIQUETTE_LANCEE_PAR_LE_CHEF);
+
+  const carte = createCard(projectId, {
+    title: input.title,
+    description: input.description,
+    labels: etiquettes,
+    origin: 'agent',
+  });
+  bus.emit({ type: 'card.upsert', card: carte });
+
+  const validee = store.saveCard({
+    ...carte,
+    column: 'validated' as ColumnKey,
+    position: store.nextPosition(projectId, 'validated'),
+  });
+  bus.emit({ type: 'card.upsert', card: validee });
+  log.info(`carte « ${validee.title} » lancée par le chef d'orchestre (validée d'office)`);
+  return validee;
 }
 
 /* ------------------------------------------------------------------ */

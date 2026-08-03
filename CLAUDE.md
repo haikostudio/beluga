@@ -82,9 +82,11 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
   `HISTORIQUE.md`, `.gitignore`), et enfin l'inscription dans la colonne de gauche. Rien n'est
   écrasé, une étape ratée n'arrête pas les autres et se dit dans le formulaire.
-- Une carte naît toujours dans « À faire » ; seul l'utilisateur la valide, et ce geste seul autorise
-  la dépense. **Une seule exception** : le code enregistré par un agent SANS carte fabrique tout seul
-  sa fiche dans « À déployer » — le travail est déjà fait, il n'y a plus rien à valider.
+- Une carte naît toujours dans « À faire ». **Une demande d'ACTION CLAIRE au chef d'orchestre y naît
+  puis est validée d'office** (`lancerCarteDuChef`, étiquette « lancée par le chef ») : l'utilisateur
+  vient de la formuler, il n'a pas à la valider deux fois — elle suit ensuite le parcours habituel.
+  Le DOUTE garde son clic : il passe par `propose_task`. Autre exception : le code enregistré par un
+  agent SANS carte fabrique tout seul sa fiche dans « À déployer » — le travail est déjà fait.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au
