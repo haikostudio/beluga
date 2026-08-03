@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronRight, Loader2, Rocket, RotateCcw, Square, X, MinusCircle } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, Loader2, Rocket, RotateCcw, Square, X, MinusCircle } from 'lucide-react';
 import { Card, DeployRun, DeployStepKey } from '@haikodev/shared';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -16,6 +16,8 @@ const STEP_LABELS: Record<DeployStepKey, string> = {
   restart: 'Redémarrage du serveur',
 };
 
+type Conflict = { cardId: string; title: string; branch: string; files: string[] };
+
 /**
  * Le bouton qui devient un tableau de bord (PLAN §11). Le compteur dit la
  * VÉRITÉ : exactement les cartes que le run va embarquer.
@@ -27,6 +29,31 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
 
   const embarked = cards.filter((card) => !card.excludedFromDeploy && !card.deployedAt);
   const active = run?.state === 'running';
+
+  /*
+   * Ce qui coincera se sait AVANT de cliquer : on interroge le serveur, qui
+   * fusionne en mémoire sans rien toucher. Relancé quand le lot change ou
+   * qu'une publication se termine.
+   */
+  const [conflicts, setConflicts] = React.useState<Conflict[]>([]);
+  const [busyAgents, setBusyAgents] = React.useState<{ id: string; title: string }[]>([]);
+  const signature = embarked.map((card) => card.id).join(',');
+
+  React.useEffect(() => {
+    if (!signature || active) return;
+    let vivant = true;
+    void client
+      .call({ type: 'deploy.check', projectId })
+      .then((res: any) => {
+        if (!vivant) return;
+        setConflicts(res?.conflicts ?? []);
+        setBusyAgents(res?.busy ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      vivant = false;
+    };
+  }, [projectId, signature, active, run?.state]);
 
   const start = async () => {
     setBusy(true);
@@ -44,16 +71,43 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   return (
     <div className="mb-2 rounded-md border border-border bg-surface p-2">
       {!active ? (
-        <Button
-          variant={embarked.length ? 'default' : 'outline'}
-          size="sm"
-          className="w-full"
-          disabled={!embarked.length || busy}
-          onClick={start}
-        >
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
-          Tout déployer ({embarked.length})
-        </Button>
+        <>
+          <Button
+            variant={embarked.length ? 'default' : 'outline'}
+            size="sm"
+            className="w-full"
+            disabled={!embarked.length || busy || busyAgents.length > 0}
+            onClick={start}
+          >
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
+            Tout déployer ({embarked.length - conflicts.length}
+            {conflicts.length ? `/${embarked.length}` : ''})
+          </Button>
+
+          {busyAgents.length ? (
+            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning">
+              <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
+              <span>
+                Publication en attente : {busyAgents.map((agent) => agent.title).join(', ')} travaille encore dans le
+                dossier.
+              </span>
+            </p>
+          ) : null}
+
+          {conflicts.length ? (
+            <ul className="mt-1.5 space-y-1">
+              {conflicts.map((conflict) => (
+                <li key={conflict.cardId} className="flex items-start gap-1.5 text-[12px] text-warning">
+                  <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+                  <span>
+                    Conflit prévu — « {conflict.title} » sera écartée
+                    {conflict.files.length ? ` (${conflict.files.slice(0, 3).join(', ')})` : ''}.
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
       ) : null}
 
       {run ? <DeployProgress run={run} /> : null}

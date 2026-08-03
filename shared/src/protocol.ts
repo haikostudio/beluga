@@ -165,6 +165,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('deploy.start'), projectId: z.string() }),
   z.object({ type: z.literal('deploy.stop'), runId: z.string() }),
   z.object({ type: z.literal('deploy.retry'), runId: z.string() }),
+  /** Ce qui coincerait si on publiait maintenant — sans rien publier. */
+  z.object({ type: z.literal('deploy.check'), projectId: z.string() }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),

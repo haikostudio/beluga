@@ -9,6 +9,7 @@ import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
+import { createCard } from './tools.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -48,6 +49,101 @@ export function deployableCards(projectId: string): Card[] {
     .listCardsInColumn(projectId, 'to_deploy')
     .filter((card) => !card.excludedFromDeploy && !card.deployedAt)
     .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/* ------------------------------------------------------------------ */
+/* Savoir ce qui coincera AVANT de cliquer (PLAN §11)                  */
+/* ------------------------------------------------------------------ */
+
+export type ConflitPrevu = { cardId: string; title: string; branch: string; files: string[] };
+export type AgentOccupe = { id: string; title: string };
+
+/**
+ * Les agents qui travaillent encore dans le dossier. Le chef d'orchestre ne
+ * compte pas : c'est souvent LUI qui répond au moment où l'on clique.
+ */
+export function agentsOccupes(projectId: string): AgentOccupe[] {
+  return store
+    .listAgents(projectId)
+    .filter((agent) => agent.role !== 'orchestrator')
+    .filter((agent) => agent.status === 'running' || agent.status === 'starting')
+    .map((agent) => ({ id: agent.id, title: agent.title || 'agent sans titre' }));
+}
+
+/**
+ * Lit la réponse de `git merge-tree --write-tree --name-only` : première ligne
+ * l'arbre produit, puis les fichiers en conflit jusqu'à la ligne vide, puis le
+ * récit de la fusion — qui n'est pas une liste de fichiers.
+ */
+export function fichiersEnConflit(sortie: string): string[] {
+  const fichiers: string[] = [];
+  for (const ligne of sortie.split('\n').slice(1)) {
+    if (!ligne.trim()) break;
+    fichiers.push(ligne.trim());
+  }
+  return fichiers;
+}
+
+/**
+ * Ce qui entrerait en conflit si l'on publiait maintenant. `git merge-tree`
+ * fusionne EN MÉMOIRE : ni le dossier de travail ni la branche courante ne
+ * bougent, on peut donc l'appeler pendant qu'un agent écrit.
+ *
+ * C'est une prévision, pas une certitude : les branches sont fusionnées l'une
+ * après l'autre, et une fusion réussie peut en fâcher une suivante.
+ */
+export async function conflitsPrevus(projectId: string): Promise<ConflitPrevu[]> {
+  const project = store.getProject(projectId);
+  if (!project) return [];
+  const cwd = project.path;
+  if (!(await runCommand(cwd, 'git rev-parse --git-dir', 20000)).ok) return [];
+
+  const mainBranch = await mainBranchOf(cwd);
+  const prevus: ConflitPrevu[] = [];
+  for (const card of deployableCards(projectId)) {
+    const branch = card.github?.branch;
+    if (!branch) continue;
+    const exists = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
+    if (!exists.ok || !exists.out.trim()) continue;
+
+    const essai = await runCommand(cwd, `git merge-tree --write-tree --name-only ${mainBranch} ${branch}`, 60000);
+    if (essai.ok) continue;
+
+    const files = fichiersEnConflit(essai.out);
+    // Sans marqueur de conflit ni fichier nommé, l'échec vient d'ailleurs
+    // (branche exotique, git trop ancien) : on ne crie pas au loup.
+    if (!files.length && !essai.out.includes('CONFLICT')) continue;
+    prevus.push({ cardId: card.id, title: card.title, branch, files });
+  }
+  return prevus;
+}
+
+/**
+ * Une branche écartée ne doit pas se perdre dans un journal : elle devient une
+ * carte à part entière, dans « À faire ».
+ */
+function creerCarteDeResolution(projectId: string, card: Card, branch: string, files: string[]): void {
+  const title = `Résoudre le conflit de fusion : ${card.title}`.slice(0, 200);
+  const dejaLa = store
+    .listCards(projectId)
+    .some((autre) => autre.title === title && !autre.doneAt && !autre.deployedAt);
+  if (dejaLa) return;
+
+  const liste = files.length ? files.map((file) => `- ${file}`).join('\n') : '- (fichiers non identifiés)';
+  const nouvelle = createCard(projectId, {
+    title,
+    origin: 'agent',
+    labels: ['conflit', 'publication'],
+    description: [
+      `La branche \`${branch}\` ne se fusionne plus sur la branche principale : elle a été écartée de la publication, et la carte « ${card.title} » est restée dans « À déployer ».`,
+      '',
+      'Fichiers en conflit :',
+      liste,
+      '',
+      'Attendu : fusionner la branche principale dans cette branche, résoudre les conflits en gardant les deux intentions, vérifier que les tests passent, puis relancer la publication.',
+    ].join('\n'),
+  });
+  bus.emit({ type: 'card.upsert', card: nouvelle });
 }
 
 /* ------------------------------------------------------------------ */
@@ -135,6 +231,21 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
     const current = store.latestDeploy(projectId);
     if (current) emit({ ...current, queued: true });
     return { ok: true, error: 'une publication est déjà en cours' };
+  }
+
+  /*
+   * Le dossier de travail est PARTAGÉ. Publier pendant qu'un agent écrit,
+   * c'est embarquer un fichier à moitié écrit ou lui changer de branche sous
+   * les pieds. On refuse, en nommant qui travaille encore.
+   */
+  const occupes = agentsOccupes(projectId);
+  if (occupes.length) {
+    return {
+      ok: false,
+      error: `Un agent travaille encore dans le dossier : ${occupes
+        .map((agent) => agent.title)
+        .join(', ')}. Attendez qu'il ait fini, ou arrêtez-le.`,
+    };
   }
 
   let cards = deployableCards(projectId);
@@ -225,6 +336,7 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
             .filter(Boolean);
           await runCommand(cwd, 'git merge --abort');
           ecartees.add(card.id);
+          creerCarteDeResolution(projectId, card, branch, enConflit);
           mergeLog += `\n${branch} : CONFLIT, carte écartée de cette publication${
             enConflit.length ? ` (${enConflit.join(', ')})` : ''
           }`;

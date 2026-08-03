@@ -23,7 +23,7 @@ import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { analyseCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
-import { deployableCards, startDeploy, stopDeploy, retryDeploy } from './deploy.js';
+import { deployableCards, startDeploy, stopDeploy, retryDeploy, conflitsPrevus, agentsOccupes } from './deploy.js';
 import { archiveCard } from './archive.js';
 import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
@@ -593,6 +593,12 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'deploy.retry':
       return retryDeploy(cmd.runId);
+
+    case 'deploy.check':
+      return {
+        conflicts: await conflitsPrevus(cmd.projectId),
+        busy: agentsOccupes(cmd.projectId),
+      };
 
     /* -------- Fichiers -------- */
 
