@@ -189,14 +189,16 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   const contextParts: string[] = [];
 
   if (nouvelleSession) {
-    // Le briefing (chemin du projet, fichiers d'instructions, mémoire entière)
-    // n'a de sens qu'au premier tour : ensuite l'agent l'a déjà en contexte.
-    contextParts.push(briefing(project.path, project.name, true));
+    // Le briefing (chemin du projet, fichiers d'instructions, index de la
+    // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
+    contextParts.push(briefing(project.path, project.name, true, agent.run.engine));
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
     if (nouveaux.length) {
-      contextParts.push(`MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.join('\n')}`);
+      contextParts.push(
+        `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`,
+      );
       store.setMemorySeen(agent.id, memoryFacts(project.path).length);
     }
   }
@@ -633,7 +635,9 @@ TU ES L'AGENT DE PUBLICATION. Tu exécutes les étapes demandées, dans l'ordre,
   return `${common}
 
 TU ES UN AGENT DE TÂCHE, en ACCÈS COMPLET : tu lis, tu écris, tu exécutes des commandes, tu enregistres et tu pousses sans demander la permission au coup par coup — le consentement a été donné en validant la carte.
-Travaille sur la branche de la carte. À la fin, appelle l'outil « remember » pour ajouter à la mémoire du projet, en une ou deux lignes, ce que tu as changé et ce que tu as appris.`;
+Travaille sur la branche de la carte. À la fin, appelle l'outil « remember » pour ajouter à la mémoire du projet, en une ou deux lignes, ce que tu as changé et ce que tu as appris.
+La mémoire ne retient QUE des règles durables et des pièges : jamais « telle carte livrée le tel jour » — le journal des livraisons est tenu tout seul, ailleurs.
+Si ta tâche a changé une règle durable, une architecture ou une commande, mets aussi à jour le fichier d'instructions du moteur (CLAUDE.md, ou AGENTS.md avec Codex) : court, factuel, sans journal.`;
 }
 
 /* ------------------------------------------------------------------ */

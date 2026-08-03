@@ -24,7 +24,14 @@ const REFERENCE = process.argv[2] ?? 'tache/economiser-le-quota-reponses-plus-co
 const jetons = (texte) => Math.round(texte.length / 4);
 
 function git(...args) {
-  return execFileSync('git', args, { cwd: RACINE, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  return execFileSync('git', args, {
+    cwd: RACINE,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+    // Une référence disparue est un cas prévu : le message de git n'a pas à
+    // s'afficher au milieu du relevé.
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 }
 
 /** La version d'avant, compilée dans un dossier temporaire depuis git. */
@@ -48,16 +55,47 @@ async function chargerAvant() {
   return module;
 }
 
-const avant = await chargerAvant();
 const apres = await import(path.join(RACINE, 'shared/dist/templates.js'));
+
+/*
+ * La branche de référence finit par être fusionnée puis supprimée : dans ce
+ * cas, on ne devine pas ce qu'elle contenait. On mesure alors la seule
+ * différence qu'on peut encore établir — celle du contexte, mémoire comprise —
+ * et on le DIT, au lieu de rendre un chiffre inventé.
+ */
+let avant = apres;
+let gabaritComparable = true;
+try {
+  avant = await chargerAvant();
+} catch {
+  gabaritComparable = false;
+  console.log(
+    `\nLa branche de référence « ${REFERENCE} » n'existe plus : le gabarit de réponse est donc\ncomparé à lui-même. Ce relevé mesure alors ce que le CONTEXTE a cessé d'envoyer.`,
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* La conversation type                                                */
 /* ------------------------------------------------------------------ */
 
+/*
+ * La mémoire compte double dans ce relevé : elle part avec le briefing.
+ *  — AVANT : le fichier ENTIER, journal des livraisons compris.
+ *  — APRÈS : l'index seul (une ligne brève par fait, groupée par sujet), le
+ *    journal ayant déménagé dans HISTORIQUE.md et le détail se demandant.
+ */
 const MEMOIRE = fs.readFileSync(path.join(RACINE, 'MEMOIRE.md'), 'utf8').trim();
-const BRIEFING = `Projet : HaikoDev (dossier ${RACINE}).\n\nFichiers d'instructions présents : README.md.\n\nMÉMOIRE DU PROJET (à connaître avant d'explorer) :\n${MEMOIRE}`;
-const BRIEFING_COURT = `Projet : HaikoDev (dossier ${RACINE}).\n\nFichiers d'instructions présents : README.md.`;
+const HISTORIQUE = fs.existsSync(path.join(RACINE, 'HISTORIQUE.md'))
+  ? fs.readFileSync(path.join(RACINE, 'HISTORIQUE.md'), 'utf8').trim()
+  : '';
+// La mémoire d'avant : les faits ET les livraisons datées, dans le même fichier.
+const MEMOIRE_AVANT = [MEMOIRE, ...HISTORIQUE.split('\n').filter((l) => l.trim().startsWith('- '))].join('\n');
+
+const memory = await import(path.join(RACINE, 'server/dist/memory.js'));
+
+const BRIEFING = `Projet : HaikoDev (dossier ${RACINE}).\n\nFichiers d'instructions présents : README.md.\n\nMÉMOIRE DU PROJET (à connaître avant d'explorer) :\n${MEMOIRE_AVANT}`;
+const BRIEFING_APRES = memory.briefing(RACINE, 'HaikoDev', true);
+const BRIEFING_COURT = `Projet : HaikoDev (dossier ${RACINE}).\n\nFichiers d'instructions présents : CLAUDE.md, README.md.`;
 
 const CARTE = {
   titre: 'Économiser le quota : réponses plus courtes et contexte au strict nécessaire',
@@ -91,8 +129,9 @@ TOURS.forEach((tour, i) => {
   const ctxAvant = [premier ? BRIEFING : BRIEFING_COURT, BLOC_CARTE].join('\n\n');
   const promptAvant = avant.wrapPrompt('in_run', tour.texte, ctxAvant);
 
-  // APRÈS : briefing et carte au premier tour seulement, rappel de forme ensuite.
-  const ctxApres = premier ? [BRIEFING, BLOC_CARTE].join('\n\n') : '';
+  // APRÈS : briefing (index de la mémoire) et carte au premier tour seulement,
+  // rappel de forme ensuite.
+  const ctxApres = premier ? [BRIEFING_APRES, BLOC_CARTE].join('\n\n') : '';
   const ampleur = tour.ampleur ?? apres.ampleurParDefaut('in_run', tour.texte);
   const promptApres = apres.wrapPrompt('in_run', tour.texte, ctxApres || undefined, {
     rappel: !premier,

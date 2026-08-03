@@ -13,7 +13,8 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { PATHS } from './config.js';
 import { mintDownload } from './auth.js';
-import { readMemory, appendMemory } from './memory.js';
+import { readMemory, appendMemory, detailMemoire } from './memory.js';
+import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
 import { log } from './logger.js';
 
@@ -150,8 +151,18 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'project_memory',
-    description: 'Lit la mémoire vivante du projet (carte du projet, décisions, pièges, conventions).',
-    inputSchema: { type: 'object', properties: {} },
+    description:
+      "Le TEXTE ENTIER des faits de la mémoire du projet. L'index reçu au lancement est tronqué : appelle cet outil dès qu'une ligne de l'index touche à ce que tu vas modifier. Sans argument, il rend l'index complet.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sujet: {
+          type: 'string',
+          description:
+            "Ce que tu cherches : un numéro de l'index (« 12 »), un nom de sujet (« mobile », « publication »), ou des mots-clés.",
+        },
+      },
+    },
   },
   {
     name: 'remember',
@@ -337,8 +348,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     case 'project_memory': {
-      const content = readMemory(project.path);
-      return { ok: true, text: content || 'La mémoire du projet est vide pour le moment.' };
+      // Le détail à la demande : l'index seul part au lancement, le texte
+      // entier d'un fait se demande quand le sujet concerne vraiment la tâche.
+      return { ok: true, text: detailMemoire(project.path, String(args.sujet ?? '')) };
     }
 
     case 'remember': {
@@ -347,6 +359,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (!line) return { ok: false, text: 'Ligne vide.' };
       appendMemory(project.path, line, typeof args.replaces === 'string' ? args.replaces : undefined);
       bus.emit({ type: 'memory', projectId: project.id, content: readMemory(project.path) });
+      // Au-delà du seuil, un petit modèle relit et resserre — à côté, sans
+      // bloquer la tâche en cours.
+      synthetiserSiNecessaire(project.path);
       return { ok: true, text: 'Mémoire du projet mise à jour.' };
     }
 

@@ -7,7 +7,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { PATHS } from './config.js';
 import { isRunning } from './runtime.js';
-import { appendMemory } from './memory.js';
+import { appendHistory } from './memory.js';
 import { log } from './logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -59,12 +59,11 @@ export async function archiveCard(
   });
   bus.emit({ type: 'card.upsert', card: archived });
 
-  // Le document de clôture alimente la mémoire du projet (PLAN §25).
+  // La clôture alimente l'HISTORIQUE, pas la mémoire : « telle carte livrée le
+  // 3 août » se relit à la main, mais n'apprend rien à un agent au travail et
+  // occupait près d'un quart du contexte envoyé à chaque lancement.
   const line = summariseForMemory(card.id);
-  if (line) {
-    appendMemory(project.path, line);
-    bus.emit({ type: 'memory', projectId: project.id, content: '' });
-  }
+  if (line) appendHistory(project.path, line);
 
   return { ok: true };
 }
