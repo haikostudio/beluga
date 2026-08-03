@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { Loader2, MessageSquare, Square } from 'lucide-react';
-import { Agent, Message } from '@haikodev/shared';
+import { ChevronUp, Loader2, MessageSquare, RotateCcw, Square } from 'lucide-react';
+import { Agent, Message, libellePrecedents, peutRepartir, titreDeBloc } from '@haikodev/shared';
 import { ConfirmDialog, EmptyState, Tooltip } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { cn } from '@/lib/utils';
 
 export function Chat({
   agent,
@@ -13,6 +14,8 @@ export function Chat({
   header,
   onProposeTask,
   cardId,
+  vide,
+  nouveauDepart,
 }: {
   agent: Agent | null;
   projectId: string;
@@ -20,6 +23,10 @@ export function Chat({
   onProposeTask?: (text: string) => void;
   /** Depuis une carte : on affiche TOUTE son histoire, pas seulement le dernier agent. */
   cardId?: string;
+  /** Ce que dit une conversation encore vide (analyse en cours, par exemple). */
+  vide?: { titre: string; indice: string };
+  /** Propose le bouton « repartir de zéro » (conversation permanente du chef). */
+  nouveauDepart?: boolean;
 }) {
   const state = useApp();
   const [picked, setPicked] = React.useState<string[]>([]);
@@ -34,14 +41,49 @@ export function Chat({
   const queue = agent ? (state.queues[agent.id] ?? []) : [];
   const busy = agent?.status === 'running' || messages.some((m) => m.streaming);
 
-  React.useEffect(() => {
-    if (cardId) client.send({ type: 'card.conversation', cardId });
-    if (agent) client.send({ type: 'agent.open', id: agent.id });
-  }, [agent?.id, cardId]);
+  // Les échanges d'avant le dernier nouveau départ sont repliés par défaut.
+  const [tout, setTout] = React.useState(false);
+  const precedents = agent ? (state.precedents[agent.id] ?? 0) : 0;
+
+  React.useEffect(() => setTout(false), [agent?.id, cardId]);
 
   React.useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages.length, messages[messages.length - 1]?.content]);
+    if (cardId) client.send({ type: 'card.conversation', cardId });
+    if (agent) client.send({ type: 'agent.open', id: agent.id, tout });
+  }, [agent?.id, cardId, tout]);
+
+  /*
+   * Le fil suit l'agent, MAIS il ne tire jamais la page sous les yeux de
+   * quelqu'un en train de lire plus haut : le compte rendu d'analyse, déjà
+   * écrit, ne doit plus défiler tout seul quand la tâche démarre. On ne
+   * redescend donc que si l'on était déjà en bas.
+   */
+  const filRef = React.useRef<HTMLDivElement>(null);
+  const ouvertePour = React.useRef<string | undefined>(undefined);
+  /** Tant qu'on n'est pas remonté à la main, le fil suit ce qui s'écrit. */
+  const suit = React.useRef(true);
+
+  React.useEffect(() => {
+    const fil = filRef.current;
+    if (!fil) return;
+    const noter = () => {
+      suit.current = fil.scrollHeight - fil.scrollTop - fil.clientHeight < 120;
+    };
+    fil.addEventListener('scroll', noter, { passive: true });
+    return () => fil.removeEventListener('scroll', noter);
+  }, []);
+
+  React.useEffect(() => {
+    const cle = cardId ?? agent?.id;
+    // Ouverture d'une conversation : on se pose tout en bas, sans animation.
+    if (ouvertePour.current !== cle && messages.length) {
+      ouvertePour.current = cle;
+      suit.current = true;
+      bottomRef.current?.scrollIntoView({ block: 'end' });
+      return;
+    }
+    if (suit.current) bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [cardId, agent?.id, messages.length, messages[messages.length - 1]?.content]);
 
   const toggleEvolution = (text: string) =>
     setPicked((current) => (current.includes(text) ? current.filter((item) => item !== text) : [...current, text]));
@@ -55,25 +97,40 @@ export function Chat({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
+      {nouveauDepart ? (
+        <BarreNouveauDepart
+          agent={agent}
+          messages={messages}
+          precedents={precedents}
+          tout={tout}
+          onTout={setTout}
+        />
+      ) : null}
       {/* Une conversation ne défile que verticalement : ce qui dépasse en
           largeur (code, longue adresse) défile DANS son propre bloc. */}
-      <div className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-3 py-3">
+      <div ref={filRef} className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-3 py-3">
         {messages.length ? (
-          messages.map((message) => (
-            <MessageView
-              key={message.id}
-              message={message}
-              projectId={projectId}
-              pickedEvolutions={picked}
-              onToggleEvolution={toggleEvolution}
-              onToggleAll={toggleAll}
-            />
+          messages.map((message, index) => (
+            <React.Fragment key={message.id}>
+              {/* Une carte a souvent eu plusieurs agents : un repère sépare le
+                  compte rendu de l'analyse de celui de l'exécution. */}
+              {cardId && message.agentId !== messages[index - 1]?.agentId ? (
+                <SeparateurAgent titre={titreDeBloc(state.agents[message.agentId]?.role)} />
+              ) : null}
+              <MessageView
+                message={message}
+                projectId={projectId}
+                pickedEvolutions={picked}
+                onToggleEvolution={toggleEvolution}
+                onToggleAll={toggleAll}
+              />
+            </React.Fragment>
           ))
         ) : (
           <EmptyState
             icon={<MessageSquare className="h-5 w-5" />}
-            title="Aucun échange pour le moment"
-            hint="Posez une question ou demandez une action."
+            title={vide?.titre ?? 'Aucun échange pour le moment'}
+            hint={vide?.indice ?? 'Posez une question ou demandez une action.'}
           />
         )}
         <div ref={bottomRef} />
@@ -81,17 +138,109 @@ export function Chat({
 
       <TravailEnCours agent={agent} messages={messages} busy={busy} />
 
-      <Composer
-        agent={agent}
-        engines={state.engines}
-        queue={queue}
-        busy={busy}
-        picked={picked}
-        onRemovePicked={(text) => setPicked((current) => current.filter((item) => item !== text))}
-        onClearPicked={() => setPicked([])}
-        projectId={projectId}
-        onProposeTask={onProposeTask}
+      {/* On ne discute pas avec un agent d'analyse : il chiffre et s'arrête.
+          La barre d'écriture revient dès que la tâche est lancée. */}
+      {agent?.role === 'analysis' ? (
+        <div className="shrink-0 border-t border-border bg-bg px-3 py-2.5 text-[13px] text-faint">
+          Cette carte en est à son analyse. Lancez la tâche pour dialoguer avec l’agent qui la réalisera.
+        </div>
+      ) : (
+        <Composer
+          agent={agent}
+          engines={state.engines}
+          queue={queue}
+          busy={busy}
+          picked={picked}
+          onRemovePicked={(text) => setPicked((current) => current.filter((item) => item !== text))}
+          onClearPicked={() => setPicked([])}
+          projectId={projectId}
+          onProposeTask={onProposeTask}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * La barre du nouveau départ. Elle tient sur une ligne : à gauche le lien qui
+ * rouvre les échanges d'avant (rien n'est supprimé), à droite le bouton qui
+ * coupe le fil.
+ *
+ * Le bouton est inactif tant que le chef d'orchestre travaille : couper le fil
+ * sous une réponse en cours lui ferait perdre le sien. Le brouillon en train
+ * d'être écrit n'est jamais touché par ce geste.
+ */
+function BarreNouveauDepart({
+  agent,
+  messages,
+  precedents,
+  tout,
+  onTout,
+}: {
+  agent: Agent | null;
+  messages: Message[];
+  precedents: number;
+  tout: boolean;
+  onTout: (valeur: boolean) => void;
+}) {
+  const [aConfirmer, setAConfirmer] = React.useState(false);
+  const verdict = peutRepartir(agent, messages);
+
+  const repartir = () => {
+    if (!agent) return;
+    onTout(false);
+    client.send({ type: 'agent.reset', agentId: agent.id });
+  };
+
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
+      {precedents ? (
+        <button
+          type="button"
+          onClick={() => onTout(!tout)}
+          className="flex min-w-0 items-center gap-1 text-[12.5px] text-faint transition-colors hover:text-text"
+        >
+          <ChevronUp className={cn('h-3 w-3 shrink-0 transition-transform', tout && 'rotate-180')} />
+          <span className="truncate">{tout ? 'Replier les échanges précédents' : libellePrecedents(precedents)}</span>
+        </button>
+      ) : null}
+
+      <Tooltip label={verdict.ok ? 'Repartir sur une conversation neuve' : verdict.raison}>
+        <button
+          type="button"
+          // Inactif, mais pas « désactivé » au sens du navigateur : un bouton
+          // désactivé n'affiche plus son explication au survol, et on perdrait
+          // la seule phrase qui dit pourquoi le geste est refusé.
+          aria-disabled={!verdict.ok}
+          onClick={() => verdict.ok && setAConfirmer(true)}
+          className={cn(
+            'ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[12.5px] text-muted transition-colors',
+            verdict.ok ? 'hover:border-text hover:bg-raised hover:text-text' : 'cursor-not-allowed opacity-40',
+          )}
+        >
+          <RotateCcw className="h-3 w-3" />
+          Repartir de zéro
+        </button>
+      </Tooltip>
+
+      <ConfirmDialog
+        open={aConfirmer}
+        title="Repartir sur une conversation neuve ?"
+        description="Le chef d'orchestre oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés, ils restent consultables d'un clic."
+        confirmLabel="Repartir de zéro"
+        onConfirm={repartir}
+        onClose={() => setAConfirmer(false)}
       />
+    </div>
+  );
+}
+
+/** Le repère qui annonce quel agent parle à partir d'ici. */
+function SeparateurAgent({ titre }: { titre: string }) {
+  return (
+    <div className="flex items-center gap-2 pt-1">
+      <span className="text-[11.5px] uppercase tracking-wide text-faint">{titre}</span>
+      <span className="h-px flex-1 bg-border" />
     </div>
   );
 }

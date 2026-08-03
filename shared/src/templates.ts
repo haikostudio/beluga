@@ -22,6 +22,21 @@ export interface ResponseTemplate {
 }
 
 /**
+ * La LONGUEUR DE RÉFÉRENCE d'une réponse. Un gabarit unique à six sections
+ * obligeait à servir six blocs même pour une retouche d'une ligne : le moteur
+ * délayait, et chaque mot délayé est du quota dépensé. La forme reste imposée,
+ * c'est le REMPLISSAGE qui devient proportionnel au travail réel.
+ */
+export type Ampleur = 'breve' | 'standard' | 'complete';
+
+/** Les trois longueurs, décrites pour le moteur ET pour le contrôle de forme. */
+export const AMPLEURS: Record<Ampleur, { mots: number; sections: string[]; libelle: string }> = {
+  breve: { mots: 120, sections: [], libelle: 'brève' },
+  standard: { mots: 250, sections: ['Ce qui est fait', 'Conséquences', 'Coûts'], libelle: 'moyenne' },
+  complete: { mots: 900, sections: [], libelle: 'complète' },
+};
+
+/**
  * Le compte rendu de travail, en six blocs nettement séparés (la forme retenue
  * dans Paseo). Les quatre sections d'avant tenaient dans un seul pavé : on ne
  * distinguait plus l'analyse du résultat, ni les conséquences du coût.
@@ -40,6 +55,9 @@ export const TEMPLATES: Record<TemplateKind, ResponseTemplate> = {
     kind: 'pre_run',
     sections: [
       'Analyse de la demande',
+      // Une analyse qui n'a rien regardé ne vaut rien : elle DIT ce qu'elle a
+      // trouvé dans le projet, c'est ce qui rend son chiffrage crédible.
+      'Ce que j’ai trouvé dans le projet',
       'Approche retenue',
       'Impact attendu et points de vigilance',
       'Temps et coût pour la machine',
@@ -99,6 +117,33 @@ export function templateForColumn(column: ColumnKey | undefined, deployed = fals
   }
 }
 
+/** Les gabarits dont la longueur s'adapte ; les autres ont une forme structurelle. */
+const GABARITS_ADAPTABLES = new Set<TemplateKind>(['in_run', 'free']);
+
+const DÉBUTS_DE_QUESTION =
+  /^(quoi|qui|où|ou\b|quand|comment|pourquoi|combien|quel|quelle|est-ce|peux-tu|peux tu|explique|montre|liste|dis-moi|dis moi|c'est quoi|as-tu|y a-t-il)/i;
+
+/**
+ * La longueur de référence déduite de la DEMANDE, avant tout travail. Ce n'est
+ * qu'un point de départ annoncé au moteur : lui seul sait, à la fin, si le
+ * travail réel était une retouche ou une vraie tâche, et il ajuste.
+ */
+export function ampleurParDefaut(kind: TemplateKind, userText: string): Ampleur {
+  if (!GABARITS_ADAPTABLES.has(kind)) return 'complete';
+  const texte = userText.trim();
+  if (texte.includes('?') || DÉBUTS_DE_QUESTION.test(texte)) return 'breve';
+  if (texte.length < 80) return 'breve';
+  if (texte.length > 400) return 'complete';
+  return 'standard';
+}
+
+/** Les titres réellement demandés pour ce gabarit à cette longueur. */
+export function sectionsPour(kind: TemplateKind, ampleur: Ampleur): string[] {
+  const tpl = TEMPLATES[kind];
+  if (!GABARITS_ADAPTABLES.has(kind) || ampleur === 'complete') return tpl.sections;
+  return AMPLEURS[ampleur].sections;
+}
+
 /**
  * La partie le plus souvent ratée : les moteurs rendent un pavé continu où les
  * sections se confondent. Elle est donc écrite à part, avant les règles de fond,
@@ -131,12 +176,52 @@ const REPORT_GUIDE = [
   'Coûts : temps machine, heures d\'un développeur senior, coût approximatif à 130 CHF/heure.',
 ];
 
+export interface OptionsEnveloppe {
+  /**
+   * La session du moteur est DÉJÀ ouverte : il a reçu le gabarit entier au
+   * premier tour et l'a toujours dans son contexte. Le recoller à chaque
+   * message coûte environ cinq cents jetons pour rien : on n'envoie plus
+   * qu'un rappel d'une ligne.
+   */
+  rappel?: boolean;
+  /** La longueur de référence annoncée ; déduite de la demande si absente. */
+  ampleur?: Ampleur;
+}
+
+/** Le rappel de forme des tours suivants : quelques mots au lieu du bloc entier. */
+function rappelDeForme(kind: TemplateKind, ampleur: Ampleur): string {
+  const titres = sectionsPour(kind, ampleur);
+  const forme = titres.length
+    ? `titres numérotés « ${titres.join(' », « ')} »`
+    : 'quelques phrases, sans titres imposés';
+  return `RAPPEL DE FORME (les règles complètes sont déjà dans ce fil) : ${forme}. Longueur de référence : ${AMPLEURS[ampleur].libelle}, ${AMPLEURS[ampleur].mots} mots au plus — ajuste-la au travail réellement fait, sans jamais cacher ce que tu as changé.`;
+}
+
+/** Les trois longueurs, écrites une seule fois par session. */
+const RÈGLE_LONGUEUR = `LONGUEUR DE TA RÉPONSE — elle suit le travail RÉELLEMENT fait, pas le gabarit :
+- Question, information, geste d'une seule ligne → quelques phrases, aucune section imposée, ${AMPLEURS.breve.mots} mots au plus.
+- Correction ou ajustement contenu → trois titres seulement (${AMPLEURS.standard.sections.join(', ')}), ${AMPLEURS.standard.mots} mots au plus.
+- Vraie tâche (plusieurs fichiers, décisions à expliquer) → tous les titres ci-dessus.
+Une section qui n'a rien à dire ne s'écrit pas : mieux vaut trois lignes vraies que six sections délayées. Raccourcir ne veut jamais dire taire un changement, un échec ou une décision.`;
+
 /** L'enveloppe réellement ajoutée à l'instruction envoyée au moteur. */
-export function wrapPrompt(kind: TemplateKind, userText: string, context?: string): string {
+export function wrapPrompt(
+  kind: TemplateKind,
+  userText: string,
+  context?: string,
+  options: OptionsEnveloppe = {},
+): string {
   if (kind === 'none') {
     return context ? `${context}\n\n---\n\n${userText}` : userText;
   }
   const tpl = TEMPLATES[kind];
+  const ampleur = options.ampleur ?? ampleurParDefaut(kind, userText);
+
+  if (options.rappel) {
+    const tête = context ? `${context}\n\n---\n\n` : '';
+    return `${tête}DEMANDE :\n${userText}\n\n---\n${rappelDeForme(kind, ampleur)}`;
+  }
+
   // Une ligne vide ENTRE les titres : le gabarit montre lui-même l'aération
   // qu'il réclame, au lieu de la décrire seulement.
   const sections = tpl.sections.map((s, i) => `## ${i + 1}. ${s}`).join('\n\n');
@@ -161,6 +246,12 @@ machineSeconds = ta durée d'exécution prévue en secondes. seniorHours = le te
       ? "\nDans « Évolutions possibles », écris chaque suggestion sur sa propre ligne, en puce `- `, formulée comme une demande actionnable (l'utilisateur peut cliquer dessus pour la réutiliser).\n"
       : '';
 
+  // La règle de longueur ne concerne que les gabarits adaptables : un journal
+  // de publication ou un chiffrage ont une forme structurelle, pas variable.
+  const longueur = GABARITS_ADAPTABLES.has(kind)
+    ? `\n${RÈGLE_LONGUEUR}\nPour CETTE demande, la référence est : ${AMPLEURS[ampleur].libelle}.\n`
+    : '';
+
   return `${context ? context + '\n\n---\n\n' : ''}DEMANDE :
 ${userText}
 
@@ -168,7 +259,7 @@ ${userText}
 FORME DE TA RÉPONSE FINALE (imposée, non négociable) — utilise exactement ces titres, dans cet ordre :
 
 ${sections}
-
+${longueur}
 MISE EN FORME (la partie le plus souvent ratée — relis-la avant d'envoyer) :
 ${layout}
 
@@ -222,14 +313,40 @@ export function denseSections(text: string): string[] {
   return out;
 }
 
+/** Marges de tolérance, un cran au-dessus des longueurs annoncées. */
+const MOTS_BREF = 160;
+const MOTS_STANDARD = 320;
+
+const RANG: Record<Ampleur, number> = { breve: 0, standard: 1, complete: 2 };
+
+export function compterMots(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * La longueur réellement servie, comparée à celle annoncée. On retient la plus
+ * PETITE des deux : répondre plus court que la référence est le gain recherché,
+ * jamais une faute. C'est le contrôle de densité, plus bas, qui empêche le pavé.
+ */
+export function ampleurEffective(annoncee: Ampleur, text: string): Ampleur {
+  const mots = compterMots(text);
+  const parLongueur: Ampleur = mots <= MOTS_BREF ? 'breve' : mots <= MOTS_STANDARD ? 'standard' : 'complete';
+  return RANG[parLongueur] < RANG[annoncee] ? parLongueur : annoncee;
+}
+
 /** Contrôle de forme : un moteur qui ignore la consigne se fait rattraper. */
 export function checkTemplate(
   kind: TemplateKind,
   text: string,
+  ampleur: Ampleur = 'complete',
 ): { ok: boolean; missing: string[]; dense: string[] } {
   if (kind === 'none') return { ok: true, missing: [], dense: [] };
-  const tpl = TEMPLATES[kind];
-  const missing = tpl.sections.filter((s) => {
+  // Une réponse courte n'a plus à servir six sections vides : les titres exigés
+  // suivent la longueur réellement rendue.
+  const attendues = GABARITS_ADAPTABLES.has(kind)
+    ? sectionsPour(kind, ampleurEffective(ampleur, text))
+    : TEMPLATES[kind].sections;
+  const missing = attendues.filter((s) => {
     const needle = s.toLowerCase().replace(/\s+/g, ' ');
     return !text.toLowerCase().replace(/\s+/g, ' ').includes(needle);
   });
