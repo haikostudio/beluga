@@ -58,6 +58,12 @@ node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'ess
 - Une carte naît toujours dans « À faire » ; seul l'utilisateur la valide, et ce geste seul autorise
   la dépense. **Une seule exception** : le code enregistré par un agent SANS carte fabrique tout seul
   sa fiche dans « À déployer » — le travail est déjà fait, il n'y a plus rien à valider.
+- **Toute fonctionnalité vit sur sa propre branche, carte ou pas.** À la fin d'un tour sans carte, le
+  démon déplace les enregistrements sur une branche `hors-tache/…`, rend la principale à son état
+  d'avant, pousse la branche, et c'est ELLE que porte la fiche. Supprimer la carte suffit alors à
+  écarter la fonctionnalité. Conséquence pour un agent sans carte : **enregistrer, oui ; pousser sur
+  la branche principale, non** — une histoire déjà publiée ne se réécrit pas, et le travail resterait
+  collé à la principale.
 - Rien de ce qui se fait ne reste invisible : chaque ligne du lot à publier a sa carte, et un projet
   dont un agent a rendu son travail porte une pastille tant que la conversation n'a pas été ouverte.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis

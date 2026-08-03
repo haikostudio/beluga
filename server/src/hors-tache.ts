@@ -21,6 +21,7 @@ import {
   CommitObserve,
   commitsSansCarte,
   descriptionHorsTache,
+  nomBrancheHorsTache,
   titreHorsTache,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -93,6 +94,70 @@ export async function commitsDuTour(projectPath: string, avant: RepereDepot | nu
 }
 
 /**
+ * Met ce travail sur SA PROPRE branche, et rend la branche principale à l'état
+ * où elle était avant le tour.
+ *
+ * C'est ce qui rend une fonctionnalité retirable d'un geste : tant qu'elle vit
+ * sur sa branche, supprimer sa carte suffit — la branche n'est jamais fusionnée
+ * et rien ne part en ligne. Sans cela, le travail du chef d'orchestre était
+ * posé sur la branche principale et partait quoi qu'on fasse de la carte.
+ *
+ * On ne déplace RIEN si le moindre doute existe : le dossier est partagé, et
+ * réécrire l'histoire sous les pieds d'un autre agent coûte plus cher que de
+ * laisser le travail où il est. Cinq garde-fous, tous obligatoires :
+ *   - le dossier est propre (aucune modification en cours) ;
+ *   - on est toujours sur la branche notée au départ ;
+ *   - le sommet est bien le dernier enregistrement retenu (personne n'a rien
+ *     ajouté après) ;
+ *   - aucun de ces enregistrements n'est déjà parti au dépôt (on ne réécrit
+ *     JAMAIS une histoire publiée) ;
+ *   - la création de la branche et le retour en arrière réussissent tous deux.
+ *
+ * Rend le nom de la branche, ou null si le travail est resté où il était.
+ */
+export async function isoleSurBranche(
+  projectPath: string,
+  avant: RepereDepot,
+  retenus: CommitObserve[],
+): Promise<string | null> {
+  if (!retenus.length) return null;
+
+  const propre = await git(projectPath, ['status', '--porcelain']);
+  if (propre === null || propre.trim()) return null;
+
+  const brancheActuelle = (await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD']))?.trim();
+  if (!brancheActuelle || brancheActuelle !== avant.branche || brancheActuelle === 'HEAD') return null;
+
+  const tete = (await git(projectPath, ['rev-parse', 'HEAD']))?.trim();
+  const dernier = retenus[retenus.length - 1].sha;
+  if (!tete || tete !== dernier) return null;
+
+  // Déjà au dépôt : l'histoire est publique, on n'y touche pas.
+  for (const commit of retenus) {
+    const distants = await git(projectPath, ['branch', '-r', '--contains', commit.sha]);
+    if (distants === null || distants.trim()) return null;
+  }
+
+  const branche = nomBrancheHorsTache(retenus);
+  if ((await git(projectPath, ['rev-parse', '--verify', '--quiet', branche]))?.trim()) return null;
+  if ((await git(projectPath, ['branch', branche])) === null) return null;
+
+  // La branche existe et porte le travail : la principale peut revenir en
+  // arrière sans rien perdre. En cas d'échec, on efface la branche créée
+  // plutôt que de laisser deux copies du même travail.
+  if ((await git(projectPath, ['reset', '--hard', avant.tete], 60000)) === null) {
+    await git(projectPath, ['branch', '-D', branche]);
+    return null;
+  }
+
+  // Envoi au dépôt : la branche survit à une remise à zéro du dossier. Un
+  // échec (pas de dépôt distant, réseau coupé) ne remet rien en cause.
+  await git(projectPath, ['push', '-u', 'origin', branche], 120000);
+  log.info(`travail hors tâche isolé sur la branche ${branche}`);
+  return branche;
+}
+
+/**
  * Fabrique la carte, s'il y a de quoi. Rend la carte créée, ou null.
  *
  * On ne crée rien pour un agent qui a déjà sa carte : son travail est déjà
@@ -118,14 +183,21 @@ export async function carteDuTravailHorsTache(agent: Agent, avant: RepereDepot |
   });
   if (!retenus.length) return null;
 
-  const branche = retenus[0].branche;
+  /*
+   * Le travail part sur SA branche avant d'être fiché : la carte porte alors
+   * une branche à elle, exactement comme une carte de tâche, et la supprimer
+   * suffit à écarter la fonctionnalité. Si l'isolement n'est pas sûr, on garde
+   * la branche d'origine et la description le dit franchement.
+   */
+  const isolee = avant ? await isoleSurBranche(project.path, avant, retenus).catch(() => null) : null;
+  const branche = isolee ?? retenus[0].branche;
   const card = store.saveCard(
     Card.parse({
       id: store.newId(),
       projectId: agent.projectId,
       title: titreHorsTache(retenus),
-      description: descriptionHorsTache(retenus, agent.title || 'un agent'),
-      labels: ['hors tâche'],
+      description: descriptionHorsTache(retenus, agent.title || 'un agent', isolee ?? undefined),
+      labels: isolee ? ['hors tâche'] : ['hors tâche', 'sur la principale'],
       // Le travail est FAIT : il n'y a rien à valider, la carte entre
       // directement dans le lot à publier.
       column: 'to_deploy',
@@ -148,7 +220,12 @@ export async function carteDuTravailHorsTache(agent: Agent, avant: RepereDepot |
   );
 
   bus.emit({ type: 'card.upsert', card });
-  bus.toast('info', `Travail hors tâche fiché : « ${card.title} » vous attend dans « À déployer ».`);
+  bus.toast(
+    isolee ? 'info' : 'warning',
+    isolee
+      ? `Travail hors tâche fiché sur sa branche : « ${card.title} » vous attend dans « À déployer ».`
+      : `Travail hors tâche fiché : « ${card.title} » — il est resté sur la branche principale.`,
+  );
   notify({
     kind: 'done',
     title: 'Travail enregistré sans tâche',

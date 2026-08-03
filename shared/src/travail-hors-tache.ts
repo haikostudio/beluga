@@ -93,12 +93,42 @@ export function titreHorsTache(commits: CommitObserve[]): string {
   return commits.length > 1 ? `${titre} (+${commits.length - 1})` : titre;
 }
 
+/**
+ * Le nom de la branche qui portera ce travail.
+ *
+ * Une fonctionnalité qui vit sur SA branche se retire d'un geste : il suffit de
+ * supprimer sa carte, la branche n'est jamais fusionnée. Le nom reprend le
+ * message enregistré pour rester lisible dans `git branch`, et se termine par
+ * l'empreinte courte — deux travaux au même titre ne se marchent pas dessus.
+ */
+export function nomBrancheHorsTache(commits: CommitObserve[]): string {
+  const base = (commits[0]?.titre ?? 'travail')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+  const empreinte = (commits[commits.length - 1]?.sha ?? '').slice(0, 7) || 'sans-sha';
+  return `hors-tache/${base || 'travail'}-${empreinte}`;
+}
+
 /** La description de la carte : d'où elle vient, et ce qu'elle embarque. */
-export function descriptionHorsTache(commits: CommitObserve[], auteur: string): string {
+export function descriptionHorsTache(commits: CommitObserve[], auteur: string, branche?: string): string {
   const lignes = commits.map((commit) => `- ${commit.titre.trim()} (${commit.sha.slice(0, 7)})`);
   return [
     `Travail enregistré hors tâche par « ${auteur} » : cette carte a été créée automatiquement pour qu'il ne parte jamais en ligne sans fiche.`,
     '',
+    ...(branche
+      ? [
+          `Ce travail vit sur sa propre branche « ${branche} » : supprimer cette carte suffit à l'écarter, il ne partira jamais en ligne.`,
+          '',
+        ]
+      : [
+          'ATTENTION : ce travail n’a PAS pu être mis sur sa propre branche (il était déjà envoyé au dépôt, ou le dossier avait bougé). Il est posé sur la branche principale — le retirer demande d’annuler les enregistrements, pas seulement de supprimer la carte.',
+          '',
+        ]),
     'Enregistrements repris :',
     ...lignes,
   ].join('\n');

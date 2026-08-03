@@ -6,6 +6,7 @@ import {
   commitsSansCarte,
   descriptionHorsTache,
   estPlomberie,
+  nomBrancheHorsTache,
   rendusDuGroupe,
   rendusParProjet,
   titreHorsTache,
@@ -121,4 +122,34 @@ test('la description nomme l’auteur et liste ce qui est embarqué', () => {
   assert.ok(texte.includes('Chef d’orchestre'));
   assert.ok(texte.includes('Corrige le compteur'));
   assert.ok(texte.includes('abcdef1'));
+});
+
+test('la branche du travail hors tâche est lisible, propre et unique', () => {
+  const branche = nomBrancheHorsTache([commit('abcdef1234', 'Corrige l’en-tête (été 2026) !')]);
+  assert.ok(branche.startsWith('hors-tache/'));
+  // Ni accent, ni majuscule, ni ponctuation : un nom que git accepte partout.
+  assert.match(branche, /^hors-tache\/[a-z0-9-]+$/);
+  assert.ok(branche.includes('abcdef1'));
+
+  // Deux travaux au même titre ne se marchent pas dessus.
+  const autre = nomBrancheHorsTache([commit('9876543210', 'Corrige l’en-tête (été 2026) !')]);
+  assert.notEqual(branche, autre);
+
+  // Plusieurs enregistrements : le titre vient du premier, l'empreinte du dernier.
+  const lot = nomBrancheHorsTache([commit('aaaaaaa111', 'Premier'), commit('bbbbbbb222', 'Second')]);
+  assert.equal(lot, 'hors-tache/premier-bbbbbbb');
+
+  // Un titre sans une seule lettre latine garde quand même un nom valable.
+  assert.match(nomBrancheHorsTache([commit('ccccccc333', '!!! ???')]), /^hors-tache\/travail-ccccccc$/);
+});
+
+test('la description dit sur QUELLE branche vit le travail, et ce que ça change', () => {
+  const surSaBranche = descriptionHorsTache([commit('abcdef1234', 'Un ajout')], 'Chef', 'hors-tache/un-ajout-abcdef1');
+  assert.ok(surSaBranche.includes('hors-tache/un-ajout-abcdef1'));
+  assert.ok(surSaBranche.includes('supprimer cette carte'));
+
+  // Sans branche à elle, la carte ne fait pas croire qu'elle suffit à annuler.
+  const surLaPrincipale = descriptionHorsTache([commit('abcdef1234', 'Un ajout')], 'Chef');
+  assert.ok(surLaPrincipale.includes('ATTENTION'));
+  assert.ok(!surLaPrincipale.includes('hors-tache/'));
 });
