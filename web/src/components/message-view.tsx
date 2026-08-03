@@ -158,13 +158,12 @@ export function MessageView({
         </div>
       ) : null}
 
-      <div className="mt-1 flex items-center gap-1.5 text-[12px] text-faint">
-        {/* L'heure se montre TOUJOURS sur téléphone : le survol n'y existe pas,
-            et il fallait faire bouger le fil d'un pixel pour la voir
-            apparaître. Sur ordinateur, elle reste discrète jusqu'au survol. */}
-        <span className="transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-          {relativeTime(message.createdAt)}
-        </span>
+      {/* L'heure se montre TOUJOURS, ordinateur comme téléphone, et des deux
+          côtés du fil : la mettre au second plan se fait par la COULEUR et la
+          taille, jamais par la transparence — effacée, elle disparaît. Mêmes
+          taille et couleur que sous les demandes (voir Meta plus haut). */}
+      <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-faint">
+        <span>{relativeTime(message.createdAt)}</span>
         <BoutonCopier texte={message.content} />
       </div>
     </div>
