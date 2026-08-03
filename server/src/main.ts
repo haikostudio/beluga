@@ -16,6 +16,7 @@ import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
 import { getSettings } from './store.js';
 import { listEngines } from './engines/index.js';
 import { initPush } from './push.js';
+import { amorcerFenetres } from './amorce.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -61,7 +62,12 @@ async function main(): Promise<void> {
   // Toutes les dix minutes : assez pour suivre la consommation, assez peu pour
   // ne pas se faire refuser les lectures par excès d'appels.
   const quotaTimer = setInterval(() => {
-    void refreshQuotas(true).then((quotas) => bus.emit({ type: 'quotas', quotas }));
+    void refreshQuotas(true).then((quotas) => {
+      bus.emit({ type: 'quotas', quotas });
+      // Juste après la lecture : les chiffres sont frais, et on n'ajoute aucun
+      // appel à l'API de quota, qui limite fortement sa fréquence.
+      void amorcerFenetres();
+    });
   }, 600_000);
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
@@ -75,7 +81,10 @@ async function main(): Promise<void> {
   );
 
   sampleCapacity();
-  void refreshQuotas(true).then((quotas) => bus.emit({ type: 'quotas', quotas }));
+  void refreshQuotas(true).then((quotas) => {
+    bus.emit({ type: 'quotas', quotas });
+    void amorcerFenetres();
+  });
 
   const shutdown = (signal: string) => {
     log.info(`arrêt demandé (${signal})`);

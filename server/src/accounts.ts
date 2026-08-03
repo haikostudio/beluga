@@ -241,8 +241,17 @@ async function fetchCodexQuota(account: AccountRecord): Promise<AccountQuota> {
                   : undefined,
           }
         : undefined;
-    const session = win(data?.rate_limit?.primary_window);
-    const weekly = win(data?.rate_limit?.secondary_window);
+    // Codex ne garantit PAS que la première fenêtre soit la courte : sur un
+    // compte dont la fenêtre courte dort, la seule fenêtre annoncée est celle
+    // de la semaine, et elle arrive en première position. On classe donc sur la
+    // durée déclarée, sinon l'interface affiche la semaine sous « fenêtre ».
+    const fenetres = [data?.rate_limit?.primary_window, data?.rate_limit?.secondary_window].filter(Boolean);
+    const courte = (w: any) => typeof w?.limit_window_seconds !== 'number' || w.limit_window_seconds <= 24 * 3600;
+    const courtes = fenetres.filter((w: any) => courte(w));
+    const longues = fenetres.filter((w: any) => !courte(w));
+    const session = win(courtes[0]);
+    // Deux fenêtres sans durée déclarée : on retombe sur l'ordre reçu.
+    const weekly = win(longues[0] ?? courtes[1]);
     if (typeof data?.plan_type === 'string') base.plan = data.plan_type.replace(/^plus$/i, 'Plus');
     const exhausted = (weekly?.usedPct ?? 0) >= 100 || (session?.usedPct ?? 0) >= 100;
     return { ...base, session, weekly, available: !exhausted };
