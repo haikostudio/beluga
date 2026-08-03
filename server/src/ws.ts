@@ -28,7 +28,15 @@ import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { analyseCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
-import { deployableCards, startDeploy, stopDeploy, retryDeploy, conflitsPrevus, agentsOccupes } from './deploy.js';
+import {
+  deployableCards,
+  startDeploy,
+  stopDeploy,
+  retryDeploy,
+  conflitsPrevus,
+  agentsOccupes,
+  commitsEnAttente,
+} from './deploy.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
 import { listDir, makeZip, readFilePreview } from './files.js';
@@ -656,6 +664,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return {
         conflicts: await conflitsPrevus(cmd.projectId),
         busy: agentsOccupes(cmd.projectId),
+        // Le travail enregistré sur la principale sans passer par une carte :
+        // sans lui, la fenêtre de publication disparaissait et rien ne partait.
+        enAttente: await commitsEnAttente(cmd.projectId),
       };
 
     /* -------- Fichiers -------- */

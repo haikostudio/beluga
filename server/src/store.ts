@@ -863,6 +863,14 @@ export function latestDeploy(projectId: string): DeployRun | null {
   return row ? DeployRun.parse(JSON.parse(row.data)) : null;
 }
 
+/** La dernière publication RÉUSSIE : la seule qui dise ce qui est en ligne. */
+export function lastSuccessfulDeploy(projectId: string): DeployRun | null {
+  const row = getDb()
+    .prepare("SELECT data FROM deploys WHERE project_id = ? AND state = 'success' ORDER BY started_at DESC LIMIT 1")
+    .get(projectId) as { data: string } | undefined;
+  return row ? DeployRun.parse(JSON.parse(row.data)) : null;
+}
+
 export function runningDeploys(): DeployRun[] {
   const rows = getDb().prepare("SELECT data FROM deploys WHERE state = 'running'").all() as { data: string }[];
   return rows.map((r) => DeployRun.parse(JSON.parse(r.data)));

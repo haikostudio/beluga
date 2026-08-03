@@ -9,9 +9,47 @@ import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
-import { createAgent, sendPrompt } from './runtime.js';
+import { createAgent, sendPrompt, runningAgentIds } from './runtime.js';
+import { etatDemon, redemarrerDemon } from './demon.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Le service système qui fait tourner un projet, reconnu à SON DOSSIER de
+ * travail. Sans ce redémarrage, publier ne faisait que pousser le code sur le
+ * dépôt : le serveur continuait de servir la version chargée à son lancement,
+ * et rien ne changeait à l'écran (rencontré le 03/08/2026).
+ */
+function serviceDuProjet(cheminProjet: string): string | null {
+  const dossier = '/etc/systemd/system';
+  let fichiers: string[];
+  try {
+    fichiers = fs.readdirSync(dossier).filter((nom) => nom.endsWith('.service'));
+  } catch {
+    return null;
+  }
+  const vise = path.resolve(cheminProjet);
+  for (const fichier of fichiers) {
+    try {
+      const texte = fs.readFileSync(path.join(dossier, fichier), 'utf8');
+      const ligne = texte.match(/^WorkingDirectory=(.+)$/m);
+      if (ligne && path.resolve(ligne[1].trim()) === vise) return fichier;
+    } catch {
+      // Unité illisible : elle n'apprend rien de plus.
+    }
+  }
+  return null;
+}
+
+/** Le projet a-t-il ce script dans son package.json ? */
+function scriptExiste(cwd: string, nom: string): boolean {
+  try {
+    const paquet = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
+    return typeof paquet?.scripts?.[nom] === 'string' && paquet.scripts[nom].trim().length > 0;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Installe la construction du dossier de travail dans le dossier SERVI. On
@@ -260,6 +298,33 @@ async function runCommand(cwd: string, command: string, timeout = 15 * 60 * 1000
   }
 }
 
+/**
+ * Ce qui est ENREGISTRÉ sur la branche principale mais pas encore en ligne.
+ *
+ * Du travail commité directement sur la principale (une correction menée sans
+ * carte, par exemple) restait invisible : la fenêtre de publication disparaît
+ * quand la colonne « À déployer » est vide, et plus rien ne pouvait partir en
+ * ligne. Rencontré le 03/08/2026 — plusieurs heures de travail bloquées.
+ */
+export async function commitsEnAttente(projectId: string): Promise<{ nombre: number; titres: string[] }> {
+  const vide = { nombre: 0, titres: [] as string[] };
+  const project = store.getProject(projectId);
+  if (!project) return vide;
+  const cwd = project.path;
+  if (!(await runCommand(cwd, 'git rev-parse --git-dir', 20000)).ok) return vide;
+
+  const dernier = store.lastSuccessfulDeploy(projectId);
+  const depuis = dernier?.targetCommit?.trim();
+  if (!depuis) return vide;
+  if (!(await runCommand(cwd, `git rev-parse --verify --quiet ${depuis}`, 20000)).out.trim()) return vide;
+
+  const principale = await mainBranchOf(cwd);
+  const journal = await runCommand(cwd, `git log --format=%s ${depuis}..${principale}`, 30000);
+  if (!journal.ok) return vide;
+  const titres = journal.out.split('\n').map((l) => l.trim()).filter(Boolean);
+  return { nombre: titres.length, titres: titres.slice(0, 6) };
+}
+
 export async function startDeploy(projectId: string): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
@@ -303,6 +368,9 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
   emit(run);
 
   let stopped = false;
+  // Le redémarrage du démon se fait EN DERNIER, une fois le run enregistré et
+  // les cartes archivées : couper le processus plus tôt perdrait le compte rendu.
+  let redemarrageDemande = false;
   active.set(projectId, { stop: () => (stopped = true) });
 
   void (async () => {
@@ -474,15 +542,65 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
         const installe = installerApplication();
         current = setStep(current, 'publish', 'done', installe);
 
-        current = setStep(
-          current,
-          'restart',
-          'skipped',
-          "L'interface est en ligne. Les changements côté serveur demandent un redémarrage du démon, qui reste votre geste.",
-        );
+        /*
+         * Le serveur garde le code chargé à son LANCEMENT : installer
+         * l'interface ne suffit pas quand le code serveur a changé. Publier
+         * redémarre donc tout seul — mais jamais sous les pieds d'un agent au
+         * travail, tous projets confondus, car le démon les porte tous.
+         */
+        const etat = etatDemon();
+        const autres = runningAgentIds().length;
+        if (!etat.redemarrageNecessaire) {
+          current = setStep(current, 'restart', 'skipped', 'Seule l’interface a changé : le serveur en place sert déjà le bon code.');
+        } else if (autres > 0) {
+          current = setStep(
+            current,
+            'restart',
+            'skipped',
+            `${autres} agent(s) travaillent encore : le redémarrage attend pour ne pas couper leur travail. Il se fait d’un clic sous la liste des projets.`,
+          );
+        } else {
+          current = setStep(current, 'restart', 'done', 'Le serveur redémarre : il repart avec le nouveau code en quelques secondes.');
+          redemarrageDemande = true;
+        }
       } else {
-        for (const key of ['verify', 'build', 'publish', 'restart'] as DeployStepKey[]) {
-          current = setStep(current, key, 'skipped', 'aucune commande de publication configurée');
+        /*
+         * Un projet ordinaire : publier, c'est construire s'il y a de quoi,
+         * puis REDÉMARRER le service qui le fait tourner. Auparavant tout était
+         * « ignoré, aucune commande configurée » — la fusion partait sur le
+         * dépôt et l'utilisateur ne voyait aucun changement.
+         */
+        current = setStep(current, 'verify', 'skipped', 'aucune vérification configurée pour ce projet');
+
+        if (scriptExiste(cwd, 'build')) {
+          current = setStep(current, 'build', 'running');
+          const build = await runCommand(cwd, 'npm run build', 10 * 60 * 1000);
+          current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.out.slice(-800));
+          if (!build.ok) throw new Error('La construction a échoué : rien n’est mis en ligne.');
+        } else {
+          current = setStep(current, 'build', 'skipped', 'ce projet n’a pas d’étape de construction');
+        }
+
+        current = setStep(current, 'publish', 'done', `Le code fusionné est en place dans ${cwd}.`);
+
+        const service = serviceDuProjet(cwd);
+        if (!service) {
+          current = setStep(current, 'restart', 'skipped', 'aucun service système ne tourne sur ce dossier : rien à redémarrer');
+        } else {
+          current = setStep(current, 'restart', 'running');
+          const restart = await runCommand(cwd, `systemctl restart ${service}`, 3 * 60 * 1000);
+          // Le service repart en quelques secondes : on le laisse s'installer
+          // avant de le déclarer vivant.
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          const actif = (await runCommand(cwd, `systemctl is-active ${service}`, 30000)).out.trim();
+          const ok = restart.ok && actif === 'active';
+          current = setStep(
+            current,
+            'restart',
+            ok ? 'done' : 'failed',
+            ok ? `${service} redémarré, il répond de nouveau.` : `${service} : ${actif || restart.out.slice(-300)}`,
+          );
+          if (!ok) throw new Error(`Le service ${service} n’est pas reparti.`);
         }
       }
 
@@ -518,6 +636,9 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
         projectId,
       });
       bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${reste}`);
+
+      // Tout est enregistré : le serveur peut repartir avec le nouveau code.
+      if (redemarrageDemande) setTimeout(() => redemarrerDemon(), 2000);
     } catch (err: any) {
       current = emit({
         ...current,

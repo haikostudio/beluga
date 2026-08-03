@@ -37,6 +37,9 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
    */
   const [conflicts, setConflicts] = React.useState<Conflict[]>([]);
   const [busyAgents, setBusyAgents] = React.useState<{ id: string; title: string }[]>([]);
+  /* Du travail enregistré sur la branche principale sans carte : il doit
+     pouvoir partir en ligne, sinon il reste bloqué là indéfiniment. */
+  const [enAttente, setEnAttente] = React.useState<{ nombre: number; titres: string[] }>({ nombre: 0, titres: [] });
   const signature = embarked.map((card) => card.id).join(',');
 
   /*
@@ -46,7 +49,9 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
    * pour comprendre pourquoi.
    */
   React.useEffect(() => {
-    if (!signature || active) return;
+    // Le contrôle tourne MÊME sans carte à embarquer : c'est lui qui découvre
+    // le travail enregistré sur la principale, et donc qui rallume le bouton.
+    if (active) return;
     let vivant = true;
     const controler = () =>
       client
@@ -55,6 +60,7 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
           if (!vivant) return;
           setConflicts(res?.conflicts ?? []);
           setBusyAgents(res?.busy ?? []);
+          setEnAttente(res?.enAttente ?? { nombre: 0, titres: [] });
         })
         .catch(() => undefined);
     void controler();
@@ -76,7 +82,8 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
     }
   };
 
-  if (!active && !embarked.length && !run) return null;
+  const aPublier = embarked.length + enAttente.nombre;
+  if (!active && !aPublier && !run) return null;
 
   return (
     /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
@@ -85,17 +92,27 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
       {!active ? (
         <>
           <Button
-            variant={embarked.length ? 'default' : 'outline'}
+            variant={aPublier ? 'default' : 'outline'}
             size="sm"
             className="w-full"
-            disabled={!embarked.length || busy || busyAgents.length > 0}
+            disabled={!aPublier || busy || busyAgents.length > 0}
             onClick={start}
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
             {/* Le compteur embarque TOUT : une branche en conflit n'est plus
                 écartée d'avance, l'agent de publication la reprend en route. */}
-            Tout déployer ({embarked.length})
+            Tout déployer ({aPublier})
           </Button>
+
+          {/* Ce qui attend sans carte : on le NOMME, sinon le compteur monte
+              sans qu'on sache pourquoi. */}
+          {enAttente.nombre ? (
+            <p className="mt-1.5 text-[12px] text-muted">
+              Dont {enAttente.nombre} changement{enAttente.nombre > 1 ? 's' : ''} enregistré
+              {enAttente.nombre > 1 ? 's' : ''} sans carte :{' '}
+              <span className="text-faint">{enAttente.titres.join(' · ')}</span>
+            </p>
+          ) : null}
 
           {busyAgents.length ? (
             <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning">
