@@ -39,19 +39,29 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   const [busyAgents, setBusyAgents] = React.useState<{ id: string; title: string }[]>([]);
   const signature = embarked.map((card) => card.id).join(',');
 
+  /*
+   * Le contrôle se REJOUE toutes les vingt secondes. Il ne partait qu'au
+   * changement du lot : un agent qui se mettait au travail après coup laissait
+   * le bouton allumé, et la publication n'était refusée qu'au clic — trop tard
+   * pour comprendre pourquoi.
+   */
   React.useEffect(() => {
     if (!signature || active) return;
     let vivant = true;
-    void client
-      .call({ type: 'deploy.check', projectId })
-      .then((res: any) => {
-        if (!vivant) return;
-        setConflicts(res?.conflicts ?? []);
-        setBusyAgents(res?.busy ?? []);
-      })
-      .catch(() => undefined);
+    const controler = () =>
+      client
+        .call({ type: 'deploy.check', projectId })
+        .then((res: any) => {
+          if (!vivant) return;
+          setConflicts(res?.conflicts ?? []);
+          setBusyAgents(res?.busy ?? []);
+        })
+        .catch(() => undefined);
+    void controler();
+    const timer = window.setInterval(controler, 20000);
     return () => {
       vivant = false;
+      window.clearInterval(timer);
     };
   }, [projectId, signature, active, run?.state]);
 

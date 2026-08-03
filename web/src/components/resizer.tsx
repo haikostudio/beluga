@@ -71,11 +71,15 @@ export function ResizeHandle({
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
       title="Glisser pour redimensionner · double-clic pour revenir à la largeur d'origine"
-      className={cn(
-        'group relative w-1 shrink-0 cursor-col-resize touch-none select-none bg-border/40 transition-colors hover:bg-muted',
-        className,
-      )}
+      className={cn('group relative w-1 shrink-0 cursor-col-resize touch-none select-none', className)}
     >
+      {/*
+       * Au repos, un trait FIN comme toutes les autres bordures : une barre
+       * épaisse en permanence coupait la page en trois. Il s'épaissit au
+       * survol, dans la largeur déjà réservée — la mise en page ne bouge donc
+       * pas d'un pixel quand la souris passe.
+       */}
+      <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-all duration-150 group-hover:w-[3px] group-hover:bg-muted" />
       {/* Zone d'attrape plus large que le trait, pour viser sans effort. */}
       <span className="absolute inset-y-0 -left-1.5 -right-1.5" />
     </div>

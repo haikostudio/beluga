@@ -12,7 +12,16 @@ import {
   Rocket,
   Zap,
 } from 'lucide-react';
-import { COLUMN_LABELS, Card, motAnalyse, phaseAnalyse } from '@haikodev/shared';
+import {
+  COLUMN_LABELS,
+  Card,
+  DecisionGeste,
+  GesteCarte,
+  etatVisuelCarte,
+  gesteCarte,
+  motAnalyse,
+  phaseAnalyse,
+} from '@haikodev/shared';
 import {
   Badge,
   Button,
@@ -83,12 +92,60 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    * à lire, on bascule sur la conversation — une seule fois, pour ne jamais
    * ramener quelqu'un qui a choisi un autre onglet.
    */
-  /* Le pied ne s'affiche que s'il porte vraiment une décision à prendre. */
-  const aDecision =
-    ['todo', 'planned', 'running', 'done'].includes(card.column) || !!card.estimate?.failed || !!card.closureDoc;
-
   const aLire = !!agent || phase !== 'aucune';
   const [onglet, setOnglet] = React.useState(aLire ? 'chat' : 'details');
+
+  /*
+   * Les gestes du pied suivent une règle partagée : un bouton ne s'allume que
+   * lorsqu'il a du sens. « Terminer la tâche » apparaissait dès l'entrée dans
+   * « En cours », donc pendant que l'agent travaillait encore — on pouvait
+   * clôturer une carte dont personne n'avait lu la réponse.
+   */
+  const etat = etatVisuelCarte({
+    agentStatut: agent?.status,
+    analyseEnCours: agent?.role === 'analysis' && agent.status === 'running',
+    chiffrageEnCours: card.column === 'validated' && !card.estimate,
+    enAttente: !!card.scheduling?.waitingReason,
+    estimationEchouee: !!card.estimate?.failed,
+    enLigne: !!card.deployedAt,
+  });
+  const contexteGeste = { colonne: card.column, etat, agentLance: !!agent };
+  const peut = (geste: GesteCarte) => gesteCarte(geste, contexteGeste);
+  const raisonBloquante = (['valider', 'lancer', 'terminer', 'publier'] as GesteCarte[])
+    .map(peut)
+    .find((decision) => decision.affiche && !decision.possible)?.raison;
+
+  /*
+   * Le pied ne s'affiche que s'il porte vraiment une décision à prendre : les
+   * gestes rares sont partis dans le menu du haut, et un bandeau vide n'a plus
+   * lieu d'être. Ce sont les mêmes règles que les boutons eux-mêmes, sinon la
+   * barre pourrait apparaître pour n'y rien montrer.
+   */
+  const aDecision =
+    peut('valider').affiche ||
+    card.column === 'planned' ||
+    peut('terminer').affiche ||
+    peut('publier').affiche ||
+    !!card.estimate?.failed ||
+    !!card.closureDoc;
+
+  /*
+   * L'INSTANT où « Terminer la tâche » s'allume mérite un signe : un halo qui
+   * respire trois fois, puis plus rien. Une carte déjà ouverte sur un bouton
+   * allumé ne clignote pas — il ne vient pas de changer d'état.
+   */
+  const terminerActif = peut('terminer').possible;
+  const [vientDeSallumer, setVientDeSallumer] = React.useState(false);
+  const etatPrecedent = React.useRef(terminerActif);
+  React.useEffect(() => {
+    if (terminerActif && !etatPrecedent.current) {
+      setVientDeSallumer(true);
+      const timer = window.setTimeout(() => setVientDeSallumer(false), 5600);
+      etatPrecedent.current = terminerActif;
+      return () => window.clearTimeout(timer);
+    }
+    etatPrecedent.current = terminerActif;
+  }, [terminerActif]);
   const bascule = React.useRef(aLire);
   React.useEffect(() => {
     if (bascule.current || !aLire) return;
@@ -165,16 +222,23 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
       {aDecision ? (
         <footer className="shrink-0 border-t border-border bg-bg px-4 py-2.5">
           <div className="flex flex-wrap items-center gap-1.5">
-            {card.column === 'todo' ? (
+            {peut('valider').affiche ? (
               <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'validated')}>
                 <Check className="h-3 w-3" /> Valider (autorise la dépense)
               </Button>
             ) : null}
             {card.column === 'planned' ? (
               <>
-                <Button size="sm" variant="default" onClick={() => client.call({ type: 'card.start', id: card.id })}>
-                  <Play className="h-3 w-3" /> Lancer maintenant
-                </Button>
+                <Geste decision={peut('lancer')}>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={!peut('lancer').possible}
+                    onClick={() => client.call({ type: 'card.start', id: card.id })}
+                  >
+                    <Play className="h-3 w-3" /> Lancer maintenant
+                  </Button>
+                </Geste>
                 <Button
                   size="sm"
                   variant={card.scheduling?.asap ? 'subtle' : 'outline'}
@@ -184,12 +248,20 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                 </Button>
               </>
             ) : null}
-            {card.column === 'running' ? (
-              <Button size="sm" variant="default" onClick={() => client.call({ type: 'card.finish', id: card.id })}>
-                <Check className="h-3 w-3" /> Terminer la tâche
-              </Button>
+            {peut('terminer').affiche ? (
+              <Geste decision={peut('terminer')}>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className={cn(vientDeSallumer && 'animate-appel')}
+                  disabled={!peut('terminer').possible}
+                  onClick={() => client.call({ type: 'card.finish', id: card.id })}
+                >
+                  <Check className="h-3 w-3" /> Terminer la tâche
+                </Button>
+              </Geste>
             ) : null}
-            {card.column === 'done' ? (
+            {peut('publier').affiche ? (
               <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
                 <Rocket className="h-3 w-3" /> Mettre en file de publication
               </Button>
@@ -207,9 +279,26 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               </Button>
             ) : null}
           </div>
+
+          {/* Un bouton éteint doit DIRE pourquoi : sur téléphone, l'infobulle
+              au survol n'existe pas. */}
+          {raisonBloquante ? <p className="mt-1.5 text-[12.5px] text-faint">{raisonBloquante}</p> : null}
         </footer>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Un geste éteint garde sa place et sa raison. L'enveloppe porte l'infobulle :
+ * un bouton désactivé ne reçoit aucun survol, il ne pourrait pas la montrer.
+ */
+function Geste({ decision, children }: { decision: DecisionGeste; children: React.ReactNode }) {
+  if (decision.possible || !decision.raison) return <>{children}</>;
+  return (
+    <span title={decision.raison} className="inline-flex">
+      {children}
+    </span>
   );
 }
 

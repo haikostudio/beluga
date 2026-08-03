@@ -9,6 +9,7 @@ import {
   cleColonneTableau,
   colonneAReprendre,
   etatVisuelCarte,
+  sortieAutorisee,
 } from '@haikodev/shared';
 import { Badge, Button, Dot, Input, Textarea, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -102,12 +103,31 @@ export function Board({
 
   const deposer = React.useCallback((item: DragItem, cible: DropTarget | null) => {
     if (!cible) return;
-    const card = client.getSnapshot().cards[item.id];
+    const etatComplet = client.getSnapshot();
+    const card = etatComplet.cards[item.id];
     const column = cible.id as ColumnKey;
     if (!card || card.column === column) return;
     const decision = canMove('user', card.column, column);
     if (!decision.allowed) {
       client.pushToast('error', decision.reason ?? 'déplacement refusé');
+      return;
+    }
+    /*
+     * Le glisser-déposer obéit aux mêmes règles que les boutons du tiroir :
+     * emporter une carte hors de « En cours » pendant que son agent écrit,
+     * c'est perdre le fil de son travail.
+     */
+    const agentDeLaCarte = card.agentId ? etatComplet.agents[card.agentId] : null;
+    const sortie = sortieAutorisee(
+      {
+        colonne: card.column,
+        etat: etatVisuelCarte({ agentStatut: agentDeLaCarte?.status }),
+        agentLance: !!agentDeLaCarte,
+      },
+      column,
+    );
+    if (!sortie.possible) {
+      client.pushToast('warning', sortie.raison ?? 'déplacement refusé');
       return;
     }
     void client.moveCard(card, column);
