@@ -163,7 +163,7 @@ export function DialogContent({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 animate-fade-in" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
       {/*
        * La fenêtre est POSÉE par une enveloppe en flux (collée en bas sur
        * téléphone, centrée sur grand écran), jamais par un décalage de moitié :
@@ -174,8 +174,8 @@ export function DialogContent({
         <DialogPrimitive.Content
           className={cn(
             'pointer-events-auto relative max-h-[85dvh] w-full overflow-y-auto border-t border-border bg-surface p-4 shadow-2xl',
-            'rounded-t-xl animate-slide-sheet',
-            'sm:w-[min(560px,100%)] sm:rounded-lg sm:border sm:animate-slide-up',
+            'rounded-t-xl data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
+            'sm:w-[min(560px,100%)] sm:rounded-lg sm:border sm:data-[state=open]:animate-slide-up sm:data-[state=closed]:animate-slide-down',
             className,
           )}
           style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
@@ -239,7 +239,7 @@ export function Drawer({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 animate-fade-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           className={cn(
             // Sur téléphone il occupe toute la largeur ; sur grand écran il se
@@ -247,7 +247,7 @@ export function Drawer({
             // deviennent trop longues pour être lues confortablement.
             'fixed inset-x-0 z-50 mx-auto flex w-full max-w-[960px] flex-col overflow-hidden border-border bg-bg shadow-2xl',
             'rounded-t-xl border-t sm:rounded-t-2xl sm:border-x',
-            'data-[state=open]:animate-slide-up',
+            'data-[state=open]:animate-slide-up data-[state=closed]:animate-slide-down',
             className,
           )}
           style={{
@@ -328,12 +328,12 @@ export function SidePanel({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 animate-fade-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           aria-label={title}
           className={cn(
             'fixed left-0 top-0 z-50 flex w-[min(320px,86vw)] flex-col overflow-hidden border-r border-border bg-bg shadow-2xl',
-            'data-[state=open]:animate-slide-in-left',
+            'data-[state=open]:animate-slide-in-left data-[state=closed]:animate-slide-out-left',
             className,
           )}
           style={{

@@ -33,11 +33,17 @@ export default {
       },
       keyframes: {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        // Le voile s'efface AVEC le panneau : refermer est un geste, pas une
+        // coupure — sans cette sortie, le noir disparaissait d'un coup.
+        'fade-out': { from: { opacity: '1' }, to: { opacity: '0' } },
         'slide-up': { from: { transform: 'translateY(6px)', opacity: '0' }, to: { transform: 'translateY(0)', opacity: '1' } },
+        'slide-down': { from: { transform: 'translateY(0)', opacity: '1' }, to: { transform: 'translateY(6px)', opacity: '0' } },
         'slide-in-left': { from: { transform: 'translateX(-100%)' }, to: { transform: 'translateX(0)' } },
+        'slide-out-left': { from: { transform: 'translateX(0)' }, to: { transform: 'translateX(-100%)' } },
         // Une feuille qui monte du BAS de l'écran : le geste des fenêtres et des
         // confirmations sur téléphone.
         'slide-sheet': { from: { transform: 'translateY(100%)' }, to: { transform: 'translateY(0)' } },
+        'slide-sheet-out': { from: { transform: 'translateY(0)' }, to: { transform: 'translateY(100%)' } },
         'pulse-soft': { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.45' } },
         // Un halo qui respire : le bouton qui vient de s'allumer attire l'œil
         // sans clignoter — un clignotement franc se lit comme une alarme.
@@ -57,9 +63,15 @@ export default {
       },
       animation: {
         'fade-in': 'fade-in 140ms ease-out',
+        // La sortie dure autant que l'entrée du panneau qu'elle accompagne :
+        // le voile et la feuille doivent partir ensemble.
+        'fade-out': 'fade-out 200ms ease-in',
         'slide-up': 'slide-up 160ms ease-out',
+        'slide-down': 'slide-down 160ms ease-in',
         'slide-in-left': 'slide-in-left 200ms ease-out',
+        'slide-out-left': 'slide-out-left 200ms ease-in',
         'slide-sheet': 'slide-sheet 200ms ease-out',
+        'slide-sheet-out': 'slide-sheet-out 200ms ease-in',
         'pulse-soft': 'pulse-soft 1.6s ease-in-out infinite',
         appel: 'appel 1.8s ease-in-out 3',
         // Une seule passe : le motif contient déjà deux allers-retours.
