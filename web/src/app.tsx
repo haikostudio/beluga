@@ -173,9 +173,35 @@ export function App() {
     return () => large.removeEventListener('change', suivre);
   }, []);
 
-  // Notifications système, cliquables : elles ouvrent la carte concernée.
+  /*
+   * Notifications système, cliquables : elles ouvrent la carte concernée.
+   *
+   * Le démon prévient DEUX fois : par la connexion de l'onglet ouvert, et par
+   * la voie poussée qui atteint l'appareil même application fermée. Quand cet
+   * appareil est abonné à la voie poussée, l'alerte y arrivera de toute façon :
+   * la page se tait, sinon la même nouvelle s'affiche deux fois. Sans
+   * abonnement (navigateur qui ne le sait pas faire, permission jamais
+   * demandée), la page reste le seul chemin et continue d'annoncer.
+   */
   React.useEffect(() => {
-    return client.onNotify((event) => {
+    let abonne = false;
+    const suivreAbonnement = () => {
+      if (!('serviceWorker' in navigator)) return;
+      void navigator.serviceWorker.ready
+        .then((registration) => registration.pushManager.getSubscription())
+        .then((subscription) => {
+          abonne = !!subscription;
+        })
+        .catch(() => {
+          abonne = false;
+        });
+    };
+    suivreAbonnement();
+    // L'abonnement se pose quelques secondes après l'ouverture : on redemande.
+    const rappel = window.setInterval(suivreAbonnement, 15_000);
+
+    const arreter = client.onNotify((event) => {
+      if (abonne) return;
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const notification = new Notification(event.title, { body: event.body, tag: event.tag, icon: '/icon-192.png' });
       notification.onclick = () => {
@@ -184,6 +210,10 @@ export function App() {
         if (event.cardId) setOpenCardId(event.cardId);
       };
     });
+    return () => {
+      window.clearInterval(rappel);
+      arreter();
+    };
   }, []);
 
   // Abonnement aux notifications poussées : l'application prévient même fermée.

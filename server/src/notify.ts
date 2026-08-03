@@ -1,6 +1,6 @@
-import { dansLesHeuresDeSilence } from '@haikodev/shared';
+import { corpsNotification, dansLesHeuresDeSilence, titreNotification } from '@haikodev/shared';
 import { bus } from './bus.js';
-import { getSettings, projectsWithFinishedWork } from './store.js';
+import { getCard, getProject, getSettings, projectsWithFinishedWork } from './store.js';
 
 /**
  * Notifications (PLAN §20) : une rafale d'événements devient UNE seule
@@ -16,6 +16,8 @@ interface Pending {
   body: string;
   cardId?: string;
   projectId?: string;
+  /** Le projet nommé en tête du titre, tant que tous les événements du groupe viennent de lui. */
+  projet?: string;
   timer: NodeJS.Timeout;
 }
 
@@ -67,11 +69,21 @@ export function notify(input: {
 }): void {
   if (!allowed(input.kind) || inQuietHours()) return;
 
+  /*
+   * Le nom du projet et la description de la carte sont ajoutés ICI, une fois
+   * pour toutes : les vingt endroits qui appellent `notify` n'ont pas à y
+   * penser, et l'alerte dit toujours de quoi elle parle.
+   */
+  const projet = input.projectId ? (getProject(input.projectId)?.name ?? undefined) : undefined;
+  const carte = input.cardId ? (getCard(input.cardId) ?? undefined) : undefined;
+
   const existing = pending.get(input.kind);
   if (existing) {
     clearTimeout(existing.timer);
     existing.count += 1;
-    existing.title = PLURALS[input.kind](existing.count);
+    // Un groupe qui mélange deux projets ne peut plus en nommer un seul.
+    if (existing.projet && existing.projet !== projet) existing.projet = undefined;
+    existing.title = titreNotification(PLURALS[input.kind](existing.count), existing.projet);
     existing.body = '';
     existing.cardId = undefined; // un groupe ne pointe plus vers une carte précise
     existing.timer = setTimeout(() => flush(input.kind), GROUP_WINDOW_MS);
@@ -81,10 +93,11 @@ export function notify(input: {
   pending.set(input.kind, {
     kind: input.kind,
     count: 1,
-    title: input.title,
-    body: input.body,
+    title: titreNotification(input.title, projet),
+    body: corpsNotification(input.body, carte),
     cardId: input.cardId,
     projectId: input.projectId,
+    projet,
     timer: setTimeout(() => flush(input.kind), GROUP_WINDOW_MS),
   });
 }

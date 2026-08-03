@@ -9,6 +9,7 @@ export * from './etat-carte.js';
 export * from './heure-message.js';
 export * from './memoire.js';
 export * from './models.js';
+export * from './notification.js';
 export * from './nouveau-depart.js';
 export * from './projet-actif.js';
 export * from './protocol.js';
