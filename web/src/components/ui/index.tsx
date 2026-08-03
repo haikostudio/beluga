@@ -372,9 +372,13 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
     <TooltipPrimitive.Root delayDuration={280}>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
+        {/* Sur téléphone, l'infobulle n'a AUCUN sens (rien ne survole) et la
+            règle qui pose les menus en tiroir la collait en bas de l'écran,
+            sous le bouton de redémarrage. On ne l'affiche qu'à la souris. */}
         <TooltipPrimitive.Content
+          data-infobulle
           sideOffset={6}
-          className="z-50 max-w-[280px] rounded-md border border-border bg-raised px-2 py-1.5 text-[13px] text-text shadow-xl animate-fade-in"
+          className="z-50 hidden max-w-[280px] rounded-md border border-border bg-raised px-2 py-1.5 text-[13px] text-text shadow-xl animate-fade-in sm:block"
         >
           {label}
         </TooltipPrimitive.Content>
