@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Activity, Database, Loader2, Play, Power, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import { Activity, Database, Loader2, Play, Power, RefreshCw, Save, ShieldCheck, Volume2 } from 'lucide-react';
 import { SystemProcess } from '@haikodev/shared';
 import {
   Badge,
@@ -250,6 +250,9 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
           </section>
         ) : null}
 
+        {/* ---------- La voix du point du jour ---------- */}
+        <VoiceSection open={open} />
+
         {/* ---------- Comptes ---------- */}
         <section className="mt-5">
           <h3 className="mb-2 text-[13.5px] font-medium text-text">Comptes et quotas</h3>
@@ -275,6 +278,20 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
           <p className="mt-1.5 text-[12.5px] text-faint">
             L'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en
             premier, la relève ne sert qu'en cas d'épuisement.
+          </p>
+
+          {/* Les réglages n'arrivent qu'avec la réponse du serveur : avant, il
+              n'y a rien à cocher — et les lire trop tôt vidait la page. */}
+          <label className={cn('mt-2 flex items-center gap-2 text-[14px] text-muted', !settings && 'hidden')}>
+            <Switch
+              checked={settings?.primeClaudeWindow ?? false}
+              onCheckedChange={(checked) => update({ primeClaudeWindow: checked })}
+            />
+            Lancer la fenêtre de 5 h dès qu'elle repart à zéro
+          </label>
+          <p className="mt-1 text-[12.5px] text-faint">
+            Sur Claude, la fenêtre de cinq heures ne démarre qu'au premier message. HaikoDev en envoie un minuscule dès
+            qu'un compte revient à zéro, pour que le décompte tourne déjà quand le travail arrive.
           </p>
         </section>
 
@@ -322,6 +339,101 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
         </section>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Le choix de la voix qui lit le point du jour. Une voix ne se juge pas sur son
+ * nom : chaque ligne porte donc son propre bouton d'écoute, et l'extrait est
+ * fabriqué par le serveur avec CETTE voix-là, avant tout enregistrement.
+ */
+function VoiceSection({ open }: { open: boolean }) {
+  const state = useApp();
+  const [voices, setVoices] = React.useState<{ id: string; label: string; description: string }[]>([]);
+  const [playing, setPlaying] = React.useState<string | null>(null);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    client
+      .call<{ voices: typeof voices }>({ type: 'voice.list' })
+      .then((data) => setVoices(data.voices ?? []))
+      .catch(() => setVoices([]));
+  }, [open]);
+
+  // On ne laisse jamais un extrait continuer après la fermeture des réglages.
+  React.useEffect(() => {
+    if (open) return;
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setPlaying(null);
+  }, [open]);
+
+  const ecouter = (id: string) => {
+    audioRef.current?.pause();
+    const audio = new Audio(`/api/voice-sample?voice=${encodeURIComponent(id)}`);
+    audioRef.current = audio;
+    setPlaying(id);
+    const fini = () => setPlaying((courant) => (courant === id ? null : courant));
+    audio.addEventListener('ended', fini);
+    audio.addEventListener('error', () => {
+      fini();
+      client.pushToast('error', 'Extrait impossible à jouer.');
+    });
+    void audio.play().catch(fini);
+  };
+
+  const choisie = state.settings?.ttsVoice;
+  if (!voices.length) return null;
+
+  return (
+    <section className="mt-5">
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <Volume2 className="h-3.5 w-3.5 text-faint" /> La voix du point du jour
+      </h3>
+
+      <div className="space-y-1">
+        {voices.map((voice) => {
+          const active = choisie === voice.id;
+          return (
+            <div
+              key={voice.id}
+              className={cn(
+                'flex items-center gap-2 rounded-md border px-2 py-1.5',
+                active ? 'border-text/40 bg-raised' : 'border-border bg-surface',
+              )}
+            >
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left"
+                onClick={() => client.send({ type: 'settings.update', patch: { ttsVoice: voice.id } })}
+              >
+                <p className="truncate text-[13.5px] text-text">
+                  {voice.label}
+                  {active ? <span className="ml-1.5 text-[12px] text-faint">· choisie</span> : null}
+                </p>
+                <p className="truncate text-[11.5px] text-faint">{voice.description}</p>
+              </button>
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={`Écouter ${voice.label}`}
+                disabled={playing === voice.id}
+                onClick={() => ecouter(voice.id)}
+              >
+                {playing === voice.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                Écouter
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-1.5 text-[12.5px] text-faint">
+        L'extrait est dit avec la voix de la ligne, sans rien changer à votre choix. Touchez le nom pour l'adopter :
+        c'est cette voix qui lira le point du jour et le bouton haut-parleur.
+      </p>
+    </section>
   );
 }
 

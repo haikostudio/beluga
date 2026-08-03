@@ -1,11 +1,15 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './app';
+import { Filet } from './components/filet';
 import './styles.css';
 
+// Le filet de dernier recours : plutôt un message lisible qu'une page vide.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <Filet onReprendre={() => location.reload()}>
+      <App />
+    </Filet>
   </React.StrictMode>,
 );
 

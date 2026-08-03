@@ -10,6 +10,7 @@ import {
   Input,
   Label,
 } from '@/components/ui';
+import { Filet } from '@/components/filet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { money } from '@/lib/utils';
@@ -50,6 +51,10 @@ export function ProjectSettings({
   const [rate, setRate] = React.useState('130');
   const [documentId, setDocumentId] = React.useState('');
   const [documentType, setDocumentType] = React.useState<'offer' | 'invoice'>('invoice');
+  const [confirmSuppression, setConfirmSuppression] = React.useState(false);
+  const [sousDomaine, setSousDomaine] = React.useState('');
+  const [portLocal, setPortLocal] = React.useState('');
+  const [publication, setPublication] = React.useState(false);
 
   React.useEffect(() => {
     if (!project) return;
@@ -80,6 +85,12 @@ export function ProjectSettings({
       .catch(() => setDocuments([]));
   }, [open]);
 
+  /*
+   * TOUS les réglages internes sont posés PLUS HAUT, avant cette sortie : ils
+   * doivent être déclarés dans le même ordre à chaque passage. Quand la fenêtre
+   * était fermée (aucun projet) puis ouverte, les déclarer plus bas en ajoutait
+   * quatre d'un coup — React arrêtait tout et l'écran devenait noir.
+   */
   if (!project) return null;
 
   const chosen = clients.find((c) => c.id === clientId);
@@ -123,11 +134,6 @@ export function ProjectSettings({
     onClose();
   };
 
-  const [confirmSuppression, setConfirmSuppression] = React.useState(false);
-  const [sousDomaine, setSousDomaine] = React.useState('');
-  const [portLocal, setPortLocal] = React.useState('');
-  const [publication, setPublication] = React.useState(false);
-
   const remove = async () => {
     await client.call({ type: 'project.delete', id: project.id });
     onClose();
@@ -137,6 +143,7 @@ export function ProjectSettings({
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
       <DialogContent className="w-[min(560px,calc(100vw-16px))]">
         <DialogTitle>Réglages du projet</DialogTitle>
+        <Filet zone="Réglages du projet" onReprendre={onClose}>
 
         <div className="mt-4 space-y-3">
           <div>
@@ -348,6 +355,7 @@ export function ProjectSettings({
             Enregistrer
           </Button>
         </div>
+        </Filet>
       </DialogContent>
 
       <ConfirmDialog
