@@ -37,6 +37,8 @@ export interface AppState {
   groups: ProjectGroup[];
   /** Projets qui attendent une réponse : nombre de questions en attente. */
   attention: Record<string, number>;
+  /** Projets dont un agent a rendu son travail sans qu'on l'ait encore lu. */
+  rendus: Record<string, number>;
   engines: EngineInfo[];
   quotas: AccountQuota[];
   capacity: CapacitySnapshot | null;
@@ -68,6 +70,7 @@ const initialState: AppState = {
   projects: [],
   groups: [],
   attention: {},
+  rendus: {},
   engines: [],
   quotas: [],
   capacity: null,
@@ -212,6 +215,10 @@ class Client {
 
       case 'attention':
         this.set({ attention: event.byProject });
+        break;
+
+      case 'rendus':
+        this.set({ rendus: event.byProject });
         break;
 
       case 'project.upsert':

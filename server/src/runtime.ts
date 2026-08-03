@@ -28,6 +28,7 @@ import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
 import { notify } from './notify.js';
+import { carteDuTravailHorsTache, repereAvant } from './hors-tache.js';
 
 export interface LiveRun {
   agentId: string;
@@ -292,6 +293,13 @@ async function startTurn(
    * enregistré : recopier la mémoire entière sous chaque message la stockerait
    * des centaines de fois pour rien, l'interface l'a déjà de son côté.
    */
+  /*
+   * Où en est le dépôt AVANT que l'agent ne touche à quoi que ce soit. C'est
+   * ce repère qui, à la fin du tour, dira si du code a été enregistré sans
+   * carte — et méritera donc une fiche.
+   */
+  const repere = agent.cardId ? null : await repereAvant(project.path).catch(() => null);
+
   const memory = memorySummary(project.path);
   const memoryStep: RunStep | null = nouvelleSession
     ? {
@@ -482,6 +490,23 @@ async function startTurn(
 
   const finalAgent = store.getAgent(agent.id)!;
   setStatus(finalAgent, failed ? 'failed' : 'done', { endedAt: Date.now() });
+
+  /*
+   * RIEN DE CE QUI SE FAIT NE RESTE INVISIBLE. Un agent sans carte qui a
+   * enregistré du code reçoit sa fiche : sinon son travail ne se voyait que
+   * comme un « changement sans carte » dans le bloc de publication, et pouvait
+   * partir en ligne sans jamais avoir été décrit.
+   */
+  if (!agent.cardId && repere) {
+    try {
+      await carteDuTravailHorsTache(finalAgent, repere);
+    } catch (err) {
+      log.error('fiche du travail hors tâche impossible', err);
+    }
+  }
+
+  // La pastille « terminé, pas encore lu » se met à jour dès que l'agent se tait.
+  bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
 
   if (agent.cardId) {
     const card = store.getCard(agent.cardId);

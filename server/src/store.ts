@@ -3,6 +3,7 @@ import {
   Agent,
   Attachment,
   Card,
+  CarteRendue,
   ColumnKey,
   DeployRun,
   Message,
@@ -12,6 +13,7 @@ import {
   Settings,
   TaskProposal,
   cleNouveauDepart,
+  rendusParProjet,
 } from '@haikodev/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 
@@ -325,6 +327,35 @@ export function deleteCard(id: string): void {
 }
 
 /** Le plus récent en premier : position = horodatage décroissant par défaut. */
+/**
+ * « J'ai lu. » Éteint la pastille de cette carte, et d'elle seule : passer sur
+ * le projet ne prouve rien, ouvrir la conversation si.
+ */
+export function markCardRead(cardId: string, at = now()): Card | null {
+  const card = getCard(cardId);
+  if (!card) return null;
+  return saveCard({ ...card, lastReadAt: at });
+}
+
+/**
+ * Les empreintes de commits déjà rattachées à une carte de ce projet. C'est ce
+ * qui empêche de fabriquer deux fois une carte pour le même travail.
+ */
+export function shasCouverts(projectId: string): string[] {
+  const out: string[] = [];
+  for (const card of listCards(projectId)) {
+    for (const commit of card.github?.commits ?? []) if (commit.sha) out.push(commit.sha);
+  }
+  return out;
+}
+
+/** Les branches déjà tenues par une carte de ce projet. */
+export function branchesDeCartes(projectId: string): string[] {
+  return listCards(projectId)
+    .map((card) => card.github?.branch)
+    .filter((branch): branch is string => !!branch);
+}
+
 export function nextPosition(projectId: string, column: ColumnKey): number {
   const row = getDb()
     .prepare('SELECT MAX(position) AS m FROM cards WHERE project_id = ? AND column_key = ?')
@@ -543,6 +574,54 @@ export function projectsNeedingAttention(): Record<string, number> {
     }
   }
   return out;
+}
+
+/**
+ * Les projets dont un agent a RENDU son travail sans qu'on l'ait encore lu.
+ *
+ * La roue qui tourne dit déjà « un agent travaille » ; c'est l'état d'après qui
+ * manquait. On rapproche chaque carte de son dernier agent, et la règle — dans
+ * `shared`, donc testable seule — tranche.
+ */
+export function projectsWithFinishedWork(): Record<string, number> {
+  const rows = getDb()
+    .prepare(
+      `SELECT c.id AS cardId, c.project_id AS projectId, c.column_key AS colonne, c.data AS carte,
+              (SELECT a.data FROM agents a
+                WHERE a.card_id = c.id ORDER BY a.created_at DESC LIMIT 1) AS agent
+         FROM cards c
+        WHERE c.column_key <> 'archived'`,
+    )
+    .all() as { cardId: string; projectId: string; colonne: string; carte: string; agent: string | null }[];
+
+  const entrees: CarteRendue[] = [];
+  for (const row of rows) {
+    try {
+      const carte = Card.parse(JSON.parse(row.carte));
+      /*
+       * Une carte fabriquée pour du travail hors tâche n'a pas d'agent à elle :
+       * sa conversation est celle de l'agent qui a codé.
+       */
+      const brut = row.agent ?? (carte.conversationAgentId ? rawAgent(carte.conversationAgentId) : null);
+      const agent = brut ? Agent.parse(JSON.parse(brut)) : null;
+      entrees.push({
+        cardId: row.cardId,
+        projectId: row.projectId,
+        colonne: row.colonne,
+        agentStatut: agent?.status,
+        agentFiniA: agent?.endedAt,
+        luA: carte.lastReadAt,
+      });
+    } catch {
+      /* carte illisible : elle n'apprend rien de plus */
+    }
+  }
+  return rendusParProjet(entrees);
+}
+
+function rawAgent(id: string): string | null {
+  const row = getDb().prepare('SELECT data FROM agents WHERE id = ?').get(id) as { data: string } | undefined;
+  return row?.data ?? null;
 }
 
 /** Le détail de ces questions : de quel projet, et ce qui est demandé. */

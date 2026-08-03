@@ -319,9 +319,23 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
   if (!(await runCommand(cwd, `git rev-parse --verify --quiet ${depuis}`, 20000)).out.trim()) return vide;
 
   const principale = await mainBranchOf(cwd);
-  const journal = await runCommand(cwd, `git log --format=%s ${depuis}..${principale}`, 30000);
+  const journal = await runCommand(cwd, `git log --format=%H%x1f%s ${depuis}..${principale}`, 30000);
   if (!journal.ok) return vide;
-  const titres = journal.out.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  /*
+   * Un enregistrement qui a DÉJÀ sa carte n'est plus anonyme : il compte dans
+   * le lot par sa fiche, pas comme « changement sans carte ». Sans ce tri, le
+   * même travail était annoncé deux fois.
+   */
+  const couverts = new Set(store.shasCouverts(projectId));
+  const titres: string[] = [];
+  for (const ligne of journal.out.split('\n')) {
+    if (!ligne.trim()) continue;
+    const [sha, titre] = ligne.split('\u001f');
+    if (!titre?.trim()) continue;
+    if (couverts.has(sha?.trim() ?? '')) continue;
+    titres.push(titre.trim());
+  }
   return { nombre: titres.length, titres: titres.slice(0, 6) };
 }
 

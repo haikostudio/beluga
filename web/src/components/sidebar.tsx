@@ -18,7 +18,7 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { Project, ProjectGroup, avertissementRedemarrage } from '@haikodev/shared';
+import { Project, ProjectGroup, avertissementRedemarrage, rendusDuGroupe } from '@haikodev/shared';
 import {
   Button,
   ConfirmDialog,
@@ -241,6 +241,7 @@ export function Sidebar({
                 active={entry.id === state.activeProjectId}
                 running={runningOf(entry.id)}
                 attention={state.attention[entry.id]}
+                rendus={state.rendus[entry.id]}
                 dimmed={dragging?.id === entry.id}
                 rowProps={rowProps(entry.id, 'project')}
                 poigneeProps={poigneeProps(entry.id, 'project', entry.project.name)}
@@ -297,6 +298,13 @@ export function Sidebar({
                   ) : null}
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
+                  {/* Replié, un groupe cacherait ce que ses projets ont rendu :
+                      la pastille remonte donc jusqu'ici. */}
+                  {collapsed.includes(entry.id) ? (
+                    <PastilleRendue
+                      compte={rendusDuGroupe(entry.members.map((p) => p.id), state.rendus)}
+                    />
+                  ) : null}
                 </button>
                 <ColorPicker
                   value={entry.group.color}
@@ -331,6 +339,7 @@ export function Sidebar({
                           active={project.id === state.activeProjectId}
                           running={runningOf(project.id)}
                           attention={state.attention[project.id]}
+                          rendus={state.rendus[project.id]}
                           dimmed={dragging?.id === project.id}
                           rowProps={rowProps(project.id, 'project')}
                           poigneeProps={poigneeProps(project.id, 'project', project.name)}
@@ -579,6 +588,26 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
   );
 }
 
+/**
+ * « Un agent a fini, et vous ne l'avez pas encore lu. »
+ *
+ * La roue verte qui tourne dit déjà qu'un agent travaille ; cette pastille dit
+ * l'état d'après. Elle est PLEINE et immobile, là où la roue tourne : les deux
+ * ne peuvent pas se confondre d'un coup d'œil.
+ */
+function PastilleRendue({ compte }: { compte?: number }) {
+  if (!compte) return null;
+  return (
+    <Tooltip
+      label={`${compte} réponse${compte > 1 ? 's' : ''} rendue${compte > 1 ? 's' : ''}, pas encore lue${compte > 1 ? 's' : ''}`}
+    >
+      <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-success px-1 text-[10.5px] font-medium leading-none text-bg">
+        {compte}
+      </span>
+    </Tooltip>
+  );
+}
+
 /** L'aperçu de l'élément déplacé, à l'endroit exact où il se posera. */
 function Ghost({ show, label }: { show?: boolean; label?: string }) {
   if (!show) return null;
@@ -595,6 +624,7 @@ function ProjectRow({
   active,
   running,
   attention,
+  rendus,
   dimmed,
   rowProps,
   poigneeProps,
@@ -605,6 +635,8 @@ function ProjectRow({
   active: boolean;
   running: number;
   attention?: number;
+  /** Réponses rendues et pas encore lues sur ce projet. */
+  rendus?: number;
   dimmed?: boolean;
   rowProps: Record<string, unknown>;
   /** Le glissement part d'ICI, jamais de la ligne entière. */
@@ -639,6 +671,7 @@ function ProjectRow({
           <Folder className="h-3 w-3 shrink-0 text-faint" />
         )}
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
+        <PastilleRendue compte={rendus} />
         {attention ? (
           <Tooltip label={`${attention} réponse${attention > 1 ? 's' : ''} attendue${attention > 1 ? 's' : ''}`}>
             <TriangleAlert className="h-3 w-3 shrink-0 text-warning" />
