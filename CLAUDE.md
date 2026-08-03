@@ -37,10 +37,15 @@ node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/verif-prevision-quota.mjs # la prévision d'épuisement, dans le volet des quotas
+node scripts/verif-reprise-paseo.mjs # les cartes reprises de Paseo, dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
 `npm test` lit `server/dist` : construire avant de tester.
+
+Les scripts qui passent par le navigateur ont besoin d'une session : ils s'en fabriquent une
+d'une heure dans la base et la retirent en partant, ou reprennent `HAIKODEV_TOKEN` si elle est
+donnée. Les jetons de session sont stockés HACHÉS : on n'en réutilise jamais un existant.
 
 ## Mémoire du projet
 
