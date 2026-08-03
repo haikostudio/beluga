@@ -45,7 +45,7 @@ export function RightPanel({ projectId }: { projectId: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Tabs defaultValue="chat" className="flex min-h-0 flex-1 flex-col">
-        <div className="border-b border-border px-2 py-1.5">
+        <div className="px-2 py-1.5">
           <TabsList className="w-full">
             <TabsTrigger value="chat" className="flex-1">
               Chef

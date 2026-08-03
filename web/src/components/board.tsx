@@ -252,7 +252,7 @@ export function Board({
               carteTiree && !allowed && 'opacity-40',
             )}
           >
-            <div className="relative flex shrink-0 items-center gap-1.5 border-b border-border/50 px-2 py-1.5">
+            <div className="relative flex shrink-0 items-center gap-1.5 px-2 py-1.5">
               <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
               <span className="text-[12.5px] text-faint">{columnCards.length}</span>
               {column === 'todo' || column === 'notes' ? (

@@ -307,7 +307,7 @@ export function Composer({
 
   return (
     <div
-      className="border-t border-border bg-bg px-2.5 pt-2"
+      className="bg-bg px-2.5 pt-2"
       /*
        * Le creux du téléphone (barre de gestes) n'est réservé QUE si la barre
        * d'écriture touche vraiment le bas de l'écran. Dans le tiroir d'une

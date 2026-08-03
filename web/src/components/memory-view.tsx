@@ -36,7 +36,7 @@ export function MemoryView({
 
   return (
     <Drawer open={open} onClose={onClose}>
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 pb-2">
+      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
         <BookOpen className="h-3.5 w-3.5 shrink-0 text-accent" />
         <DialogTitle className="min-w-0 flex-1 truncate">
           Mémoire {projet ? `de ${projet.name}` : 'du projet'}

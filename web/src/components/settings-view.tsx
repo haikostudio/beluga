@@ -77,7 +77,7 @@ function SettingsBody({ open }: { open: boolean }) {
       <Tabs value={onglet} onValueChange={setOnglet} className="flex min-h-0 flex-1 flex-col">
         {/* Six onglets ne tiennent pas sur la largeur d'un téléphone : la barre
             défile horizontalement plutôt que de se replier en deux lignes. */}
-        <div className="shrink-0 overflow-x-auto border-b border-border px-4 py-2">
+        <div className="shrink-0 overflow-x-auto px-4 py-2">
           <TabsList>
             {ONGLETS.map((item) => (
               <TabsTrigger key={item.cle} value={item.cle} className="whitespace-nowrap">
