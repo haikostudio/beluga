@@ -90,8 +90,9 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
             onClick={start}
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
-            Tout déployer ({embarked.length - conflicts.length}
-            {conflicts.length ? `/${embarked.length}` : ''})
+            {/* Le compteur embarque TOUT : une branche en conflit n'est plus
+                écartée d'avance, l'agent de publication la reprend en route. */}
+            Tout déployer ({embarked.length})
           </Button>
 
           {busyAgents.length ? (
@@ -110,8 +111,9 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
                 <li key={conflict.cardId} className="flex items-start gap-1.5 text-[12px] text-warning">
                   <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
                   <span>
-                    Conflit prévu — « {conflict.title} » sera écartée
-                    {conflict.files.length ? ` (${conflict.files.slice(0, 3).join(', ')})` : ''}.
+                    Conflit prévu sur « {conflict.title} »
+                    {conflict.files.length ? ` (${conflict.files.slice(0, 3).join(', ')})` : ''} — l'agent de
+                    publication le résoudra en route. Sans succès, la carte restera ici pour le prochain coup.
                   </span>
                 </li>
               ))}

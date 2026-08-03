@@ -9,7 +9,7 @@ import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
-import { createCard } from './tools.js';
+import { createAgent, sendPrompt } from './runtime.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -119,31 +119,70 @@ export async function conflitsPrevus(projectId: string): Promise<ConflitPrevu[]>
 }
 
 /**
- * Une branche écartée ne doit pas se perdre dans un journal : elle devient une
- * carte à part entière, dans « À faire ».
+ * Un conflit se résout DANS la publication, pas dans une nouvelle tâche.
+ *
+ * Avant, une branche en conflit produisait une carte « Résoudre le conflit de
+ * fusion : … » qu'il fallait valider, chiffrer, lancer, clôturer, puis relancer
+ * la publication — tout le parcours refait pour un geste de plomberie. Le
+ * publieur appelle maintenant un agent sur-le-champ, attend qu'il ait fini, et
+ * retente la fusion. En cas d'échec, la carte est simplement écartée du lot et
+ * reste dans « À déployer », comme avant.
+ *
+ * Rend vrai si la branche a fini par se fusionner.
  */
-function creerCarteDeResolution(projectId: string, card: Card, branch: string, files: string[]): void {
-  const title = `Résoudre le conflit de fusion : ${card.title}`.slice(0, 200);
-  const dejaLa = store
-    .listCards(projectId)
-    .some((autre) => autre.title === title && !autre.doneAt && !autre.deployedAt);
-  if (dejaLa) return;
-
+async function resoudreConflit(
+  projectId: string,
+  cwd: string,
+  card: Card,
+  branch: string,
+  mainBranch: string,
+  files: string[],
+): Promise<{ fusionnee: boolean; recit: string }> {
   const liste = files.length ? files.map((file) => `- ${file}`).join('\n') : '- (fichiers non identifiés)';
-  const nouvelle = createCard(projectId, {
-    title,
-    origin: 'agent',
-    labels: ['conflit', 'publication'],
-    description: [
-      `La branche \`${branch}\` ne se fusionne plus sur la branche principale : elle a été écartée de la publication, et la carte « ${card.title} » est restée dans « À déployer ».`,
-      '',
-      'Fichiers en conflit :',
-      liste,
-      '',
-      'Attendu : fusionner la branche principale dans cette branche, résoudre les conflits en gardant les deux intentions, vérifier que les tests passent, puis relancer la publication.',
-    ].join('\n'),
+  const agent = createAgent({
+    projectId,
+    role: 'deploy',
+    title: `Conflit de fusion — ${card.title}`,
+    cardId: card.id,
+    run: card.run,
   });
-  bus.emit({ type: 'card.upsert', card: nouvelle });
+
+  const prompt = [
+    `La publication est EN COURS et bloque : la branche \`${branch}\` ne se fusionne plus sur \`${mainBranch}\`.`,
+    '',
+    'Fichiers en conflit :',
+    liste,
+    '',
+    'Fais exactement ceci, et rien d’autre :',
+    `1. \`git checkout ${branch}\``,
+    `2. \`git merge ${mainBranch}\``,
+    '3. Résous chaque conflit en GARDANT LES DEUX INTENTIONS : le travail de la branche principale et celui de cette branche. Ne supprime jamais le travail d’un autre pour faire passer le tien.',
+    '4. Enregistre la fusion (`git add` sur les fichiers résolus, puis `git commit`).',
+    '5. Vérifie que le projet compile et que les tests passent.',
+    '',
+    'Ne publie pas, ne redémarre rien : la publication reprendra toute seule dès que tu auras fini. Réponds court.',
+  ].join('\n');
+
+  bus.toast('info', `Conflit sur « ${card.title} » : l’agent de publication le résout.`);
+
+  try {
+    await sendPrompt(agent.id, prompt, { template: 'free', silent: true });
+  } catch (err: any) {
+    return { fusionnee: false, recit: `agent de résolution en échec (${err?.message ?? 'raison inconnue'})` };
+  }
+
+  /*
+   * L'agent a pu laisser le dossier sur SA branche : on revient sur la
+   * principale avant de retenter, sinon la fusion partirait à l'envers.
+   */
+  const retour = await runCommand(cwd, `git checkout ${mainBranch}`);
+  if (!retour.ok) return { fusionnee: false, recit: 'retour sur la branche principale impossible' };
+
+  const seconde = await runCommand(cwd, `git merge --no-edit ${branch}`);
+  if (seconde.ok) return { fusionnee: true, recit: 'conflit résolu par l’agent, branche fusionnée' };
+
+  await runCommand(cwd, 'git merge --abort');
+  return { fusionnee: false, recit: 'conflit toujours présent après passage de l’agent' };
 }
 
 /* ------------------------------------------------------------------ */
@@ -335,11 +374,20 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
             .split('\n')
             .filter(Boolean);
           await runCommand(cwd, 'git merge --abort');
+
+          // Le conflit se règle ICI, pendant la publication : plus de carte à
+          // valider, chiffrer et lancer pour un geste de plomberie.
+          mergeLog += `\n${branch} : CONFLIT${enConflit.length ? ` (${enConflit.join(', ')})` : ''} — résolution en cours…`;
+          current = setStep(current, 'merge', 'running', mergeLog.trim());
+
+          const issue = await resoudreConflit(projectId, cwd, card, branch, mainBranch, enConflit);
+          if (issue.fusionnee) {
+            fusionnees += 1;
+            mergeLog += `\n${branch} : ${issue.recit}`;
+            continue;
+          }
           ecartees.add(card.id);
-          creerCarteDeResolution(projectId, card, branch, enConflit);
-          mergeLog += `\n${branch} : CONFLIT, carte écartée de cette publication${
-            enConflit.length ? ` (${enConflit.join(', ')})` : ''
-          }`;
+          mergeLog += `\n${branch} : ${issue.recit} — carte écartée de cette publication`;
         }
 
         if (ecartees.size) {
