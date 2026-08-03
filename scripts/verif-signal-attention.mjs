@@ -1,0 +1,241 @@
+#!/usr/bin/env node
+/**
+ * Vérification, dans un VRAI navigateur, du signal « ce projet attend une
+ * réponse » dans la colonne de gauche :
+ *
+ *  - à l'ARRIVÉE d'une demande, la ligne du projet fait une petite secousse ;
+ *  - la secousse ne se rejoue PAS en boucle, ni sur un compte inchangé ;
+ *  - le projet déjà ouvert et regardé ne bouge jamais ;
+ *  - le triangle d'alerte, lui, reste tant que la demande est en attente ;
+ *  - un groupe replié qui contient un projet en attente porte le même signal.
+ *
+ * Les demandes sont SIMULÉES : on injecte l'événement « attention » dans le
+ * canal temps réel, sans toucher à la base ni déranger un agent au travail.
+ *
+ *   HAIKODEV_URL=http://localhost:7133 node scripts/verif-signal-attention.mjs
+ */
+import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { createRequire } from 'node:module';
+
+const BASE = process.env.HAIKODEV_URL || 'http://localhost:7099';
+const SHOTS = '/root/haikodev/data/verification';
+
+/** Une session d'essai : la colonne « token » garde le SHA-256 du cookie. */
+function poserSession() {
+  const require = createRequire(import.meta.url);
+  const db = require('/root/haikodev/node_modules/better-sqlite3')('/root/haikodev/data/haikodev.db');
+  const cookie = crypto.randomBytes(24).toString('hex');
+  const maintenant = Date.now();
+  db.prepare('INSERT INTO sessions (token, created_at, expires_at, label) VALUES (?, ?, ?, ?)').run(
+    crypto.createHash('sha256').update(cookie).digest('hex'),
+    maintenant,
+    maintenant + 3600_000,
+    'vérification signal attention',
+  );
+  return cookie;
+}
+
+const resultats = [];
+function record(nom, ok, detail = '') {
+  resultats.push({ nom, ok, detail });
+  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}${detail ? ` — ${detail}` : ''}`);
+}
+
+async function main() {
+  fs.mkdirSync(SHOTS, { recursive: true });
+  const browser = await chromium.launch({
+    channel: 'chrome',
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--ignore-certificate-errors'],
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    locale: 'fr-CH',
+    ignoreHTTPSErrors: true,
+    // Sinon c'est la version PUBLIÉE qui s'affiche, pas celle qu'on vérifie.
+    serviceWorkers: 'block',
+  });
+  await context.addCookies([
+    { name: 'haikodev_session', value: poserSession(), url: new URL(BASE).origin, httpOnly: true, sameSite: 'Lax' },
+  ]);
+
+  const page = await context.newPage();
+  const erreurs = [];
+  page.on('pageerror', (error) => erreurs.push(String(error)));
+  page.on('console', (message) => message.type() === 'error' && erreurs.push(message.text()));
+
+  /*
+   * On garde la main sur le canal temps réel : « __attention(compte) » rejoue
+   * l'événement du serveur tel qu'il arriverait pour de vrai.
+   */
+  await page.addInitScript(() => {
+    window.__ecouteurs = [];
+    // L'application pose sa fonction sur « onmessage » : c'est donc là qu'on
+    // se greffe, sans rien remplacer de ce qui arrive vraiment du serveur.
+    const propriete = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'onmessage');
+    Object.defineProperty(WebSocket.prototype, 'onmessage', {
+      configurable: true,
+      get() {
+        return propriete.get.call(this);
+      },
+      set(ecouteur) {
+        window.__ecouteurs.push(ecouteur);
+        return propriete.set.call(this, ecouteur);
+      },
+    });
+    window.__attention = (byProject) => {
+      const donnees = JSON.stringify({ type: 'attention', byProject });
+      for (const ecouteur of window.__ecouteurs) ecouteur({ data: donnees });
+    };
+  });
+
+  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(4500);
+  // L'application reprend l'endroit quitté : un tiroir resté ouvert masquerait
+  // la colonne de gauche.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(600);
+
+  /*
+   * Tous les groupes sont dépliés le temps du contrôle : sinon le projet
+   * ouvert peut être caché dans un groupe replié, et il n'y aurait plus rien
+   * à comparer. On les rend à leur état d'origine à la fin.
+   */
+  page.setDefaultTimeout(8000);
+  const basculerGroupe = async (id) => {
+    try {
+      await page.locator(`[data-drag-kind="group"][data-drag-id="${id}"] button`).first().click();
+      await page.waitForTimeout(250);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const groupesReplies = [];
+  for (const id of await page.locator('[data-drag-kind="group"]').evaluateAll((n) =>
+    n.map((g) => g.getAttribute('data-drag-id')),
+  )) {
+    const replie = await page.evaluate(
+      (identifiant) =>
+        !document.querySelector(`[data-drop-group="${identifiant}"] [data-drag-kind="project"]`),
+      id,
+    );
+    if (!replie) continue;
+    if (await basculerGroupe(id)) groupesReplies.push(id);
+  }
+
+  const lignes = page.locator('[data-drag-kind="project"]');
+  const total = await lignes.count();
+  record('la colonne des projets s’affiche', total > 0, `${total} projet(s)`);
+  if (!total) {
+    await browser.close();
+    process.exit(1);
+  }
+
+  /** Le projet ouvert (fond marqué) et un autre, qu'on ne regarde pas. */
+  const ids = await lignes.evaluateAll((noeuds) =>
+    noeuds.map((n) => ({ id: n.getAttribute('data-drag-id'), actif: n.className.includes('bg-raised') })),
+  );
+  const actif = ids.find((p) => p.actif);
+  const dormant = ids.find((p) => !p.actif);
+  record('un projet est ouvert et un autre ne l’est pas', !!actif && !!dormant);
+
+  const ligneDe = (id) => page.locator(`[data-drag-kind="project"][data-drag-id="${id}"]`);
+  const secoue = async (id) => (await ligneDe(id).getAttribute('class')).includes('animate-secousse');
+
+  /* --- 1. L'arrivée d'une demande secoue la ligne ------------------- */
+  if (dormant) {
+    await page.evaluate((id) => window.__attention({ [id]: 1 }), dormant.id);
+    await page.waitForTimeout(120);
+    record('la ligne bouge à l’arrivée d’une demande', await secoue(dormant.id));
+
+    const triangle = ligneDe(dormant.id).locator('[data-signal-attention]');
+    record('elle porte le triangle d’attention', (await triangle.count()) === 1);
+
+    await page.screenshot({ path: `${SHOTS}/signal-attention.png` });
+
+    /* --- 2. La secousse s'arrête : elle signale, elle ne harcèle pas -- */
+    await page.waitForTimeout(1200);
+    record('la secousse s’arrête d’elle-même', !(await secoue(dormant.id)));
+    record('le triangle, lui, reste', (await triangle.count()) === 1);
+
+    /* --- 3. Le même compte ne rejoue rien ---------------------------- */
+    await page.evaluate((id) => window.__attention({ [id]: 1 }), dormant.id);
+    await page.waitForTimeout(200);
+    record('un compte inchangé ne relance pas la secousse', !(await secoue(dormant.id)));
+
+    /* --- 4. Une demande de PLUS secoue de nouveau -------------------- */
+    await page.evaluate((id) => window.__attention({ [id]: 2 }), dormant.id);
+    await page.waitForTimeout(120);
+    record('une demande de plus fait bouger la ligne à nouveau', await secoue(dormant.id));
+    await page.waitForTimeout(1200);
+
+    /* --- 5. Plus rien en attente : le triangle s'éteint --------------- */
+    await page.evaluate(() => window.__attention({}));
+    await page.waitForTimeout(200);
+    record('le triangle s’éteint quand plus rien n’attend', (await triangle.count()) === 0);
+    record('et rien ne bouge quand le compte retombe', !(await secoue(dormant.id)));
+  }
+
+  /* --- 6. Le projet qu'on regarde déjà ne bouge pas ------------------ */
+  if (actif) {
+    await page.evaluate((id) => window.__attention({ [id]: 1 }), actif.id);
+    await page.waitForTimeout(200);
+    record('le projet ouvert et regardé ne bouge pas', !(await secoue(actif.id)));
+    record(
+      'mais il porte quand même son triangle',
+      (await ligneDe(actif.id).locator('[data-signal-attention]').count()) === 1,
+    );
+    await page.evaluate(() => window.__attention({}));
+  }
+
+  /* --- 7. Un groupe replié porte le signal de ses projets ------------ */
+  const groupes = page.locator('[data-drag-kind="group"]');
+  if (await groupes.count()) {
+    // Tous les groupes sont dépliés à ce stade : on lit les membres du premier.
+    const membres = await page.evaluate(() => {
+      for (const groupe of document.querySelectorAll('[data-drop-group]')) {
+        const ids = [...groupe.querySelectorAll('[data-drag-kind="project"]')].map((n) =>
+          n.getAttribute('data-drag-id'),
+        );
+        if (ids.length) return { groupeId: groupe.getAttribute('data-drop-group'), ids };
+      }
+      return null;
+    });
+    if (membres?.ids?.length) {
+      // On replie le groupe, puis on fait arriver une demande dans un membre.
+      await basculerGroupe(membres.groupeId);
+      await page.evaluate((id) => window.__attention({ [id]: 1 }), membres.ids[0]);
+      await page.waitForTimeout(150);
+      const ligneGroupe = page.locator(`[data-drag-kind="group"][data-drag-id="${membres.groupeId}"]`);
+      record(
+        'un groupe replié porte le triangle de ses projets',
+        (await ligneGroupe.locator('[data-signal-attention]').count()) === 1,
+      );
+      await page.evaluate(() => window.__attention({}));
+      // On rend la colonne telle qu'on l'a trouvée : le groupe se redéplie.
+      await basculerGroupe(membres.groupeId);
+    } else {
+      record('groupe replié : aucun groupe peuplé à contrôler', true, 'contrôle sauté');
+    }
+  } else {
+    record('groupe replié : aucun groupe à contrôler', true, 'contrôle sauté');
+  }
+
+  // La colonne est rendue telle qu'elle était : ce qui était replié le redevient.
+  for (const id of groupesReplies) await basculerGroupe(id);
+
+  record('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
+
+  await browser.close();
+
+  const echecs = resultats.filter((r) => !r.ok);
+  console.log(`\n${resultats.length - echecs.length}/${resultats.length} contrôles passés.`);
+  process.exit(echecs.length ? 1 : 0);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

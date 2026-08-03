@@ -686,6 +686,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         proposals: message.proposals.map((p) => (p.id === cmd.proposalId ? decided : p)),
       });
       bus.emit({ type: 'message.upsert', message: updatedMessage });
+      // Tranchée, la proposition ne réclame plus rien : le signal s'éteint.
+      bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
       return { cardId };
     }
 

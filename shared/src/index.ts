@@ -1,5 +1,6 @@
 export * from './amorce.js';
 export * from './analyse.js';
+export * from './attention.js';
 export * from './ancres.js';
 export * from './capacite.js';
 export * from './columns.js';

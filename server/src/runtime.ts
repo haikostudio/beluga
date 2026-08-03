@@ -584,8 +584,21 @@ export function attachToCurrentMessage(
     downloads: patch.download ? [...current.downloads, patch.download] : current.downloads,
   });
   bus.emit({ type: 'message.upsert', message: updated });
-  if (patch.question) {
+  // Une carte présentée à valider attend une décision au même titre qu'une
+  // question : elle allume donc le même signal dans la liste des projets.
+  if (patch.question || patch.proposal) {
     bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
+  }
+  if (patch.proposal) {
+    notify({
+      kind: 'waiting',
+      title: 'Une carte attend votre validation',
+      body: patch.proposal.title.slice(0, 120),
+      projectId: store.getAgent(agentId)?.projectId,
+      cardId: store.getAgent(agentId)?.cardId,
+    });
+  }
+  if (patch.question) {
     notify({
       kind: 'waiting',
       title: 'Une réponse est attendue',

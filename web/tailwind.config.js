@@ -45,6 +45,15 @@ export default {
           '0%,100%': { boxShadow: '0 0 0 0 hsl(var(--success) / 0)' },
           '50%': { boxShadow: '0 0 0 5px hsl(var(--success) / 0.35)' },
         },
+        // Une ligne qui se rappelle à vous : trois oscillations courtes, de
+        // faible amplitude. Elle signale, elle ne harcèle pas.
+        secousse: {
+          '0%,100%': { transform: 'translateX(0)' },
+          '20%': { transform: 'translateX(-3px)' },
+          '40%': { transform: 'translateX(3px)' },
+          '60%': { transform: 'translateX(-2px)' },
+          '80%': { transform: 'translateX(2px)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 140ms ease-out',
@@ -53,6 +62,8 @@ export default {
         'slide-sheet': 'slide-sheet 200ms ease-out',
         'pulse-soft': 'pulse-soft 1.6s ease-in-out infinite',
         appel: 'appel 1.8s ease-in-out 3',
+        // Une seule passe : le motif contient déjà deux allers-retours.
+        secousse: 'secousse 420ms ease-in-out 1',
       },
     },
   },
