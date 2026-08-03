@@ -137,7 +137,9 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
     return { ok: true, error: 'une publication est déjà en cours' };
   }
 
-  const cards = deployableCards(projectId);
+  let cards = deployableCards(projectId);
+  // Cartes dont la branche est en conflit : écartées du lot, jamais perdues.
+  const ecartees = new Set<string>();
   const run: DeployRun = DeployRun.parse({
     id: store.newId(),
     projectId,
@@ -191,6 +193,13 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
             `Impossible de revenir sur la branche principale (${mainBranch}) : ${checkout.out.slice(-200)}`,
           );
         }
+        /*
+         * Chaque carte est fusionnée POUR ELLE-MÊME : une branche en conflit est
+         * mise de côté, elle n'emporte plus tout le lot avec elle (rencontré le
+         * 03/08/2026 — un seul conflit et rien ne partait en ligne). Les cartes
+         * écartées restent dans « À déployer » et repartiront au prochain coup.
+         */
+        let fusionnees = 0;
         for (const card of cards) {
           const branch = card.github?.branch;
           if (!branch) continue;
@@ -204,11 +213,31 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
           }
 
           const result = await runCommand(cwd, `git merge --no-edit ${branch}`);
-          mergeLog += `\n${branch} : ${result.ok ? 'fusionnée' : 'conflit'}`;
-          if (!result.ok) {
-            await runCommand(cwd, 'git merge --abort');
-            throw new Error(`Conflit de fusion sur la branche ${branch}. Résolvez-le puis relancez.`);
+          if (result.ok) {
+            fusionnees += 1;
+            mergeLog += `\n${branch} : fusionnée`;
+            continue;
           }
+
+          const enConflit = (await runCommand(cwd, 'git diff --name-only --diff-filter=U')).out
+            .trim()
+            .split('\n')
+            .filter(Boolean);
+          await runCommand(cwd, 'git merge --abort');
+          ecartees.add(card.id);
+          mergeLog += `\n${branch} : CONFLIT, carte écartée de cette publication${
+            enConflit.length ? ` (${enConflit.join(', ')})` : ''
+          }`;
+        }
+
+        if (ecartees.size) {
+          cards = cards.filter((card) => !ecartees.has(card.id));
+          current = emit({ ...current, cardIds: cards.map((card) => card.id) });
+        }
+        if (!fusionnees && ecartees.size) {
+          throw new Error(
+            `Toutes les branches du lot sont en conflit (${ecartees.size}). Rien n'a pu être fusionné : résolvez les conflits puis relancez.`,
+          );
         }
         current = setStep(current, 'merge', 'done', mergeLog.trim() || 'aucune branche à fusionner');
       } else {
@@ -319,13 +348,16 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
         await archiveCard(cardId, { url: project.deployUrl, commit: current.targetCommit });
       }
 
+      const reste = ecartees.size
+        ? ` — ${ecartees.size} carte(s) écartée(s) pour conflit, restées à déployer`
+        : '';
       notify({
         kind: 'deploy',
         title: 'Publication terminée',
-        body: `${current.cardIds.length} tâche(s) en ligne`,
+        body: `${current.cardIds.length} tâche(s) en ligne${reste}`,
         projectId,
       });
-      bus.toast('success', 'Publication terminée');
+      bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${reste}`);
     } catch (err: any) {
       current = emit({
         ...current,
