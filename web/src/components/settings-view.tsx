@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Activity, Database, Loader2, Play, Power, RefreshCw, Save, ShieldCheck, Volume2 } from 'lucide-react';
+import { Activity, Brain, Database, Loader2, Play, Power, RefreshCw, Save, Send, ShieldCheck, Volume2 } from 'lucide-react';
 import {
   SystemProcess,
   partMemoire,
@@ -27,7 +27,7 @@ import {
 import { Champ } from '@/components/card-panel';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
-import { bytes, cn, elapsed } from '@/lib/utils';
+import { bytes, cn, elapsed, relativeTime } from '@/lib/utils';
 
 /**
  * Les réglages s'ouvrent en TIROIR, comme les cartes : même geste pour
@@ -263,6 +263,8 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
         </div>
       </section>
 
+      <SectionCerveau />
+
       <ConfirmDialog
         open={!!aConfirmer}
         title={aConfirmer?.running ? `Arrêter « ${aConfirmer.label} » ?` : `Démarrer « ${aConfirmer?.label} » ?`}
@@ -279,6 +281,113 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
         onClose={() => setAConfirmer(null)}
       />
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* La liaison au cerveau : ce que les projets lui envoient chaque jour  */
+/* ------------------------------------------------------------------ */
+
+interface EtatCerveau {
+  clePosee: boolean;
+  adresse: string;
+  dernierSucces?: number;
+  projetsEnvoyes: number;
+  fichiersEnvoyes: number;
+  derniereTentative?: number;
+  erreurs: { at: number; projet?: string; message: string }[];
+}
+
+/**
+ * Chaque jour, la mémoire et les instructions de chaque projet partent au
+ * cerveau. C'est un mécanisme silencieux : sans un endroit où le lire, on ne
+ * saurait jamais s'il tourne encore.
+ */
+function SectionCerveau() {
+  const [etat, setEtat] = React.useState<EtatCerveau | null>(null);
+  const [enCours, setEnCours] = React.useState(false);
+
+  React.useEffect(() => {
+    client.call<{ etat: EtatCerveau }>({ type: 'cerveau.etat' }).then((data) => setEtat(data.etat ?? null));
+  }, []);
+
+  const envoyer = async () => {
+    setEnCours(true);
+    try {
+      const data = await client.call<{
+        etat: EtatCerveau;
+        resultat: { envoye: boolean; projets: number; fichiers: number; raison?: string };
+      }>({ type: 'cerveau.envoyer' });
+      setEtat(data.etat ?? null);
+      if (data.resultat?.envoye) {
+        client.pushToast(
+          'success',
+          data.resultat.fichiers
+            ? `${data.resultat.fichiers} fichier(s) envoyé(s) pour ${data.resultat.projets} projet(s)`
+            : 'Rien de nouveau à envoyer : le cerveau est déjà à jour',
+        );
+      } else {
+        client.pushToast('error', data.resultat?.raison ?? 'envoi impossible');
+      }
+    } finally {
+      setEnCours(false);
+    }
+  };
+
+  return (
+    <section className="mt-4">
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <Brain className="h-3.5 w-3.5 text-faint" /> Mémoire envoyée au cerveau
+      </h3>
+
+      <p className="mb-2 text-[12.5px] leading-relaxed text-faint">
+        Une fois par jour, chaque projet vivant envoie sa mémoire et les instructions de ses moteurs, pour que
+        l'apprentissage se fasse sur l'ensemble des projets. L'historique des livraisons ne part jamais.
+      </p>
+
+      <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {etat?.clePosee ? (
+            <Badge tone="success">clé posée</Badge>
+          ) : (
+            <Badge tone="danger">aucune clé</Badge>
+          )}
+          <span className="text-[12.5px] text-faint">{etat?.adresse}</span>
+        </div>
+
+        {!etat?.clePosee ? (
+          <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
+            Rien ne part tant que la clé du cerveau n'est pas posée dans l'environnement du serveur.
+          </p>
+        ) : null}
+
+        <p className="mt-1.5 text-[13px] text-text">
+          {etat?.dernierSucces
+            ? `Dernier envoi réussi ${relativeTime(etat.dernierSucces)} — ${etat.fichiersEnvoyes} fichier(s) pour ${etat.projetsEnvoyes} projet(s).`
+            : 'Aucun envoi réussi pour le moment.'}
+        </p>
+        {etat?.derniereTentative && etat.derniereTentative !== etat.dernierSucces ? (
+          <p className="mt-0.5 text-[12.5px] text-faint">Dernière tentative {relativeTime(etat.derniereTentative)}.</p>
+        ) : null}
+
+        {etat?.erreurs?.length ? (
+          <div className="mt-2 space-y-0.5">
+            <p className="text-[11.5px] uppercase tracking-wide text-faint">Dernières erreurs</p>
+            {etat.erreurs.map((erreur, index) => (
+              <p key={`${erreur.at}-${index}`} className="text-[12.5px] text-danger">
+                {relativeTime(erreur.at)}
+                {erreur.projet ? ` · ${erreur.projet}` : ''} — {erreur.message}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
+        <Button variant="secondary" size="sm" className="mt-2" onClick={envoyer} disabled={enCours}>
+          {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+          Envoyer maintenant
+        </Button>
+      </div>
+    </section>
   );
 }
 

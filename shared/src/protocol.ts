@@ -230,6 +230,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('quota.history'), days: z.number().optional() }),
   /** Le journal des amorces de fenêtre posées par le serveur. */
   z.object({ type: z.literal('amorce.history'), limit: z.number().optional() }),
+  /** L'état de la liaison au cerveau : clé posée, dernier envoi, erreurs. */
+  z.object({ type: z.literal('cerveau.etat') }),
+  /** Envoyer tout de suite la mémoire et les instructions de chaque projet. */
+  z.object({ type: z.literal('cerveau.envoyer') }),
   /** L'état du démon : depuis quand il tourne, et s'il tourne sur du code périmé. */
   z.object({ type: z.literal('daemon.status') }),
   /** Arrêter le démon pour que le service le relance avec le code construit. */

@@ -223,6 +223,21 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
     // et sa consommation devenait une ligne anonyme dans les réglages.
     sql: `ALTER TABLE usage ADD COLUMN project_name TEXT;`,
   },
+  {
+    id: 9,
+    name: 'journal-des-envois-au-cerveau',
+    sql: `
+      CREATE TABLE cerveau_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at INTEGER NOT NULL,
+        project TEXT,
+        ok INTEGER NOT NULL,
+        files INTEGER,
+        error TEXT
+      );
+      CREATE INDEX idx_cerveau_log ON cerveau_log(at);
+    `,
+  },
 ];
 
 export function openDb(): DB {

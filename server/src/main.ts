@@ -17,6 +17,7 @@ import { getSettings } from './store.js';
 import { listEngines } from './engines/index.js';
 import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
+import { envoyerAuCerveau } from './cerveau.js';
 import { diffuserEtatDemon } from './demon.js';
 
 async function main(): Promise<void> {
@@ -82,9 +83,16 @@ async function main(): Promise<void> {
       purgeOldArchives();
       purgeOldAudio();
       void refreshGitInfo();
+      // Le passage du cerveau se décide lui-même : il ne part qu'à l'heure
+      // creuse, et une seule fois par jour.
+      void envoyerAuCerveau();
     },
     60 * 60 * 1000,
   );
+
+  // Au démarrage, on rattrape si le dernier envoi date de plus de vingt-quatre
+  // heures — sans attendre la prochaine nuit.
+  setTimeout(() => void envoyerAuCerveau({ auDemarrage: true }), 60_000);
 
   sampleCapacity();
   void refreshQuotas(true).then((quotas) => {

@@ -206,6 +206,48 @@ export function amorceHistory(limit = 40): AmorceEntree[] {
 }
 
 /* ------------------------------------------------------------------ */
+/* Journal des envois au cerveau                                       */
+/* ------------------------------------------------------------------ */
+
+export interface CerveauEntree {
+  /** L'instant du PASSAGE : toutes les lignes d'un même passage le partagent. */
+  at: number;
+  /** Le projet concerné ; absent quand le passage entier a échoué (clé manquante…). */
+  project?: string;
+  ok: boolean;
+  /** Combien de fichiers sont réellement partis pour ce projet. */
+  files?: number;
+  error?: string;
+}
+
+/**
+ * Une ligne par tentative, réussie OU ratée, comme pour l'amorçage : c'est ce
+ * qui permet de dire depuis l'application quand le dernier envoi a réussi, et
+ * pourquoi le précédent a échoué.
+ */
+export function recordCerveau(entree: CerveauEntree): void {
+  getDb()
+    .prepare('INSERT INTO cerveau_log (at, project, ok, files, error) VALUES (?, ?, ?, ?, ?)')
+    .run(entree.at, entree.project ?? null, entree.ok ? 1 : 0, entree.files ?? null, entree.error ?? null);
+  // Quatorze jours, comme le journal des amorces.
+  getDb().prepare('DELETE FROM cerveau_log WHERE at < ?').run(now() - 14 * 24 * 3600 * 1000);
+}
+
+/** Les dernières tentatives d'envoi, la plus récente en tête. */
+export function cerveauHistory(limit = 60): CerveauEntree[] {
+  const rows = getDb()
+    .prepare('SELECT at, project, ok, files, error FROM cerveau_log ORDER BY at DESC LIMIT ?')
+    .all(limit) as Record<string, any>[];
+  return rows.map((row) => ({
+    at: row.at,
+    project: row.project ?? undefined,
+    ok: !!row.ok,
+    files: row.files ?? undefined,
+    error: row.error ?? undefined,
+  }));
+}
+
+/* ------------------------------------------------------------------ */
 /* Préférences                                                         */
 /* ------------------------------------------------------------------ */
 

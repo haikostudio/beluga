@@ -39,6 +39,7 @@ import {
 } from './deploy.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
+import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
 import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
@@ -836,6 +837,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'amorce.history':
       return { entries: store.amorceHistory(cmd.limit ?? 40) };
+
+    case 'cerveau.etat':
+      return { etat: etatCerveau() };
+
+    case 'cerveau.envoyer': {
+      const resultat = await envoyerAuCerveau({ force: true });
+      return { resultat, etat: etatCerveau() };
+    }
 
     case 'daemon.status':
       return { etat: etatDemon() };
