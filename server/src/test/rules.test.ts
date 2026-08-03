@@ -42,10 +42,19 @@ test('la validation reste un geste humain : la machine ne touche pas « à faire
   assert.equal(canMove('machine', 'planned', 'running').allowed, true);
 });
 
-test('la machine ne peut pas promouvoir vers validé, terminé ou à déployer', () => {
-  for (const target of ['validated', 'done', 'to_deploy'] as ColumnKey[]) {
+test('la machine ne peut pas promouvoir vers validé ni à déployer', () => {
+  for (const target of ['validated', 'to_deploy'] as ColumnKey[]) {
     assert.equal(canMove('machine', 'planned', target).allowed, false);
   }
+});
+
+/*
+ * « Terminé » fait exception depuis que la carte suit l'état de son agent :
+ * elle y va d'elle-même quand le travail est rendu. La validation, elle, reste
+ * hors de portée de la machine.
+ */
+test('la machine peut en revanche poser une carte en terminé', () => {
+  assert.equal(canMove('machine', 'running', 'done').allowed, true);
 });
 
 test("l'utilisateur peut tout déplacer", () => {

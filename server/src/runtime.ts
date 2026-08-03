@@ -14,6 +14,8 @@ import {
   TodoItem,
   ampleurParDefaut,
   checkTemplate,
+  colonneAuDemarrage,
+  colonneEnFinDeTour,
   templateForColumn,
   wrapPrompt,
 } from '@haikodev/shared';
@@ -170,6 +172,26 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
       }),
     );
     bus.emit({ type: 'message.upsert', message: userMessage });
+  }
+
+  /*
+   * La carte suit son agent. Un tour qui redémarre la ramène en « En cours »,
+   * d'où qu'elle vienne : une carte déjà terminée sur laquelle on relance une
+   * action n'est plus terminée, et le tableau doit le dire tout de suite.
+   */
+  const carteAvant = agent.cardId ? store.getCard(agent.cardId) : null;
+  if (carteAvant) {
+    const cible = colonneAuDemarrage(carteAvant.column);
+    if (cible) {
+      const relancee = store.saveCard({
+        ...carteAvant,
+        column: cible,
+        position: store.nextPosition(carteAvant.projectId, cible),
+        // Elle repart : la date de clôture d'avant ne veut plus rien dire.
+        doneAt: undefined,
+      });
+      bus.emit({ type: 'card.upsert', card: relancee });
+    }
   }
 
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
@@ -511,8 +533,17 @@ async function startTurn(
   if (agent.cardId) {
     const card = store.getCard(agent.cardId);
     if (card) {
+      /*
+       * L'agent a rendu : la carte passe en « Terminé » toute seule. Un tour en
+       * échec ne la déplace pas — le travail n'est pas fait, et elle doit
+       * rester là où on peut la relancer.
+       */
+      const cible = colonneEnFinDeTour(card.column, !failed);
       const updated = store.saveCard({
         ...card,
+        ...(cible
+          ? { column: cible, position: store.nextPosition(card.projectId, cible), doneAt: Date.now() }
+          : {}),
         consumption: {
           tokens,
           machineSeconds: elapsedSeconds,
@@ -638,6 +669,7 @@ TU ES LE CHEF D'ORCHESTRE du projet. Tu rends le MÊME compte rendu structuré q
 TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS UNE CRÉATION DE CARTE :
 1. Question ou demande d'information (y compris « fais-moi la doc de X ») → tu RÉPONDS, aucune carte. Lire n'est pas agir ; produire un document fait partie de la réponse.
 2. Demande d'action claire → tu crées UNE carte avec board_create_card, et tu t'arrêtes là. Elle naît dans « À faire », est validée d'office et part toute seule dans le parcours habituel : tu n'as ni à la valider, ni à faire le travail toi-même.
+   ATTENDS-TOI À CE QUE LE MOT « TÂCHE » NE SOIT JAMAIS DIT. « Il faudrait que… », « ajoute… », « corrige… », « ce serait bien si… », une fonctionnalité décrite au passage : c'est une demande d'action, tu crées la carte. Une seule carte par fonctionnalité, et autant de cartes que de fonctionnalités distinctes dans le message.
 3. Cas ambigu → tu réponds, puis tu appelles propose_task : l'utilisateur tranchera d'un clic. Le doute garde son clic ; la certitude ne l'attend plus.
 
 NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de créer : elle s'affiche déjà, entière, dans la conversation. Une phrase courte suffit.
@@ -650,7 +682,8 @@ Les règles de mise en forme et de longueur voyagent avec la demande : ne les re
     if (isSelf) {
       return `${base}
 
-EXCEPTION : ce projet est HaikoDev lui-même. Ici tu es un agent COMPLET : tu modifies le code, tu exécutes des commandes, tu enregistres et tu pousses. Tu ne publies pas et tu ne redémarres pas le démon de ta propre initiative.`;
+EXCEPTION : ce projet est HaikoDev lui-même. Ici tu es un agent COMPLET : tu modifies le code, tu exécutes des commandes, tu enregistres et tu pousses. Tu ne publies pas et tu ne redémarres pas le démon de ta propre initiative.
+Le tri du haut vaut QUAND MÊME : une demande d'action reçoit sa carte avec board_create_card AVANT que tu ne touches à quoi que ce soit. Rien de ce qui se fait ne reste hors du tableau.`;
     }
     return `${base}
 

@@ -33,11 +33,18 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
 /** Les deux seules colonnes ouvertes aux agents (PLAN §4). */
 export const AGENT_MOVABLE_COLUMNS: ColumnKey[] = ['notes', 'todo'];
 
-/** Colonnes que seul l'utilisateur peut atteindre. */
-export const USER_ONLY_TARGETS: ColumnKey[] = ['validated', 'done', 'to_deploy'];
+/**
+ * Colonnes que seul l'utilisateur peut atteindre. « Terminé » n'en fait plus
+ * partie : la carte y va d'elle-même quand son agent a rendu.
+ */
+export const USER_ONLY_TARGETS: ColumnKey[] = ['validated', 'to_deploy'];
 
-/** Colonnes que seule la machine peut attribuer. */
-export const MACHINE_ONLY_TARGETS: ColumnKey[] = ['planned', 'running'];
+/**
+ * Colonnes que seule la machine peut attribuer. « Terminé » en fait partie
+ * depuis que la carte suit l'état de son agent : elle y va d'elle-même quand
+ * le travail est rendu (voir `suivi-colonne.ts`).
+ */
+export const MACHINE_ONLY_TARGETS: ColumnKey[] = ['planned', 'running', 'done'];
 
 export type Actor = 'user' | 'agent' | 'machine';
 

@@ -295,11 +295,11 @@ Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (c
       const fresh = store.getCard(cardId);
       if (!fresh) return;
       if (ok) {
-        // Jamais de passage automatique en « Terminé » : c'est le geste de
-        // l'utilisateur (PLAN §4). On le prévient, la carte reste en cours.
+        // Le passage en « Terminé » est déjà fait : la carte suit l'état de son
+        // agent (`colonneEnFinDeTour`). Il reste à prévenir.
         notify({
-          kind: 'waiting',
-          title: 'Tâche prête à clôturer',
+          kind: 'done',
+          title: 'Tâche terminée',
           body: fresh.title,
           cardId: fresh.id,
           projectId: fresh.projectId,

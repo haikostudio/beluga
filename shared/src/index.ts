@@ -16,6 +16,7 @@ export * from './protocol.js';
 export * from './publication-terminee.js';
 export * from './quota.js';
 export * from './reprise.js';
+export * from './suivi-colonne.js';
 export * from './templates.js';
 export * from './travail-hors-tache.js';
 export * from './travail-rendu.js';
