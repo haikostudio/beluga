@@ -430,6 +430,50 @@ export function projectsNeedingAttention(): Record<string, number> {
   return out;
 }
 
+/** Le détail de ces questions : de quel projet, et ce qui est demandé. */
+export function pendingQuestions(): { projectId: string; question: string }[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT a.project_id AS projectId, m.data AS data FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+       WHERE m.data LIKE '%"questions":[{%'
+       ORDER BY m.created_at DESC LIMIT 200`,
+    )
+    .all() as { projectId: string; data: string }[];
+  const out: { projectId: string; question: string }[] = [];
+  for (const row of rows) {
+    try {
+      const message = Message.parse(JSON.parse(row.data));
+      for (const q of message.questions.filter((item) => !item.answer)) {
+        out.push({ projectId: row.projectId, question: q.question });
+      }
+    } catch {
+      /* message illisible : on l'ignore */
+    }
+  }
+  return out;
+}
+
+/** Les propositions d'agents qui n'ont encore reçu ni oui ni non. */
+export function pendingProposals(projectId?: string): { projectId: string; title: string }[] {
+  const rows = (
+    projectId
+      ? getDb()
+          .prepare("SELECT project_id AS projectId, data FROM proposals WHERE decision = 'pending' AND project_id = ?")
+          .all(projectId)
+      : getDb().prepare("SELECT project_id AS projectId, data FROM proposals WHERE decision = 'pending'").all()
+  ) as { projectId: string; data: string }[];
+  const out: { projectId: string; title: string }[] = [];
+  for (const row of rows) {
+    try {
+      out.push({ projectId: row.projectId, title: String(JSON.parse(row.data).title ?? '') });
+    } catch {
+      /* proposition illisible : on l'ignore */
+    }
+  }
+  return out.filter((item) => item.title);
+}
+
 export function listCardMessages(cardId: string, limit = 800): Message[] {
   const rows = getDb()
     .prepare(
