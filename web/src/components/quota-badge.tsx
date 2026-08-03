@@ -1,6 +1,14 @@
 import * as React from 'react';
 import { ChevronDown, RefreshCw } from 'lucide-react';
-import { AccountQuota, EngineId, heureDeRemiseAZero, niveauQuota, tempsRestant } from '@haikodev/shared';
+import {
+  AccountQuota,
+  EngineId,
+  heureDeRemiseAZero,
+  niveauQuota,
+  previsionEpuisement,
+  tempsRestant,
+  type ReleveQuota,
+} from '@haikodev/shared';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Gauge, Badge, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
@@ -147,7 +155,9 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
 
                 <div className="mt-1.5 space-y-1.5">
                   <Window label="Fenêtre 5 h" window={quota.session} />
-                  <Window label="Semaine" window={quota.weekly} />
+                  {/* La semaine porte en plus la prévision d'épuisement : c'est
+                      la fenêtre longue qui laisse le temps de s'organiser. */}
+                  <Window label="Semaine" window={quota.weekly} releves={histoire[quota.id]} />
                 </div>
 
                 <Courbe points={histoire[quota.id] ?? []} />
@@ -243,7 +253,16 @@ function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
   );
 }
 
-function Window({ label, window: win }: { label: string; window?: { usedPct?: number; resetsAt?: number } }) {
+function Window({
+  label,
+  window: win,
+  releves,
+}: {
+  label: string;
+  window?: { usedPct?: number; resetsAt?: number };
+  /** Les relevés du compte : seule la fenêtre hebdomadaire s'en sert. */
+  releves?: ReleveQuota[];
+}) {
   const pct = win?.usedPct ?? 0;
   /*
    * Le temps restant vieillit tout seul : sans ce battement d'une minute, il
@@ -257,6 +276,10 @@ function Window({ label, window: win }: { label: string; window?: { usedPct?: nu
 
   const restant = tempsRestant(win?.resetsAt);
   const exact = heureDeRemiseAZero(win?.resetsAt);
+  // Rien à annoncer tant que le calcul n'a pas de sens : la fonction se tait
+  // toute seule (trop peu de relevés, rythme nul, quota qui tient jusqu'au bout).
+  const prevision = releves ? previsionEpuisement(releves, win) : null;
+
   return (
     <div>
       <div className="flex items-baseline gap-1.5">
@@ -267,6 +290,21 @@ function Window({ label, window: win }: { label: string; window?: { usedPct?: nu
       {restant ? (
         <Tooltip label={exact ?? ''}>
           <p className="mt-0.5 w-fit text-[11px] text-faint">{restant}</p>
+        </Tooltip>
+      ) : null}
+      {prevision ? (
+        // Orange quand le quota tombe nettement avant la fin de la semaine,
+        // discret quand il tient presque jusqu'au bout. L'heure exacte et le
+        // rythme observé restent en infobulle, comme pour le temps restant.
+        <Tooltip label={prevision.detail}>
+          <p
+            className={cn(
+              'mt-0.5 w-fit text-[11px]',
+              prevision.niveau === 'manque' ? 'font-medium text-warning' : 'text-faint',
+            )}
+          >
+            {prevision.texte}
+          </p>
         </Tooltip>
       ) : null}
     </div>

@@ -99,3 +99,126 @@ export function niveauQuota(consommePct: number): NiveauQuota {
   if (reste <= RESTE_ATTENTION_PCT) return 'attention';
   return 'ok';
 }
+
+/* ------------------------------------------------------------------ */
+/* La prévision d'épuisement de la fenêtre hebdomadaire                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * « À ce rythme, quand le quota de la semaine sera-t-il vide ? »
+ *
+ * La matière première est l'historique des relevés déjà tenu par le serveur :
+ * une suite de pourcentages consommés, horodatés. La pente entre le premier et
+ * le dernier relevé de la fenêtre EN COURS donne le rythme ; le reste à
+ * consommer divisé par ce rythme donne l'instant d'épuisement.
+ *
+ * Le silence l'emporte sur le chiffre inventé : pas assez d'historique, rythme
+ * nul ou négatif, fenêtre déjà pleine, ou épuisement qui tombe APRÈS la remise
+ * à zéro — dans tous ces cas la fonction ne rend rien.
+ *
+ * La règle vit ici, sans réseau ni base : elle se teste seule.
+ */
+
+/** Un relevé de quota : à telle heure, tant de pour cent consommés. */
+export interface ReleveQuota {
+  at: number;
+  weekly: number;
+}
+
+/** Sous cette durée d'observation, la pente ne veut rien dire. */
+export const OBSERVATION_MINIMALE_MS = 60 * 60 * 1000;
+
+/**
+ * Part du temps restant qui sépare une prévision « le quota va manquer » d'une
+ * prévision qui tient presque jusqu'au bout : épuisement dans le dernier quart
+ * avant la remise à zéro, c'est juste, mais ce n'est pas un manque.
+ */
+export const MARGE_CONFORT = 0.25;
+
+export interface PrevisionEpuisement {
+  /** L'instant estimé, arrondi à la demi-heure. */
+  at: number;
+  /** Ce qui s'affiche : « épuisé lundi vers 17 h ». */
+  texte: string;
+  /** L'infobulle : l'heure exacte et le rythme observé. */
+  detail: string;
+  /** « manque » : le quota tombe bien avant la fin. « juste » : de peu. */
+  niveau: 'manque' | 'juste';
+  /** Le rythme retenu, en points de pourcentage par jour. */
+  parJour: number;
+}
+
+/** Les relevés de la fenêtre EN COURS : tout ce qui suit la dernière remise à zéro. */
+function depuisLaDerniereRemiseAZero(releves: ReleveQuota[]): ReleveQuota[] {
+  for (let i = releves.length - 1; i > 0; i--) {
+    // Un pourcentage qui RECULE ne peut vouloir dire qu'une chose : la fenêtre
+    // a été remise à zéro entre ces deux relevés.
+    if (releves[i].weekly < releves[i - 1].weekly) return releves.slice(i);
+  }
+  return releves;
+}
+
+/** « aujourd'hui », « demain », sinon le jour de la semaine en toutes lettres. */
+function jourEnClair(at: number, maintenant: number): string {
+  const jour = (valeur: number) => new Date(valeur).toDateString();
+  if (jour(at) === jour(maintenant)) return 'aujourd’hui';
+  if (jour(at) === jour(maintenant + 24 * 3600 * 1000)) return 'demain';
+  return new Date(at).toLocaleDateString('fr-CH', { weekday: 'long' });
+}
+
+/** « 17 h » ou « 17 h 30 » : la demi-heure suffit pour une estimation. */
+function heureEnClair(at: number): string {
+  const date = new Date(at);
+  return date.getMinutes() ? `${date.getHours()} h 30` : `${date.getHours()} h`;
+}
+
+export function previsionEpuisement(
+  releves: ReleveQuota[],
+  fenetre: { usedPct?: number; resetsAt?: number } | undefined,
+  maintenant = Date.now(),
+): PrevisionEpuisement | null {
+  // Sans heure de remise à zéro, impossible de dire si l'épuisement tombe
+  // avant ou après la fin : on se tait.
+  if (!fenetre?.resetsAt || fenetre.resetsAt <= maintenant) return null;
+
+  const passes = releves.filter((point) => point.at <= maintenant).sort((a, b) => a.at - b.at);
+  const recents = depuisLaDerniereRemiseAZero(passes);
+  if (recents.length < 2) return null;
+
+  const premier = recents[0];
+  const dernier = recents[recents.length - 1];
+  const duree = dernier.at - premier.at;
+  if (duree < OBSERVATION_MINIMALE_MS) return null;
+
+  const rythme = (dernier.weekly - premier.weekly) / duree; // points de % par ms
+  if (rythme <= 0) return null;
+
+  const consomme = fenetre.usedPct ?? dernier.weekly;
+  const reste = 100 - consomme;
+  if (reste <= 0) return null; // déjà épuisée : il n'y a plus rien à prévoir
+
+  const brut = maintenant + reste / rythme;
+  if (brut >= fenetre.resetsAt) return null; // le quota tient jusqu'au bout
+
+  const demiHeure = 30 * 60 * 1000;
+  const at = Math.round(brut / demiHeure) * demiHeure;
+  const marge = fenetre.resetsAt - brut;
+  const total = fenetre.resetsAt - maintenant;
+  const parJour = rythme * 24 * 3600 * 1000;
+
+  const exact = new Date(brut).toLocaleString('fr-CH', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return {
+    at,
+    texte: `épuisé ${jourEnClair(at, maintenant)} vers ${heureEnClair(at)}`,
+    detail: `Au rythme observé (environ ${parJour.toFixed(1)} % par jour), épuisement estimé ${exact}, avant la remise à zéro.`,
+    niveau: marge > total * MARGE_CONFORT ? 'manque' : 'juste',
+    parJour,
+  };
+}

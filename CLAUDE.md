@@ -36,6 +36,7 @@ npm test                            # tous les tests du démon (compilés dans s
 node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
+node scripts/verif-prevision-quota.mjs # la prévision d'épuisement, dans le volet des quotas
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
