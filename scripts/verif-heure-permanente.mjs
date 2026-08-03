@@ -44,7 +44,7 @@ function choisirCarte(db) {
     .prepare(
       `SELECT c.id, c.title, c.project_id, c.column_key, COUNT(m.id) AS n
        FROM cards c
-       JOIN agents a ON a.card_id = c.id
+       JOIN agents a ON a.card_id = c.id AND a.role != 'analysis'
        JOIN messages m ON m.agent_id = a.id
        WHERE c.column_key IN ('running', 'to_deploy', 'planned')
        GROUP BY c.id HAVING n >= 2

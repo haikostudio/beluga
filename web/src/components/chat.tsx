@@ -11,6 +11,7 @@ import {
 import { ConfirmDialog, EmptyState, Tooltip } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
+import { VoletTaches } from '@/components/todos';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -181,6 +182,15 @@ export function Chat({
         <div ref={bottomRef} />
       </div>
       </div>
+
+      {/* La liste des tâches est un volet FIXE, entre le fil et la barre
+          d'écriture : elle ne remonte plus avec les messages. Elle porte celle
+          du dernier échange — sans liste, elle s'efface entièrement. */}
+      <VoletTaches
+        todos={messages[messages.length - 1]?.todos}
+        streaming={busy}
+        creux={agent?.role === 'analysis' && !cardId && !creuxReserveAilleurs}
+      />
 
       {/* On ne discute pas avec un agent d'analyse : il chiffre et s'arrête.
           La barre d'écriture revient dès que la tâche est lancée — et d'ici là

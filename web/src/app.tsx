@@ -316,7 +316,7 @@ export function App() {
             onDoubleClick={gauche.reset}
           />
 
-          <main className={cn('flex min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}>
+          <main className={cn('flex min-h-0 min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}>
             {activeProject ? (
               <Filet zone="Tableau">
                 <Board projectId={activeProject.id} onOpenCard={setOpenCardId} />
