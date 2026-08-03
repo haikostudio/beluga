@@ -13,6 +13,7 @@ import { useResizable, ResizeHandle } from '@/components/resizer';
 import { client } from '@/lib/client';
 import { usePref, writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
+import { Filet } from '@/components/filet';
 import { cn } from '@/lib/utils';
 import { CLE_ONGLET_MOBILE, carteAReprendre, cleCarteOuverte, ongletAReprendre } from '@haikodev/shared';
 
@@ -282,7 +283,9 @@ export function App() {
           {/* Sur grand écran la liste des projets est une colonne posée là ; sur
               téléphone elle vit dans le panneau latéral, plus bas. */}
           <div className="hidden sm:flex">
-            <Sidebar onOpenAgent={setOpenAgentId} width={gauche.width} />
+            <Filet zone="Liste des projets">
+              <Sidebar onOpenAgent={setOpenAgentId} width={gauche.width} />
+            </Filet>
           </div>
           <ResizeHandle
             className="hidden sm:block"
@@ -292,7 +295,9 @@ export function App() {
 
           <main className={cn('flex min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}>
             {activeProject ? (
-              <Board projectId={activeProject.id} onOpenCard={setOpenCardId} />
+              <Filet zone="Tableau">
+                <Board projectId={activeProject.id} onOpenCard={setOpenCardId} />
+              </Filet>
             ) : (
               <EmptyState
                 icon={<LayoutGrid className="h-5 w-5" />}
@@ -313,7 +318,9 @@ export function App() {
                 className="hidden shrink-0 border-l border-border lg:flex lg:flex-col"
                 style={{ width: `${droite.width}px` }}
               >
-                <RightPanel projectId={activeProject.id} />
+                <Filet zone="Chef d'orchestre">
+                  <RightPanel projectId={activeProject.id} />
+                </Filet>
               </aside>
             </>
           ) : null}
@@ -321,7 +328,9 @@ export function App() {
           {/* Sur téléphone, la conversation prend toute la place */}
           {activeProject && mobileView === 'chat' ? (
             <aside className="flex min-w-0 flex-1 flex-col sm:hidden">
-              <RightPanel projectId={activeProject.id} />
+              <Filet zone="Chef d'orchestre">
+                <RightPanel projectId={activeProject.id} />
+              </Filet>
             </aside>
           ) : null}
         </div>
@@ -329,7 +338,9 @@ export function App() {
         {/* La liste des projets, en panneau qui glisse depuis la gauche : un
             choix qu'on fait au passage, pas une destination. */}
         <SidePanel open={projetsOuverts} onClose={() => setProjetsOuverts(false)} title="Projets">
-          <Sidebar onOpenAgent={setOpenAgentId} onChoose={() => setProjetsOuverts(false)} />
+          <Filet zone="Liste des projets">
+            <Sidebar onOpenAgent={setOpenAgentId} onChoose={() => setProjetsOuverts(false)} />
+          </Filet>
         </SidePanel>
 
         {/* Barre de navigation mobile : deux destinations seulement, chacune sur
@@ -370,8 +381,12 @@ export function App() {
           <div className="pointer-events-none fixed inset-0 z-50 border-2 border-dashed border-muted bg-black/20" />
         ) : null}
 
-        <CardPanel cardId={openCardId} onClose={() => setOpenCardId(null)} />
-        <SettingsView open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <Filet zone="Carte" onReprendre={() => setOpenCardId(null)}>
+          <CardPanel cardId={openCardId} onClose={() => setOpenCardId(null)} />
+        </Filet>
+        <Filet zone="Réglages" onReprendre={() => setSettingsOpen(false)}>
+          <SettingsView open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        </Filet>
         <AgentDock onOpenAgent={setOpenAgentId} />
 
         {openAgent ? (
@@ -387,7 +402,9 @@ export function App() {
                 </Button>
               </header>
               <div className="min-h-0 flex-1">
-                <Chat agent={openAgent} projectId={openAgent.projectId} />
+                <Filet zone="Conversation">
+                  <Chat agent={openAgent} projectId={openAgent.projectId} />
+                </Filet>
               </div>
             </div>
           </div>

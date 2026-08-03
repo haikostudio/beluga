@@ -280,9 +280,11 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
             premier, la relève ne sert qu'en cas d'épuisement.
           </p>
 
-          <label className="mt-2 flex items-center gap-2 text-[14px] text-muted">
+          {/* Les réglages n'arrivent qu'avec la réponse du serveur : avant, il
+              n'y a rien à cocher — et les lire trop tôt vidait la page. */}
+          <label className={cn('mt-2 flex items-center gap-2 text-[14px] text-muted', !settings && 'hidden')}>
             <Switch
-              checked={settings.primeClaudeWindow}
+              checked={settings?.primeClaudeWindow ?? false}
               onCheckedChange={(checked) => update({ primeClaudeWindow: checked })}
             />
             Lancer la fenêtre de 5 h dès qu'elle repart à zéro

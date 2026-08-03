@@ -38,6 +38,7 @@ import {
   TabsTrigger,
   Tooltip,
 } from '@/components/ui';
+import { Filet } from '@/components/filet';
 import { ProjectSettings } from '@/components/project-settings';
 import { client } from '@/lib/client';
 import { usePointerDrag } from '@/lib/dnd';
@@ -401,11 +402,15 @@ export function Sidebar({
       ) : null}
 
       <ProjectsDialog open={adding} onClose={() => setAdding(false)} />
-      <ProjectSettings
-        project={state.projects.find((p) => p.id === settingsFor) ?? null}
-        open={!!settingsFor}
-        onClose={() => setSettingsFor(null)}
-      />
+      {/* Le filet est posé AUTOUR du panneau : de l'intérieur, un panneau ne
+          peut pas rattraper sa propre erreur d'affichage. */}
+      <Filet zone="Réglages du projet" onReprendre={() => setSettingsFor(null)}>
+        <ProjectSettings
+          project={state.projects.find((p) => p.id === settingsFor) ?? null}
+          open={!!settingsFor}
+          onClose={() => setSettingsFor(null)}
+        />
+      </Filet>
 
       <PromptDialog
         open={creatingGroup}
