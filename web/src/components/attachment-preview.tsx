@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Download, FileText, Paperclip } from 'lucide-react';
 import { Attachment } from '@haikodev/shared';
 import { Button, Dialog, DialogContent, DialogTitle, Tooltip, ZoneDefilement } from '@/components/ui';
+import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
 import { bytes, cn } from '@/lib/utils';
 
 /**
@@ -10,6 +11,25 @@ import { bytes, cn } from '@/lib/utils';
  * depuis l'onglet « Pièces jointes ».
  */
 export function AttachmentPreview({ item, onClose }: { item: Attachment | null; onClose: () => void }) {
+  // Les crochets se posent AVANT la sortie anticipée.
+  const { markdown, format, setFormat } = useFormatApercu(item?.name, item?.mime);
+  const [texte, setTexte] = React.useState<string | null>(null);
+
+  /* Une pièce jointe Markdown n'est pas déjà en mémoire, contrairement à un
+     fichier du projet : on va la chercher, une seule fois, à l'ouverture. */
+  React.useEffect(() => {
+    setTexte(null);
+    if (!item || !markdown) return;
+    let vivant = true;
+    fetch(`/api/attachment?id=${item.id}`)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      .then((contenu) => vivant && setTexte(contenu))
+      .catch(() => vivant && setTexte('_Lecture impossible._'));
+    return () => {
+      vivant = false;
+    };
+  }, [item?.id, markdown]);
+
   if (!item) return null;
   const source = `/api/attachment?id=${item.id}`;
 
@@ -18,6 +38,7 @@ export function AttachmentPreview({ item, onClose }: { item: Attachment | null; 
       <DialogContent className="sm:w-[min(900px,100%)]">
         <div className="flex items-center gap-2 pr-6">
           <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{item.name}</DialogTitle>
+          {markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
           <Tooltip label="Télécharger">
             <Button variant="ghost" size="icon-sm" asChild>
               <a href={`${source}&download=1`} download={item.name}>
@@ -31,7 +52,13 @@ export function AttachmentPreview({ item, onClose }: { item: Attachment | null; 
           classeEnveloppe="mt-3 max-h-[72dvh] flex-none rounded-md border border-border bg-raised"
           className="overflow-x-auto p-2"
         >
-          {item.mime.startsWith('image/') ? (
+          {markdown ? (
+            texte === null ? (
+              <p className="p-4 text-[13.5px] text-faint">Lecture…</p>
+            ) : (
+              <ContenuTexte contenu={texte} format={format} />
+            )
+          ) : item.mime.startsWith('image/') ? (
             <img src={source} alt={item.name} className="mx-auto max-w-full" />
           ) : item.mime === 'application/pdf' ? (
             <iframe title={item.name} src={source} className="h-[70dvh] w-full rounded" />

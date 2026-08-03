@@ -28,6 +28,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { AttachmentPreview } from '@/components/attachment-preview';
+import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
 import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -224,6 +225,9 @@ function FilePreview({
   preview: { path: string; data: any } | null;
   onClose: () => void;
 }) {
+  // Les crochets se posent AVANT la sortie anticipée : un composant ne peut pas
+  // en appeler un nombre variable d'un rendu à l'autre.
+  const { markdown, format, setFormat } = useFormatApercu(preview?.path, preview?.data?.mime);
   if (!preview) return null;
   const { data } = preview;
   const href = `/api/file?project=${encodeURIComponent(projectId)}&path=${encodeURIComponent(preview.path)}&download=1`;
@@ -233,6 +237,9 @@ function FilePreview({
       <DialogContent className="sm:w-[min(860px,100%)]">
         <div className="flex items-center gap-2 pr-6">
           <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{preview.path}</DialogTitle>
+          {/* La bascule n'apparaît que pour un Markdown : ailleurs, elle ne
+              changerait rien. */}
+          {data.kind === 'text' && markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
           {/* Le fichier se récupère tel quel, sans passer par une archive. */}
           <Tooltip label="Télécharger">
             <Button variant="ghost" size="icon-sm" asChild>
@@ -248,7 +255,7 @@ function FilePreview({
           className="overflow-x-auto p-2"
         >
           {data.kind === 'text' ? (
-            <pre className="whitespace-pre-wrap text-[13px] leading-relaxed text-muted">{data.content}</pre>
+            <ContenuTexte contenu={data.content} format={markdown ? format : 'markdown'} />
           ) : data.kind === 'image' ? (
             <img src={`data:${data.mime};base64,${data.content}`} alt={preview.path} className="mx-auto max-w-full" />
           ) : data.kind === 'pdf' ? (
