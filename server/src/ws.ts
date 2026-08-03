@@ -28,6 +28,7 @@ import { analyseCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import { deployableCards, startDeploy, stopDeploy, retryDeploy, conflitsPrevus, agentsOccupes } from './deploy.js';
 import { archiveCard } from './archive.js';
+import { etatDemon, redemarrerDemon } from './demon.js';
 import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
@@ -751,6 +752,16 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'amorce.history':
       return { entries: store.amorceHistory(cmd.limit ?? 40) };
+
+    case 'daemon.status':
+      return { etat: etatDemon() };
+
+    case 'daemon.restart': {
+      // On répond AVANT de couper : sinon le navigateur ne voit qu'une
+      // déconnexion, sans savoir si sa demande est passée.
+      redemarrerDemon();
+      return { ok: true };
+    }
 
     case 'backup.now': {
       const result = await runBackup('à la demande');

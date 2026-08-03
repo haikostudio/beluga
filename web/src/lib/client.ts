@@ -41,6 +41,8 @@ export interface AppState {
   quotas: AccountQuota[];
   capacity: CapacitySnapshot | null;
   processes: SystemProcess[];
+  /** L'état du démon : sert au bouton de redémarrage, en bas de la colonne. */
+  demon: { demarreA: number; construitA?: number; agentsEnCours?: number; redemarrageNecessaire: boolean } | null;
   agents: Record<string, Agent>;
   cards: Record<string, Card>;
   messages: Record<string, Message[]>;
@@ -70,6 +72,7 @@ const initialState: AppState = {
   quotas: [],
   capacity: null,
   processes: [],
+  demon: null,
   agents: {},
   cards: {},
   messages: {},
@@ -327,6 +330,10 @@ class Client {
 
       case 'processes':
         this.set({ processes: event.processes });
+        break;
+
+      case 'demon':
+        this.set({ demon: event.etat });
         break;
 
       case 'settings':

@@ -12,12 +12,13 @@ import {
   Palette,
   Pencil,
   Plus,
+  Power,
   Search,
   Settings2,
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { Project, ProjectGroup } from '@haikodev/shared';
+import { Project, ProjectGroup, avertissementRedemarrage } from '@haikodev/shared';
 import {
   Button,
   ConfirmDialog,
@@ -401,6 +402,8 @@ export function Sidebar({
         </div>
       ) : null}
 
+      <BoutonRedemarrage />
+
       <ProjectsDialog open={adding} onClose={() => setAdding(false)} />
       {/* Le filet est posé AUTOUR du panneau : de l'intérieur, un panneau ne
           peut pas rattraper sa propre erreur d'affichage. */}
@@ -442,6 +445,78 @@ export function Sidebar({
         onClose={() => setDeleting(null)}
       />
     </aside>
+  );
+}
+
+/**
+ * Le redémarrage du serveur, en bas de la colonne des projets.
+ *
+ * Publier remplace l'interface tout de suite, mais le serveur continue de
+ * tourner avec le code chargé à son démarrage : une correction côté serveur
+ * n'existe pas tant qu'on ne l'a pas relancé. Le triangle orange dit exactement
+ * ce moment-là — sinon rien ne le signale, et la correction semble n'avoir eu
+ * aucun effet.
+ */
+function BoutonRedemarrage() {
+  const state = useApp();
+  const [confirmer, setConfirmer] = React.useState(false);
+  const [enCours, setEnCours] = React.useState(false);
+
+  // Le serveur diffuse son état toutes les trente secondes, mais on le demande
+  // à l'ouverture : sinon le bouton reste muet jusqu'au premier battement.
+  React.useEffect(() => {
+    if (!state.connected) return;
+    void client.call({ type: 'daemon.status' }).catch(() => undefined);
+  }, [state.connected]);
+
+  const demon = state.demon;
+  const attendu = !!demon?.redemarrageNecessaire;
+
+  return (
+    <>
+      <div className="border-t border-border px-1.5 py-1.5">
+        <button
+          onClick={() => setConfirmer(true)}
+          disabled={enCours}
+          className={cn(
+            'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors',
+            attendu ? 'text-warning hover:bg-warning/10' : 'text-faint hover:bg-surface hover:text-muted',
+          )}
+          title={
+            attendu
+              ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
+              : 'Redémarrer le serveur'
+          }
+        >
+          {enCours ? (
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+          ) : attendu ? (
+            <TriangleAlert className="h-3 w-3 shrink-0" />
+          ) : (
+            <Power className="h-3 w-3 shrink-0" />
+          )}
+          <span className="min-w-0 flex-1 truncate">
+            {enCours ? 'Redémarrage…' : attendu ? 'Redémarrage attendu' : 'Redémarrer le serveur'}
+          </span>
+        </button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmer}
+        title="Redémarrer le serveur ?"
+        description={avertissementRedemarrage(demon ?? { demarreA: 0 })}
+        confirmLabel="Redémarrer"
+        danger={!!demon?.agentsEnCours}
+        onConfirm={() => {
+          setEnCours(true);
+          // La réponse part avant la coupure ; la reconnexion se fait toute
+          // seule, on rend donc la main au bout de quelques secondes.
+          void client.call({ type: 'daemon.restart' }).catch(() => undefined);
+          window.setTimeout(() => setEnCours(false), 12000);
+        }}
+        onClose={() => setConfirmer(false)}
+      />
+    </>
   );
 }
 

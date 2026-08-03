@@ -219,6 +219,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('quota.history'), days: z.number().optional() }),
   /** Le journal des amorces de fenêtre posées par le serveur. */
   z.object({ type: z.literal('amorce.history'), limit: z.number().optional() }),
+  /** L'état du démon : depuis quand il tourne, et s'il tourne sur du code périmé. */
+  z.object({ type: z.literal('daemon.status') }),
+  /** Arrêter le démon pour que le service le relance avec le code construit. */
+  z.object({ type: z.literal('daemon.restart') }),
   z.object({ type: z.literal('backup.now') }),
   z.object({ type: z.literal('backup.list') }),
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
@@ -295,6 +299,15 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('quotas'), quotas: z.array(AccountQuota) }),
   z.object({ type: z.literal('capacity'), capacity: CapacitySnapshot }),
   z.object({ type: z.literal('processes'), processes: z.array(SystemProcess) }),
+  z.object({
+    type: z.literal('demon'),
+    etat: z.object({
+      demarreA: z.number(),
+      construitA: z.number().optional(),
+      agentsEnCours: z.number().optional(),
+      redemarrageNecessaire: z.boolean(),
+    }),
+  }),
   z.object({ type: z.literal('settings'), settings: Settings }),
   z.object({ type: z.literal('prefs'), prefs: z.record(z.any()) }),
   z.object({ type: z.literal('attachments'), projectId: z.string(), items: z.array(Attachment) }),

@@ -17,6 +17,7 @@ import { getSettings } from './store.js';
 import { listEngines } from './engines/index.js';
 import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
+import { diffuserEtatDemon } from './demon.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -58,7 +59,12 @@ async function main(): Promise<void> {
 
   // Boucles de fond
   const scheduler = startScheduler();
-  const capacityTimer = setInterval(sampleCapacity, 30_000);
+  const capacityTimer = setInterval(() => {
+    sampleCapacity();
+    // Le même rythme sert à dire si le démon tourne encore sur du code périmé :
+    // quelques lectures de dates de fichiers, rien de plus.
+    diffuserEtatDemon();
+  }, 30_000);
   // Toutes les dix minutes : assez pour suivre la consommation, assez peu pour
   // ne pas se faire refuser les lectures par excès d'appels.
   const quotaTimer = setInterval(() => {

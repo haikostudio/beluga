@@ -2,6 +2,7 @@ export * from './amorce.js';
 export * from './analyse.js';
 export * from './capacite.js';
 export * from './columns.js';
+export * from './demon.js';
 export * from './models.js';
 export * from './nouveau-depart.js';
 export * from './projet-actif.js';
