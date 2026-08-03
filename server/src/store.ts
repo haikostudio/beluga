@@ -11,6 +11,7 @@ import {
   QueuedPrompt,
   Settings,
   TaskProposal,
+  cleNouveauDepart,
 } from '@haikodev/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 
@@ -292,6 +293,18 @@ export function getAgentByCard(cardId: string): Agent | null {
   return row ? Agent.parse(JSON.parse(row.data)) : null;
 }
 
+/**
+ * Le dernier agent d'une carte, QUEL QUE SOIT son rôle. Une carte n'a d'agent
+ * d'exécution qu'au lancement : avant cela, c'est son agent d'analyse qui parle,
+ * et sa conversation doit malgré tout se suivre en direct.
+ */
+export function getLastAgentByCard(cardId: string): Agent | null {
+  const row = getDb()
+    .prepare('SELECT data FROM agents WHERE card_id = ? ORDER BY created_at DESC LIMIT 1')
+    .get(cardId) as { data: string } | undefined;
+  return row ? Agent.parse(JSON.parse(row.data)) : null;
+}
+
 export function getOrchestrator(projectId: string): Agent | null {
   const row = getDb()
     .prepare("SELECT data FROM agents WHERE project_id = ? AND role = 'orchestrator' LIMIT 1")
@@ -367,6 +380,15 @@ export function getSessionId(agentId: string, engine = 'claude'): string | null 
 }
 
 /**
+ * Oublier les sessions de cet agent, tous moteurs confondus : le prochain
+ * message repart d'une conversation vide côté moteur, et la mémoire du projet
+ * y est renvoyée une fois, comme au premier tour.
+ */
+export function clearSessions(agentId: string): void {
+  getDb().prepare('UPDATE agents SET session_id = NULL WHERE id = ?').run(agentId);
+}
+
+/**
  * Combien de faits de la mémoire du projet cet agent a DÉJÀ dans son contexte.
  * Sert à ne lui renvoyer que les faits nouveaux au lieu de recoller la mémoire
  * entière à chaque message.
@@ -415,6 +437,21 @@ export function listMessages(agentId: string, limit = 400): Message[] {
   return rows
     .map((r) => Message.parse(JSON.parse(r.data)))
     .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/**
+ * L'instant du dernier « repartir de zéro » sur cette conversation. Zéro quand
+ * la conversation n'a jamais été coupée. Voir [[nouveau-depart]] : rien n'est
+ * supprimé, ce repère ne fait que ranger l'ancien fil derrière un lien.
+ */
+export function nouveauDepart(agentId: string): number {
+  const raw = getMeta(cleNouveauDepart(agentId));
+  const at = raw ? Number(raw) : 0;
+  return Number.isFinite(at) && at > 0 ? at : 0;
+}
+
+export function setNouveauDepart(agentId: string, at: number): void {
+  setMeta(cleNouveauDepart(agentId), String(Math.round(at)));
 }
 
 /**

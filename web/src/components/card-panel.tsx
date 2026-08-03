@@ -13,7 +13,7 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
-import { COLUMN_LABELS, Card } from '@haikodev/shared';
+import { COLUMN_LABELS, Card, motAnalyse, phaseAnalyse } from '@haikodev/shared';
 import {
   Badge,
   Button,
@@ -52,8 +52,47 @@ export function CardPanel({ cardId, onClose }: { cardId: string | null; onClose:
 function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
   const [confirmSuppression, setConfirmSuppression] = React.useState(false);
   const state = useApp();
-  const agent = card.agentId ? state.agents[card.agentId] : null;
+  /*
+   * L'agent de la conversation n'est PAS seulement celui de l'exécution : une
+   * carte n'en reçoit un qu'au lancement, alors que son analyse a déjà parlé
+   * bien avant. On prend donc le dernier agent connu de la carte — analyse
+   * comprise — sinon son compte rendu ne s'affichait qu'au démarrage du travail.
+   */
+  const conversation = state.cardMessages[card.id];
+  const dernierAgent = React.useMemo(
+    () =>
+      Object.values(state.agents)
+        .filter((item) => item.cardId === card.id)
+        .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null,
+    [state.agents, card.id],
+  );
+  const agent =
+    (card.agentId ? state.agents[card.agentId] : null) ??
+    (conversation?.activeAgentId ? state.agents[conversation.activeAgentId] : null) ??
+    dernierAgent;
   const project = state.projects.find((p) => p.id === card.projectId);
+
+  const phase = phaseAnalyse({
+    column: card.column,
+    aEstimation: !!card.estimate && !card.estimate.failed,
+    estimationEchouee: !!card.estimate?.failed,
+    analyseEnCours: agent?.role === 'analysis' && agent.status === 'running',
+  });
+
+  /*
+   * L'onglet montré. Une carte ouverte AVANT sa validation resterait sur les
+   * détails pendant que son analyse écrit à côté : dès qu'il y a quelque chose
+   * à lire, on bascule sur la conversation — une seule fois, pour ne jamais
+   * ramener quelqu'un qui a choisi un autre onglet.
+   */
+  const aLire = !!agent || phase !== 'aucune';
+  const [onglet, setOnglet] = React.useState(aLire ? 'chat' : 'details');
+  const bascule = React.useRef(aLire);
+  React.useEffect(() => {
+    if (bascule.current || !aLire) return;
+    bascule.current = true;
+    setOnglet('chat');
+  }, [aLire]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -91,10 +130,13 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
       </header>
 
       {/* La conversation a son propre onglet : les détails de l'agent ne la
-          compriment plus en haut de l'écran. */}
+          compriment plus en haut de l'écran. Elle s'ouvre dès qu'il y a quelque
+          chose à y lire — une analyse en cours ou finie compte autant qu'un
+          agent d'exécution. */}
       <Tabs
         key={card.id}
-        defaultValue={agent ? 'chat' : 'details'}
+        value={onglet}
+        onValueChange={setOnglet}
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="border-b border-border px-4 py-2">
@@ -107,13 +149,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         </div>
 
         <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
-          {agent ? (
-            <Chat agent={agent} projectId={card.projectId} cardId={card.id} />
-          ) : (
-            <div className="px-4 py-4 text-[14px] text-faint">
-              Aucun agent n'a encore travaillé sur cette carte.
-            </div>
-          )}
+          <Chat agent={agent} projectId={card.projectId} cardId={card.id} vide={motAnalyse(phase)} />
         </TabsContent>
 
         <TabsContent value="details" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
@@ -234,15 +270,23 @@ function CardSummary({ card }: { card: Card }) {
               : 'neutral'
           }
         />
+        {/* Retiré du pied des cartes : c'est ici qu'on vient le chercher. */}
+        <Metric
+          label="Heures développeur senior"
+          value={card.estimate?.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
+          hint="Base de la facture, jamais la durée machine"
+        />
         <Metric label="Jetons consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
         <Metric label="Compte utilisé" value={card.consumption?.account ?? '—'} />
       </div>
 
+      {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
+          forme, dès qu'il est terminé. En recopier ici un extrait tronqué
+          faisait lire deux fois la même chose, et moins bien. */}
       {card.estimate?.summary ? (
-        <details className="rounded-md border border-border bg-surface px-2.5 py-2">
-          <summary className="cursor-pointer text-[13.5px] text-muted">Résumé de l'analyse</summary>
-          <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted">{card.estimate.summary}</p>
-        </details>
+        <p className="text-[13px] text-faint">
+          Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
+        </p>
       ) : null}
     </div>
   );
