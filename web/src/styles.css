@@ -222,6 +222,10 @@
 /* Barre de défilement horizontale du tableau, sans à-coups sur mobile */
 .snap-columns {
   scroll-snap-type: x proximity;
+  /* La colonne qui s'arrête ne colle pas au bord de l'écran : l'alignement se
+     fait sur la zone d'accroche, que le rembourrage du conteneur n'atteint
+     pas — il faut le redire ici, sinon le gap de gauche disparaît au défilement. */
+  scroll-padding-left: 12px;
 }
 .snap-columns > * {
   scroll-snap-align: start;

@@ -88,7 +88,7 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   return (
     /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
        la liste des cartes. Un cadre complet le faisait passer pour une carte. */
-    <div className="mb-2 border-b border-border pb-2">
+    <div className="mb-2 border-b border-border px-2 pt-2 pb-2">
       {!active ? (
         <>
           <Button
