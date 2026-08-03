@@ -4,8 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  FICHIERS_MAX_PAR_PROJET,
   RATTRAPAGE_MS,
+  TAILLE_MAX,
   decisionEnvoi,
+  estPageDuCerveau,
   doitEnvoyerMaintenant,
   faitPartir,
   fichiersACerveau,
@@ -58,6 +61,7 @@ test("l'historique et les fichiers vides ne partent jamais", () => {
   const gardes = fichiersACerveau([
     { nom: 'MEMOIRE.md', contenu: 'des faits' },
     { nom: 'HISTORIQUE.md', contenu: 'des livraisons datées' },
+    { nom: 'MEMOIRE.avant-synthese.md', contenu: 'la mémoire d’avant' },
     { nom: 'CLAUDE.md', contenu: '   ' },
     { nom: 'AGENTS.md', contenu: null },
   ]);
@@ -65,6 +69,50 @@ test("l'historique et les fichiers vides ne partent jamais", () => {
     gardes.map((f) => f.nom),
     ['MEMOIRE.md'],
   );
+});
+
+test('toute la documentation Markdown part, pas seulement trois fichiers', () => {
+  const gardes = fichiersACerveau([
+    { nom: 'docs/API.md', contenu: "l'interface" },
+    { nom: 'MEMOIRE.md', contenu: 'des faits' },
+    { nom: 'README.md', contenu: 'le projet' },
+    { nom: 'docs/guides/DEMARRER.mdx', contenu: 'comment démarrer' },
+  ]);
+  // Les porteurs d'abord, la racine ensuite, le fond du dossier en dernier.
+  assert.deepEqual(
+    gardes.map((f) => f.nom),
+    ['MEMOIRE.md', 'README.md', 'docs/API.md', 'docs/guides/DEMARRER.mdx'],
+  );
+});
+
+test('ni le code installé, ni les constructions, ni ce qui n’est pas du Markdown', () => {
+  assert.equal(estPageDuCerveau('docs/API.md'), true);
+  assert.equal(estPageDuCerveau('node_modules/paquet/README.md'), false);
+  assert.equal(estPageDuCerveau('dist/NOTES.md'), false);
+  assert.equal(estPageDuCerveau('.claude/regles.md'), false);
+  assert.equal(estPageDuCerveau('server/src/index.ts'), false);
+  assert.equal(estPageDuCerveau('HISTORIQUE.md'), false);
+});
+
+test('une page démesurée est laissée de côté', () => {
+  const gardes = fichiersACerveau([
+    { nom: 'MEMOIRE.md', contenu: 'des faits' },
+    { nom: 'DUMP.md', contenu: 'x'.repeat(TAILLE_MAX + 1) },
+  ]);
+  assert.deepEqual(
+    gardes.map((f) => f.nom),
+    ['MEMOIRE.md'],
+  );
+});
+
+test('un projet bavard est plafonné, les pages porteuses en premier', () => {
+  const beaucoup = Array.from({ length: FICHIERS_MAX_PAR_PROJET + 20 }, (_, i) => ({
+    nom: `docs/page-${String(i).padStart(3, '0')}.md`,
+    contenu: `page ${i}`,
+  }));
+  const gardes = fichiersACerveau([...beaucoup, { nom: 'MEMOIRE.md', contenu: 'des faits' }]);
+  assert.equal(gardes.length, FICHIERS_MAX_PAR_PROJET);
+  assert.equal(gardes[0].nom, 'MEMOIRE.md');
 });
 
 test("un AGENTS.md identique à CLAUDE.md n'est pas envoyé deux fois, un AGENTS.md différent si", () => {
@@ -166,6 +214,23 @@ test("un fichier absent n'empêche pas les autres de partir", async () => {
   );
 });
 
+test('la documentation rangée en sous-dossiers part aussi, le code non', async () => {
+  const projet = projetSurDisque('Documente', { 'MEMOIRE.md': 'un fait' });
+  fs.mkdirSync(path.join(projet.chemin, 'docs', 'guides'), { recursive: true });
+  fs.writeFileSync(path.join(projet.chemin, 'docs', 'API.md'), "l'interface", 'utf8');
+  fs.writeFileSync(path.join(projet.chemin, 'docs', 'guides', 'DEMARRER.md'), 'comment démarrer', 'utf8');
+  fs.writeFileSync(path.join(projet.chemin, 'docs', 'schema.ts'), 'const x = 1;', 'utf8');
+  fs.mkdirSync(path.join(projet.chemin, 'node_modules', 'paquet'), { recursive: true });
+  fs.writeFileSync(path.join(projet.chemin, 'node_modules', 'paquet', 'README.md'), 'pas à nous', 'utf8');
+
+  const essai = posteurDEssai();
+  await envoyerProjets([projet], { poster: essai.poster, maintenant: T });
+  assert.deepEqual(
+    essai.recus.map((r) => r.fichier),
+    ['MEMOIRE.md', 'docs/API.md', 'docs/guides/DEMARRER.md'],
+  );
+});
+
 test('un fichier refusé laisse partir les suivants et repassera demain', async () => {
   const projet = projetSurDisque('Deux', { 'MEMOIRE.md': 'un fait', 'CLAUDE.md': 'les règles' });
   const essai = posteurDEssai((fichier) => fichier === 'MEMOIRE.md');
@@ -240,7 +305,10 @@ test('un fichier écarté par le dépôt ne part pas', async (t) => {
     return t.skip('git absent de cette machine');
   }
   const recoltes = await recolterProjet({ id: projet.id, nom: projet.nom, chemin: projet.chemin });
-  assert.equal(recoltes.find((r) => r.nom === 'CLAUDE.md')?.contenu, null);
+  assert.equal(
+    recoltes.some((r) => r.nom === 'CLAUDE.md'),
+    false,
+  );
   assert.equal(recoltes.find((r) => r.nom === 'MEMOIRE.md')?.contenu, 'un fait');
 });
 

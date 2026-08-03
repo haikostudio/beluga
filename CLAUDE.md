@@ -74,9 +74,12 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 - Au-delà d'un seuil, un petit modèle relit la mémoire et la resserre ; la version d'avant reste
   dans `MEMOIRE.avant-synthese.md`.
 - **Envoi quotidien au cerveau** (`server/src/cerveau.ts`, règles dans `shared/src/cerveau.ts`) :
-  une fois par jour, à heure creuse, chaque projet NON archivé envoie `MEMOIRE.md`, `CLAUDE.md` et
-  `AGENTS.md` (s'il diffère) à `https://memoire.haiko-s1.com` (`POST /v1/memories`). Jamais
-  `HISTORIQUE.md`, jamais un fichier écarté par `.gitignore`. Un `discussion_id` stable par projet
+  une fois par jour, à heure creuse, chaque projet NON archivé envoie TOUTES ses pages Markdown
+  (mémoire, instructions des moteurs, documentation, sous-dossiers compris) à
+  `https://memoire.haiko-s1.com` (`POST /v1/memories`). Jamais `HISTORIQUE.md` ni
+  `MEMOIRE.avant-synthese.md`, jamais un fichier écarté par `.gitignore`, jamais un dossier de
+  machine (`node_modules`, `dist`, `data`…) ; 5 niveaux de profondeur, 150 pages et 300 000 signes
+  au plus, les porteuses d'abord. Un `discussion_id` stable par projet
   et par fichier fait REMPLACER au lieu d'empiler ; une empreinte SHA-256 par fichier évite de
   renvoyer l'inchangé, sauf rattrapage hebdomadaire. La clé vient de `CERVEAU_API_KEY`
   (`/etc/haikodev.env`, hors dépôt) : sans elle, l'envoi se tait et le dit dans les réglages.

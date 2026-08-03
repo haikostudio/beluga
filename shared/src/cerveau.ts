@@ -17,17 +17,82 @@ export const CERVEAU_URL = 'https://memoire.haiko-s1.com';
 export const CERVEAU_SOURCE = 'haikodev';
 
 /**
- * Les seuls fichiers qui partent : la mémoire du projet et les instructions de
- * ses moteurs. Rien d'autre — surtout pas un fichier trouvé au hasard du
- * dossier, qui pourrait porter des identifiants.
+ * Ce qui part : TOUTE la documentation Markdown du projet — mémoire,
+ * instructions des moteurs, documentation, notes de dossiers. Certains projets
+ * portent l'essentiel de ce qu'ils savent dans des pages écrites à côté ; s'en
+ * tenir à trois fichiers laissait ce savoir-là derrière.
+ *
+ * Ceux-ci passent en PREMIER, quel que soit l'ordre du dossier : ce sont les
+ * plus porteurs de sens.
  */
-export const FICHIERS_DU_CERVEAU = ['MEMOIRE.md', 'CLAUDE.md', 'AGENTS.md'] as const;
+export const FICHIERS_PRIORITAIRES = ['MEMOIRE.md', 'CLAUDE.md', 'AGENTS.md', 'DOCUMENTATION.md'] as const;
 
 /**
  * L'historique est un JOURNAL de livraisons : il n'a jamais été destiné à un
- * moteur, et il n'a rien à faire dans une mémoire d'apprentissage.
+ * moteur, et il n'a rien à faire dans une mémoire d'apprentissage. La mémoire
+ * d'avant resserrement est une COPIE périmée : elle ferait double emploi.
  */
-export const FICHIERS_JAMAIS_ENVOYES = ['HISTORIQUE.md'] as const;
+export const FICHIERS_JAMAIS_ENVOYES = ['HISTORIQUE.md', 'MEMOIRE.avant-synthese.md'] as const;
+
+/**
+ * Les dossiers qu'on ne parcourt pas : du code installé, des constructions, des
+ * données. Rien de ce qui s'y trouve n'a été écrit par quelqu'un du projet.
+ */
+export const DOSSIERS_IGNORES = [
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  'vendor',
+  'data',
+  '.next',
+  '.cache',
+  '.venv',
+  'venv',
+  '__pycache__',
+] as const;
+
+/** On ne descend pas indéfiniment : au-delà, ce ne sont plus des pages de projet. */
+export const PROFONDEUR_MAX = 5;
+
+/** Un projet bavard ne doit pas monopoliser le passage du soir. */
+export const FICHIERS_MAX_PAR_PROJET = 150;
+
+/** Une page de plus de 300 000 signes n'est pas de la documentation. */
+export const TAILLE_MAX = 300_000;
+
+/**
+ * Cette page part-elle au cerveau ? Un fichier Markdown, jamais un fichier
+ * interdit, jamais rangé dans un dossier de machine.
+ */
+export function estPageDuCerveau(cheminRelatif: string): boolean {
+  const morceaux = cheminRelatif.split('/');
+  const nom = morceaux[morceaux.length - 1] ?? '';
+  if (!/\.mdx?$/i.test(nom)) return false;
+  if (FICHIERS_JAMAIS_ENVOYES.includes(nom as (typeof FICHIERS_JAMAIS_ENVOYES)[number])) return false;
+  return !morceaux
+    .slice(0, -1)
+    .some(
+      (dossier) =>
+        dossier.startsWith('.') || DOSSIERS_IGNORES.includes(dossier as (typeof DOSSIERS_IGNORES)[number]),
+    );
+}
+
+/**
+ * L'ordre d'envoi : les fichiers porteurs d'abord, la racine ensuite, le reste
+ * par ordre alphabétique. Quand un projet dépasse le plafond, ce sont bien les
+ * pages les moins importantes qui sont laissées de côté.
+ */
+export function ordonnerPages(chemins: string[]): string[] {
+  const rang = (chemin: string) => {
+    const index = FICHIERS_PRIORITAIRES.indexOf(chemin as (typeof FICHIERS_PRIORITAIRES)[number]);
+    if (index >= 0) return index;
+    return chemin.includes('/') ? 100 + chemin.split('/').length : 50;
+  };
+  return [...chemins].sort((a, b) => rang(a) - rang(b) || a.localeCompare(b));
+}
 
 /** Un envoi par jour. */
 export const PERIODE_ENVOI_MS = 24 * 60 * 60 * 1000;
@@ -91,7 +156,7 @@ export function projetsACerveau<T extends { archive?: boolean }>(projets: T[]): 
  * toujours.
  */
 export function identifiantEnvoi(projetId: string, fichier: string): string {
-  return `haikodev:${projetId}:${fichier.toLowerCase().replace(/[^a-z0-9.]+/g, '-')}`;
+  return `haikodev:${projetId}:${fichier.toLowerCase().replace(/[^a-z0-9./]+/g, '-')}`;
 }
 
 /**
@@ -111,21 +176,24 @@ export function texteEnvoi(identite: IdentiteProjet, fichier: string, contenu: s
 }
 
 /**
- * Les fichiers réellement envoyables pour un projet : ceux qu'on a trouvés, non
+ * Les pages réellement envoyables pour un projet : celles qu'on a trouvées, non
  * vides, jamais un fichier interdit, et sans doublon de contenu — `AGENTS.md`
  * qui se contente de renvoyer à `CLAUDE.md` n'apprend rien de plus, mais un
- * `AGENTS.md` qui DIFFÈRE, si.
+ * `AGENTS.md` qui DIFFÈRE, si. Les plus porteuses passent devant, et le plafond
+ * s'applique à la fin : ce sont les moins importantes qui sautent.
  */
 export function fichiersACerveau(recoltes: FichierRecolte[]): { nom: string; contenu: string }[] {
+  const parNom = new Map(recoltes.map((r) => [r.nom, r]));
   const gardes: { nom: string; contenu: string }[] = [];
   const vus = new Set<string>();
-  for (const recolte of recoltes) {
-    if (FICHIERS_JAMAIS_ENVOYES.includes(recolte.nom as (typeof FICHIERS_JAMAIS_ENVOYES)[number])) continue;
-    const contenu = recolte.contenu?.trim();
-    if (!contenu) continue;
+  for (const nom of ordonnerPages([...parNom.keys()])) {
+    if (!estPageDuCerveau(nom)) continue;
+    const contenu = parNom.get(nom)?.contenu?.trim();
+    if (!contenu || contenu.length > TAILLE_MAX) continue;
     if (vus.has(contenu)) continue;
     vus.add(contenu);
-    gardes.push({ nom: recolte.nom, contenu });
+    gardes.push({ nom, contenu });
+    if (gardes.length >= FICHIERS_MAX_PAR_PROJET) break;
   }
   return gardes;
 }

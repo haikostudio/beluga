@@ -341,8 +341,9 @@ function SectionCerveau() {
       </h3>
 
       <p className="mb-2 text-[12.5px] leading-relaxed text-faint">
-        Une fois par jour, chaque projet vivant envoie sa mémoire et les instructions de ses moteurs, pour que
-        l'apprentissage se fasse sur l'ensemble des projets. L'historique des livraisons ne part jamais.
+        Une fois par jour, chaque projet vivant envoie sa mémoire, les instructions de ses moteurs et toute sa
+        documentation écrite, pour que l'apprentissage se fasse sur l'ensemble des projets. L'historique des
+        livraisons ne part jamais, ni aucun fichier écarté du dépôt.
       </p>
 
       <div className="rounded-md border border-border bg-surface px-2.5 py-2">

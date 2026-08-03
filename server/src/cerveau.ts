@@ -6,12 +6,15 @@ import { promisify } from 'node:util';
 import {
   CERVEAU_SOURCE,
   CERVEAU_URL,
+  DOSSIERS_IGNORES,
   EmpreinteRetenue,
-  FICHIERS_DU_CERVEAU,
   FichierRecolte,
   IdentiteProjet,
+  PROFONDEUR_MAX,
   RaisonEnvoi,
   decisionEnvoi,
+  estPageDuCerveau,
+  ordonnerPages,
   doitEnvoyerMaintenant,
   faitPartir,
   fichiersACerveau,
@@ -85,33 +88,80 @@ export function empreinte(contenu: string): string {
 
 /**
  * Les fichiers exclus par `.gitignore`. Un projet peut très bien mettre son
- * `CLAUDE.md` de côté, ou poser un fichier d'accès privés : ce qui n'est pas
- * dans le dépôt ne part pas. Sans dépôt git, rien n'est exclu.
+ * `CLAUDE.md` de côté, ou poser un `ACCES-PRIVES.md` : ce qui n'est pas dans le
+ * dépôt ne part pas. Sans dépôt git, rien n'est exclu.
+ *
+ * La question est posée par PAQUETS : une ligne de commande n'accepte pas mille
+ * arguments, et un projet bavard en aurait vite autant.
  */
-async function fichiersIgnores(chemin: string, noms: readonly string[]): Promise<Set<string>> {
-  try {
-    const { stdout } = await execFileAsync('git', ['check-ignore', '--', ...noms], { cwd: chemin, timeout: 8000 });
-    return new Set(stdout.split('\n').map((l) => l.trim()).filter(Boolean));
-  } catch {
-    // Sortie 1 = aucun fichier ignoré ; pas de dépôt = rien à exclure non plus.
-    return new Set();
+async function fichiersIgnores(chemin: string, noms: string[]): Promise<Set<string>> {
+  const ignores = new Set<string>();
+  for (let debut = 0; debut < noms.length; debut += 200) {
+    const paquet = noms.slice(debut, debut + 200);
+    try {
+      const { stdout } = await execFileAsync('git', ['check-ignore', '--', ...paquet], {
+        cwd: chemin,
+        timeout: 15000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      for (const ligne of stdout.split('\n')) {
+        const nom = ligne.trim();
+        if (nom) ignores.add(nom);
+      }
+    } catch {
+      // Sortie 1 = aucun fichier ignoré ; pas de dépôt = rien à exclure non plus.
+    }
   }
+  return ignores;
 }
 
 /**
- * Ce qu'un projet donne à lire : la mémoire et les instructions des moteurs.
- * Un fichier absent vaut `null` et ne fait échouer personne.
+ * Toutes les pages Markdown du dossier, sous-dossiers compris : certains
+ * projets portent l'essentiel de ce qu'ils savent dans une documentation écrite
+ * à côté de la mémoire. On ne descend pas dans les dossiers de machine (code
+ * installé, constructions, données), et pas au-delà de quelques niveaux.
+ */
+function pagesDuDossier(racine: string): string[] {
+  const trouvees: string[] = [];
+  const parcourir = (dossier: string, relatif: string, profondeur: number) => {
+    if (profondeur > PROFONDEUR_MAX) return;
+    let entrees: fs.Dirent[];
+    try {
+      entrees = fs.readdirSync(dossier, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entree of entrees) {
+      const sousChemin = relatif ? `${relatif}/${entree.name}` : entree.name;
+      if (entree.isDirectory()) {
+        if (entree.name.startsWith('.')) continue;
+        if (DOSSIERS_IGNORES.includes(entree.name as (typeof DOSSIERS_IGNORES)[number])) continue;
+        parcourir(path.join(dossier, entree.name), sousChemin, profondeur + 1);
+      } else if (entree.isFile() && estPageDuCerveau(sousChemin)) {
+        trouvees.push(sousChemin);
+      }
+    }
+  };
+  parcourir(racine, '', 0);
+  return trouvees;
+}
+
+/**
+ * Ce qu'un projet donne à lire. Un fichier illisible vaut `null` et ne fait
+ * échouer personne.
  */
 export async function recolterProjet(identite: IdentiteProjet): Promise<FichierRecolte[]> {
-  const ignores = await fichiersIgnores(identite.chemin, FICHIERS_DU_CERVEAU);
-  return FICHIERS_DU_CERVEAU.map((nom) => {
-    if (ignores.has(nom)) return { nom, contenu: null };
-    try {
-      return { nom, contenu: fs.readFileSync(path.join(identite.chemin, nom), 'utf8') };
-    } catch {
-      return { nom, contenu: null };
-    }
-  });
+  const pages = ordonnerPages(pagesDuDossier(identite.chemin));
+  const ignores = await fichiersIgnores(identite.chemin, pages);
+  return pages
+    .filter((nom) => !ignores.has(nom))
+    .map((nom) => {
+      try {
+        return { nom, contenu: fs.readFileSync(path.join(identite.chemin, nom), 'utf8') };
+      } catch {
+        return { nom, contenu: null };
+      }
+    });
 }
 
 /* ------------------------------------------------------------------ */
