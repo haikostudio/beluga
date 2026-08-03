@@ -212,6 +212,20 @@ export const Card = z.object({
   /** Chemin du document de clôture, écrit à l'archivage. */
   closureDoc: z.string().optional(),
   excludedFromDeploy: z.boolean().default(false),
+  /**
+   * Quand la conversation de cette carte a été ouverte pour la dernière fois.
+   * C'est ce repère qui éteint la pastille « terminé, pas encore lu » — le
+   * simple passage sur le projet ne suffit pas.
+   */
+  lastReadAt: z.number().optional(),
+  /**
+   * L'agent dont la conversation est rattachée à cette carte alors qu'il ne
+   * lui appartient pas : le chef d'orchestre qui a codé hors tâche, par
+   * exemple. Sa conversation continue de vivre ailleurs.
+   */
+  conversationAgentId: z.string().optional(),
+  /** Carte fabriquée pour du travail enregistré sans tâche. */
+  horsTache: z.boolean().default(false),
   createdAt: z.number(),
   updatedAt: z.number(),
   doneAt: z.number().optional(),

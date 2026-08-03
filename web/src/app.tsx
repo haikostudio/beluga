@@ -228,6 +228,24 @@ export function App() {
     return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
   }, []);
 
+  /*
+   * LE COMPTE SUR L'ICÔNE DE L'APPLICATION INSTALLÉE. On voit ainsi, sans même
+   * ouvrir HaikoDev, qu'un agent a rendu quelque chose. On additionne les
+   * réponses non lues de tous les projets ; à zéro, la pastille est retirée
+   * plutôt que laissée à « 0 ». Les navigateurs qui ne connaissent pas cette
+   * pastille ne font simplement rien.
+   */
+  const nonLues = Object.values(state.rendus).reduce((total, n) => total + n, 0);
+  React.useEffect(() => {
+    const nav = navigator as Navigator & {
+      setAppBadge?: (n?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+    if (!nav.setAppBadge) return;
+    const geste = nonLues > 0 ? nav.setAppBadge(nonLues) : nav.clearAppBadge?.();
+    void geste?.catch(() => undefined);
+  }, [nonLues]);
+
   const activeProject = state.projects.find((project) => project.id === state.activeProjectId);
   const openAgent = openAgentId ? state.agents[openAgentId] : null;
 

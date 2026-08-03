@@ -75,6 +75,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
 
     void (async () => {
       send({ type: 'attention', byProject: store.projectsNeedingAttention() });
+      send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
       send({
         type: 'ready',
         protocol: PROTOCOL_VERSION,
@@ -133,6 +134,17 @@ function envoyerConversation(agentId: string, tout = false): void {
     queue: store.listQueue(agentId),
     precedents: comptePrecedents(messages, depuis),
   });
+}
+
+/**
+ * Marquer une carte comme lue, et rediffuser le compte des pastilles. Deux
+ * chemins y mènent : ouvrir sa conversation, ou le dire explicitement.
+ */
+function marquerLue(cardId: string): void {
+  const carte = store.markCardRead(cardId);
+  if (!carte) return;
+  bus.emit({ type: 'card.upsert', card: carte });
+  bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
 }
 
 async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
@@ -354,6 +366,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         doneAt: target === 'done' ? Date.now() : card.doneAt,
       });
       bus.emit({ type: 'card.upsert', card: updated });
+      // Archiver une carte retire sa pastille : le compte se rediffuse.
+      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
 
       // C'est ce geste qui autorise la dépense : l'analyse part maintenant.
       if (target === 'validated') {
@@ -370,6 +384,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (!card) throw new Error('carte introuvable');
       store.deleteCard(cmd.id);
       bus.emit({ type: 'card.delete', id: cmd.id, projectId: card.projectId });
+      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
       return { ok: true };
     }
 
@@ -426,18 +441,46 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'card.conversation': {
       const card = store.getCard(cmd.cardId);
       if (!card) throw new Error('carte introuvable');
-      const messages = store.listCardMessages(cmd.cardId);
+      let messages = store.listCardMessages(cmd.cardId);
       // L'agent d'exécution d'abord ; à défaut, le dernier agent de la carte —
       // son analyse, le plus souvent, dont le compte rendu se lit avant même
       // que le travail ne commence.
-      const dernier = store.getAgentByCard(cmd.cardId) ?? store.getLastAgentByCard(cmd.cardId);
+      let dernier = store.getAgentByCard(cmd.cardId) ?? store.getLastAgentByCard(cmd.cardId);
+      /*
+       * Une carte de travail hors tâche n'a pas d'agent à elle : elle emprunte
+       * la conversation de celui qui a codé, sans se l'approprier.
+       */
+      if (!dernier && card.conversationAgentId) {
+        dernier = store.getAgent(card.conversationAgentId);
+        if (dernier) messages = store.listMessages(dernier.id);
+      }
       bus.emit({
         type: 'card.conversation',
         cardId: cmd.cardId,
         messages,
         activeAgentId: dernier?.id ?? card.agentId,
       });
+
+      // Lire, c'est éteindre la pastille — de cette carte, et d'elle seule.
+      marquerLue(cmd.cardId);
       return { messages: messages.length };
+    }
+
+    case 'card.read': {
+      marquerLue(cmd.cardId);
+      return { ok: true };
+    }
+
+    /*
+     * Tout lire d'un geste, depuis la liste des projets. Seules les cartes
+     * réellement non lues sont touchées : réécrire tout le tableau pour éteindre
+     * une pastille ferait beaucoup de bruit pour rien.
+     */
+    case 'project.read': {
+      const touchees = store.markProjectRead(cmd.projectId);
+      for (const carte of touchees) bus.emit({ type: 'card.upsert', card: carte });
+      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+      return { lues: touchees.length };
     }
 
     case 'agent.orchestrator': {

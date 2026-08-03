@@ -56,7 +56,10 @@ node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'ess
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur.
 - Une carte naît toujours dans « À faire » ; seul l'utilisateur la valide, et ce geste seul autorise
-  la dépense.
+  la dépense. **Une seule exception** : le code enregistré par un agent SANS carte fabrique tout seul
+  sa fiche dans « À déployer » — le travail est déjà fait, il n'y a plus rien à valider.
+- Rien de ce qui se fait ne reste invisible : chaque ligne du lot à publier a sa carte, et un projet
+  dont un agent a rendu son travail porte une pastille tant que la conversation n'a pas été ouverte.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier

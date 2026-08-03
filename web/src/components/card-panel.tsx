@@ -92,7 +92,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    * à lire, on bascule sur la conversation — une seule fois, pour ne jamais
    * ramener quelqu'un qui a choisi un autre onglet.
    */
-  const aLire = !!agent || phase !== 'aucune';
+  // Une carte de travail hors tâche n'a pas d'agent à elle : c'est la
+  // conversation empruntée qui dit qu'il y a quelque chose à lire.
+  const aLire = !!agent || !!card.conversationAgentId || phase !== 'aucune';
   const [onglet, setOnglet] = React.useState(aLire ? 'chat' : 'details');
 
   /*

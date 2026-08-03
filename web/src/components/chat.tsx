@@ -58,6 +58,15 @@ export function Chat({
   }, [agent?.id, cardId, tout]);
 
   /*
+   * La carte est SOUS LES YEUX : dès que l'agent se tait, sa réponse est lue.
+   * Sans cela, la pastille « terminé, pas encore lu » s'allumerait dans la
+   * colonne des projets pendant qu'on lit précisément cette conversation.
+   */
+  React.useEffect(() => {
+    if (cardId && !busy) client.send({ type: 'card.read', cardId });
+  }, [cardId, busy]);
+
+  /*
    * Le fil suit l'agent, MAIS il ne tire jamais la page sous les yeux de
    * quelqu'un en train de lire plus haut : le compte rendu d'analyse, déjà
    * écrit, ne doit plus défiler tout seul quand la tâche démarre. On ne

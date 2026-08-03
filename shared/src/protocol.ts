@@ -113,6 +113,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('agent.open'), id: z.string(), tout: z.boolean().optional() }),
   /** Toute la conversation d'une carte : analyses, exécutions et relances. */
   z.object({ type: z.literal('card.conversation'), cardId: z.string() }),
+  /** « J'ai lu » : éteint la pastille de réponse rendue sur cette carte. */
+  z.object({ type: z.literal('card.read'), cardId: z.string() }),
+  /** « J'ai tout lu sur ce projet » : le geste se fait depuis la liste. */
+  z.object({ type: z.literal('project.read'), projectId: z.string() }),
   z.object({ type: z.literal('agent.orchestrator'), projectId: z.string(), tout: z.boolean().optional() }),
   /** Repartir de zéro : le fil d'avant est mis de côté, pas supprimé. */
   z.object({ type: z.literal('agent.reset'), agentId: z.string() }),
@@ -266,6 +270,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('groups'), groups: z.array(ProjectGroup) }),
   /** Projets qui attendent une réponse : nombre de questions en attente. */
   z.object({ type: z.literal('attention'), byProject: z.record(z.number()) }),
+  /** Projets dont un agent a rendu son travail sans qu'on l'ait encore lu. */
+  z.object({ type: z.literal('rendus'), byProject: z.record(z.number()) }),
   z.object({
     type: z.literal('project.snapshot'),
     projectId: z.string(),
