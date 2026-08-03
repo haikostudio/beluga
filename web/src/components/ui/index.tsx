@@ -150,6 +150,100 @@ TabsTrigger.displayName = 'TabsTrigger';
 
 export const TabsContent = TabsPrimitive.Content;
 
+/* -------------------- Fondu au bord d'un défilement ---------------- */
+
+/**
+ * Une zone qui défile, avec un fondu en HAUT et en BAS : le contenu ne se
+ * coupe plus net sous les onglets ou au-dessus de la barre d'écriture, il
+ * s'efface et se floute en glissant derrière. Le voile prend la couleur du
+ * fond courant — donc noir en thème sombre, blanc en thème clair, sans
+ * réglage.
+ *
+ * Le fondu du haut ne s'allume que si quelque chose est déjà remonté, celui
+ * du bas s'éteint une fois le fond atteint : un voile permanent laisserait
+ * croire qu'il reste toujours à lire.
+ */
+export const ZoneDefilement = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement> & {
+    /** Couleur du fondu ; par défaut celle du fond de l'application. */
+    fond?: string;
+    /** Hauteur du fondu, en pixels. */
+    hauteur?: number;
+    /** Classes de l'enveloppe qui porte les voiles. */
+    classeEnveloppe?: string;
+  }
+>(function ZoneDefilement(
+  { fond = 'hsl(var(--bg))', hauteur = 28, classeEnveloppe, className, onScroll, children, ...props },
+  ref,
+) {
+  const interne = React.useRef<HTMLDivElement | null>(null);
+  const [haut, setHaut] = React.useState(false);
+  const [bas, setBas] = React.useState(false);
+
+  const mesurer = React.useCallback(() => {
+    const zone = interne.current;
+    if (!zone) return;
+    setHaut(zone.scrollTop > 4);
+    setBas(zone.scrollTop + zone.clientHeight < zone.scrollHeight - 4);
+  }, []);
+
+  // Le contenu change sans qu'on défile (message qui arrive, onglet qui
+  // s'ouvre) : on remesure à chaque remaniement de la zone.
+  React.useEffect(() => {
+    const zone = interne.current;
+    if (!zone) return;
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(zone);
+    for (const enfant of Array.from(zone.children)) observateur.observe(enfant);
+    return () => observateur.disconnect();
+  });
+
+  const voile = (cote: 'haut' | 'bas', visible: boolean) => (
+    <div
+      aria-hidden
+      className={cn(
+        'pointer-events-none absolute inset-x-0 z-10 transition-opacity duration-200',
+        cote === 'haut' ? 'top-0' : 'bottom-0',
+        visible ? 'opacity-100' : 'opacity-0',
+      )}
+      style={{
+        height: hauteur,
+        backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
+        background: `linear-gradient(to ${cote === 'haut' ? 'bottom' : 'top'}, ${fond}, transparent)`,
+        // Le flou lui-même s'atténue : sans ce masque, la bande floue se
+        // terminait par une arête franche, plus visible que le fondu.
+        maskImage: `linear-gradient(to ${cote === 'haut' ? 'bottom' : 'top'}, black 30%, transparent)`,
+        WebkitMaskImage: `linear-gradient(to ${cote === 'haut' ? 'bottom' : 'top'}, black 30%, transparent)`,
+      }}
+    />
+  );
+
+  return (
+    <div className={cn('relative flex min-h-0 flex-1 flex-col', classeEnveloppe)}>
+      {voile('haut', haut)}
+      <div
+        ref={(noeud) => {
+          interne.current = noeud;
+          if (typeof ref === 'function') ref(noeud);
+          else if (ref) ref.current = noeud;
+        }}
+        onScroll={(event) => {
+          mesurer();
+          onScroll?.(event);
+        }}
+        className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden', className)}
+        {...props}
+      >
+        {children}
+      </div>
+      {voile('bas', bas)}
+    </div>
+  );
+});
+
 /* ----------------------------- Dialogue --------------------------- */
 
 export const Dialog = DialogPrimitive.Root;
@@ -163,7 +257,7 @@ export function DialogContent({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
       {/*
        * La fenêtre est POSÉE par une enveloppe en flux (collée en bas sur
        * téléphone, centrée sur grand écran), jamais par un décalage de moitié :
@@ -239,7 +333,7 @@ export function Drawer({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           className={cn(
             // Sur téléphone il occupe toute la largeur ; sur grand écran il se
@@ -247,7 +341,9 @@ export function Drawer({
             // deviennent trop longues pour être lues confortablement.
             'fixed inset-x-0 z-50 mx-auto flex w-full max-w-[960px] flex-col overflow-hidden border-border bg-bg shadow-2xl',
             'rounded-t-xl border-t sm:rounded-t-2xl sm:border-x',
-            'data-[state=open]:animate-slide-up data-[state=closed]:animate-slide-down',
+            // Une feuille qui MONTE : le décalage de 6 px des fenêtres se
+            // voyait à peine sur un panneau de cette taille.
+            'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
             className,
           )}
           style={{
@@ -328,7 +424,7 @@ export function SidePanel({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           aria-label={title}
           className={cn(

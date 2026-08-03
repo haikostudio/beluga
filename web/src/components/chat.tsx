@@ -8,7 +8,7 @@ import {
   peutRepartir,
   titreDeBloc,
 } from '@haikodev/shared';
-import { ConfirmDialog, EmptyState, Tooltip } from '@/components/ui';
+import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { VoletTaches } from '@/components/todos';
@@ -147,12 +147,12 @@ export function Chat({
           </div>
         ) : null}
 
-      <div
+      <ZoneDefilement
         ref={filRef}
         onScroll={(event) => {
           if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
         }}
-        className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-3 py-3"
+        className="space-y-4 px-3 py-3"
       >
         {messages.length ? (
           messages.map((message, index) => (
@@ -180,7 +180,7 @@ export function Chat({
           />
         )}
         <div ref={bottomRef} />
-      </div>
+      </ZoneDefilement>
       </div>
 
       {/* La liste des tâches est un volet FIXE, entre le fil et la barre

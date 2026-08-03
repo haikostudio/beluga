@@ -37,6 +37,7 @@ import {
   TabsTrigger,
   Textarea,
   Tooltip,
+  ZoneDefilement,
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
@@ -205,16 +206,16 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           <Chat agent={agent} projectId={card.projectId} cardId={card.id} vide={motAnalyse(phase)} />
         </TabsContent>
 
-        <TabsContent value="details" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
-          <CardSummary card={card} />
+        <TabsContent value="details" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+          <ZoneDefilement><CardSummary card={card} /></ZoneDefilement>
         </TabsContent>
 
-        <TabsContent value="billing" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
-          <BillingTab card={card} rate={project?.billing?.hourlyRate ?? 130} project={project} />
+        <TabsContent value="billing" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+          <ZoneDefilement><BillingTab card={card} rate={project?.billing?.hourlyRate ?? 130} project={project} /></ZoneDefilement>
         </TabsContent>
 
-        <TabsContent value="github" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
-          <GithubTab card={card} />
+        <TabsContent value="github" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+          <ZoneDefilement><GithubTab card={card} /></ZoneDefilement>
         </TabsContent>
       </Tabs>
 

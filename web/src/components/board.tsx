@@ -11,7 +11,7 @@ import {
   etatVisuelCarte,
   sortieAutorisee,
 } from '@haikodev/shared';
-import { Badge, Button, Dot, Input, Textarea, Tooltip } from '@/components/ui';
+import { Badge, Button, Dot, Input, Textarea, Tooltip, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { MenuCarte } from '@/components/card-menu';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
@@ -268,7 +268,7 @@ export function Board({
               la carte : il faut donc lui laisser la place, sinon le débordement
               de la colonne la rognerait.
             */}
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            <ZoneDefilement fond="hsl(var(--surface))">
               {column === 'to_deploy' ? <DeployPanel projectId={projectId} cards={columnCards} /> : null}
               <div
                 className={cn(
@@ -309,7 +309,7 @@ export function Board({
                 </p>
               ) : null}
               </div>
-            </div>
+            </ZoneDefilement>
 
             {/*
               Le pied des colonnes de fin de parcours : un seul bouton au repos,

@@ -22,6 +22,7 @@ import {
   TabsList,
   TabsTrigger,
   Tooltip,
+  ZoneDefilement,
 } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
 import { client } from '@/lib/client';
@@ -86,28 +87,40 @@ function SettingsBody({ open }: { open: boolean }) {
           </TabsList>
         </div>
 
-        <TabsContent value="systeme" className="min-h-0 flex-1 overflow-y-auto p-4 data-[state=inactive]:hidden">
+        <TabsContent value="systeme" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
           <SectionSysteme history={history} />
+        </ZoneDefilement>
         </TabsContent>
 
-        <TabsContent value="fonctionnement" className="min-h-0 flex-1 overflow-y-auto p-4 data-[state=inactive]:hidden">
+        <TabsContent value="fonctionnement" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
           {settings ? <SectionFonctionnement settings={settings} update={update} /> : null}
+        </ZoneDefilement>
         </TabsContent>
 
-        <TabsContent value="comptes" className="min-h-0 flex-1 overflow-y-auto p-4 data-[state=inactive]:hidden">
+        <TabsContent value="comptes" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
           <SectionComptes />
+        </ZoneDefilement>
         </TabsContent>
 
-        <TabsContent value="voix" className="min-h-0 flex-1 overflow-y-auto p-4 data-[state=inactive]:hidden">
+        <TabsContent value="voix" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
           <VoiceSection open={open && onglet === 'voix'} />
+        </ZoneDefilement>
         </TabsContent>
 
-        <TabsContent value="consommation" className="min-h-0 flex-1 overflow-y-auto p-4 data-[state=inactive]:hidden">
+        <TabsContent value="consommation" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
           <UsageSection open={open && onglet === 'consommation'} />
+        </ZoneDefilement>
         </TabsContent>
 
-        <TabsContent value="sauvegardes" className="min-h-0 flex-1 overflow-y-auto p-4 data-[state=inactive]:hidden">
+        <TabsContent value="sauvegardes" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
           <SectionSauvegardes open={open && onglet === 'sauvegardes'} />
+        </ZoneDefilement>
         </TabsContent>
       </Tabs>
     </>

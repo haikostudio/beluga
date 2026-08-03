@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { BookOpen, Loader2 } from 'lucide-react';
-import { Drawer, DialogTitle } from '@/components/ui';
+import { Drawer, DialogTitle, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 
@@ -46,7 +46,7 @@ export function MemoryView({
         </span>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3">
+      <ZoneDefilement className="px-3 py-3">
         {texte === undefined ? (
           <p className="flex items-center gap-2 text-[14px] text-faint">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Lecture…
@@ -67,7 +67,7 @@ export function MemoryView({
             Ce projet n'a encore aucun fait en mémoire. Les agents en ajoutent au fil de leur travail.
           </p>
         )}
-      </div>
+      </ZoneDefilement>
     </Drawer>
   );
 }
