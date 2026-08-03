@@ -45,7 +45,7 @@ node scripts/verif-reprise-paseo.mjs # les cartes reprises de Paseo, dans un vra
 node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, sur écran de téléphone
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
-node scripts/verif-signal-attention.mjs # la secousse et le triangle d'un projet qui attend
+node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu de la colonne
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
@@ -118,6 +118,10 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   fonctionnalité**, avec un message qui la nomme.
 - Rien de ce qui se fait ne reste invisible : chaque ligne du lot à publier a sa carte, et un projet
   dont un agent a rendu son travail porte une pastille tant que la conversation n'a pas été ouverte.
+  **Deux choses secouent la ligne d'un projet** (`shared/src/signal-projet.ts`) : une décision
+  attendue — triangle orange — et un travail rendu pas encore consulté — point bleu clignotant. Les
+  deux comptes se comparent SÉPARÉMENT, la secousse ne joue qu'une passe, et la ligne qu'on regarde
+  déjà ne bouge jamais.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier

@@ -19,6 +19,7 @@ export default {
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
         danger: 'hsl(var(--danger))',
+        info: 'hsl(var(--info))',
         record: 'hsl(var(--record))',
         'record-fg': 'hsl(var(--record-fg))',
       },

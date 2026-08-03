@@ -22,10 +22,11 @@ import {
 import {
   Project,
   ProjectGroup,
-  attentionDuGroupe,
+  type SignalProjet,
   avertissementRedemarrage,
-  doitSecouer,
-  rendusDuGroupe,
+  badgeTravailTermine,
+  doitSecouerLigne,
+  signalDuGroupe,
 } from '@haikodev/shared';
 import {
   Button,
@@ -346,24 +347,36 @@ export function Sidebar({
       </div>
 
       <ZoneDefilement className="touch-pan-y px-1.5 pb-2" data-drop-root>
-        {entries.map((entry) =>
-          entry.kind === 'project' ? (
-            <ProjectRow
-              key={entry.id}
-              project={entry.project}
-              active={entry.id === state.activeProjectId}
-              running={runningOf(entry.id)}
-              attention={state.attention[entry.id]}
-              rendus={state.rendus[entry.id]}
-              dimmed={dragging?.id === entry.id}
-              style={glisse(decales.racine.has(entry.id))}
-              marqueur={marqueurDe(entry.id)}
-              rowProps={rowProps(entry.id, 'project')}
-              poigneeProps={poigneeProps(entry.id, 'project', entry.project.name)}
-              onSettings={() => setSettingsFor(entry.id)}
-              onChoose={onChoose}
-            />
-          ) : (
+        {entries.map((entry) => {
+          if (entry.kind === 'project') {
+            return (
+              <ProjectRow
+                key={entry.id}
+                project={entry.project}
+                active={entry.id === state.activeProjectId}
+                running={runningOf(entry.id)}
+                attention={state.attention[entry.id]}
+                rendus={state.rendus[entry.id]}
+                dimmed={dragging?.id === entry.id}
+                style={glisse(decales.racine.has(entry.id))}
+                marqueur={marqueurDe(entry.id)}
+                rowProps={rowProps(entry.id, 'project')}
+                poigneeProps={poigneeProps(entry.id, 'project', entry.project.name)}
+                onSettings={() => setSettingsFor(entry.id)}
+                onChoose={onChoose}
+              />
+            );
+          }
+
+          // Replié, un groupe cacherait ce que ses projets attendent ET ce
+          // qu'ils ont rendu : les deux signaux remontent jusqu'à son en-tête.
+          const signal = signalDuGroupe(
+            entry.members.map((p) => p.id),
+            state.attention,
+            state.rendus,
+          );
+          const replie = collapsed.includes(entry.id);
+          return (
             <div
               key={entry.id}
               data-drop-group={entry.id}
@@ -384,7 +397,7 @@ export function Sidebar({
               <EnteteGroupe
                 rowProps={rowProps(entry.id, 'group')}
                 dimmed={dragging?.id === entry.id}
-                attention={attentionDuGroupe(entry.members.map((p) => p.id), state.attention)}
+                signal={signal}
                 regarde={entry.members.some((p) => p.id === state.activeProjectId)}
               >
                 <span
@@ -401,7 +414,7 @@ export function Sidebar({
                   <ChevronRight
                     className={cn(
                       'h-2.5 w-2.5 shrink-0 transition-transform',
-                      !collapsed.includes(entry.id) && 'rotate-90',
+                      !replie && 'rotate-90',
                     )}
                   />
                   {entry.group.color ? (
@@ -414,16 +427,10 @@ export function Sidebar({
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
                 </button>
-                {/* Replié, un groupe cacherait ce que ses projets ont rendu et
-                    ce qu'ils attendent : les deux signaux remontent jusqu'ici. */}
-                {collapsed.includes(entry.id) ? (
-                  <SignalAttention
-                    compte={attentionDuGroupe(entry.members.map((p) => p.id), state.attention)}
-                  />
-                ) : null}
-                {collapsed.includes(entry.id) ? (
+                {replie ? <SignalAttention compte={signal.attention} /> : null}
+                {replie ? (
                   <PastilleRendue
-                    compte={rendusDuGroupe(entry.members.map((p) => p.id), state.rendus)}
+                    compte={signal.rendus}
                     onLu={() =>
                       entry.members
                         .filter((p) => state.rendus[p.id])
@@ -431,6 +438,7 @@ export function Sidebar({
                     }
                   />
                 ) : null}
+                {replie ? <SignalTermine signal={signal} /> : null}
                 <ColorPicker
                   value={entry.group.color}
                   onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
@@ -453,7 +461,7 @@ export function Sidebar({
                 </button>
               </EnteteGroupe>
 
-              {!collapsed.includes(entry.id) ? (
+              {!replie ? (
                 <div className="pl-3 pr-0.5">
                   {entry.members.length ? (
                     entry.members.map((project) => (
@@ -479,8 +487,8 @@ export function Sidebar({
                 </div>
               ) : null}
             </div>
-          ),
-        )}
+          );
+        })}
 
         {!entries.length ? <p className="px-2 py-3 text-[13px] text-faint">Aucun projet inscrit.</p> : null}
 
@@ -743,19 +751,26 @@ function PastilleRendue({ compte, onLu }: { compte?: number; onLu: () => void })
 /**
  * « Quelque chose de nouveau vous attend ici. »
  *
- * Un triangle d'alerte se rate dans une longue liste : la ligne bouge donc une
- * fois, à l'ARRIVÉE de la demande. Elle ne rejoue pas tant que le compte ne
- * remonte pas — signaler, pas harceler — et la ligne qu'on regarde déjà ne
- * bouge jamais. La règle de déclenchement vit dans `shared`, testée seule ;
- * ici on ne tient que la minuterie.
+ * Un petit signal se rate dans une longue liste : la ligne bouge donc une fois,
+ * à l'ARRIVÉE de la nouvelle — une demande à trancher COMME un travail que
+ * l'agent vient de rendre. Elle ne rejoue pas tant que le compte ne remonte pas
+ * — signaler, pas harceler — et la ligne qu'on regarde déjà ne bouge jamais.
+ * La règle de déclenchement vit dans `shared`, testée seule ; ici on ne tient
+ * que la minuterie.
  */
-function useSecousse(compte: number, regarde: boolean): boolean {
+function useSecousse(signal: SignalProjet, regarde: boolean): boolean {
   const [secoue, setSecoue] = React.useState(false);
-  const avant = React.useRef(compte);
+  const attention = signal.attention ?? 0;
+  const rendus = signal.rendus ?? 0;
+  const avant = React.useRef<SignalProjet>({ attention, rendus });
 
   React.useEffect(() => {
-    const declenche = doitSecouer({ avant: avant.current, maintenant: compte, regarde });
-    avant.current = compte;
+    const declenche = doitSecouerLigne({
+      avant: avant.current,
+      maintenant: { attention, rendus },
+      regarde,
+    });
+    avant.current = { attention, rendus };
     if (!declenche) return;
     // On repart de zéro : sans cette bascule, deux demandes coup sur coup ne
     // rejoueraient pas l'animation, la classe étant déjà posée.
@@ -766,7 +781,7 @@ function useSecousse(compte: number, regarde: boolean): boolean {
       window.clearTimeout(depart);
       window.clearTimeout(fin);
     };
-  }, [compte, regarde]);
+  }, [attention, rendus, regarde]);
 
   return secoue;
 }
@@ -778,22 +793,24 @@ function useSecousse(compte: number, regarde: boolean): boolean {
 function EnteteGroupe({
   rowProps,
   dimmed,
-  attention,
+  signal,
   regarde,
   children,
 }: {
   rowProps: Record<string, unknown>;
   dimmed?: boolean;
-  attention: number;
+  /** Ce que ses projets attendent, et ce qu'ils ont rendu sans être lus. */
+  signal: SignalProjet;
   /** Le projet ouvert est-il DANS ce groupe ? Alors rien ne bouge. */
   regarde: boolean;
   children: React.ReactNode;
 }) {
-  const secoue = useSecousse(attention, regarde);
+  const secoue = useSecousse(signal, regarde);
   return (
     <div
       {...rowProps}
-      data-groupe-attention={attention || undefined}
+      data-groupe-attention={signal.attention || undefined}
+      data-groupe-rendus={signal.rendus || undefined}
       className={cn(
         'group/g flex items-center gap-1 rounded-md px-1.5 py-1.5',
         dimmed && 'opacity-40',
@@ -812,6 +829,31 @@ function SignalAttention({ compte }: { compte?: number }) {
   return (
     <Tooltip label={`${compte} action${pluriel} attendue${pluriel} de votre part`}>
       <TriangleAlert className="h-3 w-3 shrink-0 text-warning" data-signal-attention />
+    </Tooltip>
+  );
+}
+
+/**
+ * « Un agent a TERMINÉ ici, et vous ne l'avez pas encore vu. »
+ *
+ * Un point bleu qui clignote doucement, à droite de la ligne. Il dit autre
+ * chose que la pastille verte, qui compte les réponses et sert à les marquer
+ * lues d'un clic : celui-ci n'a rien à compter ni à cliquer, il montre du
+ * doigt. Bleu, parce que ce n'est ni une alerte (orange) ni une réussite déjà
+ * rangée (vert) — c'est du neuf à lire. Il s'éteint dès que la conversation est
+ * ouverte : le serveur repousse alors le repère de lecture, le compte retombe.
+ */
+function SignalTermine({ signal }: { signal: SignalProjet }) {
+  if (!badgeTravailTermine(signal)) return null;
+  const compte = signal.rendus ?? 0;
+  const pluriel = compte > 1 ? 'x' : '';
+  return (
+    <Tooltip label={`${compte} travail${pluriel} terminé${pluriel}, pas encore consulté${pluriel}`}>
+      <span
+        aria-label={`${compte} travail${pluriel} terminé${pluriel}, pas encore consulté${pluriel}`}
+        data-signal-termine
+        className="h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none"
+      />
     </Tooltip>
   );
 }
@@ -867,12 +909,13 @@ function ProjectRow({
 }) {
   // Le projet qu'on regarde déjà ne bouge pas : le signal sert à ce qu'on ne
   // voit pas.
-  const secoue = useSecousse(attention ?? 0, active);
+  const secoue = useSecousse({ attention, rendus }, active);
   return (
     <div
       {...rowProps}
       style={style}
       data-projet-attention={attention || undefined}
+      data-projet-rendus={rendus || undefined}
       className={cn(
         'group relative mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1.5 text-[13.5px]',
         // Le décalage suit la même durée que les autres transitions ; le réglage
@@ -911,11 +954,13 @@ function ProjectRow({
         {running ? <span className="shrink-0 text-[11.5px] text-success">{running}</span> : null}
       </button>
       {/* La pastille vit HORS du bouton du nom : elle porte son propre geste,
-          et un bouton n'en contient pas un autre. */}
+          et un bouton n'en contient pas un autre. Le point bleu la suit : il ne
+          se clique pas, il signale. */}
       <PastilleRendue
         compte={rendus}
         onLu={() => client.call({ type: 'project.read', projectId: project.id })}
       />
+      <SignalTermine signal={{ rendus }} />
       <button
         onPointerDown={(event) => event.stopPropagation()}
         onClick={onSettings}

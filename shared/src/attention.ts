@@ -48,12 +48,8 @@ export function attentionDuGroupe(membres: string[], parProjet: Record<string, n
   return membres.reduce((total, id) => total + (parProjet[id] ?? 0), 0);
 }
 
-/**
- * Faut-il secouer cette ligne ? Le signal sert à ce qu'on NE VOIT PAS : le
- * projet déjà ouvert et regardé ne bouge pas, et une demande déjà signalée ne
- * se rappelle pas à l'ordre — seule une NOUVELLE demande secoue.
+/*
+ * La secousse de la ligne ne se décide plus ici : elle obéit AUSSI au travail
+ * rendu pas encore consulté. La règle complète vit dans `signal-projet.ts`
+ * (`doitSecouerLigne`), qui compare les deux signaux séparément.
  */
-export function doitSecouer(options: { avant: number; maintenant: number; regarde?: boolean }): boolean {
-  if (options.regarde) return false;
-  return options.maintenant > options.avant;
-}
