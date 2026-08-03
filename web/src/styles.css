@@ -230,3 +230,12 @@
 .snap-columns > * {
   scroll-snap-align: start;
 }
+
+/* Réglage système « réduire les animations » : la secousse d'un projet qui
+   attend une réponse ne joue pas. Le triangle d'alerte, lui, reste — le signal
+   ne disparaît jamais, seul son mouvement s'efface. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-secousse {
+    animation: none !important;
+  }
+}

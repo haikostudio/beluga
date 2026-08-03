@@ -18,7 +18,14 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { Project, ProjectGroup, avertissementRedemarrage, rendusDuGroupe } from '@haikodev/shared';
+import {
+  Project,
+  ProjectGroup,
+  attentionDuGroupe,
+  avertissementRedemarrage,
+  doitSecouer,
+  rendusDuGroupe,
+} from '@haikodev/shared';
 import {
   Button,
   ConfirmDialog,
@@ -369,12 +376,11 @@ export function Sidebar({
               )}
             >
               <Trait ou={marqueurDe(entry.id)} />
-              <div
-                {...rowProps(entry.id, 'group')}
-                className={cn(
-                  'group/g flex items-center gap-1 rounded-md px-1.5 py-1.5',
-                  dragging?.id === entry.id && 'opacity-40',
-                )}
+              <EnteteGroupe
+                rowProps={rowProps(entry.id, 'group')}
+                dimmed={dragging?.id === entry.id}
+                attention={attentionDuGroupe(entry.members.map((p) => p.id), state.attention)}
+                regarde={entry.members.some((p) => p.id === state.activeProjectId)}
               >
                 <span
                   {...poigneeProps(entry.id, 'group', entry.group.name)}
@@ -403,8 +409,13 @@ export function Sidebar({
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
                 </button>
-                {/* Replié, un groupe cacherait ce que ses projets ont rendu :
-                    la pastille remonte donc jusqu'ici, avec son geste. */}
+                {/* Replié, un groupe cacherait ce que ses projets ont rendu et
+                    ce qu'ils attendent : les deux signaux remontent jusqu'ici. */}
+                {collapsed.includes(entry.id) ? (
+                  <SignalAttention
+                    compte={attentionDuGroupe(entry.members.map((p) => p.id), state.attention)}
+                  />
+                ) : null}
                 {collapsed.includes(entry.id) ? (
                   <PastilleRendue
                     compte={rendusDuGroupe(entry.members.map((p) => p.id), state.rendus)}
@@ -435,7 +446,7 @@ export function Sidebar({
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
-              </div>
+              </EnteteGroupe>
 
               {!collapsed.includes(entry.id) ? (
                 <div className="pl-3 pr-0.5">
@@ -725,6 +736,82 @@ function PastilleRendue({ compte, onLu }: { compte?: number; onLu: () => void })
 }
 
 /**
+ * « Quelque chose de nouveau vous attend ici. »
+ *
+ * Un triangle d'alerte se rate dans une longue liste : la ligne bouge donc une
+ * fois, à l'ARRIVÉE de la demande. Elle ne rejoue pas tant que le compte ne
+ * remonte pas — signaler, pas harceler — et la ligne qu'on regarde déjà ne
+ * bouge jamais. La règle de déclenchement vit dans `shared`, testée seule ;
+ * ici on ne tient que la minuterie.
+ */
+function useSecousse(compte: number, regarde: boolean): boolean {
+  const [secoue, setSecoue] = React.useState(false);
+  const avant = React.useRef(compte);
+
+  React.useEffect(() => {
+    const declenche = doitSecouer({ avant: avant.current, maintenant: compte, regarde });
+    avant.current = compte;
+    if (!declenche) return;
+    // On repart de zéro : sans cette bascule, deux demandes coup sur coup ne
+    // rejoueraient pas l'animation, la classe étant déjà posée.
+    setSecoue(false);
+    const depart = window.setTimeout(() => setSecoue(true), 20);
+    const fin = window.setTimeout(() => setSecoue(false), 700);
+    return () => {
+      window.clearTimeout(depart);
+      window.clearTimeout(fin);
+    };
+  }, [compte, regarde]);
+
+  return secoue;
+}
+
+/**
+ * La ligne d'un groupe. Elle existe surtout pour porter la secousse : un
+ * crochet ne s'appelle pas au milieu d'une boucle d'affichage.
+ */
+function EnteteGroupe({
+  rowProps,
+  dimmed,
+  attention,
+  regarde,
+  children,
+}: {
+  rowProps: Record<string, unknown>;
+  dimmed?: boolean;
+  attention: number;
+  /** Le projet ouvert est-il DANS ce groupe ? Alors rien ne bouge. */
+  regarde: boolean;
+  children: React.ReactNode;
+}) {
+  const secoue = useSecousse(attention, regarde);
+  return (
+    <div
+      {...rowProps}
+      data-groupe-attention={attention || undefined}
+      className={cn(
+        'group/g flex items-center gap-1 rounded-md px-1.5 py-1.5',
+        dimmed && 'opacity-40',
+        secoue && 'animate-secousse',
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Le triangle d'attention : permanent tant que la demande reste en attente. */
+function SignalAttention({ compte }: { compte?: number }) {
+  if (!compte) return null;
+  const pluriel = compte > 1 ? 's' : '';
+  return (
+    <Tooltip label={`${compte} action${pluriel} attendue${pluriel} de votre part`}>
+      <TriangleAlert className="h-3 w-3 shrink-0 text-warning" data-signal-attention />
+    </Tooltip>
+  );
+}
+
+/**
  * L'emplacement où l'élément se posera : un trait d'un pixel, orange, comme
  * toutes les bordures de l'application. Il est posé PAR-DESSUS la liste (jamais
  * inséré dedans) — c'est ce qui empêche les lignes du dessous de sauter.
@@ -773,10 +860,14 @@ function ProjectRow({
   onSettings: () => void;
   onChoose?: () => void;
 }) {
+  // Le projet qu'on regarde déjà ne bouge pas : le signal sert à ce qu'on ne
+  // voit pas.
+  const secoue = useSecousse(attention ?? 0, active);
   return (
     <div
       {...rowProps}
       style={style}
+      data-projet-attention={attention || undefined}
       className={cn(
         'group relative mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1.5 text-[13.5px]',
         // Le décalage suit la même durée que les autres transitions ; le réglage
@@ -784,6 +875,7 @@ function ProjectRow({
         'transition-[transform,background-color,color] duration-150 motion-reduce:transition-none',
         active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
         dimmed && 'opacity-40',
+        secoue && 'animate-secousse',
       )}
     >
       <Trait ou={marqueur} />
@@ -805,11 +897,7 @@ function ProjectRow({
           <Folder className="h-3 w-3 shrink-0 text-faint" />
         )}
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
-        {attention ? (
-          <Tooltip label={`${attention} réponse${attention > 1 ? 's' : ''} attendue${attention > 1 ? 's' : ''}`}>
-            <TriangleAlert className="h-3 w-3 shrink-0 text-warning" />
-          </Tooltip>
-        ) : null}
+        <SignalAttention compte={attention} />
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
             <CircleDollarSign className="h-2.5 w-2.5 shrink-0 text-faint" />

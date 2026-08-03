@@ -6,6 +6,8 @@ import {
   CarteRendue,
   carteNonLue,
   ColumnKey,
+  DemandeEnAttente,
+  attentionParProjet,
   DeployRun,
   Message,
   Project,
@@ -569,8 +571,15 @@ export function setNouveauDepart(agentId: string, at: number): void {
  * relances. Une carte peut avoir eu plusieurs agents ; on ne perd jamais ce qui
  * s'est dit avec les précédents.
  */
-/** Les cartes d'un projet qui attendent une réponse de l'utilisateur. */
+/**
+ * Ce qu'un projet attend de VOUS : les questions d'agent sans réponse ET les
+ * cartes présentées à valider. Les deux réclament la même chose — une décision
+ * — donc les deux allument le même signal. La règle du décompte vit dans
+ * `shared`, donc se teste seule ; ici on ne fait que ramasser la matière.
+ */
 export function projectsNeedingAttention(): Record<string, number> {
+  const demandes: DemandeEnAttente[] = [];
+
   const rows = getDb()
     .prepare(
       `SELECT a.project_id AS projectId, m.data AS data FROM messages m
@@ -578,17 +587,29 @@ export function projectsNeedingAttention(): Record<string, number> {
        WHERE m.data LIKE '%"questions":[{%'`,
     )
     .all() as { projectId: string; data: string }[];
-  const out: Record<string, number> = {};
   for (const row of rows) {
     try {
       const message = Message.parse(JSON.parse(row.data));
-      const enAttente = message.questions.filter((q) => !q.answer).length;
-      if (enAttente) out[row.projectId] = (out[row.projectId] ?? 0) + enAttente;
+      for (const question of message.questions) {
+        demandes.push({ projectId: row.projectId, genre: 'question', reglee: Boolean(question.answer) });
+      }
     } catch {
       /* message illisible : on l'ignore */
     }
   }
-  return out;
+
+  const propositions = getDb()
+    .prepare('SELECT project_id AS projectId, decision FROM proposals')
+    .all() as { projectId: string; decision: string }[];
+  for (const proposition of propositions) {
+    demandes.push({
+      projectId: proposition.projectId,
+      genre: 'validation',
+      reglee: proposition.decision !== 'pending',
+    });
+  }
+
+  return attentionParProjet(demandes);
 }
 
 /**
