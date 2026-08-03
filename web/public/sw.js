@@ -3,10 +3,19 @@
  * L'habillage est mis en cache pour un démarrage instantané ; les données
  * passent toujours par le réseau (le démon est la source de vérité).
  */
-const CACHE = 'haikodev-v1';
+/*
+ * Le NUMÉRO change à chaque mise en ligne d'une version d'habillage : à
+ * l'activation, tous les caches portant un autre numéro sont effacés. Sans ce
+ * changement, les fichiers au nom haché restaient en cache indéfiniment et
+ * l'application continuait d'afficher l'ancienne version (rencontré le
+ * 03/08/2026 : ancienne barre du haut alors que la nouvelle était en ligne).
+ */
+const CACHE = 'haikodev-v2';
 const SHELL = ['/', '/icon.svg', '/icon-192.png', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
+  // On ne fait pas la queue derrière l'ancienne version : elle sert du périmé.
+  self.skipWaiting();
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).catch(() => undefined));
 });
 

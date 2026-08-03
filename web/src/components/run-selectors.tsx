@@ -58,7 +58,8 @@ export function RunSelectors({
           note: e.version?.replace(/[^\d.]/g, '').slice(0, 8),
         }))}
         value={engine?.id}
-        onSelect={(id) => onSelect({ engine: id })}
+        // La liste ne contient QUE des moteurs connus : l'identifiant en vient.
+        onSelect={(id) => onSelect({ engine: id as RunConfig['engine'] })}
         title="Moteur"
       />
       <Selector
