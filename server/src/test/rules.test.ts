@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AGENT_MOVABLE_COLUMNS,
+  ClientCommand,
   COLUMN_KEYS,
   ColumnKey,
   canMove,
@@ -9,6 +10,7 @@ import {
   denseSections,
   extractEvolutions,
   paragraphBreakAfter,
+  RunConfig,
   templateForColumn,
   wrapPrompt,
 } from '@haikodev/shared';
@@ -168,4 +170,34 @@ test('les suggestions sont extraites de la section « Évolutions possibles »',
 - Rien ici`;
   const items = extractEvolutions(text);
   assert.deepEqual(items, ['Ajouter un filtre par étiquette', 'Exporter le tableau en PDF']);
+});
+
+/* ------------------------------------------------------------------ */
+/* Réglages choisis sur la carte à valider (PLAN §10)                  */
+/* ------------------------------------------------------------------ */
+
+test('valider une carte peut porter moteur, modèle et réflexion — et sans eux aussi', () => {
+  const base = { type: 'proposal.decide' as const, messageId: 'm1', proposalId: 'p1', accept: true };
+
+  // Le champ est FACULTATIF : une interface qui ne l'envoie pas reste valable.
+  assert.equal(ClientCommand.safeParse(base).success, true);
+
+  const avecReglages = ClientCommand.safeParse({
+    ...base,
+    run: { engine: 'codex', model: 'gpt-5', thinking: 'high' },
+  });
+  assert.equal(avecReglages.success, true);
+  assert.deepEqual(
+    avecReglages.success && avecReglages.data.type === 'proposal.decide' ? avecReglages.data.run : null,
+    { engine: 'codex', model: 'gpt-5', thinking: 'high' },
+  );
+
+  // Un moteur inconnu est refusé plutôt que posé tel quel sur la carte.
+  assert.equal(ClientCommand.safeParse({ ...base, run: { engine: 'inconnu' } }).success, false);
+});
+
+test('un réglage partiel devient un réglage complet une fois posé sur la carte', () => {
+  const run = RunConfig.parse({ engine: 'claude', model: 'claude-opus-5' });
+  assert.equal(run.thinking, 'none');
+  assert.equal(run.mode, 'direct');
 });

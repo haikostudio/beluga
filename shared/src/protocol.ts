@@ -152,6 +152,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
     title: z.string().optional(),
     description: z.string().optional(),
     labels: z.array(z.string()).optional(),
+    /**
+     * Moteur, modèle et niveau de réflexion choisis AVANT la création : ils
+     * sont posés sur la carte et serviront à l'agent qui l'exécutera. Toujours
+     * facultatif — une ancienne interface qui ne les envoie pas garde les
+     * réglages par défaut du projet.
+     */
+    run: RunConfig.partial().optional(),
   }),
 
   // Publication
