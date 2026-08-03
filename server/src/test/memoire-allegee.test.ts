@@ -12,9 +12,11 @@ import {
   syntheseAcceptable,
   texteIndex,
 } from '@haikodev/shared';
+import { humanStep } from '../engines/types.js';
 import {
   appendMemory,
   briefing,
+  creerFichierInstructions,
   detailMemoire,
   memoryFacts,
   migrerJournal,
@@ -141,6 +143,32 @@ test('le briefing envoie l\'index, pas la mémoire entière, et parle du fichier
 
   // Avec Codex, c'est l'autre fichier d'instructions qui est nommé.
   assert.match(briefing(dossier, 'Essai', true, 'codex'), /AGENTS\.md/);
+});
+
+test('aller chercher un fait détaillé se voit dans le déroulé, avec le sujet demandé', () => {
+  assert.equal(
+    humanStep('mcp__haikodev__project_memory', { sujet: 'tiroir du téléphone' }).label,
+    'Mémoire du projet : le détail sur « tiroir du téléphone »',
+  );
+  assert.equal(humanStep('mcp__haikodev__project_memory', {}).label, 'Lecture de la mémoire du projet');
+});
+
+test('un projet sans fichier d\'instructions en reçoit un, un projet qui en a déjà n\'est pas touché', () => {
+  const neuf = dossierDEssai();
+  assert.equal(creerFichierInstructions(neuf, 'Projet neuf'), true);
+  const pose = fs.readFileSync(path.join(neuf, 'CLAUDE.md'), 'utf8');
+  assert.match(pose, /Projet neuf — instructions du moteur/);
+  assert.match(pose, /Ne jamais publier de sa propre initiative/);
+  // Deuxième passage : on n'écrase jamais ce qui existe.
+  fs.writeFileSync(path.join(neuf, 'CLAUDE.md'), '# Écrit à la main\n');
+  assert.equal(creerFichierInstructions(neuf, 'Projet neuf'), false);
+  assert.match(fs.readFileSync(path.join(neuf, 'CLAUDE.md'), 'utf8'), /Écrit à la main/);
+
+  // Un projet qui suit Codex a déjà son fichier : on n'en ajoute pas un second.
+  const codex = dossierDEssai();
+  fs.writeFileSync(path.join(codex, 'AGENTS.md'), '# Déjà là\n');
+  assert.equal(creerFichierInstructions(codex, 'Projet Codex'), false);
+  assert.equal(fs.existsSync(path.join(codex, 'CLAUDE.md')), false);
 });
 
 /* ------------------------------------------------------------------ */

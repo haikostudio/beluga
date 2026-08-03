@@ -201,6 +201,47 @@ export function fichierInstructions(engine?: string): string {
 }
 
 /**
+ * Le fichier d'instructions posé À L'AJOUT d'un projet, s'il n'en a aucun.
+ * Un squelette vide vaut mieux qu'une absence : il dit ce qu'on attend de lui,
+ * et le premier agent qui touche à une règle durable le remplit au lieu de se
+ * demander où l'écrire. Un projet qui a déjà le sien n'est jamais touché.
+ */
+export function creerFichierInstructions(projectPath: string, projectName: string): boolean {
+  const existants = ['CLAUDE.md', 'AGENTS.md'].filter((f) => fs.existsSync(path.join(projectPath, f)));
+  if (existants.length) return false;
+
+  const contenu = `# ${projectName} — instructions du moteur
+
+Fichier court et factuel, tenu à jour AU FIL des tâches par les agents : comment lancer, comment
+vérifier, où vivent les choses, ce qu'on n'enfreint pas. Aucun journal ici — les livraisons vont
+dans \`HISTORIQUE.md\`, les règles apprises dans \`MEMOIRE.md\`.
+
+## Où vivent les choses
+
+_À remplir : les dossiers du projet et leur rôle, une ligne chacun._
+
+## Lancer
+
+\`\`\`bash
+# À remplir : installer, construire, lancer en développement.
+\`\`\`
+
+## Vérifier
+
+\`\`\`bash
+# À remplir : les tests, les scripts de contrôle.
+\`\`\`
+
+## Règles à ne pas enfreindre
+
+- Ne jamais publier de sa propre initiative : enregistrer et pousser, oui ; mettre en ligne est un
+  geste de l'utilisateur.
+`;
+  writeSafely(path.join(projectPath, 'CLAUDE.md'), contenu);
+  return true;
+}
+
+/**
  * Le briefing compact injecté au lancement de chaque agent : il sait déjà où
  * regarder au lieu de redécouvrir le projet de zéro.
  *
