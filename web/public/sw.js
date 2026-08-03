@@ -10,7 +10,7 @@
  * l'application continuait d'afficher l'ancienne version (rencontré le
  * 03/08/2026 : ancienne barre du haut alors que la nouvelle était en ligne).
  */
-const CACHE = 'haikodev-v2';
+const CACHE = 'haikodev-v3';
 const SHELL = ['/', '/icon.svg', '/icon-192.png', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
