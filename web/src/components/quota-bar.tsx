@@ -5,6 +5,7 @@ import {
   FolderTree,
   MoreVertical,
   Network,
+  PanelRight,
   Square,
   Volume2,
   Settings2,
@@ -32,10 +33,16 @@ import { cn } from '@/lib/utils';
 export function QuotaBar({
   onOpenSettings,
   onOpenProjects,
+  rightOpen,
+  onToggleRight,
 }: {
   onOpenSettings: () => void;
   /** Sur téléphone seulement : ouvre la liste des projets en panneau latéral. */
   onOpenProjects?: () => void;
+  /** Sur grand écran : la colonne du chef d'orchestre est-elle dépliée ? */
+  rightOpen?: boolean;
+  /** Sur grand écran : plie ou déplie la colonne du chef d'orchestre. */
+  onToggleRight?: () => void;
 }) {
   const state = useApp();
   const projetOuvert = state.projects.find((p) => p.id === state.activeProjectId);
@@ -206,6 +213,23 @@ export function QuotaBar({
             <Activity className="h-3 w-3" />
             {capacity.slotsFree} places
           </button>
+        </Tooltip>
+      ) : null}
+
+      {/* Plier ou déplier la colonne du chef d'orchestre. Il vit DANS la barre,
+          à sa place : posé en flottant par-dessus, il recouvrait les trois
+          points et le menu devenait inatteignable sur ordinateur. */}
+      {onToggleRight ? (
+        <Tooltip label={rightOpen ? 'Replier le chef d’orchestre' : 'Ouvrir le chef d’orchestre'}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden lg:flex"
+            aria-label={rightOpen ? 'Replier le chef d’orchestre' : 'Ouvrir le chef d’orchestre'}
+            onClick={onToggleRight}
+          >
+            <PanelRight className={cn('h-3.5 w-3.5', rightOpen && 'text-text')} />
+          </Button>
         </Tooltip>
       ) : null}
 

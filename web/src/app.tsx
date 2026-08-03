@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PanelRight, LayoutGrid, MessageSquare, Loader2 } from 'lucide-react';
+import { LayoutGrid, MessageSquare, Loader2 } from 'lucide-react';
 import { TooltipProvider, Button, EmptyState, SidePanel } from '@/components/ui';
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
@@ -295,7 +295,12 @@ export function App() {
           }
         }}
       >
-        <QuotaBar onOpenSettings={() => setSettingsOpen(true)} onOpenProjects={() => setProjetsOuverts(true)} />
+        <QuotaBar
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenProjects={() => setProjetsOuverts(true)}
+          rightOpen={rightOpen}
+          onToggleRight={() => setRightOpen((value) => !value)}
+        />
 
         <div className="flex min-h-0 flex-1">
           {/* Sur grand écran la liste des projets est une colonne posée là ; sur
@@ -385,15 +390,6 @@ export function App() {
             <MessageSquare className="h-3.5 w-3.5" /> Chef
           </Button>
         </nav>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="fixed right-2 top-1.5 z-50 hidden lg:flex"
-          onClick={() => setRightOpen((value) => !value)}
-        >
-          <PanelRight className="h-3.5 w-3.5" />
-        </Button>
 
         {dropTarget ? (
           <div className="pointer-events-none fixed inset-0 z-50 border-2 border-dashed border-muted bg-black/20" />
