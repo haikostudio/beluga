@@ -163,18 +163,29 @@ export function DialogContent({
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 animate-fade-in" />
-      <DialogPrimitive.Content
-        className={cn(
-          'fixed left-1/2 top-1/2 z-50 w-[min(560px,calc(100vw-24px))] max-h-[85dvh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-4 shadow-2xl animate-slide-up',
-          className,
-        )}
-        {...props}
-      >
-        {children}
-        <DialogPrimitive.Close className="absolute right-3 top-3 rounded p-1 text-faint hover:bg-raised hover:text-text">
-          <X className="h-3.5 w-3.5" />
-        </DialogPrimitive.Close>
-      </DialogPrimitive.Content>
+      {/*
+       * La fenêtre est POSÉE par une enveloppe en flux (collée en bas sur
+       * téléphone, centrée sur grand écran), jamais par un décalage de moitié :
+       * l'animation d'ouverture écrase le décalage le temps qu'elle dure, et la
+       * fenêtre partait alors se coller au bord droit de l'écran.
+       */}
+      <div className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-3">
+        <DialogPrimitive.Content
+          className={cn(
+            'pointer-events-auto relative max-h-[85dvh] w-full overflow-y-auto border-t border-border bg-surface p-4 shadow-2xl',
+            'rounded-t-xl animate-slide-sheet',
+            'sm:w-[min(560px,100%)] sm:rounded-lg sm:border sm:animate-slide-up',
+            className,
+          )}
+          style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
+          {...props}
+        >
+          {children}
+          <DialogPrimitive.Close className="absolute right-3 top-3 rounded p-1 text-faint hover:bg-raised hover:text-text">
+            <X className="h-3.5 w-3.5" />
+          </DialogPrimitive.Close>
+        </DialogPrimitive.Content>
+      </div>
     </DialogPrimitive.Portal>
   );
 }
@@ -567,7 +578,7 @@ export function PromptDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="w-[min(420px,calc(100vw-16px))]">
+      <DialogContent className="sm:w-[min(420px,100%)]">
         <DialogTitle>{title}</DialogTitle>
         {description ? <DialogDescription>{description}</DialogDescription> : null}
         <Input
@@ -623,7 +634,7 @@ export function ConfirmDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="w-[min(440px,calc(100vw-16px))]">
+      <DialogContent className="sm:w-[min(440px,100%)]">
         <DialogTitle>{title}</DialogTitle>
         {description ? <DialogDescription>{description}</DialogDescription> : null}
         <div className="mt-4 flex justify-end gap-1.5">

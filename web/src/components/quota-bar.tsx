@@ -38,10 +38,11 @@ export function QuotaBar({
   onOpenProjects?: () => void;
 }) {
   const state = useApp();
+  const projetOuvert = state.projects.find((p) => p.id === state.activeProjectId);
   // Le moteur « en cours » : celui d'un agent qui travaille, sinon celui du projet.
   const activeEngine =
     Object.values(state.agents).find((agent) => agent.status === 'running')?.run.engine ??
-    state.projects.find((p) => p.id === state.activeProjectId)?.defaultEngine ??
+    projetOuvert?.defaultEngine ??
     'claude';
   const [theme, setTheme] = usePref<'dark' | 'light'>('theme', 'dark');
   const [speaking, setSpeaking] = React.useState(false);
@@ -179,7 +180,16 @@ export function QuotaBar({
         </span>
       </Tooltip>
 
-      <div className="flex-1" />
+      {/* Le nom du projet ouvert, juste à côté du voyant de liaison : on sait
+          toujours dans quel projet on travaille, sans ouvrir la liste. Il prend
+          la place libre et se coupe proprement si le nom est long. */}
+      {projetOuvert ? (
+        <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text" title={projetOuvert.name}>
+          {projetOuvert.name}
+        </span>
+      ) : (
+        <div className="flex-1" />
+      )}
 
       <QuotaBadge activeEngine={activeEngine} />
 

@@ -226,7 +226,7 @@ function FilePreview({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(860px,calc(100vw-16px))]">
+      <DialogContent className="sm:w-[min(860px,100%)]">
         <div className="flex items-center gap-2 pr-6">
           <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{preview.path}</DialogTitle>
           {/* Le fichier se récupère tel quel, sans passer par une archive. */}

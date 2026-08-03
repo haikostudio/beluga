@@ -141,7 +141,7 @@ export function ProjectSettings({
 
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      <DialogContent className="w-[min(560px,calc(100vw-16px))]">
+      <DialogContent className="sm:w-[min(560px,100%)]">
         <DialogTitle>Réglages du projet</DialogTitle>
         <Filet zone="Réglages du projet" onReprendre={onClose}>
 

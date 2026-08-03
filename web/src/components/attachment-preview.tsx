@@ -15,7 +15,7 @@ export function AttachmentPreview({ item, onClose }: { item: Attachment | null; 
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(900px,calc(100vw-16px))]">
+      <DialogContent className="sm:w-[min(900px,100%)]">
         <div className="flex items-center gap-2 pr-6">
           <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{item.name}</DialogTitle>
           <Tooltip label="Télécharger">

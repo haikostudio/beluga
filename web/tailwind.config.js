@@ -35,6 +35,9 @@ export default {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
         'slide-up': { from: { transform: 'translateY(6px)', opacity: '0' }, to: { transform: 'translateY(0)', opacity: '1' } },
         'slide-in-left': { from: { transform: 'translateX(-100%)' }, to: { transform: 'translateX(0)' } },
+        // Une feuille qui monte du BAS de l'écran : le geste des fenêtres et des
+        // confirmations sur téléphone.
+        'slide-sheet': { from: { transform: 'translateY(100%)' }, to: { transform: 'translateY(0)' } },
         'pulse-soft': { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.45' } },
         // Un halo qui respire : le bouton qui vient de s'allumer attire l'œil
         // sans clignoter — un clignotement franc se lit comme une alarme.
@@ -47,6 +50,7 @@ export default {
         'fade-in': 'fade-in 140ms ease-out',
         'slide-up': 'slide-up 160ms ease-out',
         'slide-in-left': 'slide-in-left 200ms ease-out',
+        'slide-sheet': 'slide-sheet 200ms ease-out',
         'pulse-soft': 'pulse-soft 1.6s ease-in-out infinite',
         appel: 'appel 1.8s ease-in-out 3',
       },

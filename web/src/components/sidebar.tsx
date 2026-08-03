@@ -742,7 +742,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      <DialogContent className="w-[min(600px,calc(100vw-16px))]">
+      <DialogContent className="sm:w-[min(600px,100%)]">
         <DialogTitle>Projets du serveur</DialogTitle>
 
         <Tabs defaultValue="existing" className="mt-3">
