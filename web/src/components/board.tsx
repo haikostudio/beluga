@@ -260,7 +260,8 @@ export function CardTile({
    */
   const statut =
     analysing || analyseEnCours
-      ? { icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, texte: 'Analyse en cours — chiffrage du travail…', ton: 'text-muted' }
+      ? // Le sujet suffit : la roue qui tourne dit déjà que c'est en cours.
+        { icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, texte: 'Chiffrage du travail…', ton: 'text-muted' }
       : waiting
         ? { icon: <Clock className="h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
         : estimateFailed
@@ -370,9 +371,10 @@ export function CardTile({
         <div
           onClick={onOpen}
           className={cn(
-            // Toute la largeur de la carte, sur UNE ligne, avec une ombre
-            // portée sur le haut : la carte a l'air de la recouvrir.
-            'relative -mt-1 cursor-pointer rounded-b-md bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-snug',
+            // Toute la largeur de la carte, sur UNE ligne, sans marge latérale.
+            // Le petit espace en haut laisse voir l'ombre portée, qui donne
+            // l'impression que la carte recouvre la bande.
+            'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-none',
             'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
             statut.ton,
           )}
