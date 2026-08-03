@@ -74,12 +74,13 @@ export function ResizeHandle({
       className={cn('group relative w-1 shrink-0 cursor-col-resize touch-none select-none', className)}
     >
       {/*
-       * Au repos, un trait FIN comme toutes les autres bordures : une barre
-       * épaisse en permanence coupait la page en trois. Il s'épaissit au
-       * survol, dans la largeur déjà réservée — la mise en page ne bouge donc
-       * pas d'un pixel quand la souris passe.
+       * Au repos, un trait d'UN pixel, exactement comme toutes les autres
+       * bordures : une barre épaisse en permanence coupait la page en trois.
+       * Au survol seulement, il s'épaissit à trois pixels et passe à l'ORANGE
+       * — la couleur dit « ceci se saisit », et l'épaississement se fait dans
+       * la largeur déjà réservée : la mise en page ne bouge pas d'un pixel.
        */}
-      <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-all duration-150 group-hover:w-[3px] group-hover:bg-muted" />
+      <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-all duration-150 group-hover:w-[3px] group-hover:bg-warning group-active:w-[3px] group-active:bg-warning" />
       {/* Zone d'attrape plus large que le trait, pour viser sans effort. */}
       <span className="absolute inset-y-0 -left-1.5 -right-1.5" />
     </div>
