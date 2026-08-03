@@ -216,6 +216,13 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX idx_amorce_log ON amorce_log(at);
     `,
   },
+  {
+    id: 8,
+    name: 'nom-du-projet-dans-la-consommation',
+    // Le nom est recopié à l'écriture : un projet supprimé emportait le sien,
+    // et sa consommation devenait une ligne anonyme dans les réglages.
+    sql: `ALTER TABLE usage ADD COLUMN project_name TEXT;`,
+  },
 ];
 
 export function openDb(): DB {

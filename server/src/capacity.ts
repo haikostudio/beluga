@@ -72,6 +72,7 @@ export function snapshot(): CapacitySnapshot {
 
   return {
     loadPct: Math.max(Math.min(load, 100), memPct),
+    cpuLoadPct: load,
     memUsedMb: mem.used,
     memTotalMb: mem.total,
     cpuCount: os.cpus().length,

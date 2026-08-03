@@ -380,6 +380,13 @@ export type AccountQuota = z.infer<typeof AccountQuota>;
 
 export const CapacitySnapshot = z.object({
   loadPct: z.number(),
+  /**
+   * La charge processeur BRUTE, en % des cœurs : elle peut dépasser cent sans
+   * que la machine soit saturée (le serveur héberge déjà Paseo et une dizaine
+   * de serveurs de projets). À lire comme une information, jamais comme une
+   * jauge de remplissage.
+   */
+  cpuLoadPct: z.number().optional(),
   memUsedMb: z.number(),
   memTotalMb: z.number(),
   cpuCount: z.number(),

@@ -763,13 +763,20 @@ export interface UsageRow {
 }
 
 export function recordUsage(row: UsageRow): void {
+  // Le nom est figé À L'ÉCRITURE : supprimer un projet ne doit pas rendre sa
+  // consommation anonyme dans les réglages.
+  const nom = row.projectId
+    ? ((getDb().prepare('SELECT name FROM projects WHERE id = ?').get(row.projectId) as { name?: string } | undefined)
+        ?.name ?? null)
+    : null;
   getDb()
     .prepare(
-      `INSERT INTO usage (project_id, card_id, agent_id, account, engine, tokens, quota_share, seconds, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, tokens, quota_share, seconds, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.projectId ?? null,
+      nom,
       row.cardId ?? null,
       row.agentId ?? null,
       row.account ?? null,
@@ -781,11 +788,27 @@ export function recordUsage(row: UsageRow): void {
     );
 }
 
-export function usageByProject(): { projectId: string; tokens: number; seconds: number; tasks: number }[] {
+/**
+ * Le NOM du projet vient de la base, pas de la liste affichée : un projet mis
+ * de côté (ou simplement absent de la colonne de gauche) restait sans nom à
+ * l'écran, et sept lignes « projet retiré » ne disaient plus rien.
+ */
+export function usageByProject(): {
+  projectId: string;
+  name?: string;
+  tokens: number;
+  seconds: number;
+  tasks: number;
+}[] {
   return getDb()
     .prepare(
-      `SELECT project_id AS projectId, SUM(tokens) AS tokens, SUM(seconds) AS seconds, COUNT(DISTINCT card_id) AS tasks
-       FROM usage GROUP BY project_id`,
+      // Le projet vivant d'abord, sinon le nom figé au moment de la dépense.
+      `SELECT u.project_id AS projectId,
+              COALESCE(p.name, MAX(u.project_name)) AS name,
+              SUM(u.tokens) AS tokens, SUM(u.seconds) AS seconds, COUNT(DISTINCT u.card_id) AS tasks
+       FROM usage u LEFT JOIN projects p ON p.id = u.project_id
+       GROUP BY u.project_id
+       ORDER BY SUM(u.tokens) DESC`,
     )
     .all() as any;
 }
