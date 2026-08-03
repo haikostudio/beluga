@@ -16,6 +16,7 @@ export function Chat({
   cardId,
   vide,
   nouveauDepart,
+  creuxReserveAilleurs,
 }: {
   agent: Agent | null;
   projectId: string;
@@ -27,6 +28,10 @@ export function Chat({
   vide?: { titre: string; indice: string };
   /** Propose le bouton « repartir de zéro » (conversation permanente du chef). */
   nouveauDepart?: boolean;
+  /** Quelque chose vient EN DESSOUS (barre de navigation du téléphone) : le
+      creux de l'écran y est déjà réservé, la barre d'écriture ne doit pas le
+      réserver une seconde fois. */
+  creuxReserveAilleurs?: boolean;
 }) {
   const state = useApp();
   const [picked, setPicked] = React.useState<string[]>([]);
@@ -97,16 +102,6 @@ export function Chat({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
-      {nouveauDepart ? (
-        <BarreNouveauDepart
-          agent={agent}
-          messages={messages}
-          precedents={precedents}
-          tout={tout}
-          onTout={setTout}
-        />
-      ) : null}
-
       {/*
        * La bande « en cours » est posée EN HAUT, juste sous les onglets : au
        * bas de l'écran elle se perdait au-dessus de la barre d'écriture, alors
@@ -119,6 +114,22 @@ export function Chat({
           « overflow-x: hidden » ne suffit pas : le navigateur déplace quand
           même le contenu pour montrer une sélection ou un curseur, et le fil
           restait de travers. On le remet donc à zéro. */}
+      {/* Le nouveau départ FLOTTE au-dessus du fil, en haut à droite : sa barre
+          occupait toute une ligne d'écran pour un bouton. Le calque laisse
+          passer les clics partout ailleurs. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {nouveauDepart ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-2">
+            <BarreNouveauDepart
+              agent={agent}
+              messages={messages}
+              precedents={precedents}
+              tout={tout}
+              onTout={setTout}
+            />
+          </div>
+        ) : null}
+
       <div
         ref={filRef}
         onScroll={(event) => {
@@ -152,6 +163,7 @@ export function Chat({
         )}
         <div ref={bottomRef} />
       </div>
+      </div>
 
       {/* On ne discute pas avec un agent d'analyse : il chiffre et s'arrête.
           La barre d'écriture revient dès que la tâche est lancée — et d'ici là
@@ -168,7 +180,7 @@ export function Chat({
           onClearPicked={() => setPicked([])}
           projectId={projectId}
           onProposeTask={onProposeTask}
-          dansTiroir={!!cardId}
+          dansTiroir={!!cardId || !!creuxReserveAilleurs}
         />
       )}
     </div>
@@ -207,12 +219,14 @@ function BarreNouveauDepart({
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
+    /* Deux commandes posées PAR-DESSUS le fil : elles ne prennent plus de
+       ligne à elles seules, et seul leur propre rectangle capte le doigt. */
+    <div className="pointer-events-none flex w-full items-start gap-2">
       {precedents ? (
         <button
           type="button"
           onClick={() => onTout(!tout)}
-          className="flex min-w-0 items-center gap-1 text-[12.5px] text-faint transition-colors hover:text-text"
+          className="pointer-events-auto flex min-w-0 items-center gap-1 rounded border border-border bg-bg/85 px-1.5 py-0.5 text-[12.5px] text-faint backdrop-blur transition-colors hover:text-text"
         >
           <ChevronUp className={cn('h-3 w-3 shrink-0 transition-transform', tout && 'rotate-180')} />
           <span className="truncate">{tout ? 'Replier les échanges précédents' : libellePrecedents(precedents)}</span>
@@ -228,7 +242,7 @@ function BarreNouveauDepart({
           aria-disabled={!verdict.ok}
           onClick={() => verdict.ok && setAConfirmer(true)}
           className={cn(
-            'ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[12.5px] text-muted transition-colors',
+            'pointer-events-auto ml-auto flex shrink-0 items-center gap-1 rounded border border-border bg-bg/85 px-1.5 py-0.5 text-[12.5px] text-muted backdrop-blur transition-colors',
             verdict.ok ? 'hover:border-text hover:bg-raised hover:text-text' : 'cursor-not-allowed opacity-40',
           )}
         >

@@ -61,7 +61,10 @@ export function RightPanel({ projectId }: { projectId: string }) {
 
         <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
           {orchestrator ? (
-            <Chat agent={orchestrator} projectId={projectId} nouveauDepart />
+            /* La barre de navigation du téléphone vient juste en dessous et
+               réserve déjà le creux de l'écran : la barre d'écriture ne doit
+               pas creuser un second vide. */
+            <Chat agent={orchestrator} projectId={projectId} nouveauDepart creuxReserveAilleurs />
           ) : (
             <div className="flex h-full items-center justify-center">
               <Loader2 className="h-4 w-4 animate-spin text-faint" />
