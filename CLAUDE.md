@@ -47,6 +47,7 @@ node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la co
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
 node scripts/verif-signal-attention.mjs # la secousse et le triangle d'un projet qui attend
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
+node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 

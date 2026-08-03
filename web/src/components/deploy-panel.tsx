@@ -239,13 +239,26 @@ function DeployProgress({ run }: { run: DeployRun }) {
             </a>
           ) : null}
 
-          <div className="mt-2 flex gap-1">
+          {/* Un bouton de décision prend toute la largeur de la carte : sous une
+              liste d'étapes alignées à gauche, un petit bouton sans contour se
+              lisait comme une étape de plus. */}
+          <div className="mt-2">
             {run.state === 'running' ? (
-              <Button size="sm" variant="ghost" onClick={() => client.send({ type: 'deploy.stop', runId: run.id })}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => client.send({ type: 'deploy.stop', runId: run.id })}
+              >
                 <Square className="h-2.5 w-2.5 fill-current" /> Arrêter
               </Button>
             ) : run.state !== 'success' ? (
-              <Button size="sm" variant="outline" onClick={() => client.send({ type: 'deploy.retry', runId: run.id })}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => client.send({ type: 'deploy.retry', runId: run.id })}
+              >
                 <RotateCcw className="h-2.5 w-2.5" /> Relancer
               </Button>
             ) : null}

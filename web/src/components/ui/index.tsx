@@ -408,26 +408,69 @@ export function DropdownMenuContent({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Content>) {
+  /*
+   * Sur téléphone le menu est un TIROIR, donc il se referme comme les autres :
+   * en tirant la poignée vers le bas. Le geste part de la poignée seule, sinon
+   * il empêcherait le contenu de défiler. Le menu n'expose pas son « fermer » :
+   * on passe par la touche d'échappement, que la bibliothèque écoute déjà.
+   */
+  const [decalage, setDecalage] = React.useState(0);
+  const depart = React.useRef<number | null>(null);
+
+  const fermer = () =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  const poignee = {
+    onPointerDown: (event: React.PointerEvent) => {
+      depart.current = event.clientY;
+      (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      if (depart.current === null) return;
+      setDecalage(Math.max(0, event.clientY - depart.current));
+    },
+    onPointerUp: () => {
+      if (depart.current === null) return;
+      depart.current = null;
+      setDecalage((valeur) => {
+        if (valeur > 110) fermer();
+        return 0;
+      });
+    },
+  };
+
   return (
     <DropdownPrimitive.Portal>
-      {/* Sur téléphone, un menu déroulant devient un TIROIR : posé en bas, sur
-          toute la largeur, avec sa poignée. Les classes « ! » sont nécessaires
-          pour couvrir le placement calculé par la bibliothèque. */}
+      {/* Posé en bas, sur toute la largeur, avec sa poignée. Les classes « ! »
+          sont nécessaires pour couvrir le placement calculé par la
+          bibliothèque. */}
       <DropdownPrimitive.Content
         sideOffset={4}
         className={cn(
-          'z-50 min-w-[170px] overflow-hidden border border-border bg-surface p-1 shadow-xl animate-fade-in',
-          'max-sm:w-full max-sm:max-h-[72dvh] max-sm:overflow-y-auto max-sm:rounded-t-xl',
+          'z-50 flex min-w-[170px] flex-col overflow-hidden border border-border bg-surface p-1 shadow-xl animate-fade-in',
+          // La hauteur réelle de l'écran, mesurée en direct : dvh seul laisse
+          // une bande vide quand l'application est installée sur le téléphone.
+          'max-sm:w-full max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.8)] max-sm:rounded-t-xl',
           'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
           'max-sm:animate-slide-up sm:rounded-md',
           className,
         )}
+        style={{
+          transform: decalage ? `translateY(${decalage}px)` : undefined,
+          transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
+        }}
         {...props}
       >
-        <div className="mb-1.5 flex justify-center sm:hidden">
+        <div
+          {...poignee}
+          onPointerCancel={poignee.onPointerUp}
+          className="mb-1.5 flex shrink-0 cursor-grab touch-none justify-center py-1.5 active:cursor-grabbing sm:hidden"
+        >
           <span className="h-1 w-10 rounded-full bg-border" />
         </div>
-        {props.children}
+        {/* Le contenu défile seul : la poignée reste sous le doigt même quand la
+            liste est longue. */}
+        <div className="min-h-0 flex-1 max-sm:overflow-y-auto max-sm:overscroll-contain">{props.children}</div>
       </DropdownPrimitive.Content>
     </DropdownPrimitive.Portal>
   );
