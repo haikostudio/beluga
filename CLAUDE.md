@@ -37,10 +37,15 @@ node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/verif-prevision-quota.mjs # la prévision d'épuisement, dans le volet des quotas
+node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
 `npm test` lit `server/dist` : construire avant de tester.
+
+Les scripts de vérification posent eux-mêmes leur session d'essai en base. Le serveur porte une
+variable `HAIKODEV_TOKEN` PÉRIMÉE dans l'environnement : la neutraliser (`env -u HAIKODEV_TOKEN …`),
+sinon la page reste sur « Connexion au serveur… ».
 
 ## Mémoire du projet
 

@@ -74,27 +74,72 @@ export function Sidebar({
   const [renaming, setRenaming] = React.useState<ProjectGroup | null>(null);
   const [deleting, setDeleting] = React.useState<ProjectGroup | null>(null);
 
-  // Le glissement suit le pointeur : l'aperçu se place exactement là où on vise,
-  // à la souris comme au doigt.
+  // Le glissement suit le pointeur : l'emplacement visé se marque exactement là
+  // où on vise, à la souris comme au doigt.
   const entriesRef = React.useRef<Entry[]>([]);
 
+  /*
+   * Hauteur de la ligne saisie, mesurée au moment où on l'attrape : c'est de
+   * cette hauteur que l'espace s'ouvre, ni plus ni moins.
+   */
+  const [hauteurLigne, setHauteurLigne] = React.useState(32);
+
+  /*
+   * La place de chaque ligne, relevée UNE fois au moment où on l'attrape, et
+   * comptée depuis le haut du contenu (le défilement est donc sans effet).
+   * On vise d'après ce relevé, jamais d'après ce qu'il y a sous le curseur :
+   * comme les voisins se décalent, la ligne visée se déroberait sous le
+   * pointeur et l'affichage se mettrait à osciller.
+   */
+  const geoRef = React.useRef<{
+    lignes: { id: string; kind: string; haut: number; bas: number }[];
+    groupes: { id: string; haut: number; bas: number }[];
+  } | null>(null);
+
+  const releverGeometrie = (root: HTMLElement) => {
+    const base = root.getBoundingClientRect().top - root.scrollTop;
+    // Marge du bas comprise : les zones se touchent, il n'y a pas de trou où la
+    // visée se perdrait entre deux lignes.
+    const zone = (el: Element) => {
+      const rect = el.getBoundingClientRect();
+      return { haut: rect.top - base, bas: rect.bottom - base + 2 };
+    };
+    geoRef.current = {
+      lignes: Array.from(root.querySelectorAll<HTMLElement>('[data-drag-id]')).map((el) => ({
+        id: el.dataset.dragId!,
+        kind: el.dataset.dragKind!,
+        ...zone(el),
+      })),
+      groupes: Array.from(root.querySelectorAll<HTMLElement>('[data-drop-group]')).map((el) => ({
+        id: el.dataset.dropGroup!,
+        ...zone(el),
+      })),
+    };
+  };
+
   const resolve = React.useCallback((element: Element, y: number) => {
-    const ligne = element.closest('[data-drag-id]') as HTMLElement | null;
-    if (ligne) {
-      const rect = ligne.getBoundingClientRect();
+    // Hors de la colonne, on ne dépose rien.
+    const root = element.closest('[data-drop-root]') as HTMLElement | null;
+    const geo = geoRef.current;
+    if (!root || !geo) return null;
+    const point = y - root.getBoundingClientRect().top + root.scrollTop;
+
+    for (const ligne of geo.lignes) {
+      if (point < ligne.haut || point > ligne.bas) continue;
       return {
-        id: ligne.dataset.dragId!,
-        kind: ligne.dataset.dragKind!,
-        position: (y < rect.top + rect.height / 2 ? 'before' : 'after') as 'before' | 'after',
+        id: ligne.id,
+        kind: ligne.kind,
+        position: (point < (ligne.haut + ligne.bas) / 2 ? 'before' : 'after') as 'before' | 'after',
       };
     }
-    // Survol du corps d'un groupe : on y range l'élément.
-    const zone = element.closest('[data-drop-group]') as HTMLElement | null;
-    if (zone) return { id: zone.dataset.dropGroup!, kind: 'group', position: 'inside' as const };
+    // Le corps d'un groupe, en dehors de ses lignes : on y range l'élément.
+    for (const groupe of geo.groupes) {
+      if (point >= groupe.haut && point <= groupe.bas) {
+        return { id: groupe.id, kind: 'group', position: 'inside' as const };
+      }
+    }
     // Ailleurs dans la colonne : on sort du groupe.
-    const colonne = element.closest('[data-drop-root]');
-    if (colonne) return { id: '__racine__', kind: 'root', position: 'inside' as const };
-    return null;
+    return { id: '__racine__', kind: 'root', position: 'inside' as const };
   }, []);
 
   const actifs = state.projects.filter((p) => !p.archived);
@@ -170,6 +215,55 @@ export function Sidebar({
 
   const { dragging, target, start } = usePointerDrag({ resolve, onDrop: appliquer });
 
+  /*
+   * Où l'espace s'ouvre. Rien n'est AJOUTÉ ni retiré à la liste pendant le
+   * glissement : ce qui vient après l'emplacement visé descend simplement d'une
+   * hauteur de ligne. La liste garde sa longueur, donc plus rien ne saute.
+   * La ligne saisie, elle, ne bouge pas : on voit d'où l'on part.
+   */
+  const decales = React.useMemo(() => {
+    const racine = new Set<string>();
+    const membres = new Set<string>();
+    // « inside » range dans un groupe : le groupe s'éclaire, rien ne se décale.
+    if (!dragging || !target || target.position === 'inside') return { racine, membres };
+
+    const apres = target.position === 'after' ? 1 : 0;
+    const pousser = (depuis: number) => {
+      for (const entry of entriesRef.current.slice(depuis)) {
+        if (entry.id !== dragging.id) racine.add(entry.id);
+      }
+    };
+
+    const rang = entriesRef.current.findIndex((entry) => entry.id === target.id);
+    if (rang >= 0) {
+      pousser(rang + apres);
+      return { racine, membres };
+    }
+
+    // Sinon la cible est un projet RANGÉ dans un groupe : ses voisins du groupe
+    // descendent, et tout ce qui suit le groupe aussi.
+    for (let i = 0; i < entriesRef.current.length; i += 1) {
+      const entry = entriesRef.current[i];
+      if (entry.kind !== 'group') continue;
+      const place = entry.members.findIndex((membre) => membre.id === target.id);
+      if (place < 0) continue;
+      for (const membre of entry.members.slice(place + apres)) {
+        if (membre.id !== dragging.id) membres.add(membre.id);
+      }
+      pousser(i + 1);
+      break;
+    }
+    return { racine, membres };
+  }, [dragging, target, entries]);
+
+  /** Le décalage lui-même : court, régulier, et immédiat si l'on a demandé moins d'animations. */
+  const glisse = (decale: boolean): React.CSSProperties =>
+    decale ? { transform: `translateY(${hauteurLigne}px)` } : {};
+
+  /** L'emplacement visé, marqué d'un trait fin au-dessus ou en dessous de la ligne. */
+  const marqueurDe = (id: string): 'before' | 'after' | undefined =>
+    target && target.id === id && target.position !== 'inside' ? target.position : undefined;
+
   const commit = async (ordre: { kind: 'project' | 'group'; id: string; groupId?: string }[]) => {
     try {
       await client.call({ type: 'sidebar.reorder', items: ordre });
@@ -203,7 +297,15 @@ export function Sidebar({
   });
 
   const poigneeProps = (id: string, kind: 'project' | 'group', label: string) => ({
-    onPointerDown: (event: React.PointerEvent) => start(event, { id, kind, label }),
+    onPointerDown: (event: React.PointerEvent) => {
+      const ligne = (event.currentTarget as HTMLElement).closest('[data-drag-id]') as HTMLElement | null;
+      // Marge comprise : c'est l'espace que la ligne occupe vraiment.
+      if (ligne) setHauteurLigne(Math.round(ligne.getBoundingClientRect().height) + 2);
+      const root = ligne?.closest('[data-drop-root]') as HTMLElement | null;
+      // Rien n'est encore décalé : c'est le bon moment pour relever les places.
+      if (root) releverGeometrie(root);
+      start(event, { id, kind, label });
+    },
   });
 
   const agentsEnCours = Object.values(state.agents).filter(
@@ -234,29 +336,31 @@ export function Sidebar({
       <div className="flex-1 touch-pan-y overflow-y-auto px-1.5 pb-2" data-drop-root>
         {entries.map((entry) =>
           entry.kind === 'project' ? (
-            <React.Fragment key={entry.id}>
-              <Ghost show={target?.id === entry.id && target.position === 'before'} label={dragging?.label} />
-              <ProjectRow
-                project={entry.project}
-                active={entry.id === state.activeProjectId}
-                running={runningOf(entry.id)}
-                attention={state.attention[entry.id]}
-                rendus={state.rendus[entry.id]}
-                dimmed={dragging?.id === entry.id}
-                rowProps={rowProps(entry.id, 'project')}
-                poigneeProps={poigneeProps(entry.id, 'project', entry.project.name)}
-                onSettings={() => setSettingsFor(entry.id)}
-                onChoose={onChoose}
-              />
-              <Ghost show={target?.id === entry.id && target.position === 'after'} label={dragging?.label} />
-            </React.Fragment>
+            <ProjectRow
+              key={entry.id}
+              project={entry.project}
+              active={entry.id === state.activeProjectId}
+              running={runningOf(entry.id)}
+              attention={state.attention[entry.id]}
+              rendus={state.rendus[entry.id]}
+              dimmed={dragging?.id === entry.id}
+              style={glisse(decales.racine.has(entry.id))}
+              marqueur={marqueurDe(entry.id)}
+              rowProps={rowProps(entry.id, 'project')}
+              poigneeProps={poigneeProps(entry.id, 'project', entry.project.name)}
+              onSettings={() => setSettingsFor(entry.id)}
+              onChoose={onChoose}
+            />
           ) : (
             <div
               key={entry.id}
               data-drop-group={entry.id}
-              style={entry.group.color ? { borderLeftColor: entry.group.color, borderLeftWidth: 3 } : undefined}
+              style={{
+                ...glisse(decales.racine.has(entry.id)),
+                ...(entry.group.color ? { borderLeftColor: entry.group.color, borderLeftWidth: 3 } : {}),
+              }}
               className={cn(
-                'mb-0.5 rounded-md border transition-colors',
+                'relative mb-0.5 rounded-md border transition-[transform,background-color,border-color] duration-150 motion-reduce:transition-none',
                 // Survoler le corps du groupe l'éclaire en entier : on comprend
                 // que le projet va s'y ranger.
                 target?.kind === 'group' && target.id === entry.id && target.position === 'inside'
@@ -264,7 +368,7 @@ export function Sidebar({
                   : 'border-transparent',
               )}
             >
-              <Ghost show={target?.id === entry.id && target.position === 'before'} label={dragging?.label} />
+              <Trait ou={marqueurDe(entry.id)} />
               <div
                 {...rowProps(entry.id, 'group')}
                 className={cn(
@@ -337,29 +441,27 @@ export function Sidebar({
                 <div className="pl-3 pr-0.5">
                   {entry.members.length ? (
                     entry.members.map((project) => (
-                      <React.Fragment key={project.id}>
-                        <Ghost show={target?.id === project.id && target.position === 'before'} label={dragging?.label} />
-                        <ProjectRow
-                          project={project}
-                          active={project.id === state.activeProjectId}
-                          running={runningOf(project.id)}
-                          attention={state.attention[project.id]}
-                          rendus={state.rendus[project.id]}
-                          dimmed={dragging?.id === project.id}
-                          rowProps={rowProps(project.id, 'project')}
-                          poigneeProps={poigneeProps(project.id, 'project', project.name)}
-                          onSettings={() => setSettingsFor(project.id)}
-                          onChoose={onChoose}
-                        />
-                        <Ghost show={target?.id === project.id && target.position === 'after'} label={dragging?.label} />
-                      </React.Fragment>
+                      <ProjectRow
+                        key={project.id}
+                        project={project}
+                        active={project.id === state.activeProjectId}
+                        running={runningOf(project.id)}
+                        attention={state.attention[project.id]}
+                        rendus={state.rendus[project.id]}
+                        dimmed={dragging?.id === project.id}
+                        style={glisse(decales.membres.has(project.id))}
+                        marqueur={marqueurDe(project.id)}
+                        rowProps={rowProps(project.id, 'project')}
+                        poigneeProps={poigneeProps(project.id, 'project', project.name)}
+                        onSettings={() => setSettingsFor(project.id)}
+                        onChoose={onChoose}
+                      />
                     ))
                   ) : (
                     <p className="px-2 pb-1.5 text-[12px] text-faint">Glissez un projet ici.</p>
                   )}
                 </div>
               ) : null}
-              <Ghost show={target?.id === entry.id && target.position === 'after'} label={dragging?.label} />
             </div>
           ),
         )}
@@ -622,14 +724,21 @@ function PastilleRendue({ compte, onLu }: { compte?: number; onLu: () => void })
   );
 }
 
-/** L'aperçu de l'élément déplacé, à l'endroit exact où il se posera. */
-function Ghost({ show, label }: { show?: boolean; label?: string }) {
-  if (!show) return null;
+/**
+ * L'emplacement où l'élément se posera : un trait d'un pixel, orange, comme
+ * toutes les bordures de l'application. Il est posé PAR-DESSUS la liste (jamais
+ * inséré dedans) — c'est ce qui empêche les lignes du dessous de sauter.
+ */
+function Trait({ ou }: { ou?: 'before' | 'after' }) {
+  if (!ou) return null;
   return (
-    <div className="mb-0.5 flex items-center gap-1.5 rounded-md border border-dashed border-muted bg-surface/60 px-2 py-1.5 text-[13.5px] text-muted">
-      <Folder className="h-3 w-3 shrink-0 opacity-60" />
-      <span className="min-w-0 truncate">{label ?? 'ici'}</span>
-    </div>
+    <span
+      aria-hidden
+      className={cn(
+        'pointer-events-none absolute inset-x-0 h-px bg-warning',
+        ou === 'before' ? '-top-px' : '-bottom-px',
+      )}
+    />
   );
 }
 
@@ -640,6 +749,8 @@ function ProjectRow({
   attention,
   rendus,
   dimmed,
+  style,
+  marqueur,
   rowProps,
   poigneeProps,
   onSettings,
@@ -652,6 +763,10 @@ function ProjectRow({
   /** Réponses rendues et pas encore lues sur ce projet. */
   rendus?: number;
   dimmed?: boolean;
+  /** Le décalage vers le bas quand un élément vise une place au-dessus. */
+  style?: React.CSSProperties;
+  /** Le trait de l'emplacement visé, au-dessus ou en dessous de la ligne. */
+  marqueur?: 'before' | 'after';
   rowProps: Record<string, unknown>;
   /** Le glissement part d'ICI, jamais de la ligne entière. */
   poigneeProps: Record<string, unknown>;
@@ -661,12 +776,17 @@ function ProjectRow({
   return (
     <div
       {...rowProps}
+      style={style}
       className={cn(
-        'group mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1.5 text-[13.5px] transition-colors',
+        'group relative mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1.5 text-[13.5px]',
+        // Le décalage suit la même durée que les autres transitions ; le réglage
+        // « réduire les animations » du système le rend immédiat.
+        'transition-[transform,background-color,color] duration-150 motion-reduce:transition-none',
         active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
         dimmed && 'opacity-40',
       )}
     >
+      <Trait ou={marqueur} />
       <span {...poigneeProps} title="Glisser pour ranger" className="-m-1 shrink-0 touch-none p-1">
         <GripVertical className="h-3 w-3 cursor-grab text-faint opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
       </span>
