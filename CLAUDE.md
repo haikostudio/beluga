@@ -82,9 +82,11 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
   `HISTORIQUE.md`, `.gitignore`), et enfin l'inscription dans la colonne de gauche. Rien n'est
   écrasé, une étape ratée n'arrête pas les autres et se dit dans le formulaire.
-- **La carte suit l'état de son agent** (`shared/src/suivi-colonne.ts`) : un tour qui démarre la
-  ramène en « En cours », un tour réussi la pose en « Terminé », un tour en échec ne la déplace pas.
-  Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
+- **La carte suit l'état de son agent, et seul l'agent d'EXÉCUTION la pose en « Terminé »**
+  (`shared/src/suivi-colonne.ts`) : un tour qui démarre la ramène en « En cours » ; un tour réussi
+  d'agent de rôle « task » la pose en « Terminé » ; un tour en échec ne la déplace pas. Les rôles
+  « analysis », « orchestrator » et « deploy » portent aussi le numéro de carte mais ne closent
+  jamais — une étude rendue n'est pas un travail fait. Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
   reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
 - **TOUTE demande de PROGRAMMATION passe par une carte** — nouvelle fonctionnalité, correction,
   suppression, changement de comportement, retouche d'interface, script, réglage : aucune exception,

@@ -534,11 +534,13 @@ async function startTurn(
     const card = store.getCard(agent.cardId);
     if (card) {
       /*
-       * L'agent a rendu : la carte passe en « Terminé » toute seule. Un tour en
-       * échec ne la déplace pas — le travail n'est pas fait, et elle doit
-       * rester là où on peut la relancer.
+       * L'agent d'exécution a rendu : la carte passe en « Terminé » toute
+       * seule. Un tour en échec ne la déplace pas — le travail n'est pas fait,
+       * et elle doit rester là où on peut la relancer. Un agent d'analyse porte
+       * lui aussi le numéro de carte, mais son étude ne clôt rien : la règle
+       * pure regarde le rôle.
        */
-      const cible = colonneEnFinDeTour(card.column, !failed);
+      const cible = colonneEnFinDeTour(card.column, !failed, agent.role);
       const updated = store.saveCard({
         ...card,
         ...(cible
