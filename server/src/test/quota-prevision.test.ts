@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { previsionEpuisement, type ReleveQuota } from '@haikodev/shared';
+import {
+  compteDeSecours,
+  doitAlerterEpuisementProche,
+  previsionEpuisement,
+  type CandidatSecours,
+  type ReleveQuota,
+} from '@haikodev/shared';
 
 const MAINTENANT = new Date('2026-08-03T09:00:00+02:00').getTime();
 const h = (n: number) => n * 3600_000;
@@ -85,6 +91,122 @@ test('épuisement de peu avant la fin : « juste », pas « manque »', () => {
     MAINTENANT,
   );
   assert.equal(prevision?.niveau, 'juste');
+});
+
+/* ---------------- La fenêtre de cinq heures ---------------- */
+
+/** Des relevés qui portent AUSSI la fenêtre courte, `pas` % par heure. */
+function relevesCourts(depart: number, pas: number, minutes: number): ReleveQuota[] {
+  const out: ReleveQuota[] = [];
+  for (let i = minutes; i >= 0; i -= 10) {
+    out.push({ at: MAINTENANT - i * 60_000, weekly: 30, session: depart + (pas * (minutes - i)) / 60 });
+  }
+  return out;
+}
+
+test('la fenêtre de cinq heures a sa prévision quand la journée le permet', () => {
+  // 40 % consommés, 20 % par heure : les 60 % restants partent en 3 h,
+  // pour une fenêtre de cinq heures qui finit dans 4 h.
+  const prevision = previsionEpuisement(
+    relevesCourts(0, 20, 120),
+    { usedPct: 40, resetsAt: MAINTENANT + h(4) },
+    MAINTENANT,
+    'session',
+  );
+  assert.ok(prevision, 'une prévision est attendue');
+  assert.equal(prevision.texte, 'épuisé aujourd’hui vers 12 h');
+  assert.match(prevision.detail, /% par heure/);
+});
+
+test('la fenêtre de cinq heures se tait sous vingt minutes d’observation', () => {
+  const court = [
+    { at: MAINTENANT - 10 * 60_000, weekly: 30, session: 20 },
+    { at: MAINTENANT, weekly: 30, session: 40 },
+  ];
+  assert.equal(
+    previsionEpuisement(court, { usedPct: 40, resetsAt: MAINTENANT + h(4) }, MAINTENANT, 'session'),
+    null,
+  );
+});
+
+test('chaque série regarde SA remise à zéro', () => {
+  // La fenêtre courte est repartie de zéro il y a une heure, la semaine non.
+  const points: ReleveQuota[] = [
+    { at: MAINTENANT - h(3), weekly: 20, session: 80 },
+    { at: MAINTENANT - h(2), weekly: 25, session: 95 },
+    { at: MAINTENANT - h(1), weekly: 30, session: 10 },
+    { at: MAINTENANT, weekly: 35, session: 40 },
+  ];
+  const courte = previsionEpuisement(points, { usedPct: 40, resetsAt: MAINTENANT + h(4) }, MAINTENANT, 'session');
+  // 30 % par heure sur la dernière heure : 60 % restants en 2 h.
+  assert.ok(courte && Math.abs(courte.at - (MAINTENANT + h(2))) <= 30 * 60_000);
+  // La semaine, elle, n'a pas été remise à zéro : 5 % par heure depuis 3 h.
+  const semaine = previsionEpuisement(points, { usedPct: 35, resetsAt: MAINTENANT + j(2) }, MAINTENANT);
+  assert.ok(semaine && Math.abs(semaine.parJour - 120) < 0.01);
+});
+
+/* ---------------- Le compte de secours ---------------- */
+
+const candidat = (over: Partial<CandidatSecours> & { id: string }): CandidatSecours => ({
+  label: over.id,
+  engine: 'claude',
+  disponible: true,
+  tientJusquAuBout: true,
+  consommePct: 10,
+  ...over,
+});
+
+test('le secours est le compte le MOINS entamé du même moteur', () => {
+  const choisi = compteDeSecours({ id: 'a', engine: 'claude' }, [
+    candidat({ id: 'a', consommePct: 90 }),
+    candidat({ id: 'b', consommePct: 60 }),
+    candidat({ id: 'c', consommePct: 20 }),
+  ]);
+  assert.equal(choisi?.id, 'c');
+});
+
+test('un compte d’un autre moteur ne remplace pas', () => {
+  const choisi = compteDeSecours({ id: 'a', engine: 'claude' }, [
+    candidat({ id: 'a' }),
+    candidat({ id: 'z', engine: 'codex', consommePct: 0 }),
+  ]);
+  assert.equal(choisi, null);
+});
+
+test('un compte épuisé ou lui-même en manque n’est pas un refuge', () => {
+  assert.equal(
+    compteDeSecours({ id: 'a', engine: 'claude' }, [
+      candidat({ id: 'a' }),
+      candidat({ id: 'b', disponible: false }),
+      candidat({ id: 'c', tientJusquAuBout: false }),
+    ]),
+    null,
+  );
+});
+
+/* ---------------- L'alerte sur le téléphone ---------------- */
+
+test('on prévient une seule fois par semaine, et seulement sur un manque', () => {
+  const semaine = MAINTENANT + j(3);
+  assert.equal(doitAlerterEpuisementProche({ resetsAt: semaine, niveau: 'manque' }, MAINTENANT), true);
+  // Déjà annoncée pour cette semaine-là.
+  assert.equal(
+    doitAlerterEpuisementProche({ resetsAt: semaine, niveau: 'manque', dejaAnnoncee: semaine }, MAINTENANT),
+    false,
+  );
+  // La semaine suivante redonne droit à une alerte.
+  assert.equal(
+    doitAlerterEpuisementProche({ resetsAt: semaine + j(7), niveau: 'manque', dejaAnnoncee: semaine }, MAINTENANT),
+    true,
+  );
+  // « juste » ou pas de prévision du tout : rien à dire.
+  assert.equal(doitAlerterEpuisementProche({ resetsAt: semaine, niveau: 'juste' }, MAINTENANT), false);
+  assert.equal(doitAlerterEpuisementProche({ resetsAt: semaine }, MAINTENANT), false);
+  // Chiffres périmés : prévenir sur une preuve qu'on n'a plus n'aide personne.
+  assert.equal(
+    doitAlerterEpuisementProche({ resetsAt: semaine, niveau: 'manque', lectureEnEchec: true }, MAINTENANT),
+    false,
+  );
 });
 
 test('une remise à zéro dans l’historique ne fausse pas la pente', () => {

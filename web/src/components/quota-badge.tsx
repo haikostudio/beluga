@@ -3,11 +3,14 @@ import { ChevronDown, RefreshCw } from 'lucide-react';
 import {
   AccountQuota,
   EngineId,
+  compteDeSecours,
   heureDeRemiseAZero,
   niveauQuota,
   previsionEpuisement,
   tempsRestant,
+  type PrevisionEpuisement,
   type ReleveQuota,
+  type SerieQuota,
 } from '@haikodev/shared';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Gauge, Badge, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -33,8 +36,18 @@ function worstOf(quota: AccountQuota): number {
   return Math.max(quota.session?.usedPct ?? 0, quota.weekly?.usedPct ?? 0);
 }
 
-/** Une courbe simple : la consommation du compte sur les derniers jours. */
-function Courbe({ points }: { points: { at: number; weekly: number; session: number }[] }) {
+/**
+ * Une courbe simple : la consommation du compte sur les derniers jours. Quand
+ * une prévision existe, le trait de la semaine se prolonge en POINTILLÉ jusqu'à
+ * la ligne du haut : on voit d'un coup d'œil où la pente conduit.
+ */
+function Courbe({
+  points,
+  prevision,
+}: {
+  points: { at: number; weekly: number; session: number }[];
+  prevision?: PrevisionEpuisement | null;
+}) {
   if (points.length < 2) {
     return <p className="mt-1 text-[11px] text-faint">Pas encore assez de relevés pour tracer la courbe.</p>;
   }
@@ -42,26 +55,37 @@ function Courbe({ points }: { points: { at: number; weekly: number; session: num
   const largeur = 250;
   const hauteur = 30;
   const debut = points[0].at;
-  const fin = points[points.length - 1].at;
+  const dernier = points[points.length - 1];
+  // Le pointillé a besoin de place : la fin du graphique recule jusqu'à lui.
+  const fin = Math.max(dernier.at, prevision?.at ?? 0);
+  const x = (at: number) => ((at - debut) / Math.max(1, fin - debut)) * largeur;
+  const y = (pct: number) => hauteur - (Math.min(100, pct) / 100) * hauteur;
   const trace = (cle: 'weekly' | 'session') =>
     points
-      .map((point, index) => {
-        const x = ((point.at - debut) / Math.max(1, fin - debut)) * largeur;
-        const y = hauteur - (Math.min(100, point[cle]) / 100) * hauteur;
-        return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-      })
+      .map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.at).toFixed(1)},${y(point[cle]).toFixed(1)}`)
       .join(' ');
 
-  const jours = Math.max(1, Math.round((fin - debut) / (24 * 3600 * 1000)));
+  const jours = Math.max(1, Math.round((dernier.at - debut) / (24 * 3600 * 1000)));
 
   return (
     <div className="mt-1.5">
       <svg viewBox={`0 0 ${largeur} ${hauteur}`} className="h-[30px] w-full" preserveAspectRatio="none">
         <path d={trace('session')} fill="none" stroke="hsl(var(--faint))" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         <path d={trace('weekly')} fill="none" stroke="hsl(var(--muted))" strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
+        {prevision ? (
+          <path
+            d={`M${x(dernier.at).toFixed(1)},${y(dernier.weekly).toFixed(1)} L${x(prevision.at).toFixed(1)},${y(100).toFixed(1)}`}
+            fill="none"
+            stroke={prevision.niveau === 'manque' ? 'hsl(var(--warning))' : 'hsl(var(--faint))'}
+            strokeWidth="1.4"
+            strokeDasharray="3 3"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
       </svg>
       <p className="mt-0.5 text-[10.5px] text-faint">
         {jours} jour{jours > 1 ? 's' : ''} · trait épais : la semaine, trait fin : la fenêtre de 5 h
+        {prevision ? ' · pointillé : la suite au rythme observé' : ''}
       </p>
     </div>
   );
@@ -80,6 +104,32 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
       .then((data) => setHistoire(data.history ?? {}))
       .catch(() => setHistoire({}));
   }, [open]);
+
+  /*
+   * Les prévisions hebdomadaires de TOUS les comptes, calculées ensemble : le
+   * compte de secours d'un moteur en manque se choisit parmi ceux qui, eux,
+   * tiennent jusqu'à la remise à zéro.
+   */
+  const previsions = React.useMemo(() => {
+    const out: Record<string, PrevisionEpuisement | null> = {};
+    for (const quota of quotas) out[quota.id] = previsionEpuisement(histoire[quota.id] ?? [], quota.weekly);
+    return out;
+  }, [quotas, histoire]);
+
+  const secoursDe = (quota: AccountQuota) =>
+    compteDeSecours(
+      { id: quota.id, engine: quota.engine },
+      quotas.map((autre) => ({
+        id: autre.id,
+        label: autre.label,
+        engine: autre.engine,
+        disponible: autre.available !== false,
+        // Un compte qui tient « de justesse » n'est pas un refuge : seuls
+        // ceux sans aucune prévision de fin comptent.
+        tientJusquAuBout: !previsions[autre.id],
+        consommePct: autre.weekly?.usedPct ?? 0,
+      })),
+    );
 
   // La jauge du bouton suit le moteur sur lequel on travaille.
   const current =
@@ -154,13 +204,24 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                 </div>
 
                 <div className="mt-1.5 space-y-1.5">
-                  <Window label="Fenêtre 5 h" window={quota.session} />
-                  {/* La semaine porte en plus la prévision d'épuisement : c'est
-                      la fenêtre longue qui laisse le temps de s'organiser. */}
-                  <Window label="Semaine" window={quota.weekly} releves={histoire[quota.id]} />
+                  {/* Les deux fenêtres portent leur prévision. Celle de cinq
+                      heures ne parle que si la journée a laissé assez de
+                      relevés ; sinon elle se tait, comme la semaine. */}
+                  <Window
+                    label="Fenêtre 5 h"
+                    window={quota.session}
+                    releves={histoire[quota.id]}
+                    serie="session"
+                  />
+                  <Window
+                    label="Semaine"
+                    window={quota.weekly}
+                    releves={histoire[quota.id]}
+                    secours={secoursDe(quota)?.label}
+                  />
                 </div>
 
-                <Courbe points={histoire[quota.id] ?? []} />
+                <Courbe points={histoire[quota.id] ?? []} prevision={previsions[quota.id]} />
 
                 <DerniereAmorce amorce={quota.derniereAmorce} />
 
@@ -257,11 +318,17 @@ function Window({
   label,
   window: win,
   releves,
+  serie = 'weekly',
+  secours,
 }: {
   label: string;
   window?: { usedPct?: number; resetsAt?: number };
-  /** Les relevés du compte : seule la fenêtre hebdomadaire s'en sert. */
+  /** Les relevés du compte, d'où se tire la prévision d'épuisement. */
   releves?: ReleveQuota[];
+  /** Laquelle des deux fenêtres ces relevés doivent servir. */
+  serie?: SerieQuota;
+  /** Le compte sur lequel basculer, s'il en existe un qui tienne. */
+  secours?: string;
 }) {
   const pct = win?.usedPct ?? 0;
   /*
@@ -278,7 +345,7 @@ function Window({
   const exact = heureDeRemiseAZero(win?.resetsAt);
   // Rien à annoncer tant que le calcul n'a pas de sens : la fonction se tait
   // toute seule (trop peu de relevés, rythme nul, quota qui tient jusqu'au bout).
-  const prevision = releves ? previsionEpuisement(releves, win) : null;
+  const prevision = releves ? previsionEpuisement(releves, win, Date.now(), serie) : null;
 
   return (
     <div>
@@ -306,6 +373,12 @@ function Window({
             {prevision.texte}
           </p>
         </Tooltip>
+      ) : null}
+      {prevision?.niveau === 'manque' && secours ? (
+        // La question qui suit « ça va manquer » est toujours « on bascule sur
+        // quoi ? » : la réponse est posée juste dessous, du même moteur et
+        // choisie parmi les comptes qui, eux, tiennent jusqu'au bout.
+        <p className="mt-0.5 text-[11px] text-faint">bascule possible sur {secours}</p>
       ) : null}
     </div>
   );

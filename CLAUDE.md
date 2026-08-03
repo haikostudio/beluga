@@ -29,6 +29,10 @@ npm run dev --workspace web -- --port 7099   # interface de développement (vise
 `npx vite web` casse la résolution de Tailwind : passer par le workspace. Le serveur de
 développement n'écoute qu'en IPv6, donc `localhost`, pas `127.0.0.1`.
 
+Un script de vérification ne doit **jamais** reprendre `HAIKODEV_URL` : cette variable, posée dans
+l'environnement des agents, désigne l'application DÉJÀ PUBLIÉE — on y verrait l'ancienne version.
+Viser le serveur de développement, et n'accepter d'autre adresse que par une variable à soi.
+
 ## Vérifier
 
 ```bash
@@ -37,11 +41,22 @@ node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/verif-prevision-quota.mjs # la prévision d'épuisement, dans le volet des quotas
+node scripts/verif-reprise-paseo.mjs # les cartes reprises de Paseo, dans un vrai navigateur
+node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, sur écran de téléphone
+node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
+node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
 node scripts/verif-signal-attention.mjs # la secousse et le triangle d'un projet qui attend
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
 `npm test` lit `server/dist` : construire avant de tester.
+
+Les scripts qui passent par le navigateur ont besoin d'une session : ils s'en fabriquent une
+d'une heure dans la base et la retirent en partant. Les jetons de session sont stockés HACHÉS :
+on n'en réutilise jamais un existant. **Ne jamais reprendre `HAIKODEV_TOKEN`** : c'est le jeton
+d'un agent, pas une session de navigateur — la page reste bloquée sur « Connexion au serveur… ».
+De même, `HAIKODEV_URL` vaut par défaut l'application PUBLIÉE : pour juger d'un code non publié,
+viser le serveur de développement.
 
 ## Mémoire du projet
 
@@ -72,6 +87,8 @@ node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'ess
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier
   existant (sauf sur HaikoDev lui-même).
+- Le tableau ne glisse que de gauche à droite, une colonne que de haut en bas. Un axe en `auto`
+  entraîne l'autre : le rail doit dire `overflow-y-hidden` en toutes lettres.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.

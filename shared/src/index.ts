@@ -6,6 +6,7 @@ export * from './capacite.js';
 export * from './columns.js';
 export * from './demon.js';
 export * from './etat-carte.js';
+export * from './heure-message.js';
 export * from './memoire.js';
 export * from './models.js';
 export * from './nouveau-depart.js';
