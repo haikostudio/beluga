@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as ReactDOM from 'react-dom';
 import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
@@ -553,6 +554,42 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
 export const DropdownMenu = DropdownPrimitive.Root;
 export const DropdownMenuTrigger = DropdownPrimitive.Trigger;
 
+/**
+ * Le voile d'un menu devenu TIROIR sur téléphone. La bibliothèque des menus
+ * n'en fournit pas — contrairement aux fenêtres — donc on le pose nous-mêmes,
+ * directement dans la page, et on le fait vivre au rythme du menu : il suit
+ * l'attribut d'état que la bibliothèque écrit sur le panneau, donc il s'efface
+ * pendant que le tiroir redescend au lieu de disparaître d'un coup.
+ */
+function VoileMenu({ panneau }: { panneau: React.RefObject<HTMLDivElement | null> }) {
+  const [etat, setEtat] = React.useState<'open' | 'closed'>('open');
+
+  React.useEffect(() => {
+    const noeud = panneau.current;
+    if (!noeud) return;
+    const lire = () => setEtat(noeud.getAttribute('data-state') === 'closed' ? 'closed' : 'open');
+    lire();
+    const observateur = new MutationObserver(lire);
+    observateur.observe(noeud, { attributes: true, attributeFilter: ['data-state'] });
+    return () => observateur.disconnect();
+  }, [panneau]);
+
+  return ReactDOM.createPortal(
+    <div
+      aria-hidden
+      data-state={etat}
+      /* Sur grand écran un menu déroulant n'assombrit rien : il se pose à côté
+         de son bouton, il n'interrompt pas. */
+      className={cn(
+        'fixed inset-0 z-[55] bg-black/70 backdrop-blur-[2px] sm:hidden',
+        'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+      )}
+      style={{ opacity: etat === 'closed' ? 0 : undefined }}
+    />,
+    document.body,
+  );
+}
+
 export function DropdownMenuContent({
   className,
   ...props
@@ -565,6 +602,7 @@ export function DropdownMenuContent({
    */
   const [decalage, setDecalage] = React.useState(0);
   const depart = React.useRef<number | null>(null);
+  const panneau = React.useRef<HTMLDivElement | null>(null);
 
   const fermer = () =>
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -594,14 +632,19 @@ export function DropdownMenuContent({
           sont nécessaires pour couvrir le placement calculé par la
           bibliothèque. */}
       <DropdownPrimitive.Content
+        ref={panneau}
         sideOffset={4}
         className={cn(
-          'z-50 flex min-w-[170px] flex-col overflow-hidden border border-border bg-surface p-1 shadow-xl animate-fade-in',
+          'z-50 flex min-w-[170px] flex-col overflow-hidden border border-border bg-surface p-1 shadow-xl',
+          'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
           // La hauteur réelle de l'écran, mesurée en direct : dvh seul laisse
           // une bande vide quand l'application est installée sur le téléphone.
-          'max-sm:w-full max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.8)] max-sm:rounded-t-xl',
+          // Le tiroir passe AU-DESSUS de son propre voile, lui-même au-dessus
+          // des panneaux déjà ouverts.
+          'max-sm:z-[60] max-sm:w-full max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.8)] max-sm:rounded-t-xl',
           'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
-          'max-sm:animate-slide-up sm:rounded-md',
+          'max-sm:data-[state=open]:animate-slide-sheet max-sm:data-[state=closed]:animate-slide-sheet-out',
+          'sm:rounded-md',
           className,
         )}
         style={{
@@ -610,6 +653,9 @@ export function DropdownMenuContent({
         }}
         {...props}
       >
+        {/* Le voile part dans la page, pas ici : la bibliothèque n'accepte
+            qu'un seul enfant sous son portail. */}
+        <VoileMenu panneau={panneau} />
         <div
           {...poignee}
           onPointerCancel={poignee.onPointerUp}

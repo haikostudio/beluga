@@ -5,7 +5,9 @@
  * On ouvre la conversation du chef sur un écran de téléphone et on vérifie
  * trois choses : rien ne voile le haut tant qu'on est en haut, le voile du
  * haut s'allume dès qu'on a fait défiler, et il floute vraiment ce qui passe
- * derrière.
+ * derrière. On contrôle ensuite le VOILE d'un tiroir : le volet des quotas
+ * est un menu, et la bibliothèque n'en pose pas — il doit assombrir l'écran
+ * derrière lui, puis s'effacer pendant que le tiroir redescend.
  *
  *   node scripts/verif-fondu-defilement.mjs
  */
@@ -54,8 +56,15 @@ function lireVoiles() {
       enfants[1].scrollHeight > 0
     );
   });
-  // La plus haute zone visible : le fil de la conversation.
-  const zone = zones.sort((a, b) => b.clientHeight - a.clientHeight)[0];
+  /* La plus haute zone à fondu HORIZONTAL (bande large et basse) : le fil de
+     la conversation. Un rail à défilement latéral porte, lui, des voiles
+     hauts et étroits — on ne veut pas le confondre avec. */
+  const zone = zones
+    .filter((n) => {
+      const b = n.children[0].getBoundingClientRect();
+      return b.width > b.height;
+    })
+    .sort((a, b) => b.clientHeight - a.clientHeight)[0];
   if (!zone) return null;
   const [haut, corps, bas] = Array.from(zone.children);
   const style = (n) => getComputedStyle(n);
@@ -95,6 +104,16 @@ async function main() {
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(6000);
 
+  /* On referme ce qu'une session précédente aurait laissé ouvert, puis on se
+     place sur la conversation : c'est elle qui déborde assez pour juger. */
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(600);
+  await page.evaluate(() => {
+    const onglet = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Chef');
+    onglet?.click();
+  });
+  await page.waitForTimeout(2500);
+
   const repos = await page.evaluate(lireVoiles);
   noter('la zone de conversation porte bien deux voiles', !!repos, repos ? '' : 'aucune zone trouvée');
 
@@ -111,7 +130,12 @@ async function main() {
       const e = Array.from(n.children);
       return e.length === 3 && e[0].getAttribute('aria-hidden') === 'true' && e[2].getAttribute('aria-hidden') === 'true';
     });
-    const zone = zones.sort((a, b) => b.clientHeight - a.clientHeight)[0];
+    const zone = zones
+      .filter((n) => {
+        const b = n.children[0].getBoundingClientRect();
+        return b.width > b.height;
+      })
+      .sort((a, b) => b.clientHeight - a.clientHeight)[0];
     if (!zone) return null;
     const corps = zone.children[1];
     corps.scrollTop = Math.max(0, Math.floor(corps.scrollHeight / 2));
@@ -125,6 +149,49 @@ async function main() {
   } else {
     noter('la conversation déborde assez pour juger du voile', false, 'contenu trop court');
   }
+
+  /* Le volet des quotas : un menu devenu tiroir. Il doit poser son voile.
+     On referme d'abord ce qu'une session précédente aurait laissé ouvert. */
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(700);
+  await page.locator('button[title="Quotas des moteurs"]').click({ timeout: 15000 });
+  await page.waitForTimeout(900);
+
+  const lireVoileTiroir = () =>
+    page.evaluate(() => {
+      /* Le voile d'un menu se reconnaît à son plan : 55, entre les panneaux
+         déjà ouverts (50) et le tiroir lui-même (60). */
+      const voile = Array.from(document.body.children).find(
+        (n) => getComputedStyle(n).zIndex === '55',
+      );
+      if (!voile) return null;
+      const s = getComputedStyle(voile);
+      return {
+        opacite: Number(s.opacity),
+        couvre: voile.getBoundingClientRect().height >= window.innerHeight - 2,
+        flou: s.backdropFilter || s.webkitBackdropFilter || '',
+        etat: voile.getAttribute('data-state'),
+      };
+    });
+
+  const ouvert = await lireVoileTiroir();
+  noter('le tiroir des quotas pose un voile sombre', !!ouvert, ouvert ? '' : 'aucun voile');
+  if (ouvert) {
+    noter('le voile couvre tout l’écran et floute le fond', ouvert.couvre && ouvert.flou.includes('blur'), ouvert.flou);
+    noter('le voile est bien allumé tiroir ouvert', ouvert.opacite > 0.9, `opacité ${ouvert.opacite}`);
+  }
+
+  // On referme : le voile doit passer en « closed » et s'effacer.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(110);
+  const enFermeture = await lireVoileTiroir();
+  noter(
+    'le voile s’efface pendant que le tiroir redescend',
+    !!enFermeture && enFermeture.etat === 'closed' && enFermeture.opacite < 0.95,
+    enFermeture ? `opacité ${enFermeture.opacite.toFixed(2)}` : 'voile déjà retiré',
+  );
+  await page.waitForTimeout(700);
+  noter('le voile disparaît une fois le tiroir fermé', (await lireVoileTiroir()) === null);
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 
