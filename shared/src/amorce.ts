@@ -8,6 +8,12 @@
  * décompte tourne déjà quand le travail arrive.
  *
  * La décision vit ici, sans réseau ni base : elle se teste seule.
+ *
+ * CODEX N'EST PAS CONCERNÉ, et ce n'est pas un oubli : essai fait sur le vrai
+ * compte le 03/08/2026, une requête minuscule envoyée puis les compteurs
+ * relus. Codex n'annonce qu'une seule fenêtre, celle de la semaine ; aucune
+ * fenêtre courte n'apparaît ni avant ni après l'appel. Il n'y a donc rien à
+ * amorcer de ce côté, et amorcer une fenêtre hebdomadaire n'aurait aucun sens.
  */
 
 /** Durée d'une fenêtre Claude, utilisée quand l'heure de remise à zéro manque. */
@@ -40,6 +46,7 @@ export interface AmorcePosee {
 export type RaisonAmorce =
   | 'a-amorcer'
   | 'autre-moteur'
+  | 'heures-de-silence'
   | 'lecture-en-echec'
   | 'fenetre-en-cours'
   | 'agent-en-cours'
@@ -49,8 +56,14 @@ export type RaisonAmorce =
  * Faut-il amorcer ce compte maintenant ? Une seule réponse, et sa raison :
  * c'est elle qui part au journal quand rien n'est fait.
  */
-export function decisionAmorce(etat: EtatCompteAmorce, maintenant: number): RaisonAmorce {
+export function decisionAmorce(etat: EtatCompteAmorce, maintenant: number, silence = false): RaisonAmorce {
+  // Seuls les comptes Claude ont une fenêtre de cinq heures qui s'amorce (voir
+  // [[fenetre-codex]] : chez Codex, on n'a trouvé qu'une fenêtre hebdomadaire).
   if (etat.engine !== 'claude') return 'autre-moteur';
+  // Pendant les heures de silence, on ne réveille personne : la nuit, la
+  // dernière fenêtre amorcée a le temps de s'éteindre, et la reprise du matin
+  // en rouvre une aussitôt.
+  if (silence) return 'heures-de-silence';
   // Une lecture ratée rejoue les derniers chiffres connus : agir dessus
   // reviendrait à amorcer sur une preuve qu'on n'a plus.
   if (etat.lectureEnEchec) return 'lecture-en-echec';
@@ -66,8 +79,37 @@ export function decisionAmorce(etat: EtatCompteAmorce, maintenant: number): Rais
 }
 
 /** Les comptes à amorcer, dans l'ordre reçu : ils seront traités un par un. */
-export function comptesAAmorcer(etats: EtatCompteAmorce[], maintenant: number): EtatCompteAmorce[] {
-  return etats.filter((etat) => decisionAmorce(etat, maintenant) === 'a-amorcer');
+export function comptesAAmorcer(
+  etats: EtatCompteAmorce[],
+  maintenant: number,
+  silence = false,
+): EtatCompteAmorce[] {
+  return etats.filter((etat) => decisionAmorce(etat, maintenant, silence) === 'a-amorcer');
+}
+
+/**
+ * Les heures de silence, telles qu'elles sont réglées pour les notifications :
+ * une plage peut passer minuit (22 h → 7 h). Sans réglage, il n'y a pas de
+ * silence du tout.
+ */
+export function dansLesHeuresDeSilence(heure: number, debut?: number, fin?: number): boolean {
+  if (debut === undefined || fin === undefined) return false;
+  return debut <= fin ? heure >= debut && heure < fin : heure >= debut || heure < fin;
+}
+
+/**
+ * Combien d'échecs d'affilée sur le même compte avant de prévenir. Un refus
+ * isolé arrive (jeton en cours de renouvellement) ; trois de suite veulent
+ * dire que le compte ne répond plus.
+ */
+export const ECHECS_AVANT_ALERTE = 3;
+
+/**
+ * Faut-il prévenir maintenant ? Uniquement au franchissement du seuil : sans
+ * cela, chaque passage enverrait une notification de plus.
+ */
+export function alerterApresEchec(echecsDAffilee: number): boolean {
+  return echecsDAffilee === ECHECS_AVANT_ALERTE;
 }
 
 /**

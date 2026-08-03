@@ -1,3 +1,4 @@
+import { dansLesHeuresDeSilence } from '@haikodev/shared';
 import { bus } from './bus.js';
 import { getSettings } from './store.js';
 
@@ -6,7 +7,7 @@ import { getSettings } from './store.js';
  * notification (« 3 tâches terminées »), pas une avalanche.
  */
 
-type Kind = 'done' | 'failed' | 'waiting' | 'deploy' | 'proposal' | 'capacity';
+type Kind = 'done' | 'failed' | 'waiting' | 'deploy' | 'proposal' | 'capacity' | 'quota';
 
 interface Pending {
   kind: Kind;
@@ -39,10 +40,9 @@ function allowed(kind: Kind): boolean {
 
 function inQuietHours(): boolean {
   const settings = getSettings();
-  if (settings.quietHoursStart === undefined || settings.quietHoursEnd === undefined) return false;
-  const hour = new Date().getHours();
-  const { quietHoursStart: start, quietHoursEnd: end } = settings;
-  return start <= end ? hour >= start && hour < end : hour >= start || hour < end;
+  // La même règle sert à l'amorçage des fenêtres de quota : une seule plage de
+  // silence, décrite au même endroit (voir [[amorce]]).
+  return dansLesHeuresDeSilence(new Date().getHours(), settings.quietHoursStart, settings.quietHoursEnd);
 }
 
 const PLURALS: Record<Kind, (n: number) => string> = {
@@ -52,6 +52,7 @@ const PLURALS: Record<Kind, (n: number) => string> = {
   deploy: (n) => `${n} publications terminées`,
   proposal: (n) => `${n} tâches proposées — à confirmer`,
   capacity: (n) => `${n} alertes de charge`,
+  quota: (n) => `${n} comptes ne répondent plus`,
 };
 
 export function notify(input: {

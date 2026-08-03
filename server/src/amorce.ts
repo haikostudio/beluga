@@ -3,7 +3,9 @@ import path from 'node:path';
 import {
   AmorcePosee,
   EtatCompteAmorce,
+  alerterApresEchec,
   comptesAAmorcer,
+  dansLesHeuresDeSilence,
   decisionAmorce,
   finDeFenetre,
   modeleLePlusLeger,
@@ -12,6 +14,7 @@ import { AccountRecord, cachedQuotas, listAccountRecords } from './accounts.js';
 import { claudeCatalog } from './engines/catalog.js';
 import { getMeta, setMeta } from './db.js';
 import { comptesOccupes } from './runtime.js';
+import { notify } from './notify.js';
 import { getSettings } from './store.js';
 import { log } from './logger.js';
 
@@ -133,6 +136,46 @@ export async function envoyerAmorce(
   }
 }
 
+/**
+ * Les heures de silence réglées pour les notifications valent aussi ici : la
+ * nuit, on laisse les comptes tranquilles. La dernière fenêtre amorcée avant
+ * le silence a le temps de s'éteindre, et le premier passage du matin en
+ * rouvre une aussitôt — c'est ce qu'on veut, une fenêtre fraîche au réveil.
+ */
+function silenceMaintenant(): boolean {
+  const settings = getSettings();
+  return dansLesHeuresDeSilence(new Date().getHours(), settings.quietHoursStart, settings.quietHoursEnd);
+}
+
+/* ------------------------------------------------------------------ */
+/* Les échecs répétés                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Échecs d'affilée par compte : remis à zéro dès qu'une amorce passe. */
+const echecs = new Map<string, number>();
+
+function oublierEchecs(accountId: string): void {
+  echecs.delete(accountId);
+}
+
+/**
+ * Un refus isolé n'intéresse personne (un jeton en cours de renouvellement en
+ * produit). Trois de suite sur le même compte, si : là, le compte ne répond
+ * plus et cela se dit sur le téléphone — une seule fois, au franchissement.
+ */
+function signalerEchec(accountId: string, label: string, raison: string): void {
+  const compte = (echecs.get(accountId) ?? 0) + 1;
+  echecs.set(accountId, compte);
+  if (!alerterApresEchec(compte)) return;
+  log.error(`amorce en échec ${compte} fois de suite sur ${label} : ${raison}`);
+  notify({
+    kind: 'quota',
+    title: 'Amorçage impossible',
+    body: `${label} : ${compte} échecs de suite (${raison}).`,
+    tag: `amorce-${accountId}`,
+  });
+}
+
 /** Une seule amorce à la fois : deux passages ne doivent pas se chevaucher. */
 let enCours = false;
 
@@ -147,7 +190,7 @@ export async function amorcerFenetres(): Promise<number> {
   let amorces = 0;
   try {
     const etats = etatDesComptes();
-    const aFaire = comptesAAmorcer(etats, Date.now());
+    const aFaire = comptesAAmorcer(etats, Date.now(), silenceMaintenant());
     if (!aFaire.length) return 0;
 
     const model = await modeleDAmorce();
@@ -170,10 +213,13 @@ export async function amorcerFenetres(): Promise<number> {
           `amorce de la fenêtre de 5 h à ${heure} — ${account.label} (modèle ${model}, ${resultat.tokens ?? 0} jetons), ` +
             `prochaine amorce possible après ${new Date(jusqua).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`,
         );
+        oublierEchecs(account.id);
       } else {
-        // Un échec ne pose pas de trace : la fenêtre n'est pas lancée, on
-        // réessaiera au passage suivant.
+        // Un échec ne pose pas de trace d'amorce : la fenêtre n'est pas lancée,
+        // on réessaiera au passage suivant. En revanche il se compte, et
+        // plusieurs de suite finissent par se dire à voix haute.
         log.warn(`amorce impossible à ${heure} — ${account.label} : ${resultat.error}`);
+        signalerEchec(account.id, account.label, resultat.error ?? 'raison inconnue');
       }
     }
   } catch (err) {
@@ -187,5 +233,6 @@ export async function amorcerFenetres(): Promise<number> {
 /** Ce que le mécanisme ferait maintenant, compte par compte : de quoi le lire au journal. */
 export function apercuAmorce(): { id: string; raison: string }[] {
   const maintenant = Date.now();
-  return etatDesComptes().map((etat) => ({ id: etat.id, raison: decisionAmorce(etat, maintenant) }));
+  const silence = silenceMaintenant();
+  return etatDesComptes().map((etat) => ({ id: etat.id, raison: decisionAmorce(etat, maintenant, silence) }));
 }

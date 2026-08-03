@@ -15,9 +15,9 @@ import { amorcerFenetres, apercuAmorce, envoyerAmorce } from '../server/dist/amo
 
 const heure = (t) => (t ? new Date(t).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' }) : '—');
 
-function tableau(titre, quotas) {
+function tableau(titre, quotas, moteur = 'claude') {
   console.log(`\n── ${titre}`);
-  for (const q of quotas.filter((q) => q.engine === 'claude')) {
+  for (const q of quotas.filter((q) => q.engine === moteur)) {
     console.log(
       `   ${q.label.padEnd(38)} fenêtre ${String(q.session?.usedPct ?? '—').padStart(5)} %` +
         ` · remise à zéro ${heure(q.session?.resetsAt)}${q.error ? ` · ${q.error}` : ''}`,
@@ -30,6 +30,8 @@ bootstrapAccounts();
 
 const avant = await refreshQuotas(true);
 tableau('AVANT', avant);
+// Codex n'a pas de fenêtre courte à amorcer : on l'affiche pour le constater.
+tableau('CODEX (pour mémoire — aucune fenêtre courte à amorcer)', avant, 'codex');
 
 console.log('\n── Ce que le mécanisme décide, compte par compte');
 for (const { id, raison } of apercuAmorce()) console.log(`   ${id.padEnd(20)} ${raison}`);
