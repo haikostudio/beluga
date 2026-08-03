@@ -48,6 +48,7 @@ node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / cl
 node scripts/verif-signal-attention.mjs # la secousse et le triangle d'un projet qui attend
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
+node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 

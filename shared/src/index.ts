@@ -13,6 +13,7 @@ export * from './notification.js';
 export * from './nouveau-depart.js';
 export * from './projet-actif.js';
 export * from './protocol.js';
+export * from './publication-terminee.js';
 export * from './quota.js';
 export * from './reprise.js';
 export * from './templates.js';

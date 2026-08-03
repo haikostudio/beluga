@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AlertTriangle, Check, ChevronRight, Loader2, Rocket, RotateCcw, Square, X, MinusCircle } from 'lucide-react';
-import { Card, DeployRun, DeployStepKey } from '@haikodev/shared';
+import { Card, DeployRun, DeployStepKey, derouleOuvert, rapportAGarder } from '@haikodev/shared';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -95,7 +95,13 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   };
 
   const aPublier = embarked.length + enAttente.nombre;
-  if (!active && !aPublier && !run) return null;
+  /*
+   * Une publication réussie ne garde le bloc que tant que rien de neuf
+   * n'attend : dès qu'un lot est prêt, son rapport s'efface et l'on repart
+   * d'un bloc propre (voir `rapportAGarder`).
+   */
+  const rapport = rapportAGarder(run?.state, aPublier) ? run : null;
+  if (!active && !aPublier && !rapport) return null;
 
   return (
     /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
@@ -153,14 +159,24 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
         </>
       ) : null}
 
-      {run ? <DeployProgress run={run} /> : null}
+      {rapport ? <DeployProgress run={rapport} /> : null}
     </div>
   );
 }
 
 function DeployProgress({ run }: { run: DeployRun }) {
-  const [open, setOpen] = React.useState(run.state === 'running');
+  const [open, setOpen] = React.useState(derouleOuvert(run.state));
   const [, force] = React.useReducer((value: number) => value + 1, 0);
+
+  /*
+   * Le déroulé suit la publication : ouvert pendant le travail, refermé dès
+   * qu'elle aboutit. Sans ce rappel, les sept étapes cochées restaient
+   * dépliées longtemps après la fin, comme si quelque chose tournait encore.
+   * Un échec, lui, reste ouvert : c'est là qu'on lit le motif.
+   */
+  React.useEffect(() => {
+    setOpen(derouleOuvert(run.state));
+  }, [run.id, run.state]);
 
   React.useEffect(() => {
     if (run.state !== 'running') return;
