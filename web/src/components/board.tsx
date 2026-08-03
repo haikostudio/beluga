@@ -231,8 +231,14 @@ export function Board({
     return () => window.clearInterval(timer);
   }, [dragging, pointer]);
 
+  // Le rail ne glisse QUE de gauche à droite : `overflow-y-hidden` est
+  // indispensable, sinon le navigateur repasse tout seul l'axe vertical en
+  // « auto » dès que l'autre axe déborde, et le tableau entier se met à flotter.
   return (
-    <div ref={rail} className="flex h-full min-h-0 gap-2.5 overflow-x-auto px-3 py-3 snap-columns">
+    <div
+      ref={rail}
+      className="flex h-full min-h-0 gap-2.5 overflow-x-auto overflow-y-hidden px-3 py-3 snap-columns"
+    >
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
@@ -241,12 +247,12 @@ export function Board({
             key={column}
             data-column={column}
             className={cn(
-              'flex w-[268px] shrink-0 flex-col rounded-lg border bg-surface/70 transition-colors',
+              'flex h-full min-h-0 w-[268px] shrink-0 flex-col overflow-hidden rounded-lg border bg-surface/70 transition-colors',
               over === column && allowed ? 'border-muted bg-surface' : 'border-border/60',
               carteTiree && !allowed && 'opacity-40',
             )}
           >
-            <div className="relative flex items-center gap-1.5 border-b border-border/50 px-2 py-1.5">
+            <div className="relative flex shrink-0 items-center gap-1.5 border-b border-border/50 px-2 py-1.5">
               <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
               <span className="text-[12.5px] text-faint">{columnCards.length}</span>
               {column === 'todo' || column === 'notes' ? (
@@ -254,19 +260,22 @@ export function Board({
               ) : null}
             </div>
 
-            {column === 'to_deploy' ? <DeployPanel projectId={projectId} cards={columnCards} /> : null}
-
             {/*
+              Un SEUL défilement vertical par colonne, et uniquement vertical :
+              le bandeau de publication voyage avec les cartes, sinon sa hauteur
+              (conflits, étapes) pousse la colonne au-delà du tableau.
               En mode archivage, la case à cocher DÉBORDE du coin haut-gauche de
               la carte : il faut donc lui laisser la place, sinon le débordement
               de la colonne la rognerait.
             */}
-            <div
-              className={cn(
-                'flex-1 space-y-1.5 overflow-y-auto p-1.5',
-                colonneArchivage === column && 'pl-[15px] pt-[15px]',
-              )}
-            >
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+              {column === 'to_deploy' ? <DeployPanel projectId={projectId} cards={columnCards} /> : null}
+              <div
+                className={cn(
+                  'space-y-1.5 p-1.5',
+                  colonneArchivage === column && 'pl-[15px] pt-[15px]',
+                )}
+              >
               {columnCards.map((card) => {
                 const cochable = colonneArchivage === column;
                 return (
@@ -299,6 +308,7 @@ export function Board({
                         : '—'}
                 </p>
               ) : null}
+              </div>
             </div>
 
             {/*
@@ -308,7 +318,7 @@ export function Board({
               resté coché.
             */}
             {COLONNES_ARCHIVABLES.includes(column) && columnCards.length ? (
-              <div className="border-t border-border/50 p-1.5">
+              <div className="shrink-0 border-t border-border/50 p-1.5">
                 {colonneArchivage !== column ? (
                   <Button variant="outline" size="sm" className="w-full" onClick={() => ouvrirArchivage(column)}>
                     <Archive className="h-3 w-3" /> Tout archiver

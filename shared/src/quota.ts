@@ -123,10 +123,20 @@ export function niveauQuota(consommePct: number): NiveauQuota {
 export interface ReleveQuota {
   at: number;
   weekly: number;
+  /** La fenêtre de cinq heures du même relevé, quand elle est connue. */
+  session?: number;
 }
 
-/** Sous cette durée d'observation, la pente ne veut rien dire. */
+/** Laquelle des deux fenêtres on regarde. */
+export type SerieQuota = 'weekly' | 'session';
+
+/**
+ * Sous cette durée d'observation, la pente ne veut rien dire. Une heure pour la
+ * semaine ; vingt minutes pour la fenêtre de cinq heures, qui se remet à zéro
+ * bien plus souvent et n'offrirait jamais une heure d'observation utile.
+ */
 export const OBSERVATION_MINIMALE_MS = 60 * 60 * 1000;
+export const OBSERVATION_MINIMALE_COURTE_MS = 20 * 60 * 1000;
 
 /**
  * Part du temps restant qui sépare une prévision « le quota va manquer » d'une
@@ -148,12 +158,17 @@ export interface PrevisionEpuisement {
   parJour: number;
 }
 
+/** La valeur lue sur la série demandée ; la semaine à défaut. */
+function valeur(releve: ReleveQuota, serie: SerieQuota): number {
+  return serie === 'session' ? (releve.session ?? 0) : releve.weekly;
+}
+
 /** Les relevés de la fenêtre EN COURS : tout ce qui suit la dernière remise à zéro. */
-function depuisLaDerniereRemiseAZero(releves: ReleveQuota[]): ReleveQuota[] {
+function depuisLaDerniereRemiseAZero(releves: ReleveQuota[], serie: SerieQuota): ReleveQuota[] {
   for (let i = releves.length - 1; i > 0; i--) {
     // Un pourcentage qui RECULE ne peut vouloir dire qu'une chose : la fenêtre
     // a été remise à zéro entre ces deux relevés.
-    if (releves[i].weekly < releves[i - 1].weekly) return releves.slice(i);
+    if (valeur(releves[i], serie) < valeur(releves[i - 1], serie)) return releves.slice(i);
   }
   return releves;
 }
@@ -176,24 +191,26 @@ export function previsionEpuisement(
   releves: ReleveQuota[],
   fenetre: { usedPct?: number; resetsAt?: number } | undefined,
   maintenant = Date.now(),
+  serie: SerieQuota = 'weekly',
 ): PrevisionEpuisement | null {
   // Sans heure de remise à zéro, impossible de dire si l'épuisement tombe
   // avant ou après la fin : on se tait.
   if (!fenetre?.resetsAt || fenetre.resetsAt <= maintenant) return null;
 
   const passes = releves.filter((point) => point.at <= maintenant).sort((a, b) => a.at - b.at);
-  const recents = depuisLaDerniereRemiseAZero(passes);
+  const recents = depuisLaDerniereRemiseAZero(passes, serie);
   if (recents.length < 2) return null;
 
   const premier = recents[0];
   const dernier = recents[recents.length - 1];
   const duree = dernier.at - premier.at;
-  if (duree < OBSERVATION_MINIMALE_MS) return null;
+  const minimum = serie === 'session' ? OBSERVATION_MINIMALE_COURTE_MS : OBSERVATION_MINIMALE_MS;
+  if (duree < minimum) return null;
 
-  const rythme = (dernier.weekly - premier.weekly) / duree; // points de % par ms
+  const rythme = (valeur(dernier, serie) - valeur(premier, serie)) / duree; // points de % par ms
   if (rythme <= 0) return null;
 
-  const consomme = fenetre.usedPct ?? dernier.weekly;
+  const consomme = fenetre.usedPct ?? valeur(dernier, serie);
   const reste = 100 - consomme;
   if (reste <= 0) return null; // déjà épuisée : il n'y a plus rien à prévoir
 
@@ -214,11 +231,87 @@ export function previsionEpuisement(
     minute: '2-digit',
   });
 
+  // Une fenêtre de cinq heures se juge à l'heure, pas à la journée : « 6 % par
+  // jour » sur une fenêtre qui dure cinq heures ne dit rien à personne.
+  const cadence =
+    serie === 'session'
+      ? `environ ${(rythme * 3600 * 1000).toFixed(1)} % par heure`
+      : `environ ${parJour.toFixed(1)} % par jour`;
+
   return {
     at,
     texte: `épuisé ${jourEnClair(at, maintenant)} vers ${heureEnClair(at)}`,
-    detail: `Au rythme observé (environ ${parJour.toFixed(1)} % par jour), épuisement estimé ${exact}, avant la remise à zéro.`,
+    detail: `Au rythme observé (${cadence}), épuisement estimé ${exact}, avant la remise à zéro.`,
     niveau: marge > total * MARGE_CONFORT ? 'manque' : 'juste',
     parJour,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Le compte de secours                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Quand un compte va manquer de quota, la question suivante est toujours la
+ * même : « sur lequel bascule-t-on ? ». La réponse ne vaut qu'entre comptes du
+ * MÊME moteur — un compte Codex ne remplace pas un compte Claude — et
+ * seulement si le candidat, lui, tient jusqu'à la remise à zéro.
+ *
+ * La règle vit ici, sans réseau ni base : elle se teste seule.
+ */
+export interface CandidatSecours {
+  id: string;
+  label: string;
+  engine: string;
+  /** Le compte répond encore : il n'est pas marqué épuisé. */
+  disponible: boolean;
+  /** Sa semaine tient jusqu'au bout : aucune prévision de manque dessus. */
+  tientJusquAuBout: boolean;
+  /** Part consommée de sa semaine, pour départager deux candidats. */
+  consommePct: number;
+}
+
+export function compteDeSecours(
+  enManque: { id: string; engine: string },
+  candidats: CandidatSecours[],
+): CandidatSecours | null {
+  const possibles = candidats.filter(
+    (c) => c.id !== enManque.id && c.engine === enManque.engine && c.disponible && c.tientJusquAuBout,
+  );
+  if (!possibles.length) return null;
+  // Le moins entamé : c'est celui qui tiendra le plus longtemps après la bascule.
+  return possibles.reduce((meilleur, c) => (c.consommePct < meilleur.consommePct ? c : meilleur));
+}
+
+/* ------------------------------------------------------------------ */
+/* L'alerte « le quota va manquer »                                    */
+/* ------------------------------------------------------------------ */
+
+export interface EtatAlerteEpuisement {
+  /** Fin de la fenêtre hebdomadaire : elle sert aussi de marque d'annonce. */
+  resetsAt?: number;
+  /** Le niveau de la prévision, absent quand il n'y en a pas. */
+  niveau?: 'manque' | 'juste';
+  /** La dernière lecture de quota a échoué : les chiffres sont périmés. */
+  lectureEnEchec?: boolean;
+  /** La fenêtre pour laquelle on a DÉJÀ prévenu, s'il y en a une. */
+  dejaAnnoncee?: number;
+}
+
+/**
+ * Faut-il prévenir sur le téléphone ? Seulement quand le quota va vraiment
+ * manquer, et une seule fois par semaine : c'est l'heure de remise à zéro de la
+ * fenêtre hebdomadaire qui sert de marque, donc une nouvelle semaine redonne
+ * droit à une alerte et un redémarrage du serveur n'en refait pas une.
+ *
+ * La règle vit ici, sans réseau ni base : elle se teste seule.
+ */
+export function doitAlerterEpuisementProche(
+  etat: EtatAlerteEpuisement,
+  maintenant = Date.now(),
+): boolean {
+  if (etat.lectureEnEchec || !etat.resetsAt) return false;
+  if (etat.niveau !== 'manque') return false;
+  if (etat.dejaAnnoncee === etat.resetsAt) return false;
+  return etat.resetsAt > maintenant;
 }
