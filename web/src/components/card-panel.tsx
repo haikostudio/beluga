@@ -111,9 +111,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
   });
   const contexteGeste = { colonne: card.column, etat, agentLance: !!agent };
   const peut = (geste: GesteCarte) => gesteCarte(geste, contexteGeste);
-  const raisonBloquante = (['valider', 'lancer', 'terminer', 'publier'] as GesteCarte[])
-    .map(peut)
-    .find((decision) => decision.affiche && !decision.possible)?.raison;
 
   /*
    * Le pied ne s'affiche que s'il porte vraiment une décision à prendre : les
@@ -283,9 +280,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
             ) : null}
           </div>
 
-          {/* Un bouton éteint doit DIRE pourquoi : sur téléphone, l'infobulle
-              au survol n'existe pas. */}
-          {raisonBloquante ? <p className="mt-1.5 text-[12.5px] text-faint">{raisonBloquante}</p> : null}
+          {/* Plus de phrase d'explication sous les boutons : la bande « en
+              cours », posée en haut du fil, dit déjà que l'agent travaille. La
+              répéter ici prenait une ligne pour rien. */}
         </footer>
       ) : null}
     </div>

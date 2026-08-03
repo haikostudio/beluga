@@ -30,6 +30,9 @@ export interface ComposerProps {
   projectId: string;
   /** Depuis une carte, l'envoi peut devenir une proposition de tâche (§15). */
   onProposeTask?: (text: string) => void;
+  /** Dans le tiroir d'une carte : des boutons suivent en dessous, la barre ne
+   *  touche donc pas le bas de l'écran et ne réserve pas le creux du téléphone. */
+  dansTiroir?: boolean;
 }
 
 export function Composer({
@@ -42,6 +45,7 @@ export function Composer({
   onClearPicked,
   projectId,
   onProposeTask,
+  dansTiroir,
 }: ComposerProps) {
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
@@ -304,7 +308,13 @@ export function Composer({
   return (
     <div
       className="border-t border-border bg-bg px-2.5 pt-2"
-      style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
+      /*
+       * Le creux du téléphone (barre de gestes) n'est réservé QUE si la barre
+       * d'écriture touche vraiment le bas de l'écran. Dans le tiroir d'une
+       * carte, des boutons de décision viennent en dessous et réservent déjà
+       * cette place : la réserver deux fois creusait un vide sous le composeur.
+       */
+      style={{ paddingBottom: dansTiroir ? '8px' : 'max(10px, env(safe-area-inset-bottom))' }}
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes('Files')) event.preventDefault();
       }}

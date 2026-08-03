@@ -168,6 +168,7 @@ export function Chat({
           onClearPicked={() => setPicked([])}
           projectId={projectId}
           onProposeTask={onProposeTask}
+          dansTiroir={!!cardId}
         />
       )}
     </div>
