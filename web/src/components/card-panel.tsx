@@ -221,7 +221,10 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           prendre, la barre disparaît au lieu de laisser un bandeau vide. */}
       {aDecision ? (
         <footer className="shrink-0 border-t border-border bg-bg px-4 py-2.5">
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/* Les boutons se PARTAGENT la largeur : seul, un bouton la prend
+              entière ; à plusieurs, ils se divisent la ligne et passent à la
+              suivante en dessous de 150 px, toujours sans laisser de vide. */}
+          <div className="grid items-center gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))] [&>*]:w-full">
             {peut('valider').affiche ? (
               <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'validated')}>
                 <Check className="h-3 w-3" /> Valider (autorise la dépense)
@@ -296,7 +299,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 function Geste({ decision, children }: { decision: DecisionGeste; children: React.ReactNode }) {
   if (decision.possible || !decision.raison) return <>{children}</>;
   return (
-    <span title={decision.raison} className="inline-flex">
+    /* L'enveloppe occupe la CASE entière de la grille, sinon le bouton qu'elle
+       entoure serait le seul à ne pas s'étirer. */
+    <span title={decision.raison} className="flex w-full [&>*]:w-full">
       {children}
     </span>
   );
@@ -305,6 +310,20 @@ function Geste({ decision, children }: { decision: DecisionGeste; children: Reac
 function CardSummary({ card }: { card: Card }) {
   const [description, setDescription] = React.useState(card.description);
   React.useEffect(() => setDescription(card.description), [card.id]);
+
+  /*
+   * La description est le CŒUR de la carte : le champ suit la hauteur du texte
+   * au lieu de le laisser défiler dans une fenêtre de trois lignes. Il garde un
+   * plancher confortable et un plafond, pour que les chiffres restent visibles
+   * sur une longue consigne.
+   */
+  const zone = React.useRef<HTMLTextAreaElement>(null);
+  React.useEffect(() => {
+    const champ = zone.current;
+    if (!champ) return;
+    champ.style.height = 'auto';
+    champ.style.height = `${champ.scrollHeight + 2}px`;
+  }, [description, card.id]);
 
   return (
     <div className="space-y-4 px-4 py-3">
@@ -319,9 +338,10 @@ function CardSummary({ card }: { card: Card }) {
               client.call({ type: 'card.update', id: card.id, patch: { description } });
             }
           }}
-          rows={4}
+          ref={zone}
+          rows={8}
           placeholder="Ce qu'il faut faire…"
-          className="mt-1.5 text-[14px]"
+          className="mt-1.5 max-h-[55vh] min-h-[160px] resize-none text-[14px]"
         />
       </div>
 
