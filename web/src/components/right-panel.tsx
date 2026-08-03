@@ -61,7 +61,7 @@ export function RightPanel({ projectId }: { projectId: string }) {
 
         <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
           {orchestrator ? (
-            <Chat agent={orchestrator} projectId={projectId} />
+            <Chat agent={orchestrator} projectId={projectId} nouveauDepart />
           ) : (
             <div className="flex h-full items-center justify-center">
               <Loader2 className="h-4 w-4 animate-spin text-faint" />
