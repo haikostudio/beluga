@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { etatVisuelCarte } from '@haikodev/shared';
+import { etatVisuelCarte, gesteCarte } from '@haikodev/shared';
 
 test('l’agent travaille : la roue tourne', () => {
   assert.equal(etatVisuelCarte({ agentStatut: 'running' }), 'travaille');
@@ -42,4 +42,48 @@ test('en ligne sans agent fini : la pastille « en ligne »', () => {
   assert.equal(etatVisuelCarte({ enLigne: true }), 'enligne');
   // Un travail rendu se dit AVANT la mise en ligne : c'est lui qui appelle un geste.
   assert.equal(etatVisuelCarte({ agentStatut: 'done', enLigne: true }), 'termine');
+});
+
+/* ------------------------------------------------------------------ */
+/* Les gestes de décision                                              */
+/* ------------------------------------------------------------------ */
+
+test('« Terminer la tâche » reste éteint pendant que l’agent travaille', () => {
+  const d = gesteCarte('terminer', { colonne: 'running', etat: 'travaille', agentLance: true });
+  assert.equal(d.affiche, true);
+  assert.equal(d.possible, false);
+  assert.match(d.raison ?? '', /travaille encore/);
+});
+
+test('« Terminer la tâche » s’allume quand l’agent a rendu', () => {
+  const d = gesteCarte('terminer', { colonne: 'running', etat: 'termine', agentLance: true });
+  assert.deepEqual(d, { affiche: true, possible: true });
+});
+
+test('une carte arrivée dans « En cours » sans agent ne se clôture pas', () => {
+  const d = gesteCarte('terminer', { colonne: 'running', etat: 'repos', agentLance: false });
+  assert.equal(d.possible, false);
+  assert.match(d.raison ?? '', /Aucun agent/);
+});
+
+test('un agent en échec ou arrêté laisse clôturer : il n’y a plus rien à attendre', () => {
+  assert.equal(gesteCarte('terminer', { colonne: 'running', etat: 'echec', agentLance: true }).possible, true);
+  assert.equal(gesteCarte('terminer', { colonne: 'running', etat: 'repos', agentLance: true }).possible, true);
+});
+
+test('le geste ne s’affiche pas hors de sa colonne', () => {
+  assert.equal(gesteCarte('terminer', { colonne: 'planned', etat: 'termine', agentLance: true }).affiche, false);
+  assert.equal(gesteCarte('valider', { colonne: 'running', etat: 'repos' }).affiche, false);
+  assert.equal(gesteCarte('publier', { colonne: 'running', etat: 'termine' }).affiche, false);
+  assert.equal(gesteCarte('lancer', { colonne: 'todo', etat: 'repos' }).affiche, false);
+});
+
+test('« Lancer maintenant » s’éteint si un agent tourne déjà', () => {
+  assert.equal(gesteCarte('lancer', { colonne: 'planned', etat: 'travaille' }).possible, false);
+  assert.equal(gesteCarte('lancer', { colonne: 'planned', etat: 'repos' }).possible, true);
+});
+
+test('les gestes de début et de publication restent simples', () => {
+  assert.deepEqual(gesteCarte('valider', { colonne: 'todo', etat: 'repos' }), { affiche: true, possible: true });
+  assert.deepEqual(gesteCarte('publier', { colonne: 'done', etat: 'repos' }), { affiche: true, possible: true });
 });
