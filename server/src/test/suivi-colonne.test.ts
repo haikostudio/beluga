@@ -5,39 +5,40 @@ import {
   COLUMN_KEYS,
   MACHINE_ONLY_TARGETS,
   ROLES_QUI_CLOTURENT,
+  ROLES_QUI_DEPLACENT,
   canMove,
   colonneAuDemarrage,
   colonneEnFinDeTour,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
-/* La carte suit l'état de son agent                                    */
+/* La carte suit les étapes réelles du travail                          */
 /* ------------------------------------------------------------------ */
 
-/* -------- Le tour démarre -------- */
+/* -------- Le tour d'exécution démarre -------- */
 
-test('une carte terminée sur laquelle on relance une action repasse en cours', () => {
-  assert.equal(colonneAuDemarrage('done'), 'running');
+test('une carte terminée sur laquelle on relance une exécution repasse en cours', () => {
+  assert.equal(colonneAuDemarrage('done', 'task'), 'running');
 });
 
-test('une carte encore en amont du parcours part en cours quand l’agent démarre', () => {
+test('une carte en amont du parcours part en cours quand l’exécution démarre', () => {
   for (const depart of ['notes', 'todo', 'validated', 'planned'] as const) {
-    assert.equal(colonneAuDemarrage(depart), 'running', `depuis « ${depart} »`);
+    assert.equal(colonneAuDemarrage(depart, 'task'), 'running', `depuis « ${depart} »`);
   }
 });
 
 test('une carte déjà en cours ne bouge pas : rien à annoncer', () => {
-  assert.equal(colonneAuDemarrage('running'), null);
+  assert.equal(colonneAuDemarrage('running', 'task'), null);
 });
 
 test('une carte prête à publier ou archivée ne sort pas de son rangement', () => {
   // Poser une question dans sa conversation ne doit pas la retirer du lot.
-  assert.equal(colonneAuDemarrage('to_deploy'), null);
-  assert.equal(colonneAuDemarrage('archived'), null);
+  assert.equal(colonneAuDemarrage('to_deploy', 'task'), null);
+  assert.equal(colonneAuDemarrage('archived', 'task'), null);
   assert.deepEqual(COLONNES_HORS_REPRISE, ['to_deploy', 'archived']);
 });
 
-/* -------- Le tour se termine -------- */
+/* -------- Le tour d'exécution se termine -------- */
 
 test('un tour d’exécution réussi pose la carte en terminé', () => {
   assert.equal(colonneEnFinDeTour('running', true, 'task'), 'done');
@@ -45,6 +46,9 @@ test('un tour d’exécution réussi pose la carte en terminé', () => {
 
 test('un tour d’exécution en échec ne déplace rien : le travail n’est pas fait', () => {
   assert.equal(colonneEnFinDeTour('running', false, 'task'), null);
+  for (const depart of ['validated', 'planned', 'done'] as const) {
+    assert.equal(colonneEnFinDeTour(depart, false, 'task'), null, `depuis « ${depart} »`);
+  }
 });
 
 test('une carte qui n’était pas en cours n’est pas déclarée terminée', () => {
@@ -53,32 +57,53 @@ test('une carte qui n’était pas en cours n’est pas déclarée terminée', (
   }
 });
 
-/* -------- Seul l'agent d'exécution clôt la carte -------- */
+/* -------- Seul l'agent d'exécution déplace la carte -------- */
 
-test('un tour d’analyse réussi ne déplace pas la carte : rien n’a été exécuté', () => {
+test('une analyse qui démarre laisse la carte validée où elle est', () => {
+  // Le défaut d'origine : la carte sautait en « En cours » dès l'analyse.
+  assert.equal(colonneAuDemarrage('validated', 'analysis'), null);
+  for (const depart of COLUMN_KEYS) {
+    assert.equal(colonneAuDemarrage(depart, 'analysis'), null, `depuis « ${depart} »`);
+  }
+});
+
+test('un tour d’analyse réussi ne clôt pas la carte : rien n’a été exécuté', () => {
   assert.equal(colonneEnFinDeTour('running', true, 'analysis'), null);
+  assert.equal(colonneEnFinDeTour('validated', true, 'analysis'), null);
 });
 
-test('ni l’orchestration ni la publication ne closent une carte', () => {
-  assert.equal(colonneEnFinDeTour('running', true, 'orchestrator'), null);
-  assert.equal(colonneEnFinDeTour('running', true, 'deploy'), null);
+test('ni l’orchestration ni la publication ne déplacent une carte', () => {
+  for (const role of ['orchestrator', 'deploy'] as const) {
+    assert.equal(colonneAuDemarrage('validated', role), null, `démarrage « ${role} »`);
+    assert.equal(colonneAuDemarrage('done', role), null, `démarrage « ${role} »`);
+    assert.equal(colonneEnFinDeTour('running', true, role), null, `fin « ${role} »`);
+  }
 });
 
-test('la liste des rôles qui closent se réduit à l’exécution', () => {
-  assert.deepEqual(ROLES_QUI_CLOTURENT, ['task']);
+test('la liste des rôles qui déplacent se réduit à l’exécution', () => {
+  assert.deepEqual(ROLES_QUI_DEPLACENT, ['task']);
+  // Clore et déplacer, c'est la même liste : un seul rôle décide.
+  assert.deepEqual(ROLES_QUI_CLOTURENT, ROLES_QUI_DEPLACENT);
 });
 
-test('l’analyse démarre bien la carte, même si elle ne la clôt pas', () => {
-  // L'analyse EST un travail en cours : le pendant au démarrage reste vrai.
-  assert.equal(colonneAuDemarrage('todo'), 'running');
-});
+/* -------- Le parcours complet -------- */
 
-/* -------- Aller-retour -------- */
+test('validé, analyse, exécution : la carte ne bouge qu’au bon moment', () => {
+  // 1. L'analyse démarre sur une carte validée : elle reste validée.
+  assert.equal(colonneAuDemarrage('validated', 'analysis'), null);
+  // 2. L'analyse rend son chiffrage : toujours validée.
+  assert.equal(colonneEnFinDeTour('validated', true, 'analysis'), null);
+  // 3. L'ordonnanceur lance l'exécution : la carte passe en cours.
+  assert.equal(colonneAuDemarrage('validated', 'task'), 'running');
+  // 4. L'exécution rend son rapport : terminé.
+  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'done');
+});
 
 test('terminé puis relancé puis terminé : la carte fait l’aller-retour', () => {
   const apresPremierTour = colonneEnFinDeTour('running', true, 'task');
   assert.equal(apresPremierTour, 'done');
-  const relance = colonneAuDemarrage(apresPremierTour!);
+  // Un message dans la conversation de l'agent d'EXÉCUTION la relance.
+  const relance = colonneAuDemarrage(apresPremierTour!, 'task');
   assert.equal(relance, 'running');
   assert.equal(colonneEnFinDeTour(relance!, true, 'task'), 'done');
 });

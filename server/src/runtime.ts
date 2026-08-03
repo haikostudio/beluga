@@ -175,13 +175,15 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   }
 
   /*
-   * La carte suit son agent. Un tour qui redémarre la ramène en « En cours »,
-   * d'où qu'elle vienne : une carte déjà terminée sur laquelle on relance une
-   * action n'est plus terminée, et le tableau doit le dire tout de suite.
+   * La carte suit son agent d'EXÉCUTION. Un tour d'exécution qui redémarre la
+   * ramène en « En cours », d'où qu'elle vienne : une carte déjà terminée sur
+   * laquelle on relance une action n'est plus terminée, et le tableau doit le
+   * dire tout de suite. Un tour d'analyse, lui, la laisse en « Validé » : le
+   * chiffrage n'est pas le travail.
    */
   const carteAvant = agent.cardId ? store.getCard(agent.cardId) : null;
   if (carteAvant) {
-    const cible = colonneAuDemarrage(carteAvant.column);
+    const cible = colonneAuDemarrage(carteAvant.column, agent.role);
     if (cible) {
       const relancee = store.saveCard({
         ...carteAvant,
