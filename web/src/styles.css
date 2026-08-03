@@ -167,6 +167,8 @@
   }
   .prose-hd code {
     @apply rounded bg-raised px-1 py-0.5 text-[13px] font-mono text-text;
+    /* Un chemin de fichier trop long se coupe au lieu de pousser la ligne. */
+    overflow-wrap: anywhere;
   }
   .prose-hd pre {
     @apply my-3 overflow-x-auto rounded-md bg-raised p-3 text-[13px] leading-relaxed;

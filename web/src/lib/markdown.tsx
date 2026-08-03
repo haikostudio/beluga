@@ -162,7 +162,14 @@ export function Markdown({
                   const isEvolution = inEvolutions && !!onToggleEvolution;
                   const active = picked.has(item);
                   if (!isEvolution) {
-                    return <li key={itemIndex}>{inline(item, `${index}-${itemIndex}`)}</li>;
+                    // Le <li> est une boîte flex (tiret + contenu). Sans ce span,
+                    // chaque fragment de texte et chaque `code` devient une
+                    // colonne à part, écrasée à une lettre de large.
+                    return (
+                      <li key={itemIndex}>
+                        <span className="min-w-0 flex-1">{inline(item, `${index}-${itemIndex}`)}</span>
+                      </li>
+                    );
                   }
                   return (
                     // Pas de tiret devant une suggestion : la carte à cocher
