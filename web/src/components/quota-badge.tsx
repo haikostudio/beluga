@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { ChevronDown, RefreshCw } from 'lucide-react';
-import { AccountQuota, EngineId, heureDeRemiseAZero, tempsRestant } from '@haikodev/shared';
+import { AccountQuota, EngineId, heureDeRemiseAZero, niveauQuota, tempsRestant } from '@haikodev/shared';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Gauge, Badge, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
@@ -13,7 +13,11 @@ import { cn } from '@/lib/utils';
 function ring(pct: number): { color: string; dash: string } {
   const value = Math.max(0, Math.min(100, pct));
   const circumference = 2 * Math.PI * 9;
-  const color = value >= 90 ? 'stroke-danger' : value >= 70 ? 'stroke-warning' : 'stroke-muted';
+  // Même règle que les barres des comptes : vert, jaune sous 30 % restants,
+  // rouge sous 15 %. L'anneau et les barres virent donc ensemble.
+  const niveau = niveauQuota(value);
+  const color =
+    niveau === 'critique' ? 'stroke-danger' : niveau === 'attention' ? 'stroke-warning' : 'stroke-success';
   return { color, dash: `${(value / 100) * circumference} ${circumference}` };
 }
 
@@ -259,7 +263,7 @@ function Window({ label, window: win }: { label: string; window?: { usedPct?: nu
         <span className="text-[12px] text-faint">{label}</span>
         <span className="ml-auto text-[12px] text-muted">{Math.round(pct)} %</span>
       </div>
-      <Gauge value={pct} height="h-1" />
+      <Gauge value={pct} tone="quota" height="h-1" />
       {restant ? (
         <Tooltip label={exact ?? ''}>
           <p className="mt-0.5 w-fit text-[11px] text-faint">{restant}</p>

@@ -80,3 +80,22 @@ export function heureDeRemiseAZero(resetsAt?: number, maintenant = Date.now()): 
     ? `Remise à zéro à ${heure}`
     : `Remise à zéro le ${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} à ${heure}`;
 }
+
+/**
+ * La couleur d'une jauge de quota, jugée sur ce qu'il RESTE et non sur ce qui
+ * est consommé : vert tant qu'on a de la marge, jaune en entrant dans les
+ * derniers 30 %, rouge dans les derniers 15 %. Une seule règle pour la barre
+ * d'un compte et pour l'anneau du bouton : les deux doivent virer ensemble.
+ */
+export type NiveauQuota = 'ok' | 'attention' | 'critique';
+
+export const RESTE_ATTENTION_PCT = 30;
+export const RESTE_CRITIQUE_PCT = 15;
+
+/** `consommePct` : la part déjà dépensée de la fenêtre, de 0 à 100. */
+export function niveauQuota(consommePct: number): NiveauQuota {
+  const reste = 100 - Math.max(0, Math.min(100, consommePct));
+  if (reste <= RESTE_CRITIQUE_PCT) return 'critique';
+  if (reste <= RESTE_ATTENTION_PCT) return 'attention';
+  return 'ok';
+}

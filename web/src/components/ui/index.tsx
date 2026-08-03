@@ -9,6 +9,7 @@ import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as SeparatorPrimitive from '@radix-ui/react-separator';
 import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
 import { X } from 'lucide-react';
+import { niveauQuota } from '@haikodev/shared';
 import { cn } from '@/lib/utils';
 
 /**
@@ -501,19 +502,27 @@ export function Gauge({
   height = 'h-1.5',
 }: {
   value: number;
-  tone?: 'auto' | 'neutral';
+  /** « quota » : vert, puis jaune sous 30 % restants, rouge sous 15 %. */
+  tone?: 'auto' | 'neutral' | 'quota';
   className?: string;
   height?: string;
 }) {
   const pct = Math.max(0, Math.min(100, value));
+  const niveau = niveauQuota(pct);
   const color =
     tone === 'neutral'
       ? 'bg-muted'
-      : pct >= 90
-        ? 'bg-danger'
-        : pct >= 70
-          ? 'bg-warning'
-          : 'bg-muted';
+      : tone === 'quota'
+        ? niveau === 'critique'
+          ? 'bg-danger'
+          : niveau === 'attention'
+            ? 'bg-warning'
+            : 'bg-success'
+        : pct >= 90
+          ? 'bg-danger'
+          : pct >= 70
+            ? 'bg-warning'
+            : 'bg-muted';
   return (
     <div className={cn('w-full overflow-hidden rounded-full bg-raised', height, className)}>
       <div className={cn('h-full rounded-full transition-all duration-500', color)} style={{ width: `${pct}%` }} />
