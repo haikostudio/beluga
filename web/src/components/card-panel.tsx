@@ -116,6 +116,24 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
   const raisonBloquante = (['valider', 'lancer', 'terminer', 'publier'] as GesteCarte[])
     .map(peut)
     .find((decision) => decision.affiche && !decision.possible)?.raison;
+
+  /*
+   * L'INSTANT où « Terminer la tâche » s'allume mérite un signe : un halo qui
+   * respire trois fois, puis plus rien. Une carte déjà ouverte sur un bouton
+   * allumé ne clignote pas — il ne vient pas de changer d'état.
+   */
+  const terminerActif = peut('terminer').possible;
+  const [vientDeSallumer, setVientDeSallumer] = React.useState(false);
+  const etatPrecedent = React.useRef(terminerActif);
+  React.useEffect(() => {
+    if (terminerActif && !etatPrecedent.current) {
+      setVientDeSallumer(true);
+      const timer = window.setTimeout(() => setVientDeSallumer(false), 5600);
+      etatPrecedent.current = terminerActif;
+      return () => window.clearTimeout(timer);
+    }
+    etatPrecedent.current = terminerActif;
+  }, [terminerActif]);
   const bascule = React.useRef(aLire);
   React.useEffect(() => {
     if (bascule.current || !aLire) return;
@@ -228,6 +246,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               <Button
                 size="sm"
                 variant="default"
+                className={cn(vientDeSallumer && 'animate-appel')}
                 disabled={!peut('terminer').possible}
                 onClick={() => client.call({ type: 'card.finish', id: card.id })}
               >

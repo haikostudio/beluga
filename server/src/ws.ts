@@ -10,6 +10,8 @@ import {
   RunConfig,
   ServerEvent,
   canMove,
+  etatVisuelCarte,
+  sortieAutorisee,
   comptePrecedents,
   messagesDepuis,
   peutRepartir,
@@ -320,6 +322,22 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const target = cmd.column as ColumnKey;
       const decision = canMove('user', card.column, target);
       if (!decision.allowed) throw new Error(decision.reason ?? 'déplacement refusé');
+
+      /*
+       * Le refus tient AUSSI sans navigateur à jour : une carte ne quitte pas
+       * « En cours » pendant que son agent écrit. C'est la même règle que celle
+       * du tableau et des boutons du tiroir.
+       */
+      const agentDeLaCarte = card.agentId ? store.getAgent(card.agentId) : null;
+      const sortie = sortieAutorisee(
+        {
+          colonne: card.column,
+          etat: etatVisuelCarte({ agentStatut: agentDeLaCarte?.status }),
+          agentLance: !!agentDeLaCarte,
+        },
+        target,
+      );
+      if (!sortie.possible) throw new Error(sortie.raison ?? 'déplacement refusé');
 
       const updated = store.saveCard({
         ...card,

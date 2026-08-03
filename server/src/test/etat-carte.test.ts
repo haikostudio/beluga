@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { etatVisuelCarte, gesteCarte } from '@haikodev/shared';
+import { etatVisuelCarte, gesteCarte, sortieAutorisee } from '@haikodev/shared';
 
 test('l’agent travaille : la roue tourne', () => {
   assert.equal(etatVisuelCarte({ agentStatut: 'running' }), 'travaille');
@@ -86,4 +86,24 @@ test('« Lancer maintenant » s’éteint si un agent tourne déjà', () => {
 test('les gestes de début et de publication restent simples', () => {
   assert.deepEqual(gesteCarte('valider', { colonne: 'todo', etat: 'repos' }), { affiche: true, possible: true });
   assert.deepEqual(gesteCarte('publier', { colonne: 'done', etat: 'repos' }), { affiche: true, possible: true });
+});
+
+test('une carte ne quitte pas « En cours » pendant que son agent écrit', () => {
+  const d = sortieAutorisee({ colonne: 'running', etat: 'travaille', agentLance: true }, 'done');
+  assert.equal(d.possible, false);
+  assert.match(d.raison ?? '', /travaille encore/);
+});
+
+test('l’agent a rendu : la carte se déplace librement', () => {
+  assert.equal(sortieAutorisee({ colonne: 'running', etat: 'termine', agentLance: true }, 'done').possible, true);
+  assert.equal(sortieAutorisee({ colonne: 'running', etat: 'echec', agentLance: true }, 'todo').possible, true);
+});
+
+test('rester dans sa colonne n’est jamais refusé', () => {
+  assert.equal(sortieAutorisee({ colonne: 'running', etat: 'travaille' }, 'running').possible, true);
+});
+
+test('les autres colonnes ne sont pas verrouillées', () => {
+  assert.equal(sortieAutorisee({ colonne: 'planned', etat: 'travaille' }, 'todo').possible, true);
+  assert.equal(sortieAutorisee({ colonne: 'done', etat: 'repos' }, 'to_deploy').possible, true);
 });

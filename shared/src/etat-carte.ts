@@ -113,3 +113,20 @@ export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste
       return ABSENT;
   }
 }
+
+/**
+ * Peut-on SORTIR cette carte de sa colonne ? Le glisser-déposer doit obéir aux
+ * mêmes règles que les boutons : emporter une carte hors de « En cours »
+ * pendant que son agent écrit, c'est perdre le fil de son travail.
+ */
+export function sortieAutorisee(ctx: ContexteGeste, vers: string): DecisionGeste {
+  if (ctx.colonne === vers) return { affiche: true, possible: true };
+  if (ctx.colonne === 'running' && ctx.etat === 'travaille') {
+    return {
+      affiche: true,
+      possible: false,
+      raison: 'L’agent travaille encore sur cette carte : arrêtez-le avant de la déplacer.',
+    };
+  }
+  return { affiche: true, possible: true };
+}
