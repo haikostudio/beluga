@@ -159,7 +159,10 @@ export function MessageView({
       ) : null}
 
       <div className="mt-1 flex items-center gap-1.5 text-[12px] text-faint">
-        <span className="opacity-0 transition-opacity group-hover:opacity-100">
+        {/* L'heure se montre TOUJOURS sur téléphone : le survol n'y existe pas,
+            et il fallait faire bouger le fil d'un pixel pour la voir
+            apparaître. Sur ordinateur, elle reste discrète jusqu'au survol. */}
+        <span className="transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
           {relativeTime(message.createdAt)}
         </span>
         <BoutonCopier texte={message.content} />
