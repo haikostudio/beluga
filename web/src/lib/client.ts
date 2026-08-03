@@ -15,6 +15,8 @@ import {
   ServerEvent,
   Settings,
   SystemProcess,
+  CLE_PROJET_ACTIF,
+  choisirProjetAOuvrir,
 } from '@haikodev/shared';
 
 export interface Toast {
@@ -160,27 +162,33 @@ class Client {
 
   private handle(event: ServerEvent): void {
     switch (event.type) {
-      case 'ready':
+      case 'ready': {
+        const prefs = event.prefs ?? {};
+        // On rouvre sur le dernier projet consulté, retenu en base. S'il a été
+        // archivé ou supprimé, on retombe sans bruit sur le premier de la liste.
+        const choix = choisirProjetAOuvrir(event.projects, prefs[CLE_PROJET_ACTIF], this.state.activeProjectId);
         this.set({
           version: event.version,
           settings: event.settings,
-          prefs: event.prefs ?? {},
+          prefs,
           projects: event.projects,
           groups: event.groups ?? [],
           engines: event.engines,
           quotas: event.quotas,
           capacity: event.capacity,
           agents: Object.fromEntries(event.agents.map((agent) => [agent.id, agent])),
-          activeProjectId: this.state.activeProjectId ?? event.projects[0]?.id ?? null,
+          activeProjectId: choix.id,
         });
         // Le projet retenu à l'ouverture doit CHARGER ses cartes tout de suite :
         // sans cette demande, le tableau reste vide tant qu'on n'a pas cliqué
         // dans la colonne de gauche — invisible sur téléphone, où elle est repliée.
-        if (this.state.activeProjectId) {
-          this.send({ type: 'project.open', id: this.state.activeProjectId });
-          this.send({ type: 'attachments.list', projectId: this.state.activeProjectId });
+        if (choix.id) {
+          this.send({ type: 'project.open', id: choix.id });
+          this.send({ type: 'attachments.list', projectId: choix.id });
+          if (choix.aCorriger) this.retenirProjetActif(choix.id);
         }
         break;
+      }
 
       case 'ack': {
         const entry = this.pending.get(event.id);
@@ -207,13 +215,14 @@ class Client {
             (a, b) => (a.rank ?? 1000) - (b.rank ?? 1000) || a.name.localeCompare(b.name),
           ),
         }));
+        // Mettre de côté le projet affiché revient à le quitter : on repart sur
+        // le premier de la liste plutôt que de rester sur un tableau rangé.
+        this.replierSiProjetIndisponible();
         break;
 
       case 'project.delete':
-        this.set((state) => ({
-          projects: state.projects.filter((p) => p.id !== event.id),
-          activeProjectId: state.activeProjectId === event.id ? null : state.activeProjectId,
-        }));
+        this.set((state) => ({ projects: state.projects.filter((p) => p.id !== event.id) }));
+        this.replierSiProjetIndisponible();
         break;
 
       case 'project.snapshot':
@@ -394,7 +403,27 @@ class Client {
     if (id) {
       this.send({ type: 'project.open', id });
       this.send({ type: 'attachments.list', projectId: id });
+      this.retenirProjetActif(id);
     }
+  }
+
+  /**
+   * Le dernier projet consulté vit dans la table des préférences, jamais dans
+   * le navigateur : on le retrouve à la réouverture, ordinateur ou téléphone.
+   */
+  /** Le projet affiché a disparu (archivé, supprimé) : repli sur le premier. */
+  private replierSiProjetIndisponible(): void {
+    const encore = this.state.projects.some((p) => p.id === this.state.activeProjectId && !p.archived);
+    if (encore) return;
+    const choix = choisirProjetAOuvrir(this.state.projects, this.state.prefs[CLE_PROJET_ACTIF], null);
+    if (choix.id === this.state.activeProjectId) return;
+    this.setActiveProject(choix.id);
+  }
+
+  private retenirProjetActif(id: string): void {
+    if (this.state.prefs[CLE_PROJET_ACTIF] === id) return;
+    this.setPrefLocally(CLE_PROJET_ACTIF, id);
+    this.send({ type: 'prefs.set', key: CLE_PROJET_ACTIF, value: id });
   }
 
   /** Optimisme contrôlé : on affiche tout de suite, puis on réconcilie. */
