@@ -301,15 +301,25 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     case 'project.new': {
-      const project = await createProjectFolder({
+      const { project, etapes } = await createProjectFolder({
         name: cmd.name,
         folder: cmd.folder,
+        description: cmd.description,
         git: cmd.git,
         gitRemote: cmd.gitRemote,
+        github: cmd.github,
+        githubPublic: cmd.githubPublic,
       });
       bus.emit({ type: 'project.upsert', project });
-      bus.toast('success', `Projet « ${project.name} » créé sur le serveur`);
-      return { project };
+      // Une étape ratée se dit : le projet existe quand même, mais il lui
+      // manque quelque chose, et le taire ferait croire que tout est en place.
+      const rates = etapes.filter((e) => !e.fait);
+      if (rates.length) {
+        bus.toast('error', `Projet créé, mais ${rates.length} étape(s) ont échoué`);
+      } else {
+        bus.toast('success', `Projet « ${project.name} » monté sur le serveur`);
+      }
+      return { project, etapes };
     }
 
     /* -------- Cartes -------- */

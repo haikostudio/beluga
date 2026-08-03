@@ -77,6 +77,11 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur.
+- **Créer un projet, c'est le MONTER en entier**, toujours de la même façon : dossier sur le serveur,
+  dépôt git sur `main`, dépôt GitHub privé créé et poussé, puis les sept fichiers de départ
+  (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
+  `HISTORIQUE.md`, `.gitignore`), et enfin l'inscription dans la colonne de gauche. Rien n'est
+  écrasé, une étape ratée n'arrête pas les autres et se dit dans le formulaire.
 - Une carte naît toujours dans « À faire » ; seul l'utilisateur la valide, et ce geste seul autorise
   la dépense. **Une seule exception** : le code enregistré par un agent SANS carte fabrique tout seul
   sa fiche dans « À déployer » — le travail est déjà fait, il n'y a plus rien à valider.

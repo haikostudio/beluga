@@ -76,13 +76,20 @@ export const ClientCommand = z.discriminatedUnion('type', [
     type: z.literal('sidebar.reorder'),
     items: z.array(z.object({ kind: z.enum(['project', 'group']), id: z.string(), groupId: z.string().optional() })),
   }),
-  /** Crée un dossier neuf sur le serveur, puis l'inscrit. */
+  /**
+   * Monte un projet NEUF de bout en bout : dossier sur le serveur, dépôt git
+   * sur « main », dépôt GitHub, fichiers d'instructions, mémoire et
+   * documentation, puis inscription dans la colonne de gauche.
+   */
   z.object({
     type: z.literal('project.new'),
     name: z.string(),
     folder: z.string().optional(),
+    description: z.string().optional(),
     git: z.boolean().optional(),
     gitRemote: z.string().optional(),
+    github: z.boolean().optional(),
+    githubPublic: z.boolean().optional(),
   }),
 
   // Cartes

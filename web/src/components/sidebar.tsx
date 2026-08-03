@@ -3,6 +3,7 @@ import {
   Archive,
   ArchiveRestore,
   Bot,
+  Check,
   ChevronRight,
   CircleDollarSign,
   Folder,
@@ -937,6 +938,13 @@ interface Found {
   git: boolean;
 }
 
+/** Une étape du montage d'un projet, telle qu'elle revient du serveur. */
+interface Etape {
+  titre: string;
+  fait: boolean;
+  detail?: string;
+}
+
 function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [found, setFound] = React.useState<Found[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -946,7 +954,12 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
   const [newName, setNewName] = React.useState('');
   const [newFolder, setNewFolder] = React.useState('');
   const [newRemote, setNewRemote] = React.useState('');
+  const [newResume, setNewResume] = React.useState('');
   const [withGit, setWithGit] = React.useState(true);
+  const [withGithub, setWithGithub] = React.useState(true);
+  /* Le déroulé du montage : on le garde à l'écran après coup, sinon une étape
+     ratée passerait dans un message qui s'efface tout seul. */
+  const [etapes, setEtapes] = React.useState<Etape[] | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -979,22 +992,29 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
   const createNew = async () => {
     if (!newName.trim()) return;
     setBusy('new');
+    setEtapes(null);
     try {
-      const data = await client.call<{ project: { id: string } }>(
+      const data = await client.call<{ project: { id: string }; etapes?: Etape[] }>(
         {
           type: 'project.new',
           name: newName.trim(),
           folder: newFolder.trim() || undefined,
+          description: newResume.trim() || undefined,
           git: withGit,
           gitRemote: newRemote.trim() || undefined,
+          github: withGithub,
         },
-        120000,
+        180000,
       );
       client.setActiveProject(data.project.id);
+      setEtapes(data.etapes ?? []);
       setNewName('');
       setNewFolder('');
       setNewRemote('');
-      onClose();
+      setNewResume('');
+      /* La fenêtre reste ouverte tant qu'une étape a échoué : c'est le seul
+         endroit où l'on peut lire laquelle et pourquoi. */
+      if ((data.etapes ?? []).every((etape) => etape.fait)) onClose();
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'création impossible');
     } finally {
@@ -1089,28 +1109,69 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
               />
             </div>
             <div>
-              <Label>Dépôt distant (facultatif)</Label>
+              <Label>En une phrase, à quoi sert ce projet ? (facultatif)</Label>
+              <Input
+                value={newResume}
+                onChange={(event) => setNewResume(event.target.value)}
+                className="mt-1"
+                placeholder="Le site vitrine de l'atelier"
+              />
+              <p className="mt-1 text-[12px] leading-snug text-faint">
+                Cette phrase ouvre la documentation du projet et décrit le dépôt sur GitHub.
+              </p>
+            </div>
+            <div>
+              <Label>Dépôt distant existant (facultatif)</Label>
               <Input
                 value={newRemote}
                 onChange={(event) => setNewRemote(event.target.value)}
                 className="mt-1"
-                placeholder="git@github.com:haikostudio/mon-projet.git"
+                placeholder="laisser vide pour en créer un sur GitHub"
               />
             </div>
             <label className="flex items-center gap-2 text-[14px] text-muted">
               <Switch checked={withGit} onCheckedChange={setWithGit} />
               Démarrer un dépôt git dans le dossier
             </label>
+            <label className="flex items-center gap-2 text-[14px] text-muted">
+              <Switch
+                checked={withGithub && withGit && !newRemote.trim()}
+                disabled={!withGit || !!newRemote.trim()}
+                onCheckedChange={setWithGithub}
+              />
+              Créer aussi le dépôt privé sur GitHub
+            </label>
 
             <p className="text-[12.5px] leading-snug text-faint">
-              Le dossier est créé pour de vrai sur le serveur, avec un premier fichier de présentation, puis il apparaît
-              dans la liste de gauche.
+              Le dossier est créé pour de vrai sur le serveur, sur la branche « main », avec les fichiers d'instructions
+              des moteurs, la mémoire, l'historique et une documentation de départ. Le projet apparaît ensuite dans la
+              liste de gauche.
             </p>
 
             <Button variant="default" size="sm" disabled={!newName.trim() || busy === 'new'} onClick={createNew}>
               {busy === 'new' ? <Loader2 className="h-3 w-3 animate-spin" /> : <FolderPlus className="h-3 w-3" />}
               Créer le projet
             </Button>
+
+            {etapes ? (
+              <ul className="mt-1 space-y-1">
+                {etapes.map((etape, index) => (
+                  <li key={index} className="flex items-start gap-1.5 text-[13px]">
+                    {etape.fait ? (
+                      <Check className="mt-[3px] h-3 w-3 shrink-0 text-success" />
+                    ) : (
+                      <TriangleAlert className="mt-[3px] h-3 w-3 shrink-0 text-warning" />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className={etape.fait ? 'text-muted' : 'text-warning'}>{etape.titre}</span>
+                      {etape.detail ? (
+                        <span className="block break-words text-[11.5px] text-faint">{etape.detail}</span>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </TabsContent>
         </Tabs>
       </DialogContent>

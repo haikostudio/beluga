@@ -95,16 +95,33 @@ export function reorderProjects(ids: string[]): Project[] {
   return store.listProjects();
 }
 
+/** Une étape du montage d'un projet, telle qu'elle se lit dans l'interface. */
+export type EtapeCreation = { titre: string; fait: boolean; detail?: string };
+
 /**
  * Crée un dossier NEUF sur le serveur puis l'inscrit : un nouveau projet
  * existe pour de vrai, il n'est pas seulement une ligne dans une liste.
+ *
+ * Le montage est TOUJOURS le même, sinon chaque projet démarre différemment et
+ * les agents ne savent plus où chercher : le dossier, le dépôt git sur sa
+ * branche principale, le dépôt distant sur GitHub, les fichiers d'instructions
+ * des moteurs, la mémoire, l'historique et une documentation de départ.
+ *
+ * Une étape qui échoue n'arrête pas les autres : le dossier existe déjà, on ne
+ * le jette pas parce que GitHub a refusé. Chaque étape rend son compte, et
+ * l'interface montre ce qui est passé et ce qui ne l'est pas.
  */
 export async function createProjectFolder(input: {
   name: string;
   folder?: string;
+  description?: string;
   git?: boolean;
   gitRemote?: string;
-}): Promise<Project> {
+  /** Créer le dépôt sur GitHub. Ignoré si une adresse est fournie à la main. */
+  github?: boolean;
+  /** Dépôt privé (défaut) ou public. */
+  githubPublic?: boolean;
+}): Promise<{ project: Project; etapes: EtapeCreation[] }> {
   const slug =
     (input.folder?.trim() || input.name)
       .toLowerCase()
@@ -113,6 +130,9 @@ export async function createProjectFolder(input: {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
       .slice(0, 50) || 'projet';
+
+  const etapes: EtapeCreation[] = [];
+  const noter = (titre: string, fait: boolean, detail?: string) => etapes.push({ titre, fait, detail });
 
   const target = path.resolve(CONFIG.projectsRoot, slug);
   if (!target.startsWith(path.resolve(CONFIG.projectsRoot) + path.sep)) {
@@ -131,32 +151,153 @@ export async function createProjectFolder(input: {
     await execFileAsync('sudo', ['-n', 'mkdir', '-p', target], { timeout: 20000 });
     await execFileAsync('sudo', ['-n', 'chown', '-R', `${user}:${user}`, target], { timeout: 20000 });
   }
+  noter('Dossier créé sur le serveur', true, target);
 
-  fs.writeFileSync(
-    path.join(target, 'README.md'),
-    `# ${input.name}\n\nProjet créé depuis HaikoDev le ${new Date().toLocaleDateString('fr-CH')}.\n`,
-    'utf8',
-  );
+  const ecrits = ecrireFichiersDeDepart(target, input.name, input.description);
+  noter('Fichiers de départ écrits', true, ecrits.join(', '));
 
-  if (input.git !== false) {
+  const avecGit = input.git !== false;
+  if (avecGit) {
     try {
-      await execFileAsync('git', ['init', '-q'], { cwd: target, timeout: 20000 });
+      // La branche principale s'appelle « main » d'emblée : c'est le nom
+      // qu'attend GitHub, et renommer après coup casse ce qui est déjà poussé.
+      await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: target, timeout: 20000 });
       await execFileAsync('git', ['add', '-A'], { cwd: target, timeout: 20000 });
       await execFileAsync(
         'git',
         ['-c', 'user.email=haikodev@local', '-c', 'user.name=HaikoDev', 'commit', '-qm', 'Départ du projet'],
         { cwd: target, timeout: 20000 },
       );
-      if (input.gitRemote?.trim()) {
-        await execFileAsync('git', ['remote', 'add', 'origin', input.gitRemote.trim()], { cwd: target, timeout: 20000 });
-      }
-    } catch (err) {
-      log.warn('dépôt git non initialisé', err);
+      noter('Dépôt git démarré sur la branche « main »', true);
+    } catch (err: any) {
+      noter('Dépôt git démarré sur la branche « main »', false, messageErreur(err));
     }
   }
 
+  /*
+   * Le dépôt distant. Une adresse fournie à la main gagne toujours : on la pose
+   * telle quelle. Sinon on demande à GitHub d'en fabriquer un, par l'outil en
+   * ligne de commande DÉJÀ authentifié sur le serveur — aucune clé à saisir.
+   */
+  let remote = input.gitRemote?.trim() || undefined;
+  if (avecGit && remote) {
+    try {
+      await execFileAsync('git', ['remote', 'add', 'origin', remote], { cwd: target, timeout: 20000 });
+      noter('Dépôt distant rattaché', true, remote);
+    } catch (err: any) {
+      noter('Dépôt distant rattaché', false, messageErreur(err));
+    }
+  } else if (avecGit && input.github !== false) {
+    const resultat = await creerDepotGithub(target, slug, input.description, input.githubPublic === true);
+    remote = resultat.remote ?? remote;
+    noter('Dépôt GitHub créé et poussé', resultat.ok, resultat.detail);
+  }
+
   log.info(`nouveau projet créé sur le serveur : ${target}`);
-  return registerProject({ name: input.name, path: target, gitRemote: input.gitRemote, rank: 5 });
+  const project = registerProject({ name: input.name, path: target, gitRemote: remote, rank: 5 });
+  noter('Projet inscrit dans la colonne de gauche', true);
+  return { project, etapes };
+}
+
+function messageErreur(err: any): string {
+  const texte = (err?.stderr ?? err?.message ?? String(err)).toString().trim();
+  return texte.split('\n').slice(-2).join(' ').slice(0, 220);
+}
+
+/**
+ * Les fichiers qu'un projet doit avoir dès la première minute : de quoi lancer
+ * un agent dessus sans qu'il ait à deviner où écrire quoi. Rien n'est écrasé —
+ * un fichier déjà là est laissé tel quel.
+ */
+export function ecrireFichiersDeDepart(target: string, nom: string, description?: string): string[] {
+  const ecrits: string[] = [];
+  const poser = (fichier: string, contenu: string) => {
+    const chemin = path.join(target, fichier);
+    if (fs.existsSync(chemin)) return;
+    fs.writeFileSync(chemin, contenu, 'utf8');
+    ecrits.push(fichier);
+  };
+  const date = new Date().toLocaleDateString('fr-CH');
+  const resume = description?.trim() || '_À remplir : ce que fait ce projet, en une phrase._';
+
+  poser(
+    'README.md',
+    `# ${nom}\n\n${resume}\n\nProjet créé depuis HaikoDev le ${date}.\n\n` +
+      `## Documents du projet\n\n` +
+      `- \`CLAUDE.md\` — les instructions du moteur : lancer, vérifier, où vivent les choses.\n` +
+      `- \`DOCUMENTATION.md\` — la documentation du projet, tenue à jour au fil des tâches.\n` +
+      `- \`MEMOIRE.md\` — les faits durables et les pièges, une ligne par fait.\n` +
+      `- \`HISTORIQUE.md\` — les livraisons datées.\n`,
+  );
+
+  // Le fichier d'instructions du moteur : le squelette partagé de la mémoire.
+  if (creerFichierInstructions(target, nom)) ecrits.push('CLAUDE.md');
+
+  /* Codex lit AGENTS.md, Claude lit CLAUDE.md. Deux fichiers qui divergent,
+     c'est deux vérités : le second renvoie au premier. */
+  poser(
+    'AGENTS.md',
+    `# ${nom} — instructions du moteur\n\n` +
+      `Les instructions de ce projet vivent dans \`CLAUDE.md\`. Lis-le : il fait foi.\n`,
+  );
+
+  poser(
+    'DOCUMENTATION.md',
+    `# ${nom} — documentation\n\n` +
+      `${resume}\n\n` +
+      `_Tenue à jour AU FIL des tâches. Elle explique le projet à quelqu'un qui arrive :\n` +
+      `à quoi il sert, comment il est bâti, comment on s'en sert._\n\n` +
+      `## À quoi sert ce projet\n\n_À remplir._\n\n` +
+      `## Comment il est bâti\n\n_À remplir : les grandes pièces et leur rôle._\n\n` +
+      `## Comment on s'en sert\n\n_À remplir : installer, lancer, vérifier._\n\n` +
+      `## Ce qui reste à faire\n\n_À remplir._\n`,
+  );
+
+  poser(
+    'MEMOIRE.md',
+    `# Mémoire du projet\n\n` +
+      `_Tenue automatiquement par HaikoDev : faits durables uniquement, une ligne par fait._\n\n`,
+  );
+
+  poser(
+    'HISTORIQUE.md',
+    `# Historique des livraisons\n\n` +
+      `_Tenu automatiquement par HaikoDev. Ce fichier n'est JAMAIS envoyé au moteur : il se relit à la main._\n\n`,
+  );
+
+  poser('.gitignore', `node_modules/\ndist/\n.env\n.env.local\n*.log\n.DS_Store\n`);
+
+  return ecrits;
+}
+
+/**
+ * Le dépôt sur GitHub, par l'outil en ligne de commande déjà authentifié. On
+ * pousse dans la foulée : un dépôt vide ne dirait pas si le rattachement a
+ * vraiment marché.
+ */
+async function creerDepotGithub(
+  target: string,
+  slug: string,
+  description: string | undefined,
+  publique: boolean,
+): Promise<{ ok: boolean; remote?: string; detail?: string }> {
+  const args = ['repo', 'create', slug, publique ? '--public' : '--private', '--source', '.', '--remote', 'origin', '--push'];
+  if (description?.trim()) args.push('--description', description.trim());
+  try {
+    await execFileAsync('gh', args, { cwd: target, timeout: 120000 });
+    let remote: string | undefined;
+    try {
+      const { stdout } = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: target, timeout: 10000 });
+      remote = stdout.trim();
+    } catch {
+      /* le dépôt est là, seule son adresse manque */
+    }
+    return { ok: true, remote, detail: remote };
+  } catch (err: any) {
+    const detail = messageErreur(err);
+    log.warn('dépôt GitHub non créé', detail);
+    return { ok: false, detail };
+  }
 }
 
 /** Parcourt le dossier des projets et propose ceux qui ne sont pas encore inscrits. */
