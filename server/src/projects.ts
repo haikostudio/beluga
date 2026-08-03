@@ -6,6 +6,7 @@ import { EngineId, Project } from '@haikodev/shared';
 import * as store from './store.js';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
+import { creerFichierInstructions } from './memory.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -64,6 +65,19 @@ export function registerProject(input: {
     createdAt: existing?.createdAt ?? store.now(),
     updatedAt: store.now(),
   });
+
+  // Un projet qui arrive sans fichier d'instructions en reçoit un, vide mais
+  // cadré : les agents savent alors où écrire les règles durables du projet.
+  if (!existing) {
+    try {
+      if (creerFichierInstructions(resolved, project.name)) {
+        log.info(`fichier d'instructions du moteur créé pour ${project.name}`);
+      }
+    } catch (err) {
+      log.warn("fichier d'instructions non créé", err);
+    }
+  }
+
   return store.saveProject(project);
 }
 

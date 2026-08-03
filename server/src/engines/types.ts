@@ -129,6 +129,16 @@ export function humanStep(tool: string, input: Record<string, unknown> | undefin
           project_memory: 'Lecture de la mémoire du projet',
           remember: 'Mise à jour de la mémoire du projet',
         };
+        // La mémoire ne part plus qu'en index : quand un agent va chercher le
+        // TEXTE ENTIER d'un fait, l'étape dit sur quoi — sinon on lit « lecture
+        // de la mémoire » sans savoir ce qu'il est allé y prendre.
+        if (short === 'project_memory') {
+          const sujet = val('sujet')?.trim();
+          return {
+            label: sujet ? `Mémoire du projet : le détail sur « ${sujet.slice(0, 60)} »` : 'Lecture de la mémoire du projet',
+            detail: sujet,
+          };
+        }
         return { label: map[short] ?? `Outil ${short}`, detail: JSON.stringify(input ?? {}).slice(0, 200) };
       }
       return { label: `Outil ${tool}`, detail: input ? JSON.stringify(input).slice(0, 200) : undefined };
