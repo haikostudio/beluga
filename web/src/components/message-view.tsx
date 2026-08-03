@@ -11,7 +11,7 @@ import {
   Paperclip,
   X,
 } from 'lucide-react';
-import { Attachment, MEMORY_STEP_ID, Message } from '@haikodev/shared';
+import { Attachment, MEMORY_STEP_ID, Message, heureExacte } from '@haikodev/shared';
 import { Badge, Button, Textarea } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
@@ -22,27 +22,49 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, relativeTime } from '@/lib/utils';
 
-/** Une ligne de repères : quand, combien de temps, combien de jetons. */
-function Meta({ items }: { items: (string | null)[] }) {
-  const visibles = items.filter(Boolean) as string[];
-  if (!visibles.length) return null;
+/**
+ * La ligne de repères sous un message : l'ancienneté, ce qui est propre à ce
+ * message (durée de travail, jetons), puis le bouton « Copier ».
+ *
+ * Une SEULE règle pour les deux côtés du fil : toujours visible, mise au second
+ * plan par la couleur et la taille, jamais par la transparence. L'ancienneté
+ * est ce qu'on lit ; l'heure exacte se donne en infobulle, au survol.
+ */
+function LigneReperes({
+  at,
+  montrerHeure,
+  complements = [],
+  texte,
+  aDroite = false,
+}: {
+  at: number;
+  /** Faux pour un message d'une suite écrite dans la même minute (l'heure se pose sous le dernier). */
+  montrerHeure: boolean;
+  complements?: (string | null)[];
+  texte: string;
+  aDroite?: boolean;
+}) {
+  const visibles = complements.filter(Boolean) as string[];
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-faint">
+    <div
+      className={cn(
+        'mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-faint',
+        aDroite && 'justify-end',
+      )}
+    >
+      {montrerHeure ? <span title={heureExacte(at)}>{relativeTime(at)}</span> : null}
       {visibles.map((item, index) => (
         <span key={index}>{item}</span>
       ))}
+      <BoutonCopier texte={texte} />
     </div>
   );
-}
-
-function horodatage(at: number): string {
-  const date = new Date(at);
-  return `${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 export function MessageView({
   message,
   projectId,
+  montrerHeure = true,
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
@@ -50,6 +72,8 @@ export function MessageView({
   message: Message;
   /** Pour déplier la mémoire du projet sous l'étape de lecture. */
   projectId?: string;
+  /** Faux quand le message suivant a été écrit dans la même minute : une heure suffit pour le groupe. */
+  montrerHeure?: boolean;
   pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
@@ -74,15 +98,15 @@ export function MessageView({
               <PiecesJointes ids={message.attachments} projectId={projectId} />
             ) : null}
           </div>
-          <div className="flex items-center justify-end gap-1.5">
-            <Meta
-              items={[
-                horodatage(message.createdAt),
-                message.tokens ? `${message.tokens.toLocaleString('fr-CH')} jetons envoyés` : null,
-              ]}
-            />
-            <BoutonCopier texte={message.content} />
-          </div>
+          <LigneReperes
+            at={message.createdAt}
+            montrerHeure={montrerHeure}
+            complements={[
+              message.tokens ? `${message.tokens.toLocaleString('fr-CH')} jetons envoyés` : null,
+            ]}
+            texte={message.content}
+            aDroite
+          />
         </div>
       </div>
     );
@@ -158,14 +182,19 @@ export function MessageView({
         </div>
       ) : null}
 
-      {/* L'heure se montre TOUJOURS, ordinateur comme téléphone, et des deux
-          côtés du fil : la mettre au second plan se fait par la COULEUR et la
-          taille, jamais par la transparence — effacée, elle disparaît. Mêmes
-          taille et couleur que sous les demandes (voir Meta plus haut). */}
-      <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-faint">
-        <span>{relativeTime(message.createdAt)}</span>
-        <BoutonCopier texte={message.content} />
-      </div>
+      {/* La durée du tour ne se dit que sous les RÉPONSES : une demande ne
+          « dure » pas. C'est du temps machine, sans rapport avec les heures
+          facturées, d'où la formulation « de travail ». */}
+      <LigneReperes
+        at={message.createdAt}
+        montrerHeure={montrerHeure}
+        complements={[
+          message.durationMs && message.durationMs >= 1000
+            ? `${duration(message.durationMs / 1000)} de travail`
+            : null,
+        ]}
+        texte={message.content}
+      />
     </div>
   );
 }

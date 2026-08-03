@@ -38,19 +38,43 @@ function poserSession(db) {
   return { token, empreinte };
 }
 
-/** Une carte dont la conversation contient au moins une demande ET une réponse. */
+/** La carte vivante dont la conversation est la plus fournie : le meilleur terrain. */
 function choisirCarte(db) {
   return db
     .prepare(
       `SELECT c.id, c.title, c.project_id, c.column_key, COUNT(m.id) AS n
        FROM cards c
-       JOIN agents a ON a.card_id = c.id AND a.role != 'analysis'
+       JOIN agents a ON a.card_id = c.id
        JOIN messages m ON m.agent_id = a.id
        WHERE c.column_key IN ('running', 'to_deploy', 'planned')
-       GROUP BY c.id HAVING n >= 1
-       ORDER BY c.updated_at DESC LIMIT 1`,
+       GROUP BY c.id HAVING n >= 2
+       ORDER BY n DESC, c.updated_at DESC LIMIT 1`,
     )
     .get();
+}
+
+/** Le fil enregistré d'une carte, tous ses agents mêlés, dans l'ordre du temps. */
+function filEnregistre(db, cardId) {
+  return db
+    .prepare(
+      `SELECT m.created_at AS at, m.data FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+       WHERE a.card_id = ? ORDER BY m.created_at`,
+    )
+    .all(cardId)
+    .map((row) => {
+      const data = JSON.parse(row.data);
+      return { at: row.at, role: data.role, durationMs: data.durationMs };
+    });
+}
+
+/** Combien d'heures DOIVENT s'afficher : une par minute entamée, en fin de groupe. */
+function heuresAttendues(fil) {
+  return fil.filter(
+    (message, index) =>
+      !fil[index + 1] ||
+      Math.floor(message.at / 60_000) !== Math.floor(fil[index + 1].at / 60_000),
+  ).length;
 }
 
 /** La luminance perçue d'une couleur « rgb(r, g, b) », pour juger du contraste. */
@@ -102,9 +126,36 @@ async function lireHeures(page) {
         fond: style.backgroundColor,
         largeur: Math.round(boite.width),
         x: Math.round(boite.x),
+        // L'heure exacte est promise en infobulle, jamais à la place du texte.
+        infobulle: span.getAttribute('title') || '',
       });
     }
     return trouvees;
+  });
+}
+
+/**
+ * Les lignes de repères du fil : une par message, avec son côté (les demandes
+ * sont alignées à droite), son heure éventuelle et sa durée de travail.
+ */
+async function lireReperes(page) {
+  return page.evaluate(() => {
+    const fils = document.querySelectorAll('[role="dialog"]');
+    const fil = fils[fils.length - 1] || document.body;
+    // Le libellé d'ancienneté seul : ni « 31 s de travail », ni « 1 200 jetons ».
+    const motif = /^(à l'instant|il y a \d+ (min|h|j)|\d{1,2}\.\d{1,2}\.\d{4})$/i;
+    const lignes = [];
+    for (const div of fil.querySelectorAll('div')) {
+      if (!/text-\[11\.5px\]/.test(div.className) || !/text-faint/.test(div.className)) continue;
+      const spans = [...div.querySelectorAll(':scope > span')].map((s) => s.textContent.trim());
+      lignes.push({
+        aDroite: /justify-end/.test(div.className),
+        heure: spans.find((t) => motif.test(t)) || '',
+        travail: spans.find((t) => / de travail$/.test(t)) || '',
+        copier: !!div.querySelector('button'),
+      });
+    }
+    return lignes;
   });
 }
 
@@ -166,6 +217,7 @@ async function main() {
     process.exit(2);
   }
   const projet = db.prepare('SELECT name FROM projects WHERE id = ?').get(carte.project_id).name;
+  const filEnBase = filEnregistre(db, carte.id);
   const { token, empreinte } = poserSession(db);
   console.log(`Carte : « ${carte.title} » (${projet})`);
 
@@ -236,6 +288,43 @@ async function main() {
       'Une seule règle pour la demande et pour la réponse',
       tailles.length === 1 && couleurs.length === 1,
       `taille ${tailles.join(' / ')} — couleur ${couleurs.join(' / ')}`,
+    );
+
+    // L'heure exacte est promise en infobulle, l'ancienneté reste ce qu'on lit.
+    const sansInfobulle = heures.filter((h) => !/\d{4}.+\d{2}:\d{2}/.test(h.infobulle));
+    record(
+      "L'heure exacte se lit en infobulle au survol",
+      sansInfobulle.length === 0,
+      heures[0] ? `« ${heures[0].texte} » → « ${heures[0].infobulle} »` : '',
+    );
+
+    /*
+     * Le groupement : une seule heure par minute entamée. On compare ce qui est
+     * à l'écran au fil enregistré en base, seule référence honnête.
+     */
+    const reperes = await lireReperes(page);
+    const attendu = heuresAttendues(filEnBase);
+    const affichees = reperes.filter((r) => r.heure).length;
+    record(
+      'Une seule heure par minute, posée en fin de groupe',
+      affichees === attendu,
+      `${affichees} heures pour ${reperes.length} messages (attendu ${attendu})`,
+    );
+
+    // La durée de travail ne se dit que sous les réponses de l'agent.
+    const durationsAttendues = filEnBase.filter(
+      (m) => m.role === 'assistant' && m.durationMs >= 1000,
+    ).length;
+    const avecTravail = reperes.filter((r) => r.travail);
+    record(
+      "La durée de travail s'affiche sous les réponses de l'agent",
+      avecTravail.length === durationsAttendues && durationsAttendues > 0,
+      avecTravail.length ? `ex. « ${avecTravail[0].travail} »` : 'aucune durée à l’écran',
+    );
+    record(
+      'Aucune durée sous une demande',
+      avecTravail.every((r) => !r.aDroite),
+      `${reperes.filter((r) => r.aDroite).length} demandes dans le fil`,
     );
 
     // Le bouton « Copier » ne doit pas se décaler quand la souris arrive.

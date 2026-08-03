@@ -1,6 +1,13 @@
 import * as React from 'react';
 import { ChevronUp, Loader2, MessageSquare, RotateCcw, Square } from 'lucide-react';
-import { Agent, Message, libellePrecedents, peutRepartir, titreDeBloc } from '@haikodev/shared';
+import {
+  Agent,
+  Message,
+  afficherHeure,
+  libellePrecedents,
+  peutRepartir,
+  titreDeBloc,
+} from '@haikodev/shared';
 import { ConfirmDialog, EmptyState, Tooltip } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
@@ -157,6 +164,7 @@ export function Chat({
               <MessageView
                 message={message}
                 projectId={projectId}
+                montrerHeure={afficherHeure(messages, index)}
                 pickedEvolutions={picked}
                 onToggleEvolution={toggleEvolution}
                 onToggleAll={toggleAll}
