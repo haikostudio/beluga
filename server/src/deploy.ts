@@ -41,6 +41,21 @@ function serviceDuProjet(cheminProjet: string): string | null {
   return null;
 }
 
+/** Le port annoncé par une unité systemd, s'il y en a un. */
+export function portDansUnite(texte: string): number | null {
+  const ligne = texte.match(/^Environment="?PORT=(\d+)/m);
+  return ligne ? Number(ligne[1]) : null;
+}
+
+/** Le port sur lequel écoute le service, lu dans son unité systemd. */
+function portDuService(service: string): number | null {
+  try {
+    return portDansUnite(fs.readFileSync(path.join('/etc/systemd/system', service), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 /** Le projet a-t-il ce script dans son package.json ? */
 function scriptExiste(cwd: string, nom: string): boolean {
   try {
@@ -296,6 +311,110 @@ async function runCommand(cwd: string, command: string, timeout = 15 * 60 * 1000
   } catch (err: any) {
     return { ok: false, out: ((err?.stdout ?? '') + (err?.stderr ?? '') + (err?.message ?? '')).slice(-3000) };
   }
+}
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * `systemctl` exige les droits d'administration ; le démon, lui, tourne sous un
+ * compte ordinaire. Sans cela la relance répondait « Interactive authentication
+ * required » et l'étape passait au rouge alors que le service, jamais touché,
+ * restait « active » — l'échec le plus déroutant possible (03/08/2026).
+ */
+export function manqueDeDroits(sortie: string): boolean {
+  return /authentication required|access denied|permission denied|interactive/i.test(sortie);
+}
+
+/** Le motif d'un échec de systemctl, dit en français. */
+export function motifSystemctl(sortie: string): string {
+  const texte = sortie.trim();
+  if (manqueDeDroits(texte)) {
+    return 'droits d’administration refusés (le compte qui publie ne peut pas relancer un service système)';
+  }
+  return texte.slice(-400) || 'raison non précisée par le système';
+}
+
+async function systemctlRoot(cwd: string, args: string, timeout = 60000): Promise<{ ok: boolean; out: string }> {
+  const direct = await runCommand(cwd, `systemctl ${args}`, timeout);
+  if (direct.ok) return direct;
+  if (!manqueDeDroits(direct.out)) return direct;
+  return runCommand(cwd, `sudo -n systemctl ${args}`, timeout);
+}
+
+/** Les dernières lignes du journal du service : le vrai motif y est presque toujours. */
+async function journalDuService(cwd: string, service: string): Promise<string> {
+  const journal = await systemctlRoot(cwd, `--no-pager -n 12 -o cat status ${service}`, 30000);
+  const texte = journal.out.trim();
+  return texte ? `\nDernières lignes du service :\n${texte.slice(-1200)}` : '';
+}
+
+/**
+ * Le contrôle de santé PUBLIC du service (jamais une route demandant une
+ * connexion : elle répondrait « non autorisé » même sur un serveur parfaitement
+ * à jour). On interroge /api/sante, et à défaut la page d'accueil : toute
+ * réponse HTTP prouve que le processus écoute de nouveau.
+ */
+async function attendreReponse(port: number, secondes: number): Promise<{ ok: boolean; detail: string }> {
+  const fin = Date.now() + secondes * 1000;
+  let dernier = 'aucune réponse';
+  while (Date.now() < fin) {
+    for (const chemin of ['/api/sante', '/']) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}${chemin}`, { signal: AbortSignal.timeout(8000) });
+        if (chemin === '/api/sante' && res.ok) {
+          const corps: any = await res.json().catch(() => null);
+          return { ok: true, detail: corps?.version ? `version ${corps.version}` : 'contrôle de santé favorable' };
+        }
+        if (res.status < 500) return { ok: true, detail: `le serveur répond sur le port ${port}` };
+        dernier = `le serveur répond une erreur ${res.status}`;
+      } catch (err: any) {
+        dernier = err?.message ?? 'injoignable';
+      }
+    }
+    await pause(3000);
+  }
+  return { ok: false, detail: dernier };
+}
+
+/**
+ * Relance le service d'un projet et n'annonce le succès qu'une fois qu'il a
+ * FINI de repartir. Beaucoup de projets se reconstruisent à leur démarrage :
+ * les regarder cinq secondes après la relance ne prouvait rien.
+ */
+async function redemarrerService(cwd: string, service: string): Promise<{ ok: boolean; recit: string }> {
+  const relance = await systemctlRoot(cwd, `restart ${service}`, 3 * 60 * 1000);
+  if (!relance.ok) {
+    return { ok: false, recit: `Le service ${service} n’a pas pu être relancé : ${motifSystemctl(relance.out)}` };
+  }
+
+  // On attend qu'il ait fini de s'installer : « activating » n'est pas un échec.
+  let etat = '';
+  for (let essai = 0; essai < 60; essai += 1) {
+    etat = (await systemctlRoot(cwd, `is-active ${service}`, 30000)).out.trim().split('\n').pop() ?? '';
+    if (etat === 'active' || etat === 'failed') break;
+    await pause(2000);
+  }
+  if (etat !== 'active') {
+    const lisible =
+      etat === 'failed'
+        ? 'il s’est arrêté sur une erreur'
+        : etat === 'activating'
+          ? 'il n’a pas fini de démarrer après deux minutes'
+          : `état inattendu « ${etat || 'inconnu'} »`;
+    return { ok: false, recit: `Le service ${service} n’est pas reparti : ${lisible}.${await journalDuService(cwd, service)}` };
+  }
+
+  const port = portDuService(service);
+  if (!port) return { ok: true, recit: `${service} redémarré et actif (aucun port connu à interroger).` };
+
+  const sante = await attendreReponse(port, 150);
+  if (!sante.ok) {
+    return {
+      ok: false,
+      recit: `Le service ${service} est actif mais ne répond pas encore sur le port ${port} : ${sante.detail}.${await journalDuService(cwd, service)}`,
+    };
+  }
+  return { ok: true, recit: `${service} redémarré et vérifié : ${sante.detail}.` };
 }
 
 /**
@@ -602,19 +721,10 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
           current = setStep(current, 'restart', 'skipped', 'aucun service système ne tourne sur ce dossier : rien à redémarrer');
         } else {
           current = setStep(current, 'restart', 'running');
-          const restart = await runCommand(cwd, `systemctl restart ${service}`, 3 * 60 * 1000);
-          // Le service repart en quelques secondes : on le laisse s'installer
-          // avant de le déclarer vivant.
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-          const actif = (await runCommand(cwd, `systemctl is-active ${service}`, 30000)).out.trim();
-          const ok = restart.ok && actif === 'active';
-          current = setStep(
-            current,
-            'restart',
-            ok ? 'done' : 'failed',
-            ok ? `${service} redémarré, il répond de nouveau.` : `${service} : ${actif || restart.out.slice(-300)}`,
-          );
-          if (!ok) throw new Error(`Le service ${service} n’est pas reparti.`);
+          const bilan = await redemarrerService(cwd, service);
+          current = setStep(current, 'restart', bilan.ok ? 'done' : 'failed', bilan.recit);
+          // Le motif exact remonte tel quel : plus de ligne rouge sans explication.
+          if (!bilan.ok) throw new Error(bilan.recit.split('\n')[0]);
         }
       }
 

@@ -19,6 +19,18 @@ const STEP_LABELS: Record<DeployStepKey, string> = {
 type Conflict = { cardId: string; title: string; branch: string; files: string[] };
 
 /**
+ * Le motif d'un échec, lisible. Le serveur écrit d'abord la raison en clair,
+ * puis, s'il en a, les dernières lignes techniques : n'afficher que la fin
+ * coupait justement la phrase qui explique — une ligne rouge sans explication.
+ */
+function motifLisible(log: string): string {
+  const texte = log.trim();
+  if (texte.length <= 300) return texte;
+  const premiere = texte.split('\n')[0].slice(0, 200);
+  return `${premiere}\n…\n${texte.slice(-200)}`;
+}
+
+/**
  * Le bouton qui devient un tableau de bord (PLAN §11). Le compteur dit la
  * VÉRITÉ : exactement les cartes que le run va embarquer.
  */
@@ -208,7 +220,7 @@ function DeployProgress({ run }: { run: DeployRun }) {
                   {STEP_LABELS[step.key]}
                   {step.log && step.state === 'failed' ? (
                     <span className="mt-0.5 block whitespace-pre-wrap text-[12px] text-faint">
-                      {step.log.slice(-300)}
+                      {motifLisible(step.log)}
                     </span>
                   ) : null}
                 </span>
