@@ -33,7 +33,7 @@ import { publishSubdomain } from './dns.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
-import { digestText } from './voice.js';
+import { digestText, listVoices } from './voice.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
 
@@ -716,6 +716,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'digest.speak':
       return { text: digestText(cmd.projectId) };
+
+    case 'voice.list':
+      return { voices: listVoices() };
 
     case 'stats.usage':
       return {

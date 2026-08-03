@@ -136,3 +136,44 @@ test('les rubriques vides restent muettes', () => {
   assert.match(texte, /travaille en ce moment/);
   assert.doesNotMatch(texte, /feu vert|proposée|en ligne|question/);
 });
+
+/* ------------------------------------------------------------------ */
+/* Les voix installées, et l'extrait qu'on écoute avant de choisir     */
+/* ------------------------------------------------------------------ */
+
+test('chaque voix installée porte un nom lisible, et la voix d\'origine vient en tête', async () => {
+  const { listVoices, EXTRAIT } = await import('../voice.js');
+  const voix = listVoices();
+  assert.ok(voix.length >= 2, 'plusieurs voix doivent être proposées');
+  assert.equal(voix[0].id, 'fr_FR-siwis-medium', 'la voix d\'origine ouvre la liste');
+
+  for (const une of voix) {
+    assert.ok(une.label.trim(), `voix sans nom : ${une.id}`);
+    assert.doesNotMatch(une.label, /fr_FR|onnx|medium|low/, `nom technique affiché : ${une.label}`);
+    assert.ok(une.description.trim(), `voix sans description : ${une.id}`);
+  }
+  assert.equal(new Set(voix.map((v) => v.id)).size, voix.length, 'aucune voix en double');
+
+  // L'extrait porte un nombre et une heure : c'est là qu'une voix se juge.
+  assert.match(EXTRAIT, /quatorze heures trente/);
+  assert.doesNotMatch(EXTRAIT, /\d/);
+});
+
+test('un modèle à plusieurs personnes compte pour autant de voix', async () => {
+  const { listVoices } = await import('../voice.js');
+  const upmc = listVoices().filter((v) => v.id.startsWith('fr_FR-upmc-medium'));
+  assert.equal(upmc.length, 2, 'le modèle upmc porte deux personnes distinctes');
+  assert.deepEqual(
+    upmc.map((v) => v.label).sort(),
+    ['Jessica', 'Pierre'],
+  );
+});
+
+test('une voix inconnue ou effacée retombe sur la voix d\'origine, jamais sur du silence', async () => {
+  const { voiceChoisie } = await import('../voice.js');
+  assert.match(voiceChoisie('voix-qui-n-existe-pas').modele, /fr_FR-siwis-medium\.onnx$/);
+  // Un chemin glissé dans le réglage ne sort pas du dossier des voix.
+  assert.match(voiceChoisie('../../../etc/passwd').modele, /fr_FR-siwis-medium\.onnx$/);
+  assert.equal(voiceChoisie('fr_FR-upmc-medium@pierre').personne, 1);
+  assert.equal(voiceChoisie('fr_FR-upmc-medium@jessica').personne, 0);
+});
