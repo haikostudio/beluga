@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 /**
- * Vérification, dans un VRAI navigateur, du signal « ce projet attend une
- * réponse » dans la colonne de gauche :
+ * Vérification, dans un VRAI navigateur, des signaux de la colonne de gauche —
+ * « ce projet attend une réponse » ET « ce projet a terminé quelque chose » :
  *
  *  - à l'ARRIVÉE d'une demande, la ligne du projet fait une petite secousse ;
+ *  - un travail RENDU pas encore consulté secoue la ligne LUI AUSSI ;
  *  - la secousse ne se rejoue PAS en boucle, ni sur un compte inchangé ;
  *  - le projet déjà ouvert et regardé ne bouge jamais ;
- *  - le triangle d'alerte, lui, reste tant que la demande est en attente ;
- *  - un groupe replié qui contient un projet en attente porte le même signal.
+ *  - le triangle d'alerte reste tant que la demande est en attente ;
+ *  - le badge bleu clignote tant que le travail n'a pas été consulté, et
+ *    s'éteint dès que le compte retombe (conversation ouverte) ;
+ *  - un groupe replié qui contient un tel projet porte les mêmes signaux.
  *
- * Les demandes sont SIMULÉES : on injecte l'événement « attention » dans le
- * canal temps réel, sans toucher à la base ni déranger un agent au travail.
+ * Les demandes sont SIMULÉES : on injecte les événements « attention » et
+ * « rendus » dans le canal temps réel, sans toucher à la base ni déranger un
+ * agent au travail.
  *
  *   HAIKODEV_URL=http://localhost:7133 node scripts/verif-signal-attention.mjs
  */
@@ -52,6 +56,9 @@ async function main() {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     locale: 'fr-CH',
+    // Sans cela, un poste réglé sur « réduire les animations » éteindrait la
+    // secousse et le clignotement : on ne jugerait plus rien.
+    reducedMotion: 'no-preference',
     ignoreHTTPSErrors: true,
     // Sinon c'est la version PUBLIÉE qui s'affiche, pas celle qu'on vérifie.
     serviceWorkers: 'block',
@@ -84,10 +91,13 @@ async function main() {
         return propriete.set.call(this, ecouteur);
       },
     });
-    window.__attention = (byProject) => {
-      const donnees = JSON.stringify({ type: 'attention', byProject });
+    const rejouer = (type, byProject) => {
+      const donnees = JSON.stringify({ type, byProject });
       for (const ecouteur of window.__ecouteurs) ecouteur({ data: donnees });
     };
+    window.__attention = (byProject) => rejouer('attention', byProject);
+    // Le travail rendu et pas encore lu : le serveur le diffuse pareillement.
+    window.__rendus = (byProject) => rejouer('rendus', byProject);
   });
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -178,7 +188,52 @@ async function main() {
     record('et rien ne bouge quand le compte retombe', !(await secoue(dormant.id)));
   }
 
-  /* --- 6. Le projet qu'on regarde déjà ne bouge pas ------------------ */
+  /* --- 6. Un travail RENDU non consulté secoue la ligne, lui aussi ---- */
+  if (dormant) {
+    const badge = ligneDe(dormant.id).locator('[data-signal-termine]');
+    /* On part d'une page blanche : le serveur diffuse l'état RÉEL, et des
+       travaux déjà rendus fausseraient la comparaison « avant / après ». */
+    await page.evaluate(() => window.__rendus({}));
+    await page.waitForTimeout(250);
+    record('aucun badge bleu tant que rien n’a été rendu', (await badge.count()) === 0);
+
+    await page.evaluate((id) => window.__rendus({ [id]: 1 }), dormant.id);
+    await page.waitForTimeout(120);
+    record('la ligne bouge quand un agent vient de terminer', await secoue(dormant.id));
+    record('elle porte le badge bleu du travail terminé', (await badge.count()) === 1);
+
+    // Il clignote pour de vrai, et il est bien bleu : sinon il se confondrait
+    // avec la pastille verte, qui ne bouge pas.
+    const allure = await badge.evaluate((noeud) => {
+      const style = getComputedStyle(noeud);
+      return { animation: style.animationName, couleur: style.backgroundColor };
+    });
+    record('le badge clignote', allure.animation !== 'none', allure.animation);
+    record('et il est bleu', /rgb\(\s*\d+,\s*\d+,\s*(1[5-9]\d|2[0-5]\d)\s*\)/.test(allure.couleur), allure.couleur);
+
+    // La pastille verte reste ce qu'elle était : deux repères distincts.
+    const pastille = ligneDe(dormant.id).locator('button[aria-label^="Marquer"]');
+    record('la pastille existante est toujours là, à côté', (await pastille.count()) === 1);
+
+    await page.screenshot({ path: `${SHOTS}/signal-travail-termine.png` });
+
+    await page.waitForTimeout(1200);
+    record('la secousse du travail terminé s’arrête aussi', !(await secoue(dormant.id)));
+    record('le badge bleu, lui, reste', (await badge.count()) === 1);
+
+    await page.evaluate((id) => window.__rendus({ [id]: 1 }), dormant.id);
+    await page.waitForTimeout(200);
+    record('un travail déjà signalé ne relance pas la secousse', !(await secoue(dormant.id)));
+
+    /* La conversation ouverte : le serveur repousse le repère de lecture et le
+       compte retombe à zéro — le badge doit s'éteindre. */
+    await page.evaluate(() => window.__rendus({}));
+    await page.waitForTimeout(200);
+    record('le badge s’éteint dès que le travail est consulté', (await badge.count()) === 0);
+    record('et la ligne ne bouge pas pour autant', !(await secoue(dormant.id)));
+  }
+
+  /* --- 7. Le projet qu'on regarde déjà ne bouge pas ------------------ */
   if (actif) {
     await page.evaluate((id) => window.__attention({ [id]: 1 }), actif.id);
     await page.waitForTimeout(200);
@@ -188,9 +243,18 @@ async function main() {
       (await ligneDe(actif.id).locator('[data-signal-attention]').count()) === 1,
     );
     await page.evaluate(() => window.__attention({}));
+
+    await page.evaluate((id) => window.__rendus({ [id]: 1 }), actif.id);
+    await page.waitForTimeout(200);
+    record('un travail rendu ne secoue pas le projet déjà ouvert', !(await secoue(actif.id)));
+    record(
+      'mais son badge bleu s’allume quand même',
+      (await ligneDe(actif.id).locator('[data-signal-termine]').count()) === 1,
+    );
+    await page.evaluate(() => window.__rendus({}));
   }
 
-  /* --- 7. Un groupe replié porte le signal de ses projets ------------ */
+  /* --- 8. Un groupe replié porte les signaux de ses projets ---------- */
   const groupes = page.locator('[data-drag-kind="group"]');
   if (await groupes.count()) {
     // Tous les groupes sont dépliés à ce stade : on lit les membres du premier.
@@ -214,6 +278,28 @@ async function main() {
         (await ligneGroupe.locator('[data-signal-attention]').count()) === 1,
       );
       await page.evaluate(() => window.__attention({}));
+
+      // Et le badge bleu, de même : replier ne doit rien cacher.
+      await page.evaluate(() => window.__rendus({}));
+      await page.waitForTimeout(250);
+      await page.evaluate((id) => window.__rendus({ [id]: 1 }), membres.ids[0]);
+      await page.waitForTimeout(150);
+      record(
+        'un groupe replié porte le badge bleu de ses projets',
+        (await ligneGroupe.locator('[data-signal-termine]').count()) === 1,
+      );
+      // Un groupe qui contient le projet OUVERT est déjà sous les yeux : il ne
+      // bouge pas, et le contrôle n'aurait aucun sens.
+      const regarde = actif ? membres.ids.includes(actif.id) : false;
+      const bouge = (await ligneGroupe.getAttribute('class')).includes('animate-secousse');
+      record(
+        regarde
+          ? 'le groupe du projet ouvert ne bouge pas, comme attendu'
+          : 'et il bouge quand l’un d’eux vient de terminer',
+        regarde ? !bouge : bouge,
+      );
+      await page.evaluate(() => window.__rendus({}));
+      await page.waitForTimeout(150);
       // On rend la colonne telle qu'on l'a trouvée : le groupe se redéplie.
       await basculerGroupe(membres.groupeId);
     } else {

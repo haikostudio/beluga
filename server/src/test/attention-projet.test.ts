@@ -4,7 +4,6 @@ import {
   attentionDuGroupe,
   attentionParProjet,
   demandeOuverte,
-  doitSecouer,
   type DemandeEnAttente,
 } from '@haikodev/shared';
 
@@ -56,20 +55,5 @@ test('replier un groupe ne cache pas l’attente de ses projets', () => {
   assert.equal(attentionDuGroupe([], parProjet), 0);
 });
 
-/* ------------------------------------------------------------------ */
-/* La secousse signale, elle ne harcèle pas                             */
-/* ------------------------------------------------------------------ */
-
-test('seule une NOUVELLE demande secoue la ligne', () => {
-  assert.equal(doitSecouer({ avant: 0, maintenant: 1 }), true);
-  assert.equal(doitSecouer({ avant: 1, maintenant: 2 }), true);
-  // Le même compte, tour après tour : l'icône suffit, on ne rejoue rien.
-  assert.equal(doitSecouer({ avant: 2, maintenant: 2 }), false);
-  // Une demande réglée fait baisser le compte : ce n'est pas un signal.
-  assert.equal(doitSecouer({ avant: 2, maintenant: 1 }), false);
-});
-
-test('le projet déjà ouvert et regardé ne bouge jamais', () => {
-  assert.equal(doitSecouer({ avant: 0, maintenant: 1, regarde: true }), false);
-  assert.equal(doitSecouer({ avant: 0, maintenant: 3, regarde: true }), false);
-});
+/* La secousse de la ligne se juge sur les DEUX signaux — attente et travail
+   rendu : ses cas vivent dans « signal-projet.test.ts ». */

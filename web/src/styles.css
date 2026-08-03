@@ -27,6 +27,9 @@
     /* Enregistrement en cours : un état, pas une décoration. */
     --record: 213 85% 52%;
     --record-fg: 0 0% 100%;
+    /* Du neuf à lire : le travail rendu qu'on n'a pas encore ouvert. Ni une
+       alerte (orange), ni une réussite acquise (vert) — une nouvelle. */
+    --info: 205 90% 60%;
     color-scheme: dark;
   }
 
@@ -45,6 +48,7 @@
     --danger: 0 72% 42%;
     --record: 213 85% 45%;
     --record-fg: 0 0% 100%;
+    --info: 205 90% 38%;
     color-scheme: light;
   }
 
@@ -232,10 +236,12 @@
 }
 
 /* Réglage système « réduire les animations » : la secousse d'un projet qui
-   attend une réponse ne joue pas. Le triangle d'alerte, lui, reste — le signal
-   ne disparaît jamais, seul son mouvement s'efface. */
+   attend une réponse ne joue pas, et le badge du travail rendu cesse de
+   clignoter. Le triangle d'alerte et le badge, eux, restent — le signal ne
+   disparaît jamais, seul son mouvement s'efface. */
 @media (prefers-reduced-motion: reduce) {
-  .animate-secousse {
+  .animate-secousse,
+  .animate-pulse-soft {
     animation: none !important;
   }
 }
