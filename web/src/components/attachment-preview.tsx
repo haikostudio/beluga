@@ -57,10 +57,14 @@ export function AttachmentThumb({
   item,
   onOpen,
   className,
+  compact,
 }: {
   item: Attachment;
   onOpen: () => void;
   className?: string;
+  /** Dans la barre d'écriture, la vignette est plus petite : elle ne doit pas
+      manger la hauteur du champ de texte sur téléphone. */
+  compact?: boolean;
 }) {
   const isImage = item.mime.startsWith('image/');
 
@@ -71,7 +75,8 @@ export function AttachmentThumb({
         onClick={onOpen}
         title={item.name}
         className={cn(
-          'h-20 w-20 overflow-hidden rounded-md border border-border bg-surface transition-colors hover:border-faint',
+          'overflow-hidden rounded-md border border-border bg-surface transition-colors hover:border-faint',
+          compact ? 'h-12 w-12' : 'h-20 w-20',
           className,
         )}
       >
@@ -92,6 +97,7 @@ export function AttachmentThumb({
       title={item.name}
       className={cn(
         'inline-flex max-w-[190px] items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-muted transition-colors hover:border-faint hover:text-text',
+        compact && 'h-12 py-0 text-[12.5px]',
         className,
       )}
     >

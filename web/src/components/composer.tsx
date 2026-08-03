@@ -1,9 +1,20 @@
 import * as React from 'react';
 import { ArrowUp, Check, GripVertical, Loader2, Paperclip, Pencil, Trash2, X } from 'lucide-react';
-import { Agent, EngineInfo, QueuedPrompt } from '@haikodev/shared';
+import {
+  Agent,
+  Attachment,
+  EngineInfo,
+  QueuedPrompt,
+  ancre,
+  insereAncre,
+  jointesApresFrappe,
+  retireAncre,
+} from '@haikodev/shared';
+import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecordingBar, useRecorder } from '@/components/recorder';
 import { RunChoix, RunSelectors } from '@/components/run-selectors';
+import { indexAuPoint, montreLeMorceau } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
@@ -35,10 +46,62 @@ export function Composer({
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
   const [edition, setEdition] = React.useState<{ id: string; texteMisDeCote: string } | null>(null);
-  const [attachments, setAttachments] = React.useState<{ id: string; name: string }[]>([]);
+  const [attachments, setAttachments] = React.useState<Attachment[]>([]);
+  /** La pièce jointe regardée en grand, avant même l'envoi du message. */
+  const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  /**
+   * Où l'ancre du prochain fichier doit s'écrire : le curseur posé dans le
+   * texte, ou l'endroit visé par un fichier lâché sur les mots. Rien de posé
+   * (collage, dépôt à côté du texte) → l'ancre va à la fin.
+   */
+  const curseur = React.useRef<number | null>(null);
+
+  const retientCurseur = () => {
+    const node = textareaRef.current;
+    if (!node) return;
+    curseur.current = node.selectionStart === node.selectionEnd ? node.selectionStart : null;
+  };
+
+  /**
+   * Toute frappe passe par ici : une ancre effacée à la main retire aussitôt
+   * sa pièce jointe, sinon le texte et la liste se contrediraient.
+   */
+  const majTexte = (suite: string) => {
+    if (attachments.length) setAttachments((liste) => jointesApresFrappe(liste, text, suite));
+    setText(suite);
+  };
+
+  /** Écrire l'ancre d'un fichier là où le curseur était posé. */
+  const poseAncre = (nom: string) => {
+    setText((avant) => {
+      const suite = insereAncre(avant, nom, curseur.current);
+      curseur.current = suite.curseur;
+      return suite.texte;
+    });
+  };
+
+  /**
+   * Survoler une vignette montre le passage auquel le fichier se rapporte :
+   * le texte défile jusqu'à son ancre. Rien n'est modifié, et le curseur
+   * n'est pas volé — on ne fait que regarder.
+   */
+  const montreAncre = (item: Attachment) => {
+    const zone = textareaRef.current;
+    if (!zone) return;
+    const debut = text.indexOf(ancre(item.name));
+    if (debut === -1) return;
+    montreLeMorceau(zone, debut, debut + ancre(item.name).length);
+  };
+
+  /** Retirer un fichier retire aussi son ancre du texte. */
+  const retirerJointe = (item: Attachment) => {
+    setAttachments((liste) => liste.filter((a) => a.id !== item.id));
+    setText((avant) => retireAncre(avant, item.name));
+    curseur.current = null;
+  };
 
   // La dictée dépose son texte à la suite de ce qui est déjà écrit.
   const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
@@ -125,7 +188,13 @@ export function Composer({
     }
   };
 
-  const upload = async (files: FileList | File[]) => {
+  /**
+   * Joindre des fichiers. Chaque nouveau fichier écrit son ancre dans le
+   * texte : à l'endroit du curseur s'il y en avait un, à la fin sinon.
+   */
+  const upload = async (files: FileList | File[], aLaFin = false) => {
+    if (aLaFin) curseur.current = null;
+    const dejaVues = new Set(attachments.map((a) => a.id));
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
@@ -140,13 +209,12 @@ export function Composer({
           },
         );
         const data = await response.json();
-        if (data.attachment) {
-          setAttachments((current) =>
-            current.some((a) => a.id === data.attachment.id)
-              ? current
-              : [...current, { id: data.attachment.id, name: data.attachment.name }],
-          );
-        }
+        const jointe: Attachment | undefined = data.attachment;
+        // Le même fichier renvoyé deux fois ne s'ajoute — et ne s'ancre — qu'une fois.
+        if (!jointe || dejaVues.has(jointe.id)) continue;
+        dejaVues.add(jointe.id);
+        setAttachments((current) => (current.some((a) => a.id === jointe.id) ? current : [...current, jointe]));
+        poseAncre(jointe.name);
       }
     } catch {
       client.pushToast('error', "Envoi du fichier impossible");
@@ -210,6 +278,7 @@ export function Composer({
     setText('');
     onClearPicked();
     setAttachments([]);
+    curseur.current = null;
     try {
       await client.call({
         type: 'agent.prompt',
@@ -236,6 +305,25 @@ export function Composer({
     <div
       className="border-t border-border bg-bg px-2.5 pt-2"
       style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        const files = Array.from(event.dataTransfer.files);
+        if (!files.length) return;
+        event.preventDefault();
+        // Lâché sur les mots, le fichier s'ancre À CET ENDROIT ; lâché à côté
+        // du texte (réglages, pastilles, bord de la barre), il va à la fin.
+        const zone = textareaRef.current;
+        const surLeTexte = zone && event.target instanceof Node && zone.contains(event.target);
+        const vise = surLeTexte ? indexAuPoint(zone, event.clientX, event.clientY) : null;
+        if (vise === null) {
+          void upload(files, true);
+          return;
+        }
+        curseur.current = vise;
+        void upload(files);
+      }}
     >
       {/* La file d'attente s'empile juste au-dessus de la barre d'écriture */}
       {queue.length ? (
@@ -274,22 +362,33 @@ export function Composer({
         </div>
       ) : null}
 
+      {/* Les fichiers joints en attente : l'image se voit, le reste garde son
+          nom. Un clic ouvre l'aperçu en grand ; la croix retire le fichier
+          ET son ancre du texte. */}
       {attachments.length ? (
-        <div className="mb-1.5 flex flex-wrap gap-1">
+        <div className="mb-1.5 flex flex-wrap gap-1.5">
           {attachments.map((file) => (
-            <button
+            <div
               key={file.id}
-              type="button"
-              onClick={() => setAttachments((current) => current.filter((a) => a.id !== file.id))}
-              className="group inline-flex items-center gap-1 rounded-md border border-border bg-raised px-1.5 py-1 text-[13px] text-muted"
+              className="relative"
+              onMouseEnter={() => montreAncre(file)}
+              onFocus={() => montreAncre(file)}
             >
-              <Paperclip className="h-2.5 w-2.5" />
-              <span className="max-w-[160px] truncate">{file.name}</span>
-              <X className="h-2.5 w-2.5 text-faint group-hover:text-danger" />
-            </button>
+              <AttachmentThumb item={file} compact onOpen={() => setApercu(file)} />
+              <button
+                type="button"
+                title="Retirer ce fichier"
+                onClick={() => retirerJointe(file)}
+                className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-faint hover:border-danger/40 hover:text-danger"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
           ))}
         </div>
       ) : null}
+
+      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
 
       {recorder.recording ? (
         <RecordingBar
@@ -321,13 +420,20 @@ export function Composer({
         <Textarea
           ref={textareaRef}
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            majTexte(event.target.value);
+            curseur.current = event.target.selectionStart;
+          }}
           onKeyDown={onKeyDown}
+          onKeyUp={retientCurseur}
+          onClick={retientCurseur}
+          onSelect={retientCurseur}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.files);
             if (files.length) {
               event.preventDefault();
-              void upload(files);
+              // Un collage de fichier ne vise aucun endroit précis : à la fin.
+              void upload(files, true);
             }
           }}
           placeholder={
