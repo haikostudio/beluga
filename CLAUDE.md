@@ -86,6 +86,12 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   ramène en « En cours », un tour réussi la pose en « Terminé », un tour en échec ne la déplace pas.
   Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
   reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
+- **TOUTE demande de PROGRAMMATION passe par une carte** — nouvelle fonctionnalité, correction,
+  suppression, changement de comportement, retouche d'interface, script, réglage : aucune exception,
+  quelle que soit la taille. Le chef crée la carte et s'arrête là ; c'est l'agent de cette carte qui
+  fait le travail, pour que l'avancement se voie du début à la fin sur le tableau. **Vrai aussi sur
+  HaikoDev** : les outils d'écriture du chef ne dispensent pas de la carte. Une simple question se
+  répond dans la conversation, sans carte. Verrouillé par `server/src/test/tri-du-chef.test.ts`.
 - Une carte naît toujours dans « À faire ». **Une demande d'ACTION CLAIRE au chef d'orchestre y naît
   puis est validée d'office** (`lancerCarteDuChef`, étiquette « lancée par le chef ») : l'utilisateur
   vient de la formuler, il n'a pas à la valider deux fois — elle suit ensuite le parcours habituel.
