@@ -276,6 +276,18 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
             L'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en
             premier, la relève ne sert qu'en cas d'épuisement.
           </p>
+
+          <label className="mt-2 flex items-center gap-2 text-[14px] text-muted">
+            <Switch
+              checked={settings.primeClaudeWindow}
+              onCheckedChange={(checked) => update({ primeClaudeWindow: checked })}
+            />
+            Lancer la fenêtre de 5 h dès qu'elle repart à zéro
+          </label>
+          <p className="mt-1 text-[12.5px] text-faint">
+            Sur Claude, la fenêtre de cinq heures ne démarre qu'au premier message. HaikoDev en envoie un minuscule dès
+            qu'un compte revient à zéro, pour que le décompte tourne déjà quand le travail arrive.
+          </p>
         </section>
 
         {/* ---------- Suivi : consommation et facturation ---------- */}

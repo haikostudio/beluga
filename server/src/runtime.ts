@@ -59,6 +59,11 @@ export function runningCount(): number {
   return live.size;
 }
 
+/** Les comptes sur lesquels un agent travaille EN CE MOMENT. */
+export function comptesOccupes(): string[] {
+  return [...live.values()].map((run) => run.account).filter((id): id is string => !!id);
+}
+
 export function pidFor(agentId: string): number | undefined {
   return live.get(agentId)?.handle.pid;
 }

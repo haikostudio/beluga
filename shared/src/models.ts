@@ -463,6 +463,11 @@ export const Settings = z.object({
   backupHour: z.number().default(3),
   ttsVoice: z.string().default('fr_FR-siwis-medium'),
   /**
+   * Amorcer la fenêtre de cinq heures des comptes Claude dès qu'elle repart à
+   * zéro. Se coupe d'un geste si le mécanisme faisait plus de mal que de bien.
+   */
+  primeClaudeWindow: z.boolean().default(true),
+  /**
    * Le dernier réglage choisi pour un chef d'orchestre : les chefs d'orchestre
    * créés ensuite le reprennent, au lieu de retomber sur le modèle épinglé.
    */
