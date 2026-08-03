@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   Agent,
   AgentRole,
+  Ampleur,
   Card,
   MEMORY_STEP_ID,
   Message,
@@ -10,6 +12,7 @@ import {
   TaskProposal,
   TemplateKind,
   TodoItem,
+  ampleurParDefaut,
   checkTemplate,
   templateForColumn,
   wrapPrompt,
@@ -57,6 +60,11 @@ export function liveRun(agentId: string): LiveRun | undefined {
 
 export function runningCount(): number {
   return live.size;
+}
+
+/** Les comptes sur lesquels un agent travaille EN CE MOMENT. */
+export function comptesOccupes(): string[] {
+  return [...live.values()].map((run) => run.account).filter((id): id is string => !!id);
 }
 
 export function pidFor(agentId: string): number | undefined {
@@ -111,6 +119,12 @@ export interface PromptOptions {
   template?: TemplateKind;
   /** Contexte supplémentaire (briefing, consignes de rôle). */
   context?: string;
+  /**
+   * Longueur de référence de la réponse. Une carte lancée est toujours une
+   * vraie tâche : elle mérite le compte rendu entier. Ailleurs, elle se déduit
+   * de la demande.
+   */
+  ampleur?: Ampleur;
   /** Ne pas enregistrer le message utilisateur (relances internes). */
   silent?: boolean;
   attachments?: string[];
@@ -172,9 +186,12 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * on n'envoie donc que les faits AJOUTÉS depuis.
    */
   const nouvelleSession = !store.getSessionId(agent.id, agent.run.engine);
-  const contextParts: string[] = [briefing(project.path, project.name, nouvelleSession)];
+  const contextParts: string[] = [];
 
   if (nouvelleSession) {
+    // Le briefing (chemin du projet, fichiers d'instructions, mémoire entière)
+    // n'a de sens qu'au premier tour : ensuite l'agent l'a déjà en contexte.
+    contextParts.push(briefing(project.path, project.name, true));
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
@@ -186,9 +203,8 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
 
   if (options.context) contextParts.push(options.context);
   if (card) {
-    contextParts.push(
-      `CARTE EN COURS : « ${card.title} »\n${card.description || '(pas de description)'}\nColonne : ${card.column}.`,
-    );
+    const bloc = carteContexte(agent.id, card, nouvelleSession);
+    if (bloc) contextParts.push(bloc);
   }
   if (options.attachments?.length) {
     const files = options.attachments
@@ -200,8 +216,36 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     }
   }
 
-  const prompt = wrapPrompt(template, text, contextParts.join('\n\n'));
-  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession);
+  const ampleur = options.ampleur ?? ampleurParDefaut(template, text);
+  const prompt = wrapPrompt(template, text, contextParts.join('\n\n'), {
+    // Session déjà ouverte : le gabarit entier est dans le fil, un rappel suffit.
+    rappel: !nouvelleSession,
+    ampleur,
+  });
+  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession, ampleur);
+}
+
+/**
+ * Le bloc « carte en cours ». Entier au lancement de la session ; ensuite rien,
+ * sauf si la carte a bougé — et dans ce cas une seule ligne quand seule la
+ * colonne a changé.
+ */
+function carteContexte(agentId: string, card: Card, nouvelleSession: boolean): string | null {
+  const entier = `CARTE EN COURS : « ${card.title} »\n${card.description || '(pas de description)'}\nColonne : ${card.column}.`;
+  const fond = createHash('sha1').update(`${card.title}\n${card.description ?? ''}`).digest('hex').slice(0, 12);
+  const empreinte = `${fond}:${card.column}`;
+
+  if (nouvelleSession) {
+    store.setCarteVue(agentId, empreinte);
+    return entier;
+  }
+
+  const vue = store.carteVue(agentId);
+  if (vue === empreinte) return null;
+  store.setCarteVue(agentId, empreinte);
+  // Seule la colonne a bougé : une ligne suffit, la description est déjà lue.
+  if (vue.startsWith(`${fond}:`)) return `La carte « ${card.title} » est passée en colonne ${card.column}.`;
+  return entier;
 }
 
 async function startTurn(
@@ -211,6 +255,7 @@ async function startTurn(
   onComplete?: PromptOptions['onComplete'],
   /** Vrai au tout premier tour d'une session : c'est là qu'on lit la mémoire. */
   nouvelleSession = true,
+  ampleur: Ampleur = 'complete',
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -295,7 +340,7 @@ async function startTurn(
   // agent complet (PLAN §5). Le basculement se décide sur le CHEMIN du projet.
   const fullAccess = !isOrchestrator || project.isSelf;
 
-  const systemPrompt = rolePrompt(agent.role, project.isSelf, template);
+  const systemPrompt = rolePrompt(agent.role, project.isSelf);
 
   const env: Record<string, string> = {
     HAIKODEV_TOKEN: token,
@@ -409,7 +454,7 @@ async function startTurn(
 
   // Contrôle de forme : un moteur qui ignore le gabarit se fait rattraper.
   let finalText = runState.text.trim();
-  const formCheck = checkTemplate(template, finalText);
+  const formCheck = checkTemplate(template, finalText, ampleur);
   if (!formCheck.ok && finalText && template !== 'none') {
     const griefs: string[] = [];
     if (formCheck.missing.length) griefs.push(`sections manquantes (${formCheck.missing.join(', ')})`);
@@ -536,7 +581,7 @@ export function stopAgent(agentId: string): boolean {
 /* Consignes de rôle                                                   */
 /* ------------------------------------------------------------------ */
 
-function rolePrompt(role: AgentRole, isSelf: boolean, template: TemplateKind): string {
+function rolePrompt(role: AgentRole, isSelf: boolean): string {
   const common =
     "Tu travailles dans HaikoDev. Réponds en français simple, pour un lecteur non technique. " +
     "Tu ne publies JAMAIS de ta propre initiative : la mise en ligne est un geste de l'utilisateur.\n\n" +
@@ -560,12 +605,7 @@ NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de préparer : elle s'affiche 
 
 Tu peux lire le code, chercher, écrire un document (write_document) et préparer une archive (make_archive).
 
-MISE EN FORME DE TES RÉPONSES (elle s'ajoute au gabarit, elle ne le remplace pas) :
-- Un paragraphe = 2 à 3 phrases. Deux paragraphes sont TOUJOURS séparés par une ligne vide. Jamais de pavé continu.
-- Dès que la réponse a plusieurs parties, pose des titres Markdown \`## Titre\`, avec une ligne vide avant et après.
-- Une puce = une idée, sur une seule ligne, sans sous-liste. Ligne vide avant et après une liste.
-- Mets en gras le mot qui porte l'information, jamais la phrase entière.
-- Reste dense : au plus 3 paragraphes courts ou 5 puces par partie.`;
+Les règles de mise en forme et de longueur voyagent avec la demande : ne les redemande pas, applique-les. Mets en gras le mot qui porte l'information, jamais la phrase entière.`;
 
     if (isSelf) {
       return `${base}
@@ -593,9 +633,7 @@ TU ES L'AGENT DE PUBLICATION. Tu exécutes les étapes demandées, dans l'ordre,
   return `${common}
 
 TU ES UN AGENT DE TÂCHE, en ACCÈS COMPLET : tu lis, tu écris, tu exécutes des commandes, tu enregistres et tu pousses sans demander la permission au coup par coup — le consentement a été donné en validant la carte.
-Travaille sur la branche de la carte. À la fin, appelle l'outil « remember » pour ajouter à la mémoire du projet, en une ou deux lignes, ce que tu as changé et ce que tu as appris.${
-    template === 'in_run' ? '' : ''
-  }`;
+Travaille sur la branche de la carte. À la fin, appelle l'outil « remember » pour ajouter à la mémoire du projet, en une ou deux lignes, ce que tu as changé et ce que tu as appris.`;
 }
 
 /* ------------------------------------------------------------------ */

@@ -127,7 +127,11 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
     }
   }
 
-  const prompt = options.systemPrompt ? `${options.systemPrompt}\n\n---\n\n${options.prompt}` : options.prompt;
+  // Codex n'a pas de consigne « système » séparée : elle est collée devant la
+  // demande, donc elle ENTRE dans l'historique du fil. La recoller à chaque
+  // reprise la stockerait autant de fois qu'il y a de messages, pour rien.
+  const prompt =
+    options.systemPrompt && !resuming ? `${options.systemPrompt}\n\n---\n\n${options.prompt}` : options.prompt;
   args.push(prompt);
   return args;
 }

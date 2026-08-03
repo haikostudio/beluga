@@ -289,6 +289,8 @@ Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (c
 
   await sendPrompt(agent.id, prompt, {
     silent: true,
+    // Une carte lancée est une vraie tâche : elle mérite le compte rendu entier.
+    ampleur: 'complete',
     onComplete: async (_text, ok) => {
       const fresh = store.getCard(cardId);
       if (!fresh) return;

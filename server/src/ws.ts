@@ -33,7 +33,7 @@ import { publishSubdomain } from './dns.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
-import { digestText } from './voice.js';
+import { digestText, listVoices } from './voice.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
 
@@ -522,8 +522,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
 
       // L'agent reprend aussitôt, avec la réponse en main — sans faire
-      // patienter le navigateur jusqu'à la fin de son tour.
-      void sendPrompt(message.agentId, `Réponse à ta question « ${question.question} » : ${cmd.answer}`).catch((err) =>
+      // patienter le navigateur jusqu'à la fin de son tour. La question n'est
+      // rappelée qu'en tête : c'est lui qui l'a posée, il l'a déjà en contexte.
+      const rappel = question.question.length > 80 ? `${question.question.slice(0, 80)}…` : question.question;
+      void sendPrompt(message.agentId, `Réponse à ta question « ${rappel} » : ${cmd.answer}`).catch((err) =>
         log.error('reprise après réponse impossible', err),
       );
       return { ok: true };
@@ -716,6 +718,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'digest.speak':
       return { text: digestText(cmd.projectId) };
+
+    case 'voice.list':
+      return { voices: listVoices() };
 
     case 'stats.usage':
       return {

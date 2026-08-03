@@ -99,10 +99,16 @@ const RAPPORT = [
   '## 6. Coûts',
 ].join('\n\n');
 
+/** Un remplissage aéré, assez long pour réclamer le compte rendu entier. */
+function longueur(mots: number): string {
+  return Array.from({ length: mots }, (_, i) => (i % 12 === 11 ? 'ligne.\n' : 'mot')).join(' ');
+}
+
 test('le contrôle de forme repère une réponse hors format', () => {
   assert.equal(checkTemplate('in_run', RAPPORT).ok, true);
 
-  const bad = '## 1. Analyse\n## 2. Bla';
+  // Une réponse LONGUE doit servir les six titres : elle a de quoi les remplir.
+  const bad = `## 1. Analyse\n\n${longueur(400)}\n\n## 2. Bla\n\n${longueur(200)}`;
   const result = checkTemplate('in_run', bad);
   assert.equal(result.ok, false);
   assert.ok(result.missing.includes('Impact'));

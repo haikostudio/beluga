@@ -381,6 +381,20 @@ export function setMemorySeen(agentId: string, facts: number): void {
   setMeta(`memoire.vue.${agentId}`, String(Math.max(0, Math.round(facts))));
 }
 
+/**
+ * L'empreinte de la carte que cet agent a déjà reçue. La description d'une
+ * carte repartait à CHAQUE tour, exactement comme la mémoire du projet avant
+ * elle : l'agent l'a déjà sous les yeux. On ne la renvoie donc que si elle a
+ * réellement changé.
+ */
+export function carteVue(agentId: string): string {
+  return getMeta(`carte.vue.${agentId}`) ?? '';
+}
+
+export function setCarteVue(agentId: string, empreinte: string): void {
+  setMeta(`carte.vue.${agentId}`, empreinte);
+}
+
 export function deleteAgent(id: string): void {
   const db = getDb();
   db.transaction(() => {
