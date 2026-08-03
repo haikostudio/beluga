@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BookOpen, Check, ChevronRight, CircleDot, Loader2 } from 'lucide-react';
+import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, CircleDot, Loader2 } from 'lucide-react';
 import { RunStep, TodoItem } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -54,7 +54,14 @@ export function MemoryNote({ step, projectId }: { step: RunStep; projectId?: str
  * l'une sous l'autre, dans cet ordre.
  */
 export function TodoList({ todos, streaming }: { todos?: TodoItem[]; streaming: boolean }) {
-  const [open, setOpen] = React.useState(true);
+  /*
+   * Sur téléphone la liste s'ouvre REPLIÉE : une seule ligne, celle qui
+   * travaille, et une flèche vers le haut pour la déplier. Sur grand écran il y
+   * a la place, elle reste ouverte.
+   */
+  const [open, setOpen] = React.useState(
+    () => !(typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches),
+  );
 
   // Une horloge, seulement pendant le travail : la ligne en cours voit son
   // temps avancer, comme un chronomètre.
@@ -73,7 +80,17 @@ export function TodoList({ todos, streaming }: { todos?: TodoItem[]; streaming: 
   const tout = faites === todos.length;
 
   return (
-    <div className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">
+    /*
+     * Tant que l'agent travaille, la liste COLLE au bas du fil : on garde sous
+     * les yeux ce qu'il est en train de faire, même en lisant plus haut. Le
+     * fond est opaque, sinon le texte du message se lirait au travers.
+     */
+    <div
+      className={cn(
+        'mb-2 overflow-hidden rounded-md border border-border',
+        streaming ? 'sticky bottom-1 z-10 bg-surface shadow-lg' : 'bg-surface/60',
+      )}
+    >
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -86,15 +103,32 @@ export function TodoList({ todos, streaming }: { todos?: TodoItem[]; streaming: 
         ) : (
           <CircleDot className="h-3 w-3 shrink-0 text-faint" />
         )}
-        <span className="flex-1 truncate text-[13.5px] text-muted">
-          Liste des tâches — {faites}/{todos.length} faite{faites > 1 ? 's' : ''}
-          {encours && streaming ? ` · ${encours.label}` : ''}
-        </span>
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
+        {/* Replié, on ne garde que l'ESSENTIEL : la tâche en cours, et le
+            compte à droite. Déplié, le titre complet. */}
+        {!open && encours ? (
+          <>
+            <span className="flex-1 truncate text-[13.5px] font-medium text-text">{encours.label}</span>
+            <span className="shrink-0 text-[12px] text-faint">
+              {faites}/{todos.length}
+            </span>
+          </>
+        ) : (
+          <span className="flex-1 truncate text-[13.5px] text-muted">
+            Liste des tâches — {faites}/{todos.length} faite{faites > 1 ? 's' : ''}
+            {encours && streaming ? ` · ${encours.label}` : ''}
+          </span>
+        )}
+        {/* La flèche pointe vers le HAUT quand la liste est fermée : c'est par
+            là qu'elle s'ouvre, au-dessus de la ligne. */}
+        {open ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
+        ) : (
+          <ChevronUp className="h-3 w-3 shrink-0 text-faint" />
+        )}
       </button>
 
       {open ? (
-        <ul className="space-y-0.5 border-t border-border px-2 py-1.5">
+        <ul className="max-h-[45vh] space-y-0.5 overflow-y-auto border-t border-border px-2 py-1.5">
           {todos.map((todo, index) => (
             <li key={`${index}-${todo.label}`} className="flex items-start gap-2 px-1 py-1">
               {/* Une vraie case à cocher : vide, en cours, ou cochée. */}
