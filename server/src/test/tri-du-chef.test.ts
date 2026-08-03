@@ -31,8 +31,14 @@ test('une question se répond dans la conversation, sans carte', () => {
   assert.match(chef, /RÉPONDS DANS LA CONVERSATION, aucune carte/);
 });
 
-test('le chef ne valide pas et ne fait pas le travail lui-même', () => {
-  assert.match(chef, /ni à la valider, ni à faire le travail toi-même/);
+test('la carte est PROPOSÉE et attend le clic, jamais créée d’office', () => {
+  assert.match(chef, /tu PROPOSES UNE carte avec board_create_card/);
+  assert.match(chef, /qu’après le clic de l’utilisateur|qu'après le clic de l'utilisateur/);
+  assert.doesNotMatch(chef, /d’office|d'office/);
+});
+
+test('le chef ne fait pas le travail lui-même', () => {
+  assert.match(chef, /Tu ne fais jamais le travail toi-même/);
 });
 
 test('le doute garde son clic : propose_task reste la voie des cas ambigus', () => {
