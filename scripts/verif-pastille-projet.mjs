@@ -181,7 +181,7 @@ async function main() {
 
     const pastille = async (nom) => {
       const texte = await ligne(nom)
-        .locator('span.rounded-full.bg-success')
+        .locator('.rounded-full.bg-success')
         .allInnerTexts()
         .catch(() => []);
       return texte.join('');
@@ -194,7 +194,7 @@ async function main() {
      * démon remet tout agent « en cours » au repos à son démarrage —, on vérifie
      * donc la forme : rien qui tourne à l'intérieur de la pastille.
      */
-    const tourne = await ligne('Projet seul').locator('span.rounded-full.bg-success .animate-spin').count();
+    const tourne = await ligne('Projet seul').locator('.rounded-full.bg-success .animate-spin').count();
     record('La pastille est immobile, là où la roue tourne', tourne === 0);
     await page.screenshot({ path: `${SHOTS}/pastille-01-projet.png` });
 
@@ -208,10 +208,40 @@ async function main() {
     await page.getByRole('button', { name: /HAIKO/ }).first().click();
     await page.waitForTimeout(500);
     const surGroupe = await page
-      .locator('[data-drag-kind="group"] span.rounded-full.bg-success')
+      .locator('[data-drag-kind="group"] .rounded-full.bg-success')
       .allInnerTexts();
     record('Replié, le groupe affiche le compte de ses projets', surGroupe.join('') === '1', surGroupe.join('·'));
     await page.screenshot({ path: `${SHOTS}/pastille-02-groupe-replie.png` });
+
+    /* ---------- Le compte sur l'icône de l'application installée ---------- */
+    const surIcone = await page.evaluate(async () => {
+      const poses = [];
+      navigator.setAppBadge = async (n) => void poses.push(n ?? 'sans nombre');
+      navigator.clearAppBadge = async () => void poses.push('effacée');
+      window.__poses = poses;
+      return poses.length;
+    });
+    void surIcone;
+    // On rouvre le groupe : le remontage de la colonne rejoue la pose du compte.
+    await page.getByRole('button', { name: /HAIKO/ }).first().click();
+    await page.waitForTimeout(400);
+    await page.getByRole('button', { name: /HAIKO/ }).first().click();
+    await page.waitForTimeout(600);
+
+    // Marquer comme lu depuis la liste : un clic sur la pastille elle-même.
+    await page.getByRole('button', { name: /HAIKO/ }).first().click();
+    await page.waitForTimeout(400);
+    const avantClic = await pastille('Projet du groupe');
+    await ligne('Projet du groupe').locator('.rounded-full.bg-success').first().click();
+    await page.waitForTimeout(1200);
+    record(
+      'Un clic sur la pastille éteint le projet, sans ouvrir sa conversation',
+      avantClic === '1' && (await pastille('Projet du groupe')) === '',
+      `avant « ${avantClic} », après « ${await pastille('Projet du groupe')} »`,
+    );
+    const resteOuvert = await page.locator('[role="dialog"]').count();
+    record('Aucun tiroir ne s’est ouvert au passage', resteOuvert === 0, `${resteOuvert} tiroir(s)`);
+    await page.screenshot({ path: `${SHOTS}/pastille-04-marquee-lue.png` });
 
     // Lire la carte éteint la pastille — et elle seule.
     await ligne('Projet seul').locator('button').first().click();
@@ -221,10 +251,18 @@ async function main() {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(1500);
     record('Lire la carte éteint la pastille du projet', (await pastille('Projet seul')) === '', await pastille('Projet seul'));
-    // On rouvre le groupe : sa pastille à lui n'a pas bougé.
-    await page.getByRole('button', { name: /HAIKO/ }).first().click();
-    await page.waitForTimeout(600);
-    record('Le projet du groupe, lui, garde la sienne', (await pastille('Projet du groupe')) === '1');
+    record('Le projet déjà marqué lu le reste', (await pastille('Projet du groupe')) === '');
+
+    /*
+     * Tout est lu : le chiffre a été posé sur l'icône de l'application, puis
+     * RETIRÉ — une pastille à « 0 » vaudrait moins que pas de pastille du tout.
+     */
+    const poses = await page.evaluate(() => window.__poses ?? []);
+    record(
+      'Le compte est posé sur l’icône, puis retiré quand tout est lu',
+      poses.includes(1) && poses.includes('effacée'),
+      poses.join(' → '),
+    );
     await page.screenshot({ path: `${SHOTS}/pastille-03-apres-lecture.png` });
 
     record('Aucune erreur dans la page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));

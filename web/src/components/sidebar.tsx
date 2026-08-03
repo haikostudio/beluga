@@ -298,14 +298,19 @@ export function Sidebar({
                   ) : null}
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
-                  {/* Replié, un groupe cacherait ce que ses projets ont rendu :
-                      la pastille remonte donc jusqu'ici. */}
-                  {collapsed.includes(entry.id) ? (
-                    <PastilleRendue
-                      compte={rendusDuGroupe(entry.members.map((p) => p.id), state.rendus)}
-                    />
-                  ) : null}
                 </button>
+                {/* Replié, un groupe cacherait ce que ses projets ont rendu :
+                    la pastille remonte donc jusqu'ici, avec son geste. */}
+                {collapsed.includes(entry.id) ? (
+                  <PastilleRendue
+                    compte={rendusDuGroupe(entry.members.map((p) => p.id), state.rendus)}
+                    onLu={() =>
+                      entry.members
+                        .filter((p) => state.rendus[p.id])
+                        .forEach((p) => client.call({ type: 'project.read', projectId: p.id }))
+                    }
+                  />
+                ) : null}
                 <ColorPicker
                   value={entry.group.color}
                   onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
@@ -595,15 +600,24 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
  * l'état d'après. Elle est PLEINE et immobile, là où la roue tourne : les deux
  * ne peuvent pas se confondre d'un coup d'œil.
  */
-function PastilleRendue({ compte }: { compte?: number }) {
+function PastilleRendue({ compte, onLu }: { compte?: number; onLu: () => void }) {
   if (!compte) return null;
+  const pluriel = compte > 1 ? 's' : '';
   return (
-    <Tooltip
-      label={`${compte} réponse${compte > 1 ? 's' : ''} rendue${compte > 1 ? 's' : ''}, pas encore lue${compte > 1 ? 's' : ''}`}
-    >
-      <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-success px-1 text-[10.5px] font-medium leading-none text-bg">
+    <Tooltip label={`${compte} réponse${pluriel} rendue${pluriel}, pas encore lue${pluriel} — cliquez pour marquer comme lu`}>
+      <button
+        // Le glissement part de la poignée : on coupe quand même ici, sinon un
+        // appui sur la pastille embarquerait la ligne.
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onLu();
+        }}
+        aria-label={`Marquer ${compte} réponse${pluriel} comme lue${pluriel}`}
+        className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-success px-1 text-[10.5px] font-medium leading-none text-bg transition-transform hover:scale-110"
+      >
         {compte}
-      </span>
+      </button>
     </Tooltip>
   );
 }
@@ -671,7 +685,6 @@ function ProjectRow({
           <Folder className="h-3 w-3 shrink-0 text-faint" />
         )}
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
-        <PastilleRendue compte={rendus} />
         {attention ? (
           <Tooltip label={`${attention} réponse${attention > 1 ? 's' : ''} attendue${attention > 1 ? 's' : ''}`}>
             <TriangleAlert className="h-3 w-3 shrink-0 text-warning" />
@@ -684,6 +697,12 @@ function ProjectRow({
         ) : null}
         {running ? <span className="shrink-0 text-[11.5px] text-success">{running}</span> : null}
       </button>
+      {/* La pastille vit HORS du bouton du nom : elle porte son propre geste,
+          et un bouton n'en contient pas un autre. */}
+      <PastilleRendue
+        compte={rendus}
+        onLu={() => client.call({ type: 'project.read', projectId: project.id })}
+      />
       <button
         onPointerDown={(event) => event.stopPropagation()}
         onClick={onSettings}

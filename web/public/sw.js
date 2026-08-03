@@ -38,6 +38,20 @@ self.addEventListener('push', (event) => {
   } catch {
     payload.body = event.data ? event.data.text() : '';
   }
+  /*
+   * Le chiffre sur l'icône de l'application, même fermée : c'est le compte des
+   * réponses rendues qu'on n'a pas encore lues. À zéro, on retire la pastille
+   * au lieu de laisser un « 0 ».
+   */
+  if (typeof payload.nonLues === 'number' && self.navigator && self.navigator.setAppBadge) {
+    try {
+      if (payload.nonLues > 0) self.navigator.setAppBadge(payload.nonLues);
+      else self.navigator.clearAppBadge?.();
+    } catch {
+      /* pastille d'icône refusée : le reste de la notification part quand même */
+    }
+  }
+
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,

@@ -56,6 +56,8 @@ export interface PushPayload {
   tag?: string;
   cardId?: string;
   projectId?: string;
+  /** Réponses rendues et pas encore lues : le chiffre de l'icône. */
+  nonLues?: number;
 }
 
 /** Envoie à tous les appareils inscrits ; un abonnement mort est retiré. */

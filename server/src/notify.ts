@@ -1,6 +1,6 @@
 import { dansLesHeuresDeSilence } from '@haikodev/shared';
 import { bus } from './bus.js';
-import { getSettings } from './store.js';
+import { getSettings, projectsWithFinishedWork } from './store.js';
 
 /**
  * Notifications (PLAN §20) : une rafale d'événements devient UNE seule
@@ -102,6 +102,11 @@ function flush(kind: Kind): void {
   };
   // Vers les onglets ouverts…
   bus.emit({ type: 'notify', ...payload });
-  // …et vers les appareils où l'application est installée mais fermée.
-  void import('./push.js').then(({ sendPush }) => sendPush(payload));
+  /*
+   * …et vers les appareils où l'application est installée mais fermée. On y
+   * joint le compte des réponses non lues : c'est ce qui pose le chiffre sur
+   * l'icône de l'application, sans qu'on ait besoin de l'ouvrir.
+   */
+  const nonLues = Object.values(projectsWithFinishedWork()).reduce((total, n) => total + n, 0);
+  void import('./push.js').then(({ sendPush }) => sendPush({ ...payload, nonLues }));
 }

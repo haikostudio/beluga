@@ -471,6 +471,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { ok: true };
     }
 
+    /*
+     * Tout lire d'un geste, depuis la liste des projets. Seules les cartes
+     * réellement non lues sont touchées : réécrire tout le tableau pour éteindre
+     * une pastille ferait beaucoup de bruit pour rien.
+     */
+    case 'project.read': {
+      const touchees = store.markProjectRead(cmd.projectId);
+      for (const carte of touchees) bus.emit({ type: 'card.upsert', card: carte });
+      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+      return { lues: touchees.length };
+    }
+
     case 'agent.orchestrator': {
       const agent = await getOrCreateOrchestrator(cmd.projectId);
       envoyerConversation(agent.id, cmd.tout);

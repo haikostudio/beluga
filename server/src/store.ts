@@ -4,6 +4,7 @@ import {
   Attachment,
   Card,
   CarteRendue,
+  carteNonLue,
   ColumnKey,
   DeployRun,
   Message,
@@ -338,6 +339,20 @@ export function markCardRead(cardId: string, at = now()): Card | null {
 }
 
 /**
+ * « J'ai tout lu sur ce projet. » Le geste se fait depuis la liste des projets,
+ * sans ouvrir chaque conversation : on repousse le repère de lecture de toutes
+ * les cartes du projet à maintenant. Rend les cartes touchées.
+ */
+export function markProjectRead(projectId: string, at = now()): Card[] {
+  const touchees: Card[] = [];
+  for (const cardId of unreadCards(projectId)) {
+    const carte = getCard(cardId);
+    if (carte) touchees.push(saveCard({ ...carte, lastReadAt: at }));
+  }
+  return touchees;
+}
+
+/**
  * Les empreintes de commits déjà rattachées à une carte de ce projet. C'est ce
  * qui empêche de fabriquer deux fois une carte pour le même travail.
  */
@@ -584,15 +599,35 @@ export function projectsNeedingAttention(): Record<string, number> {
  * `shared`, donc testable seule — tranche.
  */
 export function projectsWithFinishedWork(): Record<string, number> {
-  const rows = getDb()
-    .prepare(
-      `SELECT c.id AS cardId, c.project_id AS projectId, c.column_key AS colonne, c.data AS carte,
+  return rendusParProjet(etatDesCartesRendues());
+}
+
+/**
+ * Les cartes d'un projet dont la réponse n'a pas encore été lue. C'est ce que
+ * le geste « marquer comme lu » de la liste des projets doit toucher — et rien
+ * d'autre : réécrire toutes les cartes du projet pour ça serait un gâchis.
+ */
+export function unreadCards(projectId: string): string[] {
+  return etatDesCartesRendues(projectId)
+    .filter(carteNonLue)
+    .map((entree) => entree.cardId);
+}
+
+/** Chaque carte rapprochée de son dernier agent, prête pour la règle partagée. */
+function etatDesCartesRendues(projectId?: string): CarteRendue[] {
+  const sql = `SELECT c.id AS cardId, c.project_id AS projectId, c.column_key AS colonne, c.data AS carte,
               (SELECT a.data FROM agents a
                 WHERE a.card_id = c.id ORDER BY a.created_at DESC LIMIT 1) AS agent
          FROM cards c
-        WHERE c.column_key <> 'archived'`,
-    )
-    .all() as { cardId: string; projectId: string; colonne: string; carte: string; agent: string | null }[];
+        WHERE c.column_key <> 'archived'${projectId ? ' AND c.project_id = ?' : ''}`;
+  const requete = getDb().prepare(sql);
+  const rows = (projectId ? requete.all(projectId) : requete.all()) as {
+    cardId: string;
+    projectId: string;
+    colonne: string;
+    carte: string;
+    agent: string | null;
+  }[];
 
   const entrees: CarteRendue[] = [];
   for (const row of rows) {
@@ -616,7 +651,7 @@ export function projectsWithFinishedWork(): Record<string, number> {
       /* carte illisible : elle n'apprend rien de plus */
     }
   }
-  return rendusParProjet(entrees);
+  return entrees;
 }
 
 function rawAgent(id: string): string | null {
