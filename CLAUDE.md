@@ -88,15 +88,16 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
 - **TOUTE demande de PROGRAMMATION passe par une carte** — nouvelle fonctionnalité, correction,
   suppression, changement de comportement, retouche d'interface, script, réglage : aucune exception,
-  quelle que soit la taille. Le chef crée la carte et s'arrête là ; c'est l'agent de cette carte qui
-  fait le travail, pour que l'avancement se voie du début à la fin sur le tableau. **Vrai aussi sur
-  HaikoDev** : les outils d'écriture du chef ne dispensent pas de la carte. Une simple question se
-  répond dans la conversation, sans carte. Verrouillé par `server/src/test/tri-du-chef.test.ts`.
-- Une carte naît toujours dans « À faire ». **Une demande d'ACTION CLAIRE au chef d'orchestre y naît
-  puis est validée d'office** (`lancerCarteDuChef`, étiquette « lancée par le chef ») : l'utilisateur
-  vient de la formuler, il n'a pas à la valider deux fois — elle suit ensuite le parcours habituel.
-  Le DOUTE garde son clic : il passe par `propose_task`. Autre exception : le code enregistré par un
-  agent SANS carte fabrique tout seul sa fiche dans « À déployer » — le travail est déjà fait.
+  quelle que soit la taille. Le chef PROPOSE la carte et s'arrête là ; c'est l'agent de cette carte
+  qui fait le travail, pour que l'avancement se voie du début à la fin sur le tableau. **Vrai aussi
+  sur HaikoDev** : les outils d'écriture du chef ne dispensent pas de la carte. Une simple question
+  se répond dans la conversation, sans carte. Verrouillé par `server/src/test/tri-du-chef.test.ts`.
+- Une carte naît toujours dans « À faire », et **jamais sans un clic de l'utilisateur**.
+  `board_create_card` n'écrit RIEN : comme `propose_task`, il affiche une proposition en attente dans
+  la conversation, avec ses boutons valider / refuser ; la validation seule fait naître la carte, qui
+  suit ensuite le parcours habituel. Seule exception : le code enregistré par un agent SANS carte
+  fabrique tout seul sa fiche dans « À déployer » — le travail est déjà fait. Verrouillé par
+  `server/src/test/carte-du-chef-attend-la-validation.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au
