@@ -79,7 +79,9 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   if (!active && !embarked.length && !run) return null;
 
   return (
-    <div className="mb-2 rounded-md border border-border bg-surface p-2">
+    /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
+       la liste des cartes. Un cadre complet le faisait passer pour une carte. */
+    <div className="mb-2 border-b border-border pb-2">
       {!active ? (
         <>
           <Button
