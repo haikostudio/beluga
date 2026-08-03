@@ -47,6 +47,8 @@ export interface AppState {
   /** Toute la conversation d'une carte, tous ses agents confondus. */
   cardMessages: Record<string, { messages: Message[]; activeAgentId?: string }>;
   queues: Record<string, QueuedPrompt[]>;
+  /** Échanges mis de côté par un « repartir de zéro », par agent. */
+  precedents: Record<string, number>;
   attachments: Record<string, Attachment[]>;
   files: Record<string, FileNode[]>;
   memory: Record<string, string>;
@@ -73,6 +75,7 @@ const initialState: AppState = {
   messages: {},
   cardMessages: {},
   queues: {},
+  precedents: {},
   attachments: {},
   files: {},
   memory: {},
@@ -265,6 +268,7 @@ class Client {
         this.set((state) => ({
           messages: { ...state.messages, [event.agentId]: event.messages },
           queues: { ...state.queues, [event.agentId]: event.queue },
+          precedents: { ...state.precedents, [event.agentId]: event.precedents ?? 0 },
         }));
         break;
 
@@ -287,9 +291,13 @@ class Client {
           // Le message rejoint aussi la conversation de la carte concernée,
           // pour que rien ne disparaisse quand un nouvel agent prend le relais.
           const cardMessages = { ...state.cardMessages };
+          // La carte de l'agent tranche : un agent d'analyse tout juste créé
+          // n'est encore dans aucune liste, et son compte rendu doit pourtant
+          // s'écrire sous les yeux, sans attendre une réouverture.
+          const carteDeLAgent = state.agents[event.message.agentId]?.cardId;
           for (const [cardId, entry] of Object.entries(cardMessages)) {
             const dansLaCarte = entry.messages.some((m) => m.agentId === event.message.agentId);
-            if (!dansLaCarte && entry.activeAgentId !== event.message.agentId) continue;
+            if (!dansLaCarte && entry.activeAgentId !== event.message.agentId && carteDeLAgent !== cardId) continue;
             const liste = [...entry.messages];
             const position = liste.findIndex((m) => m.id === event.message.id);
             if (position >= 0) liste[position] = event.message;

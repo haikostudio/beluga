@@ -10,6 +10,9 @@ import {
   RunConfig,
   ServerEvent,
   canMove,
+  comptePrecedents,
+  messagesDepuis,
+  peutRepartir,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -33,7 +36,7 @@ import { publishSubdomain } from './dns.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
-import { digestText } from './voice.js';
+import { digestText, listVoices } from './voice.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
 
@@ -103,6 +106,23 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
 /* ------------------------------------------------------------------ */
 /* Traitement des commandes                                            */
 /* ------------------------------------------------------------------ */
+
+/**
+ * La conversation d'un agent telle qu'elle doit s'afficher : depuis le dernier
+ * nouveau départ, avec le compte de ce qui dort derrière. `tout` rouvre le fil
+ * entier — rien n'ayant jamais été supprimé, il est toujours là.
+ */
+function envoyerConversation(agentId: string, tout = false): void {
+  const messages = store.listMessages(agentId);
+  const depuis = store.nouveauDepart(agentId);
+  bus.emit({
+    type: 'agent.snapshot',
+    agentId,
+    messages: tout ? messages : messagesDepuis(messages, depuis),
+    queue: store.listQueue(agentId),
+    precedents: comptePrecedents(messages, depuis),
+  });
+}
 
 async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
   switch (cmd.type) {
@@ -372,12 +392,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'agent.open': {
       const agent = store.getAgent(cmd.id);
       if (!agent) throw new Error('agent introuvable');
-      bus.emit({
-        type: 'agent.snapshot',
-        agentId: cmd.id,
-        messages: store.listMessages(cmd.id),
-        queue: store.listQueue(cmd.id),
-      });
+      envoyerConversation(cmd.id, cmd.tout);
       return { agent };
     }
 
@@ -385,7 +400,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const card = store.getCard(cmd.cardId);
       if (!card) throw new Error('carte introuvable');
       const messages = store.listCardMessages(cmd.cardId);
-      const dernier = store.getAgentByCard(cmd.cardId);
+      // L'agent d'exécution d'abord ; à défaut, le dernier agent de la carte —
+      // son analyse, le plus souvent, dont le compte rendu se lit avant même
+      // que le travail ne commence.
+      const dernier = store.getAgentByCard(cmd.cardId) ?? store.getLastAgentByCard(cmd.cardId);
       bus.emit({
         type: 'card.conversation',
         cardId: cmd.cardId,
@@ -397,13 +415,34 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'agent.orchestrator': {
       const agent = await getOrCreateOrchestrator(cmd.projectId);
-      bus.emit({
-        type: 'agent.snapshot',
-        agentId: agent.id,
-        messages: store.listMessages(agent.id),
-        queue: store.listQueue(agent.id),
-      });
+      envoyerConversation(agent.id, cmd.tout);
       return { agent };
+    }
+
+    /*
+     * REPARTIR DE ZÉRO. Le fil d'avant n'est pas supprimé : un repère de temps
+     * le range derrière un lien. Ce qui repart vraiment de zéro, c'est la
+     * session du moteur — plus aucun historique renvoyé — et le compteur de la
+     * mémoire du projet, pour qu'elle reparte une fois, comme au premier
+     * message. Le brouillon en cours n'est pas touché.
+     */
+    case 'agent.reset': {
+      const agent = store.getAgent(cmd.agentId);
+      if (!agent) throw new Error('agent introuvable');
+      const visibles = messagesDepuis(store.listMessages(agent.id), store.nouveauDepart(agent.id));
+      const verdict = peutRepartir({ status: isRunning(agent.id) ? 'running' : agent.status }, visibles);
+      if (!verdict.ok) {
+        bus.toast('warning', verdict.raison);
+        return { ok: false };
+      }
+
+      store.setNouveauDepart(agent.id, store.now());
+      store.clearSessions(agent.id);
+      store.setMemorySeen(agent.id, 0);
+      store.setCarteVue(agent.id, '');
+      envoyerConversation(agent.id);
+      bus.toast('success', 'Nouvelle conversation. Les échanges précédents restent consultables.');
+      return { ok: true };
     }
 
     case 'agent.prompt': {
@@ -522,8 +561,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
 
       // L'agent reprend aussitôt, avec la réponse en main — sans faire
-      // patienter le navigateur jusqu'à la fin de son tour.
-      void sendPrompt(message.agentId, `Réponse à ta question « ${question.question} » : ${cmd.answer}`).catch((err) =>
+      // patienter le navigateur jusqu'à la fin de son tour. La question n'est
+      // rappelée qu'en tête : c'est lui qui l'a posée, il l'a déjà en contexte.
+      const rappel = question.question.length > 80 ? `${question.question.slice(0, 80)}…` : question.question;
+      void sendPrompt(message.agentId, `Réponse à ta question « ${rappel} » : ${cmd.answer}`).catch((err) =>
         log.error('reprise après réponse impossible', err),
       );
       return { ok: true };
@@ -716,6 +757,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'digest.speak':
       return { text: digestText(cmd.projectId) };
+
+    case 'voice.list':
+      return { voices: listVoices() };
 
     case 'stats.usage':
       return {

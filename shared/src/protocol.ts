@@ -109,10 +109,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.asap'), id: z.string(), value: z.boolean() }),
 
   // Agents & conversations
-  z.object({ type: z.literal('agent.open'), id: z.string() }),
+  /** `tout` rouvre aussi les échanges d'avant le dernier nouveau départ. */
+  z.object({ type: z.literal('agent.open'), id: z.string(), tout: z.boolean().optional() }),
   /** Toute la conversation d'une carte : analyses, exécutions et relances. */
   z.object({ type: z.literal('card.conversation'), cardId: z.string() }),
-  z.object({ type: z.literal('agent.orchestrator'), projectId: z.string() }),
+  z.object({ type: z.literal('agent.orchestrator'), projectId: z.string(), tout: z.boolean().optional() }),
+  /** Repartir de zéro : le fil d'avant est mis de côté, pas supprimé. */
+  z.object({ type: z.literal('agent.reset'), agentId: z.string() }),
   z.object({
     type: z.literal('agent.prompt'),
     agentId: z.string(),
@@ -215,6 +218,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('backup.now') }),
   z.object({ type: z.literal('backup.list') }),
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
+  /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
+  z.object({ type: z.literal('voice.list') }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   z.object({ type: z.literal('memory.get'), projectId: z.string() }),
 ]);
@@ -270,6 +275,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
     agentId: z.string(),
     messages: z.array(Message),
     queue: z.array(QueuedPrompt),
+    /** Combien d'échanges dorment derrière le dernier nouveau départ. */
+    precedents: z.number().optional(),
   }),
   z.object({
     type: z.literal('card.conversation'),
