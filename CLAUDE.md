@@ -29,6 +29,10 @@ npm run dev --workspace web -- --port 7099   # interface de développement (vise
 `npx vite web` casse la résolution de Tailwind : passer par le workspace. Le serveur de
 développement n'écoute qu'en IPv6, donc `localhost`, pas `127.0.0.1`.
 
+Un script de vérification ne doit **jamais** reprendre `HAIKODEV_URL` : cette variable, posée dans
+l'environnement des agents, désigne l'application DÉJÀ PUBLIÉE — on y verrait l'ancienne version.
+Viser le serveur de développement, et n'accepter d'autre adresse que par une variable à soi.
+
 ## Vérifier
 
 ```bash
@@ -37,6 +41,7 @@ node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/verif-prevision-quota.mjs # la prévision d'épuisement, dans le volet des quotas
+node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 

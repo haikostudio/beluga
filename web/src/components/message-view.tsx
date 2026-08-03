@@ -15,7 +15,7 @@ import { Attachment, MEMORY_STEP_ID, Message } from '@haikodev/shared';
 import { Badge, Button, Textarea } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
-import { MemoryNote, TodoList } from '@/components/todos';
+import { MemoryNote } from '@/components/todos';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
@@ -90,8 +90,9 @@ export function MessageView({
 
   /*
    * L'ordre de lecture est toujours le même (PLAN §26) : d'abord la mémoire du
-   * projet relue, ensuite la liste des tâches annoncées, enfin le déroulé réel
-   * qui se coche au fur et à mesure.
+   * projet relue, puis le déroulé réel qui se coche au fur et à mesure. La
+   * liste des tâches, elle, ne défile PLUS avec les messages : elle vit dans
+   * son volet fixe, au bas de la conversation.
    */
   const memoire = message.steps.find((step) => step.id === MEMORY_STEP_ID);
   const etapes = message.steps.filter((step) => step.id !== MEMORY_STEP_ID);
@@ -100,7 +101,6 @@ export function MessageView({
   return (
     <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
       {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}
-      <TodoList todos={message.todos} streaming={message.streaming} />
       <Steps steps={etapes} streaming={message.streaming} />
 
       {message.content ? (
@@ -158,13 +158,11 @@ export function MessageView({
         </div>
       ) : null}
 
-      <div className="mt-1 flex items-center gap-1.5 text-[12px] text-faint">
-        {/* L'heure se montre TOUJOURS sur téléphone : le survol n'y existe pas,
-            et il fallait faire bouger le fil d'un pixel pour la voir
-            apparaître. Sur ordinateur, elle reste discrète jusqu'au survol. */}
-        <span className="transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-          {relativeTime(message.createdAt)}
-        </span>
+      {/* L'heure se montre TOUJOURS, ordinateur comme téléphone, et des deux
+          côtés du fil : la mettre au second plan se fait par la COULEUR et la
+          taille, jamais par la transparence — effacée, elle disparaît. */}
+      <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-faint">
+        <span>{relativeTime(message.createdAt)}</span>
         <BoutonCopier texte={message.content} />
       </div>
     </div>
