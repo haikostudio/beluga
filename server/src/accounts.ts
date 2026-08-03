@@ -1,10 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { AccountQuota, EngineId, doitAlerterFinDeFenetre, tempsRestant } from '@haikodev/shared';
+import {
+  AccountQuota,
+  EngineId,
+  compteDeSecours,
+  doitAlerterEpuisementProche,
+  doitAlerterFinDeFenetre,
+  previsionEpuisement,
+  tempsRestant,
+} from '@haikodev/shared';
 import { PATHS, CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
-import { dernieresAmorces, recordQuotaSample } from './store.js';
+import { dernieresAmorces, quotaHistory, recordQuotaSample } from './store.js';
 import { bus } from './bus.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
@@ -323,6 +331,7 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
   // Seulement sur une VRAIE lecture : le cache est rejoué à chaque connexion
   // d'un navigateur, et l'alerte partirait sur des chiffres déjà vus.
   alerterFinsDeFenetre(results);
+  alerterEpuisementsProches(results);
   return results;
 }
 
@@ -377,6 +386,73 @@ function alerterFinsDeFenetre(list: AccountQuota[]): void {
   } catch (err) {
     // Sans trace retenue, la même fenêtre se signalerait à chaque lecture.
     log.warn('quota : impossible de retenir l’alerte de fin de fenêtre', err);
+  }
+}
+
+/** Les semaines pour lesquelles on a déjà annoncé un manque annoncé. */
+const CLE_ALERTE_EPUISEMENT = 'quota.alerte.epuisement';
+
+/**
+ * « Au rythme actuel, ce compte n'ira pas au bout de la semaine » se dit sur le
+ * téléphone, UNE seule fois par semaine et par compte. Le message porte le
+ * compte de secours quand il en existe un : prévenir sans dire quoi faire ne
+ * sert à rien au milieu de la nuit.
+ */
+function alerterEpuisementsProches(list: AccountQuota[]): void {
+  let annonces: Record<string, number> = {};
+  try {
+    const raw = getMeta(CLE_ALERTE_EPUISEMENT);
+    annonces = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+  } catch {
+    annonces = {};
+  }
+
+  const histoire = quotaHistory(7);
+  const previsions = new Map(
+    list.map((quota) => [quota.id, previsionEpuisement(histoire[quota.id] ?? [], quota.weekly)] as const),
+  );
+
+  let change = false;
+  for (const quota of list) {
+    const prevision = previsions.get(quota.id);
+    const etat = {
+      resetsAt: quota.weekly?.resetsAt,
+      niveau: prevision?.niveau,
+      lectureEnEchec: !!quota.error,
+      dejaAnnoncee: annonces[quota.id],
+    };
+    if (!doitAlerterEpuisementProche(etat)) continue;
+
+    const secours = compteDeSecours(
+      { id: quota.id, engine: quota.engine },
+      list.map((autre) => ({
+        id: autre.id,
+        label: autre.label,
+        engine: autre.engine,
+        disponible: autre.available !== false,
+        tientJusquAuBout: !previsions.get(autre.id),
+        consommePct: autre.weekly?.usedPct ?? 0,
+      })),
+    );
+
+    notify({
+      kind: 'quota',
+      title: 'Le quota de la semaine va manquer',
+      body:
+        `${quota.label} : ${prevision!.texte} (${Math.round(quota.weekly?.usedPct ?? 0)} % consommés).` +
+        (secours ? ` Bascule possible sur ${secours.label}.` : ''),
+      tag: `epuisement-${quota.id}`,
+    });
+    annonces[quota.id] = quota.weekly!.resetsAt!;
+    change = true;
+  }
+
+  if (!change) return;
+  try {
+    setMeta(CLE_ALERTE_EPUISEMENT, JSON.stringify(annonces));
+  } catch (err) {
+    // Sans trace retenue, la même semaine se signalerait à chaque lecture.
+    log.warn('quota : impossible de retenir l’alerte d’épuisement proche', err);
   }
 }
 
