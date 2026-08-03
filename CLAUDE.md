@@ -52,6 +52,7 @@ node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
+node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
@@ -146,6 +147,13 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   une barre. En `axe="horizontal"` (rail du tableau, barres d'onglets), `ZoneDefilement` ne pose
   AUCUN voile : il masquerait le bord des colonnes sans rien apprendre. L'option reste, car c'est
   elle qui écrit `overflow-y-hidden` en toutes lettres et empêche le tableau de flotter.
+- **Les outils du projet se branchent différemment selon le moteur.** Claude Code reçoit un FICHIER
+  de configuration (`--mcp-config`) ; Codex reçoit la COMMANDE à lancer, donc le chemin du pont
+  lui-même (`server/mcp-bridge.mjs`), jamais le fichier de configuration — `node fichier.json` sort
+  aussitôt sans rien dire et la liste d'outils reste vide. Codex exige en plus
+  `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
+  une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
+  Verrouillé par `server/src/test/outils-codex.test.ts`.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.

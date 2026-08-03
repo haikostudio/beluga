@@ -27,8 +27,14 @@ export interface EngineRunOptions {
   /** Reprise de conversation : identifiant de session du moteur. */
   sessionId?: string | null;
   systemPrompt?: string;
-  /** Chemin d'un fichier de configuration MCP (outils du démon). */
+  /** Chemin d'un fichier de configuration MCP (outils du démon), au format de Claude Code. */
   mcpConfigPath?: string;
+  /**
+   * Chemin du PONT d'outils lui-même (script Node). Codex ne lit pas de fichier
+   * de configuration : il reçoit la commande à lancer, donc il lui faut le
+   * script, jamais le fichier de configuration.
+   */
+  mcpBridgePath?: string;
   /** Accès complet : agents de tâche. Le chef d'orchestre, lui, reste bridé. */
   fullAccess: boolean;
   allowedTools?: string[];

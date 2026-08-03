@@ -397,6 +397,7 @@ async function startTurn(
     sessionId,
     systemPrompt,
     mcpConfigPath,
+    mcpBridgePath: bridgePath,
     fullAccess,
     allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
     disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,

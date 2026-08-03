@@ -116,14 +116,22 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
   } else {
     args.push('-s', 'read-only');
   }
-  if (options.mcpConfigPath) {
-    // Codex reçoit ses serveurs d'outils par surcharge de configuration.
-    args.push('-c', `mcp_servers.haikodev.command="node"`);
-    args.push('-c', `mcp_servers.haikodev.args=["${options.mcpConfigPath}"]`);
+  if (options.mcpBridgePath) {
+    // Codex reçoit ses serveurs d'outils par surcharge de configuration, et il
+    // veut la COMMANDE à lancer : le pont lui-même, jamais le fichier de
+    // configuration de Claude Code (« node fichier.json » sort aussitôt sans
+    // rien dire, et la liste d'outils reste vide).
+    const set = (key: string, value: unknown) => args.push('-c', `${key}=${JSON.stringify(value)}`);
+    set('mcp_servers.haikodev.command', process.execPath);
+    set('mcp_servers.haikodev.args', [options.mcpBridgePath]);
+    // Sans ce mode, chaque appel d'outil demande une approbation ; hors bac à
+    // sable ouvert, personne ne répond et Codex rend « user cancelled MCP tool
+    // call ». Les outils du démon sont les nôtres : ils n'ont rien à demander.
+    set('mcp_servers.haikodev.default_tools_approval_mode', 'approve');
     if (options.env?.HAIKODEV_TOKEN) {
-      args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_TOKEN="${options.env.HAIKODEV_TOKEN}"`);
-      args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_URL="${options.env.HAIKODEV_URL ?? ''}"`);
-      args.push('-c', `mcp_servers.haikodev.env.HAIKODEV_AGENT="${options.env.HAIKODEV_AGENT ?? ''}"`);
+      set('mcp_servers.haikodev.env.HAIKODEV_TOKEN', options.env.HAIKODEV_TOKEN);
+      set('mcp_servers.haikodev.env.HAIKODEV_URL', options.env.HAIKODEV_URL ?? '');
+      set('mcp_servers.haikodev.env.HAIKODEV_AGENT', options.env.HAIKODEV_AGENT ?? '');
     }
   }
 
@@ -134,6 +142,19 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
     options.systemPrompt && !resuming ? `${options.systemPrompt}\n\n---\n\n${options.prompt}` : options.prompt;
   args.push(prompt);
   return args;
+}
+
+/** Met en français la raison d'un appel d'outil qui n'a pas abouti. */
+export function explainToolFailure(raw: unknown): string {
+  const message = typeof raw === 'string' ? raw : raw ? String((raw as any).message ?? '') : '';
+  const text = message.trim();
+  if (/cancell?ed|rejected|denied/i.test(text)) {
+    return "Appel refusé par le moteur : l'outil du projet n'était pas autorisé dans cette session.";
+  }
+  if (/not found|unknown tool|no such tool/i.test(text)) {
+    return "Outil introuvable : le pont d'outils du projet n'a pas démarré.";
+  }
+  return text || "L'appel n'a pas abouti, sans raison donnée par le moteur.";
 }
 
 export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): void {
@@ -192,13 +213,17 @@ export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): vo
         }
         case 'mcp_tool_call': {
           const step = humanStep(`mcp__haikodev__${item.tool ?? ''}`, item.arguments);
+          const failed = done && item.status === 'failed';
+          // Un appel refusé ou annulé ne doit jamais rester une étape rouge
+          // muette : la raison est recopiée dans le détail, en clair.
+          const reason = failed ? explainToolFailure(item.error?.message ?? item.error) : undefined;
           onEvent({
             kind: 'step',
             step: {
               key,
-              label: step.label,
-              state: done ? (item.status === 'failed' ? 'failed' : 'done') : 'running',
-              detail: step.detail,
+              label: failed ? `${step.label} — non aboutie` : step.label,
+              state: failed ? 'failed' : done ? 'done' : 'running',
+              detail: reason ? [reason, step.detail].filter(Boolean).join('\n') : step.detail,
             },
           });
           return;
