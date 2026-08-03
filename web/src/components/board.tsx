@@ -235,9 +235,11 @@ export function Board({
   // indispensable, sinon le navigateur repasse tout seul l'axe vertical en
   // « auto » dès que l'autre axe déborde, et le tableau entier se met à flotter.
   return (
-    <div
+    <ZoneDefilement
       ref={rail}
-      className="flex h-full min-h-0 gap-2.5 overflow-x-auto overflow-y-hidden px-3 py-3 snap-columns"
+      axe="horizontal"
+      classeEnveloppe="h-full min-h-0"
+      className="flex gap-2.5 px-3 py-3 snap-columns"
     >
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
@@ -368,7 +370,7 @@ export function Board({
           {dragging.label}
         </div>
       ) : null}
-    </div>
+    </ZoneDefilement>
   );
 }
 

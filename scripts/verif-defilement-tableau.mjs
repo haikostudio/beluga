@@ -73,7 +73,9 @@ const mesures = await page.evaluate(() => {
   const rail = document.querySelector('[data-column]')?.parentElement;
   if (!rail) return null;
   const colonnes = [...rail.querySelectorAll('[data-column]')].map((col) => {
-    const corps = [...col.children].find((n) => getComputedStyle(n).overflowY === 'auto');
+    /* Le corps de la colonne est enveloppé par la zone à fondu : on cherche
+       donc le premier descendant qui défile, pas seulement un enfant direct. */
+    const corps = [...col.querySelectorAll('*')].find((n) => getComputedStyle(n).overflowY === 'auto');
     const st = corps ? getComputedStyle(corps) : null;
     return {
       nom: col.getAttribute('data-column'),

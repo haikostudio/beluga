@@ -85,7 +85,11 @@ async function main() {
   // Le contenu défile SEUL : c'est le bloc sous la poignée qui bouge.
   const defilement = await page.evaluate((selecteur) => {
     const menu = document.querySelector(selecteur);
-    const corps = menu?.querySelector(':scope > div:last-child');
+    /* Le corps est enveloppé par la zone à fondu : on prend le premier
+       descendant qui défile réellement. */
+    const corps = menu
+      ? [...menu.querySelectorAll('*')].find((n) => getComputedStyle(n).overflowY === 'auto')
+      : null;
     if (!corps) return null;
     const avant = corps.scrollTop;
     corps.scrollTop = 260;

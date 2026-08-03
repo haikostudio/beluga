@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Download, FileText, Paperclip } from 'lucide-react';
 import { Attachment } from '@haikodev/shared';
-import { Button, Dialog, DialogContent, DialogTitle, Tooltip } from '@/components/ui';
+import { Button, Dialog, DialogContent, DialogTitle, Tooltip, ZoneDefilement } from '@/components/ui';
 import { bytes, cn } from '@/lib/utils';
 
 /**
@@ -26,7 +26,11 @@ export function AttachmentPreview({ item, onClose }: { item: Attachment | null; 
             </Button>
           </Tooltip>
         </div>
-        <div className="mt-3 max-h-[72dvh] overflow-auto rounded-md border border-border bg-raised p-2">
+        <ZoneDefilement
+          fond="hsl(var(--raised))"
+          classeEnveloppe="mt-3 max-h-[72dvh] flex-none rounded-md border border-border bg-raised"
+          className="overflow-x-auto p-2"
+        >
           {item.mime.startsWith('image/') ? (
             <img src={source} alt={item.name} className="mx-auto max-w-full" />
           ) : item.mime === 'application/pdf' ? (
@@ -43,7 +47,7 @@ export function AttachmentPreview({ item, onClose }: { item: Attachment | null; 
               </Button>
             </div>
           )}
-        </div>
+        </ZoneDefilement>
       </DialogContent>
     </Dialog>
   );

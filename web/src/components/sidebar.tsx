@@ -45,6 +45,7 @@ import {
   TabsList,
   TabsTrigger,
   Tooltip,
+  ZoneDefilement,
 } from '@/components/ui';
 import { Filet } from '@/components/filet';
 import { ProjectSettings } from '@/components/project-settings';
@@ -343,7 +344,7 @@ export function Sidebar({
         </Tooltip>
       </div>
 
-      <div className="flex-1 touch-pan-y overflow-y-auto px-1.5 pb-2" data-drop-root>
+      <ZoneDefilement className="touch-pan-y px-1.5 pb-2" data-drop-root>
         {entries.map((entry) =>
           entry.kind === 'project' ? (
             <ProjectRow
@@ -513,7 +514,7 @@ export function Sidebar({
             <p className="px-2 pb-2 text-[12.5px] text-faint">Aucun projet mis de côté.</p>
           )
         ) : null}
-      </div>
+      </ZoneDefilement>
 
       {agentsEnCours.length ? (
         <div className="border-t border-border px-1.5 py-2">
@@ -1035,7 +1036,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                   {visible.length} projet{visible.length > 1 ? 's' : ''} trouvé{visible.length > 1 ? 's' : ''} et pas
                   encore suivi{visible.length > 1 ? 's' : ''}.
                 </p>
-                <div className="mt-1.5 max-h-[340px] space-y-0.5 overflow-y-auto">
+                <ZoneDefilement classeEnveloppe="mt-1.5 max-h-[340px] flex-none" className="space-y-0.5">
                   {visible.map((entry) => (
                     <div
                       key={entry.path}
@@ -1060,7 +1061,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                       </Button>
                     </div>
                   ))}
-                </div>
+                </ZoneDefilement>
               </>
             ) : (
               <p className="mt-3 text-[13.5px] text-faint">Tous les projets du serveur sont déjà dans votre liste.</p>

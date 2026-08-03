@@ -193,14 +193,14 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         {/* Les onglets collent au bord : la marge de la barre s'ajoutait à
             celle de la liste, et deux respirations superposées mangeaient une
             bonne part de la largeur sur téléphone. */}
-        <div className="overflow-x-auto px-1.5 py-1">
+        <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-1.5 py-1">
           <TabsList className="w-full justify-start">
             <TabsTrigger value="chat">Conversation</TabsTrigger>
             <TabsTrigger value="details">Détails</TabsTrigger>
             <TabsTrigger value="billing">Facturation</TabsTrigger>
             <TabsTrigger value="github">GitHub</TabsTrigger>
           </TabsList>
-        </div>
+        </ZoneDefilement>
 
         <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
           <Chat agent={agent} projectId={card.projectId} cardId={card.id} vide={motAnalyse(phase)} />

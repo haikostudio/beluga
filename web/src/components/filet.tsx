@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { RotateCw, TriangleAlert } from 'lucide-react';
+import { ZoneDefilement } from '@/components/ui';
 
 /**
  * Le filet de sécurité.
@@ -50,9 +51,15 @@ export class Filet extends React.Component<
 
           <details className="mt-3 text-left">
             <summary className="cursor-pointer text-[12.5px] text-faint">Détail technique</summary>
-            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-surface p-2 text-[11.5px] text-muted">
-              {erreur.message || String(erreur)}
-            </pre>
+            <ZoneDefilement
+              fond="hsl(var(--surface))"
+              classeEnveloppe="mt-1.5 max-h-40 flex-none rounded-md border border-border bg-surface"
+              className="p-2"
+            >
+              <pre className="whitespace-pre-wrap break-words text-[11.5px] text-muted">
+                {erreur.message || String(erreur)}
+              </pre>
+            </ZoneDefilement>
           </details>
 
           <button

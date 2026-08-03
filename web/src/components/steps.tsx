@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Check, ChevronRight, Circle, Loader2, X, MinusCircle } from 'lucide-react';
 import { RunStep } from '@haikodev/shared';
+import { ZoneDefilement } from '@/components/ui';
 import { cn, duration } from '@/lib/utils';
 
 /**
@@ -103,9 +104,15 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
                   ) : null}
                 </button>
                 {isOpen && step.detail ? (
-                  <pre className="mx-1 mb-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-raised p-2 text-[12.5px] leading-relaxed text-muted">
-                    {step.detail}
-                  </pre>
+                  <ZoneDefilement
+                    fond="hsl(var(--raised))"
+                    classeEnveloppe="mx-1 mb-1 max-h-48 flex-none rounded bg-raised"
+                    className="p-2"
+                  >
+                    <pre className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-muted">
+                      {step.detail}
+                    </pre>
+                  </ZoneDefilement>
                 ) : null}
               </li>
             );

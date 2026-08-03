@@ -25,6 +25,7 @@ import {
   TabsList,
   TabsTrigger,
   Tooltip,
+  ZoneDefilement,
 } from '@/components/ui';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
@@ -173,7 +174,7 @@ function FilesTab({ projectId }: { projectId: string }) {
         </Tooltip>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
+      <ZoneDefilement className="px-1 py-1">
         {visible.map((node) => (
           <div
             key={node.path}
@@ -207,7 +208,7 @@ function FilesTab({ projectId }: { projectId: string }) {
           </div>
         ))}
         {!visible.length ? <EmptyState title="Dossier vide" /> : null}
-      </div>
+      </ZoneDefilement>
 
       <FilePreview projectId={projectId} preview={preview} onClose={() => setPreview(null)} />
     </div>
@@ -241,7 +242,11 @@ function FilePreview({
             </Button>
           </Tooltip>
         </div>
-        <div className="mt-3 max-h-[70dvh] overflow-auto rounded-md border border-border bg-raised p-2">
+        <ZoneDefilement
+          fond="hsl(var(--raised))"
+          classeEnveloppe="mt-3 max-h-[70dvh] flex-none rounded-md border border-border bg-raised"
+          className="overflow-x-auto p-2"
+        >
           {data.kind === 'text' ? (
             <pre className="whitespace-pre-wrap text-[13px] leading-relaxed text-muted">{data.content}</pre>
           ) : data.kind === 'image' ? (
@@ -259,7 +264,7 @@ function FilePreview({
           ) : (
             <p className="p-4 text-center text-[14px] text-faint">Fichier binaire ({bytes(data.size)}).</p>
           )}
-        </div>
+        </ZoneDefilement>
       </DialogContent>
     </Dialog>
   );
@@ -289,7 +294,7 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-2">
+    <ZoneDefilement classeEnveloppe="h-full" className="p-2">
       <div className="grid grid-cols-2 gap-1.5">
         {items.map((item) => {
           const isImage = item.mime.startsWith('image/');
@@ -330,6 +335,6 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
       </div>
 
       <AttachmentPreview item={zoom} onClose={() => setZoom(null)} />
-    </div>
+    </ZoneDefilement>
   );
 }

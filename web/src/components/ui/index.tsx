@@ -159,34 +159,52 @@ export const TabsContent = TabsPrimitive.Content;
  * fond courant — donc noir en thème sombre, blanc en thème clair, sans
  * réglage.
  *
- * Le fondu du haut ne s'allume que si quelque chose est déjà remonté, celui
- * du bas s'éteint une fois le fond atteint : un voile permanent laisserait
- * croire qu'il reste toujours à lire.
+ * Le fondu du début ne s'allume que si quelque chose est déjà passé derrière,
+ * celui de la fin s'éteint une fois le bout atteint : un voile permanent
+ * laisserait croire qu'il reste toujours à lire.
+ *
+ * L'axe se choisit : vertical par défaut, horizontal pour un rail de colonnes
+ * ou une barre d'onglets — les voiles passent alors à gauche et à droite.
  */
 export const ZoneDefilement = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement> & {
     /** Couleur du fondu ; par défaut celle du fond de l'application. */
     fond?: string;
-    /** Hauteur du fondu, en pixels. */
+    /** Épaisseur du fondu, en pixels. */
     hauteur?: number;
     /** Classes de l'enveloppe qui porte les voiles. */
     classeEnveloppe?: string;
+    /** Sens du défilement. Un seul axe à la fois : l'autre reste bloqué. */
+    axe?: 'vertical' | 'horizontal';
   }
 >(function ZoneDefilement(
-  { fond = 'hsl(var(--bg))', hauteur = 28, classeEnveloppe, className, onScroll, children, ...props },
+  {
+    fond = 'hsl(var(--bg))',
+    hauteur = 28,
+    classeEnveloppe,
+    axe = 'vertical',
+    className,
+    onScroll,
+    children,
+    ...props
+  },
   ref,
 ) {
+  const horizontal = axe === 'horizontal';
   const interne = React.useRef<HTMLDivElement | null>(null);
-  const [haut, setHaut] = React.useState(false);
-  const [bas, setBas] = React.useState(false);
+  const [debut, setDebut] = React.useState(false);
+  const [fin, setFin] = React.useState(false);
 
   const mesurer = React.useCallback(() => {
     const zone = interne.current;
     if (!zone) return;
-    setHaut(zone.scrollTop > 4);
-    setBas(zone.scrollTop + zone.clientHeight < zone.scrollHeight - 4);
-  }, []);
+    const position = horizontal ? zone.scrollLeft : zone.scrollTop;
+    const visible = horizontal ? zone.clientWidth : zone.clientHeight;
+    const total = horizontal ? zone.scrollWidth : zone.scrollHeight;
+    setDebut(position > 4);
+    setFin(position + visible < total - 4);
+  }, [horizontal]);
 
   // Le contenu change sans qu'on défile (message qui arrive, onglet qui
   // s'ouvre) : on remesure à chaque remaniement de la zone.
@@ -200,30 +218,52 @@ export const ZoneDefilement = React.forwardRef<
     return () => observateur.disconnect();
   });
 
-  const voile = (cote: 'haut' | 'bas', visible: boolean) => (
-    <div
-      aria-hidden
-      className={cn(
-        'pointer-events-none absolute inset-x-0 z-10 transition-opacity duration-200',
-        cote === 'haut' ? 'top-0' : 'bottom-0',
-        visible ? 'opacity-100' : 'opacity-0',
-      )}
-      style={{
-        height: hauteur,
-        backdropFilter: 'blur(4px)',
-        WebkitBackdropFilter: 'blur(4px)',
-        background: `linear-gradient(to ${cote === 'haut' ? 'bottom' : 'top'}, ${fond}, transparent)`,
-        // Le flou lui-même s'atténue : sans ce masque, la bande floue se
-        // terminait par une arête franche, plus visible que le fondu.
-        maskImage: `linear-gradient(to ${cote === 'haut' ? 'bottom' : 'top'}, black 30%, transparent)`,
-        WebkitMaskImage: `linear-gradient(to ${cote === 'haut' ? 'bottom' : 'top'}, black 30%, transparent)`,
-      }}
-    />
-  );
+  const voile = (cote: 'debut' | 'fin', visible: boolean) => {
+    const sens = horizontal
+      ? cote === 'debut'
+        ? 'right'
+        : 'left'
+      : cote === 'debut'
+        ? 'bottom'
+        : 'top';
+    return (
+      <div
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute z-10 transition-opacity duration-200',
+          horizontal ? 'inset-y-0' : 'inset-x-0',
+          horizontal
+            ? cote === 'debut'
+              ? 'left-0'
+              : 'right-0'
+            : cote === 'debut'
+              ? 'top-0'
+              : 'bottom-0',
+          visible ? 'opacity-100' : 'opacity-0',
+        )}
+        style={{
+          [horizontal ? 'width' : 'height']: hauteur,
+          backdropFilter: 'blur(4px)',
+          WebkitBackdropFilter: 'blur(4px)',
+          background: `linear-gradient(to ${sens}, ${fond}, transparent)`,
+          // Le flou lui-même s'atténue : sans ce masque, la bande floue se
+          // terminait par une arête franche, plus visible que le fondu.
+          maskImage: `linear-gradient(to ${sens}, black 30%, transparent)`,
+          WebkitMaskImage: `linear-gradient(to ${sens}, black 30%, transparent)`,
+        }}
+      />
+    );
+  };
 
   return (
-    <div className={cn('relative flex min-h-0 flex-1 flex-col', classeEnveloppe)}>
-      {voile('haut', haut)}
+    <div
+      className={cn(
+        'relative flex',
+        horizontal ? 'min-w-0 flex-1 flex-row' : 'min-h-0 flex-1 flex-col',
+        classeEnveloppe,
+      )}
+    >
+      {voile('debut', debut)}
       <div
         ref={(noeud) => {
           interne.current = noeud;
@@ -234,12 +274,18 @@ export const ZoneDefilement = React.forwardRef<
           mesurer();
           onScroll?.(event);
         }}
-        className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden', className)}
+        className={cn(
+          // Un seul axe : un « auto » sur les deux entraîne l'autre.
+          horizontal
+            ? 'min-w-0 flex-1 overflow-x-auto overflow-y-hidden'
+            : 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden',
+          className,
+        )}
         {...props}
       >
         {children}
       </div>
-      {voile('bas', bas)}
+      {voile('fin', fin)}
     </div>
   );
 });
@@ -267,15 +313,22 @@ export function DialogContent({
       <div className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-3">
         <DialogPrimitive.Content
           className={cn(
-            'pointer-events-auto relative max-h-[85dvh] w-full overflow-y-auto border-t border-border bg-surface p-4 shadow-2xl',
+            'pointer-events-auto relative flex max-h-[85dvh] w-full flex-col overflow-hidden border-t border-border bg-surface shadow-2xl',
             'rounded-t-xl data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
             'sm:w-[min(560px,100%)] sm:rounded-lg sm:border sm:data-[state=open]:animate-slide-up sm:data-[state=closed]:animate-slide-down',
             className,
           )}
-          style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
           {...props}
         >
-          {children}
+          {/* Le contenu d'une fenêtre déborde souvent : il s'efface au bord
+              plutôt que de se couper net sous le bouton de fermeture. */}
+          <ZoneDefilement
+            fond="hsl(var(--surface))"
+            className="p-4"
+            style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
+          >
+            {children}
+          </ZoneDefilement>
           <DialogPrimitive.Close className="absolute right-3 top-3 rounded p-1 text-faint hover:bg-raised hover:text-text">
             <X className="h-3.5 w-3.5" />
           </DialogPrimitive.Close>
@@ -566,7 +619,9 @@ export function DropdownMenuContent({
         </div>
         {/* Le contenu défile seul : la poignée reste sous le doigt même quand la
             liste est longue. */}
-        <div className="min-h-0 flex-1 max-sm:overflow-y-auto max-sm:overscroll-contain">{props.children}</div>
+        <ZoneDefilement fond="hsl(var(--surface))" hauteur={20} className="overscroll-contain">
+          {props.children}
+        </ZoneDefilement>
       </DropdownPrimitive.Content>
     </DropdownPrimitive.Portal>
   );

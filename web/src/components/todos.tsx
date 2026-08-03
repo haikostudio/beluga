@@ -3,6 +3,7 @@ import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, CircleDot, Loade
 import { RunStep, TodoItem } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { ZoneDefilement } from '@/components/ui';
 import { cn, duration } from '@/lib/utils';
 
 /**
@@ -39,9 +40,15 @@ export function MemoryNote({ step, projectId }: { step: RunStep; projectId?: str
       {open ? (
         <div className="mx-2 mb-2">
           <p className="px-1 pb-1 text-[12px] text-faint">La mémoire du projet, telle qu'elle est aujourd'hui :</p>
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-raised p-2 text-[12.5px] leading-relaxed text-muted">
-            {texte ?? 'Lecture…'}
-          </pre>
+          <ZoneDefilement
+            fond="hsl(var(--raised))"
+            classeEnveloppe="max-h-64 flex-none rounded bg-raised"
+            className="p-2"
+          >
+            <pre className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-muted">
+              {texte ?? 'Lecture…'}
+            </pre>
+          </ZoneDefilement>
         </div>
       ) : null}
     </div>
@@ -148,7 +155,8 @@ export function VoletTaches({
       {open ? (
         /* Hauteur BORNÉE : au-delà, le volet défile sur lui-même. Il ne mange
            jamais la conversation ni la barre d'écriture. */
-        <ul className="max-h-[min(35vh,260px)] space-y-0.5 overflow-y-auto border-t border-border px-2 py-1.5">
+        <ZoneDefilement classeEnveloppe="max-h-[min(35vh,260px)] flex-none" className="px-2 py-1.5">
+        <ul className="space-y-0.5">
           {todos.map((todo, index) => (
             <li key={`${index}-${todo.label}`} className="flex items-start gap-2 px-1 py-1">
               {/* Une vraie case à cocher : vide, en cours, ou cochée. */}
@@ -194,6 +202,7 @@ export function VoletTaches({
             </li>
           ))}
         </ul>
+        </ZoneDefilement>
       ) : null}
     </div>
   );
