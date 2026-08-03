@@ -73,9 +73,14 @@ function lireVoiles() {
     scrollTop: corps.scrollTop,
     opaciteHaut: Number(style(haut).opacity),
     opaciteBas: Number(style(bas).opacity),
-    flou: style(haut).backdropFilter || style(haut).webkitBackdropFilter || '',
-    degrade: style(haut).backgroundImage,
-    masque: style(haut).maskImage || style(haut).webkitMaskImage || '',
+    /* Le voile est fait de plusieurs calques : des flous de plus en plus
+       courts, puis l'ombre. On juge donc les calques, pas leur enveloppe. */
+    couches: haut.children.length,
+    flou: Array.from(haut.children)
+      .map((n) => style(n).backdropFilter || style(n).webkitBackdropFilter || '')
+      .filter((f) => f.includes('blur')).length,
+    degrade: style(haut.children[haut.children.length - 1]).backgroundColor,
+    masque: style(haut.children[0]).maskImage || style(haut.children[0]).webkitMaskImage || '',
     hauteur: haut.getBoundingClientRect().height,
   };
 }
@@ -118,10 +123,13 @@ async function main() {
   noter('la zone de conversation porte bien deux voiles', !!repos, repos ? '' : 'aucune zone trouvée');
 
   if (repos) {
-    noter('le voile est bien un dégradé flouté et masqué',
-      repos.flou.includes('blur') && repos.degrade.includes('gradient') && repos.masque.includes('gradient'),
-      `flou=${repos.flou} masque=${repos.masque.slice(0, 28)}`);
-    noter('le voile fait une bande fine', repos.hauteur > 16 && repos.hauteur < 48, `${Math.round(repos.hauteur)} px`);
+    noter(
+      'le flou est progressif : plusieurs calques empilés',
+      repos.flou >= 3 && repos.masque.includes('gradient'),
+      `${repos.flou} calques flous sur ${repos.couches}`,
+    );
+    noter('l’ombre prend la couleur du fond', repos.degrade.startsWith('rgb'), repos.degrade);
+    noter('le voile fait une bande fine', repos.hauteur > 24 && repos.hauteur < 72, `${Math.round(repos.hauteur)} px`);
   }
 
   // On fait défiler : le voile du haut doit s'allumer.

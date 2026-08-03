@@ -154,6 +154,17 @@ export const TabsContent = TabsPrimitive.Content;
 /* -------------------- Fondu au bord d'un défilement ---------------- */
 
 /**
+ * Où s'arrête chaque calque de flou, en pourcentage de la bande. Quatre
+ * calques : le tout premier pixel en cumule quatre, le dernier aucun.
+ */
+const COUCHES_FLOU = [25, 50, 75, 100];
+const FLOU_PAR_COUCHE = 2;
+
+/** La courbe d'extinction de l'ombre : douce au départ, longue à la fin. */
+const OMBRE_COURBE =
+  'rgb(0 0 0 / 1) 0%, rgb(0 0 0 / 0.92) 18%, rgb(0 0 0 / 0.7) 38%, rgb(0 0 0 / 0.42) 58%, rgb(0 0 0 / 0.18) 78%, rgb(0 0 0 / 0) 100%';
+
+/**
  * Une zone qui défile, avec un fondu en HAUT et en BAS : le contenu ne se
  * coupe plus net sous les onglets ou au-dessus de la barre d'écriture, il
  * s'efface et se floute en glissant derrière. Le voile prend la couleur du
@@ -182,7 +193,9 @@ export const ZoneDefilement = React.forwardRef<
 >(function ZoneDefilement(
   {
     fond = 'hsl(var(--bg))',
-    hauteur = 28,
+    // Une bande courte redevient une coupure : il faut de la place pour que
+    // le flou ait le temps de grandir.
+    hauteur = 44,
     classeEnveloppe,
     axe = 'vertical',
     className,
@@ -242,17 +255,41 @@ export const ZoneDefilement = React.forwardRef<
               : 'bottom-0',
           visible ? 'opacity-100' : 'opacity-0',
         )}
-        style={{
-          [horizontal ? 'width' : 'height']: hauteur,
-          backdropFilter: 'blur(4px)',
-          WebkitBackdropFilter: 'blur(4px)',
-          background: `linear-gradient(to ${sens}, ${fond}, transparent)`,
-          // Le flou lui-même s'atténue : sans ce masque, la bande floue se
-          // terminait par une arête franche, plus visible que le fondu.
-          maskImage: `linear-gradient(to ${sens}, black 30%, transparent)`,
-          WebkitMaskImage: `linear-gradient(to ${sens}, black 30%, transparent)`,
-        }}
-      />
+        style={{ [horizontal ? 'width' : 'height']: hauteur }}
+      >
+        {/*
+         * Un flou PROGRESSIF, et non une bande floue posée d'un bloc : un seul
+         * calque donne toujours une arête, parce que le flou y est le même
+         * partout et que seule son opacité varie. On empile donc plusieurs
+         * calques de plus en plus courts — le bord en cumule autant qu'il y en
+         * a, le milieu un seul, la fin aucun. Le flou grandit alors doucement,
+         * comme le fait un objet qui s'éloigne.
+         */}
+        {COUCHES_FLOU.map((fin, index) => (
+          <div
+            key={index}
+            className="absolute inset-0"
+            style={{
+              backdropFilter: `blur(${FLOU_PAR_COUCHE}px)`,
+              WebkitBackdropFilter: `blur(${FLOU_PAR_COUCHE}px)`,
+              maskImage: `linear-gradient(to ${sens}, black ${COUCHES_FLOU[index - 1] ?? 0}%, transparent ${fin}%)`,
+              WebkitMaskImage: `linear-gradient(to ${sens}, black ${COUCHES_FLOU[index - 1] ?? 0}%, transparent ${fin}%)`,
+            }}
+          />
+        ))}
+        {/*
+         * L'ombre, par-dessus : la couleur du fond s'efface selon une courbe
+         * douce. Un dégradé droit se voit finir ; celui-ci s'éteint.
+         */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background: fond,
+            maskImage: `linear-gradient(to ${sens}, ${OMBRE_COURBE})`,
+            WebkitMaskImage: `linear-gradient(to ${sens}, ${OMBRE_COURBE})`,
+          }}
+        />
+      </div>
     );
   };
 
@@ -665,7 +702,7 @@ export function DropdownMenuContent({
         </div>
         {/* Le contenu défile seul : la poignée reste sous le doigt même quand la
             liste est longue. */}
-        <ZoneDefilement fond="hsl(var(--surface))" hauteur={20} className="overscroll-contain">
+        <ZoneDefilement fond="hsl(var(--surface))" hauteur={32} className="overscroll-contain">
           {props.children}
         </ZoneDefilement>
       </DropdownPrimitive.Content>
