@@ -2,12 +2,16 @@
 /**
  * Le contenu s'efface-t-il en haut et en bas d'une zone qui défile ?
  *
- * On ouvre la conversation du chef sur un écran de téléphone et on vérifie
- * trois choses : rien ne voile le haut tant qu'on est en haut, le voile du
- * haut s'allume dès qu'on a fait défiler, et il floute vraiment ce qui passe
- * derrière. On contrôle ensuite le VOILE d'un tiroir : le volet des quotas
- * est un menu, et la bibliothèque n'en pose pas — il doit assombrir l'écran
- * derrière lui, puis s'effacer pendant que le tiroir redescend.
+ * Le fondu est réservé au défilement VERTICAL. On contrôle donc d'abord
+ * qu'aucune zone qui glisse de CÔTÉ — rail du tableau, barres d'onglets — ne
+ * porte le moindre voile, tout en continuant de défiler sur un seul axe.
+ *
+ * On ouvre ensuite la conversation du chef sur un écran de téléphone et on
+ * vérifie trois choses : rien ne voile le haut tant qu'on est en haut, le
+ * voile du haut s'allume dès qu'on a fait défiler, et il floute vraiment ce
+ * qui passe derrière. On contrôle enfin le VOILE d'un tiroir : le volet des
+ * quotas est un menu, et la bibliothèque n'en pose pas — il doit assombrir
+ * l'écran derrière lui, puis s'effacer pendant que le tiroir redescend.
  *
  *   node scripts/verif-fondu-defilement.mjs
  */
@@ -56,15 +60,9 @@ function lireVoiles() {
       enfants[1].scrollHeight > 0
     );
   });
-  /* La plus haute zone à fondu HORIZONTAL (bande large et basse) : le fil de
-     la conversation. Un rail à défilement latéral porte, lui, des voiles
-     hauts et étroits — on ne veut pas le confondre avec. */
-  const zone = zones
-    .filter((n) => {
-      const b = n.children[0].getBoundingClientRect();
-      return b.width > b.height;
-    })
-    .sort((a, b) => b.clientHeight - a.clientHeight)[0];
+  /* La plus haute des zones à voile : le fil de la conversation. Toutes sont
+     verticales, un rail latéral ne porte plus rien. */
+  const zone = zones.sort((a, b) => b.clientHeight - a.clientHeight)[0];
   if (!zone) return null;
   const [haut, corps, bas] = Array.from(zone.children);
   const style = (n) => getComputedStyle(n);
@@ -83,6 +81,55 @@ function lireVoiles() {
     masque: style(haut.children[0]).maskImage || style(haut.children[0]).webkitMaskImage || '',
     hauteur: haut.getBoundingClientRect().height,
   };
+}
+
+/**
+ * Toutes les zones qui glissent de HAUT EN BAS, avec le nombre de voiles que
+ * porte leur enveloppe. Il en faut deux : celui du début, celui de la fin.
+ */
+function lireZonesVerticales() {
+  return Array.from(document.querySelectorAll('div'))
+    .filter((n) => {
+      const s = getComputedStyle(n);
+      return (s.overflowY === 'auto' || s.overflowY === 'scroll') && s.overflowX === 'hidden';
+    })
+    .map((n) => ({
+      repere: (n.textContent || '').trim().slice(0, 40) || '(sans texte)',
+      voiles: n.parentElement
+        ? Array.from(n.parentElement.children).filter((e) => e.getAttribute('aria-hidden') === 'true').length
+        : 0,
+    }));
+}
+
+/**
+ * Toutes les zones qui glissent de CÔTÉ, telles qu'elles sont à l'écran. Une
+ * zone latérale se reconnaît à ses deux réglages : le côté libre, la hauteur
+ * bloquée. On rend, pour chacune, ce que porte son enveloppe.
+ */
+function lireZonesLaterales() {
+  return Array.from(document.querySelectorAll('div'))
+    .filter((n) => {
+      const s = getComputedStyle(n);
+      return (s.overflowX === 'auto' || s.overflowX === 'scroll') && s.overflowY === 'hidden';
+    })
+    .map((n) => {
+      const enveloppe = n.parentElement;
+      const voiles = enveloppe
+        ? Array.from(enveloppe.children).filter((e) => e.getAttribute('aria-hidden') === 'true')
+        : [];
+      return {
+        repere: (n.textContent || '').trim().slice(0, 40) || '(sans texte)',
+        voiles: voiles.length,
+        flous: voiles.filter((v) =>
+          Array.from(v.querySelectorAll('*')).some((c) => {
+            const s = getComputedStyle(c);
+            return (s.backdropFilter || s.webkitBackdropFilter || '').includes('blur');
+          }),
+        ).length,
+        overflowY: getComputedStyle(n).overflowY,
+        debordeDeCote: n.scrollWidth - n.clientWidth,
+      };
+    });
 }
 
 async function main() {
@@ -109,8 +156,48 @@ async function main() {
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(6000);
 
+  /* --- Les zones qui glissent de côté : aucun voile, jamais. --- */
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(600);
+  await page.evaluate(() => {
+    const onglet = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Tableau');
+    onglet?.click();
+  });
+  await page.waitForTimeout(2000);
+
+  const laterales = await page.evaluate(lireZonesLaterales);
+  noter('le rail du tableau glisse de côté', laterales.some((z) => z.debordeDeCote > 0), `${laterales.length} zone(s) latérale(s)`);
+
+  /* La barre d'onglets des réglages est un second usage latéral : on l'ouvre
+     pour la faire entrer dans le même contrôle. */
+  try {
+    await page.locator('header button').last().click({ timeout: 10000 });
+    await page.waitForTimeout(500);
+    await page.getByText('Réglages', { exact: true }).first().click({ timeout: 10000 });
+    await page.waitForTimeout(1500);
+  } catch {
+    console.log('  (les réglages ne se sont pas ouverts : contrôle limité au rail)');
+  }
+  const laterales2 = await page.evaluate(lireZonesLaterales);
+  const toutes = [...laterales, ...laterales2];
+
+  noter('au moins deux zones latérales examinées', toutes.length >= 2, `${toutes.length} relevés`);
+  const voilees = toutes.filter((z) => z.voiles > 0 || z.flous > 0);
+  noter(
+    'aucune zone latérale ne porte de voile',
+    voilees.length === 0,
+    voilees.map((z) => `« ${z.repere} » : ${z.voiles} voile(s)`).join(' | '),
+  );
+  noter(
+    'chaque zone latérale bloque la hauteur',
+    toutes.every((z) => z.overflowY === 'hidden'),
+    toutes.map((z) => z.overflowY).join(', '),
+  );
+
   /* On referme ce qu'une session précédente aurait laissé ouvert, puis on se
      place sur la conversation : c'est elle qui déborde assez pour juger. */
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(700);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(600);
   await page.evaluate(() => {
@@ -118,6 +205,14 @@ async function main() {
     onglet?.click();
   });
   await page.waitForTimeout(2500);
+
+  const verticales = await page.evaluate(lireZonesVerticales);
+  const nues = verticales.filter((z) => z.voiles !== 2);
+  noter(
+    'chaque zone qui défile de haut en bas porte ses deux voiles',
+    verticales.length > 0 && nues.length === 0,
+    nues.length ? nues.map((z) => `« ${z.repere} » : ${z.voiles}`).join(' | ') : `${verticales.length} zone(s)`,
+  );
 
   const repos = await page.evaluate(lireVoiles);
   noter('la zone de conversation porte bien deux voiles', !!repos, repos ? '' : 'aucune zone trouvée');
@@ -138,12 +233,7 @@ async function main() {
       const e = Array.from(n.children);
       return e.length === 3 && e[0].getAttribute('aria-hidden') === 'true' && e[2].getAttribute('aria-hidden') === 'true';
     });
-    const zone = zones
-      .filter((n) => {
-        const b = n.children[0].getBoundingClientRect();
-        return b.width > b.height;
-      })
-      .sort((a, b) => b.clientHeight - a.clientHeight)[0];
+    const zone = zones.sort((a, b) => b.clientHeight - a.clientHeight)[0];
     if (!zone) return null;
     const corps = zone.children[1];
     corps.scrollTop = Math.max(0, Math.floor(corps.scrollHeight / 2));

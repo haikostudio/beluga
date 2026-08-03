@@ -139,9 +139,13 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   existant (sauf sur HaikoDev lui-même).
 - Le tableau ne glisse que de gauche à droite, une colonne que de haut en bas. Un axe en `auto`
   entraîne l'autre : le rail doit dire `overflow-y-hidden` en toutes lettres.
-- **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle pose le fondu
-  flouté aux deux bords et bloque le second axe. Pas de `overflow-y-auto` posé à la main, et pas de
-  filet (`border-t` / `border-b`) au bord d'une zone à fondu — le fondu EST la limite.
+- **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
+  second axe et pose le fondu flouté aux deux bords. Pas de `overflow-y-auto` posé à la main, et pas
+  de filet (`border-t` / `border-b`) au bord d'une zone à fondu — le fondu EST la limite.
+- **Le fondu est réservé au défilement VERTICAL**, le seul où le texte glisse derrière un en-tête ou
+  une barre. En `axe="horizontal"` (rail du tableau, barres d'onglets), `ZoneDefilement` ne pose
+  AUCUN voile : il masquerait le bord des colonnes sans rien apprendre. L'option reste, car c'est
+  elle qui écrit `overflow-y-hidden` en toutes lettres et empêche le tableau de flotter.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.

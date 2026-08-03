@@ -175,8 +175,11 @@ const OMBRE_COURBE =
  * celui de la fin s'éteint une fois le bout atteint : un voile permanent
  * laisserait croire qu'il reste toujours à lire.
  *
- * L'axe se choisit : vertical par défaut, horizontal pour un rail de colonnes
- * ou une barre d'onglets — les voiles passent alors à gauche et à droite.
+ * Le fondu est RÉSERVÉ au défilement vertical, seul cas où le texte glisse
+ * derrière un en-tête ou une barre. Sur un rail de colonnes ou une barre
+ * d'onglets, il masquerait le bord des éléments sans rien apprendre : l'axe
+ * « horizontal » garde donc le conteneur — un seul axe de défilement, l'autre
+ * bloqué — mais ne pose aucun voile.
  */
 export const ZoneDefilement = React.forwardRef<
   HTMLDivElement,
@@ -187,7 +190,11 @@ export const ZoneDefilement = React.forwardRef<
     hauteur?: number;
     /** Classes de l'enveloppe qui porte les voiles. */
     classeEnveloppe?: string;
-    /** Sens du défilement. Un seul axe à la fois : l'autre reste bloqué. */
+    /**
+     * Sens du défilement. Un seul axe à la fois : l'autre reste bloqué.
+     * « horizontal » ne pose aucun voile — le fondu n'a de sens qu'à la
+     * verticale.
+     */
     axe?: 'vertical' | 'horizontal';
   }
 >(function ZoneDefilement(
@@ -210,21 +217,20 @@ export const ZoneDefilement = React.forwardRef<
   const [debut, setDebut] = React.useState(false);
   const [fin, setFin] = React.useState(false);
 
+  // Sans voile à allumer, il n'y a rien à mesurer : l'axe horizontal ne paie
+  // ni l'observateur de taille ni un rendu à chaque défilement.
   const mesurer = React.useCallback(() => {
     const zone = interne.current;
-    if (!zone) return;
-    const position = horizontal ? zone.scrollLeft : zone.scrollTop;
-    const visible = horizontal ? zone.clientWidth : zone.clientHeight;
-    const total = horizontal ? zone.scrollWidth : zone.scrollHeight;
-    setDebut(position > 4);
-    setFin(position + visible < total - 4);
+    if (!zone || horizontal) return;
+    setDebut(zone.scrollTop > 4);
+    setFin(zone.scrollTop + zone.clientHeight < zone.scrollHeight - 4);
   }, [horizontal]);
 
   // Le contenu change sans qu'on défile (message qui arrive, onglet qui
   // s'ouvre) : on remesure à chaque remaniement de la zone.
   React.useEffect(() => {
     const zone = interne.current;
-    if (!zone) return;
+    if (!zone || horizontal) return;
     mesurer();
     const observateur = new ResizeObserver(mesurer);
     observateur.observe(zone);
@@ -233,29 +239,17 @@ export const ZoneDefilement = React.forwardRef<
   });
 
   const voile = (cote: 'debut' | 'fin', visible: boolean) => {
-    const sens = horizontal
-      ? cote === 'debut'
-        ? 'right'
-        : 'left'
-      : cote === 'debut'
-        ? 'bottom'
-        : 'top';
+    if (horizontal) return null;
+    const sens = cote === 'debut' ? 'bottom' : 'top';
     return (
       <div
         aria-hidden
         className={cn(
-          'pointer-events-none absolute z-10 transition-opacity duration-200',
-          horizontal ? 'inset-y-0' : 'inset-x-0',
-          horizontal
-            ? cote === 'debut'
-              ? 'left-0'
-              : 'right-0'
-            : cote === 'debut'
-              ? 'top-0'
-              : 'bottom-0',
+          'pointer-events-none absolute inset-x-0 z-10 transition-opacity duration-200',
+          cote === 'debut' ? 'top-0' : 'bottom-0',
           visible ? 'opacity-100' : 'opacity-0',
         )}
-        style={{ [horizontal ? 'width' : 'height']: hauteur }}
+        style={{ height: hauteur }}
       >
         {/*
          * Un flou PROGRESSIF, et non une bande floue posée d'un bloc : un seul
