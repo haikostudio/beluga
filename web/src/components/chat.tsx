@@ -107,8 +107,17 @@ export function Chat({
         />
       ) : null}
       {/* Une conversation ne défile que verticalement : ce qui dépasse en
-          largeur (code, longue adresse) défile DANS son propre bloc. */}
-      <div ref={filRef} className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-3 py-3">
+          largeur (code, longue adresse) défile DANS son propre bloc.
+          « overflow-x: hidden » ne suffit pas : le navigateur déplace quand
+          même le contenu pour montrer une sélection ou un curseur, et le fil
+          restait de travers. On le remet donc à zéro. */}
+      <div
+        ref={filRef}
+        onScroll={(event) => {
+          if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
+        }}
+        className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-3 py-3"
+      >
         {messages.length ? (
           messages.map((message, index) => (
             <React.Fragment key={message.id}>

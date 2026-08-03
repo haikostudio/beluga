@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Check,
   Circle,
+  Copy,
   Download,
   HelpCircle,
   LayoutGrid,
@@ -59,20 +60,28 @@ export function MessageView({
     // Vos demandes : à droite, sur une largeur réduite.
     return (
       <div className="flex justify-end">
-        <div className="w-[min(78%,520px)] min-w-0">
-          <div className="rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
-            <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-text">{message.content}</p>
+        <div className="w-[min(78%,520px)] min-w-0 max-w-full">
+          <div className="overflow-hidden rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
+            {/*
+             * Une adresse ou un chemin sans espace ne doit JAMAIS élargir la
+             * bulle : elle pousserait la conversation vers la droite, et la
+             * moindre sélection ferait glisser tout le fil de côté.
+             */}
+            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[14.5px] leading-relaxed text-text">
+              {message.content}
+            </p>
             {message.attachments.length ? (
               <PiecesJointes ids={message.attachments} projectId={projectId} />
             ) : null}
           </div>
-          <div className="text-right">
+          <div className="flex items-center justify-end gap-1.5">
             <Meta
               items={[
                 horodatage(message.createdAt),
                 message.tokens ? `${message.tokens.toLocaleString('fr-CH')} jetons envoyés` : null,
               ]}
             />
+            <BoutonCopier texte={message.content} />
           </div>
         </div>
       </div>
@@ -149,10 +158,53 @@ export function MessageView({
         </div>
       ) : null}
 
-      <div className="mt-1 text-[12px] text-faint opacity-0 transition-opacity group-hover:opacity-100">
-        {relativeTime(message.createdAt)}
+      <div className="mt-1 flex items-center gap-1.5 text-[12px] text-faint">
+        <span className="opacity-0 transition-opacity group-hover:opacity-100">
+          {relativeTime(message.createdAt)}
+        </span>
+        <BoutonCopier texte={message.content} />
       </div>
     </div>
+  );
+}
+
+/**
+ * Copier un message en entier. Le bouton reste discret et confirme d'un mot :
+ * sans retour visible, on ne sait pas si le clic a pris.
+ */
+function BoutonCopier({ texte }: { texte: string }) {
+  const [copie, setCopie] = React.useState(false);
+  if (!texte?.trim()) return null;
+
+  const copier = async () => {
+    try {
+      await navigator.clipboard.writeText(texte);
+    } catch {
+      // Presse-papiers refusé (page non sécurisée, vieux navigateur) : on passe
+      // par un champ caché, la copie reste possible.
+      const zone = document.createElement('textarea');
+      zone.value = texte;
+      zone.style.position = 'fixed';
+      zone.style.opacity = '0';
+      document.body.appendChild(zone);
+      zone.select();
+      document.execCommand('copy');
+      zone.remove();
+    }
+    setCopie(true);
+    window.setTimeout(() => setCopie(false), 1800);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={copier}
+      title="Copier le message"
+      className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
+    >
+      {copie ? <Check className="h-2.5 w-2.5 text-success" /> : <Copy className="h-2.5 w-2.5" />}
+      {copie ? 'Copié' : 'Copier'}
+    </button>
   );
 }
 

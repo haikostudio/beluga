@@ -8,17 +8,17 @@
    * Les SEULES couleurs sont des couleurs d'état (PLAN §17).
    */
   :root {
-    /* Contraste renforcé : en pleine lumière, les paliers de fond se
-       distinguaient mal et les bords disparaissaient. Le fond descend au noir
-       pur, chaque palier s'écarte du précédent, et la bordure remonte assez
-       haut pour dessiner un vrai trait. */
+    /* Retour aux paliers d'origine (03.08.2026) : la version plus contrastée
+       éclaircissait trop les fonds, les cartes et les colonnes tiraient vers
+       le gris clair. Seul le fond de page reste au noir pur, qui ne gênait
+       personne. */
     --bg: 0 0% 0%;
-    --surface: 0 0% 11%;
-    --raised: 0 0% 17%;
-    --border: 0 0% 34%;
+    --surface: 0 0% 8%;
+    --raised: 0 0% 13%;
+    --border: 0 0% 24%;
     --text: 0 0% 100%;
-    --muted: 0 0% 82%;
-    --faint: 0 0% 64%;
+    --muted: 0 0% 78%;
+    --faint: 0 0% 58%;
     --accent: 0 0% 100%;
     --accent-fg: 0 0% 3%;
     --success: 142 55% 55%;
