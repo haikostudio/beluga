@@ -234,6 +234,12 @@ function CardSummary({ card }: { card: Card }) {
               : 'neutral'
           }
         />
+        {/* Retiré du pied des cartes : c'est ici qu'on vient le chercher. */}
+        <Metric
+          label="Heures développeur senior"
+          value={card.estimate?.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
+          hint="Base de la facture, jamais la durée machine"
+        />
         <Metric label="Jetons consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
         <Metric label="Compte utilisé" value={card.consumption?.account ?? '—'} />
       </div>

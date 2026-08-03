@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Bot, CircleDollarSign, GitBranch, Loader2 } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import { COLUMN_KEYS, COLUMN_LABELS, Card, ColumnKey, canMove } from '@haikodev/shared';
 import { Badge, Button, Dot, Input, Textarea, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
 import { useApp } from '@/lib/use-app';
-import { cn, duration, relativeTime } from '@/lib/utils';
+import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel } from '@/components/deploy-panel';
 
 export function Board({
@@ -246,14 +246,6 @@ export function CardTile({
     (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
   );
 
-  const gap =
-    card.estimate?.machineSeconds && card.consumption?.machineSeconds
-      ? {
-          planned: card.estimate.machineSeconds,
-          real: card.consumption.machineSeconds,
-        }
-      : null;
-
   /*
    * L'état en cours ne s'affiche PAS dans le corps de la carte : il sort par le
    * bas, comme une étiquette glissée derrière, sur un fond un peu plus clair.
@@ -282,13 +274,23 @@ export function CardTile({
           statut && 'rounded-b-none',
         )}
       >
+        {/*
+         * Le badge « en ligne » est le premier repère à voir : il prend sa
+         * propre ligne AU-DESSUS du titre, au lieu de se perdre au milieu des
+         * repères techniques du pied.
+         */}
+        {card.deployedAt ? (
+          <div className="mb-1 flex">
+            <Tooltip label={`En ligne depuis le ${new Date(card.deployedAt).toLocaleString('fr-CH')}`}>
+              <Badge tone="success">
+                <Rocket className="h-2.5 w-2.5" /> en ligne
+              </Badge>
+            </Tooltip>
+          </div>
+        ) : null}
+
         <div className="flex items-start gap-1.5">
           <h3 className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{card.title}</h3>
-          {card.origin === 'agent' ? (
-            <Tooltip label="Créée par le chef d'orchestre">
-              <Bot className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
-            </Tooltip>
-          ) : null}
           {/* Le voyant est à DROITE, au bout de la ligne du titre. */}
           {running || analysing || analyseEnCours ? (
             <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-success" />
@@ -307,64 +309,22 @@ export function CardTile({
           )}
         </div>
 
-        {card.labels.length ? (
+        {card.labels.length || card.billing ? (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {card.labels.slice(0, 3).map((label) => (
               <Badge key={label}>{label}</Badge>
             ))}
+            {card.billing ? <Badge tone="success">déjà facturée</Badge> : null}
           </div>
         ) : null}
 
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-faint">
-        {card.estimate?.machineSeconds ? (
-          <Tooltip label="Durée machine annoncée par l'analyse">
-            <span className="inline-flex items-center gap-0.5">
-              <Clock className="h-2.5 w-2.5" />
-              {duration(card.estimate.machineSeconds)}
-            </span>
-          </Tooltip>
-        ) : null}
-
-        {gap ? (
-          <Tooltip label="Annoncé contre réalisé — sans jugement, juste le fait">
-            <span className={cn(gap.real > gap.planned * 1.3 ? 'text-warning' : 'text-faint')}>
-              réalisé {duration(gap.real)}
-            </span>
-          </Tooltip>
-        ) : null}
-
-        {card.estimate?.seniorHours ? (
-          <Tooltip label="Heures qu'un développeur senior facturerait">
-            <span className="inline-flex items-center gap-0.5">
-              <CircleDollarSign className="h-2.5 w-2.5" />
-              {card.estimate.seniorHours} h
-            </span>
-          </Tooltip>
-        ) : null}
-
-        {card.billing ? (
-          <Badge tone="success">déjà facturée</Badge>
-        ) : null}
-
-        {card.github?.branch ? (
-          <Tooltip label={card.github.branch}>
-            <span className="inline-flex items-center gap-0.5">
-              <GitBranch className="h-2.5 w-2.5" />
-              {card.github.prNumber ? `#${card.github.prNumber}` : 'branche'}
-            </span>
-          </Tooltip>
-        ) : null}
-
-        {card.deployedAt ? (
-          <Tooltip label={`En ligne depuis le ${new Date(card.deployedAt).toLocaleString('fr-CH')}`}>
-            <Badge tone="success">
-              <Rocket className="h-2.5 w-2.5" /> en ligne
-            </Badge>
-          </Tooltip>
-        ) : null}
-
-          <span className="ml-auto">{relativeTime(card.updatedAt)}</span>
-        </div>
+        {/*
+         * Le pied ne porte plus que l'ancienneté. Les repères techniques
+         * (durée prévue, durée réalisée, heures facturables, branche) n'aident
+         * pas à décider d'un coup d'œil : ils vivent dans le tiroir de la
+         * carte, onglets Détails et GitHub.
+         */}
+        <div className="mt-1.5 text-[12px] text-faint">{relativeTime(card.updatedAt)}</div>
       </article>
 
       {statut ? (
