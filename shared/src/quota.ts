@@ -37,6 +37,39 @@ export function tempsRestant(resetsAt?: number, maintenant = Date.now()): string
   return minutes >= 1 ? `reste ${minutes} min` : 'reste moins d’une minute';
 }
 
+/* ------------------------------------------------------------------ */
+/* L'alerte de fin de fenêtre                                          */
+/* ------------------------------------------------------------------ */
+
+/** Sous ce reste, la fenêtre de cinq heures se signale sur le téléphone. */
+export const SEUIL_FIN_DE_FENETRE_MS = 30 * 60 * 1000;
+
+export interface EtatFinDeFenetre {
+  /** Heure annoncée de remise à zéro de la fenêtre courte. */
+  resetsAt?: number;
+  /** La dernière lecture de quota a échoué : les chiffres affichés sont périmés. */
+  lectureEnEchec?: boolean;
+  /** L'échéance pour laquelle on a DÉJÀ prévenu, s'il y en a une. */
+  dejaAnnoncee?: number;
+}
+
+/**
+ * Faut-il prévenir maintenant ? Une seule fois par fenêtre : c'est l'heure de
+ * remise à zéro elle-même qui sert de marque, donc une nouvelle fenêtre
+ * (nouvelle échéance) redonne droit à une alerte, et un redémarrage du serveur
+ * n'en refait pas une pour la même.
+ *
+ * La règle vit ici, sans réseau ni base : elle se teste seule.
+ */
+export function doitAlerterFinDeFenetre(etat: EtatFinDeFenetre, maintenant = Date.now()): boolean {
+  // Chiffres périmés : prévenir sur une preuve qu'on n'a plus n'aide personne.
+  if (etat.lectureEnEchec || !etat.resetsAt) return false;
+  if (etat.dejaAnnoncee === etat.resetsAt) return false;
+  const restant = etat.resetsAt - maintenant;
+  // Échéance déjà passée : la fenêtre est finie, l'alerte n'a plus d'objet.
+  return restant > 0 && restant <= SEUIL_FIN_DE_FENETRE_MS;
+}
+
 /** L'heure exacte de remise à zéro, pour l'infobulle : le détail reste accessible. */
 export function heureDeRemiseAZero(resetsAt?: number, maintenant = Date.now()): string | null {
   if (!resetsAt) return null;

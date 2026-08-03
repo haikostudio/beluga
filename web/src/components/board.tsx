@@ -17,6 +17,12 @@ import { useApp } from '@/lib/use-app';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel } from '@/components/deploy-panel';
 
+/**
+ * Les colonnes de fin de parcours, où le ménage se fait en lot. Ailleurs, une
+ * carte est encore vivante : on ne propose pas de tout archiver d'un clic.
+ */
+const COLONNES_ARCHIVABLES: ColumnKey[] = ['done', 'to_deploy'];
+
 export function Board({
   projectId,
   onOpenCard,
@@ -106,28 +112,30 @@ export function Board({
   }, []);
 
   /*
-   * L'archivage en lot de la colonne « À déployer ». Le mode se déclenche au
+   * L'archivage en lot des colonnes de fin de parcours. Le mode se déclenche au
    * bouton du bas : chaque carte reçoit alors une case à cocher, TOUTES cochées
    * d'entrée — on retire ce qu'on veut garder, plutôt que de tout re-cliquer.
+   * Une seule colonne à la fois : deux sélections ouvertes en parallèle rendent
+   * le compteur des boutons illisible.
    */
-  const [modeArchivage, setModeArchivage] = React.useState(false);
+  const [colonneArchivage, setColonneArchivage] = React.useState<ColumnKey | null>(null);
   const [selection, setSelection] = React.useState<string[]>([]);
   const [archivageEnCours, setArchivageEnCours] = React.useState(false);
 
-  const cartesADeployer = byColumn('to_deploy');
+  const cartesEnSelection = colonneArchivage ? byColumn(colonneArchivage) : [];
   // Changer de projet, ou vider la colonne, referme le mode : il n'aurait plus
   // rien à cocher, et le pied resterait sur des boutons sans effet.
   React.useEffect(() => {
-    setModeArchivage(false);
+    setColonneArchivage(null);
     setSelection([]);
   }, [projectId]);
   React.useEffect(() => {
-    if (modeArchivage && !cartesADeployer.length) setModeArchivage(false);
-  }, [modeArchivage, cartesADeployer.length]);
+    if (colonneArchivage && !cartesEnSelection.length) setColonneArchivage(null);
+  }, [colonneArchivage, cartesEnSelection.length]);
 
-  const ouvrirArchivage = () => {
-    setSelection(cartesADeployer.map((card) => card.id));
-    setModeArchivage(true);
+  const ouvrirArchivage = (column: ColumnKey) => {
+    setSelection(byColumn(column).map((card) => card.id));
+    setColonneArchivage(column);
   };
 
   const basculer = (cardId: string) =>
@@ -143,7 +151,7 @@ export function Board({
         const card = snapshot[id];
         if (card) await client.moveCard(card, 'archived');
       }
-      setModeArchivage(false);
+      setColonneArchivage(null);
       setSelection([]);
     } finally {
       setArchivageEnCours(false);
@@ -201,11 +209,11 @@ export function Board({
             <div
               className={cn(
                 'flex-1 space-y-1.5 overflow-y-auto p-1.5',
-                column === 'to_deploy' && modeArchivage && 'pl-[15px] pt-[15px]',
+                colonneArchivage === column && 'pl-[15px] pt-[15px]',
               )}
             >
               {columnCards.map((card) => {
-                const cochable = column === 'to_deploy' && modeArchivage;
+                const cochable = colonneArchivage === column;
                 return (
                   <CardTile
                     key={card.id}
@@ -237,14 +245,15 @@ export function Board({
             </div>
 
             {/*
-              Le pied de « À déployer » : un seul bouton au repos, qui se change
-              en couple annuler / valider une fois les cases sorties. Annuler ne
-              touche à rien, valider archive ce qui est resté coché.
+              Le pied des colonnes de fin de parcours : un seul bouton au repos,
+              qui se change en couple annuler / valider une fois les cases
+              sorties. Annuler ne touche à rien, valider archive ce qui est
+              resté coché.
             */}
-            {column === 'to_deploy' && columnCards.length ? (
+            {COLONNES_ARCHIVABLES.includes(column) && columnCards.length ? (
               <div className="border-t border-border/50 p-1.5">
-                {!modeArchivage ? (
-                  <Button variant="outline" size="sm" className="w-full" onClick={ouvrirArchivage}>
+                {colonneArchivage !== column ? (
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => ouvrirArchivage(column)}>
                     <Archive className="h-3 w-3" /> Tout archiver
                   </Button>
                 ) : (
@@ -255,7 +264,7 @@ export function Board({
                       className="flex-1"
                       disabled={archivageEnCours}
                       onClick={() => {
-                        setModeArchivage(false);
+                        setColonneArchivage(null);
                         setSelection([]);
                       }}
                     >

@@ -52,7 +52,9 @@ const PLURALS: Record<Kind, (n: number) => string> = {
   deploy: (n) => `${n} publications terminées`,
   proposal: (n) => `${n} tâches proposées — à confirmer`,
   capacity: (n) => `${n} alertes de charge`,
-  quota: (n) => `${n} comptes ne répondent plus`,
+  // Le regroupement ne sait plus DE QUOI il s'agit (compte muet, fenêtre qui
+  // s'achève…) : un titre neutre vaut mieux qu'un titre faux.
+  quota: (n) => `${n} alertes de quota`,
 };
 
 export function notify(input: {

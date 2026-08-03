@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { AccountQuota, EngineId } from '@haikodev/shared';
+import { AccountQuota, EngineId, doitAlerterFinDeFenetre, tempsRestant } from '@haikodev/shared';
 import { PATHS, CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
 import { dernieresAmorces, recordQuotaSample } from './store.js';
 import { bus } from './bus.js';
+import { notify } from './notify.js';
 import { log } from './logger.js';
 
 /**
@@ -319,6 +320,9 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
   }
   markActive(results);
   persistCache();
+  // Seulement sur une VRAIE lecture : le cache est rejoué à chaque connexion
+  // d'un navigateur, et l'alerte partirait sur des chiffres déjà vus.
+  alerterFinsDeFenetre(results);
   return results;
 }
 
@@ -327,6 +331,53 @@ export function cachedQuotas(): AccountQuota[] {
   const list = [...quotaCache.values()];
   markActive(list);
   return list;
+}
+
+/** Les échéances pour lesquelles on a déjà prévenu, retenues d'un redémarrage à l'autre. */
+const CLE_ALERTE_FENETRE = 'quota.alerte.fenetre';
+
+function annoncesFaites(): Record<string, number> {
+  try {
+    const raw = getMeta(CLE_ALERTE_FENETRE);
+    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * La fenêtre de cinq heures qui s'achève se dit sur le téléphone, une seule
+ * fois par fenêtre. Les heures de silence s'appliquent : c'est la notification
+ * elle-même qui les fait respecter.
+ */
+function alerterFinsDeFenetre(list: AccountQuota[]): void {
+  const annonces = annoncesFaites();
+  let change = false;
+  for (const quota of list) {
+    const etat = {
+      resetsAt: quota.session?.resetsAt,
+      lectureEnEchec: !!quota.error,
+      dejaAnnoncee: annonces[quota.id],
+    };
+    if (!doitAlerterFinDeFenetre(etat)) continue;
+    notify({
+      kind: 'quota',
+      title: 'Fenêtre de 5 h bientôt finie',
+      body: `${quota.label} : ${tempsRestant(quota.session?.resetsAt)} avant la remise à zéro (${Math.round(
+        quota.session?.usedPct ?? 0,
+      )} % consommés).`,
+      tag: `fenetre-${quota.id}`,
+    });
+    annonces[quota.id] = quota.session!.resetsAt!;
+    change = true;
+  }
+  if (!change) return;
+  try {
+    setMeta(CLE_ALERTE_FENETRE, JSON.stringify(annonces));
+  } catch (err) {
+    // Sans trace retenue, la même fenêtre se signalerait à chaque lecture.
+    log.warn('quota : impossible de retenir l’alerte de fin de fenêtre', err);
+  }
 }
 
 /**
