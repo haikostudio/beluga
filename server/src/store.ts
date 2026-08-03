@@ -137,6 +137,70 @@ export function quotaHistory(days = 7): Record<string, { at: number; session: nu
 }
 
 /* ------------------------------------------------------------------ */
+/* Journal des amorces                                                 */
+/* ------------------------------------------------------------------ */
+
+export interface AmorceEntree {
+  account: string;
+  at: number;
+  ok: boolean;
+  model?: string;
+  tokens?: number;
+  jusqua?: number;
+  error?: string;
+}
+
+/**
+ * Chaque tentative d'amorçage laisse une ligne, réussie OU ratée : c'est ce
+ * qui permet de vérifier depuis l'application que le serveur travaille bien
+ * tout seul, sans aller ouvrir la base.
+ */
+export function recordAmorce(entree: AmorceEntree): void {
+  getDb()
+    .prepare('INSERT INTO amorce_log (account, at, ok, model, tokens, jusqua, error) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(
+      entree.account,
+      entree.at,
+      entree.ok ? 1 : 0,
+      entree.model ?? null,
+      entree.tokens ?? null,
+      entree.jusqua ?? null,
+      entree.error ?? null,
+    );
+  // Quatorze jours, comme les relevés de quota : au-delà, plus personne ne regarde.
+  getDb().prepare('DELETE FROM amorce_log WHERE at < ?').run(now() - 14 * 24 * 3600 * 1000);
+}
+
+/** La dernière tentative connue pour chaque compte, réussie ou non. */
+export function dernieresAmorces(): Record<string, { at: number; ok: boolean; error?: string }> {
+  const rows = getDb()
+    .prepare(
+      `SELECT account, at, ok, error FROM amorce_log
+       WHERE at = (SELECT MAX(at) FROM amorce_log AS b WHERE b.account = amorce_log.account)`,
+    )
+    .all() as Record<string, any>[];
+  const out: Record<string, { at: number; ok: boolean; error?: string }> = {};
+  for (const row of rows) out[row.account] = { at: row.at, ok: !!row.ok, error: row.error ?? undefined };
+  return out;
+}
+
+/** Les dernières amorces, la plus récente en tête. */
+export function amorceHistory(limit = 40): AmorceEntree[] {
+  const rows = getDb()
+    .prepare('SELECT account, at, ok, model, tokens, jusqua, error FROM amorce_log ORDER BY at DESC LIMIT ?')
+    .all(limit) as Record<string, any>[];
+  return rows.map((row) => ({
+    account: row.account,
+    at: row.at,
+    ok: !!row.ok,
+    model: row.model ?? undefined,
+    tokens: row.tokens ?? undefined,
+    jusqua: row.jusqua ?? undefined,
+    error: row.error ?? undefined,
+  }));
+}
+
+/* ------------------------------------------------------------------ */
 /* Préférences                                                         */
 /* ------------------------------------------------------------------ */
 

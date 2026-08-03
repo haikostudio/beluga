@@ -749,6 +749,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'quota.history':
       return { history: store.quotaHistory(cmd.days ?? 7) };
 
+    case 'amorce.history':
+      return { entries: store.amorceHistory(cmd.limit ?? 40) };
+
     case 'backup.now': {
       const result = await runBackup('à la demande');
       if (result.ok && result.file) {

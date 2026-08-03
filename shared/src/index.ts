@@ -5,5 +5,6 @@ export * from './models.js';
 export * from './nouveau-depart.js';
 export * from './projet-actif.js';
 export * from './protocol.js';
+export * from './quota.js';
 export * from './reprise.js';
 export * from './templates.js';

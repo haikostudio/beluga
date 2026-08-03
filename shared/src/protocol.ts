@@ -217,6 +217,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('quota.refresh') }),
   /** Consommation des comptes sur les derniers jours, pour la courbe. */
   z.object({ type: z.literal('quota.history'), days: z.number().optional() }),
+  /** Le journal des amorces de fenêtre posées par le serveur. */
+  z.object({ type: z.literal('amorce.history'), limit: z.number().optional() }),
   z.object({ type: z.literal('backup.now') }),
   z.object({ type: z.literal('backup.list') }),
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),

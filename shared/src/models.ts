@@ -369,6 +369,12 @@ export const AccountQuota = z.object({
   weekly: QuotaWindow.optional(),
   error: z.string().optional(),
   fetchedAt: z.number().optional(),
+  /**
+   * La dernière amorce de fenêtre posée par le serveur sur ce compte. Elle
+   * prouve, depuis l'écran, que le décompte a été lancé en arrière-plan et non
+   * par l'ouverture de l'application.
+   */
+  derniereAmorce: z.object({ at: z.number(), ok: z.boolean(), error: z.string().optional() }).optional(),
 });
 export type AccountQuota = z.infer<typeof AccountQuota>;
 

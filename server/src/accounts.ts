@@ -4,7 +4,7 @@ import os from 'node:os';
 import { AccountQuota, EngineId } from '@haikodev/shared';
 import { PATHS, CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
-import { recordQuotaSample } from './store.js';
+import { dernieresAmorces, recordQuotaSample } from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 
@@ -329,7 +329,21 @@ export function cachedQuotas(): AccountQuota[] {
   return list;
 }
 
+/**
+ * La dernière amorce posée par le serveur voyage avec le quota : c'est ce qui
+ * permet de lire à l'écran QUAND la fenêtre a été lancée, sans ouvrir la base.
+ */
+function attacherAmorces(list: AccountQuota[]): void {
+  try {
+    const amorces = dernieresAmorces();
+    for (const quota of list) quota.derniereAmorce = amorces[quota.id];
+  } catch {
+    // Journal illisible : le quota reste affichable, c'est l'essentiel.
+  }
+}
+
 function markActive(list: AccountQuota[]): void {
+  attacherAmorces(list);
   for (const engine of ['claude', 'codex'] as EngineId[]) {
     const candidates = list.filter((q) => q.engine === engine).sort((a, b) => a.priority - b.priority);
     const chosen = candidates.find((q) => q.available) ?? candidates[0];

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Activity, Database, Loader2, Play, Power, RefreshCw, Save, ShieldCheck, Volume2 } from 'lucide-react';
-import { SystemProcess } from '@haikodev/shared';
+import { SystemProcess, tempsRestant } from '@haikodev/shared';
 import {
   Badge,
   Button,
@@ -265,9 +265,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
                   </p>
                   <p className="text-[11.5px] text-faint">
                     fenêtre {Math.round(quota.session?.usedPct ?? 0)} % · semaine {Math.round(quota.weekly?.usedPct ?? 0)} %
-                    {quota.weekly?.resetsAt
-                      ? ` · remise à zéro ${new Date(quota.weekly.resetsAt).toLocaleDateString('fr-CH')}`
-                      : ''}
+                    {tempsRestant(quota.weekly?.resetsAt) ? ` · semaine : ${tempsRestant(quota.weekly?.resetsAt)}` : ''}
                   </p>
                 </div>
                 {quota.active ? <Badge tone="success">actif</Badge> : null}

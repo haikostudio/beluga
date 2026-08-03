@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -105,6 +105,51 @@ export function Board({
     void client.moveCard(card, column);
   }, []);
 
+  /*
+   * L'archivage en lot de la colonne « À déployer ». Le mode se déclenche au
+   * bouton du bas : chaque carte reçoit alors une case à cocher, TOUTES cochées
+   * d'entrée — on retire ce qu'on veut garder, plutôt que de tout re-cliquer.
+   */
+  const [modeArchivage, setModeArchivage] = React.useState(false);
+  const [selection, setSelection] = React.useState<string[]>([]);
+  const [archivageEnCours, setArchivageEnCours] = React.useState(false);
+
+  const cartesADeployer = byColumn('to_deploy');
+  // Changer de projet, ou vider la colonne, referme le mode : il n'aurait plus
+  // rien à cocher, et le pied resterait sur des boutons sans effet.
+  React.useEffect(() => {
+    setModeArchivage(false);
+    setSelection([]);
+  }, [projectId]);
+  React.useEffect(() => {
+    if (modeArchivage && !cartesADeployer.length) setModeArchivage(false);
+  }, [modeArchivage, cartesADeployer.length]);
+
+  const ouvrirArchivage = () => {
+    setSelection(cartesADeployer.map((card) => card.id));
+    setModeArchivage(true);
+  };
+
+  const basculer = (cardId: string) =>
+    setSelection((liste) => (liste.includes(cardId) ? liste.filter((id) => id !== cardId) : [...liste, cardId]));
+
+  const archiverSelection = async () => {
+    setArchivageEnCours(true);
+    try {
+      const snapshot = client.getSnapshot().cards;
+      // Une carte après l'autre : l'archivage écrit un document de clôture,
+      // et huit demandes lancées ensemble se marcheraient dessus.
+      for (const id of selection) {
+        const card = snapshot[id];
+        if (card) await client.moveCard(card, 'archived');
+      }
+      setModeArchivage(false);
+      setSelection([]);
+    } finally {
+      setArchivageEnCours(false);
+    }
+  };
+
   const { dragging, target, pointer, start } = usePointerDrag({ resolve, onDrop: deposer, holdMs: 260 });
   const carteTiree = dragging ? cards.find((card) => card.id === dragging.id) : null;
   const over = (target?.id ?? null) as ColumnKey | null;
@@ -148,16 +193,36 @@ export function Board({
 
             {column === 'to_deploy' ? <DeployPanel projectId={projectId} cards={columnCards} /> : null}
 
-            <div className="flex-1 space-y-1.5 overflow-y-auto p-1.5">
-              {columnCards.map((card) => (
-                <CardTile
-                  key={card.id}
-                  card={card}
-                  onOpen={() => onOpenCard(card.id)}
-                  onPointerDown={(event) => start(event, { id: card.id, kind: 'card', label: card.title })}
-                  dimmed={dragging?.id === card.id}
-                />
-              ))}
+            {/*
+              En mode archivage, la case à cocher DÉBORDE du coin haut-gauche de
+              la carte : il faut donc lui laisser la place, sinon le débordement
+              de la colonne la rognerait.
+            */}
+            <div
+              className={cn(
+                'flex-1 space-y-1.5 overflow-y-auto p-1.5',
+                column === 'to_deploy' && modeArchivage && 'pl-[15px] pt-[15px]',
+              )}
+            >
+              {columnCards.map((card) => {
+                const cochable = column === 'to_deploy' && modeArchivage;
+                return (
+                  <CardTile
+                    key={card.id}
+                    card={card}
+                    onOpen={() =>
+                      cochable ? basculer(card.id) : onOpenCard(card.id)
+                    }
+                    onPointerDown={
+                      cochable
+                        ? undefined
+                        : (event) => start(event, { id: card.id, kind: 'card', label: card.title })
+                    }
+                    dimmed={dragging?.id === card.id}
+                    coche={cochable ? selection.includes(card.id) : undefined}
+                  />
+                );
+              })}
               {!columnCards.length ? (
                 <p className="px-1.5 py-3 text-[13px] text-faint">
                   {column === 'notes'
@@ -170,6 +235,46 @@ export function Board({
                 </p>
               ) : null}
             </div>
+
+            {/*
+              Le pied de « À déployer » : un seul bouton au repos, qui se change
+              en couple annuler / valider une fois les cases sorties. Annuler ne
+              touche à rien, valider archive ce qui est resté coché.
+            */}
+            {column === 'to_deploy' && columnCards.length ? (
+              <div className="border-t border-border/50 p-1.5">
+                {!modeArchivage ? (
+                  <Button variant="outline" size="sm" className="w-full" onClick={ouvrirArchivage}>
+                    <Archive className="h-3 w-3" /> Tout archiver
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1"
+                      disabled={archivageEnCours}
+                      onClick={() => {
+                        setModeArchivage(false);
+                        setSelection([]);
+                      }}
+                    >
+                      Annuler
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="flex-1"
+                      disabled={!selection.length || archivageEnCours}
+                      onClick={archiverSelection}
+                    >
+                      {archivageEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Archiver ({selection.length})
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         );
       })}
@@ -273,11 +378,14 @@ export function CardTile({
   onOpen,
   onPointerDown,
   dimmed,
+  coche,
 }: {
   card: Card;
   onOpen: () => void;
   onPointerDown?: (event: React.PointerEvent) => void;
   dimmed?: boolean;
+  /** Non défini : pas de sélection en cours. Défini : la case s'affiche, cochée ou non. */
+  coche?: boolean;
 }) {
   const state = useApp();
   const agent = card.agentId ? state.agents[card.agentId] : null;
@@ -311,6 +419,29 @@ export function CardTile({
 
   return (
     <div className={cn('relative', dimmed && 'opacity-40')}>
+      {/*
+       * La case chevauche le coin haut-gauche : elle en dépasse de moitié, pour
+       * se lire comme une pastille posée SUR la carte et non comme un élément
+       * de son contenu.
+       */}
+      {coche !== undefined ? (
+        <button
+          type="button"
+          aria-pressed={coche}
+          aria-label={coche ? 'Retirer de la sélection' : 'Ajouter à la sélection'}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+          className={cn(
+            'absolute -left-[9px] -top-[9px] z-20 flex h-[18px] w-[18px] items-center justify-center rounded border shadow-sm transition-colors',
+            coche ? 'border-accent bg-accent text-accent-fg' : 'border-faint bg-raised text-transparent',
+          )}
+        >
+          <Check className="h-3 w-3" strokeWidth={3} />
+        </button>
+      ) : null}
+
       <article
         onPointerDown={onPointerDown}
         onClick={onOpen}

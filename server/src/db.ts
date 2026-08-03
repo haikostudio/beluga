@@ -199,6 +199,23 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
     name: 'couleur-des-groupes',
     sql: `ALTER TABLE project_groups ADD COLUMN color TEXT;`,
   },
+  {
+    id: 7,
+    name: 'journal-des-amorces',
+    sql: `
+      CREATE TABLE amorce_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        ok INTEGER NOT NULL,
+        model TEXT,
+        tokens INTEGER,
+        jusqua INTEGER,
+        error TEXT
+      );
+      CREATE INDEX idx_amorce_log ON amorce_log(at);
+    `,
+  },
 ];
 
 export function openDb(): DB {

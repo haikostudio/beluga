@@ -15,7 +15,7 @@ import { claudeCatalog } from './engines/catalog.js';
 import { getMeta, setMeta } from './db.js';
 import { comptesOccupes } from './runtime.js';
 import { notify } from './notify.js';
-import { getSettings } from './store.js';
+import { getSettings, recordAmorce } from './store.js';
 import { log } from './logger.js';
 
 /**
@@ -208,6 +208,8 @@ export async function amorcerFenetres(): Promise<number> {
       if (resultat.ok) {
         const jusqua = finDeFenetre(maintenant, etat.resetsAt);
         retenirAmorce(account.id, { at: maintenant, jusqua, model });
+        // Le journal lisible depuis l'application : une ligne par tentative.
+        recordAmorce({ account: account.id, at: maintenant, ok: true, model, tokens: resultat.tokens, jusqua });
         amorces += 1;
         log.info(
           `amorce de la fenêtre de 5 h à ${heure} — ${account.label} (modèle ${model}, ${resultat.tokens ?? 0} jetons), ` +
@@ -219,6 +221,7 @@ export async function amorcerFenetres(): Promise<number> {
         // on réessaiera au passage suivant. En revanche il se compte, et
         // plusieurs de suite finissent par se dire à voix haute.
         log.warn(`amorce impossible à ${heure} — ${account.label} : ${resultat.error}`);
+        recordAmorce({ account: account.id, at: maintenant, ok: false, model, error: resultat.error });
         signalerEchec(account.id, account.label, resultat.error ?? 'raison inconnue');
       }
     }

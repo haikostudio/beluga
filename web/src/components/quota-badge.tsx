@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ChevronDown, RefreshCw } from 'lucide-react';
-import { AccountQuota, EngineId } from '@haikodev/shared';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Gauge, Badge } from '@/components/ui';
+import { AccountQuota, EngineId, heureDeRemiseAZero, tempsRestant } from '@haikodev/shared';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Gauge, Badge, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 
@@ -19,15 +19,6 @@ function ring(pct: number): { color: string; dash: string } {
 
 function worstOf(quota: AccountQuota): number {
   return Math.max(quota.session?.usedPct ?? 0, quota.weekly?.usedPct ?? 0);
-}
-
-function resetLabel(at?: number): string | null {
-  if (!at) return null;
-  const date = new Date(at);
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return sameDay
-    ? `remise à zéro à ${date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`
-    : `remise à zéro le ${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 /** Une courbe simple : la consommation du compte sur les derniers jours. */
@@ -157,6 +148,8 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
 
                 <Courbe points={histoire[quota.id] ?? []} />
 
+                <DerniereAmorce amorce={quota.derniereAmorce} />
+
                 {quota.error ? <p className="mt-1 text-[11.5px] text-warning">{quota.error}</p> : null}
               </div>
             ))}
@@ -164,14 +157,102 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
         ) : (
           <p className="px-1 py-2 text-[13px] text-faint">Aucun compte connecté.</p>
         )}
+
+        <JournalDesAmorces ouvertMenu={open} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
+/** L'heure du jour, sans la date : le journal ne remonte que de quelques jours. */
+function heureCourte(at: number): string {
+  const date = new Date(at);
+  const aujourdhui = date.toDateString() === new Date().toDateString();
+  const heure = date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
+  return aujourdhui ? heure : `${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} ${heure}`;
+}
+
+/**
+ * La preuve, sur le compte lui-même, que le serveur a lancé la fenêtre tout
+ * seul : l'heure à laquelle il a posé son amorce.
+ */
+function DerniereAmorce({ amorce }: { amorce?: AccountQuota['derniereAmorce'] }) {
+  if (!amorce) return null;
+  return (
+    <p className={cn('mt-1 text-[11px]', amorce.ok ? 'text-faint' : 'text-warning')}>
+      {amorce.ok
+        ? `fenêtre amorcée par le serveur à ${heureCourte(amorce.at)}`
+        : `amorce refusée à ${heureCourte(amorce.at)}${amorce.error ? ` (${amorce.error})` : ''}`}
+    </p>
+  );
+}
+
+/**
+ * Le journal complet, replié par défaut : il raconte le travail de fond, il ne
+ * doit pas prendre la place des chiffres qu'on vient lire.
+ */
+function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const [entrees, setEntrees] = React.useState<
+    { account: string; at: number; ok: boolean; model?: string; tokens?: number; error?: string }[]
+  >([]);
+
+  React.useEffect(() => {
+    if (!ouvertMenu || !ouvert) return;
+    client
+      .call<{ entries: typeof entrees }>({ type: 'amorce.history', limit: 30 })
+      .then((data) => setEntrees(data.entries ?? []))
+      .catch(() => setEntrees([]));
+  }, [ouvertMenu, ouvert]);
+
+  const nom = (id: string) => client.getSnapshot().quotas.find((q) => q.id === id)?.label ?? id;
+
+  return (
+    <div className="mt-2 border-t border-border pt-1.5">
+      <button
+        type="button"
+        onClick={() => setOuvert((valeur) => !valeur)}
+        className="flex w-full items-center gap-1.5 text-left text-[12px] text-faint hover:text-text"
+      >
+        <ChevronDown className={cn('h-2.5 w-2.5 shrink-0 transition-transform', !ouvert && '-rotate-90')} />
+        <span>Journal des amorces</span>
+      </button>
+
+      {ouvert ? (
+        entrees.length ? (
+          <ul className="mt-1 space-y-0.5">
+            {entrees.map((entree) => (
+              <li key={`${entree.account}-${entree.at}`} className="flex items-baseline gap-1.5 text-[11px]">
+                <span className="shrink-0 text-faint">{heureCourte(entree.at)}</span>
+                <span className="min-w-0 flex-1 truncate text-muted">{nom(entree.account)}</span>
+                <span className={cn('shrink-0', entree.ok ? 'text-faint' : 'text-warning')}>
+                  {entree.ok ? `${entree.tokens ?? 0} jetons` : (entree.error ?? 'refus')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-[11px] text-faint">Aucune amorce enregistrée pour l’instant.</p>
+        )
+      ) : null}
+    </div>
+  );
+}
+
 function Window({ label, window: win }: { label: string; window?: { usedPct?: number; resetsAt?: number } }) {
   const pct = win?.usedPct ?? 0;
-  const reset = resetLabel(win?.resetsAt);
+  /*
+   * Le temps restant vieillit tout seul : sans ce battement d'une minute, il
+   * resterait figé sur la valeur du moment où le menu s'est ouvert.
+   */
+  const [, battre] = React.useReducer((valeur: number) => valeur + 1, 0);
+  React.useEffect(() => {
+    const timer = window.setInterval(battre, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const restant = tempsRestant(win?.resetsAt);
+  const exact = heureDeRemiseAZero(win?.resetsAt);
   return (
     <div>
       <div className="flex items-baseline gap-1.5">
@@ -179,7 +260,11 @@ function Window({ label, window: win }: { label: string; window?: { usedPct?: nu
         <span className="ml-auto text-[12px] text-muted">{Math.round(pct)} %</span>
       </div>
       <Gauge value={pct} height="h-1" />
-      {reset ? <p className="mt-0.5 text-[11px] text-faint">{reset}</p> : null}
+      {restant ? (
+        <Tooltip label={exact ?? ''}>
+          <p className="mt-0.5 w-fit text-[11px] text-faint">{restant}</p>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }
