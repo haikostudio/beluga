@@ -18,41 +18,113 @@ const PIPER = path.join(VENV, 'bin', 'piper');
 const VOICES = path.join(CONFIG.dataDir, 'models', 'piper');
 const DEFAULT_VOICE = 'fr_FR-siwis-medium';
 const PIPER_VOICE = path.join(VOICES, `${DEFAULT_VOICE}.onnx`);
+const TRANSCRIBE_SCRIPT = path.join(CONFIG.selfPath, 'scripts', 'transcribe.py');
 
-/** Les voix réellement installées sur le serveur. */
-export function listVoices(): string[] {
+/* ------------------------------------------------------------------ */
+/* Les voix disponibles                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Un fichier de voix peut contenir PLUSIEURS personnes (le modèle « upmc » en
+ * porte deux). Une voix se nomme donc « modèle » ou « modèle arobase
+ * personne » : c'est cet identifiant qui est enregistré dans les préférences.
+ */
+const SEPARATEUR = '@';
+
+/**
+ * Les étiquettes tenues à la main. Les noms techniques des modèles sont des
+ * noms de jeux de données (« siwis », « upmc ») : ils ne disent rien à
+ * l'oreille de personne. Une voix installée mais absente de cette table
+ * s'affiche quand même, sous son nom brut.
+ */
+const ETIQUETTES: Record<string, { label: string; description: string }> = {
+  'fr_FR-siwis-medium': { label: 'Claire', description: 'Voix de femme, posée et nette. La voix d\'origine.' },
+  'fr_FR-tom-medium': { label: 'Thomas', description: 'Voix d\'homme, chaleureuse et très articulée.' },
+  [`fr_FR-upmc-medium${SEPARATEUR}pierre`]: { label: 'Pierre', description: 'Voix d\'homme, grave et rapide.' },
+  [`fr_FR-upmc-medium${SEPARATEUR}jessica`]: { label: 'Jessica', description: 'Voix de femme, douce et plus feutrée.' },
+};
+
+export interface VoiceInfo {
+  id: string;
+  label: string;
+  description: string;
+}
+
+/** Le fichier de modèle d'une voix, et la personne à demander dedans. */
+function resoudre(id: string): { modele: string; personne?: number } | null {
+  const [modele, personne] = id.split(SEPARATEUR);
+  const fichier = path.join(VOICES, `${modele}.onnx`);
+  if (!fichier.startsWith(VOICES) || !fs.existsSync(fichier)) return null;
+  if (!personne) return { modele: fichier };
   try {
-    return fs
-      .readdirSync(VOICES)
-      .filter((name) => name.endsWith('.onnx'))
-      .map((name) => name.replace(/\.onnx$/, ''))
-      .sort();
+    const carte = JSON.parse(fs.readFileSync(`${fichier}.json`, 'utf8')).speaker_id_map ?? {};
+    const numero = carte[personne];
+    return typeof numero === 'number' ? { modele: fichier, personne: numero } : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
 /**
- * La voix lue est celle choisie dans les préférences. Si le fichier de cette
- * voix n'est pas (ou plus) sur le serveur, on retombe sur la voix livrée
- * d'origine : mieux vaut une autre voix que pas de son du tout.
+ * Les voix réellement installées sur le serveur, chacune sous un nom lisible.
+ * Un modèle à plusieurs personnes compte pour autant de voix.
  */
-function voiceFile(): string {
-  let choisie = DEFAULT_VOICE;
+export function listVoices(): VoiceInfo[] {
+  let fichiers: string[];
   try {
-    choisie = (store.getSettings().ttsVoice || DEFAULT_VOICE).replace(/[^\w.-]/g, '');
+    fichiers = fs.readdirSync(VOICES).filter((name) => name.endsWith('.onnx'));
+  } catch {
+    return [];
+  }
+
+  const voix: VoiceInfo[] = [];
+  for (const fichier of fichiers.sort()) {
+    const modele = fichier.replace(/\.onnx$/, '');
+    let personnes: string[] = [];
+    try {
+      personnes = Object.keys(JSON.parse(fs.readFileSync(path.join(VOICES, `${fichier}.json`), 'utf8')).speaker_id_map ?? {});
+    } catch {
+      /* pas de fiche lisible : une seule personne dans ce fichier */
+    }
+    const ids = personnes.length > 1 ? personnes.map((p) => `${modele}${SEPARATEUR}${p}`) : [modele];
+    for (const id of ids) {
+      const connue = ETIQUETTES[id];
+      voix.push({
+        id,
+        label: connue?.label ?? id.split(SEPARATEUR).pop() ?? id,
+        description: connue?.description ?? 'Voix installée sur le serveur.',
+      });
+    }
+  }
+  // La voix d'origine en tête : c'est celle qu'on entend sans rien régler.
+  return voix.sort((a, b) => (a.id === DEFAULT_VOICE ? -1 : b.id === DEFAULT_VOICE ? 1 : a.label.localeCompare(b.label)));
+}
+
+/**
+ * La voix lue est celle choisie dans les préférences. Si cette voix n'est pas
+ * (ou plus) sur le serveur, on retombe sur la voix livrée d'origine : mieux
+ * vaut une autre voix que pas de son du tout.
+ */
+export function voiceChoisie(demandee?: string): { modele: string; personne?: number } {
+  const candidats: string[] = [];
+  if (demandee) candidats.push(demandee.replace(/[^\w.@-]/g, ''));
+  try {
+    if (store.getSettings().ttsVoice) candidats.push(store.getSettings().ttsVoice);
   } catch {
     /* réglages illisibles : la voix d'origine fera l'affaire */
   }
-  const disponibles = listVoices();
-  const retenue = disponibles.includes(choisie.replace(/\.onnx$/, ''))
-    ? choisie.replace(/\.onnx$/, '')
-    : disponibles.includes(DEFAULT_VOICE)
-      ? DEFAULT_VOICE
-      : disponibles[0];
-  return retenue ? path.join(VOICES, `${retenue}.onnx`) : PIPER_VOICE;
+  candidats.push(DEFAULT_VOICE, ...listVoices().map((v) => v.id));
+
+  for (const candidat of candidats) {
+    const resolue = resoudre(candidat);
+    if (resolue) return resolue;
+  }
+  return { modele: PIPER_VOICE };
 }
-const TRANSCRIBE_SCRIPT = path.join(CONFIG.selfPath, 'scripts', 'transcribe.py');
+
+/** La phrase d'essai : courte, avec un nombre et une heure, comme un vrai point. */
+export const EXTRAIT =
+  'Bonjour. Il est quatorze heures trente. Deux tâches sont parties en ligne hier soir, et trois attendent votre feu vert.';
 
 export function voiceAvailable(): { transcribe: boolean; speak: boolean } {
   return {
@@ -201,18 +273,28 @@ export function digestText(projectId?: string): string {
   return composerLePoint(etat);
 }
 
-/** Fabrique un fichier audio ordinaire, lisible partout. */
-export async function speak(text: string): Promise<{ ok: boolean; file?: string; error?: string }> {
+/**
+ * Fabrique un fichier audio ordinaire, lisible partout. Sans voix précisée,
+ * c'est celle des préférences — l'extrait d'essai, lui, en impose une.
+ */
+export async function speak(text: string, voix?: string): Promise<{ ok: boolean; file?: string; error?: string }> {
   const available = voiceAvailable();
   if (!available.speak) return { ok: false, error: 'voix absente du serveur' };
 
   const file = path.join(PATHS.audio, `point-${crypto.randomBytes(6).toString('hex')}.wav`);
   fs.mkdirSync(PATHS.audio, { recursive: true });
+  const retenue = voiceChoisie(voix);
   try {
     await new Promise<void>((resolve, reject) => {
       const child = execFile(
         PIPER,
-        ['--model', voiceFile(), '--output_file', file],
+        [
+          '--model',
+          retenue.modele,
+          ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),
+          '--output_file',
+          file,
+        ],
         { timeout: 180000 },
         (err) => (err ? reject(err) : resolve()),
       );

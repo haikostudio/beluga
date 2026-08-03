@@ -10,7 +10,7 @@ import { bus } from './bus.js';
 import { callTool, toolsFor } from './tools.js';
 import { attachToCurrentMessage } from './runtime.js';
 import { readFilePreview, makeZip, safeJoin } from './files.js';
-import { transcribe, digestText, speak, voiceAvailable } from './voice.js';
+import { EXTRAIT, transcribe, digestText, speak, voiceAvailable } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { log } from './logger.js';
 
@@ -363,6 +363,24 @@ export function createHttpServer(): http.Server {
         const ext = (String(req.headers['x-audio-ext'] ?? 'webm') || 'webm').replace(/[^a-z0-9]/gi, '');
         const result = await transcribe(audio, ext);
         return json(res, result.ok ? 200 : 503, result);
+      }
+
+      /**
+       * L'extrait d'une voix, pour l'écouter AVANT de la choisir. Le son passe
+       * par une adresse ordinaire : le lecteur du navigateur sait la jouer
+       * telle quelle, sans rien préparer.
+       */
+      if (route === '/api/voice-sample') {
+        const voix = url.searchParams.get('voice') ?? undefined;
+        const result = await speak(EXTRAIT, voix);
+        if (!result.ok || !result.file) return json(res, 503, { error: result.error });
+        const stat = fs.statSync(result.file);
+        res.writeHead(200, {
+          'content-type': 'audio/wav',
+          'content-length': stat.size,
+          'cache-control': 'no-store',
+        });
+        return fs.createReadStream(result.file).pipe(res);
       }
 
       if (route === '/api/digest') {

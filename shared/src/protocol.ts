@@ -215,6 +215,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('backup.now') }),
   z.object({ type: z.literal('backup.list') }),
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
+  /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
+  z.object({ type: z.literal('voice.list') }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   z.object({ type: z.literal('memory.get'), projectId: z.string() }),
 ]);
