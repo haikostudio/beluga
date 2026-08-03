@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { PanelRight, FolderTree, LayoutGrid, MessageSquare, Loader2 } from 'lucide-react';
-import { TooltipProvider, Button, EmptyState } from '@/components/ui';
+import { PanelRight, LayoutGrid, MessageSquare, Loader2 } from 'lucide-react';
+import { TooltipProvider, Button, EmptyState, SidePanel } from '@/components/ui';
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
 import { Board } from '@/components/board';
@@ -32,7 +32,9 @@ export function App() {
   const [openAgentId, setOpenAgentId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [rightOpen, setRightOpen] = React.useState(() => window.innerWidth >= 1100);
-  const [mobileView, setMobileView] = React.useState<'projects' | 'board' | 'chat'>('board');
+  const [mobileView, setMobileView] = React.useState<'board' | 'chat'>('board');
+  // Sur téléphone, la liste des projets glisse par-dessus l'écran en cours.
+  const [projetsOuverts, setProjetsOuverts] = React.useState(false);
   const [dropTarget, setDropTarget] = React.useState(false);
 
   // Largeurs des deux panneaux, retenues d'une session à l'autre.
@@ -100,7 +102,12 @@ export function App() {
   // Une carte affichée dans la conversation s'ouvre dans le tiroir.
   React.useEffect(() => client.onOpenCard(setOpenCardId), []);
 
-  // Sur téléphone, choisir un projet dans la liste ramène au tableau.
+  /*
+   * Sur téléphone, changer de projet ramène au tableau. Le panneau, lui, se
+   * referme sur le GESTE (voir onChoose) et non sur ce changement d'état : le
+   * projet retenu de la veille arrive quelques instants après l'ouverture, et
+   * il refermait le panneau sous le doigt.
+   */
   const premierProjet = React.useRef(true);
   React.useEffect(() => {
     if (premierProjet.current) {
@@ -109,6 +116,16 @@ export function App() {
     }
     setMobileView('board');
   }, [state.activeProjectId]);
+
+  // Passé sur grand écran (rotation, écran externe), la colonne de gauche est
+  // de nouveau posée là : le panneau qui la recouvre n'a plus lieu d'être.
+  React.useEffect(() => {
+    const large = window.matchMedia('(min-width: 640px)');
+    const suivre = () => large.matches && setProjetsOuverts(false);
+    suivre();
+    large.addEventListener('change', suivre);
+    return () => large.removeEventListener('change', suivre);
+  }, []);
 
   // Notifications système, cliquables : elles ouvrent la carte concernée.
   React.useEffect(() => {
@@ -214,17 +231,12 @@ export function App() {
           }
         }}
       >
-        <QuotaBar onOpenSettings={() => setSettingsOpen(true)} />
+        <QuotaBar onOpenSettings={() => setSettingsOpen(true)} onOpenProjects={() => setProjetsOuverts(true)} />
 
         <div className="flex min-h-0 flex-1">
-          {/* Sur téléphone, la colonne de gauche est un onglet à part entière :
-              sans elle, on ne peut pas changer de projet. */}
-          <div
-            className={cn(
-              'sm:flex',
-              mobileView === 'projects' ? 'flex min-w-0 flex-1' : 'hidden',
-            )}
-          >
+          {/* Sur grand écran la liste des projets est une colonne posée là ; sur
+              téléphone elle vit dans le panneau latéral, plus bas. */}
+          <div className="hidden sm:flex">
             <Sidebar onOpenAgent={setOpenAgentId} width={gauche.width} />
           </div>
           <ResizeHandle
@@ -269,24 +281,23 @@ export function App() {
           ) : null}
         </div>
 
-        {/* Barre de navigation mobile */}
+        {/* La liste des projets, en panneau qui glisse depuis la gauche : un
+            choix qu'on fait au passage, pas une destination. */}
+        <SidePanel open={projetsOuverts} onClose={() => setProjetsOuverts(false)} title="Projets">
+          <Sidebar onOpenAgent={setOpenAgentId} onChoose={() => setProjetsOuverts(false)} />
+        </SidePanel>
+
+        {/* Barre de navigation mobile : deux destinations seulement, chacune sur
+            la moitié de la largeur. */}
         <nav
-          className="flex shrink-0 items-center justify-around border-t border-border bg-bg pt-1 sm:hidden"
+          className="grid shrink-0 grid-cols-2 items-center gap-1 border-t border-border bg-bg px-2 pt-1 sm:hidden"
           // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
           <Button
             variant="ghost"
             size="sm"
-            className={cn('flex-1', mobileView === 'projects' && 'text-text')}
-            onClick={() => setMobileView('projects')}
-          >
-            <FolderTree className="h-3.5 w-3.5" /> Projets
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('flex-1', mobileView === 'board' && 'text-text')}
+            className={cn('w-full', mobileView === 'board' && 'bg-raised text-text')}
             onClick={() => setMobileView('board')}
           >
             <LayoutGrid className="h-3.5 w-3.5" /> Tableau
@@ -294,7 +305,7 @@ export function App() {
           <Button
             variant="ghost"
             size="sm"
-            className={cn('flex-1', mobileView === 'chat' && 'text-text')}
+            className={cn('w-full', mobileView === 'chat' && 'bg-raised text-text')}
             onClick={() => setMobileView('chat')}
           >
             <MessageSquare className="h-3.5 w-3.5" /> Chef
