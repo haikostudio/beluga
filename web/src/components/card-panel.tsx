@@ -1,5 +1,7 @@
 import * as React from 'react';
 import {
+  Archive,
+  ArrowRight,
   Check,
   CircleDollarSign,
   ExternalLink,
@@ -7,13 +9,14 @@ import {
   GitBranch,
   GitMerge,
   Loader2,
+  MoreVertical,
   Play,
   RefreshCw,
   Rocket,
   Trash2,
   Zap,
 } from 'lucide-react';
-import { COLUMN_LABELS, Card, motAnalyse, phaseAnalyse } from '@haikodev/shared';
+import { COLUMN_KEYS, COLUMN_LABELS, Card, canMove, motAnalyse, phaseAnalyse } from '@haikodev/shared';
 import {
   Badge,
   Button,
@@ -22,6 +25,12 @@ import {
   DialogContent,
   DialogTitle,
   Drawer,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Input,
   Label,
   Tabs,
@@ -85,6 +94,10 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    * à lire, on bascule sur la conversation — une seule fois, pour ne jamais
    * ramener quelqu'un qui a choisi un autre onglet.
    */
+  /* Le pied ne s'affiche que s'il porte vraiment une décision à prendre. */
+  const aDecision =
+    ['todo', 'planned', 'running', 'done'].includes(card.column) || !!card.estimate?.failed || !!card.closureDoc;
+
   const aLire = !!agent || phase !== 'aucune';
   const [onglet, setOnglet] = React.useState(aLire ? 'chat' : 'details');
   const bascule = React.useRef(aLire);
@@ -99,7 +112,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
       <header className="shrink-0 border-b border-border px-4 pb-3">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <DialogTitle className="pr-6 leading-snug">{card.title}</DialogTitle>
+            <DialogTitle className="leading-snug">{card.title}</DialogTitle>
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px] text-faint">
               <Badge>{COLUMN_LABELS[card.column]}</Badge>
               {card.deployedAt ? (
@@ -113,6 +126,11 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               <span>modifiée {relativeTime(card.updatedAt)}</span>
             </div>
           </div>
+
+          {/* Les gestes rares vivent ici : ils prenaient une ligne entière en
+              bas du tiroir. Menu déroulant sur ordinateur, tiroir pleine
+              largeur sur téléphone — le composant s'en charge tout seul. */}
+          <MenuCarte card={card} onSupprimer={() => setConfirmSuppression(true)} />
         </div>
 
         <ConfirmDialog
@@ -165,62 +183,104 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         </TabsContent>
       </Tabs>
 
-      {/* Les gestes de décision restent en bas, toujours à portée de pouce. */}
-      <footer className="shrink-0 border-t border-border bg-bg px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {card.column === 'todo' ? (
-            <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'validated')}>
-              <Check className="h-3 w-3" /> Valider (autorise la dépense)
-            </Button>
-          ) : null}
-          {card.column === 'planned' ? (
-            <>
-              <Button size="sm" variant="default" onClick={() => client.call({ type: 'card.start', id: card.id })}>
-                <Play className="h-3 w-3" /> Lancer maintenant
+      {/* Les gestes de décision restent en bas, toujours à portée de pouce ;
+          les gestes rares sont partis dans le menu du haut. Sans décision à
+          prendre, la barre disparaît au lieu de laisser un bandeau vide. */}
+      {aDecision ? (
+        <footer className="shrink-0 border-t border-border bg-bg px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {card.column === 'todo' ? (
+              <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'validated')}>
+                <Check className="h-3 w-3" /> Valider (autorise la dépense)
               </Button>
-              <Button
-                size="sm"
-                variant={card.scheduling?.asap ? 'subtle' : 'outline'}
-                onClick={() => client.call({ type: 'card.asap', id: card.id, value: !card.scheduling?.asap })}
-              >
-                <Zap className="h-3 w-3" /> Dès que possible
+            ) : null}
+            {card.column === 'planned' ? (
+              <>
+                <Button size="sm" variant="default" onClick={() => client.call({ type: 'card.start', id: card.id })}>
+                  <Play className="h-3 w-3" /> Lancer maintenant
+                </Button>
+                <Button
+                  size="sm"
+                  variant={card.scheduling?.asap ? 'subtle' : 'outline'}
+                  onClick={() => client.call({ type: 'card.asap', id: card.id, value: !card.scheduling?.asap })}
+                >
+                  <Zap className="h-3 w-3" /> Dès que possible
+                </Button>
+              </>
+            ) : null}
+            {card.column === 'running' ? (
+              <Button size="sm" variant="default" onClick={() => client.call({ type: 'card.finish', id: card.id })}>
+                <Check className="h-3 w-3" /> Terminer la tâche
               </Button>
-            </>
-          ) : null}
-          {card.column === 'running' ? (
-            <Button size="sm" variant="default" onClick={() => client.call({ type: 'card.finish', id: card.id })}>
-              <Check className="h-3 w-3" /> Terminer la tâche
-            </Button>
-          ) : null}
-          {card.column === 'done' ? (
-            <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
-              <Rocket className="h-3 w-3" /> Mettre en file de publication
-            </Button>
-          ) : null}
-          {card.estimate?.failed ? (
-            <Button size="sm" variant="outline" onClick={() => client.call({ type: 'card.reanalyze', id: card.id })}>
-              <RefreshCw className="h-3 w-3" /> Relancer l'analyse
-            </Button>
-          ) : null}
-          {card.closureDoc ? (
-            <Button size="sm" variant="outline" asChild>
-              <a href={`/api/document?card=${card.id}&download=1`}>
-                <FileText className="h-3 w-3" /> Document de clôture
-              </a>
-            </Button>
-          ) : null}
-
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto text-danger hover:text-danger"
-            onClick={() => setConfirmSuppression(true)}
-          >
-            <Trash2 className="h-3 w-3" /> Supprimer
-          </Button>
-        </div>
-      </footer>
+            ) : null}
+            {card.column === 'done' ? (
+              <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
+                <Rocket className="h-3 w-3" /> Mettre en file de publication
+              </Button>
+            ) : null}
+            {card.estimate?.failed ? (
+              <Button size="sm" variant="outline" onClick={() => client.call({ type: 'card.reanalyze', id: card.id })}>
+                <RefreshCw className="h-3 w-3" /> Relancer l'analyse
+              </Button>
+            ) : null}
+            {card.closureDoc ? (
+              <Button size="sm" variant="outline" asChild>
+                <a href={`/api/document?card=${card.id}&download=1`}>
+                  <FileText className="h-3 w-3" /> Document de clôture
+                </a>
+              </Button>
+            ) : null}
+          </div>
+        </footer>
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * Le menu à trois points du tiroir : suppression, archivage et déplacement
+ * vers une autre colonne. Les cibles proposées passent par `canMove` — on ne
+ * propose jamais un déplacement qui serait refusé au moment du clic.
+ */
+function MenuCarte({ card, onSupprimer }: { card: Card; onSupprimer: () => void }) {
+  // « Archivé » a sa propre ligne juste au-dessus : la répéter dans la liste
+  // des destinations n'ajouterait rien.
+  const cibles = COLUMN_KEYS.filter(
+    (column) => column !== card.column && column !== 'archived' && canMove('user', card.column, column).allowed,
+  );
+  const archivable = card.column !== 'archived' && canMove('user', card.column, 'archived').allowed;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="ghost" className="-mr-1 shrink-0 px-2" aria-label="Autres actions">
+          <MoreVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {archivable ? (
+          <DropdownMenuItem onSelect={() => client.moveCard(card, 'archived')}>
+            <Archive className="h-3.5 w-3.5" /> Archiver la carte
+          </DropdownMenuItem>
+        ) : null}
+
+        <DropdownMenuItem className="text-danger data-[highlighted]:text-danger" onSelect={onSupprimer}>
+          <Trash2 className="h-3.5 w-3.5" /> Supprimer la carte
+        </DropdownMenuItem>
+
+        {cibles.length ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Déplacer vers</DropdownMenuLabel>
+            {cibles.map((column) => (
+              <DropdownMenuItem key={column} onSelect={() => client.moveCard(card, column)}>
+                <ArrowRight className="h-3.5 w-3.5 text-faint" /> {COLUMN_LABELS[column]}
+              </DropdownMenuItem>
+            ))}
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
