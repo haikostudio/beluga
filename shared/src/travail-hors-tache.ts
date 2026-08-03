@@ -83,6 +83,50 @@ export function commitsSansCarte(commits: CommitObserve[], ctx: ContexteHorsTach
 }
 
 /**
+ * Un enregistrement qui n'apporte pas une fonctionnalité à lui seul : il
+ * termine celle d'avant. On les reconnaît à leur première ligne — le style de
+ * la maison veut un message par fonctionnalité, alors une suite se signale.
+ */
+const SUITES = [
+  /^fixup!/i,
+  /^squash!/i,
+  /^suite\b/i,
+  /^correction\b/i,
+  /^corrige\b/i,
+  /^rattrapage\b/i,
+  /^wip\b/i,
+];
+
+export function estUneSuite(titre: string): boolean {
+  const propre = (titre ?? '').trim();
+  return SUITES.some((motif) => motif.test(propre));
+}
+
+/**
+ * Le travail d'un tour, découpé en FONCTIONNALITÉS.
+ *
+ * Chaque fonctionnalité mérite sa branche et sa carte : on doit pouvoir en
+ * écarter une sans toucher aux autres. Un tour qui enregistre quatre choses
+ * différentes donnait jusqu'ici une seule carte fourre-tout — impossible d'en
+ * retirer une seule.
+ *
+ * La règle : un enregistrement = une fonctionnalité. Seule exception, un
+ * enregistrement qui se présente lui-même comme la suite du précédent
+ * (« suite… », « correction… », « fixup! ») reste collé à lui.
+ */
+export function groupesHorsTache(commits: CommitObserve[]): CommitObserve[][] {
+  const groupes: CommitObserve[][] = [];
+  for (const commit of commits) {
+    if (groupes.length && estUneSuite(commit.titre ?? '')) {
+      groupes[groupes.length - 1].push(commit);
+    } else {
+      groupes.push([commit]);
+    }
+  }
+  return groupes;
+}
+
+/**
  * Le titre de la carte, repris du message enregistré. Plusieurs commits : le
  * premier donne le titre, et le nombre dit le reste — un titre à rallonge se
  * lit moins bien qu'un titre franc suivi d'une liste.
@@ -114,8 +158,20 @@ export function nomBrancheHorsTache(commits: CommitObserve[]): string {
   return `hors-tache/${base || 'travail'}-${empreinte}`;
 }
 
-/** La description de la carte : d'où elle vient, et ce qu'elle embarque. */
-export function descriptionHorsTache(commits: CommitObserve[], auteur: string, branche?: string): string {
+/**
+ * La description de la carte : d'où elle vient, et ce qu'elle embarque.
+ *
+ * `empileeSur` nomme la branche dont celle-ci dépend : quand une fonctionnalité
+ * ne tient pas seule (elle touche les mêmes lignes que la précédente), sa
+ * branche est posée SUR l'autre. Il faut alors le dire, sinon on croirait
+ * pouvoir publier celle-ci sans celle-là.
+ */
+export function descriptionHorsTache(
+  commits: CommitObserve[],
+  auteur: string,
+  branche?: string,
+  empileeSur?: string,
+): string {
   const lignes = commits.map((commit) => `- ${commit.titre.trim()} (${commit.sha.slice(0, 7)})`);
   return [
     `Travail enregistré hors tâche par « ${auteur} » : cette carte a été créée automatiquement pour qu'il ne parte jamais en ligne sans fiche.`,
@@ -123,6 +179,12 @@ export function descriptionHorsTache(commits: CommitObserve[], auteur: string, b
     ...(branche
       ? [
           `Ce travail vit sur sa propre branche « ${branche} » : supprimer cette carte suffit à l'écarter, il ne partira jamais en ligne.`,
+          ...(empileeSur
+            ? [
+                '',
+                `Cette branche est posée SUR « ${empileeSur} » : les deux touchent les mêmes lignes, elle ne peut pas partir sans elle.`,
+              ]
+            : []),
           '',
         ]
       : [

@@ -21,6 +21,7 @@ import {
   CommitObserve,
   commitsSansCarte,
   descriptionHorsTache,
+  groupesHorsTache,
   nomBrancheHorsTache,
   titreHorsTache,
 } from '@haikodev/shared';
@@ -93,33 +94,71 @@ export async function commitsDuTour(projectPath: string, avant: RepereDepot | nu
   return commits.reverse();
 }
 
+/** Une fonctionnalité posée sur sa branche. */
+export interface BrancheIsolee {
+  commits: CommitObserve[];
+  branche: string;
+  /** La branche dont celle-ci dépend, quand elle n'a pas pu tenir seule. */
+  empileeSur?: string;
+}
+
 /**
- * Met ce travail sur SA PROPRE branche, et rend la branche principale à l'état
- * où elle était avant le tour.
+ * Construit une branche portant EXACTEMENT ces enregistrements, repiqués sur
+ * la base donnée. Rend le sommet obtenu, ou null si un repiquage a coincé.
+ */
+async function construire(
+  projectPath: string,
+  branche: string,
+  base: string,
+  commits: CommitObserve[],
+): Promise<string | null> {
+  if ((await git(projectPath, ['checkout', '-B', branche, base], 60000)) === null) return null;
+  for (const commit of commits) {
+    if ((await git(projectPath, ['cherry-pick', commit.sha], 60000)) === null) {
+      // Un repiquage qui coince laisse le dossier en plein milieu : on annule,
+      // sinon plus rien ne peut bouger ensuite.
+      await git(projectPath, ['cherry-pick', '--abort'], 30000);
+      return null;
+    }
+  }
+  return (await git(projectPath, ['rev-parse', 'HEAD']))?.trim() ?? null;
+}
+
+/**
+ * Met CHAQUE fonctionnalité du tour sur SA PROPRE branche, et rend la branche
+ * de départ à l'état où elle était avant.
  *
  * C'est ce qui rend une fonctionnalité retirable d'un geste : tant qu'elle vit
  * sur sa branche, supprimer sa carte suffit — la branche n'est jamais fusionnée
- * et rien ne part en ligne. Sans cela, le travail du chef d'orchestre était
- * posé sur la branche principale et partait quoi qu'on fasse de la carte.
+ * et rien ne part en ligne. Un tour qui enregistre quatre choses donne donc
+ * quatre branches et quatre cartes, pas un paquet indivisible.
+ *
+ * Chaque branche est repiquée depuis l'état d'AVANT le tour : elle ne contient
+ * que son propre travail. Quand deux fonctionnalités touchent les mêmes lignes,
+ * la seconde ne peut pas tenir seule — elle est alors posée SUR la première, et
+ * sa carte le dit.
  *
  * On ne déplace RIEN si le moindre doute existe : le dossier est partagé, et
  * réécrire l'histoire sous les pieds d'un autre agent coûte plus cher que de
- * laisser le travail où il est. Cinq garde-fous, tous obligatoires :
+ * laisser le travail où il est. Les garde-fous, tous obligatoires :
  *   - le dossier est propre (aucune modification en cours) ;
  *   - on est toujours sur la branche notée au départ ;
  *   - le sommet est bien le dernier enregistrement retenu (personne n'a rien
  *     ajouté après) ;
  *   - aucun de ces enregistrements n'est déjà parti au dépôt (on ne réécrit
  *     JAMAIS une histoire publiée) ;
- *   - la création de la branche et le retour en arrière réussissent tous deux.
+ *   - aucun nom de branche n'est déjà pris ;
+ *   - toutes les branches se construisent, et le retour en arrière réussit.
  *
- * Rend le nom de la branche, ou null si le travail est resté où il était.
+ * Au moindre échec, TOUT est annulé : les branches créées sont effacées et le
+ * travail reste où il était. Mieux vaut une grosse carte qu'un demi-découpage.
  */
-export async function isoleSurBranche(
+export async function isoleChaqueGroupe(
   projectPath: string,
   avant: RepereDepot,
-  retenus: CommitObserve[],
-): Promise<string | null> {
+  groupes: CommitObserve[][],
+): Promise<BrancheIsolee[] | null> {
+  const retenus = groupes.flat();
   if (!retenus.length) return null;
 
   const propre = await git(projectPath, ['status', '--porcelain']);
@@ -129,8 +168,7 @@ export async function isoleSurBranche(
   if (!brancheActuelle || brancheActuelle !== avant.branche || brancheActuelle === 'HEAD') return null;
 
   const tete = (await git(projectPath, ['rev-parse', 'HEAD']))?.trim();
-  const dernier = retenus[retenus.length - 1].sha;
-  if (!tete || tete !== dernier) return null;
+  if (!tete || tete !== retenus[retenus.length - 1].sha) return null;
 
   // Déjà au dépôt : l'histoire est publique, on n'y touche pas.
   for (const commit of retenus) {
@@ -138,65 +176,75 @@ export async function isoleSurBranche(
     if (distants === null || distants.trim()) return null;
   }
 
-  const branche = nomBrancheHorsTache(retenus);
-  if ((await git(projectPath, ['rev-parse', '--verify', '--quiet', branche]))?.trim()) return null;
-  if ((await git(projectPath, ['branch', branche])) === null) return null;
+  const noms = groupes.map((groupe) => nomBrancheHorsTache(groupe));
+  for (const nom of noms) {
+    if ((await git(projectPath, ['rev-parse', '--verify', '--quiet', nom]))?.trim()) return null;
+  }
 
-  // La branche existe et porte le travail : la principale peut revenir en
-  // arrière sans rien perdre. En cas d'échec, on efface la branche créée
+  const faites: (BrancheIsolee & { tete: string })[] = [];
+  let complet = true;
+  for (const [index, groupe] of groupes.entries()) {
+    const nom = noms[index];
+    const precedente = faites[faites.length - 1];
+    // D'abord seule, depuis l'état d'avant le tour. Si ça coince, empilée sur
+    // la fonctionnalité d'avant — c'est qu'elles se partagent des lignes.
+    let sommet = await construire(projectPath, nom, avant.tete, groupe);
+    let empileeSur: string | undefined;
+    if (!sommet && precedente) {
+      sommet = await construire(projectPath, nom, precedente.tete, groupe);
+      if (sommet) empileeSur = precedente.branche;
+    }
+    if (!sommet) {
+      complet = false;
+      break;
+    }
+    faites.push({ commits: groupe, branche: nom, empileeSur, tete: sommet });
+  }
+
+  // Retour sur la branche de départ, quoi qu'il arrive : le dossier est
+  // partagé, on ne le laisse jamais posé sur une branche de travail.
+  const revenu = await git(projectPath, ['checkout', avant.branche], 60000);
+  if (revenu === null || !complet) {
+    for (const faite of faites) await git(projectPath, ['branch', '-D', faite.branche]);
+    return null;
+  }
+
+  // Les branches portent tout le travail : la branche de départ peut revenir en
+  // arrière sans rien perdre. En cas d'échec, on efface les branches créées
   // plutôt que de laisser deux copies du même travail.
   if ((await git(projectPath, ['reset', '--hard', avant.tete], 60000)) === null) {
-    await git(projectPath, ['branch', '-D', branche]);
+    for (const faite of faites) await git(projectPath, ['branch', '-D', faite.branche]);
     return null;
   }
 
-  // Envoi au dépôt : la branche survit à une remise à zéro du dossier. Un
+  // Envoi au dépôt : les branches survivent à une remise à zéro du dossier. Un
   // échec (pas de dépôt distant, réseau coupé) ne remet rien en cause.
-  await git(projectPath, ['push', '-u', 'origin', branche], 120000);
-  log.info(`travail hors tâche isolé sur la branche ${branche}`);
-  return branche;
+  for (const faite of faites) {
+    await git(projectPath, ['push', '-u', 'origin', faite.branche], 120000);
+    log.info(`travail hors tâche isolé sur la branche ${faite.branche}`);
+  }
+  return faites.map(({ commits, branche, empileeSur }) => ({ commits, branche, empileeSur }));
 }
 
-/**
- * Fabrique la carte, s'il y a de quoi. Rend la carte créée, ou null.
- *
- * On ne crée rien pour un agent qui a déjà sa carte : son travail est déjà
- * fiché, et sa branche part au lot par le chemin habituel.
- */
-export async function carteDuTravailHorsTache(agent: Agent, avant: RepereDepot | null): Promise<Card | null> {
-  if (agent.cardId) return null;
-  const project = store.getProject(agent.projectId);
-  if (!project) return null;
-
-  let observes: CommitObserve[];
-  try {
-    observes = await commitsDuTour(project.path, avant);
-  } catch (err) {
-    log.warn('lecture des enregistrements du tour impossible', err);
-    return null;
-  }
-  if (!observes.length) return null;
-
-  const retenus = commitsSansCarte(observes, {
-    shasCouverts: store.shasCouverts(agent.projectId),
-    branchesDeCartes: store.branchesDeCartes(agent.projectId),
-  });
-  if (!retenus.length) return null;
-
-  /*
-   * Le travail part sur SA branche avant d'être fiché : la carte porte alors
-   * une branche à elle, exactement comme une carte de tâche, et la supprimer
-   * suffit à écarter la fonctionnalité. Si l'isolement n'est pas sûr, on garde
-   * la branche d'origine et la description le dit franchement.
-   */
-  const isolee = avant ? await isoleSurBranche(project.path, avant, retenus).catch(() => null) : null;
-  const branche = isolee ?? retenus[0].branche;
+/** La carte d'UNE fonctionnalité, posée directement dans « À déployer ». */
+function poserCarte(
+  agent: Agent,
+  commits: CommitObserve[],
+  branche: string,
+  isolee: boolean,
+  empileeSur?: string,
+): Card {
   const card = store.saveCard(
     Card.parse({
       id: store.newId(),
       projectId: agent.projectId,
-      title: titreHorsTache(retenus),
-      description: descriptionHorsTache(retenus, agent.title || 'un agent', isolee ?? undefined),
+      title: titreHorsTache(commits),
+      description: descriptionHorsTache(
+        commits,
+        agent.title || 'un agent',
+        isolee ? branche : undefined,
+        empileeSur,
+      ),
       labels: isolee ? ['hors tâche'] : ['hors tâche', 'sur la principale'],
       // Le travail est FAIT : il n'y a rien à valider, la carte entre
       // directement dans le lot à publier.
@@ -212,27 +260,87 @@ export async function carteDuTravailHorsTache(agent: Agent, avant: RepereDepot |
         branch: branche,
         checks: [],
         activity: [],
-        commits: retenus.map((commit) => ({ sha: commit.sha, message: commit.titre, date: commit.date })),
+        commits: commits.map((commit) => ({ sha: commit.sha, message: commit.titre, date: commit.date })),
       },
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }),
   );
-
   bus.emit({ type: 'card.upsert', card });
-  bus.toast(
-    isolee ? 'info' : 'warning',
-    isolee
-      ? `Travail hors tâche fiché sur sa branche : « ${card.title} » vous attend dans « À déployer ».`
-      : `Travail hors tâche fiché : « ${card.title} » — il est resté sur la branche principale.`,
-  );
+  return card;
+}
+
+/**
+ * Fabrique les cartes, s'il y a de quoi. Rend celles créées.
+ *
+ * UNE FONCTIONNALITÉ = UNE BRANCHE = UNE CARTE. Un tour qui enregistre quatre
+ * choses différentes rend quatre cartes : on peut alors en publier une, en
+ * supprimer une autre, sans que les quatre se tiennent par la main.
+ *
+ * On ne crée rien pour un agent qui a déjà sa carte : son travail est déjà
+ * fiché, et sa branche part au lot par le chemin habituel.
+ */
+export async function cartesDuTravailHorsTache(agent: Agent, avant: RepereDepot | null): Promise<Card[]> {
+  if (agent.cardId) return [];
+  const project = store.getProject(agent.projectId);
+  if (!project) return [];
+
+  let observes: CommitObserve[];
+  try {
+    observes = await commitsDuTour(project.path, avant);
+  } catch (err) {
+    log.warn('lecture des enregistrements du tour impossible', err);
+    return [];
+  }
+  if (!observes.length) return [];
+
+  const retenus = commitsSansCarte(observes, {
+    shasCouverts: store.shasCouverts(agent.projectId),
+    branchesDeCartes: store.branchesDeCartes(agent.projectId),
+  });
+  if (!retenus.length) return [];
+
+  const groupes = groupesHorsTache(retenus);
+
+  /*
+   * Chaque fonctionnalité part sur SA branche avant d'être fichée : sa carte
+   * porte une branche à elle, exactement comme une carte de tâche, et la
+   * supprimer suffit à l'écarter. Si le découpage n'est pas sûr — dossier qui a
+   * bougé, travail déjà envoyé au dépôt, lignes qui se chevauchent trop —, tout
+   * reste où il est et une seule carte le dit franchement.
+   */
+  const isolees = avant ? await isoleChaqueGroupe(project.path, avant, groupes).catch(() => null) : null;
+
+  const cartes = isolees
+    ? isolees.map((part) => poserCarte(agent, part.commits, part.branche, true, part.empileeSur))
+    : [poserCarte(agent, retenus, retenus[0].branche ?? '', false)];
+
+  const premier = cartes[0];
+  if (isolees) {
+    bus.toast(
+      'info',
+      cartes.length > 1
+        ? `${cartes.length} fonctionnalités fichées, chacune sur sa branche, dans « À déployer ».`
+        : `Travail hors tâche fiché sur sa branche : « ${premier.title} » vous attend dans « À déployer ».`,
+    );
+  } else {
+    bus.toast('warning', `Travail hors tâche fiché : « ${premier.title} » — il est resté sur la branche principale.`);
+  }
+
+  // UNE seule notification pour le tour : quatre cartes ne font pas quatre
+  // sonneries. Elle pointe la première, les autres sont juste à côté.
   notify({
     kind: 'done',
-    title: 'Travail enregistré sans tâche',
-    body: `${card.title} — une carte a été créée dans « À déployer ».`,
-    cardId: card.id,
-    projectId: card.projectId,
+    title: cartes.length > 1 ? `${cartes.length} travaux enregistrés sans tâche` : 'Travail enregistré sans tâche',
+    body:
+      cartes.length > 1
+        ? cartes.map((carte) => carte.title).join(' · ')
+        : `${premier.title} — une carte a été créée dans « À déployer ».`,
+    cardId: premier.id,
+    projectId: premier.projectId,
   });
-  log.info(`carte hors tâche créée (${retenus.length} enregistrement(s)) pour l'agent ${agent.id}`);
-  return card;
+  log.info(
+    `${cartes.length} carte(s) hors tâche créée(s) (${retenus.length} enregistrement(s)) pour l'agent ${agent.id}`,
+  );
+  return cartes;
 }

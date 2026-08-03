@@ -49,6 +49,7 @@ node scripts/verif-signal-attention.mjs # la secousse et le triangle d'un projet
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
+node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
@@ -78,12 +79,18 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 - Une carte naît toujours dans « À faire » ; seul l'utilisateur la valide, et ce geste seul autorise
   la dépense. **Une seule exception** : le code enregistré par un agent SANS carte fabrique tout seul
   sa fiche dans « À déployer » — le travail est déjà fait, il n'y a plus rien à valider.
-- **Toute fonctionnalité vit sur sa propre branche, carte ou pas.** À la fin d'un tour sans carte, le
-  démon déplace les enregistrements sur une branche `hors-tache/…`, rend la principale à son état
-  d'avant, pousse la branche, et c'est ELLE que porte la fiche. Supprimer la carte suffit alors à
-  écarter la fonctionnalité. Conséquence pour un agent sans carte : **enregistrer, oui ; pousser sur
-  la branche principale, non** — une histoire déjà publiée ne se réécrit pas, et le travail resterait
-  collé à la principale.
+- **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
+  UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
+  = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au
+  précédent), repique chacun sur sa branche `hors-tache/…` depuis l'état d'AVANT le tour, rend la
+  branche de départ à cet état, pousse les branches, et chacune porte SA fiche dans « À déployer ».
+  Supprimer une carte suffit alors à écarter cette fonctionnalité-là, sans toucher aux autres. Deux
+  fonctionnalités qui se disputent les mêmes lignes ne peuvent pas être indépendantes : la seconde
+  est empilée sur la première et sa fiche le dit. Au moindre doute (dossier sali, travail déjà au
+  dépôt), rien ne bouge et une seule carte le signale. Conséquence pour un agent sans carte :
+  **enregistrer, oui ; pousser sur la branche principale, non** — une histoire déjà publiée ne se
+  réécrit pas, et le travail resterait collé à la principale. Corollaire : **un enregistrement par
+  fonctionnalité**, avec un message qui la nomme.
 - Rien de ce qui se fait ne reste invisible : chaque ligne du lot à publier a sa carte, et un projet
   dont un agent a rendu son travail porte une pastille tant que la conversation n'a pas été ouverte.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis

@@ -28,7 +28,7 @@ import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
 import { notify } from './notify.js';
-import { carteDuTravailHorsTache, repereAvant } from './hors-tache.js';
+import { cartesDuTravailHorsTache, repereAvant } from './hors-tache.js';
 
 export interface LiveRun {
   agentId: string;
@@ -499,7 +499,7 @@ async function startTurn(
    */
   if (!agent.cardId && repere) {
     try {
-      await carteDuTravailHorsTache(finalAgent, repere);
+      await cartesDuTravailHorsTache(finalAgent, repere);
     } catch (err) {
       log.error('fiche du travail hors tâche impossible', err);
     }
