@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { Card, DeployRun, DeployStepKey } from '@haikodev/shared';
+import { Card, DeployRun, DeployStepKey, estPlomberie } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
@@ -453,6 +453,12 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
     const [sha, titre] = ligne.split('\u001f');
     if (!titre?.trim()) continue;
     if (couverts.has(sha?.trim() ?? '')) continue;
+    /*
+     * Les gestes de la publication elle-même (« Publication : … », fusions,
+     * mise de côté avant publication) ne sont pas du travail : les compter
+     * annonçait « 2 changements sans carte » juste après une mise en ligne.
+     */
+    if (estPlomberie(titre)) continue;
     titres.push(titre.trim());
   }
   return { nombre: titres.length, titres: titres.slice(0, 6) };
@@ -625,7 +631,21 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
         const hasRemote = (await runCommand(cwd, 'git remote')).out.trim().length > 0;
         if (hasRemote) {
           current = setStep(current, 'push', 'running');
-          const push = await runCommand(cwd, 'git push');
+          /*
+           * `git push` tout court échoue quand la branche locale ne porte PAS
+           * le même nom que celle qu'elle suit (dossier remis sur
+           * « archive/main » qui suit « origin/main ») : la règle « simple »
+           * de git refuse alors d'envoyer. On vise donc explicitement la
+           * branche suivie, et on retombe sur -u si aucune n'est configurée.
+           */
+          const suivie = (
+            await runCommand(cwd, 'git rev-parse --abbrev-ref --symbolic-full-name @{u}', 20000)
+          ).out.trim();
+          const locale = (await runCommand(cwd, 'git rev-parse --abbrev-ref HEAD', 20000)).out.trim();
+          const commande = suivie.includes('/')
+            ? `git push ${suivie.slice(0, suivie.indexOf('/'))} HEAD:${suivie.slice(suivie.indexOf('/') + 1)}`
+            : `git push -u origin ${locale}`;
+          const push = await runCommand(cwd, commande);
           current = setStep(current, 'push', push.ok ? 'done' : 'failed', push.out);
           if (!push.ok) throw new Error("L'envoi sur le dépôt a échoué.");
         } else {
