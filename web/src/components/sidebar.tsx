@@ -322,8 +322,11 @@ export function Sidebar({
   return (
     <aside
       // Sur téléphone la liste occupe tout l'écran ; la largeur réglée à la
-      // main ne vaut qu'à partir des écrans larges.
-      className="flex w-full shrink-0 flex-col border-r border-border bg-bg sm:w-[var(--largeur-projets)]"
+      // main ne vaut qu'à partir des écrans larges. Le trait de droite sépare
+      // la liste du tableau : sur téléphone il n'y a rien à séparer, la liste
+      // vit dans un panneau qui a déjà son propre bord — un second trait à
+      // l'intérieur se lit comme une fausse limite.
+      className="flex w-full shrink-0 flex-col bg-bg sm:w-[var(--largeur-projets)] sm:border-r sm:border-border"
       style={{ ['--largeur-projets' as any]: `${width ?? 196}px` }}
     >
       <div className="flex items-center gap-1 px-2 py-2">
