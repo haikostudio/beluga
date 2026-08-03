@@ -50,7 +50,16 @@ type Entry =
   | { kind: 'project'; id: string; rank: number; project: Project }
   | { kind: 'group'; id: string; rank: number; group: ProjectGroup; members: Project[] };
 
-export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string) => void; width?: number }) {
+export function Sidebar({
+  onOpenAgent,
+  width,
+  onChoose,
+}: {
+  onOpenAgent: (agentId: string) => void;
+  width?: number;
+  /** Prévenu dès qu'un projet est choisi : le panneau latéral se referme. */
+  onChoose?: () => void;
+}) {
   const state = useApp();
   const [adding, setAdding] = React.useState(false);
   const [settingsFor, setSettingsFor] = React.useState<string | null>(null);
@@ -234,6 +243,7 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                 rowProps={rowProps(entry.id, 'project')}
                 poigneeProps={poigneeProps(entry.id, 'project', entry.project.name)}
                 onSettings={() => setSettingsFor(entry.id)}
+                onChoose={onChoose}
               />
               <Ghost show={target?.id === entry.id && target.position === 'after'} label={dragging?.label} />
             </React.Fragment>
@@ -323,6 +333,7 @@ export function Sidebar({ onOpenAgent, width }: { onOpenAgent: (agentId: string)
                           rowProps={rowProps(project.id, 'project')}
                           poigneeProps={poigneeProps(project.id, 'project', project.name)}
                           onSettings={() => setSettingsFor(project.id)}
+                          onChoose={onChoose}
                         />
                         <Ghost show={target?.id === project.id && target.position === 'after'} label={dragging?.label} />
                       </React.Fragment>
@@ -508,6 +519,7 @@ function ProjectRow({
   rowProps,
   poigneeProps,
   onSettings,
+  onChoose,
 }: {
   project: Project;
   active: boolean;
@@ -518,6 +530,7 @@ function ProjectRow({
   /** Le glissement part d'ICI, jamais de la ligne entière. */
   poigneeProps: Record<string, unknown>;
   onSettings: () => void;
+  onChoose?: () => void;
 }) {
   return (
     <div
@@ -532,7 +545,12 @@ function ProjectRow({
         <GripVertical className="h-3 w-3 cursor-grab text-faint opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
       </span>
       <button
-        onClick={() => client.setActiveProject(project.id)}
+        onClick={() => {
+          client.setActiveProject(project.id);
+          // Choisir, c'est aussi refermer : même quand c'est déjà le projet
+          // affiché, le panneau ne doit pas rester ouvert sur un choix fait.
+          onChoose?.();
+        }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
         {running ? (

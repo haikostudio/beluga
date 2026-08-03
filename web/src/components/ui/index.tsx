@@ -262,6 +262,95 @@ export function Drawer({
   );
 }
 
+/**
+ * Le panneau latéral : il glisse depuis la GAUCHE par-dessus l'écran en cours,
+ * un voile derrière. C'est un choix qu'on fait au passage, pas une destination :
+ * on le referme en touchant le voile, en tirant sa poignée vers la gauche, ou
+ * en choisissant ce qu'on était venu chercher.
+ */
+export function SidePanel({
+  open,
+  onClose,
+  title,
+  children,
+  className,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Nommé pour les lecteurs d'écran : le panneau n'affiche pas de titre. */
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const [decalage, setDecalage] = React.useState(0);
+  const depart = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (open) setDecalage(0);
+  }, [open]);
+
+  /*
+   * Le glissement part de la POIGNÉE du bord droit, jamais du contenu : la
+   * liste des projets se range déjà au doigt, et les deux gestes se
+   * marcheraient dessus.
+   */
+  const poignee = {
+    onPointerDown: (event: React.PointerEvent) => {
+      depart.current = event.clientX;
+      (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      if (depart.current === null) return;
+      setDecalage(Math.min(0, event.clientX - depart.current));
+    },
+    onPointerUp: () => {
+      if (depart.current === null) return;
+      depart.current = null;
+      setDecalage((valeur) => {
+        if (valeur < -70) onClose();
+        return 0;
+      });
+    },
+  };
+
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 animate-fade-in" />
+        <DialogPrimitive.Content
+          aria-label={title}
+          className={cn(
+            'fixed left-0 top-0 z-50 flex w-[min(320px,86vw)] flex-col overflow-hidden border-r border-border bg-bg shadow-2xl',
+            'data-[state=open]:animate-slide-in-left',
+            className,
+          )}
+          style={{
+            // La hauteur mesurée en direct : l'unité dvh seule laisse une bande
+            // vide en bas sur téléphone.
+            height: 'var(--hauteur-app, 100dvh)',
+            paddingTop: 'env(safe-area-inset-top)',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            transform: decalage ? `translateX(${decalage}px)` : undefined,
+            transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
+          }}
+        >
+          {/* La bande de droite est réservée à la poignée : sans ce retrait, le
+              geste recouvrirait les petits boutons au bout des lignes. */}
+          <div className="flex min-h-0 flex-1 overflow-hidden pr-3">{children}</div>
+          <div
+            {...poignee}
+            onPointerCancel={poignee.onPointerUp}
+            aria-hidden
+            className="absolute inset-y-0 right-0 flex w-3 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+          >
+            <span className="h-10 w-1 rounded-full bg-border" />
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
 export function DialogTitle({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
   return <DialogPrimitive.Title className={cn('text-[15.5px] font-semibold text-text', className)} {...props} />;
 }

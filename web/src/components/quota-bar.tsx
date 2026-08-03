@@ -1,5 +1,16 @@
 import * as React from 'react';
-import { Activity, BookOpen, MoreVertical, Network, Square, Volume2, Settings2, Sun, Moon } from 'lucide-react';
+import {
+  Activity,
+  BookOpen,
+  FolderTree,
+  MoreVertical,
+  Network,
+  Square,
+  Volume2,
+  Settings2,
+  Sun,
+  Moon,
+} from 'lucide-react';
 import {
   Button,
   ConfirmDialog,
@@ -18,7 +29,14 @@ import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 
 /** Le bandeau des quotas (PLAN §19) : où en sont les moteurs installés. */
-export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function QuotaBar({
+  onOpenSettings,
+  onOpenProjects,
+}: {
+  onOpenSettings: () => void;
+  /** Sur téléphone seulement : ouvre la liste des projets en panneau latéral. */
+  onOpenProjects?: () => void;
+}) {
   const state = useApp();
   // Le moteur « en cours » : celui d'un agent qui travaille, sinon celui du projet.
   const activeEngine =
@@ -97,6 +115,11 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
 
   const capacity = state.capacity;
 
+  // Un autre projet que celui affiché attend une réponse.
+  const ailleurs = Object.entries(state.attention).some(
+    ([projectId, compte]) => compte > 0 && projectId !== state.activeProjectId,
+  );
+
   return (
     <header
       className="flex shrink-0 items-center gap-2 border-b border-border bg-bg px-2.5"
@@ -107,6 +130,27 @@ export function QuotaBar({ onOpenSettings }: { onOpenSettings: () => void }) {
         paddingRight: 'max(10px, env(safe-area-inset-right))',
       }}
     >
+      {/* Tout à gauche, à la place laissée libre par le nom « HaikoDev » : le
+          bouton qui fait glisser la liste des projets par-dessus l'écran. Il ne
+          sert qu'au téléphone — sur grand écran la colonne est déjà là. Une
+          pastille orange prévient qu'un AUTRE projet attend une réponse, sinon
+          l'alerte serait cachée derrière le panneau. */}
+      {onOpenProjects ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative -ml-1 sm:hidden"
+          aria-label="Projets"
+          title="Projets"
+          onClick={onOpenProjects}
+        >
+          <FolderTree className="h-4 w-4" />
+          {ailleurs ? (
+            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning" />
+          ) : null}
+        </Button>
+      ) : null}
+
       {/* Le seul repère à gauche : des nœuds reliés, verts quand la liaison au
           serveur tient, orange et clignotants quand elle est rompue. Le nombre
           d'agents ne s'affiche que lorsque PLUSIEURS travaillent en même temps :
