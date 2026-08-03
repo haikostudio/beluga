@@ -106,6 +106,14 @@ export function Chat({
           onTout={setTout}
         />
       ) : null}
+
+      {/*
+       * La bande « en cours » est posée EN HAUT, juste sous les onglets : au
+       * bas de l'écran elle se perdait au-dessus de la barre d'écriture, alors
+       * qu'elle dit ce que l'agent fait à l'instant.
+       */}
+      <TravailEnCours agent={agent} messages={messages} busy={busy} />
+
       {/* Une conversation ne défile que verticalement : ce qui dépasse en
           largeur (code, longue adresse) défile DANS son propre bloc.
           « overflow-x: hidden » ne suffit pas : le navigateur déplace quand
@@ -145,15 +153,11 @@ export function Chat({
         <div ref={bottomRef} />
       </div>
 
-      <TravailEnCours agent={agent} messages={messages} busy={busy} />
-
       {/* On ne discute pas avec un agent d'analyse : il chiffre et s'arrête.
-          La barre d'écriture revient dès que la tâche est lancée. */}
-      {agent?.role === 'analysis' ? (
-        <div className="shrink-0 border-t border-border bg-bg px-3 py-2.5 text-[13px] text-faint">
-          Cette carte en est à son analyse. Lancez la tâche pour dialoguer avec l’agent qui la réalisera.
-        </div>
-      ) : (
+          La barre d'écriture revient dès que la tâche est lancée — et d'ici là
+          on n'affiche rien du tout : un bandeau d'explication figé sous chaque
+          analyse prenait de la place sans jamais rien apprendre de neuf. */}
+      {agent?.role === 'analysis' ? null : (
         <Composer
           agent={agent}
           engines={state.engines}
@@ -300,7 +304,7 @@ function TravailEnCours({
   const arreter = () => agent && client.send({ type: 'agent.stop', agentId: agent.id });
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-border bg-surface/60 px-3 py-1.5">
+    <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface/60 px-3 py-1.5">
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
       {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
