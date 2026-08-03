@@ -1,7 +1,5 @@
 import * as React from 'react';
 import {
-  Archive,
-  ArrowRight,
   Check,
   CircleDollarSign,
   ExternalLink,
@@ -9,28 +7,19 @@ import {
   GitBranch,
   GitMerge,
   Loader2,
-  MoreVertical,
   Play,
   RefreshCw,
   Rocket,
-  Trash2,
   Zap,
 } from 'lucide-react';
-import { COLUMN_KEYS, COLUMN_LABELS, Card, canMove, motAnalyse, phaseAnalyse } from '@haikodev/shared';
+import { COLUMN_LABELS, Card, motAnalyse, phaseAnalyse } from '@haikodev/shared';
 import {
   Badge,
   Button,
-  ConfirmDialog,
   Dialog,
   DialogContent,
   DialogTitle,
   Drawer,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Input,
   Label,
   Tabs,
@@ -41,6 +30,7 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
+import { MenuCarte } from '@/components/card-menu';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
@@ -59,7 +49,6 @@ export function CardPanel({ cardId, onClose }: { cardId: string | null; onClose:
 }
 
 function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
-  const [confirmSuppression, setConfirmSuppression] = React.useState(false);
   const state = useApp();
   /*
    * L'agent de la conversation n'est PAS seulement celui de l'exécution : une
@@ -130,21 +119,8 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           {/* Les gestes rares vivent ici : ils prenaient une ligne entière en
               bas du tiroir. Menu déroulant sur ordinateur, tiroir pleine
               largeur sur téléphone — le composant s'en charge tout seul. */}
-          <MenuCarte card={card} onSupprimer={() => setConfirmSuppression(true)} />
+          <MenuCarte card={card} apresSuppression={onClose} />
         </div>
-
-        <ConfirmDialog
-          open={confirmSuppression}
-          title={`Supprimer « ${card.title} » ?`}
-          description="La carte et sa conversation partent définitivement. Le travail déjà fait dans le projet, lui, reste."
-          confirmLabel="Supprimer la carte"
-          danger
-          onConfirm={async () => {
-            await client.call({ type: 'card.delete', id: card.id });
-            onClose();
-          }}
-          onClose={() => setConfirmSuppression(false)}
-        />
       </header>
 
       {/* La conversation a son propre onglet : les détails de l'agent ne la
@@ -234,53 +210,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         </footer>
       ) : null}
     </div>
-  );
-}
-
-/**
- * Le menu à trois points du tiroir : suppression, archivage et déplacement
- * vers une autre colonne. Les cibles proposées passent par `canMove` — on ne
- * propose jamais un déplacement qui serait refusé au moment du clic.
- */
-function MenuCarte({ card, onSupprimer }: { card: Card; onSupprimer: () => void }) {
-  // « Archivé » a sa propre ligne juste au-dessus : la répéter dans la liste
-  // des destinations n'ajouterait rien.
-  const cibles = COLUMN_KEYS.filter(
-    (column) => column !== card.column && column !== 'archived' && canMove('user', card.column, column).allowed,
-  );
-  const archivable = card.column !== 'archived' && canMove('user', card.column, 'archived').allowed;
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="ghost" className="-mr-1 shrink-0 px-2" aria-label="Autres actions">
-          <MoreVertical className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {archivable ? (
-          <DropdownMenuItem onSelect={() => client.moveCard(card, 'archived')}>
-            <Archive className="h-3.5 w-3.5" /> Archiver la carte
-          </DropdownMenuItem>
-        ) : null}
-
-        <DropdownMenuItem className="text-danger data-[highlighted]:text-danger" onSelect={onSupprimer}>
-          <Trash2 className="h-3.5 w-3.5" /> Supprimer la carte
-        </DropdownMenuItem>
-
-        {cibles.length ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Déplacer vers</DropdownMenuLabel>
-            {cibles.map((column) => (
-              <DropdownMenuItem key={column} onSelect={() => client.moveCard(card, column)}>
-                <ArrowRight className="h-3.5 w-3.5 text-faint" /> {COLUMN_LABELS[column]}
-              </DropdownMenuItem>
-            ))}
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

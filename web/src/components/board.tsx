@@ -11,6 +11,7 @@ import {
 } from '@haikodev/shared';
 import { Badge, Button, Dot, Input, Textarea, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
+import { MenuCarte } from '@/components/card-menu';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
 import { readPref, writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
@@ -158,7 +159,40 @@ export function Board({
     }
   };
 
-  const { dragging, target, pointer, start } = usePointerDrag({ resolve, onDrop: deposer, holdMs: 260 });
+  /*
+   * L'appui long ouvre sur la carte le MÊME menu que le tiroir (rouvrir,
+   * archiver, supprimer, déplacer). Bouger le doigt avant l'échéance en fait
+   * un glissement : c'est le geste qui tranche, jamais une durée à deviner.
+   */
+  const [menuCarte, setMenuCarte] = React.useState<string | null>(null);
+  const ouvrirMenu = React.useCallback((item: DragItem) => {
+    setMenuCarte(item.id);
+    /*
+     * Le menu s'ouvre pendant que le doigt appuie encore : le relever serait
+     * lu comme un geste au-dehors et refermerait tout dans la seconde. On
+     * avale donc ce relâchement-là, et lui seul.
+     */
+    const avaler = (event: Event) => {
+      event.stopPropagation();
+      event.preventDefault();
+    };
+    const options = { capture: true, once: true } as const;
+    document.addEventListener('pointerup', avaler, options);
+    document.addEventListener('mouseup', avaler, options);
+    document.addEventListener('click', avaler, options);
+    window.setTimeout(() => {
+      document.removeEventListener('pointerup', avaler, true);
+      document.removeEventListener('mouseup', avaler, true);
+      document.removeEventListener('click', avaler, true);
+    }, 900);
+  }, []);
+
+  const { dragging, target, pointer, start } = usePointerDrag({
+    resolve,
+    onDrop: deposer,
+    holdMs: 260,
+    onLongPress: ouvrirMenu,
+  });
   const carteTiree = dragging ? cards.find((card) => card.id === dragging.id) : null;
   const over = (target?.id ?? null) as ColumnKey | null;
 
@@ -228,6 +262,8 @@ export function Board({
                     }
                     dimmed={dragging?.id === card.id}
                     coche={cochable ? selection.includes(card.id) : undefined}
+                    menuOuvert={menuCarte === card.id}
+                    onMenuChange={(ouvert) => setMenuCarte(ouvert ? card.id : null)}
                   />
                 );
               })}
@@ -388,6 +424,8 @@ export function CardTile({
   onPointerDown,
   dimmed,
   coche,
+  menuOuvert,
+  onMenuChange,
 }: {
   card: Card;
   onOpen: () => void;
@@ -395,8 +433,23 @@ export function CardTile({
   dimmed?: boolean;
   /** Non défini : pas de sélection en cours. Défini : la case s'affiche, cochée ou non. */
   coche?: boolean;
+  /** Le menu des gestes rares, ouvert à l'appui long ou au clic droit. */
+  menuOuvert?: boolean;
+  onMenuChange?: (ouvert: boolean) => void;
 }) {
   const state = useApp();
+  /*
+   * L'appui long est suivi d'un clic que le navigateur envoie quand même : sans
+   * ce garde-fou, le tiroir de la carte s'ouvrirait derrière le menu.
+   */
+  const ouvertureMenu = React.useRef(0);
+  React.useEffect(() => {
+    if (menuOuvert) ouvertureMenu.current = Date.now();
+  }, [menuOuvert]);
+  const ouvrir = () => {
+    if (menuOuvert || Date.now() - ouvertureMenu.current < 700) return;
+    onOpen();
+  };
   const agent = card.agentId ? state.agents[card.agentId] : null;
   const running = agent?.status === 'running';
   const waiting = card.scheduling?.waitingReason;
@@ -451,9 +504,23 @@ export function CardTile({
         </button>
       ) : null}
 
+      {/* À la souris, le clic droit ouvre le même menu : c'est là qu'on le
+          cherche sur ordinateur, l'appui long restant le geste du doigt. */}
+      {onMenuChange ? (
+        <MenuCarte card={card} ancrage="invisible" open={!!menuOuvert} onOpenChange={onMenuChange} />
+      ) : null}
+
       <article
         onPointerDown={onPointerDown}
-        onClick={onOpen}
+        onContextMenu={
+          onMenuChange
+            ? (event) => {
+                event.preventDefault();
+                onMenuChange(true);
+              }
+            : undefined
+        }
+        onClick={ouvrir}
         className={cn(
           'relative z-10 cursor-pointer touch-manipulation select-none rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint',
           statut && 'rounded-b-none',
@@ -514,7 +581,7 @@ export function CardTile({
 
       {statut ? (
         <div
-          onClick={onOpen}
+          onClick={ouvrir}
           className={cn(
             // Toute la largeur de la carte, sur UNE ligne, sans marge latérale.
             // Le petit espace en haut laisse voir l'ombre portée, qui donne

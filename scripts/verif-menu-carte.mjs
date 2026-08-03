@@ -161,6 +161,84 @@ async function controler(page, erreurs, ecran) {
   record(`${ecran} — aucune erreur dans la console`, erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 }
 
+/**
+ * Le tableau : appui long (pointeur maintenu, sans bouger) et clic droit
+ * ouvrent le même menu ; bouger avant l'échéance reste un glissement.
+ */
+async function controlerTableau(page, carte, ecran) {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(700);
+  const tuile = page.locator('article').filter({ hasText: carte.title.slice(0, 30) }).first();
+  await tuile.waitFor({ state: 'visible', timeout: 15000 });
+  const boite = await tuile.boundingBox();
+  const x = boite.x + boite.width / 2;
+  const y = boite.y + 14;
+
+  /* ---------- L'appui long ouvre le menu ---------- */
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.waitForTimeout(900);
+  const menu = page.locator('[role="menu"]');
+  const ouvert = await menu.count();
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  record(`${ecran} — l'appui long sur une carte du tableau ouvre le menu`, ouvert > 0);
+
+  if (ouvert) {
+    const texte = (await menu.last().textContent()) || '';
+    record(
+      `${ecran} — c'est bien le même menu (archiver, supprimer, déplacer)`,
+      /Archiver la carte/.test(texte) && /Supprimer la carte/.test(texte) && /Déplacer vers/.test(texte),
+    );
+    fs.mkdirSync(SHOTS, { recursive: true });
+    await page.screenshot({
+      path: `${SHOTS}/menu-tableau-${ecran === 'Téléphone' ? 'telephone' : 'ordinateur'}.png`,
+    });
+  }
+
+  // Le tiroir de la carte ne doit PAS s'être ouvert derrière le menu.
+  record(
+    `${ecran} — l'appui long n'ouvre pas la carte par-dessous`,
+    (await page.locator('[role="dialog"]:not([role="menu"])').count()) === 0,
+  );
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+
+  /* ---------- Bouger reste un glissement ---------- */
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.waitForTimeout(150);
+  await page.mouse.move(x, y + 60, { steps: 8 });
+  await page.waitForTimeout(700);
+  const menuPendantGlissement = await page.locator('[role="menu"]').count();
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  record(`${ecran} — bouger la carte n'ouvre aucun menu`, menuPendantGlissement === 0);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+}
+
+/** Une carte archivée doit pouvoir se rouvrir depuis son menu. */
+async function controlerRouvrir(page, archivee) {
+  if (!archivee) {
+    record('Le menu d’une carte archivée propose « Rouvrir »', true, 'aucune carte archivée : contrôle sauté');
+    return;
+  }
+  const colonne = page.locator('[data-column="archived"]');
+  await colonne.scrollIntoViewIfNeeded();
+  const tuile = colonne.locator('article').filter({ hasText: archivee.title.slice(0, 30) }).first();
+  await tuile.waitFor({ state: 'visible', timeout: 15000 });
+  await tuile.click({ button: 'right' });
+  await page.waitForTimeout(700);
+  const texte = (await page.locator('[role="menu"]').last().textContent()) || '';
+  record('Le menu d’une carte archivée propose « Rouvrir »', /Rouvrir la carte/.test(texte));
+  record("Une carte archivée ne propose plus de l'archiver", !/Archiver la carte/.test(texte));
+  await page.screenshot({ path: `${SHOTS}/menu-carte-archivee.png` });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+}
+
 async function main() {
   const db = new Database(DB);
   const carte = choisirCarte(db);
@@ -169,6 +247,9 @@ async function main() {
     process.exit(2);
   }
   const projet = db.prepare('SELECT name FROM projects WHERE id = ?').get(carte.project_id);
+  const archivee = db
+    .prepare("SELECT id, title FROM cards WHERE project_id = ? AND column_key = 'archived' ORDER BY updated_at DESC LIMIT 1")
+    .get(carte.project_id);
   console.log(`Carte : « ${carte.title} » (${projet?.name}, colonne ${carte.column_key})`);
   const cookie = poserSession(db);
 
@@ -193,6 +274,8 @@ async function main() {
     ]);
     const { page, erreurs } = await ouvrirCarte(context, carte, projet?.name ?? 'HaikoDev', mobile);
     await controler(page, erreurs, ecran);
+    await controlerTableau(page, carte, ecran);
+    if (!mobile) await controlerRouvrir(page, archivee);
     await context.close();
   }
 
