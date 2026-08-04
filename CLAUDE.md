@@ -59,6 +59,7 @@ node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, 
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
 node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu — et leur report sur carte / conversation
+node scripts/verif-carte-sans-suite.mjs # « tour terminé sans suite » sur une carte figée en « En cours » (serveur de développement, HAIKO_SANS_SUITE_URL)
 node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
@@ -398,6 +399,26 @@ sans son point d'essai.
   jamais quatre annoncés et rien de visible. Le triangle du projet EMMÈNE à la plus ancienne décision
   en attente. Verrouillé par `server/src/test/decision-attendue.test.ts` et
   `scripts/verif-signal-attention.mjs`.
+- **Une question POSÉE EN TEXTE compte comme décision attendue** (`shared/src/question-en-texte.ts`).
+  Un agent doit passer par l'outil `ask_user` — la consigne le dit désormais en toutes lettres
+  (point 6 de `METHODE`, repris dans `rappelDeMethode`, verrouillé par
+  `server/src/test/question-par-outil.test.ts`). Mais rien n'oblige un moteur à s'en servir : écrite
+  à la fin de sa réponse, la question termine le tour normalement (`exitCode` 0), n'enregistre rien,
+  et la carte reste en « En cours » sans que personne ne sache qu'on l'attend. `decisionEnTexteLibre`
+  reconnaît donc le cas — DERNIER message d'une conversation, agent qui ne travaille plus, dernière
+  phrase finissant par « ? », entre 20 et 400 signes, ni question d'outil ni proposition déjà
+  comptée — et `decisionsEnAttente` (`server/src/store.ts`) en fait une décision de plus, qui allume
+  le MÊME triangle orange. Seuls les agents portant une CARTE sont jugés : le chef d'orchestre finit
+  une réponse sur deux par « voulez-vous que… », et son fil est déjà sous les yeux de qui l'a écrit.
+- **Une carte figée en « En cours » le DIT** (`mentionSansSuite`, `shared/src/carte-sans-suite.ts`).
+  Entre la roue qui tourne et la carte close, il existait un troisième état muet : le tour s'est
+  achevé, aucun agent ne travaille, personne n'a repris. Passé une heure (`DELAI_SANS_SUITE`), la
+  carte du tableau porte « Tour terminé sans suite depuis N h » en gris pâle — pas une alerte, rien
+  n'est cassé. Quatre silences : hors de « En cours », agent au travail, tour trop récent, et
+  décision déjà en attente (le triangle dit mieux ce qui bloque, deux repères feraient du bruit).
+  L'heure avance par une horloge UNIQUE partagée (`useMinute`, `web/src/lib/horloge.ts`) : vingt
+  cartes ne font pas vingt minuteries, et la mention apparaît sans attendre un événement du serveur.
+  Verrouillé par `server/src/test/carte-sans-suite.test.ts` et `scripts/verif-carte-sans-suite.mjs`.
 - **Un pied de colonne agit en LOT, toujours en deux temps et toujours par le même mécanisme**
   (`ACTIONS_DE_LOT`, `web/src/components/board.tsx`). Premier clic : une case à cocher sort du coin
   haut-gauche de chaque carte, TOUTES cochées, et le pied devient « Annuler » / « <verbe> (n) ».
