@@ -17,6 +17,7 @@ export * from './decision-attendue.js';
 export * from './demon.js';
 export * from './description-carte.js';
 export * from './dossier-de-carte.js';
+export * from './echec-verification.js';
 export * from './etat-carte.js';
 export * from './heure-message.js';
 export * from './images-reponse.js';

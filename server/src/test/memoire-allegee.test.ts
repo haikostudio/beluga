@@ -15,6 +15,7 @@ import {
 import { humanStep } from '../engines/types.js';
 import {
   appendMemory,
+  blocMemoire,
   briefing,
   creerFichierInstructions,
   detailMemoire,
@@ -139,7 +140,17 @@ test('le briefing envoie l\'index, pas la mémoire entière, et parle du fichier
   assert.match(ouverture, /CLAUDE\.md/);
   // L'explication longue ne part plus : elle se demande.
   assert.doesNotMatch(ouverture, /ne refasse pas l'erreur/);
-  assert.ok(ouverture.length < readMemory(dossier).length);
+
+  /*
+   * On pèse la PART DE MÉMOIRE, jamais le briefing entier : le reste du
+   * briefing (nom du projet, fichiers d'instructions, compétences partagées
+   * installées sur la machine) n'a rien à voir avec la règle et grossit avec le
+   * produit. Peser le tout revenait à faire dépendre le contrôle de l'état de
+   * la machine — et c'est ce qui l'a fait tomber.
+   */
+  const bloc = blocMemoire(dossier);
+  assert.ok(ouverture.includes(bloc), 'le briefing porte bien la part de mémoire');
+  assert.ok(bloc.length < readMemory(dossier).length, `trop long : ${bloc.length}`);
 
   // Avec Codex, c'est l'autre fichier d'instructions qui est nommé.
   assert.match(briefing(dossier, 'Essai', true, 'codex'), /AGENTS\.md/);

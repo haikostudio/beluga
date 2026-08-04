@@ -31,6 +31,11 @@ npm run dev --workspace web -- --port 7099   # interface de développement (vise
 `npx vite web` casse la résolution de Tailwind : passer par le workspace. Le serveur de
 développement n'écoute qu'en IPv6, donc `localhost`, pas `127.0.0.1`.
 
+L'environnement des agents porte `NODE_ENV=production`, où `npm install` SAUTE les dépendances de
+développement : `tsc` et `vite` sont alors absents et `npm run build` répond « tsc: not found ».
+Avant de construire — dans une copie de travail comme dans le dossier principal —
+`NODE_ENV=development npm install --include=dev`. La publication le fait désormais toute seule.
+
 Le navigateur d'essai (`playwright`) est une dépendance DÉCLARÉE du projet, importée normalement
 (`import { chromium } from 'playwright'`) — jamais par un chemin absolu vers le dossier personnel
 d'un utilisateur. Elle est en `dependencies`, PAS en `devDependencies` : l'environnement des agents
@@ -141,6 +146,19 @@ sans son point d'essai.
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
   Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
   (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
+- **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
+  « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
+  Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette
+  étape (dernier argument `signesGardes`), `controlesTombes` y relève les lignes « not ok N - … »
+  de premier niveau avec leur `location:`, `phraseDEchec` les met dans le message d'erreur et
+  `detailDEchec` les pose EN TÊTE du détail, avant la fin de la sortie brute. Cinq contrôles nommés
+  au plus, le reste compté. Verrouillé par `server/src/test/echec-verification.test.ts`.
+- **La publication POSE les outils de construction avant de construire**
+  (`poserLesOutilsDeConstruction`, `server/src/deploy.ts`). Le démon tourne avec
+  `NODE_ENV=production`, où `npm install` saute les dépendances de développement — donc `tsc` et
+  `vite`, que `npm run build` appelle. Si l'un des deux manque dans `node_modules/.bin`, l'étape de
+  construction lance d'abord `NODE_ENV=development npm install --include=dev` et le DIT dans son
+  détail. Aucune étape ajoutée ni déplacée : c'est la préparation de l'étape existante.
 - **Un projet se déclare sur son DÉPÔT DE TRAVAIL, jamais sur son dossier publié.** Un dossier servi
   n'est pas un dépôt git : l'agent n'y trouve aucune mémoire, n'y enregistre rien et ne peut RIEN
   prouver — la carte se clôt sur du vide. Quand le code de travail vit ailleurs que le dossier servi,

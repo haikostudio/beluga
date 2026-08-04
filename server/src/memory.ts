@@ -272,6 +272,30 @@ _À remplir : les dossiers du projet et leur rôle, une ligne chacun._
 }
 
 /**
+ * LA PART DE MÉMOIRE DU BRIEFING, à elle seule.
+ *
+ * C'est ici que vit la règle « on envoie l'INDEX, pas la mémoire entière » —
+ * donc c'est ici, et nulle part ailleurs, qu'elle se mesure. Le briefing
+ * complet porte aussi des choses qui n'ont rien à voir avec la mémoire (nom du
+ * projet, fichiers d'instructions, compétences partagées) et qui GRANDISSENT
+ * avec le produit : le jour où ce préambule a dépassé la mémoire d'un projet
+ * d'essai, un contrôle qui pesait le briefing entier est tombé, et la
+ * publication avec lui, alors que la règle, elle, n'avait jamais bougé.
+ */
+export function blocMemoire(projectPath: string): string {
+  const faits = memoryFacts(projectPath);
+  if (!faits.length) {
+    return "La mémoire du projet est vide : tu la rempliras en fin de tâche avec ce que tu auras appris.";
+  }
+  return (
+    `MÉMOIRE DU PROJET — index des faits retenus (${faits.length}), une ligne par fait, groupée par sujet :\n` +
+    `${texteIndex(faits)}\n\n` +
+    `Ces lignes sont VOLONTAIREMENT tronquées. Le texte entier d'un fait se demande avec l'outil « project_memory » ` +
+    `(argument « sujet » : un numéro, un nom de sujet, ou des mots-clés) — fais-le dès qu'une ligne touche à ce que tu vas modifier.`
+  );
+}
+
+/**
  * Le briefing compact injecté au lancement de chaque agent : il sait déjà où
  * regarder au lieu de redécouvrir le projet de zéro.
  *
@@ -328,17 +352,7 @@ export function briefing(
 
   if (!avecMemoire) return parts.join('\n\n');
 
-  const faits = memoryFacts(projectPath);
-  if (faits.length) {
-    parts.push(
-      `MÉMOIRE DU PROJET — index des faits retenus (${faits.length}), une ligne par fait, groupée par sujet :\n` +
-        `${texteIndex(faits)}\n\n` +
-        `Ces lignes sont VOLONTAIREMENT tronquées. Le texte entier d'un fait se demande avec l'outil « project_memory » ` +
-        `(argument « sujet » : un numéro, un nom de sujet, ou des mots-clés) — fais-le dès qu'une ligne touche à ce que tu vas modifier.`,
-    );
-  } else {
-    parts.push("La mémoire du projet est vide : tu la rempliras en fin de tâche avec ce que tu auras appris.");
-  }
+  parts.push(blocMemoire(projectPath));
 
   parts.push(
     `FICHIER D'INSTRUCTIONS DU MOTEUR : si ta tâche change une règle durable, une architecture ou une commande, mets ${quiFaitFoi} à jour avant de finir (crée-le s'il n'existe pas). ` +

@@ -8,8 +8,10 @@ import {
   DeployStepKey,
   MoyensDeMiseEnLigne,
   PlanDeMiseEnLigne,
+  detailDEchec,
   estPlomberie,
   miseEnLigneReelle,
+  phraseDEchec,
   planDeMiseEnLigne,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -381,17 +383,61 @@ async function mainBranchOf(cwd: string): Promise<string> {
   return current.out.trim() || 'main';
 }
 
-async function runCommand(cwd: string, command: string, timeout = 15 * 60 * 1000): Promise<{ ok: boolean; out: string }> {
+/**
+ * `signesGardes` : combien de signes de sortie on retient.
+ *
+ * Trois mille suffisent à une commande qui parle peu. Les contrôles du projet,
+ * eux, écrivent des milliers de lignes et NOMMENT ce qui tombe au milieu :
+ * couper la fin revenait à jeter la seule information utile. L'appelant demande
+ * donc la sortie entière quand il sait la résumer lui-même.
+ */
+async function runCommand(
+  cwd: string,
+  command: string,
+  timeout = 15 * 60 * 1000,
+  signesGardes = 3000,
+): Promise<{ ok: boolean; out: string }> {
+  const garder = (texte: string) => (signesGardes === Infinity ? texte : texte.slice(-signesGardes));
   try {
     const { stdout, stderr } = await execFileAsync('bash', ['-lc', command], {
       cwd,
       timeout,
       maxBuffer: 8 * 1024 * 1024,
     });
-    return { ok: true, out: (stdout + stderr).slice(-3000) };
+    return { ok: true, out: garder(stdout + stderr) };
   } catch (err: any) {
-    return { ok: false, out: ((err?.stdout ?? '') + (err?.stderr ?? '') + (err?.message ?? '')).slice(-3000) };
+    return { ok: false, out: garder((err?.stdout ?? '') + (err?.stderr ?? '') + (err?.message ?? '')) };
   }
+}
+
+/** Les outils dont `npm run build` a besoin, et qu'aucune dépendance ordinaire n'apporte. */
+const OUTILS_DE_CONSTRUCTION = ['tsc', 'vite'];
+
+/**
+ * POSER LES OUTILS DE CONSTRUCTION AVANT DE CONSTRUIRE.
+ *
+ * Le démon tourne avec `NODE_ENV=production` : dans cet environnement, `npm
+ * install` SAUTE les dépendances de développement — donc `tsc` et `vite`, qui
+ * sont exactement ce que `npm run build` appelle. Résultat : la publication
+ * passait ses contrôles puis tombait aussitôt sur « tsc: not found », un échec
+ * qui n'a rien à voir avec le code du projet.
+ *
+ * On ne touche à rien tant que les outils sont là ; sinon on les installe une
+ * fois, en disant qu'on l'a fait. Aucune étape n'est ajoutée ni déplacée :
+ * c'est la préparation de l'étape de construction, qui rend compte dans son
+ * propre détail.
+ */
+async function poserLesOutilsDeConstruction(cwd: string): Promise<string> {
+  const manquants = OUTILS_DE_CONSTRUCTION.filter((outil) => !fs.existsSync(path.join(cwd, 'node_modules', '.bin', outil)));
+  if (!manquants.length) return '';
+  const pose = await runCommand(
+    cwd,
+    'NODE_ENV=development npm install --include=dev --no-audit --no-fund',
+    10 * 60 * 1000,
+  );
+  return pose.ok
+    ? `Outils de construction absents (${manquants.join(', ')}) : installés avant de construire.\n\n`
+    : `Outils de construction absents (${manquants.join(', ')}) et leur installation a échoué :\n${pose.out.slice(-800)}\n\n`;
 }
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -777,13 +823,20 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
          * change — une branche non envoyée ne peut plus rien y faire.
          */
         current = setStep(current, 'verify', 'running');
-        const verify = await runCommand(cwd, 'npm test', 10 * 60 * 1000);
-        current = setStep(current, 'verify', verify.ok ? 'done' : 'failed', verify.out.slice(-800));
-        if (!verify.ok) throw new Error('Les vérifications échouent : rien n\'est mis en ligne.');
+        const verify = await runCommand(cwd, 'npm test', 10 * 60 * 1000, Infinity);
+        current = setStep(
+          current,
+          'verify',
+          verify.ok ? 'done' : 'failed',
+          verify.ok ? verify.out.slice(-800) : detailDEchec(verify.out),
+        );
+        // Le refus ne bouge pas ; ce qui change, c'est qu'il NOMME ce qui tombe.
+        if (!verify.ok) throw new Error(phraseDEchec(verify.out));
 
         current = setStep(current, 'build', 'running');
+        const pose = await poserLesOutilsDeConstruction(cwd);
         const build = await runCommand(cwd, 'npm run build', 10 * 60 * 1000);
-        current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.out.slice(-800));
+        current = setStep(current, 'build', build.ok ? 'done' : 'failed', pose + build.out.slice(-800));
         if (!build.ok) throw new Error('La construction a échoué.');
 
         current = setStep(current, 'publish', 'running');
