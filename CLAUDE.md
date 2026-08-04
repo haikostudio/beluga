@@ -71,6 +71,7 @@ node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié 
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
+node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -88,6 +89,12 @@ on n'en réutilise jamais un existant. **Ne jamais reprendre `HAIKODEV_TOKEN`** 
 d'un agent, PÉRIMÉ de surcroît — le neutraliser (`env -u HAIKODEV_TOKEN …`), sinon la page reste
 bloquée sur « Connexion au serveur… ». De même, `HAIKODEV_URL` vaut par défaut l'application
 PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
+
+Un point d'essai posé sur la page (`window.haikodevEssai`, `web/src/lib/client.ts`) permet de
+provoquer un message court depuis un script. Il est gardé par `import.meta.env.MODE !==
+'production'`, **jamais par `import.meta.env.DEV`** : cet indicateur suit `NODE_ENV`, qui vaut
+« production » dans l'environnement des agents — le serveur de développement se retrouvait alors
+sans son point d'essai.
 
 ## Mémoire du projet
 
@@ -378,6 +385,17 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   On n'emploie PAS `justify-end` sur la zone elle-même — il rend le haut du fil inatteignable. Le
   fil porte `data-fil="conversation"`, seul repère des scripts de vérification. Verrouillé par
   `scripts/verif-vide-carte-validee.mjs`.
+- **La pile des messages courts s'ouvre au SURVOL à la souris, à l'APPUI au doigt**
+  (`shared/src/ouverture-pile.ts`). Le choix se fait sur la CAPACITÉ DU POINTEUR
+  (`REQUETE_SURVOL`, `(hover: hover) and (pointer: fine)`), jamais sur la largeur de l'écran : une
+  tablette large n'a pas plus de survol qu'un téléphone. Fermée, la pile ne montre que le message
+  le plus récent et compte le reste (`resteAVoir`) ; ouverte, elle les montre tous. Au doigt, le
+  premier appui SERT à déployer et n'emporte pas l'action du message de devant
+  (`appuiDeclencheLAction`, retenu en phase de CAPTURE) ; un second appui, ou un appui ailleurs sur
+  l'écran, referme. À la souris, un clic n'ouvre ni ne referme rien — sinon la pile battrait sous
+  un curseur immobile. Les cibles au doigt font 32 px de côté, la marge négative rendant au message
+  sa taille. Verrouillé par `server/src/test/ouverture-pile.test.ts` et
+  `scripts/verif-pile-messages-appui.mjs`.
 - **Le fondu est réservé au défilement VERTICAL**, le seul où le texte glisse derrière un en-tête ou
   une barre. En `axe="horizontal"` (rail du tableau, barres d'onglets), `ZoneDefilement` ne pose
   AUCUN voile : il masquerait le bord des colonnes sans rien apprendre. L'option reste, car c'est

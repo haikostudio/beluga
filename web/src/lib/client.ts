@@ -511,3 +511,19 @@ class Client {
 }
 
 export const client = new Client();
+
+/*
+  En DÉVELOPPEMENT seulement, un message court peut être provoqué depuis la
+  page : c'est ce qui permet à un script de vérification d'essayer la pile
+  des messages pour de vrai, sans attendre qu'un agent en produise. La
+  construction publiée n'emporte pas cette ligne.
+
+  On juge sur le MODE, pas sur `import.meta.env.DEV` : cet indicateur suit
+  `NODE_ENV`, qui vaut « production » dans l'environnement des agents — le
+  serveur de développement se retrouvait alors sans son point d'essai.
+*/
+if (import.meta.env.MODE !== 'production') {
+  (window as unknown as { haikodevEssai?: unknown }).haikodevEssai = {
+    message: (level: Toast['level'], text: string) => client.pushToast(level, text),
+  };
+}

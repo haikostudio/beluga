@@ -1,5 +1,16 @@
 import * as React from 'react';
 import { AlertCircle, Bot, Check, ChevronUp, GripVertical, Info, TriangleAlert, X } from 'lucide-react';
+import {
+  OUVERTURE_DUREE,
+  REQUETE_SURVOL,
+  annonceDeLaPile,
+  appuiDeclencheLAction,
+  gesteDOuverture,
+  messagesMontres,
+  pileApres,
+  resteAVoir,
+  type EvenementDePile,
+} from '@haikodev/shared';
 import { Badge, Button, Dot } from '@/components/ui';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
@@ -11,6 +22,26 @@ import { cn, elapsed } from '@/lib/utils';
  * messages courts. Ils n'interrompent jamais ce que vous êtes en train de faire ;
  * les erreurs, elles, attendent d'être lues.
  */
+
+/**
+ * Ce que le pointeur du moment sait faire. La question est reposée quand la
+ * réponse change : brancher une souris sur une tablette rend le survol, la
+ * débrancher le reprend.
+ */
+function useGesteDOuverture() {
+  const [survol, setSurvol] = React.useState(() =>
+    typeof window === 'undefined' ? true : window.matchMedia(REQUETE_SURVOL).matches,
+  );
+  React.useEffect(() => {
+    const requete = window.matchMedia(REQUETE_SURVOL);
+    const suivre = () => setSurvol(requete.matches);
+    suivre();
+    requete.addEventListener('change', suivre);
+    return () => requete.removeEventListener('change', suivre);
+  }, []);
+  return gesteDOuverture(survol);
+}
+
 export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
   const state = useApp();
   const [collapsed, setCollapsed] = React.useState(false);
@@ -25,6 +56,34 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
   const dragRef = React.useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   // « Tout effacer » reste annulable quelques secondes.
   const [undo, setUndo] = React.useState<Set<string> | null>(null);
+  // La pile des messages : ouverte au survol à la souris, à l'appui au doigt.
+  const geste = useGesteDOuverture();
+  const [pileOuverte, setPileOuverte] = React.useState(false);
+  const pileRef = React.useRef<HTMLDivElement | null>(null);
+  const surLaPile = (evenement: EvenementDePile) =>
+    setPileOuverte((ouverte) => pileApres(ouverte, evenement, geste));
+  // Le plus récent devant : c'est lui qui reste visible, pile fermée.
+  const messages = React.useMemo(() => [...state.toasts].reverse(), [state.toasts]);
+  const montres = messagesMontres(messages.length, pileOuverte);
+  const reste = resteAVoir(messages.length, pileOuverte);
+
+  // Un appui ailleurs sur l'écran referme la pile : sans cette sortie, elle
+  // resterait déployée au doigt, faute de curseur qui s'en aille.
+  React.useEffect(() => {
+    if (!pileOuverte) return;
+    const dehors = (event: PointerEvent) => {
+      const pile = pileRef.current;
+      if (pile && event.target instanceof Node && pile.contains(event.target)) return;
+      surLaPile('appui-dehors');
+    };
+    window.addEventListener('pointerdown', dehors);
+    return () => window.removeEventListener('pointerdown', dehors);
+  }, [pileOuverte, geste]);
+
+  // Le dernier message parti, la pile ne reste pas ouverte sur du vide.
+  React.useEffect(() => {
+    if (!messages.length && pileOuverte) setPileOuverte(false);
+  }, [messages.length, pileOuverte]);
 
   React.useEffect(() => {
     const timer = setInterval(force, 5000);
@@ -74,45 +133,83 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
 
   return (
     <div
+      data-bloc="dock"
       className="pointer-events-none fixed bottom-2 right-2 z-40 flex w-[248px] flex-col items-end gap-1.5 sm:bottom-3 sm:right-3"
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
-      {/* Messages courts */}
-      <div className="pointer-events-auto flex w-full flex-col gap-1">
-        {state.toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className={cn(
-              'flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[13.5px] shadow-lg animate-slide-up',
-              toast.level === 'error'
-                ? 'border-danger/40 bg-surface text-danger'
-                : toast.level === 'warning'
-                  ? 'border-warning/40 bg-surface text-warning'
-                  : toast.level === 'success'
-                    ? 'border-success/40 bg-surface text-success'
-                    : 'border-border bg-surface text-muted',
-            )}
-          >
-            <span className="mt-0.5 shrink-0">
-              {toast.level === 'error' ? (
-                <AlertCircle className="h-3 w-3" />
-              ) : toast.level === 'warning' ? (
-                <TriangleAlert className="h-3 w-3" />
-              ) : toast.level === 'success' ? (
-                <Check className="h-3 w-3" />
-              ) : (
-                <Info className="h-3 w-3" />
+      {/* Messages courts, en pile : le plus récent devant. Elle se déploie au
+          survol à la souris, à l'appui au doigt — sans ce relais, les messages
+          du dessous resteraient inatteignables sur un écran tactile. */}
+      {messages.length ? (
+        <div
+          ref={pileRef}
+          data-pile="messages"
+          data-pile-ouverte={pileOuverte ? 'oui' : 'non'}
+          data-pile-geste={geste}
+          aria-label={annonceDeLaPile(messages.length, pileOuverte, geste)}
+          className="pointer-events-auto flex w-full flex-col gap-1"
+          onMouseEnter={() => surLaPile('survol-entre')}
+          onMouseLeave={() => surLaPile('survol-sort')}
+          // En CAPTURE : l'appui qui déploie doit être retenu AVANT que la croix
+          // du message de devant, seul visible, ne s'en saisisse.
+          onClickCapture={(event) => {
+            if (appuiDeclencheLAction(pileOuverte, geste)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            surLaPile('appui-dedans');
+          }}
+          // Pile déjà ouverte, un appui hors des boutons la referme.
+          onClick={(event) => {
+            if (geste !== 'appui' || !pileOuverte) return;
+            if (event.target instanceof Element && event.target.closest('button')) return;
+            surLaPile('appui-dedans');
+          }}
+        >
+          {messages.slice(0, montres).map((toast) => (
+            <div
+              key={toast.id}
+              // Un message qui sort de la pile monte à la même vitesse qu'il
+              // arrive : le déploiement se voit, au doigt comme au curseur.
+              style={{ animationDuration: `${OUVERTURE_DUREE}ms` }}
+              className={cn(
+                'flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[13.5px] shadow-lg animate-slide-up',
+                toast.level === 'error'
+                  ? 'border-danger/40 bg-surface text-danger'
+                  : toast.level === 'warning'
+                    ? 'border-warning/40 bg-surface text-warning'
+                    : toast.level === 'success'
+                      ? 'border-success/40 bg-surface text-success'
+                      : 'border-border bg-surface text-muted',
               )}
-            </span>
-            {/* Un compte rendu de lot nomme ses cartes ligne à ligne : les
-                retours à la ligne doivent tenir. */}
-            <span className="min-w-0 flex-1 whitespace-pre-line leading-snug">{toast.text}</span>
-            <button onClick={() => client.dismissToast(toast.id)} className="shrink-0 opacity-60 hover:opacity-100">
-              <X className="h-2.5 w-2.5" />
-            </button>
-          </div>
-        ))}
-      </div>
+            >
+              <span className="mt-0.5 shrink-0">
+                {toast.level === 'error' ? (
+                  <AlertCircle className="h-3 w-3" />
+                ) : toast.level === 'warning' ? (
+                  <TriangleAlert className="h-3 w-3" />
+                ) : toast.level === 'success' ? (
+                  <Check className="h-3 w-3" />
+                ) : (
+                  <Info className="h-3 w-3" />
+                )}
+              </span>
+              {/* Un compte rendu de lot nomme ses cartes ligne à ligne : les
+                  retours à la ligne doivent tenir. */}
+              <span className="min-w-0 flex-1 whitespace-pre-line leading-snug">{toast.text}</span>
+              <button
+                onClick={() => client.dismissToast(toast.id)}
+                title="Retirer ce message"
+                // La croix reste atteignable au doigt : sa cible fait 32 px de
+                // côté, la marge négative rendant au message sa taille.
+                className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] opacity-60 hover:opacity-100"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+          {reste ? <p className="pr-1 text-right text-[11.5px] text-faint">{reste}</p> : null}
+        </div>
+      ) : null}
 
       {/* Vignettes d'agents */}
       {agents.length ? (
