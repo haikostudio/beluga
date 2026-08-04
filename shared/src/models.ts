@@ -189,6 +189,14 @@ export const SchedulingState = z.object({
   attempts: z.number().default(0),
   /** Compteur séparé : un redémarrage du démon ne compte JAMAIS comme un essai raté (PLAN §30). */
   restarts: z.number().default(0),
+  /**
+   * La carte a été SUSPENDUE à la main (sortie de « En cours » vers
+   * « Planifié »). Elle reste en file et visible, mais l'ordonnanceur ne la
+   * reprend pas tout seul : suspendre puis voir repartir quinze secondes plus
+   * tard ne serait pas suspendre. Le prochain départ est un geste, et ce geste
+   * efface la marque.
+   */
+  suspendu: z.boolean().optional(),
   lastError: z.string().optional(),
 });
 export type SchedulingState = z.infer<typeof SchedulingState>;

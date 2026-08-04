@@ -54,6 +54,7 @@ node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
+node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
@@ -105,6 +106,20 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
   pas. Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
   reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
+- **Le dépôt d'une carte à la main VAUT un geste** (`effetDuDepot`, `shared/src/suivi-colonne.ts`).
+  Déposer dans « En cours » = cliquer sur « Lancer maintenant » : le serveur appelle `startCard`, le
+  MÊME point d'entrée — mêmes portes dures, même branche, même agent, même trace. Aucun chemin
+  parallèle. Un refus REMONTE : la carte revient à sa colonne et la raison s'affiche, jamais un
+  déplacement silencieux qui ne lance rien. Sortir de « En cours » vers « Planifié » = SUSPENDRE :
+  le tour est arrêté, la carte reste en file avec `scheduling.suspendu`, et l'ordonnanceur ne la
+  reprend plus tout seul — seul un geste (bouton, ou nouveau dépôt en « En cours ») efface la
+  marque. C'est la SEULE sortie permise pendant que l'agent écrit ; toutes les autres restent
+  refusées (`sortieAutorisee`).
+- **Les portes DURES valent pour tous les chemins de lancement** (`portesDures`,
+  `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, branche
+  impossible à créer sur un dépôt git. `startCard` les contrôle, donc l'ordonnanceur comme le bouton
+  comme le glissement. L'heure creuse, elle, n'est PAS une porte dure : c'est une politique
+  d'économie que l'ordonnanceur seul applique (`checkGates`), et qu'un geste humain passe.
 - **Pas de code modifié, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une carte, jamais
   le fait que le moteur ait répondu. Le démon prend UN SEUL repère avant le tour (`repereAvant`,
   `server/src/hors-tache.ts`) et le relit après (`depotModifieDepuis` : un enregistrement de plus,

@@ -166,7 +166,17 @@ export interface Gate {
   reason?: string;
 }
 
-export async function checkGates(card: Card): Promise<Gate> {
+/**
+ * Les portes DURES : celles qu'aucun geste ne force, parce que les franchir
+ * ferait échouer le tour pour de bon — plus de place sur la machine, plus un
+ * seul compte disponible pour ce moteur. Elles valent pour TOUS les chemins de
+ * lancement : l'ordonnanceur, le bouton « Lancer maintenant », le dépôt d'une
+ * carte dans « En cours ».
+ *
+ * L'heure creuse, elle, n'est pas une porte dure : c'est une politique
+ * d'économie, et l'utilisateur a le droit de passer devant.
+ */
+export async function portesDures(card: Card): Promise<Gate> {
   const capacity = canStartAgent();
   if (!capacity.ok) return { ok: false, reason: capacity.reason };
 
@@ -184,6 +194,18 @@ export async function checkGates(card: Card): Promise<Gate> {
         : 'Quota épuisé sur tous les comptes',
     };
   }
+
+  return { ok: true };
+}
+
+/**
+ * Toutes les portes de l'ORDONNANCEUR : les dures, plus l'heure creuse. C'est
+ * la boucle automatique qui patiente ; un geste humain, lui, ne franchit que
+ * les portes dures.
+ */
+export async function checkGates(card: Card): Promise<Gate> {
+  const dures = await portesDures(card);
+  if (!dures.ok) return dures;
 
   const settings = store.getSettings();
   const heavy = (card.estimate?.machineSeconds ?? 0) >= settings.heavyTaskSeconds;
@@ -212,26 +234,41 @@ export function branchName(card: Card): string {
   return `tache/${slug || 'sans-titre'}-${card.id.slice(0, 6)}`;
 }
 
-async function prepareBranch(projectPath: string, card: Card): Promise<string | null> {
+/**
+ * Le résultat de la préparation de branche, DIT en toutes lettres. « Pas de
+ * branche » recouvrait deux situations qui n'ont rien à voir : un projet sans
+ * dépôt git (l'agent travaille sur place, c'est normal) et un dépôt git où la
+ * branche n'a pas pu être créée (là, lancer l'agent serait le lâcher sur la
+ * branche de quelqu'un d'autre).
+ */
+type Branche =
+  | { kind: 'sans-depot' }
+  | { kind: 'prete'; nom: string }
+  | { kind: 'echec'; raison: string };
+
+async function prepareBranch(projectPath: string, card: Card): Promise<Branche> {
   const branch = branchName(card);
   try {
     await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd: projectPath, timeout: 8000 });
   } catch {
-    return null; // pas un dépôt git : l'agent travaille sur place
+    return { kind: 'sans-depot' }; // pas un dépôt git : l'agent travaille sur place
   }
   try {
     await execFileAsync('git', ['checkout', '-B', branch], { cwd: projectPath, timeout: 20000 });
-    return branch;
+    return { kind: 'prete', nom: branch };
   } catch (err: any) {
     // Le verdict se lit sur le RÉSULTAT, pas sur le processus : git peut rendre
     // un code non nul (avertissement, hook local) tout en ayant bien basculé.
     const actual = await currentBranch(projectPath);
-    if (actual === branch) return branch;
+    if (actual === branch) return { kind: 'prete', nom: branch };
     log.warn(
       `création de branche impossible (branche courante : ${actual ?? 'inconnue'})`,
       (err?.stderr ?? err?.message ?? '').toString().slice(0, 300),
     );
-    return null;
+    return {
+      kind: 'echec',
+      raison: `Branche « ${branch} » impossible à créer (branche courante : ${actual ?? 'inconnue'}). Le dossier du projet est peut-être occupé par un autre agent.`,
+    };
   }
 }
 
@@ -255,7 +292,17 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
   const project = store.getProject(card.projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
 
-  const branch = await prepareBranch(project.path, card);
+  /*
+   * Les portes dures d'abord, et pour TOUS les chemins de lancement. Sans
+   * elles, un départ forcé sur une machine pleine ou un quota épuisé créait un
+   * agent qui mourait aussitôt, en laissant la carte dans « En cours ».
+   */
+  const portes = await portesDures(card);
+  if (!portes.ok) return { ok: false, error: portes.reason ?? 'lancement impossible' };
+
+  const prepa = await prepareBranch(project.path, card);
+  if (prepa.kind === 'echec') return { ok: false, error: prepa.raison };
+  const branch = prepa.kind === 'prete' ? prepa.nom : null;
 
   const agent = createAgent({
     projectId: card.projectId,
@@ -275,6 +322,8 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
       ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
       attempts: (card.scheduling?.attempts ?? 0) + 1,
       waitingReason: undefined,
+      // Un départ efface la suspension : c'est le geste qu'elle attendait.
+      suspendu: false,
     },
   });
   bus.emit({ type: 'card.upsert', card: running });
@@ -339,6 +388,8 @@ export async function tick(): Promise<void> {
 
       for (const card of planned) {
         if (card.agentId && isRunning(card.agentId)) continue;
+        // Suspendue à la main : elle reste en file, mais elle attend un geste.
+        if (card.scheduling?.suspendu) continue;
         const gate = await checkGates(card);
         if (!gate.ok) {
           if (card.scheduling?.waitingReason !== gate.reason) {

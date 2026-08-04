@@ -115,7 +115,9 @@ export function Board({
     /*
      * Le glisser-déposer obéit aux mêmes règles que les boutons du tiroir :
      * emporter une carte hors de « En cours » pendant que son agent écrit,
-     * c'est perdre le fil de son travail.
+     * c'est perdre le fil de son travail. Seul le retour en « Planifié » est
+     * permis pendant ce temps-là : c'est la demande de SUSPENDRE, et le serveur
+     * arrête alors le tour proprement.
      */
     const agentDeLaCarte = card.agentId ? etatComplet.agents[card.agentId] : null;
     const sortie = sortieAutorisee(
@@ -307,7 +309,11 @@ export function Board({
                       ? 'Rien à faire pour l’instant.'
                       : column === 'validated'
                         ? 'Glissez ici pour autoriser la dépense.'
-                        : '—'}
+                        : column === 'running'
+                          ? 'Glissez ici pour lancer le travail.'
+                          : column === 'planned'
+                            ? 'Glissez une carte hors de « En cours » pour suspendre son agent.'
+                            : '—'}
                 </p>
               ) : null}
               </div>
