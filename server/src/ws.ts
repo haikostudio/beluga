@@ -36,6 +36,7 @@ import {
   conflitsPrevus,
   agentsOccupes,
   commitsEnAttente,
+  moyenDeMiseEnLigne,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
@@ -723,6 +724,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // Le travail enregistré sur la principale sans passer par une carte :
         // sans lui, la fenêtre de publication disparaissait et rien ne partait.
         enAttente: await commitsEnAttente(cmd.projectId),
+        // Ce projet peut-il seulement être mis en ligne ? Le dire AVANT le clic
+        // vaut mieux que de le découvrir sur une publication refusée.
+        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId),
       };
 
     /* -------- Fichiers -------- */

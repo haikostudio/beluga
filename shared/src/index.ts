@@ -10,6 +10,7 @@ export * from './demon.js';
 export * from './etat-carte.js';
 export * from './heure-message.js';
 export * from './memoire.js';
+export * from './mise-en-ligne.js';
 export * from './models.js';
 export * from './notification.js';
 export * from './nouveau-depart.js';

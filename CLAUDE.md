@@ -54,6 +54,7 @@ node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
+node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
@@ -90,6 +91,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur.
+- **Publier, c'est METTRE EN LIGNE — pas seulement fusionner** (`planDeMiseEnLigne`,
+  `shared/src/mise-en-ligne.ts`). Avant de toucher au dépôt, la publication demande COMMENT le projet
+  peut être servi : sa commande de publication, sinon HaikoDev lui-même, sinon le service système qui
+  tourne sur son dossier (sous-dossier compris), sinon un serveur web qui sert ce dossier tel quel
+  (`root * …` dans Caddy, `root …;` dans nginx). Aucun des quatre : la publication est REFUSÉE, le
+  bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
+  Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
+  (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
 - **Créer un projet, c'est le MONTER en entier**, toujours de la même façon : dossier sur le serveur,
   dépôt git sur `main`, dépôt GitHub privé créé et poussé, puis les sept fichiers de départ
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
