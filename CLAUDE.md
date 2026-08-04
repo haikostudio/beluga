@@ -87,6 +87,7 @@ node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglag
 node scripts/verif-competences.mjs  # les compétences partagées arrivent-elles aux agents ? (deux vrais tours ; `--sans-tour` pour s'en passer)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 HAIKODEV_DATA=/root/haikodev/data node scripts/retirer-projets-perimes.mjs # met de côté les projets hérités de l'ancien Paseo
+HAIKODEV_DATA=/root/haikodev/data node scripts/remettre-projet-root.mjs # remet « Root » en service sur /root/root-storage-dashboard
 ```
 
 Un script qui corrige le tableau écrit dans `data/haikodev.db` : il montre d'abord ce qu'il ferait,
@@ -526,6 +527,10 @@ sans son point d'essai.
   (`server/src/config.ts`) ; à défaut, on passe par le dossier personnel COURANT (`os.homedir()`,
   `os.userInfo().username`), jamais par un nom écrit en dur. Restent hors de cette règle les scripts
   qui parlent d'un AUTRE projet (reprise des anciennes tâches) : ce chemin-là est leur sujet.
+  **Vrai aussi du dossier de travail d'un projet du tableau** : il vit sous `/root/<projet>`, comme
+  tous les autres, jamais dans le dossier personnel d'un compte système. Déplacer ce dossier, c'est
+  écrire le nouveau chemin AUX DEUX endroits de la base — la colonne `path` et le champ `path` du
+  JSON —, sans quoi les deux se contredisent.
 - **Un script de vérification vise le dépôt d'où il PART**, jamais `/root/haikodev` écrit en dur :
   lancé depuis une copie de travail (`.worktrees/…`), il jugerait sinon le code du dossier principal
   et déclarerait bon un changement jamais exécuté. La racine se déduit de `import.meta.url`.
