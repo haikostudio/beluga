@@ -20,6 +20,7 @@ import {
   colonneEnFinDeTour,
   raisonSansModification,
   templateForColumn,
+  tourDeLaCarte,
   wrapPrompt,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -139,6 +140,42 @@ export interface PromptOptions {
 }
 
 /**
+ * LA CARTE QUITTE « TERMINÉ » DÈS QUE SON TRAVAIL REPART — quel que soit le
+ * chemin qui l'a relancé : bouton « Lancer maintenant », dépôt dans « En
+ * cours », message écrit dans la conversation, message qui attendait en file,
+ * réponse à une question, reprise d'un travail mis en pause.
+ *
+ * La règle elle-même ne bouge pas : c'est `colonneAuDemarrage` qui décide, et
+ * elle seule (un tour d'analyse ne déplace rien, « À déployer » et « Archivé »
+ * restent fermés aux chemins automatiques). Ce qui change, c'est l'ENDROIT :
+ * la règle vit désormais dans une fonction unique, appelée aux deux seuls
+ * points par lesquels un tour peut naître — l'écriture de la demande
+ * (`sendPrompt`, qui doit annoncer la bonne colonne à l'agent) et le départ
+ * réel du moteur (`startTurn`, par lequel passe TOUT tour, sans exception). Un
+ * futur chemin de relance est donc couvert sans qu'on ait à y penser.
+ *
+ * Appelée deux fois, elle ne fait le travail qu'une : une carte déjà en
+ * « En cours » n'a rien à changer.
+ */
+export function replacerCarteAuDemarrage(agent: Agent): void {
+  if (!agent.cardId) return;
+  const carte = store.getCard(agent.cardId);
+  if (!carte) return;
+  const cible = colonneAuDemarrage(carte.column, agent.role);
+  if (!cible) return;
+  const relancee = store.saveCard({
+    ...carte,
+    column: cible,
+    position: store.nextPosition(carte.projectId, cible),
+    // Elle repart : la date de clôture d'avant ne veut plus rien dire.
+    doneAt: undefined,
+    // …et la phrase « rien n'a changé » du tour précédent non plus.
+    sansModification: undefined,
+  });
+  bus.emit({ type: 'card.upsert', card: relancee });
+}
+
+/**
  * LE POINT DE PASSAGE UNIQUE (PLAN §9). Toutes les demandes partent d'ici :
  * chat, lancement de tâche, analyse, publication. Le gabarit est appliqué là,
  * donc aucun chemin ne peut y échapper.
@@ -177,27 +214,9 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     bus.emit({ type: 'message.upsert', message: userMessage });
   }
 
-  /*
-   * La carte suit son agent d'EXÉCUTION. Un tour d'exécution qui redémarre la
-   * ramène en « En cours », d'où qu'elle vienne : une carte déjà terminée sur
-   * laquelle on relance une action n'est plus terminée, et le tableau doit le
-   * dire tout de suite. Un tour d'analyse, lui, la laisse en « Validé » : le
-   * chiffrage n'est pas le travail.
-   */
-  const carteAvant = agent.cardId ? store.getCard(agent.cardId) : null;
-  if (carteAvant) {
-    const cible = colonneAuDemarrage(carteAvant.column, agent.role);
-    if (cible) {
-      const relancee = store.saveCard({
-        ...carteAvant,
-        column: cible,
-        position: store.nextPosition(carteAvant.projectId, cible),
-        // Elle repart : la date de clôture d'avant ne veut plus rien dire.
-        doneAt: undefined,
-      });
-      bus.emit({ type: 'card.upsert', card: relancee });
-    }
-  }
+  // La carte quitte « Terminé » AVANT qu'on écrive la demande : le bloc de
+  // contexte qui suit doit annoncer à l'agent la colonne où il repart.
+  replacerCarteAuDemarrage(agent);
 
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
   const template: TemplateKind =
@@ -292,6 +311,14 @@ async function startTurn(
   const agent = store.getAgent(agentBefore.id) ?? agentBefore;
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
+
+  /*
+   * LE VRAI DÉPART D'UN TOUR, et le dernier filet. `sendPrompt` a déjà replacé
+   * la carte, mais c'est ICI que tout tour commence : un chemin de relance qui
+   * arriverait par une autre porte ne pourrait pas laisser sa carte affichée
+   * « Terminé » pendant que le moteur écrit. Sans effet quand c'est déjà fait.
+   */
+  replacerCarteAuDemarrage(agent);
 
   // Choix du compte (x20 d'abord, Pro en relève) — décidé AU LANCEMENT,
   // jamais en plein vol (PLAN §13).
@@ -563,14 +590,24 @@ async function startTurn(
        * travailler). Dans ce dernier cas, la carte porte la raison en toutes
        * lettres — sinon elle aurait l'air simplement oubliée.
        */
-      const cible = colonneEnFinDeTour(card.column, !failed, agent.role, depotModifie);
-      const raison = raisonSansModification(card.column, !failed, agent.role, depotModifie);
+      /*
+       * … et un quatrième frein, qui n'est pas une règle de colonne mais un
+       * constat : ce tour est-il encore CELUI de la carte ? Un tour arrêté rend
+       * la main à son rythme ; entre-temps un nouvel agent a pu reprendre la
+       * carte. Le laisser écrire « Terminé » afficherait la fin du travail
+       * pendant que quelqu'un écrit encore.
+       */
+      const leSien = tourDeLaCarte(card, agent.id);
+      const cible = leSien ? colonneEnFinDeTour(card.column, !failed, agent.role, depotModifie) : null;
+      const raison = leSien ? raisonSansModification(card.column, !failed, agent.role, depotModifie) : null;
       const updated = store.saveCard({
         ...card,
         ...(cible
           ? { column: cible, position: store.nextPosition(card.projectId, cible), doneAt: Date.now() }
           : {}),
-        sansModification: raison ?? undefined,
+        // La phrase « rien n'a changé » n'appartient qu'à l'agent de la carte :
+        // un tour étranger la laisse telle quelle plutôt que de l'effacer.
+        ...(leSien ? { sansModification: raison ?? undefined } : {}),
         consumption: {
           tokens,
           machineSeconds: elapsedSeconds,

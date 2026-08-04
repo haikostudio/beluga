@@ -172,6 +172,18 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   impossible à créer sur un dépôt git. `startCard` les contrôle, donc l'ordonnanceur comme le bouton
   comme le glissement. L'heure creuse, elle, n'est PAS une porte dure : c'est une politique
   d'économie que l'ordonnanceur seul applique (`checkGates`), et qu'un geste humain passe.
+- **Une carte qui retravaille ne reste pas en « Terminé ».** La règle est unique
+  (`colonneAuDemarrage`) et vit dans UNE fonction du démon, `replacerCarteAuDemarrage`
+  (`server/src/runtime.ts`), appelée aux deux seuls points par lesquels un tour peut naître :
+  l'écriture de la demande (`sendPrompt`, qui doit annoncer la bonne colonne à l'agent) et le
+  départ réel du moteur (`startTurn`, par lequel passe TOUT tour). Un chemin de relance — bouton,
+  dépôt dans « En cours », message écrit, message en file, réponse à une question, reprise après
+  pause — ne peut donc pas laisser une carte affichée « Terminé » pendant que le moteur écrit ;
+  la date de clôture et la phrase « rien n'a changé » sont effacées au départ. Symétriquement, un
+  tour ne clôt une carte que s'il est ENCORE le sien (`tourDeLaCarte`,
+  `shared/src/suivi-colonne.ts`) : un tour arrêté rend la main à son rythme et ne doit rien écrire
+  sur une carte reprise depuis par un autre agent. Verrouillé par
+  `server/src/test/relance-carte.test.ts`.
 - **Pas de code modifié, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une carte, jamais
   le fait que le moteur ait répondu. Le démon prend UN SEUL repère avant le tour (`repereAvant`,
   `server/src/hors-tache.ts`) et le relit après (`depotModifieDepuis` : un enregistrement de plus,

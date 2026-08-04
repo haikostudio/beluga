@@ -130,6 +130,24 @@ export function colonneAuDemarrage(colonne: ColumnKey, role: AgentRole): ColumnK
 }
 
 /**
+ * Le tour qui se termine est-il encore CELUI de la carte ?
+ *
+ * Une carte ne porte qu'un agent d'exécution à la fois (`card.agentId`), et un
+ * relancement en crée un NOUVEAU. Le tour d'AVANT, lui, se termine à son
+ * rythme : son processus peut rendre la main longtemps après, et il écrivait
+ * alors « Terminé » sur une carte qu'un autre agent était déjà en train de
+ * faire avancer — le tableau annonçait la fin pendant que quelqu'un écrivait.
+ *
+ * D'où la question posée avant TOUTE clôture : la carte reconnaît-elle encore
+ * cet agent comme le sien ? Sans agent inscrit (carte hors parcours ordinaire),
+ * on ne bloque rien : il n'y a personne à qui la carte aurait été confiée.
+ */
+export function tourDeLaCarte(carte: { agentId?: string }, agentId: string): boolean {
+  if (!carte.agentId) return true;
+  return carte.agentId === agentId;
+}
+
+/**
  * La phrase affichée sur une carte restée en place faute de code modifié.
  * Elle est écrite pour être lue telle quelle sur le tableau.
  */
