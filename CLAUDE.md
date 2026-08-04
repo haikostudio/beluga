@@ -56,6 +56,7 @@ node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dern
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour ; un compte refusé est dit comme tel, pas comme un outil absent)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
+node scripts/verif-reprise-modele.mjs # changer de modèle en cours de conversation ne casse plus la reprise Codex (vrais tours)
 node scripts/verif-bridage-chef.mjs # le chef d'orchestre est-il bridé pareil sous les deux moteurs ? (vrai tour Codex)
 node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
 node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
@@ -369,6 +370,16 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
   une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
   Verrouillé par `server/src/test/outils-codex.test.ts`.
+- **Le fil retenu appartient au moteur, et sous Codex au MODÈLE qui l'a ouvert**
+  (`cleDeSession`, `shared/src/reprise-moteur.ts`). `codex exec resume` refuse un fil enregistré
+  avec un autre modèle (« This session was recorded with model `X` but is resuming with `Y` ») ; le
+  démon rangeait pourtant le fil par moteur seulement, donc tout changement légitime — réglage,
+  compte, modèle rendu par le catalogue — sortait une erreur. La clé vaut désormais `codex@<modèle>`
+  (`codex@defaut` sans modèle imposé) et reste `claude` pour Claude, dont la reprise ne proteste
+  jamais. Un modèle différent ouvre simplement un fil NEUF ; l'ancienne clé `codex` n'est plus lue,
+  donc les fils Codex en cours repartent une fois de zéro. `store.getSessionId` /
+  `setSessionId` prennent cette clé, calculée au même endroit pour la lecture et l'écriture.
+  Verrouillé par `server/src/test/reprise-moteur.test.ts` et `scripts/verif-reprise-modele.mjs`.
 - **Le chef d'orchestre est bridé DE LA MÊME FAÇON sous les deux moteurs**
   (`shared/src/bridage-chef.ts`). Les deux listes (`orchestratorAllowList` /
   `orchestratorDenyList`) sont calculées pour tout moteur, hors du projet HaikoDev lui-même ; encore

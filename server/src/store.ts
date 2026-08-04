@@ -15,6 +15,7 @@ import {
   QueuedPrompt,
   Settings,
   TaskProposal,
+  cleDeSession,
   cleNouveauDepart,
   rendusParProjet,
   type AgregatHoraire,
@@ -565,8 +566,9 @@ export function saveAgent(agent: Agent): Agent {
 
 /**
  * Chaque moteur a SA propre conversation : reprendre une session Claude avec
- * Codex n'a aucun sens. La colonne garde un petit dictionnaire par moteur, tout
- * en acceptant l'ancien format (une simple chaîne).
+ * Codex n'a aucun sens. La colonne garde un petit dictionnaire dont la clé est
+ * calculée par `cleDeSession` (moteur, et sous Codex le modèle qui a ouvert le
+ * fil), tout en acceptant l'ancien format (une simple chaîne).
  */
 function rawSessions(agentId: string): string | null {
   const row = getDb().prepare('SELECT session_id FROM agents WHERE id = ?').get(agentId) as
@@ -588,22 +590,23 @@ function readSessions(agentId: string): Record<string, string> {
       return {};
     }
   }
-  // Ancien format : la session appartenait au moteur de l'agent.
+  // Ancien format : la session appartenait au moteur de l'agent. On la range
+  // sous la clé d'aujourd'hui, réglages actuels compris.
   try {
-    const engine = JSON.parse(row.data)?.run?.engine ?? 'claude';
-    return { [engine]: raw };
+    const run = JSON.parse(row.data)?.run ?? {};
+    return { [cleDeSession(run.engine, run.model)]: raw };
   } catch {
     return { claude: raw };
   }
 }
 
-export function setSessionId(agentId: string, sessionId: string, engine = 'claude'): void {
-  const sessions = { ...readSessions(agentId), [engine]: sessionId };
+export function setSessionId(agentId: string, sessionId: string, cle = 'claude'): void {
+  const sessions = { ...readSessions(agentId), [cle]: sessionId };
   getDb().prepare('UPDATE agents SET session_id = ? WHERE id = ?').run(JSON.stringify(sessions), agentId);
 }
 
-export function getSessionId(agentId: string, engine = 'claude'): string | null {
-  return readSessions(agentId)[engine] ?? null;
+export function getSessionId(agentId: string, cle = 'claude'): string | null {
+  return readSessions(agentId)[cle] ?? null;
 }
 
 /**

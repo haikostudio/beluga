@@ -18,6 +18,7 @@ import {
   TodoItem,
   ampleurParDefaut,
   checkTemplate,
+  cleDeSession,
   colonneAuDemarrage,
   colonneEnFinDeTour,
   etatDuPont,
@@ -236,7 +237,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * lui apprend rien et coûte des jetons à chaque tour. Sur les tours suivants,
    * on n'envoie donc que les faits AJOUTÉS depuis.
    */
-  const nouvelleSession = !store.getSessionId(agent.id, agent.run.engine);
+  const nouvelleSession = !store.getSessionId(agent.id, cleDeSession(agent.run.engine, agent.run.model));
   const contextParts: string[] = [];
 
   if (nouvelleSession) {
@@ -418,7 +419,14 @@ async function startTurn(
     ...applyAccountEnv(account),
   };
 
-  const sessionId = store.getSessionId(agent.id, agent.run.engine);
+  /*
+   * Le fil à reprendre appartient au moteur ET, sous Codex, au modèle qui l'a
+   * ouvert : `codex exec resume` refuse un fil enregistré avec un autre modèle
+   * (voir `cleDeSession`). Un changement de réglage ouvre donc un fil neuf au
+   * lieu d'afficher une erreur.
+   */
+  const cleSession = cleDeSession(agent.run.engine, agent.run.model);
+  const sessionId = store.getSessionId(agent.id, cleSession);
 
   // Le pont d'outils du tour précédent ne prouve rien pour celui-ci.
   oublierLePont(agent.id);
@@ -445,7 +453,7 @@ async function startTurn(
       agentLog(PATHS.logs, agent.id, JSON.stringify(event));
       switch (event.kind) {
         case 'session':
-          if (event.sessionId) store.setSessionId(agent.id, event.sessionId, agent.run.engine);
+          if (event.sessionId) store.setSessionId(agent.id, event.sessionId, cleSession);
           break;
         case 'text':
           if (event.text) {
