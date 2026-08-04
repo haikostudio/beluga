@@ -10,6 +10,7 @@ import {
   colonneAReprendre,
   decisionsParCarte,
   etatVisuelCarte,
+  mentionArchivage,
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
@@ -675,6 +676,21 @@ export function CardTile({
           <div className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning">
             <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
             <span className="min-w-0">{card.sansModification}</span>
+          </div>
+        ) : null}
+
+        {/*
+         * Une carte ressortie d'« Archivé » ne fait pas semblant de n'y être
+         * jamais allée : elle porte la date de son passage, en gris pâle. Dans
+         * la colonne « Archivé » elle-même, la mention ne s'affiche pas — la
+         * colonne le dit déjà.
+         */}
+        {mentionArchivage(card) ? (
+          <div className="mt-1.5 flex items-center gap-1 text-[12px] text-faint">
+            <Archive className="h-2.5 w-2.5 shrink-0" />
+            <span className="min-w-0 truncate" data-mention-archivage>
+              {mentionArchivage(card)}
+            </span>
           </div>
         ) : null}
 

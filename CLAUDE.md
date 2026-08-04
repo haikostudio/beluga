@@ -64,6 +64,7 @@ node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
+node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 ```
@@ -126,8 +127,18 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   aussi le numéro de carte mais ne la déplacent JAMAIS, ni au départ ni à l'arrivée — ni démarrer
   une étude ni la rendre n'est faire le travail. Le passage « Validé » → « Planifié » → « En cours »
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
-  pas. Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
-  reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
+  pas. Vrai pour TOUTE carte, d'où qu'elle vienne.
+- **« Archivé » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
+  `shared/src/suivi-colonne.ts`). La règle par défaut ne bouge pas : aucun chemin AUTOMATIQUE n'en
+  ressort une carte — ni un tour d'agent (`colonneAuDemarrage`), ni `board_move_card`, ni une
+  question posée dans la conversation, qui ne doit jamais retirer une carte du lot à publier. Un
+  clic ou un glissement de l'utilisateur, lui, le peut : bouton dédié dans le tiroir
+  (`gesteCarte('reprendre', …)`), même ligne dans le menu des gestes rares, et glisser-déposer.
+  D'un geste, la carte retombe à l'étape juste avant (`colonneDeReprise` : « Archivé » → « À faire »,
+  « À déployer » → « Terminé ») ; toute autre colonne reste atteignable à la main. La carte GARDE sa
+  trace : `card.archivedAt` est posée à l'archivage, survit à la sortie, et s'affiche en clair
+  (`mentionArchivage`) sur la carte du tableau et dans son tiroir. Verrouillé par
+  `server/src/test/suivi-colonne.test.ts` et `scripts/verif-sortie-archive.mjs`.
 - **Le dépôt d'une carte à la main VAUT un geste** (`effetDuDepot`, `shared/src/suivi-colonne.ts`).
   Déposer dans « En cours » = cliquer sur « Lancer maintenant » : le serveur appelle `startCard`, le
   MÊME point d'entrée — mêmes portes dures, même branche, même agent, même trace. Aucun chemin
