@@ -6,8 +6,11 @@ import {
   COLUMN_LABELS,
   Card,
   ColumnKey,
+  RunConfig,
+  SouhaitReglages,
   TaskProposal,
   canMove,
+  reglagesDeLaProposition,
   composerDescription,
   jugerDescription,
   MAX_SIGNES_DESCRIPTION,
@@ -21,6 +24,7 @@ import { readMemory, appendMemory, detailMemoire } from './memory.js';
 import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
 import { log } from './logger.js';
+import { catalogueMoteurs } from './catalogue-moteurs.js';
 
 export interface ToolDef {
   name: string;
@@ -238,6 +242,44 @@ export interface ToolContext {
   projectId: string;
   role: 'task' | 'orchestrator' | 'analysis' | 'deploy';
   cardId?: string;
+  /**
+   * Les réglages de la CONVERSATION en cours (moteur, modèle, réflexion),
+   * ceux qu'on voit dans la barre d'écriture. Une carte proposée en hérite :
+   * discuter avec Codex et se voir proposer du Claude n'a aucun sens.
+   */
+  run?: SouhaitReglages;
+}
+
+/**
+ * Les réglages à poser sur une carte proposée : ceux de la conversation,
+ * ramenés vers un modèle qui existe VRAIMENT chez le moteur retenu.
+ */
+async function reglagesProposes(
+  souhait: SouhaitReglages | undefined,
+): Promise<{ run?: RunConfig; avertissement?: string }> {
+  try {
+    const retenu = reglagesDeLaProposition(souhait, await catalogueMoteurs());
+    if (!retenu) return {};
+    return {
+      run: RunConfig.parse({ engine: retenu.engine, model: retenu.model, thinking: retenu.thinking }),
+      avertissement: retenu.avertissement,
+    };
+  } catch (err) {
+    // Catalogue illisible : la proposition reste affichable sans réglage, elle
+    // repartira sur le moteur par défaut du projet. Mieux qu'aucune carte.
+    log.warn('réglages de la proposition : catalogue des moteurs illisible', err);
+    return {};
+  }
+}
+
+/** Ce que le moteur doit LIRE de ce qu'on vient de poser sur la proposition. */
+function resumeReglages(reglages: { run?: RunConfig; avertissement?: string }): string {
+  if (!reglages.run) return '';
+  const modele = reglages.run.model ? ` / ${reglages.run.model}` : '';
+  return (
+    ` Réglages repris de cette conversation : ${reglages.run.engine}${modele} (réflexion : ${reglages.run.thinking}).` +
+    (reglages.avertissement ? ` ${reglages.avertissement}` : '')
+  );
 }
 
 export interface ToolResult {
@@ -284,18 +326,22 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const texte = descriptionDeProposition(args);
       if ('refus' in texte) return { ok: false, text: texte.refus };
 
+      const reglages = await reglagesProposes(ctx.run);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
         description: texte.description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
+        ...(reglages.run ? { run: reglages.run } : {}),
+        ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
       };
       return {
         ok: true,
         text:
           `Carte « ${proposal.title} » proposée dans la conversation. ` +
-          `Elle n'entrera dans « À faire » qu'après la validation de l'utilisateur.`,
+          `Elle n'entrera dans « À faire » qu'après la validation de l'utilisateur.` +
+          resumeReglages(reglages),
         proposal,
       };
     }
@@ -344,16 +390,21 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const texte = descriptionDeProposition(args);
       if ('refus' in texte) return { ok: false, text: texte.refus };
 
+      const reglages = await reglagesProposes(ctx.run);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
         description: texte.description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
+        ...(reglages.run ? { run: reglages.run } : {}),
+        ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
       };
       return {
         ok: true,
-        text: `Proposition affichée à l'utilisateur : « ${proposal.title} ». Rien n'est créé tant qu'il n'a pas validé.`,
+        text:
+          `Proposition affichée à l'utilisateur : « ${proposal.title} ». Rien n'est créé tant qu'il n'a pas validé.` +
+          resumeReglages(reglages),
         proposal,
       };
     }

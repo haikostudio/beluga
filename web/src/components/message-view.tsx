@@ -416,6 +416,20 @@ function ProposalChip({
       patch.engine ? { engine: patch.engine } : { ...(courant ?? {}), ...patch },
     );
 
+  /*
+   * Un moteur sans compte disponible se DIT, il ne se contourne pas : sinon la
+   * carte partirait en silence sur l'autre moteur. Le constat est refait à
+   * chaque changement de moteur, sur les quotas réellement relevés ; le texte
+   * posé par le serveur au moment de la proposition sert de repli tant que les
+   * quotas ne sont pas encore arrivés.
+   */
+  const comptesDuMoteur = state.quotas.filter((q) => q.engine === retenu.engine?.id);
+  const avertissement = comptesDuMoteur.length
+    ? comptesDuMoteur.some((q) => q.available)
+      ? undefined
+      : `Aucun compte disponible pour ${retenu.engine?.label ?? 'ce moteur'} : la carte attendra qu'un compte se libère.`
+    : proposal.avertissement;
+
   const decide = async (accept: boolean) => {
     setBusy(true);
     try {
@@ -524,6 +538,13 @@ function ProposalChip({
       </div>
 
       <div className="px-3 py-2.5">{corps}</div>
+
+      {avertissement ? (
+        <div className="mx-3 mb-2 flex gap-2 rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[12.5px] leading-relaxed text-warning">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{avertissement}</span>
+        </div>
+      ) : null}
 
       {/* Les réglages de l'agent qui exécutera la carte, choisis dès maintenant */}
       <div className="flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-1 border-t border-border px-2 py-1.5 sm:gap-x-1">

@@ -46,6 +46,7 @@ node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, 
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
 node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu de la colonne
+node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
@@ -55,8 +56,17 @@ node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
 node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
+node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
+node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
+node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
+node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
+node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 ```
+
+Un script qui corrige le tableau écrit dans `data/haikodev.db` : il montre d'abord ce qu'il ferait,
+et n'écrit qu'avec `--ecrire`. Il doit être rejouable sans doubler ses annotations, et ne rien
+supprimer — on déplace et on explique, on n'efface pas.
 
 `npm test` lit `server/dist` : construire avant de tester.
 
@@ -91,6 +101,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur.
+- **Publier, c'est METTRE EN LIGNE — pas seulement fusionner** (`planDeMiseEnLigne`,
+  `shared/src/mise-en-ligne.ts`). Avant de toucher au dépôt, la publication demande COMMENT le projet
+  peut être servi : sa commande de publication, sinon HaikoDev lui-même, sinon le service système qui
+  tourne sur son dossier (sous-dossier compris), sinon un serveur web qui sert ce dossier tel quel
+  (`root * …` dans Caddy, `root …;` dans nginx). Aucun des quatre : la publication est REFUSÉE, le
+  bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
+  Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
+  (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
 - **Créer un projet, c'est le MONTER en entier**, toujours de la même façon : dossier sur le serveur,
   dépôt git sur `main`, dépôt GitHub privé créé et poussé, puis les sept fichiers de départ
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
@@ -106,6 +124,20 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
   pas. Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
   reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
+- **Le dépôt d'une carte à la main VAUT un geste** (`effetDuDepot`, `shared/src/suivi-colonne.ts`).
+  Déposer dans « En cours » = cliquer sur « Lancer maintenant » : le serveur appelle `startCard`, le
+  MÊME point d'entrée — mêmes portes dures, même branche, même agent, même trace. Aucun chemin
+  parallèle. Un refus REMONTE : la carte revient à sa colonne et la raison s'affiche, jamais un
+  déplacement silencieux qui ne lance rien. Sortir de « En cours » vers « Planifié » = SUSPENDRE :
+  le tour est arrêté, la carte reste en file avec `scheduling.suspendu`, et l'ordonnanceur ne la
+  reprend plus tout seul — seul un geste (bouton, ou nouveau dépôt en « En cours ») efface la
+  marque. C'est la SEULE sortie permise pendant que l'agent écrit ; toutes les autres restent
+  refusées (`sortieAutorisee`).
+- **Les portes DURES valent pour tous les chemins de lancement** (`portesDures`,
+  `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, branche
+  impossible à créer sur un dépôt git. `startCard` les contrôle, donc l'ordonnanceur comme le bouton
+  comme le glissement. L'heure creuse, elle, n'est PAS une porte dure : c'est une politique
+  d'économie que l'ordonnanceur seul applique (`checkGates`), et qu'un geste humain passe.
 - **Pas de code modifié, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une carte, jamais
   le fait que le moteur ait répondu. Le démon prend UN SEUL repère avant le tour (`repereAvant`,
   `server/src/hors-tache.ts`) et le relit après (`depotModifieDepuis` : un enregistrement de plus,
@@ -135,6 +167,23 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   (`constat`, `attendu`, `limites`, `verification`) sont mis en forme par HaikoDev. La consigne
   (`CONSIGNE_DESCRIPTION_CARTE`) est unique et ne nomme aucun outil propre à un moteur. Verrouillé
   par `server/src/test/description-carte.test.ts`.
+- **Une carte proposée hérite du moteur, du modèle et du niveau de réflexion de la CONVERSATION**
+  (`reglagesDeLaProposition`, `shared/src/reglages-proposition.ts`). Le démon passe les réglages de
+  l'agent en cours à l'outil (`ToolContext.run`), et le modèle retenu vient TOUJOURS du catalogue du
+  moteur retenu (`catalogueMoteurs`, `server/src/catalogue-moteurs.ts`) : un identifiant emprunté à
+  l'autre moteur est jeté, jamais traîné. Un obstacle se DIT sur la proposition (champ
+  `avertissement`) au lieu de se contourner : moteur non installé, ou aucun compte disponible — dans
+  ce dernier cas le moteur ne change PAS. Les trois réglages restent modifiables avant validation, et
+  la validation les repasse par la même règle. Verrouillé par
+  `server/src/test/reglages-proposition.test.ts`.
+- **Le détail d'une carte montre avec quoi elle tourne** (`reglagesDeLaCarte`,
+  `shared/src/reglages-carte.ts`). En tête de l'onglet « Détails », une ligne d'étiquettes courtes :
+  moteur, modèle, niveau de réflexion, compte. Tant que rien n'a démarré (colonnes autres que
+  « En cours », « Terminé », « À déployer », « Archivé », ET aucun agent de rôle « task » passé), les
+  trois premiers sont des menus qui écrivent dans `card.run` ; le compte, lui, n'est pas encore
+  choisi et le dit. Dès que le travail est parti, tout est FIGÉ et affiche ce qui a RÉELLEMENT servi :
+  les réglages de l'agent d'exécution — jamais ceux de l'analyse, qui tourne souvent ailleurs — et le
+  compte qui a porté le quota. Verrouillé par `server/src/test/reglages-carte.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au
@@ -153,6 +202,13 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   attendue — triangle orange — et un travail rendu pas encore consulté — point bleu clignotant. Les
   deux comptes se comparent SÉPARÉMENT, la secousse ne joue qu'une passe, et la ligne qu'on regarde
   déjà ne bouge jamais.
+- **La ligne d'un projet ne porte JAMAIS plus de deux repères**, en plus du bouton de réglages : un
+  ROBOT devant le nom quand des agents travaillent (le nombre seulement à partir de deux, jamais
+  d'anneau qui tourne), et UN SEUL repère d'attente à droite — `repereVisible`
+  (`shared/src/signal-projet.ts`) tranche, la décision attendue (triangle orange) l'emportant sur le
+  travail rendu non lu (point bleu, cliquable pour marquer comme lu). C'est l'AFFICHAGE qu'on
+  réduit : les deux comptes continuent d'être calculés et de secouer la ligne séparément. Chaque
+  repère dit ce qu'il veut dire en français simple (`aria-label` + infobulle).
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier

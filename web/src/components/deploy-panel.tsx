@@ -1,6 +1,13 @@
 import * as React from 'react';
 import { AlertTriangle, Check, ChevronRight, Loader2, Rocket, RotateCcw, Square, X, MinusCircle } from 'lucide-react';
-import { Card, DeployRun, DeployStepKey, derouleOuvert, rapportAGarder } from '@haikodev/shared';
+import {
+  Card,
+  DeployRun,
+  DeployStepKey,
+  PlanDeMiseEnLigne,
+  derouleOuvert,
+  rapportAGarder,
+} from '@haikodev/shared';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -52,6 +59,9 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   /* Du travail enregistré sur la branche principale sans carte : il doit
      pouvoir partir en ligne, sinon il reste bloqué là indéfiniment. */
   const [enAttente, setEnAttente] = React.useState<{ nombre: number; titres: string[] }>({ nombre: 0, titres: [] });
+  /* Ce projet peut-il seulement être mis en ligne ? Le savoir avant le clic
+     évite de découvrir le refus au moment de publier. */
+  const [miseEnLigne, setMiseEnLigne] = React.useState<PlanDeMiseEnLigne | null>(null);
   const signature = embarked.map((card) => card.id).join(',');
 
   /*
@@ -73,6 +83,7 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
           setConflicts(res?.conflicts ?? []);
           setBusyAgents(res?.busy ?? []);
           setEnAttente(res?.enAttente ?? { nombre: 0, titres: [] });
+          setMiseEnLigne(res?.miseEnLigne ?? null);
         })
         .catch(() => undefined);
     void controler();
@@ -113,7 +124,7 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
             variant={aPublier ? 'default' : 'outline'}
             size="sm"
             className="w-full"
-            disabled={!aPublier || busy || busyAgents.length > 0}
+            disabled={!aPublier || busy || busyAgents.length > 0 || miseEnLigne?.possible === false}
             onClick={start}
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
@@ -121,6 +132,16 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
                 écartée d'avance, l'agent de publication la reprend en route. */}
             Tout déployer ({aPublier})
           </Button>
+
+          {/* Un projet que HaikoDev ne sait pas mettre en ligne : le bouton
+              s'éteint et DIT pourquoi. Publier ne ferait que fusionner du code,
+              et la fenêtre annoncerait une mise en ligne qui n'a pas eu lieu. */}
+          {miseEnLigne?.possible === false ? (
+            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning">
+              <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+              <span>{miseEnLigne.raison}</span>
+            </p>
+          ) : null}
 
           {/* Ce qui attend sans carte : on le NOMME, sinon le compteur monte
               sans qu'on sache pourquoi. */}
