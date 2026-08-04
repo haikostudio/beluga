@@ -64,6 +64,7 @@ node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
+node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -143,6 +144,17 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   reprend plus tout seul — seul un geste (bouton, ou nouveau dépôt en « En cours ») efface la
   marque. C'est la SEULE sortie permise pendant que l'agent écrit ; toutes les autres restent
   refusées (`sortieAutorisee`).
+- **Le bouton d'arrêt d'une carte n'arrête que SA tâche** (`arretDeCarteAutorise`,
+  `shared/src/arret-carte.ts`). Le tiroir choisit son agent par replis successifs et peut retomber
+  sur celui d'une AUTRE carte : la bande « en cours » n'affiche donc son bouton que si l'agent visé
+  porte le numéro de la carte ouverte — pas de bouton plutôt qu'un faux. `agent.stop` emporte le
+  `cardId` d'où part le geste et le démon rejoue la MÊME règle : un agent étranger à la carte est
+  REFUSÉ, et le refus s'affiche au lieu de passer en silence. Un arrêt accepté coupe aussi ce qui
+  attendait derrière — la file de l'agent est vidée (`clearQueue`) et la carte prend
+  `scheduling.suspendu` avec `RAISON_ARRETE_A_LA_MAIN`, donc l'ordonnanceur ne la reprend plus tout
+  seul (seul un lancement efface la marque). Sans carte annoncée (conversation du chef, arrêt groupé
+  de la barre de quota), rien ne change. Verrouillé par `server/src/test/arret-carte.test.ts` et
+  `scripts/verif-arret-carte.mjs`.
 - **Les portes DURES valent pour tous les chemins de lancement** (`portesDures`,
   `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, branche
   impossible à créer sur un dépôt git. `startCard` les contrôle, donc l'ordonnanceur comme le bouton

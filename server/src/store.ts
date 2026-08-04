@@ -897,6 +897,16 @@ export function dequeuePrompt(agentId: string): QueuedPrompt | null {
   return first;
 }
 
+/**
+ * Vide la file d'un agent d'un coup. Arrêter une tâche à la main doit couper
+ * AUSSI ce qui attendait derrière : sinon le tour suivant repartait tout seul
+ * quelques secondes après l'arrêt, et le geste ne servait à rien.
+ */
+export function clearQueue(agentId: string): number {
+  const info = getDb().prepare('DELETE FROM queue WHERE agent_id = ?').run(agentId);
+  return Number(info.changes ?? 0);
+}
+
 export function updateQueued(id: string, text: string): QueuedPrompt | null {
   const row = getDb().prepare('SELECT data FROM queue WHERE id = ?').get(id) as { data: string } | undefined;
   if (!row) return null;

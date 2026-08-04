@@ -1,6 +1,7 @@
 export * from './amorce.js';
 export * from './analyse.js';
 export * from './apercu-fichier.js';
+export * from './arret-carte.js';
 export * from './attention.js';
 export * from './ancres.js';
 export * from './capacite.js';

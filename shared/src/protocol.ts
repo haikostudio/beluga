@@ -133,7 +133,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
     text: z.string(),
     attachments: z.array(z.string()).optional(),
   }),
-  z.object({ type: z.literal('agent.stop'), agentId: z.string() }),
+  /* `cardId` : l'arrêt part du tiroir de CETTE carte, et ne vaut que pour elle
+     — le démon refuse un agent qui ne lui appartient pas. */
+  z.object({ type: z.literal('agent.stop'), agentId: z.string(), cardId: z.string().optional() }),
   z.object({
     type: z.literal('agent.config'),
     agentId: z.string(),

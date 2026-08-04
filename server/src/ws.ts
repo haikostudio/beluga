@@ -14,6 +14,8 @@ import {
   etatVisuelCarte,
   sortieAutorisee,
   RAISON_SUSPENDU,
+  RAISON_ARRETE_A_LA_MAIN,
+  arretDeCarteAutorise,
   comptePrecedents,
   messagesDepuis,
   peutRepartir,
@@ -592,8 +594,48 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { ok: true };
     }
 
-    case 'agent.stop':
-      return { stopped: stopAgent(cmd.agentId) };
+    /*
+     * ARRÊTER DEPUIS UNE CARTE N'ARRÊTE QUE SA TÂCHE. Le navigateur annonce la
+     * carte d'où part le geste ; le démon rejoue la MÊME règle pure que le
+     * bouton (`arretDeCarteAutorise`) et REFUSE un agent qui ne lui appartient
+     * pas — le refus remonte et s'affiche, il ne passe jamais en silence.
+     */
+    case 'agent.stop': {
+      const agent = store.getAgent(cmd.agentId);
+      const verdict = arretDeCarteAutorise({
+        carte: cmd.cardId,
+        agent: agent ? { id: agent.id, cardId: agent.cardId } : null,
+      });
+      if (!verdict.possible) throw new Error(verdict.raison ?? 'arrêt refusé');
+
+      const stopped = stopAgent(cmd.agentId);
+
+      /*
+       * L'arrêt coupe aussi ce qui attendait DERRIÈRE : les demandes en file
+       * repartaient toutes seules quelques secondes plus tard, et la carte
+       * pouvait être reprise par l'ordonnanceur après un redémarrage. La marque
+       * `suspendu` est celle de la suspension à la main : seul un geste
+       * (« Lancer maintenant », dépôt en « En cours ») l'efface.
+       */
+      const vides = store.clearQueue(cmd.agentId);
+      if (vides) bus.emit({ type: 'queue.snapshot', agentId: cmd.agentId, queue: [] });
+
+      const carte = cmd.cardId ? store.getCard(cmd.cardId) : null;
+      if (carte) {
+        const arretee = store.saveCard({
+          ...carte,
+          scheduling: {
+            ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+            suspendu: true,
+            waitingReason: RAISON_ARRETE_A_LA_MAIN,
+          },
+        });
+        bus.emit({ type: 'card.upsert', card: arretee });
+        bus.toast('warning', RAISON_ARRETE_A_LA_MAIN, arretee.id);
+      }
+
+      return { stopped };
+    }
 
     case 'agent.config': {
       const agent = store.getAgent(cmd.agentId);

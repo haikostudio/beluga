@@ -4,6 +4,7 @@ import {
   Agent,
   Message,
   afficherHeure,
+  arretDeCarteAutorise,
   libellePrecedents,
   peutRepartir,
   titreDeBloc,
@@ -124,7 +125,7 @@ export function Chat({
        * bas de l'écran elle se perdait au-dessus de la barre d'écriture, alors
        * qu'elle dit ce que l'agent fait à l'instant.
        */}
-      <TravailEnCours agent={agent} messages={messages} busy={busy} />
+      <TravailEnCours agent={agent} messages={messages} busy={busy} cardId={cardId} />
 
       {/* Une conversation ne défile que verticalement : ce qui dépasse en
           largeur (code, longue adresse) défile DANS son propre bloc.
@@ -307,15 +308,22 @@ function SeparateurAgent({ titre }: { titre: string }) {
  *
  * C'est aussi d'ici qu'on arrête l'agent : le bouton est posé sur la chose
  * qu'il arrête, plutôt que perdu dans la rangée d'outils de la barre d'écriture.
+ *
+ * Dans le tiroir d'une carte, il n'arrête QUE la tâche de cette carte : si
+ * l'agent affiché appartient à une autre, pas de bouton du tout — mieux vaut
+ * rien qu'un faux (`arretDeCarteAutorise`).
  */
 function TravailEnCours({
   agent,
   messages,
   busy,
+  cardId,
 }: {
   agent: Agent | null;
   messages: Message[];
   busy: boolean;
+  /** Depuis le tiroir d'une carte : l'arrêt ne vaut que pour SA tâche. */
+  cardId?: string;
 }) {
   const [, forcer] = React.useState(0);
   const [aConfirmer, setAConfirmer] = React.useState(false);
@@ -343,14 +351,27 @@ function TravailEnCours({
    * reste immédiat, sinon la commande deviendrait pénible pour rien.
    */
   const longTravail = depuis !== null && depuis >= 300;
-  const arreter = () => agent && client.send({ type: 'agent.stop', agentId: agent.id });
+
+  /*
+   * L'agent affiché est-il bien celui de la carte ouverte ? Le tiroir choisit
+   * son agent par replis successifs et peut retomber sur celui d'une autre
+   * tâche : dans ce cas le bouton disparaît, au lieu d'arrêter le travail de
+   * quelqu'un d'autre. Le démon rejoue le même contrôle.
+   */
+  const verdict = arretDeCarteAutorise({ carte: cardId, agent: agent ?? undefined });
+  const arreter = () => {
+    if (!agent) return;
+    client
+      .call({ type: 'agent.stop', agentId: agent.id, cardId })
+      .catch((err: any) => client.pushToast('error', err?.message ?? 'arrêt refusé', cardId));
+  };
 
   return (
     <div className="flex shrink-0 items-center gap-2 bg-surface/60 px-3 py-1.5">
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
       {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
-      {agent ? (
+      {verdict.possible ? (
         <Tooltip label="Arrêter l'action en cours">
           <button
             type="button"
