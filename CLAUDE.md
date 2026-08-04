@@ -66,6 +66,7 @@ node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire 
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
+node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
 ```
 
 Un script qui corrige le tableau écrit dans `data/haikodev.db` : il montre d'abord ce qu'il ferait,
@@ -113,6 +114,11 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
   Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
   (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
+- **Un projet se déclare sur son DÉPÔT DE TRAVAIL, jamais sur son dossier publié.** Un dossier servi
+  n'est pas un dépôt git : l'agent n'y trouve aucune mémoire, n'y enregistre rien et ne peut RIEN
+  prouver — la carte se clôt sur du vide. Quand le code de travail vit ailleurs que le dossier servi,
+  le projet pointe sur le dépôt et porte une **commande de publication** qui installe la copie servie
+  (sans elle, `planDeMiseEnLigne` refuse la mise en ligne, à raison).
 - **Créer un projet, c'est le MONTER en entier**, toujours de la même façon : dossier sur le serveur,
   dépôt git sur `main`, dépôt GitHub privé créé et poussé, puis les sept fichiers de départ
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
