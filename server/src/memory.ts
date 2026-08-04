@@ -1,6 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { chercherFaits, estLigneDeJournal, nettoyer, texteIndex } from '@haikodev/shared';
+import {
+  chercherFaits,
+  estLigneDeJournal,
+  fichierNatif,
+  instructionsQuiFontFoi,
+  nettoyer,
+  texteIndex,
+  type InstructionsDuProjet,
+} from '@haikodev/shared';
 
 /**
  * La mémoire du projet (PLAN §25) : un court fichier texte DANS le dépôt, que
@@ -197,7 +205,27 @@ export function detailMemoire(projectPath: string, requete: string): string {
 
 /** Le nom du fichier d'instructions natif du moteur. */
 export function fichierInstructions(engine?: string): string {
-  return engine === 'codex' ? 'AGENTS.md' : 'CLAUDE.md';
+  return fichierNatif(engine);
+}
+
+/**
+ * Le fichier d'instructions qui fait FOI pour ce projet et ce moteur.
+ *
+ * Le fichier natif du moteur ne porte pas toujours les instructions : à la
+ * création d'un projet, `AGENTS.md` ne fait que renvoyer à `CLAUDE.md`. On suit
+ * le renvoi, pour qu'un agent Codex lise le VRAI contenu et écrive ses règles
+ * durables là où quelqu'un les relira. Rien n'est écrit ni supprimé ici.
+ */
+export function instructionsDuProjet(projectPath: string, engine?: string): InstructionsDuProjet {
+  const lire = (nom: string): string | null => {
+    const chemin = path.join(projectPath, nom);
+    try {
+      return fs.existsSync(chemin) ? fs.readFileSync(chemin, 'utf8') : null;
+    } catch {
+      return null;
+    }
+  };
+  return instructionsQuiFontFoi(engine, lire);
 }
 
 /**
@@ -262,11 +290,17 @@ export function briefing(
   migrerJournal(projectPath);
   const parts: string[] = [`Projet : ${projectName} (dossier ${projectPath}).`];
 
-  const natif = fichierInstructions(engine);
-  const instructions = [natif, 'CLAUDE.md', 'AGENTS.md', 'README.md'].filter(
+  const { fichier: quiFaitFoi, renvoiDepuis } = instructionsDuProjet(projectPath, engine);
+  const instructions = [quiFaitFoi, 'CLAUDE.md', 'AGENTS.md', 'README.md'].filter(
     (f, i, tab) => tab.indexOf(f) === i && fs.existsSync(path.join(projectPath, f)),
   );
   if (instructions.length) parts.push(`Fichiers d'instructions présents : ${instructions.join(', ')}.`);
+  if (renvoiDepuis) {
+    parts.push(
+      `${renvoiDepuis} ne fait que RENVOYER à ${quiFaitFoi} : c'est ${quiFaitFoi} qui porte les instructions de ce projet, ` +
+        `c'est lui que tu lis et lui que tu tiens à jour.`,
+    );
+  }
 
   if (!avecMemoire) return parts.join('\n\n');
 
@@ -283,7 +317,7 @@ export function briefing(
   }
 
   parts.push(
-    `FICHIER D'INSTRUCTIONS DU MOTEUR : si ta tâche change une règle durable, une architecture ou une commande, mets ${natif} à jour avant de finir (crée-le s'il n'existe pas). ` +
+    `FICHIER D'INSTRUCTIONS DU MOTEUR : si ta tâche change une règle durable, une architecture ou une commande, mets ${quiFaitFoi} à jour avant de finir (crée-le s'il n'existe pas). ` +
       `Court et factuel : comment lancer, comment vérifier, où vivent les choses, les règles à ne pas enfreindre. Aucun journal dedans, aucune trace de tâche.`,
   );
 

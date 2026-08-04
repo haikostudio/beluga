@@ -5,9 +5,13 @@ import {
   EngineId,
   compteDeSecours,
   heureDeRemiseAZero,
+  historiquePourProfil,
   niveauQuota,
   previsionEpuisement,
+  profilHoraire,
   tempsRestant,
+  trancheLaPlusChargee,
+  type AgregatHoraire,
   type PrevisionEpuisement,
   type ReleveQuota,
   type SerieQuota,
@@ -109,14 +113,32 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
   const state = client.getSnapshot();
   const quotas = state.quotas;
   const [histoire, setHistoire] = React.useState<Record<string, { at: number; session: number; weekly: number }[]>>({});
+  /* Le résumé des semaines passées : il ne se voit pas, il ne sert qu'au profil
+     des heures creuses de la prévision. */
+  const [resume, setResume] = React.useState<Record<string, AgregatHoraire[]>>({});
 
   React.useEffect(() => {
     if (!open) return;
     client
-      .call<{ history: typeof histoire }>({ type: 'quota.history', days: 7 })
-      .then((data) => setHistoire(data.history ?? {}))
-      .catch(() => setHistoire({}));
+      .call<{ history: typeof histoire; resume?: Record<string, AgregatHoraire[]> }>({
+        type: 'quota.history',
+        days: 7,
+      })
+      .then((data) => {
+        setHistoire(data.history ?? {});
+        setResume(data.resume ?? {});
+      })
+      .catch(() => {
+        setHistoire({});
+        setResume({});
+      });
   }, [open]);
+
+  /** Les relevés récents précédés du résumé lointain : la matière du profil. */
+  const pourProfil = React.useCallback(
+    (id: string) => historiquePourProfil(resume[id], histoire[id]),
+    [histoire, resume],
+  );
 
   /*
    * Les prévisions hebdomadaires de TOUS les comptes, calculées ensemble : le
@@ -125,9 +147,9 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
    */
   const previsions = React.useMemo(() => {
     const out: Record<string, PrevisionEpuisement | null> = {};
-    for (const quota of quotas) out[quota.id] = previsionEpuisement(histoire[quota.id] ?? [], quota.weekly);
+    for (const quota of quotas) out[quota.id] = previsionEpuisement(pourProfil(quota.id), quota.weekly);
     return out;
-  }, [quotas, histoire]);
+  }, [quotas, pourProfil]);
 
   const secoursDe = (quota: AccountQuota) =>
     compteDeSecours(
@@ -229,12 +251,16 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   <Window
                     label="Semaine"
                     window={quota.weekly}
-                    releves={histoire[quota.id]}
+                    releves={pourProfil(quota.id)}
                     secours={secoursDe(quota)?.label}
                   />
                 </div>
 
                 <Courbe points={histoire[quota.id] ?? []} prevision={previsions[quota.id]} />
+
+                {/* Même source que la prévision : le résumé des semaines
+                    passées puis le détail récent, pas le seul détail. */}
+                <TrancheDePointe releves={pourProfil(quota.id)} />
 
                 <DerniereAmorce amorce={quota.derniereAmorce} />
 
@@ -250,6 +276,18 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/**
+ * Le profil des heures creuses sert déjà à repousser l'heure d'épuisement, mais
+ * il ne se voyait nulle part. Cette ligne le rend lisible en une phrase : quand
+ * la consommation grimpe, et de combien. Elle se TAIT quand le profil n'existe
+ * pas encore, et quand aucune tranche ne se détache vraiment de la moyenne.
+ */
+function TrancheDePointe({ releves }: { releves?: ReleveQuota[] }) {
+  const pointe = React.useMemo(() => trancheLaPlusChargee(profilHoraire(releves ?? [])), [releves]);
+  if (!pointe) return null;
+  return <p className="mt-0.5 text-[10.5px] text-faint">{pointe.texte}</p>;
 }
 
 /** L'heure du jour, sans la date : le journal ne remonte que de quelques jours. */
