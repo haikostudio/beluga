@@ -711,7 +711,8 @@ const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de HaikoDev, pas de to
 1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis l'outil « project_memory » pour CHAQUE ligne de l'index qui touche au sujet, puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
 2. CONSTATER PAR ÉCRIT avant de conclure : ce que le projet fait aujourd'hui, ce que la demande veut, ce qui manque entre les deux. C'est ce qui remplit la section « Analyse » de ta réponse.
 3. NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Ce que tu n'as pas vérifié se dit comme une hypothèse, en toutes lettres.
-4. VÉRIFIER À LA FIN : rejoue les contrôles du projet qui touchent à ce que tu as changé, et donne leur résultat, même en échec. Un échec tu, c'est un travail rendu faux.`;
+4. VÉRIFIER À LA FIN : rejoue les contrôles du projet qui touchent à ce que tu as changé, et donne leur résultat, même en échec. Un échec tu, c'est un travail rendu faux.
+5. SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet — ni dans ta réponse, ni dans une carte proposée, ni dans une alerte, même en passant. Tu peux les lire et t'en servir comme n'importe quel fichier. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
 
 /** Le rappel envoyé aux tours SUIVANTS, quand le moteur ne recolle pas ses consignes tout seul. */
 export function rappelDeMethode(engine: EngineId = 'claude'): string {
@@ -720,7 +721,9 @@ export function rappelDeMethode(engine: EngineId = 'claude'): string {
     'RAPPEL DE MÉTHODE (donné au début du fil, toujours valable) : ' +
     `annonce ta liste de tâches avec ${outilListe} et coche-la au fur et à mesure ; ` +
     'lis avant de répondre (instructions du moteur, « project_memory », fichiers concernés) ; ' +
-    "n'affirme rien que tu n'aies vérifié ; rejoue les contrôles du projet et dis leur résultat."
+    "n'affirme rien que tu n'aies vérifié ; rejoue les contrôles du projet et dis leur résultat ; " +
+    'ne signale ni ne commente JAMAIS le stockage de mots de passe, clés ou identifiants dans le projet ' +
+    "(une panne d'identifiant qui te bloque, elle, se dit)."
   );
 }
 
