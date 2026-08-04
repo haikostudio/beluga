@@ -8,9 +8,13 @@ import {
   ROLES_QUI_DEPLACENT,
   canMove,
   colonneAuDemarrage,
+  colonneDeReprise,
   colonneEnFinDeTour,
   effetDuDepot,
   etatVisuelCarte,
+  gesteCarte,
+  mentionArchivage,
+  repriseAutorisee,
   sortieAutorisee,
   RAISON_SANS_MODIFICATION,
   RAISON_SUSPENDU,
@@ -224,4 +228,73 @@ test('agent au repos : la carte se range librement', () => {
 test('la raison d’une suspension est écrite pour être lue sur la carte', () => {
   assert.match(RAISON_SUSPENDU, /suspendu/i);
   assert.notEqual(RAISON_SUSPENDU, RAISON_SANS_MODIFICATION);
+});
+
+/* ------------------------------------------------------------------ */
+/* Sortir une carte d'une fin de parcours : geste humain seulement      */
+/* ------------------------------------------------------------------ */
+
+test('aucun chemin automatique ne ressort une carte d’« Archivé » ni d’« À déployer »', () => {
+  for (const colonne of COLONNES_HORS_REPRISE) {
+    const decision = repriseAutorisee(colonne, 'automatique');
+    assert.equal(decision.possible, false, `depuis « ${colonne} »`);
+    assert.ok(decision.raison, 'un refus se dit en toutes lettres');
+    assert.match(decision.raison!, /utilisateur/);
+  }
+});
+
+test('un geste humain, lui, peut les ressortir', () => {
+  for (const colonne of COLONNES_HORS_REPRISE) {
+    assert.equal(repriseAutorisee(colonne, 'humain').possible, true, `depuis « ${colonne} »`);
+    assert.equal(repriseAutorisee(colonne, 'humain').raison, undefined);
+  }
+});
+
+test('les autres colonnes n’ont jamais rien à demander à personne', () => {
+  for (const colonne of COLUMN_KEYS.filter((c) => !COLONNES_HORS_REPRISE.includes(c))) {
+    for (const demandeur of ['humain', 'automatique'] as const) {
+      assert.equal(repriseAutorisee(colonne, demandeur).possible, true, `« ${colonne} » / ${demandeur}`);
+    }
+  }
+});
+
+test('un tour d’agent reste bloqué : la règle par défaut n’a pas bougé', () => {
+  // Le même contrôle qu'avant l'exception humaine : c'est la garantie qu'une
+  // question posée dans la conversation ne sort pas la carte du lot.
+  assert.equal(colonneAuDemarrage('to_deploy', 'task'), null);
+  assert.equal(colonneAuDemarrage('archived', 'task'), null);
+});
+
+test('la carte ressortie retombe à l’étape juste avant sa fin de parcours', () => {
+  assert.equal(colonneDeReprise('archived'), 'todo');
+  assert.equal(colonneDeReprise('to_deploy'), 'done');
+  for (const colonne of COLUMN_KEYS.filter((c) => !COLONNES_HORS_REPRISE.includes(c))) {
+    assert.equal(colonneDeReprise(colonne), null, `« ${colonne} »`);
+  }
+});
+
+test('le bouton de reprise n’existe que sur les deux fins de parcours', () => {
+  for (const colonne of COLUMN_KEYS) {
+    const decision = gesteCarte('reprendre', { colonne, etat: 'repos' });
+    assert.equal(decision.affiche, COLONNES_HORS_REPRISE.includes(colonne), `« ${colonne} »`);
+    if (decision.affiche) assert.equal(decision.possible, true, `« ${colonne} »`);
+  }
+});
+
+/* -------- La carte ressortie garde sa trace -------- */
+
+test('une carte ressortie dit qu’elle avait été archivée, et quand', () => {
+  const quand = new Date('2026-08-04T10:00:00Z').getTime();
+  const mention = mentionArchivage({ column: 'todo', archivedAt: quand });
+  assert.ok(mention);
+  assert.match(mention!, /Archivée le /);
+  assert.match(mention!, new RegExp(new Date(quand).toLocaleDateString('fr-CH').replace(/\./g, '\\.')));
+});
+
+test('rien à dire tant que la carte est encore dans « Archivé » : la colonne le dit', () => {
+  assert.equal(mentionArchivage({ column: 'archived', archivedAt: Date.now() }), null);
+});
+
+test('une carte jamais archivée ne porte aucune mention', () => {
+  assert.equal(mentionArchivage({ column: 'done' }), null);
 });

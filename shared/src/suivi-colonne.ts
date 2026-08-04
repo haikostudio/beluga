@@ -1,4 +1,4 @@
-import { ColumnKey } from './columns.js';
+import { COLUMN_LABELS, ColumnKey } from './columns.js';
 import type { AgentRole } from './models.js';
 
 /**
@@ -44,6 +44,68 @@ import type { AgentRole } from './models.js';
 export const COLONNES_HORS_REPRISE: ColumnKey[] = ['to_deploy', 'archived'];
 
 /**
+ * QUI demande la reprise. La règle n'est pas la même selon la main qui pousse :
+ *
+ *   - « automatique » : un tour d'agent, une réponse dans la conversation,
+ *     l'ordonnanceur. Ceux-là ne ressortent JAMAIS une carte d'une fin de
+ *     parcours — c'était le but de la règle d'origine, il ne change pas ;
+ *   - « humain » : un clic ou un glissement de l'utilisateur. Une carte peut
+ *     être allée dans « Archivé » à tort (travail annoncé fait alors que rien
+ *     n'avait bougé) : il faut pouvoir l'en sortir, sinon il ne reste que
+ *     l'écriture directe en base.
+ */
+export type Demandeur = 'humain' | 'automatique';
+
+export interface DecisionReprise {
+  possible: boolean;
+  /** Pourquoi c'est refusé, dit en toutes lettres. */
+  raison?: string;
+}
+
+/** La phrase rendue à un agent qui essaie de reprendre une carte rangée. */
+export function raisonRepriseRefusee(colonne: ColumnKey): string {
+  return `« ${COLUMN_LABELS[colonne]} » est une fin de parcours : seul un geste de l'utilisateur peut en ressortir une carte.`;
+}
+
+/**
+ * Peut-on reprendre une carte posée dans cette colonne ? Tout est permis
+ * ailleurs ; les deux fins de parcours ne s'ouvrent qu'à la main humaine.
+ */
+export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): DecisionReprise {
+  if (!COLONNES_HORS_REPRISE.includes(colonne)) return { possible: true };
+  if (demandeur === 'humain') return { possible: true };
+  return { possible: false, raison: raisonRepriseRefusee(colonne) };
+}
+
+/**
+ * Où retombe une carte qu'on sort d'une fin de parcours, d'un seul geste.
+ *
+ *   - « Archivé » → « À faire » : elle repassera par la validation, donc
+ *     personne ne rouvre une dépense sans le savoir ;
+ *   - « À déployer » → « Terminé » : elle sort du lot à publier et revient à
+ *     l'étape juste avant, celle d'où l'on décide de publier.
+ *
+ * Rend `null` pour toute autre colonne : il n'y a rien à reprendre.
+ */
+export function colonneDeReprise(colonne: ColumnKey): ColumnKey | null {
+  if (colonne === 'archived') return 'todo';
+  if (colonne === 'to_deploy') return 'done';
+  return null;
+}
+
+/**
+ * Ce qu'une carte ressortie garde de son passage : la date de son archivage.
+ * Rend `null` quand il n'y a rien à dire — carte jamais archivée, ou encore
+ * dans « Archivé », où la colonne le dit déjà.
+ */
+export function mentionArchivage(carte: { column: ColumnKey; archivedAt?: number }): string | null {
+  if (!carte.archivedAt) return null;
+  if (carte.column === 'archived') return null;
+  const jour = new Date(carte.archivedAt).toLocaleDateString('fr-CH');
+  return `Archivée le ${jour}, ressortie depuis.`;
+}
+
+/**
  * Les rôles d'agent qui EXÉCUTENT le travail d'une carte, et sont donc les
  * seuls à la déplacer — au démarrage comme à l'arrivée. L'analyse,
  * l'orchestration et la publication regardent la carte sans y toucher.
@@ -61,7 +123,9 @@ export const ROLES_QUI_CLOTURENT = ROLES_QUI_DEPLACENT;
 export function colonneAuDemarrage(colonne: ColumnKey, role: AgentRole): ColumnKey | null {
   if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
   if (colonne === 'running') return null;
-  if (COLONNES_HORS_REPRISE.includes(colonne)) return null;
+  // Un tour d'agent est une reprise AUTOMATIQUE : les fins de parcours lui
+  // restent fermées, quoi qu'il ait répondu.
+  if (!repriseAutorisee(colonne, 'automatique').possible) return null;
   return 'running';
 }
 

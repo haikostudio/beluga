@@ -54,3 +54,52 @@ test('sur HaikoDev, les outils d’écriture ne dispensent PAS de la carte', () 
 test('ailleurs, le chef n’a toujours pas le droit de modifier un fichier', () => {
   assert.match(chef, /INTERDITS ABSOLUS/);
 });
+
+/* ------------------------------------------------------------------ */
+/* Le quatrième cas : une demande d'exécution devient une carte          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Le chef bridé savait dire qu'il ne pouvait pas exécuter, il ne savait pas
+ * quoi faire à la place : il expliquait sa limite et attendait un « oui ».
+ * Le tri porte donc un cas de plus, et ces contrôles le retiennent.
+ */
+
+test('une demande d’exécution passe par une carte, comme la programmation', () => {
+  assert.match(chef, /TOUTE DEMANDE D'EXÉCUTION SUR LA MACHINE/);
+  assert.match(chef, /tu PROPOSES AUSSITÔT UNE carte avec board_create_card/);
+});
+
+test('les gestes qui comptent pour de l’exécution sont nommés', () => {
+  for (const mot of ['Lancer une commande', 'tester une connexion', 'ouvrir un terminal']) {
+    assert.ok(chef.includes(mot), `« ${mot} » manque au quatrième cas`);
+  }
+});
+
+test('la carte proposée dit quoi lancer et ce qu’on attend', () => {
+  assert.match(chef, /CE QU'IL FAUT LANCER et CE QU'ON ATTEND COMME RÉSULTAT/);
+});
+
+test('ni confirmation demandée, ni paragraphe sur ses propres limites', () => {
+  assert.match(chef, /Tu ne demandes AUCUNE confirmation avant de proposer/);
+  assert.match(chef, /n'écris PAS un paragraphe sur tes propres limites/);
+  assert.match(chef, /un agent de tâche exécutera la commande/);
+});
+
+test('le bridage reste, mais il ne sert plus de fin de non-recevoir', () => {
+  assert.match(chef, /CES INTERDITS NE SONT PAS UNE FIN DE NON-RECEVOIR/);
+  assert.match(chef, /tu n'attends pas un « oui » avant de proposer/);
+});
+
+test('le quatrième cas voyage à l’identique sur les deux moteurs', () => {
+  const codex = rolePrompt('orchestrator', false, 'codex');
+  assert.match(codex, /TOUTE DEMANDE D'EXÉCUTION SUR LA MACHINE/);
+  assert.match(codex, /tu PROPOSES AUSSITÔT UNE carte avec board_create_card/);
+  assert.match(codex, /CES INTERDITS NE SONT PAS UNE FIN DE NON-RECEVOIR/);
+});
+
+test('le tri garde ses cinq entrées numérotées', () => {
+  for (const ligne of [/\n1\. Question/, /\n2\. TOUTE DEMANDE DE PROGRAMMATION/, /\n3\. TOUTE DEMANDE D'EXÉCUTION/, /\n4\. Cas ambigu/, /\n5\. Gestion du tableau/]) {
+    assert.match(chef, ligne);
+  }
+});
