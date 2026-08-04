@@ -21,8 +21,16 @@ import type { AgentRole } from './models.js';
  * l'exécution reste le travail de l'ordonnanceur : ces règles ne le doublent
  * pas.
  *
- * Les deux règles sont PURES : elles ne connaissent ni la base ni le moteur,
- * elles disent seulement où la carte devrait être. Le démon les applique, les
+ * Second piège, le plus coûteux : un tour d'exécution qui RÉPOND sans rien
+ * changer posait quand même la carte en « Terminé ». Une analyse écrite, une
+ * question traitée, un tour qui n'a fait que lire suffisaient — la carte partait
+ * ensuite dans le lot à publier alors qu'aucune ligne n'avait bougé. D'où la
+ * règle : c'est le CONSTAT du dépôt qui clôt une carte, pas le fait que le
+ * moteur ait rendu sa réponse.
+ *
+ * Les règles sont PURES : elles ne connaissent ni la base ni le moteur, elles
+ * disent seulement où la carte devrait être. Le démon observe le dépôt (le même
+ * repère avant / après que le travail hors tâche) et leur passe le constat ; les
  * tests les rejouent.
  */
 
@@ -58,21 +66,57 @@ export function colonneAuDemarrage(colonne: ColumnKey, role: AgentRole): ColumnK
 }
 
 /**
+ * La phrase affichée sur une carte restée en place faute de code modifié.
+ * Elle est écrite pour être lue telle quelle sur le tableau.
+ */
+export const RAISON_SANS_MODIFICATION =
+  "Réponse rendue, mais aucun fichier du projet n'a changé : la carte reste ouverte tant qu'aucun code n'est enregistré.";
+
+/**
  * Où va la carte quand le tour se TERMINE.
  *
- * Un tour réussi d'agent d'EXÉCUTION la pose en « Terminé ». Un tour en échec
- * ne la déplace pas : le travail n'est pas fait, l'annoncer terminé serait un
- * mensonge, et la carte reste là où on peut la relancer. Un tour d'analyse,
- * d'orchestration ou de publication ne la déplace pas non plus : une étude
- * rendue n'est pas un travail fait.
+ * Un tour réussi d'agent d'EXÉCUTION qui a RÉELLEMENT modifié le dépôt la pose
+ * en « Terminé ». Trois cas la laissent où elle est :
+ *   - le tour a échoué : le travail n'est pas fait, l'annoncer terminé serait un
+ *     mensonge, et la carte doit rester là où on peut la relancer ;
+ *   - le rôle n'exécute pas : une étude rendue n'est pas un travail fait ;
+ *   - rien n'a changé dans le dépôt : répondre n'est pas travailler.
+ *
+ * `depotModifie` est un CONSTAT, pas une intention : le démon compare le dépôt
+ * d'avant le tour à celui d'après (enregistrements ajoutés, fichiers en cours de
+ * modification). Quand rien ne peut être constaté — projet hors git —, il vaut
+ * `true` : on ne bloque pas une carte sur une observation qu'on n'a pas pu
+ * faire.
  */
 export function colonneEnFinDeTour(
   colonne: ColumnKey,
   reussi: boolean,
   role: AgentRole,
+  depotModifie: boolean,
 ): ColumnKey | null {
   if (!reussi) return null;
   if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
   if (colonne !== 'running') return null;
+  if (!depotModifie) return null;
   return 'done';
+}
+
+/**
+ * Pourquoi la carte n'a pas bougé alors que le tour a réussi. Rend `null` quand
+ * il n'y a rien à expliquer — carte déplacée, tour en échec (déjà signalé comme
+ * tel), rôle qui ne déplace jamais.
+ *
+ * Seul le cas « l'agent d'exécution a répondu sans rien changer » mérite une
+ * phrase : c'est le seul où l'on pourrait croire le travail fait.
+ */
+export function raisonSansModification(
+  colonne: ColumnKey,
+  reussi: boolean,
+  role: AgentRole,
+  depotModifie: boolean,
+): string | null {
+  if (!reussi || depotModifie) return null;
+  if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
+  if (colonne !== 'running') return null;
+  return RAISON_SANS_MODIFICATION;
 }

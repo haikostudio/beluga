@@ -226,6 +226,12 @@ export const Card = z.object({
   conversationAgentId: z.string().optional(),
   /** Carte fabriquée pour du travail enregistré sans tâche. */
   horsTache: z.boolean().default(false),
+  /**
+   * Pourquoi la carte n'est PAS passée en « Terminé » alors que l'agent a rendu
+   * sa réponse : le dépôt n'a pas bougé. La phrase s'affiche telle quelle sur la
+   * carte, et disparaît dès qu'un tour modifie enfin du code.
+   */
+  sansModification: z.string().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   doneAt: z.number().optional(),

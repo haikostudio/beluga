@@ -625,6 +625,18 @@ export function CardTile({
         ) : null}
 
         {/*
+         * L'agent a répondu mais rien n'a changé dans le projet : sans cette
+         * phrase, la carte aurait juste l'air oubliée en « En cours ». On l'écrit
+         * en toutes lettres, à l'endroit où on cherche l'état de la carte.
+         */}
+        {card.sansModification ? (
+          <div className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning">
+            <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
+            <span className="min-w-0">{card.sansModification}</span>
+          </div>
+        ) : null}
+
+        {/*
          * Le pied ne porte plus que l'ancienneté. Les repères techniques
          * (durée prévue, durée réalisée, heures facturables, branche) n'aident
          * pas à décider d'un coup d'œil : ils vivent dans le tiroir de la

@@ -17,6 +17,7 @@ import {
   checkTemplate,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  raisonSansModification,
   templateForColumn,
   wrapPrompt,
 } from '@haikodev/shared';
@@ -31,7 +32,7 @@ import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
 import { notify } from './notify.js';
-import { cartesDuTravailHorsTache, repereAvant } from './hors-tache.js';
+import { cartesDuTravailHorsTache, depotModifieDepuis, repereAvant } from './hors-tache.js';
 
 export interface LiveRun {
   agentId: string;
@@ -319,11 +320,12 @@ async function startTurn(
    * des centaines de fois pour rien, l'interface l'a déjà de son côté.
    */
   /*
-   * Où en est le dépôt AVANT que l'agent ne touche à quoi que ce soit. C'est
-   * ce repère qui, à la fin du tour, dira si du code a été enregistré sans
-   * carte — et méritera donc une fiche.
+   * Où en est le dépôt AVANT que l'agent ne touche à quoi que ce soit. UN SEUL
+   * repère, pris pour TOUS les agents, qui sert deux fois à la fin du tour :
+   * dire si du code a été enregistré sans carte — et mérite donc une fiche —,
+   * et dire si la carte a le droit de passer en « Terminé ».
    */
-  const repere = agent.cardId ? null : await repereAvant(project.path).catch(() => null);
+  const repere = await repereAvant(project.path).catch(() => null);
 
   const memory = memorySummary(project.path);
   const memoryStep: RunStep | null = nouvelleSession
@@ -519,6 +521,14 @@ async function startTurn(
   setStatus(finalAgent, failed ? 'failed' : 'done', { endedAt: Date.now() });
 
   /*
+   * LE CONSTAT, avant tout déplacement de carte : le dépôt a-t-il bougé ? On le
+   * lit ici, tant que le dossier est encore dans l'état où l'agent l'a laissé —
+   * le découpage du travail hors tâche, juste après, remet la branche de départ
+   * en arrière et effacerait la trace.
+   */
+  const depotModifie = failed ? false : await depotModifieDepuis(project.path, repere).catch(() => true);
+
+  /*
    * RIEN DE CE QUI SE FAIT NE RESTE INVISIBLE. Un agent sans carte qui a
    * enregistré du code reçoit sa fiche : sinon son travail ne se voyait que
    * comme un « changement sans carte » dans le bloc de publication, et pouvait
@@ -539,18 +549,21 @@ async function startTurn(
     const card = store.getCard(agent.cardId);
     if (card) {
       /*
-       * L'agent d'exécution a rendu : la carte passe en « Terminé » toute
-       * seule. Un tour en échec ne la déplace pas — le travail n'est pas fait,
-       * et elle doit rester là où on peut la relancer. Un agent d'analyse porte
-       * lui aussi le numéro de carte, mais son étude ne clôt rien : la règle
-       * pure regarde le rôle.
+       * L'agent d'exécution a rendu ET le dépôt a changé : la carte passe en
+       * « Terminé » toute seule. Trois freins, chacun suffisant : un tour en
+       * échec (le travail n'est pas fait), un rôle qui n'exécute pas (l'étude ne
+       * clôt rien), un tour qui n'a rien modifié (répondre n'est pas
+       * travailler). Dans ce dernier cas, la carte porte la raison en toutes
+       * lettres — sinon elle aurait l'air simplement oubliée.
        */
-      const cible = colonneEnFinDeTour(card.column, !failed, agent.role);
+      const cible = colonneEnFinDeTour(card.column, !failed, agent.role, depotModifie);
+      const raison = raisonSansModification(card.column, !failed, agent.role, depotModifie);
       const updated = store.saveCard({
         ...card,
         ...(cible
           ? { column: cible, position: store.nextPosition(card.projectId, cible), doneAt: Date.now() }
           : {}),
+        sansModification: raison ?? undefined,
         consumption: {
           tokens,
           machineSeconds: elapsedSeconds,

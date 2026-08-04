@@ -94,6 +94,29 @@ export async function commitsDuTour(projectPath: string, avant: RepereDepot | nu
   return commits.reverse();
 }
 
+/**
+ * Le dépôt a-t-il RÉELLEMENT bougé pendant le tour ?
+ *
+ * Deux façons de le constater, l'une comme l'autre suffisante : un
+ * enregistrement s'est ajouté depuis le repère de départ, ou des fichiers sont
+ * modifiés dans le dossier. C'est ce constat — le MÊME repère que le travail
+ * hors tâche, pas un second — qui autorise une carte à passer en « Terminé ».
+ *
+ * Sans repère (projet hors git) ou sans réponse de git, on rend `true` : on ne
+ * retient pas une carte sur une observation qu'on n'a pas pu faire.
+ */
+export async function depotModifieDepuis(
+  projectPath: string,
+  avant: RepereDepot | null,
+): Promise<boolean> {
+  if (!avant) return true;
+  const commits = await commitsDuTour(projectPath, avant);
+  if (commits.length) return true;
+  const enCours = await git(projectPath, ['status', '--porcelain']);
+  if (enCours === null) return true;
+  return enCours.trim().length > 0;
+}
+
 /** Une fonctionnalité posée sur sa branche. */
 export interface BrancheIsolee {
   commits: CommitObserve[];

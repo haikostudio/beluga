@@ -9,6 +9,8 @@ import {
   canMove,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  RAISON_SANS_MODIFICATION,
+  raisonSansModification,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
@@ -41,20 +43,60 @@ test('une carte prête à publier ou archivée ne sort pas de son rangement', ()
 /* -------- Le tour d'exécution se termine -------- */
 
 test('un tour d’exécution réussi pose la carte en terminé', () => {
-  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'done');
+  assert.equal(colonneEnFinDeTour('running', true, 'task', true), 'done');
 });
 
 test('un tour d’exécution en échec ne déplace rien : le travail n’est pas fait', () => {
-  assert.equal(colonneEnFinDeTour('running', false, 'task'), null);
+  assert.equal(colonneEnFinDeTour('running', false, 'task', true), null);
   for (const depart of ['validated', 'planned', 'done'] as const) {
-    assert.equal(colonneEnFinDeTour(depart, false, 'task'), null, `depuis « ${depart} »`);
+    assert.equal(colonneEnFinDeTour(depart, false, 'task', true), null, `depuis « ${depart} »`);
   }
 });
 
 test('une carte qui n’était pas en cours n’est pas déclarée terminée', () => {
   for (const depart of COLUMN_KEYS.filter((c) => c !== 'running')) {
-    assert.equal(colonneEnFinDeTour(depart, true, 'task'), null, `depuis « ${depart} »`);
+    assert.equal(colonneEnFinDeTour(depart, true, 'task', true), null, `depuis « ${depart} »`);
   }
+});
+
+/* -------- Pas de code modifié, pas de « Terminé » -------- */
+
+test('un tour qui n’a rien modifié dans le dépôt laisse la carte en cours', () => {
+  // Le défaut d'origine : répondre suffisait à clore la carte.
+  assert.equal(colonneEnFinDeTour('running', true, 'task', false), null);
+});
+
+test('le même tour, avec du code enregistré, pose bien la carte en terminé', () => {
+  assert.equal(colonneEnFinDeTour('running', true, 'task', true), 'done');
+});
+
+test('une carte laissée en place faute de modification dit pourquoi', () => {
+  assert.equal(raisonSansModification('running', true, 'task', false), RAISON_SANS_MODIFICATION);
+  assert.match(RAISON_SANS_MODIFICATION, /aucun fichier/);
+});
+
+test('une carte qui bouge, un tour en échec ou un rôle qui n’exécute pas n’ont rien à expliquer', () => {
+  // Le tour a modifié du code : la carte part en « Terminé », pas de phrase.
+  assert.equal(raisonSansModification('running', true, 'task', true), null);
+  // L'échec est déjà signalé par ailleurs : deux messages vaudraient reproche.
+  assert.equal(raisonSansModification('running', false, 'task', false), null);
+  // Une analyse ne clôt jamais : ne rien modifier est son fonctionnement normal.
+  for (const role of ['analysis', 'orchestrator', 'deploy'] as const) {
+    assert.equal(raisonSansModification('running', true, role, false), null, `rôle « ${role} »`);
+  }
+});
+
+test('depuis n’importe quelle colonne, sans modification rien ne bouge', () => {
+  for (const depart of COLUMN_KEYS) {
+    assert.equal(colonneEnFinDeTour(depart, true, 'task', false), null, `depuis « ${depart} »`);
+  }
+});
+
+test('rien à publier, rien dans le lot : « À déployer » se gagne par « Terminé »', () => {
+  // Le lot à publier se remplit depuis « Terminé ». Une carte qui n'y arrive
+  // jamais faute de code modifié ne peut donc pas entrer dans le lot.
+  assert.equal(colonneEnFinDeTour('running', true, 'task', false), null);
+  assert.equal(canMove('machine', 'running', 'to_deploy').allowed, false);
 });
 
 /* -------- Seul l'agent d'exécution déplace la carte -------- */
@@ -68,15 +110,15 @@ test('une analyse qui démarre laisse la carte validée où elle est', () => {
 });
 
 test('un tour d’analyse réussi ne clôt pas la carte : rien n’a été exécuté', () => {
-  assert.equal(colonneEnFinDeTour('running', true, 'analysis'), null);
-  assert.equal(colonneEnFinDeTour('validated', true, 'analysis'), null);
+  assert.equal(colonneEnFinDeTour('running', true, 'analysis', true), null);
+  assert.equal(colonneEnFinDeTour('validated', true, 'analysis', true), null);
 });
 
 test('ni l’orchestration ni la publication ne déplacent une carte', () => {
   for (const role of ['orchestrator', 'deploy'] as const) {
     assert.equal(colonneAuDemarrage('validated', role), null, `démarrage « ${role} »`);
     assert.equal(colonneAuDemarrage('done', role), null, `démarrage « ${role} »`);
-    assert.equal(colonneEnFinDeTour('running', true, role), null, `fin « ${role} »`);
+    assert.equal(colonneEnFinDeTour('running', true, role, true), null, `fin « ${role} »`);
   }
 });
 
@@ -92,20 +134,20 @@ test('validé, analyse, exécution : la carte ne bouge qu’au bon moment', () =
   // 1. L'analyse démarre sur une carte validée : elle reste validée.
   assert.equal(colonneAuDemarrage('validated', 'analysis'), null);
   // 2. L'analyse rend son chiffrage : toujours validée.
-  assert.equal(colonneEnFinDeTour('validated', true, 'analysis'), null);
+  assert.equal(colonneEnFinDeTour('validated', true, 'analysis', true), null);
   // 3. L'ordonnanceur lance l'exécution : la carte passe en cours.
   assert.equal(colonneAuDemarrage('validated', 'task'), 'running');
   // 4. L'exécution rend son rapport : terminé.
-  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'done');
+  assert.equal(colonneEnFinDeTour('running', true, 'task', true), 'done');
 });
 
 test('terminé puis relancé puis terminé : la carte fait l’aller-retour', () => {
-  const apresPremierTour = colonneEnFinDeTour('running', true, 'task');
+  const apresPremierTour = colonneEnFinDeTour('running', true, 'task', true);
   assert.equal(apresPremierTour, 'done');
   // Un message dans la conversation de l'agent d'EXÉCUTION la relance.
   const relance = colonneAuDemarrage(apresPremierTour!, 'task');
   assert.equal(relance, 'running');
-  assert.equal(colonneEnFinDeTour(relance!, true, 'task'), 'done');
+  assert.equal(colonneEnFinDeTour(relance!, true, 'task', true), 'done');
 });
 
 /* -------- Cohérence avec les droits de déplacement -------- */

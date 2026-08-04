@@ -98,13 +98,21 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 - **La carte suit les ÉTAPES RÉELLES du travail, et seul l'agent d'EXÉCUTION la déplace**
   (`shared/src/suivi-colonne.ts`). Parcours : « À faire » → (clic de validation) → « Validé » →
   (analyse rendue) → « En cours » → (exécution rendue) → « Terminé ». Un tour d'agent de rôle
-  « task » qui démarre la met en « En cours » ; le même tour réussi la pose en « Terminé » ; un
-  tour en échec ne la déplace pas. Les rôles « analysis », « orchestrator » et « deploy » portent
+  « task » qui démarre la met en « En cours » ; le même tour réussi **ET ayant réellement modifié
+  le dépôt** la pose en « Terminé » ; un tour en échec ne la déplace pas. Les rôles « analysis », « orchestrator » et « deploy » portent
   aussi le numéro de carte mais ne la déplacent JAMAIS, ni au départ ni à l'arrivée — ni démarrer
   une étude ni la rendre n'est faire le travail. Le passage « Validé » → « Planifié » → « En cours »
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
   pas. Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
   reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
+- **Pas de code modifié, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une carte, jamais
+  le fait que le moteur ait répondu. Le démon prend UN SEUL repère avant le tour (`repereAvant`,
+  `server/src/hors-tache.ts`) et le relit après (`depotModifieDepuis` : un enregistrement de plus,
+  ou des fichiers modifiés) ; le constat est passé à `colonneEnFinDeTour(colonne, réussi, rôle,
+  depotModifie)`. Sans modification, la carte reste où elle est et porte la raison en toutes lettres
+  (`raisonSansModification` → champ `sansModification`, affiché sur la carte du tableau). Le lot à
+  publier se remplissant depuis « Terminé », rien à publier = rien dans le lot. Sans repère (projet
+  hors git), le constat vaut `true` : on ne retient pas une carte sur une observation impossible.
 - **TOUTE demande de PROGRAMMATION passe par une carte** — nouvelle fonctionnalité, correction,
   suppression, changement de comportement, retouche d'interface, script, réglage : aucune exception,
   quelle que soit la taille. Le chef PROPOSE la carte et s'arrête là ; c'est l'agent de cette carte
