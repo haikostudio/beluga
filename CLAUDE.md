@@ -71,6 +71,7 @@ node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié 
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
+node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes en bas, profondeur, ouverture au survol, heure et date
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -378,6 +379,19 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   On n'emploie PAS `justify-end` sur la zone elle-même — il rend le haut du fil inatteignable. Le
   fil porte `data-fil="conversation"`, seul repère des scripts de vérification. Verrouillé par
   `scripts/verif-vide-carte-validee.mjs`.
+- **Les messages courts s'EMPILENT, et les commandes ferment le bloc**
+  (`shared/src/pile-messages.ts`, `web/src/components/agent-dock.tsx`). Dans le bloc en bas à
+  droite, l'ordre est : messages, puis vignettes d'agents, puis la rangée de commandes (poignée de
+  déplacement, « Annuler », « Replier », « Tout effacer ») — ce qu'on lit passe devant ce qui sert à
+  ranger. Les messages ne se posent plus les uns sous les autres : `placeDansLaPile` les empile, le
+  plus récent devant, les autres alignés par le BAS puis poussés de `PILE_DECALAGE` pixels, un peu
+  plus petits et plus pâles ; trois se voient (`PILE_VISIBLES`), le reste est compté
+  (`resteDeLaPile`). La pile fermée n'occupe donc que la place d'un message, quel qu'en soit le
+  nombre. Au survol — ou à l'appui, au doigt — elle s'ouvre en liste complète en `PILE_DUREE`
+  millisecondes, et se referme pareillement. Chaque message porte son heure et sa date sous son
+  texte (`heureEtDate`, depuis `Toast.at`). La géométrie a besoin des hauteurs RÉELLES : elles se
+  mesurent au rendu, jamais en dur. Verrouillé par `server/src/test/pile-messages.test.ts` et
+  `scripts/verif-pile-messages.mjs`.
 - **Le fondu est réservé au défilement VERTICAL**, le seul où le texte glisse derrière un en-tête ou
   une barre. En `axe="horizontal"` (rail du tableau, barres d'onglets), `ZoneDefilement` ne pose
   AUCUN voile : il masquerait le bord des colonnes sans rien apprendre. L'option reste, car c'est
