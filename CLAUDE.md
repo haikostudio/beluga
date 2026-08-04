@@ -71,6 +71,7 @@ node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié 
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
+node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes en bas, profondeur, ouverture au survol, heure et date
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
@@ -385,17 +386,30 @@ sans son point d'essai.
   On n'emploie PAS `justify-end` sur la zone elle-même — il rend le haut du fil inatteignable. Le
   fil porte `data-fil="conversation"`, seul repère des scripts de vérification. Verrouillé par
   `scripts/verif-vide-carte-validee.mjs`.
-- **La pile des messages courts s'ouvre au SURVOL à la souris, à l'APPUI au doigt**
+- **Les messages courts s'EMPILENT, et les commandes ferment le bloc**
+  (`shared/src/pile-messages.ts`, `web/src/components/agent-dock.tsx`). Dans le bloc en bas à
+  droite, l'ordre est : messages, puis vignettes d'agents, puis la rangée de commandes (poignée de
+  déplacement, « Annuler », « Replier », « Tout effacer ») — ce qu'on lit passe devant ce qui sert à
+  ranger. Les messages ne se posent plus les uns sous les autres : `placeDansLaPile` les empile, le
+  plus récent devant, les autres alignés par le BAS puis poussés de `PILE_DECALAGE` pixels, un peu
+  plus petits et plus pâles ; trois se voient (`PILE_VISIBLES`), le reste est compté
+  (`resteDeLaPile`). La pile fermée n'occupe donc que la place d'un message, quel qu'en soit le
+  nombre. Au survol — ou à l'appui, au doigt — elle s'ouvre en liste complète en `PILE_DUREE`
+  millisecondes, et se referme pareillement. Chaque message porte son heure et sa date sous son
+  texte (`heureEtDate`, depuis `Toast.at`). La géométrie a besoin des hauteurs RÉELLES : elles se
+  mesurent au rendu, jamais en dur. Verrouillé par `server/src/test/pile-messages.test.ts` et
+  `scripts/verif-pile-messages.mjs`.
+- **La pile s'ouvre au SURVOL à la souris, à l'APPUI au doigt**
   (`shared/src/ouverture-pile.ts`). Le choix se fait sur la CAPACITÉ DU POINTEUR
   (`REQUETE_SURVOL`, `(hover: hover) and (pointer: fine)`), jamais sur la largeur de l'écran : une
-  tablette large n'a pas plus de survol qu'un téléphone. Fermée, la pile ne montre que le message
-  le plus récent et compte le reste (`resteAVoir`) ; ouverte, elle les montre tous. Au doigt, le
-  premier appui SERT à déployer et n'emporte pas l'action du message de devant
-  (`appuiDeclencheLAction`, retenu en phase de CAPTURE) ; un second appui, ou un appui ailleurs sur
-  l'écran, referme. À la souris, un clic n'ouvre ni ne referme rien — sinon la pile battrait sous
-  un curseur immobile. Les cibles au doigt font 32 px de côté, la marge négative rendant au message
-  sa taille. Verrouillé par `server/src/test/ouverture-pile.test.ts` et
-  `scripts/verif-pile-messages-appui.mjs`.
+  tablette large n'a pas plus de survol qu'un téléphone. Au doigt, le premier appui SERT à déployer
+  et n'emporte pas l'action du message de devant (`appuiDeclencheLAction`, retenu en phase de
+  CAPTURE) ; un second appui, ou un appui ailleurs sur l'écran, referme. À la souris, un clic
+  n'ouvre ni ne referme rien — sinon la pile battrait sous un curseur immobile. Les cibles au doigt
+  font 32 px de côté, la marge négative rendant au message sa taille. Combien de messages se voient
+  pile fermée reste l'affaire de l'empilement (`PILE_VISIBLES`, règle ci-dessus) : `messagesMontres`
+  et `resteAVoir` ne servent plus l'affichage. Verrouillé par
+  `server/src/test/ouverture-pile.test.ts` et `scripts/verif-pile-messages-appui.mjs`.
 - **Le fondu est réservé au défilement VERTICAL**, le seul où le texte glisse derrière un en-tête ou
   une barre. En `axe="horizontal"` (rail du tableau, barres d'onglets), `ZoneDefilement` ne pose
   AUCUN voile : il masquerait le bord des colonnes sans rien apprendre. L'option reste, car c'est

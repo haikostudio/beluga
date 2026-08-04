@@ -1,0 +1,110 @@
+/**
+ * La pile des messages courts, en bas à droite.
+ *
+ * Les messages ne se mettent plus les uns SOUS les autres : ils s'empilent les
+ * uns SUR les autres, le plus récent devant. Ceux du dessous ne dépassent que
+ * de quelques pixels, un peu plus petits et un peu plus pâles — la pile occupe
+ * la place d'un seul message, quel qu'en soit le nombre. Au survol, elle
+ * s'ouvre en liste complète.
+ *
+ * Tout est calculé ici, sans base ni disque : la géométrie est donc rejouable
+ * seule, et l'affichage n'a plus qu'à poser les nombres rendus.
+ */
+
+/** Combien de messages se voient dans la pile fermée ; le reste est compté. */
+export const PILE_VISIBLES = 3;
+/** Ce que chaque message du dessous laisse dépasser, en pixels. */
+export const PILE_DECALAGE = 6;
+/** L'écart entre deux messages, pile OUVERTE, en pixels. */
+export const PILE_ECART = 6;
+/** La durée de l'ouverture et de la fermeture, en millisecondes. */
+export const PILE_DUREE = 200;
+/** Ce que chaque rang perd en largeur : le rétrécissement se voit sans gêner. */
+const RETRECISSEMENT = 0.04;
+
+/** Où se pose un message de la pile, et comment il se montre. */
+export interface PlaceDansLaPile {
+  /** De combien de pixels il descend, depuis le haut de la pile. */
+  decalage: number;
+  /** Son échelle : 1 devant, un peu moins derrière. */
+  echelle: number;
+  /** Son opacité : pleine devant, atténuée derrière. */
+  opacite: number;
+  /** Sa profondeur d'empilement : le plus récent devant. */
+  profondeur: number;
+  /** S'affiche-t-il, ou est-il seulement compté ? */
+  visible: boolean;
+}
+
+/** Les hauteurs mesurées des messages, du plus récent au plus ancien. */
+export type HauteursDePile = number[];
+
+/**
+ * La place d'un message dans la pile.
+ *
+ * Pile fermée, les messages sont alignés par le BAS puis poussés vers le bas de
+ * quelques pixels chacun : c'est ce qui garantit le liseré visible même quand
+ * le message de derrière est plus court que celui de devant. Pile ouverte,
+ * chacun se pose sous le précédent, à la hauteur réellement mesurée.
+ */
+export function placeDansLaPile(
+  index: number,
+  hauteurs: HauteursDePile,
+  ouverte: boolean,
+): PlaceDansLaPile {
+  const total = hauteurs.length;
+  const profondeur = Math.max(1, total - index);
+  if (ouverte) {
+    let decalage = 0;
+    for (let i = 0; i < index; i += 1) decalage += (hauteurs[i] ?? 0) + PILE_ECART;
+    return { decalage, echelle: 1, opacite: 1, profondeur, visible: true };
+  }
+  const visible = index < PILE_VISIBLES;
+  const devant = hauteurs[0] ?? 0;
+  const sien = hauteurs[index] ?? devant;
+  return {
+    // Aligner les bas, puis décaler : le message de derrière dépasse toujours.
+    decalage: Math.max(0, devant - sien) + index * PILE_DECALAGE,
+    echelle: Math.max(0.8, 1 - index * RETRECISSEMENT),
+    opacite: visible ? Math.max(0.4, 1 - index * 0.25) : 0,
+    profondeur,
+    visible,
+  };
+}
+
+/**
+ * La hauteur que la pile réserve : celle d'un seul message quand elle est
+ * fermée, celle de la liste entière quand elle est ouverte. Sans mesure encore
+ * prise, on ne réserve rien — l'affichage se recale au premier rendu.
+ */
+export function hauteurDeLaPile(hauteurs: HauteursDePile, ouverte: boolean): number {
+  if (!hauteurs.length) return 0;
+  if (ouverte) {
+    return hauteurs.reduce((somme, h) => somme + h, 0) + PILE_ECART * (hauteurs.length - 1);
+  }
+  const montrés = Math.min(hauteurs.length, PILE_VISIBLES);
+  return (hauteurs[0] ?? 0) + PILE_DECALAGE * (montrés - 1);
+}
+
+/**
+ * Ce qui reste sous la pile fermée, dit en toutes lettres. Rien à dire tant
+ * qu'aucun message n'est caché.
+ */
+export function resteDeLaPile(total: number): string {
+  const cachés = total - PILE_VISIBLES;
+  if (cachés <= 0) return '';
+  return cachés === 1 ? '+ 1 autre message' : `+ ${cachés} autres messages`;
+}
+
+/**
+ * L'heure puis la date d'un message, en une ligne courte posée sous son texte :
+ * « 14:32 · 04.08.2026 ». On donne les deux, toujours : un message resté à
+ * l'écran depuis la veille ne doit pas se lire comme s'il venait d'arriver.
+ */
+export function heureEtDate(at?: number): string {
+  if (!at) return '';
+  const date = new Date(at);
+  const heure = date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
+  const jour = date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return `${heure} · ${jour}`;
+}

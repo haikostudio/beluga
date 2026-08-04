@@ -25,6 +25,7 @@ export * from './notification.js';
 export * from './notification-tri.js';
 export * from './nouveau-depart.js';
 export * from './ouverture-pile.js';
+export * from './pile-messages.js';
 export * from './pont-outils.js';
 export * from './projet-actif.js';
 export * from './protocol.js';
