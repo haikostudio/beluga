@@ -379,13 +379,19 @@ sans son point d'essai.
   attendue — triangle orange — et un travail rendu pas encore consulté — point bleu clignotant. Les
   deux comptes se comparent SÉPARÉMENT, la secousse ne joue qu'une passe, et la ligne qu'on regarde
   déjà ne bouge jamais.
-- **La ligne d'un projet ne porte JAMAIS plus de deux repères**, en plus du bouton de réglages : un
-  ROBOT devant le nom quand des agents travaillent (le nombre seulement à partir de deux, jamais
-  d'anneau qui tourne), et UN SEUL repère d'attente à droite — `repereVisible`
+- **La ligne d'un projet ne porte JAMAIS plus de deux repères D'ATTENTE**, en plus du bouton de
+  réglages : un ROBOT devant le nom quand des agents travaillent (le nombre seulement à partir de
+  deux, jamais d'anneau qui tourne), et UN SEUL repère d'attente à droite — `repereVisible`
   (`shared/src/signal-projet.ts`) tranche, la décision attendue (triangle orange) l'emportant sur le
   travail rendu non lu (point bleu, cliquable pour marquer comme lu). C'est l'AFFICHAGE qu'on
   réduit : les deux comptes continuent d'être calculés et de secouer la ligne séparément. Chaque
-  repère dit ce qu'il veut dire en français simple (`aria-label` + infobulle).
+  repère dit ce qu'il veut dire en français simple (`aria-label` + infobulle). À part, du côté du
+  ROBOT (un ÉTAT du projet, pas une décision), un point JAUNE qui respire quand une PUBLICATION est
+  en cours (`RepereePublication`, `web/src/components/sidebar.tsx`, alimenté par
+  `state.deploys[id]?.state === 'running'`) : il ne porte aucun geste, ne compte pas parmi les deux
+  repères d'attente, s'éteint dès la fin de la publication (réussite, échec, arrêt) et remonte à
+  l'en-tête d'un groupe replié dont un membre publie. Couleur `publie` (jeton `--publie`,
+  `web/src/styles.css`), distincte de l'orange `warning`.
 - **SEPT motifs interrompent, pas un de plus, et chacun porte SON image**
   (`shared/src/notification-tri.ts`). Le MOTIF décide, pas la famille : sortent de l'application une
   tâche réellement terminée (avec ou sans carte), une décision attendue, un échec de tâche, une

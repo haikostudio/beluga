@@ -13,7 +13,9 @@
  *    décision réglée ;
  *  - au pire des cas (agent + décision + travail rendu), la ligne ne porte pas
  *    plus de DEUX repères en plus du bouton de réglages, et elle ne déborde
- *    pas de la colonne.
+ *    pas de la colonne ;
+ *  - une PUBLICATION en cours allume un point jaune du côté du robot (un état,
+ *    pas une décision) qui s'éteint dès qu'elle se termine.
  *
  * Les états sont SIMULÉS : on rejoue les messages du serveur dans le canal
  * temps réel, sans toucher à la base ni déranger un agent au travail.
@@ -113,6 +115,10 @@ await page.addInitScript(() => {
       },
     });
   window.__agentFini = (id) => rejouer({ type: 'agent.delete', id });
+  /* Une publication de ce projet, telle que le démon la diffuse : `state` vaut
+     'running' pendant la mise en ligne, puis 'success' / 'failed' / 'stopped'. */
+  window.__deploy = (projectId, state) =>
+    rejouer({ type: 'deploy.upsert', run: { id: 'essai-deploy', projectId, state, steps: [] } });
 });
 
 await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -151,6 +157,7 @@ const ligne = page.locator(`[data-drag-kind="project"][data-drag-id="${cible}"]:
 const robot = ligne.locator('[data-repere-robot]');
 const triangle = ligne.locator('[data-signal-attention]');
 const point = ligne.locator('[data-signal-termine]');
+const jaune = ligne.locator('[data-repere-publication]');
 
 /* On part d'une page blanche : le serveur diffuse l'état RÉEL. */
 await page.evaluate(() => {
@@ -163,6 +170,7 @@ await page.waitForTimeout(400);
 noter('au repos, pas de robot', (await robot.count()) === 0);
 noter('au repos, pas de triangle', (await triangle.count()) === 0);
 noter('au repos, pas de point bleu', (await point.count()) === 0);
+noter('au repos, pas de point jaune', (await jaune.count()) === 0);
 
 /* --- 2. Un agent au travail : un robot, et rien qui tourne ------------- */
 await page.evaluate((id) => window.__agent('essai-robot-1', id), cible);
@@ -240,6 +248,26 @@ await page.evaluate(() => {
 await page.waitForTimeout(400);
 noter('les agents partis, plus de robot', (await robot.count()) === 0);
 noter('et la ligne redevient muette', (await point.count()) === 0 && (await triangle.count()) === 0);
+
+/* --- 9. Une publication en cours : le point jaune, du côté du robot ----- */
+await page.evaluate((id) => window.__deploy(id, 'running'), cible);
+await page.waitForTimeout(400);
+noter('une publication en cours allume le point jaune', (await jaune.count()) === 1);
+noter(
+  'le point jaune se dit en français simple',
+  ((await jaune.getAttribute('aria-label')) || '').length > 8,
+  (await jaune.getAttribute('aria-label')) || '',
+);
+noter(
+  'la publication ne compte pas comme repère d’attente',
+  (await triangle.count()) === 0 && (await point.count()) === 0,
+);
+await page.screenshot({ path: `${SHOTS}/ligne-projet-publication.png` });
+
+/* Une publication terminée — quel qu'en soit le sort — éteint le repère. */
+await page.evaluate((id) => window.__deploy(id, 'success'), cible);
+await page.waitForTimeout(400);
+noter('la publication finie, le point jaune s’éteint', (await jaune.count()) === 0);
 
 noter('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 

@@ -20,6 +20,7 @@ export default {
         warning: 'hsl(var(--warning))',
         danger: 'hsl(var(--danger))',
         info: 'hsl(var(--info))',
+        publie: 'hsl(var(--publie))',
         record: 'hsl(var(--record))',
         'record-fg': 'hsl(var(--record-fg))',
       },
