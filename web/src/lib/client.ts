@@ -5,6 +5,7 @@ import {
   CapacitySnapshot,
   Card,
   ClientCommand,
+  ConnexionCompte,
   DecisionAttendue,
   DeployRun,
   EngineInfo,
@@ -48,6 +49,8 @@ export interface AppState {
   rendus: Record<string, number>;
   engines: EngineInfo[];
   quotas: AccountQuota[];
+  /** Les connexions de comptes en cours ou tout juste finies. */
+  connexions: ConnexionCompte[];
   capacity: CapacitySnapshot | null;
   processes: SystemProcess[];
   /** L'état du démon : sert au bouton de redémarrage, en bas de la colonne. */
@@ -81,6 +84,7 @@ const initialState: AppState = {
   rendus: {},
   engines: [],
   quotas: [],
+  connexions: [],
   capacity: null,
   processes: [],
   demon: null,
@@ -355,6 +359,21 @@ class Client {
         this.set({ quotas: event.quotas });
         break;
 
+      // Après une connexion de compte réussie, la liste des modèles redevient
+      // complète sans qu'on ait à recharger la page.
+      case 'engines':
+        this.set({ engines: event.engines });
+        break;
+
+      case 'connexion-compte':
+        this.set((state) => ({
+          connexions: [
+            ...state.connexions.filter((c) => c.id !== event.connexion.id),
+            event.connexion,
+          ].sort((a, b) => a.commenceeA - b.commenceeA),
+        }));
+        break;
+
       case 'capacity':
         this.set({ capacity: event.capacity });
         break;
@@ -418,6 +437,11 @@ class Client {
 
   dismissToast(id: string): void {
     this.set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+  }
+
+  /** Les connexions de comptes que le serveur suit déjà, à l'ouverture des réglages. */
+  reprendreConnexions(connexions: ConnexionCompte[]): void {
+    this.set({ connexions: [...connexions].sort((a, b) => a.commenceeA - b.commenceeA) });
   }
 
   send(cmd: ClientCommand): void {

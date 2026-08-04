@@ -1,7 +1,23 @@
 import * as React from 'react';
-import { Activity, Brain, Database, Loader2, Play, Power, RefreshCw, Save, Send, ShieldCheck, Volume2 } from 'lucide-react';
 import {
+  Activity,
+  Brain,
+  Database,
+  Loader2,
+  LogIn,
+  Play,
+  Power,
+  RefreshCw,
+  Save,
+  Send,
+  ShieldCheck,
+  Volume2,
+} from 'lucide-react';
+import {
+  ConnexionCompte,
+  EngineId,
   SystemProcess,
+  connexionTerminee,
   partMemoire,
   phraseCapacite,
   tauxOccupation,
@@ -584,6 +600,18 @@ function SectionComptes() {
   const settings = state.settings;
   const update = (patch: Record<string, unknown>) => client.send({ type: 'settings.update', patch });
 
+  // Les connexions déjà en cours quand on ouvre les réglages : sans cette
+  // demande, une connexion lancée depuis un autre écran serait invisible ici.
+  React.useEffect(() => {
+    client
+      .call<{ connexions: ConnexionCompte[] }>({ type: 'account.connections' })
+      .then((data) => client.reprendreConnexions(data.connexions ?? []))
+      .catch(() => undefined);
+  }, []);
+
+  const enCours = (accountId?: string) =>
+    state.connexions.find((c) => !connexionTerminee(c) && c.accountId === accountId);
+
   return (
     <section>
       <div className="mb-2 flex items-center gap-1.5">
@@ -595,21 +623,42 @@ function SectionComptes() {
 
       <div className="space-y-1">
         {state.quotas.map((quota) => (
-          <div key={quota.id} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[13.5px] text-text">
-                {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
-              </p>
-              <p className="text-[11.5px] text-faint">
-                fenêtre {Math.round(quota.session?.usedPct ?? 0)} % · semaine {Math.round(quota.weekly?.usedPct ?? 0)} %
-                {tempsRestant(quota.weekly?.resetsAt) ? ` · semaine : ${tempsRestant(quota.weekly?.resetsAt)}` : ''}
-              </p>
+          <div key={quota.id} className="rounded-md border border-border bg-surface px-2 py-1.5">
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13.5px] text-text">
+                  {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
+                </p>
+                <p className="text-[11.5px] text-faint">
+                  fenêtre {Math.round(quota.session?.usedPct ?? 0)} % · semaine{' '}
+                  {Math.round(quota.weekly?.usedPct ?? 0)} %
+                  {tempsRestant(quota.weekly?.resetsAt) ? ` · semaine : ${tempsRestant(quota.weekly?.resetsAt)}` : ''}
+                </p>
+              </div>
+              {quota.active ? <Badge tone="success">actif</Badge> : null}
+              {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
+              {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
+                  un compte qui marche n'a pas besoin d'un badge de plus. */}
+              {quota.connexion?.doitReconnecter ? <Badge tone="warning">{quota.connexion.libelle}</Badge> : null}
+              {quota.connexion?.doitReconnecter && !enCours(quota.id) ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    client.send({ type: 'account.connect', engine: quota.engine, accountId: quota.id })
+                  }
+                >
+                  <LogIn className="h-3 w-3" />
+                  Reconnecter
+                </Button>
+              ) : null}
             </div>
-            {quota.active ? <Badge tone="success">actif</Badge> : null}
-            {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
+            {enCours(quota.id) ? <BlocConnexion connexion={enCours(quota.id)!} /> : null}
           </div>
         ))}
       </div>
+
+      <ConnecterUnCompte />
 
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
         L'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en premier,
@@ -630,6 +679,141 @@ function SectionComptes() {
         qu'un compte revient à zéro, pour que le décompte tourne déjà quand le travail arrive.
       </p>
     </section>
+  );
+}
+
+/**
+ * Une connexion en cours, telle qu'elle se suit à l'écran : l'adresse à ouvrir
+ * sur SON téléphone ou son ordinateur, le code à saisir sur la page, et — pour
+ * Claude — le champ où recopier le code que la page rend en retour.
+ *
+ * Rien n'est avalé en silence : une connexion refusée, abandonnée ou trop
+ * longue affiche sa cause, en français, à la place de l'adresse.
+ */
+function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
+  const [code, setCode] = React.useState('');
+  const [envoi, setEnvoi] = React.useState(false);
+  const fini = connexionTerminee(connexion);
+
+  if (fini) {
+    return (
+      <p
+        className={cn(
+          'mt-1.5 rounded-md px-2 py-1 text-[12.5px] leading-relaxed',
+          connexion.etape === 'reussie'
+            ? 'border border-success/30 bg-success/5 text-success'
+            : 'border border-danger/30 bg-danger/5 text-danger',
+        )}
+      >
+        {connexion.message}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1.5 rounded-md border border-border bg-bg px-2 py-1.5">
+      {connexion.lien ? (
+        <>
+          <p className="text-[12.5px] leading-relaxed text-muted">
+            Ouvrez cette adresse sur votre appareil et connectez-vous :
+          </p>
+          <a
+            href={connexion.lien}
+            target="_blank"
+            rel="noreferrer"
+            className="block break-all text-[12.5px] text-accent underline"
+          >
+            {connexion.lien}
+          </a>
+        </>
+      ) : (
+        <p className="flex items-center gap-1.5 text-[12.5px] text-faint">
+          <Loader2 className="h-3 w-3 animate-spin" /> Le moteur prépare la connexion…
+        </p>
+      )}
+
+      {connexion.code ? (
+        <p className="text-[12.5px] leading-relaxed text-muted">
+          Puis saisissez ce code sur la page : <span className="font-mono text-[14px] text-text">{connexion.code}</span>
+        </p>
+      ) : null}
+
+      {connexion.attendLeCode ? (
+        <div className="flex items-center gap-1.5">
+          <Input
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            placeholder="Collez ici le code rendu par la page"
+            className="h-7 flex-1 text-[12.5px]"
+          />
+          <Button
+            size="sm"
+            disabled={!code.trim() || envoi}
+            onClick={async () => {
+              setEnvoi(true);
+              try {
+                const rendu = await client.call<{ ok: boolean; error?: string }>({
+                  type: 'account.code',
+                  id: connexion.id,
+                  code,
+                });
+                if (!rendu.ok) client.pushToast('error', rendu.error ?? 'code refusé');
+                else setCode('');
+              } finally {
+                setEnvoi(false);
+              }
+            }}
+          >
+            {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            Valider
+          </Button>
+        </div>
+      ) : null}
+
+      <Button variant="ghost" size="sm" onClick={() => client.send({ type: 'account.cancel', id: connexion.id })}>
+        Abandonner
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Ajouter un compte qui n'existe pas encore. Le compte n'entre dans la liste
+ * qu'une fois la connexion réussie : une tentative ratée ne laisse pas une
+ * ligne morte dans les réglages.
+ */
+function ConnecterUnCompte() {
+  const state = useApp();
+  const neuves = state.connexions.filter((c) => !c.accountId);
+  const enCours = neuves.find((c) => !connexionTerminee(c));
+  const derniere = neuves[neuves.length - 1];
+
+  return (
+    <div className="mt-2">
+      {enCours ? (
+        <div className="rounded-md border border-border bg-surface px-2 py-1.5">
+          <p className="text-[13.5px] text-text">{enCours.label}</p>
+          <BlocConnexion connexion={enCours} />
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-1.5">
+            {(['claude', 'codex'] as EngineId[]).map((engine) => (
+              <Button
+                key={engine}
+                variant="outline"
+                size="sm"
+                onClick={() => client.send({ type: 'account.connect', engine })}
+              >
+                <LogIn className="h-3 w-3" />
+                Connecter un compte {engine === 'codex' ? 'Codex' : 'Claude'}
+              </Button>
+            ))}
+          </div>
+          {derniere && connexionTerminee(derniere) ? <BlocConnexion connexion={derniere} /> : null}
+        </>
+      )}
+    </div>
   );
 }
 
