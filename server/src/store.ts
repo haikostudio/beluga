@@ -1239,7 +1239,7 @@ export function usageByProject(): {
               SUM(u.tokens) AS tokens, SUM(u.seconds) AS seconds, COUNT(DISTINCT u.card_id) AS tasks
        FROM usage u LEFT JOIN projects p ON p.id = u.project_id
        GROUP BY u.project_id
-       ORDER BY SUM(u.tokens) DESC`,
+       ORDER BY SUM(u.seconds) DESC`,
     )
     .all() as any;
 }

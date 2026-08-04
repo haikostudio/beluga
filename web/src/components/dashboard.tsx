@@ -104,7 +104,10 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
   const tempsTotal = byProject.reduce((total, p) => total + (p.seconds ?? 0), 0);
   const tachesTotal = byProject.reduce((total, p) => total + (p.tasks ?? 0), 0);
   const jetonsTotal = byProject.reduce((total, p) => total + (p.tokens ?? 0), 0);
-  const maxProjet = Math.max(1, ...byProject.map((p) => p.tokens));
+  // Le classement suit le TEMPS de travail (ce que la ligne affiche), le plus long en tête,
+  // et la barre mesure la même grandeur : elle décroît donc du haut vers le bas.
+  const projetsParTemps = [...byProject].sort((a, b) => (b.seconds ?? 0) - (a.seconds ?? 0));
+  const maxProjet = Math.max(1, ...byProject.map((p) => p.seconds ?? 0));
   // Les jours arrivent du plus récent au plus ancien : la courbe se lit à l'endroit.
   const jours = [...(donnees?.byDay ?? [])].reverse();
   // La conso par carte n'apparaît qu'avec une part de quota mesurée (carte précédente).
@@ -165,7 +168,7 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
             </h2>
             {byProject.length ? (
               <div className="mt-2 space-y-1.5">
-                {byProject.slice(0, 10).map((row) => (
+                {projetsParTemps.slice(0, 10).map((row) => (
                   <div key={row.projectId}>
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="truncate text-[13px] text-text">{nomDuProjet(row)}</span>
@@ -174,7 +177,7 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                       </span>
                     </div>
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-raised">
-                      <div className="h-full rounded-full bg-muted/70" style={{ width: `${Math.round((row.tokens / maxProjet) * 100)}%` }} />
+                      <div className="h-full rounded-full bg-muted/70" style={{ width: `${Math.round(((row.seconds ?? 0) / maxProjet) * 100)}%` }} />
                     </div>
                   </div>
                 ))}
