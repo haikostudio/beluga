@@ -22,6 +22,8 @@ import {
   projetsACerveau,
   texteEnvoi,
 } from '@haikodev/shared';
+import type { EtatCerveau } from '@haikodev/shared';
+import { lireCleCerveau } from './cle-cerveau.js';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -72,10 +74,9 @@ function dernierPassage(): number | undefined {
   return Number.isFinite(valeur) ? valeur : undefined;
 }
 
-/** La clé du cerveau vient de l'environnement, JAMAIS du dépôt. */
+/** La clé du cerveau vient de l'environnement du serveur, JAMAIS du dépôt. */
 export function cleCerveau(): string | undefined {
-  const cle = process.env.CERVEAU_API_KEY?.trim();
-  return cle || undefined;
+  return lireCleCerveau();
 }
 
 export function empreinte(contenu: string): string {
@@ -351,15 +352,7 @@ export async function envoyerAuCerveau(
 /* Ce qu'on lit dans les réglages                                      */
 /* ------------------------------------------------------------------ */
 
-export interface EtatCerveau {
-  clePosee: boolean;
-  adresse: string;
-  dernierSucces?: number;
-  projetsEnvoyes: number;
-  fichiersEnvoyes: number;
-  derniereTentative?: number;
-  erreurs: { at: number; projet?: string; message: string }[];
-}
+export type { EtatCerveau };
 
 export function etatCerveau(): EtatCerveau {
   const entrees = store.cerveauHistory(120);

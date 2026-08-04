@@ -492,6 +492,19 @@ sans son point d'essai.
   intact ne prouve pas qu'un jeton tient encore, et un coffre sans fichier d'identifiants échoue sur
   le FICHIER ABSENT, pas sur un jeton vide. Verrouillé par
   `server/src/test/connexion-compte.test.ts` et `scripts/verif-connexion-compte.mjs`.
+- **Le bloc du cerveau dit UNE chose et propose le geste qui débloque**
+  (`shared/src/bloc-cerveau.ts`). `ligneEtatCerveau` rend UNE seule ligne d'état — clé manquante,
+  dernier envoi réussi, ou aucun envoi abouti — là où le bloc empilait un badge, un encadré orange
+  et une liste d'erreurs qui redisaient tous « aucune clé ». `erreursUtiles` écarte toute erreur
+  qui redit l'absence de clé (l'état la porte déjà, et elle est périmée dès la clé posée),
+  dédoublonne le reste et n'en montre que trois. Quand la clé manque, le bloc porte un CHAMP de
+  saisie : `cerveau.cle` la range par `enregistrerCleCerveau` (`server/src/cle-cerveau.ts`) dans le
+  fichier d'environnement du service — `HAIKODEV_ENV_FILE`, `/etc/haikodev.env` par défaut, sinon
+  repli dans le dossier de données — et la pose du même coup dans le processus : elle vaut aussitôt,
+  sans redémarrage. `cleCerveau` lit désormais par `lireCleCerveau` (environnement, puis repli, puis
+  fichier du service) ; le mécanisme d'envoi ne bouge pas. Verrouillé par
+  `server/src/test/bloc-cerveau.test.ts`, `server/src/test/cle-cerveau.test.ts` et
+  `scripts/verif-cerveau-reglages.mjs` (qui vise un fichier d'environnement TEMPORAIRE).
 - **Un modèle est unique par son IDENTIFIANT, et une liste de secours se DIT**
   (`shared/src/catalogue-modeles.ts`). Le catalogue d'un moteur était dédoublonné sur le NOM AFFICHÉ :
   deux modèles réellement différents portant le même `display_name` se mangeaient l'un l'autre, et

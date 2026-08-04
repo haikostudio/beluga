@@ -257,6 +257,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('cerveau.etat') }),
   /** Envoyer tout de suite la mémoire et les instructions de chaque projet. */
   z.object({ type: z.literal('cerveau.envoyer') }),
+  /** Poser la clé du cerveau depuis les réglages : elle vaut aussitôt. */
+  z.object({ type: z.literal('cerveau.cle'), cle: z.string() }),
   /** L'état du démon : depuis quand il tourne, et s'il tourne sur du code périmé. */
   z.object({ type: z.literal('daemon.status') }),
   /** Arrêter le démon pour que le service le relance avec le code construit. */
