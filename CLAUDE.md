@@ -467,7 +467,11 @@ sans son point d'essai.
   (`ACTIONS_DE_LOT`, `web/src/components/board.tsx`). Premier clic : une case à cocher sort du coin
   haut-gauche de chaque carte, TOUTES cochées, et le pied devient « Annuler » / « <verbe> (n) ».
   Annuler ne touche à rien ; confirmer déplace les cartes restées cochées vers la colonne `cible`,
-  une par une, par `client.moveCard` — le MÊME appel que le bouton du tiroir. Une seule colonne en
+  par `client.moveCard` — le MÊME appel que le bouton du tiroir. Une carte après l'autre par défaut
+  (l'archivage écrit un document, la validation chiffre), SAUF « Tout lancer » (`parallele: true`) :
+  ses cartes partent ENSEMBLE (`Promise.all` sur la sélection), chacune ayant sa copie de travail et
+  sa branche, donc les robots s'allument en même temps. Le compte rendu (`bilanDeLot`) ne bouge pas.
+  Une seule colonne en
   sélection à la fois, et pas de pied sur une colonne vide. Quatre entrées aujourd'hui : « À faire » →
   « Tout valider » vers « Validé », « Planifié » → « Tout lancer » vers « En cours », « Terminé » →
   « Tout déployer » vers « À déployer » (déplacement seul, RIEN n'est mis en ligne), « À déployer » →
