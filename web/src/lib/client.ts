@@ -5,6 +5,7 @@ import {
   CapacitySnapshot,
   Card,
   ClientCommand,
+  DecisionAttendue,
   DeployRun,
   EngineInfo,
   FileNode,
@@ -37,6 +38,12 @@ export interface AppState {
   groups: ProjectGroup[];
   /** Projets qui attendent une réponse : nombre de questions en attente. */
   attention: Record<string, number>;
+  /**
+   * Le DÉTAIL de ces attentes : où chaque décision se prend. C'est ce qui
+   * permet de poser le même triangle sur la carte et sur la conversation
+   * concernées, au lieu d'un chiffre introuvable sur la ligne du projet.
+   */
+  decisions: DecisionAttendue[];
   /** Projets dont un agent a rendu son travail sans qu'on l'ait encore lu. */
   rendus: Record<string, number>;
   engines: EngineInfo[];
@@ -70,6 +77,7 @@ const initialState: AppState = {
   projects: [],
   groups: [],
   attention: {},
+  decisions: [],
   rendus: {},
   engines: [],
   quotas: [],
@@ -100,6 +108,7 @@ class Client {
   private reconnectTimer: number | null = null;
   private notifyHandlers = new Set<(event: Extract<ServerEvent, { type: 'notify' }>) => void>();
   private openCardHandlers = new Set<(cardId: string) => void>();
+  private openConversationHandlers = new Set<(lieu: { projectId: string; agentId: string }) => void>();
 
   state: AppState = initialState;
 
@@ -123,6 +132,19 @@ class Client {
 
   openCard(cardId: string): void {
     for (const handler of this.openCardHandlers) handler(cardId);
+  }
+
+  /**
+   * Ouvrir la CONVERSATION où une décision se prend — quand elle ne tient à
+   * aucune carte (une carte proposée, une question du chef d'orchestre).
+   */
+  onOpenConversation(handler: (lieu: { projectId: string; agentId: string }) => void): () => void {
+    this.openConversationHandlers.add(handler);
+    return () => this.openConversationHandlers.delete(handler);
+  }
+
+  openConversation(lieu: { projectId: string; agentId: string }): void {
+    for (const handler of this.openConversationHandlers) handler(lieu);
   }
 
   private set(patch: Partial<AppState> | ((current: AppState) => Partial<AppState>)): void {
@@ -214,7 +236,9 @@ class Client {
         break;
 
       case 'attention':
-        this.set({ attention: event.byProject });
+        // Le compte et ses endroits arrivent ensemble, et se posent ensemble :
+        // le triangle du projet et ceux des cartes disent toujours la même chose.
+        this.set({ attention: event.byProject, decisions: event.decisions ?? [] });
         break;
 
       case 'rendus':

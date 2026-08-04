@@ -80,7 +80,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     const unsubscribe = bus.subscribe(send);
 
     void (async () => {
-      send({ type: 'attention', byProject: store.projectsNeedingAttention() });
+      send({ type: 'attention', ...store.signalAttention() });
       send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
       send({
         type: 'ready',
@@ -457,7 +457,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         doneAt: Date.now(),
       });
       bus.emit({ type: 'card.upsert', card: updated });
-      notify({ kind: 'done', title: 'Tâche terminée', body: card.title, cardId: card.id, projectId: card.projectId });
+      // Même événement que la clôture automatique par l'ordonnanceur : la
+      // référence est la carte, donc une seule alerte quel que soit le chemin.
+      notify({
+        motif: 'tache-terminee',
+        title: 'Tâche terminée',
+        body: card.title,
+        reference: card.id,
+        element: card.title,
+        cardId: card.id,
+        projectId: card.projectId,
+      });
       return { card: updated };
     }
 
@@ -687,7 +697,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         ),
       });
       bus.emit({ type: 'message.upsert', message: updated });
-      bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
 
       // L'agent reprend aussitôt, avec la réponse en main — sans faire
       // patienter le navigateur jusqu'à la fin de son tour. La question n'est
@@ -764,7 +774,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       });
       bus.emit({ type: 'message.upsert', message: updatedMessage });
       // Tranchée, la proposition ne réclame plus rien : le signal s'éteint.
-      bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
       return { cardId };
     }
 

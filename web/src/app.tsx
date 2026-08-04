@@ -15,7 +15,14 @@ import { usePref, writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { Filet } from '@/components/filet';
 import { cn } from '@/lib/utils';
-import { CLE_ONGLET_MOBILE, carteAReprendre, cleCarteOuverte, ongletAReprendre } from '@haikodev/shared';
+import {
+  CLE_ONGLET_MOBILE,
+  carteAReprendre,
+  cleCarteOuverte,
+  decisionsHorsCarte,
+  ongletAReprendre,
+} from '@haikodev/shared';
+import { RepereAttention } from '@/components/repere-attention';
 
 /** Les destinations de la barre du bas, sur téléphone. */
 const ONGLETS_MOBILES = ['board', 'chat'] as const;
@@ -114,6 +121,28 @@ export function App() {
 
   // Une carte affichée dans la conversation s'ouvre dans le tiroir.
   React.useEffect(() => client.onOpenCard(setOpenCardId), []);
+
+  /*
+   * « Emmène-moi à la décision. » Le triangle de la colonne de gauche mène
+   * jusqu'ici quand la décision ne tient à aucune carte : on ouvre le projet,
+   * on déplie la conversation (elle est cachée derrière un bouton sur
+   * téléphone, et repliable sur ordinateur), et si la décision vit dans le fil
+   * d'un autre agent que le chef, c'est ce fil-là qui s'ouvre.
+   */
+  React.useEffect(
+    () =>
+      client.onOpenConversation(({ projectId, agentId }) => {
+        client.setActiveProject(projectId);
+        setRightOpen(true);
+        // L'onglet du bas n'existe que sur téléphone, et il est RETENU : un
+        // clic fait sur ordinateur n'a pas à changer ce qu'on retrouvera sur
+        // son téléphone. Là, le panneau qu'on vient d'ouvrir suffit.
+        if (window.innerWidth < 640) setMobileView('chat');
+        const agent = client.getSnapshot().agents[agentId];
+        if (agent && agent.role !== 'orchestrator') setOpenAgentId(agentId);
+      }),
+    [],
+  );
 
   /*
    * Sur téléphone, changer de projet ramène au tableau. Le panneau, lui, se
@@ -418,6 +447,12 @@ export function App() {
             onClick={() => setMobileView('chat')}
           >
             <MessageSquare className="h-3.5 w-3.5" /> Chef
+            {/* Sur téléphone, la conversation est derrière ce bouton : sans le
+                triangle ici, une décision en attente resterait invisible. */}
+            <RepereAttention
+              compte={activeProject ? decisionsHorsCarte(state.decisions, activeProject.id) : 0}
+              data-attention-conversation={activeProject?.id}
+            />
           </Button>
         </nav>
 
