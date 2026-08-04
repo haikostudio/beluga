@@ -64,6 +64,7 @@ node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
+node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié » (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -255,12 +256,15 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   haut-gauche de chaque carte, TOUTES cochées, et le pied devient « Annuler » / « <verbe> (n) ».
   Annuler ne touche à rien ; confirmer déplace les cartes restées cochées vers la colonne `cible`,
   une par une, par `client.moveCard` — le MÊME appel que le bouton du tiroir. Une seule colonne en
-  sélection à la fois, et pas de pied sur une colonne vide. Trois entrées aujourd'hui : « À faire » →
-  « Tout valider » vers « Validé », « Terminé » → « Tout déployer » vers « À déployer » (déplacement
-  seul, RIEN n'est mis en ligne), « À déployer » → « Tout archiver » vers « Archivé ». Un pied suit
-  le parcours de la carte : on n'archive jamais par-dessus l'étape de publication. Ajouter une
-  colonne, c'est ajouter une ligne à cette liste — jamais un second mécanisme. Vérifié par
-  `scripts/verif-lot-a-faire.mjs` et `scripts/verif-lot-termine.mjs`.
+  sélection à la fois, et pas de pied sur une colonne vide. Quatre entrées aujourd'hui : « À faire » →
+  « Tout valider » vers « Validé », « Planifié » → « Tout lancer » vers « En cours », « Terminé » →
+  « Tout déployer » vers « À déployer » (déplacement seul, RIEN n'est mis en ligne), « À déployer » →
+  « Tout archiver » vers « Archivé ». Un pied suit le parcours de la carte : on n'archive jamais
+  par-dessus l'étape de publication. « Tout lancer » n'a AUCUN chemin à lui : le dépôt en « En cours »
+  valant déjà le clic sur « Lancer maintenant », le serveur passe par `startCard` — portes dures
+  comprises — et une carte refusée revient à « Planifié » avec sa raison pendant que le lot continue.
+  Ajouter une colonne, c'est ajouter une ligne à cette liste — jamais un second mécanisme. Vérifié par
+  `scripts/verif-lot-a-faire.mjs`, `scripts/verif-lot-termine.mjs` et `scripts/verif-lot-planifie.mjs`.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier

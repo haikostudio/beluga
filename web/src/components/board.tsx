@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -41,6 +41,11 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
   // carte : passer en « Validé ». Rien n'est lancé — l'ordonnanceur décide.
   todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', cible: 'validated' },
+  // Déposer une carte dans « En cours » VAUT le clic sur « Lancer maintenant » :
+  // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
+  // carte et le serveur passe par `startCard` — portes dures comprises. Une
+  // carte refusée revient à sa colonne avec sa raison, et le lot continue.
+  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running' },
   // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
