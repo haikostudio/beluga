@@ -53,7 +53,7 @@ node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
-node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
+node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour ; un compte refusé est dit comme tel, pas comme un outil absent)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
 node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
 node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
@@ -359,6 +359,19 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
   une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
   Verrouillé par `server/src/test/outils-codex.test.ts`.
+- **Les outils du projet sont les SEULS dans la pièce, et leur absence se DIT**
+  (`shared/src/pont-outils.ts`). Un autre serveur d'outils branché dans la configuration de Codex
+  propose souvent sa propre mémoire : le modèle l'appelait à la place de `project_memory`, annonçait
+  « mémoire consultée » et énonçait des faits jamais lus. `buildCodexArgs` éteint donc, LE TEMPS D'UN
+  TOUR, chaque serveur étranger trouvé dans la `config.toml` du compte (`serveursTiers` +
+  `serveursTiersDuCompte`, `-c mcp_servers.<nom>.enabled=false`) ainsi que la mémoire propre du
+  moteur (`-c features.memories=false`) — la configuration de l'utilisateur n'est pas touchée.
+  Symétriquement, le pont s'ANNONCE : il appelle `/internal/pont` à la poignée de main et le démon
+  compte les outils servis par `/internal/tools` (registre `server/src/pont.ts`). En fin de tour,
+  `etatDuPont` tranche — pont jamais démarré, liste jamais demandée, liste vide — et la panne
+  s'affiche en étape ROUGE dans la conversation au lieu de se taire. Un moteur qui n'a rien fait du
+  tout (compte refusé) n'écope pas de ce motif : sa panne est déjà dite. Verrouillé par
+  `server/src/test/pont-outils.test.ts` et `scripts/verif-outils-codex.mjs`.
 - **Le déroulé de l'agent est décidé par HaikoDev, pas par le moteur, et il est le MÊME pour
   Codex et pour Claude.** Les consignes de rôle (`rolePrompt`, `server/src/runtime.ts`) et le
   gabarit de réponse (`wrapPrompt`, `shared/src/templates.ts`) sont uniques ; seul le NOM de

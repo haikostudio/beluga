@@ -7,6 +7,8 @@ import {
   Ampleur,
   CONSIGNE_DESCRIPTION_CARTE,
   Card,
+  ETAPE_PONT,
+  ETAPE_PONT_ID,
   EngineId,
   MEMORY_STEP_ID,
   Message,
@@ -18,6 +20,7 @@ import {
   checkTemplate,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  etatDuPont,
   raisonSansModification,
   templateForColumn,
   tourDeLaCarte,
@@ -35,6 +38,7 @@ import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig }
 import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
 import { notify } from './notify.js';
 import { cartesDuTravailHorsTache, depotModifieDepuis, repereAvant } from './hors-tache.js';
+import { oublierLePont, passageDuPont } from './pont.js';
 
 export interface LiveRun {
   agentId: string;
@@ -416,6 +420,9 @@ async function startTurn(
 
   const sessionId = store.getSessionId(agent.id, agent.run.engine);
 
+  // Le pont d'outils du tour précédent ne prouve rien pour celui-ci.
+  oublierLePont(agent.id);
+
   setStatus(agent, 'running', { startedAt: Date.now(), account: account.id });
 
   let sawError: string | undefined;
@@ -533,6 +540,29 @@ async function startTurn(
     if (formCheck.missing.length) griefs.push(`sections manquantes (${formCheck.missing.join(', ')})`);
     if (formCheck.dense.length) griefs.push(`texte tassé, sans paragraphes (${formCheck.dense.join(', ')})`);
     finalText += `\n\n> [!NOTE]\n> Réponse hors format : ${griefs.join(' ; ')}.`;
+  }
+
+  /*
+   * LES OUTILS DU PROJET ÉTAIENT-ILS LÀ ? Un tour pouvait se dérouler entier
+   * sans que le pont ne démarre : aucun outil, aucune mémoire lue, et une
+   * réponse qui affirmait quand même l'avoir consultée. La panne se DIT
+   * maintenant, en étape rouge dans la conversation, au lieu de se taire.
+   */
+  const pont = etatDuPont(passageDuPont(agent.id));
+  // Un moteur qui n'a jamais démarré (compte refusé, binaire absent) n'a rien
+  // fait du tout : sa panne est déjà dite, celle du pont serait un faux motif.
+  const etapesDuMoteur = [...runState.steps.keys()].filter((cle) => cle !== MEMORY_STEP_ID);
+  const moteurMuet = !result.ok && !etapesDuMoteur.length && !runState.text.trim();
+  if (!pont.ok && !moteurMuet) {
+    runState.steps.set(ETAPE_PONT_ID, {
+      id: ETAPE_PONT_ID,
+      label: ETAPE_PONT,
+      state: 'failed',
+      detail: pont.raison,
+      startedAt: runState.startedAt,
+      endedAt: Date.now(),
+    });
+    log.warn(`pont d'outils indisponible pour l'agent ${agent.id} : ${pont.raison}`);
   }
 
   const failed = !result.ok || !!sawError;

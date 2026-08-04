@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { buildCodexArgs, emitFromCodex, explainToolFailure } from '../engines/codex.js';
 import { EngineEvent } from '../engines/types.js';
 
@@ -51,6 +54,43 @@ test('le jeton, l\'adresse et l\'agent voyagent avec le pont', () => {
 test('sans pont annoncé, aucune ligne de serveur d\'outils', () => {
   const line = args({ mcpBridgePath: undefined }).join(' ');
   assert.ok(!line.includes('mcp_servers.haikodev'));
+  assert.ok(!line.includes('features.memories'), 'rien à éteindre si le projet ne branche rien');
+});
+
+/*
+ * Le défaut du 4 août : un AUTRE serveur d'outils, branché dans la
+ * configuration de Codex, proposait sa propre mémoire. Le modèle l'appelait à
+ * la place de `project_memory`, puis annonçait des faits qu'il n'était jamais
+ * allé chercher.
+ */
+test('les serveurs d\'outils étrangers sont éteints le temps du tour', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-essai-'));
+  fs.writeFileSync(
+    path.join(home, 'config.toml'),
+    '[mcp_servers.memoire]\nurl = "https://exemple/mcp"\n\n[mcp_servers.haikodev]\ncommand = "node"\n',
+    'utf8',
+  );
+  const line = args({
+    env: { HAIKODEV_TOKEN: 'jeton', HAIKODEV_URL: 'http://127.0.0.1:7070', HAIKODEV_AGENT: 'a1', CODEX_HOME: home },
+  }).join(' ');
+  fs.rmSync(home, { recursive: true, force: true });
+
+  assert.ok(line.includes('mcp_servers.memoire.enabled=false'), 'le serveur étranger doit être éteint');
+  assert.ok(!line.includes('mcp_servers.haikodev.enabled=false'), 'le serveur du projet reste allumé');
+  assert.ok(line.includes(BRIDGE), 'le pont du projet est toujours branché');
+});
+
+/** La mémoire propre du moteur, commune à tous les projets, en est une autre. */
+test('la mémoire interne du moteur est éteinte : celle du projet fait foi', () => {
+  assert.ok(args().join(' ').includes('features.memories=false'));
+});
+
+test('une configuration illisible n\'éteint rien et ne casse rien', () => {
+  const line = args({
+    env: { HAIKODEV_TOKEN: 'j', HAIKODEV_URL: 'u', HAIKODEV_AGENT: 'a', CODEX_HOME: '/dossier/qui/nexiste/pas' },
+  }).join(' ');
+  assert.ok(!line.includes('.enabled=false'));
+  assert.ok(line.includes(BRIDGE));
 });
 
 /** Une étape rouge sans explication laissait « 1 en échec » sans dire pourquoi. */

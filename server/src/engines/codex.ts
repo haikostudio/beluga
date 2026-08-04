@@ -1,9 +1,27 @@
 import { spawn, execFile } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { promisify } from 'node:util';
+import { serveursTiers } from '@haikodev/shared';
 import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Les serveurs d'outils ÉTRANGERS branchés dans la configuration du compte
+ * Codex. Lecture au fil des tours, sans cache : la configuration se modifie à
+ * la main, et un fichier de quelques kilo-octets ne coûte rien.
+ */
+export function serveursTiersDuCompte(codexHome?: string): string[] {
+  const dossier = codexHome?.trim() || path.join(os.homedir(), '.codex');
+  try {
+    return serveursTiers(fs.readFileSync(path.join(dossier, 'config.toml'), 'utf8'));
+  } catch {
+    return []; // pas de configuration lisible : rien à éteindre
+  }
+}
 
 
 
@@ -133,6 +151,25 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
       set('mcp_servers.haikodev.env.HAIKODEV_URL', options.env.HAIKODEV_URL ?? '');
       set('mcp_servers.haikodev.env.HAIKODEV_AGENT', options.env.HAIKODEV_AGENT ?? '');
     }
+    /*
+     * LES OUTILS DU PROJET SONT LES SEULS DANS LA PIÈCE. Un autre serveur
+     * branché dans la configuration de Codex propose souvent sa propre
+     * mémoire : le modèle l'appelle À LA PLACE de `project_memory`, annonce
+     * « mémoire consultée » et énonce des faits qu'il n'est jamais allé
+     * chercher (constaté sur les tours du 4 août : `chercher_memoire` appelé à
+     * chaque fois, `project_memory` jamais). On les éteint LE TEMPS D'UN TOUR
+     * d'agent — la configuration de l'utilisateur n'est pas touchée.
+     */
+    for (const nom of serveursTiersDuCompte(options.env?.CODEX_HOME)) {
+      args.push('-c', `mcp_servers.${nom}.enabled=false`);
+    }
+    /*
+     * Même raison pour la mémoire PROPRE de Codex (son dossier `memories`) :
+     * elle est commune à tous les projets, HaikoDev n'y écrit rien, et elle
+     * suffit au modèle pour se croire renseigné. La mémoire d'un projet vit
+     * dans `MEMOIRE.md`, et se lit avec `project_memory`.
+     */
+    args.push('-c', 'features.memories=false');
   }
 
   // Codex n'a pas de consigne « système » séparée : elle est collée devant la

@@ -32,6 +32,16 @@ async function callDaemon(route, body) {
   return res.json();
 }
 
+/**
+ * Le pont s'annonce au démon dès la poignée de main du moteur. C'est la SEULE
+ * preuve qu'il a démarré : sans elle, un tour sans aucun outil du projet ne se
+ * distinguait pas d'un tour normal. On n'attend pas la réponse et un échec ne
+ * casse rien — le moteur passe avant.
+ */
+function annoncerLeDemarrage() {
+  callDaemon('pont', {}).catch(() => {});
+}
+
 let toolsCache = null;
 
 async function getTools() {
@@ -58,6 +68,7 @@ rl.on('line', async (line) => {
   try {
     switch (method) {
       case 'initialize':
+        annoncerLeDemarrage();
         reply(id, {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
           capabilities: { tools: { listChanged: false } },

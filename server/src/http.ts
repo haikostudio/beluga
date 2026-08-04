@@ -12,6 +12,7 @@ import { attachToCurrentMessage } from './runtime.js';
 import { readFilePreview, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
+import { pontDemarre, pontAServiLesOutils } from './pont.js';
 import { log } from './logger.js';
 
 const COOKIE = 'haikodev_session';
@@ -178,8 +179,19 @@ export function createHttpServer(): http.Server {
         const agent = store.getAgent(agentId);
         if (!agent) return json(res, 404, { error: 'agent inconnu' });
 
+        /*
+         * Le pont s'annonce en démarrant : sans cette trace, un tour sans le
+         * moindre outil passait pour un tour normal (la réponse affirmait même
+         * avoir lu la mémoire). `runtime` la relit à la fin du tour.
+         */
+        if (route === '/internal/pont') {
+          pontDemarre(agentId);
+          return json(res, 200, { ok: true });
+        }
         if (route === '/internal/tools') {
-          return json(res, 200, { tools: toolsFor(agent.role) });
+          const tools = toolsFor(agent.role);
+          pontAServiLesOutils(agentId, tools.length);
+          return json(res, 200, { tools });
         }
         if (route === '/internal/call') {
           const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
