@@ -897,6 +897,18 @@ export function dequeuePrompt(agentId: string): QueuedPrompt | null {
   return first;
 }
 
+/**
+ * Vider la file d'un agent, et dire combien de demandes ont été écartées.
+ *
+ * Une pause ou un arrêt à la main coupent AUSSI ce qui attendait derrière :
+ * sans cela, le tour suivant repartait tout seul quinze secondes plus tard, et
+ * l'arrêt demandé n'arrêtait rien.
+ */
+export function clearQueue(agentId: string): number {
+  const result = getDb().prepare('DELETE FROM queue WHERE agent_id = ?').run(agentId);
+  return result.changes ?? 0;
+}
+
 export function updateQueued(id: string, text: string): QueuedPrompt | null {
   const row = getDb().prepare('SELECT data FROM queue WHERE id = ?').get(id) as { data: string } | undefined;
   if (!row) return null;

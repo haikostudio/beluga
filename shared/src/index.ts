@@ -18,6 +18,7 @@ export * from './models.js';
 export * from './notification.js';
 export * from './notification-tri.js';
 export * from './nouveau-depart.js';
+export * from './pause-agent.js';
 export * from './projet-actif.js';
 export * from './protocol.js';
 export * from './publication-terminee.js';

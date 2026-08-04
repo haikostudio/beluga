@@ -1,9 +1,17 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { Card, Estimate } from '@haikodev/shared';
+import {
+  Card,
+  Estimate,
+  MENTION_EN_PAUSE,
+  RAISON_EN_PAUSE,
+  effacerPause,
+  marquerPause,
+  promptDeReprise,
+} from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
-import { createAgent, isRunning, sendPrompt, runningCount } from './runtime.js';
+import { createAgent, isRunning, sendPrompt, runningCount, stopAgent } from './runtime.js';
 import { canStartAgent, snapshot } from './capacity.js';
 import { refreshQuotas } from './accounts.js';
 import { notify } from './notify.js';
@@ -318,12 +326,11 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
     position: store.nextPosition(card.projectId, 'running'),
     agentId: agent.id,
     github: branch ? { ...(card.github ?? { checks: [], commits: [], activity: [] }), branch } : card.github,
+    // Un départ efface la pause : c'est le geste qu'elle attendait. La même
+    // règle sert au bouton de reprise — une seule marque, un seul effacement.
     scheduling: {
-      ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+      ...effacerPause(card.scheduling),
       attempts: (card.scheduling?.attempts ?? 0) + 1,
-      waitingReason: undefined,
-      // Un départ efface la suspension : c'est le geste qu'elle attendait.
-      suspendu: false,
     },
   });
   bus.emit({ type: 'card.upsert', card: running });
@@ -340,35 +347,185 @@ Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (c
     silent: true,
     // Une carte lancée est une vraie tâche : elle mérite le compte rendu entier.
     ampleur: 'complete',
-    onComplete: async (_text, ok) => {
-      const fresh = store.getCard(cardId);
-      if (!fresh) return;
-      if (ok) {
-        /*
-         * Le passage en « Terminé » est déjà fait : la carte suit l'état de son
-         * agent (`colonneEnFinDeTour`). On ne prévient que si elle y est
-         * VRAIMENT arrivée : un tour qui répond sans rien modifier au dépôt
-         * laisse la carte où elle est, il n'y a donc rien à annoncer.
-         */
-        if (fresh.column === 'done' || fresh.column === 'to_deploy') {
-          notify({
-            motif: 'tache-terminee',
-            title: 'Tâche terminée',
-            body: fresh.title,
-            reference: fresh.id,
-            element: fresh.title,
-            cardId: fresh.id,
-            projectId: fresh.projectId,
-          });
-        }
-        bus.toast('success', `Agent terminé : ${fresh.title}`, fresh.id);
-      } else {
-        bus.toast('error', `Agent en échec : ${fresh.title}`, fresh.id);
-      }
-    },
+    onComplete: apresLeTour(cardId),
   });
 
   return { ok: true };
+}
+
+/**
+ * Ce qu'on dit à la fin d'un tour de carte. Le MÊME pour un départ et pour une
+ * reprise : une reprise n'est pas un autre travail, c'est le même qui continue.
+ */
+function apresLeTour(cardId: string) {
+  return async (_text: string, ok: boolean): Promise<void> => {
+    const fresh = store.getCard(cardId);
+    if (!fresh) return;
+    if (ok) {
+      /*
+       * Le passage en « Terminé » est déjà fait : la carte suit l'état de son
+       * agent (`colonneEnFinDeTour`). On ne prévient que si elle y est
+       * VRAIMENT arrivée : un tour qui répond sans rien modifier au dépôt
+       * laisse la carte où elle est, il n'y a donc rien à annoncer.
+       */
+      if (fresh.column === 'done' || fresh.column === 'to_deploy') {
+        notify({
+          motif: 'tache-terminee',
+          title: 'Tâche terminée',
+          body: fresh.title,
+          reference: fresh.id,
+          element: fresh.title,
+          cardId: fresh.id,
+          projectId: fresh.projectId,
+        });
+      }
+      bus.toast('success', `Agent terminé : ${fresh.title}`, fresh.id);
+      return;
+    }
+    /*
+     * Un tour mis en pause revient ici en « pas réussi » — forcément, il n'est
+     * pas allé au bout. Ce n'est pas un échec pour autant : le dire serait
+     * inquiéter pour rien, alors que le travail est gardé et attend un clic.
+     */
+    if (fresh.scheduling?.suspendu) {
+      bus.toast('info', MENTION_EN_PAUSE, fresh.id);
+      return;
+    }
+    bus.toast('error', `Agent en échec : ${fresh.title}`, fresh.id);
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Mettre en pause, et reprendre où l'on s'est arrêté                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * METTRE EN PAUSE le travail de CETTE carte. Trois gestes en un, et pas un de
+ * plus : le tour en cours est arrêté, la file est vidée (rien ne doit repartir
+ * derrière), la marque de suspension est posée — la MÊME que celle du
+ * glissement vers « Planifié », celle que l'ordonnanceur regarde.
+ *
+ * La colonne ne bouge pas : la pause n'est pas un rangement, et déplacer la
+ * carte reste un geste à part.
+ */
+export async function pauseCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
+  const card = store.getCard(cardId);
+  if (!card) return { ok: false, error: 'carte introuvable' };
+
+  if (card.agentId) {
+    stopAgent(card.agentId, 'pause');
+    store.clearQueue(card.agentId);
+    bus.emit({ type: 'queue.snapshot', agentId: card.agentId, queue: [] });
+  }
+
+  const enPause = store.saveCard({ ...card, scheduling: marquerPause(card.scheduling) });
+  bus.emit({ type: 'card.upsert', card: enPause });
+  bus.toast('info', RAISON_EN_PAUSE, enPause.id);
+  return { ok: true };
+}
+
+/**
+ * REPRENDRE là où le travail s'est arrêté. C'est le même agent qui repart, donc
+ * la même session de moteur : son fil et sa liste de tâches sont déjà là, et on
+ * lui demande de continuer, jamais de recommencer.
+ *
+ * Sans agent d'exécution (carte jamais partie), il n'y a rien à reprendre : on
+ * retombe sur le départ ordinaire, le seul point d'entrée du lancement.
+ */
+export async function resumeCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
+  const prepa = await preparerReprise(cardId);
+  if (!prepa.ok) return { ok: false, error: prepa.error };
+  // Rien à reprendre : c'est un premier départ, et il n'a qu'un chemin.
+  if (!prepa.agentId || !prepa.prompt) return startCard(cardId);
+
+  // La colonne, elle, revient à « En cours » par le chemin habituel
+  // (`colonneAuDemarrage`, appliqué à tout tour d'exécution qui démarre).
+  await sendPrompt(prepa.agentId, prepa.prompt, {
+    silent: true,
+    ampleur: 'complete',
+    onComplete: apresLeTour(cardId),
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Tout ce que la reprise décide AVANT de parler au moteur : quel agent repart,
+ * sur quelle branche, avec quelle demande, et la marque de pause effacée. C'est
+ * séparé pour être rejouable dans un test — sans allumer un vrai moteur.
+ */
+export interface PrepaReprise {
+  ok: boolean;
+  error?: string;
+  /** L'agent qui repart. Absent : il n'y a rien à reprendre, c'est un départ. */
+  agentId?: string;
+  /** La branche retrouvée, ou `null` si le projet n'est pas un dépôt git. */
+  branche?: string | null;
+  prompt?: string;
+}
+
+export async function preparerReprise(cardId: string): Promise<PrepaReprise> {
+  const card = store.getCard(cardId);
+  if (!card) return { ok: false, error: 'carte introuvable' };
+  // Déjà reparti : le geste a été fait deux fois, il n'y a rien de plus à faire.
+  if (card.agentId && isRunning(card.agentId)) return { ok: true };
+
+  const agent = card.agentId ? store.getAgent(card.agentId) : null;
+  if (!agent || agent.role !== 'task') return { ok: true };
+
+  const project = store.getProject(card.projectId);
+  if (!project) return { ok: false, error: 'projet introuvable' };
+
+  // Une reprise est un lancement : les portes dures valent pour elle aussi.
+  const portes = await portesDures(card);
+  if (!portes.ok) return { ok: false, error: portes.reason ?? 'reprise impossible' };
+
+  const branche = await retrouverBranche(project.path, card);
+  if (branche.kind === 'echec') return { ok: false, error: branche.raison };
+  const nom = branche.kind === 'prete' ? branche.nom : null;
+
+  // Le geste humain, et lui seul, efface la marque de pause.
+  const reprise = store.saveCard({ ...card, scheduling: effacerPause(card.scheduling) });
+  bus.emit({ type: 'card.upsert', card: reprise });
+
+  return {
+    ok: true,
+    agentId: agent.id,
+    branche: nom,
+    prompt: promptDeReprise({ titre: card.title, branche: nom }),
+  };
+}
+
+/**
+ * Retrouver la branche d'une carte qu'on reprend. JAMAIS `checkout -B` ici :
+ * la branche existe déjà et porte le travail enregistré avant la pause — la
+ * recréer sur le sommet du moment l'effacerait. Si elle n'existe pas encore,
+ * c'est que rien n'a été enregistré : le chemin de départ ordinaire la crée.
+ */
+async function retrouverBranche(projectPath: string, card: Card): Promise<Branche> {
+  const branch = card.github?.branch ?? branchName(card);
+  try {
+    await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd: projectPath, timeout: 8000 });
+  } catch {
+    return { kind: 'sans-depot' };
+  }
+  try {
+    await execFileAsync('git', ['rev-parse', '--verify', branch], { cwd: projectPath, timeout: 8000 });
+  } catch {
+    return prepareBranch(projectPath, card);
+  }
+  if ((await currentBranch(projectPath)) === branch) return { kind: 'prete', nom: branch };
+  try {
+    await execFileAsync('git', ['checkout', branch], { cwd: projectPath, timeout: 20000 });
+  } catch {
+    /* le verdict se lit sur le résultat, pas sur le code de sortie */
+  }
+  const actuelle = await currentBranch(projectPath);
+  if (actuelle === branch) return { kind: 'prete', nom: branch };
+  return {
+    kind: 'echec',
+    raison: `Branche « ${branch} » impossible à retrouver (branche courante : ${actuelle ?? 'inconnue'}). Le dossier du projet est peut-être occupé par un autre agent.`,
+  };
 }
 
 /* ------------------------------------------------------------------ */

@@ -111,6 +111,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('card.delete'), id: z.string() }),
   z.object({ type: z.literal('card.start'), id: z.string() }),
+  /**
+   * Mettre en pause le travail de CETTE carte, et le reprendre où il s'est
+   * arrêté. Même marque que la suspension par glissement
+   * (`scheduling.suspendu`), effacée par le seul geste humain.
+   */
+  z.object({ type: z.literal('card.pause'), id: z.string() }),
+  z.object({ type: z.literal('card.resume'), id: z.string() }),
   z.object({ type: z.literal('card.finish'), id: z.string() }),
   z.object({ type: z.literal('card.reanalyze'), id: z.string() }),
   z.object({ type: z.literal('card.asap'), id: z.string(), value: z.boolean() }),

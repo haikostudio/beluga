@@ -64,6 +64,7 @@ node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
+node scripts/verif-pause-reprise.mjs # mettre une tâche en pause depuis sa conversation, et la reprendre (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -143,6 +144,16 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   reprend plus tout seul — seul un geste (bouton, ou nouveau dépôt en « En cours ») efface la
   marque. C'est la SEULE sortie permise pendant que l'agent écrit ; toutes les autres restent
   refusées (`sortieAutorisee`).
+- **La PAUSE est cette même suspension, avec un bouton** (`shared/src/pause-agent.ts`). Dans la bande
+  « en cours » du tiroir d'une carte, un bouton pause à côté du bouton d'arrêt : il arrête le tour de
+  CETTE carte (`pauseCard`), VIDE sa file — pause comme arrêt coupent ce qui attendait derrière — et
+  pose la MÊME marque `scheduling.suspendu` (`marquerPause`), sans déplacer la carte. Le bouton
+  devient alors un bouton de reprise : `resumeCard` relance le MÊME agent (donc la même session de
+  moteur, le fil et la liste de tâches déjà là) sur la MÊME branche — `retrouverBranche` fait un
+  `git checkout` simple, JAMAIS `-B`, qui effacerait le travail enregistré avant la pause. Un seul
+  effacement de la marque, `effacerPause`, partagé par le départ et la reprise : aucun chemin
+  automatique ne repart. Un tour arrêté à la main n'est PAS un échec : agent en `stopped`, aucune
+  alerte. Verrouillé par `server/src/test/pause-agent.test.ts` et `scripts/verif-pause-reprise.mjs`.
 - **Les portes DURES valent pour tous les chemins de lancement** (`portesDures`,
   `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, branche
   impossible à créer sur un dépôt git. `startCard` les contrôle, donc l'ordonnanceur comme le bouton

@@ -14,6 +14,7 @@ import {
   etatVisuelCarte,
   sortieAutorisee,
   RAISON_SUSPENDU,
+  marquerPause,
   comptePrecedents,
   messagesDepuis,
   peutRepartir,
@@ -30,7 +31,7 @@ import { cachedQuotas, refreshQuotas } from './accounts.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
-import { analyseCard, startCard, tick } from './scheduler.js';
+import { analyseCard, pauseCard, resumeCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
   deployableCards,
@@ -395,16 +396,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        * écrite dessus, et l'ordonnanceur ne la reprend pas de lui-même.
        */
       if (effet === 'suspendre') {
-        if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
+        // Exactement le geste du bouton pause, avec la colonne en plus : même
+        // arrêt, même file coupée, même marque.
+        await pauseCard(card.id);
+        const card2 = store.getCard(card.id) ?? card;
         const suspendue = store.saveCard({
-          ...card,
+          ...card2,
           column: 'planned',
           position: store.nextPosition(card.projectId, 'planned'),
-          scheduling: {
-            ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
-            suspendu: true,
-            waitingReason: RAISON_SUSPENDU,
-          },
+          scheduling: marquerPause(card2.scheduling, RAISON_SUSPENDU),
         });
         bus.emit({ type: 'card.upsert', card: suspendue });
         bus.toast('warning', RAISON_SUSPENDU, suspendue.id);
@@ -444,6 +444,23 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const result = await startCard(cmd.id);
       if (!result.ok) throw new Error(result.error ?? 'démarrage impossible');
       return result;
+    }
+
+    /*
+     * La pause et la reprise n'agissent que sur l'agent de CETTE carte, et
+     * passent par le seul mécanisme de suspension du projet. Un refus REMONTE :
+     * jamais un bouton qui clignote sans rien faire.
+     */
+    case 'card.pause': {
+      const result = await pauseCard(cmd.id);
+      if (!result.ok) throw new Error(result.error ?? 'mise en pause impossible');
+      return { card: store.getCard(cmd.id) };
+    }
+
+    case 'card.resume': {
+      const result = await resumeCard(cmd.id);
+      if (!result.ok) throw new Error(result.error ?? 'reprise impossible');
+      return { card: store.getCard(cmd.id) };
     }
 
     case 'card.finish': {
