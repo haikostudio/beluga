@@ -52,6 +52,7 @@ node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poig
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
+node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour ; un compte refusé est dit comme tel, pas comme un outil absent)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
@@ -339,6 +340,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu flouté aux deux bords. Pas de `overflow-y-auto` posé à la main, et pas
   de filet (`border-t` / `border-b`) au bord d'une zone à fondu — le fondu EST la limite.
+- **Un fil de conversation est COLLÉ EN BAS quand il ne remplit pas l'écran**
+  (`web/src/components/chat.tsx`). Les messages vivent dans un bloc unique, `shrink-0`, posé
+  `mt-auto` dans la zone qui défile : un échange court — une phrase du chef et sa carte proposée —
+  se termine juste au-dessus du volet des tâches au lieu de laisser un demi-écran noir. Le
+  `shrink-0` n'est pas décoratif : sans lui, un fil trop long serait comprimé au lieu de défiler.
+  On n'emploie PAS `justify-end` sur la zone elle-même — il rend le haut du fil inatteignable. Le
+  fil porte `data-fil="conversation"`, seul repère des scripts de vérification. Verrouillé par
+  `scripts/verif-vide-carte-validee.mjs`.
 - **Le fondu est réservé au défilement VERTICAL**, le seul où le texte glisse derrière un en-tête ou
   une barre. En `axe="horizontal"` (rail du tableau, barres d'onglets), `ZoneDefilement` ne pose
   AUCUN voile : il masquerait le bord des colonnes sans rien apprendre. L'option reste, car c'est

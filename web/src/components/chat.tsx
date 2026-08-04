@@ -150,37 +150,49 @@ export function Chat({
 
       <ZoneDefilement
         ref={filRef}
+        data-fil="conversation"
         onScroll={(event) => {
           if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
         }}
-        className="space-y-4 px-3 py-3"
+        className="flex flex-col px-3 py-3"
       >
-        {messages.length ? (
-          messages.map((message, index) => (
-            <React.Fragment key={message.id}>
-              {/* Une carte a souvent eu plusieurs agents : un repère sépare le
-                  compte rendu de l'analyse de celui de l'exécution. */}
-              {cardId && message.agentId !== messages[index - 1]?.agentId ? (
-                <SeparateurAgent titre={titreDeBloc(state.agents[message.agentId]?.role)} />
-              ) : null}
-              <MessageView
-                message={message}
-                projectId={projectId}
-                montrerHeure={afficherHeure(messages, index)}
-                pickedEvolutions={picked}
-                onToggleEvolution={toggleEvolution}
-                onToggleAll={toggleAll}
-              />
-            </React.Fragment>
-          ))
-        ) : (
-          <EmptyState
-            icon={<MessageSquare className="h-5 w-5" />}
-            title={vide?.titre ?? 'Aucun échange pour le moment'}
-            hint={vide?.indice ?? 'Posez une question ou demandez une action.'}
-          />
-        )}
-        <div ref={bottomRef} />
+        {/*
+         * Un échange court — une phrase du chef et sa carte proposée — ne
+         * remplit pas la hauteur du fil. Sans ce « mt-auto », le contenu
+         * restait collé EN HAUT et laissait un grand vide noir jusqu'au volet
+         * des tâches. La marge automatique pousse la conversation vers le bas,
+         * comme dans une vraie discussion, et disparaît d'elle-même dès que le
+         * fil déborde. Le bloc ne rétrécit jamais (« shrink-0 ») : sans cela,
+         * un fil trop long serait comprimé au lieu de défiler.
+         */}
+        <div className={cn('shrink-0 space-y-4', messages.length && 'mt-auto')}>
+          {messages.length ? (
+            messages.map((message, index) => (
+              <React.Fragment key={message.id}>
+                {/* Une carte a souvent eu plusieurs agents : un repère sépare le
+                    compte rendu de l'analyse de celui de l'exécution. */}
+                {cardId && message.agentId !== messages[index - 1]?.agentId ? (
+                  <SeparateurAgent titre={titreDeBloc(state.agents[message.agentId]?.role)} />
+                ) : null}
+                <MessageView
+                  message={message}
+                  projectId={projectId}
+                  montrerHeure={afficherHeure(messages, index)}
+                  pickedEvolutions={picked}
+                  onToggleEvolution={toggleEvolution}
+                  onToggleAll={toggleAll}
+                />
+              </React.Fragment>
+            ))
+          ) : (
+            <EmptyState
+              icon={<MessageSquare className="h-5 w-5" />}
+              title={vide?.titre ?? 'Aucun échange pour le moment'}
+              hint={vide?.indice ?? 'Posez une question ou demandez une action.'}
+            />
+          )}
+          <div ref={bottomRef} />
+        </div>
       </ZoneDefilement>
       </div>
 
