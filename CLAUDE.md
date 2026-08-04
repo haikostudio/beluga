@@ -55,7 +55,12 @@ node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
+node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 ```
+
+Un script qui corrige le tableau écrit dans `data/haikodev.db` : il montre d'abord ce qu'il ferait,
+et n'écrit qu'avec `--ecrire`. Il doit être rejouable sans doubler ses annotations, et ne rien
+supprimer — on déplace et on explique, on n'efface pas.
 
 `npm test` lit `server/dist` : construire avant de tester.
 
