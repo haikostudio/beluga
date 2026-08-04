@@ -176,7 +176,12 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="shrink-0 border-b border-border px-4 pb-3">
+      {/* Aucun filet sous le titre : c'est l'ESPACE qui sépare le titre de la
+          barre d'onglets. Le trait de 1 px se lisait comme un défaut
+          d'affichage, juste au-dessus des onglets et de la bande « en cours ».
+          Le retrait de la bordure remonte le contenu d'un pixel : on rend ce
+          pixel au bas de l'en-tête pour que rien ne bouge à l'écran. */}
+      <header className="shrink-0 px-4 pb-[13px]">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <DialogTitle className="leading-snug">{card.title}</DialogTitle>
