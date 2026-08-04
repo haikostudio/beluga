@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -13,6 +13,7 @@ import {
   decisionsParCarte,
   etatVisuelCarte,
   mentionArchivage,
+  mentionProgressionTaches,
   mentionSansSuite,
   sortieAutorisee,
 } from '@haikodev/shared';
@@ -588,8 +589,24 @@ export function CardTile({
   );
 
   /*
+   * L'avancement de la liste de tâches de l'agent d'exécution, tel qu'il voyage
+   * avec lui (champ `todos` de l'agent). On prend l'agent de tâche encore au
+   * travail sur cette carte : c'est le sien qui compte, pas celui d'une analyse.
+   */
+  const agentTacheActif = Object.values(state.agents).find(
+    (a) => a.cardId === card.id && a.role === 'task' && (a.status === 'running' || a.status === 'starting'),
+  );
+  const progression = mentionProgressionTaches({
+    column: card.column,
+    agentActif: !!agentTacheActif,
+    todos: agentTacheActif?.todos,
+  });
+
+  /*
    * L'état en cours ne s'affiche PAS dans le corps de la carte : il sort par le
    * bas, comme une étiquette glissée derrière, sur un fond un peu plus clair.
+   * Les états d'analyse, d'attente et d'échec gardent la priorité ; l'avancement
+   * « n/N faites » ne parle que lorsqu'aucun d'eux ne parle.
    */
   const statut =
     analysing || analyseEnCours
@@ -603,7 +620,14 @@ export function CardTile({
               texte: card.estimate?.failureReason ?? 'analyse sans chiffres',
               ton: 'text-danger',
             }
-          : null;
+          : progression
+            ? {
+                icon: <ListChecks className="h-2.5 w-2.5 shrink-0" />,
+                texte: progression,
+                ton: 'text-muted',
+                marqueur: 'progression-taches' as const,
+              }
+            : null;
 
   /*
    * Le voyant du titre : une seule règle, partagée et testée. Elle distingue
@@ -850,7 +874,12 @@ export function CardTile({
         >
           <span className="flex items-center gap-1">
             {statut.icon}
-            <span className="min-w-0 flex-1 truncate">{statut.texte}</span>
+            <span
+              className="min-w-0 flex-1 truncate"
+              data-progression-taches={'marqueur' in statut && statut.marqueur === 'progression-taches' ? card.id : undefined}
+            >
+              {statut.texte}
+            </span>
           </span>
         </div>
       ) : null}

@@ -61,6 +61,7 @@ node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la co
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
 node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu — et leur report sur carte / conversation
 node scripts/verif-carte-sans-suite.mjs # « tour terminé sans suite » sur une carte figée en « En cours » (serveur de développement, HAIKO_SANS_SUITE_URL)
+node scripts/verif-progression-taches.mjs # l'avancement « n/N faites » dans le décroché des cartes « En cours » (serveur de développement, HAIKO_PROGRESSION_URL)
 node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
@@ -469,6 +470,18 @@ sans son point d'essai.
   L'heure avance par une horloge UNIQUE partagée (`useMinute`, `web/src/lib/horloge.ts`) : vingt
   cartes ne font pas vingt minuteries, et la mention apparaît sans attendre un événement du serveur.
   Verrouillé par `server/src/test/carte-sans-suite.test.ts` et `scripts/verif-carte-sans-suite.mjs`.
+- **L'avancement « n/N faites » d'une carte en cours VOYAGE avec l'agent**
+  (`mentionProgressionTaches`, `shared/src/progression-taches.ts`). Les étapes cochées de la liste de
+  tâches vivent sur les MESSAGES, souvent chargés seulement à l'ouverture d'une carte : le tableau ne
+  les voyait donc pas. Le démon pose désormais le décompte sur l'agent lui-même (`Agent.todos` =
+  `{done, total}`, `shared/src/models.ts`) — remis à zéro au départ d'un tour, mis à jour à chaque
+  événement `todo` en relisant l'agent frais pour ne pas écraser un statut posé ailleurs
+  (`server/src/runtime.ts`). La carte du tableau lit l'agent de rôle « task » encore au travail et
+  affiche « n/N faites » dans le décroché du bas (`CardTile`, `web/src/components/board.tsx`), avec le
+  pluriel du volet des tâches. Trois silences : hors « En cours », aucun agent de tâche au travail, ou
+  pas encore de liste. Ce décroché garde ses états prioritaires (chiffrage, attente, échec) : la
+  mention ne parle que lorsqu'aucun d'eux ne parle. Verrouillé par
+  `server/src/test/progression-taches.test.ts` et `scripts/verif-progression-taches.mjs`.
 - **Un pied de colonne agit en LOT, toujours en deux temps et toujours par le même mécanisme**
   (`ACTIONS_DE_LOT`, `web/src/components/board.tsx`). Premier clic : une case à cocher sort du coin
   haut-gauche de chaque carte, TOUTES cochées, et le pied devient « Annuler » / « <verbe> (n) ».
