@@ -897,3 +897,47 @@ export function partQuotaConsommee(avant?: number, apres?: number): number {
   const part = apres - avant;
   return part > 0 ? part : 0;
 }
+
+/**
+ * Le POIDS d'un tour dans le partage du quota : ses jetons consommés, ou à
+ * défaut sa durée en secondes (un tour qui n'a pas encore de compte de jetons).
+ * Un poids négatif ou non fini vaut 0 — on ne pèse pas ce qu'on n'a pas mesuré.
+ *
+ * Règle pure, sans réseau ni base : elle se teste seule.
+ */
+export function poidsDeTour(tokens?: number, seconds?: number): number {
+  if (typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0) return tokens;
+  if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) return seconds;
+  return 0;
+}
+
+/**
+ * Répartit un delta de quota observé entre les tours qui tournaient EN MÊME
+ * TEMPS sur le même compte. Plusieurs cartes d'un même projet démarrent en
+ * parallèle sur le même compte : chacune relève le MÊME compteur global et,
+ * sans partage, s'attribue TOUT le delta — la somme des parts dépasse alors la
+ * consommation réelle. On rend ici à chaque tour sa part au prorata de son
+ * poids (`poidsDeTour`), rapporté au poids de TOUT le groupe :
+ *
+ *   part = delta × poidsPropre ⁄ (somme des poids du groupe)
+ *
+ * `poidsGroupe` contient les poids de TOUS les tours du groupe, celui-ci
+ * compris. Chaque fraction reste ≤ 1, donc la somme des parts des tours qui
+ * voient le même delta et le même groupe vaut EXACTEMENT le delta, jamais plus.
+ * Un tour seul (groupe d'un) reçoit tout. Un groupe sans poids exploitable est
+ * partagé à ÉGALITÉ (delta ⁄ nombre de tours) plutôt que divisé par zéro.
+ *
+ * Règle pure, sans réseau ni base : elle se teste seule. Les deux fenêtres
+ * (5 h et semaine) l'appellent avec les mêmes poids, donc suivent la même
+ * répartition.
+ */
+export function repartirPartQuota(delta: number, poidsPropre: number, poidsGroupe: number[]): number {
+  if (!(delta > 0)) return 0;
+  const poids = poidsGroupe.map((p) => (Number.isFinite(p) && p > 0 ? p : 0));
+  const total = poids.reduce((somme, p) => somme + p, 0);
+  const propre = Number.isFinite(poidsPropre) && poidsPropre > 0 ? poidsPropre : 0;
+  if (!(total > 0)) {
+    return poids.length > 0 ? delta / poids.length : delta;
+  }
+  return delta * (propre / total);
+}

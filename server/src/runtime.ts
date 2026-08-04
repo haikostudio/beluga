@@ -26,7 +26,9 @@ import {
   etatDuPont,
   nomDeBranche,
   partQuotaConsommee,
+  poidsDeTour,
   raisonSansModification,
+  repartirPartQuota,
   templateForColumn,
   tourDeLaCarte,
   wrapPrompt,
@@ -601,8 +603,32 @@ async function startTurn(
   // Lecture FRAÎCHE des deux fenêtres après le tour, comparée au relevé d'avant.
   // Une lecture en échec rend `null` : les parts restent alors à 0.
   const quotaApres = (await relireQuotaDuCompte(account.id).catch(() => null)) ?? {};
-  const part5h = partQuotaConsommee(quotaAvant.session, quotaApres.session);
-  const partSemaine = partQuotaConsommee(quotaAvant.weekly, quotaApres.weekly);
+  const delta5h = partQuotaConsommee(quotaAvant.session, quotaApres.session);
+  const deltaSemaine = partQuotaConsommee(quotaAvant.weekly, quotaApres.weekly);
+
+  /*
+   * PARTAGE DU DELTA ENTRE TOURS PARALLÈLES. Plusieurs cartes d'un même projet
+   * tournent sur le MÊME compte : chacune relève le même compteur global et
+   * s'attribuerait tout le delta, gonflant la somme au-delà du réel. On rend
+   * donc à ce tour sa part au prorata de son poids (ses jetons, à défaut sa
+   * durée), rapporté au groupe des tours qui tournent EN CE MOMENT sur ce
+   * compte. Cet agent vient d'être retiré de `live` (juste au-dessus) : on l'y
+   * ajoute explicitement pour peser le groupe entier. Les deux fenêtres suivent
+   * la même répartition (mêmes poids).
+   */
+  const maintenant = Date.now();
+  const poidsPropre = poidsDeTour(tokens, elapsedSeconds);
+  const poidsConcurrents = [...live.values()]
+    .filter((run) => run.account === account.id)
+    .map((run) =>
+      poidsDeTour(
+        (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
+        (maintenant - run.startedAt) / 1000,
+      ),
+    );
+  const poidsGroupe = [poidsPropre, ...poidsConcurrents];
+  const part5h = repartirPartQuota(delta5h, poidsPropre, poidsGroupe);
+  const partSemaine = repartirPartQuota(deltaSemaine, poidsPropre, poidsGroupe);
 
   store.recordUsage({
     projectId: agent.projectId,
