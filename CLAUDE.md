@@ -153,6 +153,16 @@ sans son point d'essai.
   de premier niveau avec leur `location:`, `phraseDEchec` les met dans le message d'erreur et
   `detailDEchec` les pose EN TÊTE du détail, avant la fin de la sortie brute. Cinq contrôles nommés
   au plus, le reste compté. Verrouillé par `server/src/test/echec-verification.test.ts`.
+- **Les contrôles de la publication portent sur du code RECOMPILÉ, et un échec est réparé sur place**
+  (`controlerLeProjet` et `reparerLesControles`, `server/src/deploy.ts`). `npm test` lit `server/dist`,
+  que l'étape « build » ne reconstruisait qu'APRÈS : l'étape « verify » jugeait le dist du dernier
+  lancement du démon et non le lot fusionné — un correctif déjà écrit échouait indéfiniment. Elle
+  lance donc `npm run build:server` d'abord, et une compilation qui tombe arrête là au lieu de
+  contrôler à vide. Un contrôle en échec ne rend plus la main : un agent de rôle « deploy » est
+  appelé sur-le-champ, comme pour un conflit de fusion, avec les contrôles tombés NOMMÉS ; il répare
+  la cause (jamais en désactivant un test), puis tout est rejoué. Au bout de `REPARATIONS_MAX`
+  passes, le refus reste entier et nomme ce qui tombe encore. Verrouillé par
+  `server/src/test/controles-publication.test.ts`.
 - **La publication POSE les outils de construction avant de construire**
   (`poserLesOutilsDeConstruction`, `server/src/deploy.ts`). Le démon tourne avec
   `NODE_ENV=production`, où `npm install` saute les dépendances de développement — donc `tsc` et

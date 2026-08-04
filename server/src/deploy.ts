@@ -8,6 +8,8 @@ import {
   DeployStepKey,
   MoyensDeMiseEnLigne,
   PlanDeMiseEnLigne,
+  ECHECS_NOMMES_MAX,
+  controlesTombes,
   detailDEchec,
   estPlomberie,
   miseEnLigneReelle,
@@ -319,6 +321,83 @@ async function resoudreConflit(
 
   await runCommand(cwd, 'git merge --abort');
   return { fusionnee: false, recit: 'conflit toujours présent après passage de l’agent' };
+}
+
+/* ------------------------------------------------------------------ */
+/* Les contrôles, et leur réparation pendant la publication            */
+/* ------------------------------------------------------------------ */
+
+/** Combien de fois la publication rappelle un agent pour réparer ses contrôles. */
+export const REPARATIONS_MAX = 2;
+
+/**
+ * Les contrôles du projet, sur du code À JOUR.
+ *
+ * `npm test` lit `server/dist` : sans recompiler d'abord, on jugerait le code
+ * du dernier lancement du démon et non le lot qu'on vient de fusionner.
+ */
+async function controlerLeProjet(cwd: string): Promise<{ ok: boolean; etape: 'compilation' | 'controles'; out: string }> {
+  const compile = await runCommand(cwd, 'npm run build:server', 10 * 60 * 1000, Infinity);
+  if (!compile.ok) return { ok: false, etape: 'compilation', out: compile.out };
+  const test = await runCommand(cwd, 'npm test', 10 * 60 * 1000, Infinity);
+  return { ok: test.ok, etape: 'controles', out: test.out };
+}
+
+/**
+ * Un contrôle tombé se répare DANS la publication, comme un conflit de fusion.
+ *
+ * Avant, la publication s'arrêtait net et rendait la main : il fallait relire
+ * la sortie, ouvrir une carte, la lancer, la clôturer, puis relancer la mise en
+ * ligne. Le publieur appelle maintenant un agent sur-le-champ, lui donne les
+ * contrôles tombés par leur nom, attend qu'il ait fini, et rejoue les contrôles.
+ * Le refus, lui, ne bouge pas : après `REPARATIONS_MAX` passes sans succès, la
+ * publication échoue en nommant ce qui tombe encore.
+ */
+async function reparerLesControles(
+  projectId: string,
+  cwd: string,
+  echec: { etape: 'compilation' | 'controles'; out: string },
+  passe: number,
+): Promise<{ tente: boolean; recit: string }> {
+  const agent = createAgent({
+    projectId,
+    role: 'deploy',
+    title: echec.etape === 'compilation' ? 'Publication — le code ne compile pas' : 'Publication — contrôles en échec',
+  });
+
+  const tombes = controlesTombes(echec.out);
+  const liste = tombes.length
+    ? tombes.slice(0, ECHECS_NOMMES_MAX).map((c) => `- ${c.nom}${c.endroit ? ` (${c.endroit})` : ''}`).join('\n')
+    : '- (aucun nom relevé dans la sortie : lis-la en entier)';
+
+  const prompt = [
+    `La publication est EN COURS et bloque (passe ${passe} sur ${REPARATIONS_MAX}).`,
+    echec.etape === 'compilation'
+      ? '`npm run build:server` échoue : le code ne compile pas, les contrôles n’ont même pas pu être lancés.'
+      : '`npm test` échoue sur la branche principale, une fois le lot fusionné.',
+    '',
+    echec.etape === 'compilation' ? 'Sortie de la compilation :' : 'Contrôles tombés :',
+    echec.etape === 'compilation' ? echec.out.slice(-4000) : liste,
+    '',
+    'Fais exactement ceci, et rien d’autre :',
+    '1. Reproduis l’échec (`npm run build:server`, puis `npm test`).',
+    '2. Répare la CAUSE, dans le code. Ne supprime, ne désactive et ne mets en commentaire AUCUN test : un contrôle qui tombe dit quelque chose de vrai.',
+    '3. Si le contrôle est instable (il passe une fois sur deux), rends-le stable — ne le retire pas.',
+    '4. Reconstruis et relance les contrôles jusqu’à ce qu’ils passent en entier.',
+    '5. Enregistre ton travail en nommant tes fichiers un par un (jamais `git add -A` : le dossier est partagé).',
+    '',
+    'Tu es sur la branche principale, dans le dossier du projet : n’en change pas, ne crée pas de branche.',
+    'Ne publie pas, ne redémarre rien : la publication reprendra toute seule dès que tu auras fini. Réponds court.',
+  ].join('\n');
+
+  bus.toast('info', `Publication bloquée : l’agent de publication répare les contrôles (passe ${passe}).`);
+
+  try {
+    await sendPrompt(agent.id, prompt, { template: 'free', silent: true });
+  } catch (err: any) {
+    return { tente: false, recit: `agent de réparation en échec (${err?.message ?? 'raison inconnue'})` };
+  }
+  return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
 
 /* ------------------------------------------------------------------ */
@@ -823,12 +902,47 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
          * change — une branche non envoyée ne peut plus rien y faire.
          */
         current = setStep(current, 'verify', 'running');
-        const verify = await runCommand(cwd, 'npm test', 10 * 60 * 1000, Infinity);
+        /*
+         * `npm test` lit `server/dist` — le code COMPILÉ. Sans cette
+         * recompilation, l'étape jugeait le dist du dernier lancement du démon
+         * et non le lot qu'on vient de fusionner : un correctif déjà écrit
+         * échouait indéfiniment, et un test réparé restait rouge tant que
+         * personne n'avait reconstruit à la main. On pose donc les outils et on
+         * recompile shared + server AVANT de vérifier ; l'étape « build » qui
+         * suit refait l'ensemble, interface comprise.
+         */
+        const poseVerif = await poserLesOutilsDeConstruction(cwd);
+        let verify = await controlerLeProjet(cwd);
+        const passes: string[] = [];
+        /*
+         * Un contrôle tombé n'arrête plus la publication du premier coup : un
+         * agent de publication le répare sur-le-champ, puis on rejoue tout —
+         * compilation comprise. Le refus reste entier au bout de
+         * `REPARATIONS_MAX` passes.
+         */
+        for (let passe = 1; !verify.ok && passe <= REPARATIONS_MAX; passe++) {
+          const repare = await reparerLesControles(project.id, cwd, verify, passe);
+          passes.push(repare.recit);
+          if (!repare.tente) break;
+          verify = await controlerLeProjet(cwd);
+        }
+        const journalDesPasses = passes.length ? `\n\nRéparations tentées :\n${passes.map((p) => `- ${p}`).join('\n')}` : '';
+        if (!verify.ok && verify.etape === 'compilation') {
+          current = setStep(
+            current,
+            'verify',
+            'failed',
+            `${poseVerif}Les contrôles portent sur le code compilé : sa compilation a échoué avant même de les lancer.\n\n\`npm run build:server\`\n${verify.out.slice(-2000)}${journalDesPasses}`,
+          );
+          throw new Error('Le code ne compile pas : les contrôles n’ont pas pu être lancés, rien n’est mis en ligne.');
+        }
         current = setStep(
           current,
           'verify',
           verify.ok ? 'done' : 'failed',
-          verify.ok ? verify.out.slice(-800) : detailDEchec(verify.out),
+          verify.ok
+            ? `${poseVerif}Code recompilé avant les contrôles (\`npm run build:server\`).${journalDesPasses}\n\n${verify.out.slice(-800)}`
+            : `${detailDEchec(verify.out)}${journalDesPasses}`,
         );
         // Le refus ne bouge pas ; ce qui change, c'est qu'il NOMME ce qui tombe.
         if (!verify.ok) throw new Error(phraseDEchec(verify.out));
