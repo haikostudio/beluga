@@ -223,15 +223,23 @@ export const RAISON_SUSPENDU =
  *
  * Seul le cas « l'agent d'exécution a répondu sans rien changer » mérite une
  * phrase : c'est le seul où l'on pourrait croire le travail fait.
+ *
+ * `dejaEnregistre` regarde l'HISTOIRE de la carte, pas ce seul tour : une carte
+ * qui a déjà produit et enregistré du code (elle a atteint « Terminé », ou porte
+ * un enregistrement de son travail) ne concerne plus cette note. Un tour de
+ * simple suite ou de discussion, donné après coup, ne doit pas rallumer « aucun
+ * fichier n'a changé » sur un travail qui a bel et bien atterri.
  */
 export function raisonSansModification(
   colonne: ColumnKey,
   reussi: boolean,
   role: AgentRole,
   depotModifie: boolean,
+  dejaEnregistre: boolean,
 ): string | null {
   if (!reussi || depotModifie) return null;
   if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
   if (colonne !== 'running') return null;
+  if (dejaEnregistre) return null;
   return RAISON_SANS_MODIFICATION;
 }

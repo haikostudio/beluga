@@ -78,19 +78,27 @@ test('le même tour, avec du code enregistré, pose bien la carte en terminé', 
   assert.equal(colonneEnFinDeTour('running', true, 'task', true), 'done');
 });
 
-test('une carte laissée en place faute de modification dit pourquoi', () => {
-  assert.equal(raisonSansModification('running', true, 'task', false), RAISON_SANS_MODIFICATION);
+test('une carte NEUVE laissée en place faute de modification dit pourquoi', () => {
+  // Jamais rien produit (dejaEnregistre = false) : la note doit s'afficher.
+  assert.equal(raisonSansModification('running', true, 'task', false, false), RAISON_SANS_MODIFICATION);
   assert.match(RAISON_SANS_MODIFICATION, /aucun fichier/);
+});
+
+test('une carte qui a DÉJÀ enregistré du code ne dit plus « aucun fichier n’a changé »', () => {
+  // Un tour de suite ou de discussion, sans changement, sur un travail déjà
+  // atterri : la note ne se rallume pas.
+  assert.equal(raisonSansModification('running', true, 'task', true, false), null);
+  assert.equal(raisonSansModification('running', true, 'task', false, true), null);
 });
 
 test('une carte qui bouge, un tour en échec ou un rôle qui n’exécute pas n’ont rien à expliquer', () => {
   // Le tour a modifié du code : la carte part en « Terminé », pas de phrase.
-  assert.equal(raisonSansModification('running', true, 'task', true), null);
+  assert.equal(raisonSansModification('running', true, 'task', true, false), null);
   // L'échec est déjà signalé par ailleurs : deux messages vaudraient reproche.
-  assert.equal(raisonSansModification('running', false, 'task', false), null);
+  assert.equal(raisonSansModification('running', false, 'task', false, false), null);
   // Une analyse ne clôt jamais : ne rien modifier est son fonctionnement normal.
   for (const role of ['analysis', 'orchestrator', 'deploy'] as const) {
-    assert.equal(raisonSansModification('running', true, role, false), null, `rôle « ${role} »`);
+    assert.equal(raisonSansModification('running', true, role, false, false), null, `rôle « ${role} »`);
   }
 });
 

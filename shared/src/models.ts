@@ -242,6 +242,15 @@ export const Card = z.object({
    * carte, et disparaît dès qu'un tour modifie enfin du code.
    */
   sansModification: z.string().optional(),
+  /**
+   * La carte a-t-elle DÉJÀ produit et enregistré du code au cours de sa vie ?
+   * Posé dès qu'un tour d'exécution modifie le dépôt (ou qu'on relance une carte
+   * déjà passée par « Terminé »/« À déployer »), il ne s'efface jamais. C'est lui
+   * qui distingue une carte neuve stérile d'une carte aboutie à qui l'on donne une
+   * simple suite : la note « aucun fichier n'a changé » ne concerne que la
+   * première. À la différence de `doneAt`, il SURVIT à un relancement.
+   */
+  codeDejaEnregistre: z.boolean().default(false),
   createdAt: z.number(),
   updatedAt: z.number(),
   doneAt: z.number().optional(),
