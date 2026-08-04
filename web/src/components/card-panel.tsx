@@ -111,7 +111,12 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
   /* Ce que cette carte attend de vous — le même compte que son triangle sur le
      tableau, posé ici sur l'onglet où la décision se prend. */
   const decisions = decisionsParCarte(state.decisions)[card.id] ?? 0;
-  const [onglet, setOnglet] = React.useState(aLire ? 'chat' : 'details');
+  /*
+   * Une décision qui attend l'emporte sur tout le reste : le bouton
+   * « Répondre » du tableau doit tomber DIRECTEMENT sur la question, jamais sur
+   * l'onglet des détails qu'il faudrait ensuite quitter à la main.
+   */
+  const [onglet, setOnglet] = React.useState(decisions > 0 || aLire ? 'chat' : 'details');
 
   /*
    * Les gestes du pied suivent une règle partagée : un bouton ne s'allume que

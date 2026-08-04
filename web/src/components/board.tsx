@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -720,6 +720,29 @@ export function CardTile({
             ))}
             {card.billing ? <Badge tone="success">déjà facturée</Badge> : null}
           </div>
+        ) : null}
+
+        {/*
+         * Le triangle DIT qu'une décision attend ; ce bouton y EMMÈNE. Sans
+         * lui, il fallait deviner qu'ouvrir la carte menait au champ de
+         * réponse — le repère montrait un travail à faire sans dire par où le
+         * prendre. Il ne s'affiche que lorsqu'il a du sens, comme tout bouton
+         * de décision, et ouvre le tiroir sur la conversation, là où la
+         * question et son champ attendent.
+         */}
+        {decisions > 0 ? (
+          <button
+            type="button"
+            data-repondre-carte={card.id}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen();
+            }}
+            className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded border border-warning/40 bg-warning/10 px-1.5 py-1 text-[12px] font-medium leading-snug text-warning transition-colors hover:bg-warning/20"
+          >
+            <MessageSquare className="h-3 w-3 shrink-0" />
+            {decisions > 1 ? `Répondre (${decisions})` : 'Répondre'}
+          </button>
         ) : null}
 
         {/*

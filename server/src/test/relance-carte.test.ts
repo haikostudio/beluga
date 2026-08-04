@@ -113,3 +113,42 @@ test('la fin de tour demande d’abord si le tour est encore celui de la carte',
   const runtime = lire('runtime.ts');
   assert.match(runtime, /tourDeLaCarte\(card, agent\.id\)/);
 });
+
+/* -------- Une relance efface la marque de suspension -------- */
+
+/*
+ * Une carte arrêtée à la main, ou sortie de « En cours », garde
+ * `scheduling.suspendu` : l'ordonnanceur ne la reprend plus tout seul, et
+ * seul un geste efface la marque. Répondre à sa question EN EST UN — le tour
+ * repartait pourtant avec la marque intacte, si bien que la carte retombait
+ * en file après ce tour-là et n'en ressortait jamais. `startCard` efface déjà
+ * la marque de son côté ; les deux seuls départs possibles la traitent donc
+ * pareil.
+ */
+test('un départ de tour efface la suspension, comme le fait « Lancer maintenant »', () => {
+  const runtime = lire('runtime.ts');
+  const corps = runtime
+    .split('export function replacerCarteAuDemarrage(')[1]
+    .split('\nexport ')[0];
+  assert.match(corps, /suspendu: false/, 'la relance doit effacer la marque de suspension');
+  assert.match(corps, /waitingReason: undefined/, "…et la raison d'attente qui allait avec");
+  // La marque de `startCard` ne bouge pas : les deux départs restent alignés.
+  assert.match(lire('scheduler.ts'), /suspendu: false/);
+});
+
+/* -------- Une question restée en texte prévient, elle aussi -------- */
+
+/*
+ * Une question posée par l'outil notifie tout de suite. La même question
+ * écrite en texte n'allumait que le triangle : rien ne sortait de
+ * l'application. Le motif est le MÊME (`decision-attendue`), donc le
+ * dédoublonnage de `notify` fait que l'agent qui a fait les deux ne prévient
+ * qu'une fois.
+ */
+test('un tour qui finit sur une question en texte prévient par le guichet unique', () => {
+  const runtime = lire('runtime.ts');
+  assert.match(runtime, /decisionEnTexteLibre\(\{ statut: 'done', dernierMessage: dernier \}\)/);
+  const bloc = runtime.split('if (!failed && agent.cardId) {')[1].split('\n  // Dès que')[0];
+  assert.match(bloc, /motif: 'decision-attendue'/, 'le motif déjà prévu, jamais un nouveau genre');
+  assert.match(bloc, /reference: agent\.cardId/, 'la CARTE comme référence : deux tours, une alerte');
+});

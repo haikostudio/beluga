@@ -410,6 +410,23 @@ sans son point d'essai.
   comptée — et `decisionsEnAttente` (`server/src/store.ts`) en fait une décision de plus, qui allume
   le MÊME triangle orange. Seuls les agents portant une CARTE sont jugés : le chef d'orchestre finit
   une réponse sur deux par « voulez-vous que… », et son fil est déjà sous les yeux de qui l'a écrit.
+  Elle PRÉVIENT aussi : en fin de tour réussi, `runTurn` (`server/src/runtime.ts`) passe par le même
+  guichet `notify` avec le motif `decision-attendue` déjà prévu — la référence est la CARTE, donc
+  deux tours qui reposent la question ne font qu'une alerte, et un agent qui a AUSSI appelé l'outil
+  n'en fait qu'une (dédoublonnage par sujet). Verrouillé par
+  `server/src/test/relance-carte.test.ts`.
+- **Le triangle DIT, le bouton « Répondre » EMMÈNE** (`web/src/components/board.tsx`). La carte du
+  tableau qui attend une décision porte, sous son titre, un bouton `data-repondre-carte` — jamais
+  ailleurs, comme tout bouton de décision. Il ouvre le tiroir de la carte, qui s'ouvre alors sur
+  l'onglet « Conversation » et non sur « Détails » (`card-panel.tsx` : `decisions > 0` l'emporte sur
+  la règle habituelle), là où la question et son champ de réponse attendent. Vérifié par
+  `scripts/verif-carte-sans-suite.mjs`.
+- **Un départ de tour efface la SUSPENSION, quel que soit le chemin**
+  (`replacerCarteAuDemarrage`, `server/src/runtime.ts`). Répondre à une question relançait bien la
+  carte — `question.answer` appelle `sendPrompt` —, mais `scheduling.suspendu` restait posée : la
+  carte repartait pour ce tour-là puis retombait en file sans que l'ordonnanceur ne la reprenne
+  jamais. La marque et sa `waitingReason` sont donc effacées au départ, exactement comme le fait
+  déjà `startCard` : les deux seuls départs possibles traitent la suspension pareil.
 - **Une carte figée en « En cours » le DIT** (`mentionSansSuite`, `shared/src/carte-sans-suite.ts`).
   Entre la roue qui tourne et la carte close, il existait un troisième état muet : le tour s'est
   achevé, aucun agent ne travaille, personne n'a repris. Passé une heure (`DELAI_SANS_SUITE`), la
