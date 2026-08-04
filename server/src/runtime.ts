@@ -29,6 +29,7 @@ import {
   poidsDeTour,
   raisonSansModification,
   repartirPartQuota,
+  ROLES_QUI_DEPLACENT,
   templateForColumn,
   tourDeLaCarte,
   wrapPrompt,
@@ -191,6 +192,12 @@ export function replacerCarteAuDemarrage(agent: Agent): void {
     doneAt: undefined,
     // …et la phrase « rien n'a changé » du tour précédent non plus.
     sansModification: undefined,
+    // Une carte qu'on relance depuis une fin de travail (« Terminé »,
+    // « À déployer ») a DÉJÀ produit du code : on grave le drapeau qui empêchera
+    // un tour de suite muet de rallumer « aucun fichier n'a changé ». C'est aussi
+    // ce qui rattrape les cartes abouties avant l'existence du drapeau.
+    codeDejaEnregistre:
+      carte.codeDejaEnregistre || carte.column === 'done' || carte.column === 'to_deploy',
     /*
      * Un tour qui démarre est EXACTEMENT le geste qu'attendait une carte
      * suspendue — répondre à sa question en est un. Sans cet oubli, la carte
@@ -757,12 +764,20 @@ async function startTurn(
        */
       const leSien = tourDeLaCarte(card, agent.id);
       const cible = leSien ? colonneEnFinDeTour(card.column, !failed, agent.role, depotModifie) : null;
-      const raison = leSien ? raisonSansModification(card.column, !failed, agent.role, depotModifie) : null;
+      // Ce tour vient-il de produire du code ? Alors la carte l'a « déjà
+      // enregistré » pour de bon — le drapeau ne s'effacera plus.
+      const aProduit =
+        leSien && !failed && ROLES_QUI_DEPLACENT.includes(agent.role) && depotModifie;
+      const dejaEnregistre = card.codeDejaEnregistre || aProduit;
+      const raison = leSien
+        ? raisonSansModification(card.column, !failed, agent.role, depotModifie, dejaEnregistre)
+        : null;
       const updated = store.saveCard({
         ...card,
         ...(cible
           ? { column: cible, position: store.nextPosition(card.projectId, cible), doneAt: Date.now() }
           : {}),
+        codeDejaEnregistre: dejaEnregistre,
         // La phrase « rien n'a changé » n'appartient qu'à l'agent de la carte :
         // un tour étranger la laisse telle quelle plutôt que de l'effacer.
         ...(leSien ? { sansModification: raison ?? undefined } : {}),

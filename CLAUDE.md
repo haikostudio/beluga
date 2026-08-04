@@ -289,6 +289,12 @@ sans son point d'essai.
   (`raisonSansModification` → champ `sansModification`, affiché sur la carte du tableau). Le lot à
   publier se remplissant depuis « Terminé », rien à publier = rien dans le lot. Sans repère (projet
   hors git), le constat vaut `true` : on ne retient pas une carte sur une observation impossible.
+  **La note ne vaut que pour une carte qui n'a JAMAIS rien produit.** Une carte qui a déjà enregistré
+  du code au cours de sa vie porte le drapeau `card.codeDejaEnregistre` (posé en fin de tour dès que
+  le dépôt bouge, et au relancement d'une carte quittant « Terminé »/« À déployer » — il SURVIT au
+  relancement, contrairement à `doneAt`) ; `raisonSansModification` reçoit ce drapeau en dernier
+  argument et se TAIT quand il est vrai. Un tour de simple suite ou de discussion sur un travail déjà
+  atterri ne rallume donc plus « aucun fichier n'a changé ».
 - **TOUTE demande de PROGRAMMATION passe par une carte** — nouvelle fonctionnalité, correction,
   suppression, changement de comportement, retouche d'interface, script, réglage : aucune exception,
   quelle que soit la taille. Le chef PROPOSE la carte et s'arrête là ; c'est l'agent de cette carte

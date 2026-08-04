@@ -136,6 +136,37 @@ test('un départ de tour efface la suspension, comme le fait « Lancer maintenan
   assert.match(lire('scheduler.ts'), /suspendu: false/);
 });
 
+/* -------- Un travail déjà atterri ne redit plus « aucun code enregistré » -------- */
+
+/*
+ * Une carte qui a produit et fusionné du code (« Enregistrer par tâche le
+ * quota », « Page tableau de bord »…) recevait ensuite une SUITE — un tour sans
+ * nouvel enregistrement — qui stampait « aucun fichier n'a changé », comme si
+ * rien n'avait jamais été fait. Le drapeau `codeDejaEnregistre` survit au
+ * relancement (contrairement à `doneAt`) : gravé au moment où du code atterrit,
+ * il éteint la note pour toute suite ultérieure.
+ */
+test('relancer une carte aboutie grave le drapeau « code déjà enregistré »', () => {
+  const runtime = lire('runtime.ts');
+  const corps = runtime
+    .split('export function replacerCarteAuDemarrage(')[1]
+    .split('\nexport ')[0];
+  // Au relancement depuis une fin de travail, le drapeau est posé pour de bon —
+  // ce qui rattrape aussi les cartes abouties avant l'existence du drapeau.
+  assert.match(corps, /codeDejaEnregistre:/);
+  assert.match(corps, /carte\.column === 'done'/);
+  assert.match(corps, /carte\.column === 'to_deploy'/);
+});
+
+test('la fin de tour tait la note quand la carte a déjà enregistré du code', () => {
+  const runtime = lire('runtime.ts');
+  // La décision d'afficher la note reçoit l'historique de la carte, pas ce seul
+  // tour : `dejaEnregistre` est passé à `raisonSansModification`.
+  assert.match(runtime, /raisonSansModification\([^)]*dejaEnregistre\)/s);
+  // Un tour qui produit du code grave le drapeau sur la carte.
+  assert.match(runtime, /const dejaEnregistre = card\.codeDejaEnregistre \|\| aProduit/);
+});
+
 /* -------- Une question restée en texte prévient, elle aussi -------- */
 
 /*
