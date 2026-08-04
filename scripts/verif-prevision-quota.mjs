@@ -11,7 +11,7 @@
  *
  *   HAIKODEV_TOKEN=… HAIKODEV_URL=http://localhost:7100 node scripts/verif-prevision-quota.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';

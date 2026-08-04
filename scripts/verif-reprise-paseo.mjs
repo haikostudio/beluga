@@ -7,7 +7,7 @@
  *
  *   node scripts/verif-reprise-paseo.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';

@@ -9,7 +9,7 @@
  *
  *   node scripts/verif-bloc-publication.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 

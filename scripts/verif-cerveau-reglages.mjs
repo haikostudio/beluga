@@ -9,7 +9,7 @@
  *
  *   node scripts/verif-cerveau-reglages.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

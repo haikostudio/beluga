@@ -9,7 +9,7 @@
  *
  *   node scripts/verif-menu-carte.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

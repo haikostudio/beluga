@@ -22,7 +22,7 @@
  * point d'entrée que « Lancer maintenant », et les règles pures sont testées
  * par `server/src/test/suivi-colonne.test.ts`.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';

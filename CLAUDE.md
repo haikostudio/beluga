@@ -12,6 +12,7 @@ vivent les choses, ce qu'on n'enfreint pas. Aucun journal ici — les livraisons
 | `web/` | L'interface : tableau, conversations, réglages, application installable |
 | `shared/` | Les règles pures, sans base ni disque — donc testables seules |
 | `scripts/` | Service système, identifiants, scripts de vérification |
+| `outils/` | Les outils tiers dont le démon dépend, versionnés ici (`outils/compta/` : facturation) |
 | `data/live` | **Ce qui est réellement servi** : écrit uniquement par la publication |
 
 Une règle qui peut vivre sans base ni disque va dans `shared/` avec son test : c'est ce qui la rend
@@ -28,6 +29,13 @@ npm run dev --workspace web -- --port 7099   # interface de développement (vise
 
 `npx vite web` casse la résolution de Tailwind : passer par le workspace. Le serveur de
 développement n'écoute qu'en IPv6, donc `localhost`, pas `127.0.0.1`.
+
+Le navigateur d'essai (`playwright`) est une dépendance DÉCLARÉE du projet, importée normalement
+(`import { chromium } from 'playwright'`) — jamais par un chemin absolu vers le dossier personnel
+d'un utilisateur. Elle est en `dependencies`, PAS en `devDependencies` : l'environnement des agents
+porte `NODE_ENV=production`, où `npm install` saute les dépendances de développement — un
+`devDependencies` y serait donc absent sans un mot. Aucun navigateur n'est à télécharger : tous les
+scripts lancent le Chrome du système (`channel: 'chrome'`).
 
 Un script de vérification ne doit **jamais** reprendre `HAIKODEV_URL` : cette variable, posée dans
 l'environnement des agents, désigne l'application DÉJÀ PUBLIÉE — on y verrait l'ancienne version.
@@ -471,6 +479,14 @@ sans son point d'essai.
   choix du modèle l'affiche en tête (`messageDeRepli`) — jamais une liste de deux entrées écrites en
   dur qui passe pour la liste complète. Verrouillé par `server/src/test/catalogue-modeles.test.ts`,
   `scripts/verif-catalogue-codex.mjs` et `scripts/verif-liste-modeles.mjs`.
+- **Rien du projet ne pointe vers le dossier personnel d'un utilisateur.** Un chemin comme
+  `/home/<quelqu'un>/…` écrit en dur fait tenir HaikoDev sur un compte qui peut disparaître, et
+  qu'aucune installation neuve n'aura. Une bibliothèque se déclare dans `package.json` et s'importe
+  par son nom ; un outil dont le démon dépend est COPIÉ dans `outils/` et s'atteint depuis `ROOT`
+  (`server/src/config.ts`) ; à défaut, on passe par le dossier personnel COURANT (`os.homedir()`,
+  `os.userInfo().username`), jamais par un nom écrit en dur. Restent hors de cette règle les scripts
+  qui parlent d'un AUTRE projet (reprise des anciennes tâches, remise en état du projet « Root ») :
+  ce chemin-là est leur sujet.
 - **Un script de vérification vise le dépôt d'où il PART**, jamais `/root/haikodev` écrit en dur :
   lancé depuis une copie de travail (`.worktrees/…`), il jugerait sinon le code du dossier principal
   et déclarerait bon un changement jamais exécuté. La racine se déduit de `import.meta.url`.

@@ -8,7 +8,7 @@
  * dans la base juste pour l'essai :
  *   HAIKODEV_TOKEN=… node scripts/verif-panneau-projets.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import fs from 'node:fs';
 
 const BASE = process.env.HAIKODEV_URL || 'http://127.0.0.1:7099';
