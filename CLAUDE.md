@@ -301,6 +301,17 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   d'épuisement. Il ne s'applique QU'À la semaine : une fenêtre de cinq heures ne traverse pas de
   nuit. Sans 24 h d'observation, sans 3 points de % consommés, ou avec une tranche de la journée
   jamais observée, il rend `null` et le calcul reste le simple prolongement de la pente.
+- **Un rythme qui s'écarte brusquement de l'habitude se dit tout de suite**
+  (`emballementConsommation` et `doitAlerterEmballement`, `shared/src/quota.ts`). Le rythme des
+  derniers relevés est comparé à l'ATTENDU de ces mêmes tranches selon le profil mesuré ; au-delà de
+  trois fois l'attendu sur au moins deux relevés d'affilée, et au moins 1 % consommé, une
+  notification `quota-emballement` part par le guichet unique `notify`. Une seule alerte par
+  emballement : c'est le DÉPART de la série qui sert de marque (retenue dans
+  `quota.alerte.emballement`, donc un redémarrage n'en refait pas une), et seul un retour à la
+  normale redonne droit à la suivante. Sans profil (`profilHoraire` rend `null`), sur la fenêtre de
+  cinq heures, ou sur des relevés vieux de plus d'une heure : rien. On prévient, on ne décide pas —
+  aucun agent arrêté, aucune bascule de compte. Verrouillé par
+  `server/src/test/quota-emballement.test.ts`.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.

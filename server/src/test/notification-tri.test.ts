@@ -22,6 +22,7 @@ test('seuls les motifs qui appellent une décision ou annoncent une fin interrom
   assert.deepEqual(interrompent, [
     'decision-attendue',
     'publication-terminee',
+    'quota-emballement',
     'quota-seuil',
     'quota-surconsommation',
     'tache-echec',

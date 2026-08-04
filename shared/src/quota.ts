@@ -473,6 +473,168 @@ export function previsionEpuisement(
 }
 
 /* ------------------------------------------------------------------ */
+/* L'emballement : le rythme s'écarte brusquement de l'habitude         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La prévision d'épuisement ne parle que lorsqu'elle bascule au niveau
+ * « manque » : quand elle se décide, le quota est déjà largement entamé. Un
+ * agent parti en boucle peut donc brûler en deux heures ce qu'une journée
+ * entière consomme d'habitude, sans que rien ne sorte.
+ *
+ * Ici on ne regarde pas la fin de la semaine mais le rythme des DERNIÈRES
+ * heures, comparé à ce que le profil mesuré (`profilHoraire`) prévoyait pour
+ * ces mêmes tranches de la journée. Au-delà d'un écart franc et soutenu, il y a
+ * emballement. Sans profil, aucun avis : on ne crie pas sur une base qu'on n'a
+ * pas.
+ *
+ * La règle vit ici, sans réseau ni base : elle se teste seule.
+ */
+
+/** Au-delà de ce multiple de l'attendu, l'intervalle est dit « emballé ». */
+export const EMBALLEMENT_FACTEUR = 3;
+/** Et il en faut au moins autant d'affilée : une pointe isolée n'est pas un emballement. */
+export const EMBALLEMENT_RELEVES_MINIMUM = 2;
+/** Sous ce total consommé pendant la série, l'écart n'est que du bruit d'arrondi. */
+export const EMBALLEMENT_CONSOMMATION_MINIMALE_PCT = 1;
+/** Le dernier relevé doit dater de moins que ça : on ne s'alarme pas sur du passé. */
+export const EMBALLEMENT_FRAICHEUR_MS = 60 * 60 * 1000;
+
+export interface EmballementConsommation {
+  /** L'instant où la série s'est emballée : c'est lui qui sert de marque d'annonce. */
+  depuis: number;
+  /** Combien d'intervalles d'affilée sont au-dessus du seuil. */
+  releves: number;
+  /** Ce qui a été consommé pendant la série, en points de pourcentage. */
+  consommePct: number;
+  /** Ce qui aurait dû l'être sur la même période, selon le profil mesuré. */
+  attenduPct: number;
+  /** Le rapport des deux : 4 pour « quatre fois plus vite que d'habitude ». */
+  facteur: number;
+  /** La phrase toute prête, en français simple. */
+  texte: string;
+}
+
+/**
+ * Le rythme de référence : ce qui a été consommé sur tout l'historique, rapporté
+ * au temps PONDÉRÉ par le profil. Calibré ainsi, l'attendu d'une période colle
+ * exactement au total réellement observé — le profil ne fait que le répartir.
+ */
+function rythmeDeReference(points: ReleveQuota[], serie: SerieQuota, profil: number[]): number {
+  let consomme = 0;
+  let pondere = 0;
+  for (let i = 1; i < points.length; i++) {
+    const delta = valeur(points[i], serie) - valeur(points[i - 1], serie);
+    const span = points[i].at - points[i - 1].at;
+    // Un pourcentage qui recule est une remise à zéro : la tranche sort du calcul.
+    if (span <= 0 || delta < 0) continue;
+    consomme += delta;
+    pondere += tempsPondere(points[i - 1].at, points[i].at, profil);
+  }
+  return pondere > 0 ? consomme / pondere : 0;
+}
+
+/** « 1 h 30 », « 45 min » : la durée d'une série, dite court. */
+function dureeEnClair(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const heures = Math.floor(minutes / 60);
+  const reste = minutes - heures * 60;
+  return reste ? `${heures} h ${String(reste).padStart(2, '0')}` : `${heures} h`;
+}
+
+/**
+ * La série d'intervalles emballés qui se termine MAINTENANT, ou rien du tout.
+ *
+ * On remonte le temps depuis le dernier relevé tant que chaque intervalle
+ * dépasse le seuil ; le premier intervalle rentré dans l'ordinaire arrête le
+ * compte. La série n'est donc pas bornée par une fenêtre glissante : un
+ * emballement qui dure garde le même point de départ — donc la même marque
+ * d'annonce — et ne se redit pas.
+ */
+export function emballementConsommation(
+  releves: ReleveQuota[],
+  maintenant = Date.now(),
+  serie: SerieQuota = 'weekly',
+): EmballementConsommation | null {
+  const passes = releves.filter((point) => point.at <= maintenant).sort((a, b) => a.at - b.at);
+  /*
+   * Le profil vient de TOUT l'historique, pas de la seule fenêtre en cours :
+   * c'est lui l'« habituel » auquel on compare. Comme pour la prévision, il ne
+   * vaut que pour la semaine — une fenêtre de cinq heures ne traverse pas de
+   * nuit et n'apprendrait rien d'un rythme par heure de la journée.
+   */
+  const profil = serie === 'weekly' ? profilHoraire(passes, serie) : null;
+  // Sans profil mesuré, il n'y a pas d'habitude connue : on se tait.
+  if (!profil) return null;
+
+  const reference = rythmeDeReference(passes, serie, profil);
+  if (reference <= 0) return null;
+
+  const recents = depuisLaDerniereRemiseAZero(passes, serie);
+  if (recents.length < EMBALLEMENT_RELEVES_MINIMUM + 1) return null;
+  // Relevés trop vieux : le rythme qu'ils décrivent n'est plus celui de maintenant.
+  if (maintenant - recents[recents.length - 1].at > EMBALLEMENT_FRAICHEUR_MS) return null;
+
+  let depuis = 0;
+  let nombre = 0;
+  let consomme = 0;
+  let attendu = 0;
+  for (let i = recents.length - 1; i > 0; i--) {
+    const delta = valeur(recents[i], serie) - valeur(recents[i - 1], serie);
+    const span = recents[i].at - recents[i - 1].at;
+    if (span <= 0) break;
+    const prevu = reference * tempsPondere(recents[i - 1].at, recents[i].at, profil);
+    if (prevu <= 0 || delta < prevu * EMBALLEMENT_FACTEUR) break;
+    depuis = recents[i - 1].at;
+    nombre++;
+    consomme += delta;
+    attendu += prevu;
+  }
+
+  if (nombre < EMBALLEMENT_RELEVES_MINIMUM) return null;
+  // Trop peu consommé en tout : trois fois presque rien reste presque rien.
+  if (consomme < EMBALLEMENT_CONSOMMATION_MINIMALE_PCT) return null;
+
+  const facteur = attendu > 0 ? consomme / attendu : 0;
+  const fin = recents[recents.length - 1].at;
+  return {
+    depuis,
+    releves: nombre,
+    consommePct: consomme,
+    attenduPct: attendu,
+    facteur,
+    texte:
+      `${facteur.toFixed(1)} fois plus vite que d’habitude depuis ${dureeEnClair(fin - depuis)} ` +
+      `(${consomme.toFixed(1)} % consommés au lieu de ${attendu.toFixed(1)} % attendus)`,
+  };
+}
+
+export interface EtatAlerteEmballement {
+  /** L'emballement constaté, absent quand tout est normal. */
+  emballement?: EmballementConsommation | null;
+  /** La dernière lecture de quota a échoué : les chiffres sont périmés. */
+  lectureEnEchec?: boolean;
+  /** Le départ de série pour lequel on a DÉJÀ prévenu, s'il y en a un. */
+  dejaAnnoncee?: number;
+}
+
+/**
+ * Faut-il prévenir sur le téléphone ? Une seule fois par emballement : c'est le
+ * DÉPART de la série qui sert de marque. Tant que la même série dure, rien ne
+ * repart ; il faut un retour à la normale, puis une nouvelle pointe — donc un
+ * nouveau départ — pour redonner droit à une alerte. La marque étant retenue
+ * hors mémoire vive, un redémarrage du serveur n'en refait pas une.
+ *
+ * La règle vit ici, sans réseau ni base : elle se teste seule.
+ */
+export function doitAlerterEmballement(etat: EtatAlerteEmballement): boolean {
+  // Chiffres périmés : prévenir sur une preuve qu'on n'a plus n'aide personne.
+  if (etat.lectureEnEchec || !etat.emballement) return false;
+  return etat.dejaAnnoncee !== etat.emballement.depuis;
+}
+
+/* ------------------------------------------------------------------ */
 /* Le compte de secours                                                */
 /* ------------------------------------------------------------------ */
 

@@ -6,8 +6,10 @@ import {
   EngineId,
   type EtatSeuilsSemaine,
   compteDeSecours,
+  doitAlerterEmballement,
   doitAlerterEpuisementProche,
   doitAlerterFinDeFenetre,
+  emballementConsommation,
   franchissementSemaine,
   previsionEpuisement,
   tempsRestant,
@@ -335,6 +337,7 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
   alerterFinsDeFenetre(results);
   alerterSeuilsSemaine(results);
   alerterEpuisementsProches(results);
+  alerterEmballements(results);
   return results;
 }
 
@@ -505,6 +508,68 @@ function alerterEpuisementsProches(list: AccountQuota[]): void {
   } catch (err) {
     // Sans trace retenue, la même semaine se signalerait à chaque lecture.
     log.warn('quota : impossible de retenir l’alerte d’épuisement proche', err);
+  }
+}
+
+/** Les emballements déjà annoncés, compte par compte : le départ de la série. */
+const CLE_ALERTE_EMBALLEMENT = 'quota.alerte.emballement';
+
+/**
+ * « Ce compte consomme bien plus vite que d'habitude » se dit sur le téléphone
+ * AVANT que la prévision de fin de semaine n'ait basculé — c'est tout l'objet
+ * de cette alerte-là. Une seule fois par emballement : le départ de la série
+ * sert de marque, gardée sur le disque, donc un redémarrage n'en refait pas une
+ * et il faut un retour à la normale pour redonner droit à la suivante.
+ *
+ * On prévient, on ne décide pas : aucun agent n'est arrêté, aucun compte n'est
+ * changé.
+ */
+function alerterEmballements(list: AccountQuota[]): void {
+  let annonces: Record<string, number> = {};
+  try {
+    const raw = getMeta(CLE_ALERTE_EMBALLEMENT);
+    annonces = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+  } catch {
+    annonces = {};
+  }
+
+  const histoire = quotaHistory(14);
+
+  let change = false;
+  for (const quota of list) {
+    const emballement = emballementConsommation(histoire[quota.id] ?? []);
+    // Retour à la normale : l'ardoise s'efface, la prochaine pointe pourra parler.
+    if (!emballement && annonces[quota.id] !== undefined) {
+      delete annonces[quota.id];
+      change = true;
+    }
+    if (
+      !doitAlerterEmballement({
+        emballement,
+        lectureEnEchec: !!quota.error,
+        dejaAnnoncee: annonces[quota.id],
+      })
+    ) {
+      continue;
+    }
+
+    notify({
+      motif: 'quota-emballement',
+      title: 'Consommation inhabituelle',
+      body: `${quota.label} : ${emballement!.texte}.`,
+      reference: `${quota.id}:emballement:${emballement!.depuis}`,
+      element: `${quota.label} — ${emballement!.facteur.toFixed(1)} fois l’habitude`,
+    });
+    annonces[quota.id] = emballement!.depuis;
+    change = true;
+  }
+
+  if (!change) return;
+  try {
+    setMeta(CLE_ALERTE_EMBALLEMENT, JSON.stringify(annonces));
+  } catch (err) {
+    // Sans trace retenue, le même emballement se signalerait à chaque lecture.
+    log.warn('quota : impossible de retenir l’alerte d’emballement', err);
   }
 }
 

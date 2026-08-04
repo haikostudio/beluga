@@ -30,6 +30,7 @@ export type MotifNotification =
   | 'publication-terminee'
   | 'quota-seuil'
   | 'quota-surconsommation'
+  | 'quota-emballement'
   | 'liste-taches'
   | 'charge-machine'
   | 'amorcage-impossible'
@@ -57,6 +58,9 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
   'publication-terminee': { famille: 'deploy', interrompt: true, sujet: 'publication' },
   'quota-seuil': { famille: 'quota', interrompt: true, sujet: 'quota' },
   'quota-surconsommation': { famille: 'quota', interrompt: true, sujet: 'quota' },
+  // Un emballement soudain est une alerte à part entière : il appelle un geste
+  // tout de suite, avant que la prévision de fin de semaine n'ait basculé.
+  'quota-emballement': { famille: 'quota', interrompt: true, sujet: 'quota' },
 
   // Ce qui ne sort plus de l'application. Le sujet reste renseigné : « liste de
   // tâches cochée » parle de la MÊME fin de travail que « tâche terminée »,
