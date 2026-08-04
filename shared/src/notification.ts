@@ -19,16 +19,20 @@ export interface CarteNotifiee {
 export const LONGUEUR_CORPS = 180;
 
 /**
- * Le titre : « HaikoDev — Tâche terminée ». Le nom du projet vient EN TÊTE,
- * parce que c'est la première chose lue et la seule qui reste visible quand
- * le système raccourcit.
+ * Le titre : « ✅ HaikoDev — Refondre les notifications ». Un emoji ouvre le
+ * titre selon le genre de nouvelle — c'est le SEUL repère visuel qui survit sur
+ * un téléphone, où le système impose l'icône de l'application. Vient ensuite le
+ * nom du projet, puis l'action elle-même (le titre réel de la carte), parce que
+ * c'est ce qu'on lit d'un coup d'œil quand le système raccourcit.
  */
-export function titreNotification(evenement: string, projet?: string): string {
+export function titreNotification(evenement: string, projet?: string, emoji?: string): string {
+  const tete = (emoji ?? '').trim();
+  const prefixe = tete ? `${tete} ` : '';
   const nom = (projet ?? '').trim();
-  if (!nom) return evenement;
+  if (!nom) return `${prefixe}${evenement}`;
   // Un titre qui nomme déjà le projet ne le répète pas.
-  if (evenement.toLowerCase().startsWith(`${nom.toLowerCase()} `)) return evenement;
-  return `${nom} — ${evenement}`;
+  if (evenement.toLowerCase().startsWith(`${nom.toLowerCase()} `)) return `${prefixe}${evenement}`;
+  return `${prefixe}${nom} — ${evenement}`;
 }
 
 /** Coupe à la longueur voulue sans laisser un mot à moitié. */
@@ -44,12 +48,24 @@ export function couperTexte(texte: string, limite: number): string {
  * Le corps : le titre de la carte, puis sa description en dessous. La
  * description n'est reprise que si elle apporte autre chose que le titre —
  * répéter la même phrase deux fois ferait perdre les deux lignes disponibles.
+ *
+ * `actionDuTitre` est ce que le titre porte DÉJÀ (l'action, souvent le titre de
+ * la carte) : quand la première ligne du corps le redirait mot pour mot, on la
+ * saute et la description prend toute la place — elle seule illustre la tâche.
  */
-export function corpsNotification(corps: string, carte?: CarteNotifiee): string {
+export function corpsNotification(corps: string, carte?: CarteNotifiee, actionDuTitre?: string): string {
   // Chaque ligne est raccourcie SÉPARÉMENT : le retour à la ligne entre le
   // titre de la carte et sa description doit survivre au raccourcissement.
-  const premiere = couperTexte((corps ?? '').trim() || (carte?.title ?? ''), LONGUEUR_CORPS);
+  const premiereSource = ((corps ?? '').trim() || (carte?.title ?? '')).replace(/\s+/g, ' ').trim();
   const description = (carte?.description ?? '').replace(/\s+/g, ' ').trim();
+
+  // Le titre nomme déjà l'action : inutile de la répéter en tête du corps.
+  const action = (actionDuTitre ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (action && premiereSource.toLowerCase() === action && description) {
+    return couperTexte(description, LONGUEUR_CORPS);
+  }
+
+  const premiere = couperTexte(premiereSource, LONGUEUR_CORPS);
   if (!description) return premiere;
 
   const deja = premiere.toLowerCase();

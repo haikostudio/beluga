@@ -120,6 +120,36 @@ export function iconeDuMotif(motif: MotifNotification): IconeNotification {
   return MOTIFS[motif].icone;
 }
 
+/**
+ * L'EMOJI du genre, posé en tête du titre. Sur un téléphone, le système impose
+ * souvent l'icône de l'application et ignore l'image de la notification web :
+ * l'emoji, lui, vit DANS le texte et s'affiche toujours. Il suit le même genre
+ * que l'image (`IconeNotification`), pour qu'image et emoji ne se contredisent
+ * jamais.
+ */
+const EMOJIS: Record<IconeNotification, string> = {
+  termine: '✅',
+  attention: '⚠️',
+  erreur: '⛔',
+  publication: '🚀',
+  quota: '📊',
+  redemarrage: '🔄',
+};
+
+export function emojiDeLIcone(icone: IconeNotification): string {
+  return EMOJIS[icone];
+}
+
+/**
+ * L'emoji d'une alerte, à partir du motif. Un motif inconnu — serveur plus
+ * récent que l'application — ne met aucun emoji plutôt qu'un caractère au
+ * hasard.
+ */
+export function emojiDuMotif(motif?: string): string {
+  const regle = motif ? MOTIFS[motif as MotifNotification] : undefined;
+  return regle ? EMOJIS[regle.icone] : '';
+}
+
 /** Où vivent les images, côté navigateur. Le service worker suit la même règle. */
 export function cheminIcone(icone: IconeNotification): string {
   return `/notif/${icone}.png`;
@@ -236,11 +266,12 @@ export function resumeGroupe(
   famille: FamilleNotification,
   elements: string[],
   projet?: string,
+  emoji?: string,
 ): { titre: string; corps: string } {
   const noms = elements.map((element) => (element ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean);
   const nombre = Math.max(noms.length, elements.length, 1);
   return {
-    titre: titreNotification(PLURIELS[famille](nombre), projet),
+    titre: titreNotification(PLURIELS[famille](nombre), projet, emoji),
     corps: couperTexte(noms.join(' · '), LONGUEUR_CORPS),
   };
 }
