@@ -290,6 +290,14 @@ export const Agent = z.object({
   workdir: z.string().optional(),
   status: AgentStatus,
   account: z.string().optional(),
+  /**
+   * L'avancement de la liste de tâches de l'agent, tel qu'il voyage avec lui
+   * jusqu'au tableau : combien d'étapes cochées sur le total. Les étapes
+   * elles-mêmes vivent sur les messages (souvent chargés seulement à
+   * l'ouverture d'une carte) ; ce résumé, lui, suit l'agent partout et permet
+   * d'afficher « n/N faites » dans le décroché d'une carte sans l'ouvrir.
+   */
+  todos: z.object({ done: z.number().int(), total: z.number().int() }).optional(),
   pid: z.number().optional(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),

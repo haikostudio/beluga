@@ -508,7 +508,9 @@ async function startTurn(
   // Le pont d'outils du tour précédent ne prouve rien pour celui-ci.
   oublierLePont(agent.id);
 
-  setStatus(agent, 'running', { startedAt: Date.now(), account: account.id });
+  // L'avancement d'un tour précédent ne vaut rien pour celui-ci : on repart
+  // sans liste, sinon le décroché de la carte montrerait un vieux « 3/3 ».
+  setStatus(agent, 'running', { startedAt: Date.now(), account: account.id, todos: undefined });
 
   let sawError: string | undefined;
 
@@ -561,6 +563,23 @@ async function startTurn(
             const avant = runState.todos;
             runState.todos = mergeTodos(avant, event.todos, runState.startedAt);
             pushMessage(runState, { todos: runState.todos, streaming: true });
+
+            /*
+             * L'avancement voyage AUSSI avec l'agent : les étapes vivent sur les
+             * messages (chargés seulement à l'ouverture d'une carte), mais le
+             * décroché du tableau doit montrer « n/N faites » sans ouvrir la
+             * carte. On pose donc le décompte sur l'agent lui-même, en relisant
+             * son état frais pour ne pas écraser un statut posé ailleurs.
+             */
+            const progression = {
+              done: runState.todos.filter((t) => t.state === 'done').length,
+              total: runState.todos.length,
+            };
+            const frais = store.getAgent(agent.id);
+            if (frais && (frais.todos?.done !== progression.done || frais.todos?.total !== progression.total)) {
+              const maj = store.saveAgent({ ...frais, todos: progression });
+              bus.emit({ type: 'agent.upsert', agent: maj });
+            }
 
             /*
              * Liste entièrement cochée : cela se voit dans l'application, mais
