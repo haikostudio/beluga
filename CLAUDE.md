@@ -56,6 +56,7 @@ node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dern
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour ; un compte refusé est dit comme tel, pas comme un outil absent)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
+node scripts/verif-bridage-chef.mjs # le chef d'orchestre est-il bridé pareil sous les deux moteurs ? (vrai tour Codex)
 node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
 node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
 node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
@@ -368,6 +369,19 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
   une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
   Verrouillé par `server/src/test/outils-codex.test.ts`.
+- **Le chef d'orchestre est bridé DE LA MÊME FAÇON sous les deux moteurs**
+  (`shared/src/bridage-chef.ts`). Les deux listes (`orchestratorAllowList` /
+  `orchestratorDenyList`) sont calculées pour tout moteur, hors du projet HaikoDev lui-même ; encore
+  faut-il qu'elles ARRIVENT. Claude Code les prend telles quelles (`--allowedTools` /
+  `--disallowedTools`, `buildClaudeArgs`) ; Codex n'a pas de liste d'outils en ligne de commande et
+  les IGNORAIT — le même chef y écrivait des fichiers. `surchargesCodexDuChef` les traduit donc en
+  surcharges de configuration : outils du projet énumérés
+  (`mcp_servers.haikodev.enabled_tools` / `disabled_tools`), bac à sable en `read-only` (ce qui
+  remplace l'interdiction nominative de `Write`, `Edit` et `Bash`), `approval_policy="never"` pour
+  qu'une écriture refusée ÉCHOUE au lieu d'attendre une approbation que personne ne donne, et
+  travaux de fond éteints (`features.multi_agent…`). Un chef bridé n'ouvre JAMAIS le bac à sable,
+  même en reprise ; un agent de tâche, lui, garde son accès complet dans les deux moteurs.
+  Verrouillé par `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
 - **Les outils du projet sont les SEULS dans la pièce, et leur absence se DIT**
   (`shared/src/pont-outils.ts`). Un autre serveur d'outils branché dans la configuration de Codex
   propose souvent sa propre mémoire : le modèle l'appelait à la place de `project_memory`, annonçait

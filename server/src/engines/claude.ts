@@ -16,6 +16,35 @@ function effortFor(thinking?: string): string | null {
   return thinking && EFFORTS.has(thinking) ? thinking : null;
 }
 
+/**
+ * La ligne de commande du moteur, à part pour être rejouable dans un test :
+ * c'est ici que les deux listes du chef d'orchestre partent au moteur, et un
+ * moteur qui les oublie ne se voit que si on peut LIRE ce qu'il reçoit.
+ */
+export function buildClaudeArgs(options: EngineRunOptions): string[] {
+  const args: string[] = ['-p', '--output-format', 'stream-json', '--verbose'];
+
+  if (options.model) args.push('--model', options.model);
+  const effort = effortFor(options.thinking);
+  if (effort) args.push('--effort', effort);
+
+  if (options.sessionId) {
+    args.push('--resume', options.sessionId);
+  } else {
+    args.push('--session-id', randomUUID());
+  }
+
+  // Accès complet pour les agents de tâche : le consentement a été donné en
+  // validant la carte, pas dans une succession de fenêtres (PLAN §6).
+  args.push('--permission-mode', options.fullAccess ? 'bypassPermissions' : 'manual');
+
+  if (options.systemPrompt) args.push('--append-system-prompt', options.systemPrompt);
+  if (options.mcpConfigPath) args.push('--mcp-config', options.mcpConfigPath);
+  if (options.allowedTools?.length) args.push('--allowedTools', options.allowedTools.join(','));
+  if (options.disallowedTools?.length) args.push('--disallowedTools', options.disallowedTools.join(','));
+  return args;
+}
+
 export const claudeAdapter: EngineAdapter = {
   id: 'claude',
   label: 'Claude Code',
@@ -38,26 +67,7 @@ export const claudeAdapter: EngineAdapter = {
   },
 
   run(options: EngineRunOptions): EngineHandle {
-    const args: string[] = ['-p', '--output-format', 'stream-json', '--verbose'];
-
-    if (options.model) args.push('--model', options.model);
-    const effort = effortFor(options.thinking);
-    if (effort) args.push('--effort', effort);
-
-    if (options.sessionId) {
-      args.push('--resume', options.sessionId);
-    } else {
-      args.push('--session-id', randomUUID());
-    }
-
-    // Accès complet pour les agents de tâche : le consentement a été donné en
-    // validant la carte, pas dans une succession de fenêtres (PLAN §6).
-    args.push('--permission-mode', options.fullAccess ? 'bypassPermissions' : 'manual');
-
-    if (options.systemPrompt) args.push('--append-system-prompt', options.systemPrompt);
-    if (options.mcpConfigPath) args.push('--mcp-config', options.mcpConfigPath);
-    if (options.allowedTools?.length) args.push('--allowedTools', options.allowedTools.join(','));
-    if (options.disallowedTools?.length) args.push('--disallowedTools', options.disallowedTools.join(','));
+    const args = buildClaudeArgs(options);
 
     const child = spawn(claudeAdapter.binary, args, {
       cwd: options.cwd,

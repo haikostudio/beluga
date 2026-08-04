@@ -4,6 +4,7 @@ export * from './apercu-fichier.js';
 export * from './arret-carte.js';
 export * from './attention.js';
 export * from './branche-de-carte.js';
+export * from './bridage-chef.js';
 export * from './ancres.js';
 export * from './capacite.js';
 export * from './cerveau.js';

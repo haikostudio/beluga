@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { serveursTiers } from '@haikodev/shared';
+import { chefBride, serveursTiers, surchargesCodexDuChef } from '@haikodev/shared';
 import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
 import { log } from '../logger.js';
 
@@ -125,15 +125,26 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
   if (options.thinking && options.thinking !== 'none') {
     args.push('-c', `model_reasoning_effort="${options.thinking}"`);
   }
-  if (options.fullAccess) {
+  /*
+   * LE BRIDAGE DU CHEF D'ORCHESTRE. Les deux listes calculées par le démon
+   * n'ont pas d'équivalent en ligne de commande chez Codex : elles étaient
+   * simplement IGNORÉES, et le chef y écrivait des fichiers là où le même chef
+   * sous Claude ne le pouvait pas. Elles sont traduites en surcharges de
+   * configuration (outils du projet énumérés, bac à sable en lecture seule,
+   * travaux de fond éteints) — voir `shared/src/bridage-chef.ts`.
+   */
+  const bride = chefBride(options);
+  if (options.fullAccess && !bride) {
     args.push('--dangerously-bypass-approvals-and-sandbox');
-  } else if (resuming) {
+  } else if (!bride) {
     // `codex exec resume` n'accepte ni `-C` ni `-s`. Le processus est déjà
     // lancé dans options.cwd et la surcharge de configuration reste acceptée.
-    args.push('-c', 'sandbox_mode="read-only"');
-  } else {
-    args.push('-s', 'read-only');
+    if (resuming) args.push('-c', 'sandbox_mode="read-only"');
+    else args.push('-s', 'read-only');
   }
+  // Bridé : le bac à sable vient des surcharges, valables en reprise comme au
+  // premier tour — une seule écriture de la règle, pas deux.
+  for (const surcharge of surchargesCodexDuChef(options)) args.push('-c', surcharge);
   if (options.mcpBridgePath) {
     // Codex reçoit ses serveurs d'outils par surcharge de configuration, et il
     // veut la COMMANDE à lancer : le pont lui-même, jamais le fichier de
