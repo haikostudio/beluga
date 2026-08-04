@@ -126,6 +126,12 @@ async function main() {
      * repos, pour que l'un d'eux puisse servir de compte de secours.
      */
     const fabriquer = () => {
+      /*
+       * Deuxième passage : le même historique, mais SANS creux — le même
+       * rythme à toute heure. Le profil existe toujours, seule la pointe
+       * disparaît, et la ligne « le plus chargé entre … » doit se taire.
+       */
+      const plat = location.search.includes('verif=plat');
       const maintenant = Date.now();
       const brulant = [];
       const repos = [];
@@ -136,7 +142,7 @@ async function main() {
         brulant.push({ at, weekly: cumul, session: 5 });
         repos.push({ at, weekly: 8, session: 3 });
         const heure = new Date(at).getHours();
-        cumul += heure >= 1 && heure < 7 ? 0.05 : 1.4;
+        cumul += plat ? 1.4 : heure >= 1 && heure < 7 ? 0.05 : 1.4;
       }
       // La fenêtre courte repart de zéro il y a une demi-heure, puis s'emballe :
       // son épuisement tombe alors AVANT sa propre remise à zéro.
@@ -307,7 +313,50 @@ async function main() {
     texteInfobulle || 'aucune infobulle affichée',
   );
 
+  /*
+   * La tranche la plus chargée : une ligne sous la courbe, qui nomme une plage
+   * de PLEIN JOUR — la nuit fabriquée va de 1 h à 7 h, elle ne peut pas être la
+   * pointe.
+   */
+  const pointes = await volet.evaluate((noeud) =>
+    [...noeud.querySelectorAll('p')]
+      .filter((p) => p.textContent.startsWith('le plus chargé'))
+      .map((p) => p.textContent.trim()),
+  );
+  record(
+    'la tranche la plus chargée s’affiche sous la courbe',
+    pointes.length > 0,
+    pointes.join(' | ') || 'aucune ligne « le plus chargé … »',
+  );
+  record(
+    'elle nomme une plage de plein jour et chiffre l’écart',
+    pointes.length > 0 &&
+      pointes.every((ligne) => {
+        const bornes = ligne.match(/entre (\d{1,2}) h et (\d{1,2}) h/);
+        if (!bornes) return false;
+        const debut = Number(bornes[1]);
+        return debut >= 7 && debut <= 23 && /moyenne/.test(ligne);
+      }),
+    pointes.join(' | '),
+  );
+
   await page.screenshot({ path: `${SHOTS}/prevision-quota.png` });
+
+  // Deuxième passage, historique PLAT : plus aucune pointe à annoncer.
+  await page.goto(`${BASE}?verif=plat`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(4500);
+  const voletPlat = await ouvrirLeVolet(page);
+  const pointesPlates = await voletPlat.evaluate((noeud) =>
+    [...noeud.querySelectorAll('p')]
+      .filter((p) => p.textContent.startsWith('le plus chargé'))
+      .map((p) => p.textContent.trim()),
+  );
+  record(
+    'sur un historique plat, la ligne se tait',
+    pointesPlates.length === 0,
+    pointesPlates.join(' | ') || 'aucune pointe annoncée',
+  );
+  await page.screenshot({ path: `${SHOTS}/prevision-quota-plat.png` });
 
   record('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
 

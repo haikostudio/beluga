@@ -301,6 +301,13 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   d'épuisement. Il ne s'applique QU'À la semaine : une fenêtre de cinq heures ne traverse pas de
   nuit. Sans 24 h d'observation, sans 3 points de % consommés, ou avec une tranche de la journée
   jamais observée, il rend `null` et le calcul reste le simple prolongement de la pente.
+- **Le profil mesuré se MONTRE, en une ligne sous la courbe du compte**
+  (`trancheLaPlusChargee`, `shared/src/quota.ts`) : la plage la plus chargée de la journée et son
+  écart à la moyenne, « le plus chargé entre 8 h et 12 h, environ 35 % de plus que la moyenne ». La
+  plage part de l'heure la plus forte et grandit tant que la voisine tient au-dessus de
+  `SEUIL_TRANCHE_CHARGEE`, sans dépasser `TRANCHE_LARGEUR_MAX` — une pointe de seize heures
+  n'apprendrait rien. Elle se TAIT sans profil et quand aucune tranche ne dépasse le seuil.
+  Verrouillé par `server/src/test/quota-prevision.test.ts` et `scripts/verif-prevision-quota.mjs`.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.

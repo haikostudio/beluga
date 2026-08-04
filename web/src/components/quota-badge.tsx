@@ -7,7 +7,9 @@ import {
   heureDeRemiseAZero,
   niveauQuota,
   previsionEpuisement,
+  profilHoraire,
   tempsRestant,
+  trancheLaPlusChargee,
   type PrevisionEpuisement,
   type ReleveQuota,
   type SerieQuota,
@@ -236,6 +238,8 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
 
                 <Courbe points={histoire[quota.id] ?? []} prevision={previsions[quota.id]} />
 
+                <TrancheDePointe releves={histoire[quota.id]} />
+
                 <DerniereAmorce amorce={quota.derniereAmorce} />
 
                 {quota.error ? <p className="mt-1 text-[11.5px] text-warning">{quota.error}</p> : null}
@@ -250,6 +254,18 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/**
+ * Le profil des heures creuses sert déjà à repousser l'heure d'épuisement, mais
+ * il ne se voyait nulle part. Cette ligne le rend lisible en une phrase : quand
+ * la consommation grimpe, et de combien. Elle se TAIT quand le profil n'existe
+ * pas encore, et quand aucune tranche ne se détache vraiment de la moyenne.
+ */
+function TrancheDePointe({ releves }: { releves?: ReleveQuota[] }) {
+  const pointe = React.useMemo(() => trancheLaPlusChargee(profilHoraire(releves ?? [])), [releves]);
+  if (!pointe) return null;
+  return <p className="mt-0.5 text-[10.5px] text-faint">{pointe.texte}</p>;
 }
 
 /** L'heure du jour, sans la date : le journal ne remonte que de quelques jours. */

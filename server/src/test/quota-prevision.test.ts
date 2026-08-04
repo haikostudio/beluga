@@ -5,6 +5,9 @@ import {
   doitAlerterEpuisementProche,
   previsionEpuisement,
   profilHoraire,
+  trancheLaPlusChargee,
+  SEUIL_TRANCHE_CHARGEE,
+  TRANCHE_LARGEUR_MAX,
   type CandidatSecours,
   type ReleveQuota,
 } from '@haikodev/shared';
@@ -312,4 +315,33 @@ test('une remise à zéro dans l’historique ne fausse pas la pente', () => {
   );
   // Seuls les relevés d'après la remise à zéro comptent : 1 % par heure.
   assert.ok(prevision && Math.abs(prevision.parJour - 24) < 0.01);
+});
+
+test('la tranche la plus chargée se nomme, et son écart se dit en clair', () => {
+  const pointe = trancheLaPlusChargee(profilHoraire(relevesAvecNuit()));
+  assert.ok(pointe, 'une pointe est attendue sur une journée à nuit creuse');
+  // La nuit fabriquée va de 1 h à 7 h : la pointe doit tomber en plein jour.
+  assert.ok(pointe.debut >= 7 && pointe.debut <= 23, `plage de plein jour attendue (${pointe.debut} h)`);
+  // Et une plage bornée : la journée entière au-dessus de la moyenne
+  // n'apprendrait rien (« le plus chargé entre 8 h et 1 h »).
+  const largeur = (pointe.fin - pointe.debut + 24) % 24;
+  assert.ok(largeur >= 1 && largeur <= TRANCHE_LARGEUR_MAX, `plage bornée attendue (${largeur} h)`);
+  assert.ok(pointe.facteur > SEUIL_TRANCHE_CHARGEE, `au-dessus du seuil (${pointe.facteur})`);
+  assert.match(pointe.texte, /^le plus chargé entre \d{1,2} h et \d{1,2} h, .+ (la )?moyenne$/);
+});
+
+test('aucune tranche ne se détache : la ligne se tait', () => {
+  // Une journée parfaitement régulière : même rythme à toute heure. Le profil
+  // existe (trois jours observés, largement de quoi mesurer), mais il est plat.
+  const profil = profilHoraire(relevesAvecNuit({ creux: 1 }));
+  assert.ok(profil, 'le profil doit exister : c’est bien la pointe qui manque, pas la matière');
+  assert.ok(Math.max(...profil) < SEUIL_TRANCHE_CHARGEE, 'profil plat attendu');
+  assert.equal(trancheLaPlusChargee(profil), null);
+});
+
+test('sans profil, aucune pointe à annoncer', () => {
+  // Historique trop court : profilHoraire se tait, la pointe aussi.
+  assert.equal(trancheLaPlusChargee(profilHoraire(releves(20, 1, 20))), null);
+  assert.equal(trancheLaPlusChargee(null), null);
+  assert.equal(trancheLaPlusChargee(undefined), null);
 });

@@ -273,6 +273,106 @@ export function profilHoraire(releves: ReleveQuota[], serie: SerieQuota = 'weekl
   return bruts.map((p) => p / apresPlafond);
 }
 
+/* ------------------------------------------------------------------ */
+/* La tranche de la journée la plus chargée                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Une tranche ne se dit chargée qu'au-delà de ce rapport à la moyenne.
+ * En dessous, la journée est trop régulière pour qu'une pointe veuille dire
+ * quelque chose : annoncer un creux qui n'existe pas serait pire que se taire.
+ */
+export const SEUIL_TRANCHE_CHARGEE = 1.2;
+
+/**
+ * Et une plage nommée ne dépasse jamais ces quelques heures. Une journée qui
+ * travaille de 8 h à minuit est au-dessus de la moyenne SEIZE heures d'affilée :
+ * l'annoncer d'un bloc n'apprendrait rien (« le plus chargé entre 8 h et 1 h »).
+ * On garde le cœur de la pointe, là où le rythme est le plus fort.
+ */
+export const TRANCHE_LARGEUR_MAX = 4;
+
+/** La tranche la plus chargée de la journée, telle qu'elle s'annonce. */
+export interface TranchePointe {
+  /** Heure de début, de 0 à 23. */
+  debut: number;
+  /** Heure de fin, exclue (24 s'écrit 0) : « entre 14 h et 16 h ». */
+  fin: number;
+  /** Combien de fois la moyenne cette tranche consomme. */
+  facteur: number;
+  /** La phrase affichée sous la courbe. */
+  texte: string;
+}
+
+/** « deux », « trois »… : un chiffre nu se lit mal dans une phrase. */
+function enLettres(n: number): string {
+  return ['zéro', 'une', 'deux', 'trois', 'quatre'][n] ?? String(n);
+}
+
+/** L'écart à la moyenne, dit comme on le dirait à voix haute. */
+function ecartEnMots(facteur: number): string {
+  // Sous « deux fois », un pourcentage parle mieux qu'une fraction : « environ
+  // 35 % de plus » est plus juste que « environ une fois et demie ».
+  if (facteur < 1.75) {
+    const pourcent = Math.round(((facteur - 1) * 100) / 5) * 5;
+    return `environ ${pourcent} % de plus que la moyenne`;
+  }
+  if (facteur >= 4.5) return 'plus de quatre fois la moyenne';
+  const demies = Math.round(facteur * 2) / 2;
+  const entier = Math.floor(demies);
+  const moitie = demies - entier >= 0.5;
+  return `environ ${enLettres(entier)} fois${moitie ? ' et demie' : ''} la moyenne`;
+}
+
+/**
+ * La pointe du profil : l'heure la plus chargée, élargie de proche en proche
+ * tant que la tranche voisine se tient elle aussi au-dessus du seuil, et sans
+ * jamais dépasser `TRANCHE_LARGEUR_MAX`. On nomme ainsi UN bloc continu — celui
+ * du pic — au lieu de coudre ensemble des heures éparses qui ne formeraient pas
+ * une plage de la journée.
+ *
+ * Rend `null` sans profil (historique trop court, trop maigre ou troué) et
+ * quand aucune tranche ne dépasse le seuil : une journée régulière n'a pas de
+ * pointe à annoncer.
+ */
+export function trancheLaPlusChargee(profil: number[] | null | undefined): TranchePointe | null {
+  if (!profil || profil.length !== 24) return null;
+
+  let sommet = 0;
+  for (let h = 1; h < 24; h++) if (profil[h] > profil[sommet]) sommet = h;
+  if (profil[sommet] < SEUIL_TRANCHE_CHARGEE) return null;
+
+  const dedans = [sommet];
+  // On avance des deux côtés en tournant sur le cadran : une pointe qui
+  // enjambe minuit reste une seule plage (« entre 22 h et 2 h »).
+  let gauche = sommet;
+  let droite = sommet;
+  while (dedans.length < TRANCHE_LARGEUR_MAX) {
+    const avant = (gauche + 23) % 24;
+    const apres = (droite + 1) % 24;
+    const prendAvant = !dedans.includes(avant) && profil[avant] >= SEUIL_TRANCHE_CHARGEE;
+    const prendApres = !dedans.includes(apres) && profil[apres] >= SEUIL_TRANCHE_CHARGEE;
+    if (!prendAvant && !prendApres) break;
+    // Le voisin le plus chargé d'abord : le bloc grandit par où il pèse.
+    if (prendAvant && (!prendApres || profil[avant] >= profil[apres])) {
+      dedans.push(avant);
+      gauche = avant;
+    } else {
+      dedans.push(apres);
+      droite = apres;
+    }
+  }
+
+  const facteur = dedans.reduce((somme, h) => somme + profil[h], 0) / dedans.length;
+  const fin = (droite + 1) % 24;
+  return {
+    debut: gauche,
+    fin,
+    facteur,
+    texte: `le plus chargé entre ${gauche} h et ${fin} h, ${ecartEnMots(facteur)}`,
+  };
+}
+
 /**
  * Combien de « temps utile » contient un intervalle, une fois chaque tranche
  * pesée par le profil. Deux heures de plein après-midi pèsent bien plus que
