@@ -334,6 +334,8 @@ export const AgentQuestion = z.object({
   /** Un complément libre est toujours possible, en plus des choix. */
   allowFreeText: z.boolean().default(true),
   answer: z.string().optional(),
+  /** Les images jointes à la réponse, affichées à côté d'elle une fois donnée. */
+  answerAttachments: z.array(z.string()).default([]),
   answeredAt: z.number().optional(),
 });
 export type AgentQuestion = z.infer<typeof AgentQuestion>;

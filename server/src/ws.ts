@@ -676,7 +676,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const updated = store.saveMessage({
         ...message,
         questions: message.questions.map((q) =>
-          q.id === cmd.questionId ? { ...q, answer: cmd.answer, answeredAt: Date.now() } : q,
+          q.id === cmd.questionId
+            ? {
+                ...q,
+                answer: cmd.answer,
+                answerAttachments: cmd.attachments ?? [],
+                answeredAt: Date.now(),
+              }
+            : q,
         ),
       });
       bus.emit({ type: 'message.upsert', message: updated });
@@ -685,8 +692,12 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // L'agent reprend aussitôt, avec la réponse en main — sans faire
       // patienter le navigateur jusqu'à la fin de son tour. La question n'est
       // rappelée qu'en tête : c'est lui qui l'a posée, il l'a déjà en contexte.
+      // Les images jointes à la réponse suivent le MÊME chemin que celles du
+      // fil : leurs chemins de fichiers sont annoncés dans la demande.
       const rappel = question.question.length > 80 ? `${question.question.slice(0, 80)}…` : question.question;
-      void sendPrompt(message.agentId, `Réponse à ta question « ${rappel} » : ${cmd.answer}`).catch((err) =>
+      void sendPrompt(message.agentId, `Réponse à ta question « ${rappel} » : ${cmd.answer}`, {
+        attachments: cmd.attachments ?? [],
+      }).catch((err) =>
         log.error('reprise après réponse impossible', err),
       );
       return { ok: true };

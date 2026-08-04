@@ -60,6 +60,7 @@ node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance,
 node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
 node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
+node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse d'une question (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 ```
@@ -184,6 +185,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   choisi et le dit. Dès que le travail est parti, tout est FIGÉ et affiche ce qui a RÉELLEMENT servi :
   les réglages de l'agent d'exécution — jamais ceux de l'analyse, qui tourne souvent ailleurs — et le
   compte qui a porté le quota. Verrouillé par `server/src/test/reglages-carte.test.ts`.
+- **On répond en IMAGES à la question d'un agent** (`shared/src/images-reponse.ts`). Le champ de
+  réponse d'une question accepte des images — bouton, collage, glisser-déposer sur le bloc — et
+  RIEN d'autre : `triImages` écarte le reste et le refus se dit. Les images s'affichent en vignettes
+  retirables sous le champ ; `texteDeReponse` les AJOUTE au choix coché et à la précision libre, sans
+  jamais les remplacer, et une image seule suffit à répondre. À la validation, elles partent avec la
+  commande `question.answer`, sont retenues sur la question (`answerAttachments`, affichées à côté de
+  la réponse) et l'agent reçoit leurs chemins par le même bloc « PIÈCES JOINTES » que le fil.
+  Verrouillé par `server/src/test/images-reponse.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au

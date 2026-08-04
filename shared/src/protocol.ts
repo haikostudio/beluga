@@ -156,6 +156,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
     messageId: z.string(),
     questionId: z.string(),
     answer: z.string(),
+    /** Les images jointes à la réponse : l'agent les reçoit comme celles du fil. */
+    attachments: z.array(z.string()).default([]),
   }),
   z.object({
     type: z.literal('proposal.decide'),
