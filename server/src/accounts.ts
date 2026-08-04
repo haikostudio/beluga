@@ -4,9 +4,11 @@ import os from 'node:os';
 import {
   AccountQuota,
   EngineId,
+  type EtatSeuilsSemaine,
   compteDeSecours,
   doitAlerterEpuisementProche,
   doitAlerterFinDeFenetre,
+  franchissementSemaine,
   previsionEpuisement,
   tempsRestant,
 } from '@haikodev/shared';
@@ -331,6 +333,7 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
   // Seulement sur une VRAIE lecture : le cache est rejoué à chaque connexion
   // d'un navigateur, et l'alerte partirait sur des chiffres déjà vus.
   alerterFinsDeFenetre(results);
+  alerterSeuilsSemaine(results);
   alerterEpuisementsProches(results);
   return results;
 }
@@ -369,13 +372,15 @@ function alerterFinsDeFenetre(list: AccountQuota[]): void {
       dejaAnnoncee: annonces[quota.id],
     };
     if (!doitAlerterFinDeFenetre(etat)) continue;
+    // Une fenêtre de cinq heures qui s'achève se remplit d'elle-même : cela se
+    // lit dans le volet des quotas, cela ne réveille plus personne.
     notify({
-      kind: 'quota',
+      motif: 'fenetre-bientot-finie',
       title: 'Fenêtre de 5 h bientôt finie',
       body: `${quota.label} : ${tempsRestant(quota.session?.resetsAt)} avant la remise à zéro (${Math.round(
         quota.session?.usedPct ?? 0,
       )} % consommés).`,
-      tag: `fenetre-${quota.id}`,
+      reference: `${quota.id}:fenetre`,
     });
     annonces[quota.id] = quota.session!.resetsAt!;
     change = true;
@@ -386,6 +391,52 @@ function alerterFinsDeFenetre(list: AccountQuota[]): void {
   } catch (err) {
     // Sans trace retenue, la même fenêtre se signalerait à chaque lecture.
     log.warn('quota : impossible de retenir l’alerte de fin de fenêtre', err);
+  }
+}
+
+/** Les paliers de consommation déjà annoncés, fenêtre hebdomadaire par fenêtre. */
+const CLE_SEUILS_SEMAINE = 'quota.alerte.seuils';
+
+/**
+ * Les DEUX paliers qui comptent sur la semaine : 70 % (il est temps de
+ * s'organiser) et 90 % (la fin approche). Chacun se dit une seule fois par
+ * fenêtre, et la remise à zéro hebdomadaire efface l'ardoise. Passer de 60 à
+ * 95 % d'un coup ne fait qu'une alerte : la règle est dans
+ * `franchissementSemaine` (shared), le disque n'est ici que sa mémoire.
+ */
+function alerterSeuilsSemaine(list: AccountQuota[]): void {
+  let etats: Record<string, EtatSeuilsSemaine> = {};
+  try {
+    const raw = getMeta(CLE_SEUILS_SEMAINE);
+    etats = raw ? (JSON.parse(raw) as Record<string, EtatSeuilsSemaine>) : {};
+  } catch {
+    etats = {};
+  }
+
+  let change = false;
+  for (const quota of list) {
+    // Chiffres périmés : prévenir sur une preuve qu'on n'a plus n'aide personne.
+    if (quota.error) continue;
+    const franchi = franchissementSemaine(etats[quota.id], quota.weekly?.usedPct, quota.weekly?.resetsAt);
+    if (!franchi) continue;
+
+    notify({
+      motif: 'quota-seuil',
+      title: `Quota de la semaine : ${franchi.seuil} % atteints`,
+      body: `${quota.label} : ${Math.round(quota.weekly?.usedPct ?? 0)} % du quota hebdomadaire sont consommés.`,
+      reference: `${quota.id}:seuil-${franchi.seuil}:${quota.weekly?.resetsAt}`,
+      element: `${quota.label} — ${franchi.seuil} %`,
+    });
+    etats[quota.id] = franchi.etat;
+    change = true;
+  }
+
+  if (!change) return;
+  try {
+    setMeta(CLE_SEUILS_SEMAINE, JSON.stringify(etats));
+  } catch (err) {
+    // Sans trace retenue, le même palier se signalerait à chaque lecture.
+    log.warn('quota : impossible de retenir le palier franchi', err);
   }
 }
 
@@ -436,12 +487,13 @@ function alerterEpuisementsProches(list: AccountQuota[]): void {
     );
 
     notify({
-      kind: 'quota',
+      motif: 'quota-surconsommation',
       title: 'Le quota de la semaine va manquer',
       body:
         `${quota.label} : ${prevision!.texte} (${Math.round(quota.weekly?.usedPct ?? 0)} % consommés).` +
         (secours ? ` Bascule possible sur ${secours.label}.` : ''),
-      tag: `epuisement-${quota.id}`,
+      reference: `${quota.id}:epuisement:${quota.weekly!.resetsAt}`,
+      element: `${quota.label} : ${prevision!.texte}`,
     });
     annonces[quota.id] = quota.weekly!.resetsAt!;
     change = true;

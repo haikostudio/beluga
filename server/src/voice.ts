@@ -337,8 +337,10 @@ export function scheduleDailyDigest(hourGetter: () => number | undefined): NodeJ
       // L'audio est fabriqué à l'avance : au clic, la lecture démarre tout de suite.
       const spoken = await speak(text);
       const { notify } = await import('./notify.js');
+      // Le point du jour attend qu'on l'ouvre : il n'appelle aucune décision,
+      // il se signale donc dans l'application seulement.
       notify({
-        kind: 'waiting',
+        motif: 'point-du-jour',
         title: 'Le point du jour est prêt',
         // La notification s'arrête sur une phrase entière : un texte coupé au
         // milieu d'un mot donne l'impression que quelque chose s'est perdu.

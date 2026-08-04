@@ -168,11 +168,13 @@ function signalerEchec(accountId: string, label: string, raison: string): void {
   echecs.set(accountId, compte);
   if (!alerterApresEchec(compte)) return;
   log.error(`amorce en échec ${compte} fois de suite sur ${label} : ${raison}`);
+  // L'amorçage d'une fenêtre est une affaire de machine : il se dit dans
+  // l'application, jamais sur un téléphone.
   notify({
-    kind: 'quota',
+    motif: 'amorcage-impossible',
     title: 'Amorçage impossible',
     body: `${label} : ${compte} échecs de suite (${raison}).`,
-    tag: `amorce-${accountId}`,
+    reference: accountId,
   });
 }
 

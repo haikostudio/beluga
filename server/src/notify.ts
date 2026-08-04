@@ -1,17 +1,37 @@
-import { corpsNotification, dansLesHeuresDeSilence, titreNotification } from '@haikodev/shared';
+import {
+  type FamilleNotification,
+  type MotifNotification,
+  cleEvenement,
+  corpsNotification,
+  dansLesHeuresDeSilence,
+  evenementDejaVu,
+  familleDuMotif,
+  interrompt,
+  resumeGroupe,
+  titreNotification,
+} from '@haikodev/shared';
 import { bus } from './bus.js';
 import { getCard, getProject, getSettings, projectsWithFinishedWork } from './store.js';
 
 /**
- * Notifications (PLAN §20) : une rafale d'événements devient UNE seule
- * notification (« 3 tâches terminées »), pas une avalanche.
+ * Le guichet UNIQUE des notifications. Tout ce que le démon veut annoncer passe
+ * ici, et trois filtres se posent dans cet ordre :
+ *
+ *  1. le MOTIF mérite-t-il d'interrompre ? Sinon la ligne reste dans
+ *     l'application (une bannière dans l'onglet ouvert) et aucun téléphone ne
+ *     sonne. Les règles sont dans `shared/src/notification-tri.ts`.
+ *  2. la famille est-elle activée, et sommes-nous hors des heures de silence ?
+ *  3. cet ÉVÉNEMENT a-t-il déjà été annoncé ? Deux endroits du code qui
+ *     décrivent la même chose ne font qu'une alerte.
+ *
+ * Ce qui passe est ensuite regroupé quatre secondes par famille — et le groupe
+ * NOMME ses éléments, il ne se contente pas de les compter.
  */
 
-type Kind = 'done' | 'failed' | 'waiting' | 'deploy' | 'proposal' | 'capacity' | 'quota';
-
 interface Pending {
-  kind: Kind;
-  count: number;
+  famille: FamilleNotification;
+  /** Ce qui nomme chaque élément du groupe : titres de cartes, noms de comptes… */
+  libelles: string[];
   title: string;
   body: string;
   cardId?: string;
@@ -21,12 +41,15 @@ interface Pending {
   timer: NodeJS.Timeout;
 }
 
-const pending = new Map<Kind, Pending>();
+const pending = new Map<FamilleNotification, Pending>();
 const GROUP_WINDOW_MS = 4000;
 
-function allowed(kind: Kind): boolean {
+/** Les événements déjà annoncés, pour ne jamais les dire deux fois. */
+const vus = new Map<string, number>();
+
+function allowed(famille: FamilleNotification): boolean {
   const settings = getSettings();
-  switch (kind) {
+  switch (famille) {
     case 'done':
       return settings.notifyOnDone;
     case 'failed':
@@ -47,69 +70,84 @@ function inQuietHours(): boolean {
   return dansLesHeuresDeSilence(new Date().getHours(), settings.quietHoursStart, settings.quietHoursEnd);
 }
 
-const PLURALS: Record<Kind, (n: number) => string> = {
-  done: (n) => `${n} tâches terminées`,
-  failed: (n) => `${n} tâches en échec`,
-  waiting: (n) => `${n} tâches attendent votre feu vert`,
-  deploy: (n) => `${n} publications terminées`,
-  proposal: (n) => `${n} tâches proposées — à confirmer`,
-  capacity: (n) => `${n} alertes de charge`,
-  // Le regroupement ne sait plus DE QUOI il s'agit (compte muet, fenêtre qui
-  // s'achève…) : un titre neutre vaut mieux qu'un titre faux.
-  quota: (n) => `${n} alertes de quota`,
-};
-
 export function notify(input: {
+  /** Ce qui s'est passé, en un mot : c'est lui qui décide d'interrompre ou non. */
+  motif: MotifNotification;
   title: string;
   body: string;
-  kind: Kind;
-  tag?: string;
+  /**
+   * L'objet dont parle l'événement (une carte, un compte, une publication).
+   * Deux appels de même motif et même référence sont le MÊME événement.
+   */
+  reference?: string;
+  /** Ce qui nomme l'élément dans un groupe. À défaut, le titre de la carte. */
+  element?: string;
   cardId?: string;
   projectId?: string;
 }): void {
-  if (!allowed(input.kind) || inQuietHours()) return;
+  const famille = familleDuMotif(input.motif);
 
   /*
-   * Le nom du projet et la description de la carte sont ajoutés ICI, une fois
-   * pour toutes : les vingt endroits qui appellent `notify` n'ont pas à y
-   * penser, et l'alerte dit toujours de quoi elle parle.
+   * Ce qui ne mérite pas d'interrompre reste DANS l'application : la charge de
+   * la machine, une fenêtre de quota qui s'achève ou une liste de tâches cochée
+   * se voient très bien en ouvrant l'onglet — elles n'ont jamais valu qu'on
+   * allume un téléphone.
    */
-  const projet = input.projectId ? (getProject(input.projectId)?.name ?? undefined) : undefined;
-  const carte = input.cardId ? (getCard(input.cardId) ?? undefined) : undefined;
-
-  const existing = pending.get(input.kind);
-  if (existing) {
-    clearTimeout(existing.timer);
-    existing.count += 1;
-    // Un groupe qui mélange deux projets ne peut plus en nommer un seul.
-    if (existing.projet && existing.projet !== projet) existing.projet = undefined;
-    existing.title = titreNotification(PLURALS[input.kind](existing.count), existing.projet);
-    existing.body = '';
-    existing.cardId = undefined; // un groupe ne pointe plus vers une carte précise
-    existing.timer = setTimeout(() => flush(input.kind), GROUP_WINDOW_MS);
+  if (!interrompt(input.motif)) {
+    bus.toast('info', input.body?.trim() || input.title, input.cardId);
     return;
   }
 
-  pending.set(input.kind, {
-    kind: input.kind,
-    count: 1,
+  if (!allowed(famille) || inQuietHours()) return;
+
+  // Un même événement, deux endroits du code : une seule alerte.
+  const reference = input.reference ?? input.cardId ?? input.projectId ?? input.title;
+  if (evenementDejaVu(vus, cleEvenement(input.motif, reference), Date.now())) return;
+
+  /*
+   * Le nom du projet et la description de la carte sont ajoutés ICI, une fois
+   * pour toutes : les endroits qui appellent `notify` n'ont pas à y penser, et
+   * l'alerte dit toujours de quoi elle parle.
+   */
+  const projet = input.projectId ? (getProject(input.projectId)?.name ?? undefined) : undefined;
+  const carte = input.cardId ? (getCard(input.cardId) ?? undefined) : undefined;
+  const libelle = input.element ?? carte?.title ?? input.title;
+
+  const existing = pending.get(famille);
+  if (existing) {
+    clearTimeout(existing.timer);
+    existing.libelles.push(libelle);
+    // Un groupe qui mélange deux projets ne peut plus en nommer un seul.
+    if (existing.projet && existing.projet !== projet) existing.projet = undefined;
+    existing.cardId = undefined; // un groupe ne pointe plus vers une carte précise
+    existing.timer = setTimeout(() => flush(famille), GROUP_WINDOW_MS);
+    return;
+  }
+
+  pending.set(famille, {
+    famille,
+    libelles: [libelle],
     title: titreNotification(input.title, projet),
     body: corpsNotification(input.body, carte),
     cardId: input.cardId,
     projectId: input.projectId,
     projet,
-    timer: setTimeout(() => flush(input.kind), GROUP_WINDOW_MS),
+    timer: setTimeout(() => flush(famille), GROUP_WINDOW_MS),
   });
 }
 
-function flush(kind: Kind): void {
-  const entry = pending.get(kind);
+function flush(famille: FamilleNotification): void {
+  const entry = pending.get(famille);
   if (!entry) return;
-  pending.delete(kind);
+  pending.delete(famille);
+
+  // À plusieurs, le titre compte et le corps ÉNUMÈRE : « 3 tâches terminées »
+  // seul obligerait à ouvrir l'application pour savoir lesquelles.
+  const groupe = entry.libelles.length > 1 ? resumeGroupe(famille, entry.libelles, entry.projet) : null;
   const payload = {
-    title: entry.title,
-    body: entry.body,
-    tag: kind,
+    title: groupe?.titre ?? entry.title,
+    body: groupe?.corps ?? entry.body,
+    tag: famille,
     cardId: entry.cardId,
     projectId: entry.projectId,
   };

@@ -60,6 +60,7 @@ node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance,
 node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
 node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
+node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 ```
@@ -209,6 +210,19 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   travail rendu non lu (point bleu, cliquable pour marquer comme lu). C'est l'AFFICHAGE qu'on
   réduit : les deux comptes continuent d'être calculés et de secouer la ligne séparément. Chaque
   repère dit ce qu'il veut dire en français simple (`aria-label` + infobulle).
+- **Une notification n'interrompt que si elle appelle une décision ou annonce une fin**
+  (`shared/src/notification-tri.ts`). Le MOTIF décide, pas la famille : sortent de l'application une
+  tâche réellement terminée, un travail enregistré sans carte, un échec, une décision attendue, une
+  publication finie, et le quota de la semaine (paliers 70 % puis 90 %, surconsommation annoncée).
+  Tout le reste — charge machine, amorçage d'une fenêtre, fenêtre de 5 h qui s'achève, liste de
+  tâches cochée, point du jour — reste DANS l'application (bannière). `notify` est le guichet unique
+  (`server/src/notify.ts`) : il refuse un motif qui n'interrompt pas, applique les réglages de
+  famille et les heures de silence, puis DÉDOUBLONNE sur l'identité de l'événement
+  (`cleEvenement` : sujet + objet, dix minutes de mémoire) — deux endroits du code qui racontent la
+  même chose ne font qu'une alerte. Un groupe de quatre secondes NOMME ses éléments
+  (`resumeGroupe`), jamais un compte muet. Une carte ne se signale terminée que si elle a
+  RÉELLEMENT atteint « Terminé » ou « À déployer ». Verrouillé par
+  `server/src/test/notification-tri.test.ts` et `scripts/verif-notifications.mjs`.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier

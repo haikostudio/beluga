@@ -14,6 +14,7 @@ export * from './memoire.js';
 export * from './mise-en-ligne.js';
 export * from './models.js';
 export * from './notification.js';
+export * from './notification-tri.js';
 export * from './nouveau-depart.js';
 export * from './projet-actif.js';
 export * from './protocol.js';

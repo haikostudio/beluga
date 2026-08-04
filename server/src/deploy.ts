@@ -924,9 +924,12 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
         ? ` — ${ecartees.size} carte(s) écartée(s) pour conflit, restées à déployer`
         : '';
       notify({
-        kind: 'deploy',
+        motif: 'publication-terminee',
         title: 'Publication terminée',
         body: `${current.cardIds.length} tâche(s) en ligne${reste}`,
+        // Une publication = un lot posé sur un enregistrement précis.
+        reference: `${projectId}:${current.targetCommit ?? current.cardIds.join(',')}`,
+        element: `${current.cardIds.length} tâche(s) en ligne`,
         projectId,
       });
       bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${reste}`);

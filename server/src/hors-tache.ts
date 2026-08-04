@@ -353,12 +353,14 @@ export async function cartesDuTravailHorsTache(agent: Agent, avant: RepereDepot 
   // UNE seule notification pour le tour : quatre cartes ne font pas quatre
   // sonneries. Elle pointe la première, les autres sont juste à côté.
   notify({
-    kind: 'done',
+    motif: 'travail-sans-carte',
     title: cartes.length > 1 ? `${cartes.length} travaux enregistrés sans tâche` : 'Travail enregistré sans tâche',
     body:
       cartes.length > 1
         ? cartes.map((carte) => carte.title).join(' · ')
         : `${premier.title} — une carte a été créée dans « À déployer ».`,
+    reference: cartes.map((carte) => carte.id).join(','),
+    element: premier.title,
     cardId: premier.id,
     projectId: premier.projectId,
   });

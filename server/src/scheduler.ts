@@ -344,15 +344,23 @@ Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (c
       const fresh = store.getCard(cardId);
       if (!fresh) return;
       if (ok) {
-        // Le passage en « Terminé » est déjà fait : la carte suit l'état de son
-        // agent (`colonneEnFinDeTour`). Il reste à prévenir.
-        notify({
-          kind: 'done',
-          title: 'Tâche terminée',
-          body: fresh.title,
-          cardId: fresh.id,
-          projectId: fresh.projectId,
-        });
+        /*
+         * Le passage en « Terminé » est déjà fait : la carte suit l'état de son
+         * agent (`colonneEnFinDeTour`). On ne prévient que si elle y est
+         * VRAIMENT arrivée : un tour qui répond sans rien modifier au dépôt
+         * laisse la carte où elle est, il n'y a donc rien à annoncer.
+         */
+        if (fresh.column === 'done' || fresh.column === 'to_deploy') {
+          notify({
+            motif: 'tache-terminee',
+            title: 'Tâche terminée',
+            body: fresh.title,
+            reference: fresh.id,
+            element: fresh.title,
+            cardId: fresh.id,
+            projectId: fresh.projectId,
+          });
+        }
         bus.toast('success', `Agent terminé : ${fresh.title}`, fresh.id);
       } else {
         bus.toast('error', `Agent en échec : ${fresh.title}`, fresh.id);

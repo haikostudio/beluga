@@ -118,8 +118,10 @@ export function sampleCapacity(): void {
     const minutes = (Date.now() - alertSince) / 60000;
     if (minutes >= settings.alertMinutes && !alertSent) {
       alertSent = true; // une seule alerte, pas une par minute
+      // La charge de la machine ne réveille plus personne : elle se lit dans
+      // la barre de capacité, où elle a toujours été visible.
       notify({
-        kind: 'capacity',
+        motif: 'charge-machine',
         title: 'Serveur très chargé',
         body: `Charge à ${snap.loadPct} % depuis ${Math.round(minutes)} minutes. Les nouveaux départs sont suspendus.`,
       });

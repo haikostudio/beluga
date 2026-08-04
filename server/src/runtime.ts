@@ -443,14 +443,20 @@ async function startTurn(
             runState.todos = mergeTodos(avant, event.todos, runState.startedAt);
             pushMessage(runState, { todos: runState.todos, streaming: true });
 
-            // Liste entièrement cochée : on prévient, une seule fois.
+            /*
+             * Liste entièrement cochée : cela se voit dans l'application, mais
+             * n'interrompt plus personne. Une liste cochée n'est PAS une tâche
+             * finie — le travail se clôt sur le constat du dépôt, et c'est
+             * cette clôture-là qui prévient. Les deux annonçaient le même
+             * événement : c'était le doublon d'origine.
+             */
             if (!runState.todosNotified && allDone(runState.todos) && !allDone(avant)) {
               runState.todosNotified = true;
               notify({
-                kind: 'done',
+                motif: 'liste-taches',
                 title: 'Liste de tâches terminée',
                 body: `${agent.title} — ${runState.todos.length} tâche${runState.todos.length > 1 ? 's' : ''} cochée${runState.todos.length > 1 ? 's' : ''}`,
-                tag: `todos-${agent.id}`,
+                reference: agent.cardId ?? agent.id,
                 projectId: agent.projectId,
                 cardId: agent.cardId,
               });
@@ -587,12 +593,15 @@ async function startTurn(
 
   if (failed) {
     notify({
+      motif: 'tache-echec',
       title: 'Tâche en échec',
       body: agent.title,
-      tag: 'failed',
+      // Un tour raté par agent : deux tentatives sur la même carte se disent
+      // toutes les deux, mais un seul échec ne se dit jamais deux fois.
+      reference: agent.id,
+      element: agent.title,
       cardId: agent.cardId,
       projectId: agent.projectId,
-      kind: 'failed',
     });
   }
 
@@ -643,18 +652,22 @@ export function attachToCurrentMessage(
   }
   if (patch.proposal) {
     notify({
-      kind: 'waiting',
+      motif: 'decision-attendue',
       title: 'Une carte attend votre validation',
       body: patch.proposal.title.slice(0, 120),
+      reference: `${agentId}:proposition:${patch.proposal.title}`,
+      element: patch.proposal.title.slice(0, 120),
       projectId: store.getAgent(agentId)?.projectId,
       cardId: store.getAgent(agentId)?.cardId,
     });
   }
   if (patch.question) {
     notify({
-      kind: 'waiting',
+      motif: 'decision-attendue',
       title: 'Une réponse est attendue',
       body: patch.question.question.slice(0, 120),
+      reference: `${agentId}:question:${patch.question.question}`,
+      element: patch.question.question.slice(0, 120),
       projectId: store.getAgent(agentId)?.projectId,
       cardId: store.getAgent(agentId)?.cardId,
     });

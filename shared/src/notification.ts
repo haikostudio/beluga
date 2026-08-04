@@ -16,7 +16,7 @@ export interface CarteNotifiee {
 }
 
 /** Au-delà, une notification est coupée par le système : autant couper proprement. */
-const LONGUEUR_CORPS = 180;
+export const LONGUEUR_CORPS = 180;
 
 /**
  * Le titre : « HaikoDev — Tâche terminée ». Le nom du projet vient EN TÊTE,
@@ -32,7 +32,7 @@ export function titreNotification(evenement: string, projet?: string): string {
 }
 
 /** Coupe à la longueur voulue sans laisser un mot à moitié. */
-function couper(texte: string, limite: number): string {
+export function couperTexte(texte: string, limite: number): string {
   const propre = texte.replace(/\s+/g, ' ').trim();
   if (propre.length <= limite) return propre;
   const tronque = propre.slice(0, limite);
@@ -48,7 +48,7 @@ function couper(texte: string, limite: number): string {
 export function corpsNotification(corps: string, carte?: CarteNotifiee): string {
   // Chaque ligne est raccourcie SÉPARÉMENT : le retour à la ligne entre le
   // titre de la carte et sa description doit survivre au raccourcissement.
-  const premiere = couper((corps ?? '').trim() || (carte?.title ?? ''), LONGUEUR_CORPS);
+  const premiere = couperTexte((corps ?? '').trim() || (carte?.title ?? ''), LONGUEUR_CORPS);
   const description = (carte?.description ?? '').replace(/\s+/g, ' ').trim();
   if (!description) return premiere;
 
@@ -59,5 +59,5 @@ export function corpsNotification(corps: string, carte?: CarteNotifiee): string 
 
   const reste = LONGUEUR_CORPS - premiere.length - 1;
   if (reste < 24) return premiere;
-  return premiere ? `${premiere}\n${couper(description, reste)}` : couper(description, LONGUEUR_CORPS);
+  return premiere ? `${premiere}\n${couperTexte(description, reste)}` : couperTexte(description, LONGUEUR_CORPS);
 }

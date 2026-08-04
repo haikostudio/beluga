@@ -457,7 +457,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         doneAt: Date.now(),
       });
       bus.emit({ type: 'card.upsert', card: updated });
-      notify({ kind: 'done', title: 'Tâche terminée', body: card.title, cardId: card.id, projectId: card.projectId });
+      // Même événement que la clôture automatique par l'ordonnanceur : la
+      // référence est la carte, donc une seule alerte quel que soit le chemin.
+      notify({
+        motif: 'tache-terminee',
+        title: 'Tâche terminée',
+        body: card.title,
+        reference: card.id,
+        element: card.title,
+        cardId: card.id,
+        projectId: card.projectId,
+      });
       return { card: updated };
     }
 
