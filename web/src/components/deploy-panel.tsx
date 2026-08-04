@@ -112,7 +112,13 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
    * d'un bloc propre (voir `rapportAGarder`).
    */
   const rapport = rapportAGarder(run?.state, aPublier) ? run : null;
-  if (!active && !aPublier && !rapport) return null;
+  /*
+   * Le bloc reste TOUJOURS en tête de la colonne « À déployer », même sans rien
+   * à envoyer : le bouton « Tout déployer » y est visible partout, seulement
+   * désactivé quand il n'y a rien à publier (il dit alors pourquoi). Le retirer
+   * faisait qu'une colonne vide n'affichait ni bloc ni bouton — d'un projet à
+   * l'autre, l'affichage n'était pas le même.
+   */
 
   return (
     /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
@@ -141,6 +147,12 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
               <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
               <span>{miseEnLigne.raison}</span>
             </p>
+          ) : null}
+
+          {/* Rien à envoyer, mais la mise en ligne reste possible : le bouton est
+              grisé et DIT pourquoi, plutôt qu'un bloc qui disparaît. */}
+          {!aPublier && miseEnLigne?.possible !== false ? (
+            <p className="mt-1.5 text-[12px] text-muted">Rien à déployer pour l'instant.</p>
           ) : null}
 
           {/* Ce qui attend sans carte : on le NOMME, sinon le compteur monte
