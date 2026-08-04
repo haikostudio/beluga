@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
+  IMAGE_PAR_DEFAUT,
   MEMOIRE_EVENEMENT_MS,
   MOTIFS,
   type MotifNotification,
@@ -9,6 +13,8 @@ import {
   evenementDejaVu,
   familleDuMotif,
   franchissementSemaine,
+  iconeDuMotif,
+  imageDeLAlerte,
   interrompt,
   resumeGroupe,
 } from '@haikodev/shared';
@@ -17,23 +23,93 @@ import {
 /* Ce qui mérite d'interrompre                                          */
 /* ------------------------------------------------------------------ */
 
-test('seuls les motifs qui appellent une décision ou annoncent une fin interrompent', () => {
+test('SEPT motifs interrompent, pas un de plus', () => {
   const interrompent = (Object.keys(MOTIFS) as MotifNotification[]).filter(interrompt).sort();
   assert.deepEqual(interrompent, [
     'decision-attendue',
+    'publication-echec',
     'publication-terminee',
-    'quota-emballement',
     'quota-seuil',
-    'quota-surconsommation',
+    'redemarrage-serveur',
     'tache-echec',
     'tache-terminee',
     'travail-sans-carte',
   ]);
+  // Huit entrées pour sept genres : une tâche terminée l'est avec ou sans carte.
+  assert.equal(interrompent.length, 8);
 });
 
 test('la charge machine, l’amorçage et la fenêtre de quota ne sortent plus de l’application', () => {
   for (const motif of ['charge-machine', 'amorcage-impossible', 'fenetre-bientot-finie', 'point-du-jour'] as const) {
     assert.equal(interrompt(motif), false, motif);
+  }
+});
+
+test('la surconsommation et l’emballement de quota redescendent en bannière', () => {
+  // Ils redisent ce que les paliers 70 % / 90 % annoncent déjà : trois alertes
+  // pour un seul quota faisaient du bruit.
+  assert.equal(interrompt('quota-surconsommation'), false);
+  assert.equal(interrompt('quota-emballement'), false);
+  assert.equal(interrompt('quota-seuil'), true);
+});
+
+test('une publication en échec et un redémarrage se disent, et sont bien connus', () => {
+  assert.equal(interrompt('publication-echec'), true);
+  assert.equal(interrompt('redemarrage-serveur'), true);
+  assert.equal(familleDuMotif('publication-echec'), 'deploy');
+  assert.equal(familleDuMotif('redemarrage-serveur'), 'systeme');
+});
+
+test('une publication en échec n’est jamais avalée par la réussite du même lot', () => {
+  assert.notEqual(cleEvenement('publication-echec', 'projet-1'), cleEvenement('publication-terminee', 'projet-1'));
+});
+
+/* ------------------------------------------------------------------ */
+/* Chaque genre porte SON image                                         */
+/* ------------------------------------------------------------------ */
+
+test('les sept motifs qui interrompent portent chacun l’image de leur genre', () => {
+  assert.equal(iconeDuMotif('tache-terminee'), 'termine');
+  assert.equal(iconeDuMotif('travail-sans-carte'), 'termine');
+  assert.equal(iconeDuMotif('decision-attendue'), 'attention');
+  assert.equal(iconeDuMotif('tache-echec'), 'erreur');
+  assert.equal(iconeDuMotif('publication-terminee'), 'publication');
+  // Une publication tombée est un échec, pas une publication en plus pâle.
+  assert.equal(iconeDuMotif('publication-echec'), 'erreur');
+  assert.equal(iconeDuMotif('quota-seuil'), 'quota');
+  assert.equal(iconeDuMotif('redemarrage-serveur'), 'redemarrage');
+});
+
+test('six images distinctes servent les motifs qui interrompent', () => {
+  const images = new Set(
+    (Object.keys(MOTIFS) as MotifNotification[]).filter(interrompt).map((motif) => imageDeLAlerte(motif)),
+  );
+  assert.equal(images.size, 6);
+  for (const image of images) assert.match(image, /^\/notif\/[a-z-]+\.png$/);
+});
+
+test('un motif inconnu retombe sur l’icône de l’application, jamais sur un vide', () => {
+  assert.equal(imageDeLAlerte('motif-d-une-version-plus-recente'), IMAGE_PAR_DEFAUT);
+  assert.equal(imageDeLAlerte(undefined), IMAGE_PAR_DEFAUT);
+});
+
+test('le service worker traduit les MÊMES motifs que la règle, et les images existent', () => {
+  // Le service worker ne partage rien avec l'application : sa table est
+  // recopiée, donc elle peut dériver. Ce contrôle est là pour l'en empêcher.
+  const racine = path.resolve(fileURLToPath(import.meta.url), '../../../..');
+  const sw = fs.readFileSync(path.join(racine, 'web', 'public', 'sw.js'), 'utf8');
+  const table = sw.slice(sw.indexOf('const ICONES'), sw.indexOf('function imageDeLAlerte'));
+
+  for (const motif of Object.keys(MOTIFS) as MotifNotification[]) {
+    const ligne = new RegExp(`'${motif}':\\s*'([a-z-]+)'`).exec(table);
+    if (!interrompt(motif)) {
+      assert.equal(ligne, null, `${motif} n'interrompt pas : rien à traduire`);
+      continue;
+    }
+    assert.ok(ligne, `${motif} manque au service worker`);
+    assert.equal(ligne![1], iconeDuMotif(motif), motif);
+    const image = path.join(racine, 'web', 'public', 'notif', `${ligne![1]}.png`);
+    assert.ok(fs.existsSync(image), `image absente : ${image}`);
   }
 });
 

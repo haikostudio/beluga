@@ -20,6 +20,7 @@ import {
   carteAReprendre,
   cleCarteOuverte,
   decisionsHorsCarte,
+  imageDeLAlerte,
   ongletAReprendre,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
@@ -232,7 +233,13 @@ export function App() {
     const arreter = client.onNotify((event) => {
       if (abonne) return;
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
-      const notification = new Notification(event.title, { body: event.body, tag: event.tag, icon: '/icon-192.png' });
+      // Même image que dans le service worker, tirée du même motif : une alerte
+      // ne change pas de visage selon que l'onglet est ouvert ou fermé.
+      const notification = new Notification(event.title, {
+        body: event.body,
+        tag: event.tag,
+        icon: imageDeLAlerte(event.motif),
+      });
       notification.onclick = () => {
         window.focus();
         if (event.projectId) client.setActiveProject(event.projectId);

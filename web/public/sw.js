@@ -10,8 +10,32 @@
  * l'application continuait d'afficher l'ancienne version (rencontré le
  * 03/08/2026 : ancienne barre du haut alors que la nouvelle était en ligne).
  */
-const CACHE = 'haikodev-v3';
+const CACHE = 'haikodev-v4';
 const SHELL = ['/', '/icon.svg', '/icon-192.png', '/manifest.json'];
+
+/**
+ * L'image de l'alerte suit le GENRE de nouvelle, pas la famille de réglage :
+ * une publication en échec porte l'image d'erreur. La table est recopiée ici
+ * parce qu'un service worker ne partage rien avec l'application ; elle ne fait
+ * que traduire le motif, la règle qui décide vit dans
+ * `shared/src/notification-tri.ts`. Un motif inconnu retombe sur l'icône de
+ * l'application : jamais d'alerte sans image.
+ */
+const ICONES = {
+  'tache-terminee': 'termine',
+  'travail-sans-carte': 'termine',
+  'tache-echec': 'erreur',
+  'decision-attendue': 'attention',
+  'publication-terminee': 'publication',
+  'publication-echec': 'erreur',
+  'redemarrage-serveur': 'redemarrage',
+  'quota-seuil': 'quota',
+};
+
+function imageDeLAlerte(motif) {
+  const nom = ICONES[motif];
+  return nom ? `/notif/${nom}.png` : '/icon-192.png';
+}
 
 self.addEventListener('install', (event) => {
   // On ne fait pas la queue derrière l'ancienne version : elle sert du périmé.
@@ -58,7 +82,9 @@ self.addEventListener('push', (event) => {
       // Même étiquette = une seule notification affichée, pas une avalanche.
       tag: payload.tag || 'haikodev',
       renotify: true,
-      icon: '/icon-192.png',
+      icon: imageDeLAlerte(payload.motif),
+      // La pastille est minuscule et monochrome : l'icône de l'application y
+      // reste plus lisible qu'un dessin de plus.
       badge: '/icon-192.png',
       data: { cardId: payload.cardId, projectId: payload.projectId },
     }),

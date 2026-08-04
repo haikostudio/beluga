@@ -4,6 +4,7 @@ import { EtatDemon, redemarrageNecessaire } from '@haikodev/shared';
 import { ROOT } from './config.js';
 import { bus } from './bus.js';
 import { runningAgentIds } from './runtime.js';
+import { notify, viderLesGroupes } from './notify.js';
 import { log } from './logger.js';
 
 /**
@@ -73,5 +74,23 @@ export function diffuserEtatDemon(force = false): void {
 export function redemarrerDemon(): void {
   log.info('redémarrage demandé depuis l’interface');
   bus.toast('info', 'Le serveur redémarre — l’application se reconnectera toute seule.');
-  setTimeout(() => process.exit(0), 400);
+  /*
+   * Le redémarrage coupe tout pendant quelques secondes : le dire évite de
+   * croire à une panne, et prévient qui n'était pas devant l'écran. Le groupe
+   * de quatre secondes est vidé TOUT DE SUITE — sinon le processus s'arrête
+   * avant que l'alerte ne soit partie — avec un plafond de deux secondes pour
+   * qu'un appareil injoignable ne retienne pas le serveur.
+   */
+  notify({
+    motif: 'redemarrage-serveur',
+    title: 'Le serveur redémarre',
+    body: 'L’application se reconnectera toute seule dans quelques secondes.',
+    reference: `redemarrage:${DEMARRE_A}`,
+    element: 'Redémarrage du serveur',
+  });
+  const parti = Promise.race([
+    viderLesGroupes(),
+    new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+  ]);
+  void parti.finally(() => setTimeout(() => process.exit(0), 400));
 }

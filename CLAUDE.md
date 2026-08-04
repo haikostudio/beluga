@@ -79,6 +79,8 @@ node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle 
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
 node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse d'une question (démon d'essai à soi)
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
+node scripts/icones-notifications.mjs # refabrique les six images des notifications (web/public/notif/)
+node scripts/verif-icones-notifications.mjs # les six images, dans un vrai navigateur (serveur de développement, HAIKO_ICONES_URL)
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
 node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié » (démon d'essai à soi)
@@ -376,19 +378,32 @@ sans son point d'essai.
   travail rendu non lu (point bleu, cliquable pour marquer comme lu). C'est l'AFFICHAGE qu'on
   réduit : les deux comptes continuent d'être calculés et de secouer la ligne séparément. Chaque
   repère dit ce qu'il veut dire en français simple (`aria-label` + infobulle).
-- **Une notification n'interrompt que si elle appelle une décision ou annonce une fin**
+- **SEPT motifs interrompent, pas un de plus, et chacun porte SON image**
   (`shared/src/notification-tri.ts`). Le MOTIF décide, pas la famille : sortent de l'application une
-  tâche réellement terminée, un travail enregistré sans carte, un échec, une décision attendue, une
-  publication finie, et le quota de la semaine (paliers 70 % puis 90 %, surconsommation annoncée).
-  Tout le reste — charge machine, amorçage d'une fenêtre, fenêtre de 5 h qui s'achève, liste de
-  tâches cochée, point du jour — reste DANS l'application (bannière). `notify` est le guichet unique
+  tâche réellement terminée (avec ou sans carte), une décision attendue, un échec de tâche, une
+  publication terminée, une publication EN ÉCHEC, le quota de la semaine aux paliers 70 % puis 90 %,
+  et le redémarrage du serveur. Tout le reste reste DANS l'application (bannière) — charge machine,
+  amorçage d'une fenêtre, fenêtre de 5 h qui s'achève, liste de tâches cochée, point du jour, et
+  désormais la surconsommation comme l'emballement de quota, qui redisaient les paliers sans palier
+  franchi. Les deux motifs neufs sont émis là où le fait se constate : `server/src/deploy.ts` quand
+  le run tombe (jamais sur un arrêt demandé à la main), `server/src/demon.ts` avant
+  `process.exit(0)` — d'où `viderLesGroupes` (`server/src/notify.ts`), qui vide le groupe de quatre
+  secondes tout de suite, sinon le processus s'arrête avant que l'alerte ne parte.
+  L'IMAGE suit le genre, pas la famille (`iconeDuMotif` : terminé, attention, erreur, publication,
+  quota, redémarrage — une publication tombée porte l'image d'erreur) : le motif voyage dans
+  l'événement `notify` et dans le message poussé, `web/src/app.tsx` et `web/public/sw.js` en tirent
+  le fichier, avec repli sur l'icône de l'application. Le service worker ne partageant rien avec
+  l'application, sa table est RECOPIÉE — un test compare les deux. Les six images sont fabriquées
+  par `scripts/icones-notifications.mjs` (PNG, aucune bibliothèque) : on ne dépose pas un binaire
+  illisible dans le dépôt, on le regénère. `notify` reste le guichet unique
   (`server/src/notify.ts`) : il refuse un motif qui n'interrompt pas, applique les réglages de
   famille et les heures de silence, puis DÉDOUBLONNE sur l'identité de l'événement
   (`cleEvenement` : sujet + objet, dix minutes de mémoire) — deux endroits du code qui racontent la
   même chose ne font qu'une alerte. Un groupe de quatre secondes NOMME ses éléments
   (`resumeGroupe`), jamais un compte muet. Une carte ne se signale terminée que si elle a
   RÉELLEMENT atteint « Terminé » ou « À déployer ». Verrouillé par
-  `server/src/test/notification-tri.test.ts` et `scripts/verif-notifications.mjs`.
+  `server/src/test/notification-tri.test.ts`, `scripts/verif-notifications.mjs` et
+  `scripts/verif-icones-notifications.mjs`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
