@@ -87,8 +87,14 @@ export function resteAVoir(total: number, ouverte: boolean): string {
  * Ce que la pile fermée annonce à qui ne la voit pas : le geste à faire, dans
  * les mots du pointeur qu'on a sous la main.
  */
-export function annonceDeLaPile(total: number, ouverte: boolean, geste: GesteDOuverture): string {
-  if (ouverte) return `${total} message${total > 1 ? 's' : ''} — replier la pile`;
+export function annonceDeLaPile(
+  total: number,
+  ouverte: boolean,
+  geste: GesteDOuverture,
+  nom = 'message',
+): string {
+  const combien = `${total} ${nom}${total > 1 ? 's' : ''}`;
+  if (ouverte) return `${combien} — replier la pile`;
   const gesteDit = geste === 'appui' ? 'Appuyer' : 'Survoler';
-  return `${total} message${total > 1 ? 's' : ''} — ${gesteDit} pour déployer la pile`;
+  return `${combien} — ${gesteDit} pour déployer la pile`;
 }

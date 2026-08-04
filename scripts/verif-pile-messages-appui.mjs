@@ -62,10 +62,14 @@ const etat = (page) =>
     if (!pile) return null;
     const croix = pile.querySelector('button');
     const cible = croix?.getBoundingClientRect();
+    const cadres = Array.from(pile.querySelectorAll('[class*="rounded-md"]'));
     return {
       ouverte: pile.getAttribute('data-pile-ouverte') === 'oui',
       geste: pile.getAttribute('data-pile-geste'),
-      messages: pile.querySelectorAll('[class*="rounded-md"]').length,
+      messages: cadres.length,
+      // Ce qui se VOIT vraiment : au-delà de trois, l'empilement met à zéro.
+      visibles: cadres.filter((el) => Number(getComputedStyle(el).opacity) > 0).length,
+      hauteur: Math.round(pile.getBoundingClientRect().height),
       reste: pile.textContent?.includes('autre') ?? false,
       annonce: pile.getAttribute('aria-label') ?? '',
       croixHauteur: cible ? Math.round(cible.height) : 0,
@@ -117,8 +121,12 @@ if (!(await mobile.evaluate(() => Boolean(window.haikodevEssai)))) {
   } else {
     noter('au doigt, le geste retenu est l’appui', repos.geste === 'appui', repos.geste ?? '');
     noter('au repos, la pile est fermée', !repos.ouverte);
-    noter('au repos, un seul message se voit', repos.messages === 1, `${repos.messages} messages`);
-    noter('au repos, le reste est annoncé', repos.reste);
+    // Combien se voient pile fermée est l'affaire de l'EMPILEMENT
+    // (PILE_VISIBLES = 3) : à trois messages, les trois se voient et il n'y a
+    // rien à compter. La pile n'en occupe pas moins la place d'un seul.
+    noter('au repos, trois messages au plus se voient', repos.visibles === 3, `${repos.visibles} visibles`);
+    noter('au repos, rien n’est annoncé comme caché : ils tiennent tous', !repos.reste);
+    noter('au repos, la pile tient dans la hauteur d’un message', repos.hauteur < 90, `${repos.hauteur} px`);
     noter('l’annonce nomme le geste à faire', /Appuyer/.test(repos.annonce), repos.annonce);
     await mobile.screenshot({ path: `${SHOTS}/pile-messages-fermee.png` });
 
@@ -168,6 +176,69 @@ if (!(await mobile.evaluate(() => Boolean(window.haikodevEssai)))) {
       `${avant} → ${apres ? apres.messages : 0}`,
     );
   }
+  /* ---------- Les vignettes d'agents, même pile, même appui ---------- */
+  const vignettes = mobile.locator('[data-pile="agents"]');
+  if (!(await vignettes.count())) {
+    console.log('  (aucun agent en cours : la pile des vignettes n’a pas pu être jugée au doigt)');
+  } else {
+    const etatVignettes = () =>
+      mobile.evaluate(() => {
+        const pile = document.querySelector('[data-pile="agents"]');
+        const rangs = Array.from(document.querySelectorAll('[data-vignette-pile]'));
+        return {
+          ouverte: pile.getAttribute('data-pile-ouverte') === 'oui',
+          geste: pile.getAttribute('data-pile-geste'),
+          hauteur: Math.round(pile.getBoundingClientRect().height),
+          rangs: rangs.length,
+          visibles: rangs.filter((el) => Number(getComputedStyle(el).opacity) > 0).length,
+        };
+      });
+    const repos = await etatVignettes();
+    noter('au doigt, les vignettes s’empilent aussi', repos.geste === 'appui' && !repos.ouverte);
+    noter(
+      'la pile des vignettes tient dans la hauteur d’une seule',
+      repos.rangs <= 1 || repos.hauteur < 40 * repos.rangs,
+      `${repos.hauteur} px pour ${repos.rangs} vignettes`,
+    );
+    noter('au repos, trois vignettes au plus se voient', repos.visibles <= 3, `${repos.visibles} visibles`);
+    await vignettes.tap();
+    await mobile.waitForTimeout(400);
+    const deployees = await etatVignettes();
+    noter('un appui déploie la pile des vignettes', deployees.ouverte);
+    noter(
+      'déployée, toutes les vignettes se voient',
+      deployees.visibles === deployees.rangs,
+      `${deployees.visibles}/${deployees.rangs}`,
+    );
+    await mobile.screenshot({ path: `${SHOTS}/pile-vignettes-deployee.png` });
+
+    // Pile ouverte, chaque vignette répond de nouveau pour elle-même : sa croix
+    // la retire, sans que l'agent s'arrête.
+    const croix = mobile.locator('[data-vignette-pile="0"] button').last();
+    const cible = await croix.boundingBox();
+    noter(
+      'la croix d’une vignette reste atteignable au doigt',
+      cible && Math.round(cible.height) >= 32 && Math.round(cible.width) >= 32,
+      cible ? `${Math.round(cible.width)} × ${Math.round(cible.height)} px` : 'introuvable',
+    );
+    await croix.tap();
+    await mobile.waitForTimeout(400);
+    const apres = await etatVignettes();
+    noter(
+      'pile ouverte, la croix retire bien sa vignette',
+      apres.rangs === deployees.rangs - 1,
+      `${deployees.rangs} → ${apres.rangs}`,
+    );
+
+    // Un appui ailleurs referme : au centre d'une vignette on toucherait le
+    // bouton qui ouvre l'agent, et c'est très bien ainsi.
+    await mobile.touchscreen.tap(20, 300);
+    await mobile.waitForTimeout(400);
+    noter('un appui ailleurs referme la pile des vignettes', !(await etatVignettes()).ouverte);
+    await mobile.keyboard.press('Escape');
+    await mobile.waitForTimeout(400);
+  }
+
   noter('aucune erreur dans la page, au doigt', erreursMobile.length === 0, erreursMobile[0] ?? '');
 }
 
