@@ -46,6 +46,7 @@ node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, 
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
 node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu de la colonne
+node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
@@ -201,6 +202,13 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   attendue — triangle orange — et un travail rendu pas encore consulté — point bleu clignotant. Les
   deux comptes se comparent SÉPARÉMENT, la secousse ne joue qu'une passe, et la ligne qu'on regarde
   déjà ne bouge jamais.
+- **La ligne d'un projet ne porte JAMAIS plus de deux repères**, en plus du bouton de réglages : un
+  ROBOT devant le nom quand des agents travaillent (le nombre seulement à partir de deux, jamais
+  d'anneau qui tourne), et UN SEUL repère d'attente à droite — `repereVisible`
+  (`shared/src/signal-projet.ts`) tranche, la décision attendue (triangle orange) l'emportant sur le
+  travail rendu non lu (point bleu, cliquable pour marquer comme lu). C'est l'AFFICHAGE qu'on
+  réduit : les deux comptes continuent d'être calculés et de secouer la ligne séparément. Chaque
+  repère dit ce qu'il veut dire en français simple (`aria-label` + infobulle).
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier
