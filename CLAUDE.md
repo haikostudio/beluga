@@ -295,6 +295,15 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   une barre. En `axe="horizontal"` (rail du tableau, barres d'onglets), `ZoneDefilement` ne pose
   AUCUN voile : il masquerait le bord des colonnes sans rien apprendre. L'option reste, car c'est
   elle qui écrit `overflow-y-hidden` en toutes lettres et empêche le tableau de flotter.
+- **Un fichier d'instructions qui ne fait que RENVOYER à un autre est suivi, jamais nommé**
+  (`instructionsQuiFontFoi`, `shared/src/instructions-projet.ts`). Chaque moteur a son fichier natif
+  (Codex : `AGENTS.md`, Claude : `CLAUDE.md`), mais à la création d'un projet `AGENTS.md` ne fait que
+  pointer vers `CLAUDE.md` : un agent Codex recevait deux lignes vides de sens. Le briefing résout
+  donc le renvoi — un corps de trois lignes au plus, sous 600 signes, qui cite un seul autre fichier
+  d'instructions —, nomme le fichier POINTÉ, dit en clair que l'autre n'est qu'un renvoi, et c'est ce
+  fichier-là que la consigne de fin de tâche demande de tenir à jour. Chaîne suivie sans boucler ;
+  renvoi vers un fichier absent non suivi ; rien n'est écrit ni supprimé, la règle des sept fichiers
+  de départ ne bouge pas. Verrouillé par `server/src/test/instructions-projet.test.ts`.
 - **Les outils du projet se branchent différemment selon le moteur.** Claude Code reçoit un FICHIER
   de configuration (`--mcp-config`) ; Codex reçoit la COMMANDE à lancer, donc le chemin du pont
   lui-même (`server/mcp-bridge.mjs`), jamais le fichier de configuration — `node fichier.json` sort

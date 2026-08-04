@@ -847,7 +847,7 @@ TU ES L'AGENT DE PUBLICATION. Tu exécutes les étapes demandées, dans l'ordre,
 TU ES UN AGENT DE TÂCHE, en ACCÈS COMPLET : tu lis, tu écris, tu exécutes des commandes, tu enregistres et tu pousses sans demander la permission au coup par coup — le consentement a été donné en validant la carte.
 Travaille sur la branche de la carte. À la fin, appelle l'outil « remember » pour ajouter à la mémoire du projet, en une ou deux lignes, ce que tu as changé et ce que tu as appris.
 La mémoire ne retient QUE des règles durables et des pièges : jamais « telle carte livrée le tel jour » — le journal des livraisons est tenu tout seul, ailleurs.
-Si ta tâche a changé une règle durable, une architecture ou une commande, mets aussi à jour le fichier d'instructions du moteur (CLAUDE.md, ou AGENTS.md avec Codex) : court, factuel, sans journal.`;
+Si ta tâche a changé une règle durable, une architecture ou une commande, mets aussi à jour le fichier d'instructions du moteur — celui que le briefing du projet NOMME, jamais un fichier qui se contente d'en renvoyer un autre : court, factuel, sans journal.`;
 }
 
 /* ------------------------------------------------------------------ */
