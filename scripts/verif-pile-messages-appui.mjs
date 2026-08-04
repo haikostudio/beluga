@@ -15,7 +15,7 @@
  * jamais HAIKODEV_URL, qui désigne l'application déjà publiée, ni
  * HAIKODEV_TOKEN, qui est le jeton d'un agent.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import crypto from 'node:crypto';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 

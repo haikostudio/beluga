@@ -19,7 +19,7 @@
  *   4. le démon REFUSE en toutes lettres un « agent.stop » qui vise un agent
  *      étranger à la carte annoncée.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import ws from '/root/haikodev/node_modules/ws/index.js';
 import { spawn, execFileSync } from 'node:child_process';

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { EngineId, Project } from '@haikodev/shared';
@@ -147,7 +148,10 @@ export async function createProjectFolder(input: {
     fs.mkdirSync(target, { recursive: true });
   } catch (err: any) {
     if (err?.code !== 'EACCES' && err?.code !== 'EPERM') throw err;
-    const user = process.env.USER || 'paseo';
+    // À qui rendre le dossier : celui qui fait TOURNER le démon, lu du système
+    // et non d'un nom écrit en dur — un nom emprunté à un autre projet donnait
+    // un dossier appartenant à un compte qui n'existe pas forcément ici.
+    const user = process.env.USER?.trim() || os.userInfo().username;
     await execFileAsync('sudo', ['-n', 'mkdir', '-p', target], { timeout: 20000 });
     await execFileAsync('sudo', ['-n', 'chown', '-R', `${user}:${user}`, target], { timeout: 20000 });
   }

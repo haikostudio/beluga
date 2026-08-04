@@ -10,7 +10,7 @@
  * Attention : HAIKODEV_URL par défaut désigne l'application PUBLIÉE. Pour
  * juger d'un code non publié, viser le serveur de développement.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import crypto from 'node:crypto';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 

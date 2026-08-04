@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { ROOT } from './config.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
@@ -15,9 +16,15 @@ const execFileAsync = promisify(execFile);
  * HaikoDev n'additionne jamais d'argent lui-même : il affiche.
  */
 
+/**
+ * L'outil de facturation vit DANS le dépôt (`outils/compta/`) : posé dans le
+ * dossier personnel d'un utilisateur, il disparaissait avec lui et ne se
+ * versionnait nulle part. Le dossier personnel reste un repli — une machine
+ * peut encore l'y avoir — mais jamais un chemin d'utilisateur écrit en dur.
+ */
 const SCRIPT_CANDIDATES = [
+  path.join(ROOT, 'outils', 'compta', 'scripts', 'compta.mjs'),
   path.join(os.homedir(), '.claude', 'skills', 'compta', 'scripts', 'compta.mjs'),
-  '/home/paseo/.claude/skills/compta/scripts/compta.mjs',
 ];
 
 function scriptPath(): string | null {

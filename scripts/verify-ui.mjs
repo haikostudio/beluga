@@ -3,7 +3,7 @@
  * Vérification RÉELLE de l'application dans un navigateur (PLAN §32) :
  * chaque geste est essayé pour de vrai, pas seulement testé techniquement.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import fs from 'node:fs';
 
 const BASE = process.env.HAIKODEV_URL || 'https://haikodev.haikostudio.cloud';

@@ -14,7 +14,7 @@
  * Le script monte son PROPRE démon, sur un port libre, avec une base neuve :
  * le démon de production n'est pas touché, et aucun moteur n'est appelé.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';

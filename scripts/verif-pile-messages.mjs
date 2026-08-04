@@ -13,7 +13,7 @@
  * On vise le serveur de DÉVELOPPEMENT : HAIKODEV_URL, posée pour les agents,
  * désigne l'application déjà publiée — on y verrait l'ancienne version.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
