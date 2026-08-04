@@ -8,7 +8,11 @@
  *   2. combien en restent après dédoublonnage — c'est ce que montre le menu.
  * Un écart entre les deux signale des modèles escamotés.
  *
- *   node scripts/verif-catalogue-codex.mjs
+ *   HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs
+ *
+ * Les comptes sont lus dans la base du démon : depuis une copie de travail,
+ * poser HAIKODEV_DATA sur le dossier `data` du projet, sinon aucun compte n'est
+ * trouvé.
  *
  * Quand aucun compte ne répond, on le DIT (jeton refusé, session terminée) au
  * lieu d'annoncer une liste complète : c'est exactement le cas où l'interface
@@ -30,6 +34,7 @@ console.log(`Codex ${detecte.installed ? `installé (${version})` : 'non install
 
 const jetons = codexTokens();
 console.log(`Comptes Codex avec un jeton : ${jetons.length}`);
+if (!jetons.length) console.log('(aucun compte lu : poser HAIKODEV_DATA sur le dossier data du démon)');
 
 let brut = null;
 let dernierEchec = 'aucun compte joignable';

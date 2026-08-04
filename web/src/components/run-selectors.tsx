@@ -81,6 +81,7 @@ export function RunSelectors({
         onSelect={(id) => onSelect({ model: id })}
         title={engine?.live ? 'Modèle (liste du moteur)' : 'Modèle'}
         avertissement={messageDeRepli(engine)}
+        repere="modele"
       />
       {thinkingOptions.length > 1 ? (
         <Selector
@@ -106,6 +107,7 @@ export function Selector({
   onSelect,
   title,
   avertissement,
+  repere,
 }: {
   label: string;
   items: { id: string; label: string; note?: string; description?: string; appetite?: 'light' | 'medium' | 'heavy' }[];
@@ -114,6 +116,8 @@ export function Selector({
   title: string;
   /** Ce qu'il faut savoir sur la liste elle-même — par exemple qu'elle est de secours. */
   avertissement?: string | null;
+  /** Repère stable pour les scripts de vérification, jamais lu par l'interface. */
+  repere?: string;
 }) {
   if (!items.length) return null;
   return (
@@ -124,6 +128,7 @@ export function Selector({
           size="sm"
           className="min-w-0 shrink gap-0.5 px-1 text-[13px] text-faint hover:text-text sm:gap-1 sm:px-1.5"
           title={avertissement ?? undefined}
+          data-selecteur={repere}
         >
           <span className="max-w-[56px] truncate sm:max-w-[110px]">{label}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />

@@ -23,16 +23,25 @@ export type Catalogue = { models: ModelInfo[]; live: boolean; error?: string };
 
 const SANS_COMPTE = 'aucun compte joignable';
 
-/** La raison lisible d'une réponse refusée : le moteur la donne souvent en clair. */
+/**
+ * La raison d'une réponse refusée, en FRANÇAIS : elle s'affiche dans le menu du
+ * modèle, donc « réponse 401 » n'apprend rien à qui n'est pas informaticien. Le
+ * message exact du moteur, lui, part au journal.
+ */
 async function raisonHttp(res: Response): Promise<string> {
+  let detail = '';
   try {
     const corps: any = await res.json();
     const message = corps?.error?.message ?? corps?.message;
-    if (typeof message === 'string' && message.trim()) return `réponse ${res.status} — ${message.trim()}`;
+    if (typeof message === 'string' && message.trim()) detail = message.trim();
   } catch {
     /* corps illisible : le code suffit */
   }
-  return `réponse ${res.status}`;
+  if (detail) log.warn(`catalogue refusé (${res.status})`, detail);
+  if (res.status === 401 || res.status === 403) return 'compte refusé, il faut le reconnecter';
+  if (res.status === 429) return 'moteur momentanément saturé';
+  if (res.status >= 500) return 'moteur indisponible';
+  return `refus du moteur (réponse ${res.status})`;
 }
 
 /** Traduit les mots des moteurs dans le vocabulaire de l'interface. */
