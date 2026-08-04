@@ -301,6 +301,10 @@ export function Sidebar({
   const runningOf = (projectId: string) =>
     Object.values(state.agents).filter((a) => a.projectId === projectId && a.status === 'running').length;
 
+  // Une publication est EN COURS tant que son run le dit ; elle s'éteint dès
+  // qu'il se termine, quel qu'en soit le sort (réussite, échec, arrêt).
+  const publieOf = (projectId: string) => state.deploys[projectId]?.state === 'running';
+
   React.useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
@@ -384,6 +388,7 @@ export function Sidebar({
                 project={entry.project}
                 active={entry.id === state.activeProjectId}
                 running={runningOf(entry.id)}
+                publie={publieOf(entry.id)}
                 attention={state.attention[entry.id]}
                 rendus={state.rendus[entry.id]}
                 dimmed={dragging?.id === entry.id}
@@ -449,6 +454,12 @@ export function Sidebar({
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
                 </button>
+                {/* Replié, un membre qui publie ne se voit plus : le repère jaune
+                    remonte jusqu'à l'en-tête du groupe. Déplié, chaque ligne
+                    porte le sien. */}
+                {replie && entry.members.some((p) => publieOf(p.id)) ? (
+                  <RepereePublication publie />
+                ) : null}
                 {replie ? (
                   <RepereLigne
                     signal={signal}
@@ -496,6 +507,7 @@ export function Sidebar({
                         project={project}
                         active={project.id === state.activeProjectId}
                         running={runningOf(project.id)}
+                        publie={publieOf(project.id)}
                         attention={state.attention[project.id]}
                         rendus={state.rendus[project.id]}
                         dimmed={dragging?.id === project.id}
@@ -853,6 +865,28 @@ function RepereRobot({ running }: { running: number }) {
 }
 
 /**
+ * « Ce projet est en train d'être mis en ligne. »
+ *
+ * Un point jaune qui respire, du côté du robot : c'est l'ÉTAT du projet, pas une
+ * décision à prendre. Il ne porte donc AUCUN geste (la publication se suit sur
+ * la carte d'« À déployer »), et ne compte pas parmi les deux repères d'attente
+ * de droite. Il ne vit que le temps de la publication et s'éteint dès qu'elle
+ * se termine — réussite, échec ou arrêt.
+ */
+function RepereePublication({ publie }: { publie: boolean }) {
+  if (!publie) return null;
+  return (
+    <Tooltip label="Publication en cours">
+      <span
+        aria-label="Publication en cours"
+        data-repere-publication
+        className="h-2 w-2 shrink-0 rounded-full bg-publie animate-pulse-soft motion-reduce:animate-none"
+      />
+    </Tooltip>
+  );
+}
+
+/**
  * Le SEUL repère d'attente de la ligne, à droite du nom.
  *
  * Ils étaient trois à se disputer trois centimètres : triangle orange, pastille
@@ -966,6 +1000,7 @@ function ProjectRow({
   project,
   active,
   running,
+  publie,
   attention,
   rendus,
   dimmed,
@@ -979,6 +1014,8 @@ function ProjectRow({
   project: Project;
   active: boolean;
   running: number;
+  /** Une publication de ce projet est-elle en cours ? */
+  publie?: boolean;
   attention?: number;
   /** Réponses rendues et pas encore lues sur ce projet. */
   rendus?: number;
@@ -1028,6 +1065,7 @@ function ProjectRow({
         {/* Le robot prend la place du dossier tant qu'un agent écrit : c'est le
             MÊME emplacement, donc rien ne s'ajoute à la ligne. */}
         <RepereRobot running={running} />
+        <RepereePublication publie={!!publie} />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>

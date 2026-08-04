@@ -30,6 +30,9 @@
     /* Du neuf à lire : le travail rendu qu'on n'a pas encore ouvert. Ni une
        alerte (orange), ni une réussite acquise (vert) — une nouvelle. */
     --info: 205 90% 60%;
+    /* Une publication en cours : un jaune franc, distinct de l'orange d'alerte
+       (warning) — c'est un état, pas une décision à prendre. */
+    --publie: 50 95% 58%;
     color-scheme: dark;
   }
 
@@ -49,6 +52,8 @@
     --record: 213 85% 45%;
     --record-fg: 0 0% 100%;
     --info: 205 90% 38%;
+    /* Sur fond clair, le jaune doit rester lisible : on l'assombrit. */
+    --publie: 46 92% 40%;
     color-scheme: light;
   }
 
