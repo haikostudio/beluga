@@ -30,6 +30,8 @@ import { getCard, getProject, getSettings, projectsWithFinishedWork } from './st
 
 interface Pending {
   famille: FamilleNotification;
+  /** Le motif du premier événement du groupe : il choisit l'image affichée. */
+  motif: MotifNotification;
   /** Ce qui nomme chaque élément du groupe : titres de cartes, noms de comptes… */
   libelles: string[];
   title: string;
@@ -126,6 +128,7 @@ export function notify(input: {
 
   pending.set(famille, {
     famille,
+    motif: input.motif,
     libelles: [libelle],
     title: titreNotification(input.title, projet),
     body: corpsNotification(input.body, carte),
@@ -136,9 +139,23 @@ export function notify(input: {
   });
 }
 
-function flush(famille: FamilleNotification): void {
+/**
+ * Vide tout de suite les groupes en attente, et REND LA MAIN quand les
+ * appareils ont été servis. Utile au seul endroit où l'on n'a pas quatre
+ * secondes devant soi : le serveur qui s'arrête pour repartir.
+ */
+export async function viderLesGroupes(): Promise<void> {
+  const envois: Promise<void>[] = [];
+  for (const [famille, entry] of [...pending]) {
+    clearTimeout(entry.timer);
+    envois.push(flush(famille));
+  }
+  await Promise.all(envois);
+}
+
+function flush(famille: FamilleNotification): Promise<void> {
   const entry = pending.get(famille);
-  if (!entry) return;
+  if (!entry) return Promise.resolve();
   pending.delete(famille);
 
   // À plusieurs, le titre compte et le corps ÉNUMÈRE : « 3 tâches terminées »
@@ -148,6 +165,10 @@ function flush(famille: FamilleNotification): void {
     title: groupe?.titre ?? entry.title,
     body: groupe?.corps ?? entry.body,
     tag: famille,
+    // Le MOTIF voyage jusqu'au bout : c'est lui qui choisit l'image affichée,
+    // côté onglet ouvert comme côté service worker. Un groupe garde le motif du
+    // premier événement — ils sont de la même famille, donc du même genre.
+    motif: entry.motif,
     cardId: entry.cardId,
     projectId: entry.projectId,
   };
@@ -159,5 +180,5 @@ function flush(famille: FamilleNotification): void {
    * l'icône de l'application, sans qu'on ait besoin de l'ouvrir.
    */
   const nonLues = Object.values(projectsWithFinishedWork()).reduce((total, n) => total + n, 0);
-  void import('./push.js').then(({ sendPush }) => sendPush({ ...payload, nonLues }));
+  return import('./push.js').then(({ sendPush }) => sendPush({ ...payload, nonLues }));
 }

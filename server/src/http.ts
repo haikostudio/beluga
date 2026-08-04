@@ -234,7 +234,12 @@ export function createHttpServer(): http.Server {
 
       // Le manifeste, les icônes et le service worker doivent rester lisibles
       // sans session : sinon l'installation sur téléphone échoue silencieusement.
-      if (['/manifest.json', '/sw.js', '/icon.svg', '/icon-192.png', '/icon-512.png'].includes(route)) {
+      // Les images des notifications suivent la même règle : le navigateur va
+      // les chercher pour afficher une alerte, parfois sans onglet ouvert.
+      if (
+        ['/manifest.json', '/sw.js', '/icon.svg', '/icon-192.png', '/icon-512.png'].includes(route) ||
+        /^\/notif\/[a-z-]+\.png$/.test(route)
+      ) {
         const racine = webRoot();
         const publicFile = path.join(racine, route.replace(/^\/+/, ''));
         if (publicFile.startsWith(racine) && serveStatic(res, publicFile)) return;

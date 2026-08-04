@@ -54,6 +54,8 @@ export interface PushPayload {
   title: string;
   body: string;
   tag?: string;
+  /** Le genre d'événement : le service worker en tire l'image à afficher. */
+  motif?: string;
   cardId?: string;
   projectId?: string;
   /** Réponses rendues et pas encore lues : le chiffre de l'icône. */

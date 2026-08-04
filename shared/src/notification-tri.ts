@@ -7,11 +7,12 @@
  * quota, liste de tâches cochée en cours de route) se voit très bien DANS
  * l'application, quand on l'ouvre.
  *
- * Trois règles vivent ici, et nulle part ailleurs :
+ * Quatre règles vivent ici, et nulle part ailleurs :
  *  1. quel motif interrompt, et à quelle famille de réglage il appartient ;
- *  2. l'IDENTITÉ d'un événement, pour que deux endroits du code qui décrivent
+ *  2. l'IMAGE que porte l'alerte, pour qu'on la reconnaisse sans la lire ;
+ *  3. l'IDENTITÉ d'un événement, pour que deux endroits du code qui décrivent
  *     la même chose ne fassent qu'une seule alerte ;
- *  3. le résumé d'un groupe : il NOMME les éléments au lieu d'un compte muet.
+ *  4. le résumé d'un groupe : il NOMME les éléments au lieu d'un compte muet.
  *
  * Règles pures : aucune base, aucun disque — donc rejouables telles quelles.
  */
@@ -19,7 +20,15 @@
 import { LONGUEUR_CORPS, couperTexte, titreNotification } from './notification.js';
 
 /** Les familles, telles que les réglages d'activation les connaissent déjà. */
-export type FamilleNotification = 'done' | 'failed' | 'waiting' | 'deploy' | 'proposal' | 'capacity' | 'quota';
+export type FamilleNotification =
+  | 'done'
+  | 'failed'
+  | 'waiting'
+  | 'deploy'
+  | 'proposal'
+  | 'capacity'
+  | 'quota'
+  | 'systeme';
 
 /** Le motif REEL de l'alerte : plus fin que la famille, c'est lui qui décide. */
 export type MotifNotification =
@@ -28,6 +37,8 @@ export type MotifNotification =
   | 'tache-echec'
   | 'decision-attendue'
   | 'publication-terminee'
+  | 'publication-echec'
+  | 'redemarrage-serveur'
   | 'quota-seuil'
   | 'quota-surconsommation'
   | 'quota-emballement'
@@ -47,29 +58,54 @@ interface RegleMotif {
    * sont le même événement : le second se tait.
    */
   sujet: string;
+  /** L'image portée par l'alerte : on reconnaît le genre avant de lire. */
+  icone: IconeNotification;
 }
 
+/**
+ * Les six images possibles. Elles ne suivent pas la famille de réglage mais le
+ * GENRE de nouvelle : une publication en échec est un échec, pas une
+ * publication réussie en plus pâle.
+ */
+export type IconeNotification = 'termine' | 'attention' | 'erreur' | 'publication' | 'quota' | 'redemarrage';
+
+/**
+ * SEPT motifs interrompent, pas un de plus. Chacun annonce une fin, un échec
+ * ou une décision à prendre — c'est-à-dire quelque chose qu'on ne peut pas
+ * découvrir plus tard sans dommage. Tout le reste attend qu'on ouvre
+ * l'application.
+ */
 export const MOTIFS: Record<MotifNotification, RegleMotif> = {
   // Ce qui interrompt : une fin, un échec, une décision attendue, un manque.
-  'tache-terminee': { famille: 'done', interrompt: true, sujet: 'fin-de-travail' },
-  'travail-sans-carte': { famille: 'done', interrompt: true, sujet: 'fin-de-travail' },
-  'tache-echec': { famille: 'failed', interrompt: true, sujet: 'echec' },
-  'decision-attendue': { famille: 'waiting', interrompt: true, sujet: 'decision' },
-  'publication-terminee': { famille: 'deploy', interrompt: true, sujet: 'publication' },
-  'quota-seuil': { famille: 'quota', interrompt: true, sujet: 'quota' },
-  'quota-surconsommation': { famille: 'quota', interrompt: true, sujet: 'quota' },
-  // Un emballement soudain est une alerte à part entière : il appelle un geste
-  // tout de suite, avant que la prévision de fin de semaine n'ait basculé.
-  'quota-emballement': { famille: 'quota', interrompt: true, sujet: 'quota' },
+  'tache-terminee': { famille: 'done', interrompt: true, sujet: 'fin-de-travail', icone: 'termine' },
+  'travail-sans-carte': { famille: 'done', interrompt: true, sujet: 'fin-de-travail', icone: 'termine' },
+  'tache-echec': { famille: 'failed', interrompt: true, sujet: 'echec', icone: 'erreur' },
+  'decision-attendue': { famille: 'waiting', interrompt: true, sujet: 'decision', icone: 'attention' },
+  'publication-terminee': { famille: 'deploy', interrompt: true, sujet: 'publication', icone: 'publication' },
+  // Une publication qui tombe se dit aussi fort qu'une qui aboutit : sans elle,
+  // on croit son travail en ligne alors que rien n'est parti. Sujet à part, pour
+  // qu'un échec ne soit jamais avalé par la réussite du même lot.
+  'publication-echec': { famille: 'deploy', interrompt: true, sujet: 'publication-echec', icone: 'erreur' },
+  // Le serveur qui repart coupe les conversations ouvertes quelques secondes :
+  // le dire évite de croire à une panne.
+  'redemarrage-serveur': { famille: 'systeme', interrompt: true, sujet: 'redemarrage', icone: 'redemarrage' },
+  'quota-seuil': { famille: 'quota', interrompt: true, sujet: 'quota', icone: 'quota' },
 
   // Ce qui ne sort plus de l'application. Le sujet reste renseigné : « liste de
   // tâches cochée » parle de la MÊME fin de travail que « tâche terminée »,
   // c'était là le doublon d'origine.
-  'liste-taches': { famille: 'done', interrompt: false, sujet: 'fin-de-travail' },
-  'charge-machine': { famille: 'capacity', interrompt: false, sujet: 'charge' },
-  'amorcage-impossible': { famille: 'quota', interrompt: false, sujet: 'amorcage' },
-  'fenetre-bientot-finie': { famille: 'quota', interrompt: false, sujet: 'quota' },
-  'point-du-jour': { famille: 'waiting', interrompt: false, sujet: 'point-du-jour' },
+  //
+  // La surconsommation et l'emballement disent tous deux la même chose que les
+  // paliers 70 % / 90 % — que le quota descend vite — mais sans palier franchi :
+  // trois alertes pour un seul quota faisaient du bruit. Elles restent dans
+  // l'application, où la courbe les montre bien mieux.
+  'quota-surconsommation': { famille: 'quota', interrompt: false, sujet: 'quota', icone: 'quota' },
+  'quota-emballement': { famille: 'quota', interrompt: false, sujet: 'quota', icone: 'quota' },
+  'liste-taches': { famille: 'done', interrompt: false, sujet: 'fin-de-travail', icone: 'termine' },
+  'charge-machine': { famille: 'capacity', interrompt: false, sujet: 'charge', icone: 'attention' },
+  'amorcage-impossible': { famille: 'quota', interrompt: false, sujet: 'amorcage', icone: 'quota' },
+  'fenetre-bientot-finie': { famille: 'quota', interrompt: false, sujet: 'quota', icone: 'quota' },
+  'point-du-jour': { famille: 'waiting', interrompt: false, sujet: 'point-du-jour', icone: 'attention' },
 };
 
 export function interrompt(motif: MotifNotification): boolean {
@@ -78,6 +114,28 @@ export function interrompt(motif: MotifNotification): boolean {
 
 export function familleDuMotif(motif: MotifNotification): FamilleNotification {
   return MOTIFS[motif].famille;
+}
+
+export function iconeDuMotif(motif: MotifNotification): IconeNotification {
+  return MOTIFS[motif].icone;
+}
+
+/** Où vivent les images, côté navigateur. Le service worker suit la même règle. */
+export function cheminIcone(icone: IconeNotification): string {
+  return `/notif/${icone}.png`;
+}
+
+/** L'icône de l'application : le repli, pour qu'aucune alerte ne parte sans image. */
+export const IMAGE_PAR_DEFAUT = '/icon-192.png';
+
+/**
+ * L'image d'une alerte, à partir du motif qui a voyagé avec elle. Un motif
+ * inconnu — une version du serveur plus récente que l'application installée —
+ * retombe sur l'icône de l'application plutôt que sur un carré vide.
+ */
+export function imageDeLAlerte(motif?: string): string {
+  const regle = motif ? MOTIFS[motif as MotifNotification] : undefined;
+  return regle ? cheminIcone(regle.icone) : IMAGE_PAR_DEFAUT;
 }
 
 /**
@@ -160,10 +218,12 @@ const PLURIELS: Record<FamilleNotification, (n: number) => string> = {
   done: (n) => `${n} tâches terminées`,
   failed: (n) => `${n} tâches en échec`,
   waiting: (n) => `${n} décisions attendent`,
-  deploy: (n) => `${n} publications terminées`,
+  // « terminées » serait faux dès qu'un échec est du lot : le corps nomme, lui.
+  deploy: (n) => `${n} publications`,
   proposal: (n) => `${n} tâches proposées — à confirmer`,
   capacity: (n) => `${n} alertes de charge`,
   quota: (n) => `${n} alertes de quota`,
+  systeme: (n) => `${n} redémarrages du serveur`,
 };
 
 /**

@@ -5,12 +5,14 @@
  * Les règles pures sont déjà vérifiées par `notification-tri.test.ts`. Ici on
  * fait tourner le VRAI guichet du démon (`server/dist/notify.js`), avec une
  * vraie base, un vrai projet et de vraies cartes, en écoutant ce qui part sur
- * le bus. On vérifie quatre choses :
+ * le bus. On vérifie six choses :
  *
  *   1. la clôture d'une carte par deux chemins ne fait qu'UNE notification ;
  *   2. cette notification porte le NOM DU PROJET et une phrase claire ;
  *   3. ce qui ne mérite pas d'interrompre reste dans l'application ;
- *   4. un groupe NOMME ses éléments au lieu de les compter.
+ *   4. la surconsommation et l'emballement de quota n'en sortent plus ;
+ *   5. une publication en échec sort, et emporte le motif qui choisit son image ;
+ *   6. un groupe NOMME ses éléments au lieu de les compter.
  *
  * Rien n'est touché dans la vraie base : tout se passe dans un dossier
  * temporaire, effacé en partant.
@@ -20,6 +22,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// La racine se déduit du script : lancé depuis une copie de travail, il juge
+// CETTE copie et non le dossier principal.
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // AVANT tout import du démon : la configuration lit cette variable au chargement.
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-notifs-'));
@@ -28,6 +35,7 @@ process.env.HAIKODEV_DATA = dataDir;
 const { bus } = await import('../server/dist/bus.js');
 const store = await import('../server/dist/store.js');
 const { notify } = await import('../server/dist/notify.js');
+const { imageDeLAlerte } = await import('../shared/dist/index.js');
 
 const resultats = [];
 function noter(nom, ok, detail = '') {
@@ -154,7 +162,56 @@ try {
     `${bannieres.length} bannière(s)`,
   );
 
-  /* --- 4 : un groupe nomme ses éléments --- */
+  /* --- 4 : la surconsommation de quota ne réveille plus personne --- */
+  vider();
+  notify({
+    motif: 'quota-surconsommation',
+    title: 'Le quota de la semaine va manquer',
+    body: 'Compte d’essai : épuisé jeudi (78 % consommés).',
+    reference: 'compte-essai:epuisement',
+  });
+  notify({
+    motif: 'quota-emballement',
+    title: 'Consommation inhabituelle',
+    body: 'Compte d’essai : 4 fois l’habitude.',
+    reference: 'compte-essai:emballement',
+  });
+  await attendre(ATTENTE_GROUPE_MS);
+  noter(
+    'la surconsommation et l’emballement de quota restent dans l’application',
+    notifications.length === 0 && bannieres.length === 2,
+    `${notifications.length} notification(s), ${bannieres.length} bannière(s)`,
+  );
+
+  /* --- 5 : chaque genre d'alerte porte SON image --- */
+  vider();
+  notify({
+    motif: 'publication-echec',
+    title: 'Publication en échec',
+    body: '2 tâche(s) restent à déployer — les contrôles sont tombés',
+    reference: 'projet-essai:echec:run-1',
+    projectId: 'projet-essai',
+  });
+  await attendre(ATTENTE_GROUPE_MS);
+  const echec = notifications[0];
+  noter(
+    'une publication en échec sort de l’application et dit pourquoi',
+    !!echec && echec.body.includes('les contrôles sont tombés'),
+    echec?.body,
+  );
+  noter(
+    'elle emporte son motif, donc son image',
+    !!echec && echec.motif === 'publication-echec' && imageDeLAlerte(echec.motif) === '/notif/erreur.png',
+    `${echec?.motif} → ${imageDeLAlerte(echec?.motif)}`,
+  );
+  noter(
+    'les six images existent réellement dans l’application',
+    ['termine', 'attention', 'erreur', 'publication', 'quota', 'redemarrage'].every((nom) =>
+      fs.existsSync(path.join(RACINE, 'web', 'public', 'notif', `${nom}.png`)),
+    ),
+  );
+
+  /* --- 6 : un groupe nomme ses éléments --- */
   vider();
   for (const [id, titre] of [
     ['carte-2', 'Le volet des quotas'],

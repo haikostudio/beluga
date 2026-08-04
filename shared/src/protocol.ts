@@ -394,6 +394,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
     title: z.string(),
     body: z.string(),
     tag: z.string().optional(),
+    /** Le genre d'événement : c'est lui qui choisit l'image de l'alerte. */
+    motif: z.string().optional(),
     cardId: z.string().optional(),
     projectId: z.string().optional(),
   }),

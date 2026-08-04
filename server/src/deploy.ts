@@ -1104,13 +1104,30 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
       // Tout est enregistré : le serveur peut repartir avec le nouveau code.
       if (redemarrageDemande) setTimeout(() => redemarrerDemon(), 2000);
     } catch (err: any) {
+      const raison = err?.message ?? String(err);
       current = emit({
         ...current,
         state: stopped ? 'stopped' : 'failed',
-        error: err?.message ?? String(err),
+        error: raison,
         endedAt: Date.now(),
       });
-      bus.toast('error', `Publication interrompue : ${err?.message ?? err}`);
+      bus.toast('error', `Publication interrompue : ${raison}`);
+      /*
+       * Une publication qui tombe se dit AUSSI FORT qu'une qui aboutit : sans
+       * cela, on lance la mise en ligne, on ferme l'onglet, et on croit son
+       * travail servi alors que rien n'est parti. Un arrêt demandé à la main,
+       * lui, ne surprend personne : on ne réveille pas pour ça.
+       */
+      if (!stopped) {
+        notify({
+          motif: 'publication-echec',
+          title: 'Publication en échec',
+          body: `${current.cardIds.length} tâche(s) restent à déployer — ${raison}`,
+          reference: `${projectId}:echec:${current.id}`,
+          element: `Publication en échec — ${raison}`,
+          projectId,
+        });
+      }
     } finally {
       active.delete(projectId);
       if (waiting.has(projectId)) {
