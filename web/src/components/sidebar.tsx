@@ -446,13 +446,6 @@ export function Sidebar({
                       !replie && 'rotate-90',
                     )}
                   />
-                  {entry.group.color ? (
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: entry.group.color }}
-                      aria-hidden
-                    />
-                  ) : null}
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
                 </button>
