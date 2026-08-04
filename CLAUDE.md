@@ -58,6 +58,7 @@ node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une v
 node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
 node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
 node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
+node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
@@ -169,6 +170,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   ce dernier cas le moteur ne change PAS. Les trois réglages restent modifiables avant validation, et
   la validation les repasse par la même règle. Verrouillé par
   `server/src/test/reglages-proposition.test.ts`.
+- **Le détail d'une carte montre avec quoi elle tourne** (`reglagesDeLaCarte`,
+  `shared/src/reglages-carte.ts`). En tête de l'onglet « Détails », une ligne d'étiquettes courtes :
+  moteur, modèle, niveau de réflexion, compte. Tant que rien n'a démarré (colonnes autres que
+  « En cours », « Terminé », « À déployer », « Archivé », ET aucun agent de rôle « task » passé), les
+  trois premiers sont des menus qui écrivent dans `card.run` ; le compte, lui, n'est pas encore
+  choisi et le dit. Dès que le travail est parti, tout est FIGÉ et affiche ce qui a RÉELLEMENT servi :
+  les réglages de l'agent d'exécution — jamais ceux de l'analyse, qui tourne souvent ailleurs — et le
+  compte qui a porté le quota. Verrouillé par `server/src/test/reglages-carte.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au

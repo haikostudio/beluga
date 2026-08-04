@@ -19,6 +19,7 @@ export * from './projet-actif.js';
 export * from './protocol.js';
 export * from './publication-terminee.js';
 export * from './quota.js';
+export * from './reglages-carte.js';
 export * from './reglages-proposition.js';
 export * from './reprise.js';
 export * from './signal-projet.js';

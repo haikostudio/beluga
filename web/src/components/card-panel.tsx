@@ -2,11 +2,13 @@ import * as React from 'react';
 import {
   Check,
   CircleDollarSign,
+  Cpu,
   ExternalLink,
   FileText,
   GitBranch,
   GitMerge,
   Loader2,
+  Lock,
   Play,
   RefreshCw,
   Rocket,
@@ -16,11 +18,14 @@ import {
   COLUMN_LABELS,
   Card,
   DecisionGeste,
+  EngineInfo,
   GesteCarte,
+  ReglagesCarte,
   etatVisuelCarte,
   gesteCarte,
   motAnalyse,
   phaseAnalyse,
+  reglagesDeLaCarte,
 } from '@haikodev/shared';
 import {
   Badge,
@@ -41,6 +46,7 @@ import {
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
+import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
@@ -310,6 +316,122 @@ function Geste({ decision, children }: { decision: DecisionGeste; children: Reac
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Les réglages de l'agent de la carte                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Un identifiant technique n'apprend rien : on cherche son libellé dans le
+ * catalogue des moteurs, et on retombe sur l'identifiant seulement s'il n'y
+ * figure plus (modèle retiré depuis, moteur désinstallé).
+ */
+function libellesDuRun(engines: EngineInfo[], vu: ReglagesCarte) {
+  const moteur = engines.find((e) => e.id === vu.engine);
+  const modele = moteur?.models.find((m) => m.id === vu.model);
+  const niveau = modele?.thinking?.find((t) => t.id === vu.thinking);
+  return {
+    moteur: moteur?.label ?? vu.engine ?? '—',
+    modele: modele?.label ?? vu.model ?? '—',
+    reflexion: niveau?.label ?? vu.thinking ?? '—',
+  };
+}
+
+/**
+ * Avec quoi cette carte va tourner — ou a tourné. Quatre étiquettes courtes sur
+ * UNE ligne qui se replie : moteur, modèle, réflexion, compte. Jamais un
+ * tableau, il deviendrait illisible sur téléphone.
+ *
+ * Tant que rien n'a démarré, les trois premières sont des menus : c'est le
+ * dernier moment où l'on peut changer d'avis. Dès que le travail est parti,
+ * elles se lisent telles qu'elles ont servi — c'est ce qui permet de comprendre
+ * après coup pourquoi une carte s'est bien ou mal passée.
+ */
+function ReglagesAgent({ card }: { card: Card }) {
+  const state = useApp();
+
+  /*
+   * Ce qui a SERVI, c'est l'agent d'EXÉCUTION, pas l'analyse : celle-ci tourne
+   * souvent sur un autre modèle, et l'afficher ferait croire que la carte a été
+   * traitée avec lui.
+   */
+  const execution = React.useMemo(
+    () =>
+      Object.values(state.agents)
+        .filter((item) => item.cardId === card.id && item.role === 'task')
+        .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null,
+    [state.agents, card.id],
+  );
+
+  const vu = reglagesDeLaCarte({
+    colonne: card.column,
+    carte: card.run,
+    agent: execution
+      ? { engine: execution.run.engine, model: execution.run.model, thinking: execution.run.thinking, compte: execution.account }
+      : undefined,
+    compteMesure: card.consumption?.account,
+  });
+
+  const libelles = libellesDuRun(state.engines, vu);
+
+  // Changer de moteur remet modèle et réflexion à zéro : un modèle n'appartient
+  // qu'à son moteur. On enregistre le trio RÉSOLU, jamais un choix à trous.
+  const choisir = (patch: RunChoix) => {
+    const souhait = patch.engine ? { engine: patch.engine } : { ...card.run, ...patch };
+    const retenu = resoudreRun(state.engines, souhait);
+    if (!retenu.engine) return;
+    client.call({
+      type: 'card.update',
+      id: card.id,
+      patch: {
+        run: {
+          ...card.run,
+          engine: retenu.engine.id,
+          model: retenu.model?.id,
+          thinking: retenu.thinking?.id ?? 'none',
+        },
+      },
+    });
+  };
+
+  return (
+    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+      <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
+        <Cpu className="h-3 w-3" />
+        {vu.modifiable ? "Réglages de l'agent" : 'Réglages qui ont servi'}
+        {vu.modifiable ? null : <Lock className="h-2.5 w-2.5" title={vu.raison} />}
+      </div>
+
+      {vu.modifiable ? (
+        /* Les mêmes menus que la barre d'écriture : sur téléphone, ils
+           s'ouvrent en tiroir pleine largeur. */
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-0.5 sm:gap-x-1">
+          <RunSelectors engines={state.engines} choix={card.run} onSelect={choisir} />
+          <span className="px-1 text-[12.5px] text-faint">compte choisi au lancement</span>
+        </div>
+      ) : (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
+          <Etiquette nom="Moteur" valeur={libelles.moteur} />
+          <Etiquette nom="Modèle" valeur={libelles.modele} />
+          {/* « Niveau », pas « Réflexion » : le libellé du niveau porte déjà le
+              mot, et « Réflexion — Réflexion poussée » se lisait deux fois. */}
+          <Etiquette nom="Niveau" valeur={libelles.reflexion} />
+          <Etiquette nom="Compte" valeur={vu.compte ?? '—'} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Une étiquette courte : le nom en gris pâle, la valeur juste après. */
+function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
+  return (
+    <span className="flex min-w-0 items-baseline gap-1">
+      <span className="shrink-0 text-[12px] text-faint">{nom}</span>
+      <span className="truncate font-medium text-text">{valeur}</span>
+    </span>
+  );
+}
+
 function CardSummary({ card }: { card: Card }) {
   const [description, setDescription] = React.useState(card.description);
   React.useEffect(() => setDescription(card.description), [card.id]);
@@ -330,6 +452,11 @@ function CardSummary({ card }: { card: Card }) {
 
   return (
     <div className="space-y-4 px-4 py-3">
+      {/* En PREMIER : avec quoi la carte va tourner. C'est ce qu'on vient
+          chercher avant de valider, et ce qu'on relit après coup quand le
+          résultat surprend. */}
+      <ReglagesAgent card={card} />
+
       <div>
         <Label htmlFor="carte-description">Description</Label>
         <Textarea
@@ -377,8 +504,9 @@ function CardSummary({ card }: { card: Card }) {
           value={card.estimate?.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
           hint="Base de la facture, jamais la durée machine"
         />
+        {/* Le compte utilisé n'est plus ici : il vit avec les réglages de
+            l'agent, en haut, là où il explique le quota consommé. */}
         <Metric label="Jetons consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
-        <Metric label="Compte utilisé" value={card.consumption?.account ?? '—'} />
       </div>
 
       {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
