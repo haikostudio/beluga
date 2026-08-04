@@ -101,6 +101,39 @@ export function colonneEnFinDeTour(
   return 'done';
 }
 
+/* ------------------------------------------------------------------ */
+/* Ce que vaut un DÉPÔT de carte à la main                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Déplacer une carte à la main sur le tableau ne changeait que sa colonne : il
+ * fallait ensuite ouvrir la carte et cliquer sur « Lancer maintenant ». Le
+ * geste évident ne faisait donc rien.
+ *
+ * Désormais le dépôt VAUT le geste que la colonne d'arrivée désigne :
+ *   - déposer dans « En cours » = cliquer sur « Lancer maintenant » (le même
+ *     chemin de lancement, pas un raccourci parallèle) ;
+ *   - sortir de « En cours » vers « Planifié » = suspendre l'agent en travail,
+ *     la carte restant en file ;
+ *   - tout le reste = un simple rangement.
+ */
+export type EffetDuDepot = 'lancer' | 'suspendre' | 'ranger';
+
+export function effetDuDepot(depart: ColumnKey, arrivee: ColumnKey): EffetDuDepot {
+  if (depart === arrivee) return 'ranger';
+  if (arrivee === 'running') return 'lancer';
+  if (depart === 'running' && arrivee === 'planned') return 'suspendre';
+  return 'ranger';
+}
+
+/**
+ * La phrase portée par une carte suspendue à la main. Elle dit les deux choses
+ * qu'on veut savoir en la relisant : le tour a été arrêté, et plus rien ne
+ * repartira tant qu'on ne l'aura pas demandé.
+ */
+export const RAISON_SUSPENDU =
+  'Agent suspendu à la main : la carte attend en file, elle ne repartira que sur votre geste.';
+
 /**
  * Pourquoi la carte n'a pas bougé alors que le tour a réussi. Rend `null` quand
  * il n'y a rien à expliquer — carte déplacée, tour en échec (déjà signalé comme

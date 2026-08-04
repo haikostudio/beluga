@@ -9,7 +9,11 @@ import {
   canMove,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  effetDuDepot,
+  etatVisuelCarte,
+  sortieAutorisee,
   RAISON_SANS_MODIFICATION,
+  RAISON_SUSPENDU,
   raisonSansModification,
 } from '@haikodev/shared';
 
@@ -159,4 +163,65 @@ test('la machine a le droit de poser une carte en terminé', () => {
 
 test('l’ordonnanceur ne touche toujours pas à « À faire » : la validation manque', () => {
   assert.equal(canMove('machine', 'todo', 'running').allowed, false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Le dépôt d'une carte à la main vaut un geste                         */
+/* ------------------------------------------------------------------ */
+
+test('déposer une carte dans « En cours » vaut un lancement, d’où qu’elle vienne', () => {
+  for (const depart of ['notes', 'todo', 'validated', 'planned', 'done'] as const) {
+    assert.equal(effetDuDepot(depart, 'running'), 'lancer', `depuis « ${depart} »`);
+  }
+});
+
+test('sortir une carte de « En cours » vers « Planifié » suspend son agent', () => {
+  assert.equal(effetDuDepot('running', 'planned'), 'suspendre');
+});
+
+test('les autres sorties de « En cours » restent de simples rangements', () => {
+  // Elles sont refusées EN AMONT quand l'agent travaille (`sortieAutorisee`) ;
+  // quand il ne travaille plus, ranger la carte ne doit rien déclencher.
+  for (const arrivee of ['todo', 'done', 'to_deploy', 'archived'] as const) {
+    assert.equal(effetDuDepot('running', arrivee), 'ranger', `vers « ${arrivee} »`);
+  }
+});
+
+test('reposer une carte dans sa propre colonne ne déclenche rien', () => {
+  for (const colonne of COLUMN_KEYS) {
+    assert.equal(effetDuDepot(colonne, colonne), 'ranger', `« ${colonne} »`);
+  }
+});
+
+test('un rangement ordinaire n’est ni un lancement ni une suspension', () => {
+  assert.equal(effetDuDepot('todo', 'validated'), 'ranger');
+  assert.equal(effetDuDepot('done', 'to_deploy'), 'ranger');
+  // « Planifié » n'est une suspension QUE depuis « En cours ».
+  assert.equal(effetDuDepot('todo', 'planned'), 'ranger');
+});
+
+/* -------- Ce que le glissement a le droit de faire pendant le travail -------- */
+
+const enTravail = { colonne: 'running', etat: etatVisuelCarte({ agentStatut: 'running' }), agentLance: true };
+
+test('la suspension passe même pendant que l’agent écrit : c’est sa raison d’être', () => {
+  assert.equal(sortieAutorisee(enTravail, 'planned').possible, true);
+});
+
+test('toute autre sortie reste refusée tant que l’agent écrit', () => {
+  for (const arrivee of ['todo', 'validated', 'done', 'to_deploy', 'archived'] as const) {
+    const decision = sortieAutorisee(enTravail, arrivee);
+    assert.equal(decision.possible, false, `vers « ${arrivee} »`);
+    assert.ok(decision.raison, 'un refus se dit en toutes lettres');
+  }
+});
+
+test('agent au repos : la carte se range librement', () => {
+  const auRepos = { colonne: 'running', etat: etatVisuelCarte({ agentStatut: 'done' }), agentLance: true };
+  assert.equal(sortieAutorisee(auRepos, 'done').possible, true);
+});
+
+test('la raison d’une suspension est écrite pour être lue sur la carte', () => {
+  assert.match(RAISON_SUSPENDU, /suspendu/i);
+  assert.notEqual(RAISON_SUSPENDU, RAISON_SANS_MODIFICATION);
 });

@@ -121,6 +121,13 @@ export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste
  */
 export function sortieAutorisee(ctx: ContexteGeste, vers: string): DecisionGeste {
   if (ctx.colonne === vers) return { affiche: true, possible: true };
+  /*
+   * Une seule sortie est permise pendant que l'agent écrit : le retour en
+   * « Planifié ». Ce n'est pas un déplacement de rangement, c'est la demande
+   * de SUSPENDRE — le tour est arrêté proprement, la carte reste en file.
+   * Toutes les autres destinations perdraient le fil du travail en cours.
+   */
+  if (ctx.colonne === 'running' && vers === 'planned') return { affiche: true, possible: true };
   if (ctx.colonne === 'running' && ctx.etat === 'travaille') {
     return {
       affiche: true,

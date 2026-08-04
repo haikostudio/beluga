@@ -10,12 +10,16 @@ import {
   RunConfig,
   ServerEvent,
   canMove,
+  effetDuDepot,
   etatVisuelCarte,
   sortieAutorisee,
+  RAISON_SUSPENDU,
   comptePrecedents,
   messagesDepuis,
   peutRepartir,
+  reglagesDeLaProposition,
 } from '@haikodev/shared';
+import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
@@ -371,6 +375,42 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       );
       if (!sortie.possible) throw new Error(sortie.raison ?? 'déplacement refusé');
 
+      /*
+       * Le dépôt VAUT le geste que la colonne d'arrivée désigne. Le lancement
+       * n'a pas de chemin à lui : il passe par `startCard`, exactement comme le
+       * bouton « Lancer maintenant » — mêmes portes dures, même branche, même
+       * agent, même trace dans la conversation. Un refus REMONTE, il ne se
+       * traduit jamais par un déplacement silencieux qui ne lancerait rien.
+       */
+      const effet = effetDuDepot(card.column, target);
+      if (effet === 'lancer') {
+        const result = await startCard(card.id);
+        if (!result.ok) throw new Error(result.error ?? 'démarrage impossible');
+        return { card: store.getCard(card.id) ?? card };
+      }
+
+      /*
+       * Sortir une carte de « En cours » vers « Planifié », c'est SUSPENDRE :
+       * le tour est arrêté proprement, la carte reste en file avec la raison
+       * écrite dessus, et l'ordonnanceur ne la reprend pas de lui-même.
+       */
+      if (effet === 'suspendre') {
+        if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
+        const suspendue = store.saveCard({
+          ...card,
+          column: 'planned',
+          position: store.nextPosition(card.projectId, 'planned'),
+          scheduling: {
+            ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+            suspendu: true,
+            waitingReason: RAISON_SUSPENDU,
+          },
+        });
+        bus.emit({ type: 'card.upsert', card: suspendue });
+        bus.toast('warning', RAISON_SUSPENDU, suspendue.id);
+        return { card: suspendue };
+      }
+
       const updated = store.saveCard({
         ...card,
         column: target,
@@ -667,7 +707,21 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // pas celle proposée.
       // Réglages complétés par leurs valeurs par défaut : la carte porte un
       // choix entier, jamais un demi-réglage impossible à relancer.
-      const run = cmd.run ? RunConfig.parse({ ...(proposal.run ?? {}), ...cmd.run }) : proposal.run;
+      // Ce qui est validé est ce qui partira : le réglage est repassé par la
+      // règle du catalogue, pour qu'aucune carte ne naisse avec un modèle
+      // emprunté à un autre moteur — même envoyé par une page restée ouverte.
+      const souhait = cmd.run ? { ...(proposal.run ?? {}), ...cmd.run } : proposal.run;
+      const accorde = souhait ? reglagesDeLaProposition(souhait, await catalogueMoteurs()) : undefined;
+      const run = accorde
+        ? RunConfig.parse({
+            ...(souhait ?? {}),
+            engine: accorde.engine,
+            model: accorde.model,
+            thinking: accorde.thinking,
+          })
+        : souhait
+          ? RunConfig.parse(souhait)
+          : undefined;
       const retenu = {
         title: cmd.title?.trim() || proposal.title,
         description: cmd.description ?? proposal.description,

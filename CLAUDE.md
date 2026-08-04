@@ -54,7 +54,10 @@ node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
+node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
+node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
 node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
+node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
@@ -114,6 +117,20 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
   pas. Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
   reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
+- **Le dépôt d'une carte à la main VAUT un geste** (`effetDuDepot`, `shared/src/suivi-colonne.ts`).
+  Déposer dans « En cours » = cliquer sur « Lancer maintenant » : le serveur appelle `startCard`, le
+  MÊME point d'entrée — mêmes portes dures, même branche, même agent, même trace. Aucun chemin
+  parallèle. Un refus REMONTE : la carte revient à sa colonne et la raison s'affiche, jamais un
+  déplacement silencieux qui ne lance rien. Sortir de « En cours » vers « Planifié » = SUSPENDRE :
+  le tour est arrêté, la carte reste en file avec `scheduling.suspendu`, et l'ordonnanceur ne la
+  reprend plus tout seul — seul un geste (bouton, ou nouveau dépôt en « En cours ») efface la
+  marque. C'est la SEULE sortie permise pendant que l'agent écrit ; toutes les autres restent
+  refusées (`sortieAutorisee`).
+- **Les portes DURES valent pour tous les chemins de lancement** (`portesDures`,
+  `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, branche
+  impossible à créer sur un dépôt git. `startCard` les contrôle, donc l'ordonnanceur comme le bouton
+  comme le glissement. L'heure creuse, elle, n'est PAS une porte dure : c'est une politique
+  d'économie que l'ordonnanceur seul applique (`checkGates`), et qu'un geste humain passe.
 - **Pas de code modifié, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une carte, jamais
   le fait que le moteur ait répondu. Le démon prend UN SEUL repère avant le tour (`repereAvant`,
   `server/src/hors-tache.ts`) et le relit après (`depotModifieDepuis` : un enregistrement de plus,
@@ -134,6 +151,24 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   suit ensuite le parcours habituel. Seule exception : le code enregistré par un agent SANS carte
   fabrique tout seul sa fiche dans « À déployer » — le travail est déjà fait. Verrouillé par
   `server/src/test/carte-du-chef-attend-la-validation.test.ts`.
+- **Une carte proposée porte une VRAIE description, ou elle n'est pas affichée**
+  (`shared/src/description-carte.ts`). Quatre parties annoncées — Constat (avec au moins un repère
+  concret vu dans le projet : fichier, commande, libellé, règle existante), Attendu, Limites,
+  Vérification — et entre 320 et 2400 signes. `board_create_card` et `propose_task` passent tous
+  deux par `jugerDescription` : une description vide, bâclée, sans constat, sans repère ou en pavé
+  est REFUSÉE, rendue au moteur avec le gabarit, et le chef recommence. Les quatre champs séparés
+  (`constat`, `attendu`, `limites`, `verification`) sont mis en forme par HaikoDev. La consigne
+  (`CONSIGNE_DESCRIPTION_CARTE`) est unique et ne nomme aucun outil propre à un moteur. Verrouillé
+  par `server/src/test/description-carte.test.ts`.
+- **Une carte proposée hérite du moteur, du modèle et du niveau de réflexion de la CONVERSATION**
+  (`reglagesDeLaProposition`, `shared/src/reglages-proposition.ts`). Le démon passe les réglages de
+  l'agent en cours à l'outil (`ToolContext.run`), et le modèle retenu vient TOUJOURS du catalogue du
+  moteur retenu (`catalogueMoteurs`, `server/src/catalogue-moteurs.ts`) : un identifiant emprunté à
+  l'autre moteur est jeté, jamais traîné. Un obstacle se DIT sur la proposition (champ
+  `avertissement`) au lieu de se contourner : moteur non installé, ou aucun compte disponible — dans
+  ce dernier cas le moteur ne change PAS. Les trois réglages restent modifiables avant validation, et
+  la validation les repasse par la même règle. Verrouillé par
+  `server/src/test/reglages-proposition.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au
