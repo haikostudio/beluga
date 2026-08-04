@@ -616,6 +616,10 @@ export function CardTile({
     enAttente: !!waiting,
     estimationEchouee: estimateFailed,
     enLigne: !!card.deployedAt,
+    // « Rendu, pas encore lu » : tant que la conversation n'a pas été ouverte,
+    // le voyant devient le point bleu — la même règle que la ligne du projet.
+    agentFiniA: agent?.endedAt,
+    luA: card.lastReadAt,
   });
 
   return (
@@ -690,6 +694,16 @@ export function CardTile({
           {/* Le voyant est à DROITE, au bout de la ligne du titre. */}
           {etat === 'travaille' ? (
             <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-success" />
+          ) : etat === 'termine-non-lu' ? (
+            // Le point bleu : le travail est rendu mais sa conversation n'a pas
+            // encore été ouverte. Même sens et même couleur que sur la ligne du
+            // projet ; l'ouvrir laisse place à la coche verte.
+            <Tooltip label="Travail rendu, pas encore lu">
+              <span
+                data-carte-non-lue={card.id}
+                className="mt-[3px] h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none"
+              />
+            </Tooltip>
           ) : etat === 'termine' ? (
             // La coche verte : l'agent a rendu son travail, la carte attend
             // votre clôture. Une relance la remplace aussitôt par la roue.

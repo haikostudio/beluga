@@ -1,5 +1,6 @@
 import type { ColumnKey } from './columns.js';
 import { COLONNES_HORS_REPRISE } from './suivi-colonne.js';
+import { carteNonLue } from './travail-rendu.js';
 
 /**
  * Le voyant d'une carte, au bout de son titre.
@@ -25,9 +26,20 @@ export interface EtatVisuelEntree {
   estimationEchouee?: boolean;
   /** La carte est en ligne. */
   enLigne?: boolean;
+  /** Quand l'agent a rendu sa réponse — pour dire « rendu, pas encore lu ». */
+  agentFiniA?: number;
+  /** Quand la conversation de la carte a été ouverte pour la dernière fois. */
+  luA?: number;
 }
 
-export type EtatVisuelCarte = 'travaille' | 'echec' | 'attente' | 'termine' | 'enligne' | 'repos';
+export type EtatVisuelCarte =
+  | 'travaille'
+  | 'echec'
+  | 'attente'
+  | 'termine'
+  | 'termine-non-lu'
+  | 'enligne'
+  | 'repos';
 
 export function etatVisuelCarte(entree: EtatVisuelEntree): EtatVisuelCarte {
   // Ce qui tourne prime sur tout : c'est l'information la plus fraîche.
@@ -37,8 +49,19 @@ export function etatVisuelCarte(entree: EtatVisuelEntree): EtatVisuelCarte {
   if (entree.agentStatut === 'failed' || entree.estimationEchouee) return 'echec';
   if (entree.enAttente) return 'attente';
 
-  // L'agent a rendu son résultat : la carte attend votre clôture.
-  if (entree.agentStatut === 'done') return 'termine';
+  // L'agent a rendu son résultat : la carte attend votre clôture. Tant que sa
+  // conversation n'a pas été ouverte, c'est le même « rendu, pas encore lu »
+  // que la ligne du projet — on réutilise sa règle, on n'en invente pas une.
+  if (entree.agentStatut === 'done') {
+    const nonLu = carteNonLue({
+      cardId: '',
+      projectId: '',
+      agentStatut: 'done',
+      agentFiniA: entree.agentFiniA,
+      luA: entree.luA,
+    });
+    return nonLu ? 'termine-non-lu' : 'termine';
+  }
 
   if (entree.enLigne) return 'enligne';
   // « stopped » et « idle » ne sont pas des fins : rien n'a été rendu.
