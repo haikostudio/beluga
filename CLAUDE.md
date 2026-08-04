@@ -60,7 +60,12 @@ node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus
 node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
+node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 ```
+
+Un script qui corrige le tableau écrit dans `data/haikodev.db` : il montre d'abord ce qu'il ferait,
+et n'écrit qu'avec `--ecrire`. Il doit être rejouable sans doubler ses annotations, et ne rien
+supprimer — on déplace et on explique, on n'efface pas.
 
 `npm test` lit `server/dist` : construire avant de tester.
 
