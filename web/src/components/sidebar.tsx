@@ -24,8 +24,8 @@ import {
   ProjectGroup,
   type SignalProjet,
   avertissementRedemarrage,
-  badgeTravailTermine,
   doitSecouerLigne,
+  repereVisible,
   signalDuGroupe,
 } from '@haikodev/shared';
 import {
@@ -427,10 +427,9 @@ export function Sidebar({
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
                 </button>
-                {replie ? <SignalAttention compte={signal.attention} /> : null}
                 {replie ? (
-                  <PastilleRendue
-                    compte={signal.rendus}
+                  <RepereLigne
+                    signal={signal}
                     onLu={() =>
                       entry.members
                         .filter((p) => state.rendus[p.id])
@@ -438,7 +437,6 @@ export function Sidebar({
                     }
                   />
                 ) : null}
-                {replie ? <SignalTermine signal={signal} /> : null}
                 <ColorPicker
                   value={entry.group.color}
                   onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
@@ -720,35 +718,6 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
 }
 
 /**
- * « Un agent a fini, et vous ne l'avez pas encore lu. »
- *
- * La roue verte qui tourne dit déjà qu'un agent travaille ; cette pastille dit
- * l'état d'après. Elle est PLEINE et immobile, là où la roue tourne : les deux
- * ne peuvent pas se confondre d'un coup d'œil.
- */
-function PastilleRendue({ compte, onLu }: { compte?: number; onLu: () => void }) {
-  if (!compte) return null;
-  const pluriel = compte > 1 ? 's' : '';
-  return (
-    <Tooltip label={`${compte} réponse${pluriel} rendue${pluriel}, pas encore lue${pluriel} — cliquez pour marquer comme lu`}>
-      <button
-        // Le glissement part de la poignée : on coupe quand même ici, sinon un
-        // appui sur la pastille embarquerait la ligne.
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          onLu();
-        }}
-        aria-label={`Marquer ${compte} réponse${pluriel} comme lue${pluriel}`}
-        className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-success px-1 text-[10.5px] font-medium leading-none text-bg transition-transform hover:scale-110"
-      >
-        {compte}
-      </button>
-    </Tooltip>
-  );
-}
-
-/**
  * « Quelque chose de nouveau vous attend ici. »
  *
  * Un petit signal se rate dans une longue liste : la ligne bouge donc une fois,
@@ -759,6 +728,7 @@ function PastilleRendue({ compte, onLu }: { compte?: number; onLu: () => void })
  * que la minuterie.
  */
 function useSecousse(signal: SignalProjet, regarde: boolean): boolean {
+  const [tour, setTour] = React.useState(0);
   const [secoue, setSecoue] = React.useState(false);
   const attention = signal.attention ?? 0;
   const rendus = signal.rendus ?? 0;
@@ -771,17 +741,27 @@ function useSecousse(signal: SignalProjet, regarde: boolean): boolean {
       regarde,
     });
     avant.current = { attention, rendus };
-    if (!declenche) return;
-    // On repart de zéro : sans cette bascule, deux demandes coup sur coup ne
-    // rejoueraient pas l'animation, la classe étant déjà posée.
-    setSecoue(false);
+    // Un tour de plus, et rien d'autre : décider n'est pas animer.
+    if (declenche) setTour((n) => n + 1);
+  }, [attention, rendus, regarde]);
+
+  /*
+   * La minuterie ne dépend QUE du numéro de tour, jamais des comptes.
+   * Autrement, un second signal qui bouge PENDANT la secousse relançait ce
+   * calcul, son ménage effaçait la minuterie de fin — et la ligne tremblait
+   * sans fin. Le ménage remet donc lui-même la ligne au repos, et deux signaux
+   * coup sur coup rejouent bien l'animation, la classe étant retirée d'abord.
+   */
+  React.useEffect(() => {
+    if (!tour) return;
     const depart = window.setTimeout(() => setSecoue(true), 20);
     const fin = window.setTimeout(() => setSecoue(false), 700);
     return () => {
       window.clearTimeout(depart);
       window.clearTimeout(fin);
+      setSecoue(false);
     };
-  }, [attention, rendus, regarde]);
+  }, [tour]);
 
   return secoue;
 }
@@ -822,35 +802,72 @@ function EnteteGroupe({
   );
 }
 
-/** Le triangle d'attention : permanent tant que la demande reste en attente. */
-function SignalAttention({ compte }: { compte?: number }) {
-  if (!compte) return null;
-  const pluriel = compte > 1 ? 's' : '';
+/**
+ * « Un agent travaille ici. »
+ *
+ * Un robot, et rien d'autre : il remplace à lui seul l'anneau qui tournait
+ * devant le nom ET le compteur vert qui le suivait — deux repères pour un même
+ * fait. Le nombre ne s'écrit que s'il y a VRAIMENT plusieurs agents : « 1 » ne
+ * dit rien de plus que le robot lui-même. Rien qui tourne : sur une colonne de
+ * dix lignes, dix roues qui tournent font une colonne qui grouille.
+ */
+function RepereRobot({ running }: { running: number }) {
+  if (!running) return <Folder className="h-3 w-3 shrink-0 text-faint" />;
+  const libelle = running > 1 ? `${running} agents au travail` : 'Un agent au travail';
   return (
-    <Tooltip label={`${compte} action${pluriel} attendue${pluriel} de votre part`}>
-      <TriangleAlert className="h-3 w-3 shrink-0 text-warning" data-signal-attention />
+    <Tooltip label={libelle}>
+      <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
+        <Bot className="h-3 w-3 shrink-0 text-success" />
+        {running > 1 ? <span className="text-[10.5px] leading-none text-success">{running}</span> : null}
+      </span>
     </Tooltip>
   );
 }
 
 /**
- * « Un agent a TERMINÉ ici, et vous ne l'avez pas encore vu. »
+ * Le SEUL repère d'attente de la ligne, à droite du nom.
  *
- * Un point bleu qui clignote doucement, à droite de la ligne. Il dit autre
- * chose que la pastille verte, qui compte les réponses et sert à les marquer
- * lues d'un clic : celui-ci n'a rien à compter ni à cliquer, il montre du
- * doigt. Bleu, parce que ce n'est ni une alerte (orange) ni une réussite déjà
- * rangée (vert) — c'est du neuf à lire. Il s'éteint dès que la conversation est
- * ouverte : le serveur repousse alors le repère de lecture, le compte retombe.
+ * Ils étaient trois à se disputer trois centimètres : triangle orange, pastille
+ * verte chiffrée, point bleu. Deux disaient la même chose (du travail rendu,
+ * pas encore lu) et le troisième, la seule chose qui demande vraiment un geste.
+ * `repereVisible` tranche — la décision d'abord, la lecture ensuite — et un
+ * seul apparaît. Ce qui est caché n'est pas perdu : la décision réglée, le
+ * point bleu reparaît tout seul.
+ *
+ * Le point bleu reste cliquable, comme la pastille qu'il remplace : c'est le
+ * raccourci « j'ai vu, n'insiste plus » sans ouvrir la conversation.
  */
-function SignalTermine({ signal }: { signal: SignalProjet }) {
-  if (!badgeTravailTermine(signal)) return null;
+function RepereLigne({ signal, onLu }: { signal: SignalProjet; onLu: () => void }) {
+  const quoi = repereVisible(signal);
+  if (!quoi) return null;
+
+  if (quoi === 'attention') {
+    const compte = signal.attention ?? 0;
+    const libelle =
+      compte > 1 ? `${compte} décisions attendues de votre part` : 'Une décision attendue de votre part';
+    return (
+      <Tooltip label={libelle}>
+        <TriangleAlert className="h-3 w-3 shrink-0 text-warning" data-signal-attention aria-label={libelle} />
+      </Tooltip>
+    );
+  }
+
   const compte = signal.rendus ?? 0;
-  const pluriel = compte > 1 ? 'x' : '';
+  const libelle =
+    compte > 1
+      ? `${compte} travaux terminés, pas encore lus — cliquez pour marquer comme lu`
+      : 'Un travail terminé, pas encore lu — cliquez pour marquer comme lu';
   return (
-    <Tooltip label={`${compte} travail${pluriel} terminé${pluriel}, pas encore consulté${pluriel}`}>
-      <span
-        aria-label={`${compte} travail${pluriel} terminé${pluriel}, pas encore consulté${pluriel}`}
+    <Tooltip label={libelle}>
+      <button
+        // Le glissement part de la poignée ; on coupe quand même ici, sinon un
+        // appui sur le point embarquerait la ligne.
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onLu();
+        }}
+        aria-label={libelle}
         data-signal-termine
         className="h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none"
       />
@@ -939,28 +956,22 @@ function ProjectRow({
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        {running ? (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
-        ) : (
-          <Folder className="h-3 w-3 shrink-0 text-faint" />
-        )}
+        {/* Le robot prend la place du dossier tant qu'un agent écrit : c'est le
+            MÊME emplacement, donc rien ne s'ajoute à la ligne. */}
+        <RepereRobot running={running} />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
-        <SignalAttention compte={attention} />
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
             <CircleDollarSign className="h-2.5 w-2.5 shrink-0 text-faint" />
           </Tooltip>
         ) : null}
-        {running ? <span className="shrink-0 text-[11.5px] text-success">{running}</span> : null}
       </button>
-      {/* La pastille vit HORS du bouton du nom : elle porte son propre geste,
-          et un bouton n'en contient pas un autre. Le point bleu la suit : il ne
-          se clique pas, il signale. */}
-      <PastilleRendue
-        compte={rendus}
+      {/* Le repère vit HORS du bouton du nom : il porte son propre geste, et un
+          bouton n'en contient pas un autre. */}
+      <RepereLigne
+        signal={{ attention, rendus }}
         onLu={() => client.call({ type: 'project.read', projectId: project.id })}
       />
-      <SignalTermine signal={{ rendus }} />
       <button
         onPointerDown={(event) => event.stopPropagation()}
         onClick={onSettings}

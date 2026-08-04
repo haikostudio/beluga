@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   badgeTravailTermine,
   doitSecouerLigne,
+  repereVisible,
   signalDuGroupe,
   signaleQuelqueChose,
 } from '@haikodev/shared';
@@ -28,6 +29,36 @@ test('le projet a quelque chose à dire dès que l’un des deux signaux parle',
   assert.equal(signaleQuelqueChose({ attention: 1 }), true);
   assert.equal(signaleQuelqueChose({ rendus: 1 }), true);
   assert.equal(signaleQuelqueChose({ attention: 0, rendus: 0 }), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Un SEUL repère à l'écran, le plus urgent                             */
+/* ------------------------------------------------------------------ */
+
+test('une ligne sans rien à dire ne montre aucun repère', () => {
+  assert.equal(repereVisible({}), null);
+  assert.equal(repereVisible({ attention: 0, rendus: 0 }), null);
+});
+
+test('chaque signal seul montre le sien', () => {
+  assert.equal(repereVisible({ attention: 2 }), 'attention');
+  assert.equal(repereVisible({ rendus: 4 }), 'rendus');
+});
+
+test('la DÉCISION attendue l’emporte sur le travail rendu', () => {
+  // Deux pastilles côte à côte ne se lisent plus : on montre celle qui demande
+  // un geste, l'autre reparaîtra d'elle-même.
+  assert.equal(repereVisible({ attention: 1, rendus: 9 }), 'attention');
+});
+
+test('la décision réglée, le point bleu revient tout seul', () => {
+  assert.equal(repereVisible({ attention: 0, rendus: 9 }), 'rendus');
+});
+
+test('le calcul des deux comptes n’est pas touché par ce choix d’affichage', () => {
+  // Le repère caché reste compté : c'est bien l'affichage seul qu'on tranche.
+  assert.equal(badgeTravailTermine({ attention: 1, rendus: 2 }), true);
+  assert.equal(signaleQuelqueChose({ attention: 1, rendus: 2 }), true);
 });
 
 /* ------------------------------------------------------------------ */

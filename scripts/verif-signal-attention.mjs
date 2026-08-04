@@ -211,9 +211,28 @@ async function main() {
     record('le badge clignote', allure.animation !== 'none', allure.animation);
     record('et il est bleu', /rgb\(\s*\d+,\s*\d+,\s*(1[5-9]\d|2[0-5]\d)\s*\)/.test(allure.couleur), allure.couleur);
 
-    // La pastille verte reste ce qu'elle était : deux repères distincts.
-    const pastille = ligneDe(dormant.id).locator('button[aria-label^="Marquer"]');
-    record('la pastille existante est toujours là, à côté', (await pastille.count()) === 1);
+    // La pastille verte chiffrée a disparu : elle disait la MÊME chose que le
+    // point bleu, sur la même ligne de quelques centimètres.
+    record(
+      'plus de pastille verte chiffrée à côté',
+      (await ligneDe(dormant.id).locator('button[aria-label^="Marquer"]').count()) === 0,
+    );
+    // Le geste « j'ai vu » n'est pas perdu pour autant : le point se clique.
+    record(
+      'le point bleu se clique pour marquer comme lu',
+      (await badge.evaluate((n) => n.tagName)) === 'BUTTON',
+    );
+
+    /* --- 6 bis. Un seul repère à la fois : la décision l'emporte ------- */
+    await page.evaluate((id) => window.__attention({ [id]: 1 }), dormant.id);
+    await page.waitForTimeout(200);
+    const triangleAussi = ligneDe(dormant.id).locator('[data-signal-attention]');
+    record('une décision qui arrive prend la place', (await triangleAussi.count()) === 1);
+    record('et le point bleu s’efface le temps de la décision', (await badge.count()) === 0);
+
+    await page.evaluate(() => window.__attention({}));
+    await page.waitForTimeout(200);
+    record('la décision réglée, le point bleu revient tout seul', (await badge.count()) === 1);
 
     await page.screenshot({ path: `${SHOTS}/signal-travail-termine.png` });
 

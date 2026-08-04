@@ -41,6 +41,28 @@ export function badgeTravailTermine(signal: SignalProjet): boolean {
   return (signal.rendus ?? 0) > 0;
 }
 
+/** Le seul repère qu'une ligne montre, ou rien du tout. */
+export type RepereLigne = 'attention' | 'rendus' | null;
+
+/**
+ * QUEL repère s'affiche — un seul à la fois.
+ *
+ * Les deux comptes continuent de vivre côte à côte (voir `doitSecouerLigne`) :
+ * c'est l'AFFICHAGE qu'on tranche ici. Deux pastilles côte à côte sur une
+ * ligne de quelques centimètres ne se lisent plus, surtout sur téléphone, et
+ * elles ne demandent pas la même chose.
+ *
+ * L'ordre d'urgence est celui de l'effort demandé : une DÉCISION attendue
+ * bloque le travail, un travail rendu attend seulement d'être lu. Le triangle
+ * l'emporte donc toujours sur le point bleu ; quand la décision est prise, le
+ * point bleu reparaît de lui-même si du travail reste à consulter.
+ */
+export function repereVisible(signal: SignalProjet): RepereLigne {
+  if ((signal.attention ?? 0) > 0) return 'attention';
+  if ((signal.rendus ?? 0) > 0) return 'rendus';
+  return null;
+}
+
 /**
  * Faut-il secouer cette ligne ?
  *
