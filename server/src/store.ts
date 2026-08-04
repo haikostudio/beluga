@@ -17,6 +17,8 @@ import {
   TaskProposal,
   cleDeSession,
   cleNouveauDepart,
+  decisionEnTexteLibre,
+  type StatutAgent,
   rendusParProjet,
   type AgregatHoraire,
   DETAIL_RETENTION_JOURS,
@@ -754,6 +756,58 @@ export function decisionsEnAttente(): DecisionAttendue[] {
     agentId: string;
     cardId: string | null;
   }[];
+  /*
+   * Troisième source, et la plus sournoise : la question qu'un agent a écrite
+   * en TEXTE ORDINAIRE au lieu d'appeler l'outil prévu. Le tour s'achève
+   * normalement, rien n'est enregistré, et la carte reste en « En cours » sans
+   * que rien ne dise qu'on attend une réponse.
+   *
+   * Deux garde-fous, tous deux nécessaires. On ne juge que le DERNIER message
+   * de chaque conversation : un message plus récent — la réponse, ou la suite
+   * du travail — règle la question de fait. Et on s'en tient aux agents qui
+   * portent une CARTE : le chef d'orchestre finit une réponse sur deux par
+   * « voulez-vous que… », et son fil est déjà sous les yeux de qui l'a écrit.
+   * La règle elle-même vit dans `shared`, donc elle se teste seule.
+   */
+  const derniers = getDb()
+    .prepare(
+      `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
+              a.status AS statut, m.data AS data, m.created_at AS createdAt
+       FROM agents a
+       JOIN messages m ON m.id = (
+         SELECT id FROM messages WHERE agent_id = a.id ORDER BY created_at DESC, rowid DESC LIMIT 1
+       )
+       WHERE a.card_id IS NOT NULL`,
+    )
+    .all() as {
+    projectId: string;
+    agentId: string;
+    cardId: string;
+    statut: string;
+    data: string;
+    createdAt: number;
+  }[];
+  for (const dernier of derniers) {
+    try {
+      const message = Message.parse(JSON.parse(dernier.data));
+      const question = decisionEnTexteLibre({
+        statut: dernier.statut as StatutAgent,
+        dernierMessage: message,
+      });
+      if (!question) continue;
+      decisions.push({
+        projectId: dernier.projectId,
+        agentId: dernier.agentId,
+        cardId: dernier.cardId,
+        genre: 'question',
+        reglee: false,
+        poseeA: dernier.createdAt,
+      });
+    } catch {
+      /* message illisible : on l'ignore */
+    }
+  }
+
   for (const proposition of propositions) {
     decisions.push({
       projectId: proposition.projectId,

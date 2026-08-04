@@ -13,6 +13,7 @@ import {
   decisionsParCarte,
   etatVisuelCarte,
   mentionArchivage,
+  mentionSansSuite,
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
@@ -22,6 +23,7 @@ import { MenuCarte } from '@/components/card-menu';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
 import { readPref, writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
+import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel } from '@/components/deploy-panel';
 
@@ -588,6 +590,25 @@ export function CardTile({
    */
   const decisions = decisionsParCarte(state.decisions)[card.id] ?? 0;
 
+  /*
+   * « Tour terminé sans suite. » Entre la roue qui tourne et la carte close, il
+   * existe un troisième état que rien n'affichait : le tour s'est achevé,
+   * aucun agent ne travaille, personne n'a repris. On regarde TOUS les agents
+   * de la carte — pas seulement le dernier retenu — pour savoir si l'un
+   * travaille encore et quand le plus récent a rendu la main.
+   */
+  const maintenant = useMinute();
+  const agentsDeLaCarte = Object.values(state.agents).filter((a) => a.cardId === card.id);
+  const sansSuite = mentionSansSuite(
+    {
+      column: card.column,
+      finDuDernierTour: agentsDeLaCarte.reduce((fin, a) => Math.max(fin, a.endedAt ?? 0), 0) || undefined,
+      agentActif: agentsDeLaCarte.some((a) => a.status === 'running' || a.status === 'starting'),
+      decisionEnAttente: decisions > 0,
+    },
+    maintenant,
+  );
+
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
     analyseEnCours,
@@ -629,6 +650,8 @@ export function CardTile({
       ) : null}
 
       <article
+        // Le seul repère des scripts de vérification pour retrouver UNE carte.
+        data-carte={card.id}
         onPointerDown={onPointerDown}
         onContextMenu={
           onMenuChange
@@ -708,6 +731,20 @@ export function CardTile({
           <div className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning">
             <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
             <span className="min-w-0">{card.sansModification}</span>
+          </div>
+        ) : null}
+
+        {/*
+         * Le tour est fini, personne n'a repris : on l'écrit là où on cherche
+         * l'état de la carte, en gris pâle. Ce n'est pas une alerte — rien
+         * n'est cassé —, c'est une carte qui attend qu'on s'en occupe.
+         */}
+        {sansSuite ? (
+          <div className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-faint">
+            <Clock className="mt-[2px] h-3 w-3 shrink-0" />
+            <span className="min-w-0" data-mention-sans-suite>
+              {sansSuite}
+            </span>
           </div>
         ) : null}
 

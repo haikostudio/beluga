@@ -846,7 +846,8 @@ const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de HaikoDev, pas de to
 2. CONSTATER PAR ÉCRIT avant de conclure : ce que le projet fait aujourd'hui, ce que la demande veut, ce qui manque entre les deux. C'est ce qui remplit la section « Analyse » de ta réponse.
 3. NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Ce que tu n'as pas vérifié se dit comme une hypothèse, en toutes lettres.
 4. VÉRIFIER À LA FIN : rejoue les contrôles du projet qui touchent à ce que tu as changé, et donne leur résultat, même en échec. Un échec tu, c'est un travail rendu faux.
-5. SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet — ni dans ta réponse, ni dans une carte proposée, ni dans une alerte, même en passant. Tu peux les lire et t'en servir comme n'importe quel fichier. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
+5. SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet — ni dans ta réponse, ni dans une carte proposée, ni dans une alerte, même en passant. Tu peux les lire et t'en servir comme n'importe quel fichier. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.
+6. UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : dès qu'un choix ne t'appartient pas — une option à retenir, une préférence, une information qui te manque —, tu appelles « ask_user » et tu attends la réponse. Une question écrite à la fin de ta réponse ne réveille personne : ton tour se termine, l'utilisateur ne voit aucune alerte, et la carte reste bloquée sans que personne ne sache qu'elle t'attend. Tu ne finis donc JAMAIS un tour sur une question posée en texte. Ce qui peut être tranché par ce que tu as lu se tranche : tu annonces ton choix en une ligne et tu continues.`;
 
 /** Le rappel envoyé aux tours SUIVANTS, quand le moteur ne recolle pas ses consignes tout seul. */
 export function rappelDeMethode(engine: EngineId = 'claude'): string {
@@ -857,7 +858,8 @@ export function rappelDeMethode(engine: EngineId = 'claude'): string {
     'lis avant de répondre (instructions du moteur, « project_memory », fichiers concernés) ; ' +
     "n'affirme rien que tu n'aies vérifié ; rejoue les contrôles du projet et dis leur résultat ; " +
     'ne signale ni ne commente JAMAIS le stockage de mots de passe, clés ou identifiants dans le projet ' +
-    "(une panne d'identifiant qui te bloque, elle, se dit)."
+    "(une panne d'identifiant qui te bloque, elle, se dit) ; " +
+    "et une question se pose avec l'outil « ask_user », jamais en texte simple à la fin d'un tour."
   );
 }
 
