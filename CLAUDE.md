@@ -181,6 +181,16 @@ sans son point d'essai.
   seul (seul un lancement efface la marque). Sans carte annoncée (conversation du chef, arrêt groupé
   de la barre de quota), rien ne change. Verrouillé par `server/src/test/arret-carte.test.ts` et
   `scripts/verif-arret-carte.mjs`.
+- **L'arrêt s'atteint AUSSI depuis la barre d'écriture** (`boutonsBarreEcriture`,
+  `shared/src/arret-carte.ts`). Dans un fil long, la bande « en cours » sort de l'écran : tant qu'un
+  agent travaille, la flèche d'envoi devient un carré d'ARRÊT, au même endroit et à la même taille,
+  et redevient la flèche en fin de tour. Du texte en cours de saisie garde son envoi — l'arrêt se
+  pose à CÔTÉ, jamais par-dessus une phrase écrite ; la modification d'un message en attente garde
+  le bouton pour elle. Le geste est écrit UNE seule fois (`useArretAgent`,
+  `web/src/components/arret-agent.tsx`), et la bande du haut comme la barre du bas y passent : même
+  `arretDeCarteAutorise`, même `agent.stop` avec le `cardId`, même confirmation au-delà de cinq
+  minutes — durée relue AU CLIC, la barre ne se redessinant pas chaque seconde. Arrêt non permis =
+  aucun bouton, aux deux endroits.
 - **Les portes DURES valent pour tous les chemins de lancement** (`portesDures`,
   `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, projet
   qui n'est pas un dépôt git, dossier de travail déjà occupé par une autre carte. `startCard` les
