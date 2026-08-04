@@ -62,6 +62,7 @@ node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle 
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
 node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse d'une question (démon d'essai à soi)
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
+node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 ```
@@ -242,6 +243,15 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   jamais quatre annoncés et rien de visible. Le triangle du projet EMMÈNE à la plus ancienne décision
   en attente. Verrouillé par `server/src/test/decision-attendue.test.ts` et
   `scripts/verif-signal-attention.mjs`.
+- **Un pied de colonne agit en LOT, toujours en deux temps et toujours par le même mécanisme**
+  (`ACTIONS_DE_LOT`, `web/src/components/board.tsx`). Premier clic : une case à cocher sort du coin
+  haut-gauche de chaque carte, TOUTES cochées, et le pied devient « Annuler » / « <verbe> (n) ».
+  Annuler ne touche à rien ; confirmer déplace les cartes restées cochées vers la colonne `cible`,
+  une par une, par `client.moveCard` — le MÊME appel que le bouton du tiroir. Une seule colonne en
+  sélection à la fois, et pas de pied sur une colonne vide. Trois entrées aujourd'hui : « À faire » →
+  « Tout valider » vers « Validé », « Terminé » et « À déployer » → « Tout archiver » vers
+  « Archivé ». Ajouter une colonne, c'est ajouter une ligne à cette liste — jamais un second
+  mécanisme. Vérifié par `scripts/verif-lot-a-faire.mjs`.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier

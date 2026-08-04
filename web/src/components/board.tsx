@@ -23,10 +23,28 @@ import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel } from '@/components/deploy-panel';
 
 /**
- * Les colonnes de fin de parcours, où le ménage se fait en lot. Ailleurs, une
- * carte est encore vivante : on ne propose pas de tout archiver d'un clic.
+ * Ce qu'un pied de colonne sait faire en lot. UN SEUL mécanisme, en deux temps :
+ * le premier clic sort les cases à cocher (toutes cochées), le second déplace
+ * ce qui est resté coché vers `cible`. Seules les colonnes listées ici ont un
+ * pied : ailleurs, le geste de masse n'a pas de sens.
  */
-const COLONNES_ARCHIVABLES: ColumnKey[] = ['done', 'to_deploy'];
+type ActionDeLot = {
+  /** Le bouton au repos. */
+  libelle: string;
+  icone: React.ComponentType<{ className?: string }>;
+  /** Le bouton de confirmation, suivi du nombre de cartes cochées. */
+  verbe: string;
+  cible: ColumnKey;
+};
+
+const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
+  // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
+  // carte : passer en « Validé ». Rien n'est lancé — l'ordonnanceur décide.
+  todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', cible: 'validated' },
+  // Les colonnes de fin de parcours, où le ménage se fait en lot.
+  done: { libelle: 'Tout archiver', icone: Archive, verbe: 'Archiver', cible: 'archived' },
+  to_deploy: { libelle: 'Tout archiver', icone: Archive, verbe: 'Archiver', cible: 'archived' },
+};
 
 export function Board({
   projectId,
@@ -138,49 +156,54 @@ export function Board({
   }, []);
 
   /*
-   * L'archivage en lot des colonnes de fin de parcours. Le mode se déclenche au
-   * bouton du bas : chaque carte reçoit alors une case à cocher, TOUTES cochées
-   * d'entrée — on retire ce qu'on veut garder, plutôt que de tout re-cliquer.
-   * Une seule colonne à la fois : deux sélections ouvertes en parallèle rendent
-   * le compteur des boutons illisible.
+   * Le geste en lot d'une colonne. Le mode se déclenche au bouton du bas :
+   * chaque carte reçoit alors une case à cocher, TOUTES cochées d'entrée — on
+   * retire ce qu'on veut garder, plutôt que de tout re-cliquer. Une seule
+   * colonne à la fois : deux sélections ouvertes en parallèle rendent le
+   * compteur des boutons illisible.
    */
-  const [colonneArchivage, setColonneArchivage] = React.useState<ColumnKey | null>(null);
+  const [colonneEnLot, setColonneEnLot] = React.useState<ColumnKey | null>(null);
   const [selection, setSelection] = React.useState<string[]>([]);
-  const [archivageEnCours, setArchivageEnCours] = React.useState(false);
+  const [lotEnCours, setLotEnCours] = React.useState(false);
 
-  const cartesEnSelection = colonneArchivage ? byColumn(colonneArchivage) : [];
+  const cartesEnSelection = colonneEnLot ? byColumn(colonneEnLot) : [];
   // Changer de projet, ou vider la colonne, referme le mode : il n'aurait plus
   // rien à cocher, et le pied resterait sur des boutons sans effet.
   React.useEffect(() => {
-    setColonneArchivage(null);
+    setColonneEnLot(null);
     setSelection([]);
   }, [projectId]);
   React.useEffect(() => {
-    if (colonneArchivage && !cartesEnSelection.length) setColonneArchivage(null);
-  }, [colonneArchivage, cartesEnSelection.length]);
+    if (colonneEnLot && !cartesEnSelection.length) setColonneEnLot(null);
+  }, [colonneEnLot, cartesEnSelection.length]);
 
-  const ouvrirArchivage = (column: ColumnKey) => {
+  const ouvrirLot = (column: ColumnKey) => {
     setSelection(byColumn(column).map((card) => card.id));
-    setColonneArchivage(column);
+    setColonneEnLot(column);
+  };
+
+  const fermerLot = () => {
+    setColonneEnLot(null);
+    setSelection([]);
   };
 
   const basculer = (cardId: string) =>
     setSelection((liste) => (liste.includes(cardId) ? liste.filter((id) => id !== cardId) : [...liste, cardId]));
 
-  const archiverSelection = async () => {
-    setArchivageEnCours(true);
+  const appliquerLot = async (cible: ColumnKey) => {
+    setLotEnCours(true);
     try {
       const snapshot = client.getSnapshot().cards;
-      // Une carte après l'autre : l'archivage écrit un document de clôture,
-      // et huit demandes lancées ensemble se marcheraient dessus.
+      // Une carte après l'autre : l'archivage écrit un document de clôture, la
+      // validation déclenche un chiffrage — huit demandes lancées ensemble se
+      // marcheraient dessus.
       for (const id of selection) {
         const card = snapshot[id];
-        if (card) await client.moveCard(card, 'archived');
+        if (card) await client.moveCard(card, cible);
       }
-      setColonneArchivage(null);
-      setSelection([]);
+      fermerLot();
     } finally {
-      setArchivageEnCours(false);
+      setLotEnCours(false);
     }
   };
 
@@ -247,6 +270,7 @@ export function Board({
     >
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
+        const action = ACTIONS_DE_LOT[column];
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
         return (
           <div
@@ -270,7 +294,7 @@ export function Board({
               Un SEUL défilement vertical par colonne, et uniquement vertical :
               le bandeau de publication voyage avec les cartes, sinon sa hauteur
               (conflits, étapes) pousse la colonne au-delà du tableau.
-              En mode archivage, la case à cocher DÉBORDE du coin haut-gauche de
+              En mode sélection, la case à cocher DÉBORDE du coin haut-gauche de
               la carte : il faut donc lui laisser la place, sinon le débordement
               de la colonne la rognerait.
             */}
@@ -279,11 +303,11 @@ export function Board({
               <div
                 className={cn(
                   'space-y-1.5 p-1.5',
-                  colonneArchivage === column && 'pl-[15px] pt-[15px]',
+                  colonneEnLot === column && 'pl-[15px] pt-[15px]',
                 )}
               >
               {columnCards.map((card) => {
-                const cochable = colonneArchivage === column;
+                const cochable = colonneEnLot === column;
                 return (
                   <CardTile
                     key={card.id}
@@ -322,16 +346,16 @@ export function Board({
             </ZoneDefilement>
 
             {/*
-              Le pied des colonnes de fin de parcours : un seul bouton au repos,
-              qui se change en couple annuler / valider une fois les cases
-              sorties. Annuler ne touche à rien, valider archive ce qui est
-              resté coché.
+              Le pied d'une colonne qui sait agir en lot : un seul bouton au
+              repos, qui se change en couple annuler / confirmer une fois les
+              cases sorties. Annuler ne touche à rien, confirmer déplace ce qui
+              est resté coché. Colonne vide, pas de pied : il n'agirait sur rien.
             */}
-            {COLONNES_ARCHIVABLES.includes(column) && columnCards.length ? (
+            {action && columnCards.length ? (
               <div className="shrink-0 border-t border-border/50 p-1.5">
-                {colonneArchivage !== column ? (
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => ouvrirArchivage(column)}>
-                    <Archive className="h-3 w-3" /> Tout archiver
+                {colonneEnLot !== column ? (
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => ouvrirLot(column)}>
+                    <action.icone className="h-3 w-3" /> {action.libelle}
                   </Button>
                 ) : (
                   <div className="flex items-center gap-1.5">
@@ -339,11 +363,8 @@ export function Board({
                       variant="ghost"
                       size="sm"
                       className="flex-1"
-                      disabled={archivageEnCours}
-                      onClick={() => {
-                        setColonneArchivage(null);
-                        setSelection([]);
-                      }}
+                      disabled={lotEnCours}
+                      onClick={fermerLot}
                     >
                       Annuler
                     </Button>
@@ -351,11 +372,11 @@ export function Board({
                       variant="default"
                       size="sm"
                       className="flex-1"
-                      disabled={!selection.length || archivageEnCours}
-                      onClick={archiverSelection}
+                      disabled={!selection.length || lotEnCours}
+                      onClick={() => appliquerLot(action.cible)}
                     >
-                      {archivageEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                      Archiver ({selection.length})
+                      {lotEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      {action.verbe} ({selection.length})
                     </Button>
                   </div>
                 )}
