@@ -249,6 +249,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('account.cancel'), id: z.string() }),
   /** Les connexions de comptes en cours, à l'ouverture des réglages. */
   z.object({ type: z.literal('account.connections') }),
+  /**
+   * Couper ou remettre en service un compte depuis le volet Quotas. Un compte
+   * coupé reste dans la liste, éteint : l'ordonnanceur ne le choisit plus et sa
+   * fenêtre de 5 h n'est plus amorcée.
+   */
+  z.object({ type: z.literal('account.disable'), id: z.string(), disabled: z.boolean() }),
   /** Consommation des comptes sur les derniers jours, pour la courbe. */
   z.object({ type: z.literal('quota.history'), days: z.number().optional() }),
   /** Le journal des amorces de fenêtre posées par le serveur. */

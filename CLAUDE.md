@@ -616,6 +616,14 @@ sans son point d'essai.
   intact ne prouve pas qu'un jeton tient encore, et un coffre sans fichier d'identifiants échoue sur
   le FICHIER ABSENT, pas sur un jeton vide. Verrouillé par
   `server/src/test/connexion-compte.test.ts` et `scripts/verif-connexion-compte.mjs`.
+- **Un compte COUPÉ à la main reste visible, éteint** (`disabled`, `server/src/accounts.ts`).
+  L'interrupteur du volet Quotas (`quota-badge.tsx`, commande `account.disable`) pose `disabled` sur
+  le compte, écrit sur lui donc survivant au redémarrage. `listAccountRecords()` — la liste
+  UTILISABLE (ordonnanceur, amorçage via `etatDesComptes`, catalogue) — l'écarte ; `listAllAccountRecords()`
+  le garde pour le volet et pour la commande. `ajouterComptesDesactives` le rejoue dans les quotas
+  depuis son dernier relevé (marqué `disabled`, indisponible), et `markActive` ne le choisit jamais
+  comme compte actif. Rien n'est supprimé, aucun identifiant touché. Verrouillé par
+  `server/src/test/compte-desactive.test.ts`.
 - **Le bloc du cerveau dit UNE chose et propose le geste qui débloque**
   (`shared/src/bloc-cerveau.ts`). `ligneEtatCerveau` rend UNE seule ligne d'état — clé manquante,
   dernier envoi réussi, ou aucun envoi abouti — là où le bloc empilait un badge, un encadré orange

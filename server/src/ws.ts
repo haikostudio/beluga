@@ -29,7 +29,7 @@ import { CONFIG } from './config.js';
 import { isAuthenticated } from './http.js';
 import { listEngines } from './engines/index.js';
 import { normaliseThinking } from './engines/catalog.js';
-import { cachedQuotas, refreshQuotas } from './accounts.js';
+import { cachedQuotas, refreshQuotas, setAccountDisabled } from './accounts.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
@@ -989,6 +989,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'account.connections':
       return { connexions: connexionsEnCours() };
+
+    case 'account.disable': {
+      // Couper (ou rallumer) un compte, puis relire les quotas : le compte coupé
+      // reste dans la liste, éteint, et le compte actif est recalculé.
+      const compte = setAccountDisabled(cmd.id, cmd.disabled);
+      const quotas = await refreshQuotas(true);
+      bus.emit({ type: 'quotas', quotas });
+      return { ok: !!compte, quotas };
+    }
 
     case 'quota.history':
       // La courbe ne montre que les derniers jours ; le RÉSUMÉ, lui, part avec

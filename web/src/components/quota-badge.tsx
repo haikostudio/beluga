@@ -16,7 +16,7 @@ import {
   type ReleveQuota,
   type SerieQuota,
 } from '@haikodev/shared';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Gauge, Badge, Tooltip } from '@/components/ui';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Gauge, Badge, Switch, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 
@@ -223,19 +223,43 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                 // par l'absence de carte chez les autres.
                 className={cn(
                   'rounded-md border bg-raised px-2 py-1.5',
-                  quota.active ? 'border-muted' : 'border-border',
+                  quota.disabled ? 'border-border opacity-60' : quota.active ? 'border-muted' : 'border-border',
                 )}
               >
                 <div className="flex items-center gap-1.5">
                   <span
                     className={cn(
                       'h-1.5 w-1.5 shrink-0 rounded-full',
-                      !quota.available ? 'bg-danger' : quota.active ? 'bg-success' : 'bg-faint',
+                      quota.disabled
+                        ? 'bg-faint'
+                        : !quota.available
+                          ? 'bg-danger'
+                          : quota.active
+                            ? 'bg-success'
+                            : 'bg-faint',
                     )}
                   />
                   <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{quota.label}</span>
-                  {quota.active ? <Badge tone="success">actif</Badge> : null}
-                  {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
+                  {quota.disabled ? (
+                    <Badge tone="neutral">désactivé</Badge>
+                  ) : (
+                    <>
+                      {quota.active ? <Badge tone="success">actif</Badge> : null}
+                      {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
+                    </>
+                  )}
+                  {/* L'interrupteur coupe ou rallume le compte. Coupé, il n'est
+                      plus choisi par l'ordonnanceur et sa fenêtre de 5 h n'est
+                      plus amorcée ; il reste dans la liste, éteint. */}
+                  <Tooltip label={quota.disabled ? 'Compte désactivé — le remettre en service' : 'Désactiver ce compte'}>
+                    <Switch
+                      checked={!quota.disabled}
+                      onCheckedChange={(actif) =>
+                        client.send({ type: 'account.disable', id: quota.id, disabled: !actif })
+                      }
+                      aria-label={quota.disabled ? `Réactiver ${quota.label}` : `Désactiver ${quota.label}`}
+                    />
+                  </Tooltip>
                 </div>
 
                 <div className="mt-1.5 space-y-1.5">

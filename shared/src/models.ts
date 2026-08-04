@@ -432,6 +432,12 @@ export const AccountQuota = z.object({
   priority: z.number().default(100),
   active: z.boolean().default(false),
   available: z.boolean().default(true),
+  /**
+   * Compte COUPÉ à la main depuis le volet Quotas : il reste dans la liste,
+   * éteint, mais l'ordonnanceur ne le choisit plus et sa fenêtre de 5 h n'est
+   * plus amorcée. Distinct d'`available`, qui dit un quota épuisé.
+   */
+  disabled: z.boolean().optional(),
   session: QuotaWindow.optional(),
   weekly: QuotaWindow.optional(),
   error: z.string().optional(),

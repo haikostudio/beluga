@@ -42,9 +42,35 @@ export interface AccountRecord {
 
 const CLAUDE_OAUTH_BETA = 'oauth-2025-04-20';
 
+/**
+ * Les comptes RÉELLEMENT utilisables : un compte coupé à la main (`disabled`)
+ * est écarté. C'est la liste que voient l'ordonnanceur, l'amorçage des fenêtres,
+ * le catalogue des modèles — partout où un compte éteint ne doit plus servir.
+ */
 export function listAccountRecords(): AccountRecord[] {
+  return listAllAccountRecords().filter((a) => !a.disabled);
+}
+
+/**
+ * TOUS les comptes déclarés, coupés compris. Sert au volet Quotas, qui garde le
+ * compte éteint visible avec son interrupteur, et à la commande qui le coupe.
+ */
+export function listAllAccountRecords(): AccountRecord[] {
   const rows = getDb().prepare('SELECT data FROM accounts ORDER BY id').all() as { data: string }[];
-  return rows.map((r) => JSON.parse(r.data) as AccountRecord).filter((a) => !a.disabled);
+  return rows.map((r) => JSON.parse(r.data) as AccountRecord);
+}
+
+/**
+ * Coupe ou remet en service un compte. Le réglage est écrit sur le compte, donc
+ * il survit à un redémarrage. Rien n'est supprimé : le compte reste déclaré,
+ * simplement marqué éteint.
+ */
+export function setAccountDisabled(id: string, disabled: boolean): AccountRecord | null {
+  const account = listAllAccountRecords().find((a) => a.id === id);
+  if (!account) return null;
+  const updated: AccountRecord = { ...account, disabled };
+  saveAccountRecord(updated);
+  return updated;
 }
 
 export function saveAccountRecord(account: AccountRecord): void {
@@ -332,6 +358,7 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
     }
     results.push(quota);
   }
+  ajouterComptesDesactives(results);
   markActive(results);
   persistCache();
   // Seulement sur une VRAIE lecture : le cache est rejoué à chaque connexion
@@ -346,8 +373,42 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
 export function cachedQuotas(): AccountQuota[] {
   loadCache();
   const list = [...quotaCache.values()];
+  ajouterComptesDesactives(list);
   markActive(list);
   return list;
+}
+
+/**
+ * Un compte coupé n'est plus interrogé (il ne fait pas partie de
+ * `listAccountRecords`), mais il doit RESTER visible dans le volet Quotas, éteint,
+ * pour qu'on puisse le rallumer. On le rejoue depuis son dernier relevé connu,
+ * ou depuis un état minimal s'il n'a jamais été lu, toujours marqué `disabled` et
+ * indisponible.
+ */
+function ajouterComptesDesactives(list: AccountQuota[]): void {
+  const dejaLa = new Set(list.map((q) => q.id));
+  for (const account of listAllAccountRecords()) {
+    if (!account.disabled) continue;
+    const connu = quotaCache.get(account.id);
+    const quota: AccountQuota = connu
+      ? { ...connu, disabled: true, active: false, available: false }
+      : {
+          id: account.id,
+          engine: account.engine,
+          label: account.label,
+          plan: account.plan,
+          priority: account.priority,
+          active: false,
+          available: false,
+          disabled: true,
+          fetchedAt: Date.now(),
+        };
+    quotaCache.set(account.id, quota);
+    if (!dejaLa.has(account.id)) {
+      list.push(quota);
+      dejaLa.add(account.id);
+    }
+  }
 }
 
 /**
@@ -673,7 +734,10 @@ function markActive(list: AccountQuota[]): void {
   attacherAmorces(list);
   attacherEtatConnexion(list);
   for (const engine of ['claude', 'codex'] as EngineId[]) {
-    const candidates = list.filter((q) => q.engine === engine).sort((a, b) => a.priority - b.priority);
+    // Un compte coupé ne peut pas être « celui qui sert » : on l'écarte du choix.
+    const candidates = list
+      .filter((q) => q.engine === engine && !q.disabled)
+      .sort((a, b) => a.priority - b.priority);
     const chosen = candidates.find((q) => q.available) ?? candidates[0];
     for (const quota of candidates) quota.active = quota.id === chosen?.id;
   }
