@@ -1146,6 +1146,10 @@ export interface UsageRow {
   engine?: string;
   tokens?: number;
   quotaShare?: number;
+  /** Part du quota de 5 heures consommée par la tâche (avant / après le tour). */
+  quota5h?: number;
+  /** Part du quota hebdomadaire consommée par la tâche (avant / après le tour). */
+  quotaSemaine?: number;
   seconds?: number;
 }
 
@@ -1158,8 +1162,8 @@ export function recordUsage(row: UsageRow): void {
     : null;
   getDb()
     .prepare(
-      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, tokens, quota_share, seconds, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.projectId ?? null,
@@ -1170,9 +1174,32 @@ export function recordUsage(row: UsageRow): void {
       row.engine ?? null,
       Math.round(row.tokens ?? 0),
       row.quotaShare ?? 0,
+      row.quota5h ?? 0,
+      row.quotaSemaine ?? 0,
       row.seconds ?? 0,
       now(),
     );
+}
+
+/**
+ * Pour une carte, les deux parts de quota consommées jour par jour : la fenêtre
+ * de 5 heures et la fenêtre de la semaine, sommées par date. C'est ce que
+ * ressortira plus tard le tableau de bord — ici, cela sert surtout à prouver que
+ * les deux chiffres sont bien rangés et regroupables.
+ */
+export function usageQuotaByCardAndDay(cardId: string): {
+  day: string;
+  quota5h: number;
+  quotaSemaine: number;
+}[] {
+  return getDb()
+    .prepare(
+      `SELECT strftime('%Y-%m-%d', created_at/1000, 'unixepoch') AS day,
+              SUM(quota_5h) AS quota5h, SUM(quota_semaine) AS quotaSemaine
+       FROM usage WHERE card_id = ?
+       GROUP BY day ORDER BY day`,
+    )
+    .all(cardId) as any;
 }
 
 /**

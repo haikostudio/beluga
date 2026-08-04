@@ -256,6 +256,17 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX idx_quota_profile_jour ON quota_profile(jour);
     `,
   },
+  {
+    id: 11,
+    name: 'part-de-quota-par-tache',
+    // La part de quota consommée par une tâche, relevée sur son compte avant et
+    // après le tour : la fenêtre de 5 h et la fenêtre de la semaine, séparément.
+    // `quota_share` restait à 0 et ne distinguait pas les deux fenêtres.
+    sql: `
+      ALTER TABLE usage ADD COLUMN quota_5h REAL DEFAULT 0;
+      ALTER TABLE usage ADD COLUMN quota_semaine REAL DEFAULT 0;
+    `,
+  },
 ];
 
 export function openDb(): DB {

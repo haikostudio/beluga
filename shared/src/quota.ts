@@ -881,3 +881,19 @@ export function doitAlerterEpuisementProche(
   if (etat.dejaAnnoncee === etat.resetsAt) return false;
   return etat.resetsAt > maintenant;
 }
+
+/**
+ * La part de quota qu'une tâche a consommée sur une fenêtre : le pourcentage
+ * relevé APRÈS le tour moins celui d'AVANT. Jamais négatif — une remise à zéro
+ * en cours de tour ferait passer l'« après » sous l'« avant », et l'on
+ * n'attribue pas une remise à la tâche. Un relevé manquant (fenêtre inconnue,
+ * lecture en échec) donne 0 : on n'invente pas une part qu'on n'a pas mesurée.
+ *
+ * Règle pure, sans réseau ni base : elle se teste seule.
+ */
+export function partQuotaConsommee(avant?: number, apres?: number): number {
+  if (typeof avant !== 'number' || typeof apres !== 'number') return 0;
+  if (!Number.isFinite(avant) || !Number.isFinite(apres)) return 0;
+  const part = apres - avant;
+  return part > 0 ? part : 0;
+}
