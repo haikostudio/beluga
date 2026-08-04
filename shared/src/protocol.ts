@@ -269,6 +269,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
   z.object({ type: z.literal('voice.list') }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
+  /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
+  z.object({ type: z.literal('card.quota'), cardId: z.string() }),
   /** Tout ce que montre la page « Tableau de bord » : conso par projet, par jour, par carte. */
   z.object({ type: z.literal('stats.dashboard') }),
   z.object({ type: z.literal('memory.get'), projectId: z.string() }),

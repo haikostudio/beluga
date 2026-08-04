@@ -1047,6 +1047,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         deployable: cmd.projectId ? deployableCards(cmd.projectId).length : undefined,
       };
 
+    case 'card.quota':
+      return store.usageQuotaByCard(cmd.cardId);
+
     case 'stats.dashboard': {
       // Le titre, le projet et la colonne d'une carte vivent dans son JSON, pas
       // dans la table `usage` : on raccroche la conso par carte aux cartes de

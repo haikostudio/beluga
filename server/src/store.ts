@@ -1203,6 +1203,23 @@ export function usageQuotaByCardAndDay(cardId: string): {
 }
 
 /**
+ * La part de quota (fenêtre de 5 h et semaine) qu'une carte a consommée en tout,
+ * somme de toutes ses lignes de consommation. Une carte sans aucun relevé rend
+ * deux zéros : c'est à l'appelant de ne rien afficher plutôt qu'un zéro
+ * trompeur. Lecture seule — rien n'est écrit, aucune colonne ajoutée en base.
+ */
+export function usageQuotaByCard(cardId: string): { quota5h: number; quotaSemaine: number } {
+  const row = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(quota_5h), 0) AS quota5h,
+              COALESCE(SUM(quota_semaine), 0) AS quotaSemaine
+       FROM usage WHERE card_id = ?`,
+    )
+    .get(cardId) as { quota5h: number; quotaSemaine: number };
+  return { quota5h: row.quota5h, quotaSemaine: row.quotaSemaine };
+}
+
+/**
  * Le NOM du projet vient de la base, pas de la liste affichée : un projet mis
  * de côté (ou simplement absent de la colonne de gauche) restait sans nom à
  * l'écran, et sept lignes « projet retiré » ne disaient plus rien.

@@ -64,4 +64,15 @@ test('recordUsage range les deux parts de quota, ressortables par carte et par j
   // 2 + 3 sur la fenêtre de 5 h, 0,5 + 0,7 sur la semaine.
   assert.ok(Math.abs(total5h - 5) < 1e-6, 'la somme des parts de 5 h est attendue');
   assert.ok(Math.abs(totalSemaine - 1.2) < 1e-6, 'la somme des parts de semaine est attendue');
+
+  // Le total par carte, en une seule lecture, donne les mêmes sommes.
+  const total = store.usageQuotaByCard(carte);
+  assert.ok(Math.abs(total.quota5h - 5) < 1e-6, 'le total de 5 h par carte est attendu');
+  assert.ok(Math.abs(total.quotaSemaine - 1.2) < 1e-6, 'le total de semaine par carte est attendu');
+});
+
+test('une carte sans aucun relevé rend deux zéros, pas un null', () => {
+  const total = store.usageQuotaByCard('carte-jamais-vue');
+  assert.equal(total.quota5h, 0);
+  assert.equal(total.quotaSemaine, 0);
 });
