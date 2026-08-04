@@ -279,8 +279,29 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('groups'), groups: z.array(ProjectGroup) }),
-  /** Projets qui attendent une réponse : nombre de questions en attente. */
-  z.object({ type: z.literal('attention'), byProject: z.record(z.number()) }),
+  /**
+   * Projets qui attendent une réponse : le compte par projet, ET l'endroit où
+   * chaque décision se prend — sans quoi la ligne du projet annoncerait un
+   * chiffre que rien à l'écran ne confirme.
+   */
+  z.object({
+    type: z.literal('attention'),
+    byProject: z.record(z.number()),
+    decisions: z
+      .array(
+        z.object({
+          projectId: z.string(),
+          /** La conversation où la décision se prend. */
+          agentId: z.string(),
+          /** La carte concernée, quand la décision est née dans son travail. */
+          cardId: z.string().optional(),
+          genre: z.enum(['question', 'validation']),
+          reglee: z.boolean().optional(),
+          poseeA: z.number().optional(),
+        }),
+      )
+      .default([]),
+  }),
   /** Projets dont un agent a rendu son travail sans qu'on l'ait encore lu. */
   z.object({ type: z.literal('rendus'), byProject: z.record(z.number()) }),
   z.object({

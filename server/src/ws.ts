@@ -80,7 +80,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     const unsubscribe = bus.subscribe(send);
 
     void (async () => {
-      send({ type: 'attention', byProject: store.projectsNeedingAttention() });
+      send({ type: 'attention', ...store.signalAttention() });
       send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
       send({
         type: 'ready',
@@ -680,7 +680,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         ),
       });
       bus.emit({ type: 'message.upsert', message: updated });
-      bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
 
       // L'agent reprend aussitôt, avec la réponse en main — sans faire
       // patienter le navigateur jusqu'à la fin de son tour. La question n'est
@@ -753,7 +753,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       });
       bus.emit({ type: 'message.upsert', message: updatedMessage });
       // Tranchée, la proposition ne réclame plus rien : le signal s'éteint.
-      bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
       return { cardId };
     }
 

@@ -45,7 +45,7 @@ node scripts/verif-reprise-paseo.mjs # les cartes reprises de Paseo, dans un vra
 node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, sur écran de téléphone
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
-node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu de la colonne
+node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu — et leur report sur carte / conversation
 node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
@@ -209,6 +209,16 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   travail rendu non lu (point bleu, cliquable pour marquer comme lu). C'est l'AFFICHAGE qu'on
   réduit : les deux comptes continuent d'être calculés et de secouer la ligne séparément. Chaque
   repère dit ce qu'il veut dire en français simple (`aria-label` + infobulle).
+- **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
+  (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
+  porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
+  (`signalAttention`, événement `attention`). Le même triangle orange, jamais un nouveau genre
+  d'alerte (`RepereAttention`), se pose alors sur la carte du tableau, sur l'onglet « Conversation »
+  de son tiroir, et sur l'entrée « Chef » quand aucune carte n'est en jeu. Une décision est marquée à
+  UN seul endroit : c'est ce qui garantit que le compte annoncé vaut le nombre de repères visibles —
+  jamais quatre annoncés et rien de visible. Le triangle du projet EMMÈNE à la plus ancienne décision
+  en attente. Verrouillé par `server/src/test/decision-attendue.test.ts` et
+  `scripts/verif-signal-attention.mjs`.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier

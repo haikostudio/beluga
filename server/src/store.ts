@@ -6,7 +6,7 @@ import {
   CarteRendue,
   carteNonLue,
   ColumnKey,
-  DemandeEnAttente,
+  DecisionAttendue,
   attentionParProjet,
   DeployRun,
   Message,
@@ -614,26 +614,49 @@ export function setNouveauDepart(agentId: string, at: number): void {
  * s'est dit avec les précédents.
  */
 /**
- * Ce qu'un projet attend de VOUS : les questions d'agent sans réponse ET les
- * cartes présentées à valider. Les deux réclament la même chose — une décision
- * — donc les deux allument le même signal. La règle du décompte vit dans
- * `shared`, donc se teste seule ; ici on ne fait que ramasser la matière.
+ * Ce qu'un projet attend de VOUS, DÉCISION PAR DÉCISION : les questions d'agent
+ * sans réponse ET les cartes présentées à valider. Les deux réclament la même
+ * chose — une décision — donc les deux allument le même signal.
+ *
+ * Chaque décision emporte l'ENDROIT où elle se prend : la conversation qui la
+ * porte, et la carte concernée quand il y en a une. Sans cet endroit, la ligne
+ * du projet annonçait un chiffre que rien à l'écran ne venait confirmer.
+ *
+ * Une décision dont la conversation a disparu est écartée : elle ne se prend
+ * plus nulle part, et la compter serait exactement le chiffre introuvable qu'on
+ * cherche à supprimer. Le décompte, lui, ne change pas de règle : il vit dans
+ * `shared` et se teste seul.
  */
-export function projectsNeedingAttention(): Record<string, number> {
-  const demandes: DemandeEnAttente[] = [];
+export function decisionsEnAttente(): DecisionAttendue[] {
+  const decisions: DecisionAttendue[] = [];
 
   const rows = getDb()
     .prepare(
-      `SELECT a.project_id AS projectId, m.data AS data FROM messages m
+      `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
+              m.data AS data, m.created_at AS createdAt
+       FROM messages m
        JOIN agents a ON a.id = m.agent_id
        WHERE m.data LIKE '%"questions":[{%'`,
     )
-    .all() as { projectId: string; data: string }[];
+    .all() as {
+    projectId: string;
+    agentId: string;
+    cardId: string | null;
+    data: string;
+    createdAt: number;
+  }[];
   for (const row of rows) {
     try {
       const message = Message.parse(JSON.parse(row.data));
       for (const question of message.questions) {
-        demandes.push({ projectId: row.projectId, genre: 'question', reglee: Boolean(question.answer) });
+        decisions.push({
+          projectId: row.projectId,
+          agentId: row.agentId,
+          cardId: row.cardId ?? undefined,
+          genre: 'question',
+          reglee: Boolean(question.answer),
+          poseeA: row.createdAt,
+        });
       }
     } catch {
       /* message illisible : on l'ignore */
@@ -641,17 +664,52 @@ export function projectsNeedingAttention(): Record<string, number> {
   }
 
   const propositions = getDb()
-    .prepare('SELECT project_id AS projectId, decision FROM proposals')
-    .all() as { projectId: string; decision: string }[];
+    .prepare(
+      `SELECT p.project_id AS projectId, p.decision AS decision, p.created_at AS createdAt,
+              a.id AS agentId, a.card_id AS cardId
+       FROM proposals p
+       JOIN messages m ON m.id = p.message_id
+       JOIN agents a ON a.id = m.agent_id`,
+    )
+    .all() as {
+    projectId: string;
+    decision: string;
+    createdAt: number;
+    agentId: string;
+    cardId: string | null;
+  }[];
   for (const proposition of propositions) {
-    demandes.push({
+    decisions.push({
       projectId: proposition.projectId,
+      agentId: proposition.agentId,
+      // La carte PROPOSÉE n'existe pas encore : ce qu'on note ici, c'est la
+      // carte dans le fil de laquelle la proposition a été faite. Le chef
+      // d'orchestre n'en a pas — sa proposition se voit donc sur sa
+      // conversation, là où le bouton de validation attend.
+      cardId: proposition.cardId ?? undefined,
       genre: 'validation',
       reglee: proposition.decision !== 'pending',
+      poseeA: proposition.createdAt,
     });
   }
 
-  return attentionParProjet(demandes);
+  return decisions;
+}
+
+/** Le compte par projet — ce que porte le triangle de la colonne de gauche. */
+export function projectsNeedingAttention(): Record<string, number> {
+  return attentionParProjet(decisionsEnAttente());
+}
+
+/**
+ * Tout ce que l'interface a besoin de savoir sur l'attente, d'un seul tenant :
+ * le compte par projet et l'endroit de chaque décision. Les deux partent
+ * ENSEMBLE — un compte diffusé sans ses endroits laisserait la ligne du projet
+ * s'allumer pendant que cartes et conversations restent muettes.
+ */
+export function signalAttention(): { byProject: Record<string, number>; decisions: DecisionAttendue[] } {
+  const decisions = decisionsEnAttente();
+  return { byProject: attentionParProjet(decisions), decisions };
 }
 
 /**

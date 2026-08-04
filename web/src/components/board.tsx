@@ -8,9 +8,11 @@ import {
   canMove,
   cleColonneTableau,
   colonneAReprendre,
+  decisionsParCarte,
   etatVisuelCarte,
   sortieAutorisee,
 } from '@haikodev/shared';
+import { RepereAttention } from '@/components/repere-attention';
 import { Badge, Button, Dot, Input, Textarea, Tooltip, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { MenuCarte } from '@/components/card-menu';
@@ -522,6 +524,13 @@ export function CardTile({
    * « ça travaille » de « c'est rendu, il ne manque que votre clôture » —
    * un point gris ne disait pas la différence.
    */
+  /*
+   * « Une décision vous attend ICI. » La ligne du projet annonce un total ;
+   * c'est cette carte-là qui dit où il se trouve. Même triangle orange, même
+   * phrase : on ne réinvente pas un signal, on le reporte à sa place.
+   */
+  const decisions = decisionsParCarte(state.decisions)[card.id] ?? 0;
+
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
     analyseEnCours,
@@ -595,6 +604,9 @@ export function CardTile({
 
         <div className="flex items-start gap-1.5">
           <h3 className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{card.title}</h3>
+          {/* Le triangle passe AVANT le voyant : une décision attendue prime
+              sur l'état d'avancement, elle est ce qui demande un geste. */}
+          <RepereAttention compte={decisions} className="mt-[2px]" data-attention-carte={card.id} />
           {/* Le voyant est à DROITE, au bout de la ligne du titre. */}
           {etat === 'travaille' ? (
             <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-success" />

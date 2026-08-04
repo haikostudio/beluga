@@ -25,9 +25,11 @@ import {
   type SignalProjet,
   avertissementRedemarrage,
   doitSecouerLigne,
+  premiereDecision,
   repereVisible,
   signalDuGroupe,
 } from '@haikodev/shared';
+import { libelleAttention } from '@/components/repere-attention';
 import {
   Button,
   ConfirmDialog,
@@ -435,6 +437,12 @@ export function Sidebar({
                         .filter((p) => state.rendus[p.id])
                         .forEach((p) => client.call({ type: 'project.read', projectId: p.id }))
                     }
+                    /* Replié, le groupe emmène à la décision du premier de ses
+                       projets qui en attend une. */
+                    onDecision={() => {
+                      const projet = entry.members.find((p) => state.attention[p.id]);
+                      if (projet) allerALaDecision(projet.id, onChoose);
+                    }}
                   />
                 ) : null}
                 <ColorPicker
@@ -837,17 +845,58 @@ function RepereRobot({ running }: { running: number }) {
  * Le point bleu reste cliquable, comme la pastille qu'il remplace : c'est le
  * raccourci « j'ai vu, n'insiste plus » sans ouvrir la conversation.
  */
-function RepereLigne({ signal, onLu }: { signal: SignalProjet; onLu: () => void }) {
+/**
+ * Emmener à la première décision en attente d'un projet — celle qui patiente
+ * depuis le plus longtemps. Une carte : son tiroir s'ouvre. Aucune carte : la
+ * conversation où le bouton attend se déplie. Dans les deux cas le projet
+ * devient celui qu'on regarde, sinon on arriverait sur le tableau d'un autre.
+ */
+function allerALaDecision(projectId: string, onChoose?: () => void): void {
+  client.setActiveProject(projectId);
+  onChoose?.();
+  const lieu = premiereDecision(client.getSnapshot().decisions, projectId);
+  if (!lieu) return;
+  if (lieu.cardId) client.openCard(lieu.cardId);
+  else client.openConversation({ projectId: lieu.projectId, agentId: lieu.agentId });
+}
+
+function RepereLigne({
+  signal,
+  onLu,
+  onDecision,
+}: {
+  signal: SignalProjet;
+  onLu: () => void;
+  /** Emmener à l'endroit où la décision se prend. */
+  onDecision?: () => void;
+}) {
   const quoi = repereVisible(signal);
   if (!quoi) return null;
 
   if (quoi === 'attention') {
     const compte = signal.attention ?? 0;
-    const libelle =
-      compte > 1 ? `${compte} décisions attendues de votre part` : 'Une décision attendue de votre part';
+    const libelle = `${libelleAttention(compte)} — cliquez pour y aller`;
+    /*
+     * Le triangle EMMÈNE : c'est le chaînon qui manquait. Annoncer « 4
+     * décisions attendues » sans dire où elles se prennent revenait à montrer
+     * un chiffre introuvable. Un clic ouvre la première, la plus ancienne.
+     */
     return (
       <Tooltip label={libelle}>
-        <TriangleAlert className="h-3 w-3 shrink-0 text-warning" data-signal-attention aria-label={libelle} />
+        <button
+          // Le glissement part de la poignée ; on coupe ici, sinon un appui
+          // sur le triangle embarquerait la ligne.
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDecision?.();
+          }}
+          aria-label={libelle}
+          data-signal-attention
+          className="shrink-0 text-warning"
+        >
+          <TriangleAlert className="h-3 w-3" />
+        </button>
       </Tooltip>
     );
   }
@@ -971,6 +1020,7 @@ function ProjectRow({
       <RepereLigne
         signal={{ attention, rendus }}
         onLu={() => client.call({ type: 'project.read', projectId: project.id })}
+        onDecision={() => allerALaDecision(project.id, onChoose)}
       />
       <button
         onPointerDown={(event) => event.stopPropagation()}

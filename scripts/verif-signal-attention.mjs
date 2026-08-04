@@ -8,6 +8,10 @@
  *  - la secousse ne se rejoue PAS en boucle, ni sur un compte inchangé ;
  *  - le projet déjà ouvert et regardé ne bouge jamais ;
  *  - le triangle d'alerte reste tant que la demande est en attente ;
+ *  - le MÊME triangle se pose là où la décision se prend : sur la carte du
+ *    tableau, et sur l'entrée de conversation quand aucune carte n'est en jeu ;
+ *  - le compte annoncé sur le projet vaut le nombre de repères visibles ;
+ *  - le triangle du projet EMMÈNE à la première décision (clic) ;
  *  - le badge bleu clignote tant que le travail n'a pas été consulté, et
  *    s'éteint dès que le compte retombe (conversation ouverte) ;
  *  - un groupe replié qui contient un tel projet porte les mêmes signaux.
@@ -91,11 +95,17 @@ async function main() {
         return propriete.set.call(this, ecouteur);
       },
     });
-    const rejouer = (type, byProject) => {
-      const donnees = JSON.stringify({ type, byProject });
+    const rejouer = (type, byProject, extra) => {
+      const donnees = JSON.stringify({ type, byProject, ...extra });
       for (const ecouteur of window.__ecouteurs) ecouteur({ data: donnees });
     };
-    window.__attention = (byProject) => rejouer('attention', byProject);
+    /*
+     * Le serveur envoie le compte ET le détail : où chaque décision se prend.
+     * Sans détail, on rejoue l'ancien message — c'est ce qui permet de vérifier
+     * qu'une version d'avant ne casse rien.
+     */
+    window.__attention = (byProject, decisions) =>
+      rejouer('attention', byProject, decisions ? { decisions } : undefined);
     // Le travail rendu et pas encore lu : le serveur le diffuse pareillement.
     window.__rendus = (byProject) => rejouer('rendus', byProject);
   });
@@ -271,6 +281,92 @@ async function main() {
       (await ligneDe(actif.id).locator('[data-signal-termine]').count()) === 1,
     );
     await page.evaluate(() => window.__rendus({}));
+  }
+
+  /* --- 7 bis. La décision se voit LÀ OÙ elle se prend ---------------- */
+  if (actif) {
+    /*
+     * On travaille sur le projet OUVERT : c'est le seul dont les cartes sont
+     * chargées, donc affichées. La carte est prise dans la base, comme la
+     * session : on ne devine aucun identifiant.
+     */
+    const require = createRequire(import.meta.url);
+    const db = require('/root/haikodev/node_modules/better-sqlite3')('/root/haikodev/data/haikodev.db');
+    const carte = db
+      /* « À faire » d'abord : c'est la colonne visible d'emblée, donc celle où
+         la copie d'écran montre vraiment quelque chose. */
+      .prepare(
+        `SELECT id FROM cards WHERE project_id = ? AND column_key <> 'archived'
+         ORDER BY column_key = 'todo' DESC, position DESC LIMIT 1`,
+      )
+      .get(actif.id);
+    db.close();
+
+    if (!carte) {
+      record('report sur la carte : aucune carte au tableau', true, 'contrôle sauté');
+    } else {
+      const surLaCarte = page.locator(`[data-attention-carte="${carte.id}"]`);
+      const surLaConversation = page.locator(`[data-attention-conversation="${actif.id}"]`);
+
+      // 1. Une décision née dans le travail d'une CARTE.
+      await page.evaluate(
+        ({ projet, carteId }) =>
+          window.__attention({ [projet]: 1 }, [
+            { projectId: projet, agentId: 'agent-essai', cardId: carteId, genre: 'question' },
+          ]),
+        { projet: actif.id, carteId: carte.id },
+      );
+      await page.waitForTimeout(250);
+      record('la carte concernée porte le triangle', (await surLaCarte.count()) >= 1);
+      record(
+        'et la conversation ne le porte PAS : sinon la décision compterait deux fois',
+        (await surLaConversation.count()) === 0,
+      );
+      await page.screenshot({ path: `${SHOTS}/decision-sur-la-carte.png` });
+
+      // 2. Le clic sur le triangle du projet EMMÈNE à cette carte : son tiroir
+      //    s'ouvre, et l'onglet de la conversation porte le même triangle.
+      await ligneDe(actif.id).locator('[data-signal-attention]').click();
+      await page.waitForTimeout(900);
+      record('le triangle du projet ouvre la carte en attente', (await surLaCarte.count()) >= 2);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+
+      // 3. Une décision qui ne tient à AUCUNE carte : c'est la conversation.
+      await page.evaluate(
+        (projet) =>
+          window.__attention({ [projet]: 1 }, [
+            { projectId: projet, agentId: 'agent-essai', genre: 'validation' },
+          ]),
+        actif.id,
+      );
+      await page.waitForTimeout(250);
+      record("l'entrée de conversation porte le triangle", (await surLaConversation.count()) >= 1);
+      record('et aucune carte ne s’allume à tort', (await surLaCarte.count()) === 0);
+      await page.screenshot({ path: `${SHOTS}/decision-sur-la-conversation.png` });
+
+      // 4. La décision prise : les trois repères s'éteignent ENSEMBLE.
+      await page.evaluate(() => window.__attention({}, []));
+      await page.waitForTimeout(250);
+      record(
+        'la décision prise, plus un seul repère nulle part',
+        (await surLaCarte.count()) === 0 &&
+          (await surLaConversation.count()) === 0 &&
+          (await ligneDe(actif.id).locator('[data-signal-attention]').count()) === 0,
+      );
+
+      // 5. Un serveur d'avant, qui n'envoie pas le détail : rien ne casse, la
+      //    ligne du projet s'allume seule plutôt que de faire tomber la page.
+      await page.evaluate((projet) => window.__attention({ [projet]: 1 }), actif.id);
+      await page.waitForTimeout(200);
+      record(
+        'un compte sans détail n’allume que la ligne du projet',
+        (await ligneDe(actif.id).locator('[data-signal-attention]').count()) === 1 &&
+          (await surLaCarte.count()) === 0,
+      );
+      await page.evaluate(() => window.__attention({}, []));
+      await page.waitForTimeout(200);
+    }
   }
 
   /* --- 8. Un groupe replié porte les signaux de ses projets ---------- */

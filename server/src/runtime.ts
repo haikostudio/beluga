@@ -639,7 +639,7 @@ export function attachToCurrentMessage(
   // Une carte présentée à valider attend une décision au même titre qu'une
   // question : elle allume donc le même signal dans la liste des projets.
   if (patch.question || patch.proposal) {
-    bus.emit({ type: 'attention', byProject: store.projectsNeedingAttention() });
+    bus.emit({ type: 'attention', ...store.signalAttention() });
   }
   if (patch.proposal) {
     notify({

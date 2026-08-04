@@ -6,6 +6,7 @@ export * from './ancres.js';
 export * from './capacite.js';
 export * from './cerveau.js';
 export * from './columns.js';
+export * from './decision-attendue.js';
 export * from './demon.js';
 export * from './description-carte.js';
 export * from './etat-carte.js';
