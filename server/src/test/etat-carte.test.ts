@@ -13,6 +13,26 @@ test('l’agent a rendu son travail : la coche', () => {
   assert.equal(etatVisuelCarte({ agentStatut: 'done' }), 'termine');
 });
 
+test('rendu mais pas encore lu : le point bleu', () => {
+  // La réponse est postérieure à la dernière lecture : personne n'a ouvert la carte.
+  assert.equal(etatVisuelCarte({ agentStatut: 'done', agentFiniA: 200, luA: 100 }), 'termine-non-lu');
+  // Jamais ouverte du tout : c'est encore « pas lu ».
+  assert.equal(etatVisuelCarte({ agentStatut: 'done', agentFiniA: 200 }), 'termine-non-lu');
+});
+
+test('rendu et lu après coup : la coche verte reprend sa place', () => {
+  assert.equal(etatVisuelCarte({ agentStatut: 'done', agentFiniA: 200, luA: 300 }), 'termine');
+  // Lecture au même instant que la réponse : rien de neuf à voir.
+  assert.equal(etatVisuelCarte({ agentStatut: 'done', agentFiniA: 200, luA: 200 }), 'termine');
+});
+
+test('la lecture ne pèse que sur un travail rendu', () => {
+  // Un agent qui travaille encore ne devient pas « non lu ».
+  assert.equal(etatVisuelCarte({ agentStatut: 'running', agentFiniA: 200, luA: 100 }), 'travaille');
+  // Rien rendu, pas de repère bleu.
+  assert.equal(etatVisuelCarte({ agentStatut: 'stopped', agentFiniA: 200, luA: 100 }), 'repos');
+});
+
 test('une relance repasse à la roue, puis revient à la coche', () => {
   assert.equal(etatVisuelCarte({ agentStatut: 'done' }), 'termine');
   assert.equal(etatVisuelCarte({ agentStatut: 'running' }), 'travaille');
