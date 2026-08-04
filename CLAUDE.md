@@ -405,16 +405,21 @@ sans son point d'essai.
   `server/src/test/question-par-outil.test.ts`). Mais rien n'oblige un moteur à s'en servir : écrite
   à la fin de sa réponse, la question termine le tour normalement (`exitCode` 0), n'enregistre rien,
   et la carte reste en « En cours » sans que personne ne sache qu'on l'attend. `decisionEnTexteLibre`
-  reconnaît donc le cas — DERNIER message d'une conversation, agent qui ne travaille plus, dernière
-  phrase finissant par « ? », entre 20 et 400 signes, ni question d'outil ni proposition déjà
-  comptée — et `decisionsEnAttente` (`server/src/store.ts`) en fait une décision de plus, qui allume
-  le MÊME triangle orange. Seuls les agents portant une CARTE sont jugés : le chef d'orchestre finit
+  reconnaît donc le cas — agent qui ne travaille plus, dernière phrase finissant par « ? », entre 20
+  et 400 signes, ni question d'outil ni proposition déjà comptée — et `decisionsEnAttente`
+  (`server/src/store.ts`) en fait une décision de plus, qui allume le MÊME triangle orange. Le
+  message jugé est le dernier de la CARTE, tous agents confondus, jamais le dernier de chaque fil :
+  une carte passe de main en main, et le fil d'un ancien agent se fige sur sa dernière phrase — la
+  question y resterait la plus récente à jamais alors qu'un agent suivant y a répondu et fini le
+  travail. Une carte RANGÉE ne réclame plus rien (`carteRangee` : « Terminé », « À déployer »,
+  « Archivé ») ; sans colonne connue, on ne présume rien, donc le rappel de fin de tour
+  (`runTurn`) ne change pas. Seuls les agents portant une CARTE sont jugés : le chef d'orchestre finit
   une réponse sur deux par « voulez-vous que… », et son fil est déjà sous les yeux de qui l'a écrit.
   Elle PRÉVIENT aussi : en fin de tour réussi, `runTurn` (`server/src/runtime.ts`) passe par le même
   guichet `notify` avec le motif `decision-attendue` déjà prévu — la référence est la CARTE, donc
   deux tours qui reposent la question ne font qu'une alerte, et un agent qui a AUSSI appelé l'outil
   n'en fait qu'une (dédoublonnage par sujet). Verrouillé par
-  `server/src/test/relance-carte.test.ts`.
+  `server/src/test/relance-carte.test.ts` et `server/src/test/question-deja-reglee.test.ts`.
 - **Le triangle DIT, le bouton « Répondre » EMMÈNE** (`web/src/components/board.tsx`). La carte du
   tableau qui attend une décision porte, sous son titre, un bouton `data-repondre-carte` — jamais
   ailleurs, comme tout bouton de décision. Il ouvre le tiroir de la carte, qui s'ouvre alors sur

@@ -762,22 +762,32 @@ export function decisionsEnAttente(): DecisionAttendue[] {
    * normalement, rien n'est enregistré, et la carte reste en « En cours » sans
    * que rien ne dise qu'on attend une réponse.
    *
-   * Deux garde-fous, tous deux nécessaires. On ne juge que le DERNIER message
-   * de chaque conversation : un message plus récent — la réponse, ou la suite
-   * du travail — règle la question de fait. Et on s'en tient aux agents qui
-   * portent une CARTE : le chef d'orchestre finit une réponse sur deux par
-   * « voulez-vous que… », et son fil est déjà sous les yeux de qui l'a écrit.
-   * La règle elle-même vit dans `shared`, donc elle se teste seule.
+   * Trois garde-fous, tous nécessaires. On ne juge que le dernier message de
+   * la CARTE, tous agents confondus : une carte passe souvent de main en main,
+   * et le fil d'un ancien agent se fige sur sa dernière phrase — la question y
+   * resterait la plus récente à jamais, alors qu'un agent suivant y a répondu
+   * et fini le travail. On écarte ensuite les cartes RANGÉES (« Terminé »,
+   * « À déployer », « Archivé ») : ce qui est mené au bout ne réclame plus
+   * d'arbitrage. Et on s'en tient aux agents qui portent une CARTE : le chef
+   * d'orchestre finit une réponse sur deux par « voulez-vous que… », et son fil
+   * est déjà sous les yeux de qui l'a écrit. La règle elle-même vit dans
+   * `shared`, donc elle se teste seule.
    */
   const derniers = getDb()
     .prepare(
       `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
-              a.status AS statut, m.data AS data, m.created_at AS createdAt
+              a.status AS statut, m.data AS data, m.created_at AS createdAt,
+              c.column_key AS colonne
        FROM agents a
-       JOIN messages m ON m.id = (
-         SELECT id FROM messages WHERE agent_id = a.id ORDER BY created_at DESC, rowid DESC LIMIT 1
-       )
-       WHERE a.card_id IS NOT NULL`,
+       JOIN messages m ON m.agent_id = a.id
+       LEFT JOIN cards c ON c.id = a.card_id
+       WHERE a.card_id IS NOT NULL
+         AND m.id = (
+           SELECT m2.id FROM messages m2
+           JOIN agents a2 ON a2.id = m2.agent_id
+           WHERE a2.card_id = a.card_id
+           ORDER BY m2.created_at DESC, m2.rowid DESC LIMIT 1
+         )`,
     )
     .all() as {
     projectId: string;
@@ -786,6 +796,7 @@ export function decisionsEnAttente(): DecisionAttendue[] {
     statut: string;
     data: string;
     createdAt: number;
+    colonne: string | null;
   }[];
   for (const dernier of derniers) {
     try {
@@ -793,6 +804,7 @@ export function decisionsEnAttente(): DecisionAttendue[] {
       const question = decisionEnTexteLibre({
         statut: dernier.statut as StatutAgent,
         dernierMessage: message,
+        colonne: dernier.colonne ?? undefined,
       });
       if (!question) continue;
       decisions.push({

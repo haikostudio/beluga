@@ -114,17 +114,38 @@ export function agentAuTravail(statut: StatutAgent | undefined): boolean {
 }
 
 /**
- * Le tour est-il ACHEVÉ sur cette question ? Deux conditions, toutes deux
- * nécessaires : l'agent ne travaille plus, et le message jugé est bien le
- * DERNIER de la conversation. Un message plus récent — la réponse de
- * l'utilisateur, ou la suite du travail — règle la question de fait : on ne
- * garde pas un triangle allumé sur un échange déjà repris.
+ * Les colonnes où le travail est RANGÉ : plus rien ne s'y décide. Une carte
+ * arrivée là a été menée au bout — une question écrite en chemin a forcément
+ * trouvé sa réponse, sans quoi la carte ne serait pas close.
+ */
+export const COLONNES_RANGEES = ['done', 'to_deploy', 'archived'] as const;
+
+/** La carte est-elle rangée ? Sans colonne connue, on ne présume rien. */
+export function carteRangee(colonne: string | undefined): boolean {
+  return colonne ? (COLONNES_RANGEES as readonly string[]).includes(colonne) : false;
+}
+
+/**
+ * Le tour est-il ACHEVÉ sur cette question ? Trois conditions, toutes trois
+ * nécessaires : l'agent ne travaille plus, le message jugé est bien le DERNIER
+ * de la CARTE — tous agents confondus, pas seulement du fil de celui qui a
+ * écrit —, et la carte n'est pas déjà rangée.
+ *
+ * Le premier point était le piège : un ancien agent finissait son fil sur une
+ * question, un agent suivant répondait et terminait le travail, mais le message
+ * de l'ancien restait le dernier de SON fil — la question se comptait pour
+ * toujours. C'est l'appelant qui choisit le message ; le garde-fou de la
+ * colonne, lui, vit ici et rattrape le cas où la carte a été menée au bout par
+ * un autre chemin.
  */
 export function decisionEnTexteLibre(entree: {
   statut?: StatutAgent;
   dernierMessage?: MessageAJuger;
+  /** La colonne de la carte, quand il y en a une. */
+  colonne?: string;
 }): string | null {
   if (agentAuTravail(entree.statut)) return null;
+  if (carteRangee(entree.colonne)) return null;
   if (!entree.dernierMessage) return null;
   return questionEnTexteLibre(entree.dernierMessage);
 }
