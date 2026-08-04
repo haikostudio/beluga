@@ -162,6 +162,16 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   qui fait le travail, pour que l'avancement se voie du début à la fin sur le tableau. **Vrai aussi
   sur HaikoDev** : les outils d'écriture du chef ne dispensent pas de la carte. Une simple question
   se répond dans la conversation, sans carte. Verrouillé par `server/src/test/tri-du-chef.test.ts`.
+- **Une demande d'EXÉCUTION devient une carte, exactement comme une demande de programmation**
+  (cas 3 du tri, `rolePrompt` dans `server/src/runtime.ts`). Lancer une commande, tester une
+  connexion, ouvrir un terminal, faire tourner un contrôle ou un script, redémarrer un service,
+  lire un journal en direct : le chef PROPOSE aussitôt la carte avec `board_create_card`, dont la
+  description dit quoi lancer et quel résultat on attend. Il ne demande aucune confirmation avant de
+  proposer et n'écrit pas un paragraphe sur ses propres limites — une phrase suffit pour dire qu'un
+  agent de tâche exécutera. Le bridage du chef (liste blanche `orchestratorAllowList`,
+  `server/src/tools.ts`) ne bouge PAS : il n'est simplement plus une fin de non-recevoir. Règle
+  portée par le texte unique de la consigne, donc valable pour Claude comme pour Codex. Verrouillé
+  par `server/src/test/tri-du-chef.test.ts`.
 - Une carte naît toujours dans « À faire », et **jamais sans un clic de l'utilisateur**.
   `board_create_card` n'écrit RIEN : comme `propose_task`, il affiche une proposition en attente dans
   la conversation, avec ses boutons valider / refuser ; la validation seule fait naître la carte, qui

@@ -757,10 +757,12 @@ TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS UNE CRÉATION DE CARTE :
 2. TOUTE DEMANDE DE PROGRAMMATION → tu PROPOSES UNE carte avec board_create_card, et tu t'arrêtes là. Rien n'est créé sur le tableau : la carte s'affiche dans la conversation avec ses boutons valider / refuser, et elle n'entre dans « À faire » qu'après le clic de l'utilisateur — ensuite seulement, le parcours habituel s'enchaîne. Tu ne fais jamais le travail toi-même. C'est ainsi que l'utilisateur voit l'avancement du début à la fin, sur le tableau.
    PROGRAMMATION VEUT DIRE : nouvelle fonctionnalité, correction d'une fonctionnalité existante, suppression, changement de comportement, retouche d'interface, remaniement, script, réglage du moteur. AUCUNE EXCEPTION, quelle que soit la taille : une ligne à changer mérite sa carte autant qu'un chantier.
    ATTENDS-TOI À CE QUE LE MOT « TÂCHE » NE SOIT JAMAIS DIT. « Il faudrait que… », « ajoute… », « corrige… », « ce serait bien si… », « pourquoi ça ne marche pas ? » suivi d'un défaut réel, une fonctionnalité décrite au passage : c'est une demande de programmation, tu proposes la carte. UNE carte par fonctionnalité, et autant de cartes que de fonctionnalités distinctes dans le message.
-3. Cas ambigu → tu réponds d'abord, puis tu appelles propose_task. Dans les deux cas, c'est le clic de l'utilisateur qui fait naître la carte : aucune carte ne part de ta seule initiative.
+3. TOUTE DEMANDE D'EXÉCUTION SUR LA MACHINE → même traitement qu'une demande de programmation : tu PROPOSES AUSSITÔT UNE carte avec board_create_card. Lancer une commande, tester une connexion (SSH, base de données, adresse), ouvrir un terminal, faire tourner un contrôle ou un script, redémarrer un service, regarder un journal en direct : tout cela s'exécute, donc tout cela devient une carte. La description dit CE QU'IL FAUT LANCER et CE QU'ON ATTEND COMME RÉSULTAT.
+   Tu ne demandes AUCUNE confirmation avant de proposer, et tu n'écris PAS un paragraphe sur tes propres limites : une phrase suffit pour dire qu'un agent de tâche exécutera la commande, puis la carte parle d'elle-même. Une limite expliquée sans carte proposée est une demande perdue.
+4. Cas ambigu → tu réponds d'abord, puis tu appelles propose_task. Dans les deux cas, c'est le clic de l'utilisateur qui fait naître la carte : aucune carte ne part de ta seule initiative.
 
 NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche déjà, entière, dans la conversation. Une phrase courte suffit.
-4. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
+5. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
 
 ${CONSIGNE_DESCRIPTION_CARTE}
 
@@ -777,7 +779,8 @@ Tes outils d'écriture servent quand une carte t'en confie le travail, ou pour c
     }
     return `${base}
 
-INTERDITS ABSOLUS ici : modifier un fichier existant, exécuter une commande, lancer un sous-agent, piloter un terminal. Les outils correspondants sont bloqués : n'essaie pas de les contourner.`;
+INTERDITS ABSOLUS ici : modifier un fichier existant, exécuter une commande, lancer un sous-agent, piloter un terminal. Les outils correspondants sont bloqués : n'essaie pas de les contourner.
+CES INTERDITS NE SONT PAS UNE FIN DE NON-RECEVOIR. Une demande qui réclame d'exécuter quelque chose n'est jamais refusée ni renvoyée à l'utilisateur : elle suit le cas 3 du tri, tu proposes la carte immédiatement et un agent de tâche l'exécutera. Tu ne t'expliques pas longuement sur ce que tu ne peux pas faire, et tu n'attends pas un « oui » avant de proposer.`;
   }
 
   if (role === 'analysis') {
