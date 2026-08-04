@@ -301,6 +301,13 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   d'épuisement. Il ne s'applique QU'À la semaine : une fenêtre de cinq heures ne traverse pas de
   nuit. Sans 24 h d'observation, sans 3 points de % consommés, ou avec une tranche de la journée
   jamais observée, il rend `null` et le calcul reste le simple prolongement de la pente.
+- **L'historique des quotas est RÉSUMÉ, jamais effacé** (`shared/src/quota-resume.ts`,
+  `compacterQuotaSamples` dans `server/src/store.ts`). Le détail des relevés (un par quart d'heure)
+  tient quatorze jours — c'est ce que la courbe du volet affiche ; au-delà, il est remplacé par une
+  ligne par jour et par heure (temps observé, % consommé) qui, elle, tient deux mois. Le compactage
+  garde le dernier relevé passé sous le seuil comme ANCRE, ce qui le rend rejouable sans rien doubler
+  ni perdre l'intervalle à cheval. Le profil se calcule sur `historiquePourProfil` (résumé remis en
+  relevés, puis détail récent) ; la pente du moment, elle, ne se mesure que sur le détail.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.

@@ -912,7 +912,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     case 'quota.history':
-      return { history: store.quotaHistory(cmd.days ?? 7) };
+      // La courbe ne montre que les derniers jours ; le RÉSUMÉ, lui, part avec
+      // elle pour que le profil des heures creuses remonte à deux mois.
+      return { history: store.quotaHistory(cmd.days ?? 7), resume: store.quotaResume() };
 
     case 'amorce.history':
       return { entries: store.amorceHistory(cmd.limit ?? 40) };
