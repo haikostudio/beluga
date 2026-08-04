@@ -17,6 +17,11 @@ import {
   TaskProposal,
   cleNouveauDepart,
   rendusParProjet,
+  type AgregatHoraire,
+  DETAIL_RETENTION_JOURS,
+  RESUME_RETENTION_JOURS,
+  jourLocal,
+  resumerReleves,
 } from '@haikodev/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 
@@ -124,8 +129,76 @@ export function recordQuotaSample(account: string, sessionPct?: number, weeklyPc
     .prepare('INSERT INTO quota_samples (account, at, session_pct, weekly_pct) VALUES (?, ?, ?, ?)')
     .run(account, now(), sessionPct ?? null, weeklyPct ?? null);
 
-  // On garde quatorze jours : au-delà, la courbe n'apprend plus rien.
-  getDb().prepare('DELETE FROM quota_samples WHERE at < ?').run(now() - 14 * 24 * 3600 * 1000);
+  // On garde quatorze jours de DÉTAIL : au-delà, la courbe n'apprend plus rien,
+  // mais le rythme de chaque heure, lui, est retenu dans le résumé.
+  compacterQuotaSamples();
+}
+
+/**
+ * Le ménage des relevés : au-delà de quatorze jours, le détail est REMPLACÉ par
+ * son résumé (une ligne par jour et par heure), jamais simplement effacé. Le
+ * résumé, lui, tient deux mois — de quoi mesurer une habitude au lieu d'une
+ * semaine particulière.
+ *
+ * Rejouable sans rien doubler : le relevé le plus récent passé sous le seuil
+ * est GARDÉ comme point d'ancrage, et le compactage suivant repart de lui — ce
+ * qui évite de perdre l'intervalle à cheval sur le seuil comme de le compter
+ * deux fois.
+ */
+export function compacterQuotaSamples(maintenant = now()): void {
+  const db = getDb();
+  const seuil = maintenant - DETAIL_RETENTION_JOURS * 24 * 3600 * 1000;
+
+  const comptes = db
+    .prepare('SELECT DISTINCT account FROM quota_samples WHERE at < ?')
+    .all(seuil) as { account: string }[];
+
+  const ajout = db.prepare(
+    `INSERT INTO quota_profile (account, jour, heure, duree_ms, consomme_pct) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(account, jour, heure) DO UPDATE SET
+       duree_ms = duree_ms + excluded.duree_ms,
+       consomme_pct = consomme_pct + excluded.consomme_pct`,
+  );
+
+  db.transaction(() => {
+    for (const { account } of comptes) {
+      const rows = db
+        .prepare('SELECT at, weekly_pct AS weekly, session_pct AS session FROM quota_samples WHERE account = ? AND at < ? ORDER BY at')
+        .all(account, seuil) as { at: number; weekly: number | null; session: number | null }[];
+      if (rows.length < 2) continue;
+
+      const releves = rows.map((row) => ({ at: row.at, weekly: row.weekly ?? 0, session: row.session ?? 0 }));
+      for (const tranche of resumerReleves(releves, 'weekly')) {
+        ajout.run(account, tranche.jour, tranche.heure, tranche.dureeMs, tranche.consommePct);
+      }
+
+      // Tout part sauf l'ancre : le dernier relevé passé sous le seuil reste,
+      // pour que l'intervalle qui le relie au suivant soit résumé la prochaine fois.
+      const ancre = releves[releves.length - 1].at;
+      db.prepare('DELETE FROM quota_samples WHERE account = ? AND at < ?').run(account, ancre);
+    }
+
+    db.prepare('DELETE FROM quota_profile WHERE jour < ?').run(
+      jourLocal(maintenant - RESUME_RETENTION_JOURS * 24 * 3600 * 1000),
+    );
+  })();
+}
+
+/** Le résumé de chaque compte, tel que le calcul du profil le lit. */
+export function quotaResume(): Record<string, AgregatHoraire[]> {
+  const rows = getDb()
+    .prepare('SELECT account, jour, heure, duree_ms AS dureeMs, consomme_pct AS consommePct FROM quota_profile ORDER BY jour, heure')
+    .all() as (AgregatHoraire & { account: string })[];
+  const out: Record<string, AgregatHoraire[]> = {};
+  for (const row of rows) {
+    (out[row.account] ??= []).push({
+      jour: row.jour,
+      heure: row.heure,
+      dureeMs: row.dureeMs,
+      consommePct: row.consommePct,
+    });
+  }
+  return out;
 }
 
 export function quotaHistory(days = 7): Record<string, { at: number; session: number; weekly: number }[]> {

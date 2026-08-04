@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -10,6 +10,7 @@ import {
   colonneAReprendre,
   decisionsParCarte,
   etatVisuelCarte,
+  mentionArchivage,
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
@@ -41,6 +42,11 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
   // carte : passer en « Validé ». Rien n'est lancé — l'ordonnanceur décide.
   todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', cible: 'validated' },
+  // Déposer une carte dans « En cours » VAUT le clic sur « Lancer maintenant » :
+  // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
+  // carte et le serveur passe par `startCard` — portes dures comprises. Une
+  // carte refusée revient à sa colonne avec sa raison, et le lot continue.
+  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running' },
   // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
@@ -675,6 +681,21 @@ export function CardTile({
           <div className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning">
             <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
             <span className="min-w-0">{card.sansModification}</span>
+          </div>
+        ) : null}
+
+        {/*
+         * Une carte ressortie d'« Archivé » ne fait pas semblant de n'y être
+         * jamais allée : elle porte la date de son passage, en gris pâle. Dans
+         * la colonne « Archivé » elle-même, la mention ne s'affiche pas — la
+         * colonne le dit déjà.
+         */}
+        {mentionArchivage(card) ? (
+          <div className="mt-1.5 flex items-center gap-1 text-[12px] text-faint">
+            <Archive className="h-2.5 w-2.5 shrink-0" />
+            <span className="min-w-0 truncate" data-mention-archivage>
+              {mentionArchivage(card)}
+            </span>
           </div>
         ) : null}
 

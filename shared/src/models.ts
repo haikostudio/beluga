@@ -245,6 +245,12 @@ export const Card = z.object({
   doneAt: z.number().optional(),
   /** Ce qui dit qu'une carte est publiée, c'est cette date — jamais sa colonne (PLAN §4). */
   deployedAt: z.number().optional(),
+  /**
+   * Quand la carte a été archivée. La date RESTE quand on l'en ressort : c'est
+   * elle qui permet de lire, plus tard, qu'elle était passée par « Archivé » et
+   * quand. Elle ne dit donc pas la colonne actuelle, seulement le passage.
+   */
+  archivedAt: z.number().optional(),
 });
 export type Card = z.infer<typeof Card>;
 
