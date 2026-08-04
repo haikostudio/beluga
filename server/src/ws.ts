@@ -49,6 +49,7 @@ import {
 import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
+import { enregistrerCleCerveau } from './cle-cerveau.js';
 import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
@@ -1003,6 +1004,12 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'cerveau.envoyer': {
       const resultat = await envoyerAuCerveau({ force: true });
       return { resultat, etat: etatCerveau() };
+    }
+
+    case 'cerveau.cle': {
+      // La clé vaut aussitôt : pas de redémarrage entre la saisie et l'envoi.
+      const pose = enregistrerCleCerveau(cmd.cle);
+      return { pose, etat: etatCerveau() };
     }
 
     case 'daemon.status':

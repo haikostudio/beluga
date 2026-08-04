@@ -1,25 +1,46 @@
 #!/usr/bin/env node
 /**
- * La liaison au cerveau se lit-elle vraiment dans les réglages ?
+ * Le bloc du cerveau est-il clair ET actionnable ?
  *
  * On lève un démon d'essai sur SA propre base (le code qu'on vient de
  * construire, pas l'application publiée), on ouvre les réglages, onglet
- * Système, et on vérifie : l'état de la clé, la date du dernier envoi, les
- * erreurs, et le bouton « Envoyer maintenant » qui répond pour de vrai.
+ * Système, et on vérifie deux états :
+ *   1. sans clé : UNE seule ligne d'état, un champ de saisie avec son bouton,
+ *      et pas de liste d'erreurs qui répète le même problème ;
+ *   2. après saisie : l'état passe à « posée », le champ disparaît, le bouton
+ *      « Envoyer maintenant » revient et répond pour de vrai.
  *
  *   node scripts/verif-cerveau-reglages.mjs
+ *
+ * Le fichier d'environnement visé est un fichier TEMPORAIRE : la machine n'est
+ * pas touchée, et la base neuve ne porte aucun projet — donc rien ne part sur
+ * le réseau.
  */
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import { fileURLToPath } from 'node:url';
 
-const DATA = '/tmp/verif-cerveau-data';
-const PORT = 7108;
+/* La racine du dépôt d'où part CE script : depuis une copie de travail, on juge
+   le code de la copie, jamais celui du dossier principal. */
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/* Le module natif n'est installé qu'à la racine du projet principal. */
+const { default: Database } = await import(
+  fs.existsSync(path.join(RACINE, 'node_modules', 'better-sqlite3'))
+    ? path.join(RACINE, 'node_modules', 'better-sqlite3', 'lib', 'index.js')
+    : '/root/haikodev/node_modules/better-sqlite3/lib/index.js'
+);
+
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-cerveau-'));
+const DATA = path.join(TMP, 'data');
+const ENV_FILE = path.join(TMP, 'haikodev.env');
+const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7108);
 const BASE = `http://127.0.0.1:${PORT}`;
-const SHOTS = '/root/haikodev/data/verification';
+const SHOTS = path.join(RACINE, 'data', 'verification');
+const CLE_ESSAI = 'sk-essai-cerveau-0123456789';
 
 const resultats = [];
 function noter(nom, ok, detail = '') {
@@ -41,22 +62,23 @@ async function attendre(url, essais = 80) {
 }
 
 function lancerDemon() {
-  return spawn('node', ['/root/haikodev/server/dist/main.js'], {
+  return spawn('node', [path.join(RACINE, 'server', 'dist', 'main.js')], {
     env: {
       ...process.env,
       HAIKODEV_DATA: DATA,
       HAIKODEV_PORT: String(PORT),
       HAIKODEV_HOST: '127.0.0.1',
-      HAIKODEV_WEB: '/root/haikodev/web/dist',
-      // On juge l'écran « sans clé » : rien ne doit partir pour de vrai.
+      HAIKODEV_WEB: path.join(RACINE, 'web', 'dist'),
+      // On juge d'abord l'écran « sans clé », et la clé posée à l'écran ira
+      // dans un fichier temporaire : /etc n'est pas touché.
       CERVEAU_API_KEY: '',
+      HAIKODEV_ENV_FILE: ENV_FILE,
     },
     stdio: 'ignore',
   });
 }
 
 async function main() {
-  fs.rmSync(DATA, { recursive: true, force: true });
   fs.mkdirSync(DATA, { recursive: true });
 
   let demon = lancerDemon();
@@ -77,6 +99,15 @@ async function main() {
       maintenant + 3600_000,
       'vérification cerveau',
     );
+    // Une tentative ratée dans le journal : sans clé, elle ne doit PAS être
+    // affichée — elle ne ferait que redire la ligne d'état.
+    db.prepare('INSERT INTO cerveau_log (at, project, ok, files, error) VALUES (?,?,?,?,?)').run(
+      maintenant - 60_000,
+      null,
+      0,
+      0,
+      'aucune clé (CERVEAU_API_KEY)',
+    );
     db.close();
 
     demon = lancerDemon();
@@ -91,7 +122,9 @@ async function main() {
       locale: 'fr-CH',
       serviceWorkers: 'block',
     });
-    await context.addCookies([{ name: 'haikodev_session', value: cookie, url: BASE, httpOnly: true, sameSite: 'Lax' }]);
+    await context.addCookies([
+      { name: 'haikodev_session', value: cookie, url: BASE, httpOnly: true, sameSite: 'Lax' },
+    ]);
     const page = await context.newPage();
     const erreurs = [];
     page.on('pageerror', (e) => erreurs.push(String(e)));
@@ -109,40 +142,63 @@ async function main() {
     const bloc = tiroir.locator('section', { hasText: 'Mémoire envoyée au cerveau' }).last();
     noter("le bloc du cerveau est dans l'onglet Système", (await bloc.count()) > 0);
     noter("l'adresse du service est affichée", (await bloc.getByText(/memoire\.haiko-s1\.com/).count()) > 0);
+
+    /* ---- État 1 : la clé manque ---- */
+    const texte = (await bloc.innerText()).replace(/\s+/g, ' ');
+    noter("l'absence de clé se dit UNE fois", (texte.match(/clé du cerveau n'est pas encore posée/g) ?? []).length === 1);
     noter(
-      "l'absence de clé se dit en toutes lettres",
-      (await bloc.getByText('aucune clé', { exact: true }).count()) > 0,
+      "le problème n'est pas répété par une liste d'erreurs",
+      !/Dernières erreurs/.test(texte) && !/aucune clé \(CERVEAU_API_KEY\)/.test(texte),
+      texte.slice(0, 200),
     );
+    noter("l'explication tient en une phrase", (texte.match(/\./g) ?? []).length <= 4, texte.slice(0, 200));
+
+    const champ = bloc.locator('input[type="password"]');
+    noter('un champ de saisie est proposé dans le bloc', (await champ.count()) === 1);
+    const enregistrer = bloc.getByRole('button', { name: /Enregistrer/ });
+    noter("le bouton d'enregistrement est là", (await enregistrer.count()) === 1);
     noter(
-      "l'état du dernier envoi est affiché",
-      (await bloc.getByText(/Dernier envoi réussi|Aucun envoi réussi/).count()) > 0,
+      "« Envoyer maintenant » ne s'affiche pas tant que rien ne peut partir",
+      (await bloc.getByRole('button', { name: /Envoyer maintenant/ }).count()) === 0,
     );
 
     fs.mkdirSync(SHOTS, { recursive: true });
-    await bloc.screenshot({ path: `${SHOTS}/cerveau-01-etat.png` });
+    await bloc.screenshot({ path: `${SHOTS}/cerveau-01-sans-cle.png` });
 
-    // Le bouton répond pour de vrai : sans clé, il le dit au lieu de rester muet.
-    const bouton = bloc.getByRole('button', { name: /Envoyer maintenant/ });
-    noter('le bouton « Envoyer maintenant » est là', (await bouton.count()) > 0);
-    await bouton.click();
+    /* ---- Le geste : poser la clé ---- */
+    await champ.fill(CLE_ESSAI);
+    await enregistrer.click();
     await page.waitForTimeout(2500);
-    noter(
-      "sans clé, l'envoi le dit au lieu de se taire",
-      (await page.getByText(/aucune clé/i).count()) > 0,
-    );
-    await tiroir.screenshot({ path: `${SHOTS}/cerveau-02-apres-envoi.png` });
 
-    // Et le refus est retenu : il se relit dans les dernières erreurs.
-    await page.waitForTimeout(500);
     noter(
-      'la tentative laisse une trace lisible',
-      (await bloc.getByText(/Dernières erreurs/).count()) > 0,
+      "la clé est rangée là où le serveur la lit",
+      fs.existsSync(ENV_FILE) && fs.readFileSync(ENV_FILE, 'utf8').includes(`CERVEAU_API_KEY=${CLE_ESSAI}`),
     );
+
+    /* ---- État 2 : la clé est posée ---- */
+    const apres = (await bloc.innerText()).replace(/\s+/g, ' ');
+    noter("l'état ne réclame plus la clé", !/n'est pas encore posée/.test(apres), apres.slice(0, 200));
+    noter('le champ de saisie a disparu', (await bloc.locator('input[type="password"]').count()) === 0);
+    const bouton = bloc.getByRole('button', { name: /Envoyer maintenant/ });
+    noter('« Envoyer maintenant » est revenu', (await bouton.count()) === 1);
+    await bloc.screenshot({ path: `${SHOTS}/cerveau-02-cle-posee.png` });
+
+    /* ---- Le bouton répond pour de vrai (base neuve : aucun projet, rien ne part) ---- */
+    await bouton.click();
+    const reponse = await page
+      .getByText(/Rien de nouveau à envoyer|fichiers? pour|envoi impossible/i)
+      .first()
+      .waitFor({ timeout: 15000 })
+      .then(() => true)
+      .catch(() => false);
+    noter("l'envoi répond au lieu de se taire", reponse);
+    await tiroir.screenshot({ path: `${SHOTS}/cerveau-03-apres-envoi.png` });
 
     noter('aucune erreur dans la console', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
   } finally {
     if (navigateur) await navigateur.close();
     demon.kill('SIGTERM');
+    fs.rmSync(TMP, { recursive: true, force: true });
   }
 
   const echecs = resultats.filter((r) => !r.ok);
