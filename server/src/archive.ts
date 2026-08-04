@@ -56,6 +56,9 @@ export async function archiveCard(
     column: 'archived',
     position: store.nextPosition(card.projectId, 'archived'),
     closureDoc: docPath ?? card.closureDoc,
+    // La date du passage : elle survit à une sortie d'archive, c'est ce qui
+    // permet de lire plus tard que la carte y était allée, et quand.
+    archivedAt: Date.now(),
   });
   bus.emit({ type: 'card.upsert', card: archived });
 

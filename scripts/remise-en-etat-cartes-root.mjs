@@ -69,16 +69,23 @@ const VERDICTS = [
   {
     id: 'd96efa6d-f71b-4f6e-9e0b-b435c70d7320',
     titre: 'Organiser les blocs en onglets persistants',
-    colonne: 'todo',
+    colonne: 'to_deploy',
     raison:
-      "Vérification : rien n'a été modifié dans le projet. Une version préparée existe seulement dans un dossier de sauvegarde (`index.html.candidate`) et n'a jamais été appliquée à la page servie. La carte repart en « À faire » : le travail reste à poser.",
+      "Vérification : le travail EXISTE bien dans le dépôt de travail (`/home/paseo/rsd-work`, enregistrement b1830a9 : la barre d'onglets `tabs-shell` est dans `index.html`), mais la page servie ne l'a pas encore. La carte rejoint « À déployer » : elle est faite, elle attend une mise en ligne.",
   },
   {
     id: 'b13057d1-92ad-4db9-a744-31a6cf6830d0',
     titre: "Améliorer l'interface du gestionnaire de fichiers",
-    colonne: 'todo',
+    colonne: 'to_deploy',
     raison:
-      "Vérification : rien n'a été modifié dans le projet. Une version préparée existe seulement dans un dossier de sauvegarde, et son propre compte rendu précise qu'elle n'a pas été appliquée. La carte repart en « À faire » : le travail reste à poser.",
+      "Vérification : le travail EXISTE bien dans le dépôt de travail, sur la branche `haikodev/ameliorer-interface-gestionnaire-fichiers` (enregistrement 44017a1), non encore fusionnée ni mise en ligne. La carte rejoint « À déployer » : elle est faite, elle attend une mise en ligne.",
+  },
+  {
+    id: 'f0df9096-b4cd-4a17-b624-1866cf63464b',
+    titre: 'Afficher la taille des fichiers et dossiers',
+    colonne: 'to_deploy',
+    raison:
+      "Vérification : le travail EXISTE bien dans le dépôt de travail (enregistrement b1830a9, route `files/size` dans `api.py` et son affichage dans `index.html`), mais la page servie ne l'a pas encore. La carte rejoint « À déployer » : elle est faite, elle attend une mise en ligne.",
   },
 ];
 
@@ -101,7 +108,12 @@ for (const verdict of VERDICTS) {
   const carte = JSON.parse(ligne.data);
   const depart = carte.column;
 
-  const dejaAnnotee = (carte.description ?? '').includes(MARQUE);
+  /*
+   * Rejouable : c'est la RAISON qui compte, pas le simple marqueur. Un verdict
+   * révisé (le dépôt a bougé depuis) doit pouvoir s'écrire à son tour, sans
+   * pour autant recopier deux fois une raison déjà posée.
+   */
+  const dejaAnnotee = (carte.description ?? '').includes(verdict.raison);
   if (!dejaAnnotee) {
     carte.description = `${carte.description ?? ''}\n\n${MARQUE}\n${verdict.raison}`.trim();
   }

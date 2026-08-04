@@ -1,5 +1,7 @@
 import * as React from 'react';
 import {
+  Archive,
+  ArchiveRestore,
   Check,
   CircleDollarSign,
   Cpu,
@@ -21,9 +23,11 @@ import {
   EngineInfo,
   GesteCarte,
   ReglagesCarte,
+  colonneDeReprise,
   decisionsParCarte,
   etatVisuelCarte,
   gesteCarte,
+  mentionArchivage,
   motAnalyse,
   phaseAnalyse,
   reglagesDeLaCarte,
@@ -137,6 +141,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     card.column === 'planned' ||
     peut('terminer').affiche ||
     peut('publier').affiche ||
+    peut('reprendre').affiche ||
     !!card.estimate?.failed ||
     !!card.closureDoc;
 
@@ -176,6 +181,15 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                 <Badge tone="success">
                   <Rocket className="h-2.5 w-2.5" /> en ligne
                 </Badge>
+              ) : null}
+              {/* Une carte ressortie garde sa trace : on doit voir qu'elle
+                  était passée par « Archivé », et quand. */}
+              {mentionArchivage(card) ? (
+                <Tooltip label={`Archivée le ${new Date(card.archivedAt!).toLocaleString('fr-CH')}`}>
+                  <Badge>
+                    <Archive className="h-2.5 w-2.5" /> {mentionArchivage(card)}
+                  </Badge>
+                </Tooltip>
               ) : null}
               {card.labels.map((label) => (
                 <Badge key={label}>{label}</Badge>
@@ -287,6 +301,24 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
             {peut('publier').affiche ? (
               <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
                 <Rocket className="h-3 w-3" /> Mettre en file de publication
+              </Button>
+            ) : null}
+            {/*
+                Le seul chemin volontaire pour ressortir une carte d'une fin de
+                parcours. Rien ne la ressort tout seul : ni un agent, ni une
+                question posée dans sa conversation.
+             */}
+            {peut('reprendre').affiche && colonneDeReprise(card.column) ? (
+              <Button
+                size="sm"
+                variant="outline"
+                data-geste="reprendre"
+                onClick={() => client.moveCard(card, colonneDeReprise(card.column)!)}
+              >
+                <ArchiveRestore className="h-3 w-3" />
+                {card.column === 'archived' ? 'Sortir de l’archive' : 'Retirer du lot à publier'}
+                {' → '}
+                {COLUMN_LABELS[colonneDeReprise(card.column)!]}
               </Button>
             ) : null}
             {card.estimate?.failed ? (

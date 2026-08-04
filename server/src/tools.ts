@@ -10,6 +10,7 @@ import {
   SouhaitReglages,
   TaskProposal,
   canMove,
+  repriseAutorisee,
   reglagesDeLaProposition,
   composerDescription,
   jugerDescription,
@@ -363,6 +364,16 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const card = store.getCard(String(args.cardId));
       if (!card || card.projectId !== ctx.projectId) return { ok: false, text: 'Carte introuvable.' };
       const target = String(args.column) as ColumnKey;
+      /*
+       * Une fin de parcours ne se rouvre que sur geste humain. Le refus se dit
+       * ici en toutes lettres, plutôt que de laisser `canMove` répondre « cette
+       * colonne appartient au pipeline » — l'agent doit comprendre que c'est
+       * l'utilisateur, et lui seul, qui peut sortir la carte de là.
+       */
+      const reprise = repriseAutorisee(card.column, 'automatique');
+      if (!reprise.possible && card.column !== target) {
+        return { ok: false, text: `Refusé : ${reprise.raison}` };
+      }
       const decision = canMove('agent', card.column, target);
       if (!decision.allowed) {
         return {

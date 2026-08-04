@@ -174,12 +174,52 @@ export interface PrevisionEpuisement {
  * rien. Prolonger la pente des dernières heures comme si le rythme tenait
  * vingt-quatre heures sur vingt-quatre annonce donc un épuisement trop tôt.
  *
- * Le profil se MESURE : pour chaque heure de la journée, on additionne ce qui a
- * été consommé pendant cette tranche et le temps réellement observé dedans, ce
- * qui donne un rythme par heure de la journée. Ramené à une moyenne de 1, il
+ * Le profil se MESURE : pour chaque tranche, on additionne ce qui a été
+ * consommé pendant cette tranche et le temps réellement observé dedans, ce
+ * qui donne un rythme par tranche. Ramené à une moyenne de 1, il
  * dit « cette tranche-là consomme deux fois plus que la moyenne », « celle-là
  * presque rien » — sans qu'aucune heure creuse soit écrite dans le code.
+ *
+ * Et l'heure seule ne suffit pas : un samedi à 15 h et un mardi à 15 h n'ont
+ * aucune raison de se ressembler. Le profil de SEMAINE tient donc quarante-huit
+ * tranches — vingt-quatre heures pour les jours ouvrés, vingt-quatre pour le
+ * week-end — et retombe sur les vingt-quatre tranches d'une journée type quand
+ * l'historique n'a pas encore vu les deux régimes en entier.
  */
+
+/** Les deux régimes du profil de semaine, dans l'ordre où ils sont rangés. */
+export const TRANCHES_JOURNEE = 24;
+export const TRANCHES_SEMAINE = 48;
+
+/** Samedi et dimanche d'un côté, les cinq autres jours de l'autre. */
+export function estWeekEnd(at: number): boolean {
+  const jour = new Date(at).getDay();
+  return jour === 0 || jour === 6;
+}
+
+/**
+ * Où ranger un instant : son heure seule sur un profil de journée, son heure
+ * DÉCALÉE de vingt-quatre cases sur un profil de semaine quand c'est un
+ * week-end.
+ */
+function trancheDe(at: number, taille: number): number {
+  const heure = new Date(at).getHours();
+  return taille === TRANCHES_SEMAINE && estWeekEnd(at) ? heure + TRANCHES_JOURNEE : heure;
+}
+
+/**
+ * La part de chaque tranche dans une semaine type. Sur un profil de journée,
+ * les vingt-quatre heures pèsent pareil. Sur un profil de semaine, une tranche
+ * de jour ouvré revient CINQ fois par semaine et une tranche de week-end deux :
+ * c'est cette pondération-là qui garantit qu'une semaine entière consomme
+ * exactement autant qu'avant le profil — seule l'heure d'épuisement bouge.
+ */
+function partsDeLaSemaine(taille: number): number[] {
+  if (taille !== TRANCHES_SEMAINE) return new Array(taille).fill(1 / taille);
+  return Array.from({ length: TRANCHES_SEMAINE }, (_, i) =>
+    i < TRANCHES_JOURNEE ? 5 / 7 / TRANCHES_JOURNEE : 2 / 7 / TRANCHES_JOURNEE,
+  );
+}
 
 /** Il faut au moins ce temps d'observation pour qu'un profil veuille dire quelque chose. */
 export const PROFIL_OBSERVATION_MINIMALE_MS = 24 * 60 * 60 * 1000;
@@ -196,8 +236,8 @@ export const PROFIL_POIDS_MAXIMUM = 4;
  */
 export const PROFIL_POIDS_MINIMUM = 0.02;
 
-/** Répartit une consommation sur les tranches horaires qu'elle traverse. */
-function repartirSurLesHeures(
+/** Répartit une consommation sur les tranches qu'elle traverse. */
+function repartirSurLesTranches(
   debut: number,
   fin: number,
   consomme: number,
@@ -210,29 +250,32 @@ function repartirSurLesHeures(
   // Garde-fou : un trou de plusieurs semaines entre deux relevés ne doit pas
   // faire tourner cette boucle indéfiniment.
   for (let pas = 0; pas < 24 * 60 && curseur < fin; pas++) {
-    const date = new Date(curseur);
-    const heure = date.getHours();
+    const tranche = trancheDe(curseur, duree.length);
     const prochaine = new Date(curseur).setMinutes(60, 0, 0);
     const bord = Math.min(prochaine, fin);
     const part = bord - curseur;
-    duree[heure] += part;
-    poids[heure] += (consomme * part) / total;
+    duree[tranche] += part;
+    poids[tranche] += (consomme * part) / total;
     curseur = bord;
   }
 }
 
 /**
- * Le profil mesuré : vingt-quatre poids de moyenne 1, ou rien du tout quand
- * l'historique est trop court, trop maigre ou troué. Rien du tout veut dire
- * « garde le calcul d'avant » : mieux vaut la pente plate qu'une prévision
- * fantaisiste.
+ * Le profil mesuré, de la taille demandée : des poids de moyenne 1, ou rien du
+ * tout quand l'historique est trop court, trop maigre ou troué. Rien du tout
+ * veut dire « garde le calcul d'avant » : mieux vaut la pente plate qu'une
+ * prévision fantaisiste.
  */
-export function profilHoraire(releves: ReleveQuota[], serie: SerieQuota = 'weekly'): number[] | null {
+function construireProfil(
+  releves: ReleveQuota[],
+  serie: SerieQuota,
+  taille: number,
+): number[] | null {
   const points = [...releves].sort((a, b) => a.at - b.at);
   if (points.length < 2) return null;
 
-  const duree = new Array(24).fill(0);
-  const consomme = new Array(24).fill(0);
+  const duree = new Array(taille).fill(0);
+  const consomme = new Array(taille).fill(0);
   let totalConsomme = 0;
   let totalDuree = 0;
 
@@ -243,19 +286,25 @@ export function profilHoraire(releves: ReleveQuota[], serie: SerieQuota = 'weekl
     // Un pourcentage qui RECULE est une remise à zéro : ce qui a été consommé
     // avant la bascule est inconnu, la tranche entière sort du calcul.
     if (delta < 0) continue;
-    repartirSurLesHeures(points[i - 1].at, points[i].at, delta, duree, consomme);
+    repartirSurLesTranches(points[i - 1].at, points[i].at, delta, duree, consomme);
     totalConsomme += delta;
     totalDuree += span;
   }
 
   if (totalDuree < PROFIL_OBSERVATION_MINIMALE_MS) return null;
   if (totalConsomme < PROFIL_CONSOMMATION_MINIMALE_PCT) return null;
-  // Une tranche jamais observée n'a pas de rythme : sans la journée entière, le
-  // profil ne saurait pas projeter la suite.
+  /*
+   * Une tranche jamais observée n'a pas de rythme : sans la journée entière, le
+   * profil ne saurait pas projeter la suite. Sur un profil de semaine, cette
+   * même exigence porte sur les quarante-huit tranches — c'est elle qui réclame
+   * d'avoir vu un week-end complet ET un jour ouvré complet avant de séparer
+   * les deux régimes.
+   */
   if (duree.some((d) => d < PROFIL_COUVERTURE_MINIMALE_MS)) return null;
 
-  const rythmes = consomme.map((c, h) => c / duree[h]);
-  const moyenne = rythmes.reduce((somme, r) => somme + r, 0) / 24;
+  const parts = partsDeLaSemaine(taille);
+  const rythmes = consomme.map((c, i) => c / duree[i]);
+  const moyenne = rythmes.reduce((somme, r, i) => somme + r * parts[i], 0);
   if (moyenne <= 0) return null;
 
   /*
@@ -268,9 +317,136 @@ export function profilHoraire(releves: ReleveQuota[], serie: SerieQuota = 'weekl
   const bruts = rythmes.map((r) =>
     Math.min(PROFIL_POIDS_MAXIMUM, Math.max(PROFIL_POIDS_MINIMUM, r / moyenne)),
   );
-  const apresPlafond = bruts.reduce((somme, p) => somme + p, 0) / 24;
+  const apresPlafond = bruts.reduce((somme, p, i) => somme + p * parts[i], 0);
   if (apresPlafond <= 0) return null;
   return bruts.map((p) => p / apresPlafond);
+}
+
+/* ------------------------------------------------------------------ */
+/* La tranche de la journée la plus chargée                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Une tranche ne se dit chargée qu'au-delà de ce rapport à la moyenne.
+ * En dessous, la journée est trop régulière pour qu'une pointe veuille dire
+ * quelque chose : annoncer un creux qui n'existe pas serait pire que se taire.
+ */
+export const SEUIL_TRANCHE_CHARGEE = 1.2;
+
+/**
+ * Et une plage nommée ne dépasse jamais ces quelques heures. Une journée qui
+ * travaille de 8 h à minuit est au-dessus de la moyenne SEIZE heures d'affilée :
+ * l'annoncer d'un bloc n'apprendrait rien (« le plus chargé entre 8 h et 1 h »).
+ * On garde le cœur de la pointe, là où le rythme est le plus fort.
+ */
+export const TRANCHE_LARGEUR_MAX = 4;
+
+/** La tranche la plus chargée de la journée, telle qu'elle s'annonce. */
+export interface TranchePointe {
+  /** Heure de début, de 0 à 23. */
+  debut: number;
+  /** Heure de fin, exclue (24 s'écrit 0) : « entre 14 h et 16 h ». */
+  fin: number;
+  /** Combien de fois la moyenne cette tranche consomme. */
+  facteur: number;
+  /** La phrase affichée sous la courbe. */
+  texte: string;
+}
+
+/** « deux », « trois »… : un chiffre nu se lit mal dans une phrase. */
+function enLettres(n: number): string {
+  return ['zéro', 'une', 'deux', 'trois', 'quatre'][n] ?? String(n);
+}
+
+/** L'écart à la moyenne, dit comme on le dirait à voix haute. */
+function ecartEnMots(facteur: number): string {
+  // Sous « deux fois », un pourcentage parle mieux qu'une fraction : « environ
+  // 35 % de plus » est plus juste que « environ une fois et demie ».
+  if (facteur < 1.75) {
+    const pourcent = Math.round(((facteur - 1) * 100) / 5) * 5;
+    return `environ ${pourcent} % de plus que la moyenne`;
+  }
+  if (facteur >= 4.5) return 'plus de quatre fois la moyenne';
+  const demies = Math.round(facteur * 2) / 2;
+  const entier = Math.floor(demies);
+  const moitie = demies - entier >= 0.5;
+  return `environ ${enLettres(entier)} fois${moitie ? ' et demie' : ''} la moyenne`;
+}
+
+/**
+ * La pointe du profil : l'heure la plus chargée, élargie de proche en proche
+ * tant que la tranche voisine se tient elle aussi au-dessus du seuil, et sans
+ * jamais dépasser `TRANCHE_LARGEUR_MAX`. On nomme ainsi UN bloc continu — celui
+ * du pic — au lieu de coudre ensemble des heures éparses qui ne formeraient pas
+ * une plage de la journée.
+ *
+ * Rend `null` sans profil (historique trop court, trop maigre ou troué) et
+ * quand aucune tranche ne dépasse le seuil : une journée régulière n'a pas de
+ * pointe à annoncer.
+ */
+export function trancheLaPlusChargee(profil: number[] | null | undefined): TranchePointe | null {
+  if (!profil || profil.length !== 24) return null;
+
+  let sommet = 0;
+  for (let h = 1; h < 24; h++) if (profil[h] > profil[sommet]) sommet = h;
+  if (profil[sommet] < SEUIL_TRANCHE_CHARGEE) return null;
+
+  const dedans = [sommet];
+  // On avance des deux côtés en tournant sur le cadran : une pointe qui
+  // enjambe minuit reste une seule plage (« entre 22 h et 2 h »).
+  let gauche = sommet;
+  let droite = sommet;
+  while (dedans.length < TRANCHE_LARGEUR_MAX) {
+    const avant = (gauche + 23) % 24;
+    const apres = (droite + 1) % 24;
+    const prendAvant = !dedans.includes(avant) && profil[avant] >= SEUIL_TRANCHE_CHARGEE;
+    const prendApres = !dedans.includes(apres) && profil[apres] >= SEUIL_TRANCHE_CHARGEE;
+    if (!prendAvant && !prendApres) break;
+    // Le voisin le plus chargé d'abord : le bloc grandit par où il pèse.
+    if (prendAvant && (!prendApres || profil[avant] >= profil[apres])) {
+      dedans.push(avant);
+      gauche = avant;
+    } else {
+      dedans.push(apres);
+      droite = apres;
+    }
+  }
+
+  const facteur = dedans.reduce((somme, h) => somme + profil[h], 0) / dedans.length;
+  const fin = (droite + 1) % 24;
+  return {
+    debut: gauche,
+    fin,
+    facteur,
+    texte: `le plus chargé entre ${gauche} h et ${fin} h, ${ecartEnMots(facteur)}`,
+  };
+}
+
+/** Le profil d'une journée type : vingt-quatre poids, sans distinguer les jours. */
+export function profilHoraire(releves: ReleveQuota[], serie: SerieQuota = 'weekly'): number[] | null {
+  return construireProfil(releves, serie, TRANCHES_JOURNEE);
+}
+
+/**
+ * Le profil de SEMAINE : quarante-huit poids, les vingt-quatre premiers pour
+ * les jours ouvrés, les vingt-quatre suivants pour le week-end. Rien du tout
+ * tant que les deux régimes n'ont pas été observés heure par heure.
+ */
+export function profilSemaine(releves: ReleveQuota[], serie: SerieQuota = 'weekly'): number[] | null {
+  return construireProfil(releves, serie, TRANCHES_SEMAINE);
+}
+
+/**
+ * Le meilleur profil disponible : celui de la semaine s'il tient debout, sinon
+ * celui d'une journée type, sinon rien.
+ */
+export function profilRetenu(releves: ReleveQuota[], serie: SerieQuota = 'weekly'): number[] | null {
+  return profilSemaine(releves, serie) ?? profilHoraire(releves, serie);
+}
+
+/** Le poids d'un instant, quel que soit le profil qu'on tient. */
+function poidsA(profil: number[], at: number): number {
+  return profil[trancheDe(at, profil.length)];
 }
 
 /**
@@ -284,9 +460,8 @@ function tempsPondere(debut: number, fin: number, profil: number[]): number {
   let curseur = debut;
   let total = 0;
   for (let pas = 0; pas < 24 * 60 && curseur < fin; pas++) {
-    const heure = new Date(curseur).getHours();
     const bord = Math.min(new Date(curseur).setMinutes(60, 0, 0), fin);
-    total += (bord - curseur) * profil[heure];
+    total += (bord - curseur) * poidsA(profil, curseur);
     curseur = bord;
   }
   return total;
@@ -317,9 +492,10 @@ function avancerJusquAEpuisement(
   // Au-delà de soixante jours, la prévision n'a plus d'objet : aucune fenêtre
   // de quota ne dure aussi longtemps.
   for (let pas = 0; pas < 24 * 60; pas++) {
-    const heure = new Date(curseur).getHours();
     const bord = new Date(curseur).setMinutes(60, 0, 0);
-    const vitesse = rythme * profil[heure];
+    // La tranche est lue sur le jour que TRAVERSE la prévision : un samedi de
+    // la projection prend le régime week-end, pas celui du jour d'aujourd'hui.
+    const vitesse = rythme * poidsA(profil, curseur);
     const tranche = bord - curseur;
     const mangeable = vitesse * tranche;
     if (vitesse > 0 && mangeable >= manquant) {
@@ -408,12 +584,13 @@ export function previsionEpuisement(
    * droite d'avant.
    */
   /*
-   * Le profil des heures de la journée ne vaut que pour la SEMAINE : une
-   * fenêtre de cinq heures se joue à l'intérieur d'une demi-journée, un rythme
-   * moyen par heure de la journée n'y apprendrait rien et une nuit ne la
-   * traverse presque jamais.
+   * Le profil ne vaut que pour la SEMAINE : une fenêtre de cinq heures se joue
+   * à l'intérieur d'une demi-journée, un rythme moyen par heure n'y
+   * apprendrait rien et une nuit ne la traverse presque jamais. Le profil de
+   * semaine (jours ouvrés / week-end) passe d'abord ; à défaut, celui d'une
+   * journée type.
    */
-  const profil = serie === 'weekly' ? profilHoraire(passes, serie) : null;
+  const profil = serie === 'weekly' ? profilRetenu(passes, serie) : null;
 
   /*
    * Le rythme de référence, une fois le profil connu, n'est plus la pente
@@ -457,9 +634,11 @@ export function previsionEpuisement(
 
   // Le chiffre doit rester compréhensible : on dit d'où il sort, et notamment
   // qu'il ne suppose plus le même rythme la nuit que le jour.
-  const base = applique
-    ? 'en tenant compte des heures creuses mesurées (la nuit consomme peu)'
-    : 'en prolongeant simplement le rythme des dernières heures';
+  const base = !applique
+    ? 'en prolongeant simplement le rythme des dernières heures'
+    : applique.length === TRANCHES_SEMAINE
+      ? 'en tenant compte des heures creuses mesurées (la nuit et le week-end consomment peu)'
+      : 'en tenant compte des heures creuses mesurées (la nuit consomme peu)';
 
   return {
     at,

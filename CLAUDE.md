@@ -64,8 +64,10 @@ node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
+node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
+node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
 ```
 
 Un script qui corrige le tableau écrit dans `data/haikodev.db` : il montre d'abord ce qu'il ferait,
@@ -113,6 +115,11 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
   Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
   (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
+- **Un projet se déclare sur son DÉPÔT DE TRAVAIL, jamais sur son dossier publié.** Un dossier servi
+  n'est pas un dépôt git : l'agent n'y trouve aucune mémoire, n'y enregistre rien et ne peut RIEN
+  prouver — la carte se clôt sur du vide. Quand le code de travail vit ailleurs que le dossier servi,
+  le projet pointe sur le dépôt et porte une **commande de publication** qui installe la copie servie
+  (sans elle, `planDeMiseEnLigne` refuse la mise en ligne, à raison).
 - **Créer un projet, c'est le MONTER en entier**, toujours de la même façon : dossier sur le serveur,
   dépôt git sur `main`, dépôt GitHub privé créé et poussé, puis les sept fichiers de départ
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
@@ -126,8 +133,18 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   aussi le numéro de carte mais ne la déplacent JAMAIS, ni au départ ni à l'arrivée — ni démarrer
   une étude ni la rendre n'est faire le travail. Le passage « Validé » → « Planifié » → « En cours »
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
-  pas. Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
-  reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
+  pas. Vrai pour TOUTE carte, d'où qu'elle vienne.
+- **« Archivé » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
+  `shared/src/suivi-colonne.ts`). La règle par défaut ne bouge pas : aucun chemin AUTOMATIQUE n'en
+  ressort une carte — ni un tour d'agent (`colonneAuDemarrage`), ni `board_move_card`, ni une
+  question posée dans la conversation, qui ne doit jamais retirer une carte du lot à publier. Un
+  clic ou un glissement de l'utilisateur, lui, le peut : bouton dédié dans le tiroir
+  (`gesteCarte('reprendre', …)`), même ligne dans le menu des gestes rares, et glisser-déposer.
+  D'un geste, la carte retombe à l'étape juste avant (`colonneDeReprise` : « Archivé » → « À faire »,
+  « À déployer » → « Terminé ») ; toute autre colonne reste atteignable à la main. La carte GARDE sa
+  trace : `card.archivedAt` est posée à l'archivage, survit à la sortie, et s'affiche en clair
+  (`mentionArchivage`) sur la carte du tableau et dans son tiroir. Verrouillé par
+  `server/src/test/suivi-colonne.test.ts` et `scripts/verif-sortie-archive.mjs`.
 - **Le dépôt d'une carte à la main VAUT un geste** (`effetDuDepot`, `shared/src/suivi-colonne.ts`).
   Déposer dans « En cours » = cliquer sur « Lancer maintenant » : le serveur appelle `startCard`, le
   MÊME point d'entrée — mêmes portes dures, même branche, même agent, même trace. Aucun chemin
@@ -156,6 +173,16 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   qui fait le travail, pour que l'avancement se voie du début à la fin sur le tableau. **Vrai aussi
   sur HaikoDev** : les outils d'écriture du chef ne dispensent pas de la carte. Une simple question
   se répond dans la conversation, sans carte. Verrouillé par `server/src/test/tri-du-chef.test.ts`.
+- **Une demande d'EXÉCUTION devient une carte, exactement comme une demande de programmation**
+  (cas 3 du tri, `rolePrompt` dans `server/src/runtime.ts`). Lancer une commande, tester une
+  connexion, ouvrir un terminal, faire tourner un contrôle ou un script, redémarrer un service,
+  lire un journal en direct : le chef PROPOSE aussitôt la carte avec `board_create_card`, dont la
+  description dit quoi lancer et quel résultat on attend. Il ne demande aucune confirmation avant de
+  proposer et n'écrit pas un paragraphe sur ses propres limites — une phrase suffit pour dire qu'un
+  agent de tâche exécutera. Le bridage du chef (liste blanche `orchestratorAllowList`,
+  `server/src/tools.ts`) ne bouge PAS : il n'est simplement plus une fin de non-recevoir. Règle
+  portée par le texte unique de la consigne, donc valable pour Claude comme pour Codex. Verrouillé
+  par `server/src/test/tri-du-chef.test.ts`.
 - Une carte naît toujours dans « À faire », et **jamais sans un clic de l'utilisateur**.
   `board_create_card` n'écrit RIEN : comme `propose_task`, il affiche une proposition en attente dans
   la conversation, avec ses boutons valider / refuser ; la validation seule fait naître la carte, qui
@@ -268,6 +295,15 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   une barre. En `axe="horizontal"` (rail du tableau, barres d'onglets), `ZoneDefilement` ne pose
   AUCUN voile : il masquerait le bord des colonnes sans rien apprendre. L'option reste, car c'est
   elle qui écrit `overflow-y-hidden` en toutes lettres et empêche le tableau de flotter.
+- **Un fichier d'instructions qui ne fait que RENVOYER à un autre est suivi, jamais nommé**
+  (`instructionsQuiFontFoi`, `shared/src/instructions-projet.ts`). Chaque moteur a son fichier natif
+  (Codex : `AGENTS.md`, Claude : `CLAUDE.md`), mais à la création d'un projet `AGENTS.md` ne fait que
+  pointer vers `CLAUDE.md` : un agent Codex recevait deux lignes vides de sens. Le briefing résout
+  donc le renvoi — un corps de trois lignes au plus, sous 600 signes, qui cite un seul autre fichier
+  d'instructions —, nomme le fichier POINTÉ, dit en clair que l'autre n'est qu'un renvoi, et c'est ce
+  fichier-là que la consigne de fin de tâche demande de tenir à jour. Chaîne suivie sans boucler ;
+  renvoi vers un fichier absent non suivi ; rien n'est écrit ni supprimé, la règle des sept fichiers
+  de départ ne bouge pas. Verrouillé par `server/src/test/instructions-projet.test.ts`.
 - **Les outils du projet se branchent différemment selon le moteur.** Claude Code reçoit un FICHIER
   de configuration (`--mcp-config`) ; Codex reçoit la COMMANDE à lancer, donc le chemin du pont
   lui-même (`server/mcp-bridge.mjs`), jamais le fichier de configuration — `node fichier.json` sort
@@ -287,6 +323,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   chaque ligne d'index touchée, fichiers repérés par recherche), constater par écrit, ne rien
   affirmer sans l'avoir vu, rejouer les contrôles du projet et en dire le résultat. Elle ne nomme
   AUCUN outil propre à un moteur, sinon elle cesserait de valoir partout.
+- **Aucun agent ne commente le stockage des identifiants** (point 5 de `METHODE`). Mots de passe,
+  clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ de
+  l'utilisateur : aucun agent — chef, analyse, exécution, publication — ne le signale, ne le
+  commente ni ne recommande quoi que ce soit à ce sujet, ni en réponse, ni dans une carte proposée,
+  ni en alerte. Consigne de SILENCE, pas de sécurité : rien ne change à la façon dont ces fichiers
+  sont stockés, lus ou protégés, et une PANNE se dit toujours (identifiant absent, expiré ou refusé
+  qui bloque un travail). Le rappel de méthode la reprend. Verrouillé par
+  `server/src/test/silence-identifiants.test.ts`.
 - **Un moteur qui ne recolle pas sa consigne système la reçoit en rappel.** Claude Code repasse
   `--append-system-prompt` à chaque tour ; Codex n'a la sienne qu'au premier message du fil, donc
   toute reprise part avec `systemPromptRappel` (`rappelDeMethode`) devant la demande — le pavé
@@ -294,13 +338,6 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 - La liste de tâches (`TodoWrite`, `TaskCreate`/`TaskUpdate`, `TaskList`, `TaskGet`) est
   AUTORISÉE même au chef d'orchestre bridé : elle n'écrit rien, elle affiche le déroulé. Lancer un
   travail en arrière-plan (`Task`, `Agent`, `Workflow`, `TaskStop`, `TaskOutput`) reste interdit.
-- **La prévision d'épuisement du quota hebdomadaire suit un profil horaire MESURÉ**
-  (`profilHoraire`, `shared/src/quota.ts`) : le rythme de chaque tranche de la journée se déduit de
-  l'historique des relevés, jamais d'heures écrites dans le code. Le profil est ramené à une moyenne
-  de 1 — sur une semaine entière il ne change donc rien au total, il ne fait que déplacer l'heure
-  d'épuisement. Il ne s'applique QU'À la semaine : une fenêtre de cinq heures ne traverse pas de
-  nuit. Sans 24 h d'observation, sans 3 points de % consommés, ou avec une tranche de la journée
-  jamais observée, il rend `null` et le calcul reste le simple prolongement de la pente.
 - **Un rythme qui s'écarte brusquement de l'habitude se dit tout de suite**
   (`emballementConsommation` et `doitAlerterEmballement`, `shared/src/quota.ts`). Le rythme des
   derniers relevés est comparé à l'ATTENDU de ces mêmes tranches selon le profil mesuré ; au-delà de
@@ -312,6 +349,33 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   cinq heures, ou sur des relevés vieux de plus d'une heure : rien. On prévient, on ne décide pas —
   aucun agent arrêté, aucune bascule de compte. Verrouillé par
   `server/src/test/quota-emballement.test.ts`.
+- **La prévision d'épuisement du quota hebdomadaire suit un profil MESURÉ, de SEMAINE**
+  (`profilSemaine` / `profilHoraire` / `profilRetenu`, `shared/src/quota.ts`) : le rythme de chaque
+  tranche se déduit de l'historique des relevés, jamais d'heures écrites dans le code. Le profil de
+  semaine tient 48 tranches — 24 heures pour les jours ouvrés, 24 pour le week-end — pour qu'un
+  samedi 15 h ne soit plus versé dans la même case qu'un mardi 15 h ; la projection lit la tranche
+  du régime du jour qu'elle TRAVERSE. La moyenne est ramenée à 1 en pesant une tranche de jour
+  ouvré 5 fois et une de week-end 2 fois : sur une semaine entière le profil ne change donc rien au
+  total, il ne fait que déplacer l'heure d'épuisement. `profilRetenu` prend la semaine si elle tient
+  debout, sinon la journée type (24 tranches). Il ne s'applique QU'À la semaine : une fenêtre de
+  cinq heures ne traverse pas de nuit. Sans 24 h d'observation, sans 3 points de % consommés, ou
+  avec une tranche jamais observée — donc sans un week-end ET un jour ouvré complets pour les 48 —
+  il rend `null` et l'on retombe sur le profil de journée, puis sur le simple prolongement de la
+  pente.
+- **L'historique des quotas est RÉSUMÉ, jamais effacé** (`shared/src/quota-resume.ts`,
+  `compacterQuotaSamples` dans `server/src/store.ts`). Le détail des relevés (un par quart d'heure)
+  tient quatorze jours — c'est ce que la courbe du volet affiche ; au-delà, il est remplacé par une
+  ligne par jour et par heure (temps observé, % consommé) qui, elle, tient deux mois. Le compactage
+  garde le dernier relevé passé sous le seuil comme ANCRE, ce qui le rend rejouable sans rien doubler
+  ni perdre l'intervalle à cheval. Le profil se calcule sur `historiquePourProfil` (résumé remis en
+  relevés, puis détail récent) ; la pente du moment, elle, ne se mesure que sur le détail.
+- **Le profil mesuré se MONTRE, en une ligne sous la courbe du compte**
+  (`trancheLaPlusChargee`, `shared/src/quota.ts`) : la plage la plus chargée de la journée et son
+  écart à la moyenne, « le plus chargé entre 8 h et 12 h, environ 35 % de plus que la moyenne ». La
+  plage part de l'heure la plus forte et grandit tant que la voisine tient au-dessus de
+  `SEUIL_TRANCHE_CHARGEE`, sans dépasser `TRANCHE_LARGEUR_MAX` — une pointe de seize heures
+  n'apprendrait rien. Elle se TAIT sans profil et quand aucune tranche ne dépasse le seuil.
+  Verrouillé par `server/src/test/quota-prevision.test.ts` et `scripts/verif-prevision-quota.mjs`.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.
