@@ -67,6 +67,7 @@ node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Termin�
 node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié » (démon d'essai à soi)
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
+node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » (dépôt d'essai)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -168,10 +169,21 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   de la barre de quota), rien ne change. Verrouillé par `server/src/test/arret-carte.test.ts` et
   `scripts/verif-arret-carte.mjs`.
 - **Les portes DURES valent pour tous les chemins de lancement** (`portesDures`,
-  `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, branche
-  impossible à créer sur un dépôt git. `startCard` les contrôle, donc l'ordonnanceur comme le bouton
-  comme le glissement. L'heure creuse, elle, n'est PAS une porte dure : c'est une politique
-  d'économie que l'ordonnanceur seul applique (`checkGates`), et qu'un geste humain passe.
+  `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, projet
+  qui n'est pas un dépôt git, dossier de travail déjà occupé par une autre carte. `startCard` les
+  contrôle, donc l'ordonnanceur comme le bouton comme le glissement, et un refus s'ÉCRIT sur la
+  carte (`waitingReason`) au lieu de disparaître. L'heure creuse, elle, n'est PAS une porte dure :
+  c'est une politique d'économie que l'ordonnanceur seul applique (`checkGates`), et qu'un geste
+  humain passe.
+- **Une carte lancée a TOUJOURS sa branche « tache/… », et le dossier pour elle seule**
+  (`shared/src/branche-de-carte.ts`). `nomDeBranche` fabrique le nom ; `porteDuDepot` refuse un
+  projet qui n'est pas un dépôt git — c'est le silence « pas un dépôt, l'agent travaille sur place »
+  qui laissait partir des agents sur `main`, sans branche et sans rien à prouver ; `porteDuDossier`
+  refuse une seconde carte dans un dossier déjà occupé par un agent de rôle « task » — deux
+  `git checkout -B` dans la même copie de travail se volent les fichiers. La carte refusée n'échoue
+  pas : elle attend en disant pourquoi. `prepareBranch` ne rend donc plus que « prête » ou
+  « échec » — plus de troisième cas muet — et le prompt de la carte nomme toujours sa branche.
+  Verrouillé par `server/src/test/branche-de-carte.test.ts` et `scripts/verif-branche-de-carte.mjs`.
 - **Une carte qui retravaille ne reste pas en « Terminé ».** La règle est unique
   (`colonneAuDemarrage`) et vit dans UNE fonction du démon, `replacerCarteAuDemarrage`
   (`server/src/runtime.ts`), appelée aux deux seuls points par lesquels un tour peut naître :
