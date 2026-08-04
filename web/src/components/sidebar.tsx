@@ -9,6 +9,7 @@ import {
   Folder,
   FolderPlus,
   GripVertical,
+  LayoutDashboard,
   Loader2,
   Palette,
   Pencil,
@@ -68,11 +69,17 @@ export function Sidebar({
   onOpenAgent,
   width,
   onChoose,
+  onOpenDashboard,
+  dashboardActive,
 }: {
   onOpenAgent: (agentId: string) => void;
   width?: number;
   /** Prévenu dès qu'un projet est choisi : le panneau latéral se referme. */
   onChoose?: () => void;
+  /** Ouvre la page « Tableau de bord » dans le conteneur central. */
+  onOpenDashboard?: () => void;
+  /** La page « Tableau de bord » est-elle ouverte ? Le bouton s'allume alors. */
+  dashboardActive?: boolean;
 }) {
   const state = useApp();
   const [adding, setAdding] = React.useState(false);
@@ -334,6 +341,26 @@ export function Sidebar({
       className="flex w-full shrink-0 flex-col bg-bg sm:w-[var(--largeur-projets)] sm:border-r sm:border-border"
       style={{ ['--largeur-projets' as any]: `${width ?? 196}px` }}
     >
+      {/* Tout en haut, AU-DESSUS des projets : la porte du tableau de bord. Un
+          clic ouvre la page dans le conteneur central ; le bouton s'allume tant
+          qu'elle est ouverte. */}
+      {onOpenDashboard ? (
+        <div className="px-1.5 pt-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            data-ouvrir-tableau-de-bord
+            className={cn('w-full justify-start gap-2', dashboardActive && 'bg-raised text-text')}
+            onClick={() => {
+              onOpenDashboard();
+              onChoose?.();
+            }}
+          >
+            <LayoutDashboard className="h-3.5 w-3.5" /> Tableau de bord
+          </Button>
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-1 px-2 py-2">
         <span className="text-[12px] uppercase tracking-wide text-faint">Projets</span>
         <Tooltip label="Nouveau groupe">
