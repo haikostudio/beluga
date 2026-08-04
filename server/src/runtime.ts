@@ -397,6 +397,7 @@ async function startTurn(
     thinking: agent.run.thinking,
     sessionId,
     systemPrompt,
+    systemPromptRappel: rappelDeMethode(agent.run.engine),
     mcpConfigPath,
     mcpBridgePath: bridgePath,
     fullAccess,
@@ -672,6 +673,31 @@ const OUTIL_LISTE: Record<EngineId, string> = {
 };
 
 /**
+ * LA MÉTHODE DE TRAVAIL, décidée par HaikoDev et identique pour tous les moteurs.
+ * Sans elle, chaque modèle choisissait seul ce qu'il allait lire et comment il
+ * allait raisonner : à demande égale, Codex et Claude ne regardaient pas les
+ * mêmes fichiers et ne ressortaient pas les mêmes constats. Le texte ne nomme
+ * donc AUCUN outil propre à un moteur — seuls les outils du projet, communs aux
+ * deux, y figurent.
+ */
+const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de HaikoDev, pas de toi : applique-la telle quelle, dans cet ordre) :
+1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis l'outil « project_memory » pour CHAQUE ligne de l'index qui touche au sujet, puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
+2. CONSTATER PAR ÉCRIT avant de conclure : ce que le projet fait aujourd'hui, ce que la demande veut, ce qui manque entre les deux. C'est ce qui remplit la section « Analyse » de ta réponse.
+3. NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Ce que tu n'as pas vérifié se dit comme une hypothèse, en toutes lettres.
+4. VÉRIFIER À LA FIN : rejoue les contrôles du projet qui touchent à ce que tu as changé, et donne leur résultat, même en échec. Un échec tu, c'est un travail rendu faux.`;
+
+/** Le rappel envoyé aux tours SUIVANTS, quand le moteur ne recolle pas ses consignes tout seul. */
+export function rappelDeMethode(engine: EngineId = 'claude'): string {
+  const outilListe = OUTIL_LISTE[engine] ?? OUTIL_LISTE.claude;
+  return (
+    'RAPPEL DE MÉTHODE (donné au début du fil, toujours valable) : ' +
+    `annonce ta liste de tâches avec ${outilListe} et coche-la au fur et à mesure ; ` +
+    'lis avant de répondre (instructions du moteur, « project_memory », fichiers concernés) ; ' +
+    "n'affirme rien que tu n'aies vérifié ; rejoue les contrôles du projet et dis leur résultat."
+  );
+}
+
+/**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
  * demande de programmation passe par une carte » se perdrait à la première
  * réécriture du texte si rien ne la retenait.
@@ -688,7 +714,8 @@ export function rolePrompt(role: AgentRole, isSelf: boolean, engine: EngineId = 
     "DÉROULÉ VISIBLE (obligatoire dès que la demande tient en plus d'une action) :\n" +
     `1. AVANT d'agir, annonce ta liste de tâches avec ${outilListe} : une ligne par action prévue, formulée en français simple.\n` +
     "2. Passe la ligne en cours à « en cours », et coche-la dès qu'elle est terminée, AVANT d'attaquer la suivante. Une seule ligne en cours à la fois.\n" +
-    "Cette liste s'affiche dans la conversation et se coche sous les yeux de l'utilisateur : c'est ainsi qu'il suit ton avancement. Ne la recopie pas en texte, elle est déjà à l'écran.";
+    "Cette liste s'affiche dans la conversation et se coche sous les yeux de l'utilisateur : c'est ainsi qu'il suit ton avancement. Ne la recopie pas en texte, elle est déjà à l'écran.\n\n" +
+    `${METHODE}`;
 
   if (role === 'orchestrator') {
     const base = `${common}

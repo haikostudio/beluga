@@ -426,8 +426,16 @@ export const ORCHESTRATOR_ALLOWED_NATIVE = [
   'WebSearch',
   'ToolSearch',
   // La liste de tâches ne touche à rien : elle affiche seulement le déroulé
-  // annoncé, coché en direct dans la conversation.
+  // annoncé, coché en direct dans la conversation. « TodoWrite » est l'ancien
+  // nom ; les versions récentes du moteur parlent « TaskCreate / TaskUpdate ».
+  // Les oublier revenait à interdire le déroulé visible au chef bridé sous
+  // Claude, alors que Codex l'annonçait sans entrave : une divergence entre
+  // moteurs pour une règle qui doit être la même partout.
   'TodoWrite',
+  'TaskCreate',
+  'TaskUpdate',
+  'TaskList',
+  'TaskGet',
 ];
 
 export const ORCHESTRATOR_DENIED_NATIVE = [
@@ -447,11 +455,13 @@ export const ORCHESTRATOR_DENIED_NATIVE = [
   'CronCreate',
   'CronDelete',
   'CronList',
-  'TaskCreate',
-  'TaskUpdate',
+  // « TaskCreate », « TaskUpdate », « TaskList » et « TaskGet » ne lancent
+  // AUCUN agent : ce sont la liste de tâches affichée dans la conversation, au
+  // même titre que « TodoWrite ». Les interdire privait le chef bridé du
+  // déroulé visible sous Claude, alors que Codex l'annonçait librement.
+  // Lancer un travail en arrière-plan reste interdit : « Task », « Agent »,
+  // « Workflow » plus haut, et l'arrêt / la lecture d'un travail ci-dessous.
   'TaskStop',
-  'TaskGet',
-  'TaskList',
   'TaskOutput',
   'ScheduleWakeup',
   'SendMessage',

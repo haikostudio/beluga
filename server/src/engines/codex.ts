@@ -138,8 +138,10 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
   // Codex n'a pas de consigne « système » séparée : elle est collée devant la
   // demande, donc elle ENTRE dans l'historique du fil. La recoller à chaque
   // reprise la stockerait autant de fois qu'il y a de messages, pour rien.
-  const prompt =
-    options.systemPrompt && !resuming ? `${options.systemPrompt}\n\n---\n\n${options.prompt}` : options.prompt;
+  // En reprise, seul le RAPPEL court repart : sans lui, le déroulé imposé
+  // s'effaçait au fil du fil, alors que Claude le reçoit à chaque tour.
+  const entete = resuming ? options.systemPromptRappel : options.systemPrompt;
+  const prompt = entete ? `${entete}\n\n---\n\n${options.prompt}` : options.prompt;
   args.push(prompt);
   return args;
 }

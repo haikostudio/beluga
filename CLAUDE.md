@@ -53,6 +53,7 @@ node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
+node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
@@ -161,6 +162,18 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   Codex : `update_plan`), injecté par `rolePrompt` selon `agent.run.engine`. On nomme à chaque
   moteur SON seul outil — jamais le menu des deux, qui laisserait le modèle choisir. Verrouillé
   par `server/src/test/deroule-uniforme.test.ts`.
+- **La MÉTHODE de travail est imposée, pas laissée au modèle** (constante `METHODE`,
+  `server/src/runtime.ts`) : lire avant de répondre (fichier d'instructions, `project_memory` sur
+  chaque ligne d'index touchée, fichiers repérés par recherche), constater par écrit, ne rien
+  affirmer sans l'avoir vu, rejouer les contrôles du projet et en dire le résultat. Elle ne nomme
+  AUCUN outil propre à un moteur, sinon elle cesserait de valoir partout.
+- **Un moteur qui ne recolle pas sa consigne système la reçoit en rappel.** Claude Code repasse
+  `--append-system-prompt` à chaque tour ; Codex n'a la sienne qu'au premier message du fil, donc
+  toute reprise part avec `systemPromptRappel` (`rappelDeMethode`) devant la demande — le pavé
+  entier, lui, ne repart jamais. Sans ce rappel, le déroulé s'effaçait d'un moteur et pas de l'autre.
+- La liste de tâches (`TodoWrite`, `TaskCreate`/`TaskUpdate`, `TaskList`, `TaskGet`) est
+  AUTORISÉE même au chef d'orchestre bridé : elle n'écrit rien, elle affiche le déroulé. Lancer un
+  travail en arrière-plan (`Task`, `Agent`, `Workflow`, `TaskStop`, `TaskOutput`) reste interdit.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.

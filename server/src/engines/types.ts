@@ -27,6 +27,13 @@ export interface EngineRunOptions {
   /** Reprise de conversation : identifiant de session du moteur. */
   sessionId?: string | null;
   systemPrompt?: string;
+  /**
+   * Le rappel court des consignes, pour les moteurs qui ne recollent PAS leur
+   * consigne système à chaque tour. Claude Code la repasse lui-même par
+   * `--append-system-prompt` ; Codex ne l'a qu'au premier message du fil, donc
+   * son déroulé s'effaçait au fil de la conversation.
+   */
+  systemPromptRappel?: string;
   /** Chemin d'un fichier de configuration MCP (outils du démon), au format de Claude Code. */
   mcpConfigPath?: string;
   /**
