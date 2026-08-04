@@ -1,9 +1,17 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { Card, Estimate } from '@haikodev/shared';
+import {
+  Card,
+  Estimate,
+  OccupantDossier,
+  RAISON_SANS_DEPOT,
+  nomDeBranche,
+  porteDuDepot,
+  porteDuDossier,
+} from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
-import { createAgent, isRunning, sendPrompt, runningCount } from './runtime.js';
+import { createAgent, isRunning, sendPrompt, runningCount, runningAgentIds } from './runtime.js';
 import { canStartAgent, snapshot } from './capacity.js';
 import { refreshQuotas } from './accounts.js';
 import { notify } from './notify.js';
@@ -175,10 +183,24 @@ export interface Gate {
  *
  * L'heure creuse, elle, n'est pas une porte dure : c'est une politique
  * d'économie, et l'utilisateur a le droit de passer devant.
+ *
+ * Deux portes tiennent à la BRANCHE, et elles sont dures pour la même raison :
+ * une carte qui part sans branche à elle ne laisse aucune trace vérifiable.
+ * Un projet qui n'est pas un dépôt git ne peut pas en avoir ; un dossier déjà
+ * occupé par un autre agent ne peut pas en porter deux.
  */
 export async function portesDures(card: Card): Promise<Gate> {
   const capacity = canStartAgent();
   if (!capacity.ok) return { ok: false, reason: capacity.reason };
+
+  const project = store.getProject(card.projectId);
+  if (project) {
+    const dossier = porteDuDossier({ cardId: card.id, dossier: project.path }, occupantsDesDossiers(card.id));
+    if (!dossier.ok) return { ok: false, reason: dossier.raison };
+
+    const depot = porteDuDepot(await estUnDepotGit(project.path));
+    if (!depot.ok) return { ok: false, reason: depot.raison };
+  }
 
   const quotas = await refreshQuotas();
   const engineQuotas = quotas.filter((q) => q.engine === card.run.engine);
@@ -224,35 +246,51 @@ export async function checkGates(card: Card): Promise<Gate> {
 /* ------------------------------------------------------------------ */
 
 export function branchName(card: Card): string {
-  const slug = card.title
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 40);
-  return `tache/${slug || 'sans-titre'}-${card.id.slice(0, 6)}`;
+  return nomDeBranche(card.title, card.id);
+}
+
+/** Le dossier est-il un dépôt git ? La question se pose AVANT de lancer. */
+export async function estUnDepotGit(projectPath: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd: projectPath, timeout: 8000 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Le résultat de la préparation de branche, DIT en toutes lettres. « Pas de
- * branche » recouvrait deux situations qui n'ont rien à voir : un projet sans
- * dépôt git (l'agent travaille sur place, c'est normal) et un dépôt git où la
- * branche n'a pas pu être créée (là, lancer l'agent serait le lâcher sur la
- * branche de quelqu'un d'autre).
+ * Qui travaille en ce moment, et dans quel dossier. Seul un agent de rôle
+ * « task » compte : c'est lui qui bascule la copie de travail sur SA branche.
  */
-type Branche =
-  | { kind: 'sans-depot' }
-  | { kind: 'prete'; nom: string }
-  | { kind: 'echec'; raison: string };
-
-async function prepareBranch(projectPath: string, card: Card): Promise<Branche> {
-  const branch = branchName(card);
-  try {
-    await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd: projectPath, timeout: 8000 });
-  } catch {
-    return { kind: 'sans-depot' }; // pas un dépôt git : l'agent travaille sur place
+function occupantsDesDossiers(saufCardId?: string): OccupantDossier[] {
+  const occupants: OccupantDossier[] = [];
+  for (const agentId of runningAgentIds()) {
+    const agent = store.getAgent(agentId);
+    if (!agent || agent.role !== 'task' || !agent.cardId) continue;
+    if (agent.cardId === saufCardId) continue;
+    const project = store.getProject(agent.projectId);
+    if (!project) continue;
+    occupants.push({
+      cardId: agent.cardId,
+      titre: store.getCard(agent.cardId)?.title ?? agent.title,
+      dossier: project.path,
+    });
   }
+  return occupants;
+}
+
+/**
+ * Le résultat de la préparation de branche, DIT en toutes lettres. Il n'y a plus
+ * de troisième cas « pas un dépôt git, l'agent travaille sur place » : c'est ce
+ * silence-là qui laissait partir des agents sur « main », sans branche et sans
+ * rien à prouver. Un projet sans dépôt est refusé plus tôt, par les portes dures.
+ */
+export type Branche = { kind: 'prete'; nom: string } | { kind: 'echec'; raison: string };
+
+export async function prepareBranch(projectPath: string, card: Card): Promise<Branche> {
+  const branch = branchName(card);
+  if (!(await estUnDepotGit(projectPath))) return { kind: 'echec', raison: RAISON_SANS_DEPOT };
   try {
     await execFileAsync('git', ['checkout', '-B', branch], { cwd: projectPath, timeout: 20000 });
     return { kind: 'prete', nom: branch };
@@ -284,6 +322,23 @@ async function currentBranch(projectPath: string): Promise<string | null> {
   }
 }
 
+/**
+ * Un lancement refusé se VOIT : la raison s'écrit sur la carte, comme le fait
+ * déjà l'ordonnanceur quand il patiente. Sans cela, un refus parti du bouton ou
+ * d'un dépôt dans « En cours » ne laissait aucune trace.
+ */
+function refus(card: Card, raison: string): { ok: false; error: string } {
+  const fresh = store.getCard(card.id) ?? card;
+  if (fresh.scheduling?.waitingReason !== raison) {
+    const updated = store.saveCard({
+      ...fresh,
+      scheduling: { ...(fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 }), waitingReason: raison },
+    });
+    bus.emit({ type: 'card.upsert', card: updated });
+  }
+  return { ok: false, error: raison };
+}
+
 export async function startCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
   const card = store.getCard(cardId);
   if (!card) return { ok: false, error: 'carte introuvable' };
@@ -298,11 +353,16 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
    * agent qui mourait aussitôt, en laissant la carte dans « En cours ».
    */
   const portes = await portesDures(card);
-  if (!portes.ok) return { ok: false, error: portes.reason ?? 'lancement impossible' };
+  if (!portes.ok) return refus(card, portes.reason ?? 'lancement impossible');
 
+  /*
+   * La branche est OBLIGATOIRE : sans elle, l'agent écrirait sur la branche
+   * principale, ou sur celle d'un autre. Un échec ici REFUSE le lancement et
+   * s'écrit sur la carte, au lieu de laisser partir un agent sur « main ».
+   */
   const prepa = await prepareBranch(project.path, card);
-  if (prepa.kind === 'echec') return { ok: false, error: prepa.raison };
-  const branch = prepa.kind === 'prete' ? prepa.nom : null;
+  if (prepa.kind === 'echec') return refus(card, prepa.raison);
+  const branch = prepa.nom;
 
   const agent = createAgent({
     projectId: card.projectId,
@@ -317,7 +377,7 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
     column: 'running',
     position: store.nextPosition(card.projectId, 'running'),
     agentId: agent.id,
-    github: branch ? { ...(card.github ?? { checks: [], commits: [], activity: [] }), branch } : card.github,
+    github: { ...(card.github ?? { checks: [], commits: [], activity: [] }), branch },
     scheduling: {
       ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
       attempts: (card.scheduling?.attempts ?? 0) + 1,
@@ -332,7 +392,8 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
 
 TITRE : ${card.title}
 ${card.description || '(pas de description)'}
-${branch ? `\nTu travailles sur la branche « ${branch} ».` : ''}
+
+Tu travailles sur la branche « ${branch} ».
 
 Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (commit + push). Ne publie pas.`;
 
