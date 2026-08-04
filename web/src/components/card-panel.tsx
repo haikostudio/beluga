@@ -426,6 +426,28 @@ function ReglagesAgent({ card }: { card: Card }) {
 
   const libelles = libellesDuRun(state.engines, vu);
 
+  /*
+   * La part de quota réellement consommée par cette carte, somme de ses lignes
+   * de consommation. Elle vit dans la table `usage`, pas sur la carte : on la
+   * demande au serveur à l'ouverture du détail. Une carte sans relevé rend deux
+   * zéros — on n'affiche alors rien, pas un zéro trompeur.
+   */
+  const [quota, setQuota] = React.useState<{ quota5h: number; quotaSemaine: number } | null>(null);
+  React.useEffect(() => {
+    let vivant = true;
+    setQuota(null);
+    client
+      .call({ type: 'card.quota', cardId: card.id })
+      .then((data) => {
+        if (vivant) setQuota({ quota5h: data.quota5h ?? 0, quotaSemaine: data.quotaSemaine ?? 0 });
+      })
+      .catch(() => {});
+    return () => {
+      vivant = false;
+    };
+  }, [card.id]);
+  const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
+
   // Changer de moteur remet modèle et réflexion à zéro : un modèle n'appartient
   // qu'à son moteur. On enregistre le trio RÉSOLU, jamais un choix à trous.
   const choisir = (patch: RunChoix) => {
@@ -462,17 +484,38 @@ function ReglagesAgent({ card }: { card: Card }) {
           <span className="px-1 text-[12.5px] text-faint">compte choisi au lancement</span>
         </div>
       ) : (
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
-          <Etiquette nom="Moteur" valeur={libelles.moteur} />
-          <Etiquette nom="Modèle" valeur={libelles.modele} />
-          {/* « Niveau », pas « Réflexion » : le libellé du niveau porte déjà le
-              mot, et « Réflexion — Réflexion poussée » se lisait deux fois. */}
-          <Etiquette nom="Niveau" valeur={libelles.reflexion} />
-          <Etiquette nom="Compte" valeur={vu.compte ?? '—'} />
+        <div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
+            <Etiquette nom="Moteur" valeur={libelles.moteur} />
+            <Etiquette nom="Modèle" valeur={libelles.modele} />
+            {/* « Niveau », pas « Réflexion » : le libellé du niveau porte déjà le
+                mot, et « Réflexion — Réflexion poussée » se lisait deux fois. */}
+            <Etiquette nom="Niveau" valeur={libelles.reflexion} />
+            <Etiquette nom="Compte" valeur={vu.compte ?? '—'} />
+          </div>
+
+          {/* La part de quota dépensée par cette carte, une seule ligne, en
+              clair. Rien quand aucun relevé n'existe : un zéro ferait croire à
+              une mesure. */}
+          {quotaVu ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
+              <Etiquette nom="Quota 5 h consommé" valeur={partQuota(quotaVu.quota5h)} />
+              <Etiquette nom="Quota semaine consommé" valeur={partQuota(quotaVu.quotaSemaine)} />
+            </div>
+          ) : null}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Une part de quota, en clair : « 2,4 % » de la fenêtre. Sous un dixième de
+ * pour-cent, on ne prétend pas à la décimale — « moins de 0,1 % » dit le vrai.
+ */
+function partQuota(part: number): string {
+  if (part > 0 && part < 0.1) return 'moins de 0,1 %';
+  return `${part.toLocaleString('fr-CH', { maximumFractionDigits: 1 })} %`;
 }
 
 /** Une étiquette courte : le nom en gris pâle, la valeur juste après. */
