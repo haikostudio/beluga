@@ -239,6 +239,33 @@ async function main() {
   record('la carte porte alors le triangle de décision', triangle > 0);
   record('et la mention s’efface : un seul repère à la fois', !(await mention(figee)));
 
+  /*
+   * Le triangle DIT ; le bouton EMMÈNE. Il n'apparaît que sur la carte qui
+   * attend, et son clic ouvre le tiroir DIRECTEMENT sur la conversation — pas
+   * sur les détails, qu'il faudrait quitter à la main pour répondre.
+   */
+  const bouton = page.locator(`[data-repondre-carte="${figee}"]`);
+  record('un bouton « Répondre » s’affiche sur la carte qui attend', (await bouton.count()) > 0);
+  record(
+    'aucune autre carte ne le porte',
+    (await page.locator(`[data-repondre-carte="${recente}"]`).count()) === 0 &&
+      (await page.locator(`[data-repondre-carte="${active}"]`).count()) === 0,
+  );
+  await bouton.first().click();
+  await page.waitForTimeout(900);
+  const etatDuTiroir = await page.evaluate(() => ({
+    onglets: Array.from(document.querySelectorAll('[role="tab"]')).map((t) => ({
+      texte: (t.textContent || '').trim(),
+      actif: t.getAttribute('data-state') === 'active',
+    })),
+  }));
+  const surLaConversation = etatDuTiroir.onglets.some(
+    (o) => o.actif && o.texte.toLowerCase().includes('conversation'),
+  );
+  record('le clic ouvre le tiroir sur la conversation', surLaConversation);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+
   record('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 
   await browser.close();

@@ -22,6 +22,7 @@ import {
   cleDeSession,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  decisionEnTexteLibre,
   etatDuPont,
   nomDeBranche,
   raisonSansModification,
@@ -181,6 +182,17 @@ export function replacerCarteAuDemarrage(agent: Agent): void {
     doneAt: undefined,
     // …et la phrase « rien n'a changé » du tour précédent non plus.
     sansModification: undefined,
+    /*
+     * Un tour qui démarre est EXACTEMENT le geste qu'attendait une carte
+     * suspendue — répondre à sa question en est un. Sans cet oubli, la carte
+     * repartait pour ce tour-là puis retombait en file avec sa marque, et
+     * l'ordonnanceur ne la reprenait plus jamais tout seul : on croyait avoir
+     * relancé, et rien ne suivait. `startCard` efface déjà la marque de son
+     * côté ; les deux seuls départs possibles la traitent donc pareil.
+     */
+    scheduling: carte.scheduling
+      ? { ...carte.scheduling, suspendu: false, waitingReason: undefined }
+      : carte.scheduling,
   });
   bus.emit({ type: 'card.upsert', card: relancee });
 }
@@ -737,6 +749,40 @@ async function startTurn(
       cardId: agent.cardId,
       projectId: agent.projectId,
     });
+  }
+
+  /*
+   * LA QUESTION QUE PERSONNE N'A ENTENDUE. Un tour qui s'achève sur une
+   * question écrite en texte n'a rien enregistré : le triangle orange s'allume
+   * bien (`decisionsEnAttente` reconnaît le cas), mais rien ne sort de
+   * l'application, alors qu'une question posée par l'outil, elle, prévient
+   * aussitôt. On répare l'asymétrie ici : même motif, même guichet unique.
+   *
+   * Le dédoublonnage de `notify` fait le reste — sujet « decision » et numéro
+   * de carte : si l'agent avait AUSSI appelé l'outil dans ce tour, la seconde
+   * alerte se tait d'elle-même. Rien pour un tour en échec (sa panne est déjà
+   * dite) ni pour un agent sans carte (le fil du chef est sous les yeux de qui
+   * l'a écrit).
+   */
+  if (!failed && agent.cardId) {
+    const dernier = store.getMessage(runState.messageId);
+    const question = dernier
+      ? decisionEnTexteLibre({ statut: 'done', dernierMessage: dernier })
+      : null;
+    if (question) {
+      notify({
+        motif: 'decision-attendue',
+        title: 'Une réponse est attendue',
+        body: question.slice(0, 120),
+        // La CARTE, pas le tour : deux tours de la même carte qui reposent la
+        // même question ne font qu'une alerte tant qu'elle n'a pas de réponse.
+        reference: agent.cardId,
+        element: question.slice(0, 120),
+        cardId: agent.cardId,
+        projectId: agent.projectId,
+      });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+    }
   }
 
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
