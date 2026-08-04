@@ -13,6 +13,7 @@ vivent les choses, ce qu'on n'enfreint pas. Aucun journal ici — les livraisons
 | `shared/` | Les règles pures, sans base ni disque — donc testables seules |
 | `scripts/` | Service système, identifiants, scripts de vérification |
 | `data/live` | **Ce qui est réellement servi** : écrit uniquement par la publication |
+| `data/competences` | Les **compétences partagées** : un dossier par compétence, chacun avec son `SKILL.md` |
 
 Une règle qui peut vivre sans base ni disque va dans `shared/` avec son test : c'est ce qui la rend
 lisible et rejouable.
@@ -76,6 +77,7 @@ node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'a
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
 node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglages : adresse et code affichés, échec dit (démon et HOME d'essai à soi)
+node scripts/verif-competences.mjs  # les compétences partagées arrivent-elles aux agents ? (deux vrais tours ; `--sans-tour` pour s'en passer)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -443,6 +445,18 @@ sans son point d'essai.
   `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
   une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
   Verrouillé par `server/src/test/outils-codex.test.ts`.
+- **Une compétence partagée vit dans `data/competences/`, et elle est ANNONCÉE autant qu'installée**
+  (`shared/src/competences.ts` pour les règles, `server/src/competences.ts` pour le disque). Une
+  compétence est un dossier portant un `SKILL.md` — écrit là, ou simplement LIÉ depuis l'endroit où
+  l'utilisateur le tient à jour ; en ajouter une, c'est poser un dossier de plus, rien d'autre. Deux
+  chemins, tous deux nécessaires. Le COFFRE : au démarrage et à chaque compte connecté,
+  `relierCompetencesAuxCoffres` pose chaque compétence dans `<coffre>/skills/<nom>` de chaque compte
+  Claude — c'est le seul endroit où ce moteur va les chercher, et une place déjà prise est LAISSÉE
+  telle quelle, jamais écrasée. Le BRIEFING : `texteDesCompetences` les nomme à tout agent, avec le
+  chemin du mode d'emploi à ouvrir. Sans ce second chemin, Codex (qui n'a pas la notion) et le chef
+  d'orchestre (à qui l'outil `Skill` est interdit, et qui le reste) répondraient « je ne sais pas
+  faire » devant un mode d'emploi qui existe. Le dossier se déplace par `HAIKODEV_COMPETENCES`.
+  Verrouillé par `server/src/test/competences.test.ts` et `scripts/verif-competences.mjs`.
 - **Un compte de moteur se connecte DEPUIS LES RÉGLAGES, jamais depuis un terminal**
   (`shared/src/connexion-compte.ts` pour les règles, `server/src/connexion-compte.ts` pour le
   processus). L'onglet « Comptes » ne faisait que lire : un jeton mort ne se voyait nulle part et se
