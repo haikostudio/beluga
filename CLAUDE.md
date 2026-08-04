@@ -154,6 +154,13 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
   une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
   Verrouillé par `server/src/test/outils-codex.test.ts`.
+- **Le déroulé de l'agent est décidé par HaikoDev, pas par le moteur, et il est le MÊME pour
+  Codex et pour Claude.** Les consignes de rôle (`rolePrompt`, `server/src/runtime.ts`) et le
+  gabarit de réponse (`wrapPrompt`, `shared/src/templates.ts`) sont uniques ; seul le NOM de
+  l'outil de liste de tâches change d'un moteur à l'autre (Claude : `TaskCreate`/`TaskUpdate` ;
+  Codex : `update_plan`), injecté par `rolePrompt` selon `agent.run.engine`. On nomme à chaque
+  moteur SON seul outil — jamais le menu des deux, qui laisserait le modèle choisir. Verrouillé
+  par `server/src/test/deroule-uniforme.test.ts`.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.
