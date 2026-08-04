@@ -5,6 +5,8 @@ import {
   COLUMN_LABELS,
   Card,
   ColumnKey,
+  RefusDeLot,
+  bilanDeLot,
   canMove,
   cleColonneTableau,
   colonneAReprendre,
@@ -36,23 +38,25 @@ type ActionDeLot = {
   /** Le bouton de confirmation, suivi du nombre de cartes cochées. */
   verbe: string;
   cible: ColumnKey;
+  /** Le participe passé féminin, pour le compte rendu : « 2 cartes lancées ». */
+  participe: string;
 };
 
 const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
   // carte : passer en « Validé ». Rien n'est lancé — l'ordonnanceur décide.
-  todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', cible: 'validated' },
+  todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', cible: 'validated', participe: 'validée' },
   // Déposer une carte dans « En cours » VAUT le clic sur « Lancer maintenant » :
   // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
   // carte et le serveur passe par `startCard` — portes dures comprises. Une
   // carte refusée revient à sa colonne avec sa raison, et le lot continue.
-  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running' },
+  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running', participe: 'lancée' },
   // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
-  done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy' },
+  done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy', participe: 'déployée' },
   // Dernière colonne du parcours, où le ménage se fait en lot.
-  to_deploy: { libelle: 'Tout archiver', icone: Archive, verbe: 'Archiver', cible: 'archived' },
+  to_deploy: { libelle: 'Tout archiver', icone: Archive, verbe: 'Archiver', cible: 'archived', participe: 'archivée' },
 };
 
 export function Board({
@@ -199,19 +203,42 @@ export function Board({
   const basculer = (cardId: string) =>
     setSelection((liste) => (liste.includes(cardId) ? liste.filter((id) => id !== cardId) : [...liste, cardId]));
 
-  const appliquerLot = async (cible: ColumnKey) => {
+  const appliquerLot = async (action: ActionDeLot) => {
     setLotEnCours(true);
+    let faites = 0;
+    const refusees: RefusDeLot[] = [];
     try {
-      const snapshot = client.getSnapshot().cards;
       // Une carte après l'autre : l'archivage écrit un document de clôture, la
       // validation déclenche un chiffrage — huit demandes lancées ensemble se
       // marcheraient dessus.
       for (const id of selection) {
-        const card = snapshot[id];
-        if (card) await client.moveCard(card, cible);
+        /*
+         * L'état est relu à CHAQUE tour de boucle : la carte précédente vient
+         * peut-être de changer de colonne, et un instantané pris avant le
+         * premier envoi renverrait des copies périmées.
+         */
+        const card = client.getSnapshot().cards[id];
+        if (!card) continue;
+        /*
+         * Un refus n'arrête PAS le lot : « Tout lancer » sur un projet où un
+         * agent travaille déjà voit toutes les cartes suivantes refusées, et
+         * chacune doit être tentée pour recevoir sa raison. Le `catch` couvre
+         * l'imprévu (réseau coupé en pleine boucle) : là encore, on continue.
+         */
+        try {
+          const issue = await client.moveCard(card, action.cible, { silencieux: true });
+          if (issue.ok) faites += 1;
+          else refusees.push({ titre: card.title, raison: issue.error });
+        } catch (err: any) {
+          refusees.push({ titre: card.title, raison: err?.message });
+        }
       }
-      fermerLot();
     } finally {
+      // Le compte rendu part même si quelque chose a cassé en route : un lot
+      // silencieux est exactement ce qu'on corrige ici.
+      const bilan = bilanDeLot(action.participe, faites, refusees);
+      client.pushToast(bilan.niveau, bilan.texte);
+      fermerLot();
       setLotEnCours(false);
     }
   };
@@ -382,7 +409,7 @@ export function Board({
                       size="sm"
                       className="flex-1"
                       disabled={!selection.length || lotEnCours}
-                      onClick={() => appliquerLot(action.cible)}
+                      onClick={() => appliquerLot(action)}
                     >
                       {lotEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                       {action.verbe} ({selection.length})

@@ -472,15 +472,40 @@ class Client {
     this.send({ type: 'prefs.set', key: CLE_PROJET_ACTIF, value: id });
   }
 
-  /** Optimisme contrôlé : on affiche tout de suite, puis on réconcilie. */
-  async moveCard(card: Card, column: Card['column']): Promise<void> {
-    const previous = card;
-    this.set((state) => ({ cards: { ...state.cards, [card.id]: { ...card, column } } }));
+  /**
+   * Optimisme contrôlé : on affiche tout de suite, puis on réconcilie.
+   *
+   * On ne remet JAMAIS en place la carte telle qu'on l'avait au départ : entre
+   * l'envoi et le refus, le serveur a eu le temps d'écrire la raison de
+   * l'attente sur la carte (`waitingReason`) et de nous la diffuser. Restaurer
+   * la vieille copie l'effaçait aussitôt — la carte revenait à sa colonne sans
+   * un mot. On ne rend donc que la COLONNE, sur la version la plus fraîche.
+   *
+   * Le résultat est RENDU à l'appelant : un lot en a besoin pour continuer avec
+   * les cartes suivantes et faire son compte. `silencieux` lui laisse dire les
+   * refus à sa façon, en une seule fois, au lieu d'empiler une bulle par carte.
+   */
+  async moveCard(
+    card: Card,
+    column: Card['column'],
+    options: { silencieux?: boolean } = {},
+  ): Promise<{ ok: boolean; error?: string }> {
+    const colonneDeDepart = (this.state.cards[card.id] ?? card).column;
+    this.set((state) => ({
+      cards: { ...state.cards, [card.id]: { ...(state.cards[card.id] ?? card), column } },
+    }));
     try {
       await this.call({ type: 'card.move', id: card.id, column });
+      return { ok: true };
     } catch (err: any) {
-      this.set((state) => ({ cards: { ...state.cards, [card.id]: previous } }));
-      this.pushToast('error', err?.message ?? 'déplacement refusé');
+      const raison = err?.message ?? 'déplacement refusé';
+      this.set((state) => {
+        const fraiche = state.cards[card.id];
+        if (!fraiche) return {};
+        return { cards: { ...state.cards, [card.id]: { ...fraiche, column: colonneDeDepart } } };
+      });
+      if (!options.silencieux) this.pushToast('error', raison, card.id);
+      return { ok: false, error: raison };
     }
   }
 }

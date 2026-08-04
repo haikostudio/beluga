@@ -333,6 +333,17 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   comprises — et une carte refusée revient à « Planifié » avec sa raison pendant que le lot continue.
   Ajouter une colonne, c'est ajouter une ligne à cette liste — jamais un second mécanisme. Vérifié par
   `scripts/verif-lot-a-faire.mjs`, `scripts/verif-lot-termine.mjs` et `scripts/verif-lot-planifie.mjs`.
+- **Un lot va jusqu'à la DERNIÈRE carte et rend des comptes** (`bilanDeLot`,
+  `shared/src/lot-colonne.ts`). Chaque carte est tentée dans son propre `try` : un refus — le plus
+  courant, `porteDuDossier` quand un agent travaille déjà dans le dossier — n'arrête pas les
+  suivantes, qui doivent toutes recevoir leur `waitingReason`. Le lot appelle `client.moveCard` en
+  mode `silencieux` (pas une bulle par carte) et publie UN compte rendu : combien de cartes
+  déplacées, combien en attente, et chaque refusée NOMMÉE avec sa raison (trois au plus, le reste
+  annoncé). Rien passé = message rouge, lot partiel = orange. Le pied se referme dans tous les cas.
+  Corollaire côté client : **la retombée optimiste ne remet JAMAIS la vieille copie de la carte** —
+  le serveur vient d'y écrire la raison de l'attente, on ne rend que la COLONNE sur la version la
+  plus fraîche, sinon la carte revient sans un mot. Verrouillé par
+  `server/src/test/lot-colonne.test.ts` et `scripts/verif-lot-planifie.mjs`.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier

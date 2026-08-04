@@ -104,7 +104,9 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
                 <Info className="h-3 w-3" />
               )}
             </span>
-            <span className="min-w-0 flex-1 leading-snug">{toast.text}</span>
+            {/* Un compte rendu de lot nomme ses cartes ligne à ligne : les
+                retours à la ligne doivent tenir. */}
+            <span className="min-w-0 flex-1 whitespace-pre-line leading-snug">{toast.text}</span>
             <button onClick={() => client.dismissToast(toast.id)} className="shrink-0 opacity-60 hover:opacity-100">
               <X className="h-2.5 w-2.5" />
             </button>

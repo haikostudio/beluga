@@ -14,7 +14,9 @@
  *
  * Le plafond d'agents est mis à ZÉRO : aucun quota n'est dépensé, et c'est
  * justement le REFUS qu'on veut voir — chaque carte revient à « Planifié » avec
- * sa raison, et le lot continue avec les suivantes. Le lancement RÉUSSI n'est
+ * sa raison, le lot continue avec les suivantes JUSQU'À LA DERNIÈRE, et un
+ * compte rendu dit combien sont parties, combien attendent et pourquoi. Le
+ * lancement RÉUSSI n'est
  * pas rejoué ici (il dépenserait un vrai quota) : il est verrouillé autrement,
  * le lot n'ayant aucun chemin à lui — il rejoue `client.moveCard`, déjà couvert
  * par `scripts/verif-glissement-lancement.mjs` et par les règles pures de
@@ -167,6 +169,39 @@ function colonnesEnBase() {
   const lignes = db.prepare('SELECT title, column_key FROM cards').all();
   db.close();
   return Object.fromEntries(lignes.map((l) => [l.title, l.column_key]));
+}
+
+/**
+ * La raison d'attente écrite par le serveur sur chaque carte : titre → raison.
+ * C'est la PREUVE qu'une carte a été tentée — une carte que la boucle n'aurait
+ * pas atteinte n'en porterait aucune.
+ */
+function raisonsEnBase() {
+  const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
+  const lignes = db.prepare('SELECT title, data FROM cards').all();
+  db.close();
+  return Object.fromEntries(
+    lignes.map((l) => {
+      let raison = '';
+      try {
+        raison = JSON.parse(l.data)?.scheduling?.waitingReason ?? '';
+      } catch {
+        /* carte illisible : pas de raison */
+      }
+      return [l.title, raison];
+    }),
+  );
+}
+
+/** Efface les raisons d'attente : on veut voir celles du lot suivant, pas les vieilles. */
+function effacerLesRaisons() {
+  const db = new Database(path.join(DATA, 'haikodev.db'));
+  for (const ligne of db.prepare('SELECT id, data FROM cards').all()) {
+    const carte = JSON.parse(ligne.data);
+    carte.scheduling = { ...(carte.scheduling ?? {}), waitingReason: undefined };
+    db.prepare('UPDATE cards SET data = ? WHERE id = ?').run(JSON.stringify(carte), ligne.id);
+  }
+  db.close();
 }
 
 /*
@@ -367,6 +402,62 @@ async function main() {
     (texte.match(/(Plafond atteint[^\n]*|Quota épuisé[^\n]*|[^\n]*impossible[^\n]*)/) ?? [''])[0].slice(0, 90),
   );
   await page.screenshot({ path: path.join(TMP, 'lot-refuse.png') });
+
+  /* -------- Le lot va jusqu'à la DERNIÈRE carte, et fait son compte -------- */
+
+  /*
+   * Le vrai piège du départ : la première carte refusée arrêtait la boucle, la
+   * sélection restait ouverte et AUCUN mot n'apparaissait. On recommence donc
+   * avec les TROIS cartes cochées, sur un tableau dont les raisons d'attente ont
+   * été effacées : chaque carte doit en récupérer une — c'est la preuve qu'elle
+   * a été tentée —, et le compte rendu doit annoncer 0 lancée / 3 en attente.
+   *
+   * Le refus est ici celui du plafond d'agents ; celui du dossier déjà occupé
+   * (`porteDuDossier`) emprunte le MÊME chemin (`refus`, `startCard`) mais
+   * demanderait un agent réellement vivant, donc un vrai quota : sa formulation
+   * est verrouillée par `server/src/test/branche-de-carte.test.ts`.
+   */
+  effacerLesRaisons();
+  await cliquerPied(page, 'Tout lancer');
+  await page.waitForTimeout(800);
+  const toutes = await pied(page);
+  noter(
+    'le lot se rouvre avec les trois cartes cochées',
+    toutes.some((t) => /Lancer \(3\)/.test(t)),
+    toutes.join(' | '),
+  );
+
+  await cliquerPied(page, 'Lancer');
+  await page.waitForTimeout(8000);
+
+  const raisons = raisonsEnBase();
+  noter(
+    'la boucle est allée jusqu’à la dernière : les trois cartes portent leur raison',
+    TITRES.every((t) => (raisons[t] ?? '').length > 10),
+    JSON.stringify(Object.fromEntries(TITRES.map((t) => [t, (raisons[t] ?? '').slice(0, 40)]))),
+  );
+
+  const finales = colonnesEnBase();
+  noter(
+    'les trois cartes sont restées dans « Planifié »',
+    TITRES.every((t) => finales[t] === 'planned'),
+    JSON.stringify(finales),
+  );
+  noter('toujours aucun agent créé', agentsDeCarte() === 0, `${agentsDeCarte()} agent(s) de carte`);
+
+  const bilan = await page.locator('body').innerText();
+  noter(
+    'le compte rendu annonce 0 lancée et 3 en attente',
+    /Aucune carte lancée\s*—\s*3 en attente/.test(bilan),
+    (bilan.match(/Aucune carte lancée[^\n]*/) ?? [''])[0],
+  );
+  noter(
+    'le compte rendu NOMME chaque carte refusée',
+    TITRES.every((t) => bilan.includes(`« ${t} »`)),
+    TITRES.filter((t) => !bilan.includes(`« ${t} »`)).join(' | ') || 'les trois sont nommées',
+  );
+  noter('la sélection s’est refermée après le lot', (await cases(page)).length === 0);
+  await page.screenshot({ path: path.join(TMP, 'lot-compte-rendu.png') });
 
   /* -------- Les pieds déjà en place n'ont pas bougé -------- */
 
