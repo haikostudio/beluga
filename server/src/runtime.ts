@@ -5,6 +5,7 @@ import {
   Agent,
   AgentRole,
   Ampleur,
+  CONSIGNE_DESCRIPTION_CARTE,
   Card,
   EngineId,
   MEMORY_STEP_ID,
@@ -744,6 +745,8 @@ TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS UNE CRÉATION DE CARTE :
 
 NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche déjà, entière, dans la conversation. Une phrase courte suffit.
 4. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
+
+${CONSIGNE_DESCRIPTION_CARTE}
 
 Tu peux lire le code, chercher, écrire un document (write_document) et préparer une archive (make_archive).
 

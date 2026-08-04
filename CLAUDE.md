@@ -54,6 +54,7 @@ node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
+node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
 
@@ -125,6 +126,15 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   suit ensuite le parcours habituel. Seule exception : le code enregistré par un agent SANS carte
   fabrique tout seul sa fiche dans « À déployer » — le travail est déjà fait. Verrouillé par
   `server/src/test/carte-du-chef-attend-la-validation.test.ts`.
+- **Une carte proposée porte une VRAIE description, ou elle n'est pas affichée**
+  (`shared/src/description-carte.ts`). Quatre parties annoncées — Constat (avec au moins un repère
+  concret vu dans le projet : fichier, commande, libellé, règle existante), Attendu, Limites,
+  Vérification — et entre 320 et 2400 signes. `board_create_card` et `propose_task` passent tous
+  deux par `jugerDescription` : une description vide, bâclée, sans constat, sans repère ou en pavé
+  est REFUSÉE, rendue au moteur avec le gabarit, et le chef recommence. Les quatre champs séparés
+  (`constat`, `attendu`, `limites`, `verification`) sont mis en forme par HaikoDev. La consigne
+  (`CONSIGNE_DESCRIPTION_CARTE`) est unique et ne nomme aucun outil propre à un moteur. Verrouillé
+  par `server/src/test/description-carte.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au
