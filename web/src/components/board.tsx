@@ -42,6 +42,15 @@ type ActionDeLot = {
   cible: ColumnKey;
   /** Le participe passé féminin, pour le compte rendu : « 2 cartes lancées ». */
   participe: string;
+  /**
+   * Les cartes partent-elles ENSEMBLE ? Par défaut, un lot les traite l'une
+   * après l'autre (l'archivage écrit un document, la validation chiffre — huit
+   * demandes d'un coup se marcheraient dessus). « Tout lancer » fait exception :
+   * chaque carte lancée obtient SA copie de travail et sa branche, donc rien ne
+   * les empêche de démarrer en parallèle, et l'utilisateur voit les robots
+   * s'allumer ensemble au lieu d'attendre en file.
+   */
+  parallele?: boolean;
 };
 
 const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
@@ -52,7 +61,7 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
   // carte et le serveur passe par `startCard` — portes dures comprises. Une
   // carte refusée revient à sa colonne avec sa raison, et le lot continue.
-  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running', participe: 'lancée' },
+  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running', participe: 'lancée', parallele: true },
   // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
@@ -205,34 +214,52 @@ export function Board({
   const basculer = (cardId: string) =>
     setSelection((liste) => (liste.includes(cardId) ? liste.filter((id) => id !== cardId) : [...liste, cardId]));
 
+  /*
+   * Une carte tentée par le lot : on rejoue le MÊME appel que le bouton du
+   * tiroir. Le résultat est mis en compte par l'appelant. Un refus n'arrête
+   * jamais le lot (« Tout lancer » sur un projet occupé refuse les suivantes,
+   * et chacune doit être tentée pour recevoir sa raison) ; le `catch` couvre
+   * l'imprévu (réseau coupé).
+   */
+  const tenterUneCarte = async (id: string, cible: ColumnKey): Promise<'faite' | RefusDeLot | null> => {
+    const card = client.getSnapshot().cards[id];
+    if (!card) return null;
+    try {
+      const issue = await client.moveCard(card, cible, { silencieux: true });
+      return issue.ok ? 'faite' : { titre: card.title, raison: issue.error };
+    } catch (err: any) {
+      return { titre: card.title, raison: err?.message };
+    }
+  };
+
   const appliquerLot = async (action: ActionDeLot) => {
     setLotEnCours(true);
     let faites = 0;
     const refusees: RefusDeLot[] = [];
+    const compter = (issue: 'faite' | RefusDeLot | null) => {
+      if (issue === 'faite') faites += 1;
+      else if (issue) refusees.push(issue);
+    };
     try {
-      // Une carte après l'autre : l'archivage écrit un document de clôture, la
-      // validation déclenche un chiffrage — huit demandes lancées ensemble se
-      // marcheraient dessus.
-      for (const id of selection) {
+      if (action.parallele) {
         /*
-         * L'état est relu à CHAQUE tour de boucle : la carte précédente vient
-         * peut-être de changer de colonne, et un instantané pris avant le
-         * premier envoi renverrait des copies périmées.
+         * « Tout lancer » : les cartes partent ENSEMBLE. Chaque carte lancée a
+         * sa propre copie de travail et sa branche, donc rien ne les enchaîne —
+         * les appels partent d'un coup et l'utilisateur voit les robots
+         * s'allumer en même temps. L'instantané est lu une fois, en tête : ces
+         * cartes sont indépendantes, aucune ne change la colonne d'une autre.
          */
-        const card = client.getSnapshot().cards[id];
-        if (!card) continue;
+        const issues = await Promise.all(selection.map((id) => tenterUneCarte(id, action.cible)));
+        issues.forEach(compter);
+      } else {
         /*
-         * Un refus n'arrête PAS le lot : « Tout lancer » sur un projet où un
-         * agent travaille déjà voit toutes les cartes suivantes refusées, et
-         * chacune doit être tentée pour recevoir sa raison. Le `catch` couvre
-         * l'imprévu (réseau coupé en pleine boucle) : là encore, on continue.
+         * Les autres pieds restent une carte après l'autre : l'archivage écrit
+         * un document de clôture, la validation déclenche un chiffrage — huit
+         * demandes d'un coup se marcheraient dessus. L'état est relu à CHAQUE
+         * tour de boucle, la carte précédente ayant pu changer de colonne.
          */
-        try {
-          const issue = await client.moveCard(card, action.cible, { silencieux: true });
-          if (issue.ok) faites += 1;
-          else refusees.push({ titre: card.title, raison: issue.error });
-        } catch (err: any) {
-          refusees.push({ titre: card.title, raison: err?.message });
+        for (const id of selection) {
+          compter(await tenterUneCarte(id, action.cible));
         }
       }
     } finally {
