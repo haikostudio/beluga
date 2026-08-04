@@ -269,6 +269,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
   z.object({ type: z.literal('voice.list') }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
+  /** Tout ce que montre la page « Tableau de bord » : conso par projet, par jour, par carte. */
+  z.object({ type: z.literal('stats.dashboard') }),
   z.object({ type: z.literal('memory.get'), projectId: z.string() }),
 ]);
 export type ClientCommand = z.infer<typeof ClientCommand>;

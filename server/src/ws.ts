@@ -1047,6 +1047,42 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         deployable: cmd.projectId ? deployableCards(cmd.projectId).length : undefined,
       };
 
+    case 'stats.dashboard': {
+      // Le titre, le projet et la colonne d'une carte vivent dans son JSON, pas
+      // dans la table `usage` : on raccroche la conso par carte aux cartes de
+      // tous les projets (archivés compris — une conso passée garde son nom).
+      const cartes = new Map<string, { title: string; projectName?: string; column: string; quotaShare?: number }>();
+      for (const project of store.listProjects(true)) {
+        for (const card of store.listCards(project.id)) {
+          cartes.set(card.id, {
+            title: card.title,
+            projectName: project.name,
+            column: card.column,
+            // La part de quota réelle si elle a été mesurée, sinon l'estimation.
+            quotaShare: card.consumption?.quotaShare ?? card.estimate?.quotaShare,
+          });
+        }
+      }
+      const byCard = store.usageByCard().map((ligne) => {
+        const carte = cartes.get(ligne.cardId);
+        return {
+          cardId: ligne.cardId,
+          title: carte?.title ?? 'Carte retirée',
+          projectName: carte?.projectName,
+          column: carte?.column,
+          quotaShare: carte?.quotaShare,
+          tokens: ligne.tokens,
+          seconds: ligne.seconds,
+          turns: ligne.turns,
+        };
+      });
+      return {
+        byProject: store.usageByProject(),
+        byDay: store.usageByDay(30),
+        byCard,
+      };
+    }
+
     case 'memory.get': {
       const project = store.getProject(cmd.projectId);
       if (!project) throw new Error('projet introuvable');

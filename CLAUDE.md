@@ -54,6 +54,7 @@ npm test                            # tous les tests du démon (compilés dans s
 node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
+node scripts/verif-tableau-de-bord.mjs # la page « Tableau de bord » (serveur de développement ; la commande `stats.dashboard` est simulée côté navigateur, le démon en service ne la connaissant pas encore)
 node scripts/verif-prevision-quota.mjs # la prévision d'épuisement, dans le volet des quotas
 node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, sur écran de téléphone
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation

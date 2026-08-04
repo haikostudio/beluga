@@ -4,6 +4,7 @@ import { TooltipProvider, Button, EmptyState, SidePanel } from '@/components/ui'
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
 import { Board } from '@/components/board';
+import { Dashboard } from '@/components/dashboard';
 import { RightPanel } from '@/components/right-panel';
 import { CardPanel } from '@/components/card-panel';
 import { AgentDock } from '@/components/agent-dock';
@@ -46,6 +47,10 @@ export function App() {
   const [openCardId, setOpenCardId] = React.useState<string | null>(null);
   const [openAgentId, setOpenAgentId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  // La page « Tableau de bord » s'ouvre par-dessus le tableau, dans le
+  // conteneur central : le Kanban et le volet de droite sont alors masqués, la
+  // colonne de gauche reste en place.
+  const [dashboardOpen, setDashboardOpen] = React.useState(false);
   const [rightOpen, setRightOpen] = React.useState(() => window.innerWidth >= 1100);
   /*
    * L'onglet du bas est retenu en base : on rouvre l'application là où on
@@ -315,6 +320,13 @@ export function App() {
   const activeProject = state.projects.find((project) => project.id === state.activeProjectId);
   const openAgent = openAgentId ? state.agents[openAgentId] : null;
 
+  // Ouvrir le tableau de bord : sur téléphone il vit dans le conteneur central,
+  // donc on revient d'abord sur l'onglet « Tableau » pour qu'il soit visible.
+  const ouvrirTableauDeBord = () => {
+    setDashboardOpen(true);
+    setMobileView('board');
+  };
+
   if (!state.connected && !state.projects.length) {
     return (
       <div className="grid h-full place-items-center bg-bg">
@@ -373,7 +385,12 @@ export function App() {
               téléphone elle vit dans le panneau latéral, plus bas. */}
           <div className="hidden sm:flex">
             <Filet zone="Liste des projets">
-              <Sidebar onOpenAgent={setOpenAgentId} width={gauche.width} />
+              <Sidebar
+                onOpenAgent={setOpenAgentId}
+                width={gauche.width}
+                onOpenDashboard={ouvrirTableauDeBord}
+                dashboardActive={dashboardOpen}
+              />
             </Filet>
           </div>
           <ResizeHandle
@@ -383,7 +400,11 @@ export function App() {
           />
 
           <main className={cn('flex min-h-0 min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}>
-            {activeProject ? (
+            {dashboardOpen ? (
+              <Filet zone="Tableau de bord">
+                <Dashboard onClose={() => setDashboardOpen(false)} />
+              </Filet>
+            ) : activeProject ? (
               <Filet zone="Tableau">
                 <Board projectId={activeProject.id} onOpenCard={setOpenCardId} />
               </Filet>
@@ -396,7 +417,7 @@ export function App() {
             )}
           </main>
 
-          {activeProject && rightOpen ? (
+          {activeProject && rightOpen && !dashboardOpen ? (
             <>
               <ResizeHandle
                 className="hidden lg:block"
@@ -428,7 +449,12 @@ export function App() {
             choix qu'on fait au passage, pas une destination. */}
         <SidePanel open={projetsOuverts} onClose={() => setProjetsOuverts(false)} title="Projets">
           <Filet zone="Liste des projets">
-            <Sidebar onOpenAgent={setOpenAgentId} onChoose={() => setProjetsOuverts(false)} />
+            <Sidebar
+              onOpenAgent={setOpenAgentId}
+              onChoose={() => setProjetsOuverts(false)}
+              onOpenDashboard={ouvrirTableauDeBord}
+              dashboardActive={dashboardOpen}
+            />
           </Filet>
         </SidePanel>
 
@@ -442,16 +468,22 @@ export function App() {
           <Button
             variant="ghost"
             size="sm"
-            className={cn('w-full', mobileView === 'board' && 'bg-raised text-text')}
-            onClick={() => setMobileView('board')}
+            className={cn('w-full', mobileView === 'board' && !dashboardOpen && 'bg-raised text-text')}
+            onClick={() => {
+              setDashboardOpen(false);
+              setMobileView('board');
+            }}
           >
             <LayoutGrid className="h-3.5 w-3.5" /> Tableau
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className={cn('w-full', mobileView === 'chat' && 'bg-raised text-text')}
-            onClick={() => setMobileView('chat')}
+            className={cn('w-full', mobileView === 'chat' && !dashboardOpen && 'bg-raised text-text')}
+            onClick={() => {
+              setDashboardOpen(false);
+              setMobileView('chat');
+            }}
           >
             <MessageSquare className="h-3.5 w-3.5" /> Chef
             {/* Sur téléphone, la conversation est derrière ce bouton : sans le

@@ -1237,6 +1237,37 @@ export function usageByMonth(): { month: string; tokens: number; seconds: number
     .all() as any;
 }
 
+/**
+ * La consommation JOUR PAR JOUR, tous moteurs confondus, pour la courbe du
+ * tableau de bord. Un jour par ligne (heure locale du serveur), les plus
+ * récents d'abord ; on rend au plus `days` jours. Le tri final revient à la
+ * page, qui dessine du plus ancien au plus récent.
+ */
+export function usageByDay(days = 30): { day: string; tokens: number; seconds: number; tasks: number }[] {
+  return getDb()
+    .prepare(
+      `SELECT strftime('%Y-%m-%d', created_at/1000, 'unixepoch', 'localtime') AS day,
+              SUM(tokens) AS tokens, SUM(seconds) AS seconds, COUNT(DISTINCT card_id) AS tasks
+       FROM usage GROUP BY day ORDER BY day DESC LIMIT ?`,
+    )
+    .all(Math.max(1, Math.round(days))) as any;
+}
+
+/**
+ * La consommation par CARTE : une ligne par carte ayant vraiment dépensé du
+ * quota (jetons, secondes machine, nombre de tours). Le titre de la carte se
+ * raccroche côté appelant — ici on ne connaît que les identifiants.
+ */
+export function usageByCard(): { cardId: string; tokens: number; seconds: number; turns: number }[] {
+  return getDb()
+    .prepare(
+      `SELECT card_id AS cardId, SUM(tokens) AS tokens, SUM(seconds) AS seconds, COUNT(*) AS turns
+       FROM usage WHERE card_id IS NOT NULL
+       GROUP BY card_id ORDER BY SUM(tokens) DESC`,
+    )
+    .all() as any;
+}
+
 /** Consommation mémoire moyenne mesurée d'un agent — sert au calcul des places libres (PLAN §27). */
 export function averageAgentMemMb(): number | null {
   const row = getDb()
