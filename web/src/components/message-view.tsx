@@ -11,7 +11,15 @@ import {
   Paperclip,
   X,
 } from 'lucide-react';
-import { Attachment, MEMORY_STEP_ID, Message, heureExacte } from '@haikodev/shared';
+import {
+  Attachment,
+  MEMORY_STEP_ID,
+  Message,
+  heureExacte,
+  reponsePrete,
+  texteDeReponse,
+  triImages,
+} from '@haikodev/shared';
 import { Badge, Button, Textarea } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
@@ -155,7 +163,13 @@ export function MessageView({
       {message.questions.length ? (
         <div className="mt-2 space-y-2">
           {message.questions.map((question) => (
-            <QuestionCard key={question.id} messageId={message.id} question={question} />
+            <QuestionCard
+              key={question.id}
+              messageId={message.id}
+              agentId={message.agentId}
+              projectId={projectId}
+              question={question}
+            />
           ))}
         </div>
       ) : null}
@@ -281,10 +295,26 @@ function PiecesJointes({ ids, projectId }: { ids: string[]; projectId?: string }
  * unique, choix multiple ou texte libre — et toujours la possibilité d'ajouter
  * une précision.
  */
-function QuestionCard({ messageId, question }: { messageId: string; question: Message['questions'][number] }) {
+function QuestionCard({
+  messageId,
+  agentId,
+  projectId,
+  question,
+}: {
+  messageId: string;
+  /** L'agent qui a posé la question : les images lui sont rattachées. */
+  agentId?: string;
+  projectId?: string;
+  question: Message['questions'][number];
+}) {
   const [choisis, setChoisis] = React.useState<string[]>([]);
   const [complement, setComplement] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  /** Les images jointes à la réponse, avant l'envoi. */
+  const [images, setImages] = React.useState<Attachment[]>([]);
+  const [apercu, setApercu] = React.useState<Attachment | null>(null);
+  const [envoiFichier, setEnvoiFichier] = React.useState(false);
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   if (question.answer) {
     return (
@@ -294,17 +324,67 @@ function QuestionCard({ messageId, question }: { messageId: string; question: Me
           <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />
           {question.answer}
         </p>
+        {/* La réponse déjà donnée montre ses images, à côté de son texte. */}
+        {question.answerAttachments?.length ? (
+          <PiecesJointes ids={question.answerAttachments} projectId={projectId} />
+        ) : null}
       </div>
     );
   }
 
+  /**
+   * Joindre des images à la réponse. On réutilise le dépôt de fichiers de la
+   * barre d'écriture, à l'identique — seul le tri change : ici, des images et
+   * rien d'autre, et un fichier refusé le dit au lieu de disparaître.
+   */
+  const joindre = async (fichiers: FileList | File[]) => {
+    const { gardees, refusees } = triImages(
+      Array.from(fichiers).map((file) => ({ file, name: file.name, mime: file.type })),
+    );
+    if (refusees.length) {
+      client.pushToast('warning', 'Seules les images peuvent être jointes à une réponse.');
+    }
+    if (!gardees.length) return;
+    setEnvoiFichier(true);
+    try {
+      for (const { file } of gardees) {
+        const response = await fetch(
+          `/api/upload?project=${encodeURIComponent(projectId ?? '')}${agentId ? `&agent=${agentId}` : ''}`,
+          {
+            method: 'POST',
+            headers: {
+              'content-type': file.type || 'application/octet-stream',
+              'x-file-name': encodeURIComponent(file.name),
+            },
+            body: file,
+          },
+        );
+        const data = await response.json();
+        const jointe: Attachment | undefined = data.attachment;
+        if (!jointe) continue;
+        // La même image envoyée deux fois ne s'ajoute qu'une fois.
+        setImages((current) => (current.some((a) => a.id === jointe.id) ? current : [...current, jointe]));
+      }
+    } catch {
+      client.pushToast('error', "Envoi de l'image impossible");
+    } finally {
+      setEnvoiFichier(false);
+    }
+  };
+
   const envoyer = async () => {
     const libelles = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
-    const reponse = [libelles.join(', '), complement.trim()].filter(Boolean).join(' — ');
+    const reponse = texteDeReponse(libelles, complement, images.length);
     if (!reponse) return;
     setBusy(true);
     try {
-      await client.call({ type: 'question.answer', messageId, questionId: question.id, answer: reponse });
+      await client.call({
+        type: 'question.answer',
+        messageId,
+        questionId: question.id,
+        answer: reponse,
+        attachments: images.map((a) => a.id),
+      });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'réponse impossible');
     } finally {
@@ -321,10 +401,24 @@ function QuestionCard({ messageId, question }: { messageId: string; question: Me
         : [id],
     );
 
-  const pret = choisis.length > 0 || complement.trim().length > 0;
+  const libellesChoisis = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
+  const pret = reponsePrete(libellesChoisis, complement, images.length);
 
   return (
-    <div className="rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2">
+    <div
+      className="rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2"
+      /* Une image lâchée n'importe où sur le bloc de la question se joint à la
+         réponse : viser le champ au pixel près serait une contrainte inutile. */
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        const fichiers = Array.from(event.dataTransfer.files);
+        if (!fichiers.length) return;
+        event.preventDefault();
+        void joindre(fichiers);
+      }}
+    >
       <p className="flex items-start gap-1.5 text-[14px] font-medium text-text">
         <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
         {question.question}
@@ -365,15 +459,75 @@ function QuestionCard({ messageId, question }: { messageId: string; question: Me
       <Textarea
         value={complement}
         onChange={(event) => setComplement(event.target.value)}
+        onPaste={(event) => {
+          // Une image collée depuis le presse-papiers se joint sans passer par
+          // un fichier : c'est le geste le plus courant après une capture.
+          const fichiers = Array.from(event.clipboardData.files);
+          if (!fichiers.length) return;
+          event.preventDefault();
+          void joindre(fichiers);
+        }}
         rows={2}
         placeholder={question.options.length ? 'Précision (facultative)…' : 'Votre réponse…'}
         className="mt-2"
       />
 
-      <Button variant="default" size="sm" className="mt-2" disabled={!pret || busy} onClick={envoyer}>
-        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-        Répondre
-      </Button>
+      {/* Les images jointes en attente : la croix retire celle qu'on ne veut
+          plus, et rien ne part avant le clic sur « Répondre ». */}
+      {images.length ? (
+        <div className="mt-1.5 flex flex-wrap gap-1.5" data-images-reponse>
+          {images.map((image) => (
+            <div key={image.id} className="relative">
+              <AttachmentThumb item={image} compact onOpen={() => setApercu(image)} />
+              <button
+                type="button"
+                title="Retirer cette image"
+                aria-label={`Retirer l'image ${image.name}`}
+                onClick={() => setImages((liste) => liste.filter((a) => a.id !== image.id))}
+                className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-faint hover:border-danger/40 hover:text-danger"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
+
+      <div className="mt-2 flex items-center gap-1.5">
+        <Button variant="default" size="sm" disabled={!pret || busy} onClick={envoyer}>
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          Répondre
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          data-champ-image
+          onChange={(event) => {
+            if (event.target.files?.length) void joindre(event.target.files);
+            event.target.value = '';
+          }}
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Joindre une image"
+          aria-label="Joindre une image à la réponse"
+          disabled={envoiFichier}
+          onClick={() => fileRef.current?.click()}
+        >
+          {envoiFichier ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Paperclip className="h-3 w-3" />
+          )}
+          Image
+        </Button>
+      </div>
     </div>
   );
 }

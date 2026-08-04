@@ -11,7 +11,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { Attachment, FileNode } from '@haikodev/shared';
+import { Attachment, FileNode, decisionsHorsCarte } from '@haikodev/shared';
 import {
   Badge,
   Button,
@@ -30,6 +30,7 @@ import {
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
 import { Chat } from '@/components/chat';
+import { RepereAttention } from '@/components/repere-attention';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, relativeTime } from '@/lib/utils';
@@ -44,13 +45,21 @@ export function RightPanel({ projectId }: { projectId: string }) {
     if (projectId) client.send({ type: 'agent.orchestrator', projectId });
   }, [projectId]);
 
+  /*
+   * Les décisions qui ne tiennent à aucune carte — une carte proposée, une
+   * question du chef — se prennent DANS ce fil : l'onglet le dit, sinon le
+   * chiffre de la colonne de gauche resterait sans destination.
+   */
+  const decisions = decisionsHorsCarte(state.decisions, projectId);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Tabs defaultValue="chat" className="flex min-h-0 flex-1 flex-col">
         <div className="px-2 py-1.5">
           <TabsList className="w-full">
-            <TabsTrigger value="chat" className="flex-1">
+            <TabsTrigger value="chat" className="flex-1 gap-1">
               Chef
+              <RepereAttention compte={decisions} data-attention-conversation={projectId} />
             </TabsTrigger>
             <TabsTrigger value="files" className="flex-1">
               Fichiers

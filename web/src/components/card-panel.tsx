@@ -21,6 +21,7 @@ import {
   EngineInfo,
   GesteCarte,
   ReglagesCarte,
+  decisionsParCarte,
   etatVisuelCarte,
   gesteCarte,
   motAnalyse,
@@ -46,6 +47,7 @@ import {
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
+import { RepereAttention } from '@/components/repere-attention';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -102,6 +104,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
   // Une carte de travail hors tâche n'a pas d'agent à elle : c'est la
   // conversation empruntée qui dit qu'il y a quelque chose à lire.
   const aLire = !!agent || !!card.conversationAgentId || phase !== 'aucune';
+  /* Ce que cette carte attend de vous — le même compte que son triangle sur le
+     tableau, posé ici sur l'onglet où la décision se prend. */
+  const decisions = decisionsParCarte(state.decisions)[card.id] ?? 0;
   const [onglet, setOnglet] = React.useState(aLire ? 'chat' : 'details');
 
   /*
@@ -201,7 +206,13 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
             bonne part de la largeur sur téléphone. */}
         <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-1.5 py-1">
           <TabsList className="w-full justify-start">
-            <TabsTrigger value="chat">Conversation</TabsTrigger>
+            {/* La décision se prend DANS ce fil : l'onglet porte le même
+                triangle que la carte du tableau, sinon le tiroir ouvert
+                n'apprendrait plus rien. */}
+            <TabsTrigger value="chat" className="gap-1">
+              Conversation
+              <RepereAttention compte={decisions} data-attention-carte={card.id} />
+            </TabsTrigger>
             <TabsTrigger value="details">Détails</TabsTrigger>
             <TabsTrigger value="billing">Facturation</TabsTrigger>
             <TabsTrigger value="github">GitHub</TabsTrigger>

@@ -45,7 +45,7 @@ node scripts/verif-reprise-paseo.mjs # les cartes reprises de Paseo, dans un vra
 node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, sur écran de téléphone
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
-node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu de la colonne
+node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu — et leur report sur carte / conversation
 node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
@@ -60,6 +60,7 @@ node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance,
 node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
 node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
+node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse d'une question (démon d'essai à soi)
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
@@ -185,6 +186,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   choisi et le dit. Dès que le travail est parti, tout est FIGÉ et affiche ce qui a RÉELLEMENT servi :
   les réglages de l'agent d'exécution — jamais ceux de l'analyse, qui tourne souvent ailleurs — et le
   compte qui a porté le quota. Verrouillé par `server/src/test/reglages-carte.test.ts`.
+- **On répond en IMAGES à la question d'un agent** (`shared/src/images-reponse.ts`). Le champ de
+  réponse d'une question accepte des images — bouton, collage, glisser-déposer sur le bloc — et
+  RIEN d'autre : `triImages` écarte le reste et le refus se dit. Les images s'affichent en vignettes
+  retirables sous le champ ; `texteDeReponse` les AJOUTE au choix coché et à la précision libre, sans
+  jamais les remplacer, et une image seule suffit à répondre. À la validation, elles partent avec la
+  commande `question.answer`, sont retenues sur la question (`answerAttachments`, affichées à côté de
+  la réponse) et l'agent reçoit leurs chemins par le même bloc « PIÈCES JOINTES » que le fil.
+  Verrouillé par `server/src/test/images-reponse.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au
@@ -223,6 +232,16 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   (`resumeGroupe`), jamais un compte muet. Une carte ne se signale terminée que si elle a
   RÉELLEMENT atteint « Terminé » ou « À déployer ». Verrouillé par
   `server/src/test/notification-tri.test.ts` et `scripts/verif-notifications.mjs`.
+- **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
+  (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
+  porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
+  (`signalAttention`, événement `attention`). Le même triangle orange, jamais un nouveau genre
+  d'alerte (`RepereAttention`), se pose alors sur la carte du tableau, sur l'onglet « Conversation »
+  de son tiroir, et sur l'entrée « Chef » quand aucune carte n'est en jeu. Une décision est marquée à
+  UN seul endroit : c'est ce qui garantit que le compte annoncé vaut le nombre de repères visibles —
+  jamais quatre annoncés et rien de visible. Le triangle du projet EMMÈNE à la plus ancienne décision
+  en attente. Verrouillé par `server/src/test/decision-attendue.test.ts` et
+  `scripts/verif-signal-attention.mjs`.
 - Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
   committer ses fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier
