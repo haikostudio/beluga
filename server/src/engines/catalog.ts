@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { EngineId, ModelInfo, ThinkingOption } from '@haikodev/shared';
+import { dedoublonnerModeles, EngineId, ModelInfo, ThinkingOption } from '@haikodev/shared';
 import { listAccountRecords } from '../accounts.js';
 import { log } from '../logger.js';
 
@@ -12,6 +12,37 @@ import { log } from '../logger.js';
  */
 
 const NIVEAU_SANS = { id: 'none', label: 'Sans réflexion', description: 'Réponse directe, la plus rapide' };
+
+/**
+ * Un catalogue rendu au serveur : la liste, d'où elle vient, et — quand elle
+ * vient du repli — POURQUOI le moteur n'a pas répondu. Cette raison remonte
+ * jusqu'au menu de choix du modèle : une liste de secours ne doit pas passer
+ * pour la liste complète.
+ */
+export type Catalogue = { models: ModelInfo[]; live: boolean; error?: string };
+
+const SANS_COMPTE = 'aucun compte joignable';
+
+/**
+ * La raison d'une réponse refusée, en FRANÇAIS : elle s'affiche dans le menu du
+ * modèle, donc « réponse 401 » n'apprend rien à qui n'est pas informaticien. Le
+ * message exact du moteur, lui, part au journal.
+ */
+async function raisonHttp(res: Response): Promise<string> {
+  let detail = '';
+  try {
+    const corps: any = await res.json();
+    const message = corps?.error?.message ?? corps?.message;
+    if (typeof message === 'string' && message.trim()) detail = message.trim();
+  } catch {
+    /* corps illisible : le code suffit */
+  }
+  if (detail) log.warn(`catalogue refusé (${res.status})`, detail);
+  if (res.status === 401 || res.status === 403) return 'compte refusé, il faut le reconnecter';
+  if (res.status === 429) return 'moteur momentanément saturé';
+  if (res.status >= 500) return 'moteur indisponible';
+  return `refus du moteur (réponse ${res.status})`;
+}
 
 /** Traduit les mots des moteurs dans le vocabulaire de l'interface. */
 const LIBELLES: Record<string, string> = {
@@ -102,11 +133,11 @@ function claudeTokens(): string[] {
   return [...valides, ...perimes];
 }
 
-export async function claudeCatalog(): Promise<{ models: ModelInfo[]; live: boolean }> {
+export async function claudeCatalog(): Promise<Catalogue> {
   const tokens = claudeTokens();
-  if (!tokens.length) return { models: claudeFallback(), live: false };
+  if (!tokens.length) return { models: claudeFallback(), live: false, error: SANS_COMPTE };
 
-  let dernierEchec = 'aucun compte joignable';
+  let dernierEchec = SANS_COMPTE;
   for (const token of tokens) {
     try {
       return await claudeCatalogAvec(token);
@@ -116,10 +147,10 @@ export async function claudeCatalog(): Promise<{ models: ModelInfo[]; live: bool
     }
   }
   log.warn('catalogue Claude indisponible, repli local', dernierEchec);
-  return { models: claudeFallback(), live: false };
+  return { models: claudeFallback(), live: false, error: dernierEchec };
 }
 
-async function claudeCatalogAvec(token: string): Promise<{ models: ModelInfo[]; live: boolean }> {
+async function claudeCatalogAvec(token: string): Promise<Catalogue> {
   {
     const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
       headers: {
@@ -129,7 +160,7 @@ async function claudeCatalogAvec(token: string): Promise<{ models: ModelInfo[]; 
       },
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) throw new Error(`réponse ${res.status}`);
+    if (!res.ok) throw new Error(await raisonHttp(res));
     const data: any = await res.json();
     const entries: any[] = Array.isArray(data?.data) ? data.data : [];
     if (!entries.length) throw new Error('catalogue vide');
@@ -175,7 +206,7 @@ function claudeFallback(): ModelInfo[] {
 /* ------------------------------------------------------------------ */
 
 /** Tous les jetons Codex, du compte prioritaire au dernier (même règle que Claude). */
-function codexTokens(): string[] {
+export function codexTokens(): string[] {
   const tokens: string[] = [];
   const accounts = listAccountRecords()
     .filter((a) => a.engine === 'codex')
@@ -192,11 +223,11 @@ function codexTokens(): string[] {
   return tokens;
 }
 
-export async function codexCatalog(version: string): Promise<{ models: ModelInfo[]; live: boolean }> {
+export async function codexCatalog(version: string): Promise<Catalogue> {
   const tokens = codexTokens();
-  if (!tokens.length) return { models: codexFallback(), live: false };
+  if (!tokens.length) return { models: codexFallback(), live: false, error: SANS_COMPTE };
 
-  let dernierEchec = 'aucun compte joignable';
+  let dernierEchec = SANS_COMPTE;
   for (const token of tokens) {
     try {
       return await codexCatalogAvec(version, token);
@@ -205,17 +236,17 @@ export async function codexCatalog(version: string): Promise<{ models: ModelInfo
     }
   }
   log.warn('catalogue Codex indisponible, repli local', dernierEchec);
-  return { models: codexFallback(), live: false };
+  return { models: codexFallback(), live: false, error: dernierEchec };
 }
 
-async function codexCatalogAvec(version: string, token: string): Promise<{ models: ModelInfo[]; live: boolean }> {
+export async function codexCatalogAvec(version: string, token: string): Promise<Catalogue> {
   {
     const clientVersion = (version.match(/[\d.]+/)?.[0] ?? '0.146.0').trim();
     const res = await fetch(`https://chatgpt.com/backend-api/codex/models?client_version=${clientVersion}`, {
       headers: { authorization: `Bearer ${token}`, originator: 'codex_cli_rs' },
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) throw new Error(`réponse ${res.status}`);
+    if (!res.ok) throw new Error(await raisonHttp(res));
     const data: any = await res.json();
     const entries: any[] = Array.isArray(data?.models) ? data.models : [];
     if (!entries.length) throw new Error('catalogue vide');
@@ -238,22 +269,10 @@ async function codexCatalogAvec(version: string, token: string): Promise<{ model
     // Codex n'annonce pas de date de sortie : le numéro de version fait foi.
     models.sort(byRecency);
 
-    // Le catalogue contient des entrées internes qui portent le même nom qu'un
-    // modèle proposé : on n'en garde qu'une, celle dont l'identifiant colle au nom.
-    const parNom = new Map<string, ModelInfo>();
-    for (const model of models) {
-      const existant = parNom.get(model.label);
-      if (!existant) {
-        parNom.set(model.label, model);
-        continue;
-      }
-      const colle = (m: ModelInfo) => m.id.toLowerCase().includes(m.label.toLowerCase().replace(/[^a-z0-9]/gi, ''));
-      const naturel = (m: ModelInfo) =>
-        m.label.toLowerCase().replace(/[^a-z0-9]/gi, '') === m.id.toLowerCase().replace(/[^a-z0-9]/gi, '');
-      if (naturel(model) || (colle(model) && !colle(existant))) parNom.set(model.label, model);
-    }
-
-    return { models: [...parNom.values()], live: true };
+    // Un modèle est unique par son IDENTIFIANT : deux modèles réellement
+    // différents peuvent porter le même nom affiché, et dédoublonner sur le nom
+    // en escamotait un (règle et test dans shared/src/catalogue-modeles.ts).
+    return { models: dedoublonnerModeles(models), live: true };
   }
 }
 

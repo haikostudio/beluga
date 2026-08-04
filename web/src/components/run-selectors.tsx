@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, ChevronDown } from 'lucide-react';
-import { EngineInfo, RunConfig } from '@haikodev/shared';
+import { EngineInfo, RunConfig, messageDeRepli } from '@haikodev/shared';
 import {
   Button,
   DropdownMenu,
@@ -69,13 +69,19 @@ export function RunSelectors({
           label: m.label,
           description: m.description,
           appetite: m.appetite,
-          note: m.releasedAt
-            ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
-            : undefined,
+          // Le repère de droite : la date de sortie quand le moteur la donne,
+          // sinon l'identifiant quand deux modèles portent le même nom.
+          note:
+            m.note ??
+            (m.releasedAt
+              ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
+              : undefined),
         }))}
         value={model?.id}
         onSelect={(id) => onSelect({ model: id })}
         title={engine?.live ? 'Modèle (liste du moteur)' : 'Modèle'}
+        avertissement={messageDeRepli(engine)}
+        repere="modele"
       />
       {thinkingOptions.length > 1 ? (
         <Selector
@@ -100,12 +106,18 @@ export function Selector({
   value,
   onSelect,
   title,
+  avertissement,
+  repere,
 }: {
   label: string;
   items: { id: string; label: string; note?: string; description?: string; appetite?: 'light' | 'medium' | 'heavy' }[];
   value?: string;
   onSelect: (id: string) => void;
   title: string;
+  /** Ce qu'il faut savoir sur la liste elle-même — par exemple qu'elle est de secours. */
+  avertissement?: string | null;
+  /** Repère stable pour les scripts de vérification, jamais lu par l'interface. */
+  repere?: string;
 }) {
   if (!items.length) return null;
   return (
@@ -115,6 +127,8 @@ export function Selector({
           variant="ghost"
           size="sm"
           className="min-w-0 shrink gap-0.5 px-1 text-[13px] text-faint hover:text-text sm:gap-1 sm:px-1.5"
+          title={avertissement ?? undefined}
+          data-selecteur={repere}
         >
           <span className="max-w-[56px] truncate sm:max-w-[110px]">{label}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
@@ -122,6 +136,15 @@ export function Selector({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="sm:max-h-[320px] sm:w-[268px]">
         <DropdownMenuLabel>{title}</DropdownMenuLabel>
+        {avertissement ? (
+          <p
+            data-repli="liste-de-secours"
+            className="px-2 pb-1.5 text-[12px] leading-snug text-warning"
+            role="note"
+          >
+            {avertissement}
+          </p>
+        ) : null}
         {items.map((item) => (
           <DropdownMenuItem key={item.id} onSelect={() => onSelect(item.id)} className="items-start">
             <div className="min-w-0 flex-1">

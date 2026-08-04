@@ -7,6 +7,7 @@ export * from './branche-de-carte.js';
 export * from './bridage-chef.js';
 export * from './ancres.js';
 export * from './capacite.js';
+export * from './catalogue-modeles.js';
 export * from './cerveau.js';
 export * from './columns.js';
 export * from './decision-attendue.js';

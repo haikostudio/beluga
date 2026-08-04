@@ -73,6 +73,8 @@ node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête q
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
 node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes en bas, profondeur, ouverture au survol, heure et date
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
+HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
+node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -430,6 +432,20 @@ sans son point d'essai.
   `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
   une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
   Verrouillé par `server/src/test/outils-codex.test.ts`.
+- **Un modèle est unique par son IDENTIFIANT, et une liste de secours se DIT**
+  (`shared/src/catalogue-modeles.ts`). Le catalogue d'un moteur était dédoublonné sur le NOM AFFICHÉ :
+  deux modèles réellement différents portant le même `display_name` se mangeaient l'un l'autre, et
+  l'utilisateur ne voyait qu'une partie de ce que son compte lui offre. `dedoublonnerModeles` garde
+  donc un modèle par identifiant, dans l'ordre du tri (`byRecency` ne bouge pas), et distingue les
+  homonymes survivants par leur identifiant, posé en repère (`ModelInfo.note`). Symétriquement, quand
+  le catalogue n'a pas pu être lu, `codexCatalog` / `claudeCatalog` remontent la cause
+  (`EngineInfo.catalogError`, en FRANÇAIS : « compte refusé, il faut le reconnecter ») et le menu de
+  choix du modèle l'affiche en tête (`messageDeRepli`) — jamais une liste de deux entrées écrites en
+  dur qui passe pour la liste complète. Verrouillé par `server/src/test/catalogue-modeles.test.ts`,
+  `scripts/verif-catalogue-codex.mjs` et `scripts/verif-liste-modeles.mjs`.
+- **Un script de vérification vise le dépôt d'où il PART**, jamais `/root/haikodev` écrit en dur :
+  lancé depuis une copie de travail (`.worktrees/…`), il jugerait sinon le code du dossier principal
+  et déclarerait bon un changement jamais exécuté. La racine se déduit de `import.meta.url`.
 - **Le fil retenu appartient au moteur, et sous Codex au MODÈLE qui l'a ouvert**
   (`cleDeSession`, `shared/src/reprise-moteur.ts`). `codex exec resume` refuse un fil enregistré
   avec un autre modèle (« This session was recorded with model `X` but is resuming with `Y` ») ; le
