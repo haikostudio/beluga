@@ -294,13 +294,19 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 - La liste de tâches (`TodoWrite`, `TaskCreate`/`TaskUpdate`, `TaskList`, `TaskGet`) est
   AUTORISÉE même au chef d'orchestre bridé : elle n'écrit rien, elle affiche le déroulé. Lancer un
   travail en arrière-plan (`Task`, `Agent`, `Workflow`, `TaskStop`, `TaskOutput`) reste interdit.
-- **La prévision d'épuisement du quota hebdomadaire suit un profil horaire MESURÉ**
-  (`profilHoraire`, `shared/src/quota.ts`) : le rythme de chaque tranche de la journée se déduit de
-  l'historique des relevés, jamais d'heures écrites dans le code. Le profil est ramené à une moyenne
-  de 1 — sur une semaine entière il ne change donc rien au total, il ne fait que déplacer l'heure
-  d'épuisement. Il ne s'applique QU'À la semaine : une fenêtre de cinq heures ne traverse pas de
-  nuit. Sans 24 h d'observation, sans 3 points de % consommés, ou avec une tranche de la journée
-  jamais observée, il rend `null` et le calcul reste le simple prolongement de la pente.
+- **La prévision d'épuisement du quota hebdomadaire suit un profil MESURÉ, de SEMAINE**
+  (`profilSemaine` / `profilHoraire` / `profilRetenu`, `shared/src/quota.ts`) : le rythme de chaque
+  tranche se déduit de l'historique des relevés, jamais d'heures écrites dans le code. Le profil de
+  semaine tient 48 tranches — 24 heures pour les jours ouvrés, 24 pour le week-end — pour qu'un
+  samedi 15 h ne soit plus versé dans la même case qu'un mardi 15 h ; la projection lit la tranche
+  du régime du jour qu'elle TRAVERSE. La moyenne est ramenée à 1 en pesant une tranche de jour
+  ouvré 5 fois et une de week-end 2 fois : sur une semaine entière le profil ne change donc rien au
+  total, il ne fait que déplacer l'heure d'épuisement. `profilRetenu` prend la semaine si elle tient
+  debout, sinon la journée type (24 tranches). Il ne s'applique QU'À la semaine : une fenêtre de
+  cinq heures ne traverse pas de nuit. Sans 24 h d'observation, sans 3 points de % consommés, ou
+  avec une tranche jamais observée — donc sans un week-end ET un jour ouvré complets pour les 48 —
+  il rend `null` et l'on retombe sur le profil de journée, puis sur le simple prolongement de la
+  pente.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.
