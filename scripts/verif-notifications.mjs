@@ -35,7 +35,7 @@ process.env.HAIKODEV_DATA = dataDir;
 const { bus } = await import('../server/dist/bus.js');
 const store = await import('../server/dist/store.js');
 const { notify } = await import('../server/dist/notify.js');
-const { imageDeLAlerte } = await import('../shared/dist/index.js');
+const { imageDeLAlerte, emojiDuMotif } = await import('../shared/dist/index.js');
 
 const resultats = [];
 function noter(nom, ok, detail = '') {
@@ -124,8 +124,8 @@ try {
   );
   const seule = notifications[0];
   noter(
-    'la notification porte le nom du projet',
-    !!seule && seule.title.startsWith('Projet d’essai —'),
+    'le titre nomme l’action, précédé de son emoji et du projet',
+    !!seule && seule.title === `${emojiDuMotif('tache-terminee')} Projet d’essai — Refondre les notifications`,
     seule?.title,
   );
   noter(
@@ -234,8 +234,8 @@ try {
   const groupe = notifications[0];
   noter('trois fins de tâche ne font qu’une alerte', notifications.length === 1, `${notifications.length} reçue(s)`);
   noter(
-    'le titre du groupe compte ET nomme le projet',
-    !!groupe && groupe.title === 'Projet d’essai — 3 tâches terminées',
+    'le titre du groupe compte, nomme le projet ET porte l’emoji',
+    !!groupe && groupe.title === `${emojiDuMotif('tache-terminee')} Projet d’essai — 3 tâches terminées`,
     groupe?.title,
   );
   noter(

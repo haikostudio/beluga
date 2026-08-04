@@ -399,7 +399,13 @@ sans son point d'essai.
   L'IMAGE suit le genre, pas la famille (`iconeDuMotif` : terminé, attention, erreur, publication,
   quota, redémarrage — une publication tombée porte l'image d'erreur) : le motif voyage dans
   l'événement `notify` et dans le message poussé, `web/src/app.tsx` et `web/public/sw.js` en tirent
-  le fichier, avec repli sur l'icône de l'application. Le service worker ne partageant rien avec
+  le fichier, avec repli sur l'icône de l'application. Le TITRE nomme l'action, pas le genre : le
+  titre réel de la carte (`carte.title`) quand il y en a une, sinon l'objet précis passé par
+  l'appelant — précédé d'un EMOJI de genre (`emojiDuMotif`, même six genres que l'image : ✅ ⚠️ ⛔
+  🚀 📊 🔄). L'emoji est le seul repère visuel qui survit sur un téléphone, où le système impose
+  l'icône de l'application. Le corps (`corpsNotification`) reçoit alors l'action déjà mise au titre
+  et ne la répète pas : la description prend toute la place. Le texte vit dans
+  `shared/src/notification.ts`, l'emoji dans `shared/src/notification-tri.ts`. Le service worker ne partageant rien avec
   l'application, sa table est RECOPIÉE — un test compare les deux. Les six images sont fabriquées
   par `scripts/icones-notifications.mjs` (PNG, aucune bibliothèque) : on ne dépose pas un binaire
   illisible dans le dépôt, on le regénère. `notify` reste le guichet unique
@@ -409,8 +415,8 @@ sans son point d'essai.
   même chose ne font qu'une alerte. Un groupe de quatre secondes NOMME ses éléments
   (`resumeGroupe`), jamais un compte muet. Une carte ne se signale terminée que si elle a
   RÉELLEMENT atteint « Terminé » ou « À déployer ». Verrouillé par
-  `server/src/test/notification-tri.test.ts`, `scripts/verif-notifications.mjs` et
-  `scripts/verif-icones-notifications.mjs`.
+  `server/src/test/notification-tri.test.ts`, `server/src/test/notification-texte.test.ts`,
+  `scripts/verif-notifications.mjs` et `scripts/verif-icones-notifications.mjs`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte

@@ -4,6 +4,7 @@ import {
   cleEvenement,
   corpsNotification,
   dansLesHeuresDeSilence,
+  emojiDuMotif,
   evenementDejaVu,
   familleDuMotif,
   interrompt,
@@ -115,6 +116,16 @@ export function notify(input: {
   const carte = input.cardId ? (getCard(input.cardId) ?? undefined) : undefined;
   const libelle = input.element ?? carte?.title ?? input.title;
 
+  /*
+   * Le TITRE nomme l'action, pas le genre : le titre réel de la carte quand il
+   * y en a une, sinon l'objet précis de l'événement (le libellé passé par
+   * l'appelant, déjà spécifique — « Le serveur redémarre », « Publication
+   * terminée »). Un emoji l'ouvre selon le genre : c'est le repère visuel qui
+   * survit sur un téléphone.
+   */
+  const emoji = emojiDuMotif(input.motif);
+  const action = carte?.title?.trim() || input.title;
+
   const existing = pending.get(famille);
   if (existing) {
     clearTimeout(existing.timer);
@@ -130,8 +141,8 @@ export function notify(input: {
     famille,
     motif: input.motif,
     libelles: [libelle],
-    title: titreNotification(input.title, projet),
-    body: corpsNotification(input.body, carte),
+    title: titreNotification(action, projet, emoji),
+    body: corpsNotification(input.body, carte, action),
     cardId: input.cardId,
     projectId: input.projectId,
     projet,
@@ -160,7 +171,8 @@ function flush(famille: FamilleNotification): Promise<void> {
 
   // À plusieurs, le titre compte et le corps ÉNUMÈRE : « 3 tâches terminées »
   // seul obligerait à ouvrir l'application pour savoir lesquelles.
-  const groupe = entry.libelles.length > 1 ? resumeGroupe(famille, entry.libelles, entry.projet) : null;
+  const groupe =
+    entry.libelles.length > 1 ? resumeGroupe(famille, entry.libelles, entry.projet, emojiDuMotif(entry.motif)) : null;
   const payload = {
     title: groupe?.titre ?? entry.title,
     body: groupe?.corps ?? entry.body,
