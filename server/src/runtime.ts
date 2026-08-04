@@ -6,6 +6,7 @@ import {
   AgentRole,
   Ampleur,
   Card,
+  EngineId,
   MEMORY_STEP_ID,
   Message,
   RunStep,
@@ -374,7 +375,7 @@ async function startTurn(
   // agent complet (PLAN §5). Le basculement se décide sur le CHEMIN du projet.
   const fullAccess = !isOrchestrator || project.isSelf;
 
-  const systemPrompt = rolePrompt(agent.role, project.isSelf);
+  const systemPrompt = rolePrompt(agent.role, project.isSelf, agent.run.engine);
 
   const env: Record<string, string> = {
     HAIKODEV_TOKEN: token,
@@ -658,16 +659,34 @@ export function stopAgent(agentId: string): boolean {
 /* ------------------------------------------------------------------ */
 
 /**
+ * L'outil de liste de tâches propre à chaque moteur. Le PROCESSUS (annoncer
+ * avant d'agir, une seule ligne en cours, cocher au fur et à mesure) est décidé
+ * par HaikoDev et identique partout ; seul le nom de l'outil qui l'exécute
+ * dépend du moteur. Claude Code parle « TaskCreate / TaskUpdate », Codex parle
+ * « update_plan ». On nomme à chaque moteur SON outil, jamais celui de l'autre.
+ */
+const OUTIL_LISTE: Record<EngineId, string> = {
+  claude:
+    "l'outil « TaskCreate » puis « TaskUpdate » (une tâche par appel, mise à jour par son numéro)",
+  codex: "l'outil « update_plan » du moteur",
+};
+
+/**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
  * demande de programmation passe par une carte » se perdrait à la première
  * réécriture du texte si rien ne la retenait.
  */
-export function rolePrompt(role: AgentRole, isSelf: boolean): string {
+export function rolePrompt(role: AgentRole, isSelf: boolean, engine: EngineId = 'claude'): string {
+  // Le déroulé est le MÊME quel que soit le moteur : c'est HaikoDev qui décide,
+  // pas le modèle. Seul le NOM de l'outil de liste change d'un moteur à l'autre.
+  // On n'annonce donc à chaque moteur QUE son propre outil — lui présenter le
+  // menu des deux reviendrait à lui laisser le choix, ce qu'on veut éviter.
+  const outilListe = OUTIL_LISTE[engine] ?? OUTIL_LISTE.claude;
   const common =
     "Tu travailles dans HaikoDev. Réponds en français simple, pour un lecteur non technique. " +
     "Tu ne publies JAMAIS de ta propre initiative : la mise en ligne est un geste de l'utilisateur.\n\n" +
     "DÉROULÉ VISIBLE (obligatoire dès que la demande tient en plus d'une action) :\n" +
-    "1. AVANT d'agir, annonce ta liste de tâches avec l'outil de liste de tâches du moteur (TaskCreate puis TaskUpdate pour Claude — TodoWrite s'il existe encore ; update_plan pour Codex) : une ligne par action prévue, formulée en français simple.\n" +
+    `1. AVANT d'agir, annonce ta liste de tâches avec ${outilListe} : une ligne par action prévue, formulée en français simple.\n` +
     "2. Passe la ligne en cours à « en cours », et coche-la dès qu'elle est terminée, AVANT d'attaquer la suivante. Une seule ligne en cours à la fois.\n" +
     "Cette liste s'affiche dans la conversation et se coche sous les yeux de l'utilisateur : c'est ainsi qu'il suit ton avancement. Ne la recopie pas en texte, elle est déjà à l'écran.";
 
