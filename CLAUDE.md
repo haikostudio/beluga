@@ -64,7 +64,7 @@ node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse
 node scripts/verif-notifications.mjs # une seule notification par événement, groupe qui nomme ses éléments
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
-node scripts/verif-pause-reprise.mjs # mettre une tâche en pause depuis sa conversation, et la reprendre (démon d'essai à soi)
+node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -133,8 +133,18 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   aussi le numéro de carte mais ne la déplacent JAMAIS, ni au départ ni à l'arrivée — ni démarrer
   une étude ni la rendre n'est faire le travail. Le passage « Validé » → « Planifié » → « En cours »
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
-  pas. Vrai pour TOUTE carte, d'où qu'elle vienne. « À déployer » et « Archivé » ne se laissent pas
-  reprendre : une question posée dans la conversation ne sort pas une carte du lot à publier.
+  pas. Vrai pour TOUTE carte, d'où qu'elle vienne.
+- **« Archivé » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
+  `shared/src/suivi-colonne.ts`). La règle par défaut ne bouge pas : aucun chemin AUTOMATIQUE n'en
+  ressort une carte — ni un tour d'agent (`colonneAuDemarrage`), ni `board_move_card`, ni une
+  question posée dans la conversation, qui ne doit jamais retirer une carte du lot à publier. Un
+  clic ou un glissement de l'utilisateur, lui, le peut : bouton dédié dans le tiroir
+  (`gesteCarte('reprendre', …)`), même ligne dans le menu des gestes rares, et glisser-déposer.
+  D'un geste, la carte retombe à l'étape juste avant (`colonneDeReprise` : « Archivé » → « À faire »,
+  « À déployer » → « Terminé ») ; toute autre colonne reste atteignable à la main. La carte GARDE sa
+  trace : `card.archivedAt` est posée à l'archivage, survit à la sortie, et s'affiche en clair
+  (`mentionArchivage`) sur la carte du tableau et dans son tiroir. Verrouillé par
+  `server/src/test/suivi-colonne.test.ts` et `scripts/verif-sortie-archive.mjs`.
 - **Le dépôt d'une carte à la main VAUT un geste** (`effetDuDepot`, `shared/src/suivi-colonne.ts`).
   Déposer dans « En cours » = cliquer sur « Lancer maintenant » : le serveur appelle `startCard`, le
   MÊME point d'entrée — mêmes portes dures, même branche, même agent, même trace. Aucun chemin
@@ -144,16 +154,6 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   reprend plus tout seul — seul un geste (bouton, ou nouveau dépôt en « En cours ») efface la
   marque. C'est la SEULE sortie permise pendant que l'agent écrit ; toutes les autres restent
   refusées (`sortieAutorisee`).
-- **La PAUSE est cette même suspension, avec un bouton** (`shared/src/pause-agent.ts`). Dans la bande
-  « en cours » du tiroir d'une carte, un bouton pause à côté du bouton d'arrêt : il arrête le tour de
-  CETTE carte (`pauseCard`), VIDE sa file — pause comme arrêt coupent ce qui attendait derrière — et
-  pose la MÊME marque `scheduling.suspendu` (`marquerPause`), sans déplacer la carte. Le bouton
-  devient alors un bouton de reprise : `resumeCard` relance le MÊME agent (donc la même session de
-  moteur, le fil et la liste de tâches déjà là) sur la MÊME branche — `retrouverBranche` fait un
-  `git checkout` simple, JAMAIS `-B`, qui effacerait le travail enregistré avant la pause. Un seul
-  effacement de la marque, `effacerPause`, partagé par le départ et la reprise : aucun chemin
-  automatique ne repart. Un tour arrêté à la main n'est PAS un échec : agent en `stopped`, aucune
-  alerte. Verrouillé par `server/src/test/pause-agent.test.ts` et `scripts/verif-pause-reprise.mjs`.
 - **Les portes DURES valent pour tous les chemins de lancement** (`portesDures`,
   `server/src/scheduler.ts`) : plus de place sur la machine, plus un seul compte disponible, branche
   impossible à créer sur un dépôt git. `startCard` les contrôle, donc l'ordonnanceur comme le bouton

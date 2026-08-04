@@ -6,8 +6,6 @@ import {
   AgentRole,
   Ampleur,
   CONSIGNE_DESCRIPTION_CARTE,
-  MENTION_TOUR_ARRETE,
-  MENTION_TOUR_EN_PAUSE,
   Card,
   EngineId,
   MEMORY_STEP_ID,
@@ -50,16 +48,7 @@ export interface LiveRun {
   usage?: EngineEvent['usage'];
   account?: string;
   stopping?: boolean;
-  /**
-   * POURQUOI le tour a été coupé à la main. Une pause n'est pas un échec : elle
-   * ne doit ni alerter, ni marquer l'agent en erreur — le travail est gardé et
-   * repartira d'ici.
-   */
-  motifArret?: MotifArret;
 }
-
-/** Un arrêt à la main est soit une fin (« arret »), soit une pause. */
-export type MotifArret = 'arret' | 'pause';
 
 const live = new Map<string, LiveRun>();
 
@@ -520,14 +509,6 @@ async function startTurn(
   }
 
   const failed = !result.ok || !!sawError;
-  /*
-   * Un tour coupé À LA MAIN n'est pas un échec du moteur : personne n'a besoin
-   * d'être alerté, et l'agent ne doit pas rester marqué « en erreur ». On garde
-   * `failed` pour la carte — un tour interrompu n'a rien terminé, elle ne bouge
-   * donc pas — mais on dit la vérité sur ce qui s'est passé.
-   */
-  const arreteALaMain = !!runState.stopping;
-  const enPause = runState.motifArret === 'pause';
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
@@ -540,17 +521,11 @@ async function startTurn(
     tokens: tokens || undefined,
     durationMs: Math.round(elapsedSeconds * 1000),
     account: account.label,
-    error: arreteALaMain
-      ? enPause
-        ? MENTION_TOUR_EN_PAUSE
-        : MENTION_TOUR_ARRETE
-      : failed
-        ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin."
-        : undefined,
+    error: failed ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin." : undefined,
   });
 
   const finalAgent = store.getAgent(agent.id)!;
-  setStatus(finalAgent, arreteALaMain ? 'stopped' : failed ? 'failed' : 'done', { endedAt: Date.now() });
+  setStatus(finalAgent, failed ? 'failed' : 'done', { endedAt: Date.now() });
 
   /*
    * LE CONSTAT, avant tout déplacement de carte : le dépôt a-t-il bougé ? On le
@@ -616,7 +591,7 @@ async function startTurn(
     }
   }
 
-  if (failed && !arreteALaMain) {
+  if (failed) {
     notify({
       motif: 'tache-echec',
       title: 'Tâche en échec',
@@ -628,26 +603,6 @@ async function startTurn(
       cardId: agent.cardId,
       projectId: agent.projectId,
     });
-  }
-
-  /*
-   * Arrêt ou pause à la main : ce qui attendait derrière est coupé aussi. Sinon
-   * la demande suivante repartait toute seule et l'arrêt demandé n'arrêtait
-   * rien — on croyait avoir la main, l'agent reprenait la parole.
-   */
-  if (arreteALaMain) {
-    const ecartees = store.clearQueue(agent.id);
-    bus.emit({ type: 'queue.snapshot', agentId: agent.id, queue: [] });
-    if (ecartees) {
-      bus.toast(
-        'info',
-        `${ecartees} demande${ecartees > 1 ? 's' : ''} en attente écartée${ecartees > 1 ? 's' : ''} : ${
-          enPause ? 'la pause' : "l'arrêt"
-        } coupe aussi la file.`,
-        agent.cardId,
-      );
-    }
-    return;
   }
 
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
@@ -719,11 +674,10 @@ export function attachToCurrentMessage(
   }
 }
 
-export function stopAgent(agentId: string, motif: MotifArret = 'arret'): boolean {
+export function stopAgent(agentId: string): boolean {
   const run = live.get(agentId);
   if (!run) return false;
   run.stopping = true;
-  run.motifArret = motif;
   run.handle.stop();
   return true;
 }

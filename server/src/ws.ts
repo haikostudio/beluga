@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
+  COLONNES_HORS_REPRISE,
   COLUMN_LABELS,
   Card,
   ClientEnvelope,
@@ -14,7 +15,6 @@ import {
   etatVisuelCarte,
   sortieAutorisee,
   RAISON_SUSPENDU,
-  marquerPause,
   comptePrecedents,
   messagesDepuis,
   peutRepartir,
@@ -31,7 +31,7 @@ import { cachedQuotas, refreshQuotas } from './accounts.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
-import { analyseCard, pauseCard, resumeCard, startCard, tick } from './scheduler.js';
+import { analyseCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
   deployableCards,
@@ -396,20 +396,31 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        * écrite dessus, et l'ordonnanceur ne la reprend pas de lui-même.
        */
       if (effet === 'suspendre') {
-        // Exactement le geste du bouton pause, avec la colonne en plus : même
-        // arrêt, même file coupée, même marque.
-        await pauseCard(card.id);
-        const card2 = store.getCard(card.id) ?? card;
+        if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
         const suspendue = store.saveCard({
-          ...card2,
+          ...card,
           column: 'planned',
           position: store.nextPosition(card.projectId, 'planned'),
-          scheduling: marquerPause(card2.scheduling, RAISON_SUSPENDU),
+          scheduling: {
+            ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+            suspendu: true,
+            waitingReason: RAISON_SUSPENDU,
+          },
         });
         bus.emit({ type: 'card.upsert', card: suspendue });
         bus.toast('warning', RAISON_SUSPENDU, suspendue.id);
         return { card: suspendue };
       }
+
+      /*
+       * Une commande venue du navigateur EST le geste humain : c'est la seule
+       * main autorisée à sortir une carte d'une fin de parcours (« Archivé »,
+       * « À déployer »). Les chemins automatiques, eux, restent fermés — un
+       * tour d'agent par `colonneAuDemarrage`, l'outil du moteur par
+       * `repriseAutorisee(…, 'automatique')`. La carte ressortie GARDE sa date
+       * d'archivage : on doit pouvoir lire qu'elle était passée par là.
+       */
+      const sortDuRangement = COLONNES_HORS_REPRISE.includes(card.column);
 
       const updated = store.saveCard({
         ...card,
@@ -420,6 +431,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'card.upsert', card: updated });
       // Archiver une carte retire sa pastille : le compte se rediffuse.
       bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+
+      if (sortDuRangement) {
+        bus.toast(
+          'info',
+          `« ${card.title} » sort de « ${COLUMN_LABELS[card.column]} » vers « ${COLUMN_LABELS[target]} ».`,
+          updated.id,
+        );
+      }
 
       // C'est ce geste qui autorise la dépense : l'analyse part maintenant.
       if (target === 'validated') {
@@ -444,23 +463,6 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const result = await startCard(cmd.id);
       if (!result.ok) throw new Error(result.error ?? 'démarrage impossible');
       return result;
-    }
-
-    /*
-     * La pause et la reprise n'agissent que sur l'agent de CETTE carte, et
-     * passent par le seul mécanisme de suspension du projet. Un refus REMONTE :
-     * jamais un bouton qui clignote sans rien faire.
-     */
-    case 'card.pause': {
-      const result = await pauseCard(cmd.id);
-      if (!result.ok) throw new Error(result.error ?? 'mise en pause impossible');
-      return { card: store.getCard(cmd.id) };
-    }
-
-    case 'card.resume': {
-      const result = await resumeCard(cmd.id);
-      if (!result.ok) throw new Error(result.error ?? 'reprise impossible');
-      return { card: store.getCard(cmd.id) };
     }
 
     case 'card.finish': {
@@ -929,7 +931,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     case 'quota.history':
-      return { history: store.quotaHistory(cmd.days ?? 7) };
+      // La courbe ne montre que les derniers jours ; le RÉSUMÉ, lui, part avec
+      // elle pour que le profil des heures creuses remonte à deux mois.
+      return { history: store.quotaHistory(cmd.days ?? 7), resume: store.quotaResume() };
 
     case 'amorce.history':
       return { entries: store.amorceHistory(cmd.limit ?? 40) };

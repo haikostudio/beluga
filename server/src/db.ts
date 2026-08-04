@@ -238,6 +238,24 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX idx_cerveau_log ON cerveau_log(at);
     `,
   },
+  {
+    id: 10,
+    name: 'resume-de-l-historique-des-quotas',
+    // Passé quatorze jours, le détail des relevés est remplacé par une ligne
+    // par jour et par heure : c'est tout ce dont le profil des heures creuses a
+    // besoin, et cela tient dans quelques centaines de lignes par compte.
+    sql: `
+      CREATE TABLE quota_profile (
+        account TEXT NOT NULL,
+        jour TEXT NOT NULL,
+        heure INTEGER NOT NULL,
+        duree_ms REAL NOT NULL,
+        consomme_pct REAL NOT NULL,
+        PRIMARY KEY (account, jour, heure)
+      );
+      CREATE INDEX idx_quota_profile_jour ON quota_profile(jour);
+    `,
+  },
 ];
 
 export function openDb(): DB {

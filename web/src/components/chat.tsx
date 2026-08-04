@@ -1,13 +1,9 @@
 import * as React from 'react';
-import { ChevronUp, Loader2, MessageSquare, Pause, PauseCircle, Play, RotateCcw, Square } from 'lucide-react';
+import { ChevronUp, Loader2, MessageSquare, RotateCcw, Square } from 'lucide-react';
 import {
   Agent,
-  Card,
-  MENTION_EN_PAUSE,
   Message,
   afficherHeure,
-  estEnPause,
-  gestePause,
   libellePrecedents,
   peutRepartir,
   titreDeBloc,
@@ -128,12 +124,7 @@ export function Chat({
        * bas de l'écran elle se perdait au-dessus de la barre d'écriture, alors
        * qu'elle dit ce que l'agent fait à l'instant.
        */}
-      <TravailEnCours
-        agent={agent}
-        card={cardId ? state.cards[cardId] : undefined}
-        messages={messages}
-        busy={busy}
-      />
+      <TravailEnCours agent={agent} messages={messages} busy={busy} />
 
       {/* Une conversation ne défile que verticalement : ce qui dépasse en
           largeur (code, longue adresse) défile DANS son propre bloc.
@@ -309,22 +300,6 @@ function SeparateurAgent({ titre }: { titre: string }) {
   );
 }
 
-/** Le bouton de reprise : un seul dessin, où qu'il apparaisse. */
-function BoutonReprise({ onClick }: { onClick: () => void }) {
-  return (
-    <Tooltip label="Reprendre où le travail s’est arrêté">
-      <button
-        type="button"
-        aria-label="Reprendre où le travail s’est arrêté"
-        onClick={onClick}
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border text-muted transition-colors hover:border-success hover:bg-raised hover:text-success"
-      >
-        <Play className="h-2.5 w-2.5 fill-current" />
-      </button>
-    </Tooltip>
-  );
-}
-
 /**
  * Le témoin de travail, juste au-dessus de la barre d'écriture : on voit d'un
  * coup d'œil si quelque chose tourne, quoi, et depuis combien de temps. Quand
@@ -335,13 +310,10 @@ function BoutonReprise({ onClick }: { onClick: () => void }) {
  */
 function TravailEnCours({
   agent,
-  card,
   messages,
   busy,
 }: {
   agent: Agent | null;
-  /** La carte ouverte, s'il y en a une : la pause n'agit que sur la sienne. */
-  card?: Card;
   messages: Message[];
   busy: boolean;
 }) {
@@ -354,36 +326,6 @@ function TravailEnCours({
     const timer = window.setInterval(() => forcer((n) => n + 1), 1000);
     return () => window.clearInterval(timer);
   }, [busy]);
-
-  /*
-   * La pause n'existe que sur une carte : c'est elle qui porte la marque, et
-   * c'est son agent — le sien, pas celui du voisin — que le bouton arrête.
-   */
-  const geste = card
-    ? gestePause({
-        agentLance: !!card.agentId,
-        travailleMaintenant: busy,
-        enPause: estEnPause(card),
-      })
-    : 'aucun';
-
-  const mettreEnPause = () => card && client.send({ type: 'card.pause', id: card.id });
-  const reprendre = () => card && client.send({ type: 'card.resume', id: card.id });
-
-  /*
-   * Rien ne tourne, mais le travail est en pause : la bande reste, et dit
-   * pourquoi. Sans elle, une carte mise en pause n'aurait plus aucun bouton
-   * pour repartir.
-   */
-  if (!busy && geste === 'reprendre') {
-    return (
-      <div className="flex shrink-0 items-center gap-2 bg-surface/60 px-3 py-1.5">
-        <PauseCircle className="h-3 w-3 shrink-0 text-warning" />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{MENTION_EN_PAUSE}</span>
-        <BoutonReprise onClick={reprendre} />
-      </div>
-    );
-  }
 
   if (!busy) return null;
 
@@ -408,26 +350,6 @@ function TravailEnCours({
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
       {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
-      {/*
-       * La pause est posée AVANT l'arrêt : c'est le geste le moins grave des
-       * deux, et celui qu'on cherche quand on veut simplement reprendre la main.
-       */}
-      {geste === 'pause' ? (
-        <Tooltip label="Mettre en pause (le travail reprendra où il s’est arrêté)">
-          <button
-            type="button"
-            aria-label="Mettre en pause (le travail reprendra où il s’est arrêté)"
-            onClick={mettreEnPause}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border text-muted transition-colors hover:border-warning hover:bg-raised hover:text-warning"
-          >
-            <Pause className="h-2.5 w-2.5 fill-current" />
-          </button>
-        </Tooltip>
-      ) : null}
-      {/* Marquée en pause alors que la bande tourne encore (le tour met un
-          instant à s'arrêter, ou le démon a redémarré sans elle) : c'est la
-          reprise qu'on propose — jamais une bande sans aucun bouton. */}
-      {geste === 'reprendre' ? <BoutonReprise onClick={reprendre} /> : null}
       {agent ? (
         <Tooltip label="Arrêter l'action en cours">
           <button
