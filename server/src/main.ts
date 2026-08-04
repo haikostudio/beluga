@@ -5,6 +5,7 @@ import { ensureCredentials } from './auth.js';
 import { createHttpServer } from './http.js';
 import { attachWebSocket } from './ws.js';
 import { bootstrapAccounts, refreshQuotas } from './accounts.js';
+import { relierCompetencesAuxCoffres } from './competences.js';
 import { bus } from './bus.js';
 import { sampleCapacity } from './capacity.js';
 import { startScheduler } from './scheduler.js';
@@ -34,6 +35,9 @@ async function main(): Promise<void> {
   }
 
   bootstrapAccounts();
+  // Les compétences partagées entrent dans le coffre de chaque compte : c'est
+  // là que le moteur va les chercher, et un coffre neuf n'en a aucune.
+  relierCompetencesAuxCoffres();
   initPush();
   await ensureSelfProject();
   await adoptServerProjects();

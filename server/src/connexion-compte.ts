@@ -11,6 +11,7 @@ import {
 } from '@haikodev/shared';
 import { PATHS } from './config.js';
 import { listAccountRecords, saveAccountRecord, refreshQuotas, type AccountRecord } from './accounts.js';
+import { relierCompetencesAuxCoffres } from './competences.js';
 import { listEngines } from './engines/index.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
@@ -240,6 +241,14 @@ async function terminer(tentative: Tentative, code: number | null, signal: strin
   setTimeout(() => tentatives.delete(tentative.vue.id), 5 * 60 * 1000).unref?.();
 
   if (!fin.ok) return;
+
+  // Un coffre neuf n'a aucune compétence : sans ce geste, le premier agent
+  // lancé sur ce compte ne saurait plus faire ce que les autres savent.
+  try {
+    relierCompetencesAuxCoffres();
+  } catch (err) {
+    log.warn('connexion de compte : compétences partagées non posées', err);
+  }
 
   // Une connexion réussie rafraîchit aussitôt ce qui en dépend : le catalogue
   // des modèles (qui tombait sur sa liste de secours) et le quota du compte.

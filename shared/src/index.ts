@@ -10,6 +10,7 @@ export * from './capacite.js';
 export * from './catalogue-modeles.js';
 export * from './cerveau.js';
 export * from './columns.js';
+export * from './competences.js';
 export * from './connexion-compte.js';
 export * from './decision-attendue.js';
 export * from './demon.js';
