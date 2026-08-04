@@ -492,13 +492,17 @@ sans son point d'essai.
   second axe et pose le fondu flouté aux deux bords. Pas de `overflow-y-auto` posé à la main, et pas
   de filet (`border-t` / `border-b`) au bord d'une zone à fondu — le fondu EST la limite.
 - **Un fil de conversation est COLLÉ EN BAS quand il ne remplit pas l'écran**
-  (`web/src/components/chat.tsx`). Les messages vivent dans un bloc unique, `shrink-0`, posé
-  `mt-auto` dans la zone qui défile : un échange court — une phrase du chef et sa carte proposée —
-  se termine juste au-dessus du volet des tâches au lieu de laisser un demi-écran noir. Le
-  `shrink-0` n'est pas décoratif : sans lui, un fil trop long serait comprimé au lieu de défiler.
-  On n'emploie PAS `justify-end` sur la zone elle-même — il rend le haut du fil inatteignable. Le
-  fil porte `data-fil="conversation"`, seul repère des scripts de vérification. Verrouillé par
-  `scripts/verif-vide-carte-validee.mjs`.
+  (`web/src/components/chat.tsx`). Les messages vivent dans un bloc unique, `shrink-0`, qui fait au
+  moins toute la hauteur du fil et range son contenu par le bas (`flex min-h-full flex-col
+  justify-end`) : un échange court — une phrase du chef et sa carte proposée — se termine juste
+  au-dessus du volet des tâches au lieu de laisser un demi-écran noir, et un échange qui déborde
+  fait grandir le bloc, donc défile normalement, haut compris. On ne s'en remet PLUS à une marge
+  automatique (`mt-auto`) : dans un conteneur qui défile, sa résolution dépend du navigateur, et le
+  vide revenait sur téléphone. `justify-end` va sur le BLOC, jamais sur la zone de défilement — là,
+  il rendrait le haut du fil inatteignable. Le `shrink-0` n'est pas décoratif : sans lui, un fil
+  trop long serait comprimé au lieu de défiler. Le fil porte `data-fil="conversation"`, seul repère
+  des scripts de vérification. Verrouillé par `scripts/verif-vide-carte-validee.mjs`, qui couvre le
+  fil court, le fil dont les échanges précédents sont repliés, et l'accès au haut du fil.
 - **Le bloc en bas à droite porte DEUX piles, jamais une seule** (`web/src/components/pile.tsx`).
   Les messages courts et les vignettes d'agents s'empilent par le MÊME composant `Pile`, qui écrit
   une fois pour toutes la géométrie (`placeDansLaPile`), le survol et l'appui — mais chacun dans SA
