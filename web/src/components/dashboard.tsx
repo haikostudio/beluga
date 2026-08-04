@@ -57,25 +57,54 @@ function Tuile({ icone, titre, valeur, dessous }: { icone: React.ReactNode; titr
 
 /**
  * Histogramme des jetons dépensés jour par jour, tous moteurs confondus. Une
- * barre par jour, du plus ancien au plus récent, avec une infobulle qui donne
- * le détail. Pur SVG : aucune bibliothèque de graphiques dans le projet.
+ * barre par jour, du plus ancien au plus récent. À la souris, une infobulle
+ * donne le détail au survol ; au toucher (téléphone, sans survol), un appui sur
+ * une barre affiche ses chiffres sous le graphique et la met en évidence — un
+ * second appui, ou un appui ailleurs, referme. Pur SVG : aucune bibliothèque de
+ * graphiques dans le projet.
  */
 function CourbeParJour({ jours }: { jours: DonneesTableau['byDay'] }) {
+  const [actif, setActif] = React.useState<string | null>(null);
   if (!jours.length) return <p className="text-[13px] text-faint">Aucune consommation relevée pour l'instant.</p>;
   const max = Math.max(1, ...jours.map((j) => j.tokens));
+  const jourActif = jours.find((j) => j.day === actif) ?? null;
   return (
-    <div className="flex items-end gap-1" style={{ height: 140 }}>
-      {jours.map((jour) => {
-        const hauteur = Math.max(2, Math.round((jour.tokens / max) * 120));
-        return (
-          <div key={jour.day} className="flex min-w-0 flex-1 flex-col items-center gap-1" title={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} jetons · ${dureeEnClair(jour.seconds)}`}>
-            <div className="flex w-full flex-1 items-end">
-              <div className="w-full rounded-t bg-muted/70" style={{ height: hauteur }} />
-            </div>
-            <span className="w-full truncate text-center text-[9px] text-faint">{Number(jour.day.split('-')[2])}</span>
-          </div>
-        );
-      })}
+    <div>
+      <div className="flex items-end gap-1" style={{ height: 140 }}>
+        {jours.map((jour) => {
+          const hauteur = Math.max(2, Math.round((jour.tokens / max) * 120));
+          const estActif = jour.day === actif;
+          return (
+            <button
+              type="button"
+              key={jour.day}
+              onClick={() => setActif((prec) => (prec === jour.day ? null : jour.day))}
+              className="flex min-w-0 flex-1 flex-col items-center gap-1"
+              aria-pressed={estActif}
+              aria-label={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} jetons · ${dureeEnClair(jour.seconds)}`}
+              title={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} jetons · ${dureeEnClair(jour.seconds)}`}
+            >
+              <div className="flex w-full flex-1 items-end">
+                <div className={`w-full rounded-t ${estActif ? 'bg-accent' : 'bg-muted/70'}`} style={{ height: hauteur }} />
+              </div>
+              <span className={`w-full truncate text-center text-[9px] ${estActif ? 'font-semibold text-text' : 'text-faint'}`}>
+                {Number(jour.day.split('-')[2])}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {/* Détail de la barre choisie, lisible même sans survol (téléphone). */}
+      <p className="mt-2 min-h-[18px] text-[12px] text-faint" aria-live="polite">
+        {jourActif ? (
+          <>
+            <span className="font-semibold text-text">{jourEnClair(jourActif.day)}</span>
+            {` · ${jourActif.tokens.toLocaleString('fr-CH')} jetons · ${dureeEnClair(jourActif.seconds)}`}
+          </>
+        ) : (
+          'Touchez une barre pour voir le détail du jour.'
+        )}
+      </p>
     </div>
   );
 }
