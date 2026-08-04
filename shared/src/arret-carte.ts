@@ -46,6 +46,45 @@ export function arretDeCarteAutorise(entree: { carte?: string | null; agent?: Ag
   return { possible: true };
 }
 
+/** Ce que la barre d'écriture montre au coin bas-droit, à un instant donné. */
+export interface BoutonsBarre {
+  /** Le carré rouge d'arrêt, à côté ou à la place de la flèche. */
+  arret: boolean;
+  /** La flèche d'envoi (ou la coche, en cours de modification). */
+  envoi: boolean;
+}
+
+/**
+ * QUE MONTRE LA BARRE D'ÉCRITURE PENDANT QU'UN AGENT TRAVAILLE ?
+ *
+ * L'arrêt ne vivait que sur la bande « en cours », tout en haut du fil : dans
+ * une longue conversation, il fallait remonter hors de l'écran pour couper.
+ * Le bouton d'envoi devient donc un bouton d'ARRÊT tant que l'agent écrit.
+ *
+ * Trois règles, et rien d'autre :
+ *   - en cours de MODIFICATION d'un message en attente, le bouton enregistre
+ *     la modification : l'arrêt ne lui vole pas sa place ;
+ *   - l'arrêt ne s'affiche que s'il est PERMIS (`arretDeCarteAutorise`) —
+ *     pas de bouton plutôt qu'un faux ;
+ *   - du texte en cours de saisie garde l'envoi : l'arrêt se pose À CÔTÉ,
+ *     jamais par-dessus une phrase qu'on vient d'écrire.
+ */
+export function boutonsBarreEcriture(entree: {
+  /** Un agent travaille-t-il en ce moment ? */
+  occupe: boolean;
+  /** Le verdict de `arretDeCarteAutorise` pour l'agent affiché. */
+  arretPossible: boolean;
+  /** Du texte, ou des évolutions cochées, prêts à partir. */
+  aDuTexte: boolean;
+  /** Un message en attente est ouvert en modification. */
+  enEdition: boolean;
+}): BoutonsBarre {
+  const { occupe, arretPossible, aDuTexte, enEdition } = entree;
+  if (enEdition) return { arret: false, envoi: true };
+  const arret = occupe && arretPossible;
+  return { arret, envoi: !arret || aDuTexte };
+}
+
 /**
  * La phrase portée par la carte dont on vient d'arrêter l'agent. Elle dit les
  * deux choses qu'on veut savoir en la relisant : le tour a été coupé, et rien

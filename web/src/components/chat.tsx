@@ -4,7 +4,6 @@ import {
   Agent,
   Message,
   afficherHeure,
-  arretDeCarteAutorise,
   libellePrecedents,
   peutRepartir,
   titreDeBloc,
@@ -12,6 +11,7 @@ import {
 import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
+import { useArretAgent } from '@/components/arret-agent';
 import { VoletTaches } from '@/components/todos';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -221,6 +221,7 @@ export function Chat({
           projectId={projectId}
           onProposeTask={onProposeTask}
           dansTiroir={!!cardId || !!creuxReserveAilleurs}
+          cardId={cardId}
         />
       )}
     </div>
@@ -338,7 +339,9 @@ function TravailEnCours({
   cardId?: string;
 }) {
   const [, forcer] = React.useState(0);
-  const [aConfirmer, setAConfirmer] = React.useState(false);
+  // Le geste d'arrêt est le MÊME qu'en bas de la barre d'écriture : un seul
+  // texte, donc le même contrôle, la même commande et la même confirmation.
+  const arret = useArretAgent({ agent, cardId });
 
   // Le temps écoulé avance tout seul, seconde par seconde.
   React.useEffect(() => {
@@ -354,41 +357,19 @@ function TravailEnCours({
   const etapeEnCours = [...(dernier?.steps ?? [])].reverse().find((step) => step.state === 'running');
   const quoi = todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…';
 
-  const depuis = agent?.startedAt ? Math.round((Date.now() - agent.startedAt) / 1000) : null;
-  const temps = depuis === null ? null : depuis < 60 ? `${depuis} s` : `${Math.floor(depuis / 60)} min ${depuis % 60} s`;
-
-  /*
-   * Au-delà de cinq minutes, l'agent a déjà beaucoup avancé : un clic malheureux
-   * jetterait un vrai travail. On demande alors confirmation ; en deçà, l'arrêt
-   * reste immédiat, sinon la commande deviendrait pénible pour rien.
-   */
-  const longTravail = depuis !== null && depuis >= 300;
-
-  /*
-   * L'agent affiché est-il bien celui de la carte ouverte ? Le tiroir choisit
-   * son agent par replis successifs et peut retomber sur celui d'une autre
-   * tâche : dans ce cas le bouton disparaît, au lieu d'arrêter le travail de
-   * quelqu'un d'autre. Le démon rejoue le même contrôle.
-   */
-  const verdict = arretDeCarteAutorise({ carte: cardId, agent: agent ?? undefined });
-  const arreter = () => {
-    if (!agent) return;
-    client
-      .call({ type: 'agent.stop', agentId: agent.id, cardId })
-      .catch((err: any) => client.pushToast('error', err?.message ?? 'arrêt refusé', cardId));
-  };
+  const temps = arret.temps;
 
   return (
     <div className="flex shrink-0 items-center gap-2 bg-surface/60 px-3 py-1.5">
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
       {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
-      {verdict.possible ? (
+      {arret.possible ? (
         <Tooltip label="Arrêter l'action en cours">
           <button
             type="button"
             aria-label="Arrêter l'action en cours"
-            onClick={() => (longTravail ? setAConfirmer(true) : arreter())}
+            onClick={arret.demander}
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border text-muted transition-colors hover:border-danger hover:bg-raised hover:text-danger"
           >
             <Square className="h-2.5 w-2.5 fill-current" />
@@ -396,15 +377,7 @@ function TravailEnCours({
         </Tooltip>
       ) : null}
 
-      <ConfirmDialog
-        open={aConfirmer}
-        danger
-        title="Arrêter cet agent ?"
-        description={`Il travaille depuis ${temps ?? 'un moment'}. Tout ce qu'il n'a pas encore enregistré sera perdu.`}
-        confirmLabel="Arrêter quand même"
-        onConfirm={arreter}
-        onClose={() => setAConfirmer(false)}
-      />
+      {arret.dialogue}
     </div>
   );
 }

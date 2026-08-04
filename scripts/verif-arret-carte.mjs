@@ -15,7 +15,7 @@
  *   2. la première ne repart pas seule : sa file est vide et elle porte la
  *      marque « suspendu » que l'ordonnanceur respecte ;
  *   3. une carte dont le tiroir retombe sur l'agent d'une AUTRE tâche n'affiche
- *      pas de bouton d'arrêt — pas de bouton plutôt qu'un faux ;
+ *      pas de bouton d'arrêt — ni en haut, ni dans la barre d'écriture ;
  *   4. le démon REFUSE en toutes lettres un « agent.stop » qui vise un agent
  *      étranger à la carte annoncée.
  */
@@ -28,8 +28,11 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const RACINE = '/root/haikodev';
+// Le dépôt d'où PART ce script — jamais un chemin écrit en dur : lancé depuis
+// une copie de travail, il jugerait sinon le code du dossier principal.
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7191);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-arret-'));
@@ -275,6 +278,9 @@ async function fermerTiroir(page) {
 }
 
 const boutonArret = (page) => page.getByRole('button', { name: "Arrêter l'action en cours" });
+/** Le carré d'arrêt de la BARRE D'ÉCRITURE, en bas — celui qu'on atteint sans remonter. */
+const arretDeLaBarre = (page) => page.getByRole('button', { name: "Arrêter l'agent", exact: true });
+const boutonEnvoyer = (page) => page.getByRole('button', { name: 'Envoyer', exact: true });
 
 async function main() {
   if (!(await attendrePort())) {
@@ -302,8 +308,23 @@ async function main() {
 
   await ouvrirCarte(page, CARTES.A.titre);
   noter('le tiroir de la première montre son bouton d’arrêt', (await boutonArret(page).count()) === 1);
+  noter('la barre d’écriture porte elle aussi un carré d’arrêt', (await arretDeLaBarre(page).count()) === 1);
+  noter(
+    'rien n’étant écrit, la flèche d’envoi a laissé la place',
+    (await boutonEnvoyer(page).count()) === 0,
+    `envoi visible ${await boutonEnvoyer(page).count()}`,
+  );
 
-  await boutonArret(page).first().click();
+  // On écrit : l'envoi revient, l'arrêt reste à côté au lieu de voler sa place.
+  await page.getByPlaceholder(/attendra son tour/).first().fill('un message qui attendra son tour');
+  await page.waitForTimeout(600);
+  noter('avec du texte écrit, l’envoi revient', (await boutonEnvoyer(page).count()) === 1);
+  noter('et le carré d’arrêt reste à côté', (await arretDeLaBarre(page).count()) === 1);
+  await page.getByPlaceholder(/attendra son tour/).first().fill('');
+  await page.waitForTimeout(600);
+
+  // L'arrêt part de la BARRE D'ÉCRITURE : c'est le chemin neuf qu'on juge.
+  await arretDeLaBarre(page).first().click();
   await page.waitForTimeout(3000);
 
   const carteA = lireCarte(CARTES.A.id);
@@ -330,6 +351,7 @@ async function main() {
   await ouvrirCarte(page, CARTES.C.titre);
   const texteC = await page.locator('body').innerText();
   noter('la carte mal reliée n’affiche AUCUN bouton d’arrêt', (await boutonArret(page).count()) === 0);
+  noter('sa barre d’écriture non plus', (await arretDeLaBarre(page).count()) === 0);
   noter('elle montre pourtant bien qu’un travail tourne', /Réflexion en cours|en cours/i.test(texteC));
   await page.screenshot({ path: path.join(TMP, 'sans-bouton.png') });
   await fermerTiroir(page);

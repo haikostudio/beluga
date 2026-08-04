@@ -1,15 +1,17 @@
 import * as React from 'react';
-import { ArrowUp, Check, GripVertical, Loader2, Paperclip, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowUp, Check, GripVertical, Loader2, Paperclip, Pencil, Square, Trash2, X } from 'lucide-react';
 import {
   Agent,
   Attachment,
   EngineInfo,
   QueuedPrompt,
   ancre,
+  boutonsBarreEcriture,
   insereAncre,
   jointesApresFrappe,
   retireAncre,
 } from '@haikodev/shared';
+import { useArretAgent } from '@/components/arret-agent';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecordingBar, useRecorder } from '@/components/recorder';
@@ -33,6 +35,8 @@ export interface ComposerProps {
   /** Dans le tiroir d'une carte : des boutons suivent en dessous, la barre ne
    *  touche donc pas le bas de l'écran et ne réserve pas le creux du téléphone. */
   dansTiroir?: boolean;
+  /** Depuis le tiroir d'une carte : l'arrêt ne vaut que pour SA tâche. */
+  cardId?: string;
 }
 
 export function Composer({
@@ -46,6 +50,7 @@ export function Composer({
   projectId,
   onProposeTask,
   dansTiroir,
+  cardId,
 }: ComposerProps) {
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
@@ -298,6 +303,21 @@ export function Composer({
     }
   };
 
+  /*
+   * ARRÊTER SANS REMONTER EN HAUT DU FIL. La bande « en cours » garde son
+   * bouton, mais dans une longue conversation elle sort de l'écran : tant que
+   * l'agent travaille, la flèche d'envoi devient un carré d'arrêt, au même
+   * endroit et à la même taille. C'est le MÊME geste (`useArretAgent`) :
+   * même contrôle, même commande, même confirmation au-delà de cinq minutes.
+   */
+  const arret = useArretAgent({ agent, cardId });
+  const boutons = boutonsBarreEcriture({
+    occupe: busy,
+    arretPossible: arret.possible,
+    aDuTexte: !!text.trim() || picked.length > 0,
+    enEdition: !!edition,
+  });
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
@@ -490,19 +510,35 @@ export function Composer({
                 En faire une tâche
               </Button>
             ) : null}
-            {/* L'arrêt vit désormais sur la bande « en cours », juste au-dessus :
-                le bouton est posé sur l'action qu'il interrompt. */}
             <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
-            <Button
-              variant="default"
-              size="icon"
-              title={edition ? 'Enregistrer la modification' : 'Envoyer'}
-              disabled={edition ? !text.trim() : !agent || (!text.trim() && !picked.length)}
-              onClick={() => submit()}
-            >
-              {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
-            </Button>
+            {/* Le carré d'arrêt : seul quand rien n'est écrit, à côté de la
+                flèche dès qu'une phrase attend d'être envoyée. */}
+            {boutons.arret ? (
+              <Tooltip label="Arrêter l'agent">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Arrêter l'agent"
+                  className="shrink-0 border border-border text-muted hover:border-danger hover:text-danger"
+                  onClick={arret.demander}
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </Button>
+              </Tooltip>
+            ) : null}
+            {boutons.envoi ? (
+              <Button
+                variant="default"
+                size="icon"
+                title={edition ? 'Enregistrer la modification' : 'Envoyer'}
+                disabled={edition ? !text.trim() : !agent || (!text.trim() && !picked.length)}
+                onClick={() => submit()}
+              >
+                {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+              </Button>
+            ) : null}
           </div>
+          {arret.dialogue}
         </div>
       </div>
     </div>
