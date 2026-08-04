@@ -5,10 +5,12 @@ import {
   Estimate,
   OccupantDossier,
   RAISON_SANS_DEPOT,
+  cheminDossierDeCarte,
   nomDeBranche,
   porteDuDepot,
   porteDuDossier,
 } from '@haikodev/shared';
+import { menageDesDossiers, ouvrirDossierDeCarte } from './dossier-de-carte.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { createAgent, isRunning, sendPrompt, runningCount, runningAgentIds } from './runtime.js';
@@ -195,7 +197,10 @@ export async function portesDures(card: Card): Promise<Gate> {
 
   const project = store.getProject(card.projectId);
   if (project) {
-    const dossier = porteDuDossier({ cardId: card.id, dossier: project.path }, occupantsDesDossiers(card.id));
+    // Le dossier VISÉ par cette carte est le sien, pas celui du projet : deux
+    // cartes différentes ne se gênent donc plus.
+    const vise = cheminDossierDeCarte(project.path, card.title, card.id);
+    const dossier = porteDuDossier({ cardId: card.id, dossier: vise }, occupantsDesDossiers(card.id));
     if (!dossier.ok) return { ok: false, reason: dossier.raison };
 
     const depot = porteDuDepot(await estUnDepotGit(project.path));
@@ -261,9 +266,14 @@ export async function estUnDepotGit(projectPath: string): Promise<boolean> {
 
 /**
  * Qui travaille en ce moment, et dans quel dossier. Seul un agent de rôle
- * « task » compte : c'est lui qui bascule la copie de travail sur SA branche.
+ * « task » compte : c'est lui qui tient une copie de travail sur SA branche.
+ *
+ * Chaque carte ayant son propre dossier, l'occupant déclare le SIEN (`workdir`)
+ * et non celui du projet : la porte ne retient plus que deux cartes visant
+ * vraiment le même dossier — un agent d'avant ce changement, resté sur le
+ * dossier du projet, en fait partie.
  */
-function occupantsDesDossiers(saufCardId?: string): OccupantDossier[] {
+export function occupantsDesDossiers(saufCardId?: string): OccupantDossier[] {
   const occupants: OccupantDossier[] = [];
   for (const agentId of runningAgentIds()) {
     const agent = store.getAgent(agentId);
@@ -274,52 +284,31 @@ function occupantsDesDossiers(saufCardId?: string): OccupantDossier[] {
     occupants.push({
       cardId: agent.cardId,
       titre: store.getCard(agent.cardId)?.title ?? agent.title,
-      dossier: project.path,
+      dossier: agent.workdir ?? project.path,
     });
   }
   return occupants;
 }
 
 /**
- * Le résultat de la préparation de branche, DIT en toutes lettres. Il n'y a plus
- * de troisième cas « pas un dépôt git, l'agent travaille sur place » : c'est ce
+ * Le résultat de la préparation, DIT en toutes lettres. Il n'y a plus de
+ * troisième cas « pas un dépôt git, l'agent travaille sur place » : c'est ce
  * silence-là qui laissait partir des agents sur « main », sans branche et sans
  * rien à prouver. Un projet sans dépôt est refusé plus tôt, par les portes dures.
+ *
+ * La carte reçoit désormais SA branche ET son dossier : le dossier du projet
+ * n'est plus basculé d'une branche à l'autre, donc plusieurs cartes du même
+ * projet peuvent travailler en même temps.
  */
-export type Branche = { kind: 'prete'; nom: string } | { kind: 'echec'; raison: string };
+export type Branche =
+  | { kind: 'prete'; nom: string; dossier: string }
+  | { kind: 'echec'; raison: string };
 
 export async function prepareBranch(projectPath: string, card: Card): Promise<Branche> {
-  const branch = branchName(card);
   if (!(await estUnDepotGit(projectPath))) return { kind: 'echec', raison: RAISON_SANS_DEPOT };
-  try {
-    await execFileAsync('git', ['checkout', '-B', branch], { cwd: projectPath, timeout: 20000 });
-    return { kind: 'prete', nom: branch };
-  } catch (err: any) {
-    // Le verdict se lit sur le RÉSULTAT, pas sur le processus : git peut rendre
-    // un code non nul (avertissement, hook local) tout en ayant bien basculé.
-    const actual = await currentBranch(projectPath);
-    if (actual === branch) return { kind: 'prete', nom: branch };
-    log.warn(
-      `création de branche impossible (branche courante : ${actual ?? 'inconnue'})`,
-      (err?.stderr ?? err?.message ?? '').toString().slice(0, 300),
-    );
-    return {
-      kind: 'echec',
-      raison: `Branche « ${branch} » impossible à créer (branche courante : ${actual ?? 'inconnue'}). Le dossier du projet est peut-être occupé par un autre agent.`,
-    };
-  }
-}
-
-async function currentBranch(projectPath: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: projectPath,
-      timeout: 10000,
-    });
-    return stdout.trim();
-  } catch {
-    return null;
-  }
+  const ouvert = await ouvrirDossierDeCarte(projectPath, card);
+  if (ouvert.kind === 'echec') return ouvert;
+  return { kind: 'prete', nom: ouvert.branche, dossier: ouvert.dossier };
 }
 
 /**
@@ -370,6 +359,9 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
     title: card.title,
     cardId: card.id,
     run: card.run,
+    // La carte a son dossier : l'agent y vit tout son tour, et le démon le
+    // referme à la fin (fusion dans la principale, puis `git worktree remove`).
+    workdir: prepa.dossier,
   });
 
   const running = store.saveCard({
@@ -393,7 +385,7 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
 TITRE : ${card.title}
 ${card.description || '(pas de description)'}
 
-Tu travailles sur la branche « ${branch} ».
+Tu travailles sur la branche « ${branch} », dans le dossier « ${prepa.dossier} » — une copie de travail à toi seul, créée pour cette carte. Reste dedans : n'en change pas et ne change pas de branche. HaikoDev fusionne ta branche dans la principale et referme ce dossier dès que tu as rendu ; ne le fais pas toi-même.
 
 Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (commit + push). Ne publie pas.`;
 
@@ -482,8 +474,25 @@ export async function tick(): Promise<void> {
   }
 }
 
+/**
+ * Au démarrage du démon, plus personne ne travaille : les copies de travail de
+ * cartes encore ouvertes sont des restes d'un tour tué net. On les referme comme
+ * en fin de tour — le travail enregistré rejoint la principale, une copie où
+ * traîne du travail non enregistré est laissée telle quelle.
+ */
+async function menageDesDossiersDeCarte(): Promise<void> {
+  const occupes = occupantsDesDossiers().map((o) => o.dossier);
+  for (const project of store.listProjects()) {
+    if (!(await estUnDepotGit(project.path))) continue;
+    await menageDesDossiers(project.path, occupes).catch((err) =>
+      log.warn('ménage des dossiers de cartes impossible', String(err).slice(0, 200)),
+    );
+  }
+}
+
 export function startScheduler(): NodeJS.Timeout {
   log.info(`ordonnanceur démarré (plafond ${store.getSettings().maxAgents} agents, ${runningCount()} en cours)`);
+  void menageDesDossiersDeCarte();
   return setInterval(() => {
     void tick();
   }, 15000);

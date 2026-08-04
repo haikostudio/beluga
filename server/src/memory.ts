@@ -286,9 +286,21 @@ export function briefing(
   projectName: string,
   avecMemoire = true,
   engine?: string,
+  /**
+   * Le dossier où l'agent travaille VRAIMENT, quand ce n'est pas celui du projet :
+   * une carte lancée reçoit une copie de travail à elle. La mémoire et les
+   * instructions se lisent toujours au même endroit — le projet — mais le dossier
+   * annoncé doit être celui où l'agent écrit.
+   */
+  dossierDeTravail?: string,
 ): string {
   migrerJournal(projectPath);
-  const parts: string[] = [`Projet : ${projectName} (dossier ${projectPath}).`];
+  const dossier = dossierDeTravail?.trim() || projectPath;
+  const parts: string[] = [
+    dossier === projectPath
+      ? `Projet : ${projectName} (dossier ${projectPath}).`
+      : `Projet : ${projectName}. Tu travailles dans ${dossier} — une copie de travail à toi seul, ouverte pour cette carte (le projet vit dans ${projectPath}).`,
+  ];
 
   const { fichier: quiFaitFoi, renvoiDepuis } = instructionsDuProjet(projectPath, engine);
   const instructions = [quiFaitFoi, 'CLAUDE.md', 'AGENTS.md', 'README.md'].filter(

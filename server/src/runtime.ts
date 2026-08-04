@@ -12,6 +12,7 @@ import {
   EngineId,
   MEMORY_STEP_ID,
   Message,
+  Project,
   RunStep,
   TaskProposal,
   TemplateKind,
@@ -22,6 +23,7 @@ import {
   colonneAuDemarrage,
   colonneEnFinDeTour,
   etatDuPont,
+  nomDeBranche,
   raisonSansModification,
   templateForColumn,
   tourDeLaCarte,
@@ -40,6 +42,7 @@ import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
 import { notify } from './notify.js';
 import { cartesDuTravailHorsTache, depotModifieDepuis, repereAvant } from './hors-tache.js';
 import { oublierLePont, passageDuPont } from './pont.js';
+import { ouvrirDossierDeCarte, refermerDossierDeCarte } from './dossier-de-carte.js';
 
 export interface LiveRun {
   agentId: string;
@@ -93,6 +96,7 @@ export function createAgent(input: {
   title: string;
   cardId?: string;
   run?: Partial<Agent['run']>;
+  workdir?: string;
 }): Agent {
   const project = store.getProject(input.projectId);
   const agent = Agent.parse({
@@ -101,6 +105,7 @@ export function createAgent(input: {
     cardId: input.cardId,
     role: input.role,
     title: input.title,
+    workdir: input.workdir,
     run: {
       engine: input.run?.engine ?? project?.defaultEngine ?? 'claude',
       model: input.run?.model,
@@ -243,7 +248,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, index de la
     // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
-    contextParts.push(briefing(project.path, project.name, true, agent.run.engine));
+    contextParts.push(briefing(project.path, project.name, true, agent.run.engine, agent.workdir));
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
@@ -302,6 +307,30 @@ function carteContexte(agentId: string, card: Card, nouvelleSession: boolean): s
   return entier;
 }
 
+/**
+ * Le dossier de travail de ce tour. Sans `workdir`, c'est celui du projet. Avec,
+ * c'est la copie de la carte : présente, on la garde ; refermée par le tour
+ * précédent, on la rouvre sur la même branche. Impossible à rouvrir, on le DIT
+ * dans le journal et on retombe sur le dossier du projet plutôt que de perdre
+ * le tour.
+ */
+async function dossierDuTour(agent: Agent, project: Project): Promise<string> {
+  if (!agent.workdir) return project.path;
+  if (fs.existsSync(agent.workdir)) return agent.workdir;
+  const card = agent.cardId ? store.getCard(agent.cardId) : null;
+  if (!card) return project.path;
+  const ouvert = await ouvrirDossierDeCarte(project.path, card).catch(() => null);
+  if (!ouvert || ouvert.kind === 'echec') {
+    log.warn(
+      `dossier de la carte impossible à rouvrir (${agent.workdir})`,
+      ouvert && ouvert.kind === 'echec' ? ouvert.raison : '',
+    );
+    return project.path;
+  }
+  if (ouvert.dossier !== agent.workdir) store.saveAgent({ ...agent, workdir: ouvert.dossier });
+  return ouvert.dossier;
+}
+
 async function startTurn(
   agentBefore: Agent,
   prompt: string,
@@ -316,6 +345,18 @@ async function startTurn(
   const agent = store.getAgent(agentBefore.id) ?? agentBefore;
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
+
+  /*
+   * OÙ CET AGENT TRAVAILLE. Une carte lancée a sa propre copie de travail
+   * (`git worktree`) : c'est elle qu'on ouvre au moteur, elle qu'on observe avant
+   * et après le tour. Les autres agents restent dans le dossier du projet.
+   *
+   * Le dossier est refermé à la fin de CHAQUE tour : un second tour (message
+   * écrit, file d'attente, réponse à une question) le rouvre sur la même branche,
+   * avec le travail déjà enregistré — jamais un repli silencieux sur la branche
+   * principale du dossier partagé.
+   */
+  const dossier = await dossierDuTour(agent, project);
 
   /*
    * LE VRAI DÉPART D'UN TOUR, et le dernier filet. `sendPrompt` a déjà replacé
@@ -358,7 +399,7 @@ async function startTurn(
    * dire si du code a été enregistré sans carte — et mérite donc une fiche —,
    * et dire si la carte a le droit de passer en « Terminé ».
    */
-  const repere = await repereAvant(project.path).catch(() => null);
+  const repere = await repereAvant(dossier).catch(() => null);
 
   const memory = memorySummary(project.path);
   const memoryStep: RunStep | null = nouvelleSession
@@ -436,7 +477,7 @@ async function startTurn(
   let sawError: string | undefined;
 
   const handle = adapter.run({
-    cwd: project.path,
+    cwd: dossier,
     prompt,
     model: agent.run.model ?? undefined,
     thinking: agent.run.thinking,
@@ -598,7 +639,25 @@ async function startTurn(
    * le découpage du travail hors tâche, juste après, remet la branche de départ
    * en arrière et effacerait la trace.
    */
-  const depotModifie = failed ? false : await depotModifieDepuis(project.path, repere).catch(() => true);
+  const depotModifie = failed ? false : await depotModifieDepuis(dossier, repere).catch(() => true);
+
+  /*
+   * LE DOSSIER DE LA CARTE SE REFERME ICI, une fois le constat pris : la branche
+   * rejoint la principale et la copie de travail est retirée. Sans cela, le
+   * travail resterait sur une branche poussée — jamais livrée —, et le dossier
+   * laissé ouvert empêcherait la carte de repartir. Un refus (travail non
+   * enregistré, conflit) est DIT dans le journal, jamais tu.
+   */
+  if (agent.role === 'task' && agent.cardId && dossier !== project.path) {
+    const carte = store.getCard(agent.cardId);
+    if (carte) {
+      try {
+        await refermerDossierDeCarte(project.path, dossier, nomDeBranche(carte.title, carte.id));
+      } catch (err) {
+        log.error('fermeture du dossier de la carte impossible', err);
+      }
+    }
+  }
 
   /*
    * RIEN DE CE QUI SE FAIT NE RESTE INVISIBLE. Un agent sans carte qui a

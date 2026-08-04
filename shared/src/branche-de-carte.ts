@@ -77,9 +77,16 @@ export function porteDuDepot(estDepotGit: boolean): VerdictBranche {
 /**
  * Porte dure : une seule carte à la fois par dossier de travail.
  *
- * Le dossier d'un projet est partagé : deux agents qui y basculent chacun sur SA
- * branche se volent les fichiers l'un à l'autre. La carte qui arrive en second
- * n'échoue pas — elle attend son tour, en le disant.
+ * Deux agents qui basculent chacun sur SA branche dans la même copie de travail
+ * se volent les fichiers l'un à l'autre. La carte qui arrive en second n'échoue
+ * pas — elle attend son tour, en le disant.
+ *
+ * Depuis que chaque carte lancée reçoit SA copie de travail
+ * (`cheminDossierDeCarte`, `git worktree`), la porte ne retient plus que le cas
+ * RÉEL : deux cartes qui visent le même dossier — une carte relancée pendant que
+ * son propre agent tourne encore, ou un agent d'avant ce changement, resté dans
+ * le dossier du projet. Le verdict lui-même n'a pas bougé : ce sont les dossiers
+ * comparés qui sont devenus ceux des cartes.
  */
 export function porteDuDossier(
   entree: { cardId: string; dossier: string },

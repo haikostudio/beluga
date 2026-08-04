@@ -271,6 +271,12 @@ export const Agent = z.object({
   role: AgentRole,
   title: z.string(),
   run: RunConfig,
+  /**
+   * Le dossier où cet agent travaille, quand ce n'est pas celui du projet : une
+   * carte lancée reçoit une copie de travail à elle (`git worktree`), pour que
+   * plusieurs cartes du même projet puissent tourner en même temps.
+   */
+  workdir: z.string().optional(),
   status: AgentStatus,
   account: z.string().optional(),
   pid: z.number().optional(),

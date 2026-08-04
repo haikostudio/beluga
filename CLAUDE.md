@@ -70,7 +70,7 @@ node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Termin�
 node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié » (démon d'essai à soi)
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
-node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » (dépôt d'essai)
+node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -182,11 +182,26 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   (`shared/src/branche-de-carte.ts`). `nomDeBranche` fabrique le nom ; `porteDuDepot` refuse un
   projet qui n'est pas un dépôt git — c'est le silence « pas un dépôt, l'agent travaille sur place »
   qui laissait partir des agents sur `main`, sans branche et sans rien à prouver ; `porteDuDossier`
-  refuse une seconde carte dans un dossier déjà occupé par un agent de rôle « task » — deux
-  `git checkout -B` dans la même copie de travail se volent les fichiers. La carte refusée n'échoue
-  pas : elle attend en disant pourquoi. `prepareBranch` ne rend donc plus que « prête » ou
-  « échec » — plus de troisième cas muet — et le prompt de la carte nomme toujours sa branche.
-  Verrouillé par `server/src/test/branche-de-carte.test.ts` et `scripts/verif-branche-de-carte.mjs`.
+  refuse une seconde carte visant le MÊME dossier — deux basculements de branche dans la même copie
+  de travail se volent les fichiers. La carte refusée n'échoue pas : elle attend en disant pourquoi.
+  `prepareBranch` ne rend donc plus que « prête » ou « échec » — plus de troisième cas muet — et le
+  prompt de la carte nomme toujours sa branche ET son dossier. Verrouillé par
+  `server/src/test/branche-de-carte.test.ts` et `scripts/verif-branche-de-carte.mjs`.
+- **Chaque carte travaille dans SA copie du dépôt, ouverte par `git worktree`**
+  (`shared/src/dossier-de-carte.ts` pour les règles, `server/src/dossier-de-carte.ts` pour git). Au
+  lancement, `ouvrirDossierDeCarte` pose la carte dans `<projet>/.worktrees/<nom de branche>` sur sa
+  branche « tache/… » ; le chemin est retenu sur l'agent (`Agent.workdir`) et sert de dossier au
+  moteur, au repère d'avant tour et au constat de fin. Plusieurs cartes d'un même projet démarrent
+  donc en parallèle, dans la limite des places et des quotas, et le dossier principal ne change plus
+  jamais de branche. En fin de tour, `refermerDossierDeCarte` fusionne la branche dans la principale
+  (jamais poussée : la mise en ligne reste un geste de l'utilisateur) puis retire la copie ; un tour
+  suivant la ROUVRE sur la même branche. Trois refus, tous dits : travail non enregistré dans la
+  copie (elle est gardée telle quelle), dossier principal qui n'est pas sur sa branche principale,
+  conflit de fusion — ce dernier revient à la publication. Le rangement `.worktrees/` est écarté par
+  le fichier d'exclusion LOCAL du dépôt, jamais par son `.gitignore`, et les copies laissées
+  ouvertes par un démon tué sont refermées au démarrage (`menageDesDossiers`, branches « tache/… »
+  seulement). Verrouillé par `server/src/test/dossier-de-carte.test.ts` et
+  `scripts/verif-branche-de-carte.mjs`.
 - **Une carte qui retravaille ne reste pas en « Terminé ».** La règle est unique
   (`colonneAuDemarrage`) et vit dans UNE fonction du démon, `replacerCarteAuDemarrage`
   (`server/src/runtime.ts`), appelée aux deux seuls points par lesquels un tour peut naître :
@@ -275,14 +290,15 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   **enregistrer, oui ; pousser sur la branche principale, non** — une histoire déjà publiée ne se
   réécrit pas, et le travail resterait collé à la principale. Corollaire : **un enregistrement par
   fonctionnalité**, avec un message qui la nomme.
-- **Un agent de CARTE termine sur la branche principale de son projet : une branche poussée n'est
-  PAS livrée.** Un agent qui s'ouvre un dossier de travail séparé (`git worktree`) doit fusionner sa
-  branche dans la principale, puis refermer le dossier (`git worktree remove`), avant de rendre son
-  travail. Sinon le code existe sur GitHub sans jamais rejoindre le tronc : la publication du projet,
-  qui installe la principale, ne l'emporte pas, et la carte affiche « Terminé » sur du vide. Second
-  piège du dossier PARTAGÉ : `git add -A` / `git commit -a` emporte le travail d'un autre agent dans
-  son propre enregistrement — d'où des cartes qui se croisent, l'une livrant ce que l'autre a écrit.
-  On nomme ses fichiers un par un.
+- **Le travail d'une carte finit sur la branche principale : une branche poussée n'est PAS livrée.**
+  Sinon le code existe sur GitHub sans jamais rejoindre le tronc : la publication, qui installe la
+  principale, ne l'emporte pas, et la carte affiche « Terminé » sur du vide. Pour une carte lancée,
+  c'est le démon qui s'en charge en fin de tour (`refermerDossierDeCarte`) : l'agent enregistre et
+  pousse SA branche, il ne fusionne ni ne referme rien lui-même. Un agent qui s'ouvre un dossier
+  séparé DE SA PROPRE INITIATIVE, lui, reste responsable de fusionner puis de refermer
+  (`git worktree remove`) avant de rendre. Piège du dossier partagé, toujours valable partout où on
+  n'a pas de copie à soi : `git add -A` / `git commit -a` emporte le travail d'un autre agent dans
+  son propre enregistrement — on nomme ses fichiers un par un.
 - Rien de ce qui se fait ne reste invisible : chaque ligne du lot à publier a sa carte, et un projet
   dont un agent a rendu son travail porte une pastille tant que la conversation n'a pas été ouverte.
   **Deux choses secouent la ligne d'un projet** (`shared/src/signal-projet.ts`) : une décision
@@ -344,8 +360,9 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   le serveur vient d'y écrire la raison de l'attente, on ne rend que la COLONNE sur la version la
   plus fraîche, sinon la carte revient sans un mot. Verrouillé par
   `server/src/test/lot-colonne.test.ts` et `scripts/verif-lot-planifie.mjs`.
-- Le dossier de travail est **partagé** entre agents : vérifier la branche avant de modifier, puis
-  committer ses fichiers **nommés un par un** — jamais `git add -A`.
+- Une carte lancée a sa copie de travail à elle ; le dossier du projet, lui, reste **partagé** (chef
+  d'orchestre, analyse, publication) : vérifier la branche avant de modifier, puis committer ses
+  fichiers **nommés un par un** — jamais `git add -A`.
 - Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier
   existant (sauf sur HaikoDev lui-même).
 - Le tableau ne glisse que de gauche à droite, une colonne que de haut en bas. Un axe en `auto`
