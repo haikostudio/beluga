@@ -26,11 +26,13 @@ export async function listEngines(force = false): Promise<EngineInfo[]> {
     const detected = await adapter.detect();
     let models: EngineInfo['models'] = [];
     let live = false;
+    let catalogError: string | undefined;
     if (detected.installed) {
       const catalogue =
         adapter.id === 'claude' ? await claudeCatalog() : await codexCatalog(detected.version ?? '');
       models = catalogue.models;
       live = catalogue.live;
+      catalogError = catalogue.error;
     }
     engines.push({
       id: adapter.id,
@@ -43,6 +45,8 @@ export async function listEngines(force = false): Promise<EngineInfo[]> {
       // retomberait sur le premier de la liste, c'est-à-dire le plus cher.
       defaultModel: resolveModel(models, adapter.defaultModel),
       live,
+      // Une liste de secours ne passe pas pour la liste du moteur : le menu le dit.
+      catalogError,
       fetchedAt: Date.now(),
     });
   }

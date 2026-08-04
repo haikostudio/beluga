@@ -49,6 +49,8 @@ export const EngineInfo = z.object({
   defaultModel: z.string().optional(),
   /** Vrai quand la liste vient du moteur lui-même, faux si c'est le repli local. */
   live: z.boolean().default(false),
+  /** Pourquoi le catalogue n'a pas pu être lu : dit à l'écran, jamais tu. */
+  catalogError: z.string().optional(),
   fetchedAt: z.number().optional(),
 });
 export type EngineInfo = z.infer<typeof EngineInfo>;
