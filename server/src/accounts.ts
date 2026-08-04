@@ -9,12 +9,13 @@ import {
   doitAlerterEpuisementProche,
   doitAlerterFinDeFenetre,
   franchissementSemaine,
+  historiquePourProfil,
   previsionEpuisement,
   tempsRestant,
 } from '@haikodev/shared';
 import { PATHS, CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
-import { dernieresAmorces, quotaHistory, recordQuotaSample } from './store.js';
+import { dernieresAmorces, quotaHistory, quotaResume, recordQuotaSample } from './store.js';
 import { bus } from './bus.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
@@ -459,8 +460,17 @@ function alerterEpuisementsProches(list: AccountQuota[]): void {
   }
 
   const histoire = quotaHistory(7);
+  // Le profil des heures creuses puise aussi dans le RÉSUMÉ des semaines
+  // passées ; la pente du moment, elle, reste mesurée sur les relevés récents.
+  const resume = quotaResume();
   const previsions = new Map(
-    list.map((quota) => [quota.id, previsionEpuisement(histoire[quota.id] ?? [], quota.weekly)] as const),
+    list.map(
+      (quota) =>
+        [
+          quota.id,
+          previsionEpuisement(historiquePourProfil(resume[quota.id], histoire[quota.id]), quota.weekly),
+        ] as const,
+    ),
   );
 
   let change = false;

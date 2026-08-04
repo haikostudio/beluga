@@ -117,13 +117,16 @@ async function main() {
       return vrai.call(this, donnees);
     };
     /*
-     * L'historique fabriqué : trois jours d'heure en heure avec une VRAIE NUIT
-     * CREUSE — entre 1 h et 7 h du matin le compte « brûlant » ne consomme
-     * presque rien, le reste de la journée il brûle 1,4 % par heure. Sa semaine
-     * repart de zéro il y a deux heures, en plein jour : sans le profil des
-     * heures creuses, cette pente-là serait prolongée telle quelle et
-     * annoncerait un épuisement bien trop tôt. Les autres comptes restent au
-     * repos, pour que l'un d'eux puisse servir de compte de secours.
+     * L'historique fabriqué : DEUX SEMAINES d'heure en heure avec une vraie
+     * nuit creuse ET des week-ends très calmes — entre 1 h et 7 h du matin, et
+     * du samedi au dimanche, le compte « brûlant » ne consomme presque rien ;
+     * le reste du temps il brûle 1,4 % par heure. Sa semaine repart de zéro il
+     * y a deux heures, en pleine activité : sans le profil de semaine, cette
+     * pente-là serait prolongée telle quelle et annoncerait un épuisement bien
+     * trop tôt. Deux semaines sont nécessaires pour que les quarante-huit
+     * tranches (jours ouvrés / week-end) soient toutes observées. Les autres
+     * comptes restent au repos, pour que l'un d'eux puisse servir de compte de
+     * secours.
      */
     const fabriquer = () => {
       /*
@@ -136,13 +139,22 @@ async function main() {
       const brulant = [];
       const repos = [];
       let cumul = 0;
-      for (let i = 72; i >= 1; i--) {
+      for (let i = 14 * 24; i >= 1; i--) {
         const at = maintenant - i * 3600_000;
         if (i === 2) cumul = 0; // la fenêtre hebdomadaire repart de zéro
         brulant.push({ at, weekly: cumul, session: 5 });
         repos.push({ at, weekly: 8, session: 3 });
-        const heure = new Date(at).getHours();
-        cumul += plat ? 1.4 : heure >= 1 && heure < 7 ? 0.05 : 1.4;
+        const date = new Date(at);
+        const heure = date.getHours();
+        const jour = date.getDay();
+        const calme = jour === 0 || jour === 6 || (heure >= 1 && heure < 7);
+        // Les deux dernières heures brûlent toujours à plein régime, même si le
+        // script est lancé une nuit ou un samedi : sans cela, la pente « récente »
+        // serait nulle certains jours et la prévision se tairait pour de bonnes
+        // raisons — on ne verrait alors plus rien à vérifier.
+        // En mode « plat », le même rythme à toute heure : le profil existe
+        // toujours, mais aucune tranche ne se détache et la ligne se tait.
+        cumul += !plat && calme && i > 2 ? 0.05 : 1.4;
       }
       // La fenêtre courte repart de zéro il y a une demi-heure, puis s'emballe :
       // son épuisement tombe alors AVANT sa propre remise à zéro.
@@ -310,6 +322,15 @@ async function main() {
   record(
     'l’infobulle annonce que les heures creuses sont prises en compte',
     /heures creuses/.test(texteInfobulle),
+    texteInfobulle || 'aucune infobulle affichée',
+  );
+
+  // Et, deux semaines d'historique aidant, que les week-ends ont été séparés
+  // des jours ouvrés : c'est le profil de semaine qui a servi, pas celui d'une
+  // journée type.
+  record(
+    'l’infobulle dit que le week-end est distingué des jours ouvrés',
+    /week-end/.test(texteInfobulle),
     texteInfobulle || 'aucune infobulle affichée',
   );
 

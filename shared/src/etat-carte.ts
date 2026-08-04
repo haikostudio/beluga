@@ -1,3 +1,6 @@
+import type { ColumnKey } from './columns.js';
+import { COLONNES_HORS_REPRISE } from './suivi-colonne.js';
+
 /**
  * Le voyant d'une carte, au bout de son titre.
  *
@@ -52,7 +55,7 @@ export function etatVisuelCarte(entree: EtatVisuelEntree): EtatVisuelCarte {
  * travaillait encore : on pouvait sauter une étape et clôturer une carte dont
  * personne n'avait lu la réponse.
  */
-export type GesteCarte = 'valider' | 'lancer' | 'terminer' | 'publier';
+export type GesteCarte = 'valider' | 'lancer' | 'terminer' | 'publier' | 'reprendre';
 
 export interface ContexteGeste {
   colonne: string;
@@ -108,6 +111,16 @@ export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste
       // Une carte n'arrive dans « Terminé » qu'après clôture : le geste suivant
       // est donc toujours légitime.
       return ctx.colonne === 'done' ? { affiche: true, possible: true } : ABSENT;
+
+    case 'reprendre':
+      /*
+       * Sortir une carte d'une fin de parcours. Le bouton n'existe QUE là, et
+       * c'est le seul chemin volontaire : la règle par défaut reste que rien
+       * ne ressort tout seul de « Archivé » ni de « À déployer ».
+       */
+      return COLONNES_HORS_REPRISE.includes(ctx.colonne as ColumnKey)
+        ? { affiche: true, possible: true }
+        : ABSENT;
 
     default:
       return ABSENT;

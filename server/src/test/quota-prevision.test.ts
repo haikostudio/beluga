@@ -5,6 +5,7 @@ import {
   doitAlerterEpuisementProche,
   previsionEpuisement,
   profilHoraire,
+  profilSemaine,
   trancheLaPlusChargee,
   SEUIL_TRANCHE_CHARGEE,
   TRANCHE_LARGEUR_MAX,
@@ -184,6 +185,158 @@ test('l’infobulle dit sur quelle base le chiffre est calculé', () => {
   assert.match(avec!.detail, /heures creuses/);
   const sans = previsionEpuisement(releves(20, 1, 20), { usedPct: 40, resetsAt: MAINTENANT + j(5) }, MAINTENANT);
   assert.match(sans!.detail, /rythme des dernières heures/);
+});
+
+/* ---------------- Les week-ends ---------------- */
+
+/** Un vendredi soir : la prévision qui part de là traverse un week-end entier. */
+const VENDREDI = new Date('2026-07-31T20:00:00+02:00').getTime();
+
+/**
+ * Deux semaines de relevés d'heure en heure. Les jours ouvrés brûlent `plein`
+ * point de % par heure, sauf la nuit (1 h → 7 h) ; le week-end reste très calme
+ * du matin au soir. La fenêtre hebdomadaire repart de zéro deux heures avant la
+ * fin, donc en plein vendredi soir : la pente « récente » est une pente de
+ * pleine activité.
+ */
+function relevesDeuxSemaines({
+  plein = 1,
+  nuit = 0.05,
+  weekend = 0.05,
+  fin = VENDREDI,
+}: { plein?: number; nuit?: number; weekend?: number; fin?: number } = {}): ReleveQuota[] {
+  const out: ReleveQuota[] = [];
+  let cumul = 0;
+  for (let i = 14 * 24; i >= 0; i--) {
+    const at = fin - h(i);
+    if (i === 2) cumul = 0; // la fenêtre hebdomadaire repart de zéro
+    out.push({ at, weekly: cumul });
+    const date = new Date(at);
+    const jour = date.getDay();
+    const heure = date.getHours();
+    const estWeekEnd = jour === 0 || jour === 6;
+    cumul += estWeekEnd ? weekend : heure >= 1 && heure < 7 ? nuit : plein;
+  }
+  return out;
+}
+
+/** Trois jours ouvrés d'affilée : aucun week-end n'a été observé. */
+function relevesSemaineSeule(): ReleveQuota[] {
+  const fin = new Date('2026-08-06T00:00:00+02:00').getTime(); // jeudi 0 h
+  const out: ReleveQuota[] = [];
+  let cumul = 0;
+  for (let i = 3 * 24; i >= 0; i--) {
+    const at = fin - h(i);
+    out.push({ at, weekly: cumul });
+    const heure = new Date(at).getHours();
+    cumul += heure >= 1 && heure < 7 ? 0.05 : 1;
+  }
+  return out;
+}
+
+/**
+ * L'ANCIEN calcul, gardé ici comme point de comparaison : le même déroulé, mais
+ * sur un profil de journée type à vingt-quatre tranches, qui verse un samedi
+ * 15 h et un mardi 15 h dans la même case. Rend l'instant d'épuisement.
+ */
+function previsionSurProfilJournee(releves: ReleveQuota[], reste: number, maintenant: number): number {
+  const points = releves.filter((p) => p.at <= maintenant).sort((a, b) => a.at - b.at);
+  const profil = profilHoraire(points);
+  assert.ok(profil, 'un profil de journée est attendu pour la comparaison');
+  let debut = 0;
+  for (let i = points.length - 1; i > 0; i--) {
+    if (points[i].weekly < points[i - 1].weekly) {
+      debut = i;
+      break;
+    }
+  }
+  const premier = points[debut];
+  const dernier = points[points.length - 1];
+  let pondere = 0;
+  let curseur = premier.at;
+  while (curseur < dernier.at) {
+    const bord = Math.min(new Date(curseur).setMinutes(60, 0, 0), dernier.at);
+    pondere += (bord - curseur) * profil[new Date(curseur).getHours()];
+    curseur = bord;
+  }
+  const rythme = (dernier.weekly - premier.weekly) / pondere;
+  let manquant = reste;
+  curseur = maintenant;
+  for (let pas = 0; pas < 24 * 60; pas++) {
+    const vitesse = rythme * profil[new Date(curseur).getHours()];
+    const bord = new Date(curseur).setMinutes(60, 0, 0);
+    const mangeable = vitesse * (bord - curseur);
+    if (mangeable >= manquant) return curseur + manquant / vitesse;
+    manquant -= mangeable;
+    curseur = bord;
+  }
+  throw new Error('épuisement introuvable');
+}
+
+test('le profil de semaine sépare les week-ends des jours ouvrés', () => {
+  const profil = profilSemaine(relevesDeuxSemaines());
+  assert.ok(profil, 'un profil de semaine est attendu');
+  assert.equal(profil.length, 48);
+  // Une semaine type : cinq jours ouvrés et deux de week-end. La moyenne ainsi
+  // pesée vaut 1, donc le profil ne change rien au total consommé en une semaine.
+  const moyenne = profil.reduce(
+    (somme, p, i) => somme + p * (i < 24 ? 5 / 7 / 24 : 2 / 7 / 24),
+    0,
+  );
+  assert.ok(Math.abs(moyenne - 1) < 0.01, `moyenne pondérée de 1 attendue (${moyenne})`);
+  // Mardi 15 h est plein, samedi 15 h est calme : les deux ne sont plus mêlés.
+  assert.ok(profil[15] > 1.2, `15 h en jour ouvré doit être plein (${profil[15]})`);
+  assert.ok(profil[24 + 15] < 0.2, `15 h le week-end doit être calme (${profil[24 + 15]})`);
+  // Et la nuit reste creuse des deux côtés.
+  assert.ok(profil[3] < 0.2, `3 h en jour ouvré doit être creux (${profil[3]})`);
+});
+
+test('un vendredi soir, le week-end calme repousse l’épuisement annoncé', () => {
+  const points = relevesDeuxSemaines();
+  const fenetre = { usedPct: 70, resetsAt: VENDREDI + j(7) };
+  const prevision = previsionEpuisement(points, fenetre, VENDREDI);
+  assert.ok(prevision, 'une prévision est attendue');
+  assert.equal(prevision.heuresCreuses, true);
+
+  const ancienne = previsionSurProfilJournee(points, 30, VENDREDI);
+  assert.ok(
+    prevision.at > ancienne + 30 * 60_000,
+    `l’épuisement doit être repoussé : ${new Date(prevision.at).toISOString()} vs ${new Date(ancienne).toISOString()}`,
+  );
+  assert.ok(prevision.at < fenetre.resetsAt);
+  // Le samedi et le dimanche ne mangent presque rien : la trajectoire s'aplatit.
+  const samedi = prevision.trajectoire.filter((p) => new Date(p.at).getDay() === 6);
+  // La trajectoire est allégée avant d'être rendue : une poignée de points
+  // suffit à couvrir la journée du samedi.
+  assert.ok(samedi.length >= 8, `la trajectoire traverse bien le samedi (${samedi.length} points)`);
+  assert.ok(
+    samedi[samedi.length - 1].pct - samedi[0].pct < 3,
+    `le samedi doit rester presque plat (${samedi[samedi.length - 1].pct - samedi[0].pct})`,
+  );
+});
+
+test('l’infobulle nomme le week-end quand le profil de semaine a servi', () => {
+  const avec = previsionEpuisement(
+    relevesDeuxSemaines(),
+    { usedPct: 70, resetsAt: VENDREDI + j(7) },
+    VENDREDI,
+  );
+  assert.match(avec!.detail, /heures creuses/);
+  assert.match(avec!.detail, /week-end/);
+});
+
+test('sans week-end observé, on retombe sur les vingt-quatre tranches', () => {
+  const points = relevesSemaineSeule();
+  const maintenant = points[points.length - 1].at;
+  assert.equal(profilSemaine(points), null, 'aucun week-end vu : pas de profil de semaine');
+  const journee = profilHoraire(points);
+  assert.ok(journee, 'le profil de journée, lui, tient debout');
+  assert.equal(journee.length, 24);
+  // Et la prévision continue de sortir, sur ce profil-là.
+  const prevision = previsionEpuisement(points, { usedPct: 70, resetsAt: maintenant + j(5) }, maintenant);
+  assert.ok(prevision);
+  assert.equal(prevision.heuresCreuses, true);
+  assert.doesNotMatch(prevision.detail, /week-end/);
 });
 
 /* ---------------- La fenêtre de cinq heures ---------------- */
