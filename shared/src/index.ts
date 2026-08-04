@@ -29,6 +29,7 @@ export * from './models.js';
 export * from './notification.js';
 export * from './notification-tri.js';
 export * from './nouveau-depart.js';
+export * from './outil-natif.js';
 export * from './ouverture-pile.js';
 export * from './pile-messages.js';
 export * from './pont-outils.js';

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { outilsNatifsDuMoteur } from '@haikodev/shared';
 import {
   ORCHESTRATOR_ALLOWED_NATIVE,
   ORCHESTRATOR_DENIED_NATIVE,
@@ -53,7 +54,13 @@ test('tout outil du moteur est classé autorisé ou interdit pour le chef d\'orc
     return;
   }
 
-  const unclassified = engineTools.filter((tool) => !classified.has(tool));
+  /*
+   * On ne juge que les outils DU MOTEUR. La liste vivante porte aussi ceux des
+   * serveurs branchés sur le compte de l'utilisateur, qui vont et viennent
+   * selon leur connexion : les compter faisait tomber ce contrôle au hasard,
+   * et avec lui la publication.
+   */
+  const unclassified = outilsNatifsDuMoteur(engineTools).filter((tool) => !classified.has(tool));
   assert.deepEqual(
     unclassified,
     [],
