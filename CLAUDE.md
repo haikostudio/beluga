@@ -602,8 +602,11 @@ sans son point d'essai.
   saisie : `cerveau.cle` la range par `enregistrerCleCerveau` (`server/src/cle-cerveau.ts`) dans le
   fichier d'environnement du service — `HAIKODEV_ENV_FILE`, `/etc/haikodev.env` par défaut, sinon
   repli dans le dossier de données — et la pose du même coup dans le processus : elle vaut aussitôt,
-  sans redémarrage. `cleCerveau` lit désormais par `lireCleCerveau` (environnement, puis repli, puis
-  fichier du service) ; le mécanisme d'envoi ne bouge pas. Verrouillé par
+  sans redémarrage. `cleCerveau` lit désormais par `lireCleCerveau`, dans l'ordre même de
+  l'ÉCRITURE : environnement, puis FICHIER DU SERVICE, puis repli du dossier de données
+  (`data/cerveau.cle`). L'inverse — repli d'abord — laissait un vieux repli MASQUER toute clé neuve
+  posée dans le fichier du service, et faisait tomber les contrôles dès qu'un repli traînait dans
+  `data/`. Le mécanisme d'envoi ne bouge pas. Verrouillé par
   `server/src/test/bloc-cerveau.test.ts`, `server/src/test/cle-cerveau.test.ts` et
   `scripts/verif-cerveau-reglages.mjs` (qui vise un fichier d'environnement TEMPORAIRE).
 - **Un modèle est unique par son IDENTIFIANT, et une liste de secours se DIT**

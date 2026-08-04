@@ -44,21 +44,28 @@ function lireDansEnvironnement(chemin: string): string | undefined {
 }
 
 /**
- * La clé retenue, dans l'ordre : l'environnement du démon, puis le repli du
- * dossier de données, puis le fichier du service. Les deux derniers permettent
- * à une clé posée depuis les réglages de tenir après un redémarrage, quelle que
+ * La clé retenue, dans l'ordre : l'environnement du démon, puis le fichier du
+ * service, puis le repli du dossier de données. Les deux derniers permettent à
+ * une clé posée depuis les réglages de tenir après un redémarrage, quelle que
  * soit la façon dont le démon est relancé.
+ *
+ * L'ordre suit celui de l'ÉCRITURE, et ce n'est pas un détail : `enregistrerCleCerveau`
+ * vise d'abord le fichier du service et ne se rabat sur le repli que s'il ne peut
+ * pas y écrire. Le repli lu en premier masquait donc toute clé neuve posée dans le
+ * fichier du service dès qu'un vieux repli traînait.
  */
 export function lireCleCerveau(): string | undefined {
   const enMemoire = process.env[NOM]?.trim();
   if (enMemoire) return enMemoire;
+  const service = lireDansEnvironnement(fichierEnvironnement());
+  if (service) return service;
   try {
     const repli = fs.readFileSync(fichierDeRepli(), 'utf8').trim();
     if (repli) return repli;
   } catch {
     /* pas de repli posé */
   }
-  return lireDansEnvironnement(fichierEnvironnement());
+  return undefined;
 }
 
 /** Remplace (ou ajoute) la ligne de la clé sans toucher au reste du fichier. */
