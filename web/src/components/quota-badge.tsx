@@ -74,7 +74,16 @@ function Courbe({
         <path d={trace('weekly')} fill="none" stroke="hsl(var(--muted))" strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
         {prevision ? (
           <path
-            d={`M${x(dernier.at).toFixed(1)},${y(dernier.weekly).toFixed(1)} L${x(prevision.at).toFixed(1)},${y(100).toFixed(1)}`}
+            /* Le pointillé suit la MÊME projection que le texte : quand les
+               heures creuses sont mesurées, il s'aplatit la nuit et remonte le
+               jour au lieu de filer tout droit. */
+            d={[
+              `M${x(dernier.at).toFixed(1)},${y(dernier.weekly).toFixed(1)}`,
+              ...prevision.trajectoire
+                .filter((point) => point.at >= dernier.at)
+                .map((point) => `L${x(point.at).toFixed(1)},${y(point.pct).toFixed(1)}`),
+              `L${x(prevision.at).toFixed(1)},${y(100).toFixed(1)}`,
+            ].join(' ')}
             fill="none"
             stroke={prevision.niveau === 'manque' ? 'hsl(var(--warning))' : 'hsl(var(--faint))'}
             strokeWidth="1.4"
@@ -85,7 +94,11 @@ function Courbe({
       </svg>
       <p className="mt-0.5 text-[10.5px] text-faint">
         {jours} jour{jours > 1 ? 's' : ''} · trait épais : la semaine, trait fin : la fenêtre de 5 h
-        {prevision ? ' · pointillé : la suite au rythme observé' : ''}
+        {prevision
+          ? prevision.heuresCreuses
+            ? ' · pointillé : la suite, heures creuses comprises'
+            : ' · pointillé : la suite au rythme observé'
+          : ''}
       </p>
     </div>
   );

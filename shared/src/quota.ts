@@ -156,6 +156,193 @@ export interface PrevisionEpuisement {
   niveau: 'manque' | 'juste';
   /** Le rythme retenu, en points de pourcentage par jour. */
   parJour: number;
+  /** Le profil des heures creuses a servi (sinon : simple prolongement de la pente). */
+  heuresCreuses: boolean;
+  /**
+   * Le chemin projeté, du présent jusqu'à l'épuisement : de quoi tracer le
+   * pointillé du graphique en suivant les creux au lieu d'une droite.
+   */
+  trajectoire: { at: number; pct: number }[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Le profil des heures de la journée                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La nuit, entre une heure et sept heures du matin, il ne se lance quasiment
+ * rien. Prolonger la pente des dernières heures comme si le rythme tenait
+ * vingt-quatre heures sur vingt-quatre annonce donc un épuisement trop tôt.
+ *
+ * Le profil se MESURE : pour chaque heure de la journée, on additionne ce qui a
+ * été consommé pendant cette tranche et le temps réellement observé dedans, ce
+ * qui donne un rythme par heure de la journée. Ramené à une moyenne de 1, il
+ * dit « cette tranche-là consomme deux fois plus que la moyenne », « celle-là
+ * presque rien » — sans qu'aucune heure creuse soit écrite dans le code.
+ */
+
+/** Il faut au moins ce temps d'observation pour qu'un profil veuille dire quelque chose. */
+export const PROFIL_OBSERVATION_MINIMALE_MS = 24 * 60 * 60 * 1000;
+/** Et au moins ce total consommé : sous ce seuil, on ne mesure que du bruit. */
+export const PROFIL_CONSOMMATION_MINIMALE_PCT = 3;
+/** Chaque tranche de la journée doit avoir été observée au moins ce temps-là. */
+export const PROFIL_COUVERTURE_MINIMALE_MS = 10 * 60 * 1000;
+/** Un poids ne monte jamais au-delà : une pointe isolée ne fait pas la loi. */
+export const PROFIL_POIDS_MAXIMUM = 4;
+/**
+ * Et jamais tout à fait zéro : une tranche à zéro absolu ferait une projection
+ * qui n'arrive jamais au bout, alors qu'une nuit vraiment creuse n'est jamais
+ * qu'une nuit très lente.
+ */
+export const PROFIL_POIDS_MINIMUM = 0.02;
+
+/** Répartit une consommation sur les tranches horaires qu'elle traverse. */
+function repartirSurLesHeures(
+  debut: number,
+  fin: number,
+  consomme: number,
+  duree: number[],
+  poids: number[],
+): void {
+  const total = fin - debut;
+  if (total <= 0) return;
+  let curseur = debut;
+  // Garde-fou : un trou de plusieurs semaines entre deux relevés ne doit pas
+  // faire tourner cette boucle indéfiniment.
+  for (let pas = 0; pas < 24 * 60 && curseur < fin; pas++) {
+    const date = new Date(curseur);
+    const heure = date.getHours();
+    const prochaine = new Date(curseur).setMinutes(60, 0, 0);
+    const bord = Math.min(prochaine, fin);
+    const part = bord - curseur;
+    duree[heure] += part;
+    poids[heure] += (consomme * part) / total;
+    curseur = bord;
+  }
+}
+
+/**
+ * Le profil mesuré : vingt-quatre poids de moyenne 1, ou rien du tout quand
+ * l'historique est trop court, trop maigre ou troué. Rien du tout veut dire
+ * « garde le calcul d'avant » : mieux vaut la pente plate qu'une prévision
+ * fantaisiste.
+ */
+export function profilHoraire(releves: ReleveQuota[], serie: SerieQuota = 'weekly'): number[] | null {
+  const points = [...releves].sort((a, b) => a.at - b.at);
+  if (points.length < 2) return null;
+
+  const duree = new Array(24).fill(0);
+  const consomme = new Array(24).fill(0);
+  let totalConsomme = 0;
+  let totalDuree = 0;
+
+  for (let i = 1; i < points.length; i++) {
+    const delta = valeur(points[i], serie) - valeur(points[i - 1], serie);
+    const span = points[i].at - points[i - 1].at;
+    if (span <= 0) continue;
+    // Un pourcentage qui RECULE est une remise à zéro : ce qui a été consommé
+    // avant la bascule est inconnu, la tranche entière sort du calcul.
+    if (delta < 0) continue;
+    repartirSurLesHeures(points[i - 1].at, points[i].at, delta, duree, consomme);
+    totalConsomme += delta;
+    totalDuree += span;
+  }
+
+  if (totalDuree < PROFIL_OBSERVATION_MINIMALE_MS) return null;
+  if (totalConsomme < PROFIL_CONSOMMATION_MINIMALE_PCT) return null;
+  // Une tranche jamais observée n'a pas de rythme : sans la journée entière, le
+  // profil ne saurait pas projeter la suite.
+  if (duree.some((d) => d < PROFIL_COUVERTURE_MINIMALE_MS)) return null;
+
+  const rythmes = consomme.map((c, h) => c / duree[h]);
+  const moyenne = rythmes.reduce((somme, r) => somme + r, 0) / 24;
+  if (moyenne <= 0) return null;
+
+  /*
+   * Aucun lissage entre tranches voisines : il déplacerait les bords du creux
+   * et fausserait le calage du rythme (une heure de plein jour voisine de la
+   * nuit se verrait rabaissée). Seule une pointe démesurée est ramenée au
+   * plafond, puis l'ensemble est remis à une moyenne de 1 : c'est cette moyenne
+   * qui garantit que sur une semaine entière, le profil ne change rien au total.
+   */
+  const bruts = rythmes.map((r) =>
+    Math.min(PROFIL_POIDS_MAXIMUM, Math.max(PROFIL_POIDS_MINIMUM, r / moyenne)),
+  );
+  const apresPlafond = bruts.reduce((somme, p) => somme + p, 0) / 24;
+  if (apresPlafond <= 0) return null;
+  return bruts.map((p) => p / apresPlafond);
+}
+
+/**
+ * Combien de « temps utile » contient un intervalle, une fois chaque tranche
+ * pesée par le profil. Deux heures de plein après-midi pèsent bien plus que
+ * deux heures de nuit : c'est ce qui permet de ramener une pente observée sur
+ * quelques heures de jour à un rythme de référence honnête.
+ */
+function tempsPondere(debut: number, fin: number, profil: number[]): number {
+  if (fin <= debut) return 0;
+  let curseur = debut;
+  let total = 0;
+  for (let pas = 0; pas < 24 * 60 && curseur < fin; pas++) {
+    const heure = new Date(curseur).getHours();
+    const bord = Math.min(new Date(curseur).setMinutes(60, 0, 0), fin);
+    total += (bord - curseur) * profil[heure];
+    curseur = bord;
+  }
+  return total;
+}
+
+/**
+ * L'avance heure par heure : à chaque tranche son rythme (le rythme moyen
+ * multiplié par le poids de la tranche), jusqu'à ce que le reste soit mangé.
+ * Rend l'instant d'épuisement et le chemin parcouru pour y arriver.
+ *
+ * Sans profil, c'est la ligne droite d'avant, exactement.
+ */
+function avancerJusquAEpuisement(
+  depart: number,
+  reste: number,
+  rythme: number,
+  profil: number[] | null,
+): { at: number; trajectoire: { at: number; pct: number }[] } | null {
+  const consommeDepart = 100 - reste;
+  if (!profil) {
+    const at = depart + reste / rythme;
+    return { at, trajectoire: [{ at: depart, pct: consommeDepart }, { at, pct: 100 }] };
+  }
+
+  const trajectoire = [{ at: depart, pct: consommeDepart }];
+  let curseur = depart;
+  let manquant = reste;
+  // Au-delà de soixante jours, la prévision n'a plus d'objet : aucune fenêtre
+  // de quota ne dure aussi longtemps.
+  for (let pas = 0; pas < 24 * 60; pas++) {
+    const heure = new Date(curseur).getHours();
+    const bord = new Date(curseur).setMinutes(60, 0, 0);
+    const vitesse = rythme * profil[heure];
+    const tranche = bord - curseur;
+    const mangeable = vitesse * tranche;
+    if (vitesse > 0 && mangeable >= manquant) {
+      const at = curseur + manquant / vitesse;
+      trajectoire.push({ at, pct: 100 });
+      return { at, trajectoire };
+    }
+    manquant -= mangeable;
+    curseur = bord;
+    trajectoire.push({ at: curseur, pct: 100 - manquant });
+  }
+  return null;
+}
+
+/** Le pointillé n'a pas besoin de mille points : on en garde au plus une poignée. */
+function allegerLaTrajectoire(points: { at: number; pct: number }[]): { at: number; pct: number }[] {
+  const MAX = 60;
+  if (points.length <= MAX) return points;
+  const pas = Math.ceil(points.length / MAX);
+  const out = points.filter((_, index) => index % pas === 0);
+  const dernier = points[points.length - 1];
+  if (out[out.length - 1] !== dernier) out.push(dernier);
+  return out;
 }
 
 /** La valeur lue sur la série demandée ; la semaine à défaut. */
@@ -214,14 +401,44 @@ export function previsionEpuisement(
   const reste = 100 - consomme;
   if (reste <= 0) return null; // déjà épuisée : il n'y a plus rien à prévoir
 
-  const brut = maintenant + reste / rythme;
+  /*
+   * Le profil se mesure sur TOUT l'historique, pas seulement sur la fenêtre en
+   * cours : plus il y a de nuits observées, plus les creux sont sûrs. Il rend
+   * null dès que la matière manque, et l'avance retombe alors sur la ligne
+   * droite d'avant.
+   */
+  /*
+   * Le profil des heures de la journée ne vaut que pour la SEMAINE : une
+   * fenêtre de cinq heures se joue à l'intérieur d'une demi-journée, un rythme
+   * moyen par heure de la journée n'y apprendrait rien et une nuit ne la
+   * traverse presque jamais.
+   */
+  const profil = serie === 'weekly' ? profilHoraire(passes, serie) : null;
+
+  /*
+   * Le rythme de référence, une fois le profil connu, n'est plus la pente
+   * brute : c'est ce qu'on a consommé rapporté au temps PONDÉRÉ de la période
+   * observée. Une pente relevée sur une matinée bien remplie devient ainsi un
+   * rythme moyen sur la journée entière, nuit comprise — ce qui repousse
+   * l'épuisement au lieu de l'annoncer trop tôt.
+   */
+  const pondere = profil ? tempsPondere(premier.at, dernier.at, profil) : 0;
+  const consommeObserve = valeur(dernier, serie) - valeur(premier, serie);
+  const reference = profil && pondere > 0 ? consommeObserve / pondere : rythme;
+  const retenu = profil && reference > 0 ? reference : rythme;
+  const applique = profil && reference > 0 ? profil : null;
+
+  const avance = avancerJusquAEpuisement(maintenant, reste, retenu, applique);
+  if (!avance) return null; // l'épuisement se perd dans un avenir sans intérêt
+
+  const brut = avance.at;
   if (brut >= fenetre.resetsAt) return null; // le quota tient jusqu'au bout
 
   const demiHeure = 30 * 60 * 1000;
   const at = Math.round(brut / demiHeure) * demiHeure;
   const marge = fenetre.resetsAt - brut;
   const total = fenetre.resetsAt - maintenant;
-  const parJour = rythme * 24 * 3600 * 1000;
+  const parJour = retenu * 24 * 3600 * 1000;
 
   const exact = new Date(brut).toLocaleString('fr-CH', {
     weekday: 'long',
@@ -235,15 +452,23 @@ export function previsionEpuisement(
   // jour » sur une fenêtre qui dure cinq heures ne dit rien à personne.
   const cadence =
     serie === 'session'
-      ? `environ ${(rythme * 3600 * 1000).toFixed(1)} % par heure`
+      ? `environ ${(retenu * 3600 * 1000).toFixed(1)} % par heure`
       : `environ ${parJour.toFixed(1)} % par jour`;
+
+  // Le chiffre doit rester compréhensible : on dit d'où il sort, et notamment
+  // qu'il ne suppose plus le même rythme la nuit que le jour.
+  const base = applique
+    ? 'en tenant compte des heures creuses mesurées (la nuit consomme peu)'
+    : 'en prolongeant simplement le rythme des dernières heures';
 
   return {
     at,
     texte: `épuisé ${jourEnClair(at, maintenant)} vers ${heureEnClair(at)}`,
-    detail: `Au rythme observé (${cadence}), épuisement estimé ${exact}, avant la remise à zéro.`,
+    detail: `Au rythme observé (${cadence}), ${base}, épuisement estimé ${exact}, avant la remise à zéro.`,
     niveau: marge > total * MARGE_CONFORT ? 'manque' : 'juste',
     parJour,
+    heuresCreuses: !!applique,
+    trajectoire: allegerLaTrajectoire(avance.trajectoire),
   };
 }
 

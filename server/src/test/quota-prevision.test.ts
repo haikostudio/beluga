@@ -4,6 +4,7 @@ import {
   compteDeSecours,
   doitAlerterEpuisementProche,
   previsionEpuisement,
+  profilHoraire,
   type CandidatSecours,
   type ReleveQuota,
 } from '@haikodev/shared';
@@ -91,6 +92,95 @@ test('épuisement de peu avant la fin : « juste », pas « manque »', () => {
     MAINTENANT,
   );
   assert.equal(prevision?.niveau, 'juste');
+});
+
+/* ---------------- Les heures creuses ---------------- */
+
+/**
+ * Trois jours de relevés d'heure en heure, avec une vraie nuit creuse : entre
+ * 1 h et 7 h du matin il ne se consomme presque rien, le reste de la journée
+ * brûle `plein` point de % par heure. La fenêtre repart de zéro à `resetIl`
+ * heures d'ici, pour que la pente « récente » soit une pente de plein jour.
+ */
+function relevesAvecNuit({
+  jours = 3,
+  plein = 1,
+  creux = 0.05,
+  resetIl = 2,
+}: { jours?: number; plein?: number; creux?: number; resetIl?: number } = {}): ReleveQuota[] {
+  const total = jours * 24;
+  const out: ReleveQuota[] = [];
+  let cumul = 0;
+  for (let i = total; i >= 0; i--) {
+    const at = MAINTENANT - h(i);
+    if (i === resetIl) cumul = 0; // la fenêtre hebdomadaire repart de zéro
+    out.push({ at, weekly: cumul });
+    const heure = new Date(at).getHours();
+    cumul += heure >= 1 && heure < 7 ? creux : plein;
+  }
+  return out;
+}
+
+test('la nuit creuse repousse l’heure d’épuisement annoncée', () => {
+  const points = relevesAvecNuit();
+  const fenetre = { usedPct: 70, resetsAt: MAINTENANT + j(5) };
+  const prevision = previsionEpuisement(points, fenetre, MAINTENANT);
+  assert.ok(prevision, 'une prévision est attendue');
+  assert.equal(prevision.heuresCreuses, true, 'le profil mesuré doit avoir servi');
+
+  // La pente des deux dernières heures est une pente de plein jour : 1 % par
+  // heure. Prolongée telle quelle, elle viderait les 30 % restants en 30 h.
+  const plat = MAINTENANT + h(30);
+  assert.ok(
+    prevision.at > plat + h(2),
+    `l’épuisement doit être repoussé (${new Date(prevision.at).toISOString()} vs ${new Date(plat).toISOString()})`,
+  );
+  // Et il reste avant la remise à zéro, sinon la fonction se serait tue.
+  assert.ok(prevision.at < fenetre.resetsAt);
+});
+
+test('le profil mesuré creuse bien la nuit, sans heure écrite dans le code', () => {
+  const profil = profilHoraire(relevesAvecNuit());
+  assert.ok(profil, 'un profil est attendu');
+  assert.equal(profil.length, 24);
+  const moyenne = profil.reduce((somme, p) => somme + p, 0) / 24;
+  assert.ok(Math.abs(moyenne - 1) < 0.01, 'le profil est ramené à une moyenne de 1');
+  // Le cœur de la nuit est très bas, le milieu d'après-midi bien au-dessus.
+  assert.ok(profil[3] < 0.2, `3 h du matin doit être creux (${profil[3]})`);
+  assert.ok(profil[15] > 1.2, `15 h doit être plein (${profil[15]})`);
+});
+
+test('le pointillé suit la même projection que le texte', () => {
+  const prevision = previsionEpuisement(relevesAvecNuit(), { usedPct: 70, resetsAt: MAINTENANT + j(5) }, MAINTENANT);
+  assert.ok(prevision);
+  const chemin = prevision.trajectoire;
+  assert.ok(chemin.length > 2, 'la trajectoire suit les tranches horaires');
+  assert.equal(chemin[chemin.length - 1].pct, 100);
+  assert.ok(Math.abs(chemin[chemin.length - 1].at - prevision.at) < 30 * 60_000);
+  // Les pourcentages ne reculent jamais : un quota ne se remplit pas tout seul.
+  for (let i = 1; i < chemin.length; i++) assert.ok(chemin[i].pct >= chemin[i - 1].pct - 0.001);
+});
+
+test('historique trop court ou trop maigre : on garde le calcul d’avant', () => {
+  // Vingt heures d'observation : pas même une journée entière.
+  assert.equal(profilHoraire(releves(20, 1, 20)), null);
+  // Trois jours, mais presque rien de consommé : ce ne serait que du bruit.
+  assert.equal(profilHoraire(relevesAvecNuit({ plein: 0.01, creux: 0 })), null);
+  // Et la prévision, elle, continue de sortir sans profil.
+  const prevision = previsionEpuisement(
+    releves(20, 1, 20),
+    { usedPct: 40, resetsAt: MAINTENANT + j(5) },
+    MAINTENANT,
+  );
+  assert.equal(prevision?.heuresCreuses, false);
+  assert.equal(Math.round(prevision!.at), MAINTENANT + h(60));
+});
+
+test('l’infobulle dit sur quelle base le chiffre est calculé', () => {
+  const avec = previsionEpuisement(relevesAvecNuit(), { usedPct: 70, resetsAt: MAINTENANT + j(5) }, MAINTENANT);
+  assert.match(avec!.detail, /heures creuses/);
+  const sans = previsionEpuisement(releves(20, 1, 20), { usedPct: 40, resetsAt: MAINTENANT + j(5) }, MAINTENANT);
+  assert.match(sans!.detail, /rythme des dernières heures/);
 });
 
 /* ---------------- La fenêtre de cinq heures ---------------- */

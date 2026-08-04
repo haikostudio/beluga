@@ -64,6 +64,13 @@ function record(nom, ok, detail = '') {
 
 /** Ouvre le volet des quotas depuis la barre du haut. */
 async function ouvrirLeVolet(page) {
+  // L'application rouvre l'endroit quitté : un tiroir de carte restauré
+  // recouvre l'écran et intercepte le clic. On le referme d'abord, au clavier.
+  for (let essai = 0; essai < 3; essai++) {
+    if (!(await page.locator('[data-state="open"][aria-hidden="true"]').count())) break;
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(600);
+  }
   await page.locator('header button[title="Quotas des moteurs"]').click();
   await page.waitForTimeout(1200);
   return page.locator('[role="menu"]').last();
@@ -110,23 +117,31 @@ async function main() {
       return vrai.call(this, donnees);
     };
     /*
-     * L'historique fabriqué : le compte « brûlant » consomme 1 % par heure sur
-     * la semaine, et sa fenêtre de cinq heures repart de zéro il y a deux
-     * heures puis brûle 40 % par heure. Les autres restent au repos, pour que
-     * l'un d'eux puisse servir de compte de secours.
+     * L'historique fabriqué : trois jours d'heure en heure avec une VRAIE NUIT
+     * CREUSE — entre 1 h et 7 h du matin le compte « brûlant » ne consomme
+     * presque rien, le reste de la journée il brûle 1,4 % par heure. Sa semaine
+     * repart de zéro il y a deux heures, en plein jour : sans le profil des
+     * heures creuses, cette pente-là serait prolongée telle quelle et
+     * annoncerait un épuisement bien trop tôt. Les autres comptes restent au
+     * repos, pour que l'un d'eux puisse servir de compte de secours.
      */
     const fabriquer = () => {
       const maintenant = Date.now();
       const brulant = [];
       const repos = [];
-      for (let i = 30; i >= 1; i--) {
-        brulant.push({ at: maintenant - i * 3600_000, weekly: 10 + (30 - i), session: 5 });
-        repos.push({ at: maintenant - i * 3600_000, weekly: 8, session: 3 });
+      let cumul = 0;
+      for (let i = 72; i >= 1; i--) {
+        const at = maintenant - i * 3600_000;
+        if (i === 2) cumul = 0; // la fenêtre hebdomadaire repart de zéro
+        brulant.push({ at, weekly: cumul, session: 5 });
+        repos.push({ at, weekly: 8, session: 3 });
+        const heure = new Date(at).getHours();
+        cumul += heure >= 1 && heure < 7 ? 0.05 : 1.4;
       }
       // La fenêtre courte repart de zéro il y a une demi-heure, puis s'emballe :
       // son épuisement tombe alors AVANT sa propre remise à zéro.
-      brulant.push({ at: maintenant - 1800_000, weekly: 39.5, session: 0 });
-      brulant.push({ at: maintenant, weekly: 40, session: 100 });
+      brulant.push({ at: maintenant - 1800_000, weekly: cumul, session: 0 });
+      brulant.push({ at: maintenant, weekly: cumul + 0.7, session: 100 });
       repos.push({ at: maintenant - 1800_000, weekly: 8, session: 3 });
       repos.push({ at: maintenant, weekly: 8, session: 3 });
       const history = {};
@@ -227,8 +242,29 @@ async function main() {
   });
   record(
     'la prévision se prolonge en pointillé au bout de la courbe',
-    pointille.length > 0 && pointille.every((t) => /^M[\d.]+,[\d.]+ L[\d.]+,0\.0$/.test(t.d)),
+    pointille.length > 0 &&
+      pointille.every((t) => /^M[\d.]+,[\d.]+( L[\d.]+,[\d.]+)+ L[\d.]+,0\.0$/.test(t.d)),
     pointille.map((t) => t.d).join(' | ') || 'aucun trait pointillé',
+  );
+
+  // Le pointillé suit le profil : il n'est plus une droite. Une nuit creuse s'y
+  // voit comme un palier presque horizontal entre deux montées.
+  const brise = pointille.some((trait) => {
+    const points = [...trait.d.matchAll(/([\d.]+),([\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    if (points.length < 3) return false;
+    const pentes = [];
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i][0] - points[i - 1][0];
+      if (dx > 0.01) pentes.push((points[i - 1][1] - points[i][1]) / dx);
+    }
+    if (pentes.length < 2) return false;
+    // Le rapport entre la pente la plus raide et la plus douce trahit le creux.
+    return Math.max(...pentes) > 3 * Math.min(...pentes);
+  });
+  record(
+    'le pointillé s’aplatit pendant les heures creuses',
+    brise,
+    brise ? 'palier de nuit visible' : 'le pointillé reste une droite',
   );
 
   // Une prévision serrée se distingue : couleur d'alerte et graisse.
@@ -253,6 +289,23 @@ async function main() {
     return !!parent;
   });
   record('l’heure exacte passe en infobulle', infobulle !== false);
+
+  // Et cette infobulle DIT sur quelle base le chiffre est calculé : sans cette
+  // phrase, une heure repoussée de six heures passerait pour une erreur.
+  // C'est la prévision de la SEMAINE qui parle des heures creuses : celle de la
+  // fenêtre de cinq heures ne les regarde pas.
+  const rang = await volet.evaluate((noeud) => {
+    const lignes = [...noeud.querySelectorAll('p')].filter((p) => p.textContent.startsWith('épuisé'));
+    return lignes.findIndex((ligne) => (ligne.parentElement?.textContent ?? '').includes('Semaine'));
+  });
+  await volet.locator('p', { hasText: /^épuisé / }).nth(Math.max(0, rang)).hover();
+  await page.waitForTimeout(700);
+  const texteInfobulle = await page.locator('[data-infobulle]').first().innerText().catch(() => '');
+  record(
+    'l’infobulle annonce que les heures creuses sont prises en compte',
+    /heures creuses/.test(texteInfobulle),
+    texteInfobulle || 'aucune infobulle affichée',
+  );
 
   await page.screenshot({ path: `${SHOTS}/prevision-quota.png` });
 
