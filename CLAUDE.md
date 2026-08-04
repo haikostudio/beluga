@@ -54,9 +54,18 @@ node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
+node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
 node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
+node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
+node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
+node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
+node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 ```
+
+Un script qui corrige le tableau écrit dans `data/haikodev.db` : il montre d'abord ce qu'il ferait,
+et n'écrit qu'avec `--ecrire`. Il doit être rejouable sans doubler ses annotations, et ne rien
+supprimer — on déplace et on explique, on n'efface pas.
 
 `npm test` lit `server/dist` : construire avant de tester.
 
@@ -91,6 +100,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur.
+- **Publier, c'est METTRE EN LIGNE — pas seulement fusionner** (`planDeMiseEnLigne`,
+  `shared/src/mise-en-ligne.ts`). Avant de toucher au dépôt, la publication demande COMMENT le projet
+  peut être servi : sa commande de publication, sinon HaikoDev lui-même, sinon le service système qui
+  tourne sur son dossier (sous-dossier compris), sinon un serveur web qui sert ce dossier tel quel
+  (`root * …` dans Caddy, `root …;` dans nginx). Aucun des quatre : la publication est REFUSÉE, le
+  bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
+  Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
+  (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
 - **Créer un projet, c'est le MONTER en entier**, toujours de la même façon : dossier sur le serveur,
   dépôt git sur `main`, dépôt GitHub privé créé et poussé, puis les sept fichiers de départ
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
@@ -140,6 +157,32 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   suit ensuite le parcours habituel. Seule exception : le code enregistré par un agent SANS carte
   fabrique tout seul sa fiche dans « À déployer » — le travail est déjà fait. Verrouillé par
   `server/src/test/carte-du-chef-attend-la-validation.test.ts`.
+- **Une carte proposée porte une VRAIE description, ou elle n'est pas affichée**
+  (`shared/src/description-carte.ts`). Quatre parties annoncées — Constat (avec au moins un repère
+  concret vu dans le projet : fichier, commande, libellé, règle existante), Attendu, Limites,
+  Vérification — et entre 320 et 2400 signes. `board_create_card` et `propose_task` passent tous
+  deux par `jugerDescription` : une description vide, bâclée, sans constat, sans repère ou en pavé
+  est REFUSÉE, rendue au moteur avec le gabarit, et le chef recommence. Les quatre champs séparés
+  (`constat`, `attendu`, `limites`, `verification`) sont mis en forme par HaikoDev. La consigne
+  (`CONSIGNE_DESCRIPTION_CARTE`) est unique et ne nomme aucun outil propre à un moteur. Verrouillé
+  par `server/src/test/description-carte.test.ts`.
+- **Une carte proposée hérite du moteur, du modèle et du niveau de réflexion de la CONVERSATION**
+  (`reglagesDeLaProposition`, `shared/src/reglages-proposition.ts`). Le démon passe les réglages de
+  l'agent en cours à l'outil (`ToolContext.run`), et le modèle retenu vient TOUJOURS du catalogue du
+  moteur retenu (`catalogueMoteurs`, `server/src/catalogue-moteurs.ts`) : un identifiant emprunté à
+  l'autre moteur est jeté, jamais traîné. Un obstacle se DIT sur la proposition (champ
+  `avertissement`) au lieu de se contourner : moteur non installé, ou aucun compte disponible — dans
+  ce dernier cas le moteur ne change PAS. Les trois réglages restent modifiables avant validation, et
+  la validation les repasse par la même règle. Verrouillé par
+  `server/src/test/reglages-proposition.test.ts`.
+- **Le détail d'une carte montre avec quoi elle tourne** (`reglagesDeLaCarte`,
+  `shared/src/reglages-carte.ts`). En tête de l'onglet « Détails », une ligne d'étiquettes courtes :
+  moteur, modèle, niveau de réflexion, compte. Tant que rien n'a démarré (colonnes autres que
+  « En cours », « Terminé », « À déployer », « Archivé », ET aucun agent de rôle « task » passé), les
+  trois premiers sont des menus qui écrivent dans `card.run` ; le compte, lui, n'est pas encore
+  choisi et le dit. Dès que le travail est parti, tout est FIGÉ et affiche ce qui a RÉELLEMENT servi :
+  les réglages de l'agent d'exécution — jamais ceux de l'analyse, qui tourne souvent ailleurs — et le
+  compte qui a porté le quota. Verrouillé par `server/src/test/reglages-carte.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au

@@ -17,7 +17,9 @@ import {
   comptePrecedents,
   messagesDepuis,
   peutRepartir,
+  reglagesDeLaProposition,
 } from '@haikodev/shared';
+import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
@@ -38,6 +40,7 @@ import {
   conflitsPrevus,
   agentsOccupes,
   commitsEnAttente,
+  moyenDeMiseEnLigne,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
@@ -704,7 +707,21 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // pas celle proposée.
       // Réglages complétés par leurs valeurs par défaut : la carte porte un
       // choix entier, jamais un demi-réglage impossible à relancer.
-      const run = cmd.run ? RunConfig.parse({ ...(proposal.run ?? {}), ...cmd.run }) : proposal.run;
+      // Ce qui est validé est ce qui partira : le réglage est repassé par la
+      // règle du catalogue, pour qu'aucune carte ne naisse avec un modèle
+      // emprunté à un autre moteur — même envoyé par une page restée ouverte.
+      const souhait = cmd.run ? { ...(proposal.run ?? {}), ...cmd.run } : proposal.run;
+      const accorde = souhait ? reglagesDeLaProposition(souhait, await catalogueMoteurs()) : undefined;
+      const run = accorde
+        ? RunConfig.parse({
+            ...(souhait ?? {}),
+            engine: accorde.engine,
+            model: accorde.model,
+            thinking: accorde.thinking,
+          })
+        : souhait
+          ? RunConfig.parse(souhait)
+          : undefined;
       const retenu = {
         title: cmd.title?.trim() || proposal.title,
         description: cmd.description ?? proposal.description,
@@ -761,6 +778,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // Le travail enregistré sur la principale sans passer par une carte :
         // sans lui, la fenêtre de publication disparaissait et rien ne partait.
         enAttente: await commitsEnAttente(cmd.projectId),
+        // Ce projet peut-il seulement être mis en ligne ? Le dire AVANT le clic
+        // vaut mieux que de le découvrir sur une publication refusée.
+        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId),
       };
 
     /* -------- Fichiers -------- */

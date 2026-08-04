@@ -191,7 +191,15 @@ export function createHttpServer(): http.Server {
             });
           }
           const result = await callTool(
-            { agentId, projectId: agent.projectId, role: agent.role, cardId: agent.cardId },
+            {
+              agentId,
+              projectId: agent.projectId,
+              role: agent.role,
+              cardId: agent.cardId,
+              // Les réglages visibles dans la barre d'écriture au moment du
+              // clic : une carte proposée en hérite.
+              run: { engine: agent.run.engine, model: agent.run.model, thinking: agent.run.thinking },
+            },
             body.name,
             body.args ?? {},
           );

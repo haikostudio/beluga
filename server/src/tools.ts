@@ -6,8 +6,15 @@ import {
   COLUMN_LABELS,
   Card,
   ColumnKey,
+  RunConfig,
+  SouhaitReglages,
   TaskProposal,
   canMove,
+  reglagesDeLaProposition,
+  composerDescription,
+  jugerDescription,
+  MAX_SIGNES_DESCRIPTION,
+  MIN_SIGNES_DESCRIPTION,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -17,11 +24,46 @@ import { readMemory, appendMemory, detailMemoire } from './memory.js';
 import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
 import { log } from './logger.js';
+import { catalogueMoteurs } from './catalogue-moteurs.js';
 
 export interface ToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+}
+
+/**
+ * Le même texte pour les DEUX outils de proposition, et donc pour les deux
+ * moteurs : ce qu'on attend d'une description n'est pas laissé au modèle.
+ */
+const CHAMP_DESCRIPTION =
+  'Quatre parties annoncées — Constat (ce que fait le projet aujourd’hui, avec un repère concret que tu as VU : fichier, commande, ' +
+  'libellé affiché, règle existante), Attendu, Limites, Vérification. ' +
+  `Entre ${MIN_SIGNES_DESCRIPTION} et ${MAX_SIGNES_DESCRIPTION} signes. Une description pauvre est REFUSÉE et rendue à réécrire. ` +
+  'Les quatre champs séparés (constat, attendu, limites, verification) font le même travail : HaikoDev les met en forme.';
+
+/**
+ * Fabrique la description d'une proposition, à partir des quatre champs
+ * séparés OU du texte libre, puis la juge. Une description qui ne tient pas
+ * debout ne devient PAS une proposition : elle est rendue au moteur avec le
+ * gabarit, et le chef recommence. C'est le seul endroit où l'exigence est
+ * appliquée — les deux outils du chef passent par ici.
+ */
+function descriptionDeProposition(args: any): { description: string } | { refus: string } {
+  const parties = {
+    constat: typeof args.constat === 'string' ? args.constat : '',
+    attendu: typeof args.attendu === 'string' ? args.attendu : '',
+    limites: typeof args.limites === 'string' ? args.limites : '',
+    verification: typeof args.verification === 'string' ? args.verification : '',
+  };
+  const composee = composerDescription(parties);
+  const libre = typeof args.description === 'string' ? args.description.trim() : '';
+  // Les champs séparés l'emportent : c'est HaikoDev qui met alors en forme.
+  const description = composee || libre;
+
+  const verdict = jugerDescription(description);
+  if (!verdict.ok) return { refus: verdict.message };
+  return { description };
 }
 
 /**
@@ -46,7 +88,14 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ['title'],
       properties: {
         title: { type: 'string', description: 'Titre court et clair' },
-        description: { type: 'string' },
+        description: {
+          type: 'string',
+          description: CHAMP_DESCRIPTION,
+        },
+        constat: { type: 'string', description: "Ce que le projet fait aujourd'hui, avec un repère concret vu dans le projet" },
+        attendu: { type: 'string', description: 'Ce que le projet doit faire une fois la carte terminée' },
+        limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
+        verification: { type: 'string', description: "Comment savoir que c'est fait" },
         labels: { type: 'array', items: { type: 'string' } },
       },
     },
@@ -92,7 +141,11 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ['title'],
       properties: {
         title: { type: 'string' },
-        description: { type: 'string' },
+        description: { type: 'string', description: CHAMP_DESCRIPTION },
+        constat: { type: 'string', description: "Ce que le projet fait aujourd'hui, avec un repère concret vu dans le projet" },
+        attendu: { type: 'string', description: 'Ce que le projet doit faire une fois la carte terminée' },
+        limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
+        verification: { type: 'string', description: "Comment savoir que c'est fait" },
         labels: { type: 'array', items: { type: 'string' } },
       },
     },
@@ -192,6 +245,44 @@ export interface ToolContext {
   projectId: string;
   role: 'task' | 'orchestrator' | 'analysis' | 'deploy';
   cardId?: string;
+  /**
+   * Les réglages de la CONVERSATION en cours (moteur, modèle, réflexion),
+   * ceux qu'on voit dans la barre d'écriture. Une carte proposée en hérite :
+   * discuter avec Codex et se voir proposer du Claude n'a aucun sens.
+   */
+  run?: SouhaitReglages;
+}
+
+/**
+ * Les réglages à poser sur une carte proposée : ceux de la conversation,
+ * ramenés vers un modèle qui existe VRAIMENT chez le moteur retenu.
+ */
+async function reglagesProposes(
+  souhait: SouhaitReglages | undefined,
+): Promise<{ run?: RunConfig; avertissement?: string }> {
+  try {
+    const retenu = reglagesDeLaProposition(souhait, await catalogueMoteurs());
+    if (!retenu) return {};
+    return {
+      run: RunConfig.parse({ engine: retenu.engine, model: retenu.model, thinking: retenu.thinking }),
+      avertissement: retenu.avertissement,
+    };
+  } catch (err) {
+    // Catalogue illisible : la proposition reste affichable sans réglage, elle
+    // repartira sur le moteur par défaut du projet. Mieux qu'aucune carte.
+    log.warn('réglages de la proposition : catalogue des moteurs illisible', err);
+    return {};
+  }
+}
+
+/** Ce que le moteur doit LIRE de ce qu'on vient de poser sur la proposition. */
+function resumeReglages(reglages: { run?: RunConfig; avertissement?: string }): string {
+  if (!reglages.run) return '';
+  const modele = reglages.run.model ? ` / ${reglages.run.model}` : '';
+  return (
+    ` Réglages repris de cette conversation : ${reglages.run.engine}${modele} (réflexion : ${reglages.run.thinking}).` +
+    (reglages.avertissement ? ` ${reglages.avertissement}` : '')
+  );
 }
 
 export interface ToolResult {
@@ -231,19 +322,29 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        *
        * La règle « toute demande de programmation passe par une carte » reste
        * entière : c'est le mode de création qui change, pas l'obligation.
+       *
+       * Et rien ne s'affiche tant que la DESCRIPTION ne tient pas debout :
+       * une carte pauvre condamne l'agent qui l'exécutera.
        */
+      const texte = descriptionDeProposition(args);
+      if ('refus' in texte) return { ok: false, text: texte.refus };
+
+      const reglages = await reglagesProposes(ctx.run);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
-        description: typeof args.description === 'string' ? args.description : '',
+        description: texte.description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
+        ...(reglages.run ? { run: reglages.run } : {}),
+        ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
       };
       return {
         ok: true,
         text:
           `Carte « ${proposal.title} » proposée dans la conversation. ` +
-          `Elle n'entrera dans « À faire » qu'après la validation de l'utilisateur.`,
+          `Elle n'entrera dans « À faire » qu'après la validation de l'utilisateur.` +
+          resumeReglages(reglages),
         proposal,
       };
     }
@@ -287,16 +388,26 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
     case 'propose_task': {
       if (!args.title) return { ok: false, text: 'Un titre est obligatoire.' };
+      // Même exigence que board_create_card : une proposition sans description
+      // solide n'est pas affichée, elle est rendue à réécrire.
+      const texte = descriptionDeProposition(args);
+      if ('refus' in texte) return { ok: false, text: texte.refus };
+
+      const reglages = await reglagesProposes(ctx.run);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
-        description: typeof args.description === 'string' ? args.description : '',
+        description: texte.description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
+        ...(reglages.run ? { run: reglages.run } : {}),
+        ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
       };
       return {
         ok: true,
-        text: `Proposition affichée à l'utilisateur : « ${proposal.title} ». Rien n'est créé tant qu'il n'a pas validé.`,
+        text:
+          `Proposition affichée à l'utilisateur : « ${proposal.title} ». Rien n'est créé tant qu'il n'a pas validé.` +
+          resumeReglages(reglages),
         proposal,
       };
     }

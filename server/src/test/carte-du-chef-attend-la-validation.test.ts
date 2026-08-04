@@ -31,12 +31,25 @@ function projetDEssai() {
   } as any);
 }
 
+/*
+ * Une proposition n'est affichée que si sa description tient debout (règle
+ * « description-carte ») : les contrôles ci-dessous en fournissent donc une
+ * vraie, sans quoi ils testeraient le refus au lieu de la proposition.
+ */
+const DESCRIPTION = [
+  "Constat : le tableau se fabrique dans `web/src/components/board.tsx` et n’offre aucun bouton d’export des cartes.",
+  'Attendu : un bouton d’export rend le contenu de la colonne dans un fichier téléchargeable.',
+  "Limites : on ne touche ni au glisser-déposer, ni aux règles de passage d'une colonne à l'autre.",
+  'Vérification : rejouer `npm test`, puis cliquer le bouton et ouvrir le fichier obtenu.',
+].join('\n');
+
 test('l’outil du chef n’écrit AUCUNE carte : il propose', async () => {
   const projet = projetDEssai();
   const avant = store.listCards(projet.id).length;
 
   const resultat = await callTool({ projectId: projet.id } as any, 'board_create_card', {
     title: 'Ajouter un bouton d’export',
+    description: DESCRIPTION,
   });
 
   assert.equal(resultat.ok, true);
@@ -47,7 +60,7 @@ test('la proposition attend la décision, et ne désigne aucune carte', async ()
   const projet = projetDEssai();
   const resultat = await callTool({ projectId: projet.id } as any, 'board_create_card', {
     title: 'Refaire la page d’accueil',
-    description: 'Un vrai travail de programmation',
+    description: DESCRIPTION,
     labels: ['interface'],
   });
 

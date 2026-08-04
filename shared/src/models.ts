@@ -309,6 +309,12 @@ export const TaskProposal = z.object({
   description: z.string().default(''),
   labels: z.array(z.string()).default([]),
   run: RunConfig.optional(),
+  /**
+   * Ce qui cloche dans les réglages proposés — moteur absent, aucun compte
+   * disponible — écrit en toutes lettres sur la proposition. On ne bascule
+   * jamais de moteur en silence.
+   */
+  avertissement: z.string().optional(),
   /** Décision mémorisée : une proposition refusée ne revient jamais (PLAN §30). */
   decision: z.enum(['pending', 'accepted', 'refused']).default('pending'),
   cardId: z.string().optional(),

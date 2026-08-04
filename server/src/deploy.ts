@@ -2,7 +2,16 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { Card, DeployRun, DeployStepKey, estPlomberie } from '@haikodev/shared';
+import {
+  Card,
+  DeployRun,
+  DeployStepKey,
+  MoyensDeMiseEnLigne,
+  PlanDeMiseEnLigne,
+  estPlomberie,
+  miseEnLigneReelle,
+  planDeMiseEnLigne,
+} from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
@@ -29,16 +38,24 @@ function serviceDuProjet(cheminProjet: string): string | null {
     return null;
   }
   const vise = path.resolve(cheminProjet);
+  // Beaucoup de services tournent dans un SOUS-DOSSIER du projet (`web/`,
+  // `server/`…) : les ignorer faisait conclure « aucun moyen de mettre en
+  // ligne » sur des projets qui tournent pourtant. L'unité exacte reste
+  // prioritaire, le sous-dossier ne sert que de repli.
+  let repli: string | null = null;
   for (const fichier of fichiers) {
     try {
       const texte = fs.readFileSync(path.join(dossier, fichier), 'utf8');
       const ligne = texte.match(/^WorkingDirectory=(.+)$/m);
-      if (ligne && path.resolve(ligne[1].trim()) === vise) return fichier;
+      if (!ligne) continue;
+      const travail = path.resolve(ligne[1].trim());
+      if (travail === vise) return fichier;
+      if (!repli && travail.startsWith(`${vise}${path.sep}`)) repli = fichier;
     } catch {
       // Unité illisible : elle n'apprend rien de plus.
     }
   }
-  return null;
+  return repli;
 }
 
 /** Le port annoncé par une unité systemd, s'il y en a un. */
@@ -54,6 +71,70 @@ function portDuService(service: string): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Un serveur web sert-il ce dossier TEL QUEL ?
+ *
+ * Un site statique (le tableau de bord Root, par exemple) n'a ni service
+ * système ni construction : ses fichiers SONT le site, servis directement par
+ * Caddy ou nginx. Sans cette reconnaissance, la publication d'un tel projet
+ * n'avait aucun moyen d'agir et se déclarait pourtant réussie.
+ */
+export function dossierCiteParServeurWeb(configs: string[], cheminProjet: string): boolean {
+  const vise = path.resolve(cheminProjet).replace(/\/+$/, '');
+  for (const texte of configs) {
+    for (const ligne of texte.split('\n')) {
+      const propre = ligne.trim();
+      if (propre.startsWith('#')) continue;
+      // Caddy : « root * /var/www/site » — nginx : « root /var/www/site; »
+      const cite = propre.match(/^root\s+(?:\*\s+)?([^\s;{]+)\s*;?$/);
+      if (cite && path.resolve(cite[1]).replace(/\/+$/, '') === vise) return true;
+    }
+  }
+  return false;
+}
+
+/** Les fichiers de configuration des serveurs web installés sur la machine. */
+function configurationsServeurWeb(): string[] {
+  const textes: string[] = [];
+  const fichiers = ['/etc/caddy/Caddyfile'];
+  for (const dossier of ['/etc/nginx/sites-enabled', '/etc/nginx/conf.d', '/etc/caddy/conf.d']) {
+    try {
+      for (const nom of fs.readdirSync(dossier)) fichiers.push(path.join(dossier, nom));
+    } catch {
+      // Serveur web absent : rien à lire, ce n'est pas une erreur.
+    }
+  }
+  for (const fichier of fichiers) {
+    try {
+      textes.push(fs.readFileSync(fichier, 'utf8'));
+    } catch {
+      // Fichier illisible : il n'apprend rien de plus.
+    }
+  }
+  return textes;
+}
+
+/** Ce dont ce projet dispose pour être mis en ligne, constaté sur la machine. */
+export function moyensDuProjet(cwd: string, deployCommand?: string, estHaikoDev = false): MoyensDeMiseEnLigne {
+  return {
+    commande: deployCommand,
+    estHaikoDev,
+    scriptBuild: scriptExiste(cwd, 'build'),
+    service: serviceDuProjet(cwd) ?? undefined,
+    dossierServi: dossierCiteParServeurWeb(configurationsServeurWeb(), cwd),
+  };
+}
+
+/**
+ * Ce projet peut-il être mis en ligne, et comment ? Répondu SANS rien publier,
+ * pour que la fenêtre de publication le dise avant le clic.
+ */
+export function moyenDeMiseEnLigne(projectId: string): PlanDeMiseEnLigne | null {
+  const project = store.getProject(projectId);
+  if (!project) return null;
+  return planDeMiseEnLigne(moyensDuProjet(project.path, project.deployCommand, project.isSelf));
 }
 
 /** Le projet a-t-il ce script dans son package.json ? */
@@ -491,6 +572,15 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
     };
   }
 
+  /*
+   * Publier, c'est METTRE EN LIGNE. Un projet qui n'a aucun moyen de l'être
+   * fusionnait, poussait, puis s'annonçait « publié » : les cartes partaient
+   * aux archives et rien n'avait bougé à l'écran. On refuse maintenant AVANT
+   * de toucher au dépôt, en nommant ce qui manque.
+   */
+  const plan = planDeMiseEnLigne(moyensDuProjet(project.path, project.deployCommand, project.isSelf));
+  if (!plan.possible) return { ok: false, error: plan.raison };
+
   let cards = deployableCards(projectId);
   // Cartes dont la branche est en conflit : écartées du lot, jamais perdues.
   const ecartees = new Set<string>();
@@ -660,7 +750,7 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
       }
       if (stopped) throw new Error('arrêt demandé');
 
-      // 4 à 7 : la commande de publication du projet
+      // 4 à 7 : la mise en ligne, telle que le plan l'a décidée avant de partir
       const deployCommand = project.deployCommand?.trim();
       if (deployCommand) {
         current = setStep(current, 'verify', 'running');
@@ -669,11 +759,16 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
 
         current = setStep(current, 'build', 'running');
         const result = await runCommand(cwd, deployCommand);
-        current = setStep(current, 'build', result.ok ? 'done' : 'failed', result.out);
-        if (!result.ok) throw new Error('La construction a échoué.');
+        current = setStep(
+          current,
+          'build',
+          result.ok ? 'done' : 'failed',
+          `Commande de publication du projet : \`${deployCommand}\`\n${result.out}`,
+        );
+        if (!result.ok) throw new Error(`La commande de publication a échoué : \`${deployCommand}\`.`);
 
-        current = setStep(current, 'publish', 'done', 'commande de publication exécutée');
-        current = setStep(current, 'restart', 'skipped', 'géré par la commande du projet');
+        current = setStep(current, 'publish', 'done', `La commande \`${deployCommand}\` s’est exécutée jusqu’au bout : c’est elle qui installe la version en ligne.`);
+        current = setStep(current, 'restart', 'skipped', 'Relance comprise dans la commande de publication du projet : rien à relancer ici.');
       } else if (project.isSelf) {
         /*
          * HaikoDev se publie lui-même. La fusion est déjà faite juste au-dessus :
@@ -718,28 +813,65 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
         }
       } else {
         /*
-         * Un projet ordinaire : publier, c'est construire s'il y a de quoi,
-         * puis REDÉMARRER le service qui le fait tourner. Auparavant tout était
-         * « ignoré, aucune commande configurée » — la fusion partait sur le
-         * dépôt et l'utilisateur ne voyait aucun changement.
+         * Un projet ordinaire : le plan a déjà dit COMMENT il peut être mis en
+         * ligne — par son service système, ou parce que son dossier est servi
+         * tel quel par un serveur web. Chaque étape nomme ce qu'elle a fait ou
+         * pourquoi elle ne l'a pas fait : plus de « ignoré » sans motif.
          */
-        current = setStep(current, 'verify', 'skipped', 'aucune vérification configurée pour ce projet');
+        current = setStep(
+          current,
+          'verify',
+          'skipped',
+          scriptExiste(cwd, 'test')
+            ? 'Ce projet a des tests mais aucune vérification n’est configurée pour la publication.'
+            : 'Ce projet n’a pas de vérification à jouer.',
+        );
 
-        if (scriptExiste(cwd, 'build')) {
+        if (plan.construction === 'npm') {
           current = setStep(current, 'build', 'running');
           const build = await runCommand(cwd, 'npm run build', 10 * 60 * 1000);
-          current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.out.slice(-800));
+          current = setStep(current, 'build', build.ok ? 'done' : 'failed', `\`npm run build\`\n${build.out.slice(-800)}`);
           if (!build.ok) throw new Error('La construction a échoué : rien n’est mis en ligne.');
         } else {
-          current = setStep(current, 'build', 'skipped', 'ce projet n’a pas d’étape de construction');
+          current = setStep(current, 'build', 'skipped', 'Ce projet n’a pas de script de construction : il n’y a rien à construire.');
         }
 
-        current = setStep(current, 'publish', 'done', `Le code fusionné est en place dans ${cwd}.`);
-
-        const service = serviceDuProjet(cwd);
-        if (!service) {
-          current = setStep(current, 'restart', 'skipped', 'aucun service système ne tourne sur ce dossier : rien à redémarrer');
+        if (plan.installation === 'dossier-servi') {
+          /*
+           * Site statique : le serveur web lit ce dossier à chaque demande. La
+           * fusion a donc DÉJÀ posé la version en ligne — il n'y a rien à
+           * copier, et c'est l'adresse publique qui en fait foi juste après.
+           */
+          current = setStep(
+            current,
+            'publish',
+            'done',
+            `Le serveur web sert ${cwd} tel quel : les fichiers en place sont, à cet instant, la version en ligne.`,
+          );
         } else {
+          current = setStep(
+            current,
+            'publish',
+            'done',
+            `Le code est en place dans ${cwd} ; c’est le redémarrage du service qui va le mettre en ligne.`,
+          );
+        }
+
+        if (plan.redemarrage !== 'service') {
+          current = setStep(
+            current,
+            'restart',
+            'skipped',
+            'Aucun service système ne tourne sur ce dossier : le serveur web relit les fichiers à chaque demande, il n’y a rien à relancer.',
+          );
+        } else {
+          const service = serviceDuProjet(cwd);
+          if (!service) {
+            // Le service a disparu entre le plan et l'exécution : rien n'a pu
+            // être mis en ligne, on ne fait pas semblant.
+            current = setStep(current, 'restart', 'failed', 'Le service système attendu sur ce dossier a disparu : rien n’a été mis en ligne.');
+            throw new Error('Le service système attendu sur ce dossier a disparu : rien n’a été mis en ligne.');
+          }
           current = setStep(current, 'restart', 'running');
           const bilan = await redemarrerService(cwd, service);
           current = setStep(current, 'restart', bilan.ok ? 'done' : 'failed', bilan.recit);
@@ -750,13 +882,31 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
 
       // Le verdict se lit sur le RÉSULTAT, pas sur le processus (PLAN §11) :
       // on vérifie ce qui est réellement servi en ligne.
-      let verdict = 'Publication terminée.';
       if (project.deployUrl) {
         const online = await checkOnline(project.deployUrl);
-        verdict = online.ok
+        const verdict = online.ok
           ? `Adresse ${project.deployUrl} joignable (${online.status}).`
-          : `Adresse ${project.deployUrl} injoignable pour l'instant (${online.status}).`;
+          : `Adresse ${project.deployUrl} injoignable (${online.status}).`;
         current = setStep(current, 'publish', online.ok ? 'done' : 'failed', verdict);
+        // Une adresse muette n'est pas une publication réussie : autrefois
+        // l'étape passait au rouge et le run se déclarait quand même « réussi ».
+        if (!online.ok) throw new Error(verdict);
+      }
+
+      /*
+       * Dernier garde-fou : sept étapes « ignorées » ne font pas une
+       * publication. Si rien n'a réellement été construit, installé ni
+       * relancé, le run échoue au lieu d'archiver des cartes qui ne sont pas
+       * en ligne.
+       */
+      const etats = Object.fromEntries(current.steps.map((step) => [step.key, step.state])) as Record<
+        DeployStepKey,
+        'todo' | 'running' | 'done' | 'failed' | 'skipped'
+      >;
+      if (!miseEnLigneReelle({ build: etats.build, publish: etats.publish, restart: etats.restart })) {
+        throw new Error(
+          'Aucune mise en ligne n’a réellement eu lieu : ni construction, ni installation, ni redémarrage. Les cartes restent à déployer.',
+        );
       }
 
       current = emit({ ...current, state: 'success', endedAt: Date.now(), currentStep: undefined });
