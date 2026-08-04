@@ -409,6 +409,16 @@ sans son point d'essai.
   On n'emploie PAS `justify-end` sur la zone elle-même — il rend le haut du fil inatteignable. Le
   fil porte `data-fil="conversation"`, seul repère des scripts de vérification. Verrouillé par
   `scripts/verif-vide-carte-validee.mjs`.
+- **Le bloc en bas à droite porte DEUX piles, jamais une seule** (`web/src/components/pile.tsx`).
+  Les messages courts et les vignettes d'agents s'empilent par le MÊME composant `Pile`, qui écrit
+  une fois pour toutes la géométrie (`placeDansLaPile`), le survol et l'appui — mais chacun dans SA
+  pile, avec son état d'ouverture : un message et un agent ne se lisent pas de la même façon.
+  L'ordre du bloc ne bouge pas (messages, vignettes, commandes) et la sélection des agents affichés
+  non plus (les six plus récents). Ce qu'on empile ne change que le NOM dit à l'écran, d'où le
+  dernier argument de `resteDeLaPile` et d'`annonceDeLaPile` (« message » par défaut, « agent » pour
+  les vignettes) : la règle reste unique. Pile ouverte, la croix d'une vignette et le bouton qui
+  ouvre l'agent répondent de nouveau pour eux-mêmes, cibles de 32 px comprises. Vérifié par
+  `scripts/verif-pile-messages.mjs` et `scripts/verif-pile-messages-appui.mjs`.
 - **Les messages courts s'EMPILENT, et les commandes ferment le bloc**
   (`shared/src/pile-messages.ts`, `web/src/components/agent-dock.tsx`). Dans le bloc en bas à
   droite, l'ordre est : messages, puis vignettes d'agents, puis la rangée de commandes (poignée de

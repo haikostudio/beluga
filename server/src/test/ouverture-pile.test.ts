@@ -103,3 +103,9 @@ test('l’annonce nomme le geste du pointeur qu’on a sous la main', () => {
   assert.match(annonceDeLaPile(3, false, 'survol'), /Survoler/);
   assert.match(annonceDeLaPile(3, true, 'appui'), /replier/);
 });
+
+test('l’annonce nomme ce qu’on empile : messages ou vignettes d’agents', () => {
+  assert.match(annonceDeLaPile(3, false, 'survol'), /3 messages/);
+  assert.match(annonceDeLaPile(3, false, 'survol', 'agent'), /3 agents/);
+  assert.match(annonceDeLaPile(1, true, 'appui', 'agent'), /^1 agent — replier/);
+});
