@@ -41,8 +41,11 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
   // carte : passer en « Validé ». Rien n'est lancé — l'ordonnanceur décide.
   todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', cible: 'validated' },
-  // Les colonnes de fin de parcours, où le ménage se fait en lot.
-  done: { libelle: 'Tout archiver', icone: Archive, verbe: 'Archiver', cible: 'archived' },
+  // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
+  // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
+  // publication. Rien n'est mis en ligne — les cartes changent de colonne.
+  done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy' },
+  // Dernière colonne du parcours, où le ménage se fait en lot.
   to_deploy: { libelle: 'Tout archiver', icone: Archive, verbe: 'Archiver', cible: 'archived' },
 };
 
