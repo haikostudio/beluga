@@ -3,6 +3,7 @@ import {
   Archive,
   ArchiveRestore,
   Check,
+  ChevronDown,
   CircleDollarSign,
   Cpu,
   ExternalLink,
@@ -56,6 +57,27 @@ import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors'
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
+
+/**
+ * Sommes-nous sur un écran de téléphone ? Le tiroir d'une carte s'y épure —
+ * tags repliés, barre d'onglets qui se cache au défilement. La question se
+ * repose quand la largeur change (rotation, fenêtre redimensionnée). Même seuil
+ * que le reste de l'interface : 640 px.
+ */
+function useTelephone(): boolean {
+  const requete = '(max-width: 639px)';
+  const [telephone, setTelephone] = React.useState(() =>
+    typeof window === 'undefined' ? false : window.matchMedia(requete).matches,
+  );
+  React.useEffect(() => {
+    const media = window.matchMedia(requete);
+    const suivre = () => setTelephone(media.matches);
+    suivre();
+    media.addEventListener('change', suivre);
+    return () => media.removeEventListener('change', suivre);
+  }, []);
+  return telephone;
+}
 
 export function CardPanel({ cardId, onClose }: { cardId: string | null; onClose: () => void }) {
   const state = useApp();
@@ -174,6 +196,43 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     setOnglet('chat');
   }, [aLire]);
 
+  /*
+   * Sur téléphone, le haut du tiroir s'épure. Les tags (état, étiquettes,
+   * « modifiée à l'instant », mention d'archivage) sont repliés derrière un
+   * chevron : ils tiennent souvent deux lignes et poussent la lecture vers le
+   * bas. Sur ordinateur, ce même bloc reste toujours ouvert et le chevron
+   * n'existe pas.
+   */
+  const telephone = useTelephone();
+  const [tagsOuverts, setTagsOuverts] = React.useState(false);
+  const tagsVisibles = !telephone || tagsOuverts;
+
+  /*
+   * La barre d'onglets se retire quand on descend dans le contenu et revient
+   * quand on remonte, pour libérer de la hauteur de lecture — téléphone
+   * seulement. `onScrollCapture` sur le conteneur des onglets attrape le
+   * défilement de n'importe quel onglet (le chat a son propre défilement, les
+   * autres passent par ZoneDefilement) : scroll ne remonte pas en bulle, mais
+   * il descend bien en phase de capture. On change de sens à partir d'un petit
+   * seuil pour ne pas battre sur un micro-tremblement.
+   */
+  const [barreVisible, setBarreVisible] = React.useState(true);
+  const dernierScroll = React.useRef(0);
+  // Un changement d'onglet remet tout à plat : chaque onglet a son propre
+  // défilement, comparer leurs positions n'aurait aucun sens.
+  React.useEffect(() => {
+    dernierScroll.current = 0;
+    setBarreVisible(true);
+  }, [onglet]);
+  const surDefilement = (event: React.UIEvent) => {
+    if (!telephone) return;
+    const y = (event.target as HTMLElement).scrollTop;
+    const precedent = dernierScroll.current;
+    if (y > precedent + 6 && y > 48) setBarreVisible(false);
+    else if (y < precedent - 6) setBarreVisible(true);
+    dernierScroll.current = y;
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Aucun filet sous le titre : c'est l'ESPACE qui sépare le titre de la
@@ -185,7 +244,8 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <DialogTitle className="leading-snug">{card.title}</DialogTitle>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px] text-faint">
+            {tagsVisibles ? (
+            <div data-tags-carte className="mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px] text-faint">
               <Badge>{COLUMN_LABELS[card.column]}</Badge>
               {card.deployedAt ? (
                 <Badge tone="success">
@@ -206,7 +266,24 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               ))}
               <span>modifiée {relativeTime(card.updatedAt)}</span>
             </div>
+            ) : null}
           </div>
+
+          {/* Sur téléphone, un chevron déplie les tags repliés — placé juste
+              avant le menu, à droite du titre. Absent sur ordinateur, où les
+              tags sont toujours visibles. */}
+          {telephone ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="shrink-0 px-2"
+              aria-label={tagsOuverts ? 'Masquer les étiquettes' : 'Afficher les étiquettes'}
+              aria-expanded={tagsOuverts}
+              onClick={() => setTagsOuverts((v) => !v)}
+            >
+              <ChevronDown className={cn('h-4 w-4 transition-transform', tagsOuverts && 'rotate-180')} />
+            </Button>
+          ) : null}
 
           {/* Les gestes rares vivent ici : ils prenaient une ligne entière en
               bas du tiroir. Menu déroulant sur ordinateur, tiroir pleine
@@ -223,11 +300,24 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         key={card.id}
         value={onglet}
         onValueChange={setOnglet}
+        onScrollCapture={surDefilement}
         className="flex min-h-0 flex-1 flex-col"
       >
         {/* Les onglets collent au bord : la marge de la barre s'ajoutait à
             celle de la liste, et deux respirations superposées mangeaient une
-            bonne part de la largeur sur téléphone. */}
+            bonne part de la largeur sur téléphone.
+
+            Sur téléphone, cette barre se replie quand on descend dans le
+            contenu et revient quand on remonte — l'enveloppe se ferme en
+            hauteur, l'onglet actif reste choisi. Sur ordinateur, rien ne bouge. */}
+        <div
+          data-barre-onglets
+          data-cachee={telephone && !barreVisible ? '' : undefined}
+          className={cn(
+            'flex-none overflow-hidden transition-all duration-200',
+            telephone && !barreVisible && 'max-h-0 opacity-0',
+          )}
+        >
         <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-1.5 py-1">
           <TabsList className="w-full justify-start">
             {/* La décision se prend DANS ce fil : l'onglet porte le même
@@ -242,6 +332,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
             <TabsTrigger value="github">GitHub</TabsTrigger>
           </TabsList>
         </ZoneDefilement>
+        </div>
 
         <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
           <Chat agent={agent} projectId={card.projectId} cardId={card.id} vide={motAnalyse(phase)} />

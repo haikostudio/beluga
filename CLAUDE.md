@@ -65,6 +65,7 @@ node scripts/verif-progression-taches.mjs # l'avancement « n/N faites » dans l
 node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
+node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
@@ -455,6 +456,15 @@ sans son point d'essai.
   l'onglet « Conversation » et non sur « Détails » (`card-panel.tsx` : `decisions > 0` l'emporte sur
   la règle habituelle), là où la question et son champ de réponse attendent. Vérifié par
   `scripts/verif-carte-sans-suite.mjs`.
+- **Le tiroir d'une carte s'ÉPURE sur téléphone, jamais sur ordinateur** (`card-panel.tsx`). Le choix
+  se fait sur la largeur du pointeur (`useTelephone`, `(max-width: 639px)`), relue au redimensionnement.
+  Sous ce seuil, les tags (état, étiquettes, « modifiée », archivage) — le bloc `data-tags-carte` — sont
+  MASQUÉS par défaut et se déplient d'un chevron posé à droite du titre, avant le menu trois points ;
+  et la barre d'onglets (`data-barre-onglets`) se replie en hauteur quand on descend dans le contenu,
+  revient quand on remonte, l'onglet actif restant choisi. Le défilement est capté par
+  `onScrollCapture` sur la racine des `Tabs` — scroll ne remonte pas en bulle mais descend en capture,
+  donc un même handler couvre tous les onglets (chat compris). Au-dessus du seuil, tags toujours
+  visibles, aucun chevron, barre fixe. Vérifié par `scripts/verif-tiroir-carte-telephone.mjs`.
 - **Un départ de tour efface la SUSPENSION, quel que soit le chemin**
   (`replacerCarteAuDemarrage`, `server/src/runtime.ts`). Répondre à une question relançait bien la
   carte — `question.answer` appelle `sendPrompt` —, mais `scheduling.suspendu` restait posée : la
