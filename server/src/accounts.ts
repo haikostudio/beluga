@@ -10,6 +10,7 @@ import {
   doitAlerterEpuisementProche,
   doitAlerterFinDeFenetre,
   emballementConsommation,
+  etatDeConnexion,
   franchissementSemaine,
   historiquePourProfil,
   previsionEpuisement,
@@ -596,8 +597,51 @@ function attacherAmorces(list: AccountQuota[]): void {
   }
 }
 
+/**
+ * Quand le jeton d'un compte arrive à échéance, quand on sait le lire. Claude
+ * l'écrit en clair ; Codex le range dans le jeton lui-même — un jeton signé en
+ * trois parties, dont celle du milieu porte la date.
+ */
+export function expirationDuCompte(account: AccountRecord): number | undefined {
+  try {
+    if (account.engine === 'claude') {
+      const raw = JSON.parse(fs.readFileSync(path.join(account.configDir, '.credentials.json'), 'utf8'));
+      const expire = Number(raw?.claudeAiOauth?.expiresAt);
+      return Number.isFinite(expire) ? expire : undefined;
+    }
+    const raw = JSON.parse(fs.readFileSync(path.join(account.configDir, 'auth.json'), 'utf8'));
+    const jeton = raw?.tokens?.access_token;
+    if (typeof jeton !== 'string') return undefined;
+    const milieu = jeton.split('.')[1];
+    if (!milieu) return undefined;
+    const charge = JSON.parse(Buffer.from(milieu, 'base64url').toString('utf8'));
+    return typeof charge?.exp === 'number' ? charge.exp * 1000 : undefined;
+  } catch {
+    // Fichier absent ou illisible : l'absence de jeton se lit déjà dans le quota.
+    return undefined;
+  }
+}
+
+/**
+ * L'état RÉEL de la connexion voyage avec le quota : un compte peut avoir tout
+ * son quota et un jeton mort, et rien à l'écran ne le disait — il fallait ouvrir
+ * un terminal pour le découvrir. La règle est pure (`etatDeConnexion`), le
+ * disque n'apporte ici que l'échéance du jeton.
+ */
+function attacherEtatConnexion(list: AccountQuota[]): void {
+  const comptes = new Map(listAccountRecords().map((a) => [a.id, a]));
+  for (const quota of list) {
+    const compte = comptes.get(quota.id);
+    quota.connexion = etatDeConnexion({
+      erreur: quota.error,
+      expireA: compte ? expirationDuCompte(compte) : undefined,
+    });
+  }
+}
+
 function markActive(list: AccountQuota[]): void {
   attacherAmorces(list);
+  attacherEtatConnexion(list);
   for (const engine of ['claude', 'codex'] as EngineId[]) {
     const candidates = list.filter((q) => q.engine === engine).sort((a, b) => a.priority - b.priority);
     const chosen = candidates.find((q) => q.available) ?? candidates[0];

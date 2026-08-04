@@ -425,6 +425,17 @@ export const AccountQuota = z.object({
    * par l'ouverture de l'application.
    */
   derniereAmorce: z.object({ at: z.number(), ok: z.boolean(), error: z.string().optional() }).optional(),
+  /**
+   * L'état RÉEL de la connexion du compte (règle pure `etatDeConnexion`) : un
+   * quota intact ne prouve pas qu'un jeton tient encore.
+   */
+  connexion: z
+    .object({
+      etat: z.enum(['valide', 'absente', 'expiree', 'refusee', 'inconnue']),
+      libelle: z.string(),
+      doitReconnecter: z.boolean(),
+    })
+    .optional(),
 });
 export type AccountQuota = z.infer<typeof AccountQuota>;
 

@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { ColumnKey } from './columns.js';
+import { ConnexionCompte } from './connexion-compte.js';
 import {
   Agent,
   AccountQuota,
+  EngineId,
   ProjectGroup,
   Attachment,
   Card,
@@ -230,6 +232,23 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('process.start'), id: z.string() }),
   z.object({ type: z.literal('engines.list') }),
   z.object({ type: z.literal('quota.refresh') }),
+  /**
+   * Connecter ou RECONNECTER un compte de moteur sans ouvrir de terminal.
+   * Sans `accountId`, c'est un compte neuf : il n'entre dans la liste qu'une
+   * fois la connexion réussie.
+   */
+  z.object({
+    type: z.literal('account.connect'),
+    engine: EngineId,
+    accountId: z.string().optional(),
+    label: z.string().optional(),
+  }),
+  /** Le code recopié depuis la page d'authentification, renvoyé au moteur. */
+  z.object({ type: z.literal('account.code'), id: z.string(), code: z.string() }),
+  /** Abandonner une connexion en cours. */
+  z.object({ type: z.literal('account.cancel'), id: z.string() }),
+  /** Les connexions de comptes en cours, à l'ouverture des réglages. */
+  z.object({ type: z.literal('account.connections') }),
   /** Consommation des comptes sur les derniers jours, pour la courbe. */
   z.object({ type: z.literal('quota.history'), days: z.number().optional() }),
   /** Le journal des amorces de fenêtre posées par le serveur. */
@@ -339,6 +358,14 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('queue.snapshot'), agentId: z.string(), queue: z.array(QueuedPrompt) }),
   z.object({ type: z.literal('deploy.upsert'), run: DeployRun }),
   z.object({ type: z.literal('quotas'), quotas: z.array(AccountQuota) }),
+  /**
+   * Le catalogue des moteurs, rediffusé quand il a changé — après une
+   * connexion de compte réussie, la liste des modèles doit redevenir complète
+   * sans attendre le rechargement de la page.
+   */
+  z.object({ type: z.literal('engines'), engines: z.array(EngineInfo) }),
+  /** Une connexion de compte qui avance : adresse, code, réussite ou échec. */
+  z.object({ type: z.literal('connexion-compte'), connexion: ConnexionCompte }),
   z.object({ type: z.literal('capacity'), capacity: CapacitySnapshot }),
   z.object({ type: z.literal('processes'), processes: z.array(SystemProcess) }),
   z.object({

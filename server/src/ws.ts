@@ -30,6 +30,7 @@ import { isAuthenticated } from './http.js';
 import { listEngines } from './engines/index.js';
 import { normaliseThinking } from './engines/catalog.js';
 import { cachedQuotas, refreshQuotas } from './accounts.js';
+import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
@@ -971,6 +972,22 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'quotas', quotas });
       return { quotas };
     }
+
+    /* -------- Connexion d'un compte de moteur -------- */
+
+    case 'account.connect':
+      // Le lancement rend tout de suite la tentative ; l'adresse, le code et
+      // l'issue arrivent ensuite par l'abonnement.
+      return { connexion: demarrerConnexion({ engine: cmd.engine, accountId: cmd.accountId, label: cmd.label }) };
+
+    case 'account.code':
+      return envoyerCode(cmd.id, cmd.code);
+
+    case 'account.cancel':
+      return annulerConnexion(cmd.id);
+
+    case 'account.connections':
+      return { connexions: connexionsEnCours() };
 
     case 'quota.history':
       // La courbe ne montre que les derniers jours ; le RÉSUMÉ, lui, part avec

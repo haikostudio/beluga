@@ -75,6 +75,7 @@ node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes e
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
+node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglages : adresse et code affichés, échec dit (démon et HOME d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
 node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
@@ -442,6 +443,23 @@ sans son point d'essai.
   `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
   une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
   Verrouillé par `server/src/test/outils-codex.test.ts`.
+- **Un compte de moteur se connecte DEPUIS LES RÉGLAGES, jamais depuis un terminal**
+  (`shared/src/connexion-compte.ts` pour les règles, `server/src/connexion-compte.ts` pour le
+  processus). L'onglet « Comptes » ne faisait que lire : un jeton mort ne se voyait nulle part et se
+  réparait en ligne de commande. `commandeDeConnexion` donne la commande de chaque moteur, et les
+  deux ne se ressemblent PAS : Claude (`claude auth login`) ouvre une page et attend qu'on lui
+  RECOPIE un code par son entrée standard ; Codex exige `login --device-auth` — sans ce mode il
+  ouvrirait une page qui renvoie vers le serveur lui-même, injoignable depuis le navigateur de
+  l'utilisateur. Chaque commande tourne dans le COFFRE du compte (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`,
+  un dossier par compte), `lireInvite` en extrait l'adresse et le code à saisir, et `raisonDeSortie`
+  dit en français toute fin de course — commande absente, refus, abandon, délai dépassé. Une réussite
+  rafraîchit le catalogue des modèles (événement `engines`) et le quota. Un compte NEUF prend sa
+  place dans `data/accounts/<id>/` comme un compte de relève déclaré à la main, et n'entre dans la
+  liste qu'une fois CONNECTÉ : une tentative ratée ne laisse pas de compte fantôme. L'état réel de
+  chaque compte (`etatDeConnexion`, champ `AccountQuota.connexion`) voyage avec son quota — un quota
+  intact ne prouve pas qu'un jeton tient encore, et un coffre sans fichier d'identifiants échoue sur
+  le FICHIER ABSENT, pas sur un jeton vide. Verrouillé par
+  `server/src/test/connexion-compte.test.ts` et `scripts/verif-connexion-compte.mjs`.
 - **Un modèle est unique par son IDENTIFIANT, et une liste de secours se DIT**
   (`shared/src/catalogue-modeles.ts`). Le catalogue d'un moteur était dédoublonné sur le NOM AFFICHÉ :
   deux modèles réellement différents portant le même `display_name` se mangeaient l'un l'autre, et
