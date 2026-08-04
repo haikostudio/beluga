@@ -41,7 +41,6 @@ node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/verif-prevision-quota.mjs # la prévision d'épuisement, dans le volet des quotas
-node scripts/verif-reprise-paseo.mjs # les cartes reprises de Paseo, dans un vrai navigateur
 node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, sur écran de téléphone
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
@@ -77,8 +76,7 @@ HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combi
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
 node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglages : adresse et code affichés, échec dit (démon et HOME d'essai à soi)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
-node scripts/remise-en-etat-cartes-root.mjs # remet les cartes du projet Root d'accord avec son dépôt
-node scripts/recaler-projet-root.mjs # le projet Root pointe sur son dépôt de travail, avec sa commande de publication
+HAIKODEV_DATA=/root/haikodev/data node scripts/retirer-projets-perimes.mjs # met de côté les projets hérités de l'ancien Paseo
 ```
 
 Un script qui corrige le tableau écrit dans `data/haikodev.db` : il montre d'abord ce qu'il ferait,
@@ -137,6 +135,11 @@ sans son point d'essai.
   prouver — la carte se clôt sur du vide. Quand le code de travail vit ailleurs que le dossier servi,
   le projet pointe sur le dépôt et porte une **commande de publication** qui installe la copie servie
   (sans elle, `planDeMiseEnLigne` refuse la mise en ligne, à raison).
+- **Un projet qu'on retire du tableau est MIS DE CÔTÉ, jamais supprimé** (`project.archive`,
+  `archived = 1`). La colonne de gauche n'affiche que les projets non archivés
+  (`store.listProjects`) ; le projet, ses cartes et ses conversations restent en base et
+  « Remettre en service » les rend. Avant de retirer, on NOMME ses cartes hors archive : rien ne
+  disparaît de la vue sans avoir été dit.
 - **Créer un projet, c'est le MONTER en entier**, toujours de la même façon : dossier sur le serveur,
   dépôt git sur `main`, dépôt GitHub privé créé et poussé, puis les sept fichiers de départ
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
