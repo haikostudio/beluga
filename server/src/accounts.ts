@@ -350,6 +350,36 @@ export function cachedQuotas(): AccountQuota[] {
   return list;
 }
 
+/**
+ * Les deux pourcentages consommés d'un compte, lus dans le DERNIER relevé connu
+ * (le cache). Sert de point de départ AVANT un tour : la lecture est déjà
+ * fraîche, un agent vient d'être choisi sur ce compte (`pickAccount` relève les
+ * quotas). Aucun appel réseau : on ne bouscule pas le rythme des lectures.
+ */
+export function partsQuotaEnCache(accountId: string): { session?: number; weekly?: number } {
+  loadCache();
+  const quota = quotaCache.get(accountId);
+  return { session: quota?.session?.usedPct, weekly: quota?.weekly?.usedPct };
+}
+
+/**
+ * Relève À NEUF les deux pourcentages d'UN compte, hors du tour de ronde de
+ * `refreshQuotas`. Sert de point d'arrivée APRÈS un tour, pour mesurer ce que la
+ * tâche a réellement dépensé. Lecture PURE : ni cache mis à jour, ni relevé
+ * enregistré, ni alerte déclenchée — le calcul des quotas et ses alertes ne
+ * bougent pas. Une lecture en échec rend `null` : on n'attribue rien plutôt que
+ * d'inventer une part.
+ */
+export async function relireQuotaDuCompte(
+  accountId: string,
+): Promise<{ session?: number; weekly?: number } | null> {
+  const account = listAccountRecords().find((a) => a.id === accountId);
+  if (!account) return null;
+  const quota = account.engine === 'claude' ? await fetchClaudeQuota(account) : await fetchCodexQuota(account);
+  if (quota.error) return null;
+  return { session: quota.session?.usedPct, weekly: quota.weekly?.usedPct };
+}
+
 /** Les échéances pour lesquelles on a déjà prévenu, retenues d'un redémarrage à l'autre. */
 const CLE_ALERTE_FENETRE = 'quota.alerte.fenetre';
 

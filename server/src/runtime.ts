@@ -25,6 +25,7 @@ import {
   decisionEnTexteLibre,
   etatDuPont,
   nomDeBranche,
+  partQuotaConsommee,
   raisonSansModification,
   templateForColumn,
   tourDeLaCarte,
@@ -39,7 +40,13 @@ import { getInternalToken } from './auth.js';
 import { briefing, memoryFacts, memorySummary, newFactsSince } from './memory.js';
 import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
-import { pickAccount, noteAccountUse, applyAccountEnv } from './accounts.js';
+import {
+  pickAccount,
+  noteAccountUse,
+  applyAccountEnv,
+  partsQuotaEnCache,
+  relireQuotaDuCompte,
+} from './accounts.js';
 import { notify } from './notify.js';
 import { cartesDuTravailHorsTache, depotModifieDepuis, repereAvant } from './hors-tache.js';
 import { oublierLePont, passageDuPont } from './pont.js';
@@ -413,6 +420,14 @@ async function startTurn(
    */
   const repere = await repereAvant(dossier).catch(() => null);
 
+  /*
+   * QUOTA CONSOMMÉ PAR CETTE TÂCHE : on relève sur le compte porteur les deux
+   * pourcentages AVANT le tour (dans le dernier relevé, `pickAccount` vient de
+   * le rafraîchir), pour les comparer à une lecture FRAÎCHE après le tour. On
+   * n'attribue ainsi que ce que la tâche a réellement dépensé.
+   */
+  const quotaAvant = partsQuotaEnCache(account.id);
+
   const memory = memorySummary(project.path);
   const memoryStep: RunStep | null = nouvelleSession
     ? {
@@ -583,6 +598,12 @@ async function startTurn(
   const elapsedSeconds = (Date.now() - runState.startedAt) / 1000;
   const tokens = (runState.usage?.inputTokens ?? 0) + (runState.usage?.outputTokens ?? 0);
 
+  // Lecture FRAÎCHE des deux fenêtres après le tour, comparée au relevé d'avant.
+  // Une lecture en échec rend `null` : les parts restent alors à 0.
+  const quotaApres = (await relireQuotaDuCompte(account.id).catch(() => null)) ?? {};
+  const part5h = partQuotaConsommee(quotaAvant.session, quotaApres.session);
+  const partSemaine = partQuotaConsommee(quotaAvant.weekly, quotaApres.weekly);
+
   store.recordUsage({
     projectId: agent.projectId,
     cardId: agent.cardId,
@@ -590,6 +611,8 @@ async function startTurn(
     account: account.id,
     engine: agent.run.engine,
     tokens,
+    quota5h: part5h,
+    quotaSemaine: partSemaine,
     seconds: elapsedSeconds,
   });
 
