@@ -14,7 +14,7 @@
  * un dossier de projets vide : le démon de production n'est pas touché. Le
  * plafond d'agents est mis à ZÉRO : aucun tour n'est lancé, aucun quota dépensé.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';

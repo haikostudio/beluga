@@ -1,19 +1,8 @@
 import * as React from 'react';
 import { AlertCircle, Bot, Check, ChevronUp, GripVertical, Info, TriangleAlert, X } from 'lucide-react';
-import {
-  PILE_DUREE,
-  REQUETE_SURVOL,
-  annonceDeLaPile,
-  appuiDeclencheLAction,
-  gesteDOuverture,
-  hauteurDeLaPile,
-  heureEtDate,
-  pileApres,
-  placeDansLaPile,
-  resteDeLaPile,
-  type EvenementDePile,
-} from '@haikodev/shared';
-import { Badge, Button, Dot } from '@/components/ui';
+import { heureEtDate } from '@haikodev/shared';
+import { Dot } from '@/components/ui';
+import { Pile, type ElementDePile } from '@/components/pile';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -23,26 +12,12 @@ import { cn, elapsed } from '@/lib/utils';
  * La pile de vignettes en bas à droite (PLAN §28) et, au même endroit, les
  * messages courts. Ils n'interrompent jamais ce que vous êtes en train de faire ;
  * les erreurs, elles, attendent d'être lues.
+ *
+ * Les deux s'empilent en profondeur, chacun dans SA pile (`Pile`,
+ * `web/src/components/pile.tsx`) : le plus récent devant, trois visibles, le
+ * reste compté. L'ordre du bloc ne bouge pas — messages, vignettes, puis
+ * commandes.
  */
-
-/**
- * Ce que le pointeur du moment sait faire. La question est reposée quand la
- * réponse change : brancher une souris sur une tablette rend le survol, la
- * débrancher le reprend.
- */
-function useGesteDOuverture() {
-  const [survol, setSurvol] = React.useState(() =>
-    typeof window === 'undefined' ? true : window.matchMedia(REQUETE_SURVOL).matches,
-  );
-  React.useEffect(() => {
-    const requete = window.matchMedia(REQUETE_SURVOL);
-    const suivre = () => setSurvol(requete.matches);
-    suivre();
-    requete.addEventListener('change', suivre);
-    return () => requete.removeEventListener('change', suivre);
-  }, []);
-  return gesteDOuverture(survol);
-}
 
 export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
   const state = useApp();
@@ -58,42 +33,8 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
   const dragRef = React.useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   // « Tout effacer » reste annulable quelques secondes.
   const [undo, setUndo] = React.useState<Set<string> | null>(null);
-  // Les messages s'empilent, le plus récent devant ; la pile s'ouvre au survol
-  // à la souris, à l'appui au doigt.
-  const geste = useGesteDOuverture();
-  const [pileOuverte, setPileOuverte] = React.useState(false);
-  const pileRef = React.useRef<HTMLDivElement | null>(null);
-  const surLaPile = (evenement: EvenementDePile) =>
-    setPileOuverte((ouverte) => pileApres(ouverte, evenement, geste));
-  const [hauteurs, setHauteurs] = React.useState<Record<string, number>>({});
   // Le plus récent en tête : c'est lui qui se pose devant.
   const messages = React.useMemo(() => [...state.toasts].reverse(), [state.toasts]);
-  const mesures = messages.map((message) => hauteurs[message.id] ?? 0);
-  // La géométrie de la pile a besoin de la hauteur RÉELLE de chaque message :
-  // un compte rendu de lot tient sur cinq lignes, une erreur sur une seule.
-  const mesurer = (id: string) => (element: HTMLDivElement | null) => {
-    if (!element) return;
-    const hauteur = element.offsetHeight;
-    setHauteurs((current) => (current[id] === hauteur ? current : { ...current, [id]: hauteur }));
-  };
-
-  // Un appui ailleurs sur l'écran referme la pile : sans cette sortie, elle
-  // resterait déployée au doigt, faute de curseur qui s'en aille.
-  React.useEffect(() => {
-    if (!pileOuverte) return;
-    const dehors = (event: PointerEvent) => {
-      const pile = pileRef.current;
-      if (pile && event.target instanceof Node && pile.contains(event.target)) return;
-      surLaPile('appui-dehors');
-    };
-    window.addEventListener('pointerdown', dehors);
-    return () => window.removeEventListener('pointerdown', dehors);
-  }, [pileOuverte, geste]);
-
-  // Le dernier message parti, la pile ne reste pas ouverte sur du vide.
-  React.useEffect(() => {
-    if (!messages.length && pileOuverte) setPileOuverte(false);
-  }, [messages.length, pileOuverte]);
 
   React.useEffect(() => {
     const timer = setInterval(force, 5000);
@@ -141,6 +82,101 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 
+  const elementsMessages: ElementDePile[] = messages.map((toast) => ({
+    id: toast.id,
+    classe: cn(
+      'flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[13.5px] shadow-lg',
+      toast.level === 'error'
+        ? 'border-danger/40 bg-surface text-danger'
+        : toast.level === 'warning'
+          ? 'border-warning/40 bg-surface text-warning'
+          : toast.level === 'success'
+            ? 'border-success/40 bg-surface text-success'
+            : 'border-border bg-surface text-muted',
+    ),
+    contenu: (
+      <>
+        <span className="mt-0.5 shrink-0">
+          {toast.level === 'error' ? (
+            <AlertCircle className="h-3 w-3" />
+          ) : toast.level === 'warning' ? (
+            <TriangleAlert className="h-3 w-3" />
+          ) : toast.level === 'success' ? (
+            <Check className="h-3 w-3" />
+          ) : (
+            <Info className="h-3 w-3" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          {/* Un compte rendu de lot nomme ses cartes ligne à ligne : les
+              retours à la ligne doivent tenir. */}
+          <span className="block whitespace-pre-line leading-snug">{toast.text}</span>
+          <span className="mt-0.5 block text-[11.5px] text-faint" data-heure-message>
+            {heureEtDate(toast.at)}
+          </span>
+        </span>
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            client.dismissToast(toast.id);
+          }}
+          title="Retirer ce message"
+          // La croix reste atteignable au doigt : sa cible fait 32 px de côté,
+          // la marge négative rendant au message sa taille.
+          className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] opacity-60 hover:opacity-100"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
+      </>
+    ),
+  }));
+
+  // La sélection ne change pas : les six agents les plus récents, le plus
+  // récent devant — c'est l'AFFICHAGE qui s'empile désormais.
+  const elementsAgents: ElementDePile[] = agents.slice(0, 6).map((agent) => {
+    const project = state.projects.find((p) => p.id === agent.projectId);
+    const running = agent.status === 'running';
+    return {
+      id: agent.id,
+      classe: 'flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5 shadow-lg',
+      contenu: (
+        <>
+          <Bot className={cn('h-3 w-3 shrink-0', running ? 'text-success' : 'text-faint')} />
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenAgent(agent.id);
+            }}
+            className="min-w-0 flex-1 text-left"
+          >
+            <p className="truncate text-[13px] text-text">{agent.title}</p>
+            <p className="truncate text-[11.5px] text-faint">
+              {project?.name} · {agent.run.engine} ·{' '}
+              {running ? elapsed(agent.startedAt) : agent.status === 'failed' ? 'échec' : 'terminé'}
+            </p>
+          </button>
+          {running ? <Dot tone="running" pulse /> : null}
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              setDismissed((current) => {
+                const next = new Set(current);
+                next.add(agent.id);
+                return next;
+              });
+            }}
+            // Même cible de 32 px que la croix d'un message : une fois la pile
+            // ouverte, elle doit se toucher au doigt.
+            className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] text-faint hover:text-text"
+            title="Retirer la vignette (l'agent continue)"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </>
+      ),
+    };
+  });
+
   return (
     <div
       data-bloc="dock"
@@ -151,107 +187,10 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
           autres qui dépassent de quelques pixels. La pile se déploie au survol
           à la souris, à l'appui au doigt — sans ce relais, les messages du
           dessous resteraient inatteignables sur un écran tactile. */}
-      {messages.length ? (
-        <div
-          ref={pileRef}
-          className="pointer-events-auto w-full"
-          data-pile="messages"
-          data-pile-ouverte={pileOuverte ? 'oui' : 'non'}
-          data-pile-geste={geste}
-          aria-label={annonceDeLaPile(messages.length, pileOuverte, geste)}
-          onMouseEnter={() => surLaPile('survol-entre')}
-          onMouseLeave={() => surLaPile('survol-sort')}
-          // En CAPTURE : l'appui qui déploie doit être retenu AVANT que la croix
-          // du message de devant, seul entièrement visible, ne s'en saisisse.
-          onClickCapture={(event) => {
-            if (appuiDeclencheLAction(pileOuverte, geste)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            surLaPile('appui-dedans');
-          }}
-          // Pile déjà ouverte, un appui hors des boutons la referme.
-          onClick={(event) => {
-            if (geste !== 'appui' || !pileOuverte) return;
-            if (event.target instanceof Element && event.target.closest('button')) return;
-            surLaPile('appui-dedans');
-          }}
-        >
-          <div
-            className="relative w-full transition-[height] ease-out"
-            style={{ height: hauteurDeLaPile(mesures, pileOuverte) || undefined, transitionDuration: `${PILE_DUREE}ms` }}
-          >
-            {messages.map((toast, index) => {
-              const place = placeDansLaPile(index, mesures, pileOuverte);
-              return (
-                <div
-                  key={toast.id}
-                  ref={mesurer(toast.id)}
-                  data-message-pile={index}
-                  style={{
-                    transform: `translateY(${place.decalage}px) scale(${place.echelle})`,
-                    // Les bas alignés : c'est le liseré du dessous qu'on montre.
-                    transformOrigin: 'bottom center',
-                    opacity: place.opacite,
-                    zIndex: place.profondeur,
-                    pointerEvents: place.visible ? undefined : 'none',
-                    transitionDuration: `${PILE_DUREE}ms`,
-                  }}
-                  className={cn(
-                    'absolute inset-x-0 top-0 flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[13.5px] shadow-lg',
-                    'animate-fade-in transition-[transform,opacity] ease-out',
-                    toast.level === 'error'
-                      ? 'border-danger/40 bg-surface text-danger'
-                      : toast.level === 'warning'
-                        ? 'border-warning/40 bg-surface text-warning'
-                        : toast.level === 'success'
-                          ? 'border-success/40 bg-surface text-success'
-                          : 'border-border bg-surface text-muted',
-                  )}
-                >
-                  <span className="mt-0.5 shrink-0">
-                    {toast.level === 'error' ? (
-                      <AlertCircle className="h-3 w-3" />
-                    ) : toast.level === 'warning' ? (
-                      <TriangleAlert className="h-3 w-3" />
-                    ) : toast.level === 'success' ? (
-                      <Check className="h-3 w-3" />
-                    ) : (
-                      <Info className="h-3 w-3" />
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    {/* Un compte rendu de lot nomme ses cartes ligne à ligne :
-                        les retours à la ligne doivent tenir. */}
-                    <span className="block whitespace-pre-line leading-snug">{toast.text}</span>
-                    <span className="mt-0.5 block text-[11.5px] text-faint" data-heure-message>
-                      {heureEtDate(toast.at)}
-                    </span>
-                  </span>
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      client.dismissToast(toast.id);
-                    }}
-                    title="Retirer ce message"
-                    // La croix reste atteignable au doigt : sa cible fait 32 px
-                    // de côté, la marge négative rendant au message sa taille.
-                    className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] opacity-60 hover:opacity-100"
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-          {!pileOuverte && resteDeLaPile(messages.length) ? (
-            <p data-reste="messages" className="pointer-events-none pr-1 pt-1 text-right text-[11.5px] text-faint">
-              {resteDeLaPile(messages.length)}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <Pile nom="messages" mot="message" attributRang="data-message-pile" elements={elementsMessages} />
 
-      {/* Vignettes d'agents */}
+      {/* Vignettes d'agents : la MÊME pile, séparée de celle des messages. Sans
+          elle, trois agents en cours mangeaient un tiers de la hauteur. */}
       {agents.length ? (
         collapsed ? (
           <button
@@ -263,41 +202,13 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
             <ChevronUp className="h-3 w-3" />
           </button>
         ) : (
-          <div className="pointer-events-auto w-full space-y-1" data-vignettes="agents">
-            {agents.slice(0, 6).map((agent) => {
-              const project = state.projects.find((p) => p.id === agent.projectId);
-              const running = agent.status === 'running';
-              return (
-                <div
-                  key={agent.id}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5 shadow-lg"
-                >
-                  <Bot className={cn('h-3 w-3 shrink-0', running ? 'text-success' : 'text-faint')} />
-                  <button onClick={() => onOpenAgent(agent.id)} className="min-w-0 flex-1 text-left">
-                    <p className="truncate text-[13px] text-text">{agent.title}</p>
-                    <p className="truncate text-[11.5px] text-faint">
-                      {project?.name} · {agent.run.engine} ·{' '}
-                      {running ? elapsed(agent.startedAt) : agent.status === 'failed' ? 'échec' : 'terminé'}
-                    </p>
-                  </button>
-                  {running ? <Dot tone="running" pulse /> : null}
-                  <button
-                    onClick={() =>
-                      setDismissed((current) => {
-                        const next = new Set(current);
-                        next.add(agent.id);
-                        return next;
-                      })
-                    }
-                    className="shrink-0 text-faint hover:text-text"
-                    title="Retirer la vignette (l'agent continue)"
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+          <Pile
+            nom="agents"
+            mot="agent"
+            attributRang="data-vignette-pile"
+            attributsSupplementaires={{ 'data-vignettes': 'agents' }}
+            elements={elementsAgents}
+          />
         )
       ) : null}
 

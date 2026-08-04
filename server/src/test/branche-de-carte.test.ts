@@ -43,8 +43,8 @@ test('un projet sur un dépôt git passe', () => {
 
 test('deux cartes ne se partagent pas la même copie de travail', () => {
   const verdict = porteDuDossier(
-    { cardId: 'carte-2', dossier: '/home/paseo/rsd-work' },
-    [{ cardId: 'carte-1', titre: 'Taille des fichiers', dossier: '/home/paseo/rsd-work' }],
+    { cardId: 'carte-2', dossier: '/root/projet-exemple' },
+    [{ cardId: 'carte-1', titre: 'Taille des fichiers', dossier: '/root/projet-exemple' }],
   );
   assert.equal(verdict.ok, false);
   assert.match(verdict.raison ?? '', /Taille des fichiers/);
@@ -53,15 +53,15 @@ test('deux cartes ne se partagent pas la même copie de travail', () => {
 
 test('une barre finale ne fait pas croire à deux dossiers différents', () => {
   const verdict = porteDuDossier(
-    { cardId: 'carte-2', dossier: '/home/paseo/rsd-work' },
-    [{ cardId: 'carte-1', dossier: '/home/paseo/rsd-work/' }],
+    { cardId: 'carte-2', dossier: '/root/projet-exemple' },
+    [{ cardId: 'carte-1', dossier: '/root/projet-exemple/' }],
   );
   assert.equal(verdict.ok, false);
 });
 
 test('un agent occupé AILLEURS ne retient personne', () => {
   const verdict = porteDuDossier(
-    { cardId: 'carte-2', dossier: '/home/paseo/rsd-work' },
+    { cardId: 'carte-2', dossier: '/root/projet-exemple' },
     [{ cardId: 'carte-1', dossier: '/root/haikodev' }],
   );
   assert.deepEqual(verdict, { ok: true });
@@ -69,8 +69,8 @@ test('un agent occupé AILLEURS ne retient personne', () => {
 
 test('la carte ne se bloque pas elle-même (relance du même travail)', () => {
   const verdict = porteDuDossier(
-    { cardId: 'carte-1', dossier: '/home/paseo/rsd-work' },
-    [{ cardId: 'carte-1', dossier: '/home/paseo/rsd-work' }],
+    { cardId: 'carte-1', dossier: '/root/projet-exemple' },
+    [{ cardId: 'carte-1', dossier: '/root/projet-exemple' }],
   );
   assert.deepEqual(verdict, { ok: true });
 });

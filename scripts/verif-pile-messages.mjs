@@ -13,7 +13,7 @@
  * On vise le serveur de DÉVELOPPEMENT : HAIKODEV_URL, posée pour les agents,
  * désigne l'application déjà publiée — on y verrait l'ancienne version.
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
@@ -95,7 +95,20 @@ const LECTURE = () => {
   });
   const commandes = document.querySelector('[data-commandes="pile"]');
   const vignettes = document.querySelector('[data-vignettes="agents"]');
+  // Les vignettes d'agents forment leur PROPRE pile, au même mécanisme.
+  const rangVignettes = Array.from(document.querySelectorAll('[data-vignette-pile]')).map((el) => {
+    const boite = el.getBoundingClientRect();
+    return {
+      index: Number(el.dataset.vignettePile),
+      opacite: Number(getComputedStyle(el).opacity),
+      bas: boite.bottom,
+      largeur: boite.width,
+    };
+  });
   return {
+    vignettes: rangVignettes,
+    hauteurVignettes: vignettes ? vignettes.querySelector(':scope > div').getBoundingClientRect().height : null,
+    resteVignettes: vignettes?.querySelector('[data-reste="agents"]')?.textContent?.trim() ?? '',
     hauteurPile: pile.querySelector(':scope > div').getBoundingClientRect().height,
     reste: pile.querySelector('[data-reste="messages"]')?.textContent?.trim() ?? '',
     messages,
@@ -223,6 +236,46 @@ async function main() {
     noter('À la sortie du curseur, la pile se referme',
       Math.abs(refermee.hauteurPile - ferme.hauteurPile) < 4,
       `${Math.round(refermee.hauteurPile)} px`);
+
+    /* ---------- 8. Les vignettes d’agents s’empilent pareil ---------- */
+    if (!ferme.vignettes.length) {
+      console.log('  (aucun agent en cours : la pile des vignettes n’a pas pu être jugée)');
+    } else {
+      const premiere = ferme.vignettes[0];
+      const empilees = ferme.vignettes
+        .filter((v) => v.index > 0 && v.index < 3)
+        .every((v) => v.bas > premiere.bas && v.bas - premiere.bas < 30 && v.largeur < premiere.largeur);
+      noter(
+        'Les vignettes du dessous ne dépassent que de quelques pixels',
+        ferme.vignettes.length === 1 || empilees,
+        ferme.vignettes.map((v) => Math.round(v.bas - premiere.bas)).join(' / ') + ' px',
+      );
+      noter(
+        'La pile des vignettes tient la place d’une seule',
+        ferme.hauteurVignettes < 40 * ferme.vignettes.length || ferme.vignettes.length === 1,
+        `${Math.round(ferme.hauteurVignettes)} px pour ${ferme.vignettes.length} vignettes`,
+      );
+      noter(
+        'Au-delà de trois, les vignettes sont cachées et comptées',
+        ferme.vignettes.filter((v) => v.index >= 3).every((v) => v.opacite === 0) &&
+          (ferme.vignettes.length <= 3 || /\+ \d+ autres? agents?/.test(ferme.resteVignettes)),
+        ferme.resteVignettes || 'rien à compter',
+      );
+
+      await page.hover('[data-pile="agents"]');
+      await page.waitForTimeout(500);
+      const vignettesOuvertes = await page.evaluate(LECTURE);
+      await page.screenshot({ path: `${SHOTS}/pile-vignettes-ouverte.png` });
+      noter(
+        'Au survol, la pile des vignettes s’ouvre en liste complète',
+        ferme.vignettes.length === 1 ||
+          (vignettesOuvertes.hauteurVignettes > ferme.hauteurVignettes &&
+            vignettesOuvertes.vignettes.every((v) => v.opacite === 1)),
+        `${Math.round(ferme.hauteurVignettes)} px → ${Math.round(vignettesOuvertes.hauteurVignettes)} px`,
+      );
+      await page.mouse.move(20, 20);
+      await page.waitForTimeout(400);
+    }
 
     noter('Aucune erreur dans la console', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
   } finally {

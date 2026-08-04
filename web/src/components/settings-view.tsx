@@ -16,8 +16,12 @@ import {
 import {
   ConnexionCompte,
   EngineId,
+  EtatCerveau,
   SystemProcess,
   connexionTerminee,
+  erreursUtiles,
+  ligneEtatCerveau,
+  validerCleCerveau,
   partMemoire,
   phraseCapacite,
   tauxOccupation,
@@ -304,28 +308,48 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
 /* La liaison au cerveau : ce que les projets lui envoient chaque jour  */
 /* ------------------------------------------------------------------ */
 
-interface EtatCerveau {
-  clePosee: boolean;
-  adresse: string;
-  dernierSucces?: number;
-  projetsEnvoyes: number;
-  fichiersEnvoyes: number;
-  derniereTentative?: number;
-  erreurs: { at: number; projet?: string; message: string }[];
-}
-
 /**
  * Chaque jour, la mémoire et les instructions de chaque projet partent au
  * cerveau. C'est un mécanisme silencieux : sans un endroit où le lire, on ne
  * saurait jamais s'il tourne encore.
+ *
+ * Le bloc dit UNE chose à la fois (`ligneEtatCerveau`) et propose le geste qui
+ * débloque : quand la clé manque, elle se pose ICI — il disait trois fois le
+ * même problème sans jamais offrir de le régler.
  */
 function SectionCerveau() {
   const [etat, setEtat] = React.useState<EtatCerveau | null>(null);
   const [enCours, setEnCours] = React.useState(false);
+  const [cle, setCle] = React.useState('');
+  const [pose, setPose] = React.useState(false);
 
   React.useEffect(() => {
     client.call<{ etat: EtatCerveau }>({ type: 'cerveau.etat' }).then((data) => setEtat(data.etat ?? null));
   }, []);
+
+  const poserLaCle = async () => {
+    const juge = validerCleCerveau(cle);
+    if (!juge.ok) {
+      client.pushToast('error', juge.raison);
+      return;
+    }
+    setPose(true);
+    try {
+      const data = await client.call<{ pose: { ok: boolean; raison?: string }; etat: EtatCerveau }>({
+        type: 'cerveau.cle',
+        cle: juge.cle,
+      });
+      setEtat(data.etat ?? null);
+      if (data.pose?.ok) {
+        setCle('');
+        client.pushToast('success', 'Clé posée : les envois peuvent partir.');
+      } else {
+        client.pushToast('error', data.pose?.raison ?? 'clé non enregistrée');
+      }
+    } finally {
+      setPose(false);
+    }
+  };
 
   const envoyer = async () => {
     setEnCours(true);
@@ -350,6 +374,9 @@ function SectionCerveau() {
     }
   };
 
+  const ligne = ligneEtatCerveau(etat, relativeTime);
+  const erreurs = erreursUtiles(etat);
+
   return (
     <section className="mt-4">
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
@@ -357,40 +384,49 @@ function SectionCerveau() {
       </h3>
 
       <p className="mb-2 text-[12.5px] leading-relaxed text-faint">
-        Une fois par jour, chaque projet vivant envoie sa mémoire, les instructions de ses moteurs et toute sa
-        documentation écrite, pour que l'apprentissage se fasse sur l'ensemble des projets. L'historique des
-        livraisons ne part jamais, ni aucun fichier écarté du dépôt.
+        Chaque nuit, chaque projet vivant envoie sa mémoire et ses instructions à {etat?.adresse ?? 'ce service'}.
       </p>
 
       <div className="rounded-md border border-border bg-surface px-2.5 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {etat?.clePosee ? (
-            <Badge tone="success">clé posée</Badge>
-          ) : (
-            <Badge tone="danger">aucune clé</Badge>
+        <p
+          className={cn(
+            'text-[13px]',
+            ligne.ton === 'ok' && 'text-text',
+            ligne.ton === 'attente' && 'text-warning',
+            ligne.ton === 'probleme' && 'text-danger',
           )}
-          <span className="text-[12.5px] text-faint">{etat?.adresse}</span>
-        </div>
-
-        {!etat?.clePosee ? (
-          <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
-            Rien ne part tant que la clé du cerveau n'est pas posée dans l'environnement du serveur.
-          </p>
-        ) : null}
-
-        <p className="mt-1.5 text-[13px] text-text">
-          {etat?.dernierSucces
-            ? `Dernier envoi réussi ${relativeTime(etat.dernierSucces)} — ${etat.fichiersEnvoyes} fichier(s) pour ${etat.projetsEnvoyes} projet(s).`
-            : 'Aucun envoi réussi pour le moment.'}
+        >
+          {ligne.texte}
         </p>
-        {etat?.derniereTentative && etat.derniereTentative !== etat.dernierSucces ? (
-          <p className="mt-0.5 text-[12.5px] text-faint">Dernière tentative {relativeTime(etat.derniereTentative)}.</p>
-        ) : null}
 
-        {etat?.erreurs?.length ? (
+        {ligne.besoinDeCle ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <Input
+              type="password"
+              value={cle}
+              onChange={(e) => setCle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void poserLaCle();
+              }}
+              placeholder="Clé du cerveau"
+              className="h-7 w-56 text-[12.5px]"
+              autoComplete="off"
+            />
+            <Button variant="secondary" size="sm" onClick={poserLaCle} disabled={pose || !cle.trim()}>
+              {pose ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+              Enregistrer
+            </Button>
+          </div>
+        ) : (
+          <Button variant="secondary" size="sm" className="mt-2" onClick={envoyer} disabled={enCours}>
+            {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            Envoyer maintenant
+          </Button>
+        )}
+
+        {erreurs.length ? (
           <div className="mt-2 space-y-0.5">
-            <p className="text-[11.5px] uppercase tracking-wide text-faint">Dernières erreurs</p>
-            {etat.erreurs.map((erreur, index) => (
+            {erreurs.map((erreur, index) => (
               <p key={`${erreur.at}-${index}`} className="text-[12.5px] text-danger">
                 {relativeTime(erreur.at)}
                 {erreur.projet ? ` · ${erreur.projet}` : ''} — {erreur.message}
@@ -398,11 +434,6 @@ function SectionCerveau() {
             ))}
           </div>
         ) : null}
-
-        <Button variant="secondary" size="sm" className="mt-2" onClick={envoyer} disabled={enCours}>
-          {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-          Envoyer maintenant
-        </Button>
       </div>
     </section>
   );

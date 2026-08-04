@@ -20,7 +20,7 @@
  *
  *   npm run build && node scripts/verif-image-reponse-question.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import WebSocket from '/root/haikodev/node_modules/ws/index.js';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import { spawn } from 'node:child_process';

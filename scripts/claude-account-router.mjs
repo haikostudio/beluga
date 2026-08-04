@@ -2,8 +2,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
-const CONFIG_FILE = process.env.CLAUDE_ACCOUNT_POOL_CONFIG || '/home/paseo/.config/claude-account-pool.json';
+// Le dossier de réglages est celui de l'utilisateur qui LANCE le routeur, jamais
+// un nom d'utilisateur écrit en dur : le même fichier, sans dépendre d'un compte.
+const CONFIG_FILE =
+  process.env.CLAUDE_ACCOUNT_POOL_CONFIG ||
+  path.join(os.homedir(), '.config', 'claude-account-pool.json');
 const OAUTH_BETA = 'oauth-2025-04-20';
 const CACHE_MAX_AGE_MS = 60_000;
 const STALE_CACHE_MAX_AGE_MS = 60 * 60_000;

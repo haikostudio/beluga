@@ -45,6 +45,12 @@ test('au-delà de trois, les messages ne se voient plus : ils sont comptés', ()
   assert.equal(resteDeLaPile(3), '');
 });
 
+test('la même règle compte les vignettes d’agents, sous leur propre nom', () => {
+  assert.equal(resteDeLaPile(4, 'agent'), '+ 1 autre agent');
+  assert.equal(resteDeLaPile(6, 'agent'), '+ 3 autres agents');
+  assert.equal(resteDeLaPile(3, 'agent'), '');
+});
+
 test('le plus récent passe DEVANT les autres', () => {
   const devant = placeDansLaPile(0, [30, 30, 30], false);
   const derriere = placeDansLaPile(2, [30, 30, 30], false);

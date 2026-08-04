@@ -88,12 +88,17 @@ export function hauteurDeLaPile(hauteurs: HauteursDePile, ouverte: boolean): num
 
 /**
  * Ce qui reste sous la pile fermée, dit en toutes lettres. Rien à dire tant
- * qu'aucun message n'est caché.
+ * qu'aucun élément n'est caché.
+ *
+ * Le bloc porte deux piles — les messages courts, les vignettes d'agents — et
+ * la même règle les compte : seul le NOM de ce qu'on empile change, d'où le
+ * second argument. Sans lui, la pile des vignettes annoncerait « + 2 autres
+ * messages ».
  */
-export function resteDeLaPile(total: number): string {
+export function resteDeLaPile(total: number, nom = 'message'): string {
   const cachés = total - PILE_VISIBLES;
   if (cachés <= 0) return '';
-  return cachés === 1 ? '+ 1 autre message' : `+ ${cachés} autres messages`;
+  return cachés === 1 ? `+ 1 autre ${nom}` : `+ ${cachés} autres ${nom}s`;
 }
 
 /**

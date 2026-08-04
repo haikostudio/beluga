@@ -22,7 +22,7 @@
  *
  *   HAIKODEV_URL=http://localhost:7133 node scripts/verif-signal-attention.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';

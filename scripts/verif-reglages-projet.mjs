@@ -9,7 +9,7 @@
  *
  *   HAIKODEV_TOKEN=… HAIKODEV_URL=http://127.0.0.1:7099 node scripts/verif-reglages-projet.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import fs from 'node:fs';
 
 const BASE = process.env.HAIKODEV_URL || 'http://127.0.0.1:7099';

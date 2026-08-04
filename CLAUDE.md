@@ -12,7 +12,9 @@ vivent les choses, ce qu'on n'enfreint pas. Aucun journal ici — les livraisons
 | `web/` | L'interface : tableau, conversations, réglages, application installable |
 | `shared/` | Les règles pures, sans base ni disque — donc testables seules |
 | `scripts/` | Service système, identifiants, scripts de vérification |
+| `outils/` | Les outils tiers dont le démon dépend, versionnés ici (`outils/compta/` : facturation) |
 | `data/live` | **Ce qui est réellement servi** : écrit uniquement par la publication |
+| `data/competences` | Les **compétences partagées** : un dossier par compétence, chacun avec son `SKILL.md` |
 
 Une règle qui peut vivre sans base ni disque va dans `shared/` avec son test : c'est ce qui la rend
 lisible et rejouable.
@@ -28,6 +30,13 @@ npm run dev --workspace web -- --port 7099   # interface de développement (vise
 
 `npx vite web` casse la résolution de Tailwind : passer par le workspace. Le serveur de
 développement n'écoute qu'en IPv6, donc `localhost`, pas `127.0.0.1`.
+
+Le navigateur d'essai (`playwright`) est une dépendance DÉCLARÉE du projet, importée normalement
+(`import { chromium } from 'playwright'`) — jamais par un chemin absolu vers le dossier personnel
+d'un utilisateur. Elle est en `dependencies`, PAS en `devDependencies` : l'environnement des agents
+porte `NODE_ENV=production`, où `npm install` saute les dépendances de développement — un
+`devDependencies` y serait donc absent sans un mot. Aucun navigateur n'est à télécharger : tous les
+scripts lancent le Chrome du système (`channel: 'chrome'`).
 
 Un script de vérification ne doit **jamais** reprendre `HAIKODEV_URL` : cette variable, posée dans
 l'environnement des agents, désigne l'application DÉJÀ PUBLIÉE — on y verrait l'ancienne version.
@@ -75,6 +84,7 @@ node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'a
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
 node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglages : adresse et code affichés, échec dit (démon et HOME d'essai à soi)
+node scripts/verif-competences.mjs  # les compétences partagées arrivent-elles aux agents ? (deux vrais tours ; `--sans-tour` pour s'en passer)
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 HAIKODEV_DATA=/root/haikodev/data node scripts/retirer-projets-perimes.mjs # met de côté les projets hérités de l'ancien Paseo
 ```
@@ -402,6 +412,16 @@ sans son point d'essai.
   On n'emploie PAS `justify-end` sur la zone elle-même — il rend le haut du fil inatteignable. Le
   fil porte `data-fil="conversation"`, seul repère des scripts de vérification. Verrouillé par
   `scripts/verif-vide-carte-validee.mjs`.
+- **Le bloc en bas à droite porte DEUX piles, jamais une seule** (`web/src/components/pile.tsx`).
+  Les messages courts et les vignettes d'agents s'empilent par le MÊME composant `Pile`, qui écrit
+  une fois pour toutes la géométrie (`placeDansLaPile`), le survol et l'appui — mais chacun dans SA
+  pile, avec son état d'ouverture : un message et un agent ne se lisent pas de la même façon.
+  L'ordre du bloc ne bouge pas (messages, vignettes, commandes) et la sélection des agents affichés
+  non plus (les six plus récents). Ce qu'on empile ne change que le NOM dit à l'écran, d'où le
+  dernier argument de `resteDeLaPile` et d'`annonceDeLaPile` (« message » par défaut, « agent » pour
+  les vignettes) : la règle reste unique. Pile ouverte, la croix d'une vignette et le bouton qui
+  ouvre l'agent répondent de nouveau pour eux-mêmes, cibles de 32 px comprises. Vérifié par
+  `scripts/verif-pile-messages.mjs` et `scripts/verif-pile-messages-appui.mjs`.
 - **Les messages courts s'EMPILENT, et les commandes ferment le bloc**
   (`shared/src/pile-messages.ts`, `web/src/components/agent-dock.tsx`). Dans le bloc en bas à
   droite, l'ordre est : messages, puis vignettes d'agents, puis la rangée de commandes (poignée de
@@ -446,6 +466,18 @@ sans son point d'essai.
   `mcp_servers.haikodev.default_tools_approval_mode="approve"` : sans ce mode, chaque appel demande
   une approbation que personne ne donne et le moteur rend « user cancelled MCP tool call ».
   Verrouillé par `server/src/test/outils-codex.test.ts`.
+- **Une compétence partagée vit dans `data/competences/`, et elle est ANNONCÉE autant qu'installée**
+  (`shared/src/competences.ts` pour les règles, `server/src/competences.ts` pour le disque). Une
+  compétence est un dossier portant un `SKILL.md` — écrit là, ou simplement LIÉ depuis l'endroit où
+  l'utilisateur le tient à jour ; en ajouter une, c'est poser un dossier de plus, rien d'autre. Deux
+  chemins, tous deux nécessaires. Le COFFRE : au démarrage et à chaque compte connecté,
+  `relierCompetencesAuxCoffres` pose chaque compétence dans `<coffre>/skills/<nom>` de chaque compte
+  Claude — c'est le seul endroit où ce moteur va les chercher, et une place déjà prise est LAISSÉE
+  telle quelle, jamais écrasée. Le BRIEFING : `texteDesCompetences` les nomme à tout agent, avec le
+  chemin du mode d'emploi à ouvrir. Sans ce second chemin, Codex (qui n'a pas la notion) et le chef
+  d'orchestre (à qui l'outil `Skill` est interdit, et qui le reste) répondraient « je ne sais pas
+  faire » devant un mode d'emploi qui existe. Le dossier se déplace par `HAIKODEV_COMPETENCES`.
+  Verrouillé par `server/src/test/competences.test.ts` et `scripts/verif-competences.mjs`.
 - **Un compte de moteur se connecte DEPUIS LES RÉGLAGES, jamais depuis un terminal**
   (`shared/src/connexion-compte.ts` pour les règles, `server/src/connexion-compte.ts` pour le
   processus). L'onglet « Comptes » ne faisait que lire : un jeton mort ne se voyait nulle part et se
@@ -463,6 +495,19 @@ sans son point d'essai.
   intact ne prouve pas qu'un jeton tient encore, et un coffre sans fichier d'identifiants échoue sur
   le FICHIER ABSENT, pas sur un jeton vide. Verrouillé par
   `server/src/test/connexion-compte.test.ts` et `scripts/verif-connexion-compte.mjs`.
+- **Le bloc du cerveau dit UNE chose et propose le geste qui débloque**
+  (`shared/src/bloc-cerveau.ts`). `ligneEtatCerveau` rend UNE seule ligne d'état — clé manquante,
+  dernier envoi réussi, ou aucun envoi abouti — là où le bloc empilait un badge, un encadré orange
+  et une liste d'erreurs qui redisaient tous « aucune clé ». `erreursUtiles` écarte toute erreur
+  qui redit l'absence de clé (l'état la porte déjà, et elle est périmée dès la clé posée),
+  dédoublonne le reste et n'en montre que trois. Quand la clé manque, le bloc porte un CHAMP de
+  saisie : `cerveau.cle` la range par `enregistrerCleCerveau` (`server/src/cle-cerveau.ts`) dans le
+  fichier d'environnement du service — `HAIKODEV_ENV_FILE`, `/etc/haikodev.env` par défaut, sinon
+  repli dans le dossier de données — et la pose du même coup dans le processus : elle vaut aussitôt,
+  sans redémarrage. `cleCerveau` lit désormais par `lireCleCerveau` (environnement, puis repli, puis
+  fichier du service) ; le mécanisme d'envoi ne bouge pas. Verrouillé par
+  `server/src/test/bloc-cerveau.test.ts`, `server/src/test/cle-cerveau.test.ts` et
+  `scripts/verif-cerveau-reglages.mjs` (qui vise un fichier d'environnement TEMPORAIRE).
 - **Un modèle est unique par son IDENTIFIANT, et une liste de secours se DIT**
   (`shared/src/catalogue-modeles.ts`). Le catalogue d'un moteur était dédoublonné sur le NOM AFFICHÉ :
   deux modèles réellement différents portant le même `display_name` se mangeaient l'un l'autre, et
@@ -474,6 +519,13 @@ sans son point d'essai.
   choix du modèle l'affiche en tête (`messageDeRepli`) — jamais une liste de deux entrées écrites en
   dur qui passe pour la liste complète. Verrouillé par `server/src/test/catalogue-modeles.test.ts`,
   `scripts/verif-catalogue-codex.mjs` et `scripts/verif-liste-modeles.mjs`.
+- **Rien du projet ne pointe vers le dossier personnel d'un utilisateur.** Un chemin comme
+  `/home/<quelqu'un>/…` écrit en dur fait tenir HaikoDev sur un compte qui peut disparaître, et
+  qu'aucune installation neuve n'aura. Une bibliothèque se déclare dans `package.json` et s'importe
+  par son nom ; un outil dont le démon dépend est COPIÉ dans `outils/` et s'atteint depuis `ROOT`
+  (`server/src/config.ts`) ; à défaut, on passe par le dossier personnel COURANT (`os.homedir()`,
+  `os.userInfo().username`), jamais par un nom écrit en dur. Restent hors de cette règle les scripts
+  qui parlent d'un AUTRE projet (reprise des anciennes tâches) : ce chemin-là est leur sujet.
 - **Un script de vérification vise le dépôt d'où il PART**, jamais `/root/haikodev` écrit en dur :
   lancé depuis une copie de travail (`.worktrees/…`), il jugerait sinon le code du dossier principal
   et déclarerait bon un changement jamais exécuté. La racine se déduit de `import.meta.url`.

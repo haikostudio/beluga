@@ -10,7 +10,7 @@
  *
  *   HAIKODEV_TOKEN=… HAIKODEV_URL=http://localhost:7131 node scripts/verif-glissement-projets.mjs
  */
-import { chromium } from '/home/paseo/playwright-automation/node_modules/playwright/index.mjs';
+import { chromium } from 'playwright';
 import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

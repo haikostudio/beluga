@@ -68,6 +68,12 @@ export const PATHS = {
   backups: path.join(CONFIG.dataDir, 'backups'),
   secret: path.join(CONFIG.dataDir, 'secret.key'),
   accounts: path.join(CONFIG.dataDir, 'accounts'),
+  /**
+   * Les compétences partagées : un dossier par compétence, chacun portant son
+   * `SKILL.md`. Un seul endroit fait foi pour tous les projets et tous les
+   * comptes — voir `server/src/competences.ts`.
+   */
+  competences: env('HAIKODEV_COMPETENCES', path.join(CONFIG.dataDir, 'competences')),
 };
 
 export function ensureDirs(): void {
@@ -80,6 +86,7 @@ export function ensureDirs(): void {
     PATHS.docs,
     PATHS.backups,
     PATHS.accounts,
+    PATHS.competences,
   ]) {
     fs.mkdirSync(dir, { recursive: true });
   }

@@ -7,8 +7,10 @@ import {
   instructionsQuiFontFoi,
   nettoyer,
   texteIndex,
+  texteDesCompetences,
   type InstructionsDuProjet,
 } from '@haikodev/shared';
+import { listerCompetences } from './competences.js';
 
 /**
  * La mémoire du projet (PLAN §25) : un court fichier texte DANS le dépôt, que
@@ -313,6 +315,16 @@ export function briefing(
         `c'est lui que tu lis et lui que tu tiens à jour.`,
     );
   }
+
+  /*
+   * Les compétences partagées sont ANNONCÉES, jamais supposées connues. Claude
+   * les trouve dans le coffre de son compte, mais Codex n'a pas la notion et le
+   * chef d'orchestre n'a pas le droit d'ouvrir celles de son moteur : sans
+   * cette ligne, le même projet « ne sait pas créer une offre » d'un moteur à
+   * l'autre. Un chemin de fichier se lit partout.
+   */
+  const competences = texteDesCompetences(listerCompetences());
+  if (competences) parts.push(competences);
 
   if (!avecMemoire) return parts.join('\n\n');
 
