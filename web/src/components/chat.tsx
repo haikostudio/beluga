@@ -158,14 +158,27 @@ export function Chat({
       >
         {/*
          * Un échange court — une phrase du chef et sa carte proposée — ne
-         * remplit pas la hauteur du fil. Sans ce « mt-auto », le contenu
-         * restait collé EN HAUT et laissait un grand vide noir jusqu'au volet
-         * des tâches. La marge automatique pousse la conversation vers le bas,
-         * comme dans une vraie discussion, et disparaît d'elle-même dès que le
-         * fil déborde. Le bloc ne rétrécit jamais (« shrink-0 ») : sans cela,
-         * un fil trop long serait comprimé au lieu de défiler.
+         * remplit pas la hauteur du fil, et le contenu resterait collé EN HAUT
+         * avec un grand vide noir jusqu'au volet des tâches.
+         *
+         * C'est le BLOC des messages qui se charge de descendre, et lui seul :
+         * il fait au moins toute la hauteur du fil (« min-h-full ») et range
+         * son contenu par le bas (« justify-end »). Dès que l'échange déborde,
+         * le bloc grandit au-delà de cette hauteur et le fil défile
+         * normalement — le haut reste atteignable, ce que « justify-end » posé
+         * sur la ZONE de défilement, lui, interdirait.
+         *
+         * On ne s'en remet plus à une marge automatique (« mt-auto ») : dans un
+         * conteneur qui défile, sa résolution dépend du navigateur, et le vide
+         * revenait sur téléphone. Le bloc ne rétrécit jamais (« shrink-0 ») :
+         * sans cela, un fil trop long serait comprimé au lieu de défiler.
          */}
-        <div className={cn('shrink-0 space-y-4', messages.length && 'mt-auto')}>
+        <div
+          className={cn(
+            'shrink-0 space-y-4',
+            messages.length && 'flex min-h-full flex-col justify-end',
+          )}
+        >
           {messages.length ? (
             messages.map((message, index) => (
               <React.Fragment key={message.id}>

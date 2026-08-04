@@ -15,15 +15,19 @@
  * le démon de production n'est pas touché, et aucun moteur n'est appelé.
  */
 import { chromium } from 'playwright';
-import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
+import Database from 'better-sqlite3';
 import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const RACINE = '/root/haikodev';
+/* Le dépôt d'où PART ce script : lancé depuis une copie de travail
+   (« .worktrees/… »), il doit juger CE code-là, jamais celui du dossier
+   principal. */
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7196);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-vide-'));
@@ -102,7 +106,10 @@ const PROJET_ID = 'p-essai';
 const AGENT_ID = 'a-chef-essai';
 const TITRE_CARTE = 'Carte d’essai — proposition validée';
 
-function poserLeDecor(decision) {
+/** Combien d'échanges dorment derrière le repli, dans le cas « fil long ». */
+const PRECEDENTS = 40;
+
+function poserLeDecor(decision, replie = false) {
   const db = new Database(path.join(DATA, 'haikodev.db'));
   const t = Date.now() - 60_000;
 
@@ -176,6 +183,24 @@ function poserLeDecor(decision) {
     decidedAt: t + 2000,
   };
 
+  /* Le cas des captures : des CENTAINES d'échanges dorment derrière un
+     nouveau départ (« Voir les N messages précédents »), et seul le dernier
+     échange — court — s'affiche. */
+  db.prepare('DELETE FROM meta WHERE key = ?').run(`chat.depart.${AGENT_ID}`);
+  if (replie) {
+    for (let i = 0; i < PRECEDENTS; i += 1) {
+      message(
+        `m-vieux-${i}`,
+        i % 2 ? 'assistant' : 'user',
+        { content: `Échange d’avant le nouveau départ n° ${i + 1}.` },
+        t - 600_000 + i * 1000,
+      );
+    }
+    db.prepare(
+      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(`chat.depart.${AGENT_ID}`, String(t - 1));
+  }
+
   message('m-1', 'user', { content: 'Le bas de la conversation est tout noir.' }, t);
   message(
     'm-2',
@@ -230,6 +255,25 @@ function poserLeDecor(decision) {
 /* La mesure                                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Le haut du fil reste-t-il atteignable ? Un fil rangé par le bas ne doit
+ * jamais rendre son premier message inaccessible : on remonte tout en haut et
+ * on vérifie que le premier bloc est bien visible dans la zone.
+ */
+async function hautAtteignable(page) {
+  return page.evaluate(() => {
+    const zone = document.querySelector('[data-fil="conversation"]');
+    if (!zone) return false;
+    zone.scrollTop = 0;
+    const dedans = zone.firstElementChild ?? zone;
+    const premier = [...dedans.children].find((n) => n.getBoundingClientRect().height > 0);
+    if (!premier) return false;
+    const r = premier.getBoundingClientRect();
+    const z = zone.getBoundingClientRect();
+    return r.top >= z.top - 1 && r.top < z.bottom;
+  });
+}
+
 /** L'écart entre le bas du dernier bloc du fil et ce qui vient dessous. */
 async function mesurer(page) {
   return page.evaluate(() => {
@@ -250,6 +294,12 @@ async function mesurer(page) {
       volet: Boolean(volet),
       hauteurZone: Math.round(zone.clientHeight),
       hauteurContenu: Math.round(zone.scrollHeight),
+      /* De quoi NOMMER la cause quand l'écart est là : le bloc des messages
+         est-il plus court que la zone (donc mal poussé vers le bas), ou la
+         zone garde-t-elle une hauteur de contenu qu'aucun enfant n'occupe ? */
+      hauteurBloc: Math.round(dedans.getBoundingClientRect().height),
+      margeHaute: Math.round(parseFloat(getComputedStyle(dedans).marginTop) || 0),
+      restePlusBas: Math.round(zone.scrollHeight - zone.scrollTop - zone.clientHeight),
       texte: (dernier.textContent || '').trim().slice(0, 40),
     };
   });
@@ -303,19 +353,41 @@ const navigateur = await chromium.launch({
 });
 
 try {
-  for (const decision of ['accepted', 'refused']) {
-    if (decision !== 'accepted') poserLeDecor(decision);
+  const CAS = [
+    { decision: 'accepted', replie: false, nom: 'carte validée', fichier: 'accepted' },
+    { decision: 'refused', replie: false, nom: 'carte refusée', fichier: 'refused' },
+    /* Le cas des captures : le fil ANNONCE des centaines d'échanges repliés,
+       et pourtant ce qu'il montre est court. Il doit finir collé en bas
+       exactement comme un fil neuf. */
+    {
+      decision: 'accepted',
+      replie: true,
+      nom: 'carte validée, échanges précédents repliés',
+      fichier: 'replie',
+    },
+  ];
+
+  let premier = true;
+  for (const { decision, replie, nom: cas, fichier } of CAS) {
+    if (!premier) poserLeDecor(decision, replie);
+    premier = false;
     for (const telephone of [true, false]) {
       const ecran = telephone ? 'téléphone 390×844' : 'ordinateur 1400×900';
-      const cas = decision === 'accepted' ? 'carte validée' : 'carte refusée';
       const { contexte, page, erreurs } = await ouvrir(navigateur, telephone);
       try {
         noter(`${cas} — ${ecran} : la conversation du chef s’ouvre`, await ouvrirLeChef(page));
+        if (replie) {
+          noter(
+            `${cas} — ${ecran} : le bouton « voir les échanges précédents » est là`,
+            (await page.getByRole('button', { name: /messages? précédents?/i }).count()) > 0,
+          );
+        }
+        noter(`${cas} — ${ecran} : le haut du fil reste atteignable`, await hautAtteignable(page));
         const m = await mesurer(page);
         await page.screenshot({
           path: path.join(
             SHOTS,
-            `vide-carte-${decision}-${telephone ? 'telephone' : 'ordinateur'}.png`,
+            `vide-carte-${fichier}-${telephone ? 'telephone' : 'ordinateur'}.png`,
           ),
         });
         if (m.erreur) {
@@ -325,7 +397,8 @@ try {
         noter(
           `${cas} — ${ecran} : sous le dernier bloc, un interligne et non un vide`,
           m.ecart <= INTERLIGNE_MAX,
-          `écart ${m.ecart} px (max ${INTERLIGNE_MAX}) — fil ${m.hauteurZone} px, contenu ${m.hauteurContenu} px`,
+          `écart ${m.ecart} px (max ${INTERLIGNE_MAX}) — fil ${m.hauteurZone} px, contenu ${m.hauteurContenu} px,` +
+            ` bloc ${m.hauteurBloc} px, marge haute ${m.margeHaute} px, reste plus bas ${m.restePlusBas} px`,
         );
         if (telephone) {
           noter(`${cas} — ${ecran} : le volet des tâches est bien là`, m.volet === true);
