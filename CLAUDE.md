@@ -260,6 +260,14 @@ PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
   **enregistrer, oui ; pousser sur la branche principale, non** — une histoire déjà publiée ne se
   réécrit pas, et le travail resterait collé à la principale. Corollaire : **un enregistrement par
   fonctionnalité**, avec un message qui la nomme.
+- **Un agent de CARTE termine sur la branche principale de son projet : une branche poussée n'est
+  PAS livrée.** Un agent qui s'ouvre un dossier de travail séparé (`git worktree`) doit fusionner sa
+  branche dans la principale, puis refermer le dossier (`git worktree remove`), avant de rendre son
+  travail. Sinon le code existe sur GitHub sans jamais rejoindre le tronc : la publication du projet,
+  qui installe la principale, ne l'emporte pas, et la carte affiche « Terminé » sur du vide. Second
+  piège du dossier PARTAGÉ : `git add -A` / `git commit -a` emporte le travail d'un autre agent dans
+  son propre enregistrement — d'où des cartes qui se croisent, l'une livrant ce que l'autre a écrit.
+  On nomme ses fichiers un par un.
 - Rien de ce qui se fait ne reste invisible : chaque ligne du lot à publier a sa carte, et un projet
   dont un agent a rendu son travail porte une pastille tant que la conversation n'a pas été ouverte.
   **Deux choses secouent la ligne d'un projet** (`shared/src/signal-projet.ts`) : une décision
