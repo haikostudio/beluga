@@ -20,9 +20,13 @@ import {
   CLE_ONGLET_MOBILE,
   carteAReprendre,
   cleCarteOuverte,
+  construireFragment,
   decisionsHorsCarte,
   imageDeLAlerte,
+  lireFragment,
+  memeEcran,
   ongletAReprendre,
+  type EcranNavigateur,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
 
@@ -197,6 +201,87 @@ export function App() {
     if ((state.prefs[cle] ?? '') === (openCardId ?? '')) return;
     writePref(cle, openCardId ?? '');
   }, [openCardId]);
+
+  /*
+   * L'ADRESSE DU NAVIGATEUR SUIT L'ÉCRAN. Un fragment après le « # » décrit où
+   * l'on est (« #projet/<id> », « #projet/<id>/tache/<id>-<slug> »,
+   * « #reglages », « #tableau-de-bord ») : recharger, coller l'adresse dans un
+   * onglet neuf ou faire Précédent/Suivant retrouve le même écran. La
+   * persistance serveur (projet actif, carte ouverte) n'est pas touchée : le
+   * fragment s'ajoute par-dessus. L'identifiant reste la clé ; le slug du titre
+   * n'est là que pour l'œil, et se jette à la lecture.
+   */
+  const appliquerEcran = React.useCallback((ecran: EcranNavigateur) => {
+    // « #reglages » est une couche par-dessus l'écran en cours : on l'ouvre
+    // sans rien changer sous elle.
+    if (ecran.vue === 'reglages') {
+      setSettingsOpen(true);
+      return;
+    }
+    setSettingsOpen(false);
+    if (ecran.vue === 'tableau-de-bord') {
+      setDashboardOpen(true);
+      return;
+    }
+    setDashboardOpen(false);
+    if (ecran.vue === 'projet') {
+      // Ne re-déclencher l'ouverture serveur que si le projet change vraiment.
+      if (client.getSnapshot().activeProjectId !== ecran.projectId) {
+        client.setActiveProject(ecran.projectId);
+      }
+      setOpenCardId(ecran.cardId ?? null);
+      return;
+    }
+    setOpenCardId(null);
+  }, []);
+
+  // Au chargement, et à chaque Précédent/Suivant, l'adresse commande l'écran.
+  const adresseLue = React.useRef(false);
+  React.useEffect(() => {
+    const suivreAdresse = () => appliquerEcran(lireFragment(window.location.hash));
+    suivreAdresse();
+    adresseLue.current = true;
+    window.addEventListener('popstate', suivreAdresse);
+    return () => window.removeEventListener('popstate', suivreAdresse);
+  }, [appliquerEcran]);
+
+  // En sens inverse, chaque changement d'écran réécrit l'adresse. Un même écran
+  // ne rajoute rien à l'historique (replaceState, juste pour rafraîchir le
+  // slug) ; un écran différent y pousse une entrée, pour que Précédent revienne.
+  const titreCarteOuverte = openCardId ? state.cards[openCardId]?.title ?? null : null;
+  const premiereEcriture = React.useRef(true);
+  React.useEffect(() => {
+    if (!adresseLue.current) return;
+    // Le tout premier rendu vient de LIRE l'adresse : ne pas la réécrire à
+    // partir d'un état pas encore rafraîchi, sous peine d'effacer le fragment
+    // collé avant qu'il ne soit appliqué.
+    if (premiereEcriture.current) {
+      premiereEcriture.current = false;
+      return;
+    }
+    const ecran: EcranNavigateur = settingsOpen
+      ? { vue: 'reglages' }
+      : dashboardOpen
+        ? { vue: 'tableau-de-bord' }
+        : state.activeProjectId
+          ? {
+              vue: 'projet',
+              projectId: state.activeProjectId,
+              cardId: openCardId ?? undefined,
+              titreCarte: titreCarteOuverte ?? undefined,
+            }
+          : { vue: 'accueil' };
+
+    const cible = construireFragment(ecran);
+    const url = cible ? '#' + cible : window.location.pathname + window.location.search;
+    if (memeEcran(lireFragment(window.location.hash), ecran)) {
+      if (window.location.hash.replace(/^#/, '') !== cible) {
+        window.history.replaceState(window.history.state, '', url);
+      }
+      return;
+    }
+    window.history.pushState(window.history.state, '', url);
+  }, [state.activeProjectId, openCardId, dashboardOpen, settingsOpen, titreCarteOuverte]);
 
   // Passé sur grand écran (rotation, écran externe), la colonne de gauche est
   // de nouveau posée là : le panneau qui la recouvre n'a plus lieu d'être.
