@@ -642,6 +642,18 @@ sans son point d'essai.
   (`after:`) de 36 × 32 px centré dessus reçoit l'appui, sans changer l'aspect ni la place occupée.
   Piège de vérification : quand l'infobulle est là, son `data-state` recouvre celui de l'interrupteur
   — l'état coché se lit sur `aria-checked`. Vérifié par `scripts/verif-interrupteur-compte.mjs`.
+- **Un interrupteur qui attend une réponse le DIT dans son rond** (propriété `attente` du `Switch`,
+  `web/src/components/ui/index.tsx`). Une bascule qui part au serveur et attend son accusé de
+  réception ne changeait rien à l'écran : sur une liaison lente, on ré-appuyait. `attente` pose donc
+  DANS le pouce de 13 px un anneau minuscule qui tourne (`data-voyant-attente`, `animate-spin`), pose
+  `aria-busy` et BLOQUE l'interrupteur — pas de second appui qui partirait en double. La couleur de
+  l'anneau est celle du rond d'en face (`border-t-accent-fg`, et `border-t-accent` quand c'est coché,
+  lu sur le `data-state` du POUCE, pas de la racine) : le rond change de teinte d'un état à l'autre,
+  un anneau de couleur fixe disparaîtrait dans l'un des deux. L'aspect au repos, la taille et le
+  calque tactile de 36 × 32 px ne bougent pas. Premier usage : l'interrupteur d'un compte du volet
+  des quotas (`quota-badge.tsx`), où le voyant s'éteint dans un `finally` — donc aussi sur un refus
+  du serveur ou une panne de liaison. Vérifié par `scripts/verif-interrupteur-compte.mjs`, dont le
+  banc d'essai sait retarder la réponse (`window.__essaiInterrupteur.retard`).
 - **Couper un compte se fait avec ACCUSÉ DE RÉCEPTION** (`quota-badge.tsx`). `account.disable`
   partait par `client.send`, sans réponse : un refus du serveur ne s'affichait nulle part et le
   compte qu'on croyait coupé continuait d'être consommé. Il passe par `client.call` ; un `ok: false`

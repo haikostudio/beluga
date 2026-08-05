@@ -76,7 +76,10 @@ function bancDEssai() {
     session: { usedPct: 12, resetsAt: Date.now() + 3 * 3600_000 },
     weekly: { usedPct: 30, resetsAt: Date.now() + 4 * 86400_000 },
   };
-  window.__essaiInterrupteur = { envois: [], quotas: [compte] };
+  /* `retard` : combien de millisecondes le serveur d'essai met à répondre. À
+     zéro il répond tout de suite ; allongé, il laisse le temps d'observer le
+     voyant d'attente du rond. */
+  window.__essaiInterrupteur = { envois: [], quotas: [compte], retard: 0 };
 
   const Vrai = window.WebSocket;
   function Enveloppe(url, protocols) {
@@ -94,12 +97,20 @@ function bancDEssai() {
         const cmd = trame && trame.cmd;
         if (cmd && cmd.type === 'account.disable') {
           window.__essaiInterrupteur.envois.push(cmd);
-          window.__essaiInterrupteur.quotas = window.__essaiInterrupteur.quotas.map((q) =>
-            q.id === cmd.id ? { ...q, disabled: cmd.disabled } : q,
-          );
-          const quotas = window.__essaiInterrupteur.quotas;
-          if (trame.id) pousser({ type: 'ack', id: trame.id, ok: true, data: { ok: true, quotas } });
-          pousser({ type: 'quotas', quotas });
+          const repondre = () => {
+            // Le nouvel état n'est écrit qu'AU MOMENT de répondre : sinon un
+            // envoi de quotas du vrai serveur, arrivé pendant le retard,
+            // basculerait l'interrupteur avant la réponse attendue.
+            window.__essaiInterrupteur.quotas = window.__essaiInterrupteur.quotas.map((q) =>
+              q.id === cmd.id ? { ...q, disabled: cmd.disabled } : q,
+            );
+            const quotas = window.__essaiInterrupteur.quotas;
+            if (trame.id) pousser({ type: 'ack', id: trame.id, ok: true, data: { ok: true, quotas } });
+            pousser({ type: 'quotas', quotas });
+          };
+          const retard = window.__essaiInterrupteur.retard || 0;
+          if (retard) setTimeout(repondre, retard);
+          else repondre();
           return;
         }
       } catch {
@@ -141,6 +152,98 @@ function bancDEssai() {
 
 const PANNEAU = '[data-radix-popper-content-wrapper] [role="menu"]';
 const INTERRUPTEUR = '[data-interrupteur-compte="essai-interrupteur"]';
+/** Combien de temps le serveur d'essai fait attendre, pour observer le voyant. */
+const RETARD = 1600;
+
+/** Le voyant d'attente : est-il là, dans le rond, et l'interrupteur est-il bloqué ? */
+async function voyant(page) {
+  return page.evaluate((selecteur) => {
+    const bouton = document.querySelector(selecteur);
+    if (!bouton) return null;
+    const anneau = bouton.querySelector('[data-voyant-attente]');
+    const rond = bouton.querySelector('[data-radix-switch-thumb]') || bouton.firstElementChild;
+    const boiteRond = rond?.getBoundingClientRect();
+    const boiteAnneau = anneau?.getBoundingClientRect();
+    return {
+      present: !!anneau,
+      /* L'anneau doit tenir DANS le rond : c'est ce qui garantit qu'on n'a ni
+         agrandi ni déplacé l'interrupteur. */
+      dansLeRond:
+        !!boiteAnneau &&
+        !!boiteRond &&
+        boiteAnneau.left >= boiteRond.left - 0.5 &&
+        boiteAnneau.right <= boiteRond.right + 0.5 &&
+        boiteAnneau.top >= boiteRond.top - 0.5 &&
+        boiteAnneau.bottom <= boiteRond.bottom + 0.5,
+      tourne: !!anneau && getComputedStyle(anneau).animationName !== 'none',
+      bloque: bouton.hasAttribute('disabled') || bouton.getAttribute('aria-disabled') === 'true',
+      occupe: bouton.getAttribute('aria-busy') === 'true',
+      largeurInterrupteur: bouton.getBoundingClientRect().width,
+      hauteurInterrupteur: bouton.getBoundingClientRect().height,
+    };
+  }, INTERRUPTEUR);
+}
+
+/**
+ * Le voyant d'attente, du même geste au doigt qu'à la souris : on retarde la
+ * réponse du serveur d'essai, on bascule, on regarde le rond pendant l'attente,
+ * puis une fois la réponse arrivée.
+ */
+async function verifierVoyant(page, quoi, basculer) {
+  await page.evaluate((ms) => {
+    window.__essaiInterrupteur.retard = ms;
+  }, RETARD);
+
+  const repos = await voyant(page);
+  noter(`${quoi}, aucun voyant au repos`, !!repos && !repos.present && !repos.occupe);
+
+  const avant = await etat(page);
+  await basculer();
+  await page.waitForTimeout(350);
+
+  const pendant = await voyant(page);
+  noter(
+    `${quoi}, le voyant tourne dans le rond pendant l’attente`,
+    !!pendant && pendant.present && pendant.dansLeRond && pendant.tourne,
+    pendant ? `présent ${pendant.present}, dans le rond ${pendant.dansLeRond}, animé ${pendant.tourne}` : 'illisible',
+  );
+  noter(
+    `${quoi}, l’interrupteur est bloqué pendant l’attente`,
+    !!pendant && pendant.bloque && pendant.occupe,
+    pendant ? `bloqué ${pendant.bloque}, aria-busy ${pendant.occupe}` : 'illisible',
+  );
+  noter(
+    `${quoi}, l’interrupteur n’a ni grandi ni bougé`,
+    !!repos &&
+      !!pendant &&
+      Math.abs(repos.largeurInterrupteur - pendant.largeurInterrupteur) < 0.5 &&
+      Math.abs(repos.hauteurInterrupteur - pendant.hauteurInterrupteur) < 0.5,
+    pendant ? `${Math.round(pendant.largeurInterrupteur)} × ${Math.round(pendant.hauteurInterrupteur)} px` : 'illisible',
+  );
+
+  // Un second appui pendant l'attente ne doit RIEN envoyer de plus.
+  await basculer();
+  await page.waitForTimeout(150);
+  const doublon = await etat(page);
+  noter(
+    `${quoi}, un second appui pendant l’attente ne part pas en double`,
+    !!doublon && doublon.envois === avant.envois + 1,
+    doublon ? `${doublon.envois} envoi(s) au lieu de ${avant.envois + 1}` : 'illisible',
+  );
+
+  await page.waitForTimeout(RETARD);
+  const apres = await voyant(page);
+  const etatApres = await etat(page);
+  noter(
+    `${quoi}, le voyant s’éteint quand la réponse arrive`,
+    !!apres && !apres.present && !apres.occupe && !apres.bloque && !!etatApres && etatApres.coche !== avant.coche,
+    apres ? `voyant ${apres.present}, bloqué ${apres.bloque}` : 'illisible',
+  );
+
+  await page.evaluate(() => {
+    window.__essaiInterrupteur.retard = 0;
+  });
+}
 
 async function ouvrirLeVolet(navigateur, token, mobile) {
   const context = await navigateur.newContext({
@@ -256,6 +359,12 @@ async function main() {
       rallume ? `coché ${rallume.coche}, étiquette ${rallume.etiquette}` : 'état illisible',
     );
 
+    // Le voyant d'attente, au doigt.
+    await verifierVoyant(page, 'au doigt', async () => {
+      const p3 = await points(page);
+      await page.touchscreen.tap(p3.centre.x, p3.centre.y);
+    });
+
     noter('aucune erreur de page (téléphone)', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
     await context.close();
   }
@@ -282,6 +391,12 @@ async function main() {
       avant.coche && apres && !apres.coche && apres.etiquette && apres.envois === avant.envois + 1,
       apres ? `coché ${avant.coche} → ${apres.coche}` : 'état illisible',
     );
+
+    // Le voyant d'attente, à la souris.
+    await verifierVoyant(page, 'à la souris', async () => {
+      const q = await points(page);
+      await page.mouse.click(q.centre.x, q.centre.y);
+    });
 
     noter('aucune erreur de page (ordinateur)', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
     await context.close();
