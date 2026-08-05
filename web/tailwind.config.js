@@ -62,6 +62,12 @@ export default {
           '60%': { transform: 'translateX(-2px)' },
           '80%': { transform: 'translateX(2px)' },
         },
+        // Une barre d'onde sonore : elle monte et redescend, jamais tout à fait
+        // plate — c'est le mouvement, pas la hauteur, qui dit « ça parle ».
+        onde: {
+          '0%,100%': { transform: 'scaleY(0.35)' },
+          '50%': { transform: 'scaleY(1)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 140ms ease-out',
@@ -78,6 +84,7 @@ export default {
         appel: 'appel 1.8s ease-in-out 3',
         // Une seule passe : le motif contient déjà deux allers-retours.
         secousse: 'secousse 420ms ease-in-out 1',
+        onde: 'onde 900ms ease-in-out infinite',
       },
     },
   },

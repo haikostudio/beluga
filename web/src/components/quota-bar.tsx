@@ -8,6 +8,7 @@ import {
   PanelRight,
   Square,
   Volume2,
+  VolumeX,
   Settings2,
   Sun,
   Moon,
@@ -23,6 +24,7 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { MemoryView } from '@/components/memory-view';
+import { CLE_VOIX_MUETTE } from '@/components/voix-assistant';
 import { QuotaBadge } from '@/components/quota-badge';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
@@ -52,6 +54,7 @@ export function QuotaBar({
     projetOuvert?.defaultEngine ??
     'claude';
   const [theme, setTheme] = usePref<'dark' | 'light'>('theme', 'dark');
+  const [voixMuette, setVoixMuette] = usePref<boolean>(CLE_VOIX_MUETTE, false);
   const [speaking, setSpeaking] = React.useState(false);
   const [memoireOuverte, setMemoireOuverte] = React.useState(false);
   const [arretGroupe, setArretGroupe] = React.useState(false);
@@ -259,6 +262,12 @@ export function QuotaBar({
           <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
             <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
             Écouter le point
+          </DropdownMenuItem>
+          {/* Couper la parole automatique de l'assistant (fin de tâche, décision
+              attendue). N'agit QUE sur la voix : notifications et badge restent. */}
+          <DropdownMenuItem onSelect={() => setVoixMuette(!voixMuette)}>
+            {voixMuette ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+            {voixMuette ? 'Rétablir la voix' : 'Muet'}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => applyTheme(theme === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}

@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { Attachment } from '@haikodev/shared';
+import { Attachment, VOIX_LONGUEUR_MAX } from '@haikodev/shared';
 import { CONFIG, PATHS, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
 import * as store from './store.js';
@@ -398,6 +398,26 @@ export function createHttpServer(): http.Server {
       if (route === '/api/voice-sample') {
         const voix = url.searchParams.get('voice') ?? undefined;
         const result = await speak(EXTRAIT, voix);
+        if (!result.ok || !result.file) return json(res, 503, { error: result.error });
+        const stat = fs.statSync(result.file);
+        res.writeHead(200, {
+          'content-type': 'audio/wav',
+          'content-length': stat.size,
+          'cache-control': 'no-store',
+        });
+        return fs.createReadStream(result.file).pipe(res);
+      }
+
+      /**
+       * Une phrase courte lue à voix haute, aux moments clés (fin de tâche,
+       * décision attendue). Le texte vient tout fait du navigateur ; on le
+       * borne pour qu'une annonce reste brève, puis on le confie à Piper —
+       * exactement comme l'extrait d'une voix, par une adresse audio ordinaire.
+       */
+      if (route === '/api/speak') {
+        const texte = (url.searchParams.get('text') ?? '').slice(0, VOIX_LONGUEUR_MAX).trim();
+        if (!texte) return json(res, 400, { error: 'aucun texte à lire' });
+        const result = await speak(texte);
         if (!result.ok || !result.file) return json(res, 503, { error: result.error });
         const stat = fs.statSync(result.file);
         res.writeHead(200, {

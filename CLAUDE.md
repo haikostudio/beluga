@@ -461,6 +461,19 @@ sans son point d'essai.
   RÉELLEMENT atteint « Terminé » ou « À déployer ». Verrouillé par
   `server/src/test/notification-tri.test.ts`, `server/src/test/notification-texte.test.ts`,
   `scripts/verif-notifications.mjs` et `scripts/verif-icones-notifications.mjs`.
+- **L'assistant PARLE de lui-même aux moments clés, et le bouton « Muet » coupe cette voix**
+  (`web/src/components/voix-assistant.tsx`, phrases dans `shared/src/voix-annonce.ts`). Deux instants
+  déjà signalés ailleurs : une tâche terminée (l'événement `notify`, motif `tache-terminee`, dont le
+  titre porte le nom réel de la carte) et une décision qui se met à attendre (le TOTAL de
+  `state.attention` qui MONTE — jamais le déjà-là du chargement, jamais la baisse). La décision passe
+  par le compte d'attention, PAS par sa notification, sinon on l'entendrait deux fois. La phrase est
+  courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
+  `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
+  du navigateur. Pendant la parole, une onde sonore (barres `animate-onde`) s'affiche en bas au centre,
+  distincte du bloc bas-droite ; elle s'efface au silence. Le point du jour ne change pas. Le bouton
+  « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la préférence
+  `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole automatique et rien
+  d'autre — ni notifications visuelles, ni badge. Verrouillé par `server/src/test/voix-annonce.test.ts`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
