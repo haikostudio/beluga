@@ -221,6 +221,21 @@ export interface EtatSeuilsSemaine {
 }
 
 /**
+ * Deux échéances qui ne diffèrent que de quelques minutes décrivent la MÊME
+ * fenêtre. Côté Codex, `resetsAt` est recalculé en relatif à chaque lecture
+ * (heure actuelle + secondes restantes) : il dérive de quelques secondes sans
+ * que la fenêtre ait bougé. Une comparaison stricte y voyait à chaque fois une
+ * fenêtre neuve. Un vrai changement de fenêtre, lui, écarte les deux échéances
+ * de plusieurs jours : la tolérance ne les confond jamais.
+ */
+export const TOLERANCE_FENETRE_MS = 10 * 60_000;
+
+export function memeFenetre(a: number | undefined, b: number | undefined): boolean {
+  if (a === undefined || b === undefined) return false;
+  return Math.abs(a - b) <= TOLERANCE_FENETRE_MS;
+}
+
+/**
  * Un franchissement s'annonce UNE seule fois par fenêtre. Passer de 60 à 95 %
  * d'un coup ne fait pas deux alertes : le palier le plus haut est annoncé, les
  * deux sont marqués comme dits. Une nouvelle fenêtre remet tout à zéro.
@@ -231,7 +246,7 @@ export function franchissementSemaine(
   resetsAt: number | undefined,
 ): { seuil: number; etat: EtatSeuilsSemaine } | null {
   if (!resetsAt || consommePct === undefined || !Number.isFinite(consommePct)) return null;
-  const franchis = etat?.resetsAt === resetsAt ? [...(etat.franchis ?? [])] : [];
+  const franchis = memeFenetre(etat?.resetsAt, resetsAt) ? [...(etat!.franchis ?? [])] : [];
   const atteints = SEUILS_SEMAINE.filter((seuil) => consommePct >= seuil && !franchis.includes(seuil));
   if (!atteints.length) return null;
   return {

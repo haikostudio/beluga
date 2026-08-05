@@ -13,9 +13,11 @@ import {
   evenementDejaVu,
   familleDuMotif,
   franchissementSemaine,
+  TOLERANCE_FENETRE_MS,
   iconeDuMotif,
   imageDeLAlerte,
   interrompt,
+  memeFenetre,
   resumeGroupe,
 } from '@haikodev/shared';
 
@@ -193,8 +195,26 @@ test('un bond de 60 à 95 % ne fait qu’une seule alerte, au palier le plus hau
 
 test('la nouvelle semaine efface les paliers déjà annoncés', () => {
   const avant = { resetsAt: 5_000_000, franchis: [70, 90] };
-  const apres = franchissementSemaine(avant, 71, 6_000_000);
+  // Une VRAIE nouvelle fenêtre s'écarte de plusieurs jours : ici sept jours.
+  const apres = franchissementSemaine(avant, 71, 5_000_000 + 7 * 24 * 3600_000);
   assert.equal(apres?.seuil, 70);
+});
+
+test('deux échéances proches décrivent la même fenêtre', () => {
+  assert.equal(memeFenetre(5_000_000, 5_000_000), true);
+  assert.equal(memeFenetre(5_000_000, 5_000_000 + TOLERANCE_FENETRE_MS), true);
+  assert.equal(memeFenetre(5_000_000, 5_000_000 + TOLERANCE_FENETRE_MS + 1), false);
+  assert.equal(memeFenetre(undefined, 5_000_000), false);
+  assert.equal(memeFenetre(5_000_000, undefined), false);
+});
+
+test('un resetsAt Codex qui dérive de quelques secondes ne rallume pas le palier', () => {
+  // Codex recalcule resetsAt à chaque lecture : il glisse de quelques secondes.
+  const premier = franchissementSemaine(undefined, 91, 5_000_000);
+  assert.equal(premier?.seuil, 90);
+  // Deux relevés suivants, échéance dérivée : plus aucune alerte.
+  assert.equal(franchissementSemaine(premier!.etat, 92, 5_004_000), null);
+  assert.equal(franchissementSemaine(premier!.etat, 93, 5_009_000), null);
 });
 
 test('sans fenêtre connue ou sans chiffre, aucun palier n’est annoncé', () => {

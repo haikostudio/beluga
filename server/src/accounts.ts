@@ -13,6 +13,7 @@ import {
   etatDeConnexion,
   franchissementSemaine,
   historiquePourProfil,
+  memeFenetre,
   previsionEpuisement,
   tempsRestant,
 } from '@haikodev/shared';
@@ -384,6 +385,18 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
       quota.plan = previous.plan ?? quota.plan;
       quota.fetchedAt = previous.fetchedAt ?? quota.fetchedAt;
     }
+    // Codex recalcule `resetsAt` en relatif à chaque lecture, si bien qu'il
+    // dérive de quelques secondes sans que la fenêtre ait changé : les paliers
+    // hebdomadaires repartaient alors à zéro à chaque relevé. On épingle donc
+    // l'échéance sur celle déjà connue tant qu'elle décrit la MÊME fenêtre
+    // (`memeFenetre`). Un vrai changement de fenêtre s'écarte de plusieurs jours
+    // et n'est jamais confondu. Claude, dont `resetsAt` est absolu, ne bouge pas.
+    if (previous?.weekly && quota.weekly && memeFenetre(previous.weekly.resetsAt, quota.weekly.resetsAt)) {
+      quota.weekly = { ...quota.weekly, resetsAt: previous.weekly.resetsAt };
+    }
+    if (previous?.session && quota.session && memeFenetre(previous.session.resetsAt, quota.session.resetsAt)) {
+      quota.session = { ...quota.session, resetsAt: previous.session.resetsAt };
+    }
     quotaCache.set(account.id, quota);
     if (!quota.error) {
       recordQuotaSample(account.id, quota.session?.usedPct, quota.weekly?.usedPct);
@@ -552,7 +565,11 @@ function alerterSeuilsSemaine(list: AccountQuota[]): void {
       motif: 'quota-seuil',
       title: `Quota de la semaine : ${franchi.seuil} % atteints`,
       body: `${quota.label} : ${Math.round(quota.weekly?.usedPct ?? 0)} % du quota hebdomadaire sont consommés.`,
-      reference: `${quota.id}:seuil-${franchi.seuil}:${quota.weekly?.resetsAt}`,
+      // Pas de `resetsAt` dans la référence : côté Codex il dérive et la mémoire
+      // courte du guichet `notify` ne rattraperait rien. La marque persistante
+      // (`quota.alerte.seuils`) distingue déjà les vraies fenêtres ; ici, un même
+      // compte au même palier ne fait qu'une alerte, second filet de dix minutes.
+      reference: `${quota.id}:seuil-${franchi.seuil}`,
       element: `${quota.label} — ${franchi.seuil} %`,
     });
     etats[quota.id] = franchi.etat;

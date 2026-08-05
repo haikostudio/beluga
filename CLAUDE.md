@@ -843,6 +843,17 @@ sans son point d'essai.
   cinq heures, ou sur des relevés vieux de plus d'une heure : rien. On prévient, on ne décide pas —
   aucun agent arrêté, aucune bascule de compte. Verrouillé par
   `server/src/test/quota-emballement.test.ts`.
+- **L'échéance d'une fenêtre Codex est ÉPINGLÉE tant que la fenêtre ne change pas**
+  (`memeFenetre`, `shared/src/notification-tri.ts`). Codex ne donne pas d'horodatage absolu : son
+  `resetsAt` est recalculé en relatif à chaque lecture (`Date.now() + resets_in_seconds*1000`,
+  `fetchCodexQuota`) et DÉRIVE de quelques secondes — chaque relevé (toutes les 10 min) semblait
+  ouvrir une fenêtre neuve, et le palier 70/90 % de la semaine repartait. `refreshQuotas`
+  (`server/src/accounts.ts`) réutilise donc l'échéance déjà en cache (session ET semaine) dès qu'elle
+  est proche à `TOLERANCE_FENETRE_MS` (10 min) ; une VRAIE nouvelle fenêtre s'écarte de plusieurs
+  jours et n'est jamais confondue. En défense, `franchissementSemaine` compare par `memeFenetre` et la
+  `reference` du `notify` de palier ne porte PLUS le `resetsAt` (sa mémoire courte sert de second
+  filet). Claude, dont `resetsAt` est absolu, ne change pas. Verrouillé par
+  `server/src/test/notification-tri.test.ts`.
 - **La prévision d'épuisement du quota hebdomadaire suit un profil MESURÉ, de SEMAINE**
   (`profilSemaine` / `profilHoraire` / `profilRetenu`, `shared/src/quota.ts`) : le rythme de chaque
   tranche se déduit de l'historique des relevés, jamais d'heures écrites dans le code. Le profil de
