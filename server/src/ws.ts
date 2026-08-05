@@ -29,7 +29,7 @@ import { CONFIG } from './config.js';
 import { isAuthenticated } from './http.js';
 import { listEngines } from './engines/index.js';
 import { normaliseThinking } from './engines/catalog.js';
-import { cachedQuotas, refreshQuotas, setAccountDisabled } from './accounts.js';
+import { cachedQuotas, refreshQuotas, renameAccount, setAccountDisabled } from './accounts.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
@@ -994,6 +994,16 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // Couper (ou rallumer) un compte, puis relire les quotas : le compte coupé
       // reste dans la liste, éteint, et le compte actif est recalculé.
       const compte = setAccountDisabled(cmd.id, cmd.disabled);
+      const quotas = await refreshQuotas(true);
+      bus.emit({ type: 'quotas', quotas });
+      return { ok: !!compte, quotas };
+    }
+
+    case 'account.rename': {
+      // Écrire le nouveau nom du compte, puis relire les quotas : le nom retenu
+      // remonte aussitôt partout où le compte est nommé (liste, volet, alertes).
+      // Un nom vide est refusé et le compte garde son ancien nom (ok: false).
+      const compte = renameAccount(cmd.id, cmd.label);
       const quotas = await refreshQuotas(true);
       bus.emit({ type: 'quotas', quotas });
       return { ok: !!compte, quotas };

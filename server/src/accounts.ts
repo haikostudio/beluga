@@ -73,6 +73,21 @@ export function setAccountDisabled(id: string, disabled: boolean): AccountRecord
   return updated;
 }
 
+/**
+ * Renomme un compte : on ne touche QU'au nom affiché (`label`), écrit sur le
+ * compte donc durable au redémarrage. Un nom vide (ou fait d'espaces) est
+ * refusé — le compte garde son ancien nom et la fonction rend `null`.
+ */
+export function renameAccount(id: string, label: string): AccountRecord | null {
+  const propre = label.trim();
+  if (!propre) return null;
+  const account = listAllAccountRecords().find((a) => a.id === id);
+  if (!account) return null;
+  const updated: AccountRecord = { ...account, label: propre };
+  saveAccountRecord(updated);
+  return updated;
+}
+
 export function saveAccountRecord(account: AccountRecord): void {
   getDb()
     .prepare(

@@ -700,6 +700,15 @@ sans son point d'essai.
   depuis son dernier relevé (marqué `disabled`, indisponible), et `markActive` ne le choisit jamais
   comme compte actif. Rien n'est supprimé, aucun identifiant touché. Verrouillé par
   `server/src/test/compte-desactive.test.ts`.
+- **Un compte se RENOMME depuis l'onglet Comptes, et on ne touche QU'au nom** (`renameAccount`,
+  `server/src/accounts.ts`). Chaque ligne porte un crayon qui ouvre un champ (`LigneCompte`,
+  `web/src/components/settings-view.tsx`) ; la saisie part par `account.rename` (esprit
+  d'`account.disable`), qui écrit le nouveau `label` via `saveAccountRecord` — durable au
+  redémarrage — puis relit les quotas, si bien que le nom retenu remonte partout où le compte est
+  nommé (onglet Comptes, volet des quotas, notifications). Un nom vide ou fait d'espaces est REFUSÉ
+  (`ok: false`) et le compte garde son ancien nom ; le nom est débarrassé de ses espaces de bord.
+  Ni priorité, ni moteur, ni coffre, ni identifiants touchés. Verrouillé par
+  `server/src/test/compte-renomme.test.ts`.
 - **Le bloc du cerveau dit UNE chose et propose le geste qui débloque**
   (`shared/src/bloc-cerveau.ts`). `ligneEtatCerveau` rend UNE seule ligne d'état — clé manquante,
   dernier envoi réussi, ou aucun envoi abouti — là où le bloc empilait un badge, un encadré orange

@@ -255,6 +255,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * fenêtre de 5 h n'est plus amorcée.
    */
   z.object({ type: z.literal('account.disable'), id: z.string(), disabled: z.boolean() }),
+  /**
+   * Renommer un compte depuis l'onglet Comptes. On ne touche qu'au nom affiché ;
+   * un nom vide est refusé et le compte garde son ancien nom.
+   */
+  z.object({ type: z.literal('account.rename'), id: z.string(), label: z.string() }),
   /** Consommation des comptes sur les derniers jours, pour la courbe. */
   z.object({ type: z.literal('quota.history'), days: z.number().optional() }),
   /** Le journal des amorces de fenêtre posées par le serveur. */

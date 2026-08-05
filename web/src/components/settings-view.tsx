@@ -5,6 +5,7 @@ import {
   Database,
   Loader2,
   LogIn,
+  Pencil,
   Play,
   Power,
   RefreshCw,
@@ -14,6 +15,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import {
+  AccountQuota,
   ConnexionCompte,
   EngineId,
   EtatCerveau,
@@ -654,38 +656,7 @@ function SectionComptes() {
 
       <div className="space-y-1">
         {state.quotas.map((quota) => (
-          <div key={quota.id} className="rounded-md border border-border bg-surface px-2 py-1.5">
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13.5px] text-text">
-                  {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
-                </p>
-                <p className="text-[11.5px] text-faint">
-                  fenêtre {Math.round(quota.session?.usedPct ?? 0)} % · semaine{' '}
-                  {Math.round(quota.weekly?.usedPct ?? 0)} %
-                  {tempsRestant(quota.weekly?.resetsAt) ? ` · semaine : ${tempsRestant(quota.weekly?.resetsAt)}` : ''}
-                </p>
-              </div>
-              {quota.active ? <Badge tone="success">actif</Badge> : null}
-              {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
-              {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
-                  un compte qui marche n'a pas besoin d'un badge de plus. */}
-              {quota.connexion?.doitReconnecter ? <Badge tone="warning">{quota.connexion.libelle}</Badge> : null}
-              {quota.connexion?.doitReconnecter && !enCours(quota.id) ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    client.send({ type: 'account.connect', engine: quota.engine, accountId: quota.id })
-                  }
-                >
-                  <LogIn className="h-3 w-3" />
-                  Reconnecter
-                </Button>
-              ) : null}
-            </div>
-            {enCours(quota.id) ? <BlocConnexion connexion={enCours(quota.id)!} /> : null}
-          </div>
+          <LigneCompte key={quota.id} quota={quota} connexion={enCours(quota.id)} />
         ))}
       </div>
 
@@ -710,6 +681,110 @@ function SectionComptes() {
         qu'un compte revient à zéro, pour que le décompte tourne déjà quand le travail arrive.
       </p>
     </section>
+  );
+}
+
+/**
+ * Une ligne de compte dans l'onglet « Comptes » : son nom, ses quotas, ses
+ * badges d'état, et le crayon qui ouvre un champ pour le RENOMMER. On ne touche
+ * qu'au nom affiché ; un nom vide est refusé par le serveur et la ligne garde
+ * son ancien nom.
+ */
+function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: ConnexionCompte }) {
+  const [edite, setEdite] = React.useState(false);
+  const [nom, setNom] = React.useState(quota.label);
+  const [envoi, setEnvoi] = React.useState(false);
+
+  // Le nom peut changer sous nos pieds (renommage validé, relevé de quota) :
+  // tant qu'on n'édite pas, la ligne suit toujours la valeur du serveur.
+  React.useEffect(() => {
+    if (!edite) setNom(quota.label);
+  }, [quota.label, edite]);
+
+  const valider = async () => {
+    const propre = nom.trim();
+    if (!propre || propre === quota.label) {
+      setEdite(false);
+      setNom(quota.label);
+      return;
+    }
+    setEnvoi(true);
+    try {
+      const rendu = await client.call<{ ok: boolean }>({ type: 'account.rename', id: quota.id, label: propre });
+      if (!rendu.ok) client.pushToast('error', 'nom refusé');
+      setEdite(false);
+    } catch {
+      client.pushToast('error', 'renommage impossible');
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-border bg-surface px-2 py-1.5">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          {edite ? (
+            <div className="flex items-center gap-1.5">
+              <Input
+                autoFocus
+                value={nom}
+                disabled={envoi}
+                onChange={(event) => setNom(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') valider();
+                  if (event.key === 'Escape') {
+                    setEdite(false);
+                    setNom(quota.label);
+                  }
+                }}
+                className="h-7 flex-1 text-[13.5px]"
+              />
+              <Button size="sm" disabled={envoi} onClick={valider}>
+                {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                Valider
+              </Button>
+            </div>
+          ) : (
+            <p className="truncate text-[13.5px] text-text">
+              {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
+            </p>
+          )}
+          {!edite ? (
+            <p className="text-[11.5px] text-faint">
+              fenêtre {Math.round(quota.session?.usedPct ?? 0)} % · semaine{' '}
+              {Math.round(quota.weekly?.usedPct ?? 0)} %
+              {tempsRestant(quota.weekly?.resetsAt) ? ` · semaine : ${tempsRestant(quota.weekly?.resetsAt)}` : ''}
+            </p>
+          ) : null}
+        </div>
+        {!edite ? (
+          <>
+            {quota.active ? <Badge tone="success">actif</Badge> : null}
+            {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
+            {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
+                un compte qui marche n'a pas besoin d'un badge de plus. */}
+            {quota.connexion?.doitReconnecter ? <Badge tone="warning">{quota.connexion.libelle}</Badge> : null}
+            {quota.connexion?.doitReconnecter && !connexion ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => client.send({ type: 'account.connect', engine: quota.engine, accountId: quota.id })}
+              >
+                <LogIn className="h-3 w-3" />
+                Reconnecter
+              </Button>
+            ) : null}
+            <Tooltip content="Renommer ce compte">
+              <Button variant="ghost" size="icon-sm" onClick={() => setEdite(true)}>
+                <Pencil className="h-3 w-3" />
+              </Button>
+            </Tooltip>
+          </>
+        ) : null}
+      </div>
+      {connexion ? <BlocConnexion connexion={connexion} /> : null}
+    </div>
   );
 }
 
