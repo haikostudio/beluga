@@ -116,6 +116,9 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
   /* Le résumé des semaines passées : il ne se voit pas, il ne sert qu'au profil
      des heures creuses de la prévision. */
   const [resume, setResume] = React.useState<Record<string, AgregatHoraire[]>>({});
+  /* Les comptes dont on attend la réponse du serveur : leur interrupteur porte
+     un voyant d'attente et n'accepte pas de second appui. */
+  const [enAttente, setEnAttente] = React.useState<string[]>([]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -173,6 +176,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
    * tout refus, comme toute panne de liaison, s'affiche en message court.
    */
   const basculerCompte = async (id: string, label: string, actif: boolean) => {
+    setEnAttente((liste) => [...liste, id]);
     try {
       const reponse = await client.call<{ ok: boolean }>({ type: 'account.disable', id, disabled: !actif });
       if (!reponse?.ok) {
@@ -180,6 +184,10 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
       }
     } catch (err) {
       client.pushToast('error', `${label} : ${err instanceof Error ? err.message : 'commande refusée'}`);
+    } finally {
+      // Le voyant s'éteint dans TOUS les cas : réussite, refus du serveur,
+      // panne de liaison. Sans ce `finally`, un refus le laisserait tourner.
+      setEnAttente((liste) => liste.filter((autre) => autre !== id));
     }
   };
 
@@ -271,6 +279,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   <Tooltip label={quota.disabled ? 'Compte désactivé — le remettre en service' : 'Désactiver ce compte'}>
                     <Switch
                       data-interrupteur-compte={quota.id}
+                      attente={enAttente.includes(quota.id)}
                       checked={!quota.disabled}
                       onCheckedChange={(actif) => basculerCompte(quota.id, quota.label, actif)}
                       aria-label={quota.disabled ? `Réactiver ${quota.label}` : `Désactiver ${quota.label}`}

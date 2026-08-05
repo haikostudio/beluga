@@ -734,9 +734,26 @@ export function DropdownMenuSeparator() {
 
 /* ----------------------------- Divers ----------------------------- */
 
-export function Switch({ className, ...props }: React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>) {
+/**
+ * L'interrupteur. Quand la bascule part au serveur et qu'on en attend la
+ * réponse, `attente` allume un voyant DANS le rond : un anneau minuscule qui
+ * tourne. C'est un signe de vie, pas une jauge — le rond ne fait que 13 px.
+ * Pendant ce temps l'interrupteur est bloqué : un second appui partirait en
+ * double. L'aspect au repos ne change pas d'un pixel.
+ */
+export function Switch({
+  className,
+  attente,
+  disabled,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root> & {
+  /** Une réponse est attendue : le rond porte un anneau qui tourne. */
+  attente?: boolean;
+}) {
   return (
     <SwitchPrimitive.Root
+      aria-busy={attente || undefined}
+      disabled={disabled || attente}
       className={cn(
         'peer relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer items-center rounded-full border border-border transition-colors data-[state=checked]:bg-accent data-[state=unchecked]:bg-raised',
         // L'interrupteur ne fait que 18 px de haut : au doigt, la moitié des
@@ -744,11 +761,27 @@ export function Switch({ className, ...props }: React.ComponentPropsWithoutRef<t
         // dessus, agrandit la CIBLE sans rien changer à l'aspect ni à la place
         // occupée — même idée que les cibles de 32 px de la pile des messages.
         'touch-manipulation after:absolute after:left-1/2 after:top-1/2 after:h-[32px] after:w-[36px] after:-translate-x-1/2 after:-translate-y-1/2 after:content-[""]',
+        attente && 'cursor-wait',
         className,
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="pointer-events-none block h-[13px] w-[13px] rounded-full bg-muted shadow transition-transform data-[state=checked]:translate-x-[15px] data-[state=checked]:bg-accent-fg data-[state=unchecked]:translate-x-[2px]" />
+      <SwitchPrimitive.Thumb className="group pointer-events-none relative block h-[13px] w-[13px] rounded-full bg-muted shadow transition-transform data-[state=checked]:translate-x-[15px] data-[state=checked]:bg-accent-fg data-[state=unchecked]:translate-x-[2px]">
+        {attente ? (
+          /*
+           * L'anneau se pose DANS le rond, sans en changer la taille ni la
+           * place. Sa couleur est celle du rond D'EN FACE — le fond du rail
+           * quand l'interrupteur est allumé, le rond éteint sinon : le rond
+           * change de couleur d'un état à l'autre, un anneau de teinte fixe
+           * disparaîtrait dans l'un des deux, en thème clair comme en sombre.
+           */
+          <span
+            data-voyant-attente=""
+            aria-hidden
+            className="absolute inset-[2px] animate-spin rounded-full border-[1.5px] border-transparent border-t-accent-fg group-data-[state=checked]:border-t-accent"
+          />
+        ) : null}
+      </SwitchPrimitive.Thumb>
     </SwitchPrimitive.Root>
   );
 }
