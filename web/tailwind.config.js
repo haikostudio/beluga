@@ -81,5 +81,12 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // « survol » : ce pointeur sait-il survoler ? Même question que REQUETE_SURVOL
+    // (shared/src/ouverture-pile.ts). Sert à ne masquer un repère au repos que là
+    // où le survol le rend — jamais sur un téléphone, où il resterait introuvable.
+    ({ addVariant }) => {
+      addVariant('survol', '@media (hover: hover) and (pointer: fine)');
+    },
+  ],
 };

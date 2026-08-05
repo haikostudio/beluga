@@ -448,9 +448,16 @@ export function Sidebar({
                 <span
                   {...poigneeProps(entry.id, 'group', entry.group.name)}
                   title="Glisser pour ranger"
-                  className="-m-1 p-1 touch-none"
+                  className={cn(
+                    '-m-1 shrink-0 touch-none overflow-hidden p-1',
+                    'transition-[max-width,padding,margin] duration-150 motion-reduce:transition-none',
+                    // Même règle que la poignée de projet : cachée et sans place au
+                    // repos sur pointeur qui survole, révélée au survol de l'en-tête.
+                    'survol:m-0 survol:max-w-0 survol:p-0',
+                    'group-hover/g:survol:-m-1 group-hover/g:survol:max-w-5 group-hover/g:survol:p-1',
+                  )}
                 >
-                  <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-40 group-hover/g:opacity-100 active:cursor-grabbing" />
+                  <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-40 transition-opacity survol:opacity-0 group-hover/g:opacity-100 active:cursor-grabbing" />
                 </span>
                 <button
                   onClick={() => toggle(entry.id)}
@@ -1061,8 +1068,20 @@ function ProjectRow({
       )}
     >
       <Trait ou={marqueur} />
-      <span {...poigneeProps} title="Glisser pour ranger" className="-m-1 shrink-0 touch-none p-1">
-        <GripVertical className="h-3 w-3 cursor-grab text-faint opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
+      <span
+        {...poigneeProps}
+        title="Glisser pour ranger"
+        className={cn(
+          '-m-1 shrink-0 touch-none overflow-hidden p-1',
+          'transition-[max-width,padding,margin] duration-150 motion-reduce:transition-none',
+          // Là où le pointeur survole : au repos, aucune place ni visibilité ; au
+          // survol de la ligne, la poignée reprend sa place et le dossier se
+          // décale. Sur téléphone (pas de survol), elle reste comme avant.
+          'survol:m-0 survol:max-w-0 survol:p-0',
+          'group-hover:survol:-m-1 group-hover:survol:max-w-5 group-hover:survol:p-1',
+        )}
+      >
+        <GripVertical className="h-3 w-3 cursor-grab text-faint opacity-40 transition-opacity survol:opacity-0 group-hover:opacity-100 active:cursor-grabbing" />
       </span>
       <button
         onClick={() => {
