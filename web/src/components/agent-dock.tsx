@@ -180,7 +180,10 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
   return (
     <div
       data-bloc="dock"
-      className="pointer-events-none fixed bottom-2 right-2 z-40 flex w-[248px] flex-col items-end gap-1.5 sm:bottom-3 sm:right-3"
+      // Sur téléphone, le menu du bas flotte au ras de l'écran : le bloc part
+      // donc plus haut pour ne pas se poser dessus. Sur ordinateur, où aucun
+      // menu du bas n'existe, il reste collé au coin.
+      className="pointer-events-none fixed bottom-14 right-2 z-40 flex w-[248px] flex-col items-end gap-1.5 sm:bottom-3 sm:right-3"
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
       {/* Messages courts, empilés en profondeur : le plus récent devant, les
