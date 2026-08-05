@@ -24,6 +24,7 @@ import { MenuCarte } from '@/components/card-menu';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
 import { readPref, writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
+import { useTelephone } from '@/lib/telephone';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel } from '@/components/deploy-panel';
@@ -98,32 +99,52 @@ export function Board({
    * téléphone « À faire », sinon on ouvre sur des notes souvent vides.
    */
   const rail = React.useRef<HTMLDivElement>(null);
+  const telephone = useTelephone();
+
+  /*
+   * La colonne qui touche le bord gauche du tableau. Elle sert à DEUX choses :
+   * on la retient projet par projet (pour rouvrir au même endroit), et sur
+   * téléphone elle met en évidence l'onglet correspondant. Même règle des deux
+   * côtés — une seule fonction, lue sur le rail au moment voulu.
+   */
+  const colonneAuBord = React.useCallback((): ColumnKey | null => {
+    const node = rail.current;
+    if (!node) return null;
+    const gauche = node.scrollLeft;
+    const visible = Array.from(node.querySelectorAll<HTMLElement>('[data-column]'))
+      .filter((colonne) => colonne.offsetLeft + colonne.offsetWidth > gauche + 24)
+      .shift();
+    return (visible?.getAttribute('data-column') as ColumnKey | null) ?? null;
+  }, []);
+
+  const [colonneActive, setColonneActive] = React.useState<ColumnKey | null>(null);
+
   React.useEffect(() => {
     const memorisee = colonneAReprendre(readPref(cleColonneTableau(projectId), null));
     const voulue = memorisee ?? (window.innerWidth < 640 ? 'todo' : null);
-    if (!voulue) return;
-    const cible = rail.current?.querySelector<HTMLElement>(`[data-column="${voulue}"]`);
-    if (cible) rail.current!.scrollLeft = cible.offsetLeft - 12;
-  }, [projectId]);
+    if (voulue) {
+      const cible = rail.current?.querySelector<HTMLElement>(`[data-column="${voulue}"]`);
+      if (cible) rail.current!.scrollLeft = cible.offsetLeft - 12;
+    }
+    // L'onglet actif part de la colonne réellement au bord après ce placement.
+    setColonneActive(colonneAuBord());
+  }, [projectId, colonneAuBord]);
 
   /*
-   * La colonne retenue est celle qui touche le bord gauche du tableau. On
-   * l'enregistre une demi-seconde après l'arrêt du doigt : pendant un défilé,
-   * chaque pixel n'a pas à traverser le réseau.
+   * Au défilement, l'onglet actif suit le doigt TOUT DE SUITE (sinon la mise en
+   * évidence traînerait). L'écriture en base, elle, attend une demi-seconde
+   * après l'arrêt du doigt : pendant un défilé, chaque pixel n'a pas à traverser
+   * le réseau.
    */
   React.useEffect(() => {
     const node = rail.current;
     if (!node) return;
     let timer = 0;
     const noter = () => {
+      setColonneActive(colonneAuBord());
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        const colonnes = Array.from(node.querySelectorAll<HTMLElement>('[data-column]'));
-        const gauche = node.scrollLeft;
-        const visible = colonnes
-          .filter((colonne) => colonne.offsetLeft + colonne.offsetWidth > gauche + 24)
-          .shift();
-        const cle = visible?.getAttribute('data-column');
+        const cle = colonneAuBord();
         if (cle && readPref(cleColonneTableau(projectId), null) !== cle) {
           writePref(cleColonneTableau(projectId), cle);
         }
@@ -134,7 +155,20 @@ export function Board({
       window.clearTimeout(timer);
       node.removeEventListener('scroll', noter);
     };
-  }, [projectId]);
+  }, [projectId, colonneAuBord]);
+
+  /*
+   * Un appui sur un onglet amène sa colonne au bord gauche, en douceur. Même
+   * marge de 12 px qu'à la réouverture, pour que la colonne visée touche
+   * vraiment le bord. La mise en évidence est posée d'avance : le défilement
+   * animé confirmera.
+   */
+  const allerALaColonne = React.useCallback((cle: ColumnKey) => {
+    const node = rail.current;
+    const cible = node?.querySelector<HTMLElement>(`[data-column="${cle}"]`);
+    if (node && cible) node.scrollTo({ left: cible.offsetLeft - 12, behavior: 'smooth' });
+    setColonneActive(cle);
+  }, []);
 
   /*
    * Le déplacement se fait AU POINTEUR, jamais avec le glisser-déposer natif :
@@ -328,12 +362,52 @@ export function Board({
   // indispensable, sinon le navigateur repasse tout seul l'axe vertical en
   // « auto » dès que l'autre axe déborde, et le tableau entier se met à flotter.
   return (
-    <ZoneDefilement
-      ref={rail}
-      axe="horizontal"
-      classeEnveloppe="h-full min-h-0"
-      className="flex gap-2.5 px-3 py-3 snap-columns"
-    >
+    <div className="flex h-full min-h-0 flex-col">
+      {/*
+        Sur téléphone, atteindre « À déployer » demandait de faire défiler tout
+        le tableau à la main. Une rangée d'onglets — un par colonne, libellé
+        complet — offre le raccourci : un appui amène la colonne au bord gauche,
+        et l'onglet de la colonne au bord est mis en évidence. Elle est un FRÈRE
+        au-dessus du rail, jamais un enfant de la ZoneDefilement horizontale :
+        un enfant parasite fausserait l'auto-défilement au drag et les scripts.
+        Sur ordinateur elle n'existe pas : le tableau tient à l'écran.
+      */}
+      {telephone ? (
+        <ZoneDefilement
+          axe="horizontal"
+          classeEnveloppe="shrink-0 border-b border-border/50"
+          className="flex gap-1.5 px-3 py-1.5"
+          data-onglets-colonnes=""
+        >
+          {COLUMN_KEYS.map((cle) => {
+            const actif = colonneActive === cle;
+            return (
+              <button
+                key={cle}
+                type="button"
+                data-onglet-colonne={cle}
+                aria-current={actif ? 'true' : undefined}
+                onClick={() => allerALaColonne(cle)}
+                className={cn(
+                  'shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-[12.5px] transition-colors',
+                  actif
+                    ? 'border-accent bg-accent/15 font-medium text-text'
+                    : 'border-border/60 text-faint hover:text-text',
+                )}
+              >
+                {COLUMN_LABELS[cle]}
+              </button>
+            );
+          })}
+        </ZoneDefilement>
+      ) : null}
+
+      <ZoneDefilement
+        ref={rail}
+        axe="horizontal"
+        classeEnveloppe="min-h-0 flex-1"
+        className="flex gap-2.5 px-3 py-3 snap-columns"
+      >
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
         const action = ACTIONS_DE_LOT[column];
@@ -465,7 +539,8 @@ export function Board({
           {dragging.label}
         </div>
       ) : null}
-    </ZoneDefilement>
+      </ZoneDefilement>
+    </div>
   );
 }
 

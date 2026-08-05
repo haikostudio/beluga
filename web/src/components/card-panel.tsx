@@ -56,28 +56,8 @@ import { RepereAttention } from '@/components/repere-attention';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { useTelephone } from '@/lib/telephone';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
-
-/**
- * Sommes-nous sur un écran de téléphone ? Le tiroir d'une carte s'y épure —
- * tags repliés, barre d'onglets qui se cache au défilement. La question se
- * repose quand la largeur change (rotation, fenêtre redimensionnée). Même seuil
- * que le reste de l'interface : 640 px.
- */
-function useTelephone(): boolean {
-  const requete = '(max-width: 639px)';
-  const [telephone, setTelephone] = React.useState(() =>
-    typeof window === 'undefined' ? false : window.matchMedia(requete).matches,
-  );
-  React.useEffect(() => {
-    const media = window.matchMedia(requete);
-    const suivre = () => setTelephone(media.matches);
-    suivre();
-    media.addEventListener('change', suivre);
-    return () => media.removeEventListener('change', suivre);
-  }, []);
-  return telephone;
-}
 
 export function CardPanel({ cardId, onClose }: { cardId: string | null; onClose: () => void }) {
   const state = useApp();

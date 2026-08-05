@@ -4,6 +4,7 @@ import { RunStep, TodoItem } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { ZoneDefilement } from '@/components/ui';
+import { estTelephone } from '@/lib/telephone';
 import { cn, duration } from '@/lib/utils';
 
 /**
@@ -64,7 +65,7 @@ function choixInitial(): boolean {
   const retenu = window.localStorage.getItem(CLE_VOLET);
   if (retenu === '1') return true;
   if (retenu === '0') return false;
-  return !window.matchMedia('(max-width: 639px)').matches;
+  return !estTelephone();
 }
 
 /**
