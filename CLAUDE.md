@@ -710,8 +710,12 @@ sans son point d'essai.
   redémarrage — puis relit les quotas, si bien que le nom retenu remonte partout où le compte est
   nommé (onglet Comptes, volet des quotas, notifications). Un nom vide ou fait d'espaces est REFUSÉ
   (`ok: false`) et le compte garde son ancien nom ; le nom est débarrassé de ses espaces de bord.
-  Ni priorité, ni moteur, ni coffre, ni identifiants touchés. Verrouillé par
-  `server/src/test/compte-renomme.test.ts`.
+  Ni priorité, ni moteur, ni coffre, ni identifiants touchés. Le nom affiché vient du RELEVÉ de
+  quota : un compte dont la lecture est EN PAUSE (après un refus 429, `nextTry` dans le futur)
+  repousse son dernier relevé mémorisé, qui figeait l'ancien nom. Deux garde-fous : `renameAccount`
+  met à jour le `label` du relevé en cache, et `refreshQuotas` réapplique TOUJOURS `account.label`
+  sur un relevé réutilisé — le nom vient du compte, jamais du relevé. Verrouillé par
+  `server/src/test/compte-renomme.test.ts` et `server/src/test/compte-renomme-en-pause.test.ts`.
 - **Le bloc du cerveau dit UNE chose et propose le geste qui débloque**
   (`shared/src/bloc-cerveau.ts`). `ligneEtatCerveau` rend UNE seule ligne d'état — clé manquante,
   dernier envoi réussi, ou aucun envoi abouti — là où le bloc empilait un badge, un encadré orange
