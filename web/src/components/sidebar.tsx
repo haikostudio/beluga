@@ -936,11 +936,14 @@ function RepereLigne({
   signal,
   onLu,
   onDecision,
+  className,
 }: {
   signal: SignalProjet;
   onLu: () => void;
   /** Emmener à l'endroit où la décision se prend. */
   onDecision?: () => void;
+  /** Décalage doux appliqué au repère (glissement au survol). */
+  className?: string;
 }) {
   const quoi = repereVisible(signal);
   if (!quoi) return null;
@@ -965,7 +968,7 @@ function RepereLigne({
           }}
           aria-label={libelle}
           data-signal-attention
-          className="shrink-0 text-warning"
+          className={cn('shrink-0 text-warning', className)}
         >
           <TriangleAlert className="h-3 w-3" />
         </button>
@@ -990,7 +993,10 @@ function RepereLigne({
         }}
         aria-label={libelle}
         data-signal-termine
-        className="h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none"
+        className={cn(
+          'h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none',
+          className,
+        )}
       />
     </Tooltip>
   );
@@ -1113,6 +1119,11 @@ function ProjectRow({
         signal={{ attention, rendus }}
         onLu={() => client.call({ type: 'project.read', projectId: project.id })}
         onDecision={() => allerALaDecision(project.id, onChoose)}
+        // Au repos (pointeur qui survole), le repère est poussé à droite, à la
+        // place de l'icône réglages encore invisible ; au survol de la ligne, il
+        // glisse vers la gauche pour lui dégager la place, tout en douceur. Sur
+        // téléphone (pas de survol) il ne bouge pas.
+        className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
       />
       <button
         onPointerDown={(event) => event.stopPropagation()}
