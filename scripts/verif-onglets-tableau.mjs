@@ -188,6 +188,14 @@ async function main() {
     finiA: maintenant,
     position: maintenant + 0.3,
   });
+  // « planned » : un agent AU TRAVAIL → l'onglet porte le robot d'activité.
+  const carteTravail = await poserCarte({
+    suffixe: 'planned-travail',
+    column: 'planned',
+    titre: 'Essai — agent au travail',
+    statutAgent: 'running',
+    position: maintenant + 0.4,
+  });
 
   // Les décisions arrivent par l'événement `attention` : on en pose une sur la
   // carte de « done », en gardant le compte du projet cohérent.
@@ -225,7 +233,12 @@ async function main() {
   record(
     'une colonne sans rien (« todo ») garde son onglet nu',
     (await aRepere('[data-onglet-attention="todo"]')) === 0 &&
-      (await aRepere('[data-onglet-non-lu="todo"]')) === 0,
+      (await aRepere('[data-onglet-non-lu="todo"]')) === 0 &&
+      (await aRepere('[data-onglet-travail="todo"]')) === 0,
+  );
+  record(
+    'la colonne « planned » (agent au travail) montre le robot d’activité',
+    (await aRepere('[data-onglet-travail="planned"]')) === 1,
   );
 
   await page.screenshot({ path: `${DONNEES}/verification/onglets-tableau.png` });
@@ -261,6 +274,34 @@ async function main() {
   record(
     'lire la carte éteint le point bleu de son onglet',
     (await aRepere('[data-onglet-non-lu="running"]')) === 0,
+  );
+
+  // Le travail s'achève : l'agent passe à « done », le robot d'activité doit
+  // disparaître de l'onglet « planned ».
+  await page.evaluate(
+    ([projectId, cardId, agentId, quand]) => {
+      window.__injecter({
+        type: 'agent.upsert',
+        agent: {
+          id: agentId,
+          projectId,
+          cardId,
+          role: 'task',
+          title: 'Essai — agent au travail',
+          run: { engine: 'codex', mode: 'direct' },
+          status: 'done',
+          endedAt: quand,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      });
+    },
+    [projectId, carteTravail.cardId, carteTravail.agentId, maintenant],
+  );
+  await page.waitForTimeout(700);
+  record(
+    'le travail achevé éteint le robot d’activité de son onglet',
+    (await aRepere('[data-onglet-travail="planned"]')) === 0,
   );
 
   record('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));

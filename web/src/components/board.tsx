@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -120,11 +120,18 @@ export function Board({
   const signalOnglet = (column: ColumnKey) => {
     let attention = 0;
     let rendus = 0;
+    let travaille = 0;
     for (const card of byColumn(column)) {
       attention += decisionsCarte[card.id] ?? 0;
-      if (etatDeCarte(card) === 'termine-non-lu') rendus += 1;
+      const etat = etatDeCarte(card);
+      if (etat === 'termine-non-lu') rendus += 1;
+      // « Un agent travaille ici » : le MÊME état que le voyant de la carte
+      // (Loader2), simplement compté pour l'afficher sur l'onglet. Cet indicateur
+      // d'ACTIVITÉ vit à côté des repères d'attente, il ne passe pas par
+      // `repereVisible` — il n'y a rien à trancher, on montre les deux.
+      if (etat === 'travaille') travaille += 1;
     }
-    return { attention, rendus };
+    return { attention, rendus, travaille };
   };
 
   /*
@@ -462,6 +469,36 @@ export function Board({
                 >
                   <span className="inline-flex items-center gap-1">
                     {COLUMN_LABELS[cle]}
+                    {/* L'indicateur d'ACTIVITÉ : un robot, dans l'esprit de la
+                        colonne de gauche (`RepereRobot`), quand au moins un agent
+                        travaille dans la colonne. Rien qui tourne, et il coexiste
+                        avec le repère d'attente au lieu de le remplacer. */}
+                    {signal.travaille > 0 ? (
+                      <Tooltip
+                        label={
+                          signal.travaille > 1
+                            ? `${signal.travaille} agents au travail`
+                            : 'Un agent au travail'
+                        }
+                      >
+                        <span
+                          data-onglet-travail={cle}
+                          aria-label={
+                            signal.travaille > 1
+                              ? `${signal.travaille} agents au travail`
+                              : 'Un agent au travail'
+                          }
+                          className="inline-flex shrink-0 items-center gap-0.5"
+                        >
+                          <Bot className="h-3 w-3 shrink-0 text-success" />
+                          {signal.travaille > 1 ? (
+                            <span className="text-[10.5px] leading-none text-success">
+                              {signal.travaille}
+                            </span>
+                          ) : null}
+                        </span>
+                      </Tooltip>
+                    ) : null}
                     {repere === 'attention' ? (
                       <RepereAttention compte={signal.attention} data-onglet-attention={cle} />
                     ) : repere === 'rendus' ? (
