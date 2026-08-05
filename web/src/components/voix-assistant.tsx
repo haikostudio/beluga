@@ -61,10 +61,13 @@ function contexteDecision(
  * retombe sur celle du navigateur.
  *
  * Le module est TOUJOURS à l'écran, réduit en un petit icône rond au centre en
- * bas. Au survol (souris) ou à l'appui (doigt) — même choix que la pile des
- * messages (`(hover: hover) and (pointer: fine)`) —, il se déplie et montre les
- * dix derniers messages prononcés, le plus récent en haut ; un clic les rejoue.
- * Pendant qu'il parle, une onde sonore s'affiche à la place de l'icône.
+ * bas. Au repos, l'icône montre cinq barres figées en vibration sonore
+ * symétrique. Au survol (souris) ou à l'appui (doigt) — même choix que la pile
+ * des messages (`(hover: hover) and (pointer: fine)`) —, il se déplie et montre
+ * les dix derniers messages prononcés, le plus récent en haut ; un clic les
+ * rejoue. Pendant qu'il parle, le rond s'OUVRE tout seul en un bloc
+ * rectangulaire et l'icône devient un flux d'ondes VERTES animées ; à la fin, le
+ * flux se referme et l'icône de vibration revient.
  *
  * Le bouton « Muet » de la barre du haut coupe la parole AUTOMATIQUE (jamais les
  * notifications visuelles ni le badge, jamais l'icône, jamais la réécoute
@@ -253,27 +256,40 @@ export function VoixAssistant() {
       <button
         type="button"
         data-icone-voix
+        data-parle={parle ? '' : undefined}
         aria-label={
           parle
             ? 'L’assistant parle'
             : `Voix de l’assistant — ${nb} message${nb > 1 ? 's' : ''} à réécouter`
         }
         onClick={() => setOuvert((o) => pileApres(o, 'appui-dedans', geste))}
-        className="grid h-11 w-11 place-items-center rounded-full border border-border bg-surface/90 shadow-lg backdrop-blur transition-colors hover:bg-raised"
+        // Au repos, un petit rond ; pendant la parole, il s'OUVRE tout seul en un
+        // bloc RECTANGULAIRE plus large — la transition anime largeur et coins.
+        className={`grid h-11 place-items-center border border-border bg-surface/90 shadow-lg backdrop-blur transition-all duration-300 hover:bg-raised ${
+          parle ? 'w-24 rounded-xl' : 'w-11 rounded-full'
+        }`}
       >
         {parle ? (
-          <span data-onde-vocale className="flex items-end gap-0.5" aria-hidden>
-            {[0, 1, 2, 3, 4].map((i) => (
+          // Le flux d'ondes façon dictée : des barres VERTES qui ondulent, un peu
+          // plus nombreuses, décalées pour donner le mouvement d'un enregistrement.
+          <span data-onde-vocale className="flex items-center gap-0.5" aria-hidden>
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
               <span
                 key={i}
-                className="h-4 w-1 origin-bottom rounded-full bg-accent animate-onde"
+                className="h-5 w-1 origin-center rounded-full bg-success animate-onde"
                 // Chaque barre décalée : l'onde ondule au lieu de battre d'un bloc.
-                style={{ animationDelay: `${i * 110}ms` }}
+                style={{ animationDelay: `${i * 90}ms` }}
               />
             ))}
           </span>
         ) : (
-          <Volume2 className="h-5 w-5 text-text" aria-hidden />
+          // Au repos, cinq lignes figées en vibration sonore SYMÉTRIQUE :
+          // petite, moyenne, grande, moyenne, petite.
+          <span data-icone-repos className="flex items-center gap-0.5" aria-hidden>
+            {['h-1.5', 'h-3', 'h-4', 'h-3', 'h-1.5'].map((hauteur, i) => (
+              <span key={i} className={`w-1 rounded-full bg-text ${hauteur}`} />
+            ))}
+          </span>
         )}
       </button>
     </div>

@@ -472,9 +472,13 @@ sans son point d'essai.
   repli générique — le tout sous `VOIX_LONGUEUR_MAX` (un titre à rallonge retombe sur le projet). La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
-  du navigateur. Le module est TOUJOURS à l'écran, réduit en un petit icône rond (haut-parleur) au
-  centre en bas ; pendant la parole, l'onde sonore (barres `animate-onde`, `data-onde-vocale`) prend
-  la place de l'icône. Au survol (souris) ou à l'appui (doigt) — même choix que la pile des messages
+  du navigateur. Le module est TOUJOURS à l'écran, réduit en un petit icône rond au centre en bas ;
+  au repos, l'icône (`data-icone-repos`) montre cinq barres figées en vibration sonore SYMÉTRIQUE
+  (petite, moyenne, grande, moyenne, petite). Pendant la parole (`data-parle`), le rond s'ouvre tout
+  seul en un bloc RECTANGULAIRE (`rounded-xl`, plus large) et l'icône devient un flux d'ondes VERTES
+  animées (`data-onde-vocale`, barres `bg-success animate-onde`, jeton `--success`, jamais une
+  couleur en dur) ; à la fin, le flux se referme et l'icône de vibration revient. Au survol (souris)
+  ou à l'appui (doigt) — même choix que la pile des messages
   (`gesteDOuverture`/`pileApres`, `(hover: hover) and (pointer: fine)`) — il se déplie et montre les
   `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut ; un clic les REJOUE
   par le même `dire()` / `/api/speak`, avec `force` qui passe outre le Muet. La liste vit en mémoire
