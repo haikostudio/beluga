@@ -16,8 +16,19 @@ import { useApp } from '@/lib/use-app';
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
 
-/** Combien de messages prononcés on garde sous la main pour les réécouter. */
+/** Combien de messages prononcés la liste dépliée MONTRE, le plus récent en tête. */
 export const VOIX_MESSAGES_MAX = 10;
+
+/**
+ * Combien de messages on GARDE en mémoire durable du navigateur. Au-delà, les
+ * plus anciens sont oubliés. On en retient bien plus qu'on n'en affiche : la
+ * liste n'en montre que dix, mais l'historique survit d'un rechargement à
+ * l'autre et remonte plus loin si l'on veut réécouter.
+ */
+export const VOIX_HISTORIQUE_MAX = 100;
+
+/** Où l'historique des messages prononcés se pose, dans le navigateur seul. */
+export const CLE_VOIX_HISTORIQUE = 'haikodev.voix.historique';
 
 type DonneesVoix = Pick<
   ReturnType<typeof useApp>,
@@ -28,6 +39,36 @@ type DonneesVoix = Pick<
 interface MessageDit {
   id: number;
   texte: string;
+}
+
+/**
+ * L'historique déjà écrit dans le navigateur, relu au démarrage. Un stockage
+ * absent, vide ou abîmé rend une liste vide plutôt qu'une erreur : la voix ne
+ * dépend jamais de ce qui a été retenu.
+ */
+function lireHistorique(): MessageDit[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const brut = localStorage.getItem(CLE_VOIX_HISTORIQUE);
+    if (!brut) return [];
+    const lu = JSON.parse(brut);
+    if (!Array.isArray(lu)) return [];
+    return lu
+      .filter((m): m is MessageDit => m && typeof m.id === 'number' && typeof m.texte === 'string')
+      .slice(0, VOIX_HISTORIQUE_MAX);
+  } catch {
+    return [];
+  }
+}
+
+/** On range l'historique côté navigateur, sans jamais faire échouer une annonce. */
+function ecrireHistorique(liste: MessageDit[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(CLE_VOIX_HISTORIQUE, JSON.stringify(liste));
+  } catch {
+    /* stockage plein ou refusé : la trace se perd, la voix continue */
+  }
 }
 
 /**
@@ -49,6 +90,36 @@ function contexteDecision(
   );
   const tache = derniere?.cardId ? cards[derniere.cardId]?.title : undefined;
   return { projet, tache };
+}
+
+/**
+ * La ligne d'ondes : pendant la parole (`parle`), un flux d'ondes VERTES
+ * animées ; au repos, cinq barres figées en vibration sonore symétrique. Le
+ * même dessin sert le bouton du bas ET le pied du panneau déplié, pour que
+ * l'historique soit AU-DESSUS et cette ligne EN DESSOUS.
+ */
+function LigneOndes({ parle }: { parle: boolean }) {
+  if (parle) {
+    return (
+      <span data-onde-vocale className="flex items-center gap-0.5" aria-hidden>
+        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+          <span
+            key={i}
+            className="h-5 w-1 origin-center rounded-full bg-success animate-onde"
+            // Chaque barre décalée : l'onde ondule au lieu de battre d'un bloc.
+            style={{ animationDelay: `${i * 90}ms` }}
+          />
+        ))}
+      </span>
+    );
+  }
+  return (
+    <span data-icone-repos className="flex items-center gap-0.5" aria-hidden>
+      {['h-1.5', 'h-3', 'h-4', 'h-3', 'h-1.5'].map((hauteur, i) => (
+        <span key={i} className={`w-1 rounded-full bg-text ${hauteur}`} />
+      ))}
+    </span>
+  );
 }
 
 /**
@@ -77,13 +148,18 @@ export function VoixAssistant() {
   const state = useApp();
   const [muet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
   const [parle, setParle] = React.useState(false);
-  const [messages, setMessages] = React.useState<MessageDit[]>([]);
+  // L'historique complet, relu au démarrage depuis le navigateur : jusqu'à cent
+  // messages, le plus récent en tête. La liste dépliée n'en montre que dix.
+  const [messages, setMessages] = React.useState<MessageDit[]>(lireHistorique);
 
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   // La valeur lue au fil de l'eau par les écouteurs, sans les réabonner.
   const muetRef = React.useRef(muet);
-  // Un compteur stable pour distinguer deux messages au même texte.
-  const compteurRef = React.useRef(0);
+  // Un compteur stable pour distinguer deux messages au même texte. On repart
+  // AU-DESSUS du plus grand identifiant déjà retenu, pour ne pas en refabriquer.
+  const compteurRef = React.useRef(
+    messages.reduce((max, m) => Math.max(max, m.id), 0),
+  );
 
   const taire = React.useCallback(() => {
     try {
@@ -127,15 +203,20 @@ export function VoixAssistant() {
   }, [taire]);
 
   /**
-   * Une ANNONCE automatique : on la garde dans la liste des dix derniers (plus
-   * récent en tête), puis on la prononce. On la garde même en Muet — la parole
+   * Une ANNONCE automatique : on la range en tête de l'historique (jusqu'à cent,
+   * les plus vieux tombent), on l'écrit dans le navigateur pour qu'elle survive
+   * au rechargement, puis on la prononce. On la garde même en Muet — la parole
    * se tait, mais la trace reste pour une réécoute plus tard.
    */
   const annoncer = React.useCallback((texte: string) => {
     if (!texte) return;
     compteurRef.current += 1;
     const entree = { id: compteurRef.current, texte };
-    setMessages((liste) => [entree, ...liste].slice(0, VOIX_MESSAGES_MAX));
+    setMessages((liste) => {
+      const suivante = [entree, ...liste].slice(0, VOIX_HISTORIQUE_MAX);
+      ecrireHistorique(suivante);
+      return suivante;
+    });
     dire(texte);
   }, [dire]);
 
@@ -230,7 +311,7 @@ export function VoixAssistant() {
             <p className="px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
           ) : (
             <ul className="max-h-64 overflow-y-auto py-1">
-              {messages.map((m) => (
+              {messages.slice(0, VOIX_MESSAGES_MAX).map((m) => (
                 <li key={m.id}>
                   <button
                     type="button"
@@ -250,6 +331,13 @@ export function VoixAssistant() {
               ))}
             </ul>
           )}
+          {/* Sous l'historique, la ligne d'ondes qui s'anime quand ça parle. */}
+          <div
+            data-pied-ondes
+            className="grid h-9 place-items-center border-t border-border"
+          >
+            <LigneOndes parle={parle} />
+          </div>
         </div>
       ) : null}
 
@@ -269,28 +357,7 @@ export function VoixAssistant() {
           parle ? 'w-24 rounded-xl' : 'w-11 rounded-full'
         }`}
       >
-        {parle ? (
-          // Le flux d'ondes façon dictée : des barres VERTES qui ondulent, un peu
-          // plus nombreuses, décalées pour donner le mouvement d'un enregistrement.
-          <span data-onde-vocale className="flex items-center gap-0.5" aria-hidden>
-            {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-              <span
-                key={i}
-                className="h-5 w-1 origin-center rounded-full bg-success animate-onde"
-                // Chaque barre décalée : l'onde ondule au lieu de battre d'un bloc.
-                style={{ animationDelay: `${i * 90}ms` }}
-              />
-            ))}
-          </span>
-        ) : (
-          // Au repos, cinq lignes figées en vibration sonore SYMÉTRIQUE :
-          // petite, moyenne, grande, moyenne, petite.
-          <span data-icone-repos className="flex items-center gap-0.5" aria-hidden>
-            {['h-1.5', 'h-3', 'h-4', 'h-3', 'h-1.5'].map((hauteur, i) => (
-              <span key={i} className={`w-1 rounded-full bg-text ${hauteur}`} />
-            ))}
-          </span>
-        )}
+        <LigneOndes parle={parle} />
       </button>
     </div>
   );

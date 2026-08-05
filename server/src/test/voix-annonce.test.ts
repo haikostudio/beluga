@@ -59,14 +59,22 @@ test('un titre trop long ne fait pas déborder l’annonce', () => {
   assert.equal(phrase, 'Le projet Root attend votre réponse.');
 });
 
-test('seule la fin de tâche parle par la voie des notifications', () => {
+test('la fin de tâche et la fin de publication parlent par la voie des notifications', () => {
   assert.equal(
     phraseVocaleDeNotification('tache-terminee', '✅ Voix proactive'),
     'La tâche « Voix proactive » est terminée.',
   );
+  // La publication, réussie ou en échec, entre elle aussi dans la voix.
+  assert.equal(
+    phraseVocaleDeNotification('publication-terminee', '🚀 Root'),
+    'La publication de « Root » est terminée.',
+  );
+  assert.equal(
+    phraseVocaleDeNotification('publication-echec', '⛔ Root'),
+    'La publication de « Root » a échoué.',
+  );
   // La décision passe par le compte d'attention : elle ne se dit pas ici, sinon
   // on l'entendrait deux fois.
   assert.equal(phraseVocaleDeNotification('decision-attendue', 'X'), null);
-  assert.equal(phraseVocaleDeNotification('publication-terminee', 'X'), null);
   assert.equal(phraseVocaleDeNotification(undefined), null);
 });

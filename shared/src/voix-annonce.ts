@@ -29,6 +29,18 @@ export function phraseFinDeTache(titre?: string): string {
   return propre ? `La tâche « ${propre} » est terminée.` : 'Une tâche est terminée.';
 }
 
+/** « La publication de « X » est terminée. » — ou sans titre si on n'en a pas. */
+export function phraseFinDePublication(titre?: string): string {
+  const propre = titre ? nettoyerPourVoix(titre) : '';
+  return propre ? `La publication de « ${propre} » est terminée.` : 'Une publication est terminée.';
+}
+
+/** « La publication de « X » a échoué. » — ou sans titre si on n'en a pas. */
+export function phraseEchecDePublication(titre?: string): string {
+  const propre = titre ? nettoyerPourVoix(titre) : '';
+  return propre ? `La publication de « ${propre} » a échoué.` : 'Une publication a échoué.';
+}
+
 /** De quoi parle la décision : la tâche concernée, à défaut le projet. */
 export interface ContexteDecision {
   /** Le titre de la tâche, quand la décision est née dans son travail. */
@@ -79,12 +91,14 @@ export function phraseDecisionAttendue(nouvelles: number, contexte?: ContexteDec
 
 /**
  * La phrase à lire pour un motif de notification, ou `null` quand ce motif ne
- * se dit pas à voix haute. Seule la fin d'une tâche parle par cette voie : la
- * décision attendue passe par le compte d'attention (sinon on la dirait deux
- * fois), et le reste — publication, quota, redémarrage — n'est pas une parole
- * d'assistant.
+ * se dit pas à voix haute. La fin d'une tâche et la fin d'une publication
+ * (réussie ou en échec) parlent par cette voie. La décision attendue, elle,
+ * passe par le compte d'attention (sinon on la dirait deux fois), et le reste —
+ * quota, redémarrage — n'est pas une parole d'assistant.
  */
 export function phraseVocaleDeNotification(motif: string | undefined, titre?: string): string | null {
   if (motif === 'tache-terminee') return phraseFinDeTache(titre);
+  if (motif === 'publication-terminee') return phraseFinDePublication(titre);
+  if (motif === 'publication-echec') return phraseEchecDePublication(titre);
   return null;
 }

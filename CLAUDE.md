@@ -463,8 +463,10 @@ sans son point d'essai.
   `scripts/verif-notifications.mjs` et `scripts/verif-icones-notifications.mjs`.
 - **L'assistant PARLE de lui-même aux moments clés, et le bouton « Muet » coupe cette voix**
   (`web/src/components/voix-assistant.tsx`, phrases dans `shared/src/voix-annonce.ts`). Deux instants
-  déjà signalés ailleurs : une tâche terminée (l'événement `notify`, motif `tache-terminee`, dont le
-  titre porte le nom réel de la carte) et une décision qui se met à attendre (le TOTAL de
+  déjà signalés ailleurs : une tâche terminée et une PUBLICATION terminée ou en ÉCHEC (l'événement
+  `notify`, `phraseVocaleDeNotification` fabrique une phrase pour les motifs `tache-terminee`,
+  `publication-terminee` et `publication-echec`, dont le titre porte le nom réel de la carte ou du
+  projet), et une décision qui se met à attendre (le TOTAL de
   `state.attention`, rangé PAR PROJET, dont le TOTAL MONTE — jamais le déjà-là du chargement, jamais
   la baisse). La décision passe par le compte d'attention, PAS par sa notification, sinon on
   l'entendrait deux fois. La phrase NOMME de quoi il s'agit (`phraseDecisionAttendue`) : le titre de
@@ -479,12 +481,15 @@ sans son point d'essai.
   animées (`data-onde-vocale`, barres `bg-success animate-onde`, jeton `--success`, jamais une
   couleur en dur) ; à la fin, le flux se referme et l'icône de vibration revient. Au survol (souris)
   ou à l'appui (doigt) — même choix que la pile des messages
-  (`gesteDOuverture`/`pileApres`, `(hover: hover) and (pointer: fine)`) — il se déplie et montre les
-  `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut ; un clic les REJOUE
-  par le même `dire()` / `/api/speak`, avec `force` qui passe outre le Muet. La liste vit en mémoire
-  du navigateur (remise à zéro au rechargement), remplie à chaque annonce AUTOMATIQUE (fin de tâche,
-  hausse d'attention) même en Muet — la parole se tait, la trace reste. Le point du jour ne change
-  pas. Le bouton « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la
+  (`gesteDOuverture`/`pileApres`, `(hover: hover) and (pointer: fine)`) — il se déplie en un panneau :
+  l'HISTORIQUE au-dessus (les `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en
+  haut), et EN DESSOUS la même ligne d'ondes (`LigneOndes`, `data-pied-ondes`) qui s'anime quand ça
+  parle. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
+  outre le Muet. L'historique est DURABLE : il vit en mémoire du navigateur (`localStorage`,
+  `CLE_VOIX_HISTORIQUE`, jamais côté serveur), SURVIT au rechargement, garde jusqu'à
+  `VOIX_HISTORIQUE_MAX` (100) messages (les plus anciens tombent) et n'en affiche que dix. Il se
+  remplit à chaque annonce AUTOMATIQUE (fin de tâche, fin/échec de publication, hausse d'attention)
+  même en Muet — la parole se tait, la trace reste. Le point du jour ne change pas. Le bouton « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la
   préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole
   automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
   badge. Verrouillé par `server/src/test/voix-annonce.test.ts`.
