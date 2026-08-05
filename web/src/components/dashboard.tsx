@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Activity, ArrowLeft, Clock, Gauge, ListChecks, TrendingUp } from 'lucide-react';
+import { couleurIntensite } from '@haikodev/shared';
 import { Button, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -104,7 +105,14 @@ function CourbeParJour({ jours }: { jours: DonneesTableau['byDay'] }) {
               title={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} jetons · ${dureeEnClair(jour.seconds)}`}
             >
               <div className="flex w-full flex-1 items-end">
-                <div className={`w-full rounded-t ${estActif ? 'bg-accent' : 'bg-muted/70'}`} style={{ height: hauteur }} />
+                {/* La COULEUR dit l'intensité du jour (calme → chargé) ; la barre
+                    choisie garde en plus son liseré d'accent, qui la détache de
+                    toutes les autres quelle que soit sa teinte. */}
+                <div
+                  className={`w-full rounded-t ${estActif ? 'ring-2 ring-accent ring-offset-1 ring-offset-surface' : ''}`}
+                  style={{ height: hauteur, backgroundColor: couleurIntensite(jour.tokens, max) }}
+                  data-barre-jour={jour.day}
+                />
               </div>
               <span className={`w-full truncate text-center text-[9px] ${estActif ? 'font-semibold text-text' : 'text-faint'}`}>
                 {Number(jour.day.split('-')[2])}
@@ -237,7 +245,15 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                       </span>
                     </div>
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-raised">
-                      <div className="h-full rounded-full bg-muted/70" style={{ width: `${Math.round(((row.seconds ?? 0) / maxProjet) * 100)}%` }} />
+                      {/* Même règle de couleur que la courbe des jours : la page tient ensemble. */}
+                      <div
+                        className="h-full rounded-full"
+                        data-barre-projet={row.projectId}
+                        style={{
+                          width: `${Math.round(((row.seconds ?? 0) / maxProjet) * 100)}%`,
+                          backgroundColor: couleurIntensite(row.seconds ?? 0, maxProjet),
+                        }}
+                      />
                     </div>
                   </div>
                 ))}
@@ -290,8 +306,12 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                       </div>
                       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-raised">
                         <div
-                          className="h-full rounded-full bg-muted/70"
-                          style={{ width: `${Math.round(((carte.quotaSemaine ?? 0) / maxSemaine) * 100)}%` }}
+                          className="h-full rounded-full"
+                          data-barre-carte={carte.cardId}
+                          style={{
+                            width: `${Math.round(((carte.quotaSemaine ?? 0) / maxSemaine) * 100)}%`,
+                            backgroundColor: couleurIntensite(carte.quotaSemaine ?? 0, maxSemaine),
+                          }}
                         />
                       </div>
                     </div>

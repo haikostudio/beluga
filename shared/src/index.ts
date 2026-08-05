@@ -14,6 +14,7 @@ export * from './cerveau.js';
 export * from './columns.js';
 export * from './competences.js';
 export * from './connexion-compte.js';
+export * from './couleur-intensite.js';
 export * from './decision-attendue.js';
 export * from './demon.js';
 export * from './description-carte.js';

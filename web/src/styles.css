@@ -33,6 +33,13 @@
     /* Une publication en cours : un jaune franc, distinct de l'orange d'alerte
        (warning) — c'est un état, pas une décision à prendre. */
     --publie: 50 95% 58%;
+    /* Intensité de consommation (tableau de bord) : du jour calme au jour
+       chargé. Aucune teinte neuve — on REPREND les jetons d'état existants,
+       pour que les deux thèmes suivent d'eux-mêmes. Le haut du dégradé est
+       l'ORANGE d'attention, jamais le rouge de danger : une consommation forte
+       est un fait à voir, pas une panne à réparer. */
+    --intensite-calme: var(--success);
+    --intensite-chargee: var(--warning);
     color-scheme: dark;
   }
 
