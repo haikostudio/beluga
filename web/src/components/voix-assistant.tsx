@@ -1,7 +1,9 @@
 import * as React from 'react';
 import {
+  decisionsOuvertes,
   phraseDecisionAttendue,
   phraseVocaleDeNotification,
+  type ContexteDecision,
 } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { usePref } from '@/lib/prefs';
@@ -9,6 +11,32 @@ import { useApp } from '@/lib/use-app';
 
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
+
+type DonneesVoix = Pick<
+  ReturnType<typeof useApp>,
+  'projects' | 'cards' | 'decisions'
+>;
+
+/**
+ * De quoi parle la décision qui vient d'arriver sur `projectId` : le nom du
+ * projet, et le titre de la tâche si la décision la plus récente y tient à une
+ * carte. Sans projet repéré, on ne dit aucun nom (repli propre côté phrase).
+ */
+function contexteDecision(
+  projectId: string | undefined,
+  { projects, cards, decisions }: DonneesVoix,
+): ContexteDecision | undefined {
+  if (!projectId) return undefined;
+  const projet = projects.find((p) => p.id === projectId)?.name;
+  const duProjet = decisionsOuvertes(decisions).filter((d) => d.projectId === projectId);
+  // La plus récemment posée : celle qui vient de faire monter le compte.
+  const derniere = duProjet.reduce<(typeof duProjet)[number] | undefined>(
+    (recente, d) => ((d.poseeA ?? 0) >= (recente?.poseeA ?? 0) ? d : recente),
+    undefined,
+  );
+  const tache = derniere?.cardId ? cards[derniere.cardId]?.title : undefined;
+  return { projet, tache };
+}
 
 /**
  * LA VOIX D'ASSISTANT PROACTIVE (PLAN §22, mémoire n°35).
@@ -87,20 +115,34 @@ export function VoixAssistant() {
   );
 
   /*
-   * Décision attendue : on suit le TOTAL des décisions en attente, tous projets
-   * confondus. On ne parle qu'à la HAUSSE — une décision de plus — jamais sur
-   * le déjà-là du chargement ni quand une décision est traitée. La décision
-   * passe par ce compte et non par la notification, sinon on l'entendrait deux
-   * fois.
+   * Décision attendue : on suit le compte d'attention, rangé PAR PROJET. On ne
+   * parle qu'à la HAUSSE — une décision de plus — jamais sur le déjà-là du
+   * chargement ni quand une décision est traitée. La décision passe par ce
+   * compte et non par la notification, sinon on l'entendrait deux fois.
+   *
+   * De quel projet parle la décision qui arrive ? Celui dont le compte a monté.
+   * Sur ce projet, la décision la plus récente donne, si elle tient à une carte,
+   * le titre de la tâche — plus parlant que le seul nom du projet.
    */
-  const totalDecisions = Object.values(state.attention).reduce((somme, n) => somme + n, 0);
-  const precedent = React.useRef<number | null>(null);
+  const attention = state.attention;
+  // Projets, cartes et décisions relus au fil de l'eau, sans réabonner l'effet.
+  const donneesRef = React.useRef({ projects: state.projects, cards: state.cards, decisions: state.decisions });
+  donneesRef.current = { projects: state.projects, cards: state.cards, decisions: state.decisions };
+
+  const precedent = React.useRef<{ total: number; parProjet: Record<string, number> } | null>(null);
   React.useEffect(() => {
+    const parProjet = attention;
+    const total = Object.values(parProjet).reduce((somme, n) => somme + n, 0);
     const avant = precedent.current;
-    precedent.current = totalDecisions;
+    precedent.current = { total, parProjet };
     if (avant === null) return;
-    if (totalDecisions > avant) dire(phraseDecisionAttendue(totalDecisions - avant));
-  }, [totalDecisions, dire]);
+    if (total <= avant.total) return;
+
+    const projectId = Object.keys(parProjet).find(
+      (id) => (parProjet[id] ?? 0) > (avant.parProjet[id] ?? 0),
+    );
+    dire(phraseDecisionAttendue(total - avant.total, contexteDecision(projectId, donneesRef.current)));
+  }, [attention, dire]);
 
   // À la fermeture, on ne laisse pas un son continuer dans le vide.
   React.useEffect(() => taire, [taire]);
