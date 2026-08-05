@@ -8,6 +8,7 @@ import { Dashboard } from '@/components/dashboard';
 import { RightPanel } from '@/components/right-panel';
 import { CardPanel } from '@/components/card-panel';
 import { AgentDock } from '@/components/agent-dock';
+import { VoixAssistant } from '@/components/voix-assistant';
 import { SettingsView } from '@/components/settings-view';
 import { Chat } from '@/components/chat';
 import { useResizable, ResizeHandle } from '@/components/resizer';
@@ -601,6 +602,7 @@ export function App() {
           <SettingsView open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </Filet>
         <AgentDock onOpenAgent={setOpenAgentId} />
+        <VoixAssistant />
 
         {openAgent ? (
           <div className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-3" onClick={() => setOpenAgentId(null)}>
