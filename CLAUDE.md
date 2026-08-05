@@ -515,10 +515,14 @@ sans son point d'essai.
   `web/src/components/board.tsx`). La rangée d'onglets n'existe que sur téléphone ; chaque onglet
   reprend la MÊME grammaire que la ligne d'un projet — triangle orange `RepereAttention` si une carte
   de la colonne attend une décision, sinon point bleu `bg-info animate-pulse-soft` si un travail y est
-  rendu pas encore lu. Un seul repère par onglet : `repereVisible` tranche, la décision d'abord. Les
-  deux comptes se calculent sur place, colonne par colonne, en croisant `byColumn` avec
-  `decisionsParCarte(state.decisions)` et `etatVisuelCarte(...) === 'termine-non-lu'` — aucune couleur
-  ni composant neufs. Vérifié par `scripts/verif-onglets-tableau.mjs`.
+  rendu pas encore lu. Un seul repère D'ATTENTE par onglet : `repereVisible` tranche, la décision
+  d'abord. À CÔTÉ, un indicateur d'ACTIVITÉ — un robot `Bot text-success` dans l'esprit de
+  `RepereRobot` (le nombre seulement à partir de deux, rien qui tourne) — quand au moins une carte de
+  la colonne est en état `travaille` ; il COEXISTE avec le repère d'attente et ne passe pas par
+  `repereVisible`. Les trois comptes se calculent sur place, colonne par colonne, en croisant
+  `byColumn` avec `decisionsParCarte(state.decisions)` et `etatVisuelCarte(...)` (`'termine-non-lu'`
+  pour le point bleu, `'travaille'` pour le robot) — aucune couleur ni composant neufs. Vérifié par
+  `scripts/verif-onglets-tableau.mjs`.
 - **Le tiroir d'une carte s'ÉPURE sur téléphone, jamais sur ordinateur** (`card-panel.tsx`). Le choix
   se fait sur la largeur du pointeur (`useTelephone`, `(max-width: 639px)`), relue au redimensionnement.
   Sous ce seuil, les tags (état, étiquettes, « modifiée », archivage) — le bloc `data-tags-carte` — sont
