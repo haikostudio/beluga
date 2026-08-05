@@ -166,6 +166,23 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
       })),
     );
 
+  /*
+   * Couper ou rallumer un compte se fait avec ACCUSÉ DE RÉCEPTION : un envoi
+   * sans réponse laissait croire à un compte coupé qui continuait d'être
+   * consommé. Le serveur répond `ok: false` quand le compte est introuvable ;
+   * tout refus, comme toute panne de liaison, s'affiche en message court.
+   */
+  const basculerCompte = async (id: string, label: string, actif: boolean) => {
+    try {
+      const reponse = await client.call<{ ok: boolean }>({ type: 'account.disable', id, disabled: !actif });
+      if (!reponse?.ok) {
+        client.pushToast('error', `${label} : le serveur n'a pas pu ${actif ? 'remettre en service' : 'couper'} ce compte.`);
+      }
+    } catch (err) {
+      client.pushToast('error', `${label} : ${err instanceof Error ? err.message : 'commande refusée'}`);
+    }
+  };
+
   // La jauge du bouton suit le moteur sur lequel on travaille.
   const current =
     quotas.find((q) => q.engine === activeEngine && q.active) ??
@@ -253,10 +270,9 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                       plus amorcée ; il reste dans la liste, éteint. */}
                   <Tooltip label={quota.disabled ? 'Compte désactivé — le remettre en service' : 'Désactiver ce compte'}>
                     <Switch
+                      data-interrupteur-compte={quota.id}
                       checked={!quota.disabled}
-                      onCheckedChange={(actif) =>
-                        client.send({ type: 'account.disable', id: quota.id, disabled: !actif })
-                      }
+                      onCheckedChange={(actif) => basculerCompte(quota.id, quota.label, actif)}
                       aria-label={quota.disabled ? `Réactiver ${quota.label}` : `Désactiver ${quota.label}`}
                     />
                   </Tooltip>

@@ -65,6 +65,7 @@ node scripts/verif-progression-taches.mjs # l'avancement « n/N faites » dans l
 node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
+node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt puis à la souris (serveur de développement, HAIKO_INTERRUPTEUR_URL ; aucun vrai compte touché)
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
@@ -632,6 +633,19 @@ sans son point d'essai.
   intact ne prouve pas qu'un jeton tient encore, et un coffre sans fichier d'identifiants échoue sur
   le FICHIER ABSENT, pas sur un jeton vide. Verrouillé par
   `server/src/test/connexion-compte.test.ts` et `scripts/verif-connexion-compte.mjs`.
+- **Une INFOBULLE ne se pose que là où l'on survole, et une petite cible s'AGRANDIT sans grossir**
+  (`Tooltip` et `Switch`, `web/src/components/ui/index.tsx`). L'infobulle est masquée sous `sm` : son
+  déclencheur n'y servait qu'à s'interposer entre le doigt et ce qu'il vise. `Tooltip` interroge donc
+  la CAPACITÉ du pointeur (`useSurvol`, `web/src/lib/pointeur.ts`, même `REQUETE_SURVOL` que la pile
+  des messages) et, sans survol, ne monte AUCUN déclencheur — il rend son enfant tel quel. À la
+  souris, rien ne change. L'interrupteur, lui, ne fait que 18 px de haut : un calque invisible
+  (`after:`) de 36 × 32 px centré dessus reçoit l'appui, sans changer l'aspect ni la place occupée.
+  Piège de vérification : quand l'infobulle est là, son `data-state` recouvre celui de l'interrupteur
+  — l'état coché se lit sur `aria-checked`. Vérifié par `scripts/verif-interrupteur-compte.mjs`.
+- **Couper un compte se fait avec ACCUSÉ DE RÉCEPTION** (`quota-badge.tsx`). `account.disable`
+  partait par `client.send`, sans réponse : un refus du serveur ne s'affichait nulle part et le
+  compte qu'on croyait coupé continuait d'être consommé. Il passe par `client.call` ; un `ok: false`
+  comme une panne de liaison sortent en message court d'erreur.
 - **Un compte COUPÉ à la main reste visible, éteint** (`disabled`, `server/src/accounts.ts`).
   L'interrupteur du volet Quotas (`quota-badge.tsx`, commande `account.disable`) pose `disabled` sur
   le compte, écrit sur lui donc survivant au redémarrage. `listAccountRecords()` — la liste
