@@ -134,6 +134,7 @@ export function Board({
    * téléphone « À faire », sinon on ouvre sur des notes souvent vides.
    */
   const rail = React.useRef<HTMLDivElement>(null);
+  const barreOnglets = React.useRef<HTMLDivElement>(null);
   const telephone = useTelephone();
 
   /*
@@ -197,11 +198,28 @@ export function Board({
    * marge de 12 px qu'à la réouverture, pour que la colonne visée touche
    * vraiment le bord. La mise en évidence est posée d'avance : le défilement
    * animé confirmera.
+   *
+   * Second geste, au MÊME appui : l'onglet lui-même est amené au CENTRE de sa
+   * barre défilante, pour que ses voisins de gauche et de droite redeviennent
+   * visibles — sinon « Terminé », tout à droite, reste collé au bord et l'on
+   * perd le repère de là où on se trouve dans la suite des colonnes. On mesure
+   * les rectangles réels (`getBoundingClientRect`) plutôt que `offsetLeft`,
+   * insensible ainsi à l'élément positionné qui sert de repère. Sur ordinateur
+   * la barre n'existe pas (`barreOnglets` reste vide) : rien ne bouge.
    */
   const allerALaColonne = React.useCallback((cle: ColumnKey) => {
     const node = rail.current;
     const cible = node?.querySelector<HTMLElement>(`[data-column="${cle}"]`);
     if (node && cible) node.scrollTo({ left: cible.offsetLeft - 12, behavior: 'smooth' });
+    const barre = barreOnglets.current;
+    const onglet = barre?.querySelector<HTMLElement>(`[data-onglet-colonne="${cle}"]`);
+    if (barre && onglet) {
+      const rectBarre = barre.getBoundingClientRect();
+      const rectOnglet = onglet.getBoundingClientRect();
+      const decalage =
+        rectOnglet.left + rectOnglet.width / 2 - (rectBarre.left + rectBarre.width / 2);
+      barre.scrollTo({ left: barre.scrollLeft + decalage, behavior: 'smooth' });
+    }
     setColonneActive(cle);
   }, []);
 
@@ -422,7 +440,12 @@ export function Board({
           onValueChange={(cle) => allerALaColonne(cle as ColumnKey)}
           className="shrink-0 border-b border-border/50 px-3 py-1.5"
         >
-          <TabsList defilable data-onglets-colonnes="" className="w-full justify-start">
+          <TabsList
+            ref={barreOnglets}
+            defilable
+            data-onglets-colonnes=""
+            className="w-full justify-start"
+          >
             {COLUMN_KEYS.map((cle) => {
               // Le MÊME repère que la ligne d'un projet, reporté sur l'onglet :
               // triangle orange si une carte de la colonne attend une décision,
