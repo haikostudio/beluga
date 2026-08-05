@@ -398,7 +398,9 @@ function QuestionCard({
         ? current.includes(id)
           ? current.filter((c) => c !== id)
           : [...current, id]
-        : [id],
+        : current.includes(id)
+          ? []
+          : [id],
     );
 
   const libellesChoisis = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
