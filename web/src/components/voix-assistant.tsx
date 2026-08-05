@@ -1,12 +1,14 @@
 import * as React from 'react';
 import { Volume2 } from 'lucide-react';
 import {
+  NOM_UTILISATEUR,
   decisionsOuvertes,
   gesteDOuverture,
   phraseDecisionAttendue,
   phraseVocaleDeNotification,
   pileApres,
   type ContexteDecision,
+  type VoixOptions,
 } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { usePref } from '@/lib/prefs';
@@ -147,6 +149,16 @@ function LigneOndes({ parle }: { parle: boolean }) {
 export function VoixAssistant() {
   const state = useApp();
   const [muet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
+  // Le prénom réglé (défaut « Chris ») et l'heure du moment personnalisent chaque
+  // phrase : ils sont relus au fil de l'eau, sans réabonner les écouteurs.
+  const nom = state.settings?.voixNom || NOM_UTILISATEUR;
+  const voixOptsRef = React.useRef<VoixOptions>({ nom });
+  voixOptsRef.current = { nom };
+  /** Les options fraîches, avec l'heure de l'annonce : ton plus bref le soir. */
+  const optsMaintenant = React.useCallback(
+    (): VoixOptions => ({ nom: voixOptsRef.current.nom, heure: new Date().getHours() }),
+    [],
+  );
   const [parle, setParle] = React.useState(false);
   // L'historique complet, relu au démarrage depuis le navigateur : jusqu'à cent
   // messages, le plus récent en tête. La liste dépliée n'en montre que dix.
@@ -226,14 +238,16 @@ export function VoixAssistant() {
     if (muet) taire();
   }, [muet, taire]);
 
-  // Fin de tâche : la notification déjà émise porte le titre réel de la carte.
+  // Fin de tâche : la notification déjà émise porte le titre réel de la carte, et
+  // parfois un RÉSUMÉ (`event.voix`) tiré du vrai contenu de la réponse — on le
+  // préfère au repli par titre. Sinon, on refabrique depuis le titre.
   React.useEffect(
     () =>
       client.onNotify((event) => {
-        const texte = phraseVocaleDeNotification(event.motif, event.title);
+        const texte = event.voix ?? phraseVocaleDeNotification(event.motif, event.title, optsMaintenant());
         if (texte) annoncer(texte);
       }),
-    [annoncer],
+    [annoncer, optsMaintenant],
   );
 
   /*
@@ -263,8 +277,10 @@ export function VoixAssistant() {
     const projectId = Object.keys(parProjet).find(
       (id) => (parProjet[id] ?? 0) > (avant.parProjet[id] ?? 0),
     );
-    annoncer(phraseDecisionAttendue(total - avant.total, contexteDecision(projectId, donneesRef.current)));
-  }, [attention, annoncer]);
+    annoncer(
+      phraseDecisionAttendue(total - avant.total, contexteDecision(projectId, donneesRef.current), optsMaintenant()),
+    );
+  }, [attention, annoncer, optsMaintenant]);
 
   // À la fermeture, on ne laisse pas un son continuer dans le vide.
   React.useEffect(() => taire, [taire]);

@@ -411,6 +411,12 @@ export const ServerEvent = z.discriminatedUnion('type', [
     tag: z.string().optional(),
     /** Le genre d'événement : c'est lui qui choisit l'image de l'alerte. */
     motif: z.string().optional(),
+    /**
+     * La phrase déjà rédigée à dire à voix haute, quand HaikoDev a pu la tirer
+     * du vrai contenu de la réponse de l'agent. Absente, la voix la refabrique
+     * depuis le titre. Voir `shared/src/voix-annonce.ts`.
+     */
+    voix: z.string().optional(),
     cardId: z.string().optional(),
     projectId: z.string().optional(),
   }),

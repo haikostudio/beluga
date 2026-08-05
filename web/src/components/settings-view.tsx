@@ -1030,6 +1030,24 @@ function VoiceSection({ open }: { open: boolean }) {
         <Volume2 className="h-3.5 w-3.5 text-faint" /> La voix du point du jour
       </h3>
 
+      <div className="mb-3">
+        <label className="mb-1 block text-[12.5px] text-muted">Le prénom que la voix emploie</label>
+        <Input
+          defaultValue={state.settings?.voixNom ?? 'Chris'}
+          placeholder="Chris"
+          maxLength={40}
+          // Un prénom vide retomberait sur « Chris » côté voix ; on n'envoie que
+          // ce qui a du texte, une fois débarrassé de ses espaces.
+          onBlur={(event) => {
+            const nom = event.target.value.trim();
+            if (nom) client.send({ type: 'settings.update', patch: { voixNom: nom } });
+          }}
+        />
+        <p className="mt-1 text-[11.5px] text-faint">
+          La voix s'adresse à vous par ce prénom (« Ça y est, {state.settings?.voixNom || 'Chris'}, c'est fait. »).
+        </p>
+      </div>
+
       {!voices.length ? (
         <p className="text-[13px] text-faint">Aucune voix installée sur le serveur.</p>
       ) : (
