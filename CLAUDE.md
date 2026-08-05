@@ -60,6 +60,7 @@ node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, 
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
 node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu — et leur report sur carte / conversation
+node scripts/verif-onglets-tableau.mjs # le repère sur les onglets du tableau (téléphone) : triangle décision / point bleu non lu (serveur de développement, HAIKO_ONGLETS_URL)
 node scripts/verif-carte-sans-suite.mjs # « tour terminé sans suite » sur une carte figée en « En cours » (serveur de développement, HAIKO_SANS_SUITE_URL)
 node scripts/verif-progression-taches.mjs # l'avancement « n/N faites » dans le décroché des cartes « En cours » (serveur de développement, HAIKO_PROGRESSION_URL)
 node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
@@ -497,6 +498,14 @@ sans son point d'essai.
   l'onglet « Conversation » et non sur « Détails » (`card-panel.tsx` : `decisions > 0` l'emporte sur
   la règle habituelle), là où la question et son champ de réponse attendent. Vérifié par
   `scripts/verif-carte-sans-suite.mjs`.
+- **Un onglet du tableau (téléphone) PORTE le repère de sa colonne** (`signalOnglet`,
+  `web/src/components/board.tsx`). La rangée d'onglets n'existe que sur téléphone ; chaque onglet
+  reprend la MÊME grammaire que la ligne d'un projet — triangle orange `RepereAttention` si une carte
+  de la colonne attend une décision, sinon point bleu `bg-info animate-pulse-soft` si un travail y est
+  rendu pas encore lu. Un seul repère par onglet : `repereVisible` tranche, la décision d'abord. Les
+  deux comptes se calculent sur place, colonne par colonne, en croisant `byColumn` avec
+  `decisionsParCarte(state.decisions)` et `etatVisuelCarte(...) === 'termine-non-lu'` — aucune couleur
+  ni composant neufs. Vérifié par `scripts/verif-onglets-tableau.mjs`.
 - **Le tiroir d'une carte s'ÉPURE sur téléphone, jamais sur ordinateur** (`card-panel.tsx`). Le choix
   se fait sur la largeur du pointeur (`useTelephone`, `(max-width: 639px)`), relue au redimensionnement.
   Sous ce seuil, les tags (état, étiquettes, « modifiée », archivage) — le bloc `data-tags-carte` — sont

@@ -15,6 +15,7 @@ import {
   mentionArchivage,
   mentionProgressionTaches,
   mentionSansSuite,
+  repereVisible,
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
@@ -91,6 +92,40 @@ export function Board({
   );
 
   const byColumn = (column: ColumnKey) => cards.filter((card) => card.column === column);
+
+  /*
+   * Ce qu'un ONGLET du tableau (téléphone) a à signaler, colonne par colonne :
+   * les mêmes deux comptes que la ligne d'un projet — une décision attendue, un
+   * travail rendu pas encore lu. On ne réinvente rien : le compte des décisions
+   * vient de `decisionsParCarte`, l'état « rendu, pas lu » de `etatVisuelCarte`,
+   * exactement comme la carte elle-même. `repereVisible` tranche ensuite lequel
+   * des deux s'affiche (la décision d'abord), pour un seul repère par onglet.
+   */
+  const decisionsCarte = decisionsParCarte(state.decisions);
+  const etatDeCarte = (card: Card) => {
+    const agentCarte = card.agentId ? state.agents[card.agentId] : null;
+    return etatVisuelCarte({
+      agentStatut: agentCarte?.status,
+      analyseEnCours: Object.values(state.agents).some(
+        (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
+      ),
+      chiffrageEnCours: card.column === 'validated' && !card.estimate,
+      enAttente: !!card.scheduling?.waitingReason,
+      estimationEchouee: card.estimate?.failed,
+      enLigne: !!card.deployedAt,
+      agentFiniA: agentCarte?.endedAt,
+      luA: card.lastReadAt,
+    });
+  };
+  const signalOnglet = (column: ColumnKey) => {
+    let attention = 0;
+    let rendus = 0;
+    for (const card of byColumn(column)) {
+      attention += decisionsCarte[card.id] ?? 0;
+      if (etatDeCarte(card) === 'termine-non-lu') rendus += 1;
+    }
+    return { attention, rendus };
+  };
 
   /*
    * On rouvre le tableau LÀ OÙ on l'avait laissé : la colonne regardée est
@@ -388,16 +423,37 @@ export function Board({
           className="shrink-0 border-b border-border/50 px-3 py-1.5"
         >
           <TabsList defilable data-onglets-colonnes="" className="w-full justify-start">
-            {COLUMN_KEYS.map((cle) => (
-              <TabsTrigger
-                key={cle}
-                value={cle}
-                data-onglet-colonne={cle}
-                aria-current={colonneActive === cle ? 'true' : undefined}
-              >
-                {COLUMN_LABELS[cle]}
-              </TabsTrigger>
-            ))}
+            {COLUMN_KEYS.map((cle) => {
+              // Le MÊME repère que la ligne d'un projet, reporté sur l'onglet :
+              // triangle orange si une carte de la colonne attend une décision,
+              // sinon point bleu si un travail y est rendu pas encore lu. Un
+              // seul à la fois — la décision prime (`repereVisible`).
+              const signal = signalOnglet(cle);
+              const repere = repereVisible(signal);
+              return (
+                <TabsTrigger
+                  key={cle}
+                  value={cle}
+                  data-onglet-colonne={cle}
+                  aria-current={colonneActive === cle ? 'true' : undefined}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {COLUMN_LABELS[cle]}
+                    {repere === 'attention' ? (
+                      <RepereAttention compte={signal.attention} data-onglet-attention={cle} />
+                    ) : repere === 'rendus' ? (
+                      <Tooltip label="Travail rendu, pas encore lu">
+                        <span
+                          data-onglet-non-lu={cle}
+                          aria-label="Travail rendu, pas encore lu"
+                          className="h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none"
+                        />
+                      </Tooltip>
+                    ) : null}
+                  </span>
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
         </Tabs>
       ) : null}
