@@ -29,15 +29,52 @@ export function phraseFinDeTache(titre?: string): string {
   return propre ? `La tâche « ${propre} » est terminée.` : 'Une tâche est terminée.';
 }
 
+/** De quoi parle la décision : la tâche concernée, à défaut le projet. */
+export interface ContexteDecision {
+  /** Le titre de la tâche, quand la décision est née dans son travail. */
+  tache?: string;
+  /** Le nom du projet où la décision arrive. */
+  projet?: string;
+}
+
 /**
  * L'annonce d'une décision attendue. Le nombre reste petit : une décision, ou
  * plusieurs. On ne récite pas un chiffre — « plusieurs » se dit mieux à voix
  * haute et vieillit bien si d'autres arrivent le temps de la phrase.
+ *
+ * Quand on sait DE QUOI il s'agit, on le dit pour qu'on comprenne sans regarder
+ * l'écran : la tâche d'abord (le plus précis), sinon le projet. On garde le
+ * repli le plus court qui tienne sous `VOIX_LONGUEUR_MAX` — un titre à rallonge
+ * ne doit pas faire déborder l'annonce ; à défaut, la phrase générique.
  */
-export function phraseDecisionAttendue(nouvelles: number): string {
-  return nouvelles > 1
-    ? 'Plusieurs décisions attendent votre réponse.'
-    : 'Une décision attend votre réponse.';
+export function phraseDecisionAttendue(nouvelles: number, contexte?: ContexteDecision): string {
+  const plusieurs = nouvelles > 1;
+  const tache = contexte?.tache ? nettoyerPourVoix(contexte.tache) : '';
+  const projet = contexte?.projet ? nettoyerPourVoix(contexte.projet) : '';
+
+  const candidates: string[] = [];
+  if (tache) {
+    candidates.push(
+      plusieurs
+        ? `Plusieurs réponses vous attendent, dont la tâche « ${tache} ».`
+        : `La tâche « ${tache} » attend votre réponse.`,
+    );
+  }
+  if (projet) {
+    candidates.push(
+      plusieurs
+        ? `Plusieurs réponses vous attendent, dont le projet ${projet}.`
+        : `Le projet ${projet} attend votre réponse.`,
+    );
+  }
+  candidates.push(
+    plusieurs
+      ? 'Plusieurs décisions attendent votre réponse.'
+      : 'Une décision attend votre réponse.',
+  );
+
+  // La phrase générique tient toujours : `find` renvoie donc au moins elle.
+  return candidates.find((p) => p.length <= VOIX_LONGUEUR_MAX) ?? candidates[candidates.length - 1];
 }
 
 /**
