@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, EllipsisVertical, CheckCheck } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -19,7 +19,22 @@ import {
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
-import { Badge, Button, Dot, Input, Tabs, TabsList, TabsTrigger, Textarea, Tooltip, ZoneDefilement } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Dot,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Input,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Textarea,
+  Tooltip,
+  ZoneDefilement,
+} from '@/components/ui';
 import { client } from '@/lib/client';
 import { MenuCarte } from '@/components/card-menu';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
@@ -72,6 +87,40 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // Dernière colonne du parcours, où le ménage se fait en lot.
   to_deploy: { libelle: 'Tout archiver', icone: Archive, verbe: 'Archiver', cible: 'archived', participe: 'archivée' },
 };
+
+/**
+ * Le menu à trois points d'une tête de colonne. Une seule entrée pour l'instant :
+ * « Marquer tout comme lu », qui éteint le point bleu de toutes les cartes non
+ * lues de CETTE colonne. On ne réinvente rien côté serveur : on rejoue la
+ * commande `card.read` (celle qu'envoie l'ouverture d'une conversation) pour
+ * chaque carte non lue. Sans carte non lue, pas de bouton : le menu n'aurait
+ * rien à proposer. Sur téléphone, `DropdownMenuContent` devient un tiroir bas.
+ */
+function MenuTeteColonne({ cartesNonLues }: { cartesNonLues: Card[] }) {
+  if (!cartesNonLues.length) return null;
+  const toutMarquerLu = () => {
+    for (const carte of cartesNonLues) client.send({ type: 'card.read', cardId: carte.id });
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-auto -mr-1 h-6 shrink-0 px-1.5 text-faint"
+          aria-label="Actions de la colonne"
+        >
+          <EllipsisVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={toutMarquerLu}>
+          <CheckCheck className="h-3.5 w-3.5" /> Marquer tout comme lu
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export function Board({
   projectId,
@@ -507,6 +556,9 @@ export function Board({
               {column === 'todo' || column === 'notes' ? (
                 <ComposerInline projectId={projectId} column={column} />
               ) : null}
+              <MenuTeteColonne
+                cartesNonLues={columnCards.filter((card) => etatDeCarte(card) === 'termine-non-lu')}
+              />
             </div>
 
             {/*
