@@ -6,6 +6,7 @@ export * from './attention.js';
 export * from './bloc-cerveau.js';
 export * from './branche-de-carte.js';
 export * from './bridage-chef.js';
+export * from './adresse-navigateur.js';
 export * from './ancres.js';
 export * from './capacite.js';
 export * from './carte-sans-suite.js';

@@ -248,6 +248,16 @@ sans son point d'essai.
   carte (`waitingReason`) au lieu de disparaître. L'heure creuse, elle, n'est PAS une porte dure :
   c'est une politique d'économie que l'ordonnanceur seul applique (`checkGates`), et qu'un geste
   humain passe.
+- **L'adresse du navigateur porte un fragment « # » qui décrit l'écran** (`shared/src/adresse-navigateur.ts`,
+  branché dans `web/src/app.tsx`). `construireFragment` écrit `#projet/<id>`, `#projet/<id>/tache/<id>-<slug>`,
+  `#reglages` ou `#tableau-de-bord` ; `lireFragment` fait l'inverse (« # » de tête toléré, fragment abîmé =
+  accueil). L'IDENTIFIANT est la seule clé — le slug du titre est décor, jeté à la lecture ; `memeEcran`
+  compare vue + identifiants sans le slug. Deux effets se font face dans `app.tsx` : un lit l'adresse au
+  chargement et à chaque `popstate` (`appliquerEcran`), l'autre la réécrit à chaque changement d'écran —
+  `pushState` pour un écran différent, `replaceState` pour un même écran (rafraîchit juste le slug, pas
+  d'entrée d'historique). Le premier rendu n'écrit PAS (il vient de LIRE), sinon un fragment collé serait
+  effacé avant d'être appliqué. La persistance serveur (`project.active`, `card.open`) n'est pas touchée :
+  le fragment s'ajoute par-dessus. Verrouillé par `server/src/test/adresse-navigateur.test.ts`.
 - **Une carte lancée a TOUJOURS sa branche « tache/… », et le dossier pour elle seule**
   (`shared/src/branche-de-carte.ts`). `nomDeBranche` fabrique le nom ; `porteDuDepot` refuse un
   projet qui n'est pas un dépôt git — c'est le silence « pas un dépôt, l'agent travaille sur place »
