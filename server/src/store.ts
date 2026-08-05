@@ -1272,15 +1272,30 @@ export function usageByDay(days = 30): { day: string; tokens: number; seconds: n
 
 /**
  * La consommation par CARTE : une ligne par carte ayant vraiment dépensé du
- * quota (jetons, secondes machine, nombre de tours). Le titre de la carte se
- * raccroche côté appelant — ici on ne connaît que les identifiants.
+ * quota (jetons, secondes machine, nombre de tours) ET les deux parts de quota
+ * MESURÉES — fenêtre de 5 h, fenêtre de la semaine — sommées depuis les mêmes
+ * lignes que `usageQuotaByCard`. Le classement suit la part de SEMAINE
+ * décroissante (les jetons ne départagent plus qu'à égalité) : c'est la
+ * grandeur que le tableau de bord affiche en tête, donc celle qui doit ordonner
+ * la liste. Les deux parts sont en POINTS DE POURCENTAGE, jamais en fraction.
+ * Le titre de la carte se raccroche côté appelant — ici on ne connaît que les
+ * identifiants.
  */
-export function usageByCard(): { cardId: string; tokens: number; seconds: number; turns: number }[] {
+export function usageByCard(): {
+  cardId: string;
+  tokens: number;
+  seconds: number;
+  turns: number;
+  quota5h: number;
+  quotaSemaine: number;
+}[] {
   return getDb()
     .prepare(
-      `SELECT card_id AS cardId, SUM(tokens) AS tokens, SUM(seconds) AS seconds, COUNT(*) AS turns
+      `SELECT card_id AS cardId, SUM(tokens) AS tokens, SUM(seconds) AS seconds, COUNT(*) AS turns,
+              COALESCE(SUM(quota_5h), 0) AS quota5h,
+              COALESCE(SUM(quota_semaine), 0) AS quotaSemaine
        FROM usage WHERE card_id IS NOT NULL
-       GROUP BY card_id ORDER BY SUM(tokens) DESC`,
+       GROUP BY card_id ORDER BY SUM(quota_semaine) DESC, SUM(tokens) DESC`,
     )
     .all() as any;
 }

@@ -346,6 +346,19 @@ sans son point d'essai.
   choisi et le dit. Dès que le travail est parti, tout est FIGÉ et affiche ce qui a RÉELLEMENT servi :
   les réglages de l'agent d'exécution — jamais ceux de l'analyse, qui tourne souvent ailleurs — et le
   compte qui a porté le quota. Verrouillé par `server/src/test/reglages-carte.test.ts`.
+- **Le tableau de bord ne mélange JAMAIS une part de quota MESURÉE et une ESTIMÉE**
+  (`usageByCard`, `server/src/store.ts` ; bloc « Part de quota par carte »,
+  `web/src/components/dashboard.tsx`). Le mesuré vient des colonnes `quota_5h` / `quota_semaine` de
+  la table `usage` — la même source que `usageQuotaByCard` pour l'onglet « Détails », donc une seule
+  vérité — et il est en POINTS DE POURCENTAGE ; l'estimation faite à la validation
+  (`card.estimate.quotaShare`) est une FRACTION et ne sert plus qu'aux tâches sans aucun relevé, où
+  elle est nommée comme telle. D'où deux mises en forme séparées côté page (`pourcentEnClair` pour
+  le mesuré, `partEnClair` pour l'estimation) : convertir le mesuré ferait lire 50 % pour un
+  demi-pourcent. `stats.dashboard` fait suivre les deux parts par carte, `usageByCard` CLASSE sur la
+  part de SEMAINE décroissante (les jetons ne départagent qu'à égalité) et la barre mesure la même
+  grandeur que le classement. Une tâche sans relevé est LISTÉE à part et le dit, jamais chiffrée à
+  zéro. Le total de la période est rappelé au-dessus de la liste. Verrouillé par
+  `server/src/test/usage-part-quota.test.ts` et `scripts/verif-tableau-de-bord.mjs`.
 - **On répond en IMAGES à la question d'un agent** (`shared/src/images-reponse.ts`). Le champ de
   réponse d'une question accepte des images — bouton, collage, glisser-déposer sur le bloc — et
   RIEN d'autre : `triImages` écarte le reste et le refus se dit. Les images s'affichent en vignettes
