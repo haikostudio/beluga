@@ -84,7 +84,10 @@ export function saveAccountRecord(account: AccountRecord): void {
 
 /** Déclare les comptes déjà authentifiés sur le serveur au premier démarrage. */
 export function bootstrapAccounts(): void {
-  const knownIds = new Set(listAccountRecords().map((account) => account.id));
+  // On compte les comptes DÉJÀ connus sur la liste COMPLÈTE : un compte coupé à
+  // la main (`disabled`) est bien connu, il ne doit surtout pas être reconstruit
+  // à neuf — cela effacerait son drapeau et le rallumerait au redémarrage.
+  const knownIds = new Set(listAllAccountRecords().map((account) => account.id));
   const home = CONFIG.homeDir || os.homedir();
 
   const claudeDir = path.join(home, '.claude');
