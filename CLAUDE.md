@@ -94,6 +94,7 @@ node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête q
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
 node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes en bas, profondeur, ouverture au survol, heure et date
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
+node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
 node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglages : adresse et code affichés, échec dit (démon et HOME d'essai à soi)
@@ -117,7 +118,8 @@ bloquée sur « Connexion au serveur… ». De même, `HAIKODEV_URL` vaut par d�
 PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 
 Un point d'essai posé sur la page (`window.haikodevEssai`, `web/src/lib/client.ts`) permet de
-provoquer un message court depuis un script. Il est gardé par `import.meta.env.MODE !==
+provoquer un message court (`message`) ou une annonce vocale (`annonce`, qui rejoue un événement
+`notify` par `client.handleEssai`) depuis un script. Il est gardé par `import.meta.env.MODE !==
 'production'`, **jamais par `import.meta.env.DEV`** : cet indicateur suit `NODE_ENV`, qui vaut
 « production » dans l'environnement des agents — le serveur de développement se retrouvait alors
 sans son point d'essai.
@@ -487,17 +489,23 @@ sans son point d'essai.
   `null` (le ton bref préfère la courte phrase par titre). La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
-  du navigateur. Le module est TOUJOURS à l'écran, réduit en un petit icône rond au centre en bas ;
-  au repos, l'icône (`data-icone-repos`) montre cinq barres figées en vibration sonore SYMÉTRIQUE
-  (petite, moyenne, grande, moyenne, petite). Pendant la parole (`data-parle`), le rond s'ouvre tout
-  seul en un bloc RECTANGULAIRE (`rounded-xl`, plus large) et l'icône devient un flux d'ondes VERTES
-  animées (`data-onde-vocale`, barres `bg-success animate-onde`, jeton `--success`, jamais une
-  couleur en dur) ; à la fin, le flux se referme et l'icône de vibration revient. Au survol (souris)
-  ou à l'appui (doigt) — même choix que la pile des messages
-  (`gesteDOuverture`/`pileApres`, `(hover: hover) and (pointer: fine)`) — il se déplie en un panneau :
-  l'HISTORIQUE au-dessus (les `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en
-  haut), et EN DESSOUS la même ligne d'ondes (`LigneOndes`, `data-pied-ondes`) qui s'anime quand ça
-  parle. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
+  du navigateur. **Le module est UN SEUL objet qui se MÉTAMORPHOSE** : il n'y a plus un bouton d'un
+  côté et un panneau de l'autre. `formeDuModule(ouvert, parle, nb)` rend sa largeur, sa hauteur et son
+  rayon en NOMBRES — rond de 44 px au repos (rayon = moitié, donc un cercle), bloc de 96 px quand ça
+  parle, panneau de 256 px (borné à `80vw`) quand il est déplié, la hauteur suivant le nombre de
+  messages (`hauteurDepliee`) — et le navigateur les INTERPOLE en `VOIX_MORPHISME_MS` (300 ms) : des
+  classes utilitaires de largeur sauteraient d'un cran à l'autre. Le déplié l'emporte sur la parole :
+  on ne rétrécit pas un panneau qu'on lit. Les deux visages vivent DANS cette boîte, en `absolute
+  inset-0`, et se croisent en fondu : l'icône seule (`data-icone-voix`) et l'historique
+  (`data-liste-voix`), dont l'opacité attend que la place soit faite (`transitionDelay`) — le contenu
+  se dévoile après la boîte, jamais avant. Au repos l'icône (`data-icone-repos`) montre cinq barres
+  figées en vibration sonore SYMÉTRIQUE ; pendant la parole (`data-parle`, posé sur la RACINE) elle
+  devient un flux d'ondes VERTES animées (`data-onde-vocale`, barres `bg-success animate-onde`, jeton
+  `--success`, jamais une couleur en dur). L'ouverture se déclenche au survol (souris) ou à l'appui
+  (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`, `(hover: hover) and
+  (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
+  `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), avec EN DESSOUS la
+  même ligne d'ondes (`LigneOndes`, `data-pied-ondes`) qui s'anime quand ça parle. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
   outre le Muet. L'historique est DURABLE : il vit en mémoire du navigateur (`localStorage`,
   `CLE_VOIX_HISTORIQUE`, jamais côté serveur), SURVIT au rechargement, garde jusqu'à
   `VOIX_HISTORIQUE_MAX` (100) messages (les plus anciens tombent) et n'en affiche que dix. Il se
@@ -505,7 +513,7 @@ sans son point d'essai.
   même en Muet — la parole se tait, la trace reste. Le point du jour ne change pas. Le bouton « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la
   préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole
   automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
-  badge. Verrouillé par `server/src/test/voix-annonce.test.ts`.
+  badge. Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
