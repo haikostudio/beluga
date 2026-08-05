@@ -560,6 +560,12 @@ export const Settings = z.object({
   backupHour: z.number().default(3),
   ttsVoice: z.string().default('fr_FR-siwis-medium'),
   /**
+   * Le PRÉNOM auquel la voix de l'assistant s'adresse (mémoire n°141). « Chris »
+   * par défaut ; réglable pour nommer un autre utilisateur. Voir
+   * `shared/src/voix-annonce.ts`.
+   */
+  voixNom: z.string().default('Chris'),
+  /**
    * Amorcer la fenêtre de cinq heures des comptes Claude dès qu'elle repart à
    * zéro. Se coupe d'un geste si le mécanisme faisait plus de mal que de bien.
    */

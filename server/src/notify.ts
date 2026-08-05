@@ -37,6 +37,8 @@ interface Pending {
   libelles: string[];
   title: string;
   body: string;
+  /** La phrase déjà rédigée à dire à voix haute (résumé de la réponse), s'il y en a une. */
+  voix?: string;
   cardId?: string;
   projectId?: string;
   /** Le projet nommé en tête du titre, tant que tous les événements du groupe viennent de lui. */
@@ -85,6 +87,13 @@ export function notify(input: {
   reference?: string;
   /** Ce qui nomme l'élément dans un groupe. À défaut, le titre de la carte. */
   element?: string;
+  /**
+   * Une phrase déjà rédigée à dire à voix haute (résumé du vrai contenu de la
+   * réponse), quand l'appelant a pu la tirer. La voix la préfère au repli par
+   * titre. Perdue si l'événement se fond dans un groupe (le résumé ne vaut que
+   * pour UNE tâche).
+   */
+  voix?: string;
   cardId?: string;
   projectId?: string;
 }): void {
@@ -133,6 +142,7 @@ export function notify(input: {
     // Un groupe qui mélange deux projets ne peut plus en nommer un seul.
     if (existing.projet && existing.projet !== projet) existing.projet = undefined;
     existing.cardId = undefined; // un groupe ne pointe plus vers une carte précise
+    existing.voix = undefined; // un résumé ne vaut que pour UNE tâche, pas pour un lot
     existing.timer = setTimeout(() => flush(famille), GROUP_WINDOW_MS);
     return;
   }
@@ -143,6 +153,7 @@ export function notify(input: {
     libelles: [libelle],
     title: titreNotification(action, projet, emoji),
     body: corpsNotification(input.body, carte, action),
+    voix: input.voix,
     cardId: input.cardId,
     projectId: input.projectId,
     projet,
@@ -176,6 +187,8 @@ function flush(famille: FamilleNotification): Promise<void> {
   const payload = {
     title: groupe?.titre ?? entry.title,
     body: groupe?.corps ?? entry.body,
+    // Le résumé parlé ne suit que l'événement SEUL : un groupe l'a déjà effacé.
+    voix: groupe ? undefined : entry.voix,
     tag: famille,
     // Le MOTIF voyage jusqu'au bout : c'est lui qui choisit l'image affichée,
     // côté onglet ouvert comme côté service worker. Un groupe garde le motif du

@@ -472,11 +472,19 @@ sans son point d'essai.
   l'entendrait deux fois. La phrase NOMME de quoi il s'agit (`phraseDecisionAttendue`) : le titre de
   la TÂCHE si la décision tient à une carte, sinon le nom du PROJET dont le compte a monté, sinon un
   repli générique — le tout sous `VOIX_LONGUEUR_MAX` (un titre à rallonge retombe sur le projet). La
-  voix a une PERSONNALITÉ, posée à un SEUL endroit (`shared/src/voix-annonce.ts`, `NOM_UTILISATEUR` =
-  « Chris ») : une développeuse fullstack qui pilote les tâches DANS HaikoDev, tutoie l'utilisateur et
-  l'appelle « Chris », d'un ton humain jamais robotique. Les phrases de fin de tâche VARIENT selon le
-  titre (`variante`, choix STABLE pour un même titre — une réécoute ne surprend pas) au lieu d'un
-  modèle figé ; publication et décision gardent le même déclencheur, seul le TON change. La
+  voix a une PERSONNALITÉ, posée à un SEUL endroit (`shared/src/voix-annonce.ts`) : une développeuse
+  fullstack qui pilote les tâches DANS HaikoDev, tutoie l'utilisateur et l'appelle par son PRÉNOM,
+  d'un ton humain jamais robotique. Le prénom est RÉGLABLE (`Settings.voixNom`, défaut « Chris »,
+  `NOM_UTILISATEUR`), édité dans l'onglet Système et passé à chaque phrase par `VoixOptions.nom` — le
+  module de voix lit `state.settings.voixNom`, le serveur `store.getSettings().voixNom`. TOUTES les
+  annonces (fin de tâche, publication, décision) VARIENT leur tournure (`variante`, choix STABLE pour
+  une même entrée — une réécoute ne surprend pas) au lieu d'un modèle figé, et RACCOURCISSENT le soir
+  (`VoixOptions.heure`, `estSoir` = 20 h → 7 h). Quand HaikoDev a le VRAI texte de la réponse de
+  l'agent (l'`onComplete` de l'ordonnanceur, `server/src/scheduler.ts`), `phraseDepuisReponse` en tire
+  un résumé humain (première idée de « Ce qui est fait », nettoyée) SANS aucune génération payante ;
+  ce résumé voyage par le champ `voix` de la notification (`notify` → événement `notify`, effacé dès
+  qu'un groupe se forme) et la voix le PRÉFÈRE au repli par titre. Le soir, `phraseDepuisReponse` rend
+  `null` (le ton bref préfère la courte phrase par titre). La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
   du navigateur. Le module est TOUJOURS à l'écran, réduit en un petit icône rond au centre en bas ;
