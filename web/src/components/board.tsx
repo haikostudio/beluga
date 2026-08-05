@@ -170,7 +170,12 @@ export function Board({
     let attention = 0;
     let rendus = 0;
     let travaille = 0;
+    // Le NOMBRE de cartes de la colonne, compté sur la même liste que la colonne
+    // elle-même (`byColumn`) : l'onglet et la tête de colonne ne peuvent donc
+    // pas afficher deux chiffres différents.
+    let total = 0;
     for (const card of byColumn(column)) {
+      total += 1;
       attention += decisionsCarte[card.id] ?? 0;
       const etat = etatDeCarte(card);
       if (etat === 'termine-non-lu') rendus += 1;
@@ -180,7 +185,7 @@ export function Board({
       // `repereVisible` — il n'y a rien à trancher, on montre les deux.
       if (etat === 'travaille') travaille += 1;
     }
-    return { attention, rendus, travaille };
+    return { attention, rendus, travaille, total };
   };
 
   /*
@@ -518,6 +523,18 @@ export function Board({
                 >
                   <span className="inline-flex items-center gap-1">
                     {COLUMN_LABELS[cle]}
+                    {/* Le NOMBRE de cartes, juste après le libellé et dans la
+                        même tenue discrète que la tête de colonne : petit et
+                        `text-faint`, jamais une pastille. Il est TOUJOURS écrit,
+                        zéro compris — une colonne vide qui se tait laisserait
+                        croire à une information manquante, et le chiffre saute
+                        alors d'un onglet à l'autre. */}
+                    <span
+                      data-onglet-compte={cle}
+                      className="shrink-0 text-[11.5px] leading-none text-faint tabular-nums"
+                    >
+                      {signal.total}
+                    </span>
                     {/* L'indicateur d'ACTIVITÉ : un robot, dans l'esprit de la
                         colonne de gauche (`RepereRobot`), quand au moins un agent
                         travaille dans la colonne. Rien qui tourne, et il coexiste

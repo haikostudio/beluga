@@ -559,7 +559,11 @@ sans son point d'essai.
   d'abord. À CÔTÉ, un indicateur d'ACTIVITÉ — un robot `Bot text-success` dans l'esprit de
   `RepereRobot` (le nombre seulement à partir de deux, rien qui tourne) — quand au moins une carte de
   la colonne est en état `travaille` ; il COEXISTE avec le repère d'attente et ne passe pas par
-  `repereVisible`. Les trois comptes se calculent sur place, colonne par colonne, en croisant
+  `repereVisible`. Chaque onglet porte AUSSI le NOMBRE de cartes de sa colonne, juste après le
+  libellé, dans la tenue de la tête de colonne (11,5 px, `text-faint`, `data-onglet-compte`) : il est
+  toujours écrit, ZÉRO compris — un chiffre qui disparaît saute d'un onglet à l'autre. Le compte vient
+  du même passage sur `byColumn` que les trois autres (`signalOnglet.total`), donc l'onglet et la tête
+  de colonne ne peuvent pas se contredire. Les trois comptes se calculent sur place, colonne par colonne, en croisant
   `byColumn` avec `decisionsParCarte(state.decisions)` et `etatVisuelCarte(...)` (`'termine-non-lu'`
   pour le point bleu, `'travaille'` pour le robot) — aucune couleur ni composant neufs. Vérifié par
   `scripts/verif-onglets-tableau.mjs`.
