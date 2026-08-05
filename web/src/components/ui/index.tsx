@@ -125,11 +125,29 @@ export const Tabs = TabsPrimitive.Root;
 
 export const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.List> & {
+    /**
+     * Quand les onglets dépassent la largeur disponible, la liste GLISSE de
+     * gauche à droite au lieu de déborder. Les onglets gardent leur taille
+     * (`shrink-0`) et la barre de défilement reste invisible : c'est un fondu de
+     * bord, pas un ascenseur. Sans cette option, la liste s'étale comme avant —
+     * l'usage du tiroir d'une carte ne bouge pas.
+     */
+    defilable?: boolean;
+  }
+>(({ className, defilable, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
-    className={cn('inline-flex h-8 items-center gap-0.5 rounded-md bg-surface p-0.5', className)}
+    className={cn(
+      'h-8 items-center gap-0.5 rounded-md bg-surface p-0.5',
+      defilable
+        ? // Un seul axe : `overflow-x-auto` seul repasserait l'autre en « auto »
+          // dès qu'un onglet déborde. La barre de défilement est masquée dans
+          // les deux familles de navigateurs.
+          'flex overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&>*]:shrink-0 [&::-webkit-scrollbar]:hidden'
+        : 'inline-flex',
+      className,
+    )}
     {...props}
   />
 ));

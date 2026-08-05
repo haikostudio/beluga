@@ -698,8 +698,11 @@ sans son point d'essai.
   UTILISABLE (ordonnanceur, amorçage via `etatDesComptes`, catalogue) — l'écarte ; `listAllAccountRecords()`
   le garde pour le volet et pour la commande. `ajouterComptesDesactives` le rejoue dans les quotas
   depuis son dernier relevé (marqué `disabled`, indisponible), et `markActive` ne le choisit jamais
-  comme compte actif. Rien n'est supprimé, aucun identifiant touché. Verrouillé par
-  `server/src/test/compte-desactive.test.ts`.
+  comme compte actif. Rien n'est supprimé, aucun identifiant touché. Un compte coupé reste coupé
+  APRÈS un redémarrage : `bootstrapAccounts` calcule ses comptes déjà connus avec
+  `listAllAccountRecords()` (jamais `listAccountRecords()`, qui filtre les désactivés) — sinon un
+  compte coupé, n'étant plus « connu », serait reconstruit à neuf sans son drapeau et se rallumerait.
+  Verrouillé par `server/src/test/compte-desactive.test.ts`.
 - **Un compte se RENOMME depuis l'onglet Comptes, et on ne touche QU'au nom** (`renameAccount`,
   `server/src/accounts.ts`). Chaque ligne porte un crayon qui ouvre un champ (`LigneCompte`,
   `web/src/components/settings-view.tsx`) ; la saisie part par `account.rename` (esprit
