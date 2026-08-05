@@ -12,6 +12,7 @@ import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
 import { X } from 'lucide-react';
 import { niveauQuota } from '@haikodev/shared';
 import { cn } from '@/lib/utils';
+import { useSurvol } from '@/lib/pointeur';
 
 /**
  * Le socle visuel, posé AVANT les écrans (PLAN §17, §30). Les composants sont
@@ -560,7 +561,11 @@ export function DialogDescription({
 export const TooltipProvider = TooltipPrimitive.Provider;
 
 export function Tooltip({ children, label }: { children: React.ReactNode; label: React.ReactNode }) {
-  if (!label) return <>{children}</>;
+  const survol = useSurvol();
+  // Sans survol, l'infobulle ne s'affichera JAMAIS (elle est masquée en dessous
+  // de `sm`) : son déclencheur ne ferait que s'interposer entre le doigt et ce
+  // qu'il vise — un interrupteur, par exemple. On ne le pose donc pas du tout.
+  if (!label || !survol) return <>{children}</>;
   return (
     <TooltipPrimitive.Root delayDuration={280}>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
@@ -733,7 +738,12 @@ export function Switch({ className, ...props }: React.ComponentPropsWithoutRef<t
   return (
     <SwitchPrimitive.Root
       className={cn(
-        'peer inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer items-center rounded-full border border-border transition-colors data-[state=checked]:bg-accent data-[state=unchecked]:bg-raised',
+        'peer relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer items-center rounded-full border border-border transition-colors data-[state=checked]:bg-accent data-[state=unchecked]:bg-raised',
+        // L'interrupteur ne fait que 18 px de haut : au doigt, la moitié des
+        // appuis tombe à côté. Un calque invisible de 36 × 32 px, centré
+        // dessus, agrandit la CIBLE sans rien changer à l'aspect ni à la place
+        // occupée — même idée que les cibles de 32 px de la pile des messages.
+        'touch-manipulation after:absolute after:left-1/2 after:top-1/2 after:h-[32px] after:w-[36px] after:-translate-x-1/2 after:-translate-y-1/2 after:content-[""]',
         className,
       )}
       {...props}
