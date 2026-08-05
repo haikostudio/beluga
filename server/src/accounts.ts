@@ -85,6 +85,17 @@ export function renameAccount(id: string, label: string): AccountRecord | null {
   if (!account) return null;
   const updated: AccountRecord = { ...account, label: propre };
   saveAccountRecord(updated);
+  // Le nom affiché d'un compte vient de son relevé de quota. Un compte dont la
+  // lecture est en pause (après un refus 429) repousse tel quel son dernier
+  // relevé mémorisé : sans cette mise à jour, il garderait l'ancien nom. On
+  // corrige le relevé en cache pour que le nouveau nom remonte AUSSITÔT, même
+  // sans nouvelle lecture.
+  loadCache();
+  const enCache = quotaCache.get(id);
+  if (enCache) {
+    quotaCache.set(id, { ...enCache, label: propre });
+    persistCache();
+  }
   return updated;
 }
 
@@ -336,7 +347,10 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
     const attendre = nextTry.get(account.id) ?? 0;
     const connu = quotaCache.get(account.id);
     if (Date.now() < attendre && connu) {
-      results.push(connu);
+      // Le relevé mémorisé est repoussé tel quel, mais son NOM peut avoir changé
+      // depuis (renommage) : on réapplique toujours celui du compte, jamais
+      // celui figé dans le relevé.
+      results.push({ ...connu, label: account.label });
       continue;
     }
 
