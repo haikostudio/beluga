@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { LayoutGrid, MessageSquare, Loader2 } from 'lucide-react';
+import { LayoutGrid, LayoutDashboard, MessageSquare, Loader2 } from 'lucide-react';
 import { TooltipProvider, Button, EmptyState, SidePanel } from '@/components/ui';
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
@@ -543,30 +543,38 @@ export function App() {
           </Filet>
         </SidePanel>
 
-        {/* Barre de navigation mobile : deux destinations seulement, chacune sur
-            la moitié de la largeur, d'un bord à l'autre de l'écran. Elle reste
-            dans le flux (shrink-0) et réserve sa hauteur, donc le contenu ne
-            passe jamais derrière. */}
+        {/* Barre de navigation mobile : trois destinations, chacune sur un tiers
+            de la largeur, d'un bord à l'autre de l'écran. Elle reste dans le flux
+            (shrink-0) et réserve sa hauteur, donc le contenu ne passe jamais
+            derrière. Texte compact : trois libellés serrés sur un écran étroit. */}
         <nav
-          className="grid shrink-0 grid-cols-2 items-center gap-1 border-t border-border bg-bg px-2 pt-1 sm:hidden"
+          className="grid shrink-0 grid-cols-3 items-center gap-1 border-t border-border bg-bg px-1 pt-1 sm:hidden"
           // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
           <Button
             variant="ghost"
             size="sm"
-            className={cn('w-full', mobileView === 'board' && !dashboardOpen && 'bg-raised text-text')}
+            className={cn('w-full gap-1 px-1 text-xs', mobileView === 'board' && !dashboardOpen && 'bg-raised text-text')}
             onClick={() => {
               setDashboardOpen(false);
               setMobileView('board');
             }}
           >
-            <LayoutGrid className="h-3.5 w-3.5" /> Tableau
+            <LayoutGrid className="h-3.5 w-3.5 shrink-0" /> Tableau
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className={cn('w-full', mobileView === 'chat' && !dashboardOpen && 'bg-raised text-text')}
+            className={cn('w-full gap-1 px-1 text-xs', dashboardOpen && 'bg-raised text-text')}
+            onClick={ouvrirTableauDeBord}
+          >
+            <LayoutDashboard className="h-3.5 w-3.5 shrink-0" /> Tableau de bord
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn('w-full gap-1 px-1 text-xs', mobileView === 'chat' && !dashboardOpen && 'bg-raised text-text')}
             onClick={() => {
               setDashboardOpen(false);
               setMobileView('chat');
