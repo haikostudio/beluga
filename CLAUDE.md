@@ -465,15 +465,25 @@ sans son point d'essai.
   (`web/src/components/voix-assistant.tsx`, phrases dans `shared/src/voix-annonce.ts`). Deux instants
   déjà signalés ailleurs : une tâche terminée (l'événement `notify`, motif `tache-terminee`, dont le
   titre porte le nom réel de la carte) et une décision qui se met à attendre (le TOTAL de
-  `state.attention` qui MONTE — jamais le déjà-là du chargement, jamais la baisse). La décision passe
-  par le compte d'attention, PAS par sa notification, sinon on l'entendrait deux fois. La phrase est
-  courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
+  `state.attention`, rangé PAR PROJET, dont le TOTAL MONTE — jamais le déjà-là du chargement, jamais
+  la baisse). La décision passe par le compte d'attention, PAS par sa notification, sinon on
+  l'entendrait deux fois. La phrase NOMME de quoi il s'agit (`phraseDecisionAttendue`) : le titre de
+  la TÂCHE si la décision tient à une carte, sinon le nom du PROJET dont le compte a monté, sinon un
+  repli générique — le tout sous `VOIX_LONGUEUR_MAX` (un titre à rallonge retombe sur le projet). La
+  phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
-  du navigateur. Pendant la parole, une onde sonore (barres `animate-onde`) s'affiche en bas au centre,
-  distincte du bloc bas-droite ; elle s'efface au silence. Le point du jour ne change pas. Le bouton
-  « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la préférence
-  `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole automatique et rien
-  d'autre — ni notifications visuelles, ni badge. Verrouillé par `server/src/test/voix-annonce.test.ts`.
+  du navigateur. Le module est TOUJOURS à l'écran, réduit en un petit icône rond (haut-parleur) au
+  centre en bas ; pendant la parole, l'onde sonore (barres `animate-onde`, `data-onde-vocale`) prend
+  la place de l'icône. Au survol (souris) ou à l'appui (doigt) — même choix que la pile des messages
+  (`gesteDOuverture`/`pileApres`, `(hover: hover) and (pointer: fine)`) — il se déplie et montre les
+  `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut ; un clic les REJOUE
+  par le même `dire()` / `/api/speak`, avec `force` qui passe outre le Muet. La liste vit en mémoire
+  du navigateur (remise à zéro au rechargement), remplie à chaque annonce AUTOMATIQUE (fin de tâche,
+  hausse d'attention) même en Muet — la parole se tait, la trace reste. Le point du jour ne change
+  pas. Le bouton « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la
+  préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole
+  automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
+  badge. Verrouillé par `server/src/test/voix-annonce.test.ts`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
