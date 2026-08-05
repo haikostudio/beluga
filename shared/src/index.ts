@@ -36,6 +36,7 @@ export * from './outil-natif.js';
 export * from './ouverture-pile.js';
 export * from './pile-messages.js';
 export * from './pont-outils.js';
+export * from './position-voix.js';
 export * from './progression-taches.js';
 export * from './projet-actif.js';
 export * from './protocol.js';

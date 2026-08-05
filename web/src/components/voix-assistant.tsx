@@ -1,13 +1,20 @@
 import * as React from 'react';
 import { Volume2 } from 'lucide-react';
 import {
+  CLE_VOIX_POSITION,
+  DECALAGE_VOIX_DEFAUT,
   NOM_UTILISATEUR,
+  decalageRetenu,
   decisionsOuvertes,
+  estUnGlissement,
   gesteDOuverture,
+  memeDecalage,
   phraseDecisionAttendue,
   phraseVocaleDeNotification,
   pileApres,
+  ramenerDansLEcran,
   type ContexteDecision,
+  type DecalageVoix,
   type VoixOptions,
 } from '@haikodev/shared';
 import { client } from '@/lib/client';
@@ -304,14 +311,110 @@ export function VoixAssistant() {
     return () => document.removeEventListener('pointerdown', dehors);
   }, [geste, ouvert]);
 
+  /*
+   * OÙ LE MODULE SE POSE. Sa place est retenue dans le COMPTE, par le même
+   * mécanisme que le bloc en bas à droite : une préférence serveur, donc la
+   * même sur tous les appareils. Ce qu'on retient est un DÉCALAGE par rapport
+   * à la place d'origine (bas au centre), jamais une position absolue.
+   *
+   * Pendant qu'on tire, la position « vive » (`vif`) mène la danse : l'écran
+   * suit le doigt sans écrire au serveur à chaque pixel. Le décalage n'est
+   * rangé qu'au relâchement.
+   */
+  const [range, rangerDecalage] = usePref<DecalageVoix>(CLE_VOIX_POSITION, DECALAGE_VOIX_DEFAUT);
+  const [vif, setVif] = React.useState<DecalageVoix | null>(null);
+  const decalage = vif ?? decalageRetenu(range);
+  // Lu par les écouteurs de glissement sans les réabonner à chaque pixel.
+  const decalageRef = React.useRef(decalage);
+  decalageRef.current = decalage;
+
+  // Le glissement en cours : d'où il part, et depuis quelle place.
+  const glissementRef = React.useRef<
+    { departX: number; departY: number; base: DecalageVoix; bouge: boolean } | null
+  >(null);
+  // Un glissement qui vient de finir ne doit pas déplier le module au relâchement.
+  const vientDeGlisserRef = React.useRef(false);
+
+  /**
+   * La place d'origine du module — sa boîte SANS décalage. On mesure la boîte
+   * telle qu'elle est à l'écran et on retire le décalage déjà appliqué.
+   */
+  const ancre = React.useCallback(() => {
+    const boite = racineRef.current?.getBoundingClientRect();
+    if (!boite) return null;
+    const d = decalageRef.current;
+    return { left: boite.left - d.x, top: boite.top - d.y, width: boite.width, height: boite.height };
+  }, []);
+
+  /** Le module reste entièrement visible : on ramène le décalage dans les bords. */
+  const recadrer = React.useCallback((valeur: DecalageVoix): DecalageVoix => {
+    const boite = ancre();
+    if (!boite) return valeur;
+    return ramenerDansLEcran(valeur, boite, { width: window.innerWidth, height: window.innerHeight });
+  }, [ancre]);
+
+  // Au chargement et à chaque redimensionnement : une position venue d'un plus
+  // grand écran (ou d'un téléphone tourné) est ramenée dans les bords, et le
+  // corrigé est RANGÉ — sinon il reviendrait hors écran au prochain démarrage.
+  React.useEffect(() => {
+    const replacer = () => {
+      if (glissementRef.current) return;
+      const actuel = decalageRef.current;
+      const corrige = recadrer(actuel);
+      if (memeDecalage(corrige, actuel)) return;
+      setVif(null);
+      rangerDecalage(corrige);
+    };
+    replacer();
+    window.addEventListener('resize', replacer);
+    return () => window.removeEventListener('resize', replacer);
+    // `rangerDecalage` est stable (clé fixe) ; `range` déclenche la relecture.
+  }, [recadrer, rangerDecalage, range]);
+
+  React.useEffect(() => {
+    const bouger = (event: PointerEvent) => {
+      const g = glissementRef.current;
+      if (!g) return;
+      const dx = event.clientX - g.departX;
+      const dy = event.clientY - g.departY;
+      if (!g.bouge && !estUnGlissement(dx, dy)) return;
+      g.bouge = true;
+      event.preventDefault();
+      setVif(recadrer({ x: g.base.x + dx, y: g.base.y + dy }));
+    };
+    const lacher = () => {
+      const g = glissementRef.current;
+      if (!g) return;
+      glissementRef.current = null;
+      if (!g.bouge) return;
+      vientDeGlisserRef.current = true;
+      const pose = recadrer(decalageRef.current);
+      setVif(pose);
+      rangerDecalage(pose);
+    };
+    window.addEventListener('pointermove', bouger, { passive: false });
+    window.addEventListener('pointerup', lacher);
+    window.addEventListener('pointercancel', lacher);
+    return () => {
+      window.removeEventListener('pointermove', bouger);
+      window.removeEventListener('pointerup', lacher);
+      window.removeEventListener('pointercancel', lacher);
+    };
+  }, [recadrer, rangerDecalage]);
+
   const nb = messages.length;
 
   return (
     <div
       ref={racineRef}
       data-module-voix
-      className="fixed bottom-20 left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2 sm:bottom-6"
-      style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+      className="fixed bottom-20 left-1/2 z-30 flex flex-col items-center gap-2 sm:bottom-6"
+      style={{
+        marginBottom: 'env(safe-area-inset-bottom)',
+        // Le `-50 %` remplace la classe `-translate-x-1/2` : un seul transform
+        // porte à la fois le centrage d'origine et le décalage retenu.
+        transform: `translate(calc(-50% + ${decalage.x}px), ${decalage.y}px)`,
+      }}
       onMouseEnter={() => setOuvert((o) => pileApres(o, 'survol-entre', geste))}
       onMouseLeave={() => setOuvert((o) => pileApres(o, 'survol-sort', geste))}
     >
@@ -364,9 +467,35 @@ export function VoixAssistant() {
         aria-label={
           parle
             ? 'L’assistant parle'
-            : `Voix de l’assistant — ${nb} message${nb > 1 ? 's' : ''} à réécouter`
+            : `Voix de l’assistant — ${nb} message${nb > 1 ? 's' : ''} à réécouter — tirer pour le déplacer`
         }
-        onClick={() => setOuvert((o) => pileApres(o, 'appui-dedans', geste))}
+        title="Voix de l’assistant — tirer pour le déplacer"
+        // Le même geste sert à déplier (appui immobile) et à déplacer (appui qui
+        // glisse) : c'est le mouvement qui tranche, au-delà du seuil.
+        onPointerDown={(event) => {
+          if (event.button !== undefined && event.button !== 0) return;
+          // Un déplacement au doigt ne produit AUCUN clic : sans cette remise à
+          // zéro, le repère resterait armé et mangerait l'appui SUIVANT — le
+          // module ne se déplierait plus jamais après avoir été déplacé.
+          vientDeGlisserRef.current = false;
+          glissementRef.current = {
+            departX: event.clientX,
+            departY: event.clientY,
+            base: decalageRef.current,
+            bouge: false,
+          };
+        }}
+        onClick={() => {
+          // Un déplacement qui vient de finir ne déplie pas le module.
+          if (vientDeGlisserRef.current) {
+            vientDeGlisserRef.current = false;
+            return;
+          }
+          setOuvert((o) => pileApres(o, 'appui-dedans', geste));
+        }}
+        // Sans cela, un doigt qui tire ferait défiler la page au lieu de
+        // déplacer le module.
+        style={{ touchAction: 'none' }}
         // Au repos, un petit rond ; pendant la parole, il s'OUVRE tout seul en un
         // bloc RECTANGULAIRE plus large — la transition anime largeur et coins.
         className={`grid h-11 place-items-center border border-border bg-surface/90 shadow-lg backdrop-blur transition-all duration-300 hover:bg-raised ${

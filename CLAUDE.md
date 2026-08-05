@@ -94,6 +94,7 @@ node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête q
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
 node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes en bas, profondeur, ouverture au survol, heure et date
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
+node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
 node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglages : adresse et code affichés, échec dit (démon et HOME d'essai à soi)
@@ -506,6 +507,23 @@ sans son point d'essai.
   préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole
   automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
   badge. Verrouillé par `server/src/test/voix-annonce.test.ts`.
+- **Le module de voix SE DÉPLACE, et sa place est retenue dans le COMPTE**
+  (`shared/src/position-voix.ts`, branché dans `web/src/components/voix-assistant.tsx`). Il était
+  cloué en bas au centre et recouvrait parfois ce qu'on lit. On le tire par son ICÔNE, à la souris
+  comme au doigt (`touchAction: 'none'` sur le bouton, sinon le doigt ferait défiler la page) ; le
+  MÊME geste déplie (appui immobile) et déplace (appui qui glisse), `estUnGlissement` tranchant
+  au-delà de `SEUIL_GLISSEMENT_VOIX`. Ce qui est retenu n'est pas une position absolue mais un
+  DÉCALAGE en pixels par rapport à la place d'origine — décalage nul = l'affichage d'avant. Il passe
+  par le MÊME mécanisme que le bloc du dock, une préférence SERVEUR (`usePref`, clé
+  `CLE_VOIX_POSITION` = `voix`, jamais `dock`), donc la même place sur tous les appareils ; jamais un
+  second mécanisme, et jamais le `localStorage` de l'historique. `ramenerDansLEcran` garde le module
+  entièrement visible au chargement comme au redimensionnement — une place prise sur grand écran est
+  ramenée dans les bords d'un téléphone, et le corrigé est RANGÉ, sinon il reviendrait hors écran au
+  démarrage suivant. Un glissement au doigt ne produit AUCUN clic : le repère « on vient de glisser »
+  est donc remis à zéro au `pointerdown` suivant, sinon il mangerait l'appui d'après et le module ne
+  se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
+  (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. Verrouillé par
+  `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
