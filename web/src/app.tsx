@@ -543,42 +543,46 @@ export function App() {
           </Filet>
         </SidePanel>
 
-        {/* Barre de navigation mobile : deux destinations seulement, chacune sur
-            la moitié de la largeur. */}
-        <nav
-          className="grid shrink-0 grid-cols-2 items-center gap-1 border-t border-border bg-bg px-2 pt-1 sm:hidden"
-          // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        {/* Navigation mobile : deux destinations seulement, dans une pastille
+            flottante centrée. L'enveloppe reste dans le flux (shrink-0) et
+            réserve sa hauteur, donc le contenu ne passe jamais derrière. */}
+        <div
+          className="flex shrink-0 justify-center px-3 pt-1 sm:hidden"
+          // La zone sûre du téléphone en dessous, plus un peu d'air pour que la
+          // pastille flotte au lieu de coller au bord.
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('w-full', mobileView === 'board' && !dashboardOpen && 'bg-raised text-text')}
-            onClick={() => {
-              setDashboardOpen(false);
-              setMobileView('board');
-            }}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" /> Tableau
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('w-full', mobileView === 'chat' && !dashboardOpen && 'bg-raised text-text')}
-            onClick={() => {
-              setDashboardOpen(false);
-              setMobileView('chat');
-            }}
-          >
-            <MessageSquare className="h-3.5 w-3.5" /> Chef
-            {/* Sur téléphone, la conversation est derrière ce bouton : sans le
-                triangle ici, une décision en attente resterait invisible. */}
-            <RepereAttention
-              compte={activeProject ? decisionsHorsCarte(state.decisions, activeProject.id) : 0}
-              data-attention-conversation={activeProject?.id}
-            />
-          </Button>
-        </nav>
+          <nav className="flex items-center gap-1 rounded-full border border-border bg-surface px-1.5 py-1 shadow-lg">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn('rounded-full', mobileView === 'board' && !dashboardOpen && 'bg-raised text-text')}
+              onClick={() => {
+                setDashboardOpen(false);
+                setMobileView('board');
+              }}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" /> Tableau
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn('rounded-full', mobileView === 'chat' && !dashboardOpen && 'bg-raised text-text')}
+              onClick={() => {
+                setDashboardOpen(false);
+                setMobileView('chat');
+              }}
+            >
+              <MessageSquare className="h-3.5 w-3.5" /> Chef
+              {/* Sur téléphone, la conversation est derrière ce bouton : sans le
+                  triangle ici, une décision en attente resterait invisible. */}
+              <RepereAttention
+                compte={activeProject ? decisionsHorsCarte(state.decisions, activeProject.id) : 0}
+                data-attention-conversation={activeProject?.id}
+              />
+            </Button>
+          </nav>
+        </div>
 
         {dropTarget ? (
           <div className="pointer-events-none fixed inset-0 z-50 border-2 border-dashed border-muted bg-black/20" />
