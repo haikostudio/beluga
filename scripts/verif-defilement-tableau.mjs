@@ -115,6 +115,52 @@ if (!mesures) {
   }
 }
 
+/*
+  La rangée d'onglets, propre au téléphone : un onglet par colonne, appui pour
+  filer jusqu'à la colonne visée, onglet actif qui suit le bord gauche. Elle est
+  un FRÈRE au-dessus du rail, jamais un enfant de la ZoneDefilement — on le
+  vérifie en passant.
+*/
+const nbOnglets = await page.locator('[data-onglet-colonne]').count();
+noter('la rangée d’onglets est présente', nbOnglets > 0, `${nbOnglets} onglet(s)`);
+
+const ongletDansRail = await page.evaluate(() => {
+  const rail = document.querySelector('[data-column]')?.parentElement;
+  if (!rail) return true;
+  return Boolean(rail.querySelector('[data-onglet-colonne]'));
+});
+noter('les onglets ne sont PAS dans le rail des colonnes', ongletDansRail === false);
+
+if (nbOnglets > 0) {
+  // Un appui sur « À déployer » doit amener cette colonne au bord gauche.
+  await page.locator('[data-onglet-colonne="to_deploy"]').click();
+  await page.waitForTimeout(1200); // le temps du défilement en douceur
+  const bord = await page.evaluate(() => {
+    const rail = document.querySelector('[data-column]')?.parentElement;
+    const col = document.querySelector('[data-column="to_deploy"]');
+    if (!rail || !col) return null;
+    // Écart entre le bord gauche de la colonne et le bord gauche du rail.
+    return Math.round(col.getBoundingClientRect().left - rail.getBoundingClientRect().left);
+  });
+  noter('un appui amène « À déployer » au bord gauche', bord !== null && Math.abs(bord) <= 20, `${bord} px`);
+
+  const actifApresAppui = await page.getAttribute('[data-onglet-colonne="to_deploy"]', 'aria-current');
+  noter('l’onglet « À déployer » devient actif', actifApresAppui === 'true', String(actifApresAppui));
+
+  // Défilement manuel vers le début : l'onglet actif doit repasser au premier.
+  await page.evaluate(() => {
+    const rail = document.querySelector('[data-column]')?.parentElement;
+    if (rail) rail.scrollTo({ left: 0 });
+  });
+  await page.waitForTimeout(300);
+  const premier = await page.getAttribute('[data-column]', 'data-column');
+  const actifApresDefil = await page.evaluate(() => {
+    const actif = document.querySelector('[data-onglet-colonne][aria-current="true"]');
+    return actif?.getAttribute('data-onglet-colonne') ?? null;
+  });
+  noter('l’onglet actif suit le défilement manuel', actifApresDefil === premier, `${actifApresDefil} (attendu ${premier})`);
+}
+
 // La colonne « À déployer » est la plus chargée : on la met sous les yeux.
 const aDeployer = page.locator('[data-column="to_deploy"]');
 if (await aDeployer.count()) {
@@ -122,6 +168,26 @@ if (await aDeployer.count()) {
   await page.waitForTimeout(500);
 }
 await page.screenshot({ path: `${SHOTS}/defilement-tableau.png` });
+
+/*
+  Sur écran large, la rangée d'onglets ne doit PAS exister. On rouvre le tableau
+  dans un contexte de bureau (survol, largeur ordinateur) et on recompte.
+*/
+const bureau = await navigateur.newContext({ viewport: { width: 1280, height: 900 } });
+await bureau.addCookies([
+  { name: 'haikodev_session', value: jeton, url: new URL(BASE).origin, httpOnly: true, sameSite: 'Lax' },
+]);
+const pageBureau = await bureau.newPage();
+await pageBureau.goto(BASE, { waitUntil: 'domcontentloaded' });
+await pageBureau.waitForTimeout(7000);
+await pageBureau.evaluate(() => {
+  const onglet = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Tableau');
+  onglet?.click();
+});
+await pageBureau.waitForTimeout(2500);
+const ongletsBureau = await pageBureau.locator('[data-onglet-colonne]').count();
+noter('aucun onglet de colonne sur écran large', ongletsBureau === 0, `${ongletsBureau} onglet(s)`);
+await bureau.close();
 
 noter("aucune erreur dans la page", erreurs.length === 0, erreurs[0] ?? '');
 
