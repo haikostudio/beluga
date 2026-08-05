@@ -92,6 +92,7 @@ node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié 
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
+node scripts/verif-menu-bas-telephone.mjs # le menu flottant du bas, sur écran de téléphone (serveur de développement, HAIKO_MENU_URL)
 node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes en bas, profondeur, ouverture au survol, heure et date
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
@@ -555,6 +556,17 @@ sans son point d'essai.
   `byColumn` avec `decisionsParCarte(state.decisions)` et `etatVisuelCarte(...)` (`'termine-non-lu'`
   pour le point bleu, `'travaille'` pour le robot) — aucune couleur ni composant neufs. Vérifié par
   `scripts/verif-onglets-tableau.mjs`.
+- **Le menu du bas (téléphone) FLOTTE, et ne pose aucun filet** (`nav[data-menu-bas]`,
+  `web/src/app.tsx`). Le conteneur reste dans le FLUX (`shrink-0`, marges `px-3`, bas =
+  `env(safe-area-inset-bottom) + 0.5rem`) : il réserve exactement la place du menu, donc le contenu
+  ne passe jamais derrière — mais il est nu, sans fond ni bordure. C'est le bloc INTÉRIEUR qui se
+  voit : arrondi (`rounded-2xl`), fond `bg-surface`, ombre douce, une bordure sur ses quatre côtés —
+  jamais un `border-t` sur toute la largeur, qui coupait l'écran. Trois destinations, trois icônes
+  DISTINCTES (`Columns3` tableau, `BarChart3` bord, `MessageSquare` chef) et trois libellés d'un
+  mot — « Tableau », « Bord », « Chef » — qui tiennent sur une ligne à 360 px. Le triangle de
+  décision reste sur « Chef ». Rien au-dessus du seuil (`sm:hidden`). Le bloc en bas à droite part
+  de `bottom-14` sur téléphone (`sm:bottom-3` ailleurs) pour ne pas se poser sur ce menu. Vérifié
+  par `scripts/verif-menu-bas-telephone.mjs`.
 - **Le tiroir d'une carte s'ÉPURE sur téléphone, jamais sur ordinateur** (`card-panel.tsx`). Le choix
   se fait sur la largeur du pointeur (`useTelephone`, `(max-width: 639px)`), relue au redimensionnement.
   Sous ce seuil, les tags (état, étiquettes, « modifiée », archivage) — le bloc `data-tags-carte` — sont
