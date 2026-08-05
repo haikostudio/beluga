@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   AGENT_MOVABLE_COLUMNS,
   AgentQuestion,
@@ -26,6 +28,45 @@ import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
 import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
+import { listerCompetences } from './competences.js';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * LE SCRIPT DE LA COMPÉTENCE DE FACTURATION.
+ *
+ * L'outil `compta` (ci-dessous) lance ce script — jamais un chemin écrit en dur
+ * vers le dossier personnel d'un compte. On le déduit de la compétence
+ * partagée « compta » : son dossier (`data/competences/compta`, un lien ou un
+ * vrai dossier) porte `scripts/compta.mjs`. Absente : `undefined`, et l'outil le
+ * dit au lieu d'échouer sur un chemin inventé.
+ */
+function cheminScriptCompta(): string | undefined {
+  const compta = listerCompetences().find((c) => c.nom === 'compta');
+  if (!compta) return undefined;
+  const script = path.join(compta.dossier, 'scripts', 'compta.mjs');
+  return fs.existsSync(script) ? script : undefined;
+}
+
+/** Les commandes du script de facturation (voir le SKILL.md de la compétence). */
+const COMMANDES_COMPTA = [
+  'companies',
+  'clients',
+  'client-create',
+  'list',
+  'get',
+  'create',
+  'update',
+  'set-items',
+  'add-items',
+  'add-payment',
+  'convert',
+  'relance',
+  'delete',
+  'goal',
+  'report',
+  'raw',
+];
 
 export interface ToolDef {
   name: string;
@@ -225,6 +266,37 @@ export const TOOL_DEFS: ToolDef[] = [
       properties: {
         line: { type: 'string', description: 'Un fait durable, une seule ligne' },
         replaces: { type: 'string', description: 'Début de la ligne devenue fausse à remplacer (facultatif)' },
+      },
+    },
+  },
+  {
+    name: 'compta',
+    description:
+      "Exécute une opération de FACTURATION Haiko (compta.haikostudio.cloud) : lire, lister, créer ou modifier " +
+      "offres, factures, clients et paiements. Ouvert à TOUT agent, chef d'orchestre compris — c'est le seul moyen, " +
+      "pour un chef bridé en lecture seule, d'atteindre l'outil de facturation. Commandes : companies, clients, " +
+      "client-create, list, get, create, update, set-items, add-items, add-payment, convert, relance, delete, goal, " +
+      "report, raw. La syntaxe exacte de chaque commande et le format des specs JSON sont dans le mode d'emploi de la " +
+      "compétence « compta » (data/competences/compta/SKILL.md) — le lire avant d'appeler. Garde-fous inchangés : " +
+      "créer TOUJOURS en brouillon (draft) et ne passer un document en sent/paid/accepted que sur demande explicite ; " +
+      "« relance » avec send:true UNIQUEMENT après validation explicite de l'utilisateur (montrer d'abord l'aperçu, " +
+      "sans send). Rend la sortie JSON du script telle quelle.",
+    inputSchema: {
+      type: 'object',
+      required: ['command'],
+      properties: {
+        command: {
+          type: 'string',
+          enum: COMMANDES_COMPTA,
+          description: 'La commande de facturation à lancer',
+        },
+        args: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            "Les arguments de la commande, dans l'ordre du mode d'emploi. Un spec JSON se passe comme un SEUL " +
+            'argument (une chaîne JSON), ex. get → ["invoice", "FA-0012"], create → ["quote", "{…json…}"].',
+        },
       },
     },
   },
@@ -491,6 +563,38 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       // bloquer la tâche en cours.
       synthetiserSiNecessaire(project.path);
       return { ok: true, text: 'Mémoire du projet mise à jour.' };
+    }
+
+    case 'compta': {
+      const commande = String(args.command ?? '').trim();
+      if (!commande) return { ok: false, text: 'Une commande de facturation est requise (ex. « get », « list »).' };
+      if (!COMMANDES_COMPTA.includes(commande)) {
+        return { ok: false, text: `Commande de facturation inconnue : « ${commande} ». Voir le mode d'emploi de la compétence compta.` };
+      }
+      const script = cheminScriptCompta();
+      if (!script) {
+        return {
+          ok: false,
+          text: "La compétence de facturation « compta » est introuvable : aucun scripts/compta.mjs dans le dossier des compétences.",
+        };
+      }
+      const reste = Array.isArray(args.args) ? args.args.map((a: any) => String(a)) : [];
+      try {
+        // Le script tourne dans le processus du démon (sous l'utilisateur des
+        // agents), donc HORS du bac à sable du chef bridé : c'est ce qui ouvre
+        // la facturation au chef en lecture seule. Il lit sa clé API dans le
+        // dossier personnel courant, d'où l'environnement hérité tel quel.
+        const { stdout } = await execFileAsync(process.execPath, [script, commande, ...reste], {
+          timeout: 60000,
+          maxBuffer: 8 * 1024 * 1024,
+        });
+        return { ok: true, text: stdout.trim() || '(aucune sortie)' };
+      } catch (err: any) {
+        // compta.mjs écrit ses erreurs sur stderr et sort en code 1 : on remonte
+        // la raison en clair plutôt qu'un « échec » muet.
+        const detail = String(err?.stderr || err?.message || err).trim();
+        return { ok: false, text: `Facturation : ${detail || 'commande échouée sans détail.'}` };
+      }
     }
 
     default:

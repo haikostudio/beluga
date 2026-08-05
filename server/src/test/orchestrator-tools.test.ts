@@ -96,6 +96,16 @@ test('le chef d\'orchestre ne voit pas les outils réservés aux agents de tâch
   }
 });
 
+test('la facturation est ouverte au chef d\'orchestre, comme aux agents de tâche', () => {
+  // Le chef bridé ne peut lancer ni Bash ni Skill : l'outil MCP « compta » est
+  // son seul accès à la facturation, et il doit donc lui rester ouvert.
+  const chef = toolsFor('orchestrator').map((tool) => tool.name);
+  assert.ok(chef.includes('compta'), 'le chef doit voir l\'outil de facturation');
+  assert.ok(orchestratorAllowList().includes('mcp__haikodev__compta'), 'compta doit être dans la liste blanche du chef');
+  assert.equal(orchestratorDenyList().includes('mcp__haikodev__compta'), false, 'compta ne doit jamais être interdit');
+  assert.ok(toolsFor('task').map((tool) => tool.name).includes('compta'), 'un agent de tâche garde aussi la facturation');
+});
+
 test('un agent de tâche dispose de tous les outils du démon', () => {
   assert.equal(toolsFor('task').length, TOOL_DEFS.length);
 });
