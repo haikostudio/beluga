@@ -18,7 +18,7 @@ import {
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
-import { Badge, Button, Dot, Input, Textarea, Tooltip, ZoneDefilement } from '@/components/ui';
+import { Badge, Button, Dot, Input, Tabs, TabsList, TabsTrigger, Textarea, Tooltip, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { MenuCarte } from '@/components/card-menu';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
@@ -373,33 +373,33 @@ export function Board({
         Sur ordinateur elle n'existe pas : le tableau tient à l'écran.
       */}
       {telephone ? (
-        <ZoneDefilement
-          axe="horizontal"
-          classeEnveloppe="shrink-0 border-b border-border/50"
-          className="flex gap-1.5 px-3 py-1.5"
-          data-onglets-colonnes=""
+        /*
+          Les onglets partagés (TabsList/TabsTrigger, ui/index.tsx) — les mêmes
+          que le tiroir d'une carte — pour un seul style dans toute
+          l'application. `defilable` fait glisser la rangée quand les colonnes
+          dépassent la largeur ; l'onglet actif suit le bord gauche du rail. Un
+          appui déclenche `allerALaColonne` via `onValueChange`. `aria-current`
+          reste posé à la main : les scripts le lisent, et Radix n'écrit que
+          `data-state`.
+        */
+        <Tabs
+          value={colonneActive ?? ''}
+          onValueChange={(cle) => allerALaColonne(cle as ColumnKey)}
+          className="shrink-0 border-b border-border/50 px-3 py-1.5"
         >
-          {COLUMN_KEYS.map((cle) => {
-            const actif = colonneActive === cle;
-            return (
-              <button
+          <TabsList defilable data-onglets-colonnes="" className="w-full justify-start">
+            {COLUMN_KEYS.map((cle) => (
+              <TabsTrigger
                 key={cle}
-                type="button"
+                value={cle}
                 data-onglet-colonne={cle}
-                aria-current={actif ? 'true' : undefined}
-                onClick={() => allerALaColonne(cle)}
-                className={cn(
-                  'shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-[12.5px] transition-colors',
-                  actif
-                    ? 'border-accent bg-accent/15 font-medium text-text'
-                    : 'border-border/60 text-faint hover:text-text',
-                )}
+                aria-current={colonneActive === cle ? 'true' : undefined}
               >
                 {COLUMN_LABELS[cle]}
-              </button>
-            );
-          })}
-        </ZoneDefilement>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       ) : null}
 
       <ZoneDefilement
