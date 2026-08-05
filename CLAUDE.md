@@ -650,6 +650,18 @@ sans son point d'essai.
   d'orchestre (à qui l'outil `Skill` est interdit, et qui le reste) répondraient « je ne sais pas
   faire » devant un mode d'emploi qui existe. Le dossier se déplace par `HAIKODEV_COMPETENCES`.
   Verrouillé par `server/src/test/competences.test.ts` et `scripts/verif-competences.mjs`.
+- **La FACTURATION est un outil MCP `compta`, ouvert à TOUT agent — chef d'orchestre compris**
+  (`server/src/tools.ts`). La compétence « compta » ne s'atteint qu'en ligne de commande
+  (`node …/compta.mjs <commande>`), donc le chef bridé en lecture seule — pas de `Bash`, outil
+  `Skill` interdit — ne pouvait pas facturer. L'outil `compta` (entrée de `TOOL_DEFS`, PAS dans
+  `TASK_ONLY_TOOLS`) est donc vu par le chef comme par les agents de tâche : `toolsFor('orchestrator')`
+  le porte, `orchestratorAllowList` l'énumère et Codex l'active dans `enabled_tools`. `callTool`
+  lance le script de la compétence (`cheminScriptCompta`, déduit de `data/competences/compta`, jamais
+  un chemin en dur vers un dossier personnel) DANS le processus du démon — hors du bac à sable du chef
+  bridé, ce qui ouvre l'accès sans toucher au reste du bridage. Les garde-fous de la compétence ne
+  bougent pas : créer en `draft`, `relance send:true` seulement après accord explicite de
+  l'utilisateur. Verrouillé par `server/src/test/orchestrator-tools.test.ts` et
+  `server/src/test/bridage-chef.test.ts`.
 - **Un compte de moteur se connecte DEPUIS LES RÉGLAGES, jamais depuis un terminal**
   (`shared/src/connexion-compte.ts` pour les règles, `server/src/connexion-compte.ts` pour le
   processus). L'onglet « Comptes » ne faisait que lire : un jeton mort ne se voyait nulle part et se

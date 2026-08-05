@@ -74,6 +74,16 @@ test('sous Codex, les outils du projet sont énumérés un par un', () => {
   assert.ok(codex.includes(`mcp_servers.haikodev.disabled_tools=${JSON.stringify(interdits)}`));
 });
 
+test('sous Codex, la facturation est énumérée parmi les outils permis au chef', () => {
+  const permis = outilsDuProjet(orchestratorAllowList());
+  assert.ok(permis.includes('compta'), 'compta doit être dans les outils permis du chef');
+  const codex = buildCodexArgs(tourDuChef()).join(' ');
+  assert.ok(
+    codex.includes(`mcp_servers.haikodev.enabled_tools=${JSON.stringify(permis)}`),
+    'la liste enabled_tools de Codex doit porter compta',
+  );
+});
+
 test('le bridage ne mord jamais sur un agent de tâche', () => {
   assert.equal(chefBride(tourDeTache()), false);
   assert.deepEqual(surchargesCodexDuChef(tourDeTache()), []);
