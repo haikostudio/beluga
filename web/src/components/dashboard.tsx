@@ -13,7 +13,11 @@ type DonneesTableau = {
     title: string;
     projectName?: string;
     column?: string;
-    quotaShare?: number;
+    /** MESURÉ, en points de pourcentage : ce que la carte a réellement pris. 0 = aucun relevé. */
+    quota5h: number;
+    quotaSemaine: number;
+    /** ESTIMÉ à la validation, en fraction (0,12) — jamais mélangé au mesuré. */
+    quotaEstime?: number;
     tokens: number;
     seconds: number;
     turns: number;
@@ -36,10 +40,25 @@ function jourEnClair(jour: string): string {
   return `${Number(quantieme)} ${noms[Number(mois) - 1] ?? ''}`.trim();
 }
 
-/** Une part de quota, notée en fraction (0,42) OU déjà en pourcent (42) → « 42 % ». */
+/**
+ * Une part de quota ESTIMÉE, notée en fraction (0,42) OU déjà en pourcent (42)
+ * → « 42 % ». L'échelle des estimations anciennes n'est pas garantie, d'où ce
+ * rattrapage ; il ne vaut QUE pour l'estimation.
+ */
 function partEnClair(part: number): string {
   const pourcent = part <= 1 ? part * 100 : part;
   return `${pourcent.toFixed(pourcent < 10 ? 1 : 0)} %`;
+}
+
+/**
+ * Une part de quota MESURÉE : toujours en points de pourcentage (c'est ce que
+ * la base range), donc aucune conversion — 0,5 vaut bien un demi-pourcent, et
+ * non 50 %. Deux décimales sous 1 %, pour qu'une petite tâche ne s'affiche pas
+ * « 0 % ».
+ */
+function pourcentEnClair(part: number): string {
+  if (part < 1) return `${part.toFixed(2)} %`;
+  return `${part.toFixed(part < 10 ? 1 : 0)} %`;
 }
 
 /** Une grande tuile de chiffre, en tête de page. */
@@ -139,8 +158,20 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
   const maxProjet = Math.max(1, ...byProject.map((p) => p.seconds ?? 0));
   // Les jours arrivent du plus récent au plus ancien : la courbe se lit à l'endroit.
   const jours = [...(donnees?.byDay ?? [])].reverse();
-  // La conso par carte n'apparaît qu'avec une part de quota mesurée (carte précédente).
-  const cartesAvecQuota = (donnees?.byCard ?? []).filter((c) => c.quotaShare != null);
+  // Les cartes se rangent en deux tas, jamais mélangés : celles dont la part de
+  // quota a été MESURÉE (classées par la part de SEMAINE décroissante — ce que
+  // la ligne affiche en tête, et ce que le serveur trie déjà), et les anciennes
+  // sans le moindre relevé, qui le disent au lieu d'afficher un zéro trompeur.
+  const toutesLesCartes = donnees?.byCard ?? [];
+  const cartesMesurees = toutesLesCartes
+    .filter((c) => (c.quotaSemaine ?? 0) > 0 || (c.quota5h ?? 0) > 0)
+    .sort((a, b) => (b.quotaSemaine ?? 0) - (a.quotaSemaine ?? 0));
+  const cartesSansReleve = toutesLesCartes.filter((c) => !((c.quotaSemaine ?? 0) > 0 || (c.quota5h ?? 0) > 0));
+  const totalSemaine = cartesMesurees.reduce((total, c) => total + (c.quotaSemaine ?? 0), 0);
+  const total5h = cartesMesurees.reduce((total, c) => total + (c.quota5h ?? 0), 0);
+  // La barre se mesure au plus gros consommateur de la SEMAINE : même grandeur
+  // que le classement, donc elle décroît du haut vers le bas.
+  const maxSemaine = Math.max(0.0001, ...cartesMesurees.map((c) => c.quotaSemaine ?? 0));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg">
@@ -222,31 +253,83 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
               <Gauge className="h-3.5 w-3.5 text-faint" /> Part de quota par carte
             </h2>
             <p className="mb-2 mt-0.5 text-[12.5px] text-faint">
-              La part de quota (fenêtre de 5 h et semaine) que chaque carte a réellement consommée. Cette mesure vient
-              d'être ajoutée : les tâches anciennes n'en portent pas encore.
+              La part de quota que chaque tâche a réellement consommée : la semaine en tête, la fenêtre de 5 h juste
+              après. Les tâches sont classées de la plus gourmande à la moins gourmande sur la semaine.
             </p>
-            {cartesAvecQuota.length ? (
-              <div className="space-y-0.5">
-                {cartesAvecQuota.slice(0, 20).map((carte) => (
-                  <div key={carte.cardId} className="flex items-center gap-2 rounded-md border border-border bg-bg px-2 py-1.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] text-text">{carte.title}</p>
-                      <p className="truncate text-[11px] text-faint">
-                        {carte.projectName ?? 'Projet retiré'} · {dureeEnClair(carte.seconds)}
-                      </p>
+            {cartesMesurees.length ? (
+              <>
+                {/* Le total de la période, rappelé AU-DESSUS de la liste. */}
+                <p className="mb-2 text-[12.5px] text-text" data-total-quota>
+                  Total mesuré sur la période :{' '}
+                  <span className="font-semibold">{pourcentEnClair(totalSemaine)} du quota de la semaine</span>
+                  {' · '}
+                  {pourcentEnClair(total5h)} de fenêtres de 5 h, sur {cartesMesurees.length} tâche
+                  {cartesMesurees.length > 1 ? 's' : ''}
+                </p>
+                <div className="space-y-1.5">
+                  {cartesMesurees.slice(0, 20).map((carte) => (
+                    <div
+                      key={carte.cardId}
+                      className="rounded-md border border-border bg-bg px-2 py-1.5"
+                      data-quota-carte
+                      data-quota-semaine={carte.quotaSemaine}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] text-text">{carte.title}</p>
+                          <p className="truncate text-[11px] text-faint">
+                            {carte.projectName ?? 'Projet retiré'} · {dureeEnClair(carte.seconds)}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <span className="rounded bg-raised px-1.5 py-0.5 text-[12px] font-medium text-text">
+                            {pourcentEnClair(carte.quotaSemaine ?? 0)} semaine
+                          </span>
+                          <p className="mt-0.5 text-[11px] text-faint">{pourcentEnClair(carte.quota5h ?? 0)} sur 5 h</p>
+                        </div>
+                      </div>
+                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-raised">
+                        <div
+                          className="h-full rounded-full bg-muted/70"
+                          style={{ width: `${Math.round(((carte.quotaSemaine ?? 0) / maxSemaine) * 100)}%` }}
+                        />
+                      </div>
                     </div>
-                    <span className="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[12px] font-medium text-text">
-                      {partEnClair(carte.quotaShare!)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </>
             ) : (
               <p className="text-[13px] text-faint">
-                Aucune carte ne porte encore de part de quota mesurée. Ce bloc se remplira à mesure que de nouvelles
+                Aucune tâche ne porte encore de part de quota mesurée. Ce bloc se remplira à mesure que de nouvelles
                 tâches s'exécutent.
               </p>
             )}
+
+            {/* Les tâches sans le moindre relevé : dites, jamais chiffrées à zéro. */}
+            {cartesSansReleve.length ? (
+              <div className="mt-3 border-t border-border pt-2">
+                <p className="text-[12px] text-faint">
+                  {cartesSansReleve.length} tâche{cartesSansReleve.length > 1 ? 's' : ''} sans relevé de quota — la
+                  mesure est récente, les tâches plus anciennes n'en portent pas.
+                </p>
+                <div className="mt-1 space-y-0.5">
+                  {cartesSansReleve.slice(0, 5).map((carte) => (
+                    <div
+                      key={carte.cardId}
+                      className="flex items-center gap-2 rounded-md border border-border bg-bg px-2 py-1"
+                      data-quota-sans-releve
+                    >
+                      <p className="min-w-0 flex-1 truncate text-[12.5px] text-faint">{carte.title}</p>
+                      <span className="shrink-0 text-[11px] text-faint">
+                        {carte.quotaEstime != null
+                          ? `${partEnClair(carte.quotaEstime)} estimés, jamais mesurés`
+                          : 'pas de relevé'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
         </div>
       </ZoneDefilement>

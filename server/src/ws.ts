@@ -1063,15 +1063,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // Le titre, le projet et la colonne d'une carte vivent dans son JSON, pas
       // dans la table `usage` : on raccroche la conso par carte aux cartes de
       // tous les projets (archivés compris — une conso passée garde son nom).
-      const cartes = new Map<string, { title: string; projectName?: string; column: string; quotaShare?: number }>();
+      const cartes = new Map<string, { title: string; projectName?: string; column: string; quotaEstime?: number }>();
       for (const project of store.listProjects(true)) {
         for (const card of store.listCards(project.id)) {
           cartes.set(card.id, {
             title: card.title,
             projectName: project.name,
             column: card.column,
-            // La part de quota réelle si elle a été mesurée, sinon l'estimation.
-            quotaShare: card.consumption?.quotaShare ?? card.estimate?.quotaShare,
+            // L'ESTIMATION faite à la validation, et rien d'autre : la part
+            // réellement consommée vient des lignes `usage` (quota5h /
+            // quotaSemaine ci-dessous), jamais du JSON de la carte. Les deux
+            // voyagent séparément pour ne plus être confondues à l'écran.
+            quotaEstime: card.estimate?.quotaShare,
           });
         }
       }
@@ -1082,7 +1085,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           title: carte?.title ?? 'Carte retirée',
           projectName: carte?.projectName,
           column: carte?.column,
-          quotaShare: carte?.quotaShare,
+          // Mesuré, en points de pourcentage. 0 = aucun relevé (tâche ancienne).
+          quota5h: ligne.quota5h,
+          quotaSemaine: ligne.quotaSemaine,
+          quotaEstime: carte?.quotaEstime,
           tokens: ligne.tokens,
           seconds: ligne.seconds,
           turns: ligne.turns,

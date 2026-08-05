@@ -110,10 +110,13 @@ async function main() {
           { projectId: 'p3', name: 'Eloya', tokens: 90000, seconds: 7200, tasks: 6 },
         ],
         byDay,
+        // Les deux parts sont MESURÉES, en points de pourcentage. La première
+        // carte a le plus de jetons mais PAS la plus grosse part de semaine :
+        // c'est ce qui prouve que le classement suit bien la semaine.
         byCard: [
-          { cardId: 'c1', title: 'Refonte du volet des quotas', projectName: 'HaikoDev', column: 'done', quotaShare: 0.12, tokens: 42000, seconds: 3600, turns: 3 },
-          { cardId: 'c2', title: 'Barre d’écriture mobile', projectName: 'Aikomail', column: 'deployable', quotaShare: 0.05, tokens: 18000, seconds: 1500, turns: 2 },
-          { cardId: 'c3', title: 'Sans part de quota (ancienne tâche)', projectName: 'Eloya', column: 'done', tokens: 9000, seconds: 900, turns: 1 },
+          { cardId: 'c1', title: 'Refonte du volet des quotas', projectName: 'HaikoDev', column: 'done', quota5h: 9.5, quotaSemaine: 3.2, tokens: 42000, seconds: 3600, turns: 3 },
+          { cardId: 'c2', title: 'Barre d’écriture mobile', projectName: 'Aikomail', column: 'deployable', quota5h: 2.1, quotaSemaine: 7.8, tokens: 18000, seconds: 1500, turns: 2 },
+          { cardId: 'c3', title: 'Sans part de quota (ancienne tâche)', projectName: 'Eloya', column: 'done', quota5h: 0, quotaSemaine: 0, quotaEstime: 0.05, tokens: 9000, seconds: 900, turns: 1 },
         ],
       };
     };
@@ -174,6 +177,38 @@ async function main() {
 
   const barres = await page.locator('[data-fil="tableau-de-bord"] svg, [data-fil="tableau-de-bord"] [style*="height"]').count();
   record('la courbe par jour est dessinée', barres > 0, `${barres} éléments graphiques`);
+
+  /* ---------- 3 bis. Les deux parts de quota par tâche ---------- */
+  const lignesQuota = await page.locator('[data-quota-carte]').all();
+  const detailQuota = [];
+  for (const ligne of lignesQuota) {
+    detailQuota.push({
+      semaine: Number(await ligne.getAttribute('data-quota-semaine')),
+      texte: (await ligne.innerText()).replace(/\s+/g, ' '),
+    });
+  }
+  record('chaque tâche porte une ligne de part de quota', detailQuota.length === 2, `${detailQuota.length} lignes`);
+
+  const lesDeuxParts = detailQuota.every((l) => /semaine/i.test(l.texte) && /sur 5 h/i.test(l.texte));
+  record('chaque ligne montre la part de SEMAINE et la part de 5 h', lesDeuxParts, JSON.stringify(detailQuota.map((l) => l.texte)));
+
+  const classee = detailQuota.every((l, i) => i === 0 || detailQuota[i - 1].semaine >= l.semaine);
+  const semaineDAbord = detailQuota[0]?.semaine === 7.8;
+  record(
+    'la liste est classée par la part de SEMAINE décroissante (pas par les jetons)',
+    classee && semaineDAbord,
+    detailQuota.map((l) => l.semaine).join(' > '),
+  );
+
+  const total = await page.locator('[data-total-quota]').innerText().catch(() => '');
+  record('le total de la période est rappelé au-dessus de la liste', /11(?:[.,]0)? % du quota de la semaine/i.test(total), total.replace(/\s+/g, ' '));
+
+  const sansReleve = await page.locator('[data-quota-sans-releve]').innerText().catch(() => '');
+  record(
+    'une tâche sans relevé le DIT au lieu d’afficher un zéro',
+    /ancienne tâche/i.test(sansReleve) && /estimés, jamais mesurés/i.test(sansReleve),
+    sansReleve.replace(/\s+/g, ' '),
+  );
 
   await page.screenshot({ path: `${SHOTS}/tableau-de-bord.png`, fullPage: false });
 
