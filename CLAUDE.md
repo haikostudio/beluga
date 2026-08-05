@@ -472,6 +472,11 @@ sans son point d'essai.
   l'entendrait deux fois. La phrase NOMME de quoi il s'agit (`phraseDecisionAttendue`) : le titre de
   la TÂCHE si la décision tient à une carte, sinon le nom du PROJET dont le compte a monté, sinon un
   repli générique — le tout sous `VOIX_LONGUEUR_MAX` (un titre à rallonge retombe sur le projet). La
+  voix a une PERSONNALITÉ, posée à un SEUL endroit (`shared/src/voix-annonce.ts`, `NOM_UTILISATEUR` =
+  « Chris ») : une développeuse fullstack qui pilote les tâches DANS HaikoDev, tutoie l'utilisateur et
+  l'appelle « Chris », d'un ton humain jamais robotique. Les phrases de fin de tâche VARIENT selon le
+  titre (`variante`, choix STABLE pour un même titre — une réécoute ne surprend pas) au lieu d'un
+  modèle figé ; publication et décision gardent le même déclencheur, seul le TON change. La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
   du navigateur. Le module est TOUJOURS à l'écran, réduit en un petit icône rond au centre en bas ;
