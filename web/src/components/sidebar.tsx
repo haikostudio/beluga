@@ -459,6 +459,15 @@ export function Sidebar({
                 >
                   <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-40 transition-opacity survol:opacity-0 group-hover/g:opacity-100 active:cursor-grabbing" />
                 </span>
+                {/* Le point de couleur du groupe, posé À GAUCHE du nom (juste
+                    avant le libellé), et non plus tout à droite de la ligne. Un
+                    sélecteur ouvre un menu : il ne peut pas vivre DANS le bouton
+                    du nom (un bouton n'en contient pas un autre), donc il se
+                    place juste avant. Même pastille, même taille, même action. */}
+                <ColorPicker
+                  value={entry.group.color}
+                  onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
+                />
                 <button
                   onClick={() => toggle(entry.id)}
                   className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-muted hover:text-text"
@@ -494,10 +503,6 @@ export function Sidebar({
                     }}
                   />
                 ) : null}
-                <ColorPicker
-                  value={entry.group.color}
-                  onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
-                />
                 <button
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => setRenaming(entry.group)}
