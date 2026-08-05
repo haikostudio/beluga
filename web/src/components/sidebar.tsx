@@ -414,12 +414,11 @@ export function Sidebar({
             <div
               key={entry.id}
               data-drop-group={entry.id}
-              style={{
-                ...glisse(decales.racine.has(entry.id)),
-                ...(entry.group.color ? { borderLeftColor: entry.group.color, borderLeftWidth: 3 } : {}),
-              }}
+              style={glisse(decales.racine.has(entry.id))}
               className={cn(
-                'relative mb-0.5 rounded-md border transition-[transform,background-color,border-color] duration-150 motion-reduce:transition-none',
+                // Coins nets, sans « rounded-md » : la ligne colorée du groupe
+                // (posée juste en dessous) est une droite verticale.
+                'relative mb-0.5 border transition-[transform,background-color,border-color] duration-150 motion-reduce:transition-none',
                 // Survoler le corps du groupe l'éclaire en entier : on comprend
                 // que le projet va s'y ranger.
                 target?.kind === 'group' && target.id === entry.id && target.position === 'inside'
@@ -427,6 +426,18 @@ export function Sidebar({
                   : 'border-transparent',
               )}
             >
+              {/* La ligne colorée du groupe. Posée en absolu à « left: -7px »
+                  (les 6 px du retrait « px-1.5 » de la liste, plus le trait de
+                  1 px du groupe), elle vient toucher le bord gauche sans laisser
+                  d'espace, et sans déplacer la boîte du groupe (qui garde sa
+                  géométrie pour le glisser-déposer) ni le texte des projets. */}
+              {entry.group.color ? (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -left-[7px] inset-y-0 w-[3px]"
+                  style={{ backgroundColor: entry.group.color }}
+                />
+              ) : null}
               <Trait ou={marqueurDe(entry.id)} />
               <EnteteGroupe
                 rowProps={rowProps(entry.id, 'group')}
