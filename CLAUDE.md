@@ -698,8 +698,11 @@ sans son point d'essai.
   UTILISABLE (ordonnanceur, amorçage via `etatDesComptes`, catalogue) — l'écarte ; `listAllAccountRecords()`
   le garde pour le volet et pour la commande. `ajouterComptesDesactives` le rejoue dans les quotas
   depuis son dernier relevé (marqué `disabled`, indisponible), et `markActive` ne le choisit jamais
-  comme compte actif. Rien n'est supprimé, aucun identifiant touché. Verrouillé par
-  `server/src/test/compte-desactive.test.ts`.
+  comme compte actif. Rien n'est supprimé, aucun identifiant touché. Un compte coupé reste coupé
+  APRÈS un redémarrage : `bootstrapAccounts` calcule ses comptes déjà connus avec
+  `listAllAccountRecords()` (jamais `listAccountRecords()`, qui filtre les désactivés) — sinon un
+  compte coupé, n'étant plus « connu », serait reconstruit à neuf sans son drapeau et se rallumerait.
+  Verrouillé par `server/src/test/compte-desactive.test.ts`.
 - **Le bloc du cerveau dit UNE chose et propose le geste qui débloque**
   (`shared/src/bloc-cerveau.ts`). `ligneEtatCerveau` rend UNE seule ligne d'état — clé manquante,
   dernier envoi réussi, ou aucun envoi abouti — là où le bloc empilait un badge, un encadré orange
