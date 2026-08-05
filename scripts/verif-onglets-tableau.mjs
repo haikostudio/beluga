@@ -241,6 +241,31 @@ async function main() {
     (await aRepere('[data-onglet-travail="planned"]')) === 1,
   );
 
+  /*
+   * Le NOMBRE de cartes porté par chaque onglet doit valoir, au chiffre près,
+   * celui de la tête de sa colonne : même source (`byColumn`), donc jamais deux
+   * comptes qui se contredisent. Le chiffre de la tête est le frère du titre.
+   */
+  const comptesCompares = () =>
+    page.evaluate(() => {
+      const ecarts = [];
+      for (const onglet of document.querySelectorAll('[data-onglet-compte]')) {
+        const cle = onglet.getAttribute('data-onglet-compte');
+        const titre = document.querySelector(`[data-column="${cle}"] h2`);
+        const tete = titre?.nextElementSibling?.textContent?.trim() ?? null;
+        const dit = onglet.textContent?.trim() ?? null;
+        if (tete !== dit) ecarts.push(`${cle}: onglet ${dit} / colonne ${tete}`);
+      }
+      return { nombre: document.querySelectorAll('[data-onglet-compte]').length, ecarts };
+    });
+
+  const comptes = await comptesCompares();
+  record(
+    'chaque onglet porte le compte de sa colonne, égal à celui de la tête',
+    comptes.nombre > 0 && comptes.ecarts.length === 0,
+    comptes.ecarts.join(' | ') || `${comptes.nombre} onglet(s)`,
+  );
+
   await page.screenshot({ path: `${DONNEES}/verification/onglets-tableau.png` });
 
   // « Lire » la carte de « running » : lastReadAt posé après la fin → le point
@@ -302,6 +327,39 @@ async function main() {
   record(
     'le travail achevé éteint le robot d’activité de son onglet',
     (await aRepere('[data-onglet-travail="planned"]')) === 0,
+  );
+
+  // Une carte change de colonne : les deux comptes doivent bouger ENSEMBLE.
+  await page.evaluate(
+    ([projectId, cardId, agentId, quand]) => {
+      window.__injecter({
+        type: 'card.upsert',
+        card: {
+          id: cardId,
+          projectId,
+          title: 'Essai — agent au travail',
+          description: '',
+          labels: [],
+          column: 'todo',
+          position: quand + 0.4,
+          origin: 'user',
+          run: { engine: 'codex', mode: 'direct' },
+          excludedFromDeploy: false,
+          horsTache: false,
+          agentId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      });
+    },
+    [projectId, carteTravail.cardId, carteTravail.agentId, maintenant],
+  );
+  await page.waitForTimeout(700);
+  const apresDeplacement = await comptesCompares();
+  record(
+    'déplacer une carte garde les deux comptes d’accord',
+    apresDeplacement.ecarts.length === 0,
+    apresDeplacement.ecarts.join(' | '),
   );
 
   record('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
