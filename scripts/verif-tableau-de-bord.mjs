@@ -178,6 +178,55 @@ async function main() {
   const barres = await page.locator('[data-fil="tableau-de-bord"] svg, [data-fil="tableau-de-bord"] [style*="height"]').count();
   record('la courbe par jour est dessinée', barres > 0, `${barres} éléments graphiques`);
 
+  /* ---------- 3 ter. La COULEUR des barres dit l'intensité ---------- */
+  const couleurs = await page.evaluate(() => {
+    const lues = [...document.querySelectorAll('[data-barre-jour]')].map((b) => ({
+      jour: b.getAttribute('data-barre-jour'),
+      hauteur: Math.round(b.getBoundingClientRect().height),
+      couleur: getComputedStyle(b).backgroundColor,
+    }));
+    return lues;
+  });
+  const distinctes = new Set(couleurs.map((c) => c.couleur));
+  record(
+    'au moins deux barres de consommations différentes portent des couleurs différentes',
+    couleurs.length > 1 && distinctes.size > 1,
+    `${couleurs.length} barres, ${distinctes.size} couleurs`,
+  );
+
+  // Le gris d'avant : toutes les barres identiques et désaturées. On vérifie que
+  // la plus chargée et la plus calme ne se ressemblent pas.
+  const parHauteur = [...couleurs].sort((a, b) => a.hauteur - b.hauteur);
+  const calme = parHauteur[0];
+  const chargee = parHauteur[parHauteur.length - 1];
+  record(
+    'la barre la plus chargée et la plus calme ne portent pas la même couleur',
+    Boolean(calme && chargee) && calme.couleur !== chargee.couleur,
+    `${calme?.hauteur}px ${calme?.couleur} vs ${chargee?.hauteur}px ${chargee?.couleur}`,
+  );
+
+  const barresProjets = await page.locator('[data-barre-projet]').count();
+  const couleursProjets = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-barre-projet]')].map((b) => getComputedStyle(b).backgroundColor),
+  );
+  record(
+    'les barres des projets les plus travaillés sont colorées elles aussi',
+    barresProjets > 1 && new Set(couleursProjets).size > 1,
+    `${barresProjets} barres, ${new Set(couleursProjets).size} couleurs`,
+  );
+
+  // L'appui sur une barre montre toujours le détail du jour, couleur ou pas.
+  const premiereBarre = page.locator('[data-barre-jour]').first();
+  const jourVise = await premiereBarre.getAttribute('data-barre-jour');
+  await premiereBarre.click();
+  await page.waitForTimeout(400);
+  const detailJour = await page.locator('[data-fil="tableau-de-bord"] p[aria-live="polite"]').innerText().catch(() => '');
+  record(
+    'un appui sur une barre montre toujours le détail du jour',
+    /jetons/.test(detailJour) && !/Touchez une barre/.test(detailJour),
+    `${jourVise} → ${detailJour.replace(/\s+/g, ' ')}`,
+  );
+
   /* ---------- 3 bis. Les deux parts de quota par tâche ---------- */
   const lignesQuota = await page.locator('[data-quota-carte]').all();
   const detailQuota = [];
@@ -211,6 +260,31 @@ async function main() {
   );
 
   await page.screenshot({ path: `${SHOTS}/tableau-de-bord.png`, fullPage: false });
+
+  /* ---------- 3 quater. Les mêmes couleurs tiennent en thème CLAIR ---------- */
+  // On ne bascule que l'apparence (la classe que pose le menu de la barre de
+  // quota) : aucune préférence n'est écrite, aucune donnée touchée.
+  await page.evaluate(() => {
+    document.documentElement.classList.remove('dark');
+    document.documentElement.style.colorScheme = 'light';
+  });
+  await page.waitForTimeout(400);
+  const couleursClair = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-barre-jour]')].map((b) => getComputedStyle(b).backgroundColor),
+  );
+  record(
+    'en thème clair aussi, les barres portent des couleurs distinctes',
+    new Set(couleursClair).size > 1,
+    `${new Set(couleursClair).size} couleurs`,
+  );
+  const clairDifferentDuSombre = couleursClair.some((c, i) => c !== couleurs[i]?.couleur);
+  record('les couleurs du thème clair suivent bien le thème (elles diffèrent du sombre)', clairDifferentDuSombre);
+  await page.screenshot({ path: `${SHOTS}/tableau-de-bord-clair.png`, fullPage: false });
+  await page.evaluate(() => {
+    document.documentElement.classList.add('dark');
+    document.documentElement.style.colorScheme = 'dark';
+  });
+  await page.waitForTimeout(300);
 
   /* ---------- 4. Sur téléphone : lisible et refermable ---------- */
   await page.setViewportSize({ width: 390, height: 844 });

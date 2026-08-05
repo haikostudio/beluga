@@ -359,6 +359,17 @@ sans son point d'essai.
   grandeur que le classement. Une tâche sans relevé est LISTÉE à part et le dit, jamais chiffrée à
   zéro. Le total de la période est rappelé au-dessus de la liste. Verrouillé par
   `server/src/test/usage-part-quota.test.ts` et `scripts/verif-tableau-de-bord.mjs`.
+- **Une barre du tableau de bord porte la COULEUR de son intensité** (`couleurIntensite`,
+  `shared/src/couleur-intensite.ts`). Les trois blocs à barres — consommation au fil des jours,
+  projets les plus travaillés, part de quota par carte — passent tous par la même règle : la couleur
+  mélange en `oklab` deux JETONS de thème, `--intensite-calme` (= `--success`) et
+  `--intensite-chargee` (= `--warning`), proportionnellement à la valeur rapportée au maximum
+  observé. Le haut du dégradé est l'ORANGE d'attention, jamais le rouge de `--danger` : une forte
+  consommation est un fait à voir, pas une panne. Aucune teinte n'est écrite en dur, donc les deux
+  thèmes suivent d'eux-mêmes ; la barre choisie de la courbe n'est plus distinguée par sa couleur
+  (elle en porte une qui parle) mais par un liseré d'accent (`ring-accent`). Verrouillé par
+  `server/src/test/couleur-intensite.test.ts` et `scripts/verif-tableau-de-bord.mjs`, qui lit les
+  couleurs calculées dans les deux thèmes.
 - **On répond en IMAGES à la question d'un agent** (`shared/src/images-reponse.ts`). Le champ de
   réponse d'une question accepte des images — bouton, collage, glisser-déposer sur le bloc — et
   RIEN d'autre : `triImages` écarte le reste et le refus se dit. Les images s'affichent en vignettes
