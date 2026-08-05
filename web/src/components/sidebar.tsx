@@ -501,7 +501,7 @@ export function Sidebar({
                 <button
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => setRenaming(entry.group)}
-                  className="shrink-0 text-faint opacity-40 hover:text-text group-hover/g:opacity-100"
+                  className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover/g:opacity-100"
                   title="Renommer le groupe"
                 >
                   <Pencil className="h-2.5 w-2.5" />
@@ -509,7 +509,7 @@ export function Sidebar({
                 <button
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => setDeleting(entry.group)}
-                  className="shrink-0 text-faint opacity-40 hover:text-danger group-hover/g:opacity-100"
+                  className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-danger group-hover/g:opacity-100"
                   title="Supprimer le groupe"
                 >
                   <X className="h-2.5 w-2.5" />
@@ -1099,7 +1099,11 @@ function ProjectRow({
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
-            <CircleDollarSign className="h-2.5 w-2.5 shrink-0 text-faint" />
+            {/* À la suite du nom (le nom prend toute la place, ce repère est
+                poussé à droite). Caché au repos sur pointeur qui survole, révélé
+                au survol de la ligne — comme la poignée. Sur téléphone (pas de
+                survol) il reste discrètement visible. */}
+            <CircleDollarSign className="ml-auto h-2.5 w-2.5 shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 group-hover:opacity-100" />
           </Tooltip>
         ) : null}
       </button>
@@ -1113,7 +1117,7 @@ function ProjectRow({
       <button
         onPointerDown={(event) => event.stopPropagation()}
         onClick={onSettings}
-        className="shrink-0 text-faint opacity-40 transition-opacity hover:text-text group-hover:opacity-100"
+        className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover:opacity-100"
         title="Réglages du projet"
       >
         <Settings2 className="h-3 w-3" />
