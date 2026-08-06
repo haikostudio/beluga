@@ -11,7 +11,11 @@ import {
   RunConfig,
   ServerEvent,
   canMove,
+  derniersResultats,
   effetDuDepot,
+  environnementVise,
+  environnementsDuProjet,
+  modifierEnvironnement,
   etatVisuelCarte,
   sortieAutorisee,
   RAISON_SUSPENDU,
@@ -44,6 +48,7 @@ import {
   conflitsPrevus,
   agentsOccupes,
   commitsEnAttente,
+  environnementsDePublication,
   moyenDeMiseEnLigne,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
@@ -227,9 +232,21 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (!project) throw new Error('projet introuvable');
       const result = await publishSubdomain(cmd.subdomain, cmd.port);
       if (!result.ok) throw new Error(result.error ?? 'publication du nom impossible');
-      const updated = store.saveProject({ ...project, deployUrl: result.url });
+      /*
+       * L'adresse va sur l'environnement VISÉ, pas sur le projet : un projet
+       * qui a une production et un dev client ne peut pas n'avoir qu'une seule
+       * adresse. Un projet à l'ancien format est matérialisé au passage — sa
+       * liste d'environnements est écrite pour de bon, avec ses anciennes
+       * valeurs, si bien que rien n'est perdu ni changé de comportement.
+       */
+      const liste = environnementsDuProjet(project);
+      const vise = environnementVise(project, cmd.environmentId);
+      const updated = store.saveProject({
+        ...project,
+        environments: modifierEnvironnement(liste, vise.id, { url: result.url }),
+      });
       bus.emit({ type: 'project.upsert', project: updated });
-      bus.toast('success', `Adresse en ligne : ${result.url}`);
+      bus.toast('success', `Adresse en ligne (${vise.nom}) : ${result.url}`);
       return result;
     }
 
@@ -844,7 +861,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     /* -------- Publication -------- */
 
     case 'deploy.start': {
-      const result = await startDeploy(cmd.projectId);
+      const result = await startDeploy(cmd.projectId, cmd.environmentId);
       if (!result.ok) throw new Error(result.error ?? 'publication impossible');
       return result;
     }
@@ -855,7 +872,11 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'deploy.retry':
       return retryDeploy(cmd.runId);
 
-    case 'deploy.check':
+    case 'deploy.check': {
+      // Les environnements du projet et ce que chacun a donné la dernière fois :
+      // le bloc de publication montre l'environnement visé sans avoir à deviner.
+      const environnements = environnementsDePublication(cmd.projectId);
+      const derniers = derniersResultats(environnements, store.recentDeploys(cmd.projectId));
       return {
         conflicts: await conflitsPrevus(cmd.projectId),
         busy: agentsOccupes(cmd.projectId),
@@ -864,8 +885,11 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         enAttente: await commitsEnAttente(cmd.projectId),
         // Ce projet peut-il seulement être mis en ligne ? Le dire AVANT le clic
         // vaut mieux que de le découvrir sur une publication refusée.
-        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId),
+        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId, cmd.environmentId),
+        environnements,
+        derniers: Object.fromEntries(derniers),
       };
+    }
 
     /* -------- Fichiers -------- */
 
