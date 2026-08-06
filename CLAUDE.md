@@ -69,6 +69,8 @@ node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poig
 node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt puis à la souris (serveur de développement, HAIKO_INTERRUPTEUR_URL ; aucun vrai compte touché)
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
+node scripts/verif-envoi-surveille.mjs # un projet « se déploie sur envoi » fait attendre avant tout envoi (démon et dépôt d'essai à soi, HAIKODEV_VERIF_PORT)
+node scripts/verif-environnements-publication.mjs # plusieurs environnements par projet : ajout dans les réglages, apparition dans le bloc de publication (serveur de développement, HAIKO_ENVS_URL ; `project.update` et `deploy.check` interceptés, aucun projet réel touché)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
@@ -99,6 +101,7 @@ node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes e
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
+node scripts/verif-assistant-vocal.mjs # une phrase dictée part chez le bon projet, une phrase vague pose la question (démon d'essai à soi, dossier personnel vide : aucun compte, aucun quota dépensé)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
 node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
 HAIKODEV_DATA=/root/haikodev/data node scripts/installer-kokoro.mjs # pose le moteur Kokoro : venv-kokoro + data/models/kokoro (rejouable)
@@ -163,6 +166,53 @@ sans son point d'essai.
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
   Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
   (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
+- **Un ENVOI qui met la production à jour ne part JAMAIS sans un clic**
+  (`shared/src/envoi-surveille.ts`, branché dans `server/src/deploy.ts`). Un projet peut DÉCLARER que
+  sa branche principale déclenche un déploiement chez le client (`Project.deployeSurEnvoi`, coché
+  dans les réglages du projet, bloc « Publication ») : envoyer, c'est alors mettre en ligne. Quand
+  c'est déclaré, `startDeploy` s'arrête AVANT la première commande git — pas entre
+  « Enregistrement » et « Envoi » : l'étape de fusion pousse déjà la branche courante
+  (`git push -u origin <branche>`), et un refus doit laisser le lot ENTIER, pas à moitié fusionné.
+  Les sept étapes et leur ordre ne bougent pas ; elles ne commencent simplement pas. La publication
+  prend l'état `awaiting` et porte son `attente` (branche, enregistrements, texte) : le texte NOMME
+  le projet, la branche, ce qui partirait (cinq enregistrements au plus, le reste compté), les cartes
+  du lot, l'adresse remplacée, et dit que rien n'est parti. La décision passe par le TRIANGLE ORANGE
+  déjà en place — quatrième source de `decisionsEnAttente` (`server/src/store.ts`), genre `envoi`,
+  SANS `agentId` : elle ne tient ni à une carte ni à une conversation, elle se tranche dans le bloc
+  de publication du projet — et par le motif `decision-attendue` du guichet `notify`. Chaque carte du
+  lot porte une `waitingReason` qui dit pourquoi elle ne part pas, jamais un triangle par carte (le
+  compte annoncé doit valoir le nombre de repères). `deploy.envoi { runId, accord }` tranche :
+  l'accord fait repartir LA MÊME publication depuis la première étape (`options.reprendre` garde son
+  identifiant — sinon la ligne « en attente » resterait en base et le triangle ne s'éteindrait
+  jamais), le refus la passe en `stopped`, laisse les cartes où elles sont et l'écrit dessus. Rien
+  n'est lu chez le client : c'est une déclaration faite ici. Un projet non déclaré ne change EN RIEN.
+  L'attente RETIENT son environnement de publication (`environmentId` / `environmentName`) :
+  l'accord relance la même publication vers le même endroit, jamais vers le premier de la liste.
+  Verrouillé par `server/src/test/envoi-surveille.test.ts` et `scripts/verif-envoi-surveille.mjs`.
+- **Un projet a PLUSIEURS environnements de publication, et une publication en vise UN**
+  (`shared/src/environnements-publication.ts`). Un projet portait un seul jeu de réglages
+  (`deployCommand` / `deployUrl`) : décrire un dev chez le client ET une production était
+  impossible. Il porte désormais une LISTE ORDONNÉE (`Project.environments`), chaque
+  environnement ayant son nom, son rôle (`interne` / `dev-client` / `production`), sa commande, son
+  adresse à contrôler et sa branche installée. `environnementsDuProjet` est le SEUL point de
+  lecture : une liste vide rend UN environnement « Interne » portant les anciens champs, si bien
+  qu'un projet déjà réglé se comporte exactement comme avant, sans migration de base. Les deux
+  anciens champs ne sont plus jamais écrits — le volet de réglages n'écrit que `environments`, deux
+  endroits d'écriture faisant deux vérités. `environnementVise(projet, id?)` tranche : sans
+  identifiant, le PREMIER de la liste ; un identifiant inconnu y retombe aussi, jamais un refus
+  muet. `planDeMiseEnLigne` reçoit le nom de l'environnement (`MoyensDeMiseEnLigne.environnement`)
+  et son refus le NOMME — la commande vient de l'environnement, le service système et le dossier
+  servi restent des propriétés du dossier, donc communes.
+  `startDeploy(projectId, environmentId?, options?)`
+  décide l'environnement UNE fois pour tout le run : commande, adresse contrôlée à la fin, branche
+  installée (vide = la branche principale ; une branche nommée mais absente ARRÊTE la publication au
+  lieu de se rabattre en silence). Le run le retient (`DeployRun.environmentId` / `environmentName`),
+  la relance et la file d'attente le rejouent, et les notifications comme la référence de
+  dédoublonnage le portent — le même lot mis en dev puis en production fait bien deux alertes.
+  `derniersResultats` rend le dernier résultat de CHAQUE environnement (une publication d'avant
+  cette règle compte pour le premier), affiché dans le bloc de publication à côté du menu de choix.
+  Verrouillé par `server/src/test/environnements-publication.test.ts` et
+  `scripts/verif-environnements-publication.mjs`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette
@@ -700,6 +750,32 @@ sans son point d'essai.
   messages lus à la main N'ENTRENT PAS dans l'historique des annonces : deux choses distinctes.
   Verrouillé par `server/src/test/lecture-message.test.ts` ; l'écoute réelle se voit au navigateur
   (serveur de développement).
+- **Une phrase DICTÉE est routée vers un projet par une règle PURE, jamais par un moteur payant**
+  (`shared/src/routage-vocal.ts`, branché par `server/src/routage-vocal.ts`). Le chef d'orchestre est
+  attaché à UN projet ; une phrase dictée n'avait donc aucun destinataire. La commande
+  `voix.demande` (un seul champ, `texte`) confie la phrase à l'assistant GLOBAL : il lit
+  `store.listProjects()` (archivés écartés d'office) et `routerLaDemande` tranche — nom CITÉ (le nom
+  du projet apparaît tel quel, accents et ponctuation ignorés, les mots recollés pour rattraper
+  « aïko dev »), nom APPROCHANT (distance de Levenshtein au-dessus de `SEUIL_APPROCHANT`, et
+  seulement s'il devance le suivant d'`ECART_APPROCHANT` — sinon on demande), ou projet UNIQUE. Le
+  doute se paie d'une QUESTION, jamais d'un pari : deux noms cités, aucun nom, ou un projet clair
+  mais une action de moins de `MOTS_MIN_ACTION` mots (« HaikoDev » tout seul) posent la question.
+  Une question s'affiche forcément DANS une conversation, donc dans un projet : `lieuDeLaQuestion`
+  choisit le projet déjà retenu, sinon le premier candidat, sinon le projet actif, sinon le premier
+  du tableau. C'est une vraie question d'agent (même `AgentQuestion`, même triangle orange, même
+  montée du compte d'attention, donc même annonce vocale) — l'assistant ne code pas, ne crée aucune
+  carte et ne touche à aucun projet archivé : il DÉPOSE la phrase telle quelle dans le chef
+  d'orchestre du projet et lance le tour, le chef gardant son tri. La dictée en attente est rangée
+  EN BASE (table `dictees`, migration 12) : un redémarrage entre la question et la réponse ne perd
+  rien. `question.answer` REGARDE cette table AVANT de rendre la main à l'agent qui a posé la
+  question — une question de routage ne vient pas d'un moteur en train de réfléchir, sa réponse doit
+  faire partir la demande AILLEURS. `suiteDuRoutage` distingue les deux cas : quand le PROJET
+  manquait, la réponse nomme le projet et c'est la phrase d'origine qui part ; quand l'ACTION
+  manquait, le projet est déjà connu et c'est la réponse qui EST la demande. La réponse se donne
+  aussi à la VOIX : une phrase dictée moins de `DELAI_REPONSE_DICTEE_MS` (10 min) après la question
+  est lue comme sa réponse, et inscrite dans la question pour éteindre le triangle. Une réponse
+  incomprise ne dépose RIEN et le dit dans la conversation. Verrouillé par
+  `server/src/test/routage-vocal.test.ts` et `scripts/verif-assistant-vocal.mjs`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte

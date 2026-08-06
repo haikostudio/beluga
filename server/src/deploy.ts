@@ -8,6 +8,7 @@ import {
   ColumnKey,
   DeployRun,
   DeployStepKey,
+  EnvironnementPublication,
   MoyensDeMiseEnLigne,
   MoyensDePublication,
   PlanDeMiseEnLigne,
@@ -15,16 +16,26 @@ import {
   ECHECS_NOMMES_MAX,
   etapeDePublication,
   raisonEtapeInconnue,
+  environnementVise,
+  environnementsDuProjet,
   consigneDeReparationConstruction,
   controlesTombes,
   detailDEchec,
   detailDEchecConstruction,
   phraseDEchecConstruction,
+  enregistrementsAEnvoyer,
+  envoiDemandeAccord,
+  estMentionDEnvoi,
   estPlomberie,
+  mentionDAttenteSurCarte,
+  mentionDeRefusSurCarte,
   messageEchecPublication,
   miseEnLigneReelle,
   phraseDEchec,
   planDeMiseEnLigne,
+  raisonDuRefus,
+  texteDeLAttente,
+  titreDeLAttente,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -130,25 +141,46 @@ function configurationsServeurWeb(): string[] {
   return textes;
 }
 
-/** Ce dont ce projet dispose pour être mis en ligne, constaté sur la machine. */
-export function moyensDuProjet(cwd: string, deployCommand?: string, estHaikoDev = false): MoyensDeMiseEnLigne {
+/**
+ * Ce dont ce projet dispose pour être mis en ligne, constaté sur la machine.
+ *
+ * La COMMANDE et le NOM viennent de l'environnement visé ; le reste (service
+ * système, dossier servi, script de construction) est une propriété du dossier
+ * et vaut donc pour tous les environnements.
+ */
+export function moyensDuProjet(
+  cwd: string,
+  deployCommand?: string,
+  estHaikoDev = false,
+  environnement?: string,
+): MoyensDeMiseEnLigne {
   return {
     commande: deployCommand,
     estHaikoDev,
     scriptBuild: scriptExiste(cwd, 'build'),
     service: serviceDuProjet(cwd) ?? undefined,
     dossierServi: dossierCiteParServeurWeb(configurationsServeurWeb(), cwd),
+    environnement,
   };
 }
 
 /**
  * Ce projet peut-il être mis en ligne, et comment ? Répondu SANS rien publier,
- * pour que la fenêtre de publication le dise avant le clic.
+ * pour que la fenêtre de publication le dise avant le clic. Le jugement porte
+ * sur l'environnement VISÉ : un projet peut très bien savoir installer son dev
+ * client et pas sa production.
  */
-export function moyenDeMiseEnLigne(projectId: string): PlanDeMiseEnLigne | null {
+export function moyenDeMiseEnLigne(projectId: string, environmentId?: string): PlanDeMiseEnLigne | null {
   const project = store.getProject(projectId);
   if (!project) return null;
-  return planDeMiseEnLigne(moyensDuProjet(project.path, project.deployCommand, project.isSelf));
+  const env = environnementVise(project, environmentId);
+  return planDeMiseEnLigne(moyensDuProjet(project.path, env.commande, project.isSelf, env.nom));
+}
+
+/** Les environnements d'un projet, tels que l'interface doit les montrer. */
+export function environnementsDePublication(projectId: string): EnvironnementPublication[] {
+  const project = store.getProject(projectId);
+  return project ? environnementsDuProjet(project) : [];
 }
 
 /** Le projet a-t-il ce script dans son package.json ? */
@@ -522,7 +554,8 @@ export async function construireAvecReparation(
 /* ------------------------------------------------------------------ */
 
 const active = new Map<string, { stop: () => void }>();
-const waiting = new Set<string>();
+/** Les publications qui attendent leur tour, chacune AVEC son environnement. */
+const waiting = new Map<string, string | undefined>();
 
 const STEP_ORDER: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
 
@@ -787,9 +820,104 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
   return { nombre: titres.length, titres: titres.slice(0, 6) };
 }
 
+/* ------------------------------------------------------------------ */
+/* Prévenir avant tout envoi qui met la production à jour              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ce que l'envoi emporterait, constaté sur le dépôt : la branche visée, les
+ * enregistrements qui partiraient, et si du travail non enregistré traîne.
+ *
+ * Deux sources d'enregistrements, réunies sans doublon : ce qui est déjà sur la
+ * branche principale sans avoir été envoyé, et ce que les branches des cartes du
+ * lot y ajouteraient.
+ */
+async function ceQuiPartirait(
+  cwd: string,
+  cards: Card[],
+): Promise<{ branche: string; enregistrements: string[]; travauxEnCours: boolean }> {
+  const branche = await mainBranchOf(cwd);
+  const sorties: string[] = [];
+
+  const dejaEnregistre = await runCommand(cwd, `git log --format=%s origin/${branche}..${branche}`, 30000);
+  if (dejaEnregistre.ok) sorties.push(dejaEnregistre.out);
+
+  for (const card of cards) {
+    const branch = card.github?.branch;
+    if (!branch) continue;
+    const journal = await runCommand(cwd, `git log --format=%s ${branche}..${branch}`, 30000);
+    if (journal.ok) sorties.push(journal.out);
+  }
+
+  const sale = await runCommand(cwd, 'git status --porcelain', 30000);
+  return {
+    branche,
+    enregistrements: enregistrementsAEnvoyer(sorties),
+    travauxEnCours: sale.out.trim().length > 0,
+  };
+}
+
+/**
+ * Écrit la même phrase sur chaque carte du lot. La décision, elle, reste posée
+ * à UN SEUL endroit — le bloc de publication : un triangle par carte ferait
+ * annoncer une décision et en montrer dix. Mais une carte qui ne part pas doit
+ * dire pourquoi, sinon elle semble bloquée sans raison.
+ */
+function marquerLesCartes(cardIds: string[], mention: string | undefined): void {
+  for (const cardId of cardIds) {
+    const card = store.getCard(cardId);
+    if (!card) continue;
+    const marquee = store.saveCard({
+      ...card,
+      scheduling: { ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }), waitingReason: mention },
+    });
+    bus.emit({ type: 'card.upsert', card: marquee });
+  }
+}
+
+/**
+ * L'accord donné : la publication repart du DÉBUT, ce qui est possible parce
+ * que l'attente est posée avant la moindre commande git — rien n'avait bougé.
+ * L'accord refusé : le lot reste entier, et chaque carte le dit.
+ */
+export async function repondreEnvoi(runId: string, accord: boolean): Promise<{ ok: boolean; error?: string }> {
+  const run = store.getDeploy(runId);
+  if (!run) return { ok: false, error: 'publication introuvable' };
+  if (run.state !== 'awaiting') return { ok: false, error: 'cette publication n’attend plus votre accord' };
+  const project = store.getProject(run.projectId);
+  if (!project) return { ok: false, error: 'projet introuvable' };
+  const branche = run.attente?.branche ?? 'la branche principale';
+
+  if (!accord) {
+    const raison = raisonDuRefus(project.name, branche);
+    emit({ ...run, state: 'stopped', attente: undefined, error: raison, endedAt: Date.now() });
+    /*
+     * Un refus n'est pas un échec : les cartes restent EXACTEMENT où elles
+     * sont, et portent la raison en toutes lettres — sinon le lot semblerait
+     * bloqué sans que rien ne dise pourquoi.
+     */
+    marquerLesCartes(run.cardIds, mentionDeRefusSurCarte(branche));
+    bus.emit({ type: 'attention', ...store.signalAttention() });
+    bus.toast('info', raison);
+    return { ok: true };
+  }
+
+  /*
+   * L'accord fait repartir LA MÊME publication (`reprendre`), pas une nouvelle :
+   * sinon la ligne « en attente » resterait en base et le triangle ne
+   * s'éteindrait jamais. Elle repart de la première étape — rien n'avait bougé.
+   */
+  // L'environnement du run repart AVEC lui : un accord donné sur le dev client
+  // ne doit pas relancer la publication vers la production.
+  const relance = await startDeploy(run.projectId, run.environmentId, { accordEnvoi: true, reprendre: run });
+  bus.emit({ type: 'attention', ...store.signalAttention() });
+  return relance.ok ? { ok: true } : { ok: false, error: relance.error };
+}
+
 export async function startDeploy(
   projectId: string,
-  options: { cible?: CiblePublication } = {},
+  environmentId?: string,
+  options: { cible?: CiblePublication; accordEnvoi?: boolean; reprendre?: DeployRun } = {},
 ): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
@@ -803,9 +931,22 @@ export async function startDeploy(
   const etape = etapeDePublication(moyensDePublication(project), options.cible);
   if (!etape) return { ok: false, error: raisonEtapeInconnue(options.cible ?? 'production') };
 
+  /*
+   * L'environnement visé, décidé UNE fois pour tout le run : c'est lui qui
+   * porte la commande de publication, l'adresse à contrôler et la branche à
+   * installer. Sans choix explicite, c'est le premier de la liste — et pour un
+   * projet réglé à l'ancienne, l'environnement « Interne » fabriqué à la
+   * lecture, qui porte exactement ses anciennes valeurs.
+   *
+   * L'étape et l'environnement répondent à deux questions distinctes — à quel
+   * moment du parcours on est, et vers quelle machine on pousse : les mêler
+   * ici ferait dépendre le parcours des cartes d'un réglage d'adresse.
+   */
+  const environnement = environnementVise(project, environmentId);
+
   // Une deuxième demande n'ouvre pas un run parallèle : elle attend son tour.
   if (active.has(projectId)) {
-    waiting.add(projectId);
+    waiting.set(projectId, environmentId);
     const current = store.latestDeploy(projectId);
     if (current) emit({ ...current, queued: true });
     return { ok: true, error: 'une publication est déjà en cours' };
@@ -832,23 +973,105 @@ export async function startDeploy(
    * aux archives et rien n'avait bougé à l'écran. On refuse maintenant AVANT
    * de toucher au dépôt, en nommant ce qui manque.
    */
-  const plan = planDeMiseEnLigne(moyensDuProjet(project.path, project.deployCommand, project.isSelf));
+  const plan = planDeMiseEnLigne(
+    moyensDuProjet(project.path, environnement.commande, project.isSelf, environnement.nom),
+  );
   if (!plan.possible) return { ok: false, error: plan.raison };
 
   let cards = deployableCards(projectId, etape.source);
   // Cartes dont la branche est en conflit : écartées du lot, jamais perdues.
   const ecartees = new Set<string>();
+
+  /*
+   * PRÉVENIR AVANT TOUT ENVOI QUI MET LA PRODUCTION À JOUR.
+   *
+   * Un projet peut avoir déclaré que sa branche principale déclenche un
+   * déploiement chez le client : envoyer, c'est alors mettre en ligne. On
+   * s'arrête ICI, avant la moindre commande git — la fusion elle-même pousse la
+   * branche courante quand du travail y traîne, et un refus doit laisser le lot
+   * entier, pas à moitié fusionné. La publication repartira de la première
+   * étape au clic, puisque rien n'a bougé.
+   */
+  if (project.deployeSurEnvoi && !options.accordEnvoi) {
+    const cwd = project.path;
+    const estUnDepot = (await runCommand(cwd, 'git rev-parse --git-dir', 20000)).ok;
+    const aUnDepotDistant = estUnDepot && (await runCommand(cwd, 'git remote', 20000)).out.trim().length > 0;
+    if (envoiDemandeAccord({ deployeSurEnvoi: true, estUnDepot, aUnDepotDistant })) {
+      const partirait = await ceQuiPartirait(cwd, cards);
+      const texte = texteDeLAttente({
+        projet: project.name,
+        branche: partirait.branche,
+        enregistrements: partirait.enregistrements,
+        cartes: cards.length,
+        adresse: environnement.url,
+        travauxEnCours: partirait.travauxEnCours,
+      });
+      const attente = DeployRun.parse({
+        id: store.newId(),
+        projectId,
+        state: 'awaiting',
+        steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
+        cardIds: cards.map((c) => c.id),
+        // L'attente RETIENT son environnement : l'accord relancera la même
+        // publication, vers le même endroit.
+        environmentId: environnement.id,
+        environmentName: environnement.nom,
+        url: environnement.url,
+        attente: {
+          branche: partirait.branche,
+          enregistrements: partirait.enregistrements,
+          texte,
+          demandeeA: Date.now(),
+        },
+        startedAt: Date.now(),
+        queued: false,
+      });
+      emit(attente);
+      // Chaque carte du lot dit pourquoi elle ne part pas ; la DÉCISION, elle,
+      // reste à un seul endroit — le bloc de publication.
+      marquerLesCartes(attente.cardIds, mentionDAttenteSurCarte(partirait.branche));
+      // Le même triangle orange que toute décision attendue, et la même alerte.
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+      notify({
+        motif: 'decision-attendue',
+        title: titreDeLAttente(project.name),
+        body: texte.split('\n')[0].slice(0, 160),
+        reference: `${projectId}:envoi:${attente.id}`,
+        element: titreDeLAttente(project.name),
+        projectId,
+      });
+      return { ok: true, run: attente };
+    }
+  }
+
   const run: DeployRun = DeployRun.parse({
-    id: store.newId(),
+    // L'accord donné fait repartir LA MÊME publication : on garde son
+    // identifiant, sinon la ligne « en attente » resterait en base.
+    id: options.reprendre?.id ?? store.newId(),
     projectId,
     state: 'running',
     steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
     cardIds: cards.map((c) => c.id),
-    url: project.deployUrl,
-    startedAt: Date.now(),
+    environmentId: environnement.id,
+    environmentName: environnement.nom,
+    url: environnement.url,
+    startedAt: options.reprendre?.startedAt ?? Date.now(),
     queued: false,
   });
   emit(run);
+
+  /*
+   * Une carte marquée par un refus d'envoi précédent repart propre : garder la
+   * mention ferait lire « refusé » sur une carte en train de partir en ligne.
+   */
+  for (const card of cards) {
+    if (!estMentionDEnvoi(card.scheduling?.waitingReason)) continue;
+    const propre = store.saveCard({
+      ...card,
+      scheduling: { ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }), waitingReason: undefined },
+    });
+    bus.emit({ type: 'card.upsert', card: propre });
+  }
 
   let stopped = false;
   // Le redémarrage du démon se fait EN DERNIER, une fois le run enregistré et
@@ -887,11 +1110,27 @@ export async function startDeploy(
           await runCommand(cwd, `git push -u origin ${branche}`, 60000).catch(() => undefined);
         }
 
-        const mainBranch = await mainBranchOf(cwd);
+        /*
+         * La branche INSTALLÉE par cet environnement. Vide — le cas de tous les
+         * projets d'aujourd'hui — c'est la branche principale, exactement comme
+         * avant. Un environnement qui nomme une branche absente ne se rabat pas
+         * en silence sur la principale : il le dit, sinon on publierait autre
+         * chose que ce qui est écrit dans les réglages.
+         */
+        const mainBranch = environnement.branche || (await mainBranchOf(cwd));
+        if (environnement.branche) {
+          const existe = await runCommand(cwd, `git rev-parse --verify --quiet ${mainBranch}`, 20000);
+          if (!existe.ok || !existe.out.trim()) {
+            throw new Error(
+              `L’environnement « ${environnement.nom} » installe la branche ${mainBranch}, qui n’existe pas dans ce dépôt : rien n’est mis en ligne.`,
+            );
+          }
+          mergeLog += `\nEnvironnement « ${environnement.nom} » : branche installée ${mainBranch}`;
+        }
         const checkout = await runCommand(cwd, `git checkout ${mainBranch}`);
         if (!checkout.ok) {
           throw new Error(
-            `Impossible de revenir sur la branche principale (${mainBranch}) : ${checkout.out.slice(-200)}`,
+            `Impossible de revenir sur la branche à installer (${mainBranch}) : ${checkout.out.slice(-200)}`,
           );
         }
         /*
@@ -1005,7 +1244,7 @@ export async function startDeploy(
       if (stopped) throw new Error('arrêt demandé');
 
       // 4 à 7 : la mise en ligne, telle que le plan l'a décidée avant de partir
-      const deployCommand = project.deployCommand?.trim();
+      const deployCommand = environnement.commande?.trim();
       if (deployCommand) {
         current = setStep(current, 'verify', 'running');
         const verify = await runCommand(cwd, 'npm run --if-present lint --silent || true', 5 * 60 * 1000);
@@ -1178,11 +1417,11 @@ export async function startDeploy(
 
       // Le verdict se lit sur le RÉSULTAT, pas sur le processus (PLAN §11) :
       // on vérifie ce qui est réellement servi en ligne.
-      if (project.deployUrl) {
-        const online = await checkOnline(project.deployUrl);
+      if (environnement.url) {
+        const online = await checkOnline(environnement.url);
         const verdict = online.ok
-          ? `Adresse ${project.deployUrl} joignable (${online.status}).`
-          : `Adresse ${project.deployUrl} injoignable (${online.status}).`;
+          ? `Adresse ${environnement.url} joignable (${online.status}).`
+          : `Adresse ${environnement.url} injoignable (${online.status}).`;
         current = setStep(current, 'publish', online.ok ? 'done' : 'failed', verdict);
         // Une adresse muette n'est pas une publication réussie : autrefois
         // l'étape passait au rouge et le run se déclarait quand même « réussi ».
@@ -1222,7 +1461,9 @@ export async function startDeploy(
         const deployed = store.saveCard({ ...card, deployedAt: Date.now() });
         bus.emit({ type: 'card.upsert', card: deployed });
         if (etape.clot) {
-          await archiveCard(cardId, { url: project.deployUrl, commit: current.targetCommit });
+          // L'adresse retenue dans le document de clôture est celle de
+          // l'environnement RÉELLEMENT visé, pas l'ancien champ du projet.
+          await archiveCard(cardId, { url: environnement.url, commit: current.targetCommit });
         } else {
           const avancee = store.saveCard({
             ...deployed,
@@ -1236,16 +1477,21 @@ export async function startDeploy(
       const reste = ecartees.size
         ? ` — ${ecartees.size} carte(s) écartée(s) pour conflit, restées à déployer`
         : '';
+      // Avec plusieurs environnements, « publication terminée » ne suffit plus :
+      // on nomme LEQUEL vient de partir en ligne.
+      const ou = ` (${environnement.nom})`;
       notify({
         motif: 'publication-terminee',
-        title: 'Publication terminée',
+        title: `Publication terminée${ou}`,
         body: `${current.cardIds.length} tâche(s) en ligne${reste}`,
-        // Une publication = un lot posé sur un enregistrement précis.
-        reference: `${projectId}:${current.targetCommit ?? current.cardIds.join(',')}`,
-        element: `${current.cardIds.length} tâche(s) en ligne`,
+        /* Une publication = un lot posé sur un enregistrement précis, DANS un
+           environnement précis : le même lot mis en dev puis en production fait
+           bien deux alertes, sinon la seconde serait avalée comme un doublon. */
+        reference: `${projectId}:${environnement.id}:${current.targetCommit ?? current.cardIds.join(',')}`,
+        element: `${current.cardIds.length} tâche(s) en ligne${ou}`,
         projectId,
       });
-      bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${reste}`);
+      bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${ou}${reste}`);
 
       // Tout est enregistré : le serveur peut repartir avec le nouveau code.
       if (redemarrageDemande) setTimeout(() => redemarrerDemon(), 2000);
@@ -1275,7 +1521,7 @@ export async function startDeploy(
       if (!stopped) {
         notify({
           motif: 'publication-echec',
-          title: 'Publication en échec',
+          title: `Publication en échec (${environnement.nom})`,
           body: `${current.cardIds.length} tâche(s) restent à déployer — ${raison}`,
           reference: `${projectId}:echec:${current.id}`,
           element: `Publication en échec — ${raison}`,
@@ -1285,8 +1531,11 @@ export async function startDeploy(
     } finally {
       active.delete(projectId);
       if (waiting.has(projectId)) {
+        // La publication en attente repart sur SON environnement, pas sur celui
+        // qui vient de se terminer.
+        const suivant = waiting.get(projectId);
         waiting.delete(projectId);
-        setTimeout(() => void startDeploy(projectId), 1500);
+        setTimeout(() => void startDeploy(projectId, suivant), 1500);
       }
     }
   })();
@@ -1316,5 +1565,6 @@ export async function retryDeploy(runId: string): Promise<{ ok: boolean; error?:
   const run = store.getDeploy(runId);
   if (!run) return { ok: false, error: 'publication introuvable' };
   log.info(`relance de la publication du projet ${run.projectId}`);
-  return startDeploy(run.projectId);
+  // Relancer, c'est refaire LA MÊME publication : même environnement visé.
+  return startDeploy(run.projectId, run.environmentId);
 }

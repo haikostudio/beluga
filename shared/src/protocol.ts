@@ -53,7 +53,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.open'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
   /** Crée l'adresse publique d'un projet (nom + reverse-proxy) en une fois. */
-  z.object({ type: z.literal('project.publishDomain'), id: z.string(), subdomain: z.string(), port: z.number() }),
+  z.object({
+    type: z.literal('project.publishDomain'),
+    id: z.string(),
+    subdomain: z.string(),
+    port: z.number(),
+    /** L'environnement qui recevra l'adresse. Sans lui, le premier de la liste. */
+    environmentId: z.string().optional(),
+  }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
   /** Ranger un projet dans un groupe (ou l'en sortir avec un groupe vide). */
@@ -182,18 +189,31 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
 
   // Publication
-  // `cible` dit VERS QUOI l'on met en ligne : l'environnement de dev, ou la
-  // production. Absente, c'est la première étape du parcours du projet — le
-  // seul cas tant qu'aucun environnement de dev n'est déclaré.
+  /*
+   * Deux précisions, indépendantes l'une de l'autre.
+   *
+   * `environmentId` dit OÙ l'on met en ligne : lequel des environnements
+   * déclarés par le projet. Absent, c'est le premier de la liste.
+   *
+   * `cible` dit à QUELLE ÉTAPE du parcours on est : l'environnement de dev, ou
+   * la production. Absente, c'est la première étape du projet — le seul cas
+   * tant qu'aucun environnement de dev n'est déclaré.
+   */
   z.object({
     type: z.literal('deploy.start'),
     projectId: z.string(),
+    environmentId: z.string().optional(),
     cible: z.enum(['dev', 'production']).optional(),
   }),
   z.object({ type: z.literal('deploy.stop'), runId: z.string() }),
   z.object({ type: z.literal('deploy.retry'), runId: z.string() }),
+  /**
+   * La réponse à l'attente avant envoi : accord donné, la publication repart de
+   * la première étape ; refus, le lot reste entier et chaque carte le dit.
+   */
+  z.object({ type: z.literal('deploy.envoi'), runId: z.string(), accord: z.boolean() }),
   /** Ce qui coincerait si on publiait maintenant — sans rien publier. */
-  z.object({ type: z.literal('deploy.check'), projectId: z.string() }),
+  z.object({ type: z.literal('deploy.check'), projectId: z.string(), environmentId: z.string().optional() }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),
@@ -286,6 +306,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
   /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
   z.object({ type: z.literal('voice.list') }),
+  /**
+   * Une phrase DICTÉE, sans destinataire : l'assistant global lit la liste des
+   * projets ouverts, dépose la demande dans le chef d'orchestre du bon projet
+   * ou POSE LA QUESTION quand un doute demeure.
+   */
+  z.object({ type: z.literal('voix.demande'), texte: z.string() }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),
@@ -338,11 +364,15 @@ export const ServerEvent = z.discriminatedUnion('type', [
       .array(
         z.object({
           projectId: z.string(),
-          /** La conversation où la décision se prend. */
-          agentId: z.string(),
+          /**
+           * La conversation où la décision se prend. Absente quand elle ne
+           * tient à aucun fil : l'accord avant envoi se prend dans le bloc de
+           * publication du projet.
+           */
+          agentId: z.string().optional(),
           /** La carte concernée, quand la décision est née dans son travail. */
           cardId: z.string().optional(),
-          genre: z.enum(['question', 'validation']),
+          genre: z.enum(['question', 'validation', 'envoi']),
           reglee: z.boolean().optional(),
           poseeA: z.number().optional(),
         }),

@@ -267,6 +267,28 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       ALTER TABLE usage ADD COLUMN quota_semaine REAL DEFAULT 0;
     `,
   },
+  {
+    id: 12,
+    name: 'dictees-en-attente-de-destinataire',
+    // Une phrase dictée dont on ne sait pas encore à quel projet elle s'adresse :
+    // la question est posée, la phrase attend ici. Sans elle, un redémarrage
+    // perdrait la demande entre la question et la réponse.
+    sql: `
+      CREATE TABLE dictees (
+        id TEXT PRIMARY KEY,
+        texte TEXT NOT NULL,
+        project_id TEXT,
+        candidats TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        question_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        reglee_a INTEGER
+      );
+      CREATE INDEX idx_dictees_question ON dictees(question_id);
+      CREATE INDEX idx_dictees_attente ON dictees(reglee_a, created_at);
+    `,
+  },
 ];
 
 export function openDb(): DB {

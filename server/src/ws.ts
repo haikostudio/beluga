@@ -11,7 +11,11 @@ import {
   RunConfig,
   ServerEvent,
   canMove,
+  derniersResultats,
   effetDuDepot,
+  environnementVise,
+  environnementsDuProjet,
+  modifierEnvironnement,
   etatVisuelCarte,
   sortieAutorisee,
   RAISON_SUSPENDU,
@@ -34,6 +38,7 @@ import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } f
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
+import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { analyseCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
@@ -41,9 +46,11 @@ import {
   startDeploy,
   stopDeploy,
   retryDeploy,
+  repondreEnvoi,
   conflitsPrevus,
   agentsOccupes,
   commitsEnAttente,
+  environnementsDePublication,
   moyenDeMiseEnLigne,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
@@ -227,9 +234,21 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (!project) throw new Error('projet introuvable');
       const result = await publishSubdomain(cmd.subdomain, cmd.port);
       if (!result.ok) throw new Error(result.error ?? 'publication du nom impossible');
-      const updated = store.saveProject({ ...project, deployUrl: result.url });
+      /*
+       * L'adresse va sur l'environnement VISÉ, pas sur le projet : un projet
+       * qui a une production et un dev client ne peut pas n'avoir qu'une seule
+       * adresse. Un projet à l'ancien format est matérialisé au passage — sa
+       * liste d'environnements est écrite pour de bon, avec ses anciennes
+       * valeurs, si bien que rien n'est perdu ni changé de comportement.
+       */
+      const liste = environnementsDuProjet(project);
+      const vise = environnementVise(project, cmd.environmentId);
+      const updated = store.saveProject({
+        ...project,
+        environments: modifierEnvironnement(liste, vise.id, { url: result.url }),
+      });
       bus.emit({ type: 'project.upsert', project: updated });
-      bus.toast('success', `Adresse en ligne : ${result.url}`);
+      bus.toast('success', `Adresse en ligne (${vise.nom}) : ${result.url}`);
       return result;
     }
 
@@ -762,6 +781,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
 
+      /*
+       * UNE QUESTION DE ROUTAGE NE SE REND PAS À CELUI QUI L'A POSÉE. Elle ne
+       * vient pas d'un moteur en train de réfléchir : elle vient de l'assistant
+       * vocal global, qui attend de savoir OÙ déposer une phrase dictée. La
+       * réponse fait donc partir la demande dans le chef d'orchestre du projet
+       * choisi — jamais un tour dans la conversation où la question s'affichait.
+       */
+      if (store.dicteeDeLaQuestion(cmd.questionId)) {
+        void repondreALaDictee(cmd.questionId, cmd.answer).catch((err) =>
+          log.error('routage de la demande dictée impossible', err),
+        );
+        return { ok: true };
+      }
+
       // L'agent reprend aussitôt, avec la réponse en main — sans faire
       // patienter le navigateur jusqu'à la fin de son tour. La question n'est
       // rappelée qu'en tête : c'est lui qui l'a posée, il l'a déjà en contexte.
@@ -844,7 +877,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     /* -------- Publication -------- */
 
     case 'deploy.start': {
-      const result = await startDeploy(cmd.projectId, { cible: cmd.cible });
+      // Où l'on publie (l'environnement) et à quelle étape du parcours (la
+      // cible) sont deux choses : la commande porte les deux.
+      const result = await startDeploy(cmd.projectId, cmd.environmentId, { cible: cmd.cible });
       if (!result.ok) throw new Error(result.error ?? 'publication impossible');
       return result;
     }
@@ -855,17 +890,37 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'deploy.retry':
       return retryDeploy(cmd.runId);
 
-    case 'deploy.check':
+    /*
+     * L'accord — ou le refus — avant tout envoi sur le dépôt. Un refus n'est
+     * pas une erreur : il rend `ok: true` et laisse le lot entier.
+     */
+    case 'deploy.envoi': {
+      const reponse = await repondreEnvoi(cmd.runId, cmd.accord);
+      if (!reponse.ok) throw new Error(reponse.error ?? 'réponse impossible');
+      return reponse;
+    }
+
+    case 'deploy.check': {
+      // Les environnements du projet et ce que chacun a donné la dernière fois :
+      // le bloc de publication montre l'environnement visé sans avoir à deviner.
+      const environnements = environnementsDePublication(cmd.projectId);
+      const derniers = derniersResultats(environnements, store.recentDeploys(cmd.projectId));
       return {
         conflicts: await conflitsPrevus(cmd.projectId),
         busy: agentsOccupes(cmd.projectId),
+        // Ce projet demandera-t-il l'accord avant d'envoyer ? Le dire AVANT le
+        // clic évite de découvrir l'attente au moment de publier.
+        envoiSurveille: store.getProject(cmd.projectId)?.deployeSurEnvoi === true,
         // Le travail enregistré sur la principale sans passer par une carte :
         // sans lui, la fenêtre de publication disparaissait et rien ne partait.
         enAttente: await commitsEnAttente(cmd.projectId),
         // Ce projet peut-il seulement être mis en ligne ? Le dire AVANT le clic
         // vaut mieux que de le découvrir sur une publication refusée.
-        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId),
+        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId, cmd.environmentId),
+        environnements,
+        derniers: Object.fromEntries(derniers),
       };
+    }
 
     /* -------- Fichiers -------- */
 
@@ -1058,6 +1113,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'voice.list':
       return { voices: listVoices() };
+
+    /*
+     * UNE PHRASE DICTÉE, SANS DESTINATAIRE. L'assistant global la route vers le
+     * chef d'orchestre du bon projet, ou pose la question quand il ne sait pas.
+     * Il ne crée aucune carte : c'est le chef du projet qui garde son tri.
+     */
+    case 'voix.demande':
+      return deposerDemandeDictee(cmd.texte);
 
     case 'stats.usage':
       return {
