@@ -53,6 +53,12 @@ export const CLE_VOIX_HISTORIQUE = 'haikodev.voix.historique';
 export const VOIX_MORPHISME_MS = 300;
 /** Le rond au repos : un carré parfait, donc un cercle une fois arrondi. */
 const VOIX_ROND = 44;
+/**
+ * L'espace, en pixels, entre le bord droit du rond et la POIGNÉE de déplacement.
+ * Un petit vide pour que la poignée soit HORS du module : la survoler ne déplie
+ * plus le panneau (elle n'est plus un descendant de la boîte qui écoute le survol).
+ */
+const VOIX_ECART_POIGNEE = 6;
 /** Le bloc de parole, quand le module n'est pas déplié. */
 const VOIX_LARGEUR_PARLE = 96;
 /** Le panneau déplié, borné à 80 % de l'écran pour les petits téléphones. */
@@ -172,23 +178,41 @@ function contexteDecision(
   return { projet, tache };
 }
 
+/** Combien de barres compose la ligne d'ondes ÉLARGIE : assez pour remplir tout
+ * le pied du panneau (256 px) sans que les gros écarts ne le fassent paraître
+ * vide, et réparties (`justify-between`) pour tenir aussi le petit bloc de parole
+ * (96 px) sans se chevaucher. */
+const ONDES_LARGES = Array.from({ length: 16 }, (_, i) => i);
+
 /**
- * La ligne d'ondes : pendant la parole (`parle`), un flux d'ondes VERTES
- * animées ; au repos, cinq barres figées en vibration sonore symétrique. Un
- * SEUL exemplaire vit dans le module — l'objet continu qui glisse du centre du
- * rond fermé au creux du pied déplié —, jamais un dans le bouton et un autre au
- * pied qui se croiseraient en fondu.
+ * La ligne d'ondes. Elle a deux visages, et un troisième état de largeur :
+ *   — au repos ET module fermé (`!plein`) : cinq barres figées en vibration
+ *     sonore symétrique, un petit paquet centré ;
+ *   — dès que ça parle OU que le module est ouvert (`plein`) : les barres
+ *     s'ÉTALENT sur TOUTE la largeur du conteneur (`w-full`, `justify-between`),
+ *     jamais un petit paquet au milieu du pied vide. Elles sont VERTES et animées
+ *     quand la voix parle (le jeton de succès, comme avant), neutres et animées
+ *     quand le module est seulement ouvert.
+ * Un SEUL exemplaire vit dans le module — l'objet continu qui glisse du centre
+ * du rond fermé au creux du pied déplié —, jamais deux qui se croiseraient.
  */
-function LigneOndes({ parle }: { parle: boolean }) {
-  if (parle) {
+function LigneOndes({ parle, plein }: { parle: boolean; plein: boolean }) {
+  if (plein) {
     return (
-      <span data-onde-vocale className="flex items-center gap-0.5" aria-hidden>
-        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+      <span
+        data-onde-vocale={parle ? '' : undefined}
+        data-onde-large
+        className="flex w-full items-center justify-between gap-0.5 px-3"
+        aria-hidden
+      >
+        {ONDES_LARGES.map((i) => (
           <span
             key={i}
-            className="h-5 w-1 origin-center rounded-full bg-success animate-onde"
+            className={`h-5 w-1 shrink-0 origin-center rounded-full animate-onde ${
+              parle ? 'bg-success' : 'bg-text/60'
+            }`}
             // Chaque barre décalée : l'onde ondule au lieu de battre d'un bloc.
-            style={{ animationDelay: `${i * 90}ms` }}
+            style={{ animationDelay: `${i * 60}ms` }}
           />
         ))}
       </span>
@@ -548,6 +572,7 @@ export function VoixAssistant() {
   corrRef.current = corr;
 
   return (
+    <>
     <div
       ref={racineRef}
       data-module-voix
@@ -727,27 +752,34 @@ export function VoixAssistant() {
       <div
         data-pied-ondes
         aria-hidden
-        className="pointer-events-none absolute left-1/2 grid place-items-center"
+        // `inset-x-0` : le pied prend TOUTE la largeur du module du moment (44 px
+        // fermé, 96 px en parlant, 256 px ouvert). La ligne d'ondes centrée au
+        // repos s'y étale d'elle-même dès qu'elle passe en pleine largeur.
+        className="pointer-events-none absolute inset-x-0 flex items-center justify-center"
         style={{
           bottom: `${ouvert ? VOIX_BAS_ONDES_OUVERT : VOIX_BAS_ONDES_REPOS}px`,
           height: `${VOIX_HAUTEUR_PIED}px`,
-          transform: 'translateX(-50%)',
           transitionProperty: 'bottom',
           transitionDuration: `${VOIX_MORPHISME_MS}ms`,
           transitionTimingFunction: 'ease-out',
         }}
       >
-        <LigneOndes parle={parle} />
+        <LigneOndes parle={parle} plein={parle || ouvert} />
       </div>
+    </div>
 
       {/* LA POIGNÉE DE DÉPLACEMENT, À LA SOURIS SEULEMENT. Sur ordinateur, le
           module s'ouvre au SURVOL et le bouton d'icône s'efface aussitôt : on ne
-          peut plus l'attraper pour tirer. Cette poignée discrète, posée en bas à
-          droite, porte donc le glissement — elle reste attrapable panneau ouvert
-          (jamais `pointer-events-none`), suit le module, et un survol qui la vise
-          déplie le panneau sans rien déplacer tant que le seuil n'est pas franchi.
-          Aucune poignée au doigt (`survolPossible` faux) : l'appui déplie et le
-          bouton lui-même porte déjà le glissement. */}
+          peut plus l'attraper pour tirer. Cette poignée vit HORS du module — un
+          frère de la boîte, pas un descendant — posée juste à l'extérieur du coin
+          bas-droit du rond, à `VOIX_ECART_POIGNEE` px du bord : la survoler ne
+          déplie donc PLUS le panneau (elle ne déclenche pas le `onMouseEnter` de
+          la boîte). Elle est ancrée au ROND fermé (jamais au panneau qui grandit),
+          donc elle ne bouge pas quand le panneau s'ouvre ou se referme et reste
+          attrapable dans les deux cas ; son transform suit le décalage retenu,
+          donc elle suit le module quand on le déplace. Aucune poignée au doigt
+          (`survolPossible` faux) : l'appui déplie et le bouton porte déjà le
+          glissement. */}
       {survolPossible && (
         <button
           type="button"
@@ -755,14 +787,26 @@ export function VoixAssistant() {
           aria-label="Déplacer la voix de l’assistant"
           title="Tirer pour déplacer"
           onPointerDown={commencerGlissement}
-          className="absolute bottom-0 right-0 z-10 grid h-6 w-6 cursor-grab place-items-center text-faint transition-colors hover:text-muted active:cursor-grabbing"
-          // Un curseur qui tire ne doit pas faire défiler la page (sans effet à
-          // la souris, mais sûr si un pointeur grossier atteint cette poignée).
-          style={{ touchAction: 'none' }}
+          className="fixed bottom-20 left-1/2 z-30 grid h-6 w-6 cursor-grab place-items-center text-faint transition-transform ease-out hover:text-muted active:cursor-grabbing sm:bottom-6"
+          style={{
+            marginBottom: 'env(safe-area-inset-bottom)',
+            // Placée à droite du rond fermé, alignée sur son bas : bord gauche de
+            // la poignée = bord droit du rond + l'écart. Le décalage retenu la
+            // fait suivre le module ; la correction d'ouverture n'entre PAS
+            // (elle est ancrée au rond, qui ne bouge pas à l'ouverture).
+            transform: `translate(${VOIX_ROND / 2 + decalage.x + VOIX_ECART_POIGNEE}px, ${decalage.y}px)`,
+            // La poignée glisse instantanément avec le module quand on le tire
+            // (saisi), et s'anime doucement sinon (recadrage au redimensionnement).
+            transitionProperty: saisi ? 'none' : 'transform',
+            transitionDuration: `${VOIX_MORPHISME_MS}ms`,
+            // Un curseur qui tire ne doit pas faire défiler la page (sans effet à
+            // la souris, mais sûr si un pointeur grossier atteint cette poignée).
+            touchAction: 'none',
+          }}
         >
           <GripVertical className="h-3.5 w-3.5" aria-hidden />
         </button>
       )}
-    </div>
+    </>
   );
 }
