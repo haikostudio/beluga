@@ -751,7 +751,12 @@ sans son point d'essai.
   second mécanisme, et jamais le `localStorage` de l'historique. `ramenerDansLEcran` garde le module
   entièrement visible au chargement comme au redimensionnement — une place prise sur grand écran est
   ramenée dans les bords d'un téléphone, et le corrigé est RANGÉ, sinon il reviendrait hors écran au
-  démarrage suivant. Un glissement au doigt ne produit AUCUN clic : le repère « on vient de glisser »
+  démarrage suivant. Ce recadrage tourne DANS l'événement `resize`, donc AVANT que l'effet de mesure
+  ne se rejoue : il doit RE-MESURER le bas du rond depuis le DOM (déjà remis en page) à ce moment-là,
+  jamais s'appuyer sur la mesure de l'ANCIENNE fenêtre — sinon il borne la nouvelle taille avec un
+  repère périmé, écrit un décalage faussé dans le compte, et le module remonte un peu plus à chaque
+  redimensionnement jusqu'à sortir de l'écran. Sans geste (rechargement ou redimensionnement qui
+  laisse le module dans l'écran), la place ne se réécrit JAMAIS. Un glissement au doigt ne produit AUCUN clic : le repère « on vient de glisser »
   est donc remis à zéro au `pointerdown` suivant, sinon il mangerait l'appui d'après et le module ne
   se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
   (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. **SUR TÉLÉPHONE
