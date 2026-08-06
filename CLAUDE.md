@@ -92,8 +92,10 @@ node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié 
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
+node scripts/verif-menu-bas-telephone.mjs # le menu flottant du bas, sur écran de téléphone (serveur de développement, HAIKO_MENU_URL)
 node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes en bas, profondeur, ouverture au survol, heure et date
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
+node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
@@ -118,7 +120,8 @@ bloquée sur « Connexion au serveur… ». De même, `HAIKODEV_URL` vaut par d�
 PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 
 Un point d'essai posé sur la page (`window.haikodevEssai`, `web/src/lib/client.ts`) permet de
-provoquer un message court depuis un script. Il est gardé par `import.meta.env.MODE !==
+provoquer un message court (`message`) ou une annonce vocale (`annonce`, qui rejoue un événement
+`notify` par `client.handleEssai`) depuis un script. Il est gardé par `import.meta.env.MODE !==
 'production'`, **jamais par `import.meta.env.DEV`** : cet indicateur suit `NODE_ENV`, qui vaut
 « production » dans l'environnement des agents — le serveur de développement se retrouvait alors
 sans son point d'essai.
@@ -488,17 +491,23 @@ sans son point d'essai.
   `null` (le ton bref préfère la courte phrase par titre). La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
-  du navigateur. Le module est TOUJOURS à l'écran, réduit en un petit icône rond au centre en bas ;
-  au repos, l'icône (`data-icone-repos`) montre cinq barres figées en vibration sonore SYMÉTRIQUE
-  (petite, moyenne, grande, moyenne, petite). Pendant la parole (`data-parle`), le rond s'ouvre tout
-  seul en un bloc RECTANGULAIRE (`rounded-xl`, plus large) et l'icône devient un flux d'ondes VERTES
-  animées (`data-onde-vocale`, barres `bg-success animate-onde`, jeton `--success`, jamais une
-  couleur en dur) ; à la fin, le flux se referme et l'icône de vibration revient. Au survol (souris)
-  ou à l'appui (doigt) — même choix que la pile des messages
-  (`gesteDOuverture`/`pileApres`, `(hover: hover) and (pointer: fine)`) — il se déplie en un panneau :
-  l'HISTORIQUE au-dessus (les `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en
-  haut), et EN DESSOUS la même ligne d'ondes (`LigneOndes`, `data-pied-ondes`) qui s'anime quand ça
-  parle. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
+  du navigateur. **Le module est UN SEUL objet qui se MÉTAMORPHOSE** : il n'y a plus un bouton d'un
+  côté et un panneau de l'autre. `formeDuModule(ouvert, parle, nb)` rend sa largeur, sa hauteur et son
+  rayon en NOMBRES — rond de 44 px au repos (rayon = moitié, donc un cercle), bloc de 96 px quand ça
+  parle, panneau de 256 px (borné à `80vw`) quand il est déplié, la hauteur suivant le nombre de
+  messages (`hauteurDepliee`) — et le navigateur les INTERPOLE en `VOIX_MORPHISME_MS` (300 ms) : des
+  classes utilitaires de largeur sauteraient d'un cran à l'autre. Le déplié l'emporte sur la parole :
+  on ne rétrécit pas un panneau qu'on lit. Les deux visages vivent DANS cette boîte, en `absolute
+  inset-0`, et se croisent en fondu : l'icône seule (`data-icone-voix`) et l'historique
+  (`data-liste-voix`), dont l'opacité attend que la place soit faite (`transitionDelay`) — le contenu
+  se dévoile après la boîte, jamais avant. Au repos l'icône (`data-icone-repos`) montre cinq barres
+  figées en vibration sonore SYMÉTRIQUE ; pendant la parole (`data-parle`, posé sur la RACINE) elle
+  devient un flux d'ondes VERTES animées (`data-onde-vocale`, barres `bg-success animate-onde`, jeton
+  `--success`, jamais une couleur en dur). L'ouverture se déclenche au survol (souris) ou à l'appui
+  (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`, `(hover: hover) and
+  (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
+  `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), avec EN DESSOUS la
+  même ligne d'ondes (`LigneOndes`, `data-pied-ondes`) qui s'anime quand ça parle. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
   outre le Muet. L'historique est DURABLE : il vit en mémoire du navigateur (`localStorage`,
   `CLE_VOIX_HISTORIQUE`, jamais côté serveur), SURVIT au rechargement, garde jusqu'à
   `VOIX_HISTORIQUE_MAX` (100) messages (les plus anciens tombent) et n'en affiche que dix. Il se
@@ -506,7 +515,7 @@ sans son point d'essai.
   même en Muet — la parole se tait, la trace reste. Le point du jour ne change pas. Le bouton « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la
   préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole
   automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
-  badge. Verrouillé par `server/src/test/voix-annonce.test.ts`.
+  badge. Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
 - **Le module de voix SE DÉPLACE, et sa place est retenue dans le COMPTE**
   (`shared/src/position-voix.ts`, branché dans `web/src/components/voix-assistant.tsx`). Il était
   cloué en bas au centre et recouvrait parfois ce qu'on lit. On le tire par son ICÔNE, à la souris
@@ -569,10 +578,25 @@ sans son point d'essai.
   d'abord. À CÔTÉ, un indicateur d'ACTIVITÉ — un robot `Bot text-success` dans l'esprit de
   `RepereRobot` (le nombre seulement à partir de deux, rien qui tourne) — quand au moins une carte de
   la colonne est en état `travaille` ; il COEXISTE avec le repère d'attente et ne passe pas par
-  `repereVisible`. Les trois comptes se calculent sur place, colonne par colonne, en croisant
+  `repereVisible`. Chaque onglet porte AUSSI le NOMBRE de cartes de sa colonne, juste après le
+  libellé, dans la tenue de la tête de colonne (11,5 px, `text-faint`, `data-onglet-compte`) : il est
+  toujours écrit, ZÉRO compris — un chiffre qui disparaît saute d'un onglet à l'autre. Le compte vient
+  du même passage sur `byColumn` que les trois autres (`signalOnglet.total`), donc l'onglet et la tête
+  de colonne ne peuvent pas se contredire. Les trois comptes se calculent sur place, colonne par colonne, en croisant
   `byColumn` avec `decisionsParCarte(state.decisions)` et `etatVisuelCarte(...)` (`'termine-non-lu'`
   pour le point bleu, `'travaille'` pour le robot) — aucune couleur ni composant neufs. Vérifié par
   `scripts/verif-onglets-tableau.mjs`.
+- **Le menu du bas (téléphone) FLOTTE, et ne pose aucun filet** (`nav[data-menu-bas]`,
+  `web/src/app.tsx`). Le conteneur reste dans le FLUX (`shrink-0`, marges `px-3`, bas =
+  `env(safe-area-inset-bottom) + 0.5rem`) : il réserve exactement la place du menu, donc le contenu
+  ne passe jamais derrière — mais il est nu, sans fond ni bordure. C'est le bloc INTÉRIEUR qui se
+  voit : arrondi (`rounded-2xl`), fond `bg-surface`, ombre douce, une bordure sur ses quatre côtés —
+  jamais un `border-t` sur toute la largeur, qui coupait l'écran. Trois destinations, trois icônes
+  DISTINCTES (`Columns3` tableau, `BarChart3` bord, `MessageSquare` chef) et trois libellés d'un
+  mot — « Tableau », « Bord », « Chef » — qui tiennent sur une ligne à 360 px. Le triangle de
+  décision reste sur « Chef ». Rien au-dessus du seuil (`sm:hidden`). Le bloc en bas à droite part
+  de `bottom-14` sur téléphone (`sm:bottom-3` ailleurs) pour ne pas se poser sur ce menu. Vérifié
+  par `scripts/verif-menu-bas-telephone.mjs`.
 - **Le tiroir d'une carte s'ÉPURE sur téléphone, jamais sur ordinateur** (`card-panel.tsx`). Le choix
   se fait sur la largeur du pointeur (`useTelephone`, `(max-width: 639px)`), relue au redimensionnement.
   Sous ce seuil, les tags (état, étiquettes, « modifiée », archivage) — le bloc `data-tags-carte` — sont

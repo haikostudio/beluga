@@ -195,6 +195,15 @@ class Client {
     };
   }
 
+  /**
+   * Rejoue un événement de serveur comme s'il venait d'arriver. Réservé au point
+   * d'essai de développement (bas de ce fichier) : un script de vérification
+   * peut ainsi provoquer une annonce sans faire tourner un vrai agent.
+   */
+  handleEssai(event: ServerEvent): void {
+    this.handle(event);
+  }
+
   private handle(event: ServerEvent): void {
     switch (event.type) {
       case 'ready': {
@@ -549,5 +558,15 @@ export const client = new Client();
 if (import.meta.env.MODE !== 'production') {
   (window as unknown as { haikodevEssai?: unknown }).haikodevEssai = {
     message: (level: Toast['level'], text: string) => client.pushToast(level, text),
+    // Une annonce vocale, comme le démon en émet à la fin d'une tâche : c'est
+    // ce qui permet de juger le module de voix sans attendre un vrai agent.
+    annonce: (texte: string) =>
+      client.handleEssai({
+        type: 'notify',
+        title: 'Vérification',
+        body: texte,
+        motif: 'tache-terminee',
+        voix: texte,
+      }),
   };
 }

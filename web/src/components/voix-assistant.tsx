@@ -39,6 +39,53 @@ export const VOIX_HISTORIQUE_MAX = 100;
 /** Où l'historique des messages prononcés se pose, dans le navigateur seul. */
 export const CLE_VOIX_HISTORIQUE = 'haikodev.voix.historique';
 
+/**
+ * LA MÉTAMORPHOSE, en pixels. Le module est UN SEUL objet qui change de taille :
+ * un rond au repos, un bloc un peu plus large quand il parle, un panneau quand
+ * il est déplié. Les trois états se disent en nombres pour que le navigateur
+ * puisse les INTERPOLER — une largeur en classe utilitaire sauterait d'un cran à
+ * l'autre. `VOIX_MORPHISME_MS` est la durée commune : la boîte grandit, puis le
+ * contenu se dévoile en fondu une fois la place faite.
+ */
+export const VOIX_MORPHISME_MS = 300;
+/** Le rond au repos : un carré parfait, donc un cercle une fois arrondi. */
+const VOIX_ROND = 44;
+/** Le bloc de parole, quand le module n'est pas déplié. */
+const VOIX_LARGEUR_PARLE = 96;
+/** Le panneau déplié, borné à 80 % de l'écran pour les petits téléphones. */
+const VOIX_LARGEUR_OUVERTE = 256;
+/** Les hauteurs des trois zones du panneau, pour calculer celle du tout. */
+const VOIX_HAUTEUR_ENTETE = 33;
+const VOIX_HAUTEUR_PIED = 36;
+const VOIX_HAUTEUR_LIGNE = 40;
+/** Au-delà, la liste défile en elle-même plutôt que d'occuper tout l'écran. */
+const VOIX_HAUTEUR_LISTE_MAX = 240;
+
+/**
+ * La hauteur du module déplié : l'en-tête, la liste (bornée), le pied d'ondes.
+ * Elle suit le nombre de messages, pour qu'un historique vide n'ouvre pas un
+ * grand rectangle presque nu.
+ */
+export function hauteurDepliee(nbMessages: number): number {
+  const lignes = Math.min(nbMessages, VOIX_MESSAGES_MAX);
+  const liste = lignes > 0 ? Math.min(lignes * VOIX_HAUTEUR_LIGNE, VOIX_HAUTEUR_LISTE_MAX) : VOIX_ROND;
+  return VOIX_HAUTEUR_ENTETE + liste + VOIX_HAUTEUR_PIED;
+}
+
+/**
+ * La géométrie de l'objet dans son état du moment. Le déplié l'emporte sur la
+ * parole : on ne rétrécit pas un panneau qu'on est en train de lire parce que
+ * l'assistant se met à parler. Les coins passent du cercle (moitié du rond) au
+ * bloc arrondi, en continu.
+ */
+export function formeDuModule(ouvert: boolean, parle: boolean, nbMessages: number) {
+  if (ouvert) {
+    return { largeur: VOIX_LARGEUR_OUVERTE, hauteur: hauteurDepliee(nbMessages), rayon: 12 };
+  }
+  if (parle) return { largeur: VOIX_LARGEUR_PARLE, hauteur: VOIX_ROND, rayon: 12 };
+  return { largeur: VOIX_ROND, hauteur: VOIX_ROND, rayon: VOIX_ROND / 2 };
+}
+
 type DonneesVoix = Pick<
   ReturnType<typeof useApp>,
   'projects' | 'cards' | 'decisions'
@@ -140,14 +187,17 @@ function LigneOndes({ parle }: { parle: boolean }) {
  * adresse audio ordinaire (`/api/speak`) ; si le serveur n'a pas de voix, on
  * retombe sur celle du navigateur.
  *
- * Le module est TOUJOURS à l'écran, réduit en un petit icône rond au centre en
- * bas. Au repos, l'icône montre cinq barres figées en vibration sonore
- * symétrique. Au survol (souris) ou à l'appui (doigt) — même choix que la pile
- * des messages (`(hover: hover) and (pointer: fine)`) —, il se déplie et montre
- * les dix derniers messages prononcés, le plus récent en haut ; un clic les
- * rejoue. Pendant qu'il parle, le rond s'OUVRE tout seul en un bloc
- * rectangulaire et l'icône devient un flux d'ondes VERTES animées ; à la fin, le
- * flux se referme et l'icône de vibration revient.
+ * Le module est TOUJOURS à l'écran, réduit en un petit rond au centre en bas. Au
+ * repos, il montre cinq barres figées en vibration sonore symétrique. Au survol
+ * (souris) ou à l'appui (doigt) — même choix que la pile des messages
+ * (`(hover: hover) and (pointer: fine)`) —, il se MÉTAMORPHOSE : le rond lui-même
+ * grandit en un panneau qui porte les dix derniers messages prononcés, le plus
+ * récent en haut ; un clic les rejoue. Ce n'est pas un panneau qui apparaît à
+ * côté d'un bouton : c'est le bouton devenu grand (`formeDuModule`, largeur,
+ * hauteur et coins interpolés en `VOIX_MORPHISME_MS` millisecondes), le contenu
+ * se dévoilant en fondu une fois la place faite. Pendant qu'il parle, le rond
+ * s'OUVRE de la même façon en un bloc rectangulaire et l'icône devient un flux
+ * d'ondes VERTES animées ; à la fin, il se referme et la vibration revient.
  *
  * Le bouton « Muet » de la barre du haut coupe la parole AUTOMATIQUE (jamais les
  * notifications visuelles ni le badge, jamais l'icône, jamais la réécoute
@@ -403,67 +453,50 @@ export function VoixAssistant() {
   }, [recadrer, rangerDecalage]);
 
   const nb = messages.length;
+  // Le MÊME objet s'agrandit, qu'on le survole ou qu'il se mette à parler.
+  const forme = formeDuModule(ouvert, parle, nb);
+  // Le contenu se dévoile UNE FOIS la place faite : à l'ouverture il attend que
+  // la boîte ait grandi, à la fermeture il s'efface d'abord, puis elle rétrécit.
+  const attenteContenu = ouvert ? VOIX_MORPHISME_MS * 0.55 : 0;
 
   return (
     <div
       ref={racineRef}
       data-module-voix
-      className="fixed bottom-20 left-1/2 z-30 flex flex-col items-center gap-2 sm:bottom-6"
+      data-parle={parle ? '' : undefined}
+      data-ouvert={ouvert ? '' : undefined}
+      // UN SEUL objet : le rond du repos EST le panneau déplié. Largeur, hauteur
+      // et coins sont des nombres, donc le navigateur les interpole ; rien ne
+      // surgit à côté, rien ne saute. La classe `-translate-x-1/2` a disparu :
+      // un seul transform porte le centrage d'origine ET le décalage retenu.
+      className="fixed bottom-20 left-1/2 z-30 max-w-[80vw] overflow-hidden border border-border bg-surface/90 shadow-lg backdrop-blur transition-all ease-out sm:bottom-6"
       style={{
         marginBottom: 'env(safe-area-inset-bottom)',
-        // Le `-50 %` remplace la classe `-translate-x-1/2` : un seul transform
-        // porte à la fois le centrage d'origine et le décalage retenu.
+        width: `${forme.largeur}px`,
+        height: `${forme.hauteur}px`,
+        borderRadius: `${forme.rayon}px`,
         transform: `translate(calc(-50% + ${decalage.x}px), ${decalage.y}px)`,
+        // La métamorphose s'anime ; le déplacement, NON — un transform retardé
+        // de 300 ms collerait au doigt avec un temps de retard.
+        transitionProperty: 'width, height, border-radius',
+        transitionDuration: `${VOIX_MORPHISME_MS}ms`,
       }}
       onMouseEnter={() => setOuvert((o) => pileApres(o, 'survol-entre', geste))}
       onMouseLeave={() => setOuvert((o) => pileApres(o, 'survol-sort', geste))}
+      onClick={() => {
+        // Un déplacement qui vient de finir ne déplie pas le module.
+        if (vientDeGlisserRef.current) {
+          vientDeGlisserRef.current = false;
+          return;
+        }
+        setOuvert((o) => pileApres(o, 'appui-dedans', geste));
+      }}
     >
-      {ouvert ? (
-        <div
-          data-liste-voix
-          className="w-64 max-w-[80vw] animate-fade-in overflow-hidden rounded-lg border border-border bg-surface/95 shadow-lg backdrop-blur"
-        >
-          <div className="border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
-            Derniers messages
-          </div>
-          {nb === 0 ? (
-            <p className="px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
-          ) : (
-            <ul className="max-h-64 overflow-y-auto py-1">
-              {messages.slice(0, VOIX_MESSAGES_MAX).map((m) => (
-                <li key={m.id}>
-                  <button
-                    type="button"
-                    data-message-voix
-                    // L'appui garde le module ouvert : on ne le rabat pas d'un clic.
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dire(m.texte, true);
-                    }}
-                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] text-text hover:bg-raised"
-                    aria-label={`Réécouter : ${m.texte}`}
-                  >
-                    <Volume2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
-                    <span className="min-w-0 flex-1 line-clamp-2">{m.texte}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {/* Sous l'historique, la ligne d'ondes qui s'anime quand ça parle. */}
-          <div
-            data-pied-ondes
-            className="grid h-9 place-items-center border-t border-border"
-          >
-            <LigneOndes parle={parle} />
-          </div>
-        </div>
-      ) : null}
-
+      {/* Premier visage : l'icône seule, au centre de l'objet réduit. */}
       <button
         type="button"
         data-icone-voix
-        data-parle={parle ? '' : undefined}
+        aria-expanded={ouvert}
         aria-label={
           parle
             ? 'L’assistant parle'
@@ -485,25 +518,67 @@ export function VoixAssistant() {
             bouge: false,
           };
         }}
-        onClick={() => {
-          // Un déplacement qui vient de finir ne déplie pas le module.
-          if (vientDeGlisserRef.current) {
-            vientDeGlisserRef.current = false;
-            return;
-          }
-          setOuvert((o) => pileApres(o, 'appui-dedans', geste));
-        }}
-        // Sans cela, un doigt qui tire ferait défiler la page au lieu de
-        // déplacer le module.
-        style={{ touchAction: 'none' }}
-        // Au repos, un petit rond ; pendant la parole, il s'OUVRE tout seul en un
-        // bloc RECTANGULAIRE plus large — la transition anime largeur et coins.
-        className={`grid h-11 place-items-center border border-border bg-surface/90 shadow-lg backdrop-blur transition-all duration-300 hover:bg-raised ${
-          parle ? 'w-24 rounded-xl' : 'w-11 rounded-full'
+        className={`absolute inset-0 grid place-items-center transition-opacity hover:bg-raised ${
+          ouvert ? 'pointer-events-none opacity-0' : 'opacity-100'
         }`}
+        style={{
+          // Sans cela, un doigt qui tire ferait défiler la page au lieu de
+          // déplacer le module.
+          touchAction: 'none',
+          transitionDuration: `${VOIX_MORPHISME_MS / 2}ms`,
+          transitionDelay: ouvert ? '0ms' : `${VOIX_MORPHISME_MS * 0.55}ms`,
+        }}
       >
-        <LigneOndes parle={parle} />
+        <LigneOndes parle={parle && !ouvert} />
       </button>
+
+      {/* Second visage : le même objet devenu grand, l'historique dedans. */}
+      <div
+        data-liste-voix
+        aria-hidden={!ouvert}
+        className={`absolute inset-0 flex flex-col transition-opacity ${
+          ouvert ? 'opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+        style={{
+          transitionDuration: `${VOIX_MORPHISME_MS / 2}ms`,
+          transitionDelay: `${attenteContenu}ms`,
+        }}
+      >
+        <div className="shrink-0 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
+          Derniers messages
+        </div>
+        {nb === 0 ? (
+          <p className="flex-1 px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
+        ) : (
+          <ul className="min-h-0 flex-1 overflow-y-auto py-1">
+            {messages.slice(0, VOIX_MESSAGES_MAX).map((m) => (
+              <li key={m.id}>
+                <button
+                  type="button"
+                  data-message-voix
+                  // L'appui garde le module ouvert : on ne le rabat pas d'un clic.
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dire(m.texte, true);
+                  }}
+                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] text-text hover:bg-raised"
+                  aria-label={`Réécouter : ${m.texte}`}
+                >
+                  <Volume2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 line-clamp-2">{m.texte}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* Sous l'historique, la ligne d'ondes qui s'anime quand ça parle. */}
+        <div
+          data-pied-ondes
+          className="grid h-9 shrink-0 place-items-center border-t border-border"
+        >
+          <LigneOndes parle={parle} />
+        </div>
+      </div>
     </div>
   );
 }

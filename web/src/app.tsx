@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { LayoutGrid, LayoutDashboard, MessageSquare, Loader2 } from 'lucide-react';
+import { LayoutGrid, Columns3, BarChart3, MessageSquare, Loader2 } from 'lucide-react';
 import { TooltipProvider, Button, EmptyState, SidePanel } from '@/components/ui';
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
@@ -544,51 +544,62 @@ export function App() {
           </Filet>
         </SidePanel>
 
-        {/* Barre de navigation mobile : trois destinations, chacune sur un tiers
-            de la largeur, d'un bord à l'autre de l'écran. Elle reste dans le flux
-            (shrink-0) et réserve sa hauteur, donc le contenu ne passe jamais
-            derrière. Texte compact : trois libellés serrés sur un écran étroit. */}
+        {/* Menu de navigation mobile : un bloc FLOTTANT, arrondi, détaché des
+            trois bords — aucun filet sur toute la largeur, qui coupait l'écran
+            en deux. Le conteneur reste dans le flux (shrink-0) : il réserve
+            donc exactement la place du menu, et le contenu ne passe jamais
+            derrière. Trois destinations, trois icônes distinctes, trois
+            libellés d'un mot qui tiennent sur une ligne à 360 px. */}
         <nav
-          className="grid shrink-0 grid-cols-3 items-center gap-1 border-t border-border bg-bg px-1 pt-1 sm:hidden"
+          data-menu-bas
+          className="shrink-0 px-3 pb-2 pt-1 sm:hidden"
           // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('w-full gap-1 px-1 text-xs', mobileView === 'board' && !dashboardOpen && 'bg-raised text-text')}
-            onClick={() => {
-              setDashboardOpen(false);
-              setMobileView('board');
-            }}
-          >
-            <LayoutGrid className="h-3.5 w-3.5 shrink-0" /> Tableau
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('w-full gap-1 px-1 text-xs', dashboardOpen && 'bg-raised text-text')}
-            onClick={ouvrirTableauDeBord}
-          >
-            <LayoutDashboard className="h-3.5 w-3.5 shrink-0" /> Tableau de bord
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('w-full gap-1 px-1 text-xs', mobileView === 'chat' && !dashboardOpen && 'bg-raised text-text')}
-            onClick={() => {
-              setDashboardOpen(false);
-              setMobileView('chat');
-            }}
-          >
-            <MessageSquare className="h-3.5 w-3.5" /> Chef
-            {/* Sur téléphone, la conversation est derrière ce bouton : sans le
-                triangle ici, une décision en attente resterait invisible. */}
-            <RepereAttention
-              compte={activeProject ? decisionsHorsCarte(state.decisions, activeProject.id) : 0}
-              data-attention-conversation={activeProject?.id}
-            />
-          </Button>
+          <div className="grid grid-cols-3 items-center gap-1 rounded-2xl border border-border bg-surface p-1 shadow-lg">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'w-full gap-1 rounded-xl px-1 text-xs',
+                mobileView === 'board' && !dashboardOpen && 'bg-raised text-text',
+              )}
+              onClick={() => {
+                setDashboardOpen(false);
+                setMobileView('board');
+              }}
+            >
+              <Columns3 className="h-3.5 w-3.5 shrink-0" /> Tableau
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn('w-full gap-1 rounded-xl px-1 text-xs', dashboardOpen && 'bg-raised text-text')}
+              onClick={ouvrirTableauDeBord}
+            >
+              <BarChart3 className="h-3.5 w-3.5 shrink-0" /> Bord
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'w-full gap-1 rounded-xl px-1 text-xs',
+                mobileView === 'chat' && !dashboardOpen && 'bg-raised text-text',
+              )}
+              onClick={() => {
+                setDashboardOpen(false);
+                setMobileView('chat');
+              }}
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" /> Chef
+              {/* Sur téléphone, la conversation est derrière ce bouton : sans le
+                  triangle ici, une décision en attente resterait invisible. */}
+              <RepereAttention
+                compte={activeProject ? decisionsHorsCarte(state.decisions, activeProject.id) : 0}
+                data-attention-conversation={activeProject?.id}
+              />
+            </Button>
+          </div>
         </nav>
 
         {dropTarget ? (
