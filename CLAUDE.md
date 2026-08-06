@@ -572,6 +572,19 @@ sans son point d'essai.
   se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
   (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. Verrouillé par
   `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
+- **Le PANNEAU s'ouvre du côté où il y a de la place, le bouton ne bouge pas**
+  (`sensDouverture` / `correctionOuverture`, `shared/src/position-voix.ts`). Le module fermé est un
+  rond de 44 px ; déplié, un panneau de 256 px de large. `sensDouverture` regarde la boîte du rond à
+  l'écran et choisit le côté : centre par défaut, vers la GAUCHE si collé au bord droit, vers la
+  DROITE si collé au bord gauche, vers le BAS (au lieu du haut) si posé en haut, et de même pour les
+  coins. `correctionOuverture` en tire une correction (nulle module fermé) AJOUTÉE au transform, si
+  bien que le côté ancré — là où est le bouton — reste fixe pendant la métamorphose : la correction
+  s'anime AVEC la largeur/hauteur (d'où `transform` ajouté à `transitionProperty`, sauf pendant un
+  glissement où il doit suivre le doigt sans retard). Le recadrage (`ramenerDansLEcran`) borne
+  toujours le ROND de 44 px, jamais le panneau ouvert : `ancre()` calcule la place du rond depuis le
+  centre de la fenêtre et la ligne du bas mesurée quand le module est fermé (`baseBasRef`), rafraîchie
+  au redimensionnement. Le choix se recalcule à l'ouverture et au `resize`. Verrouillé par les cas
+  « le panneau s'ouvre du côté où il y a de la place » de `server/src/test/position-voix.test.ts`.
 - **La voix est PARTAGÉE — un seul son à la fois — et TOUT message de la conversation s'écoute**
   (`web/src/lib/voix.ts`, `texteAEcouter` dans `shared/src/lecture-message.ts`). Les annonces
   automatiques (module de voix) et l'écoute d'un message passent par le MÊME lecteur : `direVoix`

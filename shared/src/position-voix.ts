@@ -116,3 +116,99 @@ export function memeDecalage(a: DecalageVoix, b: DecalageVoix): boolean {
 export function estUnGlissement(dx: number, dy: number, seuil: number = SEUIL_GLISSEMENT_VOIX): boolean {
   return Math.abs(dx) >= seuil || Math.abs(dy) >= seuil;
 }
+
+/* ------------------------------------------------------------------ */
+/* De quel côté le panneau s'ouvre                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * DE QUEL CÔTÉ LE PANNEAU S'OUVRE.
+ *
+ * Le module fermé est un petit rond ; déplié, c'est un panneau bien plus large
+ * et plus haut. Le BOUTON (le rond) ne bouge pas quand on ouvre : c'est le
+ * panneau qui se place autour de lui, du côté où il reste de la place. Collé au
+ * bord droit, il s'ouvre vers la gauche ; collé au bord gauche, vers la droite ;
+ * posé en haut, il se déplie vers le bas au lieu du haut ; et de même pour les
+ * coins. Ces règles sont pures, rejouables sans navigateur.
+ */
+
+/** Le sens horizontal : vers où le panneau S'ÉTEND depuis le bouton. */
+export type SensHorizontal = 'centre' | 'gauche' | 'droite';
+/** Le sens vertical : vers le haut (défaut, ancré en bas) ou vers le bas. */
+export type SensVertical = 'haut' | 'bas';
+
+/** Le côté choisi pour l'ouverture, en X et en Y. */
+export interface SensOuverture {
+  horizontal: SensHorizontal;
+  vertical: SensVertical;
+}
+
+/** Une taille en pixels — celle du panneau, celle du rond. */
+export interface TailleVoix {
+  width: number;
+  height: number;
+}
+
+/**
+ * Le côté vers lequel déplier le panneau pour qu'il reste ENTIÈREMENT visible,
+ * le bouton restant à sa place. On préfère toujours le centre (X) et le haut (Y)
+ * — l'affichage d'avant — et l'on ne s'en écarte que si un bord sortirait.
+ *
+ * `rond` est la boîte du bouton fermé, telle qu'elle est à l'écran (décalage
+ * compris). `panneau` est la taille du module DÉPLIÉ.
+ */
+export function sensDouverture(
+  rond: BoiteVoix,
+  panneau: TailleVoix,
+  fenetre: FenetreVoix,
+  marge: number = MARGE_VOIX,
+): SensOuverture {
+  const centreX = rond.left + rond.width / 2;
+  const demi = panneau.width / 2;
+  let horizontal: SensHorizontal;
+  if (centreX - demi >= marge && centreX + demi <= fenetre.width - marge) {
+    // La place est là des deux côtés : on reste centré, comme avant.
+    horizontal = 'centre';
+  } else if (rond.left + panneau.width <= fenetre.width - marge) {
+    // Le bouton est vers la gauche : on s'étend vers la droite.
+    horizontal = 'droite';
+  } else if (rond.left + rond.width - panneau.width >= marge) {
+    // Le bouton est vers la droite : on s'étend vers la gauche.
+    horizontal = 'gauche';
+  } else {
+    // Plus large que l'écran : on va du côté où il reste le plus de place.
+    horizontal = centreX <= fenetre.width / 2 ? 'droite' : 'gauche';
+  }
+
+  // Par défaut le panneau grandit vers le HAUT (le module vit en bas de l'écran).
+  // S'il n'y a pas la place au-dessus, il se déplie vers le bas.
+  let vertical: SensVertical = 'haut';
+  if (rond.top + rond.height - panneau.height < marge) {
+    vertical = rond.top + panneau.height <= fenetre.height - marge ? 'bas' : 'haut';
+  }
+  return { horizontal, vertical };
+}
+
+/**
+ * La correction à AJOUTER au décalage du bouton pour poser le panneau du bon
+ * côté sans que le bouton bouge. Elle est NULLE quand le panneau a la taille du
+ * rond (module fermé). La boîte étant centrée en X et ancrée en bas :
+ *   — une correction en X déplace le côté d'ancrage (à droite = on ancre le bord
+ *     gauche du panneau sur le bouton, donc on grandit vers la droite) ;
+ *   — une correction en Y positive (vers le bas) fait grandir le panneau vers le
+ *     bas au lieu du haut.
+ * Comme la largeur/hauteur et cette correction s'animent ensemble, en même temps
+ * et de la même façon, le côté ancré (là où est le bouton) reste fixe pendant la
+ * métamorphose.
+ */
+export function correctionOuverture(
+  sens: SensOuverture,
+  panneau: TailleVoix,
+  rond: TailleVoix,
+): DecalageVoix {
+  let x = 0;
+  if (sens.horizontal === 'droite') x = panneau.width / 2 - rond.width / 2;
+  else if (sens.horizontal === 'gauche') x = rond.width / 2 - panneau.width / 2;
+  const y = sens.vertical === 'bas' ? panneau.height - rond.height : 0;
+  return { x, y };
+}
