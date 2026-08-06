@@ -746,24 +746,25 @@ function ProposalChip({
       ) : null}
 
       {/* Les réglages de l'agent qui exécutera la carte, choisis dès maintenant.
-          Une seule rangée sur ordinateur (sm:flex-nowrap) : les trois menus, groupés
-          et rétrécissables (min-w-0 shrink), cèdent la place en tronquant leur texte
-          pendant que les boutons gardent leur taille (shrink-0). Sur téléphone, où
-          tout ne peut pas tenir à 360 px, le retour à la ligne reste possible mais
-          ne joue qu'ENTRE les deux blocs — menus au-dessus, boutons en dessous —,
-          jamais entre deux menus. */}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-1 border-t border-border px-2 py-1.5 sm:flex-nowrap sm:gap-x-1">
-        <div className="flex min-w-0 shrink items-center gap-x-0.5 sm:gap-x-1">
-          <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} />
-        </div>
-        <div className="ml-auto flex shrink-0 gap-1.5">
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => decide(false)}>
-            Refuser
-          </Button>
-          <Button size="sm" variant="default" disabled={busy} onClick={() => decide(true)}>
-            <Check className="h-3 w-3" /> Créer la carte
-          </Button>
-        </div>
+          Le pied s'empile en LIGNES : chaque menu (moteur, modèle, réflexion) prend
+          toute la largeur (pleineLargeur) et affiche son libellé entier — plus aucune
+          troncature en « C… ». Viennent ensuite « Créer la carte », puis « Refuser »
+          tout en bas. Une largeur qui rétrécit fait défiler la liste, jamais tronquer
+          les libellés. */}
+      <div className="flex flex-col gap-1 border-t border-border px-2 py-1.5">
+        <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} pleineLargeur />
+        <Button
+          size="sm"
+          variant="default"
+          disabled={busy}
+          onClick={() => decide(true)}
+          className="w-full"
+        >
+          <Check className="h-3 w-3" /> Créer la carte
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => decide(false)} className="w-full">
+          Refuser
+        </Button>
       </div>
     </div>
   );
