@@ -549,9 +549,10 @@ sans son point d'essai.
   `VOIX_MORPHISME_MS` comme la boîte. Elle porte `data-pied-ondes` ; le pied de la liste n'est plus
   qu'un creux vide (`h-9 border-t`) où elle vient se poser. Cette ligne s'ÉLARGIT à toute la largeur
   du conteneur (`data-pied-ondes` en `inset-x-0`, ondes en `w-full justify-between`, `ONDES_LARGES`
-  barres) dès que la voix PARLE ou que le module est OUVERT — jamais un petit paquet centré dans un
-  pied vide. L'icône FIGÉE à cinq barres (`LigneOndes` sans `plein`, `data-icone-repos`) ne s'affiche
-  QUE lorsque la voix ne parle pas ET que le module est au repos (fermé) : elle montre cinq barres
+  barres) et ne s'anime QUE lorsque la voix PARLE — un module seulement OUVERT au survol (voix muette)
+  garde les cinq barres figées au repos, jamais un flux animé sans son. `LigneOndes` ne prend donc plus
+  que `parle` : `plein` a disparu. L'icône FIGÉE à cinq barres (`data-icone-repos`) s'affiche dès que la
+  voix ne parle pas — module fermé OU seulement ouvert au survol : elle montre cinq barres
   figées en vibration sonore SYMÉTRIQUE. Pendant la parole (`data-parle`, posé sur la RACINE) les
   barres larges deviennent un flux d'ondes VERTES (`data-onde-vocale`, `bg-success`, jeton
   `--success`, jamais une couleur en dur) qui SUIVENT LE VOLUME réellement entendu : une analyse Web
@@ -559,11 +560,14 @@ sans son point d'essai.
   `web/src/lib/voix.ts`), chaque barre lit une tranche de fréquences basses-médiums (`getByteFrequencyData`),
   et `LigneOndes` pilote leur `scaleY` par une boucle `requestAnimationFrame` LISSÉE — hautes quand la voix
   porte, presque plates dans les silences. On ne route l'élément par le graphe QUE si le contexte audio
-  tourne déjà (`state === 'running'`) : router un son en veille le rendrait muet, donc à défaut on laisse
-  l'élément jouer seul. Sans analyse possible (contexte en veille, voix de secours du navigateur — où
-  `detacherAnalyse` est appelé —, navigateur qui la refuse) on retombe sur l'animation régulière
-  `animate-onde`, jamais sur des barres figées. Module seulement ouvert (voix muette), les barres
-  larges sont neutres et animées. Aucun micro ni permission : on n'écoute que ce que
+  tourne déjà (`state === 'running'`) : router un son en veille le rendrait muet. Le contexte est donc
+  RÉVEILLÉ au premier geste de l'utilisateur (`obtenirContexte` + écouteurs `pointerdown`/`keydown`/
+  `touchstart` posés une fois, `web/src/lib/voix.ts`) : `resume()` étant asynchrone, le tester juste
+  après l'appel le trouvait toujours suspendu au premier son et l'analyse ne prenait JAMAIS — d'où des
+  ondes qui retombaient sur l'animation régulière au lieu de suivre le volume. Sans analyse possible
+  (contexte encore en veille, voix de secours du navigateur — où `detacherAnalyse` est appelé —,
+  navigateur qui la refuse) on retombe sur l'animation régulière `animate-onde`, jamais sur des barres
+  figées — mais SEULEMENT pendant la parole. Aucun micro ni permission : on n'écoute que ce que
   l'application joue. L'ouverture se déclenche au survol
   (souris) ou à l'appui (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`,
   `(hover: hover) and (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
@@ -595,13 +599,15 @@ sans son point d'essai.
   `estUnGlissement` tranchant au-delà de `SEUIL_GLISSEMENT_VOIX`. À LA SOURIS, l'icône ne suffit
   pas — l'ouverture se fait au SURVOL et rend aussitôt l'icône `pointer-events-none` : approcher pour
   tirer déplierait le panneau et effacerait la prise. Une POIGNÉE dédiée (`data-poignee-voix`,
-  visible seulement si `survolPossible`) est donc posée HORS du module, juste à l'extérieur du coin
-  bas-droit du rond, à `VOIX_ECART_POIGNEE` px du bord : elle est un FRÈRE de la boîte (pas un
-  descendant), si bien que la survoler ne déclenche plus le `onMouseEnter` de la boîte et ne déplie
-  plus le panneau. Elle est ancrée au ROND fermé (transform `fixed` avec `VOIX_ROND/2 + decalage.x +
-  écart`, `decalage.y` — jamais la correction d'ouverture), donc elle ne bouge pas quand le panneau
-  s'ouvre/se referme, reste attrapable panneau ouvert comme fermé, et suit le module quand on le
-  déplace (le décalage retenu). Aucune poignée au doigt. Le geste d'amorçage est écrit UNE fois (`commencerGlissement`), partagé par l'icône (doigt)
+  visible seulement si `survolPossible` ET module FERMÉ, `!ouvert`) est donc posée HORS du module,
+  juste à l'extérieur du coin bas-droit du rond, à `VOIX_ECART_POIGNEE` px du bord : elle est un FRÈRE
+  de la boîte (pas un descendant), si bien que la survoler ne déclenche plus le `onMouseEnter` de la
+  boîte et ne déplie plus le panneau. Elle DISPARAÎT dès que le panneau est ouvert (ancrée au coin
+  bas-droit du rond, elle chevaucherait sinon le déplié) et revient une fois refermé — on tire donc
+  toujours le module FERMÉ. Elle est ancrée au ROND fermé (transform `fixed` avec `VOIX_ROND/2 +
+  decalage.x + écart`, `decalage.y` — jamais la correction d'ouverture), donc elle ne bouge pas d'un
+  déplacement à l'autre et suit le module quand on le déplace (le décalage retenu). Aucune poignée au
+  doigt. Le geste d'amorçage est écrit UNE fois (`commencerGlissement`), partagé par l'icône (doigt)
   et la poignée (souris) ; `touchAction: 'none'` sur les deux, sinon le doigt ferait défiler la page. Ce qui est retenu n'est pas une position absolue mais un
   DÉCALAGE en pixels par rapport à la place d'origine — décalage nul = l'affichage d'avant. Il passe
   par le MÊME mécanisme que le bloc du dock, une préférence SERVEUR (`usePref`, clé
