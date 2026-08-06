@@ -105,6 +105,7 @@ node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond 
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-reveil-vocal.mjs # l'écoute permanente : interrupteur, réveil « Dis Haiko », ondes rouges, relecture puis envoi, « Annule » et clic (serveur de développement, HAIKO_REVEIL_URL ; micro FACTICE muet, phrases injectées par le point d'essai — ni micro réel ni Whisper jugés)
 node scripts/verif-ecoute-mobile.mjs # l'écoute permanente sur écran de téléphone : module ANCRÉ au menu du bas, cinq barres FIGÉES au repos (pas de flux animé), réveil « Dis Haiko » qui passe en écoute (ondes rouges, bandeau de dictée sans déborder), format d'enregistrement choisi avec repli, panne dite au lieu d'une page vide (serveur de développement, HAIKO_ECOUTE_URL ; micro FACTICE, transcription interceptée — ni Whisper ni quota touchés)
+node scripts/verif-transcription-reveil.mjs # le réveil sur de la VRAIE parole : les voix Piper disent « Dis Haiko », le moteur de transcription du dépôt les relit, les règles pures tranchent (aucun navigateur, aucun serveur ; Piper et Whisper absents = contrôle qui le DIT et s'arrête, HAIKODEV_DATA)
 node scripts/verif-assistant-vocal.mjs # une phrase dictée part chez le bon projet, une phrase vague pose la question (démon d'essai à soi, dossier personnel vide : aucun compte, aucun quota dépensé)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
 node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
@@ -883,7 +884,25 @@ sans son point d'essai.
   Haiko », « Dishaiko », « Dit aïko », « dis a ico », « des Haiko » comptent ; « dis à Rico »
   (`disarico`, trois écarts) non. Le réveil vaut AU MILIEU d'une phrase (ce qui suit devient
   la dictée). L'index rendu compte des mots du texte BRUT — la normalisation sert à reconnaître,
-  jamais à remplacer ce qui a été dit. `lireParole(texte, ecouteEnCours, forme?)` tranche : en guet, seule
+  jamais à remplacer ce qui a été dit.
+  **Les lettres ne suffisent pas : on compare AUSSI le SON.** « Haiko » n'est pas un mot de la
+  langue, et le moteur de transcription ne l'écrit JAMAIS ainsi — mesuré sur le serveur avec les
+  voix du projet : « D'y éco », « Dièco », « Dis-côt », « Dis et co », « 10 écho », « Ticot ».
+  Aucune n'approche `dishaiko` à deux lettres près, d'où un réveil qui ne partait jamais (un
+  modèle Whisper plus gros n'y change rien : « Dieko »). `formeSonore` réduit donc chaque mot à
+  ce qu'il sonne, à la française — nombres écrits en chiffres rendus en lettres (« 10 » → « dix »,
+  homophone de « dis »), `ph`→f, `ch`/`qu`/`c` dur→k, `h` muet, `y`→i, `eau`/`au`→o, `ai`/`ei`→e,
+  `ou`→u, `oi`→wa, `z`→s, lettres doublées réduites, `e` final et consonne finale muets —, MOT
+  PAR MOT puis recollé : c'est la coupure des mots qui fait taire le `s` de « dis », si bien que
+  « Dis Haiko » et « Dièco » deviennent tous deux `dieko`. `formesDeReveil(mot)` rend les DEUX
+  formes ensemble (`ecrite`, `sonore`) et c'est cet objet qui voyage jusqu'à
+  `useEcoutePermanente` ; `finDuReveil` essaie les lettres d'abord, le son ensuite. La marge
+  sonore est plus SERRÉE (`ecartSonore`, un cinquième contre un quart) : la réduction a déjà
+  absorbé les écarts d'orthographe, et « Rico », « Nico », « disque », « disait quoi » sont à
+  portée d'une marge large. Une transcription qui ÉCHOUE se DIT
+  (`phraseDEchecTranscription`, qui reprend la raison du serveur) : une seule fois par panne,
+  effacée dès qu'une transcription revient, et l'écoute RESTE en guet — un micro ouvert qui ne
+  comprendra jamais rien ne se tait pas poliment. `lireParole(texte, ecouteEnCours, forme?)` tranche : en guet, seule
   une phrase portant le réveil compte ; en écoute, tout s'ajoute (`assemblerDictee`). Les états
   (`EtatEcoute`, portés par `data-etat-ecoute`) sont `eteinte`, `guette`, `ecoute`, `relit`,
   `refusee`. Le module se MÉTAMORPHOSE pour la dictée comme pour la parole (`formeDuModule` prend un
@@ -896,7 +915,9 @@ sans son point d'essai.
   là. « Annule » est entendu À TOUT MOMENT, la relecture comprise (c'est justement le temps qu'on a
   pour se raviser), et un clic sur le bandeau fait la même chose. Un micro refusé se DIT
   (`REFUS_MICRO`, message court + ligne `data-erreur-micro` dans le panneau). Verrouillé par
-  `server/src/test/reveil-vocal.test.ts` et `scripts/verif-reveil-vocal.mjs`.
+  `server/src/test/reveil-vocal.test.ts`, `scripts/verif-reveil-vocal.mjs` (l'écran, phrases
+  injectées) et `scripts/verif-transcription-reveil.mjs` (le SON : de la vraie parole, vraiment
+  transcrite — le seul endroit où la chaîne cassait, et le seul qu'aucun contrôle ne voyait).
 - **Le FORMAT d'enregistrement se DEMANDE au navigateur, il ne s'impose pas**
   (`shared/src/format-enregistrement.ts`). `new MediaRecorder(flux, { mimeType: 'audio/webm' })`
   lève une erreur sur Safari (iPhone compris), qui ne connaît pas ce format — et cette erreur,

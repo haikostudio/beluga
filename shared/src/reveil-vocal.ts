@@ -15,6 +15,19 @@
  * Haiko », « Dit aïko », « Dishaiko » sont le même geste. On ne compare donc
  * pas des chaînes exactes mais des formes NORMALISÉES (sans accent, sans
  * ponctuation, sans majuscule), à une petite distance près.
+ *
+ * Et cela ne suffit pas. « Haiko » n'est pas un mot de la langue : le moteur de
+ * transcription ne l'écrit JAMAIS ainsi. Mesuré sur le serveur, avec les trois
+ * voix du projet dites au micro puis relues par Whisper : « D'y éco »,
+ * « Dièco », « D'yko », « Ticot », « Dis et co », « 10 écho ». Aucune de ces
+ * formes n'approche « dishaiko » à deux lettres près — le réveil ne partait
+ * donc jamais. Passer à un modèle plus gros n'y change rien (« Dieko »).
+ *
+ * On compare donc AUSSI ce que ça SONNE : chaque mot est réduit à une forme
+ * sonore grossière (`formeSonore`), à la française — h muet, consonne finale
+ * muette, « ai » qui se dit « é », « c/qu/ch » qui se disent « k ». « Dis
+ * Haiko » et « Dièco » y deviennent le même « dieko ». Les deux voies valent :
+ * les lettres reconnaissent un mot bien écrit, le son rattrape le reste.
  */
 
 /**
@@ -51,6 +64,103 @@ export function formeDeReveil(mot?: string | null): string {
  */
 export function ecartDeReveil(forme: string): number {
   return Math.max(1, Math.round(forme.length / 4));
+}
+
+/**
+ * La marge de la comparaison SONORE. Plus SERRÉE que celle des lettres (un
+ * cinquième au lieu d'un quart) : la réduction a déjà absorbé les écarts
+ * d'orthographe, une marge large ferait passer n'importe quel mot voisin —
+ * « Rico », « Nico », « disque » sont à deux sons de « dieko ».
+ */
+export function ecartSonore(forme: string): number {
+  return Math.max(1, Math.round(forme.length / 5));
+}
+
+/**
+ * Les deux façons de reconnaître le mot de réveil : par ses LETTRES et par son
+ * SON. Elles se calculent ensemble à partir du mot réglé, car la forme sonore a
+ * besoin de la coupure des MOTS (le « s » de « dis » est muet parce qu'il est
+ * en fin de mot ; recollé en « dishaiko », il ne le serait plus).
+ */
+export interface FormesDeReveil {
+  /** Le mot réglé, normalisé et recollé : « dishaiko ». */
+  ecrite: string;
+  /** Ce que le mot réglé sonne, mot à mot puis recollé : « dieko ». */
+  sonore: string;
+}
+
+/** Les deux formes du mot de réveil choisi. Un champ vide revient au défaut. */
+export function formesDeReveil(mot?: string | null): FormesDeReveil {
+  const brut = (mot ?? '').trim();
+  const ecrite = formeDeReveil(brut);
+  return { ecrite, sonore: formeSonore(brut) || formeSonore(REVEIL_DEFAUT) };
+}
+
+/**
+ * Ce qu'un appelant a donné, ramené aux deux formes. Une simple chaîne est
+ * comprise comme la forme ÉCRITE (elle est déjà recollée : sa forme sonore
+ * garde donc les consonnes du milieu, faute de savoir où les mots s'arrêtent).
+ */
+function resoudreFormes(forme?: string | FormesDeReveil): FormesDeReveil {
+  if (!forme) return formesDeReveil(REVEIL_DEFAUT);
+  if (typeof forme !== 'string') return forme;
+  return { ecrite: forme || REVEIL_NORMALISE, sonore: formeSonore(forme) };
+}
+
+/**
+ * Les nombres que la transcription écrit en CHIFFRES alors qu'ils s'entendent
+ * comme des mots. « Dis » s'entend « dix » : le moteur écrit alors « 10 écho »
+ * pour « Dis Haiko ». Sans cette table, ce réveil-là passerait à travers.
+ */
+const NOMBRES_DITS: Record<string, string> = {
+  '0': 'zero', '1': 'un', '2': 'deux', '3': 'trois', '4': 'quatre', '5': 'cinq',
+  '6': 'six', '7': 'sept', '8': 'huit', '9': 'neuf', '10': 'dix', '11': 'onze',
+  '12': 'douze', '13': 'treize', '14': 'quatorze', '15': 'quinze', '16': 'seize',
+  '20': 'vingt', '100': 'cent',
+};
+
+/**
+ * UN mot ramené à ce qu'il sonne, à la française. Rien d'une vraie phonétique :
+ * juste assez de règles pour que deux orthographes du même son se rejoignent.
+ * Un mot qui s'effacerait entièrement garde sa première lettre.
+ */
+function motSonore(mot: string): string {
+  if (!mot) return '';
+  const reduit = (NOMBRES_DITS[mot] ?? mot)
+    // Le son « f » : « ph » comme « f ». Avant que le « h » ne disparaisse.
+    .replace(/ph/g, 'f')
+    // Le son « k » : « ch » (écho, chorale), « qu », « q », « c » dur.
+    .replace(/ch/g, 'k')
+    .replace(/qu/g, 'k')
+    .replace(/q/g, 'k')
+    .replace(/c([eiy])/g, 's$1')
+    .replace(/c/g, 'k')
+    .replace(/g([eiy])/g, 'j$1')
+    // Le « h » ne s'entend pas ; « y » se dit « i ».
+    .replace(/h/g, '')
+    .replace(/y/g, 'i')
+    // Les voyelles composées, de la plus longue à la plus courte.
+    .replace(/eau/g, 'o')
+    .replace(/au/g, 'o')
+    .replace(/ai|ei/g, 'e')
+    .replace(/ou/g, 'u')
+    .replace(/oi/g, 'wa')
+    .replace(/eu|oe/g, 'e')
+    // « s » et « z » se confondent à l'oreille ; une lettre doublée s'entend une fois.
+    .replace(/z/g, 's')
+    .replace(/(.)\1+/g, '$1')
+    // Le « e » final ne se dit pas, ni la consonne finale qui le suivait.
+    .replace(/e$/, '')
+    .replace(/[stdxpgz]$/, '');
+  return reduit || mot[0];
+}
+
+/**
+ * Ce qu'un texte SONNE : chaque mot réduit, puis recollé sans espace. C'est
+ * cette forme-là que l'on compare quand les lettres ne suffisent plus.
+ */
+export function formeSonore(texte: string): string {
+  return normaliserParole(texte).split(' ').map(motSonore).join('');
 }
 
 /**
@@ -148,21 +258,31 @@ export function ecartDeMots(a: string, b: string, marge: number): number {
  * mot de réveil. Le réveil est reconnu où qu'il soit dans la phrase : au début
  * comme au milieu, ce qui suit devient la dictée.
  */
-export function finDuReveil(texte: string, forme: string = REVEIL_NORMALISE): number {
-  const cible = forme || REVEIL_NORMALISE;
+export function finDuReveil(texte: string, forme?: string | FormesDeReveil): number {
+  const formes = resoudreFormes(forme);
+  const cible = formes.ecrite || REVEIL_NORMALISE;
   const marge = ecartDeReveil(cible);
+  const margeSon = ecartSonore(formes.sonore);
   // On découpe le texte D'ORIGINE, puis on normalise chaque mot séparément :
   // l'index rendu compte donc des mots du texte brut, et ce qui suit le réveil
   // se retrouve sans décalage (« Dis Haiko, ouvre-le » ferait sinon quatre mots
   // normalisés pour trois mots dits).
   const mots = texte.trim().split(/\s+/).map((mot) => normaliserParole(mot).replace(/ /g, ''));
+  // Ce que chaque mot SONNE, réduit un par un : c'est la coupure des mots qui
+  // fait taire le « s » de « dis », donc on ne recolle qu'après.
+  const sons = mots.map(motSonore);
   if (mots.every((mot) => !mot)) return -1;
   for (let debut = 0; debut < mots.length; debut += 1) {
     let fenetre = '';
+    let son = '';
     for (let n = 0; n < REVEIL_MOTS_MAX && debut + n < mots.length; n += 1) {
       fenetre += mots[debut + n];
+      son += sons[debut + n];
       if (!fenetre) continue;
-      if (ecartDeMots(fenetre, cible, marge) <= marge) {
+      // Les LETTRES d'abord — un mot bien écrit se reconnaît tel quel —, le SON
+      // ensuite, pour tout ce que la transcription a écrit à sa façon.
+      if (ecartDeMots(fenetre, cible, marge) <= marge) return debut + n;
+      if (son && formes.sonore && ecartDeMots(son, formes.sonore, margeSon) <= margeSon) {
         return debut + n;
       }
     }
@@ -171,7 +291,7 @@ export function finDuReveil(texte: string, forme: string = REVEIL_NORMALISE): nu
 }
 
 /** Le mot de réveil est-il quelque part dans cette phrase ? */
-export function contientLeReveil(texte: string, forme: string = REVEIL_NORMALISE): boolean {
+export function contientLeReveil(texte: string, forme?: string | FormesDeReveil): boolean {
   return finDuReveil(texte, forme) >= 0;
 }
 
@@ -208,7 +328,7 @@ export function contientUneAnnulation(texte: string): boolean {
 export function lireParole(
   texte: string,
   ecouteEnCours: boolean,
-  forme: string = REVEIL_NORMALISE,
+  forme?: string | FormesDeReveil,
 ): LectureDeParole {
   const brut = texte.trim();
   if (!brut) return { reveil: false, annulation: false, suite: '' };
@@ -277,3 +397,16 @@ export const ENREGISTREMENT_IMPOSSIBLE =
  */
 export const SON_INDISPONIBLE =
   'Le son du navigateur n’a pas pu s’ouvrir : l’écoute permanente n’est pas disponible ici.';
+
+/**
+ * Le micro fonctionne, mais le SERVEUR ne rend rien de ce qu'il entend : moteur
+ * de transcription absent, en panne, ou injoignable. La phrase le DIT — une
+ * écoute qui ne comprendra jamais rien ne doit pas se taire poliment. La raison
+ * du serveur est reprise telle quelle quand il en donne une.
+ */
+export function phraseDEchecTranscription(raison?: string | null): string {
+  const detail = (raison ?? '').trim();
+  const debut = 'Le micro écoute, mais le serveur ne transcrit pas';
+  const fin = ' — rien de ce qui est dit ne sera compris.';
+  return detail ? `${debut} (${detail})${fin}` : `${debut}${fin}`;
+}
