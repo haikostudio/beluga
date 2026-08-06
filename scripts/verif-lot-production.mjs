@@ -208,6 +208,26 @@ async function pied(page, colonne) {
   }, colonne);
 }
 
+/**
+ * Le bloc de publication posé EN TÊTE d'une colonne : son bouton, ce qu'il dit,
+ * et s'il est éteint. `null` quand la colonne n'en porte aucun — c'est le cas
+ * d'« En production » tant que le projet n'a qu'une seule mise en ligne.
+ */
+async function blocPublication(page, colonne) {
+  return page.evaluate((colonne) => {
+    const col = document.querySelector(`[data-column="${colonne}"]`);
+    const bloc = col?.querySelector('[data-bloc-publication]');
+    if (!bloc) return null;
+    const bouton = bloc.querySelector('[data-bouton-publication]');
+    return {
+      colonne: bloc.getAttribute('data-bloc-publication'),
+      bouton: bouton?.textContent?.trim() ?? null,
+      eteint: bouton?.disabled === true,
+      texte: bloc.textContent?.trim() ?? '',
+    };
+  }, colonne);
+}
+
 const cliquerPied = (page, motif, colonne) =>
   page.evaluate(
     ({ motif, colonne }) => {
@@ -291,6 +311,31 @@ async function main() {
     JSON.stringify(depart),
   );
 
+  /* -------- Le bloc de publication, colonne par colonne -------- */
+
+  const blocDeploy = await blocPublication(page, 'to_deploy');
+  noter(
+    '« À déployer » garde son bloc et son bouton « Tout déployer »',
+    !!blocDeploy && /Tout déployer/.test(blocDeploy.bouton ?? ''),
+    JSON.stringify(blocDeploy),
+  );
+  noter(
+    'le bouton compte exactement les trois cartes du lot',
+    /\(3\)/.test(blocDeploy?.bouton ?? ''),
+    blocDeploy?.bouton ?? '—',
+  );
+
+  await page.locator('[data-column="in_production"]').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(800);
+  const blocProduction = await blocPublication(page, 'in_production');
+  noter(
+    'sans environnement de dev déclaré, « En production » ne porte AUCUN bloc de publication',
+    blocProduction === null,
+    JSON.stringify(blocProduction),
+  );
+
+  await page.locator('[data-column="to_deploy"]').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
   const auRepos = (await pied(page, 'to_deploy')).join(' | ');
   noter('le pied de « À déployer » propose « Tout mettre en production »', auRepos.includes('Tout mettre en production'), auRepos);
   noter('il ne propose PLUS « Tout archiver »', !auRepos.includes('Tout archiver'), auRepos);
@@ -331,6 +376,15 @@ async function main() {
   await page.waitForTimeout(600);
   const piedProduction = (await pied(page, 'in_production')).join(' | ');
   noter('le pied d’« En production » propose « Tout archiver »', piedProduction.includes('Tout archiver'), piedProduction);
+  // Deux cartes viennent d'arriver dans la colonne : le bloc reste absent tant
+  // que la seconde étape n'existe pas, sinon on proposerait une mise en ligne
+  // que le serveur refuserait au clic.
+  const blocRempli = await blocPublication(page, 'in_production');
+  noter(
+    'la colonne remplie n’a toujours pas de bloc de publication',
+    blocRempli === null,
+    JSON.stringify(blocRempli),
+  );
   await page.screenshot({ path: path.join(TMP, 'colonne-production.png') });
 
   await cliquerPied(page, 'Tout archiver', 'in_production');

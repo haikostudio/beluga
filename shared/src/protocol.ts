@@ -212,8 +212,21 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * la première étape ; refus, le lot reste entier et chaque carte le dit.
    */
   z.object({ type: z.literal('deploy.envoi'), runId: z.string(), accord: z.boolean() }),
-  /** Ce qui coincerait si on publiait maintenant — sans rien publier. */
-  z.object({ type: z.literal('deploy.check'), projectId: z.string(), environmentId: z.string().optional() }),
+  /**
+   * Ce qui coincerait si on publiait maintenant — sans rien publier.
+   *
+   * `source` est la COLONNE d'où le bloc de publication pose la question : un
+   * bloc ne sait pas à quelle étape il sert, il sait seulement où il est. Le
+   * serveur lui répond avec l'étape correspondante, ou rien du tout quand cette
+   * colonne n'a pas d'étape (« En production » sur un projet à une seule mise
+   * en ligne). Absente, c'est « À déployer » — le seul bloc d'avant.
+   */
+  z.object({
+    type: z.literal('deploy.check'),
+    projectId: z.string(),
+    environmentId: z.string().optional(),
+    source: ColumnKey.optional(),
+  }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),
