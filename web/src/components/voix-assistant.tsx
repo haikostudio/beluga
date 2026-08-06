@@ -62,6 +62,17 @@ const VOIX_HAUTEUR_LIGNE = 40;
 const VOIX_HAUTEUR_LISTE_MAX = 240;
 
 /**
+ * OÙ LA LIGNE D'ONDES SE POSE, en pixels depuis le BAS de la boîte. Cette boîte
+ * est ancrée par le bas (position `fixed`, `bottom`), donc son bas ne bouge pas
+ * quand elle grandit vers le haut : mesurer les ondes depuis ce bas les fait
+ * glisser d'une place à l'autre sans dépendre de la hauteur du moment. Au repos,
+ * les ondes sont CENTRÉES dans le rond ; dépliées, elles descendent au creux du
+ * pied. Le même objet passe de l'une à l'autre — jamais dupliqué, jamais effacé.
+ */
+const VOIX_BAS_ONDES_REPOS = (VOIX_ROND - VOIX_HAUTEUR_PIED) / 2;
+const VOIX_BAS_ONDES_OUVERT = 0;
+
+/**
  * La hauteur du module déplié : l'en-tête, la liste (bornée), le pied d'ondes.
  * Elle suit le nombre de messages, pour qu'un historique vide n'ouvre pas un
  * grand rectangle presque nu.
@@ -150,9 +161,10 @@ function contexteDecision(
 
 /**
  * La ligne d'ondes : pendant la parole (`parle`), un flux d'ondes VERTES
- * animées ; au repos, cinq barres figées en vibration sonore symétrique. Le
- * même dessin sert le bouton du bas ET le pied du panneau déplié, pour que
- * l'historique soit AU-DESSUS et cette ligne EN DESSOUS.
+ * animées ; au repos, cinq barres figées en vibration sonore symétrique. Un
+ * SEUL exemplaire vit dans le module — l'objet continu qui glisse du centre du
+ * rond fermé au creux du pied déplié —, jamais un dans le bouton et un autre au
+ * pied qui se croiseraient en fondu.
  */
 function LigneOndes({ parle }: { parle: boolean }) {
   if (parle) {
@@ -529,7 +541,9 @@ export function VoixAssistant() {
           transitionDelay: ouvert ? '0ms' : `${VOIX_MORPHISME_MS * 0.55}ms`,
         }}
       >
-        <LigneOndes parle={parle && !ouvert} />
+        {/* La ligne d'ondes n'est PLUS ici : elle vit à part, en objet continu
+            (voir plus bas), pour ne pas s'effacer quand ce bouton fond. Ce
+            bouton ne reste que pour saisir l'appui, le survol et le glissement. */}
       </button>
 
       {/* Second visage : le même objet devenu grand, l'historique dedans. */}
@@ -571,13 +585,32 @@ export function VoixAssistant() {
             ))}
           </ul>
         )}
-        {/* Sous l'historique, la ligne d'ondes qui s'anime quand ça parle. */}
-        <div
-          data-pied-ondes
-          className="grid h-9 shrink-0 place-items-center border-t border-border"
-        >
-          <LigneOndes parle={parle} />
-        </div>
+        {/* Un creux réservé sous l'historique : la ligne d'ondes CONTINUE (hors
+            de cette liste, pour ne jamais clignoter) vient s'y poser. */}
+        <div className="h-9 shrink-0 border-t border-border" aria-hidden />
+      </div>
+
+      {/* LA LIGNE D'ONDES, OBJET CONTINU ET UNIQUE. Elle n'est ni dans l'icône
+          (qui s'efface) ni dans l'historique (qui fond) : elle vit à part,
+          TOUJOURS visible, et GLISSE du centre du rond fermé jusqu'au creux du
+          pied déplié pendant les mêmes 300 ms que la boîte. Jamais dupliquée,
+          jamais invisible — c'est elle qui remplace le fondu croisé d'avant.
+          Sans clic (`pointer-events-none`), pour ne rien voler au bouton
+          d'en dessous ni aux messages de l'historique. */}
+      <div
+        data-pied-ondes
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 grid place-items-center"
+        style={{
+          bottom: `${ouvert ? VOIX_BAS_ONDES_OUVERT : VOIX_BAS_ONDES_REPOS}px`,
+          height: `${VOIX_HAUTEUR_PIED}px`,
+          transform: 'translateX(-50%)',
+          transitionProperty: 'bottom',
+          transitionDuration: `${VOIX_MORPHISME_MS}ms`,
+          transitionTimingFunction: 'ease-out',
+        }}
+      >
+        <LigneOndes parle={parle} />
       </div>
     </div>
   );
