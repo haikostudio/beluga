@@ -606,6 +606,23 @@ sans son point d'essai.
   centre de la fenêtre et la ligne du bas mesurée quand le module est fermé (`baseBasRef`), rafraîchie
   au redimensionnement. Le choix se recalcule à l'ouverture et au `resize`. Verrouillé par les cas
   « le panneau s'ouvre du côté où il y a de la place » de `server/src/test/position-voix.test.ts`.
+- **Lâché tout près d'un bord, le module de voix S'Y ACCROCHE et se RÉDUIT**
+  (`bordDaccroche` / `decalageAccroche`, `shared/src/position-voix.ts`). La place retenue reste un
+  décalage `{x, y}`, mais elle porte EN PLUS un `bord` (`gauche`, `droite` ou `bas`, JAMAIS le haut)
+  quand le module est accroché — `placeRetenue` lit l'ancien format `{x, y}` seul comme une place
+  libre. Au relâchement, `bordDaccroche` regarde la boîte du rond lâché : si un bord est à moins de
+  `SEUIL_ACCROCHE_VOIX` (20 px ; la règle de visibilité tient déjà le module à 8 px du bord, donc
+  bien en deçà), le module s'y range. Fermé, il se montre en PASTILLE réduite (`VOIX_PASTILLE`,
+  30 px, `voix-assistant.tsx`) À MOITIÉ engagée hors de l'écran (`demiDehors`), même en parlant —
+  l'accroche ne coupe ni la voix ni les ondes. Survolé (souris) ou touché (doigt), il revient à sa
+  taille et OUVRE son panneau, calé AU RAS du bord (`demiDehors` faux, bord extérieur sur le bord de
+  l'écran, jamais à une marge : sinon le panneau, en s'ouvrant vers l'intérieur, découvrirait le
+  point de survol et re-fermerait aussitôt) ; `sensDouverture` fait le reste. Tiré vers le centre, le
+  module se DÉCROCHE de lui-même : plus aucun bord proche au relâchement, la place rangée redevient
+  libre. La place accrochée se RECALCULE à chaque rendu depuis le bord et la fenêtre (jamais rangée
+  au redimensionnement) : `ramenerDansLEcran` ne vaut donc QUE pour les places libres. Le module
+  porte `data-accrochee` et `data-bord`. Verrouillé par `server/src/test/position-voix.test.ts` et
+  `scripts/verif-position-voix.mjs` (cas d'accroche, souris et doigt).
 - **La voix est PARTAGÉE — un seul son à la fois — et TOUT message de la conversation s'écoute**
   (`web/src/lib/voix.ts`, `texteAEcouter` dans `shared/src/lecture-message.ts`). Les annonces
   automatiques (module de voix) et l'écoute d'un message passent par le MÊME lecteur : `direVoix`

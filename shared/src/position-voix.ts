@@ -31,10 +31,37 @@ export const MARGE_VOIX = 8;
  */
 export const SEUIL_GLISSEMENT_VOIX = 4;
 
+/**
+ * À quelle distance d'un bord, au relâchement, le module s'y ACCROCHE. Assez
+ * grand pour attraper un module lâché tout contre le bord (la règle de
+ * visibilité le maintient déjà à `MARGE_VOIX` du bord, donc à 8 px), assez
+ * petit pour ne pas happer la place d'origine (le module au repos vit à au
+ * moins 24 px du bas). Voir `bordDaccroche`.
+ */
+export const SEUIL_ACCROCHE_VOIX = 20;
+
 /** Un décalage en pixels, par rapport à la place d'origine. */
 export interface DecalageVoix {
   x: number;
   y: number;
+}
+
+/**
+ * Les trois bords auxquels le module peut s'accrocher. JAMAIS le haut : la
+ * barre du haut de l'application y vit déjà.
+ */
+export type BordVoix = 'gauche' | 'droite' | 'bas';
+
+/**
+ * La PLACE retenue du module. C'est toujours un décalage `{x, y}` par rapport
+ * à la place d'origine ; s'y ajoute, quand le module est ACCROCHÉ, le bord où
+ * il l'est. Le décalage est alors le point où on l'a lâché — il donne la
+ * position LE LONG du bord (hauteur pour gauche/droite, largeur pour bas), donc
+ * conservée au rechargement. Sans `bord`, la place est libre, exactement comme
+ * avant. Le format d'avant (`{x, y}` seul) reste lu tel quel : une place libre.
+ */
+export interface PlaceVoix extends DecalageVoix {
+  bord?: BordVoix;
 }
 
 /** Une boîte à l'écran, telle que le navigateur la mesure. */
@@ -65,6 +92,27 @@ export function estDecalageVoix(valeur: unknown): valeur is DecalageVoix {
 /** Le décalage retenu, ramené à quelque chose d'utilisable. */
 export function decalageRetenu(valeur: unknown): DecalageVoix {
   return estDecalageVoix(valeur) ? valeur : DECALAGE_VOIX_DEFAUT;
+}
+
+/** Un bord d'accroche valide ? (jamais le haut) */
+export function estBordVoix(valeur: unknown): valeur is BordVoix {
+  return valeur === 'gauche' || valeur === 'droite' || valeur === 'bas';
+}
+
+/**
+ * La place retenue, ramenée à quelque chose d'utilisable. Un décalage seul
+ * (l'ancien format) donne une place libre ; un bord valide en plus donne une
+ * place accrochée. Une valeur abîmée retombe sur la place d'origine, libre.
+ */
+export function placeRetenue(valeur: unknown): PlaceVoix {
+  // On ne garde QUE x et y : la valeur retenue peut porter d'autres champs (un
+  // `bord` invalide, un reliquat), qu'on ne laisse pas fuir dans la place.
+  const { x, y } = decalageRetenu(valeur);
+  const bord =
+    valeur && typeof valeur === 'object' && estBordVoix((valeur as { bord?: unknown }).bord)
+      ? (valeur as { bord: BordVoix }).bord
+      : undefined;
+  return bord ? { x, y, bord } : { x, y };
 }
 
 /** Ramène une valeur entre deux bornes, la plus petite l'emportant si elles se croisent. */
@@ -115,6 +163,109 @@ export function memeDecalage(a: DecalageVoix, b: DecalageVoix): boolean {
  */
 export function estUnGlissement(dx: number, dy: number, seuil: number = SEUIL_GLISSEMENT_VOIX): boolean {
   return Math.abs(dx) >= seuil || Math.abs(dy) >= seuil;
+}
+
+/* ------------------------------------------------------------------ */
+/* Accrocher le module à un bord                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ACCROCHER LE MODULE À UN BORD.
+ *
+ * Lâché tout près d'un bord (gauche, droite ou bas), le module s'y accroche :
+ * il s'aligne franchement sur ce bord et se RÉDUIT en une petite pastille, à
+ * moitié engagée hors de l'écran, qui ne masque plus le contenu. Le survol (ou
+ * l'appui) le fait revenir à sa taille normale et ouvrir son panneau vers
+ * l'intérieur. Le tirer vers le centre le décroche.
+ *
+ * `bordDaccroche` décide, au relâchement, si le module est assez près d'un bord
+ * pour s'y accrocher, et duquel. `decalageAccroche` en tire la place à donner
+ * au module — pastille à moitié dehors quand il est fermé, rond entier collé au
+ * bord quand il est ouvert. Tout se calcule sans navigateur.
+ */
+
+/**
+ * Le bord auquel accrocher le module d'après la boîte du rond lâché, ou `null`
+ * s'il n'est près d'aucun. On regarde les trois bords (jamais le haut) et l'on
+ * prend le plus proche, à condition qu'il soit sous le seuil. Une égalité
+ * penche vers le côté (gauche/droite) plutôt que le bas.
+ */
+export function bordDaccroche(
+  rond: BoiteVoix,
+  fenetre: FenetreVoix,
+  seuil: number = SEUIL_ACCROCHE_VOIX,
+): BordVoix | null {
+  const gauche = rond.left;
+  const droite = fenetre.width - (rond.left + rond.width);
+  const bas = fenetre.height - (rond.top + rond.height);
+  const plusProche = Math.min(gauche, droite, bas);
+  if (plusProche > seuil) return null;
+  if (plusProche === gauche) return 'gauche';
+  if (plusProche === droite) return 'droite';
+  return 'bas';
+}
+
+/** Ramène le BAS de la boîte (le long d'un bord vertical) dans l'écran. */
+function basVisible(basVoulu: number, hauteur: number, fenetre: FenetreVoix, marge: number): number {
+  const min = marge + hauteur;
+  const max = fenetre.height - marge;
+  return borner(basVoulu, min, max);
+}
+
+/** Ramène le CENTRE horizontal de la boîte (le long du bord bas) dans l'écran. */
+function centreVisible(centreVoulu: number, largeur: number, fenetre: FenetreVoix, marge: number): number {
+  const min = marge + largeur / 2;
+  const max = fenetre.width - marge - largeur / 2;
+  return borner(centreVoulu, min, max);
+}
+
+/**
+ * La place à donner au module accroché, sous forme de décalage par rapport à
+ * l'origine (bas au centre). La boîte est centrée en X et ancrée par le BAS,
+ * donc son centre horizontal vaut `fenetre.width / 2 + décalage.x` et son bas
+ * `originBas + décalage.y`, quelle que soit sa taille.
+ *
+ * — `taille` est le côté du carré affiché : la pastille quand le module est
+ *   fermé, le rond de repos quand il est ouvert (le panneau se déploie ensuite
+ *   à partir de ce rond, par `sensDouverture`).
+ * — `demiDehors` vrai pousse la pastille à moitié hors de l'écran (module
+ *   accroché fermé) ; faux colle la boîte au RAS du bord, entièrement dans
+ *   l'écran (module ouvert). Au ras et non à une marge : ainsi le panneau
+ *   ouvert recouvre toujours la bande où vivait la pastille, et le survol ne
+ *   « décroche » pas du panneau qui vient de s'ouvrir vers l'intérieur.
+ * — `place` donne, par son décalage, la position LE LONG du bord : la hauteur
+ *   pour gauche/droite, la largeur pour bas ; elle est ramenée dans l'écran.
+ */
+export function decalageAccroche(
+  bord: BordVoix,
+  place: DecalageVoix,
+  originBas: number,
+  fenetre: FenetreVoix,
+  taille: number,
+  demiDehors: boolean,
+  marge: number = MARGE_VOIX,
+): DecalageVoix {
+  const demiLargeurFenetre = fenetre.width / 2;
+  if (bord === 'gauche' || bord === 'droite') {
+    // Le bord extérieur de la boîte se pose sur le bord de l'écran : centre AU
+    // bord quand la pastille est à moitié dehors, bord extérieur AU RAS quand
+    // elle est entièrement rentrée.
+    const centre =
+      bord === 'gauche'
+        ? demiDehors
+          ? 0
+          : taille / 2
+        : demiDehors
+          ? fenetre.width
+          : fenetre.width - taille / 2;
+    const bas = basVisible(originBas + place.y, taille, fenetre, marge);
+    return { x: centre - demiLargeurFenetre, y: bas - originBas };
+  }
+  // Bord du bas : le bas de la boîte descend au ras du bord (au milieu quand la
+  // pastille est à moitié dehors, au ras quand elle est entièrement rentrée).
+  const bas = demiDehors ? fenetre.height + taille / 2 : fenetre.height;
+  const centre = centreVisible(demiLargeurFenetre + place.x, taille, fenetre, marge);
+  return { x: centre - demiLargeurFenetre, y: bas - originBas };
 }
 
 /* ------------------------------------------------------------------ */
