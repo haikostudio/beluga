@@ -124,6 +124,15 @@ export const Project = z.object({
   deployeSurEnvoi: z.boolean().default(false),
   /** Les endroits où ce projet peut être mis en ligne, dans l'ordre voulu. */
   environments: z.array(DeployEnvironment).default([]),
+  /**
+   * Ce qu'il faut FAIRE pour déployer ce projet, en texte libre, une consigne
+   * par étape du parcours : celle de « À déployer » et celle de « En
+   * production ». Les règles vivent dans `consigne-deploiement.ts`. Une clé
+   * absente est un état NORMAL : elle veut dire « déroulé habituel ».
+   */
+  consignesDeploiement: z
+    .object({ to_deploy: z.string().optional(), in_production: z.string().optional() })
+    .default({}),
   billing: BillingLink.optional(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
   rank: z.number().default(1000),

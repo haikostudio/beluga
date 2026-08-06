@@ -69,6 +69,7 @@ node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poig
 node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt puis à la souris (serveur de développement, HAIKO_INTERRUPTEUR_URL ; aucun vrai compte touché)
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
+node scripts/verif-consigne-deploiement.mjs # la consigne de déploiement réglée depuis le menu des colonnes « À déployer » / « En production » (serveur de développement, HAIKO_CONSIGNE_URL ; `project.update` intercepté, persistance imitée par le stockage local, aucun projet réel touché)
 node scripts/verif-envoi-surveille.mjs # un projet « se déploie sur envoi » fait attendre avant tout envoi (démon et dépôt d'essai à soi, HAIKODEV_VERIF_PORT)
 node scripts/verif-environnements-publication.mjs # plusieurs environnements par projet : ajout dans les réglages, apparition dans le bloc de publication (serveur de développement, HAIKO_ENVS_URL ; `project.update` et `deploy.check` interceptés, aucun projet réel touché)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
@@ -218,6 +219,27 @@ sans son point d'essai.
   cette règle compte pour le premier), affiché dans le bloc de publication à côté du menu de choix.
   Verrouillé par `server/src/test/environnements-publication.test.ts` et
   `scripts/verif-environnements-publication.mjs`.
+- **Le DÉROULÉ de déploiement s'écrit à la main, une consigne par étape**
+  (`shared/src/consigne-deploiement.ts`). Un projet ne décrivait sa publication que par une commande
+  et une adresse par environnement : l'ORDRE des gestes, ce qu'il faut contrôler avant, ce qu'il ne
+  faut surtout pas faire n'avait aucune place. Le projet porte donc
+  `Project.consignesDeploiement`, à côté de `environments` : DEUX consignes en texte libre,
+  indépendantes, rangées PAR COLONNE (`COLONNES_CONSIGNE` = `to_deploy`, `in_production`) et non par
+  cible — selon qu'un environnement de dev existe, « À déployer » pousse vers le dev ou vers la
+  production, et une consigne qui changerait de sens sans qu'on y touche serait un piège. Une
+  consigne VIDE est un état NORMAL (« déroulé habituel ») : `ecrireConsigneDeploiement` EFFACE la clé
+  au lieu de ranger une chaîne vide, ne garde que les deux colonnes connues, borne à `CONSIGNE_MAX`
+  (4000 signes) et ne touche jamais à l'autre étape. `consigneDeploiement` est le SEUL point de
+  lecture. Elle se règle depuis le menu trois points de la tête de colonne (`MenuTeteColonne`,
+  `web/src/components/board.tsx`), qui reste donc AFFICHÉ sur ces deux colonnes même sans carte non
+  lue — un réglage du projet ne dépend pas de ce qui traîne dans la colonne ; ailleurs, la règle
+  d'avant ne bouge pas. La fenêtre (`web/src/components/consigne-deploiement.tsx`, tiroir bas sur
+  téléphone comme toute `DialogContent`) rappelle en une ligne ce qui est DÉJÀ connu
+  (`rappelDeConsigne` : environnement visé par défaut — le premier de la liste, comme
+  `environnementVise` — et branche installée, vide = branche principale). L'enregistrement passe par
+  `project.update`, jamais par un second chemin d'écriture. **Le mécanisme de publication ne lit pas
+  encore cette consigne** : l'écrire ne change rien au déroulé. Verrouillé par
+  `server/src/test/consigne-deploiement.test.ts` et `scripts/verif-consigne-deploiement.mjs`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette
