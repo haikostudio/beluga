@@ -7,6 +7,8 @@ import {
   carteNonLue,
   ColumnKey,
   DecisionAttendue,
+  DicteeEnAttente,
+  ProjetJoignable,
   attentionParProjet,
   DeployRun,
   Message,
@@ -356,6 +358,90 @@ export function writePreference(key: string, value: unknown): void {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     )
     .run(key, JSON.stringify(value), now());
+}
+
+/* ------------------------------------------------------------------ */
+/* Dictées en attente d'un destinataire                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Une phrase dictée dont on ne sait pas encore à quel projet elle s'adresse.
+ * Elle attend EN BASE, et pas en mémoire : entre la question et la réponse il
+ * peut se passer des minutes, et un redémarrage perdrait la demande.
+ */
+export interface DicteeRangee extends DicteeEnAttente {
+  id: string;
+  agentId: string;
+  messageId: string;
+  questionId: string;
+  regleeA?: number;
+}
+
+function lireDictee(row: Record<string, any>): DicteeRangee {
+  let candidats: ProjetJoignable[] = [];
+  try {
+    candidats = JSON.parse(row.candidats);
+  } catch {
+    /* liste illisible : la question reste ouverte à la réponse libre */
+  }
+  return {
+    id: row.id,
+    texte: row.texte,
+    projectId: row.project_id ?? undefined,
+    candidats,
+    agentId: row.agent_id,
+    messageId: row.message_id,
+    questionId: row.question_id,
+    poseeA: row.created_at,
+    regleeA: row.reglee_a ?? undefined,
+  };
+}
+
+export function saveDictee(dictee: Omit<DicteeRangee, 'id' | 'poseeA'> & { id?: string }): DicteeRangee {
+  const ligne: DicteeRangee = {
+    ...dictee,
+    id: dictee.id ?? newId(),
+    poseeA: now(),
+  };
+  getDb()
+    .prepare(
+      `INSERT INTO dictees (id, texte, project_id, candidats, agent_id, message_id, question_id, created_at, reglee_a)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    )
+    .run(
+      ligne.id,
+      ligne.texte,
+      ligne.projectId ?? null,
+      JSON.stringify(ligne.candidats ?? []),
+      ligne.agentId,
+      ligne.messageId,
+      ligne.questionId,
+      ligne.poseeA,
+    );
+  return ligne;
+}
+
+/** La dictée qui attendait CETTE question — s'il y en a une. */
+export function dicteeDeLaQuestion(questionId: string): DicteeRangee | null {
+  const row = getDb().prepare('SELECT * FROM dictees WHERE question_id = ?').get(questionId) as
+    | Record<string, any>
+    | undefined;
+  return row ? lireDictee(row) : null;
+}
+
+/**
+ * La dernière dictée encore sans réponse : c'est elle qu'une phrase dictée
+ * juste après vient trancher, sans passer par l'écran.
+ */
+export function derniereDicteeEnAttente(): DicteeRangee | null {
+  const row = getDb()
+    .prepare('SELECT * FROM dictees WHERE reglee_a IS NULL ORDER BY created_at DESC LIMIT 1')
+    .get() as Record<string, any> | undefined;
+  return row ? lireDictee(row) : null;
+}
+
+export function marquerDicteeReglee(id: string): void {
+  getDb().prepare('UPDATE dictees SET reglee_a = ? WHERE id = ?').run(now(), id);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1357,6 +1443,19 @@ export function latestDeploy(projectId: string): DeployRun | null {
     .prepare('SELECT data FROM deploys WHERE project_id = ? ORDER BY started_at DESC LIMIT 1')
     .get(projectId) as { data: string } | undefined;
   return row ? DeployRun.parse(JSON.parse(row.data)) : null;
+}
+
+/**
+ * Les dernières publications d'un projet, de la plus récente à la plus
+ * ancienne. C'est là-dedans que la règle pure va chercher le dernier résultat
+ * de CHAQUE environnement — vingt suffisent largement, et l'on ne relit pas
+ * toute l'histoire du projet pour afficher trois lignes.
+ */
+export function recentDeploys(projectId: string, limit = 20): DeployRun[] {
+  const rows = getDb()
+    .prepare('SELECT data FROM deploys WHERE project_id = ? ORDER BY started_at DESC LIMIT ?')
+    .all(projectId, limit) as { data: string }[];
+  return rows.map((r) => DeployRun.parse(JSON.parse(r.data)));
 }
 
 /** La dernière publication RÉUSSIE : la seule qui dise ce qui est en ligne. */

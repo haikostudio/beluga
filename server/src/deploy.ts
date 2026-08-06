@@ -6,9 +6,12 @@ import {
   Card,
   DeployRun,
   DeployStepKey,
+  EnvironnementPublication,
   MoyensDeMiseEnLigne,
   PlanDeMiseEnLigne,
   ECHECS_NOMMES_MAX,
+  environnementVise,
+  environnementsDuProjet,
   consigneDeReparationConstruction,
   controlesTombes,
   detailDEchec,
@@ -132,25 +135,46 @@ function configurationsServeurWeb(): string[] {
   return textes;
 }
 
-/** Ce dont ce projet dispose pour être mis en ligne, constaté sur la machine. */
-export function moyensDuProjet(cwd: string, deployCommand?: string, estHaikoDev = false): MoyensDeMiseEnLigne {
+/**
+ * Ce dont ce projet dispose pour être mis en ligne, constaté sur la machine.
+ *
+ * La COMMANDE et le NOM viennent de l'environnement visé ; le reste (service
+ * système, dossier servi, script de construction) est une propriété du dossier
+ * et vaut donc pour tous les environnements.
+ */
+export function moyensDuProjet(
+  cwd: string,
+  deployCommand?: string,
+  estHaikoDev = false,
+  environnement?: string,
+): MoyensDeMiseEnLigne {
   return {
     commande: deployCommand,
     estHaikoDev,
     scriptBuild: scriptExiste(cwd, 'build'),
     service: serviceDuProjet(cwd) ?? undefined,
     dossierServi: dossierCiteParServeurWeb(configurationsServeurWeb(), cwd),
+    environnement,
   };
 }
 
 /**
  * Ce projet peut-il être mis en ligne, et comment ? Répondu SANS rien publier,
- * pour que la fenêtre de publication le dise avant le clic.
+ * pour que la fenêtre de publication le dise avant le clic. Le jugement porte
+ * sur l'environnement VISÉ : un projet peut très bien savoir installer son dev
+ * client et pas sa production.
  */
-export function moyenDeMiseEnLigne(projectId: string): PlanDeMiseEnLigne | null {
+export function moyenDeMiseEnLigne(projectId: string, environmentId?: string): PlanDeMiseEnLigne | null {
   const project = store.getProject(projectId);
   if (!project) return null;
-  return planDeMiseEnLigne(moyensDuProjet(project.path, project.deployCommand, project.isSelf));
+  const env = environnementVise(project, environmentId);
+  return planDeMiseEnLigne(moyensDuProjet(project.path, env.commande, project.isSelf, env.nom));
+}
+
+/** Les environnements d'un projet, tels que l'interface doit les montrer. */
+export function environnementsDePublication(projectId: string): EnvironnementPublication[] {
+  const project = store.getProject(projectId);
+  return project ? environnementsDuProjet(project) : [];
 }
 
 /** Le projet a-t-il ce script dans son package.json ? */
@@ -493,7 +517,8 @@ export async function construireAvecReparation(
 /* ------------------------------------------------------------------ */
 
 const active = new Map<string, { stop: () => void }>();
-const waiting = new Set<string>();
+/** Les publications qui attendent leur tour, chacune AVEC son environnement. */
+const waiting = new Map<string, string | undefined>();
 
 const STEP_ORDER: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
 
@@ -845,21 +870,33 @@ export async function repondreEnvoi(runId: string, accord: boolean): Promise<{ o
    * sinon la ligne « en attente » resterait en base et le triangle ne
    * s'éteindrait jamais. Elle repart de la première étape — rien n'avait bougé.
    */
-  const relance = await startDeploy(run.projectId, { accordEnvoi: true, reprendre: run });
+  // L'environnement du run repart AVEC lui : un accord donné sur le dev client
+  // ne doit pas relancer la publication vers la production.
+  const relance = await startDeploy(run.projectId, run.environmentId, { accordEnvoi: true, reprendre: run });
   bus.emit({ type: 'attention', ...store.signalAttention() });
   return relance.ok ? { ok: true } : { ok: false, error: relance.error };
 }
 
 export async function startDeploy(
   projectId: string,
+  environmentId?: string,
   options: { accordEnvoi?: boolean; reprendre?: DeployRun } = {},
 ): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
 
+  /*
+   * L'environnement visé, décidé UNE fois pour tout le run : c'est lui qui
+   * porte la commande de publication, l'adresse à contrôler et la branche à
+   * installer. Sans choix explicite, c'est le premier de la liste — et pour un
+   * projet réglé à l'ancienne, l'environnement « Interne » fabriqué à la
+   * lecture, qui porte exactement ses anciennes valeurs.
+   */
+  const environnement = environnementVise(project, environmentId);
+
   // Une deuxième demande n'ouvre pas un run parallèle : elle attend son tour.
   if (active.has(projectId)) {
-    waiting.add(projectId);
+    waiting.set(projectId, environmentId);
     const current = store.latestDeploy(projectId);
     if (current) emit({ ...current, queued: true });
     return { ok: true, error: 'une publication est déjà en cours' };
@@ -886,7 +923,9 @@ export async function startDeploy(
    * aux archives et rien n'avait bougé à l'écran. On refuse maintenant AVANT
    * de toucher au dépôt, en nommant ce qui manque.
    */
-  const plan = planDeMiseEnLigne(moyensDuProjet(project.path, project.deployCommand, project.isSelf));
+  const plan = planDeMiseEnLigne(
+    moyensDuProjet(project.path, environnement.commande, project.isSelf, environnement.nom),
+  );
   if (!plan.possible) return { ok: false, error: plan.raison };
 
   let cards = deployableCards(projectId);
@@ -914,7 +953,7 @@ export async function startDeploy(
         branche: partirait.branche,
         enregistrements: partirait.enregistrements,
         cartes: cards.length,
-        adresse: project.deployUrl,
+        adresse: environnement.url,
         travauxEnCours: partirait.travauxEnCours,
       });
       const attente = DeployRun.parse({
@@ -923,7 +962,11 @@ export async function startDeploy(
         state: 'awaiting',
         steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
         cardIds: cards.map((c) => c.id),
-        url: project.deployUrl,
+        // L'attente RETIENT son environnement : l'accord relancera la même
+        // publication, vers le même endroit.
+        environmentId: environnement.id,
+        environmentName: environnement.nom,
+        url: environnement.url,
         attente: {
           branche: partirait.branche,
           enregistrements: partirait.enregistrements,
@@ -959,7 +1002,9 @@ export async function startDeploy(
     state: 'running',
     steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
     cardIds: cards.map((c) => c.id),
-    url: project.deployUrl,
+    environmentId: environnement.id,
+    environmentName: environnement.nom,
+    url: environnement.url,
     startedAt: options.reprendre?.startedAt ?? Date.now(),
     queued: false,
   });
@@ -1015,11 +1060,27 @@ export async function startDeploy(
           await runCommand(cwd, `git push -u origin ${branche}`, 60000).catch(() => undefined);
         }
 
-        const mainBranch = await mainBranchOf(cwd);
+        /*
+         * La branche INSTALLÉE par cet environnement. Vide — le cas de tous les
+         * projets d'aujourd'hui — c'est la branche principale, exactement comme
+         * avant. Un environnement qui nomme une branche absente ne se rabat pas
+         * en silence sur la principale : il le dit, sinon on publierait autre
+         * chose que ce qui est écrit dans les réglages.
+         */
+        const mainBranch = environnement.branche || (await mainBranchOf(cwd));
+        if (environnement.branche) {
+          const existe = await runCommand(cwd, `git rev-parse --verify --quiet ${mainBranch}`, 20000);
+          if (!existe.ok || !existe.out.trim()) {
+            throw new Error(
+              `L’environnement « ${environnement.nom} » installe la branche ${mainBranch}, qui n’existe pas dans ce dépôt : rien n’est mis en ligne.`,
+            );
+          }
+          mergeLog += `\nEnvironnement « ${environnement.nom} » : branche installée ${mainBranch}`;
+        }
         const checkout = await runCommand(cwd, `git checkout ${mainBranch}`);
         if (!checkout.ok) {
           throw new Error(
-            `Impossible de revenir sur la branche principale (${mainBranch}) : ${checkout.out.slice(-200)}`,
+            `Impossible de revenir sur la branche à installer (${mainBranch}) : ${checkout.out.slice(-200)}`,
           );
         }
         /*
@@ -1133,7 +1194,7 @@ export async function startDeploy(
       if (stopped) throw new Error('arrêt demandé');
 
       // 4 à 7 : la mise en ligne, telle que le plan l'a décidée avant de partir
-      const deployCommand = project.deployCommand?.trim();
+      const deployCommand = environnement.commande?.trim();
       if (deployCommand) {
         current = setStep(current, 'verify', 'running');
         const verify = await runCommand(cwd, 'npm run --if-present lint --silent || true', 5 * 60 * 1000);
@@ -1306,11 +1367,11 @@ export async function startDeploy(
 
       // Le verdict se lit sur le RÉSULTAT, pas sur le processus (PLAN §11) :
       // on vérifie ce qui est réellement servi en ligne.
-      if (project.deployUrl) {
-        const online = await checkOnline(project.deployUrl);
+      if (environnement.url) {
+        const online = await checkOnline(environnement.url);
         const verdict = online.ok
-          ? `Adresse ${project.deployUrl} joignable (${online.status}).`
-          : `Adresse ${project.deployUrl} injoignable (${online.status}).`;
+          ? `Adresse ${environnement.url} joignable (${online.status}).`
+          : `Adresse ${environnement.url} injoignable (${online.status}).`;
         current = setStep(current, 'publish', online.ok ? 'done' : 'failed', verdict);
         // Une adresse muette n'est pas une publication réussie : autrefois
         // l'étape passait au rouge et le run se déclarait quand même « réussi ».
@@ -1341,22 +1402,27 @@ export async function startDeploy(
         if (!card) continue;
         const deployed = store.saveCard({ ...card, deployedAt: Date.now() });
         bus.emit({ type: 'card.upsert', card: deployed });
-        await archiveCard(cardId, { url: project.deployUrl, commit: current.targetCommit });
+        await archiveCard(cardId, { url: environnement.url, commit: current.targetCommit });
       }
 
       const reste = ecartees.size
         ? ` — ${ecartees.size} carte(s) écartée(s) pour conflit, restées à déployer`
         : '';
+      // Avec plusieurs environnements, « publication terminée » ne suffit plus :
+      // on nomme LEQUEL vient de partir en ligne.
+      const ou = ` (${environnement.nom})`;
       notify({
         motif: 'publication-terminee',
-        title: 'Publication terminée',
+        title: `Publication terminée${ou}`,
         body: `${current.cardIds.length} tâche(s) en ligne${reste}`,
-        // Une publication = un lot posé sur un enregistrement précis.
-        reference: `${projectId}:${current.targetCommit ?? current.cardIds.join(',')}`,
-        element: `${current.cardIds.length} tâche(s) en ligne`,
+        /* Une publication = un lot posé sur un enregistrement précis, DANS un
+           environnement précis : le même lot mis en dev puis en production fait
+           bien deux alertes, sinon la seconde serait avalée comme un doublon. */
+        reference: `${projectId}:${environnement.id}:${current.targetCommit ?? current.cardIds.join(',')}`,
+        element: `${current.cardIds.length} tâche(s) en ligne${ou}`,
         projectId,
       });
-      bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${reste}`);
+      bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${ou}${reste}`);
 
       // Tout est enregistré : le serveur peut repartir avec le nouveau code.
       if (redemarrageDemande) setTimeout(() => redemarrerDemon(), 2000);
@@ -1386,7 +1452,7 @@ export async function startDeploy(
       if (!stopped) {
         notify({
           motif: 'publication-echec',
-          title: 'Publication en échec',
+          title: `Publication en échec (${environnement.nom})`,
           body: `${current.cardIds.length} tâche(s) restent à déployer — ${raison}`,
           reference: `${projectId}:echec:${current.id}`,
           element: `Publication en échec — ${raison}`,
@@ -1396,8 +1462,11 @@ export async function startDeploy(
     } finally {
       active.delete(projectId);
       if (waiting.has(projectId)) {
+        // La publication en attente repart sur SON environnement, pas sur celui
+        // qui vient de se terminer.
+        const suivant = waiting.get(projectId);
         waiting.delete(projectId);
-        setTimeout(() => void startDeploy(projectId), 1500);
+        setTimeout(() => void startDeploy(projectId, suivant), 1500);
       }
     }
   })();
@@ -1427,5 +1496,6 @@ export async function retryDeploy(runId: string): Promise<{ ok: boolean; error?:
   const run = store.getDeploy(runId);
   if (!run) return { ok: false, error: 'publication introuvable' };
   log.info(`relance de la publication du projet ${run.projectId}`);
-  return startDeploy(run.projectId);
+  // Relancer, c'est refaire LA MÊME publication : même environnement visé.
+  return startDeploy(run.projectId, run.environmentId);
 }

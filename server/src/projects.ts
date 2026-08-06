@@ -60,6 +60,9 @@ export function registerProject(input: {
     isSelf: resolved === path.resolve(CONFIG.selfPath),
     deployCommand: input.deployCommand ?? existing?.deployCommand,
     deployUrl: input.deployUrl ?? existing?.deployUrl,
+    // Une nouvelle exploration du serveur ne doit pas effacer les
+    // environnements de publication réglés à la main.
+    environments: existing?.environments ?? [],
     billing: existing?.billing,
     rank: input.rank ?? existing?.rank ?? nextRank(),
     archived: false,

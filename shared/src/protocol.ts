@@ -53,7 +53,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.open'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
   /** Crée l'adresse publique d'un projet (nom + reverse-proxy) en une fois. */
-  z.object({ type: z.literal('project.publishDomain'), id: z.string(), subdomain: z.string(), port: z.number() }),
+  z.object({
+    type: z.literal('project.publishDomain'),
+    id: z.string(),
+    subdomain: z.string(),
+    port: z.number(),
+    /** L'environnement qui recevra l'adresse. Sans lui, le premier de la liste. */
+    environmentId: z.string().optional(),
+  }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
   /** Ranger un projet dans un groupe (ou l'en sortir avec un groupe vide). */
@@ -182,7 +189,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
 
   // Publication
-  z.object({ type: z.literal('deploy.start'), projectId: z.string() }),
+  /** Sans environnement visé, c'est le premier de la liste du projet. */
+  z.object({ type: z.literal('deploy.start'), projectId: z.string(), environmentId: z.string().optional() }),
   z.object({ type: z.literal('deploy.stop'), runId: z.string() }),
   z.object({ type: z.literal('deploy.retry'), runId: z.string() }),
   /**
@@ -191,7 +199,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('deploy.envoi'), runId: z.string(), accord: z.boolean() }),
   /** Ce qui coincerait si on publiait maintenant — sans rien publier. */
-  z.object({ type: z.literal('deploy.check'), projectId: z.string() }),
+  z.object({ type: z.literal('deploy.check'), projectId: z.string(), environmentId: z.string().optional() }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),
@@ -284,6 +292,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
   /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
   z.object({ type: z.literal('voice.list') }),
+  /**
+   * Une phrase DICTÉE, sans destinataire : l'assistant global lit la liste des
+   * projets ouverts, dépose la demande dans le chef d'orchestre du bon projet
+   * ou POSE LA QUESTION quand un doute demeure.
+   */
+  z.object({ type: z.literal('voix.demande'), texte: z.string() }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),

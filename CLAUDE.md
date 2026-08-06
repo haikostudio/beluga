@@ -70,6 +70,7 @@ node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
 node scripts/verif-envoi-surveille.mjs # un projet « se déploie sur envoi » fait attendre avant tout envoi (démon et dépôt d'essai à soi, HAIKODEV_VERIF_PORT)
+node scripts/verif-environnements-publication.mjs # plusieurs environnements par projet : ajout dans les réglages, apparition dans le bloc de publication (serveur de développement, HAIKO_ENVS_URL ; `project.update` et `deploy.check` interceptés, aucun projet réel touché)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
@@ -99,6 +100,7 @@ node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes e
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
+node scripts/verif-assistant-vocal.mjs # une phrase dictée part chez le bon projet, une phrase vague pose la question (démon d'essai à soi, dossier personnel vide : aucun compte, aucun quota dépensé)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
 node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
 HAIKODEV_DATA=/root/haikodev/data node scripts/installer-kokoro.mjs # pose le moteur Kokoro : venv-kokoro + data/models/kokoro (rejouable)
@@ -183,7 +185,33 @@ sans son point d'essai.
   identifiant — sinon la ligne « en attente » resterait en base et le triangle ne s'éteindrait
   jamais), le refus la passe en `stopped`, laisse les cartes où elles sont et l'écrit dessus. Rien
   n'est lu chez le client : c'est une déclaration faite ici. Un projet non déclaré ne change EN RIEN.
+  L'attente RETIENT son environnement de publication (`environmentId` / `environmentName`) :
+  l'accord relance la même publication vers le même endroit, jamais vers le premier de la liste.
   Verrouillé par `server/src/test/envoi-surveille.test.ts` et `scripts/verif-envoi-surveille.mjs`.
+- **Un projet a PLUSIEURS environnements de publication, et une publication en vise UN**
+  (`shared/src/environnements-publication.ts`). Un projet portait un seul jeu de réglages
+  (`deployCommand` / `deployUrl`) : décrire un dev chez le client ET une production était
+  impossible. Il porte désormais une LISTE ORDONNÉE (`Project.environments`), chaque
+  environnement ayant son nom, son rôle (`interne` / `dev-client` / `production`), sa commande, son
+  adresse à contrôler et sa branche installée. `environnementsDuProjet` est le SEUL point de
+  lecture : une liste vide rend UN environnement « Interne » portant les anciens champs, si bien
+  qu'un projet déjà réglé se comporte exactement comme avant, sans migration de base. Les deux
+  anciens champs ne sont plus jamais écrits — le volet de réglages n'écrit que `environments`, deux
+  endroits d'écriture faisant deux vérités. `environnementVise(projet, id?)` tranche : sans
+  identifiant, le PREMIER de la liste ; un identifiant inconnu y retombe aussi, jamais un refus
+  muet. `planDeMiseEnLigne` reçoit le nom de l'environnement (`MoyensDeMiseEnLigne.environnement`)
+  et son refus le NOMME — la commande vient de l'environnement, le service système et le dossier
+  servi restent des propriétés du dossier, donc communes.
+  `startDeploy(projectId, environmentId?, options?)`
+  décide l'environnement UNE fois pour tout le run : commande, adresse contrôlée à la fin, branche
+  installée (vide = la branche principale ; une branche nommée mais absente ARRÊTE la publication au
+  lieu de se rabattre en silence). Le run le retient (`DeployRun.environmentId` / `environmentName`),
+  la relance et la file d'attente le rejouent, et les notifications comme la référence de
+  dédoublonnage le portent — le même lot mis en dev puis en production fait bien deux alertes.
+  `derniersResultats` rend le dernier résultat de CHAQUE environnement (une publication d'avant
+  cette règle compte pour le premier), affiché dans le bloc de publication à côté du menu de choix.
+  Verrouillé par `server/src/test/environnements-publication.test.ts` et
+  `scripts/verif-environnements-publication.mjs`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette
@@ -571,9 +599,10 @@ sans son point d'essai.
   `VOIX_MORPHISME_MS` comme la boîte. Elle porte `data-pied-ondes` ; le pied de la liste n'est plus
   qu'un creux vide (`h-9 border-t`) où elle vient se poser. Cette ligne s'ÉLARGIT à toute la largeur
   du conteneur (`data-pied-ondes` en `inset-x-0`, ondes en `w-full justify-between`, `ONDES_LARGES`
-  barres) dès que la voix PARLE ou que le module est OUVERT — jamais un petit paquet centré dans un
-  pied vide. L'icône FIGÉE à cinq barres (`LigneOndes` sans `plein`, `data-icone-repos`) ne s'affiche
-  QUE lorsque la voix ne parle pas ET que le module est au repos (fermé) : elle montre cinq barres
+  barres) et ne s'anime QUE lorsque la voix PARLE — un module seulement OUVERT au survol (voix muette)
+  garde les cinq barres figées au repos, jamais un flux animé sans son. `LigneOndes` ne prend donc plus
+  que `parle` : `plein` a disparu. L'icône FIGÉE à cinq barres (`data-icone-repos`) s'affiche dès que la
+  voix ne parle pas — module fermé OU seulement ouvert au survol : elle montre cinq barres
   figées en vibration sonore SYMÉTRIQUE. Pendant la parole (`data-parle`, posé sur la RACINE) les
   barres larges deviennent un flux d'ondes VERTES (`data-onde-vocale`, `bg-success`, jeton
   `--success`, jamais une couleur en dur) qui SUIVENT LE VOLUME réellement entendu : une analyse Web
@@ -581,11 +610,14 @@ sans son point d'essai.
   `web/src/lib/voix.ts`), chaque barre lit une tranche de fréquences basses-médiums (`getByteFrequencyData`),
   et `LigneOndes` pilote leur `scaleY` par une boucle `requestAnimationFrame` LISSÉE — hautes quand la voix
   porte, presque plates dans les silences. On ne route l'élément par le graphe QUE si le contexte audio
-  tourne déjà (`state === 'running'`) : router un son en veille le rendrait muet, donc à défaut on laisse
-  l'élément jouer seul. Sans analyse possible (contexte en veille, voix de secours du navigateur — où
-  `detacherAnalyse` est appelé —, navigateur qui la refuse) on retombe sur l'animation régulière
-  `animate-onde`, jamais sur des barres figées. Module seulement ouvert (voix muette), les barres
-  larges sont neutres et animées. Aucun micro ni permission : on n'écoute que ce que
+  tourne déjà (`state === 'running'`) : router un son en veille le rendrait muet. Le contexte est donc
+  RÉVEILLÉ au premier geste de l'utilisateur (`obtenirContexte` + écouteurs `pointerdown`/`keydown`/
+  `touchstart` posés une fois, `web/src/lib/voix.ts`) : `resume()` étant asynchrone, le tester juste
+  après l'appel le trouvait toujours suspendu au premier son et l'analyse ne prenait JAMAIS — d'où des
+  ondes qui retombaient sur l'animation régulière au lieu de suivre le volume. Sans analyse possible
+  (contexte encore en veille, voix de secours du navigateur — où `detacherAnalyse` est appelé —,
+  navigateur qui la refuse) on retombe sur l'animation régulière `animate-onde`, jamais sur des barres
+  figées — mais SEULEMENT pendant la parole. Aucun micro ni permission : on n'écoute que ce que
   l'application joue. L'ouverture se déclenche au survol
   (souris) ou à l'appui (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`,
   `(hover: hover) and (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
@@ -617,13 +649,15 @@ sans son point d'essai.
   `estUnGlissement` tranchant au-delà de `SEUIL_GLISSEMENT_VOIX`. À LA SOURIS, l'icône ne suffit
   pas — l'ouverture se fait au SURVOL et rend aussitôt l'icône `pointer-events-none` : approcher pour
   tirer déplierait le panneau et effacerait la prise. Une POIGNÉE dédiée (`data-poignee-voix`,
-  visible seulement si `survolPossible`) est donc posée HORS du module, juste à l'extérieur du coin
-  bas-droit du rond, à `VOIX_ECART_POIGNEE` px du bord : elle est un FRÈRE de la boîte (pas un
-  descendant), si bien que la survoler ne déclenche plus le `onMouseEnter` de la boîte et ne déplie
-  plus le panneau. Elle est ancrée au ROND fermé (transform `fixed` avec `VOIX_ROND/2 + decalage.x +
-  écart`, `decalage.y` — jamais la correction d'ouverture), donc elle ne bouge pas quand le panneau
-  s'ouvre/se referme, reste attrapable panneau ouvert comme fermé, et suit le module quand on le
-  déplace (le décalage retenu). Aucune poignée au doigt. Le geste d'amorçage est écrit UNE fois (`commencerGlissement`), partagé par l'icône (doigt)
+  visible seulement si `survolPossible` ET module FERMÉ, `!ouvert`) est donc posée HORS du module,
+  juste à l'extérieur du coin bas-droit du rond, à `VOIX_ECART_POIGNEE` px du bord : elle est un FRÈRE
+  de la boîte (pas un descendant), si bien que la survoler ne déclenche plus le `onMouseEnter` de la
+  boîte et ne déplie plus le panneau. Elle DISPARAÎT dès que le panneau est ouvert (ancrée au coin
+  bas-droit du rond, elle chevaucherait sinon le déplié) et revient une fois refermé — on tire donc
+  toujours le module FERMÉ. Elle est ancrée au ROND fermé (transform `fixed` avec `VOIX_ROND/2 +
+  decalage.x + écart`, `decalage.y` — jamais la correction d'ouverture), donc elle ne bouge pas d'un
+  déplacement à l'autre et suit le module quand on le déplace (le décalage retenu). Aucune poignée au
+  doigt. Le geste d'amorçage est écrit UNE fois (`commencerGlissement`), partagé par l'icône (doigt)
   et la poignée (souris) ; `touchAction: 'none'` sur les deux, sinon le doigt ferait défiler la page. Ce qui est retenu n'est pas une position absolue mais un
   DÉCALAGE en pixels par rapport à la place d'origine — décalage nul = l'affichage d'avant. Il passe
   par le MÊME mécanisme que le bloc du dock, une préférence SERVEUR (`usePref`, clé
@@ -698,6 +732,32 @@ sans son point d'essai.
   messages lus à la main N'ENTRENT PAS dans l'historique des annonces : deux choses distinctes.
   Verrouillé par `server/src/test/lecture-message.test.ts` ; l'écoute réelle se voit au navigateur
   (serveur de développement).
+- **Une phrase DICTÉE est routée vers un projet par une règle PURE, jamais par un moteur payant**
+  (`shared/src/routage-vocal.ts`, branché par `server/src/routage-vocal.ts`). Le chef d'orchestre est
+  attaché à UN projet ; une phrase dictée n'avait donc aucun destinataire. La commande
+  `voix.demande` (un seul champ, `texte`) confie la phrase à l'assistant GLOBAL : il lit
+  `store.listProjects()` (archivés écartés d'office) et `routerLaDemande` tranche — nom CITÉ (le nom
+  du projet apparaît tel quel, accents et ponctuation ignorés, les mots recollés pour rattraper
+  « aïko dev »), nom APPROCHANT (distance de Levenshtein au-dessus de `SEUIL_APPROCHANT`, et
+  seulement s'il devance le suivant d'`ECART_APPROCHANT` — sinon on demande), ou projet UNIQUE. Le
+  doute se paie d'une QUESTION, jamais d'un pari : deux noms cités, aucun nom, ou un projet clair
+  mais une action de moins de `MOTS_MIN_ACTION` mots (« HaikoDev » tout seul) posent la question.
+  Une question s'affiche forcément DANS une conversation, donc dans un projet : `lieuDeLaQuestion`
+  choisit le projet déjà retenu, sinon le premier candidat, sinon le projet actif, sinon le premier
+  du tableau. C'est une vraie question d'agent (même `AgentQuestion`, même triangle orange, même
+  montée du compte d'attention, donc même annonce vocale) — l'assistant ne code pas, ne crée aucune
+  carte et ne touche à aucun projet archivé : il DÉPOSE la phrase telle quelle dans le chef
+  d'orchestre du projet et lance le tour, le chef gardant son tri. La dictée en attente est rangée
+  EN BASE (table `dictees`, migration 12) : un redémarrage entre la question et la réponse ne perd
+  rien. `question.answer` REGARDE cette table AVANT de rendre la main à l'agent qui a posé la
+  question — une question de routage ne vient pas d'un moteur en train de réfléchir, sa réponse doit
+  faire partir la demande AILLEURS. `suiteDuRoutage` distingue les deux cas : quand le PROJET
+  manquait, la réponse nomme le projet et c'est la phrase d'origine qui part ; quand l'ACTION
+  manquait, le projet est déjà connu et c'est la réponse qui EST la demande. La réponse se donne
+  aussi à la VOIX : une phrase dictée moins de `DELAI_REPONSE_DICTEE_MS` (10 min) après la question
+  est lue comme sa réponse, et inscrite dans la question pour éteindre le triangle. Une réponse
+  incomprise ne dépose RIEN et le dit dans la conversation. Verrouillé par
+  `server/src/test/routage-vocal.test.ts` et `scripts/verif-assistant-vocal.mjs`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
