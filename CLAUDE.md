@@ -491,7 +491,13 @@ sans son point d'essai.
   `null` (le ton bref préfère la courte phrase par titre). La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
-  du navigateur. **Le module est UN SEUL objet qui se MÉTAMORPHOSE** : il n'y a plus un bouton d'un
+  du navigateur. La VITESSE est réglable par crans (`Settings.voixVitesse`, défaut « normale » = échelle
+  1 ; `CRANS_DE_VITESSE`/`echelleDeVitesse`, `shared/src/voix-vitesse.ts`) : `speak(text, voix, vitesse)`
+  ajoute `--length_scale` à Piper (> 1 ralentit, < 1 accélère) et, sans vitesse imposée, la LIT dans les
+  réglages — donc TOUTES les paroles (point du jour, annonces auto, réécoutes par `/api/speak`) la
+  suivent. Seul l'essai l'impose : `/api/voice-sample?voice=…&vitesse=…` fait ENTENDRE un cran avant de
+  l'adopter. Réglé dans l'onglet Système sous le choix de voix. Verrouillé par
+  `server/src/test/voix-vitesse.test.ts`. **Le module est UN SEUL objet qui se MÉTAMORPHOSE** : il n'y a plus un bouton d'un
   côté et un panneau de l'autre. `formeDuModule(ouvert, parle, nb)` rend sa largeur, sa hauteur et son
   rayon en NOMBRES — rond de 44 px au repos (rayon = moitié, donc un cercle), bloc de 96 px quand ça
   parle, panneau de 256 px (borné à `80vw`) quand il est déplié, la hauteur suivant le nombre de

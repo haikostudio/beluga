@@ -9,6 +9,7 @@ import { CONFIG, PATHS } from './config.js';
 import { cachedQuotas } from './accounts.js';
 import { runningAgentIds } from './runtime.js';
 import { log } from './logger.js';
+import { echelleDeVitesse } from '@haikodev/shared';
 
 const execFileAsync = promisify(execFile);
 
@@ -274,16 +275,37 @@ export function digestText(projectId?: string): string {
 }
 
 /**
- * Fabrique un fichier audio ordinaire, lisible partout. Sans voix précisée,
- * c'est celle des préférences — l'extrait d'essai, lui, en impose une.
+ * La vitesse lue est celle passée à l'appel (l'essai en impose une), sinon
+ * celle des préférences : ainsi TOUTES les paroles — point du jour, annonces
+ * automatiques, réécoutes — suivent le réglage sans que le navigateur ait à le
+ * répéter à chaque fois.
  */
-export async function speak(text: string, voix?: string): Promise<{ ok: boolean; file?: string; error?: string }> {
+function vitesseChoisie(vitesse?: string): number {
+  if (vitesse) return echelleDeVitesse(vitesse);
+  try {
+    return echelleDeVitesse(store.getSettings().voixVitesse);
+  } catch {
+    return echelleDeVitesse();
+  }
+}
+
+/**
+ * Fabrique un fichier audio ordinaire, lisible partout. Sans voix précisée,
+ * c'est celle des préférences — l'extrait d'essai, lui, en impose une ; de même
+ * pour la vitesse.
+ */
+export async function speak(
+  text: string,
+  voix?: string,
+  vitesse?: string,
+): Promise<{ ok: boolean; file?: string; error?: string }> {
   const available = voiceAvailable();
   if (!available.speak) return { ok: false, error: 'voix absente du serveur' };
 
   const file = path.join(PATHS.audio, `point-${crypto.randomBytes(6).toString('hex')}.wav`);
   fs.mkdirSync(PATHS.audio, { recursive: true });
   const retenue = voiceChoisie(voix);
+  const echelle = vitesseChoisie(vitesse);
   try {
     await new Promise<void>((resolve, reject) => {
       const child = execFile(
@@ -292,6 +314,8 @@ export async function speak(text: string, voix?: string): Promise<{ ok: boolean;
           '--model',
           retenue.modele,
           ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),
+          '--length_scale',
+          String(echelle),
           '--output_file',
           file,
         ],

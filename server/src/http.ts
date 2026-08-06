@@ -397,7 +397,10 @@ export function createHttpServer(): http.Server {
        */
       if (route === '/api/voice-sample') {
         const voix = url.searchParams.get('voice') ?? undefined;
-        const result = await speak(EXTRAIT, voix);
+        // La vitesse d'essai est imposée ici pour l'ENTENDRE avant de la garder :
+        // sans elle, on retomberait sur la vitesse déjà enregistrée.
+        const vitesse = url.searchParams.get('vitesse') ?? undefined;
+        const result = await speak(EXTRAIT, voix, vitesse);
         if (!result.ok || !result.file) return json(res, 503, { error: result.error });
         const stat = fs.statSync(result.file);
         res.writeHead(200, {

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import {
   AccountQuota,
+  CRANS_DE_VITESSE,
   ConnexionCompte,
   EngineId,
   EtatCerveau,
@@ -1008,12 +1009,16 @@ function VoiceSection({ open }: { open: boolean }) {
     setPlaying(null);
   }, [open]);
 
-  const ecouter = (id: string) => {
+  // Un seul lecteur pour tous les extraits : `cle` distingue ce qui joue (une
+  // voix « voix:… », une vitesse « vitesse:… »). L'extrait de vitesse est dit
+  // avec la voix RETENUE, pour n'entendre que le débit changer.
+  const jouer = (cle: string, params: Record<string, string>) => {
     audioRef.current?.pause();
-    const audio = new Audio(`/api/voice-sample?voice=${encodeURIComponent(id)}`);
+    const query = new URLSearchParams(params).toString();
+    const audio = new Audio(`/api/voice-sample?${query}`);
     audioRef.current = audio;
-    setPlaying(id);
-    const fini = () => setPlaying((courant) => (courant === id ? null : courant));
+    setPlaying(cle);
+    const fini = () => setPlaying((courant) => (courant === cle ? null : courant));
     audio.addEventListener('ended', fini);
     audio.addEventListener('error', () => {
       fini();
@@ -1022,7 +1027,10 @@ function VoiceSection({ open }: { open: boolean }) {
     void audio.play().catch(fini);
   };
 
+  const ecouter = (id: string) => jouer(`voix:${id}`, { voice: id });
+
   const choisie = state.settings?.ttsVoice;
+  const vitesse = state.settings?.voixVitesse ?? 'normale';
 
   return (
     <section>
@@ -1077,10 +1085,14 @@ function VoiceSection({ open }: { open: boolean }) {
                   variant="outline"
                   size="sm"
                   aria-label={`Écouter ${voice.label}`}
-                  disabled={playing === voice.id}
+                  disabled={playing === `voix:${voice.id}`}
                   onClick={() => ecouter(voice.id)}
                 >
-                  {playing === voice.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                  {playing === `voix:${voice.id}` ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Play className="h-3 w-3" />
+                  )}
                   Écouter
                 </Button>
               </div>
@@ -1093,6 +1105,60 @@ function VoiceSection({ open }: { open: boolean }) {
         L'extrait est dit avec la voix de la ligne, sans rien changer à votre choix. Touchez le nom pour l'adopter :
         c'est cette voix qui lira le point du jour et le bouton haut-parleur.
       </p>
+
+      <div className="mt-4">
+        <label className="mb-1.5 block text-[12.5px] text-muted">La vitesse de la voix</label>
+        <div className="space-y-1">
+          {CRANS_DE_VITESSE.map((cran) => {
+            const active = vitesse === cran.id;
+            return (
+              <div
+                key={cran.id}
+                className={cn(
+                  'flex items-center gap-2 rounded-md border px-2 py-1.5',
+                  active ? 'border-text/40 bg-raised' : 'border-border bg-surface',
+                )}
+              >
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => client.send({ type: 'settings.update', patch: { voixVitesse: cran.id } })}
+                >
+                  <p className="truncate text-[13.5px] text-text">
+                    {cran.label}
+                    {active ? <span className="ml-1.5 text-[12px] text-faint">· choisie</span> : null}
+                  </p>
+                  <p className="truncate text-[11.5px] text-faint">{cran.description}</p>
+                </button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Écouter la vitesse ${cran.label}`}
+                  disabled={playing === `vitesse:${cran.id}`}
+                  // L'essai est dit avec la voix retenue et CETTE vitesse : on
+                  // l'entend avant de l'adopter en touchant le nom.
+                  onClick={() =>
+                    jouer(`vitesse:${cran.id}`, {
+                      ...(choisie ? { voice: choisie } : {}),
+                      vitesse: cran.id,
+                    })
+                  }
+                >
+                  {playing === `vitesse:${cran.id}` ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Play className="h-3 w-3" />
+                  )}
+                  Écouter
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
+          La vitesse s'applique à toutes les paroles — point du jour, annonces, réécoutes.
+        </p>
+      </div>
     </section>
   );
 }
