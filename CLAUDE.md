@@ -94,7 +94,7 @@ node scripts/verif-icones-notifications.mjs # les six images, dans un vrai navig
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
 node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié » (démon d'essai à soi)
-node scripts/verif-lot-production.mjs # la colonne « En production » : place, pieds de lot des deux colonnes, onglet téléphone (démon d'essai à soi)
+node scripts/verif-lot-production.mjs # la colonne « En production » : place, pieds de lot des deux colonnes, bloc de publication en tête de colonne, onglet téléphone (démon d'essai à soi)
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
@@ -166,9 +166,10 @@ sans son point d'essai.
   geste de l'utilisateur.
 - **Publier, c'est METTRE EN LIGNE — pas seulement fusionner** (`planDeMiseEnLigne`,
   `shared/src/mise-en-ligne.ts`). Avant de toucher au dépôt, la publication demande COMMENT le projet
-  peut être servi : sa commande de publication, sinon HaikoDev lui-même, sinon le service système qui
+  peut être servi : la CONSIGNE de déploiement de l'environnement visé, sinon sa commande de
+  publication, sinon HaikoDev lui-même, sinon le service système qui
   tourne sur son dossier (sous-dossier compris), sinon un serveur web qui sert ce dossier tel quel
-  (`root * …` dans Caddy, `root …;` dans nginx). Aucun des quatre : la publication est REFUSÉE, le
+  (`root * …` dans Caddy, `root …;` dans nginx). Aucun des cinq : la publication est REFUSÉE, le
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
   Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
   (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
@@ -200,7 +201,7 @@ sans son point d'essai.
   (`deployCommand` / `deployUrl`) : décrire un dev chez le client ET une production était
   impossible. Il porte désormais une LISTE ORDONNÉE (`Project.environments`), chaque
   environnement ayant son nom, son rôle (`interne` / `dev-client` / `production`), sa commande, son
-  adresse à contrôler et sa branche installée. `environnementsDuProjet` est le SEUL point de
+  adresse à contrôler, sa branche installée et sa consigne de déploiement. `environnementsDuProjet` est le SEUL point de
   lecture : une liste vide rend UN environnement « Interne » portant les anciens champs, si bien
   qu'un projet déjà réglé se comporte exactement comme avant, sans migration de base. Les deux
   anciens champs ne sont plus jamais écrits — le volet de réglages n'écrit que `environments`, deux
@@ -240,6 +241,27 @@ sans son point d'essai.
   `project.update`, jamais par un second chemin d'écriture. **Le mécanisme de publication ne lit pas
   encore cette consigne** : l'écrire ne change rien au déroulé. Verrouillé par
   `server/src/test/consigne-deploiement.test.ts` et `scripts/verif-consigne-deploiement.mjs`.
+- **Une CONSIGNE de déploiement confie la mise en ligne à un agent**
+  (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Un environnement de
+  publication porte, en plus de sa commande et de son adresse, une `consigne` en français
+  (`EnvironnementPublication.consigne`, `DeployEnvironment.consigne`). Vide — le cas de tous les
+  projets d'aujourd'hui — RIEN ne change : mêmes sept étapes, même ordre, mêmes refus. Écrite, elle
+  devient le PREMIER des cinq moyens de `planDeMiseEnLigne` (`construction`/`installation`/
+  `redemarrage` valent alors `agent`) et passe DEVANT la commande, HaikoDev, le service et le dossier
+  servi : c'est la seule façon de décrire un déploiement que les quatre autres ne savent pas dire.
+  La plomberie git ne bouge pas — fusion, enregistrement, envoi restent à HaikoDev, avec l'attente
+  d'accord d'un projet « se déploie sur envoi » et la fermeture des branches. Seules les QUATRE
+  étapes de mise en ligne changent de main : `verify`, `build` et `restart` disent que la consigne
+  les couvre (`mentionEtapeConfiee`, jamais une étape muette), et `publish` porte le compte rendu de
+  l'agent. Un agent de rôle « deploy » est appelé une fois (`confierLaMiseEnLigne`) avec
+  `consigneDeLAgentDePublication` : la consigne réglée TELLE QUELLE entre deux repères, le projet, le
+  dossier, l'environnement (nom, rôle, adresse, branche), l'enregistrement, si l'étape clôt les
+  cartes, et le lot embarqué (`CARTES_NOMMEES_MAX` cartes nommées, le reste compté). Il lui est
+  interdit de changer de branche, de faire `git add -A`, de désactiver un test et de toucher au
+  tableau. Un tour en échec fait ÉCHOUER la publication en nommant l'environnement
+  (`phraseDEchecConfie`) ; un compte rendu vide est dit comme tel (`recitDeLAgent`) ; l'adresse
+  publique et `miseEnLigneReelle` gardent le dernier mot. Verrouillé par
+  `server/src/test/publication-confiee.test.ts`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette
@@ -338,10 +360,30 @@ sans son point d'essai.
   porte forcément une date de mise en ligne). `startDeploy(projectId, { cible })` et la commande
   `deploy.start` portent la cible ; une étape réclamée qui n'existe pas est REFUSÉE en le disant
   (`raisonEtapeInconnue`), jamais remplacée en silence. `moyensDePublication` (`server/src/deploy.ts`)
-  est le SEUL endroit qui dit si un environnement de dev existe — il rend `false` tant que le réglage
-  n'est pas écrit (carte séparée). Publier reste un geste de l'utilisateur, aux deux étapes.
+  est le SEUL endroit qui dit si un environnement de dev existe : il lit les environnements du projet
+  et rend vrai dès qu'un seul porte le rôle **`dev-client`** (« dev chez le client »). Les rôles
+  `interne` et `production` ne comptent pas — le premier est l'environnement fabriqué pour un projet
+  réglé à l'ancienne, le second est l'arrivée. Un projet qui n'en déclare aucun garde donc exactement
+  le parcours d'avant. Publier reste un geste de l'utilisateur, aux deux étapes.
   Verrouillé par `server/src/test/colonne-en-production.test.ts` et
   `scripts/verif-lot-production.mjs`.
+- **Le bloc de publication sert les DEUX étapes, en tête de la colonne d'où part son lot**
+  (`DeployPanel`, `web/src/components/deploy-panel.tsx`). Il ne sait pas à quelle étape il sert : il
+  sait de quelle COLONNE il est (propriété `colonne`, `to_deploy` par défaut) et le demande au
+  serveur — `deploy.check` porte `source` et rend l'`etape` de cette colonne, ou `null`. Sans étape,
+  le bloc ne rend RIEN : « En production » reste nue tant que le projet n'a qu'une mise en ligne,
+  jamais un bouton éteint pour une étape qui n'existe pas. Le VERBE vient de l'étape
+  (`EtapeDePublication.verbe`) : « Tout déployer » en tête de « À déployer », « Tout publier » en
+  tête de « En production », et la phrase du bouton éteint suit. Le compteur rejoue la règle du
+  serveur — le garde-fou `!deployedAt` ne vaut que pour `to_deploy` —, et `deploy.start` emporte la
+  `cible` de l'étape. La publication RETIENT son étape (`DeployRun.cible`) : la relance, la file
+  d'attente et l'accord d'envoi repartent de la MÊME, et `runDeLEtape` décide dans lequel des deux
+  blocs le déroulé s'affiche (une publication sans cible est celle du lot de « À déployer », le seul
+  qui existait). Une publication en cours ailleurs éteint le bouton EN LE DISANT. Le pied de lot des
+  deux colonnes ne bouge pas. L'environnement PROPOSÉ suit l'étape (`environnementParDefaut`) : le
+  bloc d'« En production » présélectionne le premier environnement de rôle `production`, sinon il
+  pointerait sur le dev d'où la carte vient de sortir ; partout ailleurs, c'est le PREMIER de la
+  liste, règle inchangée. Le menu reste modifiable — c'est une proposition, pas une contrainte.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
   `shared/src/suivi-colonne.ts`). La règle par défaut ne bouge pas : aucun chemin AUTOMATIQUE n'en
   ressort une carte — ni un tour d'agent (`colonneAuDemarrage`), ni `board_move_card`, ni une
@@ -647,8 +689,11 @@ sans son point d'essai.
   demande. `/api/speak` reste en `cache-control: no-store` (l'URL ne porte pas la voix : un cache
   navigateur servirait un ancien son après un changement de voix). **Le module est UN SEUL objet qui se MÉTAMORPHOSE** : il n'y a plus un bouton d'un
   côté et un panneau de l'autre. `formeDuModule(ouvert, parle, nb)` rend sa largeur, sa hauteur et son
-  rayon en NOMBRES — rond de 44 px au repos (rayon = moitié, donc un cercle), bloc de 96 px quand ça
-  parle, panneau de 256 px (borné à `80vw`) quand il est déplié, la hauteur suivant le nombre de
+  rayon en NOMBRES — rond de 44 px au repos (rayon = moitié, donc un cercle), bloc de parole assez
+  LARGE pour contenir ses ondes quand ça parle (`VOIX_LARGEUR_PARLE` se DÉDUIT du nombre de barres
+  `ONDES_LARGES`, de leur largeur, de leur écart et de la marge `px-3` — élargir la ligne d'ondes
+  sans élargir le bloc faisait déborder les dernières barres), panneau de 256 px (borné à `80vw`)
+  quand il est déplié, la hauteur suivant le nombre de
   messages (`hauteurDepliee`) — et le navigateur les INTERPOLE en `VOIX_MORPHISME_MS` (300 ms) : des
   classes utilitaires de largeur sauteraient d'un cran à l'autre. Le déplié l'emporte sur la parole :
   on ne rétrécit pas un panneau qu'on lit. Deux visages se croisent en fondu DANS cette boîte, en
@@ -705,7 +750,11 @@ sans son point d'essai.
   côté de la voix qu'il commande — plus dans le menu trois points du haut : il bascule la
   préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement, coupe la parole
   automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
-  badge. Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
+  badge. Les DEUX boutons de l'en-tête déplié (écoute, muet) ne portent que leur ICÔNE, sans libellé
+  (oreille barrée/non pour l'écoute, haut-parleur barré/non pour la voix) : l'état se lit à l'infobulle
+  et à l'`aria-label`. La couleur d'ALERTE (`text-danger`) est réservée à ce qui alerte vraiment — un
+  micro refusé —, jamais à un réglage simplement allumé (écoute active = `text-success`).
+  Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
 - **Le module de voix SE DÉPLACE, et sa place est retenue dans le COMPTE**
   (`shared/src/position-voix.ts`, branché dans `web/src/components/voix-assistant.tsx`). Il était
   cloué en bas au centre et recouvrait parfois ce qu'on lit. Le glissement part d'où on peut
@@ -730,11 +779,23 @@ sans son point d'essai.
   second mécanisme, et jamais le `localStorage` de l'historique. `ramenerDansLEcran` garde le module
   entièrement visible au chargement comme au redimensionnement — une place prise sur grand écran est
   ramenée dans les bords d'un téléphone, et le corrigé est RANGÉ, sinon il reviendrait hors écran au
-  démarrage suivant. Un glissement au doigt ne produit AUCUN clic : le repère « on vient de glisser »
+  démarrage suivant. Ce recadrage tourne DANS l'événement `resize`, donc AVANT que l'effet de mesure
+  ne se rejoue : il doit RE-MESURER le bas du rond depuis le DOM (déjà remis en page) à ce moment-là,
+  jamais s'appuyer sur la mesure de l'ANCIENNE fenêtre — sinon il borne la nouvelle taille avec un
+  repère périmé, écrit un décalage faussé dans le compte, et le module remonte un peu plus à chaque
+  redimensionnement jusqu'à sortir de l'écran. Sans geste (rechargement ou redimensionnement qui
+  laisse le module dans l'écran), la place ne se réécrit JAMAIS. Un glissement au doigt ne produit AUCUN clic : le repère « on vient de glisser »
   est donc remis à zéro au `pointerdown` suivant, sinon il mangerait l'appui d'après et le module ne
   se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
-  (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. Verrouillé par
-  `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
+  (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. **SUR TÉLÉPHONE
+  (`useTelephone`, `ancreMenu`), le module ne flotte plus : il vient se poser AU CENTRE du menu du
+  bas** (la colonne du milieu lui est laissée, `data-place-voix`) — décalage FORCÉ à zéro, `bottom`
+  mesuré sur la barre (`nav[data-menu-bas]`) pour aligner le CENTRE du rond sur celui de la barre (il
+  déborde alors un peu en haut et en bas), et ni glissement (`onPointerDown` neutralisé), ni accroche
+  (`accrochee` faux), ni poignée. La place mémorisée n'est PAS effacée (l'effet de recadrage rend la
+  main tout de suite quand `ancreMenu`) : elle ressert dès qu'on repasse sur grand écran. Attribut
+  `data-ancre-menu`. Verrouillé par `server/src/test/position-voix.test.ts`,
+  `scripts/verif-position-voix.mjs` et `scripts/verif-menu-bas-telephone.mjs`.
 - **DEUX moteurs de synthèse cohabitent, et c'est la VOIX CHOISIE qui décide lequel parle**
   (`server/src/voice.ts`). Piper reste le moteur d'origine et la voix par défaut ne bouge pas
   (`fr_FR-siwis-medium`, « Claire ») ; Kokoro s'ajoute À CÔTÉ, jamais à la place. Une voix Kokoro se
@@ -788,7 +849,7 @@ sans son point d'essai.
   au redimensionnement) : `ramenerDansLEcran` ne vaut donc QUE pour les places libres. Le module
   porte `data-accrochee` et `data-bord`. Verrouillé par `server/src/test/position-voix.test.ts` et
   `scripts/verif-position-voix.mjs` (cas d'accroche, souris et doigt).
-- **L'ÉCOUTE PERMANENTE ne s'ouvre JAMAIS toute seule, et le mot de réveil est « Dis Haiko »**
+- **L'ÉCOUTE PERMANENTE ne s'ouvre JAMAIS toute seule, et le mot de réveil est RÉGLABLE (défaut « Dis Haiko »)**
   (règles pures dans `shared/src/reveil-vocal.ts`, micro et découpe dans `web/src/lib/ecoute.ts`,
   affichage dans `web/src/components/voix-assistant.tsx`). Un interrupteur vit dans le panneau
   déplié du module de voix, à côté du Muet (`data-interrupteur-ecoute`, préférence SERVEUR
@@ -800,12 +861,20 @@ sans son point d'essai.
   son n'est gardé : la tranche est envoyée puis jetée, et le serveur efface son fichier temporaire.
   Le texte revenu entre par UN SEUL point (`recevoirParole`) — celui-là même que le point d'essai de
   la page (`window.haikodevEssai.parole`) emprunte, si bien qu'un script vérifie ce qui tourne
-  vraiment. Les RÈGLES de lecture sont pures et sans navigateur : `finDuReveil` reconnaît « Dis
-  Haiko » à `REVEIL_ECART_MAX` (2) lettres près sur la forme normalisée `dishaiko` — accents,
-  majuscules et ponctuation effacés, mots recollés — donc « Dis Haïko », « Dis, Haiko »,
-  « Dishaiko », « Dit aïko » comptent, et le réveil vaut AU MILIEU d'une phrase (ce qui suit devient
+  vraiment. Le mot de réveil est un RÉGLAGE serveur (`Settings.voixReveil`, défaut « Dis Haiko »,
+  édité dans l'onglet Système à côté du prénom de la voix) : `formeDeReveil` le normalise (accents,
+  ponctuation, espaces retirés → `dishaiko`) et un champ vide revient au mot par défaut plutôt que de
+  couper le réveil. Le module lit `state.settings?.voixReveil`, `useEcoutePermanente(actif, forme)`
+  le relit à chaque phrase par une référence — un changement prend aussitôt, sans rouvrir le micro.
+  Les RÈGLES de lecture sont pures et sans navigateur : `finDuReveil(texte, forme?)` fait glisser une
+  fenêtre d'UN À TROIS mots (`REVEIL_MOTS_MAX` = 3, pour rattraper un nom découpé « dis a ico ») et
+  reconnaît le réveil à `ecartDeReveil(forme)` lettres près — une marge qui SUIT la longueur (un quart
+  des lettres, au moins une : `dishaiko` (8) → 2, un mot court → 1, un mot long davantage), jamais
+  figée à 2. Accents, majuscules et ponctuation effacés, mots recollés — donc « Dis Haïko », « Dis,
+  Haiko », « Dishaiko », « Dit aïko », « dis a ico », « des Haiko » comptent ; « dis à Rico »
+  (`disarico`, trois écarts) non. Le réveil vaut AU MILIEU d'une phrase (ce qui suit devient
   la dictée). L'index rendu compte des mots du texte BRUT — la normalisation sert à reconnaître,
-  jamais à remplacer ce qui a été dit. `lireParole(texte, ecouteEnCours)` tranche : en guet, seule
+  jamais à remplacer ce qui a été dit. `lireParole(texte, ecouteEnCours, forme?)` tranche : en guet, seule
   une phrase portant le réveil compte ; en écoute, tout s'ajoute (`assemblerDictee`). Les états
   (`EtatEcoute`, portés par `data-etat-ecoute`) sont `eteinte`, `guette`, `ecoute`, `relit`,
   `refusee`. Le module se MÉTAMORPHOSE pour la dictée comme pour la parole (`formeDuModule` prend un
@@ -947,12 +1016,15 @@ sans son point d'essai.
   `env(safe-area-inset-bottom) + 0.5rem`) : il réserve exactement la place du menu, donc le contenu
   ne passe jamais derrière — mais il est nu, sans fond ni bordure. C'est le bloc INTÉRIEUR qui se
   voit : arrondi (`rounded-2xl`), fond `bg-surface`, ombre douce, une bordure sur ses quatre côtés —
-  jamais un `border-t` sur toute la largeur, qui coupait l'écran. Trois destinations, trois icônes
-  DISTINCTES (`Columns3` tableau, `BarChart3` bord, `MessageSquare` chef) et trois libellés d'un
-  mot — « Tableau », « Bord », « Chef » — qui tiennent sur une ligne à 360 px. Le triangle de
-  décision reste sur « Chef ». Rien au-dessus du seuil (`sm:hidden`). Le bloc en bas à droite part
-  de `bottom-14` sur téléphone (`sm:bottom-3` ailleurs) pour ne pas se poser sur ce menu. Vérifié
-  par `scripts/verif-menu-bas-telephone.mjs`.
+  jamais un `border-t` sur toute la largeur, qui coupait l'écran. DEUX destinations, deux icônes
+  DISTINCTES (`Columns3` tableau, `MessageSquare` chef) et deux libellés d'un mot — « Tableau »,
+  « Chef ». La colonne du MILIEU (grille `grid-cols-3`) est laissée VIDE (`data-place-voix`) : le
+  module de voix vient s'y poser, ancré au centre (voir la règle du module de voix ci-dessous). Le
+  tableau de bord — jadis le bouton « Bord » du centre — se rejoint donc par le MENU TROIS POINTS de
+  la barre du haut (`QuotaBar`, entrée « Tableau de bord » rendue seulement sur téléphone, la colonne
+  de gauche y menant déjà sur grand écran). Le triangle de décision reste sur « Chef ». Rien au-dessus
+  du seuil (`sm:hidden`). Le bloc en bas à droite part de `bottom-14` sur téléphone (`sm:bottom-3`
+  ailleurs) pour ne pas se poser sur ce menu. Vérifié par `scripts/verif-menu-bas-telephone.mjs`.
 - **Le tiroir d'une carte s'ÉPURE sur téléphone, jamais sur ordinateur** (`card-panel.tsx`). Le choix
   se fait sur la largeur du pointeur (`useTelephone`, `(max-width: 639px)`), relue au redimensionnement.
   Sous ce seuil, les tags (état, étiquettes, « modifiée », archivage) — le bloc `data-tags-carte` — sont
@@ -1293,6 +1365,14 @@ sans son point d'essai.
   sont stockés, lus ou protégés, et une PANNE se dit toujours (identifiant absent, expiré ou refusé
   qui bloque un travail). Le rappel de méthode la reprend. Verrouillé par
   `server/src/test/silence-identifiants.test.ts`.
+- **Le mur d'accès bloque à 3 essais ratés, et impose 5 minutes entre deux essais**
+  (`shared/src/mur-acces.ts`, branché dans `server/src/auth.ts`). La décision est PURE
+  (`decisionDuMur`, à partir des horodatages des essais RATÉS d'une adresse et de l'heure) : au
+  `MUR_ESSAIS_MAX`e (3) refus dans la fenêtre `MUR_FENETRE_MS` (20 min), l'adresse est bloquée ;
+  entre deux refus, `MUR_DELAI_MS` (5 min) sont imposées — un essai relancé plus tôt est refusé sans
+  regarder le mot de passe, en disant le temps restant (`tempsRestantEnClair`). `login` prend la
+  décision AVANT de vérifier le mot de passe. Une connexion RÉUSSIE (ok = 1) n'est ni comptée ni
+  ralentie : seuls les ratés pèsent. Verrouillé par `server/src/test/mur-acces.test.ts`.
 - **Un moteur qui ne recolle pas sa consigne système la reçoit en rappel.** Claude Code repasse
   `--append-system-prompt` à chaque tour ; Codex n'a la sienne qu'au premier message du fil, donc
   toute reprise part avec `systemPromptRappel` (`rappelDeMethode`) devant la demande — le pavé

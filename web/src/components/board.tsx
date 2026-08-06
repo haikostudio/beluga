@@ -687,7 +687,14 @@ export function Board({
               de la colonne la rognerait.
             */}
             <ZoneDefilement fond="hsl(var(--surface))">
-              {column === 'to_deploy' ? <DeployPanel projectId={projectId} cards={columnCards} /> : null}
+              {/* La mise en ligne compte DEUX étapes : le même bloc sert les
+                  deux, en tête de la colonne d'où part son lot. Celui d'« En
+                  production » ne s'affiche que si cette étape existe vraiment
+                  pour le projet — c'est le bloc lui-même qui le demande au
+                  serveur, et qui ne rend rien sinon. */}
+              {column === 'to_deploy' || column === 'in_production' ? (
+                <DeployPanel projectId={projectId} cards={columnCards} colonne={column} />
+              ) : null}
               <div
                 className={cn(
                   'space-y-1.5 p-1.5',

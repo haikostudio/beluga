@@ -93,6 +93,12 @@ export const DeployEnvironment = z.object({
   url: z.string().optional(),
   /** Branche installée par cet environnement. Vide = la branche principale. */
   branche: z.string().optional(),
+  /**
+   * Consigne de déploiement, en français : renseignée, la mise en ligne est
+   * confiée à un agent qui la suit telle quelle
+   * (`shared/src/publication-confiee.ts`).
+   */
+  consigne: z.string().optional(),
 });
 export type DeployEnvironment = z.infer<typeof DeployEnvironment>;
 
@@ -574,6 +580,15 @@ export const DeployRun = z.object({
     )
     .default([]),
   cardIds: z.array(z.string()).default([]),
+  /**
+   * L'ÉTAPE du parcours d'où part cette publication : la mise sur
+   * l'environnement de dev, ou la mise en production. Absente, c'est une
+   * publication d'avant les deux étapes — donc celle du lot de « À déployer »,
+   * le seul qui existait. Elle est retenue pour que la relance, la file
+   * d'attente et l'accord d'envoi repartent de la MÊME étape, et pour que le
+   * déroulé s'affiche dans le bloc qui l'a lancée, pas dans l'autre.
+   */
+  cible: z.enum(['dev', 'production']).optional(),
   /** L'environnement visé. Absent : publication d'avant les environnements. */
   environmentId: z.string().optional(),
   environmentName: z.string().optional(),
@@ -627,6 +642,12 @@ export const Settings = z.object({
    * `shared/src/voix-annonce.ts`.
    */
   voixNom: z.string().default('Chris'),
+  /**
+   * Le MOT DE RÉVEIL de l'écoute permanente (« Dis Haiko » par défaut). Réglable
+   * pour parler à l'assistant autrement ; un champ vide revient au mot par
+   * défaut plutôt que de couper le réveil. Voir `shared/src/reveil-vocal.ts`.
+   */
+  voixReveil: z.string().default('Dis Haiko'),
   /**
    * La VITESSE de la voix de l'assistant, par crans clairs (`voix-vitesse.ts`).
    * « normale » = le débit d'origine ; s'applique à toutes les paroles, auto

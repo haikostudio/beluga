@@ -2,20 +2,22 @@
 /**
  * LE MODULE DE VOIX SE DÉPLACE-T-IL, ET SA PLACE EST-ELLE RETENUE ?
  *
- * Le module était cloué en bas au centre. Il se tire désormais par son icône,
- * à la souris comme au doigt, et sa place est retenue dans le COMPTE (une
- * préférence serveur, clé « voix ») — donc la même dans une autre fenêtre, sur
- * un autre appareil, après un rechargement.
+ * Sur GRAND ÉCRAN, le module était cloué en bas au centre. Il se tire désormais
+ * par son icône (souris) ou sa poignée, et sa place est retenue dans le COMPTE
+ * (une préférence serveur, clé « voix ») — donc la même dans une autre fenêtre,
+ * sur un autre appareil, après un rechargement. SUR TÉLÉPHONE, en revanche, il ne
+ * flotte plus : il vient se poser AU CENTRE du menu du bas, ancré là, sans
+ * déplacement ni accroche (ces gestes n'y ont plus de sens).
  *
  * Ce qu'on essaie pour de vrai, dans un vrai navigateur :
  *   — à la souris : tirer l'icône déplace le module ;
  *   — recharger la page : il est à la même place ;
  *   — une seconde fenêtre : la même place, sans rien avoir fait ;
  *   — tirer très loin : le module reste entièrement dans l'écran ;
- *   — un téléphone (écran tactile) : le doigt le déplace aussi, et une place
- *     prise sur grand écran revient dans les bords du petit ;
- *   — un appui immobile déplie toujours le module (le glissement ne mange pas
- *     le clic).
+ *   — un téléphone (écran tactile) : le module est ANCRÉ au menu, centré, un
+ *     glissement du doigt ne le déplace plus, il ne s'accroche plus à un bord,
+ *     et la place mémorisée (qui ressert sur grand écran) n'est pas effacée ;
+ *   — un appui déplie toujours le module.
  *
  *   HAIKO_VOIX_URL=http://localhost:7099 node scripts/verif-position-voix.mjs
  *
@@ -387,7 +389,103 @@ if (!depart) {
   noter('aucune erreur dans la page, à la souris', erreursBureau.length === 0, erreursBureau[0] ?? '');
 }
 
-/* ---------- 6. Au doigt, et une place venue d'un grand écran ---------- */
+/* ---------- 7. AUCUN GESTE : la place ne bouge pas toute seule ---------- */
+
+// Le module se déplace À LA MAIN, jamais tout seul. On repart d'une place LIBRE
+// bien au centre, qui tient dans le grand écran comme dans un plus petit, et l'on
+// vérifie que NI un rechargement NI un redimensionnement de la fenêtre ne la
+// changent : sans geste, le module reste exactement où il a été laissé.
+//
+// C'est le cœur de la régression corrigée : le recadrage automatique tournait
+// dans l'événement `resize` avec le bas du rond mesuré dans l'ANCIENNE fenêtre —
+// il bornait la nouvelle taille avec un repère périmé, faussait le décalage,
+// l'écrivait dans le compte, et le module remontait un peu plus à chaque
+// redimensionnement jusqu'à sortir de l'écran.
+const PLACE_LIBRE = { x: 0, y: -160 };
+base
+  .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+  .run(CLE, JSON.stringify(PLACE_LIBRE), Date.now());
+
+const posee = await navigateur.newContext({ viewport: { width: 1440, height: 900 } });
+await posee.addCookies([
+  { name: 'haikodev_session', value: jeton, url: new URL(BASE).origin, httpOnly: true, sameSite: 'Lax' },
+]);
+const { page: sansGeste, erreurs: erreursSansGeste } = await ouvrirPage(posee);
+// On écarte le curseur : rien ne doit dépendre d'un survol.
+await sansGeste.mouse.move(20, 120);
+await sansGeste.waitForTimeout(400);
+
+const repos = await boite(sansGeste);
+const memePref = () => JSON.stringify(placeRangee()) === JSON.stringify(PLACE_LIBRE);
+noter(
+  'sans geste, le module se pose à la place mémorisée, entièrement visible',
+  repos !== null && dansLEcran(repos) && memePref(),
+  `bas=${repos?.y} pref=${JSON.stringify(placeRangee())}`,
+);
+
+// Un rechargement, sans rien toucher : place inchangée dans le compte, et le
+// module au même endroit (même taille de fenêtre).
+await sansGeste.reload({ waitUntil: 'domcontentloaded' });
+await sansGeste.waitForSelector('[data-module-voix]', { timeout: 20000 });
+await sansGeste.waitForTimeout(1500);
+await sansGeste.mouse.move(20, 120);
+await sansGeste.waitForTimeout(300);
+const apresRecharge = await boite(sansGeste);
+noter(
+  'aucun geste, un rechargement ne bouge pas la place',
+  memePref() && Math.abs(apresRecharge.y - repos.y) <= 2 && Math.abs(apresRecharge.x - repos.x) <= 2,
+  `${repos.x},${repos.y} → ${apresRecharge.x},${apresRecharge.y} ; pref ${JSON.stringify(placeRangee())}`,
+);
+
+// Une SÉRIE de redimensionnements — plus petit, encore plus petit, puis retour à
+// la taille de départ. À chaque étape : la place mémorisée ne change PAS, et le
+// module reste entièrement dans l'écran. Un module qui dérive écrirait un
+// nouveau décalage dès le premier redimensionnement.
+let placeStable = true;
+let toujoursVisible = true;
+for (const [w, h] of [
+  [1200, 760],
+  [1000, 680],
+  [1440, 900],
+  [1200, 760],
+  [1440, 900],
+]) {
+  await sansGeste.setViewportSize({ width: w, height: h });
+  await sansGeste.waitForTimeout(500);
+  await sansGeste.mouse.move(20, 120);
+  await sansGeste.waitForTimeout(200);
+  const b = await boite(sansGeste);
+  if (!memePref()) placeStable = false;
+  if (!dansLEcran(b)) toujoursVisible = false;
+}
+noter(
+  'aucun geste, une série de redimensionnements ne réécrit pas la place',
+  placeStable,
+  `pref ${JSON.stringify(placeRangee())} (attendu ${JSON.stringify(PLACE_LIBRE)})`,
+);
+noter('à chaque taille de fenêtre, le module reste entièrement visible', toujoursVisible);
+
+// Revenu à la taille de départ, le module retrouve exactement sa place : rien
+// n'a fui pendant les redimensionnements.
+const retour = await boite(sansGeste);
+noter(
+  'revenu à la taille de départ, le module est à sa place d’origine',
+  Math.abs(retour.y - repos.y) <= 2 && Math.abs(retour.x - repos.x) <= 2,
+  `${repos.x},${repos.y} → ${retour.x},${retour.y}`,
+);
+noter('aucune erreur dans la page, sans geste', erreursSansGeste.length === 0, erreursSansGeste[0] ?? '');
+await sansGeste.close();
+await posee.close();
+
+/* ---------- 8. Sur téléphone : ancré au menu, plus de déplacement ---------- */
+
+// On range AVANT de charger une place non nulle : sur téléphone le module
+// l'IGNORE (il se pose au centre du menu) mais ne l'EFFACE pas — elle ressert
+// sur grand écran. On la vérifie plus bas, intacte, après le faux glissement.
+const PLACE_MEMORISEE = { x: 120, y: -300 };
+base
+  .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+  .run(CLE, JSON.stringify(PLACE_MEMORISEE), Date.now());
 
 const telephone = await navigateur.newContext({
   viewport: { width: 402, height: 874 },
@@ -404,31 +502,30 @@ if (!surTelephone) {
   noter('le module de voix est à l’écran du téléphone', false);
 } else {
   noter(
-    'une place prise sur grand écran revient dans les bords du téléphone',
+    'sur téléphone, le module est ancré au menu du bas',
+    (await mobile.locator('[data-module-voix][data-ancre-menu]').count()) > 0,
+  );
+  noter(
+    'ancré, le module reste entièrement visible',
     dansLEcran(surTelephone),
     `x=${surTelephone.x} y=${surTelephone.y} (${surTelephone.fenetre.largeur}×${surTelephone.fenetre.hauteur})`,
   );
-  await mobile.screenshot({ path: `${SHOTS}/voix-telephone-recadree.png` });
+  // Malgré une place mémorisée non nulle, le module se pose AU CENTRE de l'écran.
+  noter(
+    'ancré, le module est centré (place mémorisée ignorée)',
+    Math.abs(surTelephone.x - Math.round(surTelephone.fenetre.largeur / 2)) <= 2,
+    `centre ${surTelephone.x} / ${Math.round(surTelephone.fenetre.largeur / 2)}`,
+  );
+  await mobile.screenshot({ path: `${SHOTS}/voix-telephone-ancree.png` });
 
-  // La place héritée du grand écran, ramenée dans les bords, pose parfois le
-  // module au coin bas-droit, SOUS le bloc du dock qui capterait l'appui du
-  // doigt. On le remonte au centre, bien dégagé, pour juger le glissement au
-  // doigt sans interférence (le serveur relit les préférences en base à chaque
-  // chargement, donc une écriture directe suffit).
-  base
-    .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
-    .run(CLE, JSON.stringify({ x: 0, y: -360 }), Date.now());
-  await mobile.reload({ waitUntil: 'domcontentloaded' });
-  await mobile.waitForSelector('[data-module-voix]', { timeout: 20000 });
-  await mobile.waitForTimeout(2000);
-
-  const avant = await boite(mobile);
+  const avant = surTelephone;
   const departX = avant.icone.x + avant.icone.largeur / 2;
   const departY = avant.icone.y + avant.icone.hauteur / 2;
   /*
    * Un VRAI glissement du doigt : on passe par le navigateur lui-même
    * (Input.dispatchTouchEvent), qui fabrique les mêmes événements qu'un écran
-   * tactile — un événement bricolé depuis la page ne prouverait rien.
+   * tactile — un événement bricolé depuis la page ne prouverait rien. Ancré, le
+   * module ne doit PAS bouger.
    */
   const cdp = await mobile.context().newCDPSession(mobile);
   const doigt = (type, x, y) =>
@@ -437,8 +534,6 @@ if (!surTelephone) {
       touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 8, radiusY: 8, force: 1 }],
     });
   await doigt('touchStart', departX, departY);
-  // Un doigt bouge sur plusieurs images : sans ces pauses, les mouvements
-  // arrivent avant que la page n'ait vu l'appui et le contrôle serait instable.
   await mobile.waitForTimeout(120);
   for (let i = 1; i <= 10; i += 1) {
     await doigt('touchMove', departX, departY - i * 20);
@@ -448,72 +543,36 @@ if (!surTelephone) {
   await mobile.waitForTimeout(800);
   const apres = await boite(mobile);
   noter(
-    'au doigt, le module se déplace aussi',
-    Math.abs(apres.y - avant.y) > 100,
-    `y ${avant.y} → ${apres.y}`,
+    'au doigt, le module ancré ne se déplace pas',
+    Math.abs(apres.y - avant.y) <= 4 && Math.abs(apres.x - avant.x) <= 2,
+    `y ${avant.y} → ${apres.y}, x ${avant.x} → ${apres.x}`,
   );
-  noter('déplacé au doigt, il reste entièrement visible', dansLEcran(apres));
-  await mobile.screenshot({ path: `${SHOTS}/voix-telephone-deplacee.png` });
-
-  // Le glissement ne mange pas le clic : un appui IMMOBILE déplie toujours.
-  await mobile.touchscreen.tap(
-    apres.icone.x + apres.icone.largeur / 2,
-    apres.icone.y + apres.icone.hauteur / 2,
-  );
-  await mobile.waitForTimeout(600);
   noter(
-    'un appui immobile déplie toujours le module',
-    (await mobile.locator('[data-liste-voix]').count()) > 0,
+    'ancré, le module ne s’accroche à aucun bord',
+    (await mobile.locator('[data-module-voix][data-accrochee]').count()) === 0,
   );
 
-  // Aucune poignée au doigt : elle y volerait de la place, et le bouton lui-même
-  // porte déjà le glissement.
+  // La place mémorisée n'a pas été effacée : elle ressert sur grand écran.
+  noter(
+    'la place mémorisée est préservée',
+    JSON.stringify(placeRangee()) === JSON.stringify(PLACE_MEMORISEE),
+    JSON.stringify(placeRangee()),
+  );
+
+  // Aucune poignée au doigt : le module n'est de toute façon plus déplaçable ici.
   noter(
     'aucune poignée de déplacement sur téléphone',
     (await mobile.locator('[data-poignee-voix]').count()) === 0,
   );
 
-  /* ---------- 7. Accroche au doigt, sur une fenêtre étroite ---------- */
-
-  // On repart d'une place libre, dégagée, puis on tire le module contre le bord
-  // droit du téléphone.
-  base
-    .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
-    .run(CLE, JSON.stringify({ x: 0, y: -320 }), Date.now());
-  await mobile.reload({ waitUntil: 'domcontentloaded' });
-  await mobile.waitForSelector('[data-module-voix]', { timeout: 20000 });
-  await mobile.waitForTimeout(1500);
-
-  const avantTactile = await boite(mobile);
-  const dxTac = avantTactile.icone.x + avantTactile.icone.largeur / 2;
-  const dyTac = avantTactile.icone.y + avantTactile.icone.hauteur / 2;
-  const versBord = avantTactile.fenetre.largeur;
-  await doigt('touchStart', dxTac, dyTac);
-  await mobile.waitForTimeout(120);
-  for (let i = 1; i <= 10; i += 1) {
-    await doigt('touchMove', dxTac + ((versBord - dxTac) * i) / 10 + 6, dyTac);
-    await mobile.waitForTimeout(60);
-  }
-  await doigt('touchEnd', versBord, dyTac);
-  await mobile.waitForTimeout(800);
-
-  noter(
-    'au doigt, le module s’accroche au bord droit',
-    (await mobile.locator('[data-module-voix][data-accrochee][data-bord="droite"]').count()) > 0,
+  // Un appui déplie toujours le module.
+  await mobile.touchscreen.tap(
+    avant.icone.x + avant.icone.largeur / 2,
+    avant.icone.y + avant.icone.hauteur / 2,
   );
-  const pastilleTactile = await boite(mobile);
+  await mobile.waitForTimeout(600);
   noter(
-    'accroché au doigt, la pastille est réduite',
-    pastilleTactile.largeur < 40,
-    `largeur=${pastilleTactile.largeur}`,
-  );
-  await mobile.screenshot({ path: `${SHOTS}/voix-telephone-accrochee.png` });
-
-  // Un appui sur la moitié visible de la pastille la rouvre à sa taille normale.
-  await mobile.touchscreen.tap(pastilleTactile.x - 8, pastilleTactile.y - 10);
-  await mobile.waitForTimeout(700);
-  noter(
-    'un appui rouvre le module accroché',
+    'un appui déplie toujours le module',
     (await mobile.locator('[data-module-voix][data-ouvert]').count()) > 0,
   );
 

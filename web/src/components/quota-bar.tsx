@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {
   Activity,
+  BarChart3,
   BookOpen,
   FolderTree,
   MoreVertical,
@@ -27,24 +28,34 @@ import { QuotaBadge } from '@/components/quota-badge';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
 
 /** Le bandeau des quotas (PLAN §19) : où en sont les moteurs installés. */
 export function QuotaBar({
   onOpenSettings,
   onOpenProjects,
+  onOpenDashboard,
   rightOpen,
   onToggleRight,
 }: {
   onOpenSettings: () => void;
   /** Sur téléphone seulement : ouvre la liste des projets en panneau latéral. */
   onOpenProjects?: () => void;
+  /**
+   * Sur téléphone seulement : ouvre le tableau de bord. Le menu du bas a cédé
+   * sa colonne centrale au module de voix, si bien que le tableau de bord se
+   * rejoint désormais par ce menu trois points. Sur grand écran, la colonne de
+   * gauche y mène déjà : l'entrée n'y est pas doublée.
+   */
+  onOpenDashboard?: () => void;
   /** Sur grand écran : la colonne du chef d'orchestre est-elle dépliée ? */
   rightOpen?: boolean;
   /** Sur grand écran : plie ou déplie la colonne du chef d'orchestre. */
   onToggleRight?: () => void;
 }) {
   const state = useApp();
+  const telephone = useTelephone();
   const projetOuvert = state.projects.find((p) => p.id === state.activeProjectId);
   // Le moteur « en cours » : celui d'un agent qui travaille, sinon celui du projet.
   const activeEngine =
@@ -242,6 +253,18 @@ export function QuotaBar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {/* Sur téléphone, le module de voix a pris la colonne centrale du menu
+              du bas : le tableau de bord se rejoint donc ICI. Sur grand écran,
+              la colonne de gauche y mène déjà, on ne double pas l'entrée. */}
+          {telephone && onOpenDashboard ? (
+            <>
+              <DropdownMenuItem onSelect={onOpenDashboard}>
+                <BarChart3 className="h-3.5 w-3.5" />
+                Tableau de bord
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuItem
             disabled={!state.activeProjectId}
             onSelect={() => setMemoireOuverte(true)}

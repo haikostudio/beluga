@@ -125,9 +125,12 @@ export interface Ecoute {
 /**
  * Ouvre le micro tant que `actif` est vrai, guette le mot de réveil, puis
  * recueille la phrase. Rien ne démarre tout seul : `actif` vient de
- * l'interrupteur du module de voix, éteint par défaut.
+ * l'interrupteur du module de voix, éteint par défaut. `forme` est le mot de
+ * réveil réglé, déjà normalisé (`formeDeReveil`) ; il est relu à chaque phrase
+ * par une référence, si bien qu'un changement de réglage prend aussitôt sans
+ * rouvrir le micro.
  */
-export function useEcoutePermanente(actif: boolean): Ecoute {
+export function useEcoutePermanente(actif: boolean, forme?: string): Ecoute {
   const [etat, setEtat] = React.useState<EtatEcoute>('eteinte');
   const [dictee, setDictee] = React.useState('');
   const [erreur, setErreur] = React.useState<string | null>(null);
@@ -138,6 +141,10 @@ export function useEcoutePermanente(actif: boolean): Ecoute {
   etatRef.current = etat;
   const dicteeRef = React.useRef(dictee);
   dicteeRef.current = dictee;
+  // Le mot de réveil réglé, relu à chaque phrase : un changement de réglage
+  // prend tout de suite, sans reconstruire l'écoute ni rouvrir le micro.
+  const formeRef = React.useRef(forme);
+  formeRef.current = forme;
   // L'instant du dernier son entendu : c'est LUI qui mesure le silence.
   const dernierSonRef = React.useRef(0);
   // La minuterie qui clôt la dictée après le silence, et celle de la relecture.
@@ -183,7 +190,7 @@ export function useEcoutePermanente(actif: boolean): Ecoute {
       const courant = etatRef.current;
       if (courant === 'eteinte' || courant === 'refusee') return;
 
-      const lu = lireParole(texte, courant === 'ecoute');
+      const lu = lireParole(texte, courant === 'ecoute', formeRef.current);
       // « Annule » est entendu À TOUT MOMENT, la relecture comprise : ces deux
       // secondes sont justement le temps qu'on a pour se raviser. C'est le
       // pendant du clic sur la phrase, qui la jette lui aussi.

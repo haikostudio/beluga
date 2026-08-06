@@ -9,6 +9,7 @@ import {
   decalageAccroche,
   decisionsOuvertes,
   estUnGlissement,
+  formeDeReveil,
   gesteDOuverture,
   memeDecalage,
   phraseDecisionAttendue,
@@ -25,6 +26,7 @@ import {
 import { client } from '@/lib/client';
 import { usePref } from '@/lib/prefs';
 import { useSurvol } from '@/lib/pointeur';
+import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
 import { direVoix, lireNiveaux, taireVoix, useVoix } from '@/lib/voix';
 import { lireNiveauxMicro, useEcoutePermanente } from '@/lib/ecoute';
@@ -76,8 +78,33 @@ const VOIX_ECART_POIGNEE = 6;
  * le rond, à moitié engagée hors de l'écran pour ne plus masquer le contenu.
  */
 const VOIX_PASTILLE = 30;
-/** Le bloc de parole, quand le module n'est pas déplié. */
-const VOIX_LARGEUR_PARLE = 96;
+/**
+ * Combien de barres compose la ligne d'ondes ÉLARGIE : assez pour remplir tout
+ * le pied du panneau (256 px) sans que les gros écarts ne le fassent paraître
+ * vide, et réparties (`justify-between`) pour tenir aussi le bloc de parole sans
+ * se chevaucher. C'est aussi le nombre de tranches de fréquences lues à
+ * l'analyseur pendant la parole. Défini ICI, avant `VOIX_LARGEUR_PARLE`, qui en
+ * DÉCOULE : le bloc de parole se dimensionne pour ce nombre de barres.
+ */
+const ONDES_LARGES = 16;
+/**
+ * La géométrie d'UNE barre d'ondes, en pixels : sa largeur (`w-1`), l'écart qui
+ * la sépare de la suivante (`gap-0.5`) et la marge au bord du bloc (`px-3`). Ces
+ * nombres SUIVENT les classes utilitaires de `LigneOndes` — c'est d'eux qu'on
+ * déduit la largeur du bloc de parole, pour qu'aucune barre n'en dépasse.
+ */
+const ONDE_BARRE = 4;
+const ONDE_ECART = 2;
+const ONDE_MARGE = 12;
+/**
+ * Le bloc de parole, quand le module n'est pas déplié. Il est assez LARGE pour
+ * contenir toutes ses ondes (les barres, leurs écarts et la même marge de chaque
+ * côté qu'au repos) : élargir la ligne d'ondes sans élargir le bloc faisait
+ * déborder les dernières barres, coupées par `overflow-hidden`. La largeur se
+ * DÉDUIT donc du nombre de barres — en changer une la suit.
+ */
+const VOIX_LARGEUR_PARLE =
+  ONDES_LARGES * ONDE_BARRE + (ONDES_LARGES - 1) * ONDE_ECART + 2 * ONDE_MARGE;
 /** Le panneau déplié, borné à 80 % de l'écran pour les petits téléphones. */
 const VOIX_LARGEUR_OUVERTE = 256;
 /** Les hauteurs des trois zones du panneau, pour calculer celle du tout. */
@@ -208,13 +235,6 @@ function contexteDecision(
   return { projet, tache };
 }
 
-/** Combien de barres compose la ligne d'ondes ÉLARGIE : assez pour remplir tout
- * le pied du panneau (256 px) sans que les gros écarts ne le fassent paraître
- * vide, et réparties (`justify-between`) pour tenir aussi le petit bloc de parole
- * (96 px) sans se chevaucher. C'est aussi le nombre de tranches de fréquences
- * lues à l'analyseur pendant la parole. */
-const ONDES_LARGES = 16;
-
 /**
  * La ligne d'ondes. Deux visages, et son état ÉLARGI ne dépend QUE de la parole :
  *   — tant que la voix NE parle PAS (`!parle`), module fermé OU seulement ouvert
@@ -343,6 +363,19 @@ function LigneOndes({ parle, ecoute }: { parle: boolean; ecoute: boolean }) {
 export function VoixAssistant() {
   const state = useApp();
   const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
+  /*
+   * ANCRÉ DANS LE MENU DU BAS, SUR TÉLÉPHONE. Là, le module ne flotte plus
+   * librement : il vient se poser AU CENTRE du menu du bas (la colonne du milieu
+   * lui est laissée, voir web/src/app.tsx), débordant un peu en haut et en bas
+   * comme un bouton d'action. Il garde tout ce qu'il sait faire — parler, montrer
+   * ses ondes, s'ouvrir, écouter — mais ne se DÉPLACE plus (pas de glissement,
+   * pas d'accroche, pas de poignée) : ces gestes n'ont plus de sens à cette
+   * place. La place mémorisée (`range`) n'est PAS effacée : elle ressert dès
+   * qu'on repasse sur grand écran.
+   */
+  const ancreMenu = useTelephone();
+  const ancreMenuRef = React.useRef(ancreMenu);
+  ancreMenuRef.current = ancreMenu;
   // Le prénom réglé (défaut « Chris ») et l'heure du moment personnalisent chaque
   // phrase : ils sont relus au fil de l'eau, sans réabonner les écouteurs.
   const nom = state.settings?.voixNom || NOM_UTILISATEUR;
@@ -452,7 +485,9 @@ export function VoixAssistant() {
    * ici, on ne fait que l'afficher.
    */
   const [ecouteAllumee, setEcouteAllumee] = usePref<boolean>(CLE_VOIX_ECOUTE, false);
-  const ecoute = useEcoutePermanente(ecouteAllumee);
+  // Le mot de réveil réglé (« Dis Haiko » par défaut), sous sa forme comparée.
+  const formeReveil = formeDeReveil(state.settings?.voixReveil);
+  const ecoute = useEcoutePermanente(ecouteAllumee, formeReveil);
   // Une dictée est en cours : le module s'élargit pour montrer la phrase, et les
   // ondes passent au rouge. La relecture en fait partie — la phrase est encore là.
   const dicteEnCours = ecoute.etat === 'ecoute' || ecoute.etat === 'relit';
@@ -472,6 +507,28 @@ export function VoixAssistant() {
     width: typeof window !== 'undefined' ? window.innerWidth : 0,
     height: typeof window !== 'undefined' ? window.innerHeight : 0,
   }));
+
+  /*
+   * OÙ SE POSE LE ROND QUAND IL EST ANCRÉ AU MENU. On mesure la barre du bas
+   * (`nav[data-menu-bas]`, rendue AVANT ce module dans l'arbre) et l'on aligne le
+   * CENTRE du rond sur le centre de la barre : le rond de 44 px déborde alors un
+   * peu de la barre (~36 px de haut). La valeur est la distance, en pixels, du
+   * BAS de la boîte au bas de l'écran ; la boîte étant ancrée par le bas, le rond
+   * garde sa place quand le panneau grandit vers le haut. `null` hors téléphone
+   * (le module retrouve alors sa place flottante d'origine).
+   */
+  const [ancrageBas, setAncrageBas] = React.useState<number | null>(null);
+  React.useLayoutEffect(() => {
+    if (!ancreMenu) {
+      setAncrageBas(null);
+      return;
+    }
+    const bloc = document.querySelector('nav[data-menu-bas]')?.firstElementChild;
+    if (!bloc) return;
+    const r = bloc.getBoundingClientRect();
+    const centre = r.top + r.height / 2;
+    setAncrageBas(window.innerHeight - centre - VOIX_ROND / 2);
+  }, [ancreMenu, fenetre.width, fenetre.height]);
 
   // La ligne du BAS du rond fermé, en pixels d'écran : c'est là que le bouton se
   // pose, et la référence pour poser le panneau autour de lui. Mesurée quand le
@@ -515,7 +572,8 @@ export function VoixAssistant() {
   // La place retenue : décalage libre, ou décalage + bord d'accroche. Pendant un
   // glissement (`vif` posé), l'accroche est en suspens : on montre le rond libre.
   const place = placeRetenue(range);
-  const accrochee = place.bord !== undefined && vif === null;
+  // Ancré au menu, jamais d'accroche à un bord : le module a une place imposée.
+  const accrochee = !ancreMenu && place.bord !== undefined && vif === null;
 
   // Lu par les écouteurs de glissement sans les réabonner à chaque pixel. Il
   // porte le décalage EFFECTIF du dernier rendu.
@@ -536,18 +594,22 @@ export function VoixAssistant() {
   // bord, il ne se montre alors plus en pastille demi-dehors : il revient au ras
   // du bord, sinon la phrase entendue s'afficherait à moitié hors de l'écran.
   const deploye = ouvert || dicteEnCours;
-  const decalage: DecalageVoix =
-    vif ??
-    (accrochee && place.bord && originBas != null
-      ? decalageAccroche(
-          place.bord,
-          place,
-          originBas,
-          { width: fenetre.width, height: fenetre.height },
-          deploye ? VOIX_ROND : VOIX_PASTILLE,
-          !deploye,
-        )
-      : { x: place.x, y: place.y });
+  // Ancré au menu : décalage NUL, on ne lit pas la place mémorisée (mais on ne
+  // l'efface pas non plus). Le module se centre alors sur le menu du bas, dont
+  // la hauteur donne la ligne du bas de la boîte (`ancrageBas`, plus bas).
+  const decalage: DecalageVoix = ancreMenu
+    ? { x: 0, y: 0 }
+    : vif ??
+      (accrochee && place.bord && originBas != null
+        ? decalageAccroche(
+            place.bord,
+            place,
+            originBas,
+            { width: fenetre.width, height: fenetre.height },
+            deploye ? VOIX_ROND : VOIX_PASTILLE,
+            !deploye,
+          )
+        : { x: place.x, y: place.y });
   decalageRef.current = decalage;
 
   // D'où PART un glissement : la place libre courante, ou — si le module est
@@ -656,14 +718,24 @@ export function VoixAssistant() {
     const replacer = () => {
       setFenetre({ width: window.innerWidth, height: window.innerHeight });
       if (glissementRef.current) return;
+      // Ancré au menu, la place est imposée : on ne recadre ni ne range rien —
+      // surtout, on n'écrase pas la place mémorisée, qui ressert sur grand écran.
+      if (ancreMenuRef.current) return;
       // Accroché, la place se recalcule à chaque rendu depuis le bord et la
       // fenêtre : rien à recadrer ni à ranger. La règle de visibilité ne vaut
       // que pour les places LIBRES.
       if (accrocheeStoreeRef.current) return;
-      if (ouvertRef.current) {
-        const boite = racineRef.current?.getBoundingClientRect();
-        if (boite) baseBasRef.current = boite.bottom - corrRef.current.y;
-      }
+      // La fenêtre vient peut-être de changer de taille : le bas du rond a
+      // bougé AVEC elle. On le RE-MESURE tout de suite — le navigateur a déjà
+      // refait la mise en page dans cet événement `resize` — avant de recadrer.
+      // Sinon `ancre()` bornerait la NOUVELLE fenêtre avec le bas mesuré dans
+      // l'ANCIENNE (l'effet de mesure ne se rejoue qu'APRÈS ce gestionnaire) :
+      // un décalage faussé, écrit dans le compte, et le module qui remonte un
+      // peu plus à chaque redimensionnement jusqu'à sortir de l'écran. Fermé, la
+      // correction d'ouverture est nulle ; ouvert, on la retranche (le DOM la
+      // porte encore, ce rendu n'ayant pas encore été refait).
+      const boite = racineRef.current?.getBoundingClientRect();
+      if (boite) baseBasRef.current = boite.bottom - corrRef.current.y;
       const actuel = decalageRef.current;
       const corrige = recadrer(actuel);
       if (memeDecalage(corrige, actuel)) return;
@@ -773,6 +845,8 @@ export function VoixAssistant() {
       data-ouvert={ouvert ? '' : undefined}
       data-accrochee={accrochee ? '' : undefined}
       data-bord={accrochee ? place.bord : undefined}
+      // Ancré au centre du menu du bas (téléphone) : repère pour les vérifications.
+      data-ancre-menu={ancreMenu ? '' : undefined}
       // Où en est l'écoute permanente : « eteinte », « guette », « ecoute »,
       // « relit » ou « refusee ». Un seul attribut, lu par les vérifications.
       data-etat-ecoute={ecoute.etat}
@@ -782,7 +856,11 @@ export function VoixAssistant() {
       // un seul transform porte le centrage d'origine ET le décalage retenu.
       className="fixed bottom-20 left-1/2 z-30 max-w-[80vw] overflow-hidden border border-border bg-surface/90 shadow-lg backdrop-blur transition-all ease-out sm:bottom-6"
       style={{
-        marginBottom: 'env(safe-area-inset-bottom)',
+        // Ancré au menu, la ligne du bas vient de la mesure de la barre (safe-area
+        // déjà comprise) : on écrase alors `bottom` et la marge de sécurité.
+        ...(ancreMenu && ancrageBas != null
+          ? { bottom: `${ancrageBas}px`, marginBottom: 0 }
+          : { marginBottom: 'env(safe-area-inset-bottom)' }),
         width: `${forme.largeur}px`,
         height: `${forme.hauteur}px`,
         borderRadius: `${forme.rayon}px`,
@@ -824,7 +902,7 @@ export function VoixAssistant() {
         // à déplier (immobile) et à déplacer (qui glisse). À la souris, ce bouton
         // s'efface au survol (l'ouverture le rend `pointer-events-none`) et ne
         // peut plus être attrapé — c'est la POIGNÉE dédiée qui prend le relais.
-        onPointerDown={survolPossible ? undefined : commencerGlissement}
+        onPointerDown={survolPossible || ancreMenu ? undefined : commencerGlissement}
         className={`absolute inset-0 grid place-items-center transition-opacity hover:bg-raised ${
           ouvert ? 'pointer-events-none opacity-0' : 'opacity-100'
         }`}
@@ -866,24 +944,25 @@ export function VoixAssistant() {
               e.stopPropagation();
               setEcouteAllumee(!ecouteAllumee);
             }}
-            className={`ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-raised ${
+            className={`ml-auto flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
               ecoute.etat === 'refusee'
                 ? 'text-danger'
                 : ecouteAllumee
-                  ? 'text-danger'
+                  ? 'text-success'
                   : 'text-muted'
             }`}
             title={
-              ecouteAllumee
-                ? 'Couper l’écoute permanente'
-                : 'Écouter en permanence, et se réveiller sur « Dis Haiko »'
+              ecoute.etat === 'refusee'
+                ? 'Micro refusé — cliquer pour réessayer l’écoute'
+                : ecouteAllumee
+                  ? 'Couper l’écoute permanente'
+                  : `Écouter en permanence, et se réveiller sur « ${state.settings?.voixReveil || 'Dis Haiko'} »`
             }
             aria-label={
               ecouteAllumee ? 'Couper l’écoute permanente' : 'Allumer l’écoute permanente'
             }
           >
-            {ecouteAllumee ? <Ear className="h-3.5 w-3.5" /> : <EarOff className="h-3.5 w-3.5" />}
-            {ecouteAllumee ? 'À l’écoute' : 'Écoute'}
+            {ecouteAllumee ? <Ear className="h-4 w-4" /> : <EarOff className="h-4 w-4" />}
           </button>
           {/* Le réglage « Muet » vit ICI, dans le panneau déplié, à côté de la
               voix qu'il commande — plus dans le menu trois points du haut. Il ne
@@ -898,14 +977,13 @@ export function VoixAssistant() {
               e.stopPropagation();
               setMuet(!muet);
             }}
-            className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-raised ${
-              muet ? 'text-warning' : 'text-success'
+            className={`flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
+              muet ? 'text-muted' : 'text-success'
             }`}
             title={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
             aria-label={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
           >
-            {muet ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            {muet ? 'Coupée' : 'Active'}
+            {muet ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
         </div>
         {/* Le micro refusé se DIT ici, en toutes lettres, en plus du message court
@@ -1057,7 +1135,7 @@ export function VoixAssistant() {
           module fermé — hors survol, la poignée est là. Aucune poignée au doigt
           (`survolPossible` faux) : l'appui déplie et le bouton porte déjà le
           glissement. */}
-      {survolPossible && !ouvert && (
+      {survolPossible && !ouvert && !ancreMenu && (
         <button
           type="button"
           data-poignee-voix

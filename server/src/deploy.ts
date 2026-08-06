@@ -6,6 +6,7 @@ import {
   Card,
   CiblePublication,
   ColumnKey,
+  ContexteDePublication,
   DeployRun,
   DeployStepKey,
   EnvironnementPublication,
@@ -18,6 +19,12 @@ import {
   raisonEtapeInconnue,
   environnementVise,
   environnementsDuProjet,
+  libelleRole,
+  consigneDeDeploiement,
+  consigneDeLAgentDePublication,
+  mentionEtapeConfiee,
+  phraseDEchecConfie,
+  recitDeLAgent,
   consigneDeReparationConstruction,
   controlesTombes,
   detailDEchec,
@@ -144,23 +151,23 @@ function configurationsServeurWeb(): string[] {
 /**
  * Ce dont ce projet dispose pour être mis en ligne, constaté sur la machine.
  *
- * La COMMANDE et le NOM viennent de l'environnement visé ; le reste (service
- * système, dossier servi, script de construction) est une propriété du dossier
- * et vaut donc pour tous les environnements.
+ * La CONSIGNE, la COMMANDE et le NOM viennent de l'environnement visé ; le
+ * reste (service système, dossier servi, script de construction) est une
+ * propriété du dossier et vaut donc pour tous les environnements.
  */
 export function moyensDuProjet(
   cwd: string,
-  deployCommand?: string,
+  environnement?: Pick<EnvironnementPublication, 'nom' | 'commande' | 'consigne'>,
   estHaikoDev = false,
-  environnement?: string,
 ): MoyensDeMiseEnLigne {
   return {
-    commande: deployCommand,
+    consigne: consigneDeDeploiement(environnement),
+    commande: environnement?.commande,
     estHaikoDev,
     scriptBuild: scriptExiste(cwd, 'build'),
     service: serviceDuProjet(cwd) ?? undefined,
     dossierServi: dossierCiteParServeurWeb(configurationsServeurWeb(), cwd),
-    environnement,
+    environnement: environnement?.nom,
   };
 }
 
@@ -174,7 +181,7 @@ export function moyenDeMiseEnLigne(projectId: string, environmentId?: string): P
   const project = store.getProject(projectId);
   if (!project) return null;
   const env = environnementVise(project, environmentId);
-  return planDeMiseEnLigne(moyensDuProjet(project.path, env.commande, project.isSelf, env.nom));
+  return planDeMiseEnLigne(moyensDuProjet(project.path, env, project.isSelf));
 }
 
 /** Les environnements d'un projet, tels que l'interface doit les montrer. */
@@ -226,14 +233,19 @@ function installerApplication(): string {
 /**
  * Ce que le projet déclare de ses environnements, pour la règle des étapes.
  *
- * Aucun projet ne déclare encore d'environnement de dev : les réglages qui le
- * renseignent font l'objet d'une carte à part. Tant qu'ils n'existent pas, il
- * n'y a qu'une mise en ligne — celle d'aujourd'hui —, et le parcours des
- * cartes ne change pas d'un pouce. Le jour où le réglage arrive, c'est cette
- * seule fonction qui le lit.
+ * C'est le SEUL endroit qui dit si la mise en ligne compte deux étapes. Le
+ * réglage existe déjà : chaque environnement porte un RÔLE, et « dev chez le
+ * client » (`dev-client`) est précisément la déclaration attendue — un endroit
+ * où l'on montre le travail avant de le mettre en production. Un projet qui
+ * n'en déclare aucun n'a qu'une mise en ligne, exactement comme avant : ni le
+ * parcours de ses cartes, ni ses colonnes, ni son bouton ne changent.
+ *
+ * Les rôles « interne » et « production » ne comptent pas : le premier est
+ * l'environnement fabriqué pour un projet réglé à l'ancienne, le second est
+ * l'arrivée, pas l'étape intermédiaire.
  */
-export function moyensDePublication(_project: Project): MoyensDePublication {
-  return { environnementDev: false };
+export function moyensDePublication(project: Project): MoyensDePublication {
+  return { environnementDev: environnementsDuProjet(project).some((env) => env.role === 'dev-client') };
 }
 
 /**
@@ -303,7 +315,7 @@ export function fichiersEnConflit(sortie: string): string[] {
  * C'est une prévision, pas une certitude : les branches sont fusionnées l'une
  * après l'autre, et une fusion réussie peut en fâcher une suivante.
  */
-export async function conflitsPrevus(projectId: string): Promise<ConflitPrevu[]> {
+export async function conflitsPrevus(projectId: string, source: ColumnKey = 'to_deploy'): Promise<ConflitPrevu[]> {
   const project = store.getProject(projectId);
   if (!project) return [];
   const cwd = project.path;
@@ -311,7 +323,7 @@ export async function conflitsPrevus(projectId: string): Promise<ConflitPrevu[]>
 
   const mainBranch = await mainBranchOf(cwd);
   const prevus: ConflitPrevu[] = [];
-  for (const card of deployableCards(projectId)) {
+  for (const card of deployableCards(projectId, source)) {
     const branch = card.github?.branch;
     if (!branch) continue;
     const exists = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
@@ -550,12 +562,73 @@ export async function construireAvecReparation(
 }
 
 /* ------------------------------------------------------------------ */
+/* La mise en ligne confiée à un agent qui suit la consigne réglée      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Le compte rendu de l'agent : sa DERNIÈRE réponse, celle qui clôt son tour.
+ *
+ * On ne lit pas les étapes intermédiaires : ce qui compte, c'est ce qu'il dit
+ * avoir fait à la fin. Un fil vide rend `undefined`, et l'appelant le dit.
+ */
+function derniereReponse(agentId: string): { texte?: string; erreur?: string } {
+  const messages = store.listMessages(agentId, 50).filter((m) => m.role === 'assistant');
+  const dernier = messages[messages.length - 1];
+  return { texte: dernier?.content, erreur: dernier?.error };
+}
+
+/**
+ * CONFIER LA MISE EN LIGNE À UN AGENT.
+ *
+ * Le code est déjà fusionné, enregistré et envoyé : il ne reste qu'à le mettre
+ * en ligne, et c'est la consigne réglée pour cet environnement qui dit comment.
+ * L'agent la reçoit telle quelle, avec le lot et l'environnement visé.
+ *
+ * Rend le compte rendu à afficher, et `ok: false` quand le tour n'a pas abouti.
+ * Aucune indulgence : un tour en échec est un échec NOMMÉ, et rien n'est
+ * annoncé « publié ». Le contrôle de l'adresse publique, lui, tombe juste après
+ * dans `startDeploy` — c'est lui qui a le dernier mot.
+ */
+async function confierLaMiseEnLigne(
+  projectId: string,
+  ctx: ContexteDePublication,
+): Promise<{ ok: boolean; recit: string; raison?: string }> {
+  const agent = createAgent({
+    projectId,
+    role: 'deploy',
+    title: `Publication — ${ctx.environnement.nom}`,
+  });
+
+  bus.toast('info', `Publication de « ${ctx.projet} » : l’agent suit la consigne de « ${ctx.environnement.nom} ».`);
+
+  try {
+    await sendPrompt(agent.id, consigneDeLAgentDePublication(ctx), { template: 'free', silent: true });
+  } catch (err: any) {
+    const raison = err?.message ?? 'raison inconnue';
+    return { ok: false, recit: phraseDEchecConfie(ctx.environnement.nom, raison), raison };
+  }
+
+  const rendu = derniereReponse(agent.id);
+  const recit = recitDeLAgent(rendu.texte, ctx.environnement.nom);
+  const fini = store.getAgent(agent.id);
+  if (fini && fini.status !== 'done') {
+    const raison = rendu.erreur?.trim() || `le tour de l’agent s’est terminé en « ${fini.status} »`;
+    return { ok: false, recit: `${phraseDEchecConfie(ctx.environnement.nom, raison)}\n\n${recit}`, raison };
+  }
+  return { ok: true, recit };
+}
+
+/* ------------------------------------------------------------------ */
 /* Une publication à la fois                                           */
 /* ------------------------------------------------------------------ */
 
 const active = new Map<string, { stop: () => void }>();
-/** Les publications qui attendent leur tour, chacune AVEC son environnement. */
-const waiting = new Map<string, string | undefined>();
+/**
+ * Les publications qui attendent leur tour, chacune AVEC son environnement ET
+ * son étape : une mise en production mise en file ne doit pas repartir en mise
+ * sur l'environnement de dev, ni l'inverse.
+ */
+const waiting = new Map<string, { environmentId?: string; cible?: CiblePublication }>();
 
 const STEP_ORDER: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
 
@@ -909,7 +982,13 @@ export async function repondreEnvoi(runId: string, accord: boolean): Promise<{ o
    */
   // L'environnement du run repart AVEC lui : un accord donné sur le dev client
   // ne doit pas relancer la publication vers la production.
-  const relance = await startDeploy(run.projectId, run.environmentId, { accordEnvoi: true, reprendre: run });
+  const relance = await startDeploy(run.projectId, run.environmentId, {
+    accordEnvoi: true,
+    reprendre: run,
+    // Et à la MÊME étape : sinon un accord donné sur la mise en production
+    // repartirait avec le lot de « À déployer ».
+    cible: run.cible,
+  });
   bus.emit({ type: 'attention', ...store.signalAttention() });
   return relance.ok ? { ok: true } : { ok: false, error: relance.error };
 }
@@ -946,7 +1025,7 @@ export async function startDeploy(
 
   // Une deuxième demande n'ouvre pas un run parallèle : elle attend son tour.
   if (active.has(projectId)) {
-    waiting.set(projectId, environmentId);
+    waiting.set(projectId, { environmentId, cible: etape.cible });
     const current = store.latestDeploy(projectId);
     if (current) emit({ ...current, queued: true });
     return { ok: true, error: 'une publication est déjà en cours' };
@@ -973,9 +1052,7 @@ export async function startDeploy(
    * aux archives et rien n'avait bougé à l'écran. On refuse maintenant AVANT
    * de toucher au dépôt, en nommant ce qui manque.
    */
-  const plan = planDeMiseEnLigne(
-    moyensDuProjet(project.path, environnement.commande, project.isSelf, environnement.nom),
-  );
+  const plan = planDeMiseEnLigne(moyensDuProjet(project.path, environnement, project.isSelf));
   if (!plan.possible) return { ok: false, error: plan.raison };
 
   let cards = deployableCards(projectId, etape.source);
@@ -1012,6 +1089,9 @@ export async function startDeploy(
         state: 'awaiting',
         steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
         cardIds: cards.map((c) => c.id),
+        // L'attente RETIENT son étape : l'accord relancera la MÊME, sinon une
+        // mise en production repartirait avec le lot de « À déployer ».
+        cible: etape.cible,
         // L'attente RETIENT son environnement : l'accord relancera la même
         // publication, vers le même endroit.
         environmentId: environnement.id,
@@ -1052,6 +1132,9 @@ export async function startDeploy(
     state: 'running',
     steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
     cardIds: cards.map((c) => c.id),
+    // L'étape voyage avec la publication : c'est elle qui dit dans quel bloc le
+    // déroulé s'affiche, et d'où le lot repartira en cas de relance.
+    cible: etape.cible,
     environmentId: environnement.id,
     environmentName: environnement.nom,
     url: environnement.url,
@@ -1244,8 +1327,41 @@ export async function startDeploy(
       if (stopped) throw new Error('arrêt demandé');
 
       // 4 à 7 : la mise en ligne, telle que le plan l'a décidée avant de partir
+      const consigne = consigneDeDeploiement(environnement);
       const deployCommand = environnement.commande?.trim();
-      if (deployCommand) {
+      if (consigne) {
+        /*
+         * UNE CONSIGNE EST RÉGLÉE : c'est un agent qui mène la mise en ligne.
+         *
+         * Les quatre étapes restent en place et parlent toutes — trois disent
+         * que la consigne les couvre, la quatrième porte le compte rendu de
+         * l'agent. La plomberie git au-dessus, elle, n'a pas bougé : c'est elle
+         * qui garantit le lot, l'attente d'accord et la fermeture des branches.
+         */
+        current = setStep(current, 'verify', 'skipped', mentionEtapeConfiee('verify', environnement.nom));
+        current = setStep(current, 'build', 'skipped', mentionEtapeConfiee('build', environnement.nom));
+
+        current = setStep(current, 'publish', 'running', mentionEtapeConfiee('publish', environnement.nom));
+        const menee = await confierLaMiseEnLigne(project.id, {
+          projet: project.name,
+          dossier: cwd,
+          environnement: {
+            nom: environnement.nom,
+            role: libelleRole(environnement.role),
+            url: environnement.url,
+            branche: environnement.branche,
+          },
+          consigne,
+          cartes: cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
+          enregistrement: current.targetCommit,
+          clot: etape.clot,
+        });
+        current = setStep(current, 'publish', menee.ok ? 'done' : 'failed', menee.recit);
+        // Un échec reste un échec, NOMMÉ : rien n'est annoncé « publié ».
+        if (!menee.ok) throw new Error(phraseDEchecConfie(environnement.nom, menee.raison));
+
+        current = setStep(current, 'restart', 'skipped', mentionEtapeConfiee('restart', environnement.nom));
+      } else if (deployCommand) {
         current = setStep(current, 'verify', 'running');
         const verify = await runCommand(cwd, 'npm run --if-present lint --silent || true', 5 * 60 * 1000);
         current = setStep(current, 'verify', 'done', verify.out.slice(-800));
@@ -1531,11 +1647,11 @@ export async function startDeploy(
     } finally {
       active.delete(projectId);
       if (waiting.has(projectId)) {
-        // La publication en attente repart sur SON environnement, pas sur celui
-        // qui vient de se terminer.
+        // La publication en attente repart sur SON environnement et à SON
+        // étape, pas sur ceux de celle qui vient de se terminer.
         const suivant = waiting.get(projectId);
         waiting.delete(projectId);
-        setTimeout(() => void startDeploy(projectId, suivant), 1500);
+        setTimeout(() => void startDeploy(projectId, suivant?.environmentId, { cible: suivant?.cible }), 1500);
       }
     }
   })();
@@ -1565,6 +1681,7 @@ export async function retryDeploy(runId: string): Promise<{ ok: boolean; error?:
   const run = store.getDeploy(runId);
   if (!run) return { ok: false, error: 'publication introuvable' };
   log.info(`relance de la publication du projet ${run.projectId}`);
-  // Relancer, c'est refaire LA MÊME publication : même environnement visé.
-  return startDeploy(run.projectId, run.environmentId);
+  // Relancer, c'est refaire LA MÊME publication : même environnement visé, et
+  // même étape du parcours — jamais la première par défaut.
+  return startDeploy(run.projectId, run.environmentId, { cible: run.cible });
 }
