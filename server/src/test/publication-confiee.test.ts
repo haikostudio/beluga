@@ -254,7 +254,7 @@ test('les garde-fous d’avant restent entiers autour de la bifurcation', () => 
   assert.match(SOURCE, /async function reparerLaConstruction\(/);
   assert.match(SOURCE, /async function reparerLesControles\(/);
   // Rien n'est annoncé « publié » sans mise en ligne réelle.
-  assert.match(SOURCE, /if \(!miseEnLigneReelle\(/);
+  assert.match(SOURCE, /!miseEnLigneReelle\(\{/);
   // Les notifications de fin et d'échec ne bougent pas.
   assert.match(SOURCE, /motif: 'publication-terminee'/);
   assert.match(SOURCE, /motif: 'publication-echec'/);
