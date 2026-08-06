@@ -995,6 +995,15 @@ sans son point d'essai.
   l'onglet « Conversation » et non sur « Détails » (`card-panel.tsx` : `decisions > 0` l'emporte sur
   la règle habituelle), là où la question et son champ de réponse attendent. Vérifié par
   `scripts/verif-carte-sans-suite.mjs`.
+- **Une question posée EN TEXTE guide vers la barre d'écriture** (`Chat`,
+  `web/src/components/chat.tsx`). Une question d'outil porte son bloc de réponse ; une question
+  écrite en texte simple n'en a AUCUN — l'utilisateur atterrit sur la conversation sans rien à quoi
+  répondre. Le fil rejoue la MÊME règle que le serveur (`questionEnTexteLibre`, `carteRangee`) sur le
+  DERNIER message : dans le tiroir d'une carte non rangée, agent au repos, il pose au-dessus du
+  Composer un court repère (`RepereReponseTexte`) « L'agent attend votre réponse — écrivez-la
+  ci-dessous », ni bouton ni champ de plus. Il ne paraît QUE dans ce cas — jamais pour une question
+  d'outil (que `questionEnTexteLibre` écarte), ni sans question — et s'éteint dès qu'un message part
+  (le dernier message n'est alors plus la question).
 - **Un onglet du tableau (téléphone) PORTE le repère de sa colonne** (`signalOnglet`,
   `web/src/components/board.tsx`). La rangée d'onglets n'existe que sur téléphone ; chaque onglet
   reprend la MÊME grammaire que la ligne d'un projet — triangle orange `RepereAttention` si une carte
