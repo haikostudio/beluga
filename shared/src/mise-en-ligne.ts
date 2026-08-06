@@ -10,12 +10,23 @@
  * l'instance de dev du projet sur ce serveur.
  *
  * Cette règle dit COMMENT ce rafraîchissement se fait, à partir de ce qu'on
- * CONSTATE sur la machine — jamais à partir d'un réglage. Règle pure : aucune
- * base, aucun disque, donc rejouable.
+ * CONSTATE sur la machine. Un seul réglage passe devant les constats, et il ne
+ * vaut QUE pour une mise en production : le PROMPT DE MISE EN PRODUCTION du
+ * projet, qui confie le travail à un agent. Règle pure : aucune base, aucun
+ * disque, donc rejouable.
  */
 
 /** Ce qu'on a constaté sur la machine à propos de ce projet. */
 export type MoyensDeMiseEnLigne = {
+  /**
+   * PROMPT DE MISE EN PRODUCTION du projet, en français, réglé dans ses
+   * paramètres (`shared/src/mise-en-production.ts`). Il passe AVANT tout le
+   * reste : quand il est écrit, c'est un agent qui mène la mise en ligne
+   * (`shared/src/publication-confiee.ts`), et il peut faire ce qu'aucun des
+   * trois constats ne sait décrire. Il n'est transmis que pour une mise en
+   * PRODUCTION : le déploiement de l'instance de dev ne le lit pas.
+   */
+  prompt?: string;
   /** Le projet est HaikoDev : il sait se construire et s'installer lui-même. */
   estHaikoDev?: boolean;
   /** Le projet a un script `build` dans son package.json. */
@@ -26,9 +37,9 @@ export type MoyensDeMiseEnLigne = {
   dossierServi?: boolean;
 };
 
-export type Construction = 'npm' | 'aucune';
-export type Installation = 'haikodev' | 'service' | 'dossier-servi' | 'aucune';
-export type Redemarrage = 'demon' | 'service' | 'aucun';
+export type Construction = 'npm' | 'agent' | 'aucune';
+export type Installation = 'agent' | 'haikodev' | 'service' | 'dossier-servi' | 'aucune';
+export type Redemarrage = 'agent' | 'demon' | 'service' | 'aucun';
 
 export type PlanDeMiseEnLigne = {
   construction: Construction;
@@ -41,19 +52,38 @@ export type PlanDeMiseEnLigne = {
 /**
  * Comment l'instance de dev de ce projet se rafraîchit-elle sur ce serveur ?
  *
- * Trois cas, tous CONSTATÉS, aucun réglé :
- * 1. HaikoDev : construction, installation dans le dossier servi, redémarrage ;
- * 2. un service système sur le dossier : construire s'il y a de quoi, puis
+ * Un chemin RÉGLÉ, puis trois cas CONSTATÉS :
+ * 1. le PROMPT DE MISE EN PRODUCTION écrit dans les réglages du projet : un
+ *    agent le suit de bout en bout, et il peut décrire ce qu'aucun constat ne
+ *    sait dire. Il ne vaut que pour une mise en PRODUCTION ;
+ * 2. HaikoDev : construction, installation dans le dossier servi, redémarrage ;
+ * 3. un service système sur le dossier : construire s'il y a de quoi, puis
  *    relancer le service — c'est lui qui sert le code neuf ;
- * 3. un dossier servi tel quel par un serveur web : les fichiers en place SONT
+ * 4. un dossier servi tel quel par un serveur web : les fichiers en place SONT
  *    le site, il n'y a rien à déplacer ni à relancer.
  *
- * Aucun des trois n'est plus un refus : le lot est quand même fusionné,
+ * Aucun des trois constats n'est plus un refus : le lot est quand même fusionné,
  * enregistré et envoyé sur le dépôt — ce qui est du travail réel — et le plan le
  * DIT plutôt que d'éteindre le bouton. Rien n'est simplement relancé ici.
  */
 export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
   const construction: Construction = moyens.scriptBuild ? 'npm' : 'aucune';
+
+  /*
+   * Le prompt passe DEVANT tout : c'est la seule façon de décrire une mise en
+   * production que les trois constats ne savent pas exprimer. Un prompt fait
+   * d'espaces n'en est pas un — on retombe alors sur le déroulé habituel,
+   * jamais sur un agent lancé sans rien à lui dire.
+   */
+  if (moyens.prompt?.trim()) {
+    return {
+      construction: 'agent',
+      installation: 'agent',
+      redemarrage: 'agent',
+      raison:
+        'Un agent de mise en production suit le prompt réglé dans les paramètres du projet, de bout en bout.',
+    };
+  }
 
   if (moyens.estHaikoDev) {
     return {
@@ -91,8 +121,8 @@ export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLign
     redemarrage: 'aucun',
     raison:
       construction === 'npm'
-        ? 'Aucune instance de dev n’a été trouvée sur ce serveur pour ce projet : le lot est fusionné, construit, enregistré et envoyé sur le dépôt, mais il n’y a rien à relancer ici.'
-        : 'Aucune instance de dev n’a été trouvée sur ce serveur pour ce projet : le lot est fusionné, enregistré et envoyé sur le dépôt, mais il n’y a rien à construire ni à relancer ici.',
+        ? 'Aucune instance de dev n’a été trouvée sur ce serveur pour ce projet : le lot est fusionné, construit, enregistré et envoyé sur le dépôt, mais il n’y a rien à relancer ici. Pour une mise en production, écrivez le prompt dans le bloc « Mise en production » des réglages du projet.'
+        : 'Aucune instance de dev n’a été trouvée sur ce serveur pour ce projet : le lot est fusionné, enregistré et envoyé sur le dépôt, mais il n’y a rien à construire ni à relancer ici. Pour une mise en production, écrivez le prompt dans le bloc « Mise en production » des réglages du projet.',
   };
 }
 

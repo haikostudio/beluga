@@ -10,13 +10,17 @@
  * déplacement ni accroche (ces gestes n'y ont plus de sens).
  *
  * Ce qu'on essaie pour de vrai, dans un vrai navigateur :
- *   — à la souris : tirer l'icône déplace le module ;
+ *   — à la souris : tirer la poignée déplace le module ;
  *   — recharger la page : il est à la même place ;
  *   — une seconde fenêtre : la même place, sans rien avoir fait ;
- *   — tirer très loin : le module reste entièrement dans l'écran ;
+ *   — lâché près d'un bord : il Y RESTE (plus d'accroche automatique), ramené
+ *     entièrement dans l'écran ;
+ *   — SANS aucun geste : ni rechargement ni redimensionnement ne réécrivent la
+ *     place mémorisée ;
+ *   — une place partie ailleurs est remise à zéro UNE FOIS (bas au centre) ;
  *   — un téléphone (écran tactile) : le module est ANCRÉ au menu, centré, un
- *     glissement du doigt ne le déplace plus, il ne s'accroche plus à un bord,
- *     et la place mémorisée (qui ressert sur grand écran) n'est pas effacée ;
+ *     glissement du doigt ne le déplace pas, et la place mémorisée (qui ressert
+ *     sur grand écran) n'est pas effacée ;
  *   — un appui déplie toujours le module.
  *
  *   HAIKO_VOIX_URL=http://localhost:7099 node scripts/verif-position-voix.mjs
@@ -33,6 +37,8 @@ const BASE = process.env.HAIKO_VOIX_URL || 'http://localhost:7099';
 const SHOTS = '/root/haikodev/data/verification';
 /** La clé de préférence où la place du module est rangée (CLE_VOIX_POSITION). */
 const CLE = 'voix';
+/** Le drapeau « place déjà remise à zéro une fois » (CLE_VOIX_REINIT). */
+const CLE_REINIT = 'voix.reinit';
 
 const base = new Database('/root/haikodev/data/haikodev.db');
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
@@ -44,20 +50,19 @@ base
   .prepare('INSERT INTO sessions (token, created_at, expires_at, label) VALUES (?, ?, ?, ?)')
   .run(sha(jeton), Date.now(), Date.now() + 3600_000, 'vérification position de la voix');
 
-// La place du module appartient à l'utilisateur : on la remet telle qu'on l'a
-// trouvée, quoi qu'il arrive.
+// La place du module et le drapeau de remise à zéro appartiennent à
+// l'utilisateur : on les remet tels qu'on les a trouvés, quoi qu'il arrive.
+const ecrirePref = (cle, valeur) =>
+  base
+    .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+    .run(cle, valeur, Date.now());
+const supprimerPref = (cle) => base.prepare('DELETE FROM preferences WHERE key = ?').run(cle);
 const placeAvant = base.prepare('SELECT value FROM preferences WHERE key = ?').get(CLE);
-const rendreLaPlace = () => {
-  if (placeAvant) {
-    base
-      .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
-      .run(CLE, placeAvant.value, Date.now());
-  } else {
-    base.prepare('DELETE FROM preferences WHERE key = ?').run(CLE);
-  }
-};
+const reinitAvant = base.prepare('SELECT value FROM preferences WHERE key = ?').get(CLE_REINIT);
+const rendre = (cle, avant) => (avant ? ecrirePref(cle, avant.value) : supprimerPref(cle));
 process.on('exit', () => {
-  rendreLaPlace();
+  rendre(CLE, placeAvant);
+  rendre(CLE_REINIT, reinitAvant);
   base.prepare('DELETE FROM sessions WHERE token = ?').run(sha(jeton));
 });
 
@@ -72,8 +77,13 @@ const placeRangee = () => {
   }
 };
 
-/** On repart d'une place NEUVE : le module au centre en bas, comme au premier jour. */
-base.prepare('DELETE FROM preferences WHERE key = ?').run(CLE);
+// On repart d'une place NEUVE : le module au centre en bas, comme au premier
+// jour. Le drapeau de remise à zéro est POSÉ : la plupart des contrôles jugent
+// l'état STABLE (après la remise à zéro déjà faite), où seul un glissement
+// écrit la place. La remise à zéro elle-même est vérifiée à part (section 9),
+// drapeau effacé.
+supprimerPref(CLE);
+ecrirePref(CLE_REINIT, JSON.stringify(true));
 
 const resultats = [];
 const noter = (nom, ok, detail = '') => {
@@ -138,17 +148,6 @@ const dansLEcran = (b) =>
   b.icone.y >= 0 &&
   b.icone.x + b.icone.largeur <= b.fenetre.largeur &&
   b.icone.y + b.icone.hauteur <= b.fenetre.hauteur;
-
-/**
- * Le module est-il AU MOINS partiellement visible ? Une pastille accrochée est à
- * moitié engagée hors de l'écran : elle ne tient pas entièrement dedans, mais sa
- * moitié visible reste attrapable.
- */
-const partiellementVisible = (b) =>
-  b.icone.x < b.fenetre.largeur &&
-  b.icone.x + b.icone.largeur > 0 &&
-  b.icone.y < b.fenetre.hauteur &&
-  b.icone.y + b.icone.hauteur > 0;
 
 /**
  * Saisir la poignée de déplacement (souris) et appuyer dessus, PRÊT à tirer.
@@ -280,110 +279,53 @@ if (!depart) {
     (await bureau.locator('[data-poignee-voix]').count()) > 0,
   );
 
-  /* ---------- 5. Tiré jusqu'à un bord, le module s'accroche ---------- */
+  /* ---------- 5. Lâché près d'un bord, le module Y RESTE (pas d'accroche) ---------- */
 
+  // L'accroche automatique à un bord a été RETIRÉE : lâché où que ce soit, le
+  // module reste à sa place libre, jamais réduit en pastille demi-dehors. Tiré
+  // jusqu'au coin, il est simplement ramené entièrement dans l'écran (règle de
+  // visibilité) et Y RESTE.
   await saisirPoignee(bureau);
   await bureau.mouse.move(3000, 2000, { steps: 20 });
   await bureau.mouse.up();
   await bureau.waitForTimeout(800);
-  await bureau.mouse.move(60, 300);
+  await bureau.mouse.move(700, 300);
   await bureau.waitForTimeout(500);
   const auBord = await boite(bureau);
-  // Tiré jusqu'au coin, le module ne flotte plus au milieu de l'écran : il
-  // s'accroche au bord le plus proche et n'en montre plus qu'une pastille, à
-  // moitié dehors mais toujours attrapable.
   noter(
-    'tiré jusqu’à un bord, le module s’accroche',
-    (await bureau.locator('[data-module-voix][data-accrochee]').count()) > 0,
+    'lâché près d’un bord, le module ne s’accroche pas',
+    (await bureau.locator('[data-module-voix][data-accrochee]').count()) === 0,
   );
   noter(
-    'accroché, la pastille reste au moins à moitié visible',
-    partiellementVisible(auBord),
+    'lâché près d’un bord, le module reste entièrement visible',
+    dansLEcran(auBord),
     `x=${auBord.x} y=${auBord.y} (${auBord.fenetre.largeur}×${auBord.fenetre.hauteur})`,
   );
-  await bureau.screenshot({ path: `${SHOTS}/voix-au-bord.png` });
-
-  /* ---------- 6. Accroche à un bord, réduction, décrochage ---------- */
-
-  // On repart d'une place libre, bien au centre. On accroche vers la GAUCHE : la
-  // poignée vit en bas à DROITE du module, donc tirer vers la gauche a toute la
-  // place voulue pour pousser le module contre ce bord (vers la droite, la
-  // poignée butte contre le bord de l'écran avant d'y arriver).
-  base
-    .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
-    .run(CLE, JSON.stringify({ x: 0, y: -260 }), Date.now());
-  await bureau.reload({ waitUntil: 'domcontentloaded' });
-  await bureau.waitForSelector('[data-module-voix]', { timeout: 20000 });
-  await bureau.waitForTimeout(1500);
-  await bureau.mouse.move(700, 300);
-  await bureau.waitForTimeout(300);
-
-  const avantAccroche = await boite(bureau);
-  // On saisit la poignée (module fermé) et on la tire contre le bord gauche.
-  await saisirPoignee(bureau);
-  await bureau.mouse.move(6, avantAccroche.y - 60, { steps: 20 });
-  await bureau.mouse.up();
-  await bureau.waitForTimeout(800);
-  // Écarter la souris pour que le module se referme en pastille.
-  await bureau.mouse.move(700, 300);
-  await bureau.waitForTimeout(700);
-
-  const accroche = await boite(bureau);
   noter(
-    'tiré contre le bord gauche, le module s’accroche',
-    (await bureau.locator('[data-module-voix][data-accrochee][data-bord="gauche"]').count()) > 0,
+    'lâché près d’un bord, la place rangée est une place libre (aucun bord)',
+    (() => {
+      const r = placeRangee();
+      return r !== null && typeof r.x === 'number' && r.bord === undefined;
+    })(),
+    JSON.stringify(placeRangee()),
   );
-  noter('accroché, le module se réduit en pastille', accroche.largeur < 40, `largeur=${accroche.largeur}`);
-  noter(
-    'accroché, la pastille est à moitié hors de l’écran (bord gauche)',
-    accroche.x <= 6,
-    `centre x=${accroche.x}`,
-  );
-  await bureau.screenshot({ path: `${SHOTS}/voix-accrochee.png` });
+  await bureau.screenshot({ path: `${SHOTS}/voix-pres-du-bord.png` });
 
-  const rangeAccroche = placeRangee();
-  noter(
-    'l’accroche est retenue côté serveur, avec son bord',
-    rangeAccroche !== null && rangeAccroche.bord === 'gauche',
-    JSON.stringify(rangeAccroche),
-  );
-
-  // Rechargée, la page la retrouve accrochée au même bord.
+  // Rechargée, la page retrouve le module à cette même place libre, sans le
+  // réduire ni le coller au bord.
+  const avantRecharge = await boite(bureau);
   await bureau.reload({ waitUntil: 'domcontentloaded' });
   await bureau.waitForSelector('[data-module-voix]', { timeout: 20000 });
   await bureau.waitForTimeout(1500);
   await bureau.mouse.move(700, 300);
   await bureau.waitForTimeout(400);
+  const apresRechargeBord = await boite(bureau);
   noter(
-    'après rechargement, le module est toujours accroché à gauche',
-    (await bureau.locator('[data-module-voix][data-accrochee][data-bord="gauche"]').count()) > 0,
-  );
-
-  // Au survol, il revient à sa taille normale et ouvre son panneau.
-  const pastille = await boite(bureau);
-  await bureau.mouse.move(pastille.x + 12, pastille.y - 14);
-  await bureau.waitForTimeout(700);
-  const ouvertAccroche = await boite(bureau);
-  noter(
-    'au survol, le module accroché revient à sa taille et s’ouvre',
-    (await bureau.locator('[data-module-voix][data-ouvert]').count()) > 0 && ouvertAccroche.largeur > 40,
-    `largeur=${ouvertAccroche.largeur}`,
-  );
-  await bureau.screenshot({ path: `${SHOTS}/voix-accrochee-ouverte.png` });
-
-  // On saisit sa poignée (module refermé en pastille) et on la tire vers le
-  // centre : il se décroche, plus aucun bord proche au relâchement.
-  await saisirPoignee(bureau);
-  await bureau.mouse.move(ouvertAccroche.fenetre.largeur / 2, ouvertAccroche.fenetre.hauteur / 2, { steps: 20 });
-  await bureau.mouse.up();
-  await bureau.waitForTimeout(800);
-  await bureau.mouse.move(700, 300);
-  await bureau.waitForTimeout(600);
-  const apresDecroche = placeRangee();
-  noter(
-    'tiré vers le centre, le module se décroche',
-    (await bureau.locator('[data-module-voix][data-accrochee]').count()) === 0,
-    JSON.stringify(apresDecroche),
+    'après rechargement, le module est resté où il a été lâché',
+    Math.abs(apresRechargeBord.x - avantRecharge.x) <= 4 &&
+      Math.abs(apresRechargeBord.y - avantRecharge.y) <= 4 &&
+      (await bureau.locator('[data-module-voix][data-accrochee]').count()) === 0,
+    `${avantRecharge.x},${avantRecharge.y} → ${apresRechargeBord.x},${apresRechargeBord.y}`,
   );
 
   noter('aucune erreur dans la page, à la souris', erreursBureau.length === 0, erreursBureau[0] ?? '');
@@ -578,6 +520,46 @@ if (!surTelephone) {
 
   noter('aucune erreur dans la page, au doigt', erreursMobile.length === 0, erreursMobile[0] ?? '');
 }
+
+/* ---------- 9. La place est remise à zéro UNE FOIS ---------- */
+
+// Une place partie ailleurs par les anciens chemins automatiques doit repartir
+// au bas-centre une seule fois. On EFFACE le drapeau de remise à zéro et on
+// pose une place franchement décalée : au premier chargement, le module doit
+// se recentrer en bas, la place rangée doit redevenir { x: 0, y: 0 }, et le
+// drapeau doit s'être posé (pour ne plus jamais recommencer).
+supprimerPref(CLE_REINIT);
+ecrirePref(CLE, JSON.stringify({ x: 360, y: -420 }));
+
+const neuf = await navigateur.newContext({ viewport: { width: 1440, height: 900 } });
+await neuf.addCookies([
+  { name: 'haikodev_session', value: jeton, url: new URL(BASE).origin, httpOnly: true, sameSite: 'Lax' },
+]);
+const { page: reinit, erreurs: erreursReinit } = await ouvrirPage(neuf);
+await reinit.mouse.move(20, 120);
+await reinit.waitForTimeout(600);
+
+const apresReinit = await boite(reinit);
+noter(
+  'à la première ouverture, le module repart en bas au centre',
+  apresReinit !== null &&
+    apresReinit.y > apresReinit.fenetre.hauteur / 2 &&
+    Math.abs(apresReinit.x - apresReinit.fenetre.largeur / 2) < 30,
+  `centre=${apresReinit?.x} bas=${apresReinit?.y}`,
+);
+const placeReinit = placeRangee();
+noter(
+  'la place mémorisée a été remise à zéro',
+  placeReinit !== null && Math.round(placeReinit.x) === 0 && Math.round(placeReinit.y) === 0,
+  JSON.stringify(placeReinit),
+);
+noter(
+  'le drapeau de remise à zéro est posé (elle ne recommencera pas)',
+  JSON.parse(base.prepare('SELECT value FROM preferences WHERE key = ?').get(CLE_REINIT)?.value ?? 'false') === true,
+);
+noter('aucune erreur dans la page, à la remise à zéro', erreursReinit.length === 0, erreursReinit[0] ?? '');
+await reinit.close();
+await neuf.close();
 
 await navigateur.close();
 const echecs = resultats.filter((r) => !r.ok).length;

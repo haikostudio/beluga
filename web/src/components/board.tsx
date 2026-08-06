@@ -11,7 +11,6 @@ import {
   cleColonneTableau,
   colonneAReprendre,
   decisionsParCarte,
-  estColonneDeConsigne,
   etatVisuelCarte,
   mentionArchivage,
   mentionProgressionTaches,
@@ -46,7 +45,6 @@ import { useSurvol } from '@/lib/pointeur';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel } from '@/components/deploy-panel';
-import { FenetreConsigneDeploiement } from '@/components/consigne-deploiement';
 
 /**
  * Ce qu'un pied de colonne sait faire en lot. UN SEUL mécanisme, en deux temps :
@@ -108,78 +106,42 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
 };
 
 /**
- * Le menu à trois points d'une tête de colonne. Deux entrées possibles :
+ * Le menu à trois points d'une tête de colonne. UNE seule entrée :
+ * « Marquer tout comme lu », qui éteint le point bleu de toutes les cartes non
+ * lues de CETTE colonne. On ne réinvente rien côté serveur : on rejoue la
+ * commande `card.read` (celle qu'envoie l'ouverture d'une conversation) pour
+ * chaque carte non lue.
  *
- *  - « Marquer tout comme lu », qui éteint le point bleu de toutes les cartes
- *    non lues de CETTE colonne. On ne réinvente rien côté serveur : on rejoue
- *    la commande `card.read` (celle qu'envoie l'ouverture d'une conversation)
- *    pour chaque carte non lue. Sans carte non lue, l'entrée n'apparaît pas ;
- *  - « Configurer le déploiement », sur les deux colonnes de mise en ligne
- *    seulement (`estColonneDeConsigne`) : elle ouvre la fenêtre où s'écrit la
- *    consigne donnée à l'agent de déploiement.
- *
- * Le BOUTON, lui, s'affiche dès qu'une entrée a du sens — donc toujours sur
- * « À déployer » et « En production », même sans carte non lue : un réglage du
- * projet ne doit pas dépendre de ce qui traîne dans la colonne. Ailleurs, sans
- * carte non lue, pas de bouton. Sur téléphone, `DropdownMenuContent` devient un
- * tiroir bas.
+ * Sans carte non lue, pas de bouton — nulle part. Le réglage du déploiement
+ * vivait ici, par colonne ; il a rejoint le bloc « Mise en production » des
+ * réglages du projet, à côté des environnements, parce qu'un réglage du projet
+ * n'a rien à faire dans une colonne du tableau. Sur téléphone,
+ * `DropdownMenuContent` devient un tiroir bas.
  */
-function MenuTeteColonne({
-  colonne,
-  projectId,
-  cartesNonLues,
-}: {
-  colonne: ColumnKey;
-  projectId: string;
-  cartesNonLues: Card[];
-}) {
-  const [consigneOuverte, setConsigneOuverte] = React.useState(false);
-  // On garde la colonne RÉDUITE au type qui porte une consigne : c'est ce qui
-  // permet de la passer telle quelle à la fenêtre, sans conversion à la main.
-  const reglable = estColonneDeConsigne(colonne) ? colonne : null;
-  if (!cartesNonLues.length && !reglable) return null;
+function MenuTeteColonne({ colonne, cartesNonLues }: { colonne: ColumnKey; cartesNonLues: Card[] }) {
+  if (!cartesNonLues.length) return null;
   const toutMarquerLu = () => {
     for (const carte of cartesNonLues) client.send({ type: 'card.read', cardId: carte.id });
   };
   return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto -mr-1 h-6 shrink-0 px-1.5 text-faint"
-            aria-label="Actions de la colonne"
-            data-menu-colonne={colonne}
-          >
-            <EllipsisVertical className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {cartesNonLues.length ? (
-            <DropdownMenuItem onSelect={toutMarquerLu}>
-              <CheckCheck className="h-3.5 w-3.5" /> Marquer tout comme lu
-            </DropdownMenuItem>
-          ) : null}
-          {reglable ? (
-            <DropdownMenuItem
-              data-configurer-deploiement={reglable}
-              onSelect={() => setConsigneOuverte(true)}
-            >
-              <Rocket className="h-3.5 w-3.5" /> Configurer le déploiement
-            </DropdownMenuItem>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {reglable ? (
-        <FenetreConsigneDeploiement
-          projectId={projectId}
-          colonne={reglable}
-          open={consigneOuverte}
-          onClose={() => setConsigneOuverte(false)}
-        />
-      ) : null}
-    </>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-auto -mr-1 h-6 shrink-0 px-1.5 text-faint"
+          aria-label="Actions de la colonne"
+          data-menu-colonne={colonne}
+        >
+          <EllipsisVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={toutMarquerLu}>
+          <CheckCheck className="h-3.5 w-3.5" /> Marquer tout comme lu
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -733,7 +695,6 @@ export function Board({
               ) : null}
               <MenuTeteColonne
                 colonne={column}
-                projectId={projectId}
                 cartesNonLues={columnCards.filter((card) => etatDeCarte(card) === 'termine-non-lu')}
               />
             </div>

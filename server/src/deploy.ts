@@ -6,12 +6,19 @@ import {
   Card,
   CiblePublication,
   ColumnKey,
+  ContexteDePublication,
   DeployRun,
   DeployStepKey,
   MoyensDeMiseEnLigne,
   PlanDeMiseEnLigne,
+  Project,
   ECHECS_NOMMES_MAX,
   etapeDePublication,
+  promptDeMiseEnProduction,
+  promptDeLAgentDeProduction,
+  mentionEtapeConfiee,
+  phraseDEchecConfie,
+  recitDeLAgent,
   consigneDeReparationConstruction,
   controlesTombes,
   detailDEchec,
@@ -130,9 +137,18 @@ function configurationsServeurWeb(): string[] {
 /**
  * Ce dont ce projet dispose pour que son instance de dev soit rafraîchie, tout
  * CONSTATÉ sur la machine : rien de tout cela ne se règle.
+ *
+ * Une seule exception, et c'est un réglage du PROJET : le PROMPT de mise en
+ * production, qui n'entre en jeu que pour une mise en PRODUCTION — l'appelant
+ * le passe ou non, cette fonction ne décide pas de l'étape.
  */
-export function moyensDuProjet(cwd: string, estHaikoDev = false): MoyensDeMiseEnLigne {
+export function moyensDuProjet(
+  cwd: string,
+  estHaikoDev = false,
+  prompt?: string,
+): MoyensDeMiseEnLigne {
   return {
+    prompt: prompt?.trim() || undefined,
     estHaikoDev,
     scriptBuild: scriptExiste(cwd, 'build'),
     service: serviceDuProjet(cwd) ?? undefined,
@@ -141,13 +157,30 @@ export function moyensDuProjet(cwd: string, estHaikoDev = false): MoyensDeMiseEn
 }
 
 /**
- * Comment l'instance de dev de ce projet sera rafraîchie. Répondu SANS rien
- * publier, pour que le bloc de publication le dise avant le clic.
+ * Le prompt de mise en production, mais SEULEMENT quand l'étape en est une.
+ *
+ * C'est le seul endroit qui tranche : le déploiement sur l'instance de dev ne
+ * le lit pas — il garde exactement le déroulé constaté — et la mise en
+ * production, elle, le lit.
  */
-export function moyenDeMiseEnLigne(projectId: string): PlanDeMiseEnLigne | null {
+function promptDeLEtape(project: Project, cible?: CiblePublication): string {
+  return cible === 'dev' ? '' : promptDeMiseEnProduction(project);
+}
+
+/**
+ * Comment cette étape de mise en ligne se fera. Répondu SANS rien publier, pour
+ * que le bloc de publication le dise avant le clic : l'instance de dev se
+ * rafraîchit par ce qu'on constate, la mise en production suit le prompt réglé.
+ */
+export function moyenDeMiseEnLigne(
+  projectId: string,
+  cible?: CiblePublication,
+): PlanDeMiseEnLigne | null {
   const project = store.getProject(projectId);
   if (!project) return null;
-  return planDeMiseEnLigne(moyensDuProjet(project.path, project.isSelf));
+  return planDeMiseEnLigne(
+    moyensDuProjet(project.path, project.isSelf, promptDeLEtape(project, cible)),
+  );
 }
 
 /** Le projet a-t-il ce script dans son package.json ? */
@@ -503,6 +536,63 @@ export async function construireAvecReparation(
 }
 
 /* ------------------------------------------------------------------ */
+/* La mise en ligne confiée à un agent qui suit le prompt réglé         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Le compte rendu de l'agent : sa DERNIÈRE réponse, celle qui clôt son tour.
+ *
+ * On ne lit pas les étapes intermédiaires : ce qui compte, c'est ce qu'il dit
+ * avoir fait à la fin. Un fil vide rend `undefined`, et l'appelant le dit.
+ */
+function derniereReponse(agentId: string): { texte?: string; erreur?: string } {
+  const messages = store.listMessages(agentId, 50).filter((m) => m.role === 'assistant');
+  const dernier = messages[messages.length - 1];
+  return { texte: dernier?.content, erreur: dernier?.error };
+}
+
+/**
+ * CONFIER LA MISE EN PRODUCTION À UN AGENT.
+ *
+ * Le code est déjà fusionné, enregistré et envoyé : il ne reste qu'à le mettre
+ * en ligne, et c'est le prompt réglé dans les paramètres du projet qui dit
+ * comment. L'agent le reçoit tel quel, avec le lot et l'adresse à contrôler.
+ *
+ * Rend le compte rendu à afficher, et `ok: false` quand le tour n'a pas abouti.
+ * Aucune indulgence : un tour en échec est un échec NOMMÉ, et rien n'est
+ * annoncé « publié ». Le contrôle de l'adresse publique, lui, tombe juste après
+ * dans `startDeploy` — c'est lui qui a le dernier mot.
+ */
+async function confierLaMiseEnLigne(
+  projectId: string,
+  ctx: ContexteDePublication,
+): Promise<{ ok: boolean; recit: string; raison?: string }> {
+  const agent = createAgent({
+    projectId,
+    role: 'deploy',
+    title: `Mise en production — ${ctx.projet}`,
+  });
+
+  bus.toast('info', `Mise en production de « ${ctx.projet} » : l’agent suit le prompt du projet.`);
+
+  try {
+    await sendPrompt(agent.id, promptDeLAgentDeProduction(ctx), { template: 'free', silent: true });
+  } catch (err: any) {
+    const raison = err?.message ?? 'raison inconnue';
+    return { ok: false, recit: phraseDEchecConfie(raison), raison };
+  }
+
+  const rendu = derniereReponse(agent.id);
+  const recit = recitDeLAgent(rendu.texte);
+  const fini = store.getAgent(agent.id);
+  if (fini && fini.status !== 'done') {
+    const raison = rendu.erreur?.trim() || `le tour de l’agent s’est terminé en « ${fini.status} »`;
+    return { ok: false, recit: `${phraseDEchecConfie(raison)}\n\n${recit}`, raison };
+  }
+  return { ok: true, recit };
+}
+
+/* ------------------------------------------------------------------ */
 /* Une publication à la fois                                           */
 /* ------------------------------------------------------------------ */
 
@@ -814,12 +904,16 @@ export async function startDeploy(
   }
 
   /*
-   * COMMENT l'instance de dev sera rafraîchie, décidé une fois pour tout le
-   * run. Ce n'est plus une porte : rien ne se règle, tout se constate, et un
-   * projet sans instance sur ce serveur déploie quand même — le plan le dit
-   * plutôt que d'éteindre le bouton.
+   * COMMENT la mise en ligne se fera, décidé une fois pour tout le run : le
+   * prompt de mise en production s'il y en a un — et seulement pour une mise en
+   * production —, sinon ce qu'on constate sur la machine. Ce n'est plus une
+   * porte : un projet sans instance sur ce serveur déploie quand même, le plan
+   * le dit plutôt que d'éteindre le bouton.
    */
-  const plan = planDeMiseEnLigne(moyensDuProjet(project.path, project.isSelf));
+  const promptProduction = promptDeLEtape(project, etape.cible);
+  const plan = planDeMiseEnLigne(
+    moyensDuProjet(project.path, project.isSelf, promptProduction),
+  );
 
   let cards = deployableCards(projectId, etape.source);
   // Cartes dont la branche est en conflit : écartées du lot, jamais perdues.
@@ -1001,11 +1095,42 @@ export async function startDeploy(
       if (stopped) throw new Error('arrêt demandé');
 
       /*
-       * 4 à 7 : RAFRAÎCHIR L'INSTANCE DE DEV, telle que le plan l'a constatée
-       * avant de partir. Il n'y a plus de consigne ni de commande de
-       * publication à suivre : le déroulé est le même pour tous les projets.
+       * 4 à 7 : la mise en ligne, telle que le plan l'a décidée avant de
+       * partir. Un PROMPT DE MISE EN PRODUCTION réglé passe devant ; sinon on
+       * rafraîchit l'instance de dev constatée sur la machine, et le déroulé
+       * est alors le même pour tous les projets.
        */
-      if (project.isSelf) {
+      const prompt = promptProduction;
+      if (prompt) {
+        /*
+         * UN PROMPT DE MISE EN PRODUCTION EST RÉGLÉ : c'est un agent qui mène
+         * la mise en ligne.
+         *
+         * Les quatre étapes restent en place et parlent toutes — trois disent
+         * que le prompt les couvre, la quatrième porte le compte rendu de
+         * l'agent. La plomberie git au-dessus, elle, n'a pas bougé : c'est elle
+         * qui garantit le lot et la fermeture des branches.
+         */
+        current = setStep(current, 'verify', 'skipped', mentionEtapeConfiee('verify'));
+        current = setStep(current, 'build', 'skipped', mentionEtapeConfiee('build'));
+
+        current = setStep(current, 'publish', 'running', mentionEtapeConfiee('publish'));
+        const menee = await confierLaMiseEnLigne(project.id, {
+          projet: project.name,
+          dossier: cwd,
+          branche: await mainBranchOf(cwd),
+          url: project.devUrl,
+          prompt,
+          cartes: cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
+          enregistrement: current.targetCommit,
+          clot: etape.clot,
+        });
+        current = setStep(current, 'publish', menee.ok ? 'done' : 'failed', menee.recit);
+        // Un échec reste un échec, NOMMÉ : rien n'est annoncé « publié ».
+        if (!menee.ok) throw new Error(phraseDEchecConfie(menee.raison));
+
+        current = setStep(current, 'restart', 'skipped', mentionEtapeConfiee('restart'));
+      } else if (project.isSelf) {
         /*
          * HaikoDev se publie lui-même. La fusion est déjà faite juste au-dessus :
          * on construit CE lot fusionné, puis on INSTALLE le résultat dans le

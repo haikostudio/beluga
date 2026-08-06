@@ -37,7 +37,7 @@ import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
-import { genererConsigne } from './consigne-deploiement.js';
+import { genererPromptDeProduction } from './mise-en-production.js';
 import { analyseCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
@@ -901,9 +901,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // à la seconde annoncerait deux fois le même travail.
         enAttente:
           etape?.source === 'to_deploy' ? await commitsEnAttente(cmd.projectId) : { nombre: 0, titres: [] },
-        // COMMENT l'instance de dev sera rafraîchie. Le dire AVANT le clic
-        // vaut mieux que de le découvrir dans le déroulé.
-        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId),
+        // COMMENT cette étape se fera. Le dire AVANT le clic vaut mieux que de
+        // le découvrir dans le déroulé.
+        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId, etape?.cible),
       };
     }
 
@@ -1117,12 +1117,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return deposerDemandeDictee(cmd.texte);
 
     /*
-     * RÉDIGER une consigne de déploiement à partir d'une base brute, par un tour
-     * d'agent payant. On ne persiste ni ne déploie rien : l'interface reçoit le
-     * texte, le montre, et l'enregistre par `project.update`.
+     * RÉDIGER le prompt de mise en production à partir du concept écrit à la
+     * main, par un tour d'agent payant. On ne persiste ni ne déploie rien :
+     * l'interface reçoit le texte, le montre, et l'enregistre par
+     * `project.update`.
      */
-    case 'consigne.generer':
-      return genererConsigne(cmd.projectId, cmd.colonne, cmd.base);
+    case 'production.generer':
+      return genererPromptDeProduction(cmd.projectId, cmd.base);
 
     case 'stats.usage':
       return {

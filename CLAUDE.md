@@ -69,7 +69,7 @@ node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poig
 node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt puis à la souris (serveur de développement, HAIKO_INTERRUPTEUR_URL ; aucun vrai compte touché)
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
-node scripts/verif-consigne-deploiement.mjs # la consigne de déploiement réglée depuis le menu des colonnes « À déployer » / « En production » (serveur de développement, HAIKO_CONSIGNE_URL ; `project.update` intercepté, persistance imitée par le stockage local, aucun projet réel touché)
+node scripts/verif-mise-en-production.mjs # le bloc « Mise en production » des réglages du projet : concept écrit, prompt généré, enregistré, retrouvé au rechargement (serveur de développement, HAIKO_PRODUCTION_URL ; `project.update` et `production.generer` interceptés, persistance imitée par le stockage local, aucun projet réel touché)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
@@ -103,6 +103,7 @@ node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond 
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-reveil-vocal.mjs # l'écoute permanente : interrupteur, réveil « Dis Haiko », ondes rouges, relecture puis envoi, « Annule » et clic (serveur de développement, HAIKO_REVEIL_URL ; micro FACTICE muet, phrases injectées par le point d'essai — ni micro réel ni Whisper jugés)
 node scripts/verif-ecoute-mobile.mjs # l'écoute permanente sur écran de téléphone : module ANCRÉ au menu du bas, cinq barres FIGÉES au repos (pas de flux animé), réveil « Dis Haiko » qui passe en écoute (ondes rouges, bandeau de dictée sans déborder), format d'enregistrement choisi avec repli, panne dite au lieu d'une page vide (serveur de développement, HAIKO_ECOUTE_URL ; micro FACTICE, transcription interceptée — ni Whisper ni quota touchés)
+node scripts/verif-transcription-reveil.mjs # le réveil sur de la VRAIE parole : les voix Piper disent « Dis Haiko », le moteur de transcription du dépôt les relit, les règles pures tranchent (aucun navigateur, aucun serveur ; Piper et Whisper absents = contrôle qui le DIT et s'arrête, HAIKODEV_DATA)
 node scripts/verif-assistant-vocal.mjs # une phrase dictée part chez le bon projet, une phrase vague pose la question (démon d'essai à soi, dossier personnel vide : aucun compte, aucun quota dépensé)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
 node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
@@ -184,35 +185,54 @@ sans son point d'essai.
   (`server/src/db.ts`) reprend l'adresse là où elle était rangée — premier environnement, sinon
   `deployUrl` — et referme en « arrêtée » toute publication restée en attente d'accord.
   `startDeploy(projectId, { cible })` ne vise plus qu'une chose : l'ÉTAPE du parcours.
-- **Le DÉROULÉ de déploiement s'écrit à la main, une consigne par étape**
-  (`shared/src/consigne-deploiement.ts`). Le déploiement sur l'instance de dev se CONSTATE ; la mise
-  en production, elle, ne se devine pas — l'ORDRE des gestes, ce qu'il faut contrôler avant, ce qu'il
-  ne faut surtout pas faire n'a de place nulle part ailleurs. Le projet porte donc
-  `Project.consignesDeploiement` : DEUX consignes en texte libre, indépendantes, rangées PAR COLONNE
-  (`COLONNES_CONSIGNE` = `to_deploy`, `in_production`) — c'est la colonne qu'on a sous les yeux quand
-  on l'écrit. Une
-  consigne VIDE est un état NORMAL (« déroulé habituel ») : `ecrireConsigneDeploiement` EFFACE la clé
-  au lieu de ranger une chaîne vide, ne garde que les deux colonnes connues, borne à `CONSIGNE_MAX`
-  (4000 signes) et ne touche jamais à l'autre étape. `consigneDeploiement` est le SEUL point de
-  lecture. Elle se règle depuis le menu trois points de la tête de colonne (`MenuTeteColonne`,
-  `web/src/components/board.tsx`), qui reste donc AFFICHÉ sur ces deux colonnes même sans carte non
-  lue — un réglage du projet ne dépend pas de ce qui traîne dans la colonne ; ailleurs, la règle
-  d'avant ne bouge pas. La fenêtre (`web/src/components/consigne-deploiement.tsx`, tiroir bas sur
-  téléphone comme toute `DialogContent`) rappelle en une ligne ce qui est DÉJÀ connu
-  (`rappelDeConsigne` : le déploiement part de la branche principale, et l'adresse de dev réglée — ou
-  le fait qu'il n'y en ait aucune). L'enregistrement passe par
-  `project.update`, jamais par un second chemin d'écriture. **Le mécanisme de publication ne lit pas
-  encore cette consigne** : l'écrire ne change rien au déroulé. La fenêtre porte DEUX textes par
-  colonne : une BASE brute (`Project.basesDeploiement`, mêmes clés, même `ecrireBaseDeploiement` que
-  la consigne) que l'utilisateur écrit dans ses mots, et la CONSIGNE finale (`consignesDeploiement`).
-  Un bouton « Générer » confie la base à un agent de rôle `deploy` — tour PAYANT — par la commande
-  `consigne.generer` (`server/src/consigne-deploiement.ts`, prompt pur `promptGenerationConsigne`,
-  gabarit `none` pour que la dernière réponse SOIT la consigne, `nettoyerConsigneGeneree` retire un
-  bloc de code enveloppant et borne à `CONSIGNE_MAX`). La génération ne persiste RIEN et ne déploie
-  RIEN : elle rend le texte, montré dans un champ MODIFIABLE ; base et consigne ne sont enregistrées
-  qu'au clic « Enregistrer », toujours par le même `project.update`. Les deux sont conservées côte à
-  côte : on ré-édite la base et on relance. Verrouillé par
-  `server/src/test/consigne-deploiement.test.ts` et `scripts/verif-consigne-deploiement.mjs`.
+- **La MISE EN PRODUCTION est pilotée par UN prompt, réglé dans les paramètres du projet**
+  (`shared/src/mise-en-production.ts`, branché dans `server/src/deploy.ts`). Le déploiement sur
+  l'instance de dev se CONSTATE ; la mise en production, elle, ne se devine pas — l'ORDRE des gestes,
+  ce qu'il faut contrôler avant, ce qu'il ne faut surtout pas faire n'a de place nulle part ailleurs.
+  Deux mécanismes de consigne avaient tenté de le dire sans se rejoindre : celui que la publication
+  LISAIT vivait sur un environnement de publication et aucun champ ne permettait de l'écrire ; celui
+  qu'on pouvait ÉCRIRE — une fenêtre par colonne, une base et une consigne rangées par colonne —
+  n'était lu par personne. Les deux sont SUPPRIMÉS. Le projet porte `Project.miseEnProduction`, à
+  côté de `devUrl` : DEUX textes conservés côte à côte, la BASE (le concept écrit par l'utilisateur
+  dans ses mots) et le PROMPT (ce que l'agent de mise en production reçoit).
+  `promptDeMiseEnProduction` et `baseDeMiseEnProduction` sont les SEULS points de lecture ;
+  `ecrireMiseEnProduction` écrit l'un sans forcer l'autre, EFFACE la clé plutôt que de ranger du
+  vide, ne garde que les deux clés connues et borne à `PROMPT_PRODUCTION_MAX` (8000 signes). Un
+  prompt VIDE est un état NORMAL : la mise en ligne retombe sur les trois constats, et sans aucun
+  d'eux elle le DIT en renvoyant au bloc « Mise en production » des réglages — jamais un refus. Tout
+  se règle dans le VOLET DU PROJET (`web/src/components/project-settings.tsx`, bloc
+  `data-mise-en-production`), qui rappelle en une ligne ce qui est déjà connu
+  (`rappelDeMiseEnProduction` : le lot part de la branche principale, et l'adresse réglée pour le
+  projet — ou le fait qu'il n'y en ait aucune). Un bouton « Générer » confie la base à un agent de
+  rôle `deploy` — tour PAYANT — par la commande `production.generer`
+  (`server/src/mise-en-production.ts`, prompt pur `promptGenerationMiseEnProduction`, gabarit `none`
+  pour que la dernière réponse SOIT le prompt, `nettoyerPromptGenere` retire un bloc de code
+  enveloppant et borne). La génération ne persiste RIEN et ne déploie RIEN : elle rend le texte,
+  montré dans un champ MODIFIABLE ; base et prompt ne sont enregistrés qu'au clic « Enregistrer »,
+  toujours par le même `project.update`. Le menu trois points d'une tête de colonne
+  (`MenuTeteColonne`, `web/src/components/board.tsx`) ne porte donc plus qu'une entrée, « Marquer
+  tout comme lu », et suit partout la règle commune : pas de carte non lue, pas de bouton. Verrouillé
+  par `server/src/test/mise-en-production.test.ts` et `scripts/verif-mise-en-production.mjs`.
+- **Le PROMPT de mise en production confie la mise en ligne à un agent**
+  (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Vide — le cas de tous
+  les projets tant que rien n'est réglé — RIEN ne change : mêmes sept étapes, même ordre, même
+  déroulé constaté. Écrit, il devient le PREMIER moyen de `planDeMiseEnLigne`
+  (`MoyensDeMiseEnLigne.prompt` ; `construction`/`installation`/`redemarrage` valent alors `agent`)
+  et passe DEVANT HaikoDev, le service système et le dossier servi : c'est la seule façon de décrire
+  une mise en ligne que les trois constats ne savent pas dire. Il ne vaut QUE pour une mise en
+  PRODUCTION : `promptDeLEtape` (`server/src/deploy.ts`) est le SEUL endroit qui tranche — une étape
+  de cible `dev` rend la chaîne vide et garde exactement le déroulé constaté. La plomberie git ne
+  bouge pas — fusion, enregistrement, envoi restent à HaikoDev, avec la fermeture des branches.
+  Seules les QUATRE étapes de mise en ligne changent de main : `verify`, `build` et `restart` disent
+  que le prompt les couvre (`mentionEtapeConfiee`, jamais une étape muette), et `publish` porte le
+  compte rendu de l'agent. Un agent de rôle « deploy » est appelé une fois (`confierLaMiseEnLigne`)
+  avec `promptDeLAgentDeProduction` : le prompt réglé TEL QUEL entre deux repères, le projet, le
+  dossier, la branche installée, l'adresse à contrôler, l'enregistrement, si l'étape clôt les cartes,
+  et le lot embarqué (`CARTES_NOMMEES_MAX` cartes nommées, le reste compté). Il lui est interdit de
+  changer de branche, de faire `git add -A`, de désactiver un test et de toucher au tableau. Un tour
+  en échec fait ÉCHOUER la publication (`phraseDEchecConfie`) ; un compte rendu vide est dit comme
+  tel (`recitDeLAgent`) ; l'adresse publique et `miseEnLigneReelle` gardent le dernier mot.
+  Verrouillé par `server/src/test/publication-confiee.test.ts`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette
@@ -720,25 +740,28 @@ sans son point d'essai.
   DÉCALAGE en pixels par rapport à la place d'origine — décalage nul = l'affichage d'avant. Il passe
   par le MÊME mécanisme que le bloc du dock, une préférence SERVEUR (`usePref`, clé
   `CLE_VOIX_POSITION` = `voix`, jamais `dock`), donc la même place sur tous les appareils ; jamais un
-  second mécanisme, et jamais le `localStorage` de l'historique. `ramenerDansLEcran` garde le module
-  entièrement visible au chargement comme au redimensionnement — une place prise sur grand écran est
-  ramenée dans les bords d'un téléphone, et le corrigé est RANGÉ, sinon il reviendrait hors écran au
-  démarrage suivant. Ce recadrage tourne DANS l'événement `resize`, donc AVANT que l'effet de mesure
-  ne se rejoue : il doit RE-MESURER le bas du rond depuis le DOM (déjà remis en page) à ce moment-là,
-  jamais s'appuyer sur la mesure de l'ANCIENNE fenêtre — sinon il borne la nouvelle taille avec un
-  repère périmé, écrit un décalage faussé dans le compte, et le module remonte un peu plus à chaque
-  redimensionnement jusqu'à sortir de l'écran. Sans geste (rechargement ou redimensionnement qui
-  laisse le module dans l'écran), la place ne se réécrit JAMAIS. Un glissement au doigt ne produit AUCUN clic : le repère « on vient de glisser »
-  est donc remis à zéro au `pointerdown` suivant, sinon il mangerait l'appui d'après et le module ne
-  se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
-  (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. **SUR TÉLÉPHONE
-  (`useTelephone`, `ancreMenu`), le module ne flotte plus : il vient se poser AU CENTRE du menu du
-  bas** (la colonne du milieu lui est laissée, `data-place-voix`) — décalage FORCÉ à zéro, `bottom`
-  mesuré sur la barre (`nav[data-menu-bas]`) pour aligner le CENTRE du rond sur celui de la barre (il
-  déborde alors un peu en haut et en bas), et ni glissement (`onPointerDown` neutralisé), ni accroche
-  (`accrochee` faux), ni poignée. La place mémorisée n'est PAS effacée (l'effet de recadrage rend la
-  main tout de suite quand `ancreMenu`) : elle ressert dès qu'on repasse sur grand écran. Attribut
-  `data-ancre-menu`. Verrouillé par `server/src/test/position-voix.test.ts`,
+  second mécanisme, et jamais le `localStorage` de l'historique. **La place n'est ÉCRITE que par un
+  GLISSEMENT volontaire** (le relâchement, dans l'effet `pointerup`) : aucun chemin automatique ne
+  range plus la préférence. `ramenerDansLEcran` garde bien le module entièrement visible au
+  chargement comme au redimensionnement — une place prise sur grand écran est ramenée dans les bords
+  d'un téléphone —, mais ce recadrage ne vaut que pour l'AFFICHAGE du moment (`setVif(corrige)`) : il
+  ne TOUCHE PLUS à la préférence (jadis `rangerDecalage(corrige)` dans l'événement `resize`, si bien
+  qu'une correction faite ailleurs — petit écran, clavier virtuel — revenait sur l'écran principal).
+  Il re-mesure quand même le bas du rond depuis le DOM avant de recadrer, pour ne pas borner la
+  nouvelle fenêtre avec un repère périmé. **La place mémorisée est REMISE À ZÉRO une fois** (drapeau
+  serveur `CLE_VOIX_REINIT` = `voix.reinit`, posé dès que les préférences sont chargées) : le module
+  repart en bas au centre, une seule fois, jamais à chaque appareil ni à chaque rechargement, et plus
+  rien ne bouge sans un glissement. Un glissement au doigt ne produit AUCUN clic : le repère « on
+  vient de glisser » est donc remis à zéro au `pointerdown` suivant, sinon il mangerait l'appui
+  d'après et le module ne se déplierait plus jamais. Le transform porte à la fois le centrage
+  d'origine et le décalage (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe
+  `-translate-x-1/2`. **SUR TÉLÉPHONE (`useTelephone`, `ancreMenu`), le module ne flotte plus : il
+  vient se poser AU CENTRE du menu du bas** (la colonne du milieu lui est laissée, `data-place-voix`)
+  — décalage FORCÉ à zéro, `bottom` mesuré sur la barre (`nav[data-menu-bas]`) pour aligner le CENTRE
+  du rond sur celui de la barre (il déborde alors un peu en haut et en bas), et ni glissement
+  (`onPointerDown` neutralisé) ni poignée. La place mémorisée n'est PAS effacée (l'effet de recadrage
+  rend la main tout de suite quand `ancreMenu`) : elle ressert dès qu'on repasse sur grand écran.
+  Attribut `data-ancre-menu`. Verrouillé par `server/src/test/position-voix.test.ts`,
   `scripts/verif-position-voix.mjs` et `scripts/verif-menu-bas-telephone.mjs`.
 - **DEUX moteurs de synthèse cohabitent, et c'est la VOIX CHOISIE qui décide lequel parle**
   (`server/src/voice.ts`). Piper reste le moteur d'origine et la voix par défaut ne bouge pas
@@ -776,23 +799,14 @@ sans son point d'essai.
   centre de la fenêtre et la ligne du bas mesurée quand le module est fermé (`baseBasRef`), rafraîchie
   au redimensionnement. Le choix se recalcule à l'ouverture et au `resize`. Verrouillé par les cas
   « le panneau s'ouvre du côté où il y a de la place » de `server/src/test/position-voix.test.ts`.
-- **Lâché tout près d'un bord, le module de voix S'Y ACCROCHE et se RÉDUIT**
-  (`bordDaccroche` / `decalageAccroche`, `shared/src/position-voix.ts`). La place retenue reste un
-  décalage `{x, y}`, mais elle porte EN PLUS un `bord` (`gauche`, `droite` ou `bas`, JAMAIS le haut)
-  quand le module est accroché — `placeRetenue` lit l'ancien format `{x, y}` seul comme une place
-  libre. Au relâchement, `bordDaccroche` regarde la boîte du rond lâché : si un bord est à moins de
-  `SEUIL_ACCROCHE_VOIX` (20 px ; la règle de visibilité tient déjà le module à 8 px du bord, donc
-  bien en deçà), le module s'y range. Fermé, il se montre en PASTILLE réduite (`VOIX_PASTILLE`,
-  30 px, `voix-assistant.tsx`) À MOITIÉ engagée hors de l'écran (`demiDehors`), même en parlant —
-  l'accroche ne coupe ni la voix ni les ondes. Survolé (souris) ou touché (doigt), il revient à sa
-  taille et OUVRE son panneau, calé AU RAS du bord (`demiDehors` faux, bord extérieur sur le bord de
-  l'écran, jamais à une marge : sinon le panneau, en s'ouvrant vers l'intérieur, découvrirait le
-  point de survol et re-fermerait aussitôt) ; `sensDouverture` fait le reste. Tiré vers le centre, le
-  module se DÉCROCHE de lui-même : plus aucun bord proche au relâchement, la place rangée redevient
-  libre. La place accrochée se RECALCULE à chaque rendu depuis le bord et la fenêtre (jamais rangée
-  au redimensionnement) : `ramenerDansLEcran` ne vaut donc QUE pour les places libres. Le module
-  porte `data-accrochee` et `data-bord`. Verrouillé par `server/src/test/position-voix.test.ts` et
-  `scripts/verif-position-voix.mjs` (cas d'accroche, souris et doigt).
+- **Le module de voix ne s'accroche PLUS tout seul à un bord : lâché quelque part, il Y RESTE**
+  (`shared/src/position-voix.ts`, `web/src/components/voix-assistant.tsx`). L'accroche automatique à
+  un bord (jadis `bordDaccroche` / `decalageAccroche`, pastille demi-dehors sous 20 px) a été
+  SUPPRIMÉE — règles pures, état de rendu et attributs `data-accrochee` / `data-bord` compris : elle
+  déplaçait le module sans geste voulu. Le relâchement d'un glissement range donc toujours une place
+  LIBRE `{x, y}` (ramenée dans l'écran pour rester attrapable), et c'est le SEUL chemin qui écrit la
+  préférence. `decalageRetenu` ne garde que `x` et `y` : un ancien `bord` retenu est ignoré, jamais
+  ranimé. Verrouillé par `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
 - **L'ÉCOUTE PERMANENTE ne s'ouvre JAMAIS toute seule, et le mot de réveil est RÉGLABLE (défaut « Dis Haiko »)**
   (règles pures dans `shared/src/reveil-vocal.ts`, micro et découpe dans `web/src/lib/ecoute.ts`,
   affichage dans `web/src/components/voix-assistant.tsx`). Un interrupteur vit dans le panneau
@@ -818,7 +832,25 @@ sans son point d'essai.
   Haiko », « Dishaiko », « Dit aïko », « dis a ico », « des Haiko » comptent ; « dis à Rico »
   (`disarico`, trois écarts) non. Le réveil vaut AU MILIEU d'une phrase (ce qui suit devient
   la dictée). L'index rendu compte des mots du texte BRUT — la normalisation sert à reconnaître,
-  jamais à remplacer ce qui a été dit. `lireParole(texte, ecouteEnCours, forme?)` tranche : en guet, seule
+  jamais à remplacer ce qui a été dit.
+  **Les lettres ne suffisent pas : on compare AUSSI le SON.** « Haiko » n'est pas un mot de la
+  langue, et le moteur de transcription ne l'écrit JAMAIS ainsi — mesuré sur le serveur avec les
+  voix du projet : « D'y éco », « Dièco », « Dis-côt », « Dis et co », « 10 écho », « Ticot ».
+  Aucune n'approche `dishaiko` à deux lettres près, d'où un réveil qui ne partait jamais (un
+  modèle Whisper plus gros n'y change rien : « Dieko »). `formeSonore` réduit donc chaque mot à
+  ce qu'il sonne, à la française — nombres écrits en chiffres rendus en lettres (« 10 » → « dix »,
+  homophone de « dis »), `ph`→f, `ch`/`qu`/`c` dur→k, `h` muet, `y`→i, `eau`/`au`→o, `ai`/`ei`→e,
+  `ou`→u, `oi`→wa, `z`→s, lettres doublées réduites, `e` final et consonne finale muets —, MOT
+  PAR MOT puis recollé : c'est la coupure des mots qui fait taire le `s` de « dis », si bien que
+  « Dis Haiko » et « Dièco » deviennent tous deux `dieko`. `formesDeReveil(mot)` rend les DEUX
+  formes ensemble (`ecrite`, `sonore`) et c'est cet objet qui voyage jusqu'à
+  `useEcoutePermanente` ; `finDuReveil` essaie les lettres d'abord, le son ensuite. La marge
+  sonore est plus SERRÉE (`ecartSonore`, un cinquième contre un quart) : la réduction a déjà
+  absorbé les écarts d'orthographe, et « Rico », « Nico », « disque », « disait quoi » sont à
+  portée d'une marge large. Une transcription qui ÉCHOUE se DIT
+  (`phraseDEchecTranscription`, qui reprend la raison du serveur) : une seule fois par panne,
+  effacée dès qu'une transcription revient, et l'écoute RESTE en guet — un micro ouvert qui ne
+  comprendra jamais rien ne se tait pas poliment. `lireParole(texte, ecouteEnCours, forme?)` tranche : en guet, seule
   une phrase portant le réveil compte ; en écoute, tout s'ajoute (`assemblerDictee`). Les états
   (`EtatEcoute`, portés par `data-etat-ecoute`) sont `eteinte`, `guette`, `ecoute`, `relit`,
   `refusee`. Le module se MÉTAMORPHOSE pour la dictée comme pour la parole (`formeDuModule` prend un
@@ -831,7 +863,9 @@ sans son point d'essai.
   là. « Annule » est entendu À TOUT MOMENT, la relecture comprise (c'est justement le temps qu'on a
   pour se raviser), et un clic sur le bandeau fait la même chose. Un micro refusé se DIT
   (`REFUS_MICRO`, message court + ligne `data-erreur-micro` dans le panneau). Verrouillé par
-  `server/src/test/reveil-vocal.test.ts` et `scripts/verif-reveil-vocal.mjs`.
+  `server/src/test/reveil-vocal.test.ts`, `scripts/verif-reveil-vocal.mjs` (l'écran, phrases
+  injectées) et `scripts/verif-transcription-reveil.mjs` (le SON : de la vraie parole, vraiment
+  transcrite — le seul endroit où la chaîne cassait, et le seul qu'aucun contrôle ne voyait).
 - **Le FORMAT d'enregistrement se DEMANDE au navigateur, il ne s'impose pas**
   (`shared/src/format-enregistrement.ts`). `new MediaRecorder(flux, { mimeType: 'audio/webm' })`
   lève une erreur sur Safari (iPhone compris), qui ne connaît pas ce format — et cette erreur,

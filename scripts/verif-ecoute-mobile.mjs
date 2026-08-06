@@ -123,9 +123,10 @@ const navigateur = await chromium.launch({
 /**
  * Une page de téléphone, avec un enregistreur BRIDÉ : `refuses` est la liste
  * des morceaux de type qu'il rejette (« webm » pour imiter Safari, « » pour
- * tout refuser, y compris l'enregistreur sans option).
+ * tout refuser, y compris l'enregistreur sans option). `transcriptionEnPanne`
+ * fait répondre au serveur un refus, pour juger ce que l'écran en dit.
  */
-async function ouvrirPage(refuses) {
+async function ouvrirPage(refuses, transcriptionEnPanne = false) {
   const contexte = await navigateur.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,
@@ -166,6 +167,14 @@ async function ouvrirPage(refuses) {
   const envois = [];
   await page.route('**/api/transcribe', async (route) => {
     envois.push(route.request().headers()['x-audio-ext'] ?? '(aucune)');
+    if (transcriptionEnPanne) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: 'moteur de transcription absent du serveur' }),
+      });
+      return;
+    }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, text: '' }) });
   });
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
@@ -351,6 +360,39 @@ try {
   noter('sans aucun format, aucune erreur ne sort de la page', ouverte.erreurs.length === 0, ouverte.erreurs[0] ?? '');
   noter('l’application continue de fonctionner', await applicationVivante(seconde));
   await seconde.screenshot({ path: `${SHOTS}/ecoute-mobile-sans-format.png` });
+  await ouverte.contexte.close();
+  ouverte = null;
+
+  /* ---------- 5. Le micro marche, mais le SERVEUR ne transcrit pas ---------- */
+  // La panne la plus sournoise : tout a l'air normal, le micro est ouvert, et
+  // rien ne sera jamais compris. Elle doit se DIRE, sans éteindre l'écoute.
+  ouverte = await ouvrirPage(['webm'], true);
+  const muette = ouverte.page;
+  // L'interrupteur est une préférence du COMPTE : la page précédente a pu le
+  // laisser allumé, auquel cas l'écoute est déjà partie au chargement. On
+  // n'allume que si elle est éteinte, sinon on la couperait.
+  if ((await etat(muette))?.etat === 'eteinte') await basculerEcoute(muette);
+  for (let attente = 0; attente < 16 && ouverte.envois.length === 0; attente += 1) {
+    await muette.waitForTimeout(1000);
+  }
+  await muette.waitForTimeout(1200);
+  const panne = await etat(muette);
+  noter('la transcription en panne a bien été tentée', ouverte.envois.length > 0, `${ouverte.envois.length} envoi(s)`);
+  noter(
+    'un serveur qui ne transcrit pas le DIT, en clair',
+    Boolean(panne?.erreur) && String(panne?.erreur).includes('moteur de transcription absent du serveur'),
+    `message « ${panne?.erreur ?? '—'} »`,
+  );
+  noter(
+    'la panne du serveur n’éteint pas le micro',
+    panne?.etat === 'guette',
+    `état « ${panne?.etat} »`,
+  );
+  noter('la panne de transcription ne casse pas la page', ouverte.erreurs.length === 0, ouverte.erreurs[0] ?? '');
+  await muette.screenshot({ path: `${SHOTS}/ecoute-mobile-transcription-en-panne.png` });
+  // On ne laisse pas le micro armé derrière soi : la préférence est de toute
+  // façon reposée en base à la sortie, mais on referme par le vrai chemin.
+  if ((await etat(muette))?.etat !== 'eteinte') await basculerEcoute(muette);
 } finally {
   try {
     if (ouverte) await ouverte.contexte.close();
