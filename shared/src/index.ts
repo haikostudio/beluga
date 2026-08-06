@@ -51,6 +51,7 @@ export * from './reglages-carte.js';
 export * from './reglages-proposition.js';
 export * from './reprise.js';
 export * from './reprise-moteur.js';
+export * from './routage-vocal.js';
 export * from './signal-projet.js';
 export * from './suivi-colonne.js';
 export * from './templates.js';

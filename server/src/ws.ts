@@ -38,6 +38,7 @@ import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } f
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
+import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { analyseCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
@@ -779,6 +780,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
 
+      /*
+       * UNE QUESTION DE ROUTAGE NE SE REND PAS À CELUI QUI L'A POSÉE. Elle ne
+       * vient pas d'un moteur en train de réfléchir : elle vient de l'assistant
+       * vocal global, qui attend de savoir OÙ déposer une phrase dictée. La
+       * réponse fait donc partir la demande dans le chef d'orchestre du projet
+       * choisi — jamais un tour dans la conversation où la question s'affichait.
+       */
+      if (store.dicteeDeLaQuestion(cmd.questionId)) {
+        void repondreALaDictee(cmd.questionId, cmd.answer).catch((err) =>
+          log.error('routage de la demande dictée impossible', err),
+        );
+        return { ok: true };
+      }
+
       // L'agent reprend aussitôt, avec la réponse en main — sans faire
       // patienter le navigateur jusqu'à la fin de son tour. La question n'est
       // rappelée qu'en tête : c'est lui qui l'a posée, il l'a déjà en contexte.
@@ -1082,6 +1097,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'voice.list':
       return { voices: listVoices() };
+
+    /*
+     * UNE PHRASE DICTÉE, SANS DESTINATAIRE. L'assistant global la route vers le
+     * chef d'orchestre du bon projet, ou pose la question quand il ne sait pas.
+     * Il ne crée aucune carte : c'est le chef du projet qui garde son tri.
+     */
+    case 'voix.demande':
+      return deposerDemandeDictee(cmd.texte);
 
     case 'stats.usage':
       return {

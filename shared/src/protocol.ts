@@ -287,6 +287,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
   /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
   z.object({ type: z.literal('voice.list') }),
+  /**
+   * Une phrase DICTÉE, sans destinataire : l'assistant global lit la liste des
+   * projets ouverts, dépose la demande dans le chef d'orchestre du bon projet
+   * ou POSE LA QUESTION quand un doute demeure.
+   */
+  z.object({ type: z.literal('voix.demande'), texte: z.string() }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),
