@@ -36,6 +36,7 @@ export * from './memoire.js';
 export * from './mise-en-ligne.js';
 export * from './etapes-publication.js';
 export * from './models.js';
+export * from './mur-acces.js';
 export * from './notification.js';
 export * from './notification-tri.js';
 export * from './nouveau-depart.js';
