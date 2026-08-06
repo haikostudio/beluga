@@ -41,15 +41,20 @@ export function MenuCarte({
   const [confirmSuppression, setConfirmSuppression] = React.useState(false);
 
   /*
-   * Le menu de l'appui long s'ouvre alors que le doigt est ENCORE POSÉ : le
-   * relever compte comme un geste au-dehors et le refermerait aussitôt. On
-   * ignore donc ce qui se passe dehors pendant la demi-seconde qui suit
-   * l'ouverture — le temps que le doigt se lève.
+   * Le menu invisible (celui du tableau) s'ouvre en plein geste : au doigt, le
+   * relever compte comme un geste au-dehors ; à la souris, l'enfoncement du
+   * bouton DROIT qui l'a ouvert se produit hors de la surcouche et Radix le lit
+   * de même. On ignore donc ce qui se passe dehors pendant la demi-seconde qui
+   * suit l'ouverture. L'horodatage est posé SYNCHRONEMENT à l'ouverture (via
+   * `changerOuverture`), pas dans un effet différé : sinon les événements du
+   * même geste passeraient avant que la marque ne soit écrite, et le garde-fou
+   * arriverait trop tard.
    */
   const ouvertA = React.useRef(0);
-  React.useEffect(() => {
-    if (open) ouvertA.current = Date.now();
-  }, [open]);
+  const changerOuverture = (ouvert: boolean) => {
+    if (ouvert) ouvertA.current = Date.now();
+    onOpenChange?.(ouvert);
+  };
 
   /*
    * Sortir une carte d'une fin de parcours est un geste HUMAIN, et il n'y en a
@@ -73,7 +78,7 @@ export function MenuCarte({
 
   return (
     <>
-      <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenu open={open} onOpenChange={changerOuverture}>
         <DropdownMenuTrigger asChild>
           {ancrage === 'bouton' ? (
             <Button size="sm" variant="ghost" className="-mr-1 shrink-0 px-2" aria-label="Autres actions">
@@ -89,7 +94,16 @@ export function MenuCarte({
         <DropdownMenuContent
           align="end"
           onInteractOutside={(event) => {
-            if (ancrage === 'invisible' && Date.now() - ouvertA.current < 600) event.preventDefault();
+            if (ancrage !== 'invisible') return;
+            // Le clic droit qui OUVRE ce menu à la souris tombe hors de la
+            // surcouche : Radix le lit comme un geste au-dehors et refermerait
+            // le menu à peine ouvert. On ignore donc le bouton droit, en plus
+            // de la demi-seconde qui suit l'ouverture (le doigt qui se lève).
+            const source = (event.detail as { originalEvent?: Event }).originalEvent;
+            const boutonDroit =
+              (source && 'button' in source && (source as MouseEvent).button === 2) ||
+              source?.type === 'contextmenu';
+            if (boutonDroit || Date.now() - ouvertA.current < 600) event.preventDefault();
           }}
         >
           {reprise ? (
