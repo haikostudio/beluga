@@ -229,3 +229,18 @@ export function assemblerDictee(deja: string, ajout: string): string {
  */
 export const REFUS_MICRO =
   'Micro refusé par le navigateur : autorisez-le pour l’écoute permanente.';
+
+/**
+ * Le message affiché quand le navigateur SAIT ouvrir le micro mais ne sait pas
+ * l'enregistrer — aucun format commun, enregistreur absent. L'écoute s'éteint
+ * proprement au lieu de laisser un micro ouvert qui n'envoie jamais rien.
+ */
+export const ENREGISTREMENT_IMPOSSIBLE =
+  'Ce navigateur ne sait pas enregistrer le micro : l’écoute permanente n’est pas disponible ici.';
+
+/**
+ * Le message affiché quand le son du navigateur ne s'ouvre pas : sans lui, on
+ * ne mesure plus le volume, donc on ne sait plus où finissent les phrases.
+ */
+export const SON_INDISPONIBLE =
+  'Le son du navigateur n’a pas pu s’ouvrir : l’écoute permanente n’est pas disponible ici.';

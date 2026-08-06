@@ -25,6 +25,7 @@ export * from './environnements-publication.js';
 export * from './echec-verification.js';
 export * from './envoi-surveille.js';
 export * from './etat-carte.js';
+export * from './format-enregistrement.js';
 export * from './heure-message.js';
 export * from './images-reponse.js';
 export * from './instructions-projet.js';
