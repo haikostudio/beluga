@@ -7,8 +7,10 @@ import {
   correctionOuverture,
   decalageRetenu,
   decisionsOuvertes,
+  estCibleDeSaisie,
   estUnGlissement,
   formesDeReveil,
+  raccourciDeclenche,
   gesteDOuverture,
   memeDecalage,
   phraseDecisionAttendue,
@@ -21,7 +23,7 @@ import {
   type VoixOptions,
 } from '@haikodev/shared';
 import { client } from '@/lib/client';
-import { usePref } from '@/lib/prefs';
+import { readPref, usePref } from '@/lib/prefs';
 import { useSurvol } from '@/lib/pointeur';
 import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
@@ -496,6 +498,28 @@ export function VoixAssistant() {
     [state.settings?.voixReveil],
   );
   const ecoute = useEcoutePermanente(ecouteAllumee, reveil);
+
+  /*
+   * LE RACCOURCI CLAVIER qui bascule l'écoute, réglé dans l'onglet Système
+   * (`Settings.voixRaccourci`, vide par défaut). Un écouteur global l'attend où
+   * que l'on soit — mais jamais pendant qu'on tape dans un champ, et jamais si
+   * aucun raccourci n'est réglé. On relit la préférence d'écoute au moment de
+   * l'appui (`readPref`) : le setter n'a pas de forme « inverse la valeur », et
+   * on évite de réabonner l'écouteur à chaque bascule.
+   */
+  const raccourci = state.settings?.voixRaccourci;
+  React.useEffect(() => {
+    if (!raccourci) return;
+    const surTouche = (event: KeyboardEvent) => {
+      if (!raccourciDeclenche(event, raccourci)) return;
+      const actif = document.activeElement as HTMLElement | null;
+      if (estCibleDeSaisie({ tagName: actif?.tagName, editable: actif?.isContentEditable })) return;
+      event.preventDefault();
+      setEcouteAllumee(!readPref<boolean>(CLE_VOIX_ECOUTE, false));
+    };
+    window.addEventListener('keydown', surTouche);
+    return () => window.removeEventListener('keydown', surTouche);
+  }, [raccourci, setEcouteAllumee]);
   // Une dictée est en cours : le module s'élargit pour montrer la phrase, et les
   // ondes passent au rouge. La relecture en fait partie — la phrase est encore là.
   const dicteEnCours = ecoute.etat === 'ecoute' || ecoute.etat === 'relit';

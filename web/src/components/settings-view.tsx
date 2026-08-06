@@ -20,6 +20,9 @@ import {
   AccountQuota,
   CRANS_DE_VITESSE,
   ConnexionCompte,
+  formeDepuisEvenement,
+  libelleDeRaccourci,
+  raisonRaccourciRefuse,
   ERREURS_MONTREES_REGLAGES,
   EngineId,
   ErreurInterface,
@@ -1107,6 +1110,39 @@ function VoiceSection({ open }: { open: boolean }) {
   const [voices, setVoices] = React.useState<{ id: string; label: string; description: string }[]>([]);
   const [playing, setPlaying] = React.useState<string | null>(null);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  // La capture du raccourci d'écoute : tant qu'elle est active, le prochain appui
+  // devient le raccourci (s'il convient), sinon on dit pourquoi on le refuse.
+  const [captureRaccourci, setCaptureRaccourci] = React.useState(false);
+  const [refusRaccourci, setRefusRaccourci] = React.useState<string | null>(null);
+  const raccourci = state.settings?.voixRaccourci ?? '';
+
+  const surToucheRaccourci = (event: React.KeyboardEvent) => {
+    if (!captureRaccourci) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      setCaptureRaccourci(false);
+      setRefusRaccourci(null);
+      return;
+    }
+    const forme = formeDepuisEvenement({
+      code: event.code,
+      ctrl: event.ctrlKey,
+      alt: event.altKey,
+      shift: event.shiftKey,
+      meta: event.metaKey,
+    });
+    // Un modificateur seul : on attend encore la vraie touche.
+    if (!forme) return;
+    const raison = raisonRaccourciRefuse(forme);
+    if (raison) {
+      setRefusRaccourci(raison);
+      return;
+    }
+    client.send({ type: 'settings.update', patch: { voixRaccourci: forme } });
+    setRefusRaccourci(null);
+    setCaptureRaccourci(false);
+  };
 
   React.useEffect(() => {
     if (!open) return;
@@ -1187,6 +1223,53 @@ function VoiceSection({ open }: { open: boolean }) {
         <p className="mt-1 text-[11.5px] text-faint">
           Quand l'écoute permanente est allumée, dites ce mot pour commencer à dicter (« {state.settings?.voixReveil || 'Dis Haiko'} range les cartes »).
         </p>
+      </div>
+
+      <div className="mb-3">
+        <label className="mb-1 block text-[12.5px] text-muted">Le raccourci clavier qui allume l'écoute</label>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-raccourci-ecoute
+            onClick={() => {
+              setCaptureRaccourci(true);
+              setRefusRaccourci(null);
+            }}
+            onBlur={() => {
+              setCaptureRaccourci(false);
+              setRefusRaccourci(null);
+            }}
+            onKeyDown={surToucheRaccourci}
+            className={cn(
+              'flex-1 rounded-md border px-2 py-1.5 text-left text-[13.5px] transition-colors',
+              captureRaccourci
+                ? 'border-text/40 bg-raised text-text'
+                : 'border-border bg-surface text-text hover:bg-raised',
+            )}
+          >
+            {captureRaccourci
+              ? 'Appuyez sur la combinaison…'
+              : raccourci
+                ? libelleDeRaccourci(raccourci)
+                : 'Aucun — cliquer pour régler'}
+          </button>
+          {raccourci && !captureRaccourci ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => client.send({ type: 'settings.update', patch: { voixRaccourci: '' } })}
+            >
+              Retirer
+            </Button>
+          ) : null}
+        </div>
+        {refusRaccourci ? (
+          <p className="mt-1 text-[11.5px] text-danger">{refusRaccourci}</p>
+        ) : (
+          <p className="mt-1 text-[11.5px] text-faint">
+            Cette combinaison allume et éteint l'écoute permanente, où que vous soyez — jamais pendant que vous tapez dans un champ. Utilisez Alt ou Ctrl + Maj avec une lettre.
+          </p>
+        )}
       </div>
 
       {!voices.length ? (
