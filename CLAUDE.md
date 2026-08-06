@@ -80,6 +80,7 @@ node scripts/verif-bridage-chef.mjs # le chef d'orchestre est-il bridé pareil s
 node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
 node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
 node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
+node scripts/verif-reparation-construction.mjs # une construction cassée est-elle réparée puis rejouée, et le refus final nomme-t-il la cause ? (agent de secours simulé, aucun quota dépensé)
 node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
 node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse d'une question (démon d'essai à soi)
@@ -175,6 +176,26 @@ sans son point d'essai.
   la cause (jamais en désactivant un test), puis tout est rejoué. Au bout de `REPARATIONS_MAX`
   passes, le refus reste entier et nomme ce qui tombe encore. Verrouillé par
   `server/src/test/controles-publication.test.ts`.
+- **Une CONSTRUCTION qui échoue est réparée sur place, comme un conflit ou un contrôle tombé**
+  (`construireAvecReparation` et `reparerLaConstruction`, `server/src/deploy.ts`). L'étape
+  « Construction » était le dernier endroit sans secours : un `npm run build` en échec jetait « La
+  construction a échoué » et tout s'arrêtait, même quand la cause n'avait rien à voir avec le code
+  (fichier temporaire illisible : `EACCES … node_modules/.tmp/tsconfig.node…`, vu sur haiko-compta).
+  Un agent de rôle « deploy » est donc appelé sur-le-champ, avec la cause NOMMÉE, puis la
+  construction est rejouée — même `REPARATIONS_MAX` que les contrôles, jamais une passe de plus. Les
+  DEUX endroits qui construisent (HaikoDev lui-même, projet ordinaire en `plan.construction ===
+  'npm'`) y passent : plus aucun `npm run build` sans secours. Le refus ne s'assouplit pas — au bout
+  des passes, rien n'est mis en ligne et le message NOMME ce qui bloque encore
+  (`phraseDEchecConstruction`), le détail de l'étape posant les causes EN TÊTE
+  (`detailDEchecConstruction`) puis la fin de la sortie brute. Les règles de lecture sont pures
+  (`shared/src/echec-construction.ts`) : `causesDeConstruction` relève les codes système
+  (EACCES, ENOENT, EPERM…), les outils absents (`tsc: not found`) et les erreurs TypeScript, du
+  motif le plus parlant au plus vague, sans jamais redire deux fois la même ligne ; la consigne
+  envoyée à l'agent vit là aussi (`consigneDeReparationConstruction`), donc un contrôle la lit sans
+  lancer un tour payant. La sortie est gardée ENTIÈRE pendant le travail (les causes sont écrites au
+  milieu, pas à la fin). L'ordre des étapes et la pose automatique des outils de construction ne
+  bougent pas. Verrouillé par `server/src/test/construction-publication.test.ts` et
+  `scripts/verif-reparation-construction.mjs`.
 - **La publication POSE les outils de construction avant de construire**
   (`poserLesOutilsDeConstruction`, `server/src/deploy.ts`). Le démon tourne avec
   `NODE_ENV=production`, où `npm install` saute les dépendances de développement — donc `tsc` et
