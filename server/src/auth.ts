@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { decisionDuMur, MUR_FENETRE_MS } from '@haikodev/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { PATHS, CONFIG } from './config.js';
 import { log } from './logger.js';
@@ -7,11 +8,9 @@ import { log } from './logger.js';
 /**
  * Le mur d'accès (PLAN §32) : identifiant peu devinable, mot de passe long tiré
  * au hasard, conservé sous forme illisible (scrypt), tentatives limitées,
- * session qui expire.
+ * session qui expire. Le nombre d'essais et le délai entre essais vivent dans
+ * la règle pure `decisionDuMur` (shared/src/mur-acces.ts).
  */
-
-const MAX_ATTEMPTS = 8;
-const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 
 export function secretKey(): Buffer {
   if (!fs.existsSync(PATHS.secret)) {
@@ -66,11 +65,12 @@ export function currentUsername(): string | null {
   return getMeta('auth.user');
 }
 
-function tooManyAttempts(ip: string): boolean {
-  const row = getDb()
-    .prepare('SELECT COUNT(*) AS n FROM auth_attempts WHERE ip = ? AND ok = 0 AND at > ?')
-    .get(ip, Date.now() - ATTEMPT_WINDOW_MS) as { n: number };
-  return row.n >= MAX_ATTEMPTS;
+/** Horodatages des essais RATÉS récents d'une adresse, dans la fenêtre de comptage. */
+function essaisRates(ip: string): number[] {
+  const rows = getDb()
+    .prepare('SELECT at FROM auth_attempts WHERE ip = ? AND ok = 0 AND at > ?')
+    .all(ip, Date.now() - MUR_FENETRE_MS) as { at: number }[];
+  return rows.map((r) => r.at);
 }
 
 function noteAttempt(ip: string, ok: boolean): void {
@@ -86,8 +86,9 @@ export interface LoginResult {
 }
 
 export function login(username: string, password: string, ip: string): LoginResult {
-  if (tooManyAttempts(ip)) {
-    return { ok: false, error: 'Trop de tentatives. Réessayez dans quelques minutes.' };
+  const decision = decisionDuMur(essaisRates(ip), Date.now());
+  if (!decision.autorise) {
+    return { ok: false, error: decision.message };
   }
   const user = getMeta('auth.user');
   const saltHex = getMeta('auth.salt');

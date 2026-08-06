@@ -1324,6 +1324,14 @@ sans son point d'essai.
   sont stockés, lus ou protégés, et une PANNE se dit toujours (identifiant absent, expiré ou refusé
   qui bloque un travail). Le rappel de méthode la reprend. Verrouillé par
   `server/src/test/silence-identifiants.test.ts`.
+- **Le mur d'accès bloque à 3 essais ratés, et impose 5 minutes entre deux essais**
+  (`shared/src/mur-acces.ts`, branché dans `server/src/auth.ts`). La décision est PURE
+  (`decisionDuMur`, à partir des horodatages des essais RATÉS d'une adresse et de l'heure) : au
+  `MUR_ESSAIS_MAX`e (3) refus dans la fenêtre `MUR_FENETRE_MS` (20 min), l'adresse est bloquée ;
+  entre deux refus, `MUR_DELAI_MS` (5 min) sont imposées — un essai relancé plus tôt est refusé sans
+  regarder le mot de passe, en disant le temps restant (`tempsRestantEnClair`). `login` prend la
+  décision AVANT de vérifier le mot de passe. Une connexion RÉUSSIE (ok = 1) n'est ni comptée ni
+  ralentie : seuls les ratés pèsent. Verrouillé par `server/src/test/mur-acces.test.ts`.
 - **Un moteur qui ne recolle pas sa consigne système la reçoit en rappel.** Claude Code repasse
   `--append-system-prompt` à chaque tour ; Codex n'a la sienne qu'au premier message du fil, donc
   toute reprise part avec `systemPromptRappel` (`rappelDeMethode`) devant la demande — le pavé
