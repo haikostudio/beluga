@@ -26,6 +26,13 @@ export type MoyensDeMiseEnLigne = {
   service?: string;
   /** Un serveur web sert ce dossier TEL QUEL (site statique). */
   dossierServi?: boolean;
+  /**
+   * Le NOM de l'environnement visé (« Production », « Dev client »…), quand le
+   * projet en a plusieurs. Il ne change RIEN au choix du plan : il sert à ce
+   * qu'un refus dise DE QUEL environnement il parle — « la production n'a aucun
+   * moyen d'être mise en ligne » n'est pas la même phrase que « ce projet ».
+   */
+  environnement?: string;
 };
 
 export type Construction = 'commande' | 'npm' | 'aucune';
@@ -40,6 +47,8 @@ export type PlanDeMiseEnLigne = {
   redemarrage: Redemarrage;
   /** Une phrase pour le compte rendu : ce qui va être fait, ou ce qui manque. */
   raison: string;
+  /** Le nom de l'environnement jugé, quand il y en avait un. */
+  environnement?: string;
 };
 
 /**
@@ -57,6 +66,12 @@ export type PlanDeMiseEnLigne = {
  * disant, plutôt que de se déclarer réussie sans rien avoir fait.
  */
 export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
+  const environnement = moyens.environnement?.trim() || undefined;
+  const plan = planSansEnvironnement(moyens);
+  return environnement ? { ...plan, environnement } : plan;
+}
+
+function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
   const commande = moyens.commande?.trim();
   if (commande) {
     return {
@@ -101,13 +116,20 @@ export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLign
     };
   }
 
+  /*
+   * Aucun des quatre chemins. Le refus NOMME l'environnement visé quand il y en
+   * a un : avec plusieurs environnements, « ce projet n'a aucun moyen » ne dit
+   * pas lequel il faut aller régler.
+   */
+  const nomme = moyens.environnement?.trim();
   return {
     possible: false,
     construction: 'aucune',
     installation: 'aucune',
     redemarrage: 'aucun',
-    raison:
-      'Ce projet n’a aucun moyen d’être mis en ligne : pas de commande de publication, aucun service système sur son dossier, et son dossier n’est servi par aucun serveur web. Renseignez la commande de publication dans les réglages du projet — sans elle, publier ne ferait que fusionner du code.',
+    raison: nomme
+      ? `L’environnement « ${nomme} » n’a aucun moyen d’être mis en ligne : pas de commande de publication, aucun service système sur le dossier du projet, et ce dossier n’est servi par aucun serveur web. Renseignez la commande de publication de cet environnement dans les réglages du projet — sans elle, publier ne ferait que fusionner du code.`
+      : 'Ce projet n’a aucun moyen d’être mis en ligne : pas de commande de publication, aucun service système sur son dossier, et son dossier n’est servi par aucun serveur web. Renseignez la commande de publication dans les réglages du projet — sans elle, publier ne ferait que fusionner du code.',
   };
 }
 

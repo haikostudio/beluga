@@ -79,6 +79,23 @@ export const BillingLink = z.object({
 });
 export type BillingLink = z.infer<typeof BillingLink>;
 
+/**
+ * Un endroit où ce projet peut être mis en ligne (interne, dev chez le client,
+ * production). Les règles vivent dans `environnements-publication.ts` ; ici on
+ * ne fait que ranger. Un projet sans liste garde ses `deployCommand` /
+ * `deployUrl` : c'est la lecture qui en fabrique un environnement « interne ».
+ */
+export const DeployEnvironment = z.object({
+  id: z.string(),
+  nom: z.string(),
+  role: z.enum(['interne', 'dev-client', 'production']).default('interne'),
+  commande: z.string().optional(),
+  url: z.string().optional(),
+  /** Branche installée par cet environnement. Vide = la branche principale. */
+  branche: z.string().optional(),
+});
+export type DeployEnvironment = z.infer<typeof DeployEnvironment>;
+
 export const Project = z.object({
   id: z.string(),
   name: z.string(),
@@ -89,9 +106,16 @@ export const Project = z.object({
   defaultModel: z.string().optional(),
   /** Vrai uniquement pour le dépôt HaikoDev lui-même (PLAN §5, exception). */
   isSelf: z.boolean().default(false),
-  /** Commande de publication, exécutée par l'agent de publication. */
+  /**
+   * Commande de publication, exécutée par l'agent de publication. ANCIEN
+   * format : conservé tel quel pour les projets déjà réglés, relu comme un
+   * environnement « interne » unique. Les projets neufs écrivent dans
+   * `environments`.
+   */
   deployCommand: z.string().optional(),
   deployUrl: z.string().optional(),
+  /** Les endroits où ce projet peut être mis en ligne, dans l'ordre voulu. */
+  environments: z.array(DeployEnvironment).default([]),
   billing: BillingLink.optional(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
   rank: z.number().default(1000),
@@ -528,6 +552,9 @@ export const DeployRun = z.object({
     )
     .default([]),
   cardIds: z.array(z.string()).default([]),
+  /** L'environnement visé. Absent : publication d'avant les environnements. */
+  environmentId: z.string().optional(),
+  environmentName: z.string().optional(),
   url: z.string().optional(),
   targetCommit: z.string().optional(),
   agentId: z.string().optional(),

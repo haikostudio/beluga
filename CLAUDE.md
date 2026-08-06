@@ -69,6 +69,7 @@ node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poig
 node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt puis à la souris (serveur de développement, HAIKO_INTERRUPTEUR_URL ; aucun vrai compte touché)
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
+node scripts/verif-environnements-publication.mjs # plusieurs environnements par projet : ajout dans les réglages, apparition dans le bloc de publication (serveur de développement, HAIKO_ENVS_URL ; `project.update` et `deploy.check` interceptés, aucun projet réel touché)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
@@ -162,6 +163,29 @@ sans son point d'essai.
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
   Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
   (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
+- **Un projet a PLUSIEURS environnements de publication, et une publication en vise UN**
+  (`shared/src/environnements-publication.ts`). Un projet portait un seul jeu de réglages
+  (`deployCommand` / `deployUrl`) : décrire un dev chez le client ET une production était
+  impossible. Il porte désormais une LISTE ORDONNÉE (`Project.environments`), chaque
+  environnement ayant son nom, son rôle (`interne` / `dev-client` / `production`), sa commande, son
+  adresse à contrôler et sa branche installée. `environnementsDuProjet` est le SEUL point de
+  lecture : une liste vide rend UN environnement « Interne » portant les anciens champs, si bien
+  qu'un projet déjà réglé se comporte exactement comme avant, sans migration de base. Les deux
+  anciens champs ne sont plus jamais écrits — le volet de réglages n'écrit que `environments`, deux
+  endroits d'écriture faisant deux vérités. `environnementVise(projet, id?)` tranche : sans
+  identifiant, le PREMIER de la liste ; un identifiant inconnu y retombe aussi, jamais un refus
+  muet. `planDeMiseEnLigne` reçoit le nom de l'environnement (`MoyensDeMiseEnLigne.environnement`)
+  et son refus le NOMME — la commande vient de l'environnement, le service système et le dossier
+  servi restent des propriétés du dossier, donc communes. `startDeploy(projectId, environmentId?)`
+  décide l'environnement UNE fois pour tout le run : commande, adresse contrôlée à la fin, branche
+  installée (vide = la branche principale ; une branche nommée mais absente ARRÊTE la publication au
+  lieu de se rabattre en silence). Le run le retient (`DeployRun.environmentId` / `environmentName`),
+  la relance et la file d'attente le rejouent, et les notifications comme la référence de
+  dédoublonnage le portent — le même lot mis en dev puis en production fait bien deux alertes.
+  `derniersResultats` rend le dernier résultat de CHAQUE environnement (une publication d'avant
+  cette règle compte pour le premier), affiché dans le bloc de publication à côté du menu de choix.
+  Verrouillé par `server/src/test/environnements-publication.test.ts` et
+  `scripts/verif-environnements-publication.mjs`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette

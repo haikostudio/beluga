@@ -1340,6 +1340,19 @@ export function latestDeploy(projectId: string): DeployRun | null {
   return row ? DeployRun.parse(JSON.parse(row.data)) : null;
 }
 
+/**
+ * Les dernières publications d'un projet, de la plus récente à la plus
+ * ancienne. C'est là-dedans que la règle pure va chercher le dernier résultat
+ * de CHAQUE environnement — vingt suffisent largement, et l'on ne relit pas
+ * toute l'histoire du projet pour afficher trois lignes.
+ */
+export function recentDeploys(projectId: string, limit = 20): DeployRun[] {
+  const rows = getDb()
+    .prepare('SELECT data FROM deploys WHERE project_id = ? ORDER BY started_at DESC LIMIT ?')
+    .all(projectId, limit) as { data: string }[];
+  return rows.map((r) => DeployRun.parse(JSON.parse(r.data)));
+}
+
 /** La dernière publication RÉUSSIE : la seule qui dise ce qui est en ligne. */
 export function lastSuccessfulDeploy(projectId: string): DeployRun | null {
   const row = getDb()

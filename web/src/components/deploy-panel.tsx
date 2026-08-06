@@ -4,8 +4,12 @@ import {
   Card,
   DeployRun,
   DeployStepKey,
+  EnvironnementPublication,
   PlanDeMiseEnLigne,
+  ResultatDeRun,
   derouleOuvert,
+  libelleRole,
+  mentionResultat,
   rapportAGarder,
 } from '@haikodev/shared';
 import { Button } from '@/components/ui';
@@ -62,6 +66,18 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   /* Ce projet peut-il seulement être mis en ligne ? Le savoir avant le clic
      évite de découvrir le refus au moment de publier. */
   const [miseEnLigne, setMiseEnLigne] = React.useState<PlanDeMiseEnLigne | null>(null);
+  /* Les environnements du projet et le dernier résultat de chacun : publier,
+     c'est publier QUELQUE PART, et il faut le voir avant de cliquer. */
+  const [environnements, setEnvironnements] = React.useState<EnvironnementPublication[]>([]);
+  const [derniers, setDerniers] = React.useState<Record<string, ResultatDeRun>>({});
+  const [envVise, setEnvVise] = React.useState('');
+  /*
+   * Les environnements réglés dans le volet du projet : quand ils changent, le
+   * contrôle est REJOUÉ tout de suite. Sans cela, un environnement qu'on vient
+   * d'ajouter n'apparaissait ici qu'au bout des vingt secondes du minuteur — on
+   * croyait l'avoir mal enregistré.
+   */
+  const reglages = JSON.stringify(state.projects.find((p) => p.id === projectId)?.environments ?? []);
   const signature = embarked.map((card) => card.id).join(',');
 
   /*
@@ -77,13 +93,19 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
     let vivant = true;
     const controler = () =>
       client
-        .call({ type: 'deploy.check', projectId })
+        .call({ type: 'deploy.check', projectId, environmentId: envVise || undefined })
         .then((res: any) => {
           if (!vivant) return;
           setConflicts(res?.conflicts ?? []);
           setBusyAgents(res?.busy ?? []);
           setEnAttente(res?.enAttente ?? { nombre: 0, titres: [] });
           setMiseEnLigne(res?.miseEnLigne ?? null);
+          const liste: EnvironnementPublication[] = res?.environnements ?? [];
+          setEnvironnements(liste);
+          setDerniers(res?.derniers ?? {});
+          // L'environnement visé se cale sur le premier tant que personne n'a
+          // choisi, et retombe dessus si celui qui était choisi a disparu.
+          setEnvVise((actuel) => (liste.some((env) => env.id === actuel) ? actuel : (liste[0]?.id ?? '')));
         })
         .catch(() => undefined);
     void controler();
@@ -92,12 +114,12 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
       vivant = false;
       window.clearInterval(timer);
     };
-  }, [projectId, signature, active, run?.state]);
+  }, [projectId, signature, active, run?.state, envVise, reglages]);
 
   const start = async () => {
     setBusy(true);
     try {
-      await client.call({ type: 'deploy.start', projectId });
+      await client.call({ type: 'deploy.start', projectId, environmentId: envVise || undefined });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'publication impossible');
     } finally {
@@ -112,6 +134,7 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
    * d'un bloc propre (voir `rapportAGarder`).
    */
   const rapport = rapportAGarder(run?.state, aPublier) ? run : null;
+  const viseNomme = environnements.find((env) => env.id === envVise)?.nom;
   /*
    * Le bloc reste TOUJOURS en tête de la colonne « À déployer », même sans rien
    * à envoyer : le bouton « Tout déployer » y est visible partout, seulement
@@ -126,6 +149,27 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
     <div className="mb-2 border-b border-border px-2 pt-2 pb-2">
       {!active ? (
         <>
+          {/* OÙ l'on publie, avant COMBIEN : un projet peut avoir un dev client
+              et une production, et le bouton ne vise qu'un endroit à la fois.
+              Un seul environnement : rien à choisir, on ne montre pas de menu. */}
+          {environnements.length > 1 ? (
+            <div className="mb-1.5">
+              <select
+                value={envVise}
+                onChange={(event) => setEnvVise(event.target.value)}
+                data-environnement-vise
+                aria-label="Environnement à publier"
+                className="h-8 w-full rounded-md border border-border bg-raised px-2 text-[13px] text-text"
+              >
+                {environnements.map((env) => (
+                  <option key={env.id} value={env.id}>
+                    {env.nom} — {libelleRole(env.role)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
           <Button
             variant={aPublier ? 'default' : 'outline'}
             size="sm"
@@ -137,7 +181,21 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
             {/* Le compteur embarque TOUT : une branche en conflit n'est plus
                 écartée d'avance, l'agent de publication la reprend en route. */}
             Tout déployer ({aPublier})
+            {environnements.length > 1 && viseNomme ? ` — ${viseNomme}` : ''}
           </Button>
+
+          {/* Où en est chaque environnement : « jamais publié », « réussie »,
+              « en échec ». Sans cela, on ne sait pas ce qui est déjà en ligne. */}
+          {environnements.length > 1 ? (
+            <ul className="mt-1.5 space-y-0.5" data-etats-environnements>
+              {environnements.map((env) => (
+                <li key={env.id} className="flex items-baseline gap-1.5 text-[12px] text-faint">
+                  <span className="shrink-0 text-muted">{env.nom}</span>
+                  <span className="truncate">{mentionResultat(derniers[env.id])}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
 
           {/* Un projet que HaikoDev ne sait pas mettre en ligne : le bouton
               s'éteint et DIT pourquoi. Publier ne ferait que fusionner du code,
@@ -233,12 +291,14 @@ function DeployProgress({ run }: { run: DeployRun }) {
         ) : (
           <X className="h-3 w-3 shrink-0 text-danger" />
         )}
-        <span className="flex-1 truncate text-[13px] text-muted">
+        {/* Le compte rendu NOMME son environnement : une publication en cours
+            sur le dev client ne se lit pas comme une mise en production. */}
+        <span className="flex-1 truncate text-[13px] text-muted" data-environnement-run={run.environmentId}>
           {run.state === 'running'
             ? `${STEP_LABELS[run.currentStep ?? 'merge']} — ${elapsed(run.startedAt)}`
             : run.state === 'success'
-              ? `Publié : ${run.cardIds.length} tâche(s)`
-              : `Échec : ${run.error ?? 'étape interrompue'}`}
+              ? `Publié${run.environmentName ? ` (${run.environmentName})` : ''} : ${run.cardIds.length} tâche(s)`
+              : `Échec${run.environmentName ? ` (${run.environmentName})` : ''} : ${run.error ?? 'étape interrompue'}`}
         </span>
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
       </button>
