@@ -84,6 +84,23 @@ const forme = (page) =>
     };
   });
 
+/**
+ * Ouvrir le panneau au SURVOL, sans passer par `.hover()` : le bloc en bas à
+ * droite (messages courts, vignettes d'agents) flotte au-dessus de l'écran et
+ * peut recouvrir la boîte du module, ce qui fait échouer le contrôle
+ * d'actionabilité de `.hover()`. On vise le milieu de ce qui est VISIBLE et l'on
+ * bouge la souris nous-mêmes — comme le fait `verif-reveil-vocal`.
+ */
+async function survolerModule(page) {
+  const boite = await page.evaluate(() => {
+    const m = document.querySelector('[data-module-voix]');
+    if (!m) return null;
+    const b = m.getBoundingClientRect();
+    return { x: (Math.max(b.left, 0) + Math.min(b.right, window.innerWidth)) / 2, y: (Math.max(b.top, 0) + Math.min(b.bottom, window.innerHeight)) / 2 };
+  });
+  if (boite) await page.mouse.move(boite.x, boite.y);
+}
+
 async function ouvrirPage(contexte) {
   const page = await contexte.newPage();
   const erreurs = [];
@@ -159,7 +176,7 @@ if (!(await bureau.evaluate(() => Boolean(window.haikodevEssai?.annonce)))) {
 
     // Le morphisme : on regarde EN COURS DE ROUTE. Une taille intermédiaire
     // prouve l'interpolation ; un saut donnerait la taille finale d'emblée.
-    await bureau.locator('[data-module-voix]').hover();
+    await survolerModule(bureau);
     await bureau.waitForTimeout(120);
     const enRoute = await forme(bureau);
     await bureau.waitForTimeout(900);
