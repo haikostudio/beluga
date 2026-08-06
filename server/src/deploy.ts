@@ -226,14 +226,19 @@ function installerApplication(): string {
 /**
  * Ce que le projet déclare de ses environnements, pour la règle des étapes.
  *
- * Aucun projet ne déclare encore d'environnement de dev : les réglages qui le
- * renseignent font l'objet d'une carte à part. Tant qu'ils n'existent pas, il
- * n'y a qu'une mise en ligne — celle d'aujourd'hui —, et le parcours des
- * cartes ne change pas d'un pouce. Le jour où le réglage arrive, c'est cette
- * seule fonction qui le lit.
+ * C'est le SEUL endroit qui dit si la mise en ligne compte deux étapes. Le
+ * réglage existe déjà : chaque environnement porte un RÔLE, et « dev chez le
+ * client » (`dev-client`) est précisément la déclaration attendue — un endroit
+ * où l'on montre le travail avant de le mettre en production. Un projet qui
+ * n'en déclare aucun n'a qu'une mise en ligne, exactement comme avant : ni le
+ * parcours de ses cartes, ni ses colonnes, ni son bouton ne changent.
+ *
+ * Les rôles « interne » et « production » ne comptent pas : le premier est
+ * l'environnement fabriqué pour un projet réglé à l'ancienne, le second est
+ * l'arrivée, pas l'étape intermédiaire.
  */
-export function moyensDePublication(_project: Project): MoyensDePublication {
-  return { environnementDev: false };
+export function moyensDePublication(project: Project): MoyensDePublication {
+  return { environnementDev: environnementsDuProjet(project).some((env) => env.role === 'dev-client') };
 }
 
 /**

@@ -144,6 +144,28 @@ export function runDeLEtape(cible: CiblePublication | undefined, etape: EtapeDeP
   return cible === etape.cible;
 }
 
+/**
+ * L'environnement proposé d'emblée par le bloc d'une étape.
+ *
+ * La règle générale ne bouge pas : sans choix, une publication vise le PREMIER
+ * environnement de la liste. Mais le bloc de « En production » ferait alors
+ * pointer « Tout publier » sur l'environnement de DEV, celui d'où le travail
+ * vient justement de sortir. Pour cette étape-là seulement, on présélectionne
+ * le premier environnement de rôle « production » ; à défaut, le premier de la
+ * liste, comme partout ailleurs. Le menu reste modifiable : c'est une
+ * proposition, pas une contrainte.
+ */
+export function environnementParDefaut<T extends { id: string; role: string }>(
+  environnements: T[],
+  etape?: EtapeDePublication | null,
+): string {
+  if (etape?.source === 'in_production') {
+    const production = environnements.find((env) => env.role === 'production');
+    if (production) return production.id;
+  }
+  return environnements[0]?.id ?? '';
+}
+
 /** Pourquoi une étape demandée n'existe pas, dit en toutes lettres. */
 export function raisonEtapeInconnue(cible: CiblePublication): string {
   if (cible === 'dev') {
