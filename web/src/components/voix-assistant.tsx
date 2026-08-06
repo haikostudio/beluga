@@ -725,10 +725,17 @@ export function VoixAssistant() {
       // fenêtre : rien à recadrer ni à ranger. La règle de visibilité ne vaut
       // que pour les places LIBRES.
       if (accrocheeStoreeRef.current) return;
-      if (ouvertRef.current) {
-        const boite = racineRef.current?.getBoundingClientRect();
-        if (boite) baseBasRef.current = boite.bottom - corrRef.current.y;
-      }
+      // La fenêtre vient peut-être de changer de taille : le bas du rond a
+      // bougé AVEC elle. On le RE-MESURE tout de suite — le navigateur a déjà
+      // refait la mise en page dans cet événement `resize` — avant de recadrer.
+      // Sinon `ancre()` bornerait la NOUVELLE fenêtre avec le bas mesuré dans
+      // l'ANCIENNE (l'effet de mesure ne se rejoue qu'APRÈS ce gestionnaire) :
+      // un décalage faussé, écrit dans le compte, et le module qui remonte un
+      // peu plus à chaque redimensionnement jusqu'à sortir de l'écran. Fermé, la
+      // correction d'ouverture est nulle ; ouvert, on la retranche (le DOM la
+      // porte encore, ce rendu n'ayant pas encore été refait).
+      const boite = racineRef.current?.getBoundingClientRect();
+      if (boite) baseBasRef.current = boite.bottom - corrRef.current.y;
       const actuel = decalageRef.current;
       const corrige = recadrer(actuel);
       if (memeDecalage(corrige, actuel)) return;

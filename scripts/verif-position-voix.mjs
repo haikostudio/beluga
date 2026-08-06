@@ -389,7 +389,95 @@ if (!depart) {
   noter('aucune erreur dans la page, à la souris', erreursBureau.length === 0, erreursBureau[0] ?? '');
 }
 
-/* ---------- 6. Sur téléphone : ancré au menu, plus de déplacement ---------- */
+/* ---------- 7. AUCUN GESTE : la place ne bouge pas toute seule ---------- */
+
+// Le module se déplace À LA MAIN, jamais tout seul. On repart d'une place LIBRE
+// bien au centre, qui tient dans le grand écran comme dans un plus petit, et l'on
+// vérifie que NI un rechargement NI un redimensionnement de la fenêtre ne la
+// changent : sans geste, le module reste exactement où il a été laissé.
+//
+// C'est le cœur de la régression corrigée : le recadrage automatique tournait
+// dans l'événement `resize` avec le bas du rond mesuré dans l'ANCIENNE fenêtre —
+// il bornait la nouvelle taille avec un repère périmé, faussait le décalage,
+// l'écrivait dans le compte, et le module remontait un peu plus à chaque
+// redimensionnement jusqu'à sortir de l'écran.
+const PLACE_LIBRE = { x: 0, y: -160 };
+base
+  .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+  .run(CLE, JSON.stringify(PLACE_LIBRE), Date.now());
+
+const posee = await navigateur.newContext({ viewport: { width: 1440, height: 900 } });
+await posee.addCookies([
+  { name: 'haikodev_session', value: jeton, url: new URL(BASE).origin, httpOnly: true, sameSite: 'Lax' },
+]);
+const { page: sansGeste, erreurs: erreursSansGeste } = await ouvrirPage(posee);
+// On écarte le curseur : rien ne doit dépendre d'un survol.
+await sansGeste.mouse.move(20, 120);
+await sansGeste.waitForTimeout(400);
+
+const repos = await boite(sansGeste);
+const memePref = () => JSON.stringify(placeRangee()) === JSON.stringify(PLACE_LIBRE);
+noter(
+  'sans geste, le module se pose à la place mémorisée, entièrement visible',
+  repos !== null && dansLEcran(repos) && memePref(),
+  `bas=${repos?.y} pref=${JSON.stringify(placeRangee())}`,
+);
+
+// Un rechargement, sans rien toucher : place inchangée dans le compte, et le
+// module au même endroit (même taille de fenêtre).
+await sansGeste.reload({ waitUntil: 'domcontentloaded' });
+await sansGeste.waitForSelector('[data-module-voix]', { timeout: 20000 });
+await sansGeste.waitForTimeout(1500);
+await sansGeste.mouse.move(20, 120);
+await sansGeste.waitForTimeout(300);
+const apresRecharge = await boite(sansGeste);
+noter(
+  'aucun geste, un rechargement ne bouge pas la place',
+  memePref() && Math.abs(apresRecharge.y - repos.y) <= 2 && Math.abs(apresRecharge.x - repos.x) <= 2,
+  `${repos.x},${repos.y} → ${apresRecharge.x},${apresRecharge.y} ; pref ${JSON.stringify(placeRangee())}`,
+);
+
+// Une SÉRIE de redimensionnements — plus petit, encore plus petit, puis retour à
+// la taille de départ. À chaque étape : la place mémorisée ne change PAS, et le
+// module reste entièrement dans l'écran. Un module qui dérive écrirait un
+// nouveau décalage dès le premier redimensionnement.
+let placeStable = true;
+let toujoursVisible = true;
+for (const [w, h] of [
+  [1200, 760],
+  [1000, 680],
+  [1440, 900],
+  [1200, 760],
+  [1440, 900],
+]) {
+  await sansGeste.setViewportSize({ width: w, height: h });
+  await sansGeste.waitForTimeout(500);
+  await sansGeste.mouse.move(20, 120);
+  await sansGeste.waitForTimeout(200);
+  const b = await boite(sansGeste);
+  if (!memePref()) placeStable = false;
+  if (!dansLEcran(b)) toujoursVisible = false;
+}
+noter(
+  'aucun geste, une série de redimensionnements ne réécrit pas la place',
+  placeStable,
+  `pref ${JSON.stringify(placeRangee())} (attendu ${JSON.stringify(PLACE_LIBRE)})`,
+);
+noter('à chaque taille de fenêtre, le module reste entièrement visible', toujoursVisible);
+
+// Revenu à la taille de départ, le module retrouve exactement sa place : rien
+// n'a fui pendant les redimensionnements.
+const retour = await boite(sansGeste);
+noter(
+  'revenu à la taille de départ, le module est à sa place d’origine',
+  Math.abs(retour.y - repos.y) <= 2 && Math.abs(retour.x - repos.x) <= 2,
+  `${repos.x},${repos.y} → ${retour.x},${retour.y}`,
+);
+noter('aucune erreur dans la page, sans geste', erreursSansGeste.length === 0, erreursSansGeste[0] ?? '');
+await sansGeste.close();
+await posee.close();
+
+/* ---------- 8. Sur téléphone : ancré au menu, plus de déplacement ---------- */
 
 // On range AVANT de charger une place non nulle : sur téléphone le module
 // l'IGNORE (il se pose au centre du menu) mais ne l'EFFACE pas — elle ressert
