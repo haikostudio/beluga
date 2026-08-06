@@ -303,7 +303,7 @@ export function fichiersEnConflit(sortie: string): string[] {
  * C'est une prévision, pas une certitude : les branches sont fusionnées l'une
  * après l'autre, et une fusion réussie peut en fâcher une suivante.
  */
-export async function conflitsPrevus(projectId: string): Promise<ConflitPrevu[]> {
+export async function conflitsPrevus(projectId: string, source: ColumnKey = 'to_deploy'): Promise<ConflitPrevu[]> {
   const project = store.getProject(projectId);
   if (!project) return [];
   const cwd = project.path;
@@ -311,7 +311,7 @@ export async function conflitsPrevus(projectId: string): Promise<ConflitPrevu[]>
 
   const mainBranch = await mainBranchOf(cwd);
   const prevus: ConflitPrevu[] = [];
-  for (const card of deployableCards(projectId)) {
+  for (const card of deployableCards(projectId, source)) {
     const branch = card.github?.branch;
     if (!branch) continue;
     const exists = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
@@ -554,8 +554,12 @@ export async function construireAvecReparation(
 /* ------------------------------------------------------------------ */
 
 const active = new Map<string, { stop: () => void }>();
-/** Les publications qui attendent leur tour, chacune AVEC son environnement. */
-const waiting = new Map<string, string | undefined>();
+/**
+ * Les publications qui attendent leur tour, chacune AVEC son environnement ET
+ * son étape : une mise en production mise en file ne doit pas repartir en mise
+ * sur l'environnement de dev, ni l'inverse.
+ */
+const waiting = new Map<string, { environmentId?: string; cible?: CiblePublication }>();
 
 const STEP_ORDER: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
 
@@ -909,7 +913,13 @@ export async function repondreEnvoi(runId: string, accord: boolean): Promise<{ o
    */
   // L'environnement du run repart AVEC lui : un accord donné sur le dev client
   // ne doit pas relancer la publication vers la production.
-  const relance = await startDeploy(run.projectId, run.environmentId, { accordEnvoi: true, reprendre: run });
+  const relance = await startDeploy(run.projectId, run.environmentId, {
+    accordEnvoi: true,
+    reprendre: run,
+    // Et à la MÊME étape : sinon un accord donné sur la mise en production
+    // repartirait avec le lot de « À déployer ».
+    cible: run.cible,
+  });
   bus.emit({ type: 'attention', ...store.signalAttention() });
   return relance.ok ? { ok: true } : { ok: false, error: relance.error };
 }
@@ -946,7 +956,7 @@ export async function startDeploy(
 
   // Une deuxième demande n'ouvre pas un run parallèle : elle attend son tour.
   if (active.has(projectId)) {
-    waiting.set(projectId, environmentId);
+    waiting.set(projectId, { environmentId, cible: etape.cible });
     const current = store.latestDeploy(projectId);
     if (current) emit({ ...current, queued: true });
     return { ok: true, error: 'une publication est déjà en cours' };
@@ -1012,6 +1022,9 @@ export async function startDeploy(
         state: 'awaiting',
         steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
         cardIds: cards.map((c) => c.id),
+        // L'attente RETIENT son étape : l'accord relancera la MÊME, sinon une
+        // mise en production repartirait avec le lot de « À déployer ».
+        cible: etape.cible,
         // L'attente RETIENT son environnement : l'accord relancera la même
         // publication, vers le même endroit.
         environmentId: environnement.id,
@@ -1052,6 +1065,9 @@ export async function startDeploy(
     state: 'running',
     steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
     cardIds: cards.map((c) => c.id),
+    // L'étape voyage avec la publication : c'est elle qui dit dans quel bloc le
+    // déroulé s'affiche, et d'où le lot repartira en cas de relance.
+    cible: etape.cible,
     environmentId: environnement.id,
     environmentName: environnement.nom,
     url: environnement.url,
@@ -1531,11 +1547,11 @@ export async function startDeploy(
     } finally {
       active.delete(projectId);
       if (waiting.has(projectId)) {
-        // La publication en attente repart sur SON environnement, pas sur celui
-        // qui vient de se terminer.
+        // La publication en attente repart sur SON environnement et à SON
+        // étape, pas sur ceux de celle qui vient de se terminer.
         const suivant = waiting.get(projectId);
         waiting.delete(projectId);
-        setTimeout(() => void startDeploy(projectId, suivant), 1500);
+        setTimeout(() => void startDeploy(projectId, suivant?.environmentId, { cible: suivant?.cible }), 1500);
       }
     }
   })();
@@ -1565,6 +1581,7 @@ export async function retryDeploy(runId: string): Promise<{ ok: boolean; error?:
   const run = store.getDeploy(runId);
   if (!run) return { ok: false, error: 'publication introuvable' };
   log.info(`relance de la publication du projet ${run.projectId}`);
-  // Relancer, c'est refaire LA MÊME publication : même environnement visé.
-  return startDeploy(run.projectId, run.environmentId);
+  // Relancer, c'est refaire LA MÊME publication : même environnement visé, et
+  // même étape du parcours — jamais la première par défaut.
+  return startDeploy(run.projectId, run.environmentId, { cible: run.cible });
 }

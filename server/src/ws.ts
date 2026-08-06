@@ -14,6 +14,7 @@ import {
   canMove,
   derniersResultats,
   effetDuDepot,
+  etapeDeLaColonne,
   environnementVise,
   environnementsDuProjet,
   modifierEnvironnement,
@@ -53,6 +54,7 @@ import {
   commitsEnAttente,
   environnementsDePublication,
   moyenDeMiseEnLigne,
+  moyensDePublication,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
@@ -911,15 +913,29 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // le bloc de publication montre l'environnement visé sans avoir à deviner.
       const environnements = environnementsDePublication(cmd.projectId);
       const derniers = derniersResultats(environnements, store.recentDeploys(cmd.projectId));
+      /*
+       * L'ÉTAPE dont le lot part de la colonne qui interroge. `null` veut dire
+       * « cette colonne ne publie rien sur ce projet » : le bloc ne s'affiche
+       * alors pas du tout, plutôt qu'un bouton qui serait refusé au clic.
+       */
+      const projet = store.getProject(cmd.projectId);
+      const etape = projet ? etapeDeLaColonne(moyensDePublication(projet), cmd.source ?? 'to_deploy') : null;
       return {
-        conflicts: await conflitsPrevus(cmd.projectId),
+        etape,
+        // Les branches des cartes se fusionnent à la PREMIÈRE étape ; à la
+        // seconde elles sont déjà dans la principale, il n'y a plus rien à
+        // prévoir. On interroge donc le dépôt pour le lot de cette étape-là.
+        conflicts: etape ? await conflitsPrevus(cmd.projectId, etape.source) : [],
         busy: agentsOccupes(cmd.projectId),
         // Ce projet demandera-t-il l'accord avant d'envoyer ? Le dire AVANT le
         // clic évite de découvrir l'attente au moment de publier.
         envoiSurveille: store.getProject(cmd.projectId)?.deployeSurEnvoi === true,
         // Le travail enregistré sur la principale sans passer par une carte :
         // sans lui, la fenêtre de publication disparaissait et rien ne partait.
-        enAttente: await commitsEnAttente(cmd.projectId),
+        // Il entre dans le lot à la PREMIÈRE étape seulement : le compter aussi
+        // à la seconde annoncerait deux fois le même travail.
+        enAttente:
+          etape?.source === 'to_deploy' ? await commitsEnAttente(cmd.projectId) : { nombre: 0, titres: [] },
         // Ce projet peut-il seulement être mis en ligne ? Le dire AVANT le clic
         // vaut mieux que de le découvrir sur une publication refusée.
         miseEnLigne: moyenDeMiseEnLigne(cmd.projectId, cmd.environmentId),

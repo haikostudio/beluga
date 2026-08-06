@@ -2,15 +2,19 @@ import * as React from 'react';
 import { AlertTriangle, Check, ChevronRight, Loader2, Rocket, RotateCcw, Square, X, MinusCircle } from 'lucide-react';
 import {
   Card,
+  ColumnKey,
   DeployRun,
   DeployStepKey,
   EnvironnementPublication,
+  EtapeDePublication,
   PlanDeMiseEnLigne,
   ResultatDeRun,
   derouleOuvert,
+  etapeDeLaColonne,
   libelleRole,
   mentionResultat,
   rapportAGarder,
+  runDeLEtape,
 } from '@haikodev/shared';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -44,16 +48,48 @@ function motifLisible(log: string): string {
 /**
  * Le bouton qui devient un tableau de bord (PLAN §11). Le compteur dit la
  * VÉRITÉ : exactement les cartes que le run va embarquer.
+ *
+ * Le même bloc sert les DEUX étapes de mise en ligne : posé en tête de « À
+ * déployer », il déploie ; posé en tête de « En production », il publie. Il ne
+ * sait pas à quelle étape il sert — il sait seulement de quelle COLONNE il est,
+ * et c'est le serveur qui lui rend l'étape correspondante, ou rien du tout
+ * quand cette colonne ne publie pas sur ce projet.
  */
-export function DeployPanel({ projectId, cards }: { projectId: string; cards: Card[] }) {
+export function DeployPanel({
+  projectId,
+  cards,
+  colonne = 'to_deploy',
+}: {
+  projectId: string;
+  cards: Card[];
+  colonne?: ColumnKey;
+}) {
   const state = useApp();
   const run = state.deploys[projectId];
   const [busy, setBusy] = React.useState(false);
+  /*
+   * En attendant la réponse du serveur, on suppose le parcours d'aujourd'hui :
+   * une seule mise en ligne, depuis « À déployer ». Ce bloc-là s'affiche donc
+   * tout de suite, exactement comme avant ; celui d'« En production » attend
+   * que le serveur confirme la seconde étape, et ne s'affiche jamais sans elle.
+   */
+  const [etape, setEtape] = React.useState<EtapeDePublication | null>(() => etapeDeLaColonne({}, colonne));
 
-  const embarked = cards.filter((card) => !card.excludedFromDeploy && !card.deployedAt);
+  /*
+   * Le garde-fou « déjà mise en ligne » ne vaut que pour la première étape :
+   * une carte posée « En production » porte forcément une date de mise en ligne
+   * — celle de l'environnement de dev —, et c'est justement elle qu'on veut
+   * passer en production. Même règle que `deployableCards` côté serveur, sinon
+   * le compteur annoncerait autre chose que ce qui partira.
+   */
+  const embarked = cards.filter(
+    (card) => !card.excludedFromDeploy && (colonne !== 'to_deploy' || !card.deployedAt),
+  );
   /* Une publication qui attend l'accord occupe la place au même titre qu'une
      qui travaille : le bouton « Tout déployer » n'a rien à faire au-dessus. */
   const active = run?.state === 'running' || run?.state === 'awaiting';
+  /* Deux blocs peuvent être à l'écran : chacun ne montre QUE sa publication. */
+  const mienne = !!run && !!etape && runDeLEtape(run.cible, etape);
 
   /*
    * Ce qui coincera se sait AVANT de cliquer : on interroge le serveur, qui
@@ -98,9 +134,12 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
     let vivant = true;
     const controler = () =>
       client
-        .call({ type: 'deploy.check', projectId, environmentId: envVise || undefined })
+        .call({ type: 'deploy.check', projectId, environmentId: envVise || undefined, source: colonne })
         .then((res: any) => {
           if (!vivant) return;
+          // L'étape de cette colonne, telle que le projet la déclare : c'est
+          // elle qui décide si ce bloc existe, et ce que son bouton annonce.
+          setEtape(res?.etape ?? null);
           setConflicts(res?.conflicts ?? []);
           setBusyAgents(res?.busy ?? []);
           setEnAttente(res?.enAttente ?? { nombre: 0, titres: [] });
@@ -120,12 +159,19 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
       vivant = false;
       window.clearInterval(timer);
     };
-  }, [projectId, signature, active, run?.state, envVise, reglages]);
+  }, [projectId, signature, active, run?.state, envVise, reglages, colonne]);
 
   const start = async () => {
     setBusy(true);
     try {
-      await client.call({ type: 'deploy.start', projectId, environmentId: envVise || undefined });
+      // L'étape part AVEC la demande : le serveur ne doit pas retomber sur la
+      // première quand c'est la mise en production qu'on a cliquée.
+      await client.call({
+        type: 'deploy.start',
+        projectId,
+        environmentId: envVise || undefined,
+        cible: etape?.cible,
+      });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'publication impossible');
     } finally {
@@ -139,7 +185,7 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
    * n'attend : dès qu'un lot est prêt, son rapport s'efface et l'on repart
    * d'un bloc propre (voir `rapportAGarder`).
    */
-  const rapport = rapportAGarder(run?.state, aPublier) ? run : null;
+  const rapport = rapportAGarder(run?.state, aPublier) && mienne ? run : null;
   const viseNomme = environnements.find((env) => env.id === envVise)?.nom;
   /*
    * Le bloc reste TOUJOURS en tête de la colonne « À déployer », même sans rien
@@ -147,13 +193,18 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
    * désactivé quand il n'y a rien à publier (il dit alors pourquoi). Le retirer
    * faisait qu'une colonne vide n'affichait ni bloc ni bouton — d'un projet à
    * l'autre, l'affichage n'était pas le même.
+   *
+   * Cette colonne ne publie rien sur ce projet — « En production » tant qu'aucun
+   * environnement de dev n'est déclaré : alors AUCUN bloc, pas même un bouton
+   * éteint. Il n'y a rien à expliquer, cette étape n'existe pas ici.
    */
+  if (!etape) return null;
 
   return (
     /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
        la liste des cartes. Un cadre complet le faisait passer pour une carte. */
-    <div className="mb-2 border-b border-border px-2 pt-2 pb-2">
-      {!active ? (
+    <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
+      {!(active && mienne) ? (
         <>
           {/* OÙ l'on publie, avant COMBIEN : un projet peut avoir un dev client
               et une production, et le bouton ne vise qu'un endroit à la fois.
@@ -180,15 +231,27 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
             variant={aPublier ? 'default' : 'outline'}
             size="sm"
             className="w-full"
-            disabled={!aPublier || busy || busyAgents.length > 0 || miseEnLigne?.possible === false}
+            data-bouton-publication
+            disabled={!aPublier || busy || active || busyAgents.length > 0 || miseEnLigne?.possible === false}
             onClick={start}
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
             {/* Le compteur embarque TOUT : une branche en conflit n'est plus
-                écartée d'avance, l'agent de publication la reprend en route. */}
-            Tout déployer ({aPublier})
+                écartée d'avance, l'agent de publication la reprend en route.
+                Le verbe vient de l'ÉTAPE : « Tout déployer » en tête de « À
+                déployer », « Tout publier » en tête de « En production ». */}
+            Tout {etape.verbe} ({aPublier})
             {environnements.length > 1 && viseNomme ? ` — ${viseNomme}` : ''}
           </Button>
+
+          {/* Une publication de l'AUTRE étape tourne déjà : une seule à la fois
+              par projet, on le dit plutôt que d'éteindre le bouton sans un mot. */}
+          {active && !mienne ? (
+            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-muted" data-publication-ailleurs>
+              <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
+              <span>Une autre publication de ce projet est en cours : attendez qu’elle finisse.</span>
+            </p>
+          ) : null}
 
           {/* Où en est chaque environnement : « jamais publié », « réussie »,
               « en échec ». Sans cela, on ne sait pas ce qui est déjà en ligne. */}
@@ -225,7 +288,7 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
           {/* Rien à envoyer, mais la mise en ligne reste possible : le bouton est
               grisé et DIT pourquoi, plutôt qu'un bloc qui disparaît. */}
           {!aPublier && miseEnLigne?.possible !== false ? (
-            <p className="mt-1.5 text-[12px] text-muted">Rien à déployer pour l'instant.</p>
+            <p className="mt-1.5 text-[12px] text-muted">Rien à {etape.verbe} pour l'instant.</p>
           ) : null}
 
           {/* Ce qui attend sans carte : on le NOMME, sinon le compteur monte

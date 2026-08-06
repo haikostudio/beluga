@@ -29,6 +29,12 @@ export interface EtapeDePublication {
   cible: CiblePublication;
   /** Le nom lisible de l'étape, tel qu'on l'annonce à l'écran. */
   libelle: string;
+  /**
+   * Le verbe du bouton de cette étape : « Tout déployer » en tête de « À
+   * déployer », « Tout publier » en tête de « En production ». Il vit ici, avec
+   * l'étape, pour que le bouton ne puisse pas dire autre chose que ce qu'il fait.
+   */
+  verbe: string;
   /** La colonne d'où viennent les cartes du lot. */
   source: ColumnKey;
   /** Où les cartes se posent quand la mise en ligne a réellement abouti. */
@@ -55,6 +61,7 @@ export interface MoyensDePublication {
 const ETAPE_UNIQUE: EtapeDePublication = {
   cible: 'production',
   libelle: 'Mise en production',
+  verbe: 'déployer',
   source: 'to_deploy',
   arrivee: 'archived',
   clot: true,
@@ -63,6 +70,7 @@ const ETAPE_UNIQUE: EtapeDePublication = {
 const ETAPE_DEV: EtapeDePublication = {
   cible: 'dev',
   libelle: 'Mise sur l’environnement de dev',
+  verbe: 'déployer',
   source: 'to_deploy',
   arrivee: 'in_production',
   clot: false,
@@ -71,6 +79,7 @@ const ETAPE_DEV: EtapeDePublication = {
 const ETAPE_PRODUCTION: EtapeDePublication = {
   cible: 'production',
   libelle: 'Mise en production',
+  verbe: 'publier',
   source: 'in_production',
   arrivee: 'archived',
   clot: true,
@@ -103,6 +112,36 @@ export function etapeDePublication(
   const etapes = etapesDePublication(moyens);
   if (!cible) return etapes[0];
   return etapes.find((etape) => etape.cible === cible) ?? null;
+}
+
+/**
+ * L'étape dont le lot part de CETTE colonne, s'il y en a une.
+ *
+ * C'est ce que demande le bloc de publication posé en tête d'une colonne : il
+ * ne sait pas à quelle étape il sert, il sait seulement d'où il est. Rendre
+ * `null` est une réponse à part entière — « En production » n'a pas d'étape
+ * tant que le projet ne déclare pas d'environnement de dev, et le bloc ne
+ * s'affiche alors pas du tout.
+ */
+export function etapeDeLaColonne(
+  moyens: MoyensDePublication,
+  source: ColumnKey,
+): EtapeDePublication | null {
+  return etapesDePublication(moyens).find((etape) => etape.source === source) ?? null;
+}
+
+/**
+ * Cette publication est-elle celle de CETTE étape ?
+ *
+ * Deux blocs de publication peuvent être à l'écran en même temps ; la
+ * publication en cours n'appartient qu'à l'un des deux, et l'autre ne doit
+ * afficher ni son déroulé ni son compte rendu. Une publication d'AVANT les deux
+ * étapes ne porte pas de cible : elle est celle du lot de « À déployer », le
+ * seul qui existait.
+ */
+export function runDeLEtape(cible: CiblePublication | undefined, etape: EtapeDePublication): boolean {
+  if (!cible) return etape.source === 'to_deploy';
+  return cible === etape.cible;
 }
 
 /** Pourquoi une étape demandée n'existe pas, dit en toutes lettres. */
