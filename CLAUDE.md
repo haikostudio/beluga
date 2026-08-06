@@ -164,9 +164,10 @@ sans son point d'essai.
   geste de l'utilisateur.
 - **Publier, c'est METTRE EN LIGNE — pas seulement fusionner** (`planDeMiseEnLigne`,
   `shared/src/mise-en-ligne.ts`). Avant de toucher au dépôt, la publication demande COMMENT le projet
-  peut être servi : sa commande de publication, sinon HaikoDev lui-même, sinon le service système qui
+  peut être servi : la CONSIGNE de déploiement de l'environnement visé, sinon sa commande de
+  publication, sinon HaikoDev lui-même, sinon le service système qui
   tourne sur son dossier (sous-dossier compris), sinon un serveur web qui sert ce dossier tel quel
-  (`root * …` dans Caddy, `root …;` dans nginx). Aucun des quatre : la publication est REFUSÉE, le
+  (`root * …` dans Caddy, `root …;` dans nginx). Aucun des cinq : la publication est REFUSÉE, le
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
   Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
   (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
@@ -198,7 +199,7 @@ sans son point d'essai.
   (`deployCommand` / `deployUrl`) : décrire un dev chez le client ET une production était
   impossible. Il porte désormais une LISTE ORDONNÉE (`Project.environments`), chaque
   environnement ayant son nom, son rôle (`interne` / `dev-client` / `production`), sa commande, son
-  adresse à contrôler et sa branche installée. `environnementsDuProjet` est le SEUL point de
+  adresse à contrôler, sa branche installée et sa consigne de déploiement. `environnementsDuProjet` est le SEUL point de
   lecture : une liste vide rend UN environnement « Interne » portant les anciens champs, si bien
   qu'un projet déjà réglé se comporte exactement comme avant, sans migration de base. Les deux
   anciens champs ne sont plus jamais écrits — le volet de réglages n'écrit que `environments`, deux
@@ -217,6 +218,27 @@ sans son point d'essai.
   cette règle compte pour le premier), affiché dans le bloc de publication à côté du menu de choix.
   Verrouillé par `server/src/test/environnements-publication.test.ts` et
   `scripts/verif-environnements-publication.mjs`.
+- **Une CONSIGNE de déploiement confie la mise en ligne à un agent**
+  (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Un environnement de
+  publication porte, en plus de sa commande et de son adresse, une `consigne` en français
+  (`EnvironnementPublication.consigne`, `DeployEnvironment.consigne`). Vide — le cas de tous les
+  projets d'aujourd'hui — RIEN ne change : mêmes sept étapes, même ordre, mêmes refus. Écrite, elle
+  devient le PREMIER des cinq moyens de `planDeMiseEnLigne` (`construction`/`installation`/
+  `redemarrage` valent alors `agent`) et passe DEVANT la commande, HaikoDev, le service et le dossier
+  servi : c'est la seule façon de décrire un déploiement que les quatre autres ne savent pas dire.
+  La plomberie git ne bouge pas — fusion, enregistrement, envoi restent à HaikoDev, avec l'attente
+  d'accord d'un projet « se déploie sur envoi » et la fermeture des branches. Seules les QUATRE
+  étapes de mise en ligne changent de main : `verify`, `build` et `restart` disent que la consigne
+  les couvre (`mentionEtapeConfiee`, jamais une étape muette), et `publish` porte le compte rendu de
+  l'agent. Un agent de rôle « deploy » est appelé une fois (`confierLaMiseEnLigne`) avec
+  `consigneDeLAgentDePublication` : la consigne réglée TELLE QUELLE entre deux repères, le projet, le
+  dossier, l'environnement (nom, rôle, adresse, branche), l'enregistrement, si l'étape clôt les
+  cartes, et le lot embarqué (`CARTES_NOMMEES_MAX` cartes nommées, le reste compté). Il lui est
+  interdit de changer de branche, de faire `git add -A`, de désactiver un test et de toucher au
+  tableau. Un tour en échec fait ÉCHOUER la publication en nommant l'environnement
+  (`phraseDEchecConfie`) ; un compte rendu vide est dit comme tel (`recitDeLAgent`) ; l'adresse
+  publique et `miseEnLigneReelle` gardent le dernier mot. Verrouillé par
+  `server/src/test/publication-confiee.test.ts`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette

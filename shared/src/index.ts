@@ -46,6 +46,7 @@ export * from './position-voix.js';
 export * from './progression-taches.js';
 export * from './projet-actif.js';
 export * from './protocol.js';
+export * from './publication-confiee.js';
 export * from './publication-terminee.js';
 export * from './question-en-texte.js';
 export * from './quota.js';

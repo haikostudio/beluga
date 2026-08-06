@@ -16,6 +16,13 @@
 
 /** Ce dont le projet dispose réellement pour être mis en ligne. */
 export type MoyensDeMiseEnLigne = {
+  /**
+   * CONSIGNE de déploiement de l'environnement visé, en français. Elle passe
+   * AVANT tout le reste : quand elle est écrite, c'est un agent qui mène la
+   * mise en ligne (`shared/src/publication-confiee.ts`), et il peut faire ce
+   * qu'aucun des quatre autres moyens ne sait décrire.
+   */
+  consigne?: string;
   /** Commande de publication renseignée dans les réglages du projet. */
   commande?: string;
   /** Le projet est HaikoDev : il sait se construire et s'installer lui-même. */
@@ -35,9 +42,9 @@ export type MoyensDeMiseEnLigne = {
   environnement?: string;
 };
 
-export type Construction = 'commande' | 'npm' | 'aucune';
-export type Installation = 'commande' | 'haikodev' | 'dossier-servi' | 'service' | 'aucune';
-export type Redemarrage = 'demon' | 'service' | 'commande' | 'aucun';
+export type Construction = 'agent' | 'commande' | 'npm' | 'aucune';
+export type Installation = 'agent' | 'commande' | 'haikodev' | 'dossier-servi' | 'service' | 'aucune';
+export type Redemarrage = 'agent' | 'demon' | 'service' | 'commande' | 'aucun';
 
 export type PlanDeMiseEnLigne = {
   /** Faux : ce projet ne peut PAS être mis en ligne, la publication doit refuser. */
@@ -54,15 +61,18 @@ export type PlanDeMiseEnLigne = {
 /**
  * Comment ce projet peut-il être mis en ligne ?
  *
- * Quatre chemins, du plus explicite au plus deviné :
- * 1. une commande de publication : elle fait foi, elle porte tout ;
- * 2. HaikoDev : construction, installation dans le dossier servi, redémarrage ;
- * 3. un service système sur le dossier : construire puis relancer le service,
+ * Cinq chemins, du plus explicite au plus deviné :
+ * 1. une CONSIGNE de déploiement écrite pour cet environnement : un agent la
+ *    suit de bout en bout, et elle peut décrire ce qu'aucun des quatre autres
+ *    ne sait dire ;
+ * 2. une commande de publication : elle fait foi, elle porte tout ;
+ * 3. HaikoDev : construction, installation dans le dossier servi, redémarrage ;
+ * 4. un service système sur le dossier : construire puis relancer le service,
  *    c'est lui qui sert le code neuf ;
- * 4. un dossier servi tel quel par un serveur web : les fichiers en place SONT
+ * 5. un dossier servi tel quel par un serveur web : les fichiers en place SONT
  *    le site, il n'y a rien à déplacer — mais il y a bien mise en ligne.
  *
- * Aucun des quatre : la publication n'a aucun moyen d'agir. Elle échoue en le
+ * Aucun des cinq : la publication n'a aucun moyen d'agir. Elle échoue en le
  * disant, plutôt que de se déclarer réussie sans rien avoir fait.
  */
 export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
@@ -72,6 +82,24 @@ export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLign
 }
 
 function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
+  /*
+   * La consigne passe DEVANT tout : c'est la seule façon de décrire un
+   * déploiement que les quatre autres moyens ne savent pas exprimer. Une
+   * consigne faite d'espaces n'en est pas une — on retombe alors sur le
+   * déroulé habituel, jamais sur un agent lancé sans rien à lui dire.
+   */
+  const consigne = moyens.consigne?.trim();
+  if (consigne) {
+    return {
+      possible: true,
+      construction: 'agent',
+      installation: 'agent',
+      redemarrage: 'agent',
+      raison:
+        'Un agent de publication suit la consigne de déploiement de cet environnement, de bout en bout.',
+    };
+  }
+
   const commande = moyens.commande?.trim();
   if (commande) {
     return {
@@ -128,8 +156,8 @@ function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
     installation: 'aucune',
     redemarrage: 'aucun',
     raison: nomme
-      ? `L’environnement « ${nomme} » n’a aucun moyen d’être mis en ligne : pas de commande de publication, aucun service système sur le dossier du projet, et ce dossier n’est servi par aucun serveur web. Renseignez la commande de publication de cet environnement dans les réglages du projet — sans elle, publier ne ferait que fusionner du code.`
-      : 'Ce projet n’a aucun moyen d’être mis en ligne : pas de commande de publication, aucun service système sur son dossier, et son dossier n’est servi par aucun serveur web. Renseignez la commande de publication dans les réglages du projet — sans elle, publier ne ferait que fusionner du code.',
+      ? `L’environnement « ${nomme} » n’a aucun moyen d’être mis en ligne : ni consigne de déploiement, ni commande de publication, aucun service système sur le dossier du projet, et ce dossier n’est servi par aucun serveur web. Renseignez la consigne de déploiement ou la commande de publication de cet environnement dans les réglages du projet — sans elles, publier ne ferait que fusionner du code.`
+      : 'Ce projet n’a aucun moyen d’être mis en ligne : ni consigne de déploiement, ni commande de publication, aucun service système sur son dossier, et son dossier n’est servi par aucun serveur web. Renseignez la consigne de déploiement ou la commande de publication dans les réglages du projet — sans elles, publier ne ferait que fusionner du code.',
   };
 }
 
