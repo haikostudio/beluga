@@ -52,6 +52,7 @@ export * from './protocol.js';
 export * from './publication-terminee.js';
 export * from './question-en-texte.js';
 export * from './quota.js';
+export * from './raccourci-clavier.js';
 export * from './quota-resume.js';
 export * from './reglages-carte.js';
 export * from './reglages-proposition.js';

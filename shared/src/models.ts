@@ -602,6 +602,12 @@ export const Settings = z.object({
    */
   voixVitesse: z.enum(['lente', 'normale', 'rapide']).default('normale'),
   /**
+   * Le RACCOURCI CLAVIER qui allume et éteint l'écoute permanente, sous sa forme
+   * canonique (« Alt+KeyE », « Ctrl+Shift+KeyL »). Vide par défaut : aucun
+   * raccourci tant qu'on n'en règle pas un. Voir `shared/src/raccourci-clavier.ts`.
+   */
+  voixRaccourci: z.string().default(''),
+  /**
    * Amorcer la fenêtre de cinq heures des comptes Claude dès qu'elle repart à
    * zéro. Se coupe d'un geste si le mécanisme faisait plus de mal que de bien.
    */
