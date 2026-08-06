@@ -1,11 +1,13 @@
 import * as React from 'react';
-import { ChevronUp, Loader2, MessageSquare, RotateCcw, Square } from 'lucide-react';
+import { ChevronUp, CornerDownRight, Loader2, MessageSquare, RotateCcw, Square } from 'lucide-react';
 import {
   Agent,
   Message,
   afficherHeure,
+  carteRangee,
   libellePrecedents,
   peutRepartir,
+  questionEnTexteLibre,
   titreDeBloc,
 } from '@haikodev/shared';
 import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
@@ -54,6 +56,22 @@ export function Chat({
       : [];
   const queue = agent ? (state.queues[agent.id] ?? []) : [];
   const busy = agent?.status === 'running' || messages.some((m) => m.streaming);
+
+  /*
+   * L'agent a fini son tour sur une question posée en TEXTE ORDINAIRE (pas par
+   * l'outil prévu) : elle allume le triangle orange, mais aucun bloc de réponse
+   * ne s'affiche. On reconnaît le cas — la MÊME règle que le serveur — pour
+   * poser un court repère au-dessus de la barre d'écriture : la réponse
+   * s'écrit là. Le repère s'éteint dès qu'un message est envoyé (le dernier
+   * message n'est alors plus la question), et jamais pour une vraie question
+   * d'outil (`questionEnTexteLibre` l'écarte).
+   */
+  const carte = cardId ? state.cards[cardId] : undefined;
+  const dernierMessage = messages[messages.length - 1];
+  const questionEnTexte =
+    !!cardId && !busy && !carteRangee(carte?.column) && dernierMessage
+      ? questionEnTexteLibre(dernierMessage)
+      : null;
 
   // Les échanges d'avant le dernier nouveau départ sont repliés par défaut.
   const [tout, setTout] = React.useState(false);
@@ -222,6 +240,10 @@ export function Chat({
           La barre d'écriture revient dès que la tâche est lancée — et d'ici là
           on n'affiche rien du tout : un bandeau d'explication figé sous chaque
           analyse prenait de la place sans jamais rien apprendre de neuf. */}
+      {/* L'agent attend une réponse écrite en toutes lettres : on le dit juste
+          au-dessus de la barre, là où la réponse s'écrit. */}
+      {questionEnTexte ? <RepereReponseTexte /> : null}
+
       {agent?.role === 'analysis' ? null : (
         <Composer
           agent={agent}
@@ -313,6 +335,21 @@ function BarreNouveauDepart({
         onConfirm={repartir}
         onClose={() => setAConfirmer(false)}
       />
+    </div>
+  );
+}
+
+/**
+ * Le repère posé juste au-dessus de la barre d'écriture quand l'agent a fini
+ * son tour sur une question écrite en toutes lettres. Pas un faux bloc de
+ * réponse : une simple ligne qui pointe la barre existante — ni bouton, ni
+ * champ de plus.
+ */
+function RepereReponseTexte() {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-t border-warning/40 bg-warning/10 px-3 py-1.5 text-[12.5px] text-muted">
+      <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-warning" />
+      <span className="min-w-0">L'agent attend votre réponse — écrivez-la ci-dessous.</span>
     </div>
   );
 }
