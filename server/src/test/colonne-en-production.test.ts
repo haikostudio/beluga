@@ -14,6 +14,7 @@ import {
   carteRangee,
   colonneAuDemarrage,
   colonneDeReprise,
+  environnementParDefaut,
   etapeDeLaColonne,
   etapeDePublication,
   etapesDePublication,
@@ -22,6 +23,7 @@ import {
   repriseAutorisee,
   runDeLEtape,
 } from '@haikodev/shared';
+import { moyensDePublication } from '../deploy.js';
 
 /**
  * La colonne « En production » : la mise en ligne compte DEUX étapes.
@@ -139,6 +141,36 @@ test('une étape réclamée qui n’existe pas est refusée, jamais remplacée e
   assert.equal(etapeDePublication({ environnementDev: true }, 'dev')?.arrivee, 'in_production');
 });
 
+/* -------- Ce qui déclenche la seconde étape -------- */
+
+test('la seconde étape s’ouvre sur un environnement « dev chez le client », et sur lui seul', () => {
+  // Le rôle EST la déclaration : un endroit où l'on montre le travail avant de
+  // le mettre en production. C'est le seul endroit du démon qui en décide.
+  const projet = (environments?: { id: string; nom: string; role: 'interne' | 'dev-client' | 'production' }[]) =>
+    ({ environments }) as unknown as Parameters<typeof moyensDePublication>[0];
+
+  // Un projet réglé à l'ancienne : un seul environnement « interne » fabriqué à
+  // la lecture, donc une seule mise en ligne — rien ne change pour lui.
+  assert.equal(moyensDePublication(projet()).environnementDev, false);
+  assert.equal(
+    moyensDePublication(projet([{ id: 'prod', nom: 'Production', role: 'production' }])).environnementDev,
+    false,
+  );
+  assert.equal(
+    moyensDePublication(projet([{ id: 'int', nom: 'Interne', role: 'interne' }])).environnementDev,
+    false,
+  );
+
+  // Déclaré, il ouvre les deux étapes — et donc le bloc d'« En production ».
+  const avecDev = projet([
+    { id: 'dev', nom: 'Dev client', role: 'dev-client' },
+    { id: 'prod', nom: 'Production', role: 'production' },
+  ]);
+  assert.equal(moyensDePublication(avecDev).environnementDev, true);
+  assert.equal(etapesDePublication(moyensDePublication(avecDev)).length, 2);
+  assert.equal(etapeDeLaColonne(moyensDePublication(avecDev), 'in_production')?.verbe, 'publier');
+});
+
 /* -------- Le bloc de publication en tête de colonne -------- */
 
 test('« En production » n’a de bloc de publication que si la seconde étape existe', () => {
@@ -174,6 +206,24 @@ test('une publication ne s’affiche que dans le bloc qui l’a lancée', () => 
   assert.equal(runDeLEtape(undefined, dev), true);
   assert.equal(runDeLEtape(undefined, production), false);
   assert.equal(runDeLEtape(undefined, etapesDePublication({})[0]), true);
+});
+
+test('« Tout publier » propose la production, pas l’environnement de dev', () => {
+  const liste = [
+    { id: 'dev', role: 'dev-client' },
+    { id: 'prod', role: 'production' },
+  ];
+  const [dev, production] = etapesDePublication({ environnementDev: true });
+  // Le bloc d'« En production » pointerait sinon sur l'environnement d'où le
+  // travail vient justement de sortir.
+  assert.equal(environnementParDefaut(liste, production), 'prod');
+  // Partout ailleurs, la règle ne bouge pas : le PREMIER de la liste.
+  assert.equal(environnementParDefaut(liste, dev), 'dev');
+  assert.equal(environnementParDefaut(liste, etapesDePublication({})[0]), 'dev');
+  assert.equal(environnementParDefaut(liste), 'dev');
+  // Aucune production déclarée : on retombe sur le premier, jamais sur rien.
+  assert.equal(environnementParDefaut([{ id: 'interne', role: 'interne' }], production), 'interne');
+  assert.equal(environnementParDefaut([], production), '');
 });
 
 test('le bloc de publication est posé en tête des deux colonnes de mise en ligne', () => {

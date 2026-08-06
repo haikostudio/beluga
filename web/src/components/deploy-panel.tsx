@@ -10,6 +10,7 @@ import {
   PlanDeMiseEnLigne,
   ResultatDeRun,
   derouleOuvert,
+  environnementParDefaut,
   etapeDeLaColonne,
   libelleRole,
   mentionResultat,
@@ -148,9 +149,12 @@ export function DeployPanel({
           const liste: EnvironnementPublication[] = res?.environnements ?? [];
           setEnvironnements(liste);
           setDerniers(res?.derniers ?? {});
-          // L'environnement visé se cale sur le premier tant que personne n'a
-          // choisi, et retombe dessus si celui qui était choisi a disparu.
-          setEnvVise((actuel) => (liste.some((env) => env.id === actuel) ? actuel : (liste[0]?.id ?? '')));
+          // L'environnement visé se cale sur celui que l'étape propose tant que
+          // personne n'a choisi, et retombe dessus si celui qui était choisi a
+          // disparu — pour « En production », la production plutôt que le dev.
+          setEnvVise((actuel) =>
+            liste.some((env) => env.id === actuel) ? actuel : environnementParDefaut(liste, res?.etape),
+          );
         })
         .catch(() => undefined);
     void controler();

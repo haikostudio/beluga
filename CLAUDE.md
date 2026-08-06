@@ -338,8 +338,11 @@ sans son point d'essai.
   porte forcément une date de mise en ligne). `startDeploy(projectId, { cible })` et la commande
   `deploy.start` portent la cible ; une étape réclamée qui n'existe pas est REFUSÉE en le disant
   (`raisonEtapeInconnue`), jamais remplacée en silence. `moyensDePublication` (`server/src/deploy.ts`)
-  est le SEUL endroit qui dit si un environnement de dev existe — il rend `false` tant que le réglage
-  n'est pas écrit (carte séparée). Publier reste un geste de l'utilisateur, aux deux étapes.
+  est le SEUL endroit qui dit si un environnement de dev existe : il lit les environnements du projet
+  et rend vrai dès qu'un seul porte le rôle **`dev-client`** (« dev chez le client »). Les rôles
+  `interne` et `production` ne comptent pas — le premier est l'environnement fabriqué pour un projet
+  réglé à l'ancienne, le second est l'arrivée. Un projet qui n'en déclare aucun garde donc exactement
+  le parcours d'avant. Publier reste un geste de l'utilisateur, aux deux étapes.
   Verrouillé par `server/src/test/colonne-en-production.test.ts` et
   `scripts/verif-lot-production.mjs`.
 - **Le bloc de publication sert les DEUX étapes, en tête de la colonne d'où part son lot**
@@ -355,7 +358,10 @@ sans son point d'essai.
   d'attente et l'accord d'envoi repartent de la MÊME, et `runDeLEtape` décide dans lequel des deux
   blocs le déroulé s'affiche (une publication sans cible est celle du lot de « À déployer », le seul
   qui existait). Une publication en cours ailleurs éteint le bouton EN LE DISANT. Le pied de lot des
-  deux colonnes ne bouge pas.
+  deux colonnes ne bouge pas. L'environnement PROPOSÉ suit l'étape (`environnementParDefaut`) : le
+  bloc d'« En production » présélectionne le premier environnement de rôle `production`, sinon il
+  pointerait sur le dev d'où la carte vient de sortir ; partout ailleurs, c'est le PREMIER de la
+  liste, règle inchangée. Le menu reste modifiable — c'est une proposition, pas une contrainte.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
   `shared/src/suivi-colonne.ts`). La règle par défaut ne bouge pas : aucun chemin AUTOMATIQUE n'en
   ressort une carte — ni un tour d'agent (`colonneAuDemarrage`), ni `board_move_card`, ni une
