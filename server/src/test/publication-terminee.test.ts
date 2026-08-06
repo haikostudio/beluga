@@ -7,28 +7,20 @@ import { derouleOuvert, rapportAGarder } from '@haikodev/shared';
 /* ------------------------------------------------------------------ */
 
 test('sans publication, il n’y a rien à garder', () => {
-  assert.equal(rapportAGarder(undefined, 0), false);
-  assert.equal(rapportAGarder(undefined, 3), false);
+  assert.equal(rapportAGarder(undefined), false);
 });
 
-test('pendant le travail, le rapport reste, lot en attente ou non', () => {
-  assert.equal(rapportAGarder('running', 0), true);
-  assert.equal(rapportAGarder('running', 4), true);
+test('pendant le travail, le rapport reste', () => {
+  assert.equal(rapportAGarder('running'), true);
 });
 
-test('une publication réussie s’efface dès qu’un nouveau lot attend', () => {
-  assert.equal(rapportAGarder('success', 2), false);
-  assert.equal(rapportAGarder('success', 1), false);
-});
-
-test('une publication réussie reste tant que rien de neuf n’attend', () => {
-  assert.equal(rapportAGarder('success', 0), true);
+test('une publication réussie s’efface toujours, lot en attente ou non', () => {
+  assert.equal(rapportAGarder('success'), false);
 });
 
 test('un échec ou un arrêt reste toujours : il porte le motif et le bouton', () => {
-  assert.equal(rapportAGarder('failed', 0), true);
-  assert.equal(rapportAGarder('failed', 5), true);
-  assert.equal(rapportAGarder('stopped', 5), true);
+  assert.equal(rapportAGarder('failed'), true);
+  assert.equal(rapportAGarder('stopped'), true);
 });
 
 test('le déroulé s’ouvre au travail, se referme au succès, reste ouvert à l’échec', () => {

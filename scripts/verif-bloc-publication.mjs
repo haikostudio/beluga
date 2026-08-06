@@ -105,15 +105,12 @@ async function main() {
   noter('le bouton « Tout déployer » est présent', aBouton, libelle);
 
   const texte = await page.locator('body').innerText();
-  const rapport = /Publié\s*:\s*\d+\s*tâche/.test(texte);
+  const rapport = /Publié\s*(\([^)]*\))?\s*:\s*\d+\s*tâche/.test(texte);
   const etapes = texte.includes('Redémarrage du serveur') && texte.includes('Fusion des branches');
 
-  if (enAttente > 0) {
-    noter('le rapport de la publication précédente a laissé la place', !rapport && !etapes);
-  } else {
-    // Rien de neuf à envoyer : la trace du dernier passage reste, mais repliée.
-    noter('sans nouveau lot, le rapport tient en une ligne', rapport && !etapes);
-  }
+  // Une publication réussie repart VIERGE : plus de compte rendu ni d'étapes
+  // sous le bouton, qu'un nouveau lot attende (enAttente > 0) ou non.
+  noter('le rapport de la publication précédente a laissé la place', !rapport && !etapes, `lot en attente : ${enAttente}`);
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 

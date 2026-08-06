@@ -198,11 +198,11 @@ export function DeployPanel({
 
   const aPublier = embarked.length + enAttente.nombre;
   /*
-   * Une publication réussie ne garde le bloc que tant que rien de neuf
-   * n'attend : dès qu'un lot est prêt, son rapport s'efface et l'on repart
-   * d'un bloc propre (voir `rapportAGarder`).
+   * Une publication réussie n'affiche plus son compte rendu : dès qu'elle
+   * aboutit, le bloc repart vierge (bouton + chevron). Seuls le travail en
+   * cours, un échec ou un arrêt gardent leur rapport (voir `rapportAGarder`).
    */
-  const rapport = rapportAGarder(run?.state, aPublier) && mienne ? run : null;
+  const rapport = rapportAGarder(run?.state) && mienne ? run : null;
   /*
    * Le bloc reste TOUJOURS en tête de la colonne « À déployer », même sans rien
    * à envoyer : le bouton « Tout déployer » y est visible partout, seulement
