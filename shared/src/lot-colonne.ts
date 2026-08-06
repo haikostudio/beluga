@@ -30,6 +30,42 @@ export type BilanDeLot = {
 export const RAISON_SANS_MOT = 'refus sans explication';
 
 /**
+ * Certaines raisons ne sont pas « métier » : ce sont des messages TECHNIQUES du
+ * navigateur (délai dépassé, lien coupé) qui ne disent pas à l'utilisateur ce
+ * qui s'est passé ni quoi faire. On les traduit en une phrase claire. Toutes les
+ * autres raisons — dossier occupé, plus de place, aucun compte disponible — sont
+ * déjà claires : elles PASSENT telles quelles, on n'y touche pas.
+ */
+const RAISONS_TECHNIQUES: { motif: RegExp; clair: string }[] = [
+  {
+    motif: /le serveur ne répond pas/i,
+    clair: 'le serveur n’a pas répondu à temps ; la carte n’a peut-être pas démarré — vérifiez la colonne.',
+  },
+  {
+    motif: /non connecté/i,
+    clair: 'l’application a perdu le lien avec le serveur ; réessayez une fois reconnecté.',
+  },
+  {
+    motif: /^(commande|déplacement) refusé/i,
+    clair: 'le serveur a refusé sans préciser ; regardez la carte, sa raison peut y être écrite.',
+  },
+];
+
+/**
+ * Met une raison de refus en français simple. Une raison technique connue est
+ * remplacée par sa phrase claire ; tout le reste — déjà lisible — est rendu tel
+ * quel. Une raison vide reste vide (l'appelant retombe sur `RAISON_SANS_MOT`).
+ */
+export function traduireRaison(raison?: string): string | undefined {
+  const texte = raison?.trim();
+  if (!texte) return texte;
+  for (const { motif, clair } of RAISONS_TECHNIQUES) {
+    if (motif.test(texte)) return clair;
+  }
+  return texte;
+}
+
+/**
  * Au plus trois raisons dans le message : au-delà, la bulle deviendrait un mur.
  * Les autres cartes gardent la leur, écrite sur elles (`waitingReason`).
  */
@@ -44,27 +80,35 @@ const pluriel = (n: number) => (n > 1 ? 's' : '');
  *                  « déployée », « archivée » — il s'accorde avec « carte ».
  * @param faites    combien de cartes le serveur a acceptées.
  * @param refusees  les cartes refusées, dans l'ordre où elles ont été tentées.
+ * @param projet    le NOM du projet, mis en tête quand il est connu : un message
+ *                  d'échec doit dire de quel projet il parle.
  */
-export function bilanDeLot(participe: string, faites: number, refusees: RefusDeLot[]): BilanDeLot {
+export function bilanDeLot(
+  participe: string,
+  faites: number,
+  refusees: RefusDeLot[],
+  projet?: string,
+): BilanDeLot {
   const refus = refusees ?? [];
+  const prefixe = projet?.trim() ? `Projet « ${projet.trim()} » — ` : '';
 
   if (!refus.length) {
     return {
       niveau: 'success',
       texte: faites
-        ? `${faites} carte${pluriel(faites)} ${participe}${pluriel(faites)}.`
-        : 'Aucune carte à traiter.',
+        ? `${prefixe}${faites} carte${pluriel(faites)} ${participe}${pluriel(faites)}.`
+        : `${prefixe}Aucune carte à traiter.`,
     };
   }
 
   const tete = faites
-    ? `${faites} carte${pluriel(faites)} ${participe}${pluriel(faites)}, ${refus.length} en attente :`
+    ? `${prefixe}${faites} carte${pluriel(faites)} ${participe}${pluriel(faites)}, ${refus.length} en attente :`
     : // « Aucune carte » reste au SINGULIER, quel que soit le nombre de refus.
-      `Aucune carte ${participe} — ${refus.length} en attente :`;
+      `${prefixe}Aucune carte ${participe} — ${refus.length} en attente :`;
 
   const lignes = refus
     .slice(0, RAISONS_AFFICHEES)
-    .map((r) => `• « ${r.titre} » — ${r.raison?.trim() || RAISON_SANS_MOT}`);
+    .map((r) => `• « ${r.titre} » — ${traduireRaison(r.raison) || RAISON_SANS_MOT}`);
 
   const reste = refus.length - lignes.length;
   if (reste > 0) {

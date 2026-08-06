@@ -12,6 +12,7 @@ import {
   controlesTombes,
   detailDEchec,
   estPlomberie,
+  messageEchecPublication,
   miseEnLigneReelle,
   phraseDEchec,
   planDeMiseEnLigne,
@@ -1111,7 +1112,15 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
         error: raison,
         endedAt: Date.now(),
       });
-      bus.toast('error', `Publication interrompue : ${raison}`);
+      // On nomme le projet, l'étape tombée (celle marquée en échec, sinon celle
+      // qui tournait) et où lire le détail — jamais l'exception brute toute nue.
+      const etapeTombee = current.steps.find((s) => s.state === 'failed')?.key ?? current.currentStep;
+      const message = messageEchecPublication({
+        projet: project?.name,
+        etape: etapeTombee ? STEP_LABELS[etapeTombee] : undefined,
+        raison,
+      });
+      bus.toast('error', message);
       /*
        * Une publication qui tombe se dit AUSSI FORT qu'une qui aboutit : sans
        * cela, on lance la mise en ligne, on ferme l'onglet, et on croit son
