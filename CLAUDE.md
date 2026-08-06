@@ -508,7 +508,15 @@ sans son point d'essai.
   (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
   `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), avec EN DESSOUS la
   même ligne d'ondes (`LigneOndes`, `data-pied-ondes`) qui s'anime quand ça parle. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
-  outre le Muet. L'historique est DURABLE : il vit en mémoire du navigateur (`localStorage`,
+  outre le Muet. Le message EN COURS de lecture est marqué dans la liste (`data-en-lecture`,
+  `aria-current`, fond `bg-raised`, icône `text-success`) et porte SOUS lui une fine barre
+  (`data-barre-lecture`, couleur `bg-success` des ondes) qui avance avec le son : `dire(texte,
+  force, id)` retient l'identifiant lu (`enLecture`) et l'avancement (`avancement`, fraction 0→1
+  tirée de l'élément audio par `loadedmetadata`/`timeupdate`). Un JETON par lecture (`jetonRef`,
+  incrémenté par `taire`) empêche une parole finie de clôturer celle qui l'a remplacée. Quand la voix
+  de secours du navigateur prend le relais (avancement inconnu), le message reste marqué sans barre
+  trompeuse : `avancement` vaut `'indetermine'` et la barre PULSE (`animate-pulse-soft`) au lieu de
+  mentir sur une position. La barre disparaît à la fin, au remplacement ou à l'arrêt. L'historique est DURABLE : il vit en mémoire du navigateur (`localStorage`,
   `CLE_VOIX_HISTORIQUE`, jamais côté serveur), SURVIT au rechargement, garde jusqu'à
   `VOIX_HISTORIQUE_MAX` (100) messages (les plus anciens tombent) et n'en affiche que dix. Il se
   remplit à chaque annonce AUTOMATIQUE (fin de tâche, fin/échec de publication, hausse d'attention)
