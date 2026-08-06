@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import {
   REFUS_MICRO,
   RELECTURE_MS,
+  REVEIL_NORMALISE,
   SILENCE_FIN_MS,
   assemblerDictee,
   contientLeReveil,
   contientUneAnnulation,
+  ecartDeReveil,
   finDuReveil,
+  formeDeReveil,
   lireParole,
   normaliserParole,
 } from '@haikodev/shared';
@@ -27,6 +30,14 @@ test('le mot de réveil est reconnu sous ses variantes de transcription', () => 
   }
 });
 
+test('le mot par défaut est reconnu même découpé en morceaux par la transcription', () => {
+  // Ce que l'ancienne fenêtre de deux mots et la marge figée à 2 manquaient :
+  // un nom écrit en trois morceaux, ou « dis » remplacé par un mot voisin.
+  for (const dit of ['dis a ico', 'des Haiko', 'dis h aiko', 'd’ici Aïko']) {
+    assert.ok(contientLeReveil(dit), `« ${dit} » doit réveiller`);
+  }
+});
+
 test('une phrase ordinaire ne réveille rien', () => {
   for (const dit of [
     'Bonjour tout le monde',
@@ -34,9 +45,47 @@ test('une phrase ordinaire ne réveille rien', () => {
     'Il fait beau aujourd’hui',
     'discussion',
     'disque',
+    // Garde-fous du réveil élargi : trois écarts, ça ne passe pas.
+    'je dis à Rico de venir',
+    'on discute de tout ça',
+    'il a dit à Nico',
   ]) {
     assert.ok(!contientLeReveil(dit), `« ${dit} » ne doit pas réveiller`);
   }
+});
+
+test('la marge suit la longueur du mot réglé : court plus strict, long plus souple', () => {
+  assert.equal(ecartDeReveil('dishaiko'), 2); // 8 lettres
+  assert.equal(ecartDeReveil(formeDeReveil('Nova')), 1); // 4 lettres → strict
+  assert.equal(ecartDeReveil(formeDeReveil('Assistant Vocal')), 4); // 14 lettres → souple
+});
+
+test('un champ de réveil vide revient au mot par défaut', () => {
+  assert.equal(formeDeReveil(''), REVEIL_NORMALISE);
+  assert.equal(formeDeReveil('   '), REVEIL_NORMALISE);
+  assert.equal(formeDeReveil(undefined), REVEIL_NORMALISE);
+  assert.equal(formeDeReveil('Dis, Haïko !'), 'dishaiko');
+});
+
+test('un mot de réveil personnalisé COURT ouvre la dictée, et lui seul', () => {
+  const forme = formeDeReveil('Nova');
+  const lu = lireParole('Nova ouvre le tableau', false, forme);
+  assert.equal(lu.reveil, true);
+  assert.equal(lu.suite, 'ouvre le tableau');
+  // Le mot par défaut ne réveille plus quand on a choisi un autre mot.
+  assert.equal(finDuReveil('Dis Haiko range les cartes', forme), -1);
+  // Un mot court reste strict : un mot ordinaire proche ne déclenche pas.
+  assert.ok(!contientLeReveil('cette note est là', forme));
+});
+
+test('un mot de réveil personnalisé LONG tolère une prononciation abîmée', () => {
+  const forme = formeDeReveil('Assistant Vocal');
+  assert.ok(contientLeReveil('assistant vocal', forme));
+  // « vocal » entendu « local » : une lettre sur quatorze, ça passe encore.
+  assert.ok(contientLeReveil('assistant local maintenant', forme));
+  const lu = lireParole('assistant vocal range les cartes terminées', false, forme);
+  assert.equal(lu.reveil, true);
+  assert.equal(lu.suite, 'range les cartes terminées');
 });
 
 test('une phrase vide ne dit rien du tout', () => {

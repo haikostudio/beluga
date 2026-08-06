@@ -816,7 +816,7 @@ sans son point d'essai.
   au redimensionnement) : `ramenerDansLEcran` ne vaut donc QUE pour les places libres. Le module
   porte `data-accrochee` et `data-bord`. Verrouillé par `server/src/test/position-voix.test.ts` et
   `scripts/verif-position-voix.mjs` (cas d'accroche, souris et doigt).
-- **L'ÉCOUTE PERMANENTE ne s'ouvre JAMAIS toute seule, et le mot de réveil est « Dis Haiko »**
+- **L'ÉCOUTE PERMANENTE ne s'ouvre JAMAIS toute seule, et le mot de réveil est RÉGLABLE (défaut « Dis Haiko »)**
   (règles pures dans `shared/src/reveil-vocal.ts`, micro et découpe dans `web/src/lib/ecoute.ts`,
   affichage dans `web/src/components/voix-assistant.tsx`). Un interrupteur vit dans le panneau
   déplié du module de voix, à côté du Muet (`data-interrupteur-ecoute`, préférence SERVEUR
@@ -828,12 +828,20 @@ sans son point d'essai.
   son n'est gardé : la tranche est envoyée puis jetée, et le serveur efface son fichier temporaire.
   Le texte revenu entre par UN SEUL point (`recevoirParole`) — celui-là même que le point d'essai de
   la page (`window.haikodevEssai.parole`) emprunte, si bien qu'un script vérifie ce qui tourne
-  vraiment. Les RÈGLES de lecture sont pures et sans navigateur : `finDuReveil` reconnaît « Dis
-  Haiko » à `REVEIL_ECART_MAX` (2) lettres près sur la forme normalisée `dishaiko` — accents,
-  majuscules et ponctuation effacés, mots recollés — donc « Dis Haïko », « Dis, Haiko »,
-  « Dishaiko », « Dit aïko » comptent, et le réveil vaut AU MILIEU d'une phrase (ce qui suit devient
+  vraiment. Le mot de réveil est un RÉGLAGE serveur (`Settings.voixReveil`, défaut « Dis Haiko »,
+  édité dans l'onglet Système à côté du prénom de la voix) : `formeDeReveil` le normalise (accents,
+  ponctuation, espaces retirés → `dishaiko`) et un champ vide revient au mot par défaut plutôt que de
+  couper le réveil. Le module lit `state.settings?.voixReveil`, `useEcoutePermanente(actif, forme)`
+  le relit à chaque phrase par une référence — un changement prend aussitôt, sans rouvrir le micro.
+  Les RÈGLES de lecture sont pures et sans navigateur : `finDuReveil(texte, forme?)` fait glisser une
+  fenêtre d'UN À TROIS mots (`REVEIL_MOTS_MAX` = 3, pour rattraper un nom découpé « dis a ico ») et
+  reconnaît le réveil à `ecartDeReveil(forme)` lettres près — une marge qui SUIT la longueur (un quart
+  des lettres, au moins une : `dishaiko` (8) → 2, un mot court → 1, un mot long davantage), jamais
+  figée à 2. Accents, majuscules et ponctuation effacés, mots recollés — donc « Dis Haïko », « Dis,
+  Haiko », « Dishaiko », « Dit aïko », « dis a ico », « des Haiko » comptent ; « dis à Rico »
+  (`disarico`, trois écarts) non. Le réveil vaut AU MILIEU d'une phrase (ce qui suit devient
   la dictée). L'index rendu compte des mots du texte BRUT — la normalisation sert à reconnaître,
-  jamais à remplacer ce qui a été dit. `lireParole(texte, ecouteEnCours)` tranche : en guet, seule
+  jamais à remplacer ce qui a été dit. `lireParole(texte, ecouteEnCours, forme?)` tranche : en guet, seule
   une phrase portant le réveil compte ; en écoute, tout s'ajoute (`assemblerDictee`). Les états
   (`EtatEcoute`, portés par `data-etat-ecoute`) sont `eteinte`, `guette`, `ecoute`, `relit`,
   `refusee`. Le module se MÉTAMORPHOSE pour la dictée comme pour la parole (`formeDuModule` prend un

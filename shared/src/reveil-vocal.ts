@@ -18,20 +18,47 @@
  */
 
 /**
- * Le mot de réveil, sous sa forme normalisée (accents et espaces retirés).
- * C'est cette forme-là que l'on compare, jamais le texte affiché.
+ * Le mot de réveil AFFICHÉ par défaut, tel qu'on l'écrit dans les réglages.
+ * C'est la valeur de repli quand le champ des réglages est laissé vide.
+ */
+export const REVEIL_DEFAUT = 'Dis Haiko';
+
+/**
+ * Le mot de réveil par défaut, sous sa forme normalisée (accents, ponctuation
+ * et espaces retirés). C'est cette forme-là que l'on compare, jamais le texte
+ * affiché. Réglable : `formeDeReveil` en produit une à partir du mot choisi.
  */
 export const REVEIL_NORMALISE = 'dishaiko';
 
 /**
- * Combien de lettres peuvent différer sans que le réveil soit manqué. Deux sur
- * huit : « dizaiko », « disaiko », « dishaikos » passent ; un mot ordinaire de
- * la conversation, non.
+ * La forme normalisée du mot de réveil CHOISI : sans accent, sans ponctuation,
+ * mots recollés (« Dis Haïko ! » → « dishaiko »). Un champ vide, ou fait de
+ * seuls espaces, revient au mot par défaut plutôt que de couper le réveil.
  */
-export const REVEIL_ECART_MAX = 2;
+export function formeDeReveil(mot?: string | null): string {
+  const forme = normaliserParole(mot ?? '').replace(/ /g, '');
+  return forme || REVEIL_NORMALISE;
+}
 
-/** Combien de mots consécutifs au plus forment le mot de réveil (« dis » + « haiko »). */
-const REVEIL_MOTS_MAX = 2;
+/**
+ * Combien de lettres peuvent différer sans que le réveil soit manqué. La marge
+ * n'est plus figée : elle suit la LONGUEUR du mot réglé — un quart de ses
+ * lettres, au moins une. Le mot par défaut « dishaiko » (8 lettres) tolère
+ * donc 2 écarts, un mot long en tolère davantage (« assistantvocal », 14
+ * lettres → 4), un mot court une seule. Deux écarts sur huit, combinés à la
+ * fenêtre de trois mots, rattrapent un nom découpé (« dis a ico ») sans laisser
+ * passer une phrase ordinaire : « dis à Rico » (« disarico ») en est à trois.
+ */
+export function ecartDeReveil(forme: string): number {
+  return Math.max(1, Math.round(forme.length / 4));
+}
+
+/**
+ * Combien de mots consécutifs au plus forment le mot de réveil. Trois : « dis »
+ * + « haiko » arrive parfois découpé en trois morceaux par la transcription
+ * (« dis a ico »), et l'on veut le rattraper.
+ */
+const REVEIL_MOTS_MAX = 3;
 
 /** Les mots qui jettent la phrase en cours, sous forme normalisée. */
 export const MOTS_ANNULATION = ['annule', 'annuler', 'annulation', 'laissetomber', 'oublie'];
@@ -121,7 +148,9 @@ export function ecartDeMots(a: string, b: string, marge: number): number {
  * mot de réveil. Le réveil est reconnu où qu'il soit dans la phrase : au début
  * comme au milieu, ce qui suit devient la dictée.
  */
-export function finDuReveil(texte: string): number {
+export function finDuReveil(texte: string, forme: string = REVEIL_NORMALISE): number {
+  const cible = forme || REVEIL_NORMALISE;
+  const marge = ecartDeReveil(cible);
   // On découpe le texte D'ORIGINE, puis on normalise chaque mot séparément :
   // l'index rendu compte donc des mots du texte brut, et ce qui suit le réveil
   // se retrouve sans décalage (« Dis Haiko, ouvre-le » ferait sinon quatre mots
@@ -133,7 +162,7 @@ export function finDuReveil(texte: string): number {
     for (let n = 0; n < REVEIL_MOTS_MAX && debut + n < mots.length; n += 1) {
       fenetre += mots[debut + n];
       if (!fenetre) continue;
-      if (ecartDeMots(fenetre, REVEIL_NORMALISE, REVEIL_ECART_MAX) <= REVEIL_ECART_MAX) {
+      if (ecartDeMots(fenetre, cible, marge) <= marge) {
         return debut + n;
       }
     }
@@ -142,8 +171,8 @@ export function finDuReveil(texte: string): number {
 }
 
 /** Le mot de réveil est-il quelque part dans cette phrase ? */
-export function contientLeReveil(texte: string): boolean {
-  return finDuReveil(texte) >= 0;
+export function contientLeReveil(texte: string, forme: string = REVEIL_NORMALISE): boolean {
+  return finDuReveil(texte, forme) >= 0;
 }
 
 /**
@@ -176,7 +205,11 @@ export function contientUneAnnulation(texte: string): boolean {
  *
  * Une phrase vide ne dit rien, jamais un réveil.
  */
-export function lireParole(texte: string, ecouteEnCours: boolean): LectureDeParole {
+export function lireParole(
+  texte: string,
+  ecouteEnCours: boolean,
+  forme: string = REVEIL_NORMALISE,
+): LectureDeParole {
   const brut = texte.trim();
   if (!brut) return { reveil: false, annulation: false, suite: '' };
 
@@ -184,7 +217,7 @@ export function lireParole(texte: string, ecouteEnCours: boolean): LectureDeParo
     return { reveil: false, annulation: true, suite: '' };
   }
 
-  const fin = finDuReveil(brut);
+  const fin = finDuReveil(brut, forme);
   if (fin >= 0) {
     // Ce qui suit le mot de réveil, dans le texte D'ORIGINE (ponctuation et
     // accents compris) : c'est lui qu'on affichera et qu'on enverra.

@@ -1171,6 +1171,24 @@ function VoiceSection({ open }: { open: boolean }) {
         </p>
       </div>
 
+      <div className="mb-3">
+        <label className="mb-1 block text-[12.5px] text-muted">Le mot qui réveille l'écoute</label>
+        <Input
+          defaultValue={state.settings?.voixReveil ?? 'Dis Haiko'}
+          placeholder="Dis Haiko"
+          maxLength={40}
+          // Un mot vide retomberait sur « Dis Haiko » côté écoute ; on n'envoie
+          // que ce qui a du texte, une fois débarrassé de ses espaces.
+          onBlur={(event) => {
+            const mot = event.target.value.trim();
+            if (mot) client.send({ type: 'settings.update', patch: { voixReveil: mot } });
+          }}
+        />
+        <p className="mt-1 text-[11.5px] text-faint">
+          Quand l'écoute permanente est allumée, dites ce mot pour commencer à dicter (« {state.settings?.voixReveil || 'Dis Haiko'} range les cartes »).
+        </p>
+      </div>
+
       {!voices.length ? (
         <p className="text-[13px] text-faint">Aucune voix installée sur le serveur.</p>
       ) : (
