@@ -702,9 +702,17 @@ function ProposalChip({
         </div>
       ) : null}
 
-      {/* Les réglages de l'agent qui exécutera la carte, choisis dès maintenant */}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-1 border-t border-border px-2 py-1.5 sm:gap-x-1">
-        <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} />
+      {/* Les réglages de l'agent qui exécutera la carte, choisis dès maintenant.
+          Une seule rangée sur ordinateur (sm:flex-nowrap) : les trois menus, groupés
+          et rétrécissables (min-w-0 shrink), cèdent la place en tronquant leur texte
+          pendant que les boutons gardent leur taille (shrink-0). Sur téléphone, où
+          tout ne peut pas tenir à 360 px, le retour à la ligne reste possible mais
+          ne joue qu'ENTRE les deux blocs — menus au-dessus, boutons en dessous —,
+          jamais entre deux menus. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-1 border-t border-border px-2 py-1.5 sm:flex-nowrap sm:gap-x-1">
+        <div className="flex min-w-0 shrink items-center gap-x-0.5 sm:gap-x-1">
+          <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} />
+        </div>
         <div className="ml-auto flex shrink-0 gap-1.5">
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => decide(false)}>
             Refuser
