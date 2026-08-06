@@ -7,11 +7,14 @@
  *    MÊME sans aucune carte non lue, et absent ailleurs dans ce cas ;
  *  - l'entrée « Configurer le déploiement » ouvre la fenêtre, qui rappelle en
  *    une ligne l'environnement visé et la branche installée ;
- *  - une consigne écrite puis enregistrée SURVIT au rechargement de la page ;
+ *  - on saisit une BASE de texte, on clique « Générer », un état d'attente
+ *    s'affiche puis la consigne rédigée apparaît dans un champ modifiable ;
+ *  - base ET consigne enregistrées SURVIVENT au rechargement de la page ;
  *  - la consigne de « À déployer » n'est PAS celle de « En production ».
  *
- * Tout est SIMULÉ : `project.update` est intercepté dans le navigateur, on
- * répond à sa place et la commande ne part JAMAIS au serveur. La persistance
+ * Tout est SIMULÉ : `project.update` ET `consigne.generer` sont interceptés dans
+ * le navigateur, on répond à leur place — aucun vrai agent, aucun quota dépensé,
+ * la commande ne part JAMAIS au serveur. La persistance
  * est imitée par le stockage local de la page — c'est ce qui permet de juger un
  * VRAI rechargement sans écrire dans aucun projet réel. Rien n'est écrit en
  * base à part la session d'essai, retirée en partant.
@@ -62,8 +65,13 @@ function record(nom, ok, detail = '') {
   console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}${detail ? ` — ${detail}` : ''}`);
 }
 
-const CONSIGNE_DEV = 'Dev : construire, copier le dossier, contrôler l’adresse. Ne pas toucher au service.';
-const CONSIGNE_PROD = 'Production : arrêter le service, installer, redémarrer, contrôler. Jamais de force.';
+// Ce qu'on TAPE : la base brute de chaque étape.
+const BASE_DEV = 'Dev : construire, copier le dossier, contrôler l’adresse. Ne pas toucher au service.';
+const BASE_PROD = 'Production : arrêter le service, installer, redémarrer, contrôler. Jamais de force.';
+// Ce que l'agent factice RÉDIGE — même formule que `window.__consigneFactice`.
+const genereAttendu = (colonne, base) => `Consigne générée pour ${colonne} :: ${base}`;
+const CONSIGNE_DEV = genereAttendu('to_deploy', BASE_DEV);
+const CONSIGNE_PROD = genereAttendu('in_production', BASE_PROD);
 
 async function main() {
   console.log(`Racine jugée : ${RACINE}`);
@@ -112,7 +120,37 @@ async function main() {
       },
       set(ecouteur) {
         window.__ecouteurs.push(ecouteur);
-        return propriete.set.call(this, ecouteur);
+        /*
+         * Le démon RÉEL continue de pousser SON projet (environnements vides,
+         * aucune consigne) sous le même identifiant : sans garde, il écraserait
+         * notre projet d'essai. Deux chemins l'apportent — l'événement `ready`
+         * qui porte TOUTE la liste (`projects`) et le `project.upsert` d'un seul.
+         * On REMPLACE notre projet dans les deux, par celui qu'on fabrique
+         * (base et consigne rangées comprises), sans toucher aux autres projets
+         * ni aux autres événements.
+         */
+        const enveloppe = (evt) => {
+          try {
+            const msg = JSON.parse(evt.data);
+            const id = window.__projetId;
+            let change = false;
+            if (id) {
+              if (msg?.type === 'project.upsert' && msg.project?.id === id) {
+                msg.project = window.__construireProjet(id);
+                change = true;
+              }
+              if (Array.isArray(msg?.projects)) {
+                msg.projects = msg.projects.map((p) => (p?.id === id ? window.__construireProjet(id) : p));
+                change = true;
+              }
+            }
+            if (change) return ecouteur({ data: JSON.stringify(msg) });
+          } catch {
+            /* pas du JSON : on laisse filer tel quel */
+          }
+          return ecouteur(evt);
+        };
+        return propriete.set.call(this, enveloppe);
       },
     });
     window.__injecter = (evenement) => {
@@ -128,10 +166,19 @@ async function main() {
       }
     };
     window.__consignesRangees = () => lireRange().consignesDeploiement ?? null;
+    window.__basesRangees = () => lireRange().basesDeploiement ?? null;
+
+    // La consigne que « génère » l'agent factice : déterministe à partir de la
+    // colonne et de la base, pour qu'un contrôle sache exactement quoi attendre.
+    // AUCUN vrai agent n'est lancé, aucun quota touché.
+    window.__consigneFactice = (colonne, base) => `Consigne générée pour ${colonne} :: ${base}`;
+    // Délai de la réponse de génération, pour rendre l'état d'attente OBSERVABLE.
+    window.__genererDelai = 500;
 
     // Le projet d'essai : on part du projet réel ouvert, dont on ne garde que
-    // l'identifiant, et on lui pose des réglages de publication à nous.
-    window.__poserProjet = (id) => {
+    // l'identifiant, et on lui pose des réglages de publication à nous. La base
+    // et la consigne rangées (stockage local) le suivent à chaque fabrication.
+    window.__construireProjet = (id) => {
       const projet = {
         id,
         name: 'Essai consigne',
@@ -148,6 +195,11 @@ async function main() {
         ...lireRange(),
       };
       projet.id = id;
+      return projet;
+    };
+    window.__poserProjet = (id) => {
+      window.__projetId = id;
+      const projet = window.__construireProjet(id);
       window.__injecter({ type: 'project.upsert', project: projet });
       return projet;
     };
@@ -161,6 +213,15 @@ async function main() {
         /* pas du JSON : on laisse filer */
       }
       const cmd = enveloppe?.cmd;
+      if (cmd?.type === 'consigne.generer') {
+        // On répond à la place du serveur, APRÈS un délai, avec une consigne
+        // factice : jamais un vrai tour d'agent, jamais de quota dépensé.
+        const consigne = window.__consigneFactice(cmd.colonne, cmd.base);
+        setTimeout(() => {
+          window.__injecter({ id: enveloppe.id, type: 'ack', ok: true, data: { ok: true, consigne } });
+        }, window.__genererDelai);
+        return;
+      }
       if (cmd?.type === 'project.update' && cmd.patch?.consignesDeploiement) {
         const range = lireRange();
         const projet = { ...range, ...cmd.patch, id: cmd.id };
@@ -269,30 +330,40 @@ async function main() {
     ailleurs.map((c) => `${c.cle}:${c.menu ? 'menu' : '—'}/${c.nonLues}`).join(' '),
   );
 
-  /* -------- Écrire une consigne -------- */
+  /* -------- Saisir une base, générer, enregistrer -------- */
 
-  const ecrire = async (colonne, texte) => {
+  // Ouvre la fenêtre d'une colonne, saisit la base, clique Générer, attend la
+  // consigne rédigée, puis enregistre. Rend l'état d'attente saisi au vol.
+  const ouvrirFenetre = async (colonne) => {
     await amener(colonne);
     await page.locator(`[data-menu-colonne="${colonne}"]`).click();
     await page.waitForTimeout(500);
     await page.locator(`[data-configurer-deploiement="${colonne}"]`).click();
     await page.waitForTimeout(700);
-    const champ = page.locator('[data-consigne-deploiement]');
-    await champ.fill(texte);
-    await page.waitForTimeout(200);
-    await page.locator('[data-enregistrer-consigne]').click();
-    await page.waitForTimeout(1200);
   };
 
-  await amener('to_deploy');
-  await page.locator('[data-menu-colonne="to_deploy"]').click();
-  await page.waitForTimeout(500);
-  record(
-    'le menu porte l’entrée « Configurer le déploiement »',
-    (await page.locator('[data-configurer-deploiement="to_deploy"]').count()) === 1,
-  );
-  await page.locator('[data-configurer-deploiement="to_deploy"]').click();
-  await page.waitForTimeout(800);
+  const genererEtEnregistrer = async (colonne, base) => {
+    await ouvrirFenetre(colonne);
+    await page.locator('[data-consigne-base]').fill(base);
+    await page.waitForTimeout(150);
+    await page.locator('[data-generer-consigne]').click();
+    // L'état d'attente est bref (délai factice) : on l'attrape tout de suite.
+    const enAttente = (await page.locator('[data-generer-consigne]').textContent()) ?? '';
+    // Puis la consigne rédigée arrive dans le champ modifiable.
+    await page
+      .waitForFunction(
+        (attendu) => document.querySelector('[data-consigne-deploiement]')?.value === attendu,
+        genereAttendu(colonne, base),
+        { timeout: 8000 },
+      )
+      .catch(() => undefined);
+    const consigneAffichee = await page.locator('[data-consigne-deploiement]').inputValue();
+    await page.locator('[data-enregistrer-consigne]').click();
+    await page.waitForTimeout(1200);
+    return { enAttente, consigneAffichee };
+  };
+
+  await ouvrirFenetre('to_deploy');
 
   record(
     'la fenêtre s’ouvre et nomme l’étape réglée',
@@ -306,26 +377,43 @@ async function main() {
     rappel.trim().slice(0, 120),
   );
   record(
-    'le champ de consigne part VIDE quand rien n’a été réglé',
-    (await page.locator('[data-consigne-deploiement]').inputValue()) === '',
+    'la base ET la consigne partent VIDES quand rien n’a été réglé',
+    (await page.locator('[data-consigne-base]').inputValue()) === '' &&
+      (await page.locator('[data-consigne-deploiement]').inputValue()) === '',
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+
+  const devFait = await genererEtEnregistrer('to_deploy', BASE_DEV);
+  record(
+    'cliquer Générer montre un état d’attente',
+    /Génération/i.test(devFait.enAttente),
+    devFait.enAttente.trim().slice(0, 40),
+  );
+  record(
+    'la consigne rédigée apparaît dans le champ modifiable',
+    devFait.consigneAffichee === CONSIGNE_DEV,
+    devFait.consigneAffichee.slice(0, 80),
   );
 
-  await page.locator('[data-consigne-deploiement]').fill(CONSIGNE_DEV);
-  await page.locator('[data-enregistrer-consigne]').click();
-  await page.waitForTimeout(1300);
+  const range1Base = await page.evaluate(() => window.__basesRangees());
   const range1 = await page.evaluate(() => window.__consignesRangees());
   record(
-    'l’enregistrement range la consigne de « À déployer » sur le projet',
-    range1?.to_deploy === CONSIGNE_DEV,
-    JSON.stringify(range1 ?? {}).slice(0, 120),
+    'l’enregistrement range la BASE et la CONSIGNE de « À déployer »',
+    range1Base?.to_deploy === BASE_DEV && range1?.to_deploy === CONSIGNE_DEV,
+    `${JSON.stringify(range1Base ?? {}).slice(0, 80)} | ${JSON.stringify(range1 ?? {}).slice(0, 80)}`,
   );
 
-  await ecrire('in_production', CONSIGNE_PROD);
+  await genererEtEnregistrer('in_production', BASE_PROD);
+  const range2Base = await page.evaluate(() => window.__basesRangees());
   const range2 = await page.evaluate(() => window.__consignesRangees());
   record(
-    'les DEUX consignes coexistent, chacune la sienne',
-    range2?.to_deploy === CONSIGNE_DEV && range2?.in_production === CONSIGNE_PROD,
-    JSON.stringify(range2 ?? {}).slice(0, 160),
+    'les DEUX étapes coexistent, base et consigne chacune la sienne',
+    range2Base?.to_deploy === BASE_DEV &&
+      range2Base?.in_production === BASE_PROD &&
+      range2?.to_deploy === CONSIGNE_DEV &&
+      range2?.in_production === CONSIGNE_PROD,
+    `${JSON.stringify(range2Base ?? {}).slice(0, 90)} | ${JSON.stringify(range2 ?? {}).slice(0, 90)}`,
   );
   record('la consigne de « À déployer » n’est PAS celle de « En production »', range2?.to_deploy !== range2?.in_production);
 
@@ -334,33 +422,46 @@ async function main() {
   await ouvrir();
 
   const relire = async (colonne) => {
-    await amener(colonne);
-    await page.locator(`[data-menu-colonne="${colonne}"]`).click();
-    await page.waitForTimeout(500);
-    await page.locator(`[data-configurer-deploiement="${colonne}"]`).click();
-    await page.waitForTimeout(800);
-    const valeur = await page.locator('[data-consigne-deploiement]').inputValue();
+    await ouvrirFenetre(colonne);
+    const base = await page.locator('[data-consigne-base]').inputValue();
+    const consigne = await page.locator('[data-consigne-deploiement]').inputValue();
     await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
-    return valeur;
+    return { base, consigne };
   };
 
   const reluDev = await relire('to_deploy');
-  record('après rechargement, la consigne de « À déployer » est toujours là', reluDev === CONSIGNE_DEV, reluDev.slice(0, 80));
+  record(
+    'après rechargement, la base ET la consigne de « À déployer » sont là',
+    reluDev.base === BASE_DEV && reluDev.consigne === CONSIGNE_DEV,
+    `${reluDev.base.slice(0, 50)} | ${reluDev.consigne.slice(0, 50)}`,
+  );
 
   const reluProd = await relire('in_production');
-  record('après rechargement, la consigne de « En production » est toujours là', reluProd === CONSIGNE_PROD, reluProd.slice(0, 80));
+  record(
+    'après rechargement, la base ET la consigne de « En production » sont là',
+    reluProd.base === BASE_PROD && reluProd.consigne === CONSIGNE_PROD,
+    `${reluProd.base.slice(0, 50)} | ${reluProd.consigne.slice(0, 50)}`,
+  );
 
-  record('les deux consignes relues restent distinctes', reluDev !== reluProd);
+  record('les deux consignes relues restent distinctes', reluDev.consigne !== reluProd.consigne);
 
-  /* -------- Effacer -------- */
+  /* -------- Ré-éditer la base à la main, sans regénérer -------- */
 
-  await ecrire('to_deploy', '');
+  await ouvrirFenetre('to_deploy');
+  await page.locator('[data-consigne-base]').fill('');
+  await page.locator('[data-consigne-deploiement]').fill('');
+  await page.locator('[data-enregistrer-consigne]').click();
+  await page.waitForTimeout(1200);
+  const range3Base = await page.evaluate(() => window.__basesRangees());
   const range3 = await page.evaluate(() => window.__consignesRangees());
   record(
-    'une consigne effacée disparaît, l’autre reste',
-    !range3?.to_deploy && range3?.in_production === CONSIGNE_PROD,
-    JSON.stringify(range3 ?? {}).slice(0, 160),
+    'vider une étape efface sa base ET sa consigne, l’autre reste',
+    !range3Base?.to_deploy &&
+      !range3?.to_deploy &&
+      range3Base?.in_production === BASE_PROD &&
+      range3?.in_production === CONSIGNE_PROD,
+    `${JSON.stringify(range3Base ?? {}).slice(0, 80)} | ${JSON.stringify(range3 ?? {}).slice(0, 80)}`,
   );
 
   record('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));

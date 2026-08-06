@@ -239,7 +239,16 @@ sans son point d'essai.
   (`rappelDeConsigne` : environnement visé par défaut — le premier de la liste, comme
   `environnementVise` — et branche installée, vide = branche principale). L'enregistrement passe par
   `project.update`, jamais par un second chemin d'écriture. **Le mécanisme de publication ne lit pas
-  encore cette consigne** : l'écrire ne change rien au déroulé. Verrouillé par
+  encore cette consigne** : l'écrire ne change rien au déroulé. La fenêtre porte DEUX textes par
+  colonne : une BASE brute (`Project.basesDeploiement`, mêmes clés, même `ecrireBaseDeploiement` que
+  la consigne) que l'utilisateur écrit dans ses mots, et la CONSIGNE finale (`consignesDeploiement`).
+  Un bouton « Générer » confie la base à un agent de rôle `deploy` — tour PAYANT — par la commande
+  `consigne.generer` (`server/src/consigne-deploiement.ts`, prompt pur `promptGenerationConsigne`,
+  gabarit `none` pour que la dernière réponse SOIT la consigne, `nettoyerConsigneGeneree` retire un
+  bloc de code enveloppant et borne à `CONSIGNE_MAX`). La génération ne persiste RIEN et ne déploie
+  RIEN : elle rend le texte, montré dans un champ MODIFIABLE ; base et consigne ne sont enregistrées
+  qu'au clic « Enregistrer », toujours par le même `project.update`. Les deux sont conservées côte à
+  côte : on ré-édite la base et on relance. Verrouillé par
   `server/src/test/consigne-deploiement.test.ts` et `scripts/verif-consigne-deploiement.mjs`.
 - **Une CONSIGNE de déploiement confie la mise en ligne à un agent**
   (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Un environnement de

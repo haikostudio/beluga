@@ -332,6 +332,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * ou POSE LA QUESTION quand un doute demeure.
    */
   z.object({ type: z.literal('voix.demande'), texte: z.string() }),
+  /**
+   * Rédige la consigne de déploiement d'une colonne à partir d'une BASE de
+   * texte brute, par un tour d'agent PAYANT. Ne persiste rien et ne déploie
+   * rien : rend le texte généré, que l'interface montre et enregistre ensuite
+   * par `project.update`.
+   */
+  z.object({
+    type: z.literal('consigne.generer'),
+    projectId: z.string(),
+    colonne: z.enum(['to_deploy', 'in_production']),
+    base: z.string(),
+  }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),

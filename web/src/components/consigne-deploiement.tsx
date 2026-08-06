@@ -1,9 +1,11 @@
 import * as React from 'react';
-import { Rocket } from 'lucide-react';
+import { Rocket, Sparkles } from 'lucide-react';
 import {
   CONSIGNE_MAX,
   ColonneConsigne,
+  baseDeploiement,
   consigneDeploiement,
+  ecrireBaseDeploiement,
   ecrireConsigneDeploiement,
   rappelDeConsigne,
   titreDeConsigne,
@@ -16,15 +18,19 @@ import { useApp } from '@/lib/use-app';
 /**
  * La fenêtre qui règle le DÉROULÉ de déploiement d'une étape.
  *
- * On y écrit, en texte libre, la consigne que l'agent de déploiement recevra :
- * quoi faire, dans quel ordre, ce qu'il ne doit pas faire. Une consigne par
- * étape et par colonne, indépendantes l'une de l'autre — les règles sont pures
- * (`shared/src/consigne-deploiement.ts`), ici on ne fait que saisir.
+ * Deux textes par colonne, conservés côte à côte :
+ *  - la BASE, la procédure brute écrite à la main par l'utilisateur ;
+ *  - la CONSIGNE, la version mise en forme que l'agent de déploiement recevra.
  *
- * Écrire la consigne ne DÉCLENCHE rien : aucune publication ne part, et le
- * mécanisme de mise en ligne ne la lit pas encore. C'est un réglage du projet,
- * enregistré par la commande `project.update` déjà en place — pas un second
- * chemin d'écriture.
+ * Un bouton « Générer » confie la base à un agent (tour PAYANT) qui en rédige
+ * une consigne claire. Le résultat s'affiche dans un champ MODIFIABLE : ce n'est
+ * la consigne retenue qu'une fois « Enregistrer » cliqué. On peut ré-éditer la
+ * base et relancer la génération autant qu'on veut.
+ *
+ * Écrire ne DÉCLENCHE rien : aucune publication ne part, et le mécanisme de mise
+ * en ligne ne lit pas encore ces consignes de colonne. L'enregistrement passe
+ * par la commande `project.update` déjà en place — pas un second chemin
+ * d'écriture. Les règles sont pures (`shared/src/consigne-deploiement.ts`).
  *
  * Sur téléphone, `DialogContent` est déjà un tiroir bas : rien à faire ici.
  */
@@ -41,9 +47,12 @@ export function FenetreConsigneDeploiement({
 }) {
   const state = useApp();
   const projet = state.projects.find((p) => p.id === projectId);
-  const enregistree = consigneDeploiement(projet, colonne);
+  const baseEnregistree = baseDeploiement(projet, colonne);
+  const consigneEnregistree = consigneDeploiement(projet, colonne);
 
-  const [texte, setTexte] = React.useState(enregistree);
+  const [base, setBase] = React.useState(baseEnregistree);
+  const [consigne, setConsigne] = React.useState(consigneEnregistree);
+  const [generation, setGeneration] = React.useState(false);
   const [enregistrement, setEnregistrement] = React.useState(false);
 
   /*
@@ -52,11 +61,39 @@ export function FenetreConsigneDeploiement({
    * dès qu'un événement du serveur rafraîchit le projet.
    */
   React.useEffect(() => {
-    if (open) setTexte(enregistree);
+    if (open) {
+      setBase(baseEnregistree);
+      setConsigne(consigneEnregistree);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projectId, colonne]);
 
   if (!projet) return null;
+
+  const generer = async () => {
+    if (!base.trim()) {
+      client.pushToast('error', 'Écrivez d’abord la base de texte à mettre en forme.');
+      return;
+    }
+    setGeneration(true);
+    try {
+      // Un tour d'agent peut être long : on laisse dix minutes.
+      const res = await client.call<{ ok: boolean; consigne?: string; raison?: string }>(
+        { type: 'consigne.generer', projectId: projet.id, colonne, base },
+        600000,
+      );
+      if (res.ok && res.consigne) {
+        setConsigne(res.consigne);
+        client.pushToast('success', 'Consigne rédigée. Relisez-la, puis enregistrez.');
+      } else {
+        client.pushToast('error', res.raison ?? 'la génération n’a rien rendu');
+      }
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'génération impossible');
+    } finally {
+      setGeneration(false);
+    }
+  };
 
   const enregistrer = async () => {
     setEnregistrement(true);
@@ -65,10 +102,11 @@ export function FenetreConsigneDeploiement({
         type: 'project.update',
         id: projet.id,
         patch: {
+          basesDeploiement: ecrireBaseDeploiement(projet.basesDeploiement, colonne, base),
           consignesDeploiement: ecrireConsigneDeploiement(
             projet.consignesDeploiement,
             colonne,
-            texte,
+            consigne,
           ),
         },
       });
@@ -81,9 +119,11 @@ export function FenetreConsigneDeploiement({
     }
   };
 
+  const occupe = generation || enregistrement;
+
   return (
     <Dialog open={open} onOpenChange={(valeur) => !valeur && onClose()}>
-      <DialogContent className="sm:w-[min(560px,100%)]" data-fenetre-consigne={colonne}>
+      <DialogContent className="sm:w-[min(600px,100%)]" data-fenetre-consigne={colonne}>
         <DialogTitle>{titreDeConsigne(colonne)}</DialogTitle>
         <Filet zone="Consigne de déploiement" onReprendre={onClose}>
           <div className="mt-3 space-y-3">
@@ -96,32 +136,69 @@ export function FenetreConsigneDeploiement({
               <span>{rappelDeConsigne(projet)}</span>
             </p>
 
+            {/* La base brute : la procédure du projet dans ses propres mots. */}
+            <div>
+              <Label>Base de texte — votre procédure, dans vos mots</Label>
+              <Textarea
+                data-consigne-base
+                value={base}
+                maxLength={CONSIGNE_MAX}
+                disabled={occupe}
+                onChange={(event) => setBase(event.target.value)}
+                placeholder={
+                  'Décrivez, sans forcément soigner la formulation, ce qu’il faut faire pour déployer cette étape.\n' +
+                  'Exemple : construire, arrêter le service, copier le dossier, redémarrer, contrôler l’adresse.\n' +
+                  'Dites aussi ce qu’il ne faut PAS faire.'
+                }
+                className="mt-1 min-h-[130px]"
+              />
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <p className="text-[12.5px] leading-snug text-faint">
+                  Générer confie cette base à un agent qui en rédige la consigne finale. C’est un tour
+                  d’agent : cela consomme du quota.
+                </p>
+                <Button
+                  data-generer-consigne
+                  variant="subtle"
+                  onClick={generer}
+                  disabled={occupe || !base.trim()}
+                  className="shrink-0 gap-1.5"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {generation ? 'Génération…' : 'Générer'}
+                </Button>
+              </div>
+            </div>
+
+            {/* La consigne finale : rédigée par l'agent, puis relue et modifiable. */}
             <div>
               <Label>Consigne donnée à l’agent de déploiement</Label>
               <Textarea
                 data-consigne-deploiement
-                value={texte}
+                value={consigne}
                 maxLength={CONSIGNE_MAX}
-                onChange={(event) => setTexte(event.target.value)}
+                disabled={occupe}
+                onChange={(event) => setConsigne(event.target.value)}
                 placeholder={
-                  'Ce qu’il faut faire pour déployer cette étape, dans l’ordre.\n' +
-                  'Exemple : construire, arrêter le service, copier le dossier, redémarrer, contrôler l’adresse.\n' +
-                  'Dites aussi ce qu’il ne faut PAS faire.'
+                  generation
+                    ? 'Rédaction en cours…'
+                    : 'La consigne rédigée apparaîtra ici. Vous pouvez aussi l’écrire ou la corriger à la main.'
                 }
-                className="mt-1 min-h-[180px]"
+                className="mt-1 min-h-[160px]"
               />
               <p className="mt-1 text-[12.5px] leading-snug text-faint">
-                Laissée vide, c’est le déroulé habituel qui s’applique. Cette consigne ne vaut que
-                pour cette étape : l’autre colonne garde la sienne.
+                C’est ce texte qui est enregistré. Laissé vide, c’est le déroulé habituel qui
+                s’applique. Cette consigne ne vaut que pour cette étape : l’autre colonne garde la
+                sienne.
               </p>
             </div>
           </div>
 
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="ghost" onClick={onClose} disabled={occupe}>
               Annuler
             </Button>
-            <Button data-enregistrer-consigne onClick={enregistrer} disabled={enregistrement}>
+            <Button data-enregistrer-consigne onClick={enregistrer} disabled={occupe}>
               {enregistrement ? 'Enregistrement…' : 'Enregistrer'}
             </Button>
           </div>
