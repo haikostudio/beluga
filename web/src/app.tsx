@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { LayoutGrid, Columns3, BarChart3, MessageSquare, Loader2 } from 'lucide-react';
+import { LayoutGrid, Columns3, MessageSquare, Loader2 } from 'lucide-react';
 import { TooltipProvider, Button, EmptyState, SidePanel } from '@/components/ui';
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
@@ -462,6 +462,7 @@ export function App() {
         <QuotaBar
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenProjects={() => setProjetsOuverts(true)}
+          onOpenDashboard={ouvrirTableauDeBord}
           rightOpen={rightOpen}
           onToggleRight={() => setRightOpen((value) => !value)}
         />
@@ -548,8 +549,10 @@ export function App() {
             trois bords — aucun filet sur toute la largeur, qui coupait l'écran
             en deux. Le conteneur reste dans le flux (shrink-0) : il réserve
             donc exactement la place du menu, et le contenu ne passe jamais
-            derrière. Trois destinations, trois icônes distinctes, trois
-            libellés d'un mot qui tiennent sur une ligne à 360 px. */}
+            derrière. DEUX destinations — Tableau, Chef —, la colonne du milieu
+            étant laissée au module de voix qui vient s'y poser (voir plus bas,
+            <VoixAssistant />, ancré au centre sur téléphone). Le tableau de bord
+            se rejoint alors par le menu trois points de la barre du haut. */}
         <nav
           data-menu-bas
           className="shrink-0 px-3 pb-2 pt-1 sm:hidden"
@@ -571,14 +574,12 @@ export function App() {
             >
               <Columns3 className="h-3.5 w-3.5 shrink-0" /> Tableau
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn('w-full gap-1 rounded-xl px-1 text-xs', dashboardOpen && 'bg-raised text-text')}
-              onClick={ouvrirTableauDeBord}
-            >
-              <BarChart3 className="h-3.5 w-3.5 shrink-0" /> Bord
-            </Button>
+            {/* La colonne du milieu est laissée VIDE : le module de voix (fixe,
+                par-dessus) vient s'y poser et déborde un peu en haut et en bas,
+                comme un bouton d'action. L'intercalaire garde simplement la
+                place de cette colonne pour que Tableau et Chef ne se
+                rapprochent pas. */}
+            <div aria-hidden data-place-voix />
             <Button
               variant="ghost"
               size="sm"

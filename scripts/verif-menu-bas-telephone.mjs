@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 /**
- * Vérification, dans un VRAI navigateur de téléphone (390×844), du menu de
- * navigation du bas :
+ * Vérification, dans un VRAI navigateur de téléphone (390×844, tactile), du menu
+ * de navigation du bas :
  *
  *  - le bloc est DÉTACHÉ des trois bords (marge à gauche, à droite, en bas) ;
  *  - aucun filet horizontal sur toute la largeur au-dessus du menu ;
- *  - les trois icônes sont différentes les unes des autres ;
- *  - les trois libellés tiennent sur UNE ligne, sans coupure ;
+ *  - le menu ne montre plus que DEUX boutons (« Tableau », « Chef »), la colonne
+ *    du milieu étant laissée au module de voix ; leurs deux icônes diffèrent et
+ *    leurs libellés tiennent sur une ligne ;
+ *  - le module de voix se pose AU CENTRE du menu, centré horizontalement, et
+ *    déborde un peu en haut et en bas de la barre ;
+ *  - le rond ne recouvre pas les deux boutons (ils restent cliquables), et un
+ *    appui déplie le panneau ;
  *  - le contenu du tableau s'arrête au-dessus du menu (place réservée) ;
- *  - ni le module de voix ni le bloc en bas à droite ne recouvrent le menu ;
- *  - au-dessus du seuil téléphone, aucun menu du bas.
+ *  - le bloc en bas à droite ne recouvre pas le menu ;
+ *  - au-dessus du seuil téléphone, aucun menu du bas, et le module redevient
+ *    flottant (déplaçable, poignée présente).
  *
  * Rien n'est écrit dans la base à part la session d'essai, retirée en partant.
  *
@@ -70,6 +76,10 @@ async function main() {
   });
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
+    // Un vrai téléphone : tactile et pointeur GROSSIER, pour que `useSurvol` soit
+    // faux et que l'ouverture du module se fasse bien à l'APPUI (et non au survol).
+    hasTouch: true,
+    isMobile: true,
     locale: 'fr-CH',
     ignoreHTTPSErrors: true,
     serviceWorkers: 'block',
@@ -111,11 +121,14 @@ async function main() {
       const styleBloc = getComputedStyle(bloc);
       const boutons = [...bloc.querySelectorAll('button')].map((bouton) => {
         const icone = bouton.querySelector('svg');
+        const r = bouton.getBoundingClientRect();
         return {
           texte: bouton.textContent.trim(),
           icone: icone ? icone.getAttribute('class') || '' : '',
           formes: icone ? icone.innerHTML : '',
-          hauteur: bouton.getBoundingClientRect().height,
+          hauteur: r.height,
+          left: r.left,
+          right: r.right,
           debordement: bouton.scrollWidth > bouton.clientWidth + 1,
           lignes: bouton.getClientRects().length,
         };
@@ -161,10 +174,15 @@ async function main() {
       `bordure haute ${mesures.filetNav} px`,
     );
 
+    record(
+      'le menu ne montre plus que deux boutons',
+      mesures.boutons.length === 2,
+      mesures.boutons.map((bouton) => bouton.texte).join(' / ') || 'aucun',
+    );
     const icones = mesures.boutons.map((bouton) => bouton.formes);
     record(
-      'les trois icônes sont différentes',
-      new Set(icones).size === 3,
+      'les deux icônes sont différentes',
+      new Set(icones).size === mesures.boutons.length && mesures.boutons.length === 2,
       mesures.boutons.map((bouton) => bouton.texte).join(' / '),
     );
     for (const bouton of mesures.boutons) {
@@ -184,20 +202,70 @@ async function main() {
     const chevauche = (a, b) =>
       !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
     record(
-      'le module de voix ne recouvre pas le menu',
-      !chevauche(mesures.voix, bloc),
-      mesures.voix ? `voix bas ${Math.round(mesures.voix.bottom)}` : 'module de voix non repéré',
-    );
-    record(
       'le bloc en bas à droite ne recouvre pas le menu',
       !chevauche(mesures.dock, bloc),
       mesures.dock ? `dock bas ${Math.round(mesures.dock.bottom)}` : 'dock non repéré',
     );
 
-    // Au-dessus du seuil téléphone : plus aucun menu du bas.
+    // LE MODULE DE VOIX AU CENTRE DU MENU. Il se pose sur la barre, centré, et
+    // déborde un peu en haut comme en bas — un bouton d'action, pas une pièce du
+    // menu. Il ne recouvre pas les deux boutons : ils restent cliquables.
+    const voix = mesures.voix;
+    record('le module de voix est repéré', !!voix && !!voix.top, voix ? '' : 'non repéré');
+    if (voix) {
+      const centreVoix = (voix.left + voix.right) / 2;
+      const centreEcran = ecran.largeur / 2;
+      record(
+        'le module de voix est centré horizontalement',
+        Math.abs(centreVoix - centreEcran) <= 2,
+        `centre voix ${Math.round(centreVoix)} / écran ${Math.round(centreEcran)}`,
+      );
+      const centreVoixY = (voix.top + voix.bottom) / 2;
+      const centreBloc = (bloc.top + bloc.bottom) / 2;
+      record(
+        'le rond est centré sur la barre du menu',
+        Math.abs(centreVoixY - centreBloc) <= 3,
+        `centre voix ${Math.round(centreVoixY)} / barre ${Math.round(centreBloc)}`,
+      );
+      record(
+        'le rond déborde en haut et en bas de la barre',
+        voix.top < bloc.top - 1 && voix.bottom > bloc.bottom + 1,
+        `voix ${Math.round(voix.top)}–${Math.round(voix.bottom)} / barre ${Math.round(bloc.top)}–${Math.round(bloc.bottom)}`,
+      );
+      const gauche = mesures.boutons[0];
+      const droite = mesures.boutons[1];
+      record(
+        'le rond ne recouvre pas les deux boutons',
+        !!gauche && !!droite && voix.left > gauche.right && voix.right < droite.left,
+        gauche && droite
+          ? `rond ${Math.round(voix.left)}–${Math.round(voix.right)}, boutons ≤${Math.round(gauche.right)} et ≥${Math.round(droite.left)}`
+          : 'boutons introuvables',
+      );
+    }
+
+    // Un appui déplie le panneau du module (le module n'est pas déplaçable ici :
+    // l'appui sert donc bien à ouvrir).
+    const module = page.locator('[data-module-voix]');
+    await module.tap();
+    await page.waitForTimeout(500);
+    record(
+      'un appui déplie le module de voix',
+      (await module.getAttribute('data-ouvert')) !== null,
+      `data-ancre-menu ${(await module.getAttribute('data-ancre-menu')) !== null ? 'oui' : 'non'}`,
+    );
+    // On referme pour ne pas fausser la mesure de recadrage au changement d'écran.
+    await page.tap('body', { position: { x: 10, y: 200 } });
+    await page.waitForTimeout(400);
+
+    // Au-dessus du seuil téléphone : plus aucun menu du bas, et le module de voix
+    // redevient flottant et déplaçable (la poignée revient à la souris).
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.waitForTimeout(600);
     record('aucun menu du bas sur ordinateur', !(await menu.isVisible()));
+    record(
+      'le module de voix n’est plus ancré au menu sur ordinateur',
+      (await module.getAttribute('data-ancre-menu')) === null,
+    );
   } finally {
     await browser.close();
     retirerSession(cookie);
