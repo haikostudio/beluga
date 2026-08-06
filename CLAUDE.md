@@ -683,8 +683,18 @@ sans son point d'essai.
   annoncé). Rien passé = message rouge, lot partiel = orange. Le pied se referme dans tous les cas.
   Corollaire côté client : **la retombée optimiste ne remet JAMAIS la vieille copie de la carte** —
   le serveur vient d'y écrire la raison de l'attente, on ne rend que la COLONNE sur la version la
-  plus fraîche, sinon la carte revient sans un mot. Verrouillé par
-  `server/src/test/lot-colonne.test.ts` et `scripts/verif-lot-planifie.mjs`.
+  plus fraîche, sinon la carte revient sans un mot. Le bilan NOMME le projet (préfixe
+  « Projet « … » — » quand le nom est connu, passé par `board.tsx`) et TRADUIT les raisons techniques
+  du navigateur (`traduireRaison`, `shared/src/lot-colonne.ts`) : « le serveur ne répond pas » devient
+  « le serveur n'a pas répondu à temps ; la carte n'a peut-être pas démarré — vérifiez la colonne ».
+  Les raisons déjà métier (dossier occupé, plus de place, aucun compte) passent telles quelles.
+  Verrouillé par `server/src/test/lot-colonne.test.ts` et `scripts/verif-lot-planifie.mjs`.
+- **Un message court d'échec de publication NOMME le projet, l'étape tombée et où lire le détail**
+  (`messageEchecPublication`, `shared/src/mise-en-ligne.ts`). Le `bus.toast('error', …)` de
+  `server/src/deploy.ts` ne recopie plus l'exception brute : l'étape en échec est celle marquée
+  `failed` (sinon `current.currentStep`), son libellé vient de `STEP_LABELS`, et la phrase renvoie
+  vers le bloc de publication du projet. Les notifications qui SORTENT de l'application ne changent
+  pas. Règle pure, ignorante des clés d'étape (l'appelant passe le libellé déjà résolu).
 - Une carte lancée a sa copie de travail à elle ; le dossier du projet, lui, reste **partagé** (chef
   d'orchestre, analyse, publication) : vérifier la branche avant de modifier, puis committer ses
   fichiers **nommés un par un** — jamais `git add -A`.
