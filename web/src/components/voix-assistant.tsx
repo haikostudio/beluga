@@ -220,8 +220,18 @@ export function VoixAssistant() {
   // L'historique complet, relu au démarrage depuis le navigateur : jusqu'à cent
   // messages, le plus récent en tête. La liste dépliée n'en montre que dix.
   const [messages, setMessages] = React.useState<MessageDit[]>(lireHistorique);
+  // Quel message est prononcé À L'INSTANT (son identifiant), et où en est la
+  // lecture : une fraction de 0 à 1 quand la durée est connue (voix Piper),
+  // « indetermine » quand elle ne l'est pas (voix de secours du navigateur),
+  // `null` quand rien ne se lit ou qu'on attend encore la durée.
+  const [enLecture, setEnLecture] = React.useState<number | null>(null);
+  const [avancement, setAvancement] = React.useState<number | 'indetermine' | null>(null);
 
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  // Un jeton par lecture : chaque écouteur (durée, avancement, fin, repli) vérifie
+  // qu'il sert TOUJOURS la lecture en cours avant de toucher à l'écran — sinon une
+  // parole finie clôturerait par erreur celle qui l'a remplacée.
+  const jetonRef = React.useRef(0);
   // La valeur lue au fil de l'eau par les écouteurs, sans les réabonner.
   const muetRef = React.useRef(muet);
   // Un compteur stable pour distinguer deux messages au même texte. On repart
@@ -231,6 +241,9 @@ export function VoixAssistant() {
   );
 
   const taire = React.useCallback(() => {
+    // Toute lecture en cours devient périmée : ses écouteurs ne toucheront plus
+    // à l'écran.
+    jetonRef.current += 1;
     try {
       audioRef.current?.pause();
     } catch {
@@ -239,36 +252,68 @@ export function VoixAssistant() {
     audioRef.current = null;
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     setParle(false);
+    setEnLecture(null);
+    setAvancement(null);
   }, []);
 
   /**
    * Prononce une phrase. `force` fait passer la parole même en Muet : c'est la
    * réécoute manuelle, que le Muet ne bâillonne pas. Une parole chasse l'autre.
+   * `id` désigne le message lu, pour le marquer dans la liste et faire avancer sa
+   * barre de lecture.
    */
-  const dire = React.useCallback((texte: string, force = false) => {
+  const dire = React.useCallback((texte: string, force = false, id?: number) => {
     if ((muetRef.current && !force) || !texte) return;
     taire();
+    const jeton = jetonRef.current;
+    const estCourant = () => jetonRef.current === jeton;
     const audio = new Audio(`/api/speak?text=${encodeURIComponent(texte)}`);
     audioRef.current = audio;
     setParle(true);
+    setEnLecture(id ?? null);
+    // On n'affiche la barre qu'une fois la durée connue : le message est déjà
+    // marqué, mais on ne montre pas d'avancement tant qu'on n'en tient pas un vrai.
+    setAvancement(null);
 
+    // La durée est-elle un vrai nombre ? Un flux sans en-tête donne l'infini.
+    const dureeConnue = () => Number.isFinite(audio.duration) && audio.duration > 0;
     const fin = () => {
-      if (audioRef.current === audio) {
-        audioRef.current = null;
-        setParle(false);
-      }
+      if (!estCourant()) return;
+      audioRef.current = null;
+      setParle(false);
+      setEnLecture(null);
+      setAvancement(null);
     };
+    audio.addEventListener('loadedmetadata', () => {
+      if (estCourant() && dureeConnue()) setAvancement(0);
+    });
+    audio.addEventListener('timeupdate', () => {
+      if (estCourant() && dureeConnue()) setAvancement(Math.min(1, audio.currentTime / audio.duration));
+    });
     audio.addEventListener('ended', fin);
-    audio.addEventListener('error', () => {
-      fin();
-      // Repli : la voix du navigateur, si le serveur n'a pas de moteur Piper.
-      if ((!muetRef.current || force) && 'speechSynthesis' in window) {
+
+    // Le repli sur la voix du navigateur, une seule fois : l'erreur de l'élément
+    // audio ET le rejet de `play()` peuvent se produire tous deux.
+    let repliLance = false;
+    const echec = () => {
+      if (!estCourant() || repliLance) return;
+      audioRef.current = null;
+      if ('speechSynthesis' in window && (!muetRef.current || force)) {
+        repliLance = true;
+        // La voix de secours ne dit pas où en est la lecture : on marque le
+        // message « en lecture » sans barre trompeuse.
+        setAvancement('indetermine');
         const parole = new SpeechSynthesisUtterance(texte);
         parole.lang = 'fr-FR';
+        parole.onend = fin;
+        parole.onerror = fin;
         window.speechSynthesis.speak(parole);
+      } else {
+        fin();
       }
-    });
-    void audio.play().catch(fin);
+    };
+    audio.addEventListener('error', echec);
+    void audio.play().catch(echec);
   }, [taire]);
 
   /**
@@ -286,7 +331,7 @@ export function VoixAssistant() {
       ecrireHistorique(suivante);
       return suivante;
     });
-    dire(texte);
+    dire(texte, false, entree.id);
   }, [dire]);
 
   // Le son coupé fait taire ce qui parle à l'instant même.
@@ -551,24 +596,55 @@ export function VoixAssistant() {
           <p className="flex-1 px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
         ) : (
           <ul className="min-h-0 flex-1 overflow-y-auto py-1">
-            {messages.slice(0, VOIX_MESSAGES_MAX).map((m) => (
+            {messages.slice(0, VOIX_MESSAGES_MAX).map((m) => {
+              const lu = enLecture === m.id;
+              return (
               <li key={m.id}>
                 <button
                   type="button"
                   data-message-voix
+                  data-en-lecture={lu ? '' : undefined}
+                  aria-current={lu ? 'true' : undefined}
                   // L'appui garde le module ouvert : on ne le rabat pas d'un clic.
                   onClick={(e) => {
                     e.stopPropagation();
-                    dire(m.texte, true);
+                    dire(m.texte, true, m.id);
                   }}
-                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] text-text hover:bg-raised"
+                  className={`flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] text-text hover:bg-raised ${
+                    lu ? 'bg-raised' : ''
+                  }`}
                   aria-label={`Réécouter : ${m.texte}`}
                 >
-                  <Volume2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
+                  <Volume2
+                    className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${lu ? 'text-success' : 'text-muted'}`}
+                  />
                   <span className="min-w-0 flex-1 line-clamp-2">{m.texte}</span>
                 </button>
+                {/* La barre de lecture, sous le seul message en cours : elle
+                    avance avec le son (couleur des ondes vertes) quand la durée
+                    est connue, ou pulse discrètement quand elle ne l'est pas. */}
+                {lu && avancement !== null && (
+                  <div
+                    data-barre-lecture
+                    className="mx-3 mb-1.5 h-0.5 overflow-hidden rounded-full bg-border"
+                    aria-hidden
+                  >
+                    {avancement === 'indetermine' ? (
+                      <div className="h-full w-full animate-pulse-soft bg-success/70" />
+                    ) : (
+                      <div
+                        className="h-full bg-success"
+                        style={{
+                          width: `${Math.round(avancement * 100)}%`,
+                          transition: 'width 150ms linear',
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
         {/* Sous l'historique, la ligne d'ondes qui s'anime quand ça parle. */}
