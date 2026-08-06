@@ -177,21 +177,34 @@ export function listVoices(): VoiceInfo[] {
   return voix.sort((a, b) => (a.id === DEFAULT_VOICE ? -1 : b.id === DEFAULT_VOICE ? 1 : a.label.localeCompare(b.label)));
 }
 
+/** La voix retenue dans les réglages, ou rien si elle est illisible. */
+function voixReglee(): string | null {
+  try {
+    return store.getSettings().ttsVoice || null;
+  } catch {
+    /* réglages illisibles : la voix d'origine fera l'affaire */
+    return null;
+  }
+}
+
 /**
  * La voix lue est celle choisie dans les préférences. Si cette voix n'est pas
  * (ou plus) sur le serveur, on retombe sur la voix livrée d'origine : mieux
  * vaut une autre voix que pas de son du tout.
+ *
+ * `reglee` dit d'où vient le CHOIX de l'utilisateur : laissé de côté, il est lu
+ * dans les réglages du serveur — c'est le cas de tous les appels réels. Un
+ * contrôle, lui, passe `null` pour juger le REPLI seul : sans cela il dépendrait
+ * de la voix réglée sur la machine où il tourne, et changerait de verdict d'un
+ * serveur à l'autre.
  */
-export function voiceChoisie(demandee?: string): VoixResolue {
+export function voiceChoisie(demandee?: string, reglee?: string | null): VoixResolue {
   const candidats: string[] = [];
   // Le deux-points sépare le moteur du nom de la voix : il fait partie des
   // signes permis, au même titre que l'arobase des personnes d'un modèle.
   if (demandee) candidats.push(demandee.replace(/[^\w.:@-]/g, ''));
-  try {
-    if (store.getSettings().ttsVoice) candidats.push(store.getSettings().ttsVoice);
-  } catch {
-    /* réglages illisibles : la voix d'origine fera l'affaire */
-  }
+  const choisie = reglee === undefined ? voixReglee() : reglee;
+  if (choisie) candidats.push(choisie);
   candidats.push(DEFAULT_VOICE, ...listVoices().map((v) => v.id));
 
   for (const candidat of candidats) {

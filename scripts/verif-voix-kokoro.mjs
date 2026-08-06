@@ -56,8 +56,14 @@ noter(
   'une voix Kokoro est résolue en Kokoro',
   kokoro.length ? voiceChoisie(kokoro[0].id).moteur === 'kokoro' : false,
 );
-noter('la voix par défaut reste Piper', voiceChoisie(undefined).moteur === 'piper');
-noter('une voix Kokoro inconnue retombe sur Piper', voiceChoisie('kokoro:inexistante').moteur === 'piper');
+// Le repli se juge SANS la voix réglée sur cette machine (second argument
+// `null`) : un serveur réglé sur Kokoro ferait sinon tomber ces deux lignes
+// alors que rien n'est cassé.
+noter('la voix par défaut reste Piper', voiceChoisie(undefined, null).moteur === 'piper');
+noter(
+  'une voix Kokoro inconnue retombe sur Piper',
+  voiceChoisie('kokoro:inexistante', null).moteur === 'piper',
+);
 
 /* 3. L'empreinte du cache tient compte du moteur, de la voix et de la vitesse. */
 const commun = { modele: '/modele.onnx' };

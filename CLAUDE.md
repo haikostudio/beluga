@@ -709,6 +709,11 @@ sans son point d'essai.
   seule est française (`ff_siwis`, affichée « Camille ») — les autres ne sont pas listées, elles ne
   serviraient pas un assistant qui parle français. Une voix Kokoro inconnue, ou le moteur absent,
   retombent sur Piper : jamais de silence. Posé par `scripts/installer-kokoro.mjs` (rejouable).
+  **Le REPLI se juge SANS la voix réglée sur la machine** : `voiceChoisie(demandee, reglee?)` prend
+  un second argument — laissé de côté, il lit les réglages (c'est le cas de TOUS les appels réels) ;
+  à `null`, il ignore le choix de l'utilisateur et ne rend que le repli. Un contrôle qui ne le passe
+  pas dépend de la voix retenue sur le serveur où il tourne : réglé sur Kokoro, il déclare le repli
+  cassé alors que rien ne l'est.
   Verrouillé par `server/src/test/point-vocal.test.ts` et `scripts/verif-voix-kokoro.mjs`.
 - **Le PANNEAU s'ouvre du côté où il y a de la place, le bouton ne bouge pas**
   (`sensDouverture` / `correctionOuverture`, `shared/src/position-voix.ts`). Le module fermé est un

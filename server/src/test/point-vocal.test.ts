@@ -169,11 +169,17 @@ test('un modèle à plusieurs personnes compte pour autant de voix', async () =>
   );
 });
 
+/*
+ * Ces trois contrôles jugent le REPLI, pas le choix de l'utilisateur : ils
+ * passent donc `null` comme voix réglée. Sans ce `null`, ils liraient la voix
+ * retenue sur la machine où ils tournent — un serveur réglé sur Kokoro les
+ * ferait tomber alors que rien n'est cassé.
+ */
 test('une voix inconnue ou effacée retombe sur la voix d\'origine, jamais sur du silence', async () => {
   const { voiceChoisie } = await import('../voice.js');
-  assert.match(voiceChoisie('voix-qui-n-existe-pas').modele, /fr_FR-siwis-medium\.onnx$/);
+  assert.match(voiceChoisie('voix-qui-n-existe-pas', null).modele, /fr_FR-siwis-medium\.onnx$/);
   // Un chemin glissé dans le réglage ne sort pas du dossier des voix.
-  assert.match(voiceChoisie('../../../etc/passwd').modele, /fr_FR-siwis-medium\.onnx$/);
+  assert.match(voiceChoisie('../../../etc/passwd', null).modele, /fr_FR-siwis-medium\.onnx$/);
   assert.equal(voiceChoisie('fr_FR-upmc-medium@pierre').personne, 1);
   assert.equal(voiceChoisie('fr_FR-upmc-medium@jessica').personne, 0);
 });
@@ -184,14 +190,14 @@ test('une voix inconnue ou effacée retombe sur la voix d\'origine, jamais sur d
 
 test('une voix Kokoro inconnue retombe sur Piper, jamais sur du silence', async () => {
   const { voiceChoisie } = await import('../voice.js');
-  const repli = voiceChoisie('kokoro:voix-qui-n-existe-pas');
+  const repli = voiceChoisie('kokoro:voix-qui-n-existe-pas', null);
   assert.equal(repli.moteur, 'piper');
   assert.match(repli.modele, /fr_FR-siwis-medium\.onnx$/);
 });
 
 test('la voix par défaut reste une voix Piper', async () => {
   const { voiceChoisie } = await import('../voice.js');
-  assert.equal(voiceChoisie(undefined).moteur, 'piper');
+  assert.equal(voiceChoisie(undefined, null).moteur, 'piper');
 });
 
 test('l’empreinte du cache tient compte du MOTEUR : deux moteurs, deux fichiers', async () => {
