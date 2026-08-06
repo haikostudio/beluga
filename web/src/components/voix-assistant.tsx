@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Volume2 } from 'lucide-react';
+import { GripVertical, Volume2 } from 'lucide-react';
 import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
@@ -360,6 +360,25 @@ export function VoixAssistant() {
   const vientDeGlisserRef = React.useRef(false);
 
   /**
+   * Amorcer un glissement. Le MÊME geste sert au doigt (depuis le bouton, où il
+   * partage l'appui qui déplie) et à la souris (depuis la poignée dédiée) : c'est
+   * le mouvement qui tranche, au-delà du seuil `SEUIL_GLISSEMENT_VOIX`.
+   */
+  const commencerGlissement = React.useCallback((event: React.PointerEvent) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    // Un déplacement ne produit AUCUN clic : sans cette remise à zéro, le repère
+    // resterait armé et mangerait l'appui SUIVANT — le module ne se déplierait
+    // plus jamais après avoir été déplacé.
+    vientDeGlisserRef.current = false;
+    glissementRef.current = {
+      departX: event.clientX,
+      departY: event.clientY,
+      base: decalageRef.current,
+      bouge: false,
+    };
+  }, []);
+
+  /**
    * La place d'origine du module — sa boîte SANS décalage. On mesure la boîte
    * telle qu'elle est à l'écran et on retire le décalage déjà appliqué.
    */
@@ -477,21 +496,11 @@ export function VoixAssistant() {
             : `Voix de l’assistant — ${nb} message${nb > 1 ? 's' : ''} à réécouter — tirer pour le déplacer`
         }
         title="Voix de l’assistant — tirer pour le déplacer"
-        // Le même geste sert à déplier (appui immobile) et à déplacer (appui qui
-        // glisse) : c'est le mouvement qui tranche, au-delà du seuil.
-        onPointerDown={(event) => {
-          if (event.button !== undefined && event.button !== 0) return;
-          // Un déplacement au doigt ne produit AUCUN clic : sans cette remise à
-          // zéro, le repère resterait armé et mangerait l'appui SUIVANT — le
-          // module ne se déplierait plus jamais après avoir été déplacé.
-          vientDeGlisserRef.current = false;
-          glissementRef.current = {
-            departX: event.clientX,
-            departY: event.clientY,
-            base: decalageRef.current,
-            bouge: false,
-          };
-        }}
+        // AU DOIGT SEULEMENT, le bouton porte le glissement : le même appui sert
+        // à déplier (immobile) et à déplacer (qui glisse). À la souris, ce bouton
+        // s'efface au survol (l'ouverture le rend `pointer-events-none`) et ne
+        // peut plus être attrapé — c'est la POIGNÉE dédiée qui prend le relais.
+        onPointerDown={survolPossible ? undefined : commencerGlissement}
         className={`absolute inset-0 grid place-items-center transition-opacity hover:bg-raised ${
           ouvert ? 'pointer-events-none opacity-0' : 'opacity-100'
         }`}
@@ -575,6 +584,30 @@ export function VoixAssistant() {
       >
         <LigneOndes parle={parle} />
       </div>
+
+      {/* LA POIGNÉE DE DÉPLACEMENT, À LA SOURIS SEULEMENT. Sur ordinateur, le
+          module s'ouvre au SURVOL et le bouton d'icône s'efface aussitôt : on ne
+          peut plus l'attraper pour tirer. Cette poignée discrète, posée en bas à
+          droite, porte donc le glissement — elle reste attrapable panneau ouvert
+          (jamais `pointer-events-none`), suit le module, et un survol qui la vise
+          déplie le panneau sans rien déplacer tant que le seuil n'est pas franchi.
+          Aucune poignée au doigt (`survolPossible` faux) : l'appui déplie et le
+          bouton lui-même porte déjà le glissement. */}
+      {survolPossible && (
+        <button
+          type="button"
+          data-poignee-voix
+          aria-label="Déplacer la voix de l’assistant"
+          title="Tirer pour déplacer"
+          onPointerDown={commencerGlissement}
+          className="absolute bottom-0 right-0 z-10 grid h-6 w-6 cursor-grab place-items-center text-faint transition-colors hover:text-muted active:cursor-grabbing"
+          // Un curseur qui tire ne doit pas faire défiler la page (sans effet à
+          // la souris, mais sûr si un pointeur grossier atteint cette poignée).
+          style={{ touchAction: 'none' }}
+        >
+          <GripVertical className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      )}
     </div>
   );
 }

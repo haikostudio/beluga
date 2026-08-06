@@ -534,10 +534,16 @@ sans son point d'essai.
   badge. Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
 - **Le module de voix SE DÉPLACE, et sa place est retenue dans le COMPTE**
   (`shared/src/position-voix.ts`, branché dans `web/src/components/voix-assistant.tsx`). Il était
-  cloué en bas au centre et recouvrait parfois ce qu'on lit. On le tire par son ICÔNE, à la souris
-  comme au doigt (`touchAction: 'none'` sur le bouton, sinon le doigt ferait défiler la page) ; le
-  MÊME geste déplie (appui immobile) et déplace (appui qui glisse), `estUnGlissement` tranchant
-  au-delà de `SEUIL_GLISSEMENT_VOIX`. Ce qui est retenu n'est pas une position absolue mais un
+  cloué en bas au centre et recouvrait parfois ce qu'on lit. Le glissement part d'où on peut
+  l'attraper, et cela DÉPEND DU POINTEUR (`useSurvol`, jamais la largeur d'écran). AU DOIGT, on le
+  tire par son ICÔNE (`data-icone-voix`) : le MÊME appui déplie (immobile) et déplace (qui glisse),
+  `estUnGlissement` tranchant au-delà de `SEUIL_GLISSEMENT_VOIX`. À LA SOURIS, l'icône ne suffit
+  pas — l'ouverture se fait au SURVOL et rend aussitôt l'icône `pointer-events-none` : approcher pour
+  tirer déplierait le panneau et effacerait la prise. Une POIGNÉE dédiée (`data-poignee-voix`,
+  visible seulement si `survolPossible`) est donc posée en bas à droite ; elle porte le glissement,
+  reste attrapable panneau ouvert (jamais `pointer-events-none`) et suit le module. Aucune poignée au
+  doigt. Le geste d'amorçage est écrit UNE fois (`commencerGlissement`), partagé par l'icône (doigt)
+  et la poignée (souris) ; `touchAction: 'none'` sur les deux, sinon le doigt ferait défiler la page. Ce qui est retenu n'est pas une position absolue mais un
   DÉCALAGE en pixels par rapport à la place d'origine — décalage nul = l'affichage d'avant. Il passe
   par le MÊME mécanisme que le bloc du dock, une préférence SERVEUR (`usePref`, clé
   `CLE_VOIX_POSITION` = `voix`, jamais `dock`), donc la même place sur tous les appareils ; jamais un

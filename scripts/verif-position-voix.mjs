@@ -156,12 +156,22 @@ if (!depart) {
   );
   await bureau.screenshot({ path: `${SHOTS}/voix-place-origine.png` });
 
-  const icone = bureau.locator('[data-icone-voix]');
-  const cible = await icone.boundingBox();
+  // À la souris, c'est la POIGNÉE (en bas à droite) qui porte le glissement : le
+  // bouton d'icône s'efface au survol et ne peut plus être attrapé. On survole
+  // d'abord pour déplier — la poignée se pose alors au coin du panneau ouvert —,
+  // puis on tire depuis elle.
+  noter(
+    'à la souris, une poignée de déplacement est présente',
+    (await bureau.locator('[data-poignee-voix]').count()) > 0,
+  );
+  await bureau.mouse.move(depart.x, depart.y - 20);
+  await bureau.waitForTimeout(400);
+  const prise = await bureau.locator('[data-poignee-voix]').boundingBox();
   // On tire vers le haut à gauche : franchement, bien au-delà du seuil.
-  const versX = cible.x + cible.width / 2 - 420;
-  const versY = cible.y + cible.height / 2 - 320;
-  await bureau.mouse.move(cible.x + cible.width / 2, cible.y + cible.height / 2);
+  const departPrise = { x: prise.x + prise.width / 2, y: prise.y + prise.height / 2 };
+  const versX = departPrise.x - 420;
+  const versY = departPrise.y - 320;
+  await bureau.mouse.move(departPrise.x, departPrise.y);
   await bureau.mouse.down();
   await bureau.mouse.move(versX, versY, { steps: 20 });
   await bureau.mouse.up();
@@ -214,10 +224,30 @@ if (!depart) {
   await seconde.close();
   await autreFenetre.close();
 
-  /* ---------- 4. Tirer très loin ne le fait pas sortir de l'écran ---------- */
+  /* ---------- 4. Un simple survol déplie toujours ---------- */
 
-  const cible2 = await bureau.locator('[data-icone-voix]').boundingBox();
-  await bureau.mouse.move(cible2.x + cible2.width / 2, cible2.y + cible2.height / 2);
+  // On juge le survol PENDANT que le module est encore dans une zone dégagée
+  // (avant de le pousser dans le coin, où le bloc du dock le recouvrirait). On
+  // survole le HAUT du rond, à l'écart de la poignée posée en bas à droite.
+  await bureau.mouse.move(20, 120);
+  await bureau.waitForTimeout(400);
+  const survol = await boite(bureau);
+  await bureau.mouse.move(survol.x, survol.y - 36);
+  await bureau.waitForTimeout(500);
+  noter(
+    'le module se déplie toujours au survol',
+    (await bureau.locator('[data-module-voix][data-ouvert]').count()) > 0,
+  );
+  await bureau.mouse.move(20, 120);
+  await bureau.waitForTimeout(400);
+
+  /* ---------- 5. Tirer très loin ne le fait pas sortir de l'écran ---------- */
+
+  const avant4 = await boite(bureau);
+  await bureau.mouse.move(avant4.x, avant4.y - 20);
+  await bureau.waitForTimeout(400);
+  const prise2 = await bureau.locator('[data-poignee-voix]').boundingBox();
+  await bureau.mouse.move(prise2.x + prise2.width / 2, prise2.y + prise2.height / 2);
   await bureau.mouse.down();
   await bureau.mouse.move(3000, 2000, { steps: 20 });
   await bureau.mouse.up();
@@ -229,19 +259,6 @@ if (!depart) {
     `x=${auBord.x} y=${auBord.y} (${auBord.fenetre.largeur}×${auBord.fenetre.hauteur})`,
   );
   await bureau.screenshot({ path: `${SHOTS}/voix-au-bord.png` });
-
-  /* ---------- 5. Un appui immobile déplie toujours ---------- */
-
-  await bureau.mouse.move(20, 120);
-  await bureau.waitForTimeout(400);
-  await bureau.locator('[data-icone-voix]').hover();
-  await bureau.waitForTimeout(500);
-  noter(
-    'le module se déplie toujours au survol',
-    (await bureau.locator('[data-liste-voix]').count()) > 0,
-  );
-  await bureau.mouse.move(20, 120);
-  await bureau.waitForTimeout(400);
 
   noter('aucune erreur dans la page, à la souris', erreursBureau.length === 0, erreursBureau[0] ?? '');
 }
@@ -268,6 +285,18 @@ if (!surTelephone) {
     `x=${surTelephone.x} y=${surTelephone.y} (${surTelephone.fenetre.largeur}×${surTelephone.fenetre.hauteur})`,
   );
   await mobile.screenshot({ path: `${SHOTS}/voix-telephone-recadree.png` });
+
+  // La place héritée du grand écran, ramenée dans les bords, pose parfois le
+  // module au coin bas-droit, SOUS le bloc du dock qui capterait l'appui du
+  // doigt. On le remonte au centre, bien dégagé, pour juger le glissement au
+  // doigt sans interférence (le serveur relit les préférences en base à chaque
+  // chargement, donc une écriture directe suffit).
+  base
+    .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+    .run(CLE, JSON.stringify({ x: 0, y: -360 }), Date.now());
+  await mobile.reload({ waitUntil: 'domcontentloaded' });
+  await mobile.waitForSelector('[data-module-voix]', { timeout: 20000 });
+  await mobile.waitForTimeout(2000);
 
   const avant = await boite(mobile);
   const departX = avant.icone.x + avant.icone.largeur / 2;
@@ -311,6 +340,13 @@ if (!surTelephone) {
   noter(
     'un appui immobile déplie toujours le module',
     (await mobile.locator('[data-liste-voix]').count()) > 0,
+  );
+
+  // Aucune poignée au doigt : elle y volerait de la place, et le bouton lui-même
+  // porte déjà le glissement.
+  noter(
+    'aucune poignée de déplacement sur téléphone',
+    (await mobile.locator('[data-poignee-voix]').count()) === 0,
   );
 
   noter('aucune erreur dans la page, au doigt', erreursMobile.length === 0, erreursMobile[0] ?? '');
