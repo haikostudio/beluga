@@ -9,6 +9,7 @@ import {
   decalageAccroche,
   decisionsOuvertes,
   estUnGlissement,
+  formeDeReveil,
   gesteDOuverture,
   memeDecalage,
   phraseDecisionAttendue,
@@ -484,7 +485,9 @@ export function VoixAssistant() {
    * ici, on ne fait que l'afficher.
    */
   const [ecouteAllumee, setEcouteAllumee] = usePref<boolean>(CLE_VOIX_ECOUTE, false);
-  const ecoute = useEcoutePermanente(ecouteAllumee);
+  // Le mot de réveil réglé (« Dis Haiko » par défaut), sous sa forme comparée.
+  const formeReveil = formeDeReveil(state.settings?.voixReveil);
+  const ecoute = useEcoutePermanente(ecouteAllumee, formeReveil);
   // Une dictée est en cours : le module s'élargit pour montrer la phrase, et les
   // ondes passent au rouge. La relecture en fait partie — la phrase est encore là.
   const dicteEnCours = ecoute.etat === 'ecoute' || ecoute.etat === 'relit';
@@ -946,7 +949,7 @@ export function VoixAssistant() {
                 ? 'Micro refusé — cliquer pour réessayer l’écoute'
                 : ecouteAllumee
                   ? 'Couper l’écoute permanente'
-                  : 'Écouter en permanence, et se réveiller sur « Dis Haiko »'
+                  : `Écouter en permanence, et se réveiller sur « ${state.settings?.voixReveil || 'Dis Haiko'} »`
             }
             aria-label={
               ecouteAllumee ? 'Couper l’écoute permanente' : 'Allumer l’écoute permanente'

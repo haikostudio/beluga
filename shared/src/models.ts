@@ -634,6 +634,12 @@ export const Settings = z.object({
    */
   voixNom: z.string().default('Chris'),
   /**
+   * Le MOT DE RÉVEIL de l'écoute permanente (« Dis Haiko » par défaut). Réglable
+   * pour parler à l'assistant autrement ; un champ vide revient au mot par
+   * défaut plutôt que de couper le réveil. Voir `shared/src/reveil-vocal.ts`.
+   */
+  voixReveil: z.string().default('Dis Haiko'),
+  /**
    * La VITESSE de la voix de l'assistant, par crans clairs (`voix-vitesse.ts`).
    * « normale » = le débit d'origine ; s'applique à toutes les paroles, auto
    * comme réécoutes manuelles.
