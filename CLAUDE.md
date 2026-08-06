@@ -70,8 +70,6 @@ node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
 node scripts/verif-consigne-deploiement.mjs # la consigne de déploiement réglée depuis le menu des colonnes « À déployer » / « En production » (serveur de développement, HAIKO_CONSIGNE_URL ; `project.update` intercepté, persistance imitée par le stockage local, aucun projet réel touché)
-node scripts/verif-envoi-surveille.mjs # un projet « se déploie sur envoi » fait attendre avant tout envoi (démon et dépôt d'essai à soi, HAIKODEV_VERIF_PORT)
-node scripts/verif-environnements-publication.mjs # plusieurs environnements par projet : ajout dans les réglages, apparition dans le bloc de publication (serveur de développement, HAIKO_ENVS_URL ; `project.update` et `deploy.check` interceptés, aucun projet réel touché)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
@@ -83,7 +81,7 @@ node scripts/verif-reprise-modele.mjs # changer de modèle en cours de conversat
 node scripts/verif-bridage-chef.mjs # le chef d'orchestre est-il bridé pareil sous les deux moteurs ? (vrai tour Codex)
 node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
 node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
-node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
+node scripts/verif-mise-en-ligne.mjs # déployer fusionne, construit et pose la carte en « En production » ; publier clôt (dépôts d'essai à soi)
 node scripts/verif-reparation-construction.mjs # une construction cassée est-elle réparée puis rejouée, et le refus final nomme-t-il la cause ? (agent de secours simulé, aucun quota dépensé)
 node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
@@ -164,70 +162,35 @@ sans son point d'essai.
 
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur.
-- **Publier, c'est METTRE EN LIGNE — pas seulement fusionner** (`planDeMiseEnLigne`,
-  `shared/src/mise-en-ligne.ts`). Avant de toucher au dépôt, la publication demande COMMENT le projet
-  peut être servi : la CONSIGNE de déploiement de l'environnement visé, sinon sa commande de
-  publication, sinon HaikoDev lui-même, sinon le service système qui
-  tourne sur son dossier (sous-dossier compris), sinon un serveur web qui sert ce dossier tel quel
-  (`root * …` dans Caddy, `root …;` dans nginx). Aucun des cinq : la publication est REFUSÉE, le
-  bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
-  Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
-  (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
-- **Un ENVOI qui met la production à jour ne part JAMAIS sans un clic**
-  (`shared/src/envoi-surveille.ts`, branché dans `server/src/deploy.ts`). Un projet peut DÉCLARER que
-  sa branche principale déclenche un déploiement chez le client (`Project.deployeSurEnvoi`, coché
-  dans les réglages du projet, bloc « Publication ») : envoyer, c'est alors mettre en ligne. Quand
-  c'est déclaré, `startDeploy` s'arrête AVANT la première commande git — pas entre
-  « Enregistrement » et « Envoi » : l'étape de fusion pousse déjà la branche courante
-  (`git push -u origin <branche>`), et un refus doit laisser le lot ENTIER, pas à moitié fusionné.
-  Les sept étapes et leur ordre ne bougent pas ; elles ne commencent simplement pas. La publication
-  prend l'état `awaiting` et porte son `attente` (branche, enregistrements, texte) : le texte NOMME
-  le projet, la branche, ce qui partirait (cinq enregistrements au plus, le reste compté), les cartes
-  du lot, l'adresse remplacée, et dit que rien n'est parti. La décision passe par le TRIANGLE ORANGE
-  déjà en place — quatrième source de `decisionsEnAttente` (`server/src/store.ts`), genre `envoi`,
-  SANS `agentId` : elle ne tient ni à une carte ni à une conversation, elle se tranche dans le bloc
-  de publication du projet — et par le motif `decision-attendue` du guichet `notify`. Chaque carte du
-  lot porte une `waitingReason` qui dit pourquoi elle ne part pas, jamais un triangle par carte (le
-  compte annoncé doit valoir le nombre de repères). `deploy.envoi { runId, accord }` tranche :
-  l'accord fait repartir LA MÊME publication depuis la première étape (`options.reprendre` garde son
-  identifiant — sinon la ligne « en attente » resterait en base et le triangle ne s'éteindrait
-  jamais), le refus la passe en `stopped`, laisse les cartes où elles sont et l'écrit dessus. Rien
-  n'est lu chez le client : c'est une déclaration faite ici. Un projet non déclaré ne change EN RIEN.
-  L'attente RETIENT son environnement de publication (`environmentId` / `environmentName`) :
-  l'accord relance la même publication vers le même endroit, jamais vers le premier de la liste.
-  Verrouillé par `server/src/test/envoi-surveille.test.ts` et `scripts/verif-envoi-surveille.mjs`.
-- **Un projet a PLUSIEURS environnements de publication, et une publication en vise UN**
-  (`shared/src/environnements-publication.ts`). Un projet portait un seul jeu de réglages
-  (`deployCommand` / `deployUrl`) : décrire un dev chez le client ET une production était
-  impossible. Il porte désormais une LISTE ORDONNÉE (`Project.environments`), chaque
-  environnement ayant son nom, son rôle (`interne` / `dev-client` / `production`), sa commande, son
-  adresse à contrôler, sa branche installée et sa consigne de déploiement. `environnementsDuProjet` est le SEUL point de
-  lecture : une liste vide rend UN environnement « Interne » portant les anciens champs, si bien
-  qu'un projet déjà réglé se comporte exactement comme avant, sans migration de base. Les deux
-  anciens champs ne sont plus jamais écrits — le volet de réglages n'écrit que `environments`, deux
-  endroits d'écriture faisant deux vérités. `environnementVise(projet, id?)` tranche : sans
-  identifiant, le PREMIER de la liste ; un identifiant inconnu y retombe aussi, jamais un refus
-  muet. `planDeMiseEnLigne` reçoit le nom de l'environnement (`MoyensDeMiseEnLigne.environnement`)
-  et son refus le NOMME — la commande vient de l'environnement, le service système et le dossier
-  servi restent des propriétés du dossier, donc communes.
-  `startDeploy(projectId, environmentId?, options?)`
-  décide l'environnement UNE fois pour tout le run : commande, adresse contrôlée à la fin, branche
-  installée (vide = la branche principale ; une branche nommée mais absente ARRÊTE la publication au
-  lieu de se rabattre en silence). Le run le retient (`DeployRun.environmentId` / `environmentName`),
-  la relance et la file d'attente le rejouent, et les notifications comme la référence de
-  dédoublonnage le portent — le même lot mis en dev puis en production fait bien deux alertes.
-  `derniersResultats` rend le dernier résultat de CHAQUE environnement (une publication d'avant
-  cette règle compte pour le premier), affiché dans le bloc de publication à côté du menu de choix.
-  Verrouillé par `server/src/test/environnements-publication.test.ts` et
-  `scripts/verif-environnements-publication.mjs`.
+- **DÉPLOYER, c'est fusionner tout le lot ET rafraîchir l'instance de dev de ce serveur**
+  (`planDeMiseEnLigne`, `shared/src/mise-en-ligne.ts`). Le déploiement est UNE seule chose, toujours
+  disponible et SANS aucun réglage : les branches « tache/… » des cartes de « À déployer » sont
+  fusionnées dans la branche principale, enregistrées, envoyées sur le dépôt, puis l'instance de dev
+  du projet est rafraîchie ici. COMMENT elle l'est se CONSTATE, jamais ne se règle : HaikoDev
+  lui-même (construction, installation dans le dossier servi, redémarrage), sinon le service système
+  qui tourne sur son dossier (sous-dossier compris, `serviceDuProjet`), sinon un serveur web qui sert
+  ce dossier tel quel (`root * …` dans Caddy, `root …;` dans nginx). Aucun des trois n'est plus un
+  refus : le lot part quand même, et l'étape de mise en ligne DIT qu'aucune instance n'a été trouvée.
+  Il ne reste qu'UN réglage de projet, `Project.devUrl` — l'adresse à contrôler à la fin ; muette,
+  elle fait échouer le run. `miseEnLigneReelle` garde le dernier mot : sept étapes toutes
+  « ignorées » ne font pas un déploiement, mais la fusion, l'enregistrement et l'envoi comptent
+  désormais comme du travail réel. Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas
+  fait. Verrouillé par `server/src/test/mise-en-ligne.test.ts` et `scripts/verif-mise-en-ligne.mjs`.
+- **Un projet n'a plus qu'UNE adresse et AUCUN environnement.** Les environnements de publication
+  avec leurs rôles, leur commande, leur branche installée et leur consigne, les champs hérités
+  `deployCommand` / `deployUrl`, et la case « se déploie sur envoi » (avec son attente d'accord, son
+  état `awaiting`, sa décision de genre `envoi` et sa commande `deploy.envoi`) ont été RETIRÉS :
+  chacun était un endroit où le tableau pouvait mentir sur ce qui partait où. La migration 13
+  (`server/src/db.ts`) reprend l'adresse là où elle était rangée — premier environnement, sinon
+  `deployUrl` — et referme en « arrêtée » toute publication restée en attente d'accord.
+  `startDeploy(projectId, { cible })` ne vise plus qu'une chose : l'ÉTAPE du parcours.
 - **Le DÉROULÉ de déploiement s'écrit à la main, une consigne par étape**
-  (`shared/src/consigne-deploiement.ts`). Un projet ne décrivait sa publication que par une commande
-  et une adresse par environnement : l'ORDRE des gestes, ce qu'il faut contrôler avant, ce qu'il ne
-  faut surtout pas faire n'avait aucune place. Le projet porte donc
-  `Project.consignesDeploiement`, à côté de `environments` : DEUX consignes en texte libre,
-  indépendantes, rangées PAR COLONNE (`COLONNES_CONSIGNE` = `to_deploy`, `in_production`) et non par
-  cible — selon qu'un environnement de dev existe, « À déployer » pousse vers le dev ou vers la
-  production, et une consigne qui changerait de sens sans qu'on y touche serait un piège. Une
+  (`shared/src/consigne-deploiement.ts`). Le déploiement sur l'instance de dev se CONSTATE ; la mise
+  en production, elle, ne se devine pas — l'ORDRE des gestes, ce qu'il faut contrôler avant, ce qu'il
+  ne faut surtout pas faire n'a de place nulle part ailleurs. Le projet porte donc
+  `Project.consignesDeploiement` : DEUX consignes en texte libre, indépendantes, rangées PAR COLONNE
+  (`COLONNES_CONSIGNE` = `to_deploy`, `in_production`) — c'est la colonne qu'on a sous les yeux quand
+  on l'écrit. Une
   consigne VIDE est un état NORMAL (« déroulé habituel ») : `ecrireConsigneDeploiement` EFFACE la clé
   au lieu de ranger une chaîne vide, ne garde que les deux colonnes connues, borne à `CONSIGNE_MAX`
   (4000 signes) et ne touche jamais à l'autre étape. `consigneDeploiement` est le SEUL point de
@@ -236,8 +199,8 @@ sans son point d'essai.
   lue — un réglage du projet ne dépend pas de ce qui traîne dans la colonne ; ailleurs, la règle
   d'avant ne bouge pas. La fenêtre (`web/src/components/consigne-deploiement.tsx`, tiroir bas sur
   téléphone comme toute `DialogContent`) rappelle en une ligne ce qui est DÉJÀ connu
-  (`rappelDeConsigne` : environnement visé par défaut — le premier de la liste, comme
-  `environnementVise` — et branche installée, vide = branche principale). L'enregistrement passe par
+  (`rappelDeConsigne` : le déploiement part de la branche principale, et l'adresse de dev réglée — ou
+  le fait qu'il n'y en ait aucune). L'enregistrement passe par
   `project.update`, jamais par un second chemin d'écriture. **Le mécanisme de publication ne lit pas
   encore cette consigne** : l'écrire ne change rien au déroulé. La fenêtre porte DEUX textes par
   colonne : une BASE brute (`Project.basesDeploiement`, mêmes clés, même `ecrireBaseDeploiement` que
@@ -250,27 +213,6 @@ sans son point d'essai.
   qu'au clic « Enregistrer », toujours par le même `project.update`. Les deux sont conservées côte à
   côte : on ré-édite la base et on relance. Verrouillé par
   `server/src/test/consigne-deploiement.test.ts` et `scripts/verif-consigne-deploiement.mjs`.
-- **Une CONSIGNE de déploiement confie la mise en ligne à un agent**
-  (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Un environnement de
-  publication porte, en plus de sa commande et de son adresse, une `consigne` en français
-  (`EnvironnementPublication.consigne`, `DeployEnvironment.consigne`). Vide — le cas de tous les
-  projets d'aujourd'hui — RIEN ne change : mêmes sept étapes, même ordre, mêmes refus. Écrite, elle
-  devient le PREMIER des cinq moyens de `planDeMiseEnLigne` (`construction`/`installation`/
-  `redemarrage` valent alors `agent`) et passe DEVANT la commande, HaikoDev, le service et le dossier
-  servi : c'est la seule façon de décrire un déploiement que les quatre autres ne savent pas dire.
-  La plomberie git ne bouge pas — fusion, enregistrement, envoi restent à HaikoDev, avec l'attente
-  d'accord d'un projet « se déploie sur envoi » et la fermeture des branches. Seules les QUATRE
-  étapes de mise en ligne changent de main : `verify`, `build` et `restart` disent que la consigne
-  les couvre (`mentionEtapeConfiee`, jamais une étape muette), et `publish` porte le compte rendu de
-  l'agent. Un agent de rôle « deploy » est appelé une fois (`confierLaMiseEnLigne`) avec
-  `consigneDeLAgentDePublication` : la consigne réglée TELLE QUELLE entre deux repères, le projet, le
-  dossier, l'environnement (nom, rôle, adresse, branche), l'enregistrement, si l'étape clôt les
-  cartes, et le lot embarqué (`CARTES_NOMMEES_MAX` cartes nommées, le reste compté). Il lui est
-  interdit de changer de branche, de faire `git add -A`, de désactiver un test et de toucher au
-  tableau. Un tour en échec fait ÉCHOUER la publication en nommant l'environnement
-  (`phraseDEchecConfie`) ; un compte rendu vide est dit comme tel (`recitDeLAgent`) ; l'adresse
-  publique et `miseEnLigneReelle` gardent le dernier mot. Verrouillé par
-  `server/src/test/publication-confiee.test.ts`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette
@@ -357,42 +299,35 @@ sans son point d'essai.
   une étude ni la rendre n'est faire le travail. Le passage « Validé » → « Planifié » → « En cours »
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
   pas. Vrai pour TOUTE carte, d'où qu'elle vienne.
-- **La mise en ligne compte DEUX étapes, et la colonne « En production » les sépare**
+- **La mise en ligne compte DEUX étapes, TOUJOURS, et la colonne « En production » les sépare**
   (`shared/src/etapes-publication.ts`). La clé `in_production` s'insère entre `to_deploy` et
   `archived` dans `COLUMN_KEYS` — aucune clé existante n'est renommée ni supprimée, la règle gravée
-  ne bouge pas. `etapesDePublication` décide, pour un projet donné, quelles mises en ligne existent :
-  sans environnement de dev déclaré, UNE seule étape (« À déployer » → publication → « Archivé »,
-  exactement le parcours d'avant) ; avec, DEUX — dev (« À déployer » → « En production », la carte
-  n'est PAS close) puis production (« En production » → « Archivé », la carte est close : document,
-  branche refermée, historique). `deployableCards(projectId, source)` prend le lot dans la colonne de
-  l'étape, et le garde-fou `!deployedAt` ne vaut QUE pour la première (une carte « En production »
-  porte forcément une date de mise en ligne). `startDeploy(projectId, { cible })` et la commande
-  `deploy.start` portent la cible ; une étape réclamée qui n'existe pas est REFUSÉE en le disant
-  (`raisonEtapeInconnue`), jamais remplacée en silence. `moyensDePublication` (`server/src/deploy.ts`)
-  est le SEUL endroit qui dit si un environnement de dev existe : il lit les environnements du projet
-  et rend vrai dès qu'un seul porte le rôle **`dev-client`** (« dev chez le client »). Les rôles
-  `interne` et `production` ne comptent pas — le premier est l'environnement fabriqué pour un projet
-  réglé à l'ancienne, le second est l'arrivée. Un projet qui n'en déclare aucun garde donc exactement
-  le parcours d'avant. Publier reste un geste de l'utilisateur, aux deux étapes.
-  Verrouillé par `server/src/test/colonne-en-production.test.ts` et
-  `scripts/verif-lot-production.mjs`.
+  ne bouge pas. `etapesDePublication()` rend les DEUX étapes pour tout projet, sans rien à déclarer :
+  le DÉPLOIEMENT (« À déployer » → « En production », la carte n'est PAS close) puis la MISE EN
+  PRODUCTION (« En production » → « Archivé », la carte est close : document, branche refermée,
+  historique). Une carte déployée ne part donc PLUS JAMAIS aux archives : clore appartient à la
+  seconde étape. `deployableCards(projectId, source)` prend le lot dans la colonne de l'étape, et le
+  garde-fou `!deployedAt` ne vaut QUE pour la première (une carte « En production » porte forcément
+  une date de mise en ligne). `startDeploy(projectId, { cible })` et la commande `deploy.start`
+  portent la cible ; sans cible, c'est la première étape. Publier reste un geste de l'utilisateur,
+  aux deux étapes. **La mise en production ne fait pour l'instant que ce que fait le déploiement**
+  (même rafraîchissement de l'instance de dev) : elle clôt les cartes, mais son vrai déroulé — un
+  agent qui suit la consigne d'`in_production` — reste à écrire. Verrouillé par
+  `server/src/test/colonne-en-production.test.ts` et `scripts/verif-lot-production.mjs`.
 - **Le bloc de publication sert les DEUX étapes, en tête de la colonne d'où part son lot**
-  (`DeployPanel`, `web/src/components/deploy-panel.tsx`). Il ne sait pas à quelle étape il sert : il
-  sait de quelle COLONNE il est (propriété `colonne`, `to_deploy` par défaut) et le demande au
-  serveur — `deploy.check` porte `source` et rend l'`etape` de cette colonne, ou `null`. Sans étape,
-  le bloc ne rend RIEN : « En production » reste nue tant que le projet n'a qu'une mise en ligne,
-  jamais un bouton éteint pour une étape qui n'existe pas. Le VERBE vient de l'étape
+  (`DeployPanel`, `web/src/components/deploy-panel.tsx`). Il sait de quelle COLONNE il est (propriété
+  `colonne`, `to_deploy` par défaut) et rejoue lui-même `etapeDeLaColonne` — donc il s'affiche tout
+  de suite, sans attendre le serveur. Toute autre colonne ne rend RIEN. Le VERBE vient de l'étape
   (`EtapeDePublication.verbe`) : « Tout déployer » en tête de « À déployer », « Tout publier » en
   tête de « En production », et la phrase du bouton éteint suit. Le compteur rejoue la règle du
   serveur — le garde-fou `!deployedAt` ne vaut que pour `to_deploy` —, et `deploy.start` emporte la
-  `cible` de l'étape. La publication RETIENT son étape (`DeployRun.cible`) : la relance, la file
-  d'attente et l'accord d'envoi repartent de la MÊME, et `runDeLEtape` décide dans lequel des deux
-  blocs le déroulé s'affiche (une publication sans cible est celle du lot de « À déployer », le seul
-  qui existait). Une publication en cours ailleurs éteint le bouton EN LE DISANT. Le pied de lot des
-  deux colonnes ne bouge pas. L'environnement PROPOSÉ suit l'étape (`environnementParDefaut`) : le
-  bloc d'« En production » présélectionne le premier environnement de rôle `production`, sinon il
-  pointerait sur le dev d'où la carte vient de sortir ; partout ailleurs, c'est le PREMIER de la
-  liste, règle inchangée. Le menu reste modifiable — c'est une proposition, pas une contrainte.
+  `cible` de l'étape. La publication RETIENT son étape (`DeployRun.cible`) : la relance et la file
+  d'attente repartent de la MÊME, et `runDeLEtape` décide dans lequel des deux blocs le déroulé
+  s'affiche (une publication sans cible est celle du lot de « À déployer », le seul qui existait).
+  Une publication en cours ailleurs éteint le bouton EN LE DISANT. Sous le bouton du déploiement,
+  une ligne dit COMMENT l'instance de dev sera rafraîchie (`deploy.check` → `miseEnLigne.raison`) :
+  ce n'est jamais un refus, seulement ce qui va se passer. Le pied de lot des deux colonnes ne bouge
+  pas.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
   `shared/src/suivi-colonne.ts`). La règle par défaut ne bouge pas : aucun chemin AUTOMATIQUE n'en
   ressort une carte — ni un tour d'agent (`colonneAuDemarrage`), ni `board_move_card`, ni une

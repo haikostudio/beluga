@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 /**
- * « Tout déployer » met-il VRAIMENT en ligne ?
+ * « Tout déployer » fait-il VRAIMENT ce qu'il annonce ?
  *
- * Deux publications réelles, jouées de bout en bout sur des projets d'essai
+ * Déployer est désormais UNE seule chose, toujours disponible et sans réglage :
+ * fusionner les branches des cartes de « À déployer », enregistrer, envoyer sur
+ * le dépôt, puis rafraîchir l'instance de dev du projet sur ce serveur.
+ *
+ * Trois publications réelles, jouées de bout en bout sur des projets d'essai
  * montés dans un dossier temporaire, avec leur propre base :
  *
- * 1. un projet SANS aucun moyen d'être mis en ligne — la publication doit être
- *    REFUSÉE, en nommant ce qui manque ; rien ne doit être fusionné, et la
- *    carte doit rester à déployer ;
- * 2. un projet AVEC commande de publication — la publication doit aller au
- *    bout, la commande doit réellement s'être exécutée, et la carte doit
- *    porter sa date de mise en ligne.
+ * 1. un projet SANS instance de dev sur cette machine — la publication doit
+ *    aboutir quand même (le lot est fusionné), le dire en toutes lettres, et la
+ *    carte doit se poser en « En production », JAMAIS aux archives ;
+ * 2. un projet AVEC un script de construction — l'étape « Construction » doit
+ *    réellement l'exécuter ;
+ * 3. la seconde étape — depuis « En production », publier CLÔT la carte.
  *
  * Aucune base ni aucun dossier du serveur en service n'est touché :
  * HAIKODEV_DATA est détourné vers le dossier d'essai avant tout import.
@@ -55,7 +59,7 @@ function monterDepot(nom) {
   return cwd;
 }
 
-function monterProjet(nom, deployCommand) {
+function monterProjet(nom, colonne = 'to_deploy') {
   const cwd = monterDepot(nom);
   const maintenant = Date.now();
   const projet = store.saveProject({
@@ -64,7 +68,6 @@ function monterProjet(nom, deployCommand) {
     path: cwd,
     defaultEngine: 'claude',
     isSelf: false,
-    deployCommand,
     rank: 1000,
     archived: false,
     createdAt: maintenant,
@@ -76,13 +79,15 @@ function monterProjet(nom, deployCommand) {
     title: `Carte d'essai — ${nom}`,
     description: '',
     labels: [],
-    column: 'to_deploy',
+    column: colonne,
     position: 1,
     origin: 'user',
     run: { engine: 'claude' },
     excludedFromDeploy: false,
     horsTache: false,
     github: { branch: 'tache/essai' },
+    // Une carte déjà « En production » porte forcément une date de déploiement.
+    deployedAt: colonne === 'in_production' ? maintenant : undefined,
     createdAt: maintenant,
     updatedAt: maintenant,
   });
@@ -90,7 +95,7 @@ function monterProjet(nom, deployCommand) {
 }
 
 /** Attend la fin du run : la publication travaille en arrière-plan. */
-async function attendreFin(projectId, secondes = 120) {
+async function attendreFin(projectId, secondes = 180) {
   const fin = Date.now() + secondes * 1000;
   while (Date.now() < fin) {
     const run = store.latestDeploy(projectId);
@@ -100,56 +105,75 @@ async function attendreFin(projectId, secondes = 120) {
   return store.latestDeploy(projectId);
 }
 
-/* --- 1. Sans aucun moyen de mise en ligne : refus honnête ---------- */
+const etatDe = (run, cle) => run?.steps.find((s) => s.key === cle)?.state;
+const journalDe = (run, cle) => run?.steps.find((s) => s.key === cle)?.log ?? '';
 
-console.log('\n1. Un projet sans commande de publication');
-const sans = monterProjet('essai-sans-commande', undefined);
-const refus = await startDeploy(sans.projet.id);
+function raconter(run) {
+  console.log(`   étapes : ${(run?.steps ?? []).map((s) => `${s.key}=${s.state}`).join(' ')}`);
+  for (const step of run?.steps ?? []) {
+    if (step.log) console.log(`   [${step.key}] ${step.log.trim().split('\n').pop()?.slice(0, 110)}`);
+  }
+}
 
-dire(refus.ok === false, 'la publication est refusée');
+/* --- 1. Sans instance de dev : on déploie quand même, et on le dit ---- */
+
+console.log('\n1. Un projet sans instance de dev sur ce serveur');
+const sans = monterProjet('essai-sans-instance');
+const lanceSans = await startDeploy(sans.projet.id);
+dire(lanceSans.ok === true, 'la publication démarre — plus aucun refus faute de réglage');
+
+const runSans = await attendreFin(sans.projet.id);
+dire(runSans?.state === 'success', `la publication aboutit (état « ${runSans?.state} »)`);
+dire(etatDe(runSans, 'merge') === 'done', 'la branche de la carte est fusionnée');
 dire(
-  /aucun moyen d’être mis en ligne/.test(refus.error ?? ''),
-  `le motif nomme ce qui manque : « ${(refus.error ?? '').slice(0, 90)}… »`,
-);
-dire(/commande de publication/.test(refus.error ?? ''), 'le motif dit quoi faire (renseigner la commande)');
-dire(store.latestDeploy(sans.projet.id) === null, 'aucun rapport de publication n’est fabriqué');
-dire(!store.getCard(sans.carte.id)?.deployedAt, 'la carte n’est PAS marquée comme mise en ligne');
-dire(
-  store.getCard(sans.carte.id)?.column === 'to_deploy',
-  'la carte reste dans « À déployer », rien n’est perdu',
-);
-dire(
-  !fs.existsSync(path.join(sans.cwd, 'nouveau.txt')),
-  'rien n’a été fusionné sur la branche principale : le refus vient AVANT',
-);
-
-/* --- 2. Avec commande de publication : mise en ligne réelle -------- */
-
-console.log('\n2. Un projet avec commande de publication');
-const preuve = path.join(racine, 'preuve-mise-en-ligne.txt');
-const avec = monterProjet('essai-avec-commande', `date +%s > ${preuve}`);
-const lance = await startDeploy(avec.projet.id);
-dire(lance.ok === true, 'la publication démarre');
-
-const run = await attendreFin(avec.projet.id);
-const etat = (cle) => run?.steps.find((s) => s.key === cle)?.state;
-
-dire(run?.state === 'success', `la publication aboutit (état « ${run?.state} »)`);
-dire(etat('merge') === 'done', 'la branche de la carte est fusionnée');
-dire(etat('build') === 'done', 'la commande de publication est exécutée');
-dire(etat('publish') === 'done', 'la mise en ligne est constatée');
-dire(fs.existsSync(preuve), 'la commande a RÉELLEMENT tourné (elle a laissé sa trace)');
-dire(
-  fs.existsSync(path.join(avec.cwd, 'nouveau.txt')),
+  fs.existsSync(path.join(sans.cwd, 'nouveau.txt')),
   'le travail de la carte est bien sur la branche principale',
 );
-dire(!!store.getCard(avec.carte.id)?.deployedAt, 'la carte porte sa date de mise en ligne');
+dire(
+  etatDe(runSans, 'publish') === 'skipped' && /Aucune instance de dev/.test(journalDe(runSans, 'publish')),
+  'l’étape de mise en ligne DIT qu’aucune instance de dev n’a été trouvée',
+);
+dire(
+  store.getCard(sans.carte.id)?.column === 'in_production',
+  'la carte déployée se pose en « En production »',
+);
+dire(store.getCard(sans.carte.id)?.column !== 'archived', 'elle ne part PAS aux archives : clore vient après');
+dire(!!store.getCard(sans.carte.id)?.deployedAt, 'la carte porte sa date de déploiement');
+dire(runSans?.cible === 'dev', 'la publication retient son étape (déploiement)');
+raconter(runSans);
 
-const etapes = (run?.steps ?? []).map((s) => `${s.key}=${s.state}`).join(' ');
-console.log(`\n   étapes : ${etapes}`);
-for (const step of run?.steps ?? []) {
-  if (step.log) console.log(`   [${step.key}] ${step.log.trim().split('\n').pop()?.slice(0, 110)}`);
-}
+/* --- 2. Avec un script de construction : il tourne pour de vrai ------ */
+
+console.log('\n2. Un projet avec un script de construction');
+const avec = monterProjet('essai-avec-build');
+const preuve = path.join(racine, 'preuve-construction.txt');
+fs.writeFileSync(
+  path.join(avec.cwd, 'package.json'),
+  JSON.stringify({ name: 'essai-avec-build', scripts: { build: `date +%s > ${preuve}` } }, null, 2),
+);
+git(avec.cwd, 'add', 'package.json');
+git(avec.cwd, 'commit', '-q', '-m', 'un script de construction');
+
+const lanceAvec = await startDeploy(avec.projet.id);
+dire(lanceAvec.ok === true, 'la publication démarre');
+const runAvec = await attendreFin(avec.projet.id);
+dire(runAvec?.state === 'success', `la publication aboutit (état « ${runAvec?.state} »)`);
+dire(etatDe(runAvec, 'build') === 'done', 'l’étape « Construction » est menée à terme');
+dire(fs.existsSync(preuve), 'le script de construction a RÉELLEMENT tourné (il a laissé sa trace)');
+raconter(runAvec);
+
+/* --- 3. La seconde étape : publier depuis « En production » clôt ----- */
+
+console.log('\n3. La mise en production, depuis « En production »');
+const prod = monterProjet('essai-production', 'in_production');
+const lanceProd = await startDeploy(prod.projet.id, { cible: 'production' });
+dire(lanceProd.ok === true, 'la mise en production démarre');
+const runProd = await attendreFin(prod.projet.id);
+dire(runProd?.state === 'success', `elle aboutit (état « ${runProd?.state} »)`);
+dire(runProd?.cible === 'production', 'la publication retient son étape (production)');
+dire(runProd?.cardIds.includes(prod.carte.id), 'le lot part bien de la colonne « En production »');
+dire(store.getCard(prod.carte.id)?.column === 'archived', 'c’est CETTE étape qui clôt la carte');
+raconter(runProd);
 
 fs.rmSync(racine, { recursive: true, force: true });
 console.log(echecs ? `\n${echecs} vérification(s) en échec.` : '\nTout est vérifié.');

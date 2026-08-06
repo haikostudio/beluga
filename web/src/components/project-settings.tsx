@@ -1,29 +1,6 @@
 import * as React from 'react';
-import {
-  Archive,
-  ArrowDown,
-  ArrowUp,
-  Check,
-  CircleDollarSign,
-  Globe,
-  Loader2,
-  Plus,
-  Rocket,
-  Trash2,
-  X,
-} from 'lucide-react';
-import {
-  EnvironnementPublication,
-  Project,
-  ROLES_ENVIRONNEMENT,
-  RoleEnvironnement,
-  ajouterEnvironnement,
-  deplacerEnvironnement,
-  environnementsDuProjet,
-  libelleRole,
-  modifierEnvironnement,
-  retirerEnvironnement,
-} from '@haikodev/shared';
+import { Archive, Check, CircleDollarSign, Globe, Loader2, Rocket, Trash2 } from 'lucide-react';
+import { Project } from '@haikodev/shared';
 import {
   Button,
   ConfirmDialog,
@@ -32,7 +9,6 @@ import {
   DialogTitle,
   Input,
   Label,
-  Switch,
 } from '@/components/ui';
 import { Filet } from '@/components/filet';
 import { client } from '@/lib/client';
@@ -68,17 +44,9 @@ export function ProjectSettings({
   const [available, setAvailable] = React.useState(true);
 
   const [name, setName] = React.useState('');
-  /* Le projet déclare-t-il que sa branche principale déclenche une mise en
-     ligne chez le client ? Rien n'est lu là-bas : c'est une déclaration. */
-  const [deployeSurEnvoi, setDeployeSurEnvoi] = React.useState(false);
-  /*
-   * Les environnements de publication, dans l'ordre voulu. La liste est
-   * TOUJOURS pleine : un projet réglé à l'ancienne se relit comme un
-   * environnement « Interne » portant sa commande et son adresse, si bien que
-   * ce volet n'a jamais à traiter deux formats.
-   */
-  const [environnements, setEnvironnements] = React.useState<EnvironnementPublication[]>([]);
-  const [envVise, setEnvVise] = React.useState('');
+  /* La SEULE chose que le déploiement demande de régler : l'adresse de
+     l'instance de dev, contrôlée à la fin de chaque déploiement. */
+  const [devUrl, setDevUrl] = React.useState('');
   const [engine, setEngine] = React.useState<string>('claude');
   const [clientId, setClientId] = React.useState('');
   const [rate, setRate] = React.useState('130');
@@ -92,10 +60,7 @@ export function ProjectSettings({
   React.useEffect(() => {
     if (!project) return;
     setName(project.name);
-    setDeployeSurEnvoi(project.deployeSurEnvoi === true);
-    const liste = environnementsDuProjet(project);
-    setEnvironnements(liste);
-    setEnvVise(liste[0]?.id ?? '');
+    setDevUrl(project.devUrl ?? '');
     setEngine(project.defaultEngine ?? 'claude');
     setClientId(project.billing?.clientId ?? '');
     setRate(String(project.billing?.hourlyRate ?? 130));
@@ -139,14 +104,7 @@ export function ProjectSettings({
         patch: {
           name: name.trim() || project.name,
           defaultEngine: engine,
-          deployeSurEnvoi,
-          /*
-           * On écrit la LISTE, jamais les deux anciens champs : ils restent
-           * tels quels en base pour un projet jamais rouvert, et la lecture
-           * s'en sert quand la liste est vide. Deux endroits qui écrivent la
-           * même chose, ce sont deux vérités qui finissent par diverger.
-           */
-          environments: environnements,
+          devUrl: devUrl.trim() || undefined,
           billing: clientId
             ? {
                 clientId,
@@ -223,52 +181,34 @@ export function ProjectSettings({
           </div>
 
           {/* ---------- Publication ---------- */}
-          <div data-environnements>
+          <div data-deploiement>
             <h3 className="mb-1.5 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-              <Rocket className="h-3.5 w-3.5 text-faint" /> Environnements de publication
+              <Rocket className="h-3.5 w-3.5 text-faint" /> Déploiement
             </h3>
             <p className="mb-2 text-[12.5px] leading-snug text-faint">
-              Chaque environnement a sa commande, son adresse et sa branche. Le premier de la liste est celui que le
-              bouton « Tout déployer » vise par défaut.
+              Déployer fusionne les branches des cartes, enregistre, envoie sur le dépôt, puis rafraîchit l'instance de
+              dev de ce projet sur le serveur. Rien d'autre à régler : HaikoDev reconnaît tout seul la construction et
+              le service à relancer.
             </p>
 
-            <div className="space-y-2">
-              {environnements.map((env, index) => (
-                <LigneEnvironnement
-                  key={env.id}
-                  env={env}
-                  index={index}
-                  total={environnements.length}
-                  onChange={(champs) => setEnvironnements((liste) => modifierEnvironnement(liste, env.id, champs))}
-                  onDeplacer={(sens) => setEnvironnements((liste) => deplacerEnvironnement(liste, env.id, sens))}
-                  onRetirer={() => {
-                    setEnvironnements((liste) => retirerEnvironnement(liste, env.id));
-                    if (envVise === env.id) setEnvVise(environnements[0]?.id ?? '');
-                  }}
-                  vise={envVise === env.id}
-                  onViser={() => setEnvVise(env.id)}
-                />
-              ))}
+            <div>
+              <Label>Adresse à contrôler</Label>
+              <Input
+                value={devUrl}
+                onChange={(event) => setDevUrl(event.target.value)}
+                className="mt-1"
+                data-url-dev
+                placeholder="https://mon-projet.haikostudio.cloud"
+              />
+              <p className="mt-1 text-[11.5px] text-faint">
+                Elle est ouverte à la fin de chaque déploiement : si elle ne répond pas, le déploiement est déclaré en
+                échec. Laissée vide, aucune adresse n'est contrôlée.
+              </p>
             </div>
 
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-2"
-              data-ajouter-environnement
-              onClick={() =>
-                setEnvironnements((liste) => ajouterEnvironnement(liste, { nom: 'Nouvel environnement' }))
-              }
-            >
-              <Plus className="h-3 w-3" /> Ajouter un environnement
-            </Button>
-
-            {/* La création d'adresse vise l'environnement CHOISI ci-dessus : sans
-                cela, une production et un dev client se disputeraient la même. */}
             <div className="mt-2 rounded-md border border-border bg-surface px-2.5 py-2">
               <p className="text-[12.5px] text-muted">
-                Pas encore d'adresse ? HaikoDev peut la créer pour l'environnement coché : nom, certificat et
-                redirection en une fois.
+                Pas encore d'adresse ? HaikoDev peut la créer : nom, certificat et redirection en une fois.
               </p>
               <div className="mt-1.5 flex items-center gap-1.5">
                 <Input
@@ -297,15 +237,10 @@ export function ProjectSettings({
                           id: project.id,
                           subdomain: sousDomaine.trim(),
                           port: Number(portLocal),
-                          environmentId: envVise || undefined,
                         },
                         180000,
                       );
-                      if (res?.url) {
-                        setEnvironnements((liste) =>
-                          modifierEnvironnement(liste, envVise || liste[0]?.id || '', { url: res.url }),
-                        );
-                      }
+                      if (res?.url) setDevUrl(res.url);
                     } catch (err: any) {
                       client.pushToast('error', err?.message ?? 'création impossible');
                     } finally {
@@ -320,26 +255,6 @@ export function ProjectSettings({
               <p className="mt-1 text-[11.5px] text-faint">
                 Le port est celui sur lequel votre projet écoute sur le serveur.
               </p>
-            </div>
-
-            {/* Envoyer sur le dépôt met-il déjà le site à jour ? Sur un projet
-                client déployé tout seul, l'envoi EST la mise en ligne : la
-                publication doit alors s'arrêter et demander avant d'envoyer. */}
-            <div className="mt-2.5 flex items-start gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2">
-              <Switch
-                checked={deployeSurEnvoi}
-                onCheckedChange={(valeur) => setDeployeSurEnvoi(valeur === true)}
-                data-envoi-surveille
-                aria-label="Envoyer sur le dépôt met le site en ligne"
-                className="mt-0.5"
-              />
-              <div className="min-w-0">
-                <p className="text-[13px] text-text">Envoyer sur le dépôt met le site en ligne</p>
-                <p className="mt-0.5 text-[11.5px] text-faint">
-                  À cocher quand le serveur du client se met à jour tout seul à chaque envoi. HaikoDev s'arrêtera alors
-                  avant d'envoyer et vous demandera votre accord.
-                </p>
-              </div>
             </div>
           </div>
 
@@ -456,129 +371,5 @@ export function ProjectSettings({
         onClose={() => setConfirmSuppression(false)}
       />
     </Dialog>
-  );
-}
-
-/**
- * Un environnement de publication : son nom, son rôle, et les trois réglages
- * qui décident de la mise en ligne — la commande, l'adresse à contrôler et la
- * branche installée. Le rond à gauche désigne l'environnement que la création
- * d'adresse va servir ; il ne publie rien par lui-même.
- */
-function LigneEnvironnement({
-  env,
-  index,
-  total,
-  vise,
-  onChange,
-  onDeplacer,
-  onRetirer,
-  onViser,
-}: {
-  env: EnvironnementPublication;
-  index: number;
-  total: number;
-  vise: boolean;
-  onChange: (champs: Partial<Omit<EnvironnementPublication, 'id'>>) => void;
-  onDeplacer: (sens: 'haut' | 'bas') => void;
-  onRetirer: () => void;
-  onViser: () => void;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-surface px-2.5 py-2" data-environnement={env.id}>
-      <div className="flex items-center gap-1.5">
-        <input
-          type="radio"
-          checked={vise}
-          onChange={onViser}
-          aria-label={`Viser l'environnement ${env.nom}`}
-          className="h-3 w-3 shrink-0 accent-[var(--accent)]"
-        />
-        <Input
-          value={env.nom}
-          onChange={(event) => onChange({ nom: event.target.value })}
-          className="h-8 flex-1"
-          data-nom-environnement
-          placeholder="Nom de l'environnement"
-        />
-        <select
-          value={env.role}
-          onChange={(event) => onChange({ role: event.target.value as RoleEnvironnement })}
-          className="h-8 shrink-0 rounded-md border border-border bg-raised px-1.5 text-[13px] text-text"
-          aria-label="Rôle de l'environnement"
-        >
-          {ROLES_ENVIRONNEMENT.map((role) => (
-            <option key={role} value={role}>
-              {libelleRole(role)}
-            </option>
-          ))}
-        </select>
-        {/* Ranger la liste : le premier est celui que « Tout déployer » vise. */}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 w-7 px-0"
-          disabled={index === 0}
-          onClick={() => onDeplacer('haut')}
-          aria-label="Monter cet environnement"
-        >
-          <ArrowUp className="h-3 w-3" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 w-7 px-0"
-          disabled={index === total - 1}
-          onClick={() => onDeplacer('bas')}
-          aria-label="Descendre cet environnement"
-        >
-          <ArrowDown className="h-3 w-3" />
-        </Button>
-        {/* Le dernier environnement ne se retire pas : un projet en garde un. */}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 w-7 px-0 text-danger hover:text-danger"
-          disabled={total <= 1}
-          onClick={onRetirer}
-          aria-label="Retirer cet environnement"
-        >
-          <X className="h-3 w-3" />
-        </Button>
-      </div>
-
-      <div className="mt-1.5 space-y-1.5">
-        <div>
-          <Label>Commande de publication</Label>
-          <Input
-            value={env.commande ?? ''}
-            onChange={(event) => onChange({ commande: event.target.value })}
-            className="mt-1"
-            data-commande-environnement
-            placeholder="npm run build && sudo systemctl restart mon-projet"
-          />
-        </div>
-        <div>
-          <Label>Adresse à contrôler</Label>
-          <Input
-            value={env.url ?? ''}
-            onChange={(event) => onChange({ url: event.target.value })}
-            className="mt-1"
-            data-url-environnement
-            placeholder="https://mon-projet.haikostudio.cloud"
-          />
-        </div>
-        <div>
-          <Label>Branche installée</Label>
-          <Input
-            value={env.branche ?? ''}
-            onChange={(event) => onChange({ branche: event.target.value })}
-            className="mt-1"
-            data-branche-environnement
-            placeholder="laisser vide : la branche principale"
-          />
-        </div>
-      </div>
-    </div>
   );
 }

@@ -9,15 +9,8 @@
  * La règle vit ici, sans base ni réseau : elle se teste seule.
  */
 
-/**
- * Ce qui peut réclamer une décision de l'utilisateur.
- *
- * `envoi` : une publication arrêtée avant d'envoyer sur le dépôt, parce que le
- * projet a déclaré que sa branche principale déclenche une mise en ligne chez
- * le client (`envoi-surveille.ts`). Elle ne tient ni à une carte ni à une
- * conversation : elle se prend dans le bloc de publication du projet.
- */
-export type GenreDemande = 'question' | 'validation' | 'envoi';
+/** Ce qui peut réclamer une décision de l'utilisateur. */
+export type GenreDemande = 'question' | 'validation';
 
 export interface DemandeEnAttente {
   projectId: string;

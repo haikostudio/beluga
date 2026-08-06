@@ -289,6 +289,32 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX idx_dictees_attente ON dictees(reglee_a, created_at);
     `,
   },
+  {
+    id: 13,
+    name: 'adresse-de-dev-unique',
+    // Déployer ne se règle plus : ni environnements, ni rôles, ni commande de
+    // publication, ni « se déploie sur envoi ». Il ne reste que l'adresse de
+    // l'instance de dev à contrôler — on la reprend là où elle était rangée,
+    // sinon un projet déjà réglé la perdrait en silence : d'abord l'adresse du
+    // premier environnement, sinon l'ancien `deployUrl`.
+    //
+    // Et une publication restée « en attente d'accord » ne trouverait plus
+    // personne pour trancher : elle est refermée en « arrêtée ».
+    sql: `
+      UPDATE projects
+         SET data = json_set(
+               data,
+               '$.devUrl',
+               COALESCE(json_extract(data, '$.environments[0].url'), json_extract(data, '$.deployUrl'))
+             )
+       WHERE COALESCE(json_extract(data, '$.environments[0].url'), json_extract(data, '$.deployUrl')) IS NOT NULL;
+
+      UPDATE deploys
+         SET state = 'stopped',
+             data = json_set(json_remove(data, '$.attente'), '$.state', 'stopped')
+       WHERE state = 'awaiting';
+    `,
+  },
 ];
 
 export function openDb(): DB {

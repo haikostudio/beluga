@@ -79,29 +79,6 @@ export const BillingLink = z.object({
 });
 export type BillingLink = z.infer<typeof BillingLink>;
 
-/**
- * Un endroit où ce projet peut être mis en ligne (interne, dev chez le client,
- * production). Les règles vivent dans `environnements-publication.ts` ; ici on
- * ne fait que ranger. Un projet sans liste garde ses `deployCommand` /
- * `deployUrl` : c'est la lecture qui en fabrique un environnement « interne ».
- */
-export const DeployEnvironment = z.object({
-  id: z.string(),
-  nom: z.string(),
-  role: z.enum(['interne', 'dev-client', 'production']).default('interne'),
-  commande: z.string().optional(),
-  url: z.string().optional(),
-  /** Branche installée par cet environnement. Vide = la branche principale. */
-  branche: z.string().optional(),
-  /**
-   * Consigne de déploiement, en français : renseignée, la mise en ligne est
-   * confiée à un agent qui la suit telle quelle
-   * (`shared/src/publication-confiee.ts`).
-   */
-  consigne: z.string().optional(),
-});
-export type DeployEnvironment = z.infer<typeof DeployEnvironment>;
-
 export const Project = z.object({
   id: z.string(),
   name: z.string(),
@@ -113,23 +90,12 @@ export const Project = z.object({
   /** Vrai uniquement pour le dépôt HaikoDev lui-même (PLAN §5, exception). */
   isSelf: z.boolean().default(false),
   /**
-   * Commande de publication, exécutée par l'agent de publication. ANCIEN
-   * format : conservé tel quel pour les projets déjà réglés, relu comme un
-   * environnement « interne » unique. Les projets neufs écrivent dans
-   * `environments`.
+   * L'adresse de l'INSTANCE DE DEV de ce projet sur ce serveur : la seule chose
+   * que le déploiement demande encore de régler. Elle est contrôlée à la fin du
+   * déploiement — une adresse qui ne répond pas fait échouer le run. Vide :
+   * aucun contrôle d'adresse, le reste du déroulé ne change pas.
    */
-  deployCommand: z.string().optional(),
-  deployUrl: z.string().optional(),
-  /**
-   * Le projet DÉCLARE que sa branche principale déclenche un déploiement
-   * automatique chez le client : envoyer sur le dépôt met la production à jour.
-   * La publication s'arrête alors avant tout envoi et demande l'accord
-   * (`shared/src/envoi-surveille.ts`). Rien n'est lu chez le client : c'est une
-   * déclaration faite ici.
-   */
-  deployeSurEnvoi: z.boolean().default(false),
-  /** Les endroits où ce projet peut être mis en ligne, dans l'ordre voulu. */
-  environments: z.array(DeployEnvironment).default([]),
+  devUrl: z.string().optional(),
   /**
    * Ce qu'il faut FAIRE pour déployer ce projet, en texte libre, une consigne
    * par étape du parcours : celle de « À déployer » et celle de « En
@@ -571,12 +537,7 @@ export type DeployStepKey = z.infer<typeof DeployStepKey>;
 export const DeployRun = z.object({
   id: z.string(),
   projectId: z.string(),
-  /**
-   * `awaiting` : la publication attend l'accord de l'utilisateur avant tout
-   * envoi sur le dépôt (projet déclaré « se déploie sur envoi »). Rien n'a
-   * encore été touché — d'où la reprise depuis la première étape au clic.
-   */
-  state: z.enum(['running', 'awaiting', 'success', 'failed', 'stopped']),
+  state: z.enum(['running', 'success', 'failed', 'stopped']),
   currentStep: DeployStepKey.optional(),
   steps: z
     .array(
@@ -591,33 +552,18 @@ export const DeployRun = z.object({
     .default([]),
   cardIds: z.array(z.string()).default([]),
   /**
-   * L'ÉTAPE du parcours d'où part cette publication : la mise sur
-   * l'environnement de dev, ou la mise en production. Absente, c'est une
-   * publication d'avant les deux étapes — donc celle du lot de « À déployer »,
-   * le seul qui existait. Elle est retenue pour que la relance, la file
-   * d'attente et l'accord d'envoi repartent de la MÊME étape, et pour que le
-   * déroulé s'affiche dans le bloc qui l'a lancée, pas dans l'autre.
+   * L'ÉTAPE du parcours d'où part cette publication : le déploiement sur
+   * l'instance de dev, ou la mise en production. Absente, c'est une publication
+   * d'avant les deux étapes — donc celle du lot de « À déployer », le seul qui
+   * existait. Elle est retenue pour que la relance et la file d'attente
+   * repartent de la MÊME étape, et pour que le déroulé s'affiche dans le bloc
+   * qui l'a lancée, pas dans l'autre.
    */
   cible: z.enum(['dev', 'production']).optional(),
-  /** L'environnement visé. Absent : publication d'avant les environnements. */
-  environmentId: z.string().optional(),
-  environmentName: z.string().optional(),
+  /** L'adresse contrôlée à la fin, quand le projet en déclare une. */
   url: z.string().optional(),
   targetCommit: z.string().optional(),
   agentId: z.string().optional(),
-  /**
-   * Ce que l'utilisateur doit trancher avant que le moindre envoi parte : la
-   * branche visée, les enregistrements concernés et le texte de la décision.
-   * Effacée dès que l'accord est donné ou l'envoi refusé.
-   */
-  attente: z
-    .object({
-      branche: z.string(),
-      enregistrements: z.array(z.string()).default([]),
-      texte: z.string(),
-      demandeeA: z.number(),
-    })
-    .optional(),
   error: z.string().optional(),
   queued: z.boolean().default(false),
   startedAt: z.number(),

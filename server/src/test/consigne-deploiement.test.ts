@@ -117,13 +117,13 @@ test('base et consigne sont deux objets distincts sur le projet', () => {
 
 test('le prompt de génération porte la base, l’étape et le rappel du projet', () => {
   const prompt = promptGenerationConsigne(
-    { deployCommand: 'bash publier.sh' },
+    { devUrl: 'https://dev.exemple.test' },
     'to_deploy',
     'construire puis copier',
   );
   assert.match(prompt, /À déployer/);
   assert.match(prompt, /construire puis copier/);
-  assert.match(prompt, /Interne/); // le rappel de l'environnement visé
+  assert.match(prompt, /dev\.exemple\.test/); // le rappel de ce qui est déjà connu
   assert.match(prompt, /SEUL texte/i); // consigne : rendre uniquement la consigne
 });
 
@@ -141,80 +141,18 @@ test('le nettoyage borne la consigne générée à la longueur permise', () => {
 /* Ce que la fenêtre rappelle                                           */
 /* ------------------------------------------------------------------ */
 
-test('le rappel nomme l’environnement visé et la branche principale par défaut', () => {
-  const ligne = rappelDeConsigne({ deployCommand: 'bash publier.sh' });
-  assert.match(ligne, /Interne/);
-  assert.match(ligne, /interne/);
+test('le rappel nomme la branche principale et l’adresse de dev réglée', () => {
+  const ligne = rappelDeConsigne({ devUrl: 'https://dev.exemple.test' });
   assert.match(ligne, /branche principale/);
+  assert.match(ligne, /dev\.exemple\.test/);
 });
 
-test('le rappel nomme la branche installée quand elle est déclarée', () => {
-  const ligne = rappelDeConsigne({
-    environments: [{ id: 'prod', nom: 'Production', role: 'production', branche: 'release' }],
-  });
-  assert.match(ligne, /Production/);
-  assert.match(ligne, /« release »/);
+test('sans adresse de dev, le rappel le dit au lieu de laisser croire', () => {
+  const ligne = rappelDeConsigne({});
+  assert.match(ligne, /branche principale/);
+  assert.match(ligne, /Aucune adresse de dev/);
 });
 
-test('avec plusieurs environnements, le rappel dit lequel est visé par défaut', () => {
-  const ligne = rappelDeConsigne({
-    environments: [
-      { id: 'dev', nom: 'Dev client', role: 'dev-client' },
-      { id: 'prod', nom: 'Production', role: 'production' },
-    ],
-  });
-  assert.match(ligne, /Dev client/);
-  assert.match(ligne, /2 environnements/);
-});
-
-test('la mention dit l’état de la consigne, vide comprise', () => {
-  assert.match(mentionConsigne(''), /déroulé habituel/i);
-  assert.match(mentionConsigne('une ligne\nune autre'), /2 lignes/);
-});
-
-/* ------------------------------------------------------------------ */
-/* Ce que le projet range                                               */
-/* ------------------------------------------------------------------ */
-
-test('un projet enregistré sans consigne en rend un objet vide, jamais une erreur', () => {
-  const projet = Project.parse({
-    id: 'p1',
-    name: 'Essai',
-    path: '/root/essai',
-    createdAt: 1,
-    updatedAt: 1,
-  });
-  assert.deepEqual(projet.consignesDeploiement, {});
-  assert.deepEqual(projet.basesDeploiement, {});
-  assert.equal(consigneDeploiement(projet, 'to_deploy'), '');
-  assert.equal(baseDeploiement(projet, 'to_deploy'), '');
-});
-
-test('un projet garde base ET consigne après un aller-retour par le modèle', () => {
-  const projet = Project.parse({
-    id: 'p1',
-    name: 'Essai',
-    path: '/root/essai',
-    createdAt: 1,
-    updatedAt: 1,
-    basesDeploiement: { to_deploy: 'base dev' },
-    consignesDeploiement: { to_deploy: 'consigne dev' },
-  });
-  const relu = Project.parse(JSON.parse(JSON.stringify(projet)));
-  assert.equal(baseDeploiement(relu, 'to_deploy'), 'base dev');
-  assert.equal(consigneDeploiement(relu, 'to_deploy'), 'consigne dev');
-});
-
-test('un projet garde ses deux consignes après un aller-retour par le modèle', () => {
-  const projet = Project.parse({
-    id: 'p1',
-    name: 'Essai',
-    path: '/root/essai',
-    createdAt: 1,
-    updatedAt: 1,
-    consignesDeploiement: { to_deploy: 'consigne dev', in_production: 'consigne prod' },
-  });
-  const relu = Project.parse(JSON.parse(JSON.stringify(projet)));
-  assert.equal(consigneDeploiement(relu, 'to_deploy'), 'consigne dev');
-  assert.equal(consigneDeploiement(relu, 'in_production'), 'consigne prod');
+test('projet inconnu : le rappel le dit', () => {
+  assert.equal(rappelDeConsigne(undefined), 'Projet inconnu.');
 });

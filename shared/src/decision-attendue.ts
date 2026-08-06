@@ -7,15 +7,12 @@
  * celui d'`attentionParProjet` — il dit seulement, pour chaque décision, à quel
  * endroit de l'écran elle doit se voir.
  *
- * Trois endroits, et trois seulement :
+ * Deux endroits, et deux seulement :
  *
  *  - la CARTE, quand la décision est née dans le travail d'une carte (une
  *    question posée par son agent) ;
  *  - la CONVERSATION, quand elle ne concerne aucune carte — une carte proposée
- *    n'existe pas encore, une question du chef d'orchestre non plus ;
- *  - le PROJET lui-même, quand la décision ne tient à aucun fil : une
- *    publication arrêtée avant d'envoyer sur le dépôt (`genre: 'envoi'`) se
- *    tranche dans le bloc de publication, qui n'appartient à aucun agent.
+ *    n'existe pas encore, une question du chef d'orchestre non plus.
  *
  * Chaque décision est posée à UN seul de ces endroits : c'est ce qui garantit
  * que le compte annoncé sur le projet est exactement le nombre de repères
@@ -25,10 +22,7 @@ import { DemandeEnAttente, demandeOuverte } from './attention.js';
 
 /** Une décision attendue, et l'endroit d'où elle vient. */
 export interface DecisionAttendue extends DemandeEnAttente {
-  /**
-   * La conversation où elle se prend. Absente pour une décision qui ne tient à
-   * aucun fil — l'accord avant envoi, posé sur le projet.
-   */
+  /** La conversation où elle se prend. */
   agentId?: string;
   /** La carte concernée, quand la décision est née dans son travail. */
   cardId?: string;
@@ -39,7 +33,7 @@ export interface DecisionAttendue extends DemandeEnAttente {
 /** L'endroit où l'utilisateur doit être emmené pour trancher. */
 export interface LieuDecision {
   projectId: string;
-  /** Absent : la décision se prend sur le projet lui-même (bloc de publication). */
+  /** Absent : la décision ne tient à aucune conversation. */
   agentId?: string;
   /** Absent : la décision se prend dans la conversation, sans carte. */
   cardId?: string;
@@ -66,8 +60,7 @@ export function decisionsParCarte(decisions: DecisionAttendue[]): Record<string,
 /**
  * Combien de décisions attend chaque CONVERSATION, par agent. Seules celles qui
  * ne tiennent à aucune carte : sinon la même décision serait marquée deux fois,
- * et le total annoncé sur le projet ne collerait plus. Une décision sans agent
- * (l'accord avant envoi) ne se prend dans aucun fil : elle est ignorée ici.
+ * et le total annoncé sur le projet ne collerait plus.
  */
 export function decisionsParConversation(decisions: DecisionAttendue[]): Record<string, number> {
   const compte: Record<string, number> = {};
@@ -81,19 +74,10 @@ export function decisionsParConversation(decisions: DecisionAttendue[]): Record<
 /**
  * Les décisions d'un projet qui se prennent dans une conversation, sans carte.
  * C'est ce que porte l'entrée « Chef » : on ne peut pas montrer un repère par
- * agent sur un onglet unique. Une décision sans agent n'y compte pas — elle se
- * voit dans le bloc de publication, pas dans un fil.
+ * agent sur un onglet unique.
  */
 export function decisionsHorsCarte(decisions: DecisionAttendue[], projectId: string): number {
   return decisionsOuvertes(decisions).filter((d) => !d.cardId && d.agentId && d.projectId === projectId).length;
-}
-
-/**
- * Les décisions d'un projet qui se prennent DANS SON BLOC DE PUBLICATION : ni
- * carte, ni conversation. Aujourd'hui l'accord avant envoi, et lui seul.
- */
-export function decisionsDePublication(decisions: DecisionAttendue[], projectId: string): number {
-  return decisionsOuvertes(decisions).filter((d) => d.genre === 'envoi' && d.projectId === projectId).length;
 }
 
 /**

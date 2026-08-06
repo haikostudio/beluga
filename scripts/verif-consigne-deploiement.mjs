@@ -6,7 +6,7 @@
  *  - le bouton trois points est présent sur « À déployer » et « En production »
  *    MÊME sans aucune carte non lue, et absent ailleurs dans ce cas ;
  *  - l'entrée « Configurer le déploiement » ouvre la fenêtre, qui rappelle en
- *    une ligne l'environnement visé et la branche installée ;
+ *    une ligne la branche déployée et l'adresse de dev à contrôler ;
  *  - on saisit une BASE de texte, on clique « Générer », un état d'attente
  *    s'affiche puis la consigne rédigée apparaît dans un champ modifiable ;
  *  - base ET consigne enregistrées SURVIVENT au rechargement de la page ;
@@ -121,7 +121,7 @@ async function main() {
       set(ecouteur) {
         window.__ecouteurs.push(ecouteur);
         /*
-         * Le démon RÉEL continue de pousser SON projet (environnements vides,
+         * Le démon RÉEL continue de pousser SON projet (aucune adresse de dev,
          * aucune consigne) sous le même identifiant : sans garde, il écraserait
          * notre projet d'essai. Deux chemins l'apportent — l'événement `ready`
          * qui porte TOUTE la liste (`projects`) et le `project.upsert` d'un seul.
@@ -187,9 +187,7 @@ async function main() {
         isSelf: false,
         rank: 1,
         archived: false,
-        environments: [
-          { id: 'interne', nom: 'Interne', role: 'interne', commande: 'bash publier.sh', branche: 'main' },
-        ],
+        devUrl: 'https://essai-consigne.exemple.test',
         createdAt: 1,
         updatedAt: 1,
         ...lireRange(),
@@ -372,8 +370,8 @@ async function main() {
   );
   const rappel = (await page.locator('[data-rappel-consigne]').textContent()) ?? '';
   record(
-    'la fenêtre rappelle l’environnement visé et la branche installée',
-    rappel.includes('Interne') && rappel.includes('main'),
+    'la fenêtre rappelle la branche déployée et l’adresse de dev',
+    rappel.includes('branche principale') && rappel.includes('essai-consigne.exemple.test'),
     rappel.trim().slice(0, 120),
   );
   record(

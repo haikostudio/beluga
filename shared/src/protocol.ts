@@ -43,8 +43,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
     path: z.string(),
     gitRemote: z.string().optional(),
     defaultEngine: z.string().optional(),
-    deployCommand: z.string().optional(),
-    deployUrl: z.string().optional(),
+    devUrl: z.string().optional(),
   }),
   z.object({ type: z.literal('project.update'), id: z.string(), patch: z.record(z.any()) }),
   z.object({ type: z.literal('project.delete'), id: z.string() }),
@@ -58,8 +57,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
     id: z.string(),
     subdomain: z.string(),
     port: z.number(),
-    /** L'environnement qui recevra l'adresse. Sans lui, le premier de la liste. */
-    environmentId: z.string().optional(),
   }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
@@ -190,41 +187,28 @@ export const ClientCommand = z.discriminatedUnion('type', [
 
   // Publication
   /*
-   * Deux précisions, indépendantes l'une de l'autre.
-   *
-   * `environmentId` dit OÙ l'on met en ligne : lequel des environnements
-   * déclarés par le projet. Absent, c'est le premier de la liste.
-   *
-   * `cible` dit à QUELLE ÉTAPE du parcours on est : l'environnement de dev, ou
-   * la production. Absente, c'est la première étape du projet — le seul cas
-   * tant qu'aucun environnement de dev n'est déclaré.
+   * `cible` dit à QUELLE ÉTAPE du parcours on est : le déploiement sur
+   * l'instance de dev, ou la mise en production. Absente, c'est la première
+   * étape — le déploiement.
    */
   z.object({
     type: z.literal('deploy.start'),
     projectId: z.string(),
-    environmentId: z.string().optional(),
     cible: z.enum(['dev', 'production']).optional(),
   }),
   z.object({ type: z.literal('deploy.stop'), runId: z.string() }),
   z.object({ type: z.literal('deploy.retry'), runId: z.string() }),
-  /**
-   * La réponse à l'attente avant envoi : accord donné, la publication repart de
-   * la première étape ; refus, le lot reste entier et chaque carte le dit.
-   */
-  z.object({ type: z.literal('deploy.envoi'), runId: z.string(), accord: z.boolean() }),
   /**
    * Ce qui coincerait si on publiait maintenant — sans rien publier.
    *
    * `source` est la COLONNE d'où le bloc de publication pose la question : un
    * bloc ne sait pas à quelle étape il sert, il sait seulement où il est. Le
    * serveur lui répond avec l'étape correspondante, ou rien du tout quand cette
-   * colonne n'a pas d'étape (« En production » sur un projet à une seule mise
-   * en ligne). Absente, c'est « À déployer » — le seul bloc d'avant.
+   * colonne ne publie pas. Absente, c'est « À déployer ».
    */
   z.object({
     type: z.literal('deploy.check'),
     projectId: z.string(),
-    environmentId: z.string().optional(),
     source: ColumnKey.optional(),
   }),
 
@@ -404,7 +388,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
           agentId: z.string().optional(),
           /** La carte concernée, quand la décision est née dans son travail. */
           cardId: z.string().optional(),
-          genre: z.enum(['question', 'validation', 'envoi']),
+          genre: z.enum(['question', 'validation']),
           reglee: z.boolean().optional(),
           poseeA: z.number().optional(),
         }),

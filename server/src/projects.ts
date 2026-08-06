@@ -37,8 +37,7 @@ export function registerProject(input: {
   path: string;
   gitRemote?: string;
   defaultEngine?: EngineId;
-  deployCommand?: string;
-  deployUrl?: string;
+  devUrl?: string;
   rank?: number;
 }): Project {
   const resolved = path.resolve(input.path);
@@ -58,11 +57,9 @@ export function registerProject(input: {
     // Le basculement « agent complet » se décide sur le CHEMIN, jamais sur une
     // adresse distante (PLAN §5).
     isSelf: resolved === path.resolve(CONFIG.selfPath),
-    deployCommand: input.deployCommand ?? existing?.deployCommand,
-    deployUrl: input.deployUrl ?? existing?.deployUrl,
-    // Une nouvelle exploration du serveur ne doit pas effacer les
-    // environnements de publication réglés à la main.
-    environments: existing?.environments ?? [],
+    // Une nouvelle exploration du serveur ne doit pas effacer l'adresse de dev
+    // réglée à la main.
+    devUrl: input.devUrl ?? existing?.devUrl,
     billing: existing?.billing,
     rank: input.rank ?? existing?.rank ?? nextRank(),
     archived: false,

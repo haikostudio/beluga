@@ -906,25 +906,6 @@ export function decisionsEnAttente(): DecisionAttendue[] {
     }
   }
 
-  /*
-   * Quatrième source : une PUBLICATION arrêtée avant d'envoyer sur le dépôt.
-   * Le projet a déclaré que sa branche principale déclenche un déploiement chez
-   * le client ; l'envoi mettrait donc la production à jour, et rien ne part sans
-   * un clic. Cette décision ne tient ni à une carte ni à une conversation : elle
-   * se prend dans le bloc de publication du projet, d'où l'absence d'`agentId`.
-   */
-  const attentes = getDb()
-    .prepare("SELECT project_id AS projectId, started_at AS startedAt FROM deploys WHERE state = 'awaiting'")
-    .all() as { projectId: string; startedAt: number }[];
-  for (const attente of attentes) {
-    decisions.push({
-      projectId: attente.projectId,
-      genre: 'envoi',
-      reglee: false,
-      poseeA: attente.startedAt,
-    });
-  }
-
   for (const proposition of propositions) {
     decisions.push({
       projectId: proposition.projectId,

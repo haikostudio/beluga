@@ -12,12 +12,8 @@ import {
   RunConfig,
   ServerEvent,
   canMove,
-  derniersResultats,
   effetDuDepot,
   etapeDeLaColonne,
-  environnementVise,
-  environnementsDuProjet,
-  modifierEnvironnement,
   etatVisuelCarte,
   sortieAutorisee,
   RAISON_SUSPENDU,
@@ -49,13 +45,10 @@ import {
   startDeploy,
   stopDeploy,
   retryDeploy,
-  repondreEnvoi,
   conflitsPrevus,
   agentsOccupes,
   commitsEnAttente,
-  environnementsDePublication,
   moyenDeMiseEnLigne,
-  moyensDePublication,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
@@ -200,8 +193,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         path: cmd.path,
         gitRemote: cmd.gitRemote,
         defaultEngine: cmd.defaultEngine as any,
-        deployCommand: cmd.deployCommand,
-        deployUrl: cmd.deployUrl,
+        devUrl: cmd.devUrl,
       });
       bus.emit({ type: 'project.upsert', project });
       return { project };
@@ -243,21 +235,11 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (!project) throw new Error('projet introuvable');
       const result = await publishSubdomain(cmd.subdomain, cmd.port);
       if (!result.ok) throw new Error(result.error ?? 'publication du nom impossible');
-      /*
-       * L'adresse va sur l'environnement VISÉ, pas sur le projet : un projet
-       * qui a une production et un dev client ne peut pas n'avoir qu'une seule
-       * adresse. Un projet à l'ancien format est matérialisé au passage — sa
-       * liste d'environnements est écrite pour de bon, avec ses anciennes
-       * valeurs, si bien que rien n'est perdu ni changé de comportement.
-       */
-      const liste = environnementsDuProjet(project);
-      const vise = environnementVise(project, cmd.environmentId);
-      const updated = store.saveProject({
-        ...project,
-        environments: modifierEnvironnement(liste, vise.id, { url: result.url }),
-      });
+      // Un projet n'a plus qu'UNE adresse : celle de son instance de dev,
+      // contrôlée à la fin de chaque déploiement.
+      const updated = store.saveProject({ ...project, devUrl: result.url });
       bus.emit({ type: 'project.upsert', project: updated });
-      bus.toast('success', `Adresse en ligne (${vise.nom}) : ${result.url}`);
+      bus.toast('success', `Adresse en ligne : ${result.url}`);
       return result;
     }
 
@@ -886,9 +868,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     /* -------- Publication -------- */
 
     case 'deploy.start': {
-      // Où l'on publie (l'environnement) et à quelle étape du parcours (la
-      // cible) sont deux choses : la commande porte les deux.
-      const result = await startDeploy(cmd.projectId, cmd.environmentId, { cible: cmd.cible });
+      // La commande porte l'ÉTAPE du parcours ; il n'y a plus d'endroit à
+      // choisir, le déploiement rafraîchit l'instance de dev de ce serveur.
+      const result = await startDeploy(cmd.projectId, { cible: cmd.cible });
       if (!result.ok) throw new Error(result.error ?? 'publication impossible');
       return result;
     }
@@ -899,28 +881,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'deploy.retry':
       return retryDeploy(cmd.runId);
 
-    /*
-     * L'accord — ou le refus — avant tout envoi sur le dépôt. Un refus n'est
-     * pas une erreur : il rend `ok: true` et laisse le lot entier.
-     */
-    case 'deploy.envoi': {
-      const reponse = await repondreEnvoi(cmd.runId, cmd.accord);
-      if (!reponse.ok) throw new Error(reponse.error ?? 'réponse impossible');
-      return reponse;
-    }
-
     case 'deploy.check': {
-      // Les environnements du projet et ce que chacun a donné la dernière fois :
-      // le bloc de publication montre l'environnement visé sans avoir à deviner.
-      const environnements = environnementsDePublication(cmd.projectId);
-      const derniers = derniersResultats(environnements, store.recentDeploys(cmd.projectId));
       /*
        * L'ÉTAPE dont le lot part de la colonne qui interroge. `null` veut dire
-       * « cette colonne ne publie rien sur ce projet » : le bloc ne s'affiche
-       * alors pas du tout, plutôt qu'un bouton qui serait refusé au clic.
+       * « cette colonne ne publie rien » : le bloc ne s'affiche alors pas du
+       * tout, plutôt qu'un bouton qui serait refusé au clic.
        */
-      const projet = store.getProject(cmd.projectId);
-      const etape = projet ? etapeDeLaColonne(moyensDePublication(projet), cmd.source ?? 'to_deploy') : null;
+      const etape = etapeDeLaColonne(cmd.source ?? 'to_deploy');
       return {
         etape,
         // Les branches des cartes se fusionnent à la PREMIÈRE étape ; à la
@@ -928,20 +895,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // prévoir. On interroge donc le dépôt pour le lot de cette étape-là.
         conflicts: etape ? await conflitsPrevus(cmd.projectId, etape.source) : [],
         busy: agentsOccupes(cmd.projectId),
-        // Ce projet demandera-t-il l'accord avant d'envoyer ? Le dire AVANT le
-        // clic évite de découvrir l'attente au moment de publier.
-        envoiSurveille: store.getProject(cmd.projectId)?.deployeSurEnvoi === true,
         // Le travail enregistré sur la principale sans passer par une carte :
         // sans lui, la fenêtre de publication disparaissait et rien ne partait.
         // Il entre dans le lot à la PREMIÈRE étape seulement : le compter aussi
         // à la seconde annoncerait deux fois le même travail.
         enAttente:
           etape?.source === 'to_deploy' ? await commitsEnAttente(cmd.projectId) : { nombre: 0, titres: [] },
-        // Ce projet peut-il seulement être mis en ligne ? Le dire AVANT le clic
-        // vaut mieux que de le découvrir sur une publication refusée.
-        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId, cmd.environmentId),
-        environnements,
-        derniers: Object.fromEntries(derniers),
+        // COMMENT l'instance de dev sera rafraîchie. Le dire AVANT le clic
+        // vaut mieux que de le découvrir dans le déroulé.
+        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId),
       };
     }
 

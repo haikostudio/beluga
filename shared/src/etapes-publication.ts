@@ -1,25 +1,27 @@
 import type { ColumnKey } from './columns.js';
 
 /**
- * Mettre en ligne peut demander DEUX étapes, pas une seule.
+ * Mettre en ligne compte DEUX étapes, toujours.
  *
- * Le tableau s'arrêtait à « À déployer » → « Archivé » : une carte publiée
- * disparaissait aussitôt du parcours, et rien ne distinguait « installé sur
- * l'environnement de dev du client », où l'on montre le travail, de « mis en
- * production », où il sert vraiment. La colonne « En production » se glisse
- * donc entre les deux.
+ * Le nombre d'étapes dépendait d'un réglage : sans environnement de rôle « dev
+ * chez le client », le tableau n'en connaissait qu'une, « À déployer » →
+ * « Archivé ». Déployer archivait donc les cartes comme si l'instance de dev et
+ * la production étaient une seule chose — et il fallait décrire des
+ * environnements pour que le parcours dise la vérité.
+ *
+ * Les deux étapes existent désormais pour tout projet, sans rien à régler :
+ *
+ *  1. DÉPLOIEMENT — le lot de « À déployer » est fusionné, enregistré, envoyé
+ *     sur le dépôt, puis l'instance de dev du projet est rafraîchie sur ce
+ *     serveur. Les cartes se posent en « En production ». Rien n'est clos : on
+ *     peut encore reprendre, corriger, redéployer.
+ *  2. MISE EN PRODUCTION — le lot d'« En production » part chez le client.
+ *     C'est elle, et elle seule, qui CLÔT les cartes : document de clôture,
+ *     branche refermée, ligne d'historique, « Archivé ».
  *
  * La règle est PURE : elle ne connaît ni la base, ni le dépôt, ni le disque.
- * Elle dit seulement, pour un projet donné, quelles étapes de mise en ligne
- * existent, d'où chacune tire les cartes de son lot et où elle les pose une
- * fois la mise en ligne réussie.
- *
- * Principe : le nombre d'étapes suit ce que le projet DÉCLARE, jamais une
- * envie. Un projet sans environnement de dev n'a qu'une mise en ligne — c'est
- * le cas de tous les projets aujourd'hui, et son parcours ne change pas d'un
- * pouce : « À déployer » → publication → « Archivé ». Dès qu'un environnement
- * de dev est déclaré, la publication se dédouble sans qu'aucune clé de colonne
- * ne bouge.
+ * Elle dit seulement d'où chaque étape tire son lot, où elle le pose, et si
+ * elle clôt.
  */
 
 /** Vers quoi une mise en ligne pousse le code. */
@@ -42,34 +44,15 @@ export interface EtapeDePublication {
   /**
    * L'étape CLÔT-elle la carte ? Seule la dernière le fait : document de
    * clôture écrit, branche refermée, ligne ajoutée à l'historique. Une carte
-   * seulement montée sur l'environnement de dev n'est pas finie — on peut
-   * encore la reprendre, la corriger, la remonter.
+   * seulement déployée sur l'instance de dev n'est pas finie — on peut encore
+   * la reprendre, la corriger, la redéployer.
    */
   clot: boolean;
 }
 
-/** Ce que le projet déclare de ses environnements. */
-export interface MoyensDePublication {
-  /**
-   * Le projet dispose-t-il d'un environnement de dev distinct de sa
-   * production ? Les réglages qui le renseignent vivent ailleurs : ici, on ne
-   * fait qu'en tirer les conséquences.
-   */
-  environnementDev?: boolean;
-}
-
-const ETAPE_UNIQUE: EtapeDePublication = {
-  cible: 'production',
-  libelle: 'Mise en production',
-  verbe: 'déployer',
-  source: 'to_deploy',
-  arrivee: 'archived',
-  clot: true,
-};
-
 const ETAPE_DEV: EtapeDePublication = {
   cible: 'dev',
-  libelle: 'Mise sur l’environnement de dev',
+  libelle: 'Déploiement sur l’instance de dev',
   verbe: 'déployer',
   source: 'to_deploy',
   arrivee: 'in_production',
@@ -85,15 +68,8 @@ const ETAPE_PRODUCTION: EtapeDePublication = {
   clot: true,
 };
 
-/**
- * Les étapes de mise en ligne de ce projet, dans l'ordre du parcours.
- *
- * Sans environnement de dev déclaré : UNE étape, celle d'aujourd'hui. Les
- * tableaux déjà enregistrés restent donc lisibles et une carte posée dans
- * « À déployer » suit exactement le même chemin qu'avant.
- */
-export function etapesDePublication(moyens: MoyensDePublication): EtapeDePublication[] {
-  if (!moyens.environnementDev) return [ETAPE_UNIQUE];
+/** Les étapes de mise en ligne, dans l'ordre du parcours. Toujours les deux. */
+export function etapesDePublication(): EtapeDePublication[] {
   return [ETAPE_DEV, ETAPE_PRODUCTION];
 }
 
@@ -101,17 +77,13 @@ export function etapesDePublication(moyens: MoyensDePublication): EtapeDePublica
  * L'étape demandée, ou la PREMIÈRE du parcours quand on ne demande rien —
  * c'est ce que fait le bouton unique du bloc de publication.
  *
- * Rend `null` quand l'étape demandée n'existe pas pour ce projet : réclamer
- * une mise sur l'environnement de dev à un projet qui n'en a pas déclaré ne
- * doit pas retomber en silence sur la production.
+ * Les deux étapes existent toujours : il n'y a plus de cible impossible, donc
+ * plus de refus à formuler.
  */
-export function etapeDePublication(
-  moyens: MoyensDePublication,
-  cible?: CiblePublication,
-): EtapeDePublication | null {
-  const etapes = etapesDePublication(moyens);
+export function etapeDePublication(cible?: CiblePublication): EtapeDePublication {
+  const etapes = etapesDePublication();
   if (!cible) return etapes[0];
-  return etapes.find((etape) => etape.cible === cible) ?? null;
+  return etapes.find((etape) => etape.cible === cible) ?? etapes[0];
 }
 
 /**
@@ -119,57 +91,22 @@ export function etapeDePublication(
  *
  * C'est ce que demande le bloc de publication posé en tête d'une colonne : il
  * ne sait pas à quelle étape il sert, il sait seulement d'où il est. Rendre
- * `null` est une réponse à part entière — « En production » n'a pas d'étape
- * tant que le projet ne déclare pas d'environnement de dev, et le bloc ne
- * s'affiche alors pas du tout.
+ * `null` reste une réponse à part entière — toute autre colonne que « À
+ * déployer » et « En production » ne publie rien.
  */
-export function etapeDeLaColonne(
-  moyens: MoyensDePublication,
-  source: ColumnKey,
-): EtapeDePublication | null {
-  return etapesDePublication(moyens).find((etape) => etape.source === source) ?? null;
+export function etapeDeLaColonne(source: ColumnKey): EtapeDePublication | null {
+  return etapesDePublication().find((etape) => etape.source === source) ?? null;
 }
 
 /**
  * Cette publication est-elle celle de CETTE étape ?
  *
- * Deux blocs de publication peuvent être à l'écran en même temps ; la
- * publication en cours n'appartient qu'à l'un des deux, et l'autre ne doit
- * afficher ni son déroulé ni son compte rendu. Une publication d'AVANT les deux
- * étapes ne porte pas de cible : elle est celle du lot de « À déployer », le
- * seul qui existait.
+ * Deux blocs de publication sont à l'écran en même temps ; la publication en
+ * cours n'appartient qu'à l'un des deux, et l'autre ne doit afficher ni son
+ * déroulé ni son compte rendu. Une publication d'AVANT les deux étapes ne porte
+ * pas de cible : elle est celle du lot de « À déployer », le seul qui existait.
  */
 export function runDeLEtape(cible: CiblePublication | undefined, etape: EtapeDePublication): boolean {
   if (!cible) return etape.source === 'to_deploy';
   return cible === etape.cible;
-}
-
-/**
- * L'environnement proposé d'emblée par le bloc d'une étape.
- *
- * La règle générale ne bouge pas : sans choix, une publication vise le PREMIER
- * environnement de la liste. Mais le bloc de « En production » ferait alors
- * pointer « Tout publier » sur l'environnement de DEV, celui d'où le travail
- * vient justement de sortir. Pour cette étape-là seulement, on présélectionne
- * le premier environnement de rôle « production » ; à défaut, le premier de la
- * liste, comme partout ailleurs. Le menu reste modifiable : c'est une
- * proposition, pas une contrainte.
- */
-export function environnementParDefaut<T extends { id: string; role: string }>(
-  environnements: T[],
-  etape?: EtapeDePublication | null,
-): string {
-  if (etape?.source === 'in_production') {
-    const production = environnements.find((env) => env.role === 'production');
-    if (production) return production.id;
-  }
-  return environnements[0]?.id ?? '';
-}
-
-/** Pourquoi une étape demandée n'existe pas, dit en toutes lettres. */
-export function raisonEtapeInconnue(cible: CiblePublication): string {
-  if (cible === 'dev') {
-    return 'Ce projet n’a pas d’environnement de dev déclaré : il n’y a qu’une mise en ligne, celle de production.';
-  }
-  return 'Ce projet n’a pas d’étape de production distincte.';
 }

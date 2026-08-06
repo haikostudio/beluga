@@ -7,6 +7,8 @@
  *     plus « Tout archiver » — on n'archive jamais par-dessus une étape ;
  *   - la colonne « En production » existe, porte son titre, se défile, et son
  *     pied propose « Tout archiver » ;
+ *   - les DEUX colonnes portent leur bloc de publication, sans aucun réglage :
+ *     « Tout déployer » en tête de l'une, « Tout publier » en tête de l'autre ;
  *   - sur écran de téléphone, elle a son onglet, avec son compte de cartes ;
  *   - une carte posée là ne se reprend qu'à la main, et retombe alors dans
  *     « À déployer » — l'étape juste avant, jamais deux d'un coup.
@@ -162,32 +164,6 @@ function poserLeDecor() {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(carte.id, PROJET_ID, 'to_deploy', carte.position, titre, JSON.stringify(carte), maintenant, maintenant);
   });
-  db.close();
-}
-
-/**
- * Le projet déclare un environnement « dev chez le client » — la seule chose
- * qui ouvre la seconde étape de mise en ligne — et une carte revient dans « En
- * production » pour que le lot ne soit pas vide. Rien n'est publié : on ne fait
- * qu'écrire des réglages dans la base d'essai.
- */
-function declarerUnEnvironnementDeDev() {
-  const db = new Database(path.join(DATA, 'haikodev.db'));
-  const ligne = db.prepare('SELECT data FROM projects WHERE id = ?').get(PROJET_ID);
-  const projet = JSON.parse(ligne.data);
-  projet.environments = [
-    { id: 'dev', nom: 'Dev client', role: 'dev-client' },
-    { id: 'prod', nom: 'Production', role: 'production' },
-  ];
-  db.prepare('UPDATE projects SET data = ? WHERE id = ?').run(JSON.stringify(projet), PROJET_ID);
-
-  const carte = JSON.parse(db.prepare('SELECT data FROM cards WHERE id = ?').get('c-essai-0').data);
-  carte.column = 'in_production';
-  db.prepare('UPDATE cards SET column_key = ?, data = ? WHERE id = ?').run(
-    'in_production',
-    JSON.stringify(carte),
-    'c-essai-0',
-  );
   db.close();
 }
 
@@ -355,9 +331,14 @@ async function main() {
   await page.waitForTimeout(800);
   const blocProduction = await blocPublication(page, 'in_production');
   noter(
-    'sans environnement de dev déclaré, « En production » ne porte AUCUN bloc de publication',
-    blocProduction === null,
+    '« En production » porte TOUJOURS son bloc : les deux étapes existent sans réglage',
+    !!blocProduction,
     JSON.stringify(blocProduction),
+  );
+  noter(
+    'son bouton dit « Tout publier », jamais « Tout déployer »',
+    /Tout publier/.test(blocProduction?.bouton ?? '') && !/Tout déployer/.test(blocProduction?.bouton ?? ''),
+    blocProduction?.bouton ?? '—',
   );
 
   await page.locator('[data-column="to_deploy"]').scrollIntoViewIfNeeded();
@@ -402,14 +383,12 @@ async function main() {
   await page.waitForTimeout(600);
   const piedProduction = (await pied(page, 'in_production')).join(' | ');
   noter('le pied d’« En production » propose « Tout archiver »', piedProduction.includes('Tout archiver'), piedProduction);
-  // Deux cartes viennent d'arriver dans la colonne : le bloc reste absent tant
-  // que la seconde étape n'existe pas, sinon on proposerait une mise en ligne
-  // que le serveur refuserait au clic.
+  // Deux cartes viennent d'arriver dans la colonne : le bloc les compte.
   const blocRempli = await blocPublication(page, 'in_production');
   noter(
-    'la colonne remplie n’a toujours pas de bloc de publication',
-    blocRempli === null,
-    JSON.stringify(blocRempli),
+    'le bloc d’« En production » compte les cartes qui viennent d’arriver',
+    /Tout publier \(2\)/.test(blocRempli?.bouton ?? ''),
+    blocRempli?.bouton ?? '—',
   );
   await page.screenshot({ path: path.join(TMP, 'colonne-production.png') });
 
@@ -449,45 +428,13 @@ async function main() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(800);
 
-  /* -------- Avec un environnement de dev, le bouton « Tout publier » -------- */
+  /* -------- Les deux blocs coexistent, chacun avec son verbe -------- */
 
-  // Le rôle « dev chez le client » EST la déclaration de la seconde étape. On
-  // l'écrit en base, on remet une carte dans la colonne, et l'on recharge : le
-  // bloc de publication doit apparaître, avec le bon verbe et le bon compte.
-  declarerUnEnvironnementDeDev();
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(6000);
-  await page.locator('[data-column="in_production"]').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(2500);
-
-  const blocDev = await blocPublication(page, 'in_production');
-  noter(
-    'avec un environnement de dev déclaré, « En production » porte son bloc de publication',
-    !!blocDev,
-    JSON.stringify(blocDev),
-  );
-  noter(
-    'son bouton dit « Tout publier », jamais « Tout déployer »',
-    /Tout publier/.test(blocDev?.bouton ?? '') && !/Tout déployer/.test(blocDev?.bouton ?? ''),
-    blocDev?.bouton ?? '—',
-  );
-  noter(
-    'il compte la seule carte de la colonne',
-    /Tout publier \(1\)/.test(blocDev?.bouton ?? ''),
-    blocDev?.bouton ?? '—',
-  );
-  noter(
-    'il vise la production, pas l’environnement de dev d’où la carte sort',
-    /Production/.test(blocDev?.bouton ?? '') && !/Dev client/.test(blocDev?.bouton ?? ''),
-    blocDev?.bouton ?? '—',
-  );
   noter(
     'le bloc de « À déployer » garde son propre verbe',
     /Tout déployer/.test((await blocPublication(page, 'to_deploy'))?.bouton ?? ''),
     (await blocPublication(page, 'to_deploy'))?.bouton ?? '—',
   );
-  const piedEncore = (await pied(page, 'in_production')).join(' | ');
-  noter('le pied « Tout archiver » reste disponible', piedEncore.includes('Tout archiver'), piedEncore);
   await page.screenshot({ path: path.join(TMP, 'bouton-tout-publier.png') });
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));

@@ -4,45 +4,38 @@ import { miseEnLigneReelle, planDeMiseEnLigne } from '@haikodev/shared';
 import { dossierCiteParServeurWeb } from '../deploy.js';
 
 /* ------------------------------------------------------------------ */
-/* Publier, c'est mettre en ligne — pas seulement fusionner            */
+/* Déployer, c'est rafraîchir l'instance de dev — et c'est TOUJOURS possible */
 /* ------------------------------------------------------------------ */
 
-test('sans aucun moyen, la publication est IMPOSSIBLE et le dit', () => {
+test('sans instance de dev sur ce serveur, on déploie quand même — et on le DIT', () => {
+  // Plus de refus faute de réglage : le lot est fusionné, enregistré, envoyé.
+  // Mais on ne laisse pas croire qu'on a relancé quoi que ce soit.
   const plan = planDeMiseEnLigne({});
-  assert.equal(plan.possible, false);
   assert.equal(plan.installation, 'aucune');
-  assert.match(plan.raison, /aucun moyen d’être mis en ligne/);
-  assert.match(plan.raison, /commande de publication/);
+  assert.equal(plan.construction, 'aucune');
+  assert.equal(plan.redemarrage, 'aucun');
+  assert.match(plan.raison, /Aucune instance de dev/);
+  assert.match(plan.raison, /rien à construire ni à relancer/);
 });
 
-test('un dépôt git bien rangé ne suffit pas : sans moyen de servir, c’est non', () => {
-  // Le piège d'origine : fusion, enregistrement, envoi… et « publié ».
+test('un script de construction se voit même sans instance à relancer', () => {
   const plan = planDeMiseEnLigne({ scriptBuild: true });
-  assert.equal(plan.possible, false);
-});
-
-test('la commande de publication du projet porte tout', () => {
-  const plan = planDeMiseEnLigne({ commande: 'bash deploy.sh' });
-  assert.equal(plan.possible, true);
-  assert.equal(plan.construction, 'commande');
-  assert.equal(plan.installation, 'commande');
-  assert.equal(plan.redemarrage, 'commande');
-});
-
-test('une commande vide ne compte pas pour une commande', () => {
-  assert.equal(planDeMiseEnLigne({ commande: '   ' }).possible, false);
+  assert.equal(plan.construction, 'npm');
+  assert.equal(plan.installation, 'aucune');
+  assert.match(plan.raison, /construit/);
 });
 
 test('HaikoDev se construit, s’installe et se redémarre lui-même', () => {
   const plan = planDeMiseEnLigne({ estHaikoDev: true });
+  assert.equal(plan.construction, 'npm');
   assert.equal(plan.installation, 'haikodev');
   assert.equal(plan.redemarrage, 'demon');
 });
 
 test('un service système sur le dossier met le code en ligne en repartant', () => {
   const plan = planDeMiseEnLigne({ service: 'monsite.service', scriptBuild: true });
-  assert.equal(plan.possible, true);
   assert.equal(plan.construction, 'npm');
+  assert.equal(plan.installation, 'service');
   assert.equal(plan.redemarrage, 'service');
   assert.match(plan.raison, /monsite\.service/);
 });
@@ -55,22 +48,48 @@ test('sans script de construction, le service se relance quand même', () => {
 
 test('un dossier servi tel quel est en ligne dès que les fichiers sont posés', () => {
   const plan = planDeMiseEnLigne({ dossierServi: true });
-  assert.equal(plan.possible, true);
   assert.equal(plan.installation, 'dossier-servi');
   assert.equal(plan.redemarrage, 'aucun');
 });
 
-test('la commande passe devant tout le reste', () => {
-  const plan = planDeMiseEnLigne({ commande: 'make ship', service: 'x.service', dossierServi: true });
-  assert.equal(plan.installation, 'commande');
+test('HaikoDev passe devant le service et le dossier servi', () => {
+  const plan = planDeMiseEnLigne({ estHaikoDev: true, service: 'x.service', dossierServi: true });
+  assert.equal(plan.installation, 'haikodev');
+  // Et le service passe devant le dossier servi.
+  assert.equal(planDeMiseEnLigne({ service: 'x.service', dossierServi: true }).installation, 'service');
 });
 
 /* ------------------------------------------------------------------ */
-/* Sept étapes ignorées ne font pas une publication                     */
+/* Sept étapes ignorées ne font pas un déploiement                      */
 /* ------------------------------------------------------------------ */
 
-test('tout ignoré : rien n’est parti en ligne', () => {
-  assert.equal(miseEnLigneReelle({ build: 'skipped', publish: 'skipped', restart: 'skipped' }), false);
+test('tout ignoré : rien n’a eu lieu', () => {
+  assert.equal(
+    miseEnLigneReelle({
+      merge: 'skipped',
+      commit: 'skipped',
+      push: 'skipped',
+      build: 'skipped',
+      publish: 'skipped',
+      restart: 'skipped',
+    }),
+    false,
+  );
+});
+
+test('fusionner et envoyer comptent : c’est déjà du travail réel', () => {
+  // Un projet sans instance sur ce serveur déploie tout de même son lot.
+  assert.equal(
+    miseEnLigneReelle({
+      merge: 'done',
+      commit: 'skipped',
+      push: 'done',
+      build: 'skipped',
+      publish: 'skipped',
+      restart: 'skipped',
+    }),
+    true,
+  );
 });
 
 test('une installation menée à terme suffit', () => {

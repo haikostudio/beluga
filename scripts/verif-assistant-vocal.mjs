@@ -134,7 +134,6 @@ function poserLeDecor() {
       defaultEngine: 'claude',
       isSelf: false,
       rank: projet.rank,
-      environments: [],
       archived: false,
       createdAt: maintenant,
       updatedAt: maintenant,

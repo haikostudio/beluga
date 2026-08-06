@@ -1,30 +1,21 @@
 /**
- * Publier, c'est METTRE EN LIGNE — pas seulement fusionner.
+ * Déployer, c'est RAFRAÎCHIR L'INSTANCE DE DEV — pas seulement fusionner.
  *
- * La publication savait mettre en ligne dans deux cas seulement : le projet
- * avait une commande de publication, ou c'était HaikoDev lui-même. Pour tout
- * autre projet, elle fusionnait, enregistrait, envoyait sur le dépôt… puis
- * annonçait « Publication terminée » sans avoir rien mis en ligne. Les cartes
- * étaient archivées comme déployées et la carte suivante reproposait de tout
- * publier : le tableau mentait (constaté le 04/08/2026 sur le projet Root,
- * dont les sept étapes étaient toutes « ignorées » pour un résultat « réussi »).
+ * La publication DEVINAIT comment mettre en ligne par cinq chemins successifs :
+ * une consigne écrite, une commande de publication, HaikoDev lui-même, le
+ * service système, le dossier servi. Aucun des cinq, et elle refusait : il
+ * fallait donc régler un environnement pour qu'un projet puisse seulement
+ * partir. Le déploiement est maintenant UNE seule chose, toujours disponible et
+ * sans réglage : fusionner, enregistrer, envoyer sur le dépôt, puis rafraîchir
+ * l'instance de dev du projet sur ce serveur.
  *
- * Cette règle décide, AVANT de toucher à quoi que ce soit, comment le projet
- * peut être mis en ligne — et refuse la publication quand la réponse est
- * « d'aucune façon ». Règle pure : aucune base, aucun disque, donc rejouable.
+ * Cette règle dit COMMENT ce rafraîchissement se fait, à partir de ce qu'on
+ * CONSTATE sur la machine — jamais à partir d'un réglage. Règle pure : aucune
+ * base, aucun disque, donc rejouable.
  */
 
-/** Ce dont le projet dispose réellement pour être mis en ligne. */
+/** Ce qu'on a constaté sur la machine à propos de ce projet. */
 export type MoyensDeMiseEnLigne = {
-  /**
-   * CONSIGNE de déploiement de l'environnement visé, en français. Elle passe
-   * AVANT tout le reste : quand elle est écrite, c'est un agent qui mène la
-   * mise en ligne (`shared/src/publication-confiee.ts`), et il peut faire ce
-   * qu'aucun des quatre autres moyens ne sait décrire.
-   */
-  consigne?: string;
-  /** Commande de publication renseignée dans les réglages du projet. */
-  commande?: string;
   /** Le projet est HaikoDev : il sait se construire et s'installer lui-même. */
   estHaikoDev?: boolean;
   /** Le projet a un script `build` dans son package.json. */
@@ -33,87 +24,39 @@ export type MoyensDeMiseEnLigne = {
   service?: string;
   /** Un serveur web sert ce dossier TEL QUEL (site statique). */
   dossierServi?: boolean;
-  /**
-   * Le NOM de l'environnement visé (« Production », « Dev client »…), quand le
-   * projet en a plusieurs. Il ne change RIEN au choix du plan : il sert à ce
-   * qu'un refus dise DE QUEL environnement il parle — « la production n'a aucun
-   * moyen d'être mise en ligne » n'est pas la même phrase que « ce projet ».
-   */
-  environnement?: string;
 };
 
-export type Construction = 'agent' | 'commande' | 'npm' | 'aucune';
-export type Installation = 'agent' | 'commande' | 'haikodev' | 'dossier-servi' | 'service' | 'aucune';
-export type Redemarrage = 'agent' | 'demon' | 'service' | 'commande' | 'aucun';
+export type Construction = 'npm' | 'aucune';
+export type Installation = 'haikodev' | 'service' | 'dossier-servi' | 'aucune';
+export type Redemarrage = 'demon' | 'service' | 'aucun';
 
 export type PlanDeMiseEnLigne = {
-  /** Faux : ce projet ne peut PAS être mis en ligne, la publication doit refuser. */
-  possible: boolean;
   construction: Construction;
   installation: Installation;
   redemarrage: Redemarrage;
-  /** Une phrase pour le compte rendu : ce qui va être fait, ou ce qui manque. */
+  /** Une phrase pour le compte rendu : ce qui va être fait, en français. */
   raison: string;
-  /** Le nom de l'environnement jugé, quand il y en avait un. */
-  environnement?: string;
 };
 
 /**
- * Comment ce projet peut-il être mis en ligne ?
+ * Comment l'instance de dev de ce projet se rafraîchit-elle sur ce serveur ?
  *
- * Cinq chemins, du plus explicite au plus deviné :
- * 1. une CONSIGNE de déploiement écrite pour cet environnement : un agent la
- *    suit de bout en bout, et elle peut décrire ce qu'aucun des quatre autres
- *    ne sait dire ;
- * 2. une commande de publication : elle fait foi, elle porte tout ;
- * 3. HaikoDev : construction, installation dans le dossier servi, redémarrage ;
- * 4. un service système sur le dossier : construire puis relancer le service,
- *    c'est lui qui sert le code neuf ;
- * 5. un dossier servi tel quel par un serveur web : les fichiers en place SONT
- *    le site, il n'y a rien à déplacer — mais il y a bien mise en ligne.
+ * Trois cas, tous CONSTATÉS, aucun réglé :
+ * 1. HaikoDev : construction, installation dans le dossier servi, redémarrage ;
+ * 2. un service système sur le dossier : construire s'il y a de quoi, puis
+ *    relancer le service — c'est lui qui sert le code neuf ;
+ * 3. un dossier servi tel quel par un serveur web : les fichiers en place SONT
+ *    le site, il n'y a rien à déplacer ni à relancer.
  *
- * Aucun des cinq : la publication n'a aucun moyen d'agir. Elle échoue en le
- * disant, plutôt que de se déclarer réussie sans rien avoir fait.
+ * Aucun des trois n'est plus un refus : le lot est quand même fusionné,
+ * enregistré et envoyé sur le dépôt — ce qui est du travail réel — et le plan le
+ * DIT plutôt que d'éteindre le bouton. Rien n'est simplement relancé ici.
  */
 export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
-  const environnement = moyens.environnement?.trim() || undefined;
-  const plan = planSansEnvironnement(moyens);
-  return environnement ? { ...plan, environnement } : plan;
-}
-
-function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
-  /*
-   * La consigne passe DEVANT tout : c'est la seule façon de décrire un
-   * déploiement que les quatre autres moyens ne savent pas exprimer. Une
-   * consigne faite d'espaces n'en est pas une — on retombe alors sur le
-   * déroulé habituel, jamais sur un agent lancé sans rien à lui dire.
-   */
-  const consigne = moyens.consigne?.trim();
-  if (consigne) {
-    return {
-      possible: true,
-      construction: 'agent',
-      installation: 'agent',
-      redemarrage: 'agent',
-      raison:
-        'Un agent de publication suit la consigne de déploiement de cet environnement, de bout en bout.',
-    };
-  }
-
-  const commande = moyens.commande?.trim();
-  if (commande) {
-    return {
-      possible: true,
-      construction: 'commande',
-      installation: 'commande',
-      redemarrage: 'commande',
-      raison: 'La commande de publication du projet porte la mise en ligne de bout en bout.',
-    };
-  }
+  const construction: Construction = moyens.scriptBuild ? 'npm' : 'aucune';
 
   if (moyens.estHaikoDev) {
     return {
-      possible: true,
       construction: 'npm',
       installation: 'haikodev',
       redemarrage: 'demon',
@@ -123,20 +66,18 @@ function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
 
   if (moyens.service) {
     return {
-      possible: true,
-      construction: moyens.scriptBuild ? 'npm' : 'aucune',
+      construction,
       installation: 'service',
       redemarrage: 'service',
       raison: `Le service ${moyens.service} fait tourner ce dossier : ${
-        moyens.scriptBuild ? 'construction puis relance' : 'relance'
+        construction === 'npm' ? 'construction puis relance' : 'relance'
       } du service, c'est elle qui met le code neuf en ligne.`,
     };
   }
 
   if (moyens.dossierServi) {
     return {
-      possible: true,
-      construction: moyens.scriptBuild ? 'npm' : 'aucune',
+      construction,
       installation: 'dossier-servi',
       redemarrage: 'aucun',
       raison:
@@ -144,20 +85,14 @@ function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
     };
   }
 
-  /*
-   * Aucun des quatre chemins. Le refus NOMME l'environnement visé quand il y en
-   * a un : avec plusieurs environnements, « ce projet n'a aucun moyen » ne dit
-   * pas lequel il faut aller régler.
-   */
-  const nomme = moyens.environnement?.trim();
   return {
-    possible: false,
-    construction: 'aucune',
+    construction,
     installation: 'aucune',
     redemarrage: 'aucun',
-    raison: nomme
-      ? `L’environnement « ${nomme} » n’a aucun moyen d’être mis en ligne : ni consigne de déploiement, ni commande de publication, aucun service système sur le dossier du projet, et ce dossier n’est servi par aucun serveur web. Renseignez la consigne de déploiement ou la commande de publication de cet environnement dans les réglages du projet — sans elles, publier ne ferait que fusionner du code.`
-      : 'Ce projet n’a aucun moyen d’être mis en ligne : ni consigne de déploiement, ni commande de publication, aucun service système sur son dossier, et son dossier n’est servi par aucun serveur web. Renseignez la consigne de déploiement ou la commande de publication dans les réglages du projet — sans elles, publier ne ferait que fusionner du code.',
+    raison:
+      construction === 'npm'
+        ? 'Aucune instance de dev n’a été trouvée sur ce serveur pour ce projet : le lot est fusionné, construit, enregistré et envoyé sur le dépôt, mais il n’y a rien à relancer ici.'
+        : 'Aucune instance de dev n’a été trouvée sur ce serveur pour ce projet : le lot est fusionné, enregistré et envoyé sur le dépôt, mais il n’y a rien à construire ni à relancer ici.',
   };
 }
 
@@ -165,18 +100,26 @@ function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
 export type EtatEtape = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
 
 /**
- * Quelque chose est-il RÉELLEMENT parti en ligne ?
+ * Quelque chose a-t-il RÉELLEMENT eu lieu ?
  *
  * Le verdict final ne se lit pas sur l'absence d'erreur mais sur au moins une
- * étape de mise en ligne menée à son terme. Sept étapes « ignorées » ne font
- * pas une publication, même quand rien n'a planté.
+ * étape menée à son terme. Sept étapes « ignorées » ne font pas un déploiement,
+ * même quand rien n'a planté — un projet sans dépôt git et sans instance de dev
+ * doit le dire, pas faire avancer ses cartes.
+ *
+ * La fusion, l'enregistrement et l'envoi comptent désormais : déployer, c'est
+ * d'abord porter le lot sur la branche principale et le mettre à l'abri sur le
+ * dépôt. Un projet sans instance sur ce serveur a donc quand même déployé.
  */
 export function miseEnLigneReelle(etapes: {
+  merge?: EtatEtape;
+  commit?: EtatEtape;
+  push?: EtatEtape;
   build: EtatEtape;
   publish: EtatEtape;
   restart: EtatEtape;
 }): boolean {
-  return etapes.publish === 'done' || etapes.restart === 'done' || etapes.build === 'done';
+  return Object.values(etapes).some((etat) => etat === 'done');
 }
 
 /**
