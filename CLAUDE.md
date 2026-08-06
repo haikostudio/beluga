@@ -99,6 +99,7 @@ node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes e
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
+node scripts/verif-assistant-vocal.mjs # une phrase dictée part chez le bon projet, une phrase vague pose la question (démon d'essai à soi, dossier personnel vide : aucun compte, aucun quota dépensé)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
 node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
 HAIKODEV_DATA=/root/haikodev/data node scripts/installer-kokoro.mjs # pose le moteur Kokoro : venv-kokoro + data/models/kokoro (rejouable)
@@ -706,6 +707,32 @@ sans son point d'essai.
   messages lus à la main N'ENTRENT PAS dans l'historique des annonces : deux choses distinctes.
   Verrouillé par `server/src/test/lecture-message.test.ts` ; l'écoute réelle se voit au navigateur
   (serveur de développement).
+- **Une phrase DICTÉE est routée vers un projet par une règle PURE, jamais par un moteur payant**
+  (`shared/src/routage-vocal.ts`, branché par `server/src/routage-vocal.ts`). Le chef d'orchestre est
+  attaché à UN projet ; une phrase dictée n'avait donc aucun destinataire. La commande
+  `voix.demande` (un seul champ, `texte`) confie la phrase à l'assistant GLOBAL : il lit
+  `store.listProjects()` (archivés écartés d'office) et `routerLaDemande` tranche — nom CITÉ (le nom
+  du projet apparaît tel quel, accents et ponctuation ignorés, les mots recollés pour rattraper
+  « aïko dev »), nom APPROCHANT (distance de Levenshtein au-dessus de `SEUIL_APPROCHANT`, et
+  seulement s'il devance le suivant d'`ECART_APPROCHANT` — sinon on demande), ou projet UNIQUE. Le
+  doute se paie d'une QUESTION, jamais d'un pari : deux noms cités, aucun nom, ou un projet clair
+  mais une action de moins de `MOTS_MIN_ACTION` mots (« HaikoDev » tout seul) posent la question.
+  Une question s'affiche forcément DANS une conversation, donc dans un projet : `lieuDeLaQuestion`
+  choisit le projet déjà retenu, sinon le premier candidat, sinon le projet actif, sinon le premier
+  du tableau. C'est une vraie question d'agent (même `AgentQuestion`, même triangle orange, même
+  montée du compte d'attention, donc même annonce vocale) — l'assistant ne code pas, ne crée aucune
+  carte et ne touche à aucun projet archivé : il DÉPOSE la phrase telle quelle dans le chef
+  d'orchestre du projet et lance le tour, le chef gardant son tri. La dictée en attente est rangée
+  EN BASE (table `dictees`, migration 12) : un redémarrage entre la question et la réponse ne perd
+  rien. `question.answer` REGARDE cette table AVANT de rendre la main à l'agent qui a posé la
+  question — une question de routage ne vient pas d'un moteur en train de réfléchir, sa réponse doit
+  faire partir la demande AILLEURS. `suiteDuRoutage` distingue les deux cas : quand le PROJET
+  manquait, la réponse nomme le projet et c'est la phrase d'origine qui part ; quand l'ACTION
+  manquait, le projet est déjà connu et c'est la réponse qui EST la demande. La réponse se donne
+  aussi à la VOIX : une phrase dictée moins de `DELAI_REPONSE_DICTEE_MS` (10 min) après la question
+  est lue comme sa réponse, et inscrite dans la question pour éteindre le triangle. Une réponse
+  incomprise ne dépose RIEN et le dit dans la conversation. Verrouillé par
+  `server/src/test/routage-vocal.test.ts` et `scripts/verif-assistant-vocal.mjs`.
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte
