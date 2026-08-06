@@ -182,6 +182,9 @@ const etat = (p) =>
   p.evaluate(() => {
     const module = document.querySelector('[data-module-voix]');
     if (!module) return null;
+    const boite = module.getBoundingClientRect();
+    const onde = module.querySelector('[data-onde-vocale]');
+    const dictee = module.querySelector('[data-dictee]');
     return {
       etat: module.getAttribute('data-etat-ecoute'),
       erreur: module.querySelector('[data-erreur-micro]')?.textContent?.trim() ?? null,
@@ -189,8 +192,25 @@ const etat = (p) =>
       micros: window.__micros ?? 0,
       vivant: document.body.innerText.trim().length,
       boutons: document.querySelectorAll('button').length,
+      // Ancré au centre du menu du bas (téléphone) : c'est ce mode qu'on juge ici.
+      ancre: module.hasAttribute('data-ancre-menu'),
+      // Au repos, l'icône aux cinq barres FIGÉES doit se voir, jamais le flux animé.
+      repos: Boolean(module.querySelector('[data-icone-repos]')),
+      ondeVocale: Boolean(onde),
+      // En écoute, la ligne d'ondes porte `data-onde-ecoute` (barres ROUGES).
+      ondeEcoute: onde?.hasAttribute('data-onde-ecoute') ?? false,
+      dictee: dictee ? dictee.textContent.trim() : null,
+      largeur: Math.round(boite.width),
+      // Le module déborde-t-il de l'écran une fois élargi pour la dictée ?
+      dansLEcran: boite.left >= -1 && boite.right <= window.innerWidth + 1,
     };
   });
+
+/** Une phrase entendue, injectée par le point d'essai de la page (sans micro). */
+const parler = async (p, texte) => {
+  await p.evaluate((t) => window.haikodevEssai?.parole?.(t), texte);
+  await p.waitForTimeout(400);
+};
 
 /**
  * Allumer (ou éteindre) l'écoute par le vrai chemin : le panneau, l'interrupteur.
@@ -224,7 +244,7 @@ const applicationVivante = async (p) => {
     // d'abord d'un appui ailleurs, sinon on jugerait un recouvrement.
     await p.touchscreen.tap(195, 120);
     await p.waitForTimeout(800);
-    for (const nom of ['Bord', 'Tableau']) {
+    for (const nom of ['Chef', 'Tableau']) {
       await p.locator('[data-menu-bas] button', { hasText: nom }).first().tap();
       await p.waitForTimeout(1200);
       if ((await actif(nom)) !== true) {
@@ -248,6 +268,14 @@ try {
   const repos = await etat(page);
   noter('au repos, l’écoute est éteinte', repos?.etat === 'eteinte', `état « ${repos?.etat} »`);
   noter('écoute éteinte, AUCUN micro n’est ouvert', repos?.micros === 0, `${repos?.micros} ouverture(s)`);
+  // Sur téléphone, le module est ANCRÉ au centre du menu du bas : c'est ce mode
+  // qu'on juge. Au repos, il montre les cinq barres FIGÉES, jamais le flux animé.
+  noter('sur téléphone, le module est ancré au menu du bas', repos?.ancre === true);
+  noter(
+    'au repos (ancré), les cinq barres figées se voient, pas le flux animé',
+    repos?.repos === true && repos?.ondeVocale === false,
+    `repos ${repos?.repos}, flux ${repos?.ondeVocale}`,
+  );
   noter('écoute éteinte, l’application répond au doigt', await applicationVivante(page));
 
   await basculerEcoute(page);
@@ -272,6 +300,37 @@ try {
     envois.length > 0 && envois.every((e) => e !== 'webm' && /^[a-z0-9]{2,4}$/.test(e)),
     JSON.stringify(envois.slice(0, 3)),
   );
+
+  /* --- Le réveil « Dis Haiko » RÉAGIT, en mode ancré au menu du bas --- */
+  // On injecte les phrases par le point d'essai de la page : le MÊME chemin que
+  // le retour de /api/transcribe, sans dépendre du micro factice. L'écoute est
+  // encore en guet ; le mot de réveil doit la faire passer en dictée.
+  await parler(page, 'Dis Haiko');
+  const reveille = await etat(page);
+  noter(
+    '« Dis Haiko » (ancré) fait passer le module en écoute',
+    reveille?.etat === 'ecoute',
+    `état « ${reveille?.etat} »`,
+  );
+  noter(
+    'en écoute (ancré), les ondes passent au rouge et le flux s’anime',
+    reveille?.ondeVocale === true && reveille?.ondeEcoute === true,
+    `flux ${reveille?.ondeVocale}, rouge ${reveille?.ondeEcoute}`,
+  );
+  noter('en écoute (ancré), un bandeau de dictée s’affiche', reveille?.dictee !== null);
+  noter(
+    'élargi pour la dictée, le module reste dans l’écran',
+    (reveille?.largeur ?? 0) > 100 && reveille?.dansLEcran === true,
+    `largeur ${reveille?.largeur} px, dans l’écran ${reveille?.dansLEcran}`,
+  );
+  await parler(page, 'ouvre le tableau des tâches');
+  const dicte = await etat(page);
+  noter(
+    'la phrase dictée s’affiche après le réveil',
+    (dicte?.dictee ?? '').includes('ouvre le tableau des tâches'),
+    `« ${dicte?.dictee} »`,
+  );
+  await page.screenshot({ path: `${SHOTS}/ecoute-mobile-reveil-ancre.png` });
 
   await basculerEcoute(page);
   noter('l’interrupteur rééteint tout', (await etat(page))?.etat === 'eteinte');
