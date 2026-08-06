@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { Attachment } from '@haikodev/shared';
+import { Attachment, jugerRapportErreur } from '@haikodev/shared';
 import { CONFIG, PATHS, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
 import * as store from './store.js';
@@ -13,6 +13,7 @@ import { readFilePreview, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils } from './pont.js';
+import { enregistrerErreurInterface } from './erreurs-interface.js';
 import { log } from './logger.js';
 
 const COOKIE = 'haikodev_session';
@@ -272,6 +273,31 @@ export function createHttpServer(): http.Server {
       if (route === '/api/push/unsubscribe' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
         if (body.endpoint) unsubscribe(String(body.endpoint));
+        return json(res, 200, { ok: true });
+      }
+
+      /**
+       * Une erreur survenue DANS LA PAGE. Sur un téléphone, la console du
+       * navigateur ne s'ouvre pas : sans ce point d'entrée, une application qui
+       * blanchit ne laisse aucune trace. La page envoie l'erreur et n'attend
+       * rien — un refus ne la gêne pas et n'est jamais réessayé.
+       *
+       * Le contenu est BORNÉ (64 Ko) et jugé par une règle pure : un envoi mal
+       * formé est refusé en le disant, jamais rangé à moitié. C'est le serveur
+       * qui date l'erreur : l'horloge d'un téléphone peut être fausse.
+       */
+      if (route === '/api/erreur' && req.method === 'POST') {
+        const texte = (await readBody(req, 64 * 1024)).toString('utf8');
+        let brut: unknown;
+        try {
+          brut = JSON.parse(texte || 'null');
+        } catch {
+          return json(res, 400, { ok: false, error: "L'envoi n'est pas lisible." });
+        }
+        const juge = jugerRapportErreur(brut, Date.now());
+        if (!juge.ok) return json(res, 400, { ok: false, error: juge.raison });
+        enregistrerErreurInterface(juge.erreur);
+        log.warn('interface', `${juge.erreur.source} — ${juge.erreur.message}`);
         return json(res, 200, { ok: true });
       }
 

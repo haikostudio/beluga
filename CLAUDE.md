@@ -75,6 +75,7 @@ node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
 node scripts/verif-cerveau-reglages.mjs # l'état de la liaison au cerveau, dans l'onglet Système
+node scripts/verif-erreurs-interface.mjs # une erreur de la page remonte-t-elle au serveur, puis dans les réglages ? (démon d'essai à soi, HAIKO_ERREURS_PORT ; pannes VOLONTAIRES, aucune donnée réelle)
 node scripts/verif-outils-codex.mjs # le moteur Codex reçoit bien les outils du projet (vrai tour ; un compte refusé est dit comme tel, pas comme un outil absent)
 node scripts/verif-deroule-uniforme.mjs # même demande, deux moteurs : l'instruction envoyée est-elle la même ?
 node scripts/verif-reprise-modele.mjs # changer de modèle en cours de conversation ne casse plus la reprise Codex (vrais tours)
@@ -259,6 +260,25 @@ sans son point d'essai.
   `vite`, que `npm run build` appelle. Si l'un des deux manque dans `node_modules/.bin`, l'étape de
   construction lance d'abord `NODE_ENV=development npm install --include=dev` et le DIT dans son
   détail. Aucune étape ajoutée ni déplacée : c'est la préparation de l'étape existante.
+- **Ce qui plante DANS LA PAGE remonte au serveur** (`shared/src/erreur-interface.ts` pour les règles,
+  `server/src/erreurs-interface.ts` pour le fichier). Sur un téléphone, `console.error` écrit dans une
+  console qu'on ne peut pas ouvrir : une application qui blanchit ne laissait AUCUNE trace. Trois
+  chemins remontent, et pas un de plus (`SOURCES_ERREUR`) : le filet de sécurité
+  (`web/src/components/filet.tsx`, `affichage`, qui emporte la zone et la pile des composants),
+  l'erreur globale de la fenêtre (`fenetre`) et la promesse rejetée sans traitement (`promesse`) —
+  ces deux-là branchées par `brancherRemonteeErreurs` (`web/src/lib/erreurs.ts`), appelée AVANT le
+  premier rendu dans `main.tsx`. L'envoi passe par `POST /api/erreur` (authentifié, 64 Ko au plus,
+  `keepalive`), ne bloque rien et n'est JAMAIS réessayé : le `catch` est muet, il n'y a pas de file
+  d'attente. Une erreur ne part qu'une fois (`empreinteErreur`) et une page en envoie au plus
+  `ERREURS_MAX_PAR_PAGE` (12) — une panne qui revient à chaque affichage en produirait des milliers.
+  `jugerRapportErreur` est le portier : origine inconnue ou message vide = REFUS 400 qui dit pourquoi,
+  ce qui dépasse est coupé plutôt que rejeté, et c'est le SERVEUR qui date (l'horloge d'un téléphone
+  peut être fausse de plusieurs heures). Rien du projet ne part : ni message de conversation, ni pièce
+  jointe — l'erreur, l'adresse de la page, l'appareil déclaré. Le journal est un fichier à part,
+  `data/logs/interface-erreurs.log`, une erreur par ligne en JSON, plafonné à `ERREURS_JOURNAL_MAX`
+  (200) lignes. Il se lit dans les réglages, onglet Système, bloc « Dernières erreurs de l'interface »
+  (`erreurs.liste` / `erreurs.effacer`), où l'appareil est dit en français (`appareilEnClair`).
+  Verrouillé par `server/src/test/erreur-interface.test.ts` et `scripts/verif-erreurs-interface.mjs`.
 - **Un projet se déclare sur son DÉPÔT DE TRAVAIL, jamais sur son dossier publié.** Un dossier servi
   n'est pas un dépôt git : l'agent n'y trouve aucune mémoire, n'y enregistre rien et ne peut RIEN
   prouver — la carte se clôt sur du vide. Quand le code de travail vit ailleurs que le dossier servi,

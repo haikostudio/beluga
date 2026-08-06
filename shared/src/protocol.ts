@@ -297,6 +297,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('cerveau.envoyer') }),
   /** Poser la clé du cerveau depuis les réglages : elle vaut aussitôt. */
   z.object({ type: z.literal('cerveau.cle'), cle: z.string() }),
+  /**
+   * Les dernières erreurs remontées par l'interface, pour le bloc des réglages.
+   * Elles arrivent par `POST /api/erreur` et vivent dans un fichier de journal.
+   */
+  z.object({ type: z.literal('erreurs.liste'), limite: z.number().optional() }),
+  /** Vider ce journal : le fichier repart vide, il n'est pas supprimé. */
+  z.object({ type: z.literal('erreurs.effacer') }),
   /** L'état du démon : depuis quand il tourne, et s'il tourne sur du code périmé. */
   z.object({ type: z.literal('daemon.status') }),
   /** Arrêter le démon pour que le service le relance avec le code construit. */

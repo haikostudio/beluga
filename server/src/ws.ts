@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import {
   COLONNES_HORS_REPRISE,
   COLUMN_LABELS,
+  ERREURS_MONTREES_REGLAGES,
   Card,
   ClientEnvelope,
   ColumnKey,
@@ -57,6 +58,11 @@ import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
 import { enregistrerCleCerveau } from './cle-cerveau.js';
+import {
+  compterErreursInterface,
+  dernieresErreursInterface,
+  effacerErreursInterface,
+} from './erreurs-interface.js';
 import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
@@ -1085,6 +1091,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const pose = enregistrerCleCerveau(cmd.cle);
       return { pose, etat: etatCerveau() };
     }
+
+    case 'erreurs.liste':
+      return {
+        erreurs: dernieresErreursInterface(cmd.limite ?? ERREURS_MONTREES_REGLAGES),
+        total: compterErreursInterface(),
+      };
+
+    case 'erreurs.effacer':
+      return { ok: effacerErreursInterface() };
 
     case 'daemon.status':
       return { etat: etatDemon() };

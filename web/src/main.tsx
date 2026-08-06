@@ -2,7 +2,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './app';
 import { Filet } from './components/filet';
+import { brancherRemonteeErreurs } from './lib/erreurs';
 import './styles.css';
+
+/*
+ * AVANT tout le reste : une erreur survenue pendant le premier affichage doit
+ * elle aussi remonter. Sur un téléphone, c'est la seule trace qu'on aura.
+ */
+brancherRemonteeErreurs();
 
 // Le filet de dernier recours : plutôt un message lisible qu'une page vide.
 ReactDOM.createRoot(document.getElementById('root')!).render(
