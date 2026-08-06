@@ -90,6 +90,7 @@ node scripts/verif-icones-notifications.mjs # les six images, dans un vrai navig
 node scripts/verif-lot-a-faire.mjs  # « Tout valider » au pied de « À faire » (démon d'essai à soi)
 node scripts/verif-lot-termine.mjs  # « Tout déployer » au pied de « Terminé » (démon d'essai à soi)
 node scripts/verif-lot-planifie.mjs # « Tout lancer » au pied de « Planifié » (démon d'essai à soi)
+node scripts/verif-lot-production.mjs # la colonne « En production » : place, pieds de lot des deux colonnes, onglet téléphone (démon d'essai à soi)
 node scripts/verif-sortie-archive.mjs # sortir une carte d'« Archivé » / « À déployer » à la main (démon d'essai à soi)
 node scripts/verif-arret-carte.mjs  # le bouton d'arrêt d'une carte n'arrête que SA tâche (démon d'essai à soi)
 node scripts/verif-branche-de-carte.mjs # une carte lancée obtient SA branche « tache/… » ET son dossier ; deux cartes démarrent ensemble (dépôt d'essai)
@@ -229,14 +230,31 @@ sans son point d'essai.
   une étude ni la rendre n'est faire le travail. Le passage « Validé » → « Planifié » → « En cours »
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
   pas. Vrai pour TOUTE carte, d'où qu'elle vienne.
-- **« Archivé » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
+- **La mise en ligne compte DEUX étapes, et la colonne « En production » les sépare**
+  (`shared/src/etapes-publication.ts`). La clé `in_production` s'insère entre `to_deploy` et
+  `archived` dans `COLUMN_KEYS` — aucune clé existante n'est renommée ni supprimée, la règle gravée
+  ne bouge pas. `etapesDePublication` décide, pour un projet donné, quelles mises en ligne existent :
+  sans environnement de dev déclaré, UNE seule étape (« À déployer » → publication → « Archivé »,
+  exactement le parcours d'avant) ; avec, DEUX — dev (« À déployer » → « En production », la carte
+  n'est PAS close) puis production (« En production » → « Archivé », la carte est close : document,
+  branche refermée, historique). `deployableCards(projectId, source)` prend le lot dans la colonne de
+  l'étape, et le garde-fou `!deployedAt` ne vaut QUE pour la première (une carte « En production »
+  porte forcément une date de mise en ligne). `startDeploy(projectId, { cible })` et la commande
+  `deploy.start` portent la cible ; une étape réclamée qui n'existe pas est REFUSÉE en le disant
+  (`raisonEtapeInconnue`), jamais remplacée en silence. `moyensDePublication` (`server/src/deploy.ts`)
+  est le SEUL endroit qui dit si un environnement de dev existe — il rend `false` tant que le réglage
+  n'est pas écrit (carte séparée). Publier reste un geste de l'utilisateur, aux deux étapes.
+  Verrouillé par `server/src/test/colonne-en-production.test.ts` et
+  `scripts/verif-lot-production.mjs`.
+- **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
   `shared/src/suivi-colonne.ts`). La règle par défaut ne bouge pas : aucun chemin AUTOMATIQUE n'en
   ressort une carte — ni un tour d'agent (`colonneAuDemarrage`), ni `board_move_card`, ni une
   question posée dans la conversation, qui ne doit jamais retirer une carte du lot à publier. Un
   clic ou un glissement de l'utilisateur, lui, le peut : bouton dédié dans le tiroir
   (`gesteCarte('reprendre', …)`), même ligne dans le menu des gestes rares, et glisser-déposer.
   D'un geste, la carte retombe à l'étape juste avant (`colonneDeReprise` : « Archivé » → « À faire »,
-  « À déployer » → « Terminé ») ; toute autre colonne reste atteignable à la main. La carte GARDE sa
+  « En production » → « À déployer », « À déployer » → « Terminé »), et le bouton DIT lequel des trois
+  gestes il fait (`libelleDeReprise`) ; toute autre colonne reste atteignable à la main. La carte GARDE sa
   trace : `card.archivedAt` est posée à l'archivage, survit à la sortie, et s'affiche en clair
   (`mentionArchivage`) sur la carte du tableau et dans son tiroir. Verrouillé par
   `server/src/test/suivi-colonne.test.ts` et `scripts/verif-sortie-archive.mjs`.
@@ -791,15 +809,17 @@ sans son point d'essai.
   ses cartes partent ENSEMBLE (`Promise.all` sur la sélection), chacune ayant sa copie de travail et
   sa branche, donc les robots s'allument en même temps. Le compte rendu (`bilanDeLot`) ne bouge pas.
   Une seule colonne en
-  sélection à la fois, et pas de pied sur une colonne vide. Quatre entrées aujourd'hui : « À faire » →
+  sélection à la fois, et pas de pied sur une colonne vide. Cinq entrées aujourd'hui : « À faire » →
   « Tout valider » vers « Validé », « Planifié » → « Tout lancer » vers « En cours », « Terminé » →
   « Tout déployer » vers « À déployer » (déplacement seul, RIEN n'est mis en ligne), « À déployer » →
-  « Tout archiver » vers « Archivé ». Un pied suit le parcours de la carte : on n'archive jamais
-  par-dessus l'étape de publication. « Tout lancer » n'a AUCUN chemin à lui : le dépôt en « En cours »
+  « Tout mettre en production » vers « En production », « En production » → « Tout archiver » vers
+  « Archivé ». Un pied suit le parcours de la carte : on n'archive jamais
+  par-dessus une étape de mise en ligne. « Tout lancer » n'a AUCUN chemin à lui : le dépôt en « En cours »
   valant déjà le clic sur « Lancer maintenant », le serveur passe par `startCard` — portes dures
   comprises — et une carte refusée revient à « Planifié » avec sa raison pendant que le lot continue.
   Ajouter une colonne, c'est ajouter une ligne à cette liste — jamais un second mécanisme. Vérifié par
-  `scripts/verif-lot-a-faire.mjs`, `scripts/verif-lot-termine.mjs` et `scripts/verif-lot-planifie.mjs`.
+  `scripts/verif-lot-a-faire.mjs`, `scripts/verif-lot-termine.mjs`, `scripts/verif-lot-planifie.mjs`
+  et `scripts/verif-lot-production.mjs`.
 - **Un lot va jusqu'à la DERNIÈRE carte et rend des comptes** (`bilanDeLot`,
   `shared/src/lot-colonne.ts`). Chaque carte est tentée dans son propre `try` : un refus — le plus
   courant, `porteDuDossier` quand un agent travaille déjà dans le dossier — n'arrête pas les

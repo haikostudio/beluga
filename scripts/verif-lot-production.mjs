@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 /**
- * Le pied de la colonne « Terminé » porte un bouton « Tout déployer » — et non
- * plus « Tout archiver » : « Terminé » précède « À déployer » dans le parcours
- * d'une carte, on ne saute pas l'étape de publication. Le mécanisme ne change
- * pas : premier clic, les cases sortent au coin haut-gauche des cartes, toutes
- * cochées ; le pied affiche « Annuler » et « Déployer (n) ». Annuler ne touche
- * à rien, confirmer fait passer les cartes cochées en « À déployer » et laisse
- * les décochées où elles sont. RIEN n'est mis en ligne.
+ * La mise en ligne compte DEUX étapes sur le tableau. Entre « À déployer » et
+ * « Archivé » s'intercale « En production » :
  *
- *   node scripts/verif-lot-termine.mjs
+ *   - le pied de « À déployer » propose « Tout mettre en production » et non
+ *     plus « Tout archiver » — on n'archive jamais par-dessus une étape ;
+ *   - la colonne « En production » existe, porte son titre, se défile, et son
+ *     pied propose « Tout archiver » ;
+ *   - sur écran de téléphone, elle a son onglet, avec son compte de cartes ;
+ *   - une carte posée là ne se reprend qu'à la main, et retombe alors dans
+ *     « À déployer » — l'étape juste avant, jamais deux d'un coup.
+ *
+ *   node scripts/verif-lot-production.mjs
  *
  * Le script monte son PROPRE démon, sur un port libre, avec une base neuve et
  * un dossier de projets vide : le démon de production n'est pas touché. Le
@@ -24,16 +27,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/* La racine se déduit du script LUI-MÊME : lancé depuis une copie de travail
-   (`.worktrees/…`), il doit juger le code de CETTE copie, jamais celui du
-   dossier principal — sinon il déclare bon un changement jamais exécuté. */
+/* La racine se déduit du script LUI-MÊME : lancé depuis une copie de travail,
+   il doit juger le code de cette copie, jamais celui du dossier principal. */
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /* La résolution ordinaire de Node remonte les dossiers parents : elle trouve le
    `node_modules` de la copie de travail, et à défaut celui du dépôt principal. */
 const Database = createRequire(import.meta.url)('better-sqlite3');
-const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7193);
+
+const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7197);
 const BASE = `http://127.0.0.1:${PORT}`;
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-lot-termine-'));
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-lot-production-'));
 
 const resultats = [];
 const noter = (nom, ok, detail = '') => {
@@ -96,13 +99,13 @@ async function attendrePort(limiteMs = 60000) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Le décor : un projet, trois cartes « Terminé », une session          */
+/* Le décor : un projet, trois cartes « À déployer », une session       */
 /* ------------------------------------------------------------------ */
 
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const jeton = crypto.randomBytes(32).toString('hex');
 const PROJET_ID = 'p-essai';
-const TITRES = ['Carte d’essai — fin A', 'Carte d’essai — fin B', 'Carte d’essai — fin C'];
+const TITRES = ['Carte d’essai — lot A', 'Carte d’essai — lot B', 'Carte d’essai — lot C'];
 
 function poserLeDecor() {
   const db = new Database(path.join(DATA, 'haikodev.db'));
@@ -112,7 +115,7 @@ function poserLeDecor() {
     sha(jeton),
     maintenant,
     maintenant + 3600_000,
-    'vérification lot terminé',
+    'vérification colonne en production',
   );
 
   /* Plafond d'agents à ZÉRO : rien ne peut se lancer pendant l'essai. */
@@ -124,7 +127,7 @@ function poserLeDecor() {
   db.prepare('DELETE FROM projects').run();
   const projet = {
     id: PROJET_ID,
-    name: 'Essai lot',
+    name: 'Essai production',
     path: DEPOT,
     defaultEngine: 'claude',
     isSelf: false,
@@ -144,7 +147,7 @@ function poserLeDecor() {
       title: titre,
       description: 'Carte fabriquée par le script de vérification.',
       labels: [],
-      column: 'done',
+      column: 'to_deploy',
       position: index + 1,
       origin: 'user',
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
@@ -157,12 +160,12 @@ function poserLeDecor() {
     db.prepare(
       `INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(carte.id, PROJET_ID, 'done', carte.position, titre, JSON.stringify(carte), maintenant, maintenant);
+    ).run(carte.id, PROJET_ID, 'to_deploy', carte.position, titre, JSON.stringify(carte), maintenant, maintenant);
   });
   db.close();
 }
 
-/** L'état des trois cartes en BASE : titre → colonne. */
+/** L'état des cartes en BASE : titre → colonne. */
 function colonnesEnBase() {
   const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
   const lignes = db.prepare('SELECT title, column_key FROM cards').all();
@@ -184,26 +187,19 @@ async function colonnesAffichees(page) {
 }
 
 /** Les cases à cocher d'une colonne, dans l'ordre des cartes. */
-async function cases(page, colonne = 'done') {
+async function cases(page, colonne) {
   return page.evaluate((colonne) => {
     const col = document.querySelector(`[data-column="${colonne}"]`);
     if (!col) return [];
     return [...col.querySelectorAll('button[aria-pressed]')].map((bouton) => {
       const carte = bouton.parentElement?.querySelector('article');
-      const b = bouton.getBoundingClientRect();
-      const c = carte?.getBoundingClientRect();
-      return {
-        titre: carte?.querySelector('h3')?.textContent ?? '',
-        cochee: bouton.getAttribute('aria-pressed') === 'true',
-        // La case doit déborder du coin HAUT-GAUCHE de la carte.
-        enHautAGauche: !!c && b.x < c.x && b.y < c.y,
-      };
+      return { titre: carte?.querySelector('h3')?.textContent ?? '', cochee: bouton.getAttribute('aria-pressed') === 'true' };
     });
   }, colonne);
 }
 
 /** Le texte des boutons du pied d'une colonne. */
-async function pied(page, colonne = 'done') {
+async function pied(page, colonne) {
   return page.evaluate((colonne) => {
     const col = document.querySelector(`[data-column="${colonne}"]`);
     const bas = col?.lastElementChild;
@@ -212,7 +208,7 @@ async function pied(page, colonne = 'done') {
   }, colonne);
 }
 
-const cliquerPied = (page, motif, colonne = 'done') =>
+const cliquerPied = (page, motif, colonne) =>
   page.evaluate(
     ({ motif, colonne }) => {
       const col = document.querySelector(`[data-column="${colonne}"]`);
@@ -227,12 +223,8 @@ const cliquerPied = (page, motif, colonne = 'done') =>
 
 /* ------------------------------------------------------------------ */
 
-async function ouvrirLeTableau(navigateur) {
-  const contexte = await navigateur.newContext({
-    viewport: { width: 1400, height: 900 },
-    locale: 'fr-CH',
-    serviceWorkers: 'block',
-  });
+async function ouvrirLeTableau(navigateur, viewport = { width: 1400, height: 900 }) {
+  const contexte = await navigateur.newContext({ viewport, locale: 'fr-CH', serviceWorkers: 'block' });
   await contexte.addCookies([
     { name: 'haikodev_session', value: jeton, url: BASE, httpOnly: true, sameSite: 'Lax' },
   ]);
@@ -246,9 +238,7 @@ async function ouvrirLeTableau(navigateur) {
     await onglet.first().click();
     await page.waitForTimeout(2000);
   }
-  await page.locator('[data-column="done"]').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(600);
-  return { page, erreurs };
+  return { page, contexte, erreurs };
 }
 
 async function main() {
@@ -263,100 +253,140 @@ async function main() {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
 
-  const { page, erreurs } = await ouvrirLeTableau(navigateur);
+  const { page, contexte, erreurs } = await ouvrirLeTableau(navigateur);
 
+  /* -------- La colonne existe et se défile -------- */
+
+  const colonne = page.locator('[data-column="in_production"]');
+  noter('la colonne « En production » existe sur le tableau', (await colonne.count()) === 1);
+  await colonne.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  const vue = await page.evaluate(() => {
+    const col = document.querySelector('[data-column="in_production"]');
+    if (!col) return null;
+    const b = col.getBoundingClientRect();
+    return { titre: col.querySelector('h2')?.textContent ?? '', visible: b.left >= -1 && b.right <= window.innerWidth + 1 };
+  });
+  noter('elle porte le titre « En production »', vue?.titre === 'En production', vue?.titre ?? '—');
+  noter('le rail l’amène entièrement à l’écran', !!vue?.visible, JSON.stringify(vue));
+
+  const ordre = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-column]')].map((c) => c.getAttribute('data-column')),
+  );
+  noter(
+    'elle s’intercale entre « À déployer » et « Archivé »',
+    ordre.indexOf('to_deploy') + 1 === ordre.indexOf('in_production') &&
+      ordre.indexOf('in_production') + 1 === ordre.indexOf('archived'),
+    ordre.join(' → '),
+  );
+
+  /* -------- Le pied de « À déployer » pousse en production -------- */
+
+  await page.locator('[data-column="to_deploy"]').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
   const depart = await colonnesAffichees(page);
   noter(
-    'les trois cartes d’essai sont dans « Terminé »',
-    TITRES.every((t) => depart[t] === 'done'),
+    'les trois cartes d’essai sont dans « À déployer »',
+    TITRES.every((t) => depart[t] === 'to_deploy'),
     JSON.stringify(depart),
   );
 
-  const auRepos = (await pied(page)).join(' | ');
-  noter('au repos, le pied propose « Tout déployer »', auRepos.includes('Tout déployer'), auRepos);
-  noter('le pied de « Terminé » ne propose PLUS « Tout archiver »', !auRepos.includes('Tout archiver'), auRepos);
-  noter('au repos, aucune case à cocher n’est affichée', (await cases(page)).length === 0);
+  const auRepos = (await pied(page, 'to_deploy')).join(' | ');
+  noter('le pied de « À déployer » propose « Tout mettre en production »', auRepos.includes('Tout mettre en production'), auRepos);
+  noter('il ne propose PLUS « Tout archiver »', !auRepos.includes('Tout archiver'), auRepos);
 
-  await cliquerPied(page, 'Tout déployer');
+  await cliquerPied(page, 'Tout mettre en production', 'to_deploy');
   await page.waitForTimeout(800);
+  const sorties = await cases(page, 'to_deploy');
+  noter('un premier clic sort une case par carte, toutes cochées', sorties.length === 3 && sorties.every((c) => c.cochee), `${sorties.length} case(s)`);
 
-  const sorties = await cases(page);
-  noter('un premier clic sort une case par carte', sorties.length === 3, `${sorties.length} case(s)`);
-  noter('toutes les cases sortent COCHÉES', sorties.every((c) => c.cochee));
-  noter('chaque case déborde du coin haut-gauche de sa carte', sorties.every((c) => c.enHautAGauche));
-
-  const ouvert = await pied(page);
-  noter(
-    'le pied affiche « Annuler » et « Déployer (3) »',
-    ouvert.some((t) => t === 'Annuler') && ouvert.some((t) => /Déployer \(3\)/.test(t)),
-    ouvert.join(' | '),
-  );
-  await page.screenshot({ path: path.join(TMP, 'lot-ouvert.png') });
-
-  /* -------- Décocher une carte, puis ANNULER : rien ne bouge -------- */
-
+  // La colonne trie du plus récent au plus ancien : la première case est la
+  // carte C. On la décoche — elle seule doit rester dans « À déployer ».
+  const gardee = sorties[0]?.titre ?? '';
   await page.evaluate(() => {
-    document.querySelector('[data-column="done"]')?.querySelectorAll('button[aria-pressed]')[0]?.click();
+    document.querySelector('[data-column="to_deploy"]')?.querySelectorAll('button[aria-pressed]')[0]?.click();
   });
   await page.waitForTimeout(500);
   noter(
-    'décocher une carte fait retomber le compteur à 2',
-    (await pied(page)).some((t) => /Déployer \(2\)/.test(t)),
-    (await pied(page)).join(' | '),
+    'le compteur du pied suit la sélection',
+    (await pied(page, 'to_deploy')).some((t) => /Mettre en production \(2\)/.test(t)),
+    (await pied(page, 'to_deploy')).join(' | '),
   );
 
-  await cliquerPied(page, 'Annuler');
-  await page.waitForTimeout(1200);
-  noter('« Annuler » referme les cases', (await cases(page)).length === 0);
-  noter(
-    '« Annuler » ne déplace AUCUNE carte',
-    TITRES.every((t) => colonnesEnBase()[t] === 'done'),
-    JSON.stringify(colonnesEnBase()),
-  );
-
-  /* -------- Recommencer, décocher une carte, puis DÉPLOYER -------- */
-
-  await cliquerPied(page, 'Tout déployer');
-  await page.waitForTimeout(800);
-  // La colonne trie du plus récent au plus ancien : la première case est la
-  // carte C. C'est elle qu'on décoche, et elle seule doit rester.
-  const gardee = (await cases(page))[0]?.titre ?? '';
-  await page.evaluate(() => {
-    document.querySelector('[data-column="done"]')?.querySelectorAll('button[aria-pressed]')[0]?.click();
-  });
-  await page.waitForTimeout(400);
-  await cliquerPied(page, 'Déployer');
+  await cliquerPied(page, 'Mettre en production', 'to_deploy');
   await page.waitForTimeout(4000);
 
   const apres = colonnesEnBase();
   noter(
-    'les deux cartes cochées sont passées en « À déployer »',
-    TITRES.filter((t) => t !== gardee).every((t) => apres[t] === 'to_deploy'),
+    'les cartes cochées sont passées en « En production »',
+    TITRES.filter((t) => t !== gardee).every((t) => apres[t] === 'in_production'),
     JSON.stringify(apres),
   );
-  noter(`la carte décochée (« ${gardee} ») est restée dans « Terminé »`, apres[gardee] === 'done', apres[gardee]);
-  noter('AUCUNE carte n’est partie à l’archive', !Object.values(apres).includes('archived'), JSON.stringify(apres));
+  noter(`la carte décochée (« ${gardee} ») est restée dans « À déployer »`, apres[gardee] === 'to_deploy', apres[gardee]);
+  noter('AUCUNE carte n’a sauté à l’archive', !Object.values(apres).includes('archived'), JSON.stringify(apres));
 
-  const ecran = await colonnesAffichees(page);
+  /* -------- Le pied d’« En production » archive -------- */
+
+  await page.locator('[data-column="in_production"]').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  const piedProduction = (await pied(page, 'in_production')).join(' | ');
+  noter('le pied d’« En production » propose « Tout archiver »', piedProduction.includes('Tout archiver'), piedProduction);
+  await page.screenshot({ path: path.join(TMP, 'colonne-production.png') });
+
+  await cliquerPied(page, 'Tout archiver', 'in_production');
+  await page.waitForTimeout(800);
+  await cliquerPied(page, 'Archiver', 'in_production');
+  await page.waitForTimeout(5000);
+
+  const archivees = colonnesEnBase();
   noter(
-    'le tableau montre le même partage que la base',
-    TITRES.every((t) => ecran[t] === apres[t]),
-    JSON.stringify(ecran),
+    'les deux cartes partent à l’archive depuis « En production »',
+    TITRES.filter((t) => t !== gardee).every((t) => archivees[t] === 'archived'),
+    JSON.stringify(archivees),
   );
-  noter('la sélection est refermée après confirmation', (await cases(page)).length === 0);
-  await page.screenshot({ path: path.join(TMP, 'lot-deploye.png') });
 
-  /* -------- « À déployer » pousse vers l'étape suivante -------- */
+  /* -------- Une carte reprise retombe à l’étape juste avant -------- */
 
-  const piedADeployer = (await pied(page, 'to_deploy')).join(' | ');
+  await page.locator('[data-column="to_deploy"]').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
+  // On remet une carte « En production » à la main, puis on la reprend.
+  await page.evaluate(() => {
+    const col = document.querySelector('[data-column="to_deploy"]');
+    col?.querySelector('article h3')?.closest('article')?.click();
+  });
+  await page.waitForTimeout(1500);
+  const reprise = await page.evaluate(() => {
+    const bouton = document.querySelector('[data-geste="reprendre"]');
+    return bouton ? (bouton.textContent ?? '') : null;
+  });
+  // La carte ouverte est encore dans « À déployer » : son bouton de reprise dit
+  // le geste de CETTE colonne-là.
   noter(
-    'la colonne « À déployer » propose « Tout mettre en production »',
-    piedADeployer.includes('Tout mettre en production'),
-    piedADeployer,
+    'une carte « À déployer » propose de retomber en « Terminé »',
+    !!reprise && reprise.includes('Retirer du lot à publier') && reprise.includes('Terminé'),
+    reprise ?? '—',
   );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(800);
 
-  const toutes = erreurs;
-  noter('aucune erreur de page', toutes.length === 0, toutes.slice(0, 2).join(' | '));
+  noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
+  await contexte.close();
+
+  /* -------- Sur téléphone, l’onglet et son compte -------- */
+
+  const { page: tel, contexte: ctxTel } = await ouvrirLeTableau(navigateur, { width: 390, height: 844 });
+  const onglet = await tel.evaluate(() => {
+    const el = document.querySelector('[data-onglet-colonne="in_production"]');
+    if (!el) return null;
+    return {
+      texte: el.textContent ?? '',
+      compte: el.querySelector('[data-onglet-compte]')?.textContent ?? null,
+    };
+  });
+  noter('l’onglet « En production » existe sur téléphone', !!onglet && onglet.texte.includes('En production'), JSON.stringify(onglet));
+  noter('il porte son compte de cartes, zéro compris', onglet?.compte !== null && onglet?.compte !== undefined, String(onglet?.compte));
+  await tel.screenshot({ path: path.join(TMP, 'onglet-telephone.png') });
+  await ctxTel.close();
 
   await navigateur.close();
 

@@ -30,6 +30,7 @@ export * from './lecture-message.js';
 export * from './lot-colonne.js';
 export * from './memoire.js';
 export * from './mise-en-ligne.js';
+export * from './etapes-publication.js';
 export * from './models.js';
 export * from './notification.js';
 export * from './notification-tri.js';

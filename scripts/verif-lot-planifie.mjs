@@ -23,15 +23,22 @@
  * `server/src/test/suivi-colonne.test.ts`.
  */
 import { chromium } from 'playwright';
-import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
+import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const RACINE = '/root/haikodev';
+/* La racine se déduit du script LUI-MÊME : lancé depuis une copie de travail
+   (`.worktrees/…`), il doit juger le code de CETTE copie, jamais celui du
+   dossier principal — sinon il déclare bon un changement jamais exécuté. */
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/* La résolution ordinaire de Node remonte les dossiers parents : elle trouve le
+   `node_modules` de la copie de travail, et à défaut celui du dépôt principal. */
+const Database = createRequire(import.meta.url)('better-sqlite3');
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7194);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-lot-planifie-'));
@@ -463,9 +470,13 @@ async function main() {
 
   const piedADeployer = (await pied(page, 'to_deploy')).join(' | ');
   noter(
-    'la colonne « À déployer » propose toujours « Tout archiver »',
-    piedADeployer.includes('Tout archiver') || piedADeployer === '',
-    piedADeployer || 'colonne vide : pas de pied, c’est la règle',
+    // Colonne vide ici : elle n'a pas de pied de LOT (c'est la règle), seul son
+    // bloc de publication s'affiche. Ce qu'on contrôle, c'est qu'elle n'archive
+    // plus en lot — le pied « Tout mettre en production » est joué sur une
+    // colonne PLEINE par `verif-lot-production.mjs` et `verif-lot-termine.mjs`.
+    'la colonne « À déployer » n’archive plus en lot',
+    !piedADeployer.includes('Tout archiver'),
+    piedADeployer || 'colonne vide : pas de pied de lot, c’est la règle',
   );
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));

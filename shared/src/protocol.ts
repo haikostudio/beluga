@@ -182,7 +182,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
 
   // Publication
-  z.object({ type: z.literal('deploy.start'), projectId: z.string() }),
+  // `cible` dit VERS QUOI l'on met en ligne : l'environnement de dev, ou la
+  // production. Absente, c'est la première étape du parcours du projet — le
+  // seul cas tant qu'aucun environnement de dev n'est déclaré.
+  z.object({
+    type: z.literal('deploy.start'),
+    projectId: z.string(),
+    cible: z.enum(['dev', 'production']).optional(),
+  }),
   z.object({ type: z.literal('deploy.stop'), runId: z.string() }),
   z.object({ type: z.literal('deploy.retry'), runId: z.string() }),
   /** Ce qui coincerait si on publiait maintenant — sans rien publier. */

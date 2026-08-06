@@ -844,7 +844,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     /* -------- Publication -------- */
 
     case 'deploy.start': {
-      const result = await startDeploy(cmd.projectId);
+      const result = await startDeploy(cmd.projectId, { cible: cmd.cible });
       if (!result.ok) throw new Error(result.error ?? 'publication impossible');
       return result;
     }

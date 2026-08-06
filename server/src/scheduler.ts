@@ -404,7 +404,7 @@ Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (c
          * VRAIMENT arrivée : un tour qui répond sans rien modifier au dépôt
          * laisse la carte où elle est, il n'y a donc rien à annoncer.
          */
-        if (fresh.column === 'done' || fresh.column === 'to_deploy') {
+        if (fresh.column === 'done' || fresh.column === 'to_deploy' || fresh.column === 'in_production') {
           /*
            * La voix préfère un résumé du VRAI contenu de la réponse au seul
            * titre : on le tire du texte que l'agent vient d'écrire (aucune

@@ -193,11 +193,15 @@ export function replacerCarteAuDemarrage(agent: Agent): void {
     // …et la phrase « rien n'a changé » du tour précédent non plus.
     sansModification: undefined,
     // Une carte qu'on relance depuis une fin de travail (« Terminé »,
-    // « À déployer ») a DÉJÀ produit du code : on grave le drapeau qui empêchera
-    // un tour de suite muet de rallumer « aucun fichier n'a changé ». C'est aussi
-    // ce qui rattrape les cartes abouties avant l'existence du drapeau.
+    // « À déployer », « En production ») a DÉJÀ produit du code : on grave le
+    // drapeau qui empêchera un tour de suite muet de rallumer « aucun fichier
+    // n'a changé ». C'est aussi ce qui rattrape les cartes abouties avant
+    // l'existence du drapeau.
     codeDejaEnregistre:
-      carte.codeDejaEnregistre || carte.column === 'done' || carte.column === 'to_deploy',
+      carte.codeDejaEnregistre ||
+      carte.column === 'done' ||
+      carte.column === 'to_deploy' ||
+      carte.column === 'in_production',
     /*
      * Un tour qui démarre est EXACTEMENT le geste qu'attendait une carte
      * suspendue — répondre à sa question en est un. Sans cet oubli, la carte

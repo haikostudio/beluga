@@ -13,6 +13,7 @@ export const COLUMN_KEYS = [
   'running',
   'done',
   'to_deploy',
+  'in_production',
   'archived',
 ] as const;
 
@@ -27,6 +28,7 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
   running: 'En cours',
   done: 'Terminé',
   to_deploy: 'À déployer',
+  in_production: 'En production',
   archived: 'Archivé',
 };
 
@@ -37,7 +39,7 @@ export const AGENT_MOVABLE_COLUMNS: ColumnKey[] = ['notes', 'todo'];
  * Colonnes que seul l'utilisateur peut atteindre. « Terminé » n'en fait plus
  * partie : la carte y va d'elle-même quand son agent a rendu.
  */
-export const USER_ONLY_TARGETS: ColumnKey[] = ['validated', 'to_deploy'];
+export const USER_ONLY_TARGETS: ColumnKey[] = ['validated', 'to_deploy', 'in_production'];
 
 /**
  * Colonnes que seule la machine peut attribuer. « Terminé » en fait partie

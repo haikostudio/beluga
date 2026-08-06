@@ -4,11 +4,17 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   Card,
+  CiblePublication,
+  ColumnKey,
   DeployRun,
   DeployStepKey,
   MoyensDeMiseEnLigne,
+  MoyensDePublication,
   PlanDeMiseEnLigne,
+  Project,
   ECHECS_NOMMES_MAX,
+  etapeDePublication,
+  raisonEtapeInconnue,
   consigneDeReparationConstruction,
   controlesTombes,
   detailDEchec,
@@ -185,12 +191,43 @@ function installerApplication(): string {
 /* Le compteur du bouton doit dire la vérité (PLAN §30)                */
 /* ------------------------------------------------------------------ */
 
-/** Exactement les cartes que le run va embarquer — ni plus, ni moins. */
-export function deployableCards(projectId: string): Card[] {
-  return store
-    .listCardsInColumn(projectId, 'to_deploy')
-    .filter((card) => !card.excludedFromDeploy && !card.deployedAt)
-    .sort((a, b) => a.createdAt - b.createdAt);
+/**
+ * Ce que le projet déclare de ses environnements, pour la règle des étapes.
+ *
+ * Aucun projet ne déclare encore d'environnement de dev : les réglages qui le
+ * renseignent font l'objet d'une carte à part. Tant qu'ils n'existent pas, il
+ * n'y a qu'une mise en ligne — celle d'aujourd'hui —, et le parcours des
+ * cartes ne change pas d'un pouce. Le jour où le réglage arrive, c'est cette
+ * seule fonction qui le lit.
+ */
+export function moyensDePublication(_project: Project): MoyensDePublication {
+  return { environnementDev: false };
+}
+
+/**
+ * Exactement les cartes que le run va embarquer — ni plus, ni moins.
+ *
+ * La colonne de départ dépend de l'ÉTAPE : une mise sur l'environnement de dev
+ * prend le lot de « À déployer », une mise en production prend celles qui sont
+ * déjà « En production » chez le client. Sans étape précisée, c'est « À
+ * déployer » — le seul cas existant.
+ */
+export function deployableCards(projectId: string, source: ColumnKey = 'to_deploy'): Card[] {
+  return (
+    store
+      .listCardsInColumn(projectId, source)
+      .filter((card) => !card.excludedFromDeploy)
+      /*
+       * Une carte déjà mise en ligne ne repart pas dans le même lot. Le
+       * garde-fou ne vaut QUE pour la première étape : une carte posée « En
+       * production » porte forcément une date de mise en ligne — celle de
+       * l'environnement de dev —, et c'est justement elle qu'on veut passer en
+       * production. Sa présence dans la colonne prouve qu'elle n'a pas encore
+       * franchi CETTE étape-là.
+       */
+      .filter((card) => source !== 'to_deploy' || !card.deployedAt)
+      .sort((a, b) => a.createdAt - b.createdAt)
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -750,9 +787,21 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
   return { nombre: titres.length, titres: titres.slice(0, 6) };
 }
 
-export async function startDeploy(projectId: string): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
+export async function startDeploy(
+  projectId: string,
+  options: { cible?: CiblePublication } = {},
+): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
+
+  /*
+   * Quelle ÉTAPE de mise en ligne ? Sans environnement de dev déclaré, il n'y
+   * en a qu'une et le lot part de « À déployer » pour finir « Archivé », comme
+   * toujours. Une étape réclamée qui n'existe pas est REFUSÉE en le disant :
+   * on ne retombe pas en silence sur la production.
+   */
+  const etape = etapeDePublication(moyensDePublication(project), options.cible);
+  if (!etape) return { ok: false, error: raisonEtapeInconnue(options.cible ?? 'production') };
 
   // Une deuxième demande n'ouvre pas un run parallèle : elle attend son tour.
   if (active.has(projectId)) {
@@ -786,7 +835,7 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
   const plan = planDeMiseEnLigne(moyensDuProjet(project.path, project.deployCommand, project.isSelf));
   if (!plan.possible) return { ok: false, error: plan.raison };
 
-  let cards = deployableCards(projectId);
+  let cards = deployableCards(projectId, etape.source);
   // Cartes dont la branche est en conflit : écartées du lot, jamais perdues.
   const ecartees = new Set<string>();
   const run: DeployRun = DeployRun.parse({
@@ -1158,13 +1207,30 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
 
       current = emit({ ...current, state: 'success', endedAt: Date.now(), currentStep: undefined });
 
-      // Ce qui se passe quand une carte est vraiment en ligne (PLAN §11).
+      /*
+       * Ce qui se passe quand une carte est vraiment en ligne (PLAN §11).
+       *
+       * Où elle se pose dépend de l'ÉTAPE. La DERNIÈRE clôt la carte :
+       * document de clôture, branche refermée, « Archivé ». Une étape
+       * intermédiaire — la mise sur l'environnement de dev — se contente de la
+       * faire avancer dans « En production » : le travail est en ligne quelque
+       * part, mais rien n'est encore fini, et la carte reste reprenable.
+       */
       for (const cardId of current.cardIds) {
         const card = store.getCard(cardId);
         if (!card) continue;
         const deployed = store.saveCard({ ...card, deployedAt: Date.now() });
         bus.emit({ type: 'card.upsert', card: deployed });
-        await archiveCard(cardId, { url: project.deployUrl, commit: current.targetCommit });
+        if (etape.clot) {
+          await archiveCard(cardId, { url: project.deployUrl, commit: current.targetCommit });
+        } else {
+          const avancee = store.saveCard({
+            ...deployed,
+            column: etape.arrivee,
+            position: store.nextPosition(card.projectId, etape.arrivee),
+          });
+          bus.emit({ type: 'card.upsert', card: avancee });
+        }
       }
 
       const reste = ecartees.size
