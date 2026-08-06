@@ -14,9 +14,14 @@ import { detailErreur, signalerErreur } from '@/lib/erreurs';
  * Il s'utilise à deux endroits : autour de l'application entière (dernier
  * recours), et autour de chaque panneau — ainsi un panneau qui plante ne
  * emporte plus le tableau avec lui.
+ *
+ * `muet` est pour ce qui FLOTTE au-dessus de l'écran (le module de voix) :
+ * un encadré d'erreur y prendrait la place d'un accessoire et gênerait la
+ * lecture. Le filet retient alors la panne sans rien afficher — la console la
+ * garde en clair, et l'application entière reste debout.
  */
 export class Filet extends React.Component<
-  { children: React.ReactNode; zone?: string; onReprendre?: () => void },
+  { children: React.ReactNode; zone?: string; onReprendre?: () => void; muet?: boolean },
   { erreur: Error | null }
 > {
   state: { erreur: Error | null } = { erreur: null };
@@ -50,6 +55,8 @@ export class Filet extends React.Component<
   render() {
     const { erreur } = this.state;
     if (!erreur) return this.props.children;
+    // Une zone flottante tombée disparaît, sans encadré posé en travers.
+    if (this.props.muet) return null;
 
     return (
       <div className="grid min-h-[240px] place-items-center p-6 text-center">

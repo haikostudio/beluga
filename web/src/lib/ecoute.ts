@@ -1,9 +1,13 @@
 import * as React from 'react';
 import {
+  ENREGISTREMENT_IMPOSSIBLE,
   RELECTURE_MS,
   REFUS_MICRO,
   SILENCE_FIN_MS,
+  SON_INDISPONIBLE,
   assemblerDictee,
+  extensionDuType,
+  formatDEnregistrement,
   lireParole,
   type EtatEcoute,
 } from '@haikodev/shared';
@@ -20,11 +24,14 @@ import { client } from './client';
  * DÉJÀ en place (`/api/transcribe`, le même que le bouton micro de la barre
  * d'écriture, qui ne bouge pas).
  *
- * Trois règles qui ne se négocient pas :
+ * Quatre règles qui ne se négocient pas :
  *   — rien ne s'ouvre tant que l'interrupteur est éteint ;
  *   — aucun son n'est gardé : la tranche est envoyée puis jetée, et le serveur
  *     efface son fichier temporaire dès la transcription faite ;
- *   — une tranche SILENCIEUSE ne part jamais — on n'envoie que ce qui a été dit.
+ *   — une tranche SILENCIEUSE ne part jamais — on n'envoie que ce qui a été dit ;
+ *   — RIEN de ce qui touche au son ne casse la page : micro, son du navigateur
+ *     et enregistreur sont tous les trois ouverts sous protection, et un
+ *     navigateur qui n'en veut pas voit un message, jamais un écran vide.
  */
 
 /**
@@ -223,9 +230,23 @@ export function useEcoutePermanente(actif: boolean): Ecoute {
 
   /* ---------------- Le micro lui-même ---------------- */
 
+  /*
+   * Ce que la boucle du micro doit atteindre, sans en DÉPENDRE. L'effet
+   * ci-dessous ouvre un micro : il ne doit se remonter QUE lorsque
+   * l'interrupteur change. S'il dépendait de `recevoirParole` — donc
+   * d'`annuler` et de `clore` —, la moindre reconstruction de ces fonctions
+   * fermerait le micro pour le rouvrir aussitôt : sur un téléphone, une
+   * demande d'autorisation à répétition et une écoute qui ne tient jamais. On
+   * passe donc par une référence, relue à chaque phrase.
+   */
+  const recevoirParoleRef = React.useRef(recevoirParole);
+  recevoirParoleRef.current = recevoirParole;
+  const oublierMinuteriesRef = React.useRef(oublierMinuteries);
+  oublierMinuteriesRef.current = oublierMinuteries;
+
   React.useEffect(() => {
     if (!actif) {
-      oublierMinuteries();
+      oublierMinuteriesRef.current();
       setEtat('eteinte');
       setDictee('');
       setErreur(null);
@@ -241,18 +262,37 @@ export function useEcoutePermanente(actif: boolean): Ecoute {
     // Cette tranche porte-t-elle de la parole ? Sinon elle ne part jamais.
     let aParle = false;
     let debutTranche = 0;
+    // Le format que le navigateur a ACCEPTÉ, et l'extension qui part avec lui.
+    let format = { mimeType: undefined as string | undefined, extension: 'webm' };
+
+    /** Tout refermer et le DIRE : on ne laisse jamais un micro ouvert pour rien. */
+    const renoncer = (message: string) => {
+      if (!vivant) return;
+      vivant = false;
+      cancelAnimationFrame(image);
+      analyseurMicro = null;
+      donneesMicro = null;
+      morceaux = [];
+      flux?.getTracks().forEach((piste) => piste.stop());
+      flux = null;
+      void contexte?.close().catch(() => undefined);
+      contexte = null;
+      setEtat('refusee');
+      setErreur(message);
+      client.pushToast('error', message);
+    };
 
     /** Envoyer la tranche au serveur, puis la jeter. Aucun son n'est gardé. */
     const transcrire = async (blob: Blob) => {
       try {
         const reponse = await fetch('/api/transcribe', {
           method: 'POST',
-          headers: { 'content-type': 'application/octet-stream', 'x-audio-ext': 'webm' },
+          headers: { 'content-type': 'application/octet-stream', 'x-audio-ext': format.extension },
           body: blob,
         });
         const data = await reponse.json();
         if (!vivant) return;
-        if (data.ok && data.text) recevoirParole(String(data.text));
+        if (data.ok && data.text) recevoirParoleRef.current(String(data.text));
       } catch {
         // Une tranche perdue n'arrête pas l'écoute : la suivante repart.
       }
@@ -267,26 +307,73 @@ export function useEcoutePermanente(actif: boolean): Ecoute {
       if (!courant || courant.state === 'inactive') return;
       const aEnvoyer = garder && aParle;
       courant.onstop = () => {
-        const blob = new Blob(morceaux, { type: 'audio/webm' });
+        const blob = new Blob(morceaux, { type: courant.mimeType || format.mimeType || '' });
         morceaux = [];
         if (aEnvoyer && blob.size > 0) void transcrire(blob);
         if (vivant && flux) ouvrirUneTranche();
       };
-      courant.stop();
+      try {
+        courant.stop();
+      } catch {
+        // Un enregistreur déjà tombé : on repart sur une tranche neuve plutôt
+        // que de laisser l'écoute muette pour toujours.
+        if (vivant && flux) ouvrirUneTranche();
+      }
     };
 
+    /**
+     * Ouvrir une tranche. Le format imposé est celui que le navigateur a dit
+     * accepter ; s'il le refuse quand même, on retente SANS rien imposer, et
+     * ce n'est qu'après ce second refus que l'on renonce, en le disant.
+     */
     const ouvrirUneTranche = () => {
       if (!flux || !vivant) return;
-      const rec = new MediaRecorder(flux, { mimeType: 'audio/webm' });
+      let rec: MediaRecorder;
+      try {
+        rec = format.mimeType
+          ? new MediaRecorder(flux, { mimeType: format.mimeType })
+          : new MediaRecorder(flux);
+      } catch {
+        try {
+          rec = new MediaRecorder(flux);
+          format = { mimeType: undefined, extension: 'webm' };
+        } catch {
+          renoncer(ENREGISTREMENT_IMPOSSIBLE);
+          return;
+        }
+      }
+      // Le navigateur a le dernier mot sur le format : c'est le sien qui nomme
+      // le fichier envoyé, jamais celui qu'on avait espéré.
+      format = { mimeType: rec.mimeType || format.mimeType, extension: extensionDuType(rec.mimeType || format.mimeType) };
       morceaux = [];
       aParle = false;
       debutTranche = Date.now();
       rec.ondataavailable = (e) => e.data.size && morceaux.push(e.data);
-      rec.start();
+      try {
+        rec.start();
+      } catch {
+        renoncer(ENREGISTREMENT_IMPOSSIBLE);
+        return;
+      }
       enregistreur = rec;
     };
 
     const demarrer = async () => {
+      // L'enregistreur existe-t-il seulement ? Sur un navigateur trop ancien,
+      // inutile d'ouvrir un micro qu'on ne saura pas enregistrer.
+      if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        renoncer(ENREGISTREMENT_IMPOSSIBLE);
+        return;
+      }
+      // On demande au navigateur ce qu'il accepte AVANT de lui imposer quoi que
+      // ce soit ; aucun format commun = on le laisse choisir lui-même.
+      const estAccepte =
+        typeof MediaRecorder.isTypeSupported === 'function'
+          ? (type: string) => MediaRecorder.isTypeSupported(type)
+          : null;
+      const choisi = formatDEnregistrement(estAccepte);
+      format = { mimeType: choisi.mimeType, extension: choisi.extension };
+
       try {
         flux = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch {
@@ -303,18 +390,32 @@ export function useEcoutePermanente(actif: boolean): Ecoute {
       setErreur(null);
       setEtat('guette');
 
-      contexte = new AudioContext();
-      const source = contexte.createMediaStreamSource(flux);
-      const analyseur = contexte.createAnalyser();
-      analyseur.fftSize = BINS_MICRO * 2;
-      analyseur.smoothingTimeConstant = 0.8;
-      source.connect(analyseur);
-      // On ne relie PAS l'analyseur à la sortie : on écoute, on ne rejoue rien.
+      // Le son du navigateur : c'est lui qui mesure le volume, donc qui sait où
+      // finissent les phrases. Refusé, l'écoute n'a plus de sens — on le dit.
+      let analyseur: AnalyserNode;
+      let temps: Uint8Array;
+      try {
+        const Ctx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!Ctx) throw new Error('aucun contexte audio');
+        contexte = new Ctx();
+        const source = contexte.createMediaStreamSource(flux);
+        analyseur = contexte.createAnalyser();
+        analyseur.fftSize = BINS_MICRO * 2;
+        analyseur.smoothingTimeConstant = 0.8;
+        source.connect(analyseur);
+        // On ne relie PAS l'analyseur à la sortie : on écoute, on ne rejoue rien.
+        temps = new Uint8Array(analyseur.fftSize);
+      } catch {
+        renoncer(SON_INDISPONIBLE);
+        return;
+      }
       analyseurMicro = analyseur;
       donneesMicro = new Uint8Array(analyseur.frequencyBinCount);
-      const temps = new Uint8Array(analyseur.fftSize);
 
       ouvrirUneTranche();
+      if (!vivant) return;
 
       const boucle = () => {
         if (!vivant) return;
@@ -342,12 +443,14 @@ export function useEcoutePermanente(actif: boolean): Ecoute {
       image = requestAnimationFrame(boucle);
     };
 
-    void demarrer();
+    // Une panne imprévue du son ne doit JAMAIS remonter jusqu'à la page : elle
+    // s'affiche dans le module et l'application continue.
+    void demarrer().catch(() => renoncer(ENREGISTREMENT_IMPOSSIBLE));
 
     return () => {
       vivant = false;
       cancelAnimationFrame(image);
-      oublierMinuteries();
+      oublierMinuteriesRef.current();
       analyseurMicro = null;
       donneesMicro = null;
       try {
@@ -362,7 +465,8 @@ export function useEcoutePermanente(actif: boolean): Ecoute {
       flux?.getTracks().forEach((piste) => piste.stop());
       void contexte?.close().catch(() => undefined);
     };
-  }, [actif, oublierMinuteries, recevoirParole]);
+    // L'INTERRUPTEUR, et lui seul : tout le reste passe par des références.
+  }, [actif]);
 
   return { etat, dictee, erreur, annuler };
 }

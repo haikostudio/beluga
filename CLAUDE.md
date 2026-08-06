@@ -103,6 +103,7 @@ node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'a
 node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-reveil-vocal.mjs # l'écoute permanente : interrupteur, réveil « Dis Haiko », ondes rouges, relecture puis envoi, « Annule » et clic (serveur de développement, HAIKO_REVEIL_URL ; micro FACTICE muet, phrases injectées par le point d'essai — ni micro réel ni Whisper jugés)
+node scripts/verif-ecoute-mobile.mjs # l'écoute permanente sur écran de téléphone : micro fermé au repos, format d'enregistrement choisi avec repli, panne dite au lieu d'une page vide (serveur de développement, HAIKO_ECOUTE_URL ; micro FACTICE, transcription interceptée — ni Whisper ni quota touchés)
 node scripts/verif-assistant-vocal.mjs # une phrase dictée part chez le bon projet, une phrase vague pose la question (démon d'essai à soi, dossier personnel vide : aucun compte, aucun quota dépensé)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
 node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
@@ -796,6 +797,30 @@ sans son point d'essai.
   pour se raviser), et un clic sur le bandeau fait la même chose. Un micro refusé se DIT
   (`REFUS_MICRO`, message court + ligne `data-erreur-micro` dans le panneau). Verrouillé par
   `server/src/test/reveil-vocal.test.ts` et `scripts/verif-reveil-vocal.mjs`.
+- **Le FORMAT d'enregistrement se DEMANDE au navigateur, il ne s'impose pas**
+  (`shared/src/format-enregistrement.ts`). `new MediaRecorder(flux, { mimeType: 'audio/webm' })`
+  lève une erreur sur Safari (iPhone compris), qui ne connaît pas ce format — et cette erreur,
+  lancée hors de toute protection, remontait jusqu'à la page. `formatDEnregistrement(estAccepte)`
+  reçoit la question du navigateur (`MediaRecorder.isTypeSupported`) et rend le PREMIER format de
+  `FORMATS_ENREGISTREMENT` qu'il accepte ; aucun format commun — ou un navigateur qui ne sait pas
+  répondre — n'impose RIEN (`mimeType` absent), et l'enregistreur est construit sans option, ce
+  qu'aucun navigateur ne refuse. Le format retenu emporte son EXTENSION (`extensionDuType`), relue
+  sur l'enregistreur réel (`rec.mimeType`) : c'est elle qui part en `x-audio-ext` et qui nomme le
+  fichier confié à la transcription — un son Safari nommé « .webm » se lirait mal. Les trois
+  ouvertures de `web/src/lib/ecoute.ts` (micro, contexte audio, enregistreur) sont sous protection
+  et `renoncer()` referme TOUT en le disant (`ENREGISTREMENT_IMPOSSIBLE`, `SON_INDISPONIBLE`) :
+  jamais un micro laissé ouvert qui n'envoie rien. L'effet du micro ne dépend plus que de
+  l'INTERRUPTEUR (`[actif]` seul, tout le reste par références) : il ne se ferme et ne se rouvre
+  plus au gré des reconstructions de fonctions. Verrouillé par
+  `server/src/test/format-enregistrement.test.ts` et `scripts/verif-ecoute-mobile.mjs`.
+- **Ce qui FLOTTE au-dessus de l'écran a son filet, et ce filet est MUET** (`Filet`,
+  `web/src/components/filet.tsx`). Le module de voix n'était enveloppé par aucun filet, alors que
+  le tableau, la conversation et les réglages le sont : une erreur de son affichage remontait au
+  filet de dernier recours et remplaçait TOUTE l'application par un message. Il porte désormais le
+  sien (`<Filet zone="Module de voix" muet>`), avec la propriété `muet` : la panne est retenue et
+  écrite en console, mais RIEN ne s'affiche — l'encadré d'erreur, haut de 240 px, se poserait en
+  travers de l'écran pour un accessoire. Tout ce qui flotte par-dessus l'application suit cette
+  règle : filet muet, application intacte.
 - **Une place retenue du module de voix au-delà de toute échelle d'écran est JETÉE**
   (`DECALAGE_VOIX_MAX`, `shared/src/position-voix.ts`). `estDecalageVoix` ne se contentait plus d'un
   nombre fini : le recadrage (`ramenerDansLEcran`) se calcule DEPUIS le décalage, si bien qu'une

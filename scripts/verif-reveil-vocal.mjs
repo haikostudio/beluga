@@ -218,8 +218,14 @@ const cliquer = (p, selecteur) => p.locator(selecteur).dispatchEvent('click');
 
 const basculerEcoute = async (p) => {
   await ouvrirPanneau(p);
+  const depart = (await etat(p))?.etat ?? null;
   await cliquer(p, '[data-interrupteur-ecoute]');
-  await p.waitForTimeout(900);
+  // Ouvrir un micro prend un instant, et cet instant varie d'une machine à
+  // l'autre : on ATTEND que l'état change plutôt que de parier sur un délai.
+  for (let essai = 0; essai < 12; essai += 1) {
+    await p.waitForTimeout(400);
+    if (((await etat(p))?.etat ?? null) !== depart) break;
+  }
 };
 
 try {

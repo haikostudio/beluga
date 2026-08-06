@@ -613,7 +613,14 @@ export function App() {
           <SettingsView open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </Filet>
         <AgentDock onOpenAgent={setOpenAgentId} />
-        <VoixAssistant />
+        {/* Le module de voix ouvre un micro et du son : ce qu'il fait de plus
+            fragile ne doit pas emporter le tableau avec lui. Son filet ne
+            REND RIEN quand il tombe — un bloc d'erreur flottant en bas de
+            l'écran gênerait plus qu'il n'aiderait ; l'échec est déjà écrit
+            dans la console et l'application, elle, continue. */}
+        <Filet zone="Module de voix" muet>
+          <VoixAssistant />
+        </Filet>
 
         {openAgent ? (
           <div className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-3" onClick={() => setOpenAgentId(null)}>
