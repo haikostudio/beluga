@@ -414,7 +414,8 @@ export function Board({
     } finally {
       // Le compte rendu part même si quelque chose a cassé en route : un lot
       // silencieux est exactement ce qu'on corrige ici.
-      const bilan = bilanDeLot(action.participe, faites, refusees);
+      const nomProjet = state.projects.find((p) => p.id === projectId)?.name;
+      const bilan = bilanDeLot(action.participe, faites, refusees, nomProjet);
       client.pushToast(bilan.niveau, bilan.texte);
       fermerLot();
       setLotEnCours(false);
