@@ -9,6 +9,8 @@ import {
   LayoutGrid,
   Loader2,
   Paperclip,
+  Square,
+  Volume2,
   X,
 } from 'lucide-react';
 import {
@@ -17,9 +19,11 @@ import {
   Message,
   heureExacte,
   reponsePrete,
+  texteAEcouter,
   texteDeReponse,
   triImages,
 } from '@haikodev/shared';
+import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, Textarea } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
@@ -43,6 +47,7 @@ function LigneReperes({
   montrerHeure,
   complements = [],
   texte,
+  cle,
   aDroite = false,
 }: {
   at: number;
@@ -50,6 +55,8 @@ function LigneReperes({
   montrerHeure: boolean;
   complements?: (string | null)[];
   texte: string;
+  /** L'identifiant du message : sert au bouton d'écoute à savoir si c'est LUI qui parle. */
+  cle: string;
   aDroite?: boolean;
 }) {
   const visibles = complements.filter(Boolean) as string[];
@@ -64,6 +71,7 @@ function LigneReperes({
       {visibles.map((item, index) => (
         <span key={index}>{item}</span>
       ))}
+      <BoutonEcoute texte={texte} cle={cle} />
       <BoutonCopier texte={texte} />
     </div>
   );
@@ -113,6 +121,7 @@ export function MessageView({
               message.tokens ? `${message.tokens.toLocaleString('fr-CH')} jetons envoyés` : null,
             ]}
             texte={message.content}
+            cle={message.id}
             aDroite
           />
         </div>
@@ -211,8 +220,42 @@ export function MessageView({
             : null,
         ]}
         texte={message.content}
+        cle={message.id}
       />
     </div>
+  );
+}
+
+/**
+ * Écouter un message à voix haute, avec la voix de l'assistant. Un appui lit,
+ * un second appui arrête ; écouter un autre message coupe celui-ci — une parole
+ * chasse l'autre (la voix est partagée avec le module d'annonces). La lecture
+ * passe outre le bouton « Muet », comme la réécoute d'une annonce.
+ *
+ * Un message long est ramené à ses premières phrases complètes (`texteAEcouter`),
+ * jamais coupé au milieu d'un mot ; sans rien à lire, aucun bouton.
+ */
+function BoutonEcoute({ texte, cle }: { texte: string; cle: string }) {
+  const { parle, cle: actif } = useVoix();
+  const aLire = texteAEcouter(texte);
+  if (!aLire) return null;
+
+  const enCours = parle && actif === cle;
+  return (
+    <button
+      type="button"
+      onClick={() => (enCours ? taireVoix() : direVoix(aLire, cle))}
+      title={enCours ? 'Arrêter la lecture' : 'Écouter le message'}
+      aria-label={enCours ? 'Arrêter la lecture' : 'Écouter le message'}
+      className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
+    >
+      {enCours ? (
+        <Square className="h-2.5 w-2.5 text-success" />
+      ) : (
+        <Volume2 className="h-2.5 w-2.5" />
+      )}
+      {enCours ? 'Arrêter' : 'Écouter'}
+    </button>
   );
 }
 

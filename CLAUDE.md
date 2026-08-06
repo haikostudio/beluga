@@ -533,6 +533,20 @@ sans son point d'essai.
   se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
   (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. Verrouillé par
   `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
+- **La voix est PARTAGÉE — un seul son à la fois — et TOUT message de la conversation s'écoute**
+  (`web/src/lib/voix.ts`, `texteAEcouter` dans `shared/src/lecture-message.ts`). Les annonces
+  automatiques (module de voix) et l'écoute d'un message passent par le MÊME lecteur : `direVoix`
+  arrête d'abord toute parole en cours, `taireVoix` coupe, `useVoix` publie `{parle, cle}` — une
+  parole chasse l'autre, d'où qu'elle vienne, et l'onde s'anime pour les deux. `voix-assistant.tsx`
+  n'a plus son propre audio : `parle` vient de `useVoix`, l'annonce automatique appelle `direVoix`
+  seulement hors Muet (la trace reste en historique même en Muet), la réécoute manuelle passe outre.
+  Sous chaque message, à côté de « Copier », `BoutonEcoute` (`web/src/components/message-view.tsx`)
+  lit avec `cle = message.id` : c'est LUI qui parle → il bascule en « Arrêter ». `texteAEcouter`
+  nettoie le Markdown pour l'oreille et RAMÈNE un texte trop long à ses premières phrases complètes
+  sous `VOIX_LONGUEUR_MAX`, jamais coupé au milieu d'un mot (sinon coupe au dernier mot + « … »). Les
+  messages lus à la main N'ENTRENT PAS dans l'historique des annonces : deux choses distinctes.
+  Verrouillé par `server/src/test/lecture-message.test.ts` ; l'écoute réelle se voit au navigateur
+  (serveur de développement).
 - **Une décision attendue se voit LÀ OÙ elle se prend, pas seulement sur le projet**
   (`shared/src/decision-attendue.ts`). Chaque décision emporte son endroit — la conversation qui la
   porte, la carte quand elle est née dans son travail — et le serveur les diffuse AVEC le compte

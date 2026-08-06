@@ -21,6 +21,7 @@ import { client } from '@/lib/client';
 import { usePref } from '@/lib/prefs';
 import { useSurvol } from '@/lib/pointeur';
 import { useApp } from '@/lib/use-app';
+import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
@@ -216,12 +217,14 @@ export function VoixAssistant() {
     (): VoixOptions => ({ nom: voixOptsRef.current.nom, heure: new Date().getHours() }),
     [],
   );
-  const [parle, setParle] = React.useState(false);
+  // La voix est PARTAGÉE avec l'écoute d'un message de la conversation : un seul
+  // son à la fois, d'où qu'il vienne. L'onde s'anime dès que ça parle, peu
+  // importe la source.
+  const { parle } = useVoix();
   // L'historique complet, relu au démarrage depuis le navigateur : jusqu'à cent
   // messages, le plus récent en tête. La liste dépliée n'en montre que dix.
   const [messages, setMessages] = React.useState<MessageDit[]>(lireHistorique);
 
-  const audioRef = React.useRef<HTMLAudioElement | null>(null);
   // La valeur lue au fil de l'eau par les écouteurs, sans les réabonner.
   const muetRef = React.useRef(muet);
   // Un compteur stable pour distinguer deux messages au même texte. On repart
@@ -230,52 +233,11 @@ export function VoixAssistant() {
     messages.reduce((max, m) => Math.max(max, m.id), 0),
   );
 
-  const taire = React.useCallback(() => {
-    try {
-      audioRef.current?.pause();
-    } catch {
-      /* l'audio était déjà arrêté */
-    }
-    audioRef.current = null;
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    setParle(false);
-  }, []);
-
-  /**
-   * Prononce une phrase. `force` fait passer la parole même en Muet : c'est la
-   * réécoute manuelle, que le Muet ne bâillonne pas. Une parole chasse l'autre.
-   */
-  const dire = React.useCallback((texte: string, force = false) => {
-    if ((muetRef.current && !force) || !texte) return;
-    taire();
-    const audio = new Audio(`/api/speak?text=${encodeURIComponent(texte)}`);
-    audioRef.current = audio;
-    setParle(true);
-
-    const fin = () => {
-      if (audioRef.current === audio) {
-        audioRef.current = null;
-        setParle(false);
-      }
-    };
-    audio.addEventListener('ended', fin);
-    audio.addEventListener('error', () => {
-      fin();
-      // Repli : la voix du navigateur, si le serveur n'a pas de moteur Piper.
-      if ((!muetRef.current || force) && 'speechSynthesis' in window) {
-        const parole = new SpeechSynthesisUtterance(texte);
-        parole.lang = 'fr-FR';
-        window.speechSynthesis.speak(parole);
-      }
-    });
-    void audio.play().catch(fin);
-  }, [taire]);
-
   /**
    * Une ANNONCE automatique : on la range en tête de l'historique (jusqu'à cent,
    * les plus vieux tombent), on l'écrit dans le navigateur pour qu'elle survive
-   * au rechargement, puis on la prononce. On la garde même en Muet — la parole
-   * se tait, mais la trace reste pour une réécoute plus tard.
+   * au rechargement, puis — sauf en Muet — on la prononce. On la garde même en
+   * Muet : la parole se tait, mais la trace reste pour une réécoute plus tard.
    */
   const annoncer = React.useCallback((texte: string) => {
     if (!texte) return;
@@ -286,14 +248,14 @@ export function VoixAssistant() {
       ecrireHistorique(suivante);
       return suivante;
     });
-    dire(texte);
-  }, [dire]);
+    if (!muetRef.current) direVoix(texte);
+  }, []);
 
   // Le son coupé fait taire ce qui parle à l'instant même.
   React.useEffect(() => {
     muetRef.current = muet;
-    if (muet) taire();
-  }, [muet, taire]);
+    if (muet) taireVoix();
+  }, [muet]);
 
   // Fin de tâche : la notification déjà émise porte le titre réel de la carte, et
   // parfois un RÉSUMÉ (`event.voix`) tiré du vrai contenu de la réponse — on le
@@ -340,7 +302,7 @@ export function VoixAssistant() {
   }, [attention, annoncer, optsMaintenant]);
 
   // À la fermeture, on ne laisse pas un son continuer dans le vide.
-  React.useEffect(() => taire, [taire]);
+  React.useEffect(() => taireVoix, []);
 
   // Comment le module se déplie : au survol à la souris, à l'appui au doigt.
   const survolPossible = useSurvol();
@@ -559,7 +521,8 @@ export function VoixAssistant() {
                   // L'appui garde le module ouvert : on ne le rabat pas d'un clic.
                   onClick={(e) => {
                     e.stopPropagation();
-                    dire(m.texte, true);
+                    // Réécoute manuelle : elle passe outre le Muet.
+                    direVoix(m.texte);
                   }}
                   className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] text-text hover:bg-raised"
                   aria-label={`Réécouter : ${m.texte}`}
