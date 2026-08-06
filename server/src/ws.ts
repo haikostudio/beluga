@@ -839,7 +839,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
       let cardId: string | undefined;
       if (cmd.accept) {
-        const card = createCard(agent.projectId, { ...retenu, origin: 'agent' });
+        // Les images jointes au message d'origine suivent la carte : elles ne
+        // s'éditent pas à la validation, on les reprend telles quelles.
+        const card = createCard(agent.projectId, {
+          ...retenu,
+          origin: 'agent',
+          attachments: proposal.attachments,
+        });
         cardId = card.id;
         bus.emit({ type: 'card.upsert', card });
       }

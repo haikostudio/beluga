@@ -226,6 +226,12 @@ export const Card = z.object({
   column: ColumnKey,
   position: z.number(),
   origin: z.enum(['user', 'agent']).default('user'),
+  /**
+   * Les images jointes au message d'où vient la carte (par le chef d'orchestre).
+   * Conservées ici pour être listées dans le bloc « PIÈCES JOINTES » du prompt
+   * au lancement de la tâche, sans que l'utilisateur ait à les redéposer.
+   */
+  attachments: z.array(z.string()).default([]),
   run: RunConfig,
   estimate: Estimate.optional(),
   consumption: Consumption.optional(),
@@ -354,6 +360,13 @@ export const TaskProposal = z.object({
   description: z.string().default(''),
   labels: z.array(z.string()).default([]),
   run: RunConfig.optional(),
+  /**
+   * Les images jointes au message qui a fait naître cette proposition. Elles
+   * suivent la carte jusqu'à l'agent d'exécution, listées dans son bloc
+   * « PIÈCES JOINTES ». On ne prend QUE le message déclencheur, jamais tout le
+   * fil de la conversation.
+   */
+  attachments: z.array(z.string()).default([]),
   /**
    * Ce qui cloche dans les réglages proposés — moteur absent, aucun compte
    * disponible — écrit en toutes lettres sur la proposition. On ne bascule

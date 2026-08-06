@@ -345,6 +345,20 @@ async function reglagesProposes(
   }
 }
 
+/**
+ * Les pièces jointes du message qui vient de déclencher la proposition : le
+ * DERNIER message de l'utilisateur dans cette conversation. On ne remonte pas
+ * plus haut — seules les images de ce message-là suivent la carte, jamais tout
+ * l'historique.
+ */
+function imagesDuMessageDeclencheur(agentId: string): string[] {
+  const messages = store.listMessages(agentId);
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return messages[i].attachments ?? [];
+  }
+  return [];
+}
+
 /** Ce que le moteur doit LIRE de ce qu'on vient de poser sur la proposition. */
 function resumeReglages(reglages: { run?: RunConfig; avertissement?: string }): string {
   if (!reglages.run) return '';
@@ -405,6 +419,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         title: String(args.title),
         description: texte.description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
+        // Les images jointes au message qui a fait naître la proposition
+        // suivent la carte jusqu'à l'agent d'exécution.
+        attachments: imagesDuMessageDeclencheur(ctx.agentId),
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
@@ -479,6 +496,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         title: String(args.title),
         description: texte.description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
+        // Mêmes images que board_create_card : celles du message déclencheur.
+        attachments: imagesDuMessageDeclencheur(ctx.agentId),
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
@@ -605,7 +624,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 /** Création d'une carte — passage unique, invariants compris. */
 export function createCard(
   projectId: string,
-  input: { title: string; description?: string; labels?: string[]; origin?: 'user' | 'agent'; run?: Partial<Card['run']> },
+  input: {
+    title: string;
+    description?: string;
+    labels?: string[];
+    origin?: 'user' | 'agent';
+    run?: Partial<Card['run']>;
+    /** Images héritées de la proposition (jointes au chef d'orchestre). */
+    attachments?: string[];
+  },
 ): Card {
   const project = store.getProject(projectId);
   const card = Card.parse({
@@ -614,6 +641,7 @@ export function createCard(
     title: input.title.slice(0, 200),
     description: input.description ?? '',
     labels: input.labels ?? [],
+    attachments: input.attachments ?? [],
     // Le champ « colonne » est ignoré à la création : invariant 1.
     column: 'todo' as ColumnKey,
     position: store.nextPosition(projectId, 'todo'),
