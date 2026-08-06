@@ -177,3 +177,46 @@ test('une voix inconnue ou effacée retombe sur la voix d\'origine, jamais sur d
   assert.equal(voiceChoisie('fr_FR-upmc-medium@pierre').personne, 1);
   assert.equal(voiceChoisie('fr_FR-upmc-medium@jessica').personne, 0);
 });
+
+/* ------------------------------------------------------------------ */
+/* Le second moteur : Kokoro, à côté de Piper                          */
+/* ------------------------------------------------------------------ */
+
+test('une voix Kokoro inconnue retombe sur Piper, jamais sur du silence', async () => {
+  const { voiceChoisie } = await import('../voice.js');
+  const repli = voiceChoisie('kokoro:voix-qui-n-existe-pas');
+  assert.equal(repli.moteur, 'piper');
+  assert.match(repli.modele, /fr_FR-siwis-medium\.onnx$/);
+});
+
+test('la voix par défaut reste une voix Piper', async () => {
+  const { voiceChoisie } = await import('../voice.js');
+  assert.equal(voiceChoisie(undefined).moteur, 'piper');
+});
+
+test('l’empreinte du cache tient compte du MOTEUR : deux moteurs, deux fichiers', async () => {
+  const { cleDuSon } = await import('../voice.js');
+  const texte = 'Bonjour, tout est en ordre.';
+  const parPiper = cleDuSon({ moteur: 'piper', modele: '/modele.onnx' }, texte, 1);
+  const parKokoro = cleDuSon({ moteur: 'kokoro', modele: '/modele.onnx', voix: 'ff_siwis' }, texte, 1);
+  assert.notEqual(parPiper, parKokoro, 'la même phrase dite par deux moteurs ne partage pas son fichier');
+
+  // Deux voix Kokoro différentes ne se partagent pas non plus leur son.
+  const autreVoix = cleDuSon({ moteur: 'kokoro', modele: '/modele.onnx', voix: 'ef_dora' }, texte, 1);
+  assert.notEqual(parKokoro, autreVoix);
+
+  // La vitesse continue de compter, pour les deux moteurs.
+  assert.notEqual(parKokoro, cleDuSon({ moteur: 'kokoro', modele: '/modele.onnx', voix: 'ff_siwis' }, texte, 1.25));
+});
+
+test('quand Kokoro est installé, sa voix française entre dans la MÊME liste, sous un nom lisible', async () => {
+  const { listVoices, voiceChoisie } = await import('../voice.js');
+  const kokoro = listVoices().filter((v) => v.id.startsWith('kokoro:'));
+  if (!kokoro.length) return; // moteur absent de cette machine : rien à juger
+
+  for (const une of kokoro) {
+    assert.ok(une.label.trim() && !une.label.includes('_'), `nom technique affiché : ${une.label}`);
+    assert.match(une.description, /Kokoro/);
+    assert.equal(voiceChoisie(une.id).moteur, 'kokoro');
+  }
+});

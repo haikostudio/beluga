@@ -98,6 +98,9 @@ node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes e
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
+HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
+node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
+HAIKODEV_DATA=/root/haikodev/data node scripts/installer-kokoro.mjs # pose le moteur Kokoro : venv-kokoro + data/models/kokoro (rejouable)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
 node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglages : adresse et code affichés, échec dit (démon et HOME d'essai à soi)
@@ -593,6 +596,24 @@ sans son point d'essai.
   se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
   (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. Verrouillé par
   `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
+- **DEUX moteurs de synthèse cohabitent, et c'est la VOIX CHOISIE qui décide lequel parle**
+  (`server/src/voice.ts`). Piper reste le moteur d'origine et la voix par défaut ne bouge pas
+  (`fr_FR-siwis-medium`, « Claire ») ; Kokoro s'ajoute À CÔTÉ, jamais à la place. Une voix Kokoro se
+  nomme `kokoro:<voix>` — le préfixe est la SEULE marque du moteur, d'où le deux-points ajouté aux
+  signes permis par `voiceChoisie`. `resoudre` rend une `VoixResolue` qui porte son `moteur`, et
+  `lancerLaSynthese` est le seul endroit qui diffère : au-dessus (empreinte, cache, file d'attente)
+  et en dessous (`/api/speak`, `/api/voice-sample`, module de voix) tout est commun. L'empreinte du
+  cache (`cleDuSon`) prend le MOTEUR en premier : la même phrase dite par les deux ne partage jamais
+  son fichier. Kokoro est UN modèle unique multilingue (`data/models/kokoro/kokoro-v1.0.onnx` +
+  `voices-v1.0.bin`), dans son PROPRE environnement Python (`data/venv-kokoro`) pour ne rien changer
+  à celui de Piper, appelé par `scripts/kokoro-voix.py` qui prend le texte sur l'entrée standard et
+  rend un WAV — comme Piper. Deux différences absorbées là : la vitesse (Piper compte en LONGUEUR,
+  `--length_scale` > 1 ralentit ; Kokoro en VITESSE, donc l'échelle est inversée) et la langue,
+  déduite de la première lettre du nom de la voix. Sa gamme FRANÇAISE est mince : sur 54 voix, une
+  seule est française (`ff_siwis`, affichée « Camille ») — les autres ne sont pas listées, elles ne
+  serviraient pas un assistant qui parle français. Une voix Kokoro inconnue, ou le moteur absent,
+  retombent sur Piper : jamais de silence. Posé par `scripts/installer-kokoro.mjs` (rejouable).
+  Verrouillé par `server/src/test/point-vocal.test.ts` et `scripts/verif-voix-kokoro.mjs`.
 - **Le PANNEAU s'ouvre du côté où il y a de la place, le bouton ne bouge pas**
   (`sensDouverture` / `correctionOuverture`, `shared/src/position-voix.ts`). Le module fermé est un
   rond de 44 px ; déplié, un panneau de 256 px de large. `sensDouverture` regarde la boîte du rond à

@@ -9,8 +9,10 @@ import * as React from 'react';
  * Une nouvelle lecture arrête la précédente, quelle qu'en soit l'origine —
  * « une parole chasse l'autre ».
  *
- * On réutilise Piper par une adresse audio ordinaire (`/api/speak`) ; si le
- * serveur n'a pas de voix, on retombe sur celle du navigateur. Aucun réglage de
+ * On réutilise la voix du serveur par une adresse audio ordinaire
+ * (`/api/speak`) — le moteur employé se décide là-bas, d'après la voix
+ * choisie ; si le serveur n'a pas de voix, on retombe sur celle du navigateur.
+ * Aucun réglage de
  * son propre ici : le Muet se décide chez l'appelant (l'annonce automatique le
  * respecte, la lecture manuelle passe outre) — quand on arrive jusqu'ici, c'est
  * qu'on veut parler.
