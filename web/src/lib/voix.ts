@@ -26,10 +26,17 @@ export interface EtatVoix {
    * c'est LUI qui parle (donc à basculer entre écouter et arrêter).
    */
   cle: string | null;
+  /**
+   * Où en est la lecture : une fraction de 0 à 1 quand la durée est connue (voix
+   * Piper), « indetermine » quand elle ne l'est pas (voix de secours du
+   * navigateur, qui ne dit pas où elle en est), `null` quand rien ne se lit ou
+   * qu'on attend encore la durée. Sert à la barre de lecture du module de voix.
+   */
+  avancement: number | 'indetermine' | null;
 }
 
 let audio: HTMLAudioElement | null = null;
-let etat: EtatVoix = { parle: false, cle: null };
+let etat: EtatVoix = { parle: false, cle: null, avancement: null };
 const ecouteurs = new Set<() => void>();
 
 function publier(suivant: EtatVoix): void {
@@ -48,39 +55,68 @@ export function taireVoix(): void {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
-  if (etat.parle || etat.cle !== null) publier({ parle: false, cle: null });
+  if (etat.parle || etat.cle !== null || etat.avancement !== null) {
+    publier({ parle: false, cle: null, avancement: null });
+  }
 }
 
 /**
  * Prononce un texte. Arrête d'abord toute parole en cours. `cle` identifie la
  * source (un message de la conversation, par exemple) ; laissée à `null` pour
  * une annonce automatique. En cas de panne du serveur audio, on tente la voix
- * du navigateur.
+ * du navigateur. L'avancement de la lecture est publié au fil du son, pour la
+ * barre de lecture du module de voix.
  */
 export function direVoix(texte: string, cle: string | null = null): void {
   if (!texte) return;
   taireVoix();
   const element = new Audio(`/api/speak?text=${encodeURIComponent(texte)}`);
   audio = element;
-  publier({ parle: true, cle });
+  // Le message est marqué « en lecture » tout de suite ; on n'affiche un
+  // avancement chiffré qu'une fois la vraie durée connue.
+  publier({ parle: true, cle, avancement: null });
 
+  // Un écouteur ne touche à l'état que s'il sert TOUJOURS la lecture en cours :
+  // une parole finie ne doit pas clôturer celle qui l'a remplacée.
+  const estCourant = () => audio === element;
+  const dureeConnue = () => Number.isFinite(element.duration) && element.duration > 0;
   const fin = () => {
-    if (audio === element) {
+    if (estCourant()) {
       audio = null;
-      publier({ parle: false, cle: null });
+      publier({ parle: false, cle: null, avancement: null });
     }
   };
-  element.addEventListener('ended', fin);
-  element.addEventListener('error', () => {
-    fin();
-    // Repli : la voix du navigateur, si le serveur n'a pas de moteur Piper.
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const parole = new SpeechSynthesisUtterance(texte);
-      parole.lang = 'fr-FR';
-      window.speechSynthesis.speak(parole);
+  element.addEventListener('loadedmetadata', () => {
+    if (estCourant() && dureeConnue()) publier({ parle: true, cle, avancement: 0 });
+  });
+  element.addEventListener('timeupdate', () => {
+    if (estCourant() && dureeConnue()) {
+      publier({ parle: true, cle, avancement: Math.min(1, element.currentTime / element.duration) });
     }
   });
-  void element.play().catch(fin);
+  element.addEventListener('ended', fin);
+
+  // Le repli sur la voix du navigateur, une seule fois : l'erreur de l'élément
+  // audio ET le rejet de `play()` peuvent survenir tous deux. Son avancement est
+  // inconnu : on garde le message marqué « en lecture » sans mentir sur une
+  // position (la barre pulsera au lieu d'avancer).
+  let repliLance = false;
+  const repli = () => {
+    if (!estCourant() || repliLance) return;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      repliLance = true;
+      publier({ parle: true, cle, avancement: 'indetermine' });
+      const parole = new SpeechSynthesisUtterance(texte);
+      parole.lang = 'fr-FR';
+      parole.onend = fin;
+      parole.onerror = fin;
+      window.speechSynthesis.speak(parole);
+    } else {
+      fin();
+    }
+  };
+  element.addEventListener('error', repli);
+  void element.play().catch(repli);
 }
 
 /** L'état de la voix, réactif : le composant se redessine à chaque changement. */

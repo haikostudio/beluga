@@ -10,6 +10,7 @@ import { CONFIG, PATHS } from './config.js';
 import { cachedQuotas } from './accounts.js';
 import { runningAgentIds } from './runtime.js';
 import { log } from './logger.js';
+import { echelleDeVitesse } from '@haikodev/shared';
 
 const execFileAsync = promisify(execFile);
 
@@ -289,10 +290,10 @@ const CACHE_SONS = path.join(PATHS.audio, 'cache');
 const CACHE_SONS_MAX = 200;
 
 /** L'empreinte d'un son : la voix résolue et le texte, rien d'autre. */
-function cleDuSon(retenue: { modele: string; personne?: number }, texte: string): string {
+function cleDuSon(retenue: { modele: string; personne?: number }, texte: string, echelle: number): string {
   return crypto
     .createHash('sha256')
-    .update(`${retenue.modele} ${retenue.personne ?? ''} ${texte}`)
+    .update(`${retenue.modele} ${retenue.personne ?? ''} ${echelle} ${texte}`)
     .digest('hex')
     .slice(0, 32);
 }
@@ -332,17 +333,36 @@ export function normaliserTexteVoix(texte: string): string {
 }
 
 /**
- * Fabrique un fichier audio ordinaire, lisible partout. Sans voix précisée,
- * c'est celle des préférences — l'extrait d'essai, lui, en impose une. Le son
- * est GARDÉ : la même phrase dans la même voix rend le fichier déjà là sans
- * relancer Piper.
+ * La vitesse lue est celle passée à l'appel (l'essai en impose une), sinon
+ * celle des préférences : ainsi TOUTES les paroles — point du jour, annonces
+ * automatiques, réécoutes — suivent le réglage sans que le navigateur ait à le
+ * répéter à chaque fois.
  */
-export async function speak(text: string, voix?: string): Promise<{ ok: boolean; file?: string; error?: string }> {
+function vitesseChoisie(vitesse?: string): number {
+  if (vitesse) return echelleDeVitesse(vitesse);
+  try {
+    return echelleDeVitesse(store.getSettings().voixVitesse);
+  } catch {
+    return echelleDeVitesse();
+  }
+}
+
+/**
+ * Fabrique un fichier audio ordinaire, lisible partout. Sans voix précisée,
+ * c'est celle des préférences — l'extrait d'essai, lui, en impose une ; de même
+ * pour la vitesse.
+ */
+export async function speak(
+  text: string,
+  voix?: string,
+  vitesse?: string,
+): Promise<{ ok: boolean; file?: string; error?: string }> {
   const available = voiceAvailable();
   if (!available.speak) return { ok: false, error: 'voix absente du serveur' };
 
   const retenue = voiceChoisie(voix);
-  const cle = cleDuSon(retenue, text);
+  const echelle = vitesseChoisie(vitesse);
+  const cle = cleDuSon(retenue, text, echelle);
   const file = path.join(CACHE_SONS, `${cle}.wav`);
 
   // Déjà fabriqué : on le rend tel quel, et on rafraîchit sa date pour qu'un son
@@ -374,6 +394,8 @@ export async function speak(text: string, voix?: string): Promise<{ ok: boolean;
             '--model',
             retenue.modele,
             ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),
+            '--length_scale',
+            String(echelle),
             '--output_file',
             provisoire,
           ],

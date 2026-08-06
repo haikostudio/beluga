@@ -1,9 +1,10 @@
 import * as React from 'react';
-import { GripVertical, Volume2 } from 'lucide-react';
+import { GripVertical, Volume2, VolumeX } from 'lucide-react';
 import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
   NOM_UTILISATEUR,
+  correctionOuverture,
   decalageRetenu,
   decisionsOuvertes,
   estUnGlissement,
@@ -13,6 +14,7 @@ import {
   phraseVocaleDeNotification,
   pileApres,
   ramenerDansLEcran,
+  sensDouverture,
   type ContexteDecision,
   type DecalageVoix,
   type VoixOptions,
@@ -107,6 +109,16 @@ type DonneesVoix = Pick<
 interface MessageDit {
   id: number;
   texte: string;
+}
+
+/**
+ * La clé passée à la voix partagée pour un message de l'historique. Un préfixe
+ * propre à ce module évite de la confondre avec la clé d'un message de la
+ * conversation (`BoutonEcoute`) : c'est ce qui permet à la barre de lecture de
+ * ne suivre QUE le message annoncé qui se lit.
+ */
+function cleMessage(id: number): string {
+  return `annonce-${id}`;
 }
 
 /**
@@ -212,13 +224,14 @@ function LigneOndes({ parle }: { parle: boolean }) {
  * s'OUVRE de la même façon en un bloc rectangulaire et l'icône devient un flux
  * d'ondes VERTES animées ; à la fin, il se referme et la vibration revient.
  *
- * Le bouton « Muet » de la barre du haut coupe la parole AUTOMATIQUE (jamais les
- * notifications visuelles ni le badge, jamais l'icône, jamais la réécoute
- * manuelle) ; son état est retenu en préférence.
+ * Le bouton « Muet » vit DANS le panneau déplié, à côté de la voix qu'il
+ * commande (plus dans le menu trois points du haut) : il coupe la parole
+ * AUTOMATIQUE (jamais les notifications visuelles ni le badge, jamais l'icône,
+ * jamais la réécoute manuelle) ; son état est retenu en préférence.
  */
 export function VoixAssistant() {
   const state = useApp();
-  const [muet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
+  const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
   // Le prénom réglé (défaut « Chris ») et l'heure du moment personnalisent chaque
   // phrase : ils sont relus au fil de l'eau, sans réabonner les écouteurs.
   const nom = state.settings?.voixNom || NOM_UTILISATEUR;
@@ -232,11 +245,13 @@ export function VoixAssistant() {
   // La voix est PARTAGÉE avec l'écoute d'un message de la conversation : un seul
   // son à la fois, d'où qu'il vienne. L'onde s'anime dès que ça parle, peu
   // importe la source.
-  const { parle } = useVoix();
+  // La voix est PARTAGÉE et publie aussi QUOI se lit (`cle`) et OÙ EN EST la
+  // lecture (`avancement`) : la barre de lecture du module en découle, sans
+  // audio propre ici.
+  const { parle, cle: cleVoix, avancement } = useVoix();
   // L'historique complet, relu au démarrage depuis le navigateur : jusqu'à cent
   // messages, le plus récent en tête. La liste dépliée n'en montre que dix.
   const [messages, setMessages] = React.useState<MessageDit[]>(lireHistorique);
-
   // La valeur lue au fil de l'eau par les écouteurs, sans les réabonner.
   const muetRef = React.useRef(muet);
   // Un compteur stable pour distinguer deux messages au même texte. On repart
@@ -250,6 +265,7 @@ export function VoixAssistant() {
    * les plus vieux tombent), on l'écrit dans le navigateur pour qu'elle survive
    * au rechargement, puis — sauf en Muet — on la prononce. On la garde même en
    * Muet : la parole se tait, mais la trace reste pour une réécoute plus tard.
+   * Prononcée, elle porte sa clé, pour que la barre de lecture suive le message.
    */
   const annoncer = React.useCallback((texte: string) => {
     if (!texte) return;
@@ -260,7 +276,7 @@ export function VoixAssistant() {
       ecrireHistorique(suivante);
       return suivante;
     });
-    if (!muetRef.current) direVoix(texte);
+    if (!muetRef.current) direVoix(texte, cleMessage(entree.id));
   }, []);
 
   // Le son coupé fait taire ce qui parle à l'instant même.
@@ -321,6 +337,29 @@ export function VoixAssistant() {
   const geste = gesteDOuverture(survolPossible);
   const [ouvert, setOuvert] = React.useState(false);
   const racineRef = React.useRef<HTMLDivElement | null>(null);
+  // Lu par le redimensionnement (effet non réabonné à chaque ouverture).
+  const ouvertRef = React.useRef(ouvert);
+  ouvertRef.current = ouvert;
+
+  // La taille de la fenêtre, suivie pour recalculer le côté d'ouverture à chaque
+  // redimensionnement. On la lit tout de suite : ce composant vit côté client.
+  const [fenetre, setFenetre] = React.useState(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 0,
+    height: typeof window !== 'undefined' ? window.innerHeight : 0,
+  }));
+
+  // La ligne du BAS du rond fermé, en pixels d'écran : c'est là que le bouton se
+  // pose, et la référence pour poser le panneau autour de lui. Mesurée quand le
+  // module est fermé (où la correction d'ouverture est nulle), rafraîchie au
+  // redimensionnement même panneau ouvert.
+  const baseBasRef = React.useRef<number | null>(null);
+  // La correction d'ouverture appliquée au dernier rendu — sert à retrouver la
+  // ligne de base depuis la boîte mesurée quand le panneau est ouvert.
+  const corrRef = React.useRef<DecalageVoix>({ x: 0, y: 0 });
+  // Le bouton est-il saisi (appui ou glissement) ? Alors le déplacement suit le
+  // doigt sans transition ; sinon la métamorphose anime aussi le transform, pour
+  // que le côté ancré reste fixe pendant que le panneau grandit.
+  const [saisi, setSaisi] = React.useState(false);
 
   // Au doigt, un appui hors du module le referme (les navigateurs tactiles ne
   // fabriquent pas de « survol-sort » fiable).
@@ -376,17 +415,33 @@ export function VoixAssistant() {
       base: decalageRef.current,
       bouge: false,
     };
+    // Saisi : le transform suit le pointeur sans transition tant que le geste
+    // n'est pas relâché.
+    setSaisi(true);
   }, []);
 
   /**
-   * La place d'origine du module — sa boîte SANS décalage. On mesure la boîte
-   * telle qu'elle est à l'écran et on retire le décalage déjà appliqué.
+   * La place d'origine du BOUTON — le rond fermé SANS décalage. C'est toujours ce
+   * rond (44 px) que l'on borne, jamais le panneau ouvert : le bouton ne doit pas
+   * bouger quand on déplie, et sa place retenue est celle du rond. Le centre est
+   * au milieu de l'écran, le bas vient de la ligne mesurée (moins le décalage
+   * déjà appliqué). Un repli mesure la boîte tant que la ligne n'est pas connue.
    */
   const ancre = React.useCallback(() => {
-    const boite = racineRef.current?.getBoundingClientRect();
-    if (!boite) return null;
-    const d = decalageRef.current;
-    return { left: boite.left - d.x, top: boite.top - d.y, width: boite.width, height: boite.height };
+    if (typeof window === 'undefined') return null;
+    let bas = baseBasRef.current;
+    if (bas == null) {
+      const boite = racineRef.current?.getBoundingClientRect();
+      if (!boite) return null;
+      bas = boite.bottom - corrRef.current.y;
+    }
+    const originBas = bas - decalageRef.current.y;
+    return {
+      left: window.innerWidth / 2 - VOIX_ROND / 2,
+      top: originBas - VOIX_ROND,
+      width: VOIX_ROND,
+      height: VOIX_ROND,
+    };
   }, []);
 
   /** Le module reste entièrement visible : on ramène le décalage dans les bords. */
@@ -396,12 +451,30 @@ export function VoixAssistant() {
     return ramenerDansLEcran(valeur, boite, { width: window.innerWidth, height: window.innerHeight });
   }, [ancre]);
 
-  // Au chargement et à chaque redimensionnement : une position venue d'un plus
-  // grand écran (ou d'un téléphone tourné) est ramenée dans les bords, et le
-  // corrigé est RANGÉ — sinon il reviendrait hors écran au prochain démarrage.
+  // La ligne du bas du rond, mesurée tant que le module est FERMÉ (ou en train de
+  // parler) : là, aucune correction d'ouverture ne la décale, donc le bas de la
+  // boîte EST le bas du rond. Elle sert d'ancre au recadrage et de repère pour
+  // choisir le côté d'ouverture.
+  React.useLayoutEffect(() => {
+    if (ouvert) return;
+    const boite = racineRef.current?.getBoundingClientRect();
+    if (boite) baseBasRef.current = boite.bottom;
+  }, [ouvert, decalage.x, decalage.y, parle, fenetre.width, fenetre.height]);
+
+  // Au chargement et à chaque redimensionnement : on suit la taille de la fenêtre
+  // (pour recalculer le côté d'ouverture), on rafraîchit la ligne de base même
+  // panneau ouvert (un redimensionnement n'anime pas la boîte, la mesure est
+  // nette), et une position venue d'un plus grand écran est ramenée dans les
+  // bords, le corrigé étant RANGÉ — sinon il reviendrait hors écran au prochain
+  // démarrage.
   React.useEffect(() => {
     const replacer = () => {
+      setFenetre({ width: window.innerWidth, height: window.innerHeight });
       if (glissementRef.current) return;
+      if (ouvertRef.current) {
+        const boite = racineRef.current?.getBoundingClientRect();
+        if (boite) baseBasRef.current = boite.bottom - corrRef.current.y;
+      }
       const actuel = decalageRef.current;
       const corrige = recadrer(actuel);
       if (memeDecalage(corrige, actuel)) return;
@@ -429,6 +502,7 @@ export function VoixAssistant() {
       const g = glissementRef.current;
       if (!g) return;
       glissementRef.current = null;
+      setSaisi(false);
       if (!g.bouge) return;
       vientDeGlisserRef.current = true;
       const pose = recadrer(decalageRef.current);
@@ -452,6 +526,27 @@ export function VoixAssistant() {
   // la boîte ait grandi, à la fermeture il s'efface d'abord, puis elle rétrécit.
   const attenteContenu = ouvert ? VOIX_MORPHISME_MS * 0.55 : 0;
 
+  // DE QUEL CÔTÉ LE PANNEAU S'OUVRE. Le bouton (rond fermé) ne bouge pas : on
+  // calcule sa boîte à l'écran (centre au milieu de la fenêtre + décalage, bas
+  // sur la ligne mesurée), on choisit le côté où il reste de la place, et on en
+  // tire une correction à AJOUTER au transform. Cette correction est nulle
+  // module fermé, et s'anime avec la largeur/hauteur si bien que le côté ancré
+  // (là où est le bouton) reste fixe pendant la métamorphose.
+  const rondBas = baseBasRef.current ?? fenetre.height;
+  const rondBoite = {
+    left: fenetre.width / 2 + decalage.x - VOIX_ROND / 2,
+    top: rondBas - VOIX_ROND,
+    width: VOIX_ROND,
+    height: VOIX_ROND,
+  };
+  const tailleForme = { width: forme.largeur, height: forme.hauteur };
+  const sens = sensDouverture(rondBoite, tailleForme, {
+    width: fenetre.width,
+    height: fenetre.height,
+  });
+  const corr = correctionOuverture(sens, tailleForme, { width: VOIX_ROND, height: VOIX_ROND });
+  corrRef.current = corr;
+
   return (
     <div
       ref={racineRef}
@@ -468,10 +563,16 @@ export function VoixAssistant() {
         width: `${forme.largeur}px`,
         height: `${forme.hauteur}px`,
         borderRadius: `${forme.rayon}px`,
-        transform: `translate(calc(-50% + ${decalage.x}px), ${decalage.y}px)`,
-        // La métamorphose s'anime ; le déplacement, NON — un transform retardé
-        // de 300 ms collerait au doigt avec un temps de retard.
-        transitionProperty: 'width, height, border-radius',
+        // Un seul transform porte le centrage d'origine, le décalage retenu ET la
+        // correction d'ouverture (pour placer le panneau autour du bouton).
+        transform: `translate(calc(-50% + ${decalage.x + corr.x}px), ${decalage.y + corr.y}px)`,
+        // La métamorphose s'anime, correction d'ouverture COMPRISE, pour que le
+        // côté ancré reste fixe pendant que le panneau grandit. Mais pendant un
+        // glissement, le transform NE s'anime pas — un transform retardé de
+        // 300 ms collerait au doigt avec un temps de retard.
+        transitionProperty: saisi
+          ? 'width, height, border-radius'
+          : 'width, height, border-radius, transform',
         transitionDuration: `${VOIX_MORPHISME_MS}ms`,
       }}
       onMouseEnter={() => setOuvert((o) => pileApres(o, 'survol-entre', geste))}
@@ -529,32 +630,86 @@ export function VoixAssistant() {
           transitionDelay: `${attenteContenu}ms`,
         }}
       >
-        <div className="shrink-0 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
-          Derniers messages
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
+          <span>Derniers messages</span>
+          {/* Le réglage « Muet » vit ICI, dans le panneau déplié, à côté de la
+              voix qu'il commande — plus dans le menu trois points du haut. Il ne
+              change RIEN au comportement : il bascule la même préférence
+              `voix.muet`, coupe la seule parole automatique, et la réécoute d'un
+              message passe toujours outre. L'appui ne replie pas le module. */}
+          <button
+            type="button"
+            data-muet-voix
+            aria-pressed={muet}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMuet(!muet);
+            }}
+            className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-raised ${
+              muet ? 'text-warning' : 'text-success'
+            }`}
+            title={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
+            aria-label={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
+          >
+            {muet ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+            {muet ? 'Coupée' : 'Active'}
+          </button>
         </div>
         {nb === 0 ? (
           <p className="flex-1 px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
         ) : (
           <ul className="min-h-0 flex-1 overflow-y-auto py-1">
-            {messages.slice(0, VOIX_MESSAGES_MAX).map((m) => (
+            {messages.slice(0, VOIX_MESSAGES_MAX).map((m) => {
+              const lu = cleVoix === cleMessage(m.id);
+              return (
               <li key={m.id}>
                 <button
                   type="button"
                   data-message-voix
+                  data-en-lecture={lu ? '' : undefined}
+                  aria-current={lu ? 'true' : undefined}
                   // L'appui garde le module ouvert : on ne le rabat pas d'un clic.
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Réécoute manuelle : elle passe outre le Muet.
-                    direVoix(m.texte);
+                    // Réécoute manuelle : elle passe outre le Muet, et porte sa
+                    // clé pour que la barre de lecture suive CE message.
+                    direVoix(m.texte, cleMessage(m.id));
                   }}
-                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] text-text hover:bg-raised"
+                  className={`flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] text-text hover:bg-raised ${
+                    lu ? 'bg-raised' : ''
+                  }`}
                   aria-label={`Réécouter : ${m.texte}`}
                 >
-                  <Volume2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
+                  <Volume2
+                    className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${lu ? 'text-success' : 'text-muted'}`}
+                  />
                   <span className="min-w-0 flex-1 line-clamp-2">{m.texte}</span>
                 </button>
+                {/* La barre de lecture, sous le seul message en cours : elle
+                    avance avec le son (couleur des ondes vertes) quand la durée
+                    est connue, ou pulse discrètement quand elle ne l'est pas. */}
+                {lu && avancement !== null && (
+                  <div
+                    data-barre-lecture
+                    className="mx-3 mb-1.5 h-0.5 overflow-hidden rounded-full bg-border"
+                    aria-hidden
+                  >
+                    {avancement === 'indetermine' ? (
+                      <div className="h-full w-full animate-pulse-soft bg-success/70" />
+                    ) : (
+                      <div
+                        className="h-full bg-success"
+                        style={{
+                          width: `${Math.round(avancement * 100)}%`,
+                          transition: 'width 150ms linear',
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
         {/* Un creux réservé sous l'historique : la ligne d'ondes CONTINUE (hors

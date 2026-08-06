@@ -80,6 +80,7 @@ node scripts/verif-bridage-chef.mjs # le chef d'orchestre est-il bridé pareil s
 node scripts/verif-description-carte.mjs # la carte proposée porte-t-elle une vraie description ? (vrai tour, deux moteurs)
 node scripts/verif-glissement-lancement.mjs # glisser dans « En cours » lance, en sortir suspend (démon d'essai à soi)
 node scripts/verif-mise-en-ligne.mjs # publier met-il vraiment en ligne ? (refus honnête / publication complète)
+node scripts/verif-reparation-construction.mjs # une construction cassée est-elle réparée puis rejouée, et le refus final nomme-t-il la cause ? (agent de secours simulé, aucun quota dépensé)
 node scripts/verif-reglages-proposition.mjs # la carte proposée hérite-t-elle du moteur et du modèle de la conversation ?
 node scripts/verif-reglages-carte.mjs # le détail d'une carte montre-t-il ses réglages ? (modifiables avant, figés après)
 node scripts/verif-image-reponse-question.mjs # joindre une image à la réponse d'une question (démon d'essai à soi)
@@ -175,6 +176,26 @@ sans son point d'essai.
   la cause (jamais en désactivant un test), puis tout est rejoué. Au bout de `REPARATIONS_MAX`
   passes, le refus reste entier et nomme ce qui tombe encore. Verrouillé par
   `server/src/test/controles-publication.test.ts`.
+- **Une CONSTRUCTION qui échoue est réparée sur place, comme un conflit ou un contrôle tombé**
+  (`construireAvecReparation` et `reparerLaConstruction`, `server/src/deploy.ts`). L'étape
+  « Construction » était le dernier endroit sans secours : un `npm run build` en échec jetait « La
+  construction a échoué » et tout s'arrêtait, même quand la cause n'avait rien à voir avec le code
+  (fichier temporaire illisible : `EACCES … node_modules/.tmp/tsconfig.node…`, vu sur haiko-compta).
+  Un agent de rôle « deploy » est donc appelé sur-le-champ, avec la cause NOMMÉE, puis la
+  construction est rejouée — même `REPARATIONS_MAX` que les contrôles, jamais une passe de plus. Les
+  DEUX endroits qui construisent (HaikoDev lui-même, projet ordinaire en `plan.construction ===
+  'npm'`) y passent : plus aucun `npm run build` sans secours. Le refus ne s'assouplit pas — au bout
+  des passes, rien n'est mis en ligne et le message NOMME ce qui bloque encore
+  (`phraseDEchecConstruction`), le détail de l'étape posant les causes EN TÊTE
+  (`detailDEchecConstruction`) puis la fin de la sortie brute. Les règles de lecture sont pures
+  (`shared/src/echec-construction.ts`) : `causesDeConstruction` relève les codes système
+  (EACCES, ENOENT, EPERM…), les outils absents (`tsc: not found`) et les erreurs TypeScript, du
+  motif le plus parlant au plus vague, sans jamais redire deux fois la même ligne ; la consigne
+  envoyée à l'agent vit là aussi (`consigneDeReparationConstruction`), donc un contrôle la lit sans
+  lancer un tour payant. La sortie est gardée ENTIÈRE pendant le travail (les causes sont écrites au
+  milieu, pas à la fin). L'ordre des étapes et la pose automatique des outils de construction ne
+  bougent pas. Verrouillé par `server/src/test/construction-publication.test.ts` et
+  `scripts/verif-reparation-construction.mjs`.
 - **La publication POSE les outils de construction avant de construire**
   (`poserLesOutilsDeConstruction`, `server/src/deploy.ts`). Le démon tourne avec
   `NODE_ENV=production`, où `npm install` saute les dépendances de développement — donc `tsc` et
@@ -491,10 +512,17 @@ sans son point d'essai.
   `null` (le ton bref préfère la courte phrase par titre). La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée par `normaliserTexteVoix`, `server/src/http.ts`), avec repli sur la voix
-  du navigateur. **Le son fabriqué est GARDÉ, et préparé d'avance** (`server/src/voice.ts`) : `speak`
-  range chaque son dans `<data>/audio/cache/<empreinte>.wav`, l'empreinte découlant de la VOIX résolue
-  ET du texte — même phrase, même voix, même fichier, donc une réécoute repart du fichier sans relancer
-  Piper. Une synthèse déjà EN COURS pour une empreinte n'est pas relancée (map `enCours`), et le cache
+  du navigateur. La VITESSE est réglable par crans (`Settings.voixVitesse`, défaut « normale » = échelle
+  1 ; `CRANS_DE_VITESSE`/`echelleDeVitesse`, `shared/src/voix-vitesse.ts`) : `speak(text, voix, vitesse)`
+  ajoute `--length_scale` à Piper (> 1 ralentit, < 1 accélère) et, sans vitesse imposée, la LIT dans les
+  réglages — donc TOUTES les paroles (point du jour, annonces auto, réécoutes par `/api/speak`) la
+  suivent. Seul l'essai l'impose : `/api/voice-sample?voice=…&vitesse=…` fait ENTENDRE un cran avant de
+  l'adopter. Réglé dans l'onglet Système sous le choix de voix. Verrouillé par
+  `server/src/test/voix-vitesse.test.ts`. **Le son fabriqué est GARDÉ, et préparé d'avance** (`server/src/voice.ts`) : `speak`
+  range chaque son dans `<data>/audio/cache/<empreinte>.wav`, l'empreinte découlant de la VOIX résolue,
+  du texte ET de la VITESSE — même phrase, même voix, même vitesse, même fichier, donc une réécoute repart
+  du fichier sans relancer Piper ; un changement de vitesse, lui, refait le son (sinon l'ancien cran
+  resterait servi). Une synthèse déjà EN COURS pour une empreinte n'est pas relancée (map `enCours`), et le cache
   ne grossit pas sans fin : au-delà de `CACHE_SONS_MAX` (200) fichiers, les plus vieux tombent
   (`rangerLeCache`, sur la date de dernier accès). L'AVANCE : dès qu'un événement porte une phrase
   parlée (`input.voix` — fin de tâche, publication terminée ou en échec), `notify` (`server/src/notify.ts`)
@@ -524,12 +552,22 @@ sans son point d'essai.
   `(hover: hover) and (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
   `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), la ligne d'ondes
   restant EN DESSOUS. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
-  outre le Muet. L'historique est DURABLE : il vit en mémoire du navigateur (`localStorage`,
+  outre le Muet. Le message EN COURS de lecture est marqué dans la liste (`data-en-lecture`,
+  `aria-current`, fond `bg-raised`, icône `text-success`) et porte SOUS lui une fine barre
+  (`data-barre-lecture`, couleur `bg-success` des ondes) qui avance avec le son : `dire(texte,
+  force, id)` retient l'identifiant lu (`enLecture`) et l'avancement (`avancement`, fraction 0→1
+  tirée de l'élément audio par `loadedmetadata`/`timeupdate`). Un JETON par lecture (`jetonRef`,
+  incrémenté par `taire`) empêche une parole finie de clôturer celle qui l'a remplacée. Quand la voix
+  de secours du navigateur prend le relais (avancement inconnu), le message reste marqué sans barre
+  trompeuse : `avancement` vaut `'indetermine'` et la barre PULSE (`animate-pulse-soft`) au lieu de
+  mentir sur une position. La barre disparaît à la fin, au remplacement ou à l'arrêt. L'historique est DURABLE : il vit en mémoire du navigateur (`localStorage`,
   `CLE_VOIX_HISTORIQUE`, jamais côté serveur), SURVIT au rechargement, garde jusqu'à
   `VOIX_HISTORIQUE_MAX` (100) messages (les plus anciens tombent) et n'en affiche que dix. Il se
   remplit à chaque annonce AUTOMATIQUE (fin de tâche, fin/échec de publication, hausse d'attention)
-  même en Muet — la parole se tait, la trace reste. Le point du jour ne change pas. Le bouton « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la
-  préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole
+  même en Muet — la parole se tait, la trace reste. Le point du jour ne change pas. Le bouton « Muet »
+  vit DANS le panneau déplié du module (`data-muet-voix`, `web/src/components/voix-assistant.tsx`), à
+  côté de la voix qu'il commande — plus dans le menu trois points du haut : il bascule la
+  préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement, coupe la parole
   automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
   badge. Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
 - **Le module de voix SE DÉPLACE, et sa place est retenue dans le COMPTE**
@@ -555,6 +593,19 @@ sans son point d'essai.
   se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
   (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. Verrouillé par
   `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
+- **Le PANNEAU s'ouvre du côté où il y a de la place, le bouton ne bouge pas**
+  (`sensDouverture` / `correctionOuverture`, `shared/src/position-voix.ts`). Le module fermé est un
+  rond de 44 px ; déplié, un panneau de 256 px de large. `sensDouverture` regarde la boîte du rond à
+  l'écran et choisit le côté : centre par défaut, vers la GAUCHE si collé au bord droit, vers la
+  DROITE si collé au bord gauche, vers le BAS (au lieu du haut) si posé en haut, et de même pour les
+  coins. `correctionOuverture` en tire une correction (nulle module fermé) AJOUTÉE au transform, si
+  bien que le côté ancré — là où est le bouton — reste fixe pendant la métamorphose : la correction
+  s'anime AVEC la largeur/hauteur (d'où `transform` ajouté à `transitionProperty`, sauf pendant un
+  glissement où il doit suivre le doigt sans retard). Le recadrage (`ramenerDansLEcran`) borne
+  toujours le ROND de 44 px, jamais le panneau ouvert : `ancre()` calcule la place du rond depuis le
+  centre de la fenêtre et la ligne du bas mesurée quand le module est fermé (`baseBasRef`), rafraîchie
+  au redimensionnement. Le choix se recalcule à l'ouverture et au `resize`. Verrouillé par les cas
+  « le panneau s'ouvre du côté où il y a de la place » de `server/src/test/position-voix.test.ts`.
 - **La voix est PARTAGÉE — un seul son à la fois — et TOUT message de la conversation s'écoute**
   (`web/src/lib/voix.ts`, `texteAEcouter` dans `shared/src/lecture-message.ts`). Les annonces
   automatiques (module de voix) et l'écoute d'un message passent par le MÊME lecteur : `direVoix`

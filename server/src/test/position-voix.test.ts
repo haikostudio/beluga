@@ -5,11 +5,13 @@ import {
   DECALAGE_VOIX_DEFAUT,
   MARGE_VOIX,
   SEUIL_GLISSEMENT_VOIX,
+  correctionOuverture,
   decalageRetenu,
   estDecalageVoix,
   estUnGlissement,
   memeDecalage,
   ramenerDansLEcran,
+  sensDouverture,
 } from '@haikodev/shared';
 
 /*
@@ -104,4 +106,104 @@ test('un appui immobile reste un clic, un appui qui glisse déplace', () => {
   assert.equal(estUnGlissement(SEUIL_GLISSEMENT_VOIX, 0), true);
   assert.equal(estUnGlissement(0, -SEUIL_GLISSEMENT_VOIX), true);
   assert.equal(estUnGlissement(60, 40), true);
+});
+
+/* ------------------------------------------------------------------ */
+/* Le panneau s'ouvre du côté où il y a de la place                    */
+/* ------------------------------------------------------------------ */
+
+// Un téléphone étroit et un panneau bien plus large que le rond de 44 px : le
+// cas où le panneau centré déborderait s'il ne choisissait pas son côté.
+const tel = { width: 402, height: 874 };
+const ROND = { width: 44, height: 44 };
+const PANNEAU = { width: 256, height: 300 };
+/** La boîte du rond, à l'écran, d'après le centre en X et le bas en Y. */
+const rond = (centreX: number, bas: number) => ({
+  left: centreX - ROND.width / 2,
+  top: bas - ROND.height,
+  width: ROND.width,
+  height: ROND.height,
+});
+
+test('au centre en bas, le panneau reste centré et grandit vers le haut', () => {
+  const sens = sensDouverture(rond(201, 874), PANNEAU, tel);
+  assert.deepEqual(sens, { horizontal: 'centre', vertical: 'haut' });
+  assert.deepEqual(correctionOuverture(sens, PANNEAU, ROND), { x: 0, y: 0 });
+});
+
+test('collé au bord droit, le panneau s’ouvre vers la gauche', () => {
+  const sens = sensDouverture(rond(402 - 8 - 22, 874), PANNEAU, tel);
+  assert.equal(sens.horizontal, 'gauche');
+  assert.equal(sens.vertical, 'haut');
+  // On ancre le bord droit du panneau sur le bouton : correction négative.
+  assert.deepEqual(correctionOuverture(sens, PANNEAU, ROND), {
+    x: ROND.width / 2 - PANNEAU.width / 2,
+    y: 0,
+  });
+});
+
+test('collé au bord gauche, le panneau s’ouvre vers la droite', () => {
+  const sens = sensDouverture(rond(8 + 22, 874), PANNEAU, tel);
+  assert.equal(sens.horizontal, 'droite');
+  assert.equal(sens.vertical, 'haut');
+  assert.deepEqual(correctionOuverture(sens, PANNEAU, ROND), {
+    x: PANNEAU.width / 2 - ROND.width / 2,
+    y: 0,
+  });
+});
+
+test('posé en haut de l’écran, le panneau se déplie vers le bas', () => {
+  const sens = sensDouverture(rond(201, 52), PANNEAU, tel);
+  assert.equal(sens.horizontal, 'centre');
+  assert.equal(sens.vertical, 'bas');
+  assert.deepEqual(correctionOuverture(sens, PANNEAU, ROND), {
+    x: 0,
+    y: PANNEAU.height - ROND.height,
+  });
+});
+
+test('dans le coin haut-droit, le panneau s’ouvre vers la gauche ET vers le bas', () => {
+  const sens = sensDouverture(rond(402 - 8 - 22, 52), PANNEAU, tel);
+  assert.deepEqual(sens, { horizontal: 'gauche', vertical: 'bas' });
+  const corr = correctionOuverture(sens, PANNEAU, ROND);
+  assert.ok(corr.x < 0 && corr.y > 0);
+});
+
+test('le panneau choisi reste entièrement dans l’écran, aucun bord dehors', () => {
+  // Pour chaque coin et chaque bord, la boîte du panneau, une fois posée, tient
+  // dans la fenêtre à la marge près.
+  const places = [
+    rond(201, 866), // bas centre (bas du rond à la marge du bord bas)
+    rond(8 + 22, 866), // bas gauche
+    rond(402 - 8 - 22, 866), // bas droit
+    rond(201, 52), // haut centre (haut du rond à la marge du bord haut)
+    rond(8 + 22, 52), // haut gauche
+    rond(402 - 8 - 22, 52), // haut droit
+  ];
+  for (const r of places) {
+    const sens = sensDouverture(r, PANNEAU, tel);
+    const corr = correctionOuverture(sens, PANNEAU, ROND);
+    // Le centre en X du panneau = centre du rond + correction ; le bas du panneau
+    // = bas du rond + correction (Y vers le bas). On en déduit ses bords.
+    const centreX = r.left + r.width / 2 + corr.x;
+    const gauche = centreX - PANNEAU.width / 2;
+    const droite = centreX + PANNEAU.width / 2;
+    const basPanneau = r.top + r.height + corr.y;
+    const hautPanneau = basPanneau - PANNEAU.height;
+    assert.ok(gauche >= MARGE_VOIX - 0.5, `bord gauche ${gauche}`);
+    assert.ok(droite <= tel.width - MARGE_VOIX + 0.5, `bord droit ${droite}`);
+    assert.ok(hautPanneau >= MARGE_VOIX - 0.5, `bord haut ${hautPanneau}`);
+    assert.ok(basPanneau <= tel.height - MARGE_VOIX + 0.5, `bord bas ${basPanneau}`);
+  }
+});
+
+test('module fermé, la correction d’ouverture est nulle quel que soit le côté', () => {
+  // Le panneau a la taille du rond : rien à corriger, le bouton ne bouge pas.
+  for (const s of [
+    { horizontal: 'gauche', vertical: 'bas' },
+    { horizontal: 'droite', vertical: 'haut' },
+    { horizontal: 'centre', vertical: 'haut' },
+  ] as const) {
+    assert.deepEqual(correctionOuverture(s, ROND, ROND), { x: 0, y: 0 });
+  }
 });
