@@ -4,6 +4,7 @@ import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
   NOM_UTILISATEUR,
+  correctionOuverture,
   decalageRetenu,
   decisionsOuvertes,
   estUnGlissement,
@@ -13,6 +14,7 @@ import {
   phraseVocaleDeNotification,
   pileApres,
   ramenerDansLEcran,
+  sensDouverture,
   type ContexteDecision,
   type DecalageVoix,
   type VoixOptions,
@@ -321,6 +323,29 @@ export function VoixAssistant() {
   const geste = gesteDOuverture(survolPossible);
   const [ouvert, setOuvert] = React.useState(false);
   const racineRef = React.useRef<HTMLDivElement | null>(null);
+  // Lu par le redimensionnement (effet non réabonné à chaque ouverture).
+  const ouvertRef = React.useRef(ouvert);
+  ouvertRef.current = ouvert;
+
+  // La taille de la fenêtre, suivie pour recalculer le côté d'ouverture à chaque
+  // redimensionnement. On la lit tout de suite : ce composant vit côté client.
+  const [fenetre, setFenetre] = React.useState(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 0,
+    height: typeof window !== 'undefined' ? window.innerHeight : 0,
+  }));
+
+  // La ligne du BAS du rond fermé, en pixels d'écran : c'est là que le bouton se
+  // pose, et la référence pour poser le panneau autour de lui. Mesurée quand le
+  // module est fermé (où la correction d'ouverture est nulle), rafraîchie au
+  // redimensionnement même panneau ouvert.
+  const baseBasRef = React.useRef<number | null>(null);
+  // La correction d'ouverture appliquée au dernier rendu — sert à retrouver la
+  // ligne de base depuis la boîte mesurée quand le panneau est ouvert.
+  const corrRef = React.useRef<DecalageVoix>({ x: 0, y: 0 });
+  // Le bouton est-il saisi (appui ou glissement) ? Alors le déplacement suit le
+  // doigt sans transition ; sinon la métamorphose anime aussi le transform, pour
+  // que le côté ancré reste fixe pendant que le panneau grandit.
+  const [saisi, setSaisi] = React.useState(false);
 
   // Au doigt, un appui hors du module le referme (les navigateurs tactiles ne
   // fabriquent pas de « survol-sort » fiable).
@@ -360,14 +385,27 @@ export function VoixAssistant() {
   const vientDeGlisserRef = React.useRef(false);
 
   /**
-   * La place d'origine du module — sa boîte SANS décalage. On mesure la boîte
-   * telle qu'elle est à l'écran et on retire le décalage déjà appliqué.
+   * La place d'origine du BOUTON — le rond fermé SANS décalage. C'est toujours ce
+   * rond (44 px) que l'on borne, jamais le panneau ouvert : le bouton ne doit pas
+   * bouger quand on déplie, et sa place retenue est celle du rond. Le centre est
+   * au milieu de l'écran, le bas vient de la ligne mesurée (moins le décalage
+   * déjà appliqué). Un repli mesure la boîte tant que la ligne n'est pas connue.
    */
   const ancre = React.useCallback(() => {
-    const boite = racineRef.current?.getBoundingClientRect();
-    if (!boite) return null;
-    const d = decalageRef.current;
-    return { left: boite.left - d.x, top: boite.top - d.y, width: boite.width, height: boite.height };
+    if (typeof window === 'undefined') return null;
+    let bas = baseBasRef.current;
+    if (bas == null) {
+      const boite = racineRef.current?.getBoundingClientRect();
+      if (!boite) return null;
+      bas = boite.bottom - corrRef.current.y;
+    }
+    const originBas = bas - decalageRef.current.y;
+    return {
+      left: window.innerWidth / 2 - VOIX_ROND / 2,
+      top: originBas - VOIX_ROND,
+      width: VOIX_ROND,
+      height: VOIX_ROND,
+    };
   }, []);
 
   /** Le module reste entièrement visible : on ramène le décalage dans les bords. */
@@ -377,12 +415,30 @@ export function VoixAssistant() {
     return ramenerDansLEcran(valeur, boite, { width: window.innerWidth, height: window.innerHeight });
   }, [ancre]);
 
-  // Au chargement et à chaque redimensionnement : une position venue d'un plus
-  // grand écran (ou d'un téléphone tourné) est ramenée dans les bords, et le
-  // corrigé est RANGÉ — sinon il reviendrait hors écran au prochain démarrage.
+  // La ligne du bas du rond, mesurée tant que le module est FERMÉ (ou en train de
+  // parler) : là, aucune correction d'ouverture ne la décale, donc le bas de la
+  // boîte EST le bas du rond. Elle sert d'ancre au recadrage et de repère pour
+  // choisir le côté d'ouverture.
+  React.useLayoutEffect(() => {
+    if (ouvert) return;
+    const boite = racineRef.current?.getBoundingClientRect();
+    if (boite) baseBasRef.current = boite.bottom;
+  }, [ouvert, decalage.x, decalage.y, parle, fenetre.width, fenetre.height]);
+
+  // Au chargement et à chaque redimensionnement : on suit la taille de la fenêtre
+  // (pour recalculer le côté d'ouverture), on rafraîchit la ligne de base même
+  // panneau ouvert (un redimensionnement n'anime pas la boîte, la mesure est
+  // nette), et une position venue d'un plus grand écran est ramenée dans les
+  // bords, le corrigé étant RANGÉ — sinon il reviendrait hors écran au prochain
+  // démarrage.
   React.useEffect(() => {
     const replacer = () => {
+      setFenetre({ width: window.innerWidth, height: window.innerHeight });
       if (glissementRef.current) return;
+      if (ouvertRef.current) {
+        const boite = racineRef.current?.getBoundingClientRect();
+        if (boite) baseBasRef.current = boite.bottom - corrRef.current.y;
+      }
       const actuel = decalageRef.current;
       const corrige = recadrer(actuel);
       if (memeDecalage(corrige, actuel)) return;
@@ -410,6 +466,7 @@ export function VoixAssistant() {
       const g = glissementRef.current;
       if (!g) return;
       glissementRef.current = null;
+      setSaisi(false);
       if (!g.bouge) return;
       vientDeGlisserRef.current = true;
       const pose = recadrer(decalageRef.current);
@@ -433,6 +490,27 @@ export function VoixAssistant() {
   // la boîte ait grandi, à la fermeture il s'efface d'abord, puis elle rétrécit.
   const attenteContenu = ouvert ? VOIX_MORPHISME_MS * 0.55 : 0;
 
+  // DE QUEL CÔTÉ LE PANNEAU S'OUVRE. Le bouton (rond fermé) ne bouge pas : on
+  // calcule sa boîte à l'écran (centre au milieu de la fenêtre + décalage, bas
+  // sur la ligne mesurée), on choisit le côté où il reste de la place, et on en
+  // tire une correction à AJOUTER au transform. Cette correction est nulle
+  // module fermé, et s'anime avec la largeur/hauteur si bien que le côté ancré
+  // (là où est le bouton) reste fixe pendant la métamorphose.
+  const rondBas = baseBasRef.current ?? fenetre.height;
+  const rondBoite = {
+    left: fenetre.width / 2 + decalage.x - VOIX_ROND / 2,
+    top: rondBas - VOIX_ROND,
+    width: VOIX_ROND,
+    height: VOIX_ROND,
+  };
+  const tailleForme = { width: forme.largeur, height: forme.hauteur };
+  const sens = sensDouverture(rondBoite, tailleForme, {
+    width: fenetre.width,
+    height: fenetre.height,
+  });
+  const corr = correctionOuverture(sens, tailleForme, { width: VOIX_ROND, height: VOIX_ROND });
+  corrRef.current = corr;
+
   return (
     <div
       ref={racineRef}
@@ -449,10 +527,16 @@ export function VoixAssistant() {
         width: `${forme.largeur}px`,
         height: `${forme.hauteur}px`,
         borderRadius: `${forme.rayon}px`,
-        transform: `translate(calc(-50% + ${decalage.x}px), ${decalage.y}px)`,
-        // La métamorphose s'anime ; le déplacement, NON — un transform retardé
-        // de 300 ms collerait au doigt avec un temps de retard.
-        transitionProperty: 'width, height, border-radius',
+        // Un seul transform porte le centrage d'origine, le décalage retenu ET la
+        // correction d'ouverture (pour placer le panneau autour du bouton).
+        transform: `translate(calc(-50% + ${decalage.x + corr.x}px), ${decalage.y + corr.y}px)`,
+        // La métamorphose s'anime, correction d'ouverture COMPRISE, pour que le
+        // côté ancré reste fixe pendant que le panneau grandit. Mais pendant un
+        // glissement, le transform NE s'anime pas — un transform retardé de
+        // 300 ms collerait au doigt avec un temps de retard.
+        transitionProperty: saisi
+          ? 'width, height, border-radius'
+          : 'width, height, border-radius, transform',
         transitionDuration: `${VOIX_MORPHISME_MS}ms`,
       }}
       onMouseEnter={() => setOuvert((o) => pileApres(o, 'survol-entre', geste))}
@@ -491,6 +575,9 @@ export function VoixAssistant() {
             base: decalageRef.current,
             bouge: false,
           };
+          // Saisi : le transform suit le doigt sans transition tant que le geste
+          // n'est pas relâché.
+          setSaisi(true);
         }}
         className={`absolute inset-0 grid place-items-center transition-opacity hover:bg-raised ${
           ouvert ? 'pointer-events-none opacity-0' : 'opacity-100'
