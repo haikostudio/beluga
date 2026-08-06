@@ -872,6 +872,18 @@ sans son point d'essai.
   `server/src/test/reveil-vocal.test.ts`, `scripts/verif-reveil-vocal.mjs` (l'écran, phrases
   injectées) et `scripts/verif-transcription-reveil.mjs` (le SON : de la vraie parole, vraiment
   transcrite — le seul endroit où la chaîne cassait, et le seul qu'aucun contrôle ne voyait).
+- **Un RACCOURCI CLAVIER réglable bascule l'écoute permanente** (`shared/src/raccourci-clavier.ts`,
+  `Settings.voixRaccourci`, vide par défaut). Réglé dans l'onglet Système à côté du mot de réveil : un
+  bouton (`data-raccourci-ecoute`, `web/src/components/settings-view.tsx`) capte le prochain appui.
+  La combinaison est rangée sous une FORME CANONIQUE — modificateurs dans l'ordre Ctrl, Alt, Shift,
+  Meta puis le CODE PHYSIQUE de la touche (`Alt+KeyE`, `Ctrl+Shift+KeyL`), pour tenir quelle que soit
+  la disposition du clavier. `raisonRaccourciRefuse` écarte ce qui écraserait un raccourci système :
+  touche seule ou seulement Maj (partirait en tapant), Cmd/⌘ (réservé au système), Ctrl seul, et une
+  courte liste de combinaisons connues du navigateur (Ctrl+Shift+T/N/W/I/J…). Un écouteur global dans
+  le module de voix (`voix-assistant.tsx`) attend l'appui où que l'on soit — `raccourciDeclenche`
+  compare la forme, `estCibleDeSaisie` le tait dans un champ de saisie, `readPref` relit l'état pour
+  l'inverser (le setter n'a pas de forme « inverse »). Verrouillé par
+  `server/src/test/raccourci-clavier.test.ts`.
 - **Le FORMAT d'enregistrement se DEMANDE au navigateur, il ne s'impose pas**
   (`shared/src/format-enregistrement.ts`). `new MediaRecorder(flux, { mimeType: 'audio/webm' })`
   lève une erreur sur Safari (iPhone compris), qui ne connaît pas ce format — et cette erreur,
