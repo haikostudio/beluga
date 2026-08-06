@@ -506,17 +506,24 @@ sans son point d'essai.
   parle, panneau de 256 px (borné à `80vw`) quand il est déplié, la hauteur suivant le nombre de
   messages (`hauteurDepliee`) — et le navigateur les INTERPOLE en `VOIX_MORPHISME_MS` (300 ms) : des
   classes utilitaires de largeur sauteraient d'un cran à l'autre. Le déplié l'emporte sur la parole :
-  on ne rétrécit pas un panneau qu'on lit. Les deux visages vivent DANS cette boîte, en `absolute
-  inset-0`, et se croisent en fondu : l'icône seule (`data-icone-voix`) et l'historique
-  (`data-liste-voix`), dont l'opacité attend que la place soit faite (`transitionDelay`) — le contenu
-  se dévoile après la boîte, jamais avant. Au repos l'icône (`data-icone-repos`) montre cinq barres
-  figées en vibration sonore SYMÉTRIQUE ; pendant la parole (`data-parle`, posé sur la RACINE) elle
-  devient un flux d'ondes VERTES animées (`data-onde-vocale`, barres `bg-success animate-onde`, jeton
-  `--success`, jamais une couleur en dur). L'ouverture se déclenche au survol (souris) ou à l'appui
-  (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`, `(hover: hover) and
-  (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
-  `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), avec EN DESSOUS la
-  même ligne d'ondes (`LigneOndes`, `data-pied-ondes`) qui s'anime quand ça parle. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
+  on ne rétrécit pas un panneau qu'on lit. Deux visages se croisent en fondu DANS cette boîte, en
+  `absolute inset-0` : le bouton d'interaction (`data-icone-voix`, qui saisit survol, appui et
+  glissement, VIDE de dessin) et l'historique (`data-liste-voix`), dont l'opacité attend que la place
+  soit faite (`transitionDelay`) — le contenu se dévoile après la boîte, jamais avant. Mais LA LIGNE
+  D'ONDES est un TROISIÈME objet, UNIQUE et CONTINU, hors de ces deux visages : elle ne se dédouble
+  plus (un exemplaire dans le bouton, un au pied, qui se croisaient en fondu et faisaient CLIGNOTER
+  l'icône). Toujours visible (`pointer-events-none`, jamais d'opacité 0), elle GLISSE du centre du
+  rond fermé jusqu'au creux du pied déplié — position mesurée depuis le BAS de la boîte (elle-même
+  ancrée par le bas), de `VOIX_BAS_ONDES_REPOS` à `VOIX_BAS_ONDES_OUVERT`, animée en
+  `VOIX_MORPHISME_MS` comme la boîte. Elle porte `data-pied-ondes` ; le pied de la liste n'est plus
+  qu'un creux vide (`h-9 border-t`) où elle vient se poser. Au repos, `LigneOndes` (`data-icone-repos`)
+  montre cinq barres figées en vibration sonore SYMÉTRIQUE ; pendant la parole (`data-parle`, posé sur
+  la RACINE) elle devient un flux d'ondes VERTES animées (`data-onde-vocale`, barres `bg-success
+  animate-onde`, jeton `--success`, jamais une couleur en dur). L'ouverture se déclenche au survol
+  (souris) ou à l'appui (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`,
+  `(hover: hover) and (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
+  `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), la ligne d'ondes
+  restant EN DESSOUS. Un clic sur un message le REJOUE par le même `dire()` / `/api/speak`, avec `force` qui passe
   outre le Muet. L'historique est DURABLE : il vit en mémoire du navigateur (`localStorage`,
   `CLE_VOIX_HISTORIQUE`, jamais côté serveur), SURVIT au rechargement, garde jusqu'à
   `VOIX_HISTORIQUE_MAX` (100) messages (les plus anciens tombent) et n'en affiche que dix. Il se
