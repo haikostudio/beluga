@@ -528,8 +528,10 @@ sans son point d'essai.
   `CLE_VOIX_HISTORIQUE`, jamais côté serveur), SURVIT au rechargement, garde jusqu'à
   `VOIX_HISTORIQUE_MAX` (100) messages (les plus anciens tombent) et n'en affiche que dix. Il se
   remplit à chaque annonce AUTOMATIQUE (fin de tâche, fin/échec de publication, hausse d'attention)
-  même en Muet — la parole se tait, la trace reste. Le point du jour ne change pas. Le bouton « Muet » du menu trois points (`web/src/components/quota-bar.tsx`) bascule la
-  préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement : il coupe la parole
+  même en Muet — la parole se tait, la trace reste. Le point du jour ne change pas. Le bouton « Muet »
+  vit DANS le panneau déplié du module (`data-muet-voix`, `web/src/components/voix-assistant.tsx`), à
+  côté de la voix qu'il commande — plus dans le menu trois points du haut : il bascule la
+  préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement, coupe la parole
   automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
   badge. Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
 - **Le module de voix SE DÉPLACE, et sa place est retenue dans le COMPTE**

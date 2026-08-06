@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Volume2 } from 'lucide-react';
+import { Volume2, VolumeX } from 'lucide-react';
 import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
@@ -212,13 +212,14 @@ function LigneOndes({ parle }: { parle: boolean }) {
  * s'OUVRE de la même façon en un bloc rectangulaire et l'icône devient un flux
  * d'ondes VERTES animées ; à la fin, il se referme et la vibration revient.
  *
- * Le bouton « Muet » de la barre du haut coupe la parole AUTOMATIQUE (jamais les
- * notifications visuelles ni le badge, jamais l'icône, jamais la réécoute
- * manuelle) ; son état est retenu en préférence.
+ * Le bouton « Muet » vit DANS le panneau déplié, à côté de la voix qu'il
+ * commande (plus dans le menu trois points du haut) : il coupe la parole
+ * AUTOMATIQUE (jamais les notifications visuelles ni le badge, jamais l'icône,
+ * jamais la réécoute manuelle) ; son état est retenu en préférence.
  */
 export function VoixAssistant() {
   const state = useApp();
-  const [muet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
+  const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
   // Le prénom réglé (défaut « Chris ») et l'heure du moment personnalisent chaque
   // phrase : ils sont relus au fil de l'eau, sans réabonner les écouteurs.
   const nom = state.settings?.voixNom || NOM_UTILISATEUR;
@@ -520,8 +521,30 @@ export function VoixAssistant() {
           transitionDelay: `${attenteContenu}ms`,
         }}
       >
-        <div className="shrink-0 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
-          Derniers messages
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
+          <span>Derniers messages</span>
+          {/* Le réglage « Muet » vit ICI, dans le panneau déplié, à côté de la
+              voix qu'il commande — plus dans le menu trois points du haut. Il ne
+              change RIEN au comportement : il bascule la même préférence
+              `voix.muet`, coupe la seule parole automatique, et la réécoute d'un
+              message passe toujours outre. L'appui ne replie pas le module. */}
+          <button
+            type="button"
+            data-muet-voix
+            aria-pressed={muet}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMuet(!muet);
+            }}
+            className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-raised ${
+              muet ? 'text-warning' : 'text-success'
+            }`}
+            title={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
+            aria-label={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
+          >
+            {muet ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+            {muet ? 'Coupée' : 'Active'}
+          </button>
         </div>
         {nb === 0 ? (
           <p className="flex-1 px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
