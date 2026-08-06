@@ -66,6 +66,14 @@ export const CLE_VOIX_REINIT = 'voix.reinit';
 export const VOIX_MESSAGES_MAX = 10;
 
 /**
+ * Combien de tours du FIL DE CONVERSATION on garde en mémoire, le temps de
+ * l'échange. Distinct de l'historique des annonces : ce fil ne vit qu'en
+ * mémoire vive, il n'est ni retenu ni prononcé à nouveau — c'est un rappel
+ * visuel de ce qu'on vient de se dire.
+ */
+export const FIL_CONVERSATION_MAX = 40;
+
+/**
  * Combien de messages on GARDE en mémoire durable du navigateur. Au-delà, les
  * plus anciens sont oubliés. On en retient bien plus qu'on n'en affiche : la
  * liste n'en montre que dix, mais l'historique survit d'un rechargement à
@@ -556,13 +564,41 @@ export function VoixAssistant() {
    * BLEUES (le micro du réveil, lui, reste rouge).
    */
   const [conversationAllumee, setConversationAllumee] = usePref<boolean>(CLE_VOIX_CONVERSATION, false);
+  // Lu par les écouteurs (fermeture au survol-sort, appui-dehors) sans les
+  // réabonner : tant qu'on converse, le panneau reste ouvert pour montrer le fil.
+  const conversationAllumeeRef = React.useRef(conversationAllumee);
+  conversationAllumeeRef.current = conversationAllumee;
   // La réponse qu'on attend d'un agent après avoir envoyé une phrase parlée :
   // relue au fil de l'eau par l'effet ci-dessous, sans le réabonner.
   const attenteReponseRef = React.useRef<{ agentId: string; depuis: number } | null>(null);
 
+  /*
+   * LE FIL DE LA CONVERSATION. Mes phrases parlées et les réponses de l'agent,
+   * en alternance, montrées dans le module pendant l'échange (les plus récentes
+   * en bas, le fil défile tout seul). Il ne vit qu'en mémoire vive : à la
+   * différence de l'historique des annonces, on ne le retient pas et on ne le
+   * prononce pas à nouveau — c'est un rappel visuel de ce qu'on vient de se dire.
+   */
+  interface TourDeFil {
+    id: number;
+    role: 'user' | 'assistant';
+    texte: string;
+  }
+  const [fil, setFil] = React.useState<TourDeFil[]>([]);
+  const filIdRef = React.useRef(0);
+  const ajouterAuFil = React.useCallback((role: 'user' | 'assistant', texte: string) => {
+    const propre = texte.trim();
+    if (!propre) return;
+    filIdRef.current += 1;
+    const entree: TourDeFil = { id: filIdRef.current, role, texte: propre };
+    setFil((f) => [...f, entree].slice(-FIL_CONVERSATION_MAX));
+  }, []);
+
   const envoyerConversation = React.useCallback(async (texte: string) => {
     const phrase = texte.trim();
     if (!phrase) return;
+    // Ma phrase entre dans le fil dès qu'elle part : on la voit sans attendre.
+    ajouterAuFil('user', phrase);
     try {
       const depuis = Date.now();
       const res = await client.call<{ agentId?: string; question?: string }>({
@@ -571,13 +607,15 @@ export function VoixAssistant() {
       });
       // Une QUESTION posée est déjà dite par la voix (montée d'attention) : on
       // n'attend une réponse à lire que si la phrase a été DÉPOSÉE chez un agent.
+      // La question, elle, s'écrit tout de suite dans le fil.
+      if (res?.question) ajouterAuFil('assistant', res.question);
       if (res?.agentId && !res.question) {
         attenteReponseRef.current = { agentId: res.agentId, depuis };
       }
     } catch {
       client.pushToast('error', "La demande vocale n’a pas pu partir.");
     }
-  }, []);
+  }, [ajouterAuFil]);
 
   const conversation = useConversationVocale(conversationAllumee, {
     onTexte: envoyerConversation,
@@ -601,9 +639,30 @@ export function VoixAssistant() {
     const brut = reponseVocaleDeLAgent(messagesParAgent[attente.agentId] ?? [], attente.depuis);
     if (!brut) return;
     attenteReponseRef.current = null;
+    // La réponse s'affiche dans le fil ET se dit à voix haute : voix + texte.
     const aLire = texteAEcouter(brut);
+    ajouterAuFil('assistant', aLire || brut);
     if (aLire) direVoix(aLire, `conversation-${attente.agentId}`);
-  }, [agents, messagesParAgent]);
+  }, [agents, messagesParAgent, ajouterAuFil]);
+
+  /*
+   * DÉMARRER (ou arrêter) la conversation d'un CLIC. Le geste vit sur le
+   * graphique d'ondes du module ouvert : un clic lance l'écoute, un second
+   * l'arrête. En l'allumant, on déplie le panneau pour montrer le fil ; on le
+   * garde ensuite ouvert tant qu'on converse (voir les fermetures plus bas).
+   */
+  const basculerConversation = React.useCallback(() => {
+    const prochain = !conversationAllumeeRef.current;
+    setConversationAllumee(prochain);
+    if (prochain) setOuvert(true);
+  }, [setConversationAllumee]);
+
+  // Le fil défile jusqu'au dernier tour : le plus récent reste visible.
+  const filRef = React.useRef<HTMLUListElement | null>(null);
+  React.useEffect(() => {
+    const el = filRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [fil]);
 
   // Comment le module se déplie : au survol à la souris, à l'appui au doigt.
   const survolPossible = useSurvol();
@@ -661,6 +720,8 @@ export function VoixAssistant() {
   React.useEffect(() => {
     if (geste !== 'appui' || !ouvert) return;
     const dehors = (e: PointerEvent) => {
+      // Tant qu'on converse, le panneau reste ouvert : le fil doit rester lisible.
+      if (conversationAllumeeRef.current) return;
       if (!racineRef.current?.contains(e.target as Node)) {
         setOuvert((o) => pileApres(o, 'appui-dehors', geste));
       }
@@ -864,9 +925,14 @@ export function VoixAssistant() {
   }, [recadrer, rangerDecalage]);
 
   const nb = messages.length;
+  // Le panneau ouvert montre le FIL DE CONVERSATION dès qu'on converse (ou qu'un
+  // échange vient d'avoir lieu), sinon l'historique des annonces. Sa hauteur suit
+  // ce qu'il montre : les tours du fil, ou les annonces.
+  const enConversation = conversationAllumee || fil.length > 0;
+  const nbPanneau = enConversation ? Math.max(fil.length, 2) : nb;
   // Le MÊME objet s'agrandit, qu'on le survole, qu'il parle, ou qu'il écoute la
   // conversation : dans ces deux derniers cas, il lui faut la place des ondes.
-  const forme = formeDuModule(ouvert, parle || conversationEcoute, nb, dicteEnCours);
+  const forme = formeDuModule(ouvert, parle || conversationEcoute, nbPanneau, dicteEnCours);
   // Le contenu se dévoile UNE FOIS la place faite : à l'ouverture il attend que
   // la boîte ait grandi, à la fermeture il s'efface d'abord, puis elle rétrécit.
   const attenteContenu = ouvert ? VOIX_MORPHISME_MS * 0.55 : 0;
@@ -945,7 +1011,10 @@ export function VoixAssistant() {
         transitionDuration: `${VOIX_MORPHISME_MS}ms`,
       }}
       onMouseEnter={() => setOuvert((o) => pileApres(o, 'survol-entre', geste))}
-      onMouseLeave={() => setOuvert((o) => pileApres(o, 'survol-sort', geste))}
+      // Tant qu'on converse, on ne referme pas au survol-sort : le fil reste là.
+      onMouseLeave={() =>
+        setOuvert((o) => (conversationAllumee ? o : pileApres(o, 'survol-sort', geste)))
+      }
       onClick={() => {
         // Un déplacement qui vient de finir ne déplie pas le module.
         if (vientDeGlisserRef.current) {
@@ -1000,7 +1069,7 @@ export function VoixAssistant() {
         }}
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
-          <span>Derniers messages</span>
+          <span>{enConversation ? 'Conversation' : 'Derniers messages'}</span>
           {/* LE MODE CONVERSATION VOCALE, à côté de l'écoute et du Muet. Allumé,
               on parle SANS mot de réveil, l'agent répond à la voix, et reparler
               coupe sa parole. Bleu quand il écoute (les ondes le sont aussi),
@@ -1098,7 +1167,37 @@ export function VoixAssistant() {
             {conversation.erreur}
           </p>
         )}
-        {nb === 0 ? (
+        {enConversation ? (
+          /* LE FIL DE LA CONVERSATION : mes phrases (à droite, bleutées) et les
+             réponses de l'agent (à gauche), en alternance, le plus récent en bas.
+             Le fil défile tout seul jusqu'au dernier tour. */
+          <ul
+            ref={filRef}
+            data-fil-conversation
+            className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-2"
+          >
+            {fil.length === 0 ? (
+              <li className="text-[12px] text-faint">Je vous écoute…</li>
+            ) : (
+              fil.map((tour) => (
+                <li
+                  key={tour.id}
+                  data-tour-fil
+                  data-role={tour.role}
+                  className={`flex ${tour.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <span
+                    className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-2.5 py-1.5 text-[12.5px] ${
+                      tour.role === 'user' ? 'bg-info/15 text-text' : 'bg-raised text-text'
+                    }`}
+                  >
+                    {tour.texte}
+                  </span>
+                </li>
+              ))
+            )}
+          </ul>
+        ) : nb === 0 ? (
           <p className="flex-1 px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
         ) : (
           <ul className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -1208,11 +1307,16 @@ export function VoixAssistant() {
           d'en dessous ni aux messages de l'historique. */}
       <div
         data-pied-ondes
-        aria-hidden
+        aria-hidden={ouvert ? undefined : true}
         // `inset-x-0` : le pied prend TOUTE la largeur du module du moment (44 px
         // fermé, 96 px en parlant, 256 px ouvert). La ligne d'ondes centrée au
         // repos s'y étale d'elle-même dès qu'elle passe en pleine largeur.
-        className="pointer-events-none absolute inset-x-0 flex items-center justify-center"
+        // Module FERMÉ, les ondes ne captent rien (`pointer-events-none`) : au
+        // doigt, l'appui sur le rond doit ouvrir le panneau, pas basculer l'écoute.
+        // Module OUVERT, les ondes DEVIENNENT le bouton qui lance la conversation.
+        className={`absolute inset-x-0 flex items-center justify-center ${
+          ouvert ? '' : 'pointer-events-none'
+        }`}
         style={{
           bottom: `${ouvert ? VOIX_BAS_ONDES_OUVERT : VOIX_BAS_ONDES_REPOS}px`,
           height: `${VOIX_HAUTEUR_PIED}px`,
@@ -1221,12 +1325,42 @@ export function VoixAssistant() {
           transitionTimingFunction: 'ease-out',
         }}
       >
-        <LigneOndes
-          actif={ondeSource.actif}
-          lecteur={ondeSource.lecteur}
-          classeBarre={ondeSource.classeBarre}
-          marque={ondeSource.marque}
-        />
+        {ouvert ? (
+          // UN CLIC SUR LE GRAPHIQUE D'ONDES lance l'écoute, un second l'arrête.
+          // On arrête la propagation pour ne pas replier le panneau du même clic.
+          <button
+            type="button"
+            data-bascule-conversation
+            aria-pressed={conversationAllumee}
+            onClick={(e) => {
+              e.stopPropagation();
+              basculerConversation();
+            }}
+            title={
+              conversationAllumee
+                ? 'Arrêter la conversation vocale'
+                : 'Cliquer pour parler à l’assistant : il écoute et répond'
+            }
+            aria-label={
+              conversationAllumee ? 'Arrêter la conversation vocale' : 'Démarrer la conversation vocale'
+            }
+            className="flex h-full w-full items-center justify-center"
+          >
+            <LigneOndes
+              actif={ondeSource.actif}
+              lecteur={ondeSource.lecteur}
+              classeBarre={ondeSource.classeBarre}
+              marque={ondeSource.marque}
+            />
+          </button>
+        ) : (
+          <LigneOndes
+            actif={ondeSource.actif}
+            lecteur={ondeSource.lecteur}
+            classeBarre={ondeSource.classeBarre}
+            marque={ondeSource.marque}
+          />
+        )}
       </div>
     </div>
 

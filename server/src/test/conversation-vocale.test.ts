@@ -14,10 +14,10 @@ const m = (over: Partial<MessageLisible>): MessageLisible => ({
   ...over,
 });
 
-test('la pause de conversation est plus longue que la coupe du mot de réveil', () => {
-  // Deux secondes pour le mot de réveil, trois pour la conversation : on laisse
-  // le temps de respirer avant d'envoyer une phrase parlée.
-  assert.equal(PAUSE_CONVERSATION_MS, 3000);
+test('la pause de conversation vaut deux secondes, comme la coupe du mot de réveil', () => {
+  // Deux secondes des deux côtés : en conversation, on veut une réponse vive,
+  // sans laisser un long blanc s'installer entre chaque échange.
+  assert.equal(PAUSE_CONVERSATION_MS, 2000);
   assert.ok(SEUIL_PAROLE_CONVERSATION > 0 && SEUIL_PAROLE_CONVERSATION < 1);
 });
 

@@ -14,11 +14,11 @@
 
 /**
  * La pause de silence, en millisecondes, après laquelle une phrase dite est
- * considérée finie et part à l'agent. Plus longue que la coupe du mot de réveil
- * (deux secondes) : en conversation, on laisse le temps de respirer entre deux
- * bouts de phrase avant d'envoyer.
+ * considérée finie et part à l'agent. Deux secondes, comme la coupe du mot de
+ * réveil : en conversation, on veut une réponse vive, sans laisser un long blanc
+ * s'installer entre chaque échange.
  */
-export const PAUSE_CONVERSATION_MS = 3000;
+export const PAUSE_CONVERSATION_MS = 2000;
 
 /**
  * Le volume (de 0 à 1) au-dessus duquel on considère que quelqu'un parle. Même

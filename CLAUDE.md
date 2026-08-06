@@ -874,22 +874,31 @@ sans son point d'essai.
   transcrite — le seul endroit où la chaîne cassait, et le seul qu'aucun contrôle ne voyait).
 - **Le MODE CONVERSATION VOCALE vit À CÔTÉ de l'écoute par mot de réveil, et parle SANS « Dis Haiko »**
   (règles pures `shared/src/conversation-vocale.ts`, micro `web/src/lib/conversation-vocale.ts`,
-  affichage `web/src/components/voix-assistant.tsx`). Un SECOND interrupteur dans le panneau déplié
-  (`data-interrupteur-conversation`, préférence serveur `CLE_VOIX_CONVERSATION` = `voix.conversation`,
-  ÉTEINTE par défaut) ouvre le micro par le MÊME mécanisme éprouvé que le bouton micro de la barre
-  d'écriture (`recorder.tsx`) : un `MediaRecorder` sans réglage de format, un blob `audio/webm` posté
-  à `/api/transcribe`. La seule chose en plus, c'est la DÉCOUPE au silence (`PAUSE_CONVERSATION_MS` =
-  3 s, plus long que la coupe du mot de réveil). Une phrase dite part TELLE QUELLE à la commande
-  `voix.demande` (routage inchangé, `routage-vocal.ts` — seulement RACCORDÉ ; c'était le maillon
-  manquant : `surDictee` n'avait AUCUN abonné, donc rien n'atteignait jamais l'agent). La réponse de
-  l'agent est LUE à voix haute une fois le tour fini : `reponseVocaleDeLAgent` choisit le dernier
-  message d'assistant terminé, non vide, posté APRÈS l'envoi, et `direVoix` le prononce (passe outre
-  le Muet — la conversation EST une demande explicite de parler). REPARLER coupe la parole en cours
-  (barge-in) : au premier son de la voix, `onParole` appelle `taireVoix`. Les ondes sont BLEUES
-  (`data-onde-conversation`, `bg-info`), le micro du mot de réveil restant ROUGE : `LigneOndes` prend
-  désormais une source (`lecteur`, `classeBarre`, `marque`) au lieu du seul `ecoute`. L'écoute par
-  mot de réveil, ses ondes rouges et ses contrôles (`verif-reveil-vocal`, `verif-ecoute-mobile`) ne
-  bougent pas. Verrouillé par `server/src/test/conversation-vocale.test.ts`.
+  affichage `web/src/components/voix-assistant.tsx`). On la LANCE d'un CLIC SUR LE GRAPHIQUE D'ONDES
+  du module ouvert (`data-bascule-conversation`, `basculerConversation`, `stopPropagation` pour ne pas
+  replier le panneau du même clic), un second clic l'arrête ; l'interrupteur du panneau
+  (`data-interrupteur-conversation`) reste, mais le geste principal est le clic sur les ondes. Le
+  graphique n'est cliquable QUE module OUVERT — fermé il garde `pointer-events-none`, sinon l'appui
+  sur le rond (téléphone) ouvrirait la conversation au lieu du panneau, seul accès mobile à l'écoute
+  « Dis Haiko » (`verif-ecoute-mobile`). Préférence serveur `CLE_VOIX_CONVERSATION` = `voix.conversation`,
+  ÉTEINTE par défaut. Le micro est le MÊME mécanisme éprouvé que le bouton micro de la barre d'écriture
+  (`recorder.tsx`) : un `MediaRecorder` sans réglage de format, un blob posté à `/api/transcribe`, plus
+  la DÉCOUPE au silence (`PAUSE_CONVERSATION_MS` = 2 s, comme la coupe du mot de réveil : on veut une
+  réponse vive). Une phrase dite part TELLE QUELLE à la commande `voix.demande` (routage inchangé,
+  `routage-vocal.ts`). La réponse de l'agent est à la fois LUE à voix haute et ÉCRITE dans le module :
+  `reponseVocaleDeLAgent` choisit le dernier message d'assistant terminé, non vide, posté APRÈS l'envoi,
+  `direVoix` le prononce (passe outre le Muet) et il entre dans le FIL. Ce FIL (état `fil`, en mémoire
+  vive seulement, borné à `FIL_CONVERSATION_MAX`, JAMAIS retenu ni reprononcé — distinct de l'historique
+  des annonces) montre mes phrases (à droite, `bg-info/15`) et les réponses (à gauche) en alternance,
+  le plus récent en bas, `data-fil-conversation` défilant tout seul ; il s'affiche à la place de
+  l'historique des annonces tant qu'on converse (en-tête « Conversation »). Le panneau RESTE ouvert
+  tant que la conversation est allumée (`conversationAllumeeRef` garde les fermetures survol-sort et
+  appui-dehors) : le fil doit rester lisible. REPARLER coupe la parole en cours (barge-in) : au premier
+  son de la voix, `onParole` appelle `taireVoix`. Les ondes sont BLEUES (`data-onde-conversation`,
+  `bg-info`), le micro du mot de réveil restant ROUGE : `LigneOndes` prend une source (`lecteur`,
+  `classeBarre`, `marque`). L'écoute par mot de réveil, ses ondes rouges et ses contrôles
+  (`verif-reveil-vocal`, `verif-ecoute-mobile`) ne bougent pas. Verrouillé par
+  `server/src/test/conversation-vocale.test.ts`.
 - **Un RACCOURCI CLAVIER réglable bascule l'écoute permanente** (`shared/src/raccourci-clavier.ts`,
   `Settings.voixRaccourci`, vide par défaut). Réglé dans l'onglet Système à côté du mot de réveil : un
   bouton (`data-raccourci-ecoute`, `web/src/components/settings-view.tsx`) capte le prochain appui.
