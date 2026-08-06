@@ -9,8 +9,11 @@ import {
   MoyensDeMiseEnLigne,
   PlanDeMiseEnLigne,
   ECHECS_NOMMES_MAX,
+  consigneDeReparationConstruction,
   controlesTombes,
   detailDEchec,
+  detailDEchecConstruction,
+  phraseDEchecConstruction,
   estPlomberie,
   messageEchecPublication,
   miseEnLigneReelle,
@@ -399,6 +402,82 @@ async function reparerLesControles(
     return { tente: false, recit: `agent de réparation en échec (${err?.message ?? 'raison inconnue'})` };
   }
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
+}
+
+/* ------------------------------------------------------------------ */
+/* La construction, et sa réparation pendant la publication            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Une construction cassée se répare DANS la publication, comme un conflit de
+ * fusion ou un contrôle tombé.
+ *
+ * L'étape « Construction » était le dernier endroit sans secours : un
+ * `npm run build` en échec jetait « La construction a échoué » et tout
+ * s'arrêtait, même quand la cause n'avait rien à voir avec le code — un fichier
+ * temporaire illisible (`EACCES … node_modules/.tmp/tsconfig.node…`, vu sur
+ * haiko-compta), un outil absent, un dossier de sortie occupé. Un agent de rôle
+ * « deploy » est donc appelé sur-le-champ, avec la cause NOMMÉE, puis la
+ * construction est rejouée.
+ */
+async function reparerLaConstruction(
+  projectId: string,
+  cwd: string,
+  commande: string,
+  sortie: string,
+  passe: number,
+): Promise<{ tente: boolean; recit: string }> {
+  const agent = createAgent({
+    projectId,
+    role: 'deploy',
+    title: 'Publication — la construction échoue',
+  });
+
+  const prompt = consigneDeReparationConstruction(commande, sortie, passe, REPARATIONS_MAX);
+
+  bus.toast('info', `Publication bloquée : l’agent de publication répare la construction (passe ${passe}).`);
+
+  try {
+    await sendPrompt(agent.id, prompt, { template: 'free', silent: true });
+  } catch (err: any) {
+    return { tente: false, recit: `agent de réparation en échec (${err?.message ?? 'raison inconnue'})` };
+  }
+  return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
+}
+
+/**
+ * Construire, et rappeler un agent tant que ça casse — dans la limite de
+ * `REPARATIONS_MAX` passes, exactement comme les contrôles.
+ *
+ * Le refus ne s'assouplit pas : au bout des passes, l'appelant reçoit `ok:
+ * false` et une phrase qui NOMME ce qui bloque encore. La sortie est gardée
+ * ENTIÈRE pendant le travail (les causes sont écrites au milieu, pas à la fin) ;
+ * c'est le détail rendu qui la résume.
+ *
+ * `reparer` n'est là que pour les contrôles : ils rejouent le mécanisme entier
+ * sans dépenser un tour de moteur. La publication, elle, passe toujours par
+ * l'agent de secours.
+ */
+export async function construireAvecReparation(
+  projectId: string,
+  cwd: string,
+  commande: string,
+  entete = '',
+  reparer = reparerLaConstruction,
+): Promise<{ ok: boolean; detail: string; phrase: string }> {
+  let build = await runCommand(cwd, commande, 10 * 60 * 1000, Infinity);
+  const passes: string[] = [];
+  for (let passe = 1; !build.ok && passe <= REPARATIONS_MAX; passe++) {
+    const repare = await reparer(projectId, cwd, commande, build.out, passe);
+    passes.push(repare.recit);
+    if (!repare.tente) break;
+    build = await runCommand(cwd, commande, 10 * 60 * 1000, Infinity);
+  }
+  const journal = passes.length ? `\n\nRéparations tentées :\n${passes.map((p) => `- ${p}`).join('\n')}` : '';
+  const detail = build.ok
+    ? `${entete}\`${commande}\`\n${build.out.slice(-800)}${journal}`
+    : `${entete}\`${commande}\`\n${detailDEchecConstruction(build.out)}${journal}`;
+  return { ok: build.ok, detail, phrase: phraseDEchecConstruction(build.out) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -950,9 +1029,9 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
 
         current = setStep(current, 'build', 'running');
         const pose = await poserLesOutilsDeConstruction(cwd);
-        const build = await runCommand(cwd, 'npm run build', 10 * 60 * 1000);
-        current = setStep(current, 'build', build.ok ? 'done' : 'failed', pose + build.out.slice(-800));
-        if (!build.ok) throw new Error('La construction a échoué.');
+        const build = await construireAvecReparation(project.id, cwd, 'npm run build', pose);
+        current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.detail);
+        if (!build.ok) throw new Error(build.phrase);
 
         current = setStep(current, 'publish', 'running');
         const installe = installerApplication();
@@ -997,9 +1076,9 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
 
         if (plan.construction === 'npm') {
           current = setStep(current, 'build', 'running');
-          const build = await runCommand(cwd, 'npm run build', 10 * 60 * 1000);
-          current = setStep(current, 'build', build.ok ? 'done' : 'failed', `\`npm run build\`\n${build.out.slice(-800)}`);
-          if (!build.ok) throw new Error('La construction a échoué : rien n’est mis en ligne.');
+          const build = await construireAvecReparation(project.id, cwd, 'npm run build');
+          current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.detail);
+          if (!build.ok) throw new Error(build.phrase);
         } else {
           current = setStep(current, 'build', 'skipped', 'Ce projet n’a pas de script de construction : il n’y a rien à construire.');
         }
