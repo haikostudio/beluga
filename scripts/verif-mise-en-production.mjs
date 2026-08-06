@@ -3,8 +3,8 @@
  * Vérification, dans un VRAI navigateur sur le serveur de développement, du
  * bloc « Mise en production » des RÉGLAGES DU PROJET :
  *
- *  - le bloc est là, et rappelle en une ligne l'environnement de production
- *    visé, sa branche et son adresse ;
+ *  - le bloc est là, et rappelle en une ligne la branche installée — toujours
+ *    la principale — et l'adresse réglée pour le projet ;
  *  - on écrit le concept dans ses mots, on clique « Générer », un état
  *    d'attente s'affiche puis le prompt rédigé apparaît dans un champ
  *    MODIFIABLE ;
@@ -187,15 +187,9 @@ async function main() {
         isSelf: false,
         rank: 1,
         archived: false,
-        environments: [
-          {
-            id: 'prod',
-            nom: 'Production client',
-            role: 'production',
-            branche: 'release',
-            url: 'https://essai.example.com',
-          },
-        ],
+        // Il n'y a plus d'environnement à viser : le lot part toujours de la
+        // branche principale, et la seule adresse réglée est celle-ci.
+        devUrl: 'https://essai.example.com',
         miseEnProduction: {},
         createdAt: 1,
         updatedAt: 1,
@@ -314,8 +308,8 @@ async function main() {
 
   const rappel = (await page.locator('[data-rappel-production]').textContent()) ?? '';
   record(
-    'le bloc rappelle l’environnement de production, sa branche et son adresse',
-    rappel.includes('Production client') && rappel.includes('release') && rappel.includes('essai.example.com'),
+    'le bloc rappelle la branche installée et l’adresse réglée',
+    rappel.includes('branche principale') && rappel.includes('essai.example.com'),
     rappel.trim().slice(0, 130),
   );
 
