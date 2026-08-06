@@ -205,6 +205,32 @@ async function controlerTableau(page, carte, ecran) {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(500);
 
+  /* ---------- Le clic droit ouvre le menu, et il TIENT ---------- */
+  await tuile.click({ button: 'right' });
+  await page.waitForTimeout(150);
+  const ouvertClicDroit = (await page.locator('[role="menu"]').count()) > 0;
+  // La demi-seconde qui suit passée, le menu ne doit pas s'être refermé tout
+  // seul : c'est là que se voyait la régression du clic droit.
+  await page.waitForTimeout(800);
+  const tientClicDroit = (await page.locator('[role="menu"]').count()) > 0;
+  record(`${ecran} — le clic droit sur une carte ouvre le menu`, ouvertClicDroit);
+  record(`${ecran} — le menu ouvert au clic droit reste ouvert`, tientClicDroit);
+  if (tientClicDroit) {
+    const texteDroit = (await page.locator('[role="menu"]').last().textContent()) || '';
+    record(
+      `${ecran} — le clic droit ouvre le même menu (archiver, supprimer, déplacer)`,
+      /Archiver la carte/.test(texteDroit) &&
+        /Supprimer la carte/.test(texteDroit) &&
+        /Déplacer vers/.test(texteDroit),
+    );
+  }
+  record(
+    `${ecran} — le clic droit n'ouvre pas la carte par-dessous`,
+    (await page.locator('[role="dialog"]:not([role="menu"])').count()) === 0,
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+
   /* ---------- Bouger reste un glissement ---------- */
   await page.mouse.move(x, y);
   await page.mouse.down();
@@ -219,10 +245,10 @@ async function controlerTableau(page, carte, ecran) {
   await page.waitForTimeout(300);
 }
 
-/** Une carte archivée doit pouvoir se rouvrir depuis son menu. */
+/** Une carte archivée doit pouvoir sortir de l'archive depuis son menu. */
 async function controlerRouvrir(page, archivee) {
   if (!archivee) {
-    record('Le menu d’une carte archivée propose « Rouvrir »', true, 'aucune carte archivée : contrôle sauté');
+    record('Le menu d’une carte archivée propose de sortir de l’archive', true, 'aucune carte archivée : contrôle sauté');
     return;
   }
   const colonne = page.locator('[data-column="archived"]');
@@ -232,7 +258,9 @@ async function controlerRouvrir(page, archivee) {
   await tuile.click({ button: 'right' });
   await page.waitForTimeout(700);
   const texte = (await page.locator('[role="menu"]').last().textContent()) || '';
-  record('Le menu d’une carte archivée propose « Rouvrir »', /Rouvrir la carte/.test(texte));
+  // Le libellé de reprise d'une carte archivée : « Sortir de l’archive »
+  // (`libelleDeReprise`, shared/src/suivi-colonne.ts).
+  record('Le menu d’une carte archivée propose de sortir de l’archive', /Sortir de l’archive/.test(texte));
   record("Une carte archivée ne propose plus de l'archiver", !/Archiver la carte/.test(texte));
   await page.screenshot({ path: `${SHOTS}/menu-carte-archivee.png` });
   await page.keyboard.press('Escape');
