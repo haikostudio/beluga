@@ -194,24 +194,25 @@ function contexteDecision(
 const ONDES_LARGES = 16;
 
 /**
- * La ligne d'ondes. Deux visages, et un état de largeur ÉLARGIE :
- *   — au repos ET module fermé (`!plein`) : cinq barres figées en vibration
- *     sonore symétrique, un petit paquet centré ;
- *   — dès que ça parle OU que le module est ouvert (`plein`) : les barres
- *     s'ÉTALENT sur TOUTE la largeur du conteneur (`w-full`, `justify-between`),
- *     jamais un petit paquet au milieu du pied vide. Elles sont VERTES quand la
- *     voix parle (le jeton de succès), neutres quand le module est seulement
- *     ouvert.
+ * La ligne d'ondes. Deux visages, et son état ÉLARGI ne dépend QUE de la parole :
+ *   — tant que la voix NE parle PAS (`!parle`), module fermé OU seulement ouvert
+ *     au survol : cinq barres FIGÉES en vibration sonore symétrique, un petit
+ *     paquet centré, AUCUNE animation. Un survol qui déplie le panneau alors
+ *     qu'aucun son ne joue ne fait donc bouger aucune onde.
+ *   — dès que ça parle (`parle`) : les barres s'ÉTALENT sur TOUTE la largeur du
+ *     conteneur (`w-full`, `justify-between`), jamais un petit paquet au milieu
+ *     du pied vide, et deviennent VERTES (le jeton de succès).
  * Pendant la parole, les barres vertes SUIVENT le VOLUME réellement entendu —
  * hautes quand la voix porte, presque plates dans les silences : chaque barre lit
  * une tranche de fréquences de l'analyseur du son (`lireNiveaux`), rafraîchie à
  * chaque image et LISSÉE pour un mouvement doux. Sans analyse possible (voix de
  * secours du navigateur, contexte audio en veille), on retombe sur l'animation
- * régulière d'avant (`animate-onde`) — jamais sur des barres figées.
+ * régulière (`animate-onde`) — jamais sur des barres figées, mais SEULEMENT
+ * pendant la parole.
  * Un SEUL exemplaire vit dans le module — l'objet continu qui glisse du centre
  * du rond fermé au creux du pied déplié —, jamais deux qui se croiseraient.
  */
-function LigneOndes({ parle, plein }: { parle: boolean; plein: boolean }) {
+function LigneOndes({ parle }: { parle: boolean }) {
   // Les barres, pilotées à la main (sans re-rendu) au fil du son.
   const barresRef = React.useRef<(HTMLSpanElement | null)[]>([]);
   // L'analyse est-elle en place ? Faux → l'animation régulière prend le relais.
@@ -246,13 +247,14 @@ function LigneOndes({ parle, plein }: { parle: boolean; plein: boolean }) {
     return () => cancelAnimationFrame(image);
   }, [parle]);
 
-  if (plein) {
+  if (parle) {
     // Parole + analyse en place : hauteur pilotée par le volume (boucle ci-dessus).
-    // Sinon (module ouvert et muet, ou analyse indisponible) : l'onde régulière.
-    const piloté = parle && analyse;
+    // Sinon (analyse indisponible, voix de secours) : l'onde régulière — mais on
+    // n'arrive ici QUE pendant la parole, jamais sur un simple survol muet.
+    const piloté = analyse;
     return (
       <span
-        data-onde-vocale={parle ? '' : undefined}
+        data-onde-vocale=""
         data-onde-large
         className="flex w-full items-center justify-between gap-0.5 px-3"
         aria-hidden
@@ -263,9 +265,9 @@ function LigneOndes({ parle, plein }: { parle: boolean; plein: boolean }) {
             ref={(el) => {
               barresRef.current[i] = el;
             }}
-            className={`h-5 w-1 shrink-0 origin-center rounded-full ${
-              parle ? 'bg-success' : 'bg-text/60'
-            } ${piloté ? '' : 'animate-onde'}`}
+            className={`h-5 w-1 shrink-0 origin-center rounded-full bg-success ${
+              piloté ? '' : 'animate-onde'
+            }`}
             // Chaque barre décalée : l'onde ondule au lieu de battre d'un bloc.
             style={piloté ? { transform: 'scaleY(0.15)' } : { animationDelay: `${i * 60}ms` }}
           />
@@ -908,23 +910,26 @@ export function VoixAssistant() {
           transitionTimingFunction: 'ease-out',
         }}
       >
-        <LigneOndes parle={parle} plein={parle || ouvert} />
+        <LigneOndes parle={parle} />
       </div>
     </div>
 
       {/* LA POIGNÉE DE DÉPLACEMENT, À LA SOURIS SEULEMENT. Sur ordinateur, le
-          module s'ouvre au SURVOL et le bouton d'icône s'efface aussitôt : on ne
-          peut plus l'attraper pour tirer. Cette poignée vit HORS du module — un
-          frère de la boîte, pas un descendant — posée juste à l'extérieur du coin
-          bas-droit du rond, à `VOIX_ECART_POIGNEE` px du bord : la survoler ne
-          déplie donc PLUS le panneau (elle ne déclenche pas le `onMouseEnter` de
-          la boîte). Elle est ancrée au ROND fermé (jamais au panneau qui grandit),
-          donc elle ne bouge pas quand le panneau s'ouvre ou se referme et reste
-          attrapable dans les deux cas ; son transform suit le décalage retenu,
-          donc elle suit le module quand on le déplace. Aucune poignée au doigt
+          module fermé s'ouvre au SURVOL et le bouton d'icône s'efface aussitôt :
+          on ne peut plus l'attraper pour tirer. Cette poignée vit HORS du module —
+          un frère de la boîte, pas un descendant — posée juste à l'extérieur du
+          coin bas-droit du rond, à `VOIX_ECART_POIGNEE` px du bord : la survoler
+          ne déplie donc PLUS le panneau (elle ne déclenche pas le `onMouseEnter`
+          de la boîte). Elle est ancrée au ROND fermé (jamais au panneau qui
+          grandit) ; son transform suit le décalage retenu, donc elle suit le
+          module quand on le déplace. Elle ne sert qu'à tirer le module FERMÉ, et
+          disparaît DÈS QUE le panneau est ouvert (`!ouvert`) : ancrée au coin
+          bas-droit du rond, elle chevaucherait sinon le panneau déplié. Elle
+          revient une fois le module refermé. Le déplacement se fait donc toujours
+          module fermé — hors survol, la poignée est là. Aucune poignée au doigt
           (`survolPossible` faux) : l'appui déplie et le bouton porte déjà le
           glissement. */}
-      {survolPossible && (
+      {survolPossible && !ouvert && (
         <button
           type="button"
           data-poignee-voix

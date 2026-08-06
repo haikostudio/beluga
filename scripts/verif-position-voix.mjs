@@ -148,6 +148,29 @@ const partiellementVisible = (b) =>
   b.icone.y < b.fenetre.hauteur &&
   b.icone.y + b.icone.hauteur > 0;
 
+/**
+ * Saisir la poignée de déplacement (souris) et appuyer dessus, PRÊT à tirer.
+ *
+ * La poignée n'existe que module FERMÉ : elle disparaît dès que le panneau
+ * s'ouvre, pour ne jamais le recouvrir. On écarte donc le curseur (coin haut
+ * gauche) pour refermer le module, on lit la boîte de la poignée, puis on
+ * l'approche PAR LA DROITE — elle est posée au coin bas-droit du rond, venir de
+ * plus à droite ne traverse pas la boîte, qui s'ouvrirait sinon. On laisse le
+ * bouton ENFONCÉ : l'appelant tire vers sa cible puis relâche.
+ */
+async function saisirPoignee(page) {
+  await page.mouse.move(20, 120);
+  await page.waitForTimeout(400);
+  const prise = await page.locator('[data-poignee-voix]').boundingBox();
+  if (!prise) return null;
+  const cx = prise.x + prise.width / 2;
+  const cy = prise.y + prise.height / 2;
+  await page.mouse.move(cx + 140, cy);
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  return { cx, cy };
+}
+
 /* ---------- 1. À la souris : tirer l'icône déplace le module ---------- */
 
 const ordinateur = await navigateur.newContext({ viewport: { width: 1440, height: 900 } });
@@ -168,23 +191,16 @@ if (!depart) {
   await bureau.screenshot({ path: `${SHOTS}/voix-place-origine.png` });
 
   // À la souris, c'est la POIGNÉE (en bas à droite) qui porte le glissement : le
-  // bouton d'icône s'efface au survol et ne peut plus être attrapé. On survole
-  // d'abord pour déplier — la poignée se pose alors au coin du panneau ouvert —,
-  // puis on tire depuis elle.
+  // bouton d'icône s'efface au survol et ne peut plus être attrapé. La poignée
+  // ne sert que module FERMÉ (elle disparaît à l'ouverture) : on la saisit donc
+  // sans déplier, puis on tire.
   noter(
-    'à la souris, une poignée de déplacement est présente',
+    'à la souris, une poignée de déplacement est présente au repos',
     (await bureau.locator('[data-poignee-voix]').count()) > 0,
   );
-  await bureau.mouse.move(depart.x, depart.y - 20);
-  await bureau.waitForTimeout(400);
-  const prise = await bureau.locator('[data-poignee-voix]').boundingBox();
   // On tire vers le haut à gauche : franchement, bien au-delà du seuil.
-  const departPrise = { x: prise.x + prise.width / 2, y: prise.y + prise.height / 2 };
-  const versX = departPrise.x - 420;
-  const versY = departPrise.y - 320;
-  await bureau.mouse.move(departPrise.x, departPrise.y);
-  await bureau.mouse.down();
-  await bureau.mouse.move(versX, versY, { steps: 20 });
+  const prise = await saisirPoignee(bureau);
+  await bureau.mouse.move(prise.cx - 420, prise.cy - 320, { steps: 20 });
   await bureau.mouse.up();
   await bureau.waitForTimeout(800);
   // Le curseur laissé sur le module le déplierait : on l'écarte avant de mesurer.
@@ -249,17 +265,22 @@ if (!depart) {
     'le module se déplie toujours au survol',
     (await bureau.locator('[data-module-voix][data-ouvert]').count()) > 0,
   );
+  // Panneau ouvert, la poignée a disparu : elle ne recouvre jamais le déplié.
+  noter(
+    'ouvert, la poignée de déplacement disparaît',
+    (await bureau.locator('[data-poignee-voix]').count()) === 0,
+  );
   await bureau.mouse.move(20, 120);
   await bureau.waitForTimeout(400);
+  // Refermé, elle revient.
+  noter(
+    'refermé, la poignée de déplacement revient',
+    (await bureau.locator('[data-poignee-voix]').count()) > 0,
+  );
 
   /* ---------- 5. Tiré jusqu'à un bord, le module s'accroche ---------- */
 
-  const avant4 = await boite(bureau);
-  await bureau.mouse.move(avant4.x, avant4.y - 20);
-  await bureau.waitForTimeout(400);
-  const prise2 = await bureau.locator('[data-poignee-voix]').boundingBox();
-  await bureau.mouse.move(prise2.x + prise2.width / 2, prise2.y + prise2.height / 2);
-  await bureau.mouse.down();
+  await saisirPoignee(bureau);
   await bureau.mouse.move(3000, 2000, { steps: 20 });
   await bureau.mouse.up();
   await bureau.waitForTimeout(800);
@@ -296,12 +317,8 @@ if (!depart) {
   await bureau.waitForTimeout(300);
 
   const avantAccroche = await boite(bureau);
-  // Déplier au survol pour saisir la poignée, puis la tirer contre le bord gauche.
-  await bureau.mouse.move(avantAccroche.x, avantAccroche.y - 20);
-  await bureau.waitForTimeout(500);
-  const prise3 = await bureau.locator('[data-poignee-voix]').boundingBox();
-  await bureau.mouse.move(prise3.x + prise3.width / 2, prise3.y + prise3.height / 2);
-  await bureau.mouse.down();
+  // On saisit la poignée (module fermé) et on la tire contre le bord gauche.
+  await saisirPoignee(bureau);
   await bureau.mouse.move(6, avantAccroche.y - 60, { steps: 20 });
   await bureau.mouse.up();
   await bureau.waitForTimeout(800);
@@ -352,14 +369,9 @@ if (!depart) {
   );
   await bureau.screenshot({ path: `${SHOTS}/voix-accrochee-ouverte.png` });
 
-  // Ouvert, on saisit sa poignée et on le tire vers le centre : il se décroche.
-  // On rejoint la poignée EN RESTANT dans le panneau (passer par son centre), pour
-  // ne pas le refermer en route et perdre la prise.
-  await bureau.mouse.move(ouvertAccroche.x, ouvertAccroche.y - 30);
-  await bureau.waitForTimeout(300);
-  const prise4 = await bureau.locator('[data-poignee-voix]').boundingBox();
-  await bureau.mouse.move(prise4.x + prise4.width / 2, prise4.y + prise4.height / 2);
-  await bureau.mouse.down();
+  // On saisit sa poignée (module refermé en pastille) et on la tire vers le
+  // centre : il se décroche, plus aucun bord proche au relâchement.
+  await saisirPoignee(bureau);
   await bureau.mouse.move(ouvertAccroche.fenetre.largeur / 2, ouvertAccroche.fenetre.hauteur / 2, { steps: 20 });
   await bureau.mouse.up();
   await bureau.waitForTimeout(800);

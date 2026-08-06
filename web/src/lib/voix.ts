@@ -65,6 +65,58 @@ let source: MediaElementAudioSourceNode | null = null;
 let analyseur: AnalyserNode | null = null;
 let donneesFreq: Uint8Array | null = null;
 
+/** Le contexte audio, créé une seule fois. `null` si le navigateur ne sait pas. */
+function obtenirContexte(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const Ctx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return null;
+  if (!contexteAudio) {
+    try {
+      contexteAudio = new Ctx();
+    } catch {
+      return null;
+    }
+  }
+  return contexteAudio;
+}
+
+/*
+ * RÉVEILLER LE CONTEXTE AU PREMIER GESTE. Un contexte audio naît « suspendu » et
+ * ne passe en « running » que réveillé PENDANT (ou après) un geste de
+ * l'utilisateur : les navigateurs le refusent sans geste. Or `brancherAnalyse`
+ * ne route le son par l'analyseur que si le contexte tourne DÉJÀ — sinon il
+ * couperait le son. Réveillé seulement au moment d'une annonce (hors geste), le
+ * `resume()` est asynchrone et le contexte est encore suspendu à l'instant où on
+ * le teste : l'analyse ne prenait donc jamais au premier son, et l'onde retombait
+ * toujours sur son animation régulière. On réveille donc le contexte au tout
+ * premier geste (un clic, une touche, un appui), une fois pour toutes : quand un
+ * son se joue ensuite, l'analyse peut router et lire le vrai volume.
+ */
+if (typeof window !== 'undefined') {
+  const GESTES = ['pointerdown', 'keydown', 'touchstart'] as const;
+  const reveiller = () => {
+    const ctx = obtenirContexte();
+    if (!ctx) {
+      for (const e of GESTES) window.removeEventListener(e, reveiller);
+      return;
+    }
+    void ctx
+      .resume?.()
+      .then(() => {
+        // Réveillé : plus besoin d'écouter les gestes suivants.
+        if (ctx.state === 'running') {
+          for (const e of GESTES) window.removeEventListener(e, reveiller);
+        }
+      })
+      .catch(() => {
+        /* le navigateur a refusé : on retentera au prochain geste */
+      });
+  };
+  for (const e of GESTES) window.addEventListener(e, reveiller, { passive: true });
+}
+
 /** Défait le graphe d'analyse en cours, sans toucher au son de l'élément. */
 function detacherAnalyse(): void {
   try {
@@ -89,30 +141,29 @@ function detacherAnalyse(): void {
  */
 function brancherAnalyse(element: HTMLAudioElement): void {
   detacherAnalyse();
-  if (typeof window === 'undefined') return;
-  const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!Ctx) return;
+  const ctx = obtenirContexte();
+  if (!ctx) return;
   try {
-    if (!contexteAudio) contexteAudio = new Ctx();
-    // On tente de réveiller le contexte (souvent déjà actif après une première
-    // interaction) — mais on ne route par le graphe que s'il tourne VRAIMENT.
-    void contexteAudio.resume?.();
-    if (contexteAudio.state !== 'running') return;
-    const src = contexteAudio.createMediaElementSource(element);
+    // On retente un réveil (le geste d'ouverture l'a en général déjà mis en
+    // route) — mais on ne route par le graphe que s'il tourne VRAIMENT, sinon le
+    // son passerait par un contexte suspendu et ne sortirait plus.
+    void ctx.resume?.();
+    if (ctx.state !== 'running') return;
+    const src = ctx.createMediaElementSource(element);
     source = src;
     try {
-      const an = contexteAudio.createAnalyser();
+      const an = ctx.createAnalyser();
       an.fftSize = 128;
       an.smoothingTimeConstant = 0.8;
       src.connect(an);
-      an.connect(contexteAudio.destination);
+      an.connect(ctx.destination);
       analyseur = an;
       donneesFreq = new Uint8Array(an.frequencyBinCount);
     } catch {
       // L'analyseur a échoué mais l'élément est déjà routé : on garantit le son
       // en reliant la source directement à la sortie.
       try {
-        src.connect(contexteAudio.destination);
+        src.connect(ctx.destination);
       } catch {
         /* rien de plus à tenter */
       }
