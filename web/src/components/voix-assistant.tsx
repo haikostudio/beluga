@@ -4,9 +4,8 @@ import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
   NOM_UTILISATEUR,
-  bordDaccroche,
   correctionOuverture,
-  decalageAccroche,
+  decalageRetenu,
   decisionsOuvertes,
   estUnGlissement,
   formesDeReveil,
@@ -15,12 +14,10 @@ import {
   phraseDecisionAttendue,
   phraseVocaleDeNotification,
   pileApres,
-  placeRetenue,
   ramenerDansLEcran,
   sensDouverture,
   type ContexteDecision,
   type DecalageVoix,
-  type PlaceVoix,
   type VoixOptions,
 } from '@haikodev/shared';
 import { client } from '@/lib/client';
@@ -41,6 +38,17 @@ export const CLE_VOIX_MUETTE = 'voix.muet';
  * appareils.
  */
 export const CLE_VOIX_ECOUTE = 'voix.ecoute';
+
+/**
+ * La clé qui dit que la place du module a DÉJÀ été remise à zéro une fois. La
+ * place était jadis réécrite toute seule (recadrage au redimensionnement,
+ * accroche à un bord), si bien qu'une correction faite ailleurs revenait sur
+ * l'écran principal. On repart donc UNE fois d'une place neuve (bas au centre),
+ * puis plus rien n'écrit la place sans un glissement volontaire. Le drapeau vit
+ * en préférence serveur, donc partagé : la remise à zéro n'a lieu qu'une seule
+ * fois, pas à chaque appareil ni à chaque rechargement.
+ */
+export const CLE_VOIX_REINIT = 'voix.reinit';
 
 /** Combien de messages prononcés la liste dépliée MONTRE, le plus récent en tête. */
 export const VOIX_MESSAGES_MAX = 10;
@@ -73,11 +81,6 @@ const VOIX_ROND = 44;
  * plus le panneau (elle n'est plus un descendant de la boîte qui écoute le survol).
  */
 const VOIX_ECART_POIGNEE = 6;
-/**
- * La pastille RÉDUITE quand le module est accroché à un bord : plus petite que
- * le rond, à moitié engagée hors de l'écran pour ne plus masquer le contenu.
- */
-const VOIX_PASTILLE = 30;
 /**
  * Combien de barres compose la ligne d'ondes ÉLARGIE : assez pour remplir tout
  * le pied du panneau (256 px) sans que les gros écarts ne le fassent paraître
@@ -369,9 +372,9 @@ export function VoixAssistant() {
    * lui est laissée, voir web/src/app.tsx), débordant un peu en haut et en bas
    * comme un bouton d'action. Il garde tout ce qu'il sait faire — parler, montrer
    * ses ondes, s'ouvrir, écouter — mais ne se DÉPLACE plus (pas de glissement,
-   * pas d'accroche, pas de poignée) : ces gestes n'ont plus de sens à cette
-   * place. La place mémorisée (`range`) n'est PAS effacée : elle ressert dès
-   * qu'on repasse sur grand écran.
+   * pas de poignée) : ces gestes n'ont plus de sens à cette place. La place
+   * mémorisée (`range`) n'est PAS effacée : elle ressert dès qu'on repasse sur
+   * grand écran.
    */
   const ancreMenu = useTelephone();
   const ancreMenuRef = React.useRef(ancreMenu);
@@ -565,79 +568,52 @@ export function VoixAssistant() {
    * OÙ LE MODULE SE POSE. Sa place est retenue dans le COMPTE, par le même
    * mécanisme que le bloc en bas à droite : une préférence serveur, donc la
    * même sur tous les appareils. Ce qu'on retient est un DÉCALAGE par rapport
-   * à la place d'origine (bas au centre), plus — quand le module est ACCROCHÉ
-   * à un bord — le bord où il l'est ; jamais une position absolue.
+   * à la place d'origine (bas au centre) ; jamais une position absolue.
    *
-   * Pendant qu'on tire, la position « vive » (`vif`) mène la danse : l'écran
-   * suit le doigt sans écrire au serveur à chaque pixel. La place n'est rangée
-   * qu'au relâchement, avec ou sans accroche selon où on a lâché.
+   * La place n'est écrite QUE par un glissement volontaire — jamais par le
+   * recadrage de visibilité (qui corrige l'affichage du moment sans rien
+   * ranger) ni par une accroche automatique à un bord (supprimée) : lâché
+   * quelque part, le module y reste. Pendant qu'on tire, la position « vive »
+   * (`vif`) mène la danse : l'écran suit le doigt sans écrire au serveur à
+   * chaque pixel, et la place n'est rangée qu'au relâchement.
    */
-  const [range, rangerDecalage] = usePref<PlaceVoix>(CLE_VOIX_POSITION, DECALAGE_VOIX_DEFAUT);
+  const [range, rangerDecalage] = usePref<DecalageVoix>(CLE_VOIX_POSITION, DECALAGE_VOIX_DEFAUT);
   const [vif, setVif] = React.useState<DecalageVoix | null>(null);
-  // La place retenue : décalage libre, ou décalage + bord d'accroche. Pendant un
-  // glissement (`vif` posé), l'accroche est en suspens : on montre le rond libre.
-  const place = placeRetenue(range);
-  // Ancré au menu, jamais d'accroche à un bord : le module a une place imposée.
-  const accrochee = !ancreMenu && place.bord !== undefined && vif === null;
+  // La place retenue, ramenée à un décalage libre `{x, y}`.
+  const place = decalageRetenu(range);
+
+  /*
+   * REMISE À ZÉRO, UNE SEULE FOIS. La place était jadis réécrite toute seule ;
+   * on repart donc d'une place neuve (bas au centre) une fois pour toutes, dès
+   * que les préférences sont chargées (`state.settings` posé au même moment).
+   * Le drapeau vit en préférence serveur, partagé : la remise à zéro n'a lieu
+   * qu'une fois, jamais à chaque appareil ni à chaque rechargement, et ne
+   * touche plus rien dès qu'un glissement volontaire a fixé une place.
+   */
+  const [dejaReinit, setDejaReinit] = usePref<boolean>(CLE_VOIX_REINIT, false);
+  React.useEffect(() => {
+    if (!state.settings || dejaReinit) return;
+    rangerDecalage(DECALAGE_VOIX_DEFAUT);
+    setDejaReinit(true);
+  }, [state.settings, dejaReinit, rangerDecalage, setDejaReinit]);
 
   // Lu par les écouteurs de glissement sans les réabonner à chaque pixel. Il
   // porte le décalage EFFECTIF du dernier rendu.
   const decalageRef = React.useRef<DecalageVoix>({ x: place.x, y: place.y });
-  // La ligne du bas du rond SANS décalage, déduite de la dernière mesure :
-  // `baseBas = originBas + décalage rendu`, donc on retranche le décalage du
-  // rendu PRÉCÉDENT (encore dans `decalageRef`). La boîte étant ancrée par le
-  // bas quelle que soit sa taille, ce calcul vaut pour la pastille comme pour le
-  // panneau. `null` tant qu'aucune mesure n'a eu lieu.
-  const originBas =
-    baseBasRef.current != null ? baseBasRef.current - decalageRef.current.y : null;
 
-  // Le décalage EFFECTIF. Hors accroche (ou pendant un glissement), c'est le
-  // décalage libre. Accroché, il est calculé depuis le bord : pastille à moitié
-  // dehors quand le module est fermé, rond entier collé au bord quand il est
-  // ouvert (le panneau se déploie ensuite vers l'intérieur).
-  // Le module est-il DÉPLOYÉ (panneau ouvert, ou dictée en cours) ? Accroché à un
-  // bord, il ne se montre alors plus en pastille demi-dehors : il revient au ras
-  // du bord, sinon la phrase entendue s'afficherait à moitié hors de l'écran.
+  // Le module est-il DÉPLOYÉ (panneau ouvert, ou dictée en cours) ? Sert à la
+  // mesure de la ligne du bas, qui ne vaut que module non déployé.
   const deploye = ouvert || dicteEnCours;
-  // Ancré au menu : décalage NUL, on ne lit pas la place mémorisée (mais on ne
-  // l'efface pas non plus). Le module se centre alors sur le menu du bas, dont
-  // la hauteur donne la ligne du bas de la boîte (`ancrageBas`, plus bas).
-  const decalage: DecalageVoix = ancreMenu
-    ? { x: 0, y: 0 }
-    : vif ??
-      (accrochee && place.bord && originBas != null
-        ? decalageAccroche(
-            place.bord,
-            place,
-            originBas,
-            { width: fenetre.width, height: fenetre.height },
-            deploye ? VOIX_ROND : VOIX_PASTILLE,
-            !deploye,
-          )
-        : { x: place.x, y: place.y });
+  // Le décalage EFFECTIF. Ancré au menu (téléphone) : décalage NUL, on ne lit
+  // pas la place mémorisée (mais on ne l'efface pas non plus) — le module se
+  // centre sur le menu du bas. Sinon : la position vive pendant un glissement,
+  // ou la place retenue.
+  const decalage: DecalageVoix = ancreMenu ? { x: 0, y: 0 } : vif ?? { x: place.x, y: place.y };
   decalageRef.current = decalage;
 
-  // D'où PART un glissement : la place libre courante, ou — si le module est
-  // accroché — le rond entier collé au bord (il « rentre » d'abord, puis suit le
-  // pointeur), pour ne pas sauter au premier mouvement.
-  const baseGlissement: DecalageVoix =
-    accrochee && place.bord && originBas != null
-      ? decalageAccroche(
-          place.bord,
-          place,
-          originBas,
-          { width: fenetre.width, height: fenetre.height },
-          VOIX_ROND,
-          false,
-        )
-      : decalage;
-  const baseGlissementRef = React.useRef(baseGlissement);
-  baseGlissementRef.current = baseGlissement;
-  // Lu par le relâchement (effet non réabonné) : l'origine et l'accroche rangée.
-  const originBasRef = React.useRef<number | null>(originBas);
-  originBasRef.current = originBas;
-  const accrocheeStoreeRef = React.useRef(place.bord !== undefined);
-  accrocheeStoreeRef.current = place.bord !== undefined;
+  // D'où PART un glissement : la place effective courante.
+  const baseGlissementRef = React.useRef(decalage);
+  baseGlissementRef.current = decalage;
 
   // Le glissement en cours : d'où il part, et depuis quelle place.
   const glissementRef = React.useRef<
@@ -660,8 +636,7 @@ export function VoixAssistant() {
     glissementRef.current = {
       departX: event.clientX,
       departY: event.clientY,
-      // Accroché, on part du rond entier collé au bord : la pastille « rentre »
-      // et suit le pointeur, sans saut.
+      // On part de la place effective du moment : le module suit le pointeur.
       base: baseGlissementRef.current,
       bouge: false,
     };
@@ -717,8 +692,11 @@ export function VoixAssistant() {
   // (pour recalculer le côté d'ouverture), on rafraîchit la ligne de base même
   // panneau ouvert (un redimensionnement n'anime pas la boîte, la mesure est
   // nette), et une position venue d'un plus grand écran est ramenée dans les
-  // bords, le corrigé étant RANGÉ — sinon il reviendrait hors écran au prochain
-  // démarrage.
+  // bords POUR L'AFFICHAGE seulement (`setVif`) — JAMAIS rangée dans la
+  // préférence : ce recadrage automatique écrivait la place sans geste de
+  // l'utilisateur, si bien qu'une correction faite ailleurs (petit écran,
+  // clavier virtuel) revenait sur l'écran principal. Seul un glissement range
+  // désormais.
   React.useEffect(() => {
     const replacer = () => {
       setFenetre({ width: window.innerWidth, height: window.innerHeight });
@@ -726,32 +704,24 @@ export function VoixAssistant() {
       // Ancré au menu, la place est imposée : on ne recadre ni ne range rien —
       // surtout, on n'écrase pas la place mémorisée, qui ressert sur grand écran.
       if (ancreMenuRef.current) return;
-      // Accroché, la place se recalcule à chaque rendu depuis le bord et la
-      // fenêtre : rien à recadrer ni à ranger. La règle de visibilité ne vaut
-      // que pour les places LIBRES.
-      if (accrocheeStoreeRef.current) return;
       // La fenêtre vient peut-être de changer de taille : le bas du rond a
       // bougé AVEC elle. On le RE-MESURE tout de suite — le navigateur a déjà
       // refait la mise en page dans cet événement `resize` — avant de recadrer.
-      // Sinon `ancre()` bornerait la NOUVELLE fenêtre avec le bas mesuré dans
-      // l'ANCIENNE (l'effet de mesure ne se rejoue qu'APRÈS ce gestionnaire) :
-      // un décalage faussé, écrit dans le compte, et le module qui remonte un
-      // peu plus à chaque redimensionnement jusqu'à sortir de l'écran. Fermé, la
-      // correction d'ouverture est nulle ; ouvert, on la retranche (le DOM la
-      // porte encore, ce rendu n'ayant pas encore été refait).
+      // Fermé, la correction d'ouverture est nulle ; ouvert, on la retranche (le
+      // DOM la porte encore, ce rendu n'ayant pas encore été refait).
       const boite = racineRef.current?.getBoundingClientRect();
       if (boite) baseBasRef.current = boite.bottom - corrRef.current.y;
       const actuel = decalageRef.current;
       const corrige = recadrer(actuel);
       if (memeDecalage(corrige, actuel)) return;
-      setVif(null);
-      rangerDecalage(corrige);
+      // Affichage seul : on montre la place corrigée sans TOUCHER à la
+      // préférence. Rien n'est rangé sans un glissement volontaire.
+      setVif(corrige);
     };
     replacer();
     window.addEventListener('resize', replacer);
     return () => window.removeEventListener('resize', replacer);
-    // `rangerDecalage` est stable (clé fixe) ; `range` déclenche la relecture.
-  }, [recadrer, rangerDecalage, range]);
+  }, [recadrer]);
 
   React.useEffect(() => {
     const bouger = (event: PointerEvent) => {
@@ -771,31 +741,12 @@ export function VoixAssistant() {
       setSaisi(false);
       if (!g.bouge) return;
       vientDeGlisserRef.current = true;
+      // Lâché quelque part, le module Y RESTE : aucune accroche automatique à un
+      // bord. On range simplement la place où on l'a posé (ramenée dans l'écran
+      // pour rester attrapable). C'est le SEUL chemin qui écrit la préférence.
       const pose = recadrer(decalageRef.current);
-      // Lâché tout près d'un bord ? Le module s'y ACCROCHE en pastille ; sinon il
-      // reste à sa place libre. Tirer un module accroché vers le centre le
-      // décroche donc naturellement (plus aucun bord proche au relâchement).
-      const originActuel = originBasRef.current;
-      const bord =
-        originActuel != null
-          ? bordDaccroche(
-              {
-                left: window.innerWidth / 2 + pose.x - VOIX_ROND / 2,
-                top: originActuel + pose.y - VOIX_ROND,
-                width: VOIX_ROND,
-                height: VOIX_ROND,
-              },
-              { width: window.innerWidth, height: window.innerHeight },
-            )
-          : null;
-      if (bord) {
-        // La place accrochée se recalcule au rendu : on efface la position vive.
-        setVif(null);
-        rangerDecalage({ x: pose.x, y: pose.y, bord });
-      } else {
-        setVif(pose);
-        rangerDecalage({ x: pose.x, y: pose.y });
-      }
+      setVif(pose);
+      rangerDecalage({ x: pose.x, y: pose.y });
     };
     window.addEventListener('pointermove', bouger, { passive: false });
     window.addEventListener('pointerup', lacher);
@@ -808,14 +759,8 @@ export function VoixAssistant() {
   }, [recadrer, rangerDecalage]);
 
   const nb = messages.length;
-  // Le MÊME objet s'agrandit, qu'on le survole ou qu'il se mette à parler. Mais
-  // ACCROCHÉ et fermé, il se réduit en pastille — même en parlant : l'accroche
-  // ne coupe ni la voix ni les ondes, elle range seulement le module hors du
-  // chemin. Le survol/appui le rouvre en panneau (via `ouvert`), comme partout.
-  const forme =
-    accrochee && !ouvert && !dicteEnCours
-      ? { largeur: VOIX_PASTILLE, hauteur: VOIX_PASTILLE, rayon: VOIX_PASTILLE / 2 }
-      : formeDuModule(ouvert, parle, nb, dicteEnCours);
+  // Le MÊME objet s'agrandit, qu'on le survole ou qu'il se mette à parler.
+  const forme = formeDuModule(ouvert, parle, nb, dicteEnCours);
   // Le contenu se dévoile UNE FOIS la place faite : à l'ouverture il attend que
   // la boîte ait grandi, à la fermeture il s'efface d'abord, puis elle rétrécit.
   const attenteContenu = ouvert ? VOIX_MORPHISME_MS * 0.55 : 0;
@@ -848,8 +793,6 @@ export function VoixAssistant() {
       data-module-voix
       data-parle={parle ? '' : undefined}
       data-ouvert={ouvert ? '' : undefined}
-      data-accrochee={accrochee ? '' : undefined}
-      data-bord={accrochee ? place.bord : undefined}
       // Ancré au centre du menu du bas (téléphone) : repère pour les vérifications.
       data-ancre-menu={ancreMenu ? '' : undefined}
       // Où en est l'écoute permanente : « eteinte », « guette », « ecoute »,

@@ -784,25 +784,28 @@ sans son point d'essai.
   DÉCALAGE en pixels par rapport à la place d'origine — décalage nul = l'affichage d'avant. Il passe
   par le MÊME mécanisme que le bloc du dock, une préférence SERVEUR (`usePref`, clé
   `CLE_VOIX_POSITION` = `voix`, jamais `dock`), donc la même place sur tous les appareils ; jamais un
-  second mécanisme, et jamais le `localStorage` de l'historique. `ramenerDansLEcran` garde le module
-  entièrement visible au chargement comme au redimensionnement — une place prise sur grand écran est
-  ramenée dans les bords d'un téléphone, et le corrigé est RANGÉ, sinon il reviendrait hors écran au
-  démarrage suivant. Ce recadrage tourne DANS l'événement `resize`, donc AVANT que l'effet de mesure
-  ne se rejoue : il doit RE-MESURER le bas du rond depuis le DOM (déjà remis en page) à ce moment-là,
-  jamais s'appuyer sur la mesure de l'ANCIENNE fenêtre — sinon il borne la nouvelle taille avec un
-  repère périmé, écrit un décalage faussé dans le compte, et le module remonte un peu plus à chaque
-  redimensionnement jusqu'à sortir de l'écran. Sans geste (rechargement ou redimensionnement qui
-  laisse le module dans l'écran), la place ne se réécrit JAMAIS. Un glissement au doigt ne produit AUCUN clic : le repère « on vient de glisser »
-  est donc remis à zéro au `pointerdown` suivant, sinon il mangerait l'appui d'après et le module ne
-  se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
-  (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. **SUR TÉLÉPHONE
-  (`useTelephone`, `ancreMenu`), le module ne flotte plus : il vient se poser AU CENTRE du menu du
-  bas** (la colonne du milieu lui est laissée, `data-place-voix`) — décalage FORCÉ à zéro, `bottom`
-  mesuré sur la barre (`nav[data-menu-bas]`) pour aligner le CENTRE du rond sur celui de la barre (il
-  déborde alors un peu en haut et en bas), et ni glissement (`onPointerDown` neutralisé), ni accroche
-  (`accrochee` faux), ni poignée. La place mémorisée n'est PAS effacée (l'effet de recadrage rend la
-  main tout de suite quand `ancreMenu`) : elle ressert dès qu'on repasse sur grand écran. Attribut
-  `data-ancre-menu`. Verrouillé par `server/src/test/position-voix.test.ts`,
+  second mécanisme, et jamais le `localStorage` de l'historique. **La place n'est ÉCRITE que par un
+  GLISSEMENT volontaire** (le relâchement, dans l'effet `pointerup`) : aucun chemin automatique ne
+  range plus la préférence. `ramenerDansLEcran` garde bien le module entièrement visible au
+  chargement comme au redimensionnement — une place prise sur grand écran est ramenée dans les bords
+  d'un téléphone —, mais ce recadrage ne vaut que pour l'AFFICHAGE du moment (`setVif(corrige)`) : il
+  ne TOUCHE PLUS à la préférence (jadis `rangerDecalage(corrige)` dans l'événement `resize`, si bien
+  qu'une correction faite ailleurs — petit écran, clavier virtuel — revenait sur l'écran principal).
+  Il re-mesure quand même le bas du rond depuis le DOM avant de recadrer, pour ne pas borner la
+  nouvelle fenêtre avec un repère périmé. **La place mémorisée est REMISE À ZÉRO une fois** (drapeau
+  serveur `CLE_VOIX_REINIT` = `voix.reinit`, posé dès que les préférences sont chargées) : le module
+  repart en bas au centre, une seule fois, jamais à chaque appareil ni à chaque rechargement, et plus
+  rien ne bouge sans un glissement. Un glissement au doigt ne produit AUCUN clic : le repère « on
+  vient de glisser » est donc remis à zéro au `pointerdown` suivant, sinon il mangerait l'appui
+  d'après et le module ne se déplierait plus jamais. Le transform porte à la fois le centrage
+  d'origine et le décalage (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe
+  `-translate-x-1/2`. **SUR TÉLÉPHONE (`useTelephone`, `ancreMenu`), le module ne flotte plus : il
+  vient se poser AU CENTRE du menu du bas** (la colonne du milieu lui est laissée, `data-place-voix`)
+  — décalage FORCÉ à zéro, `bottom` mesuré sur la barre (`nav[data-menu-bas]`) pour aligner le CENTRE
+  du rond sur celui de la barre (il déborde alors un peu en haut et en bas), et ni glissement
+  (`onPointerDown` neutralisé) ni poignée. La place mémorisée n'est PAS effacée (l'effet de recadrage
+  rend la main tout de suite quand `ancreMenu`) : elle ressert dès qu'on repasse sur grand écran.
+  Attribut `data-ancre-menu`. Verrouillé par `server/src/test/position-voix.test.ts`,
   `scripts/verif-position-voix.mjs` et `scripts/verif-menu-bas-telephone.mjs`.
 - **DEUX moteurs de synthèse cohabitent, et c'est la VOIX CHOISIE qui décide lequel parle**
   (`server/src/voice.ts`). Piper reste le moteur d'origine et la voix par défaut ne bouge pas
@@ -840,23 +843,14 @@ sans son point d'essai.
   centre de la fenêtre et la ligne du bas mesurée quand le module est fermé (`baseBasRef`), rafraîchie
   au redimensionnement. Le choix se recalcule à l'ouverture et au `resize`. Verrouillé par les cas
   « le panneau s'ouvre du côté où il y a de la place » de `server/src/test/position-voix.test.ts`.
-- **Lâché tout près d'un bord, le module de voix S'Y ACCROCHE et se RÉDUIT**
-  (`bordDaccroche` / `decalageAccroche`, `shared/src/position-voix.ts`). La place retenue reste un
-  décalage `{x, y}`, mais elle porte EN PLUS un `bord` (`gauche`, `droite` ou `bas`, JAMAIS le haut)
-  quand le module est accroché — `placeRetenue` lit l'ancien format `{x, y}` seul comme une place
-  libre. Au relâchement, `bordDaccroche` regarde la boîte du rond lâché : si un bord est à moins de
-  `SEUIL_ACCROCHE_VOIX` (20 px ; la règle de visibilité tient déjà le module à 8 px du bord, donc
-  bien en deçà), le module s'y range. Fermé, il se montre en PASTILLE réduite (`VOIX_PASTILLE`,
-  30 px, `voix-assistant.tsx`) À MOITIÉ engagée hors de l'écran (`demiDehors`), même en parlant —
-  l'accroche ne coupe ni la voix ni les ondes. Survolé (souris) ou touché (doigt), il revient à sa
-  taille et OUVRE son panneau, calé AU RAS du bord (`demiDehors` faux, bord extérieur sur le bord de
-  l'écran, jamais à une marge : sinon le panneau, en s'ouvrant vers l'intérieur, découvrirait le
-  point de survol et re-fermerait aussitôt) ; `sensDouverture` fait le reste. Tiré vers le centre, le
-  module se DÉCROCHE de lui-même : plus aucun bord proche au relâchement, la place rangée redevient
-  libre. La place accrochée se RECALCULE à chaque rendu depuis le bord et la fenêtre (jamais rangée
-  au redimensionnement) : `ramenerDansLEcran` ne vaut donc QUE pour les places libres. Le module
-  porte `data-accrochee` et `data-bord`. Verrouillé par `server/src/test/position-voix.test.ts` et
-  `scripts/verif-position-voix.mjs` (cas d'accroche, souris et doigt).
+- **Le module de voix ne s'accroche PLUS tout seul à un bord : lâché quelque part, il Y RESTE**
+  (`shared/src/position-voix.ts`, `web/src/components/voix-assistant.tsx`). L'accroche automatique à
+  un bord (jadis `bordDaccroche` / `decalageAccroche`, pastille demi-dehors sous 20 px) a été
+  SUPPRIMÉE — règles pures, état de rendu et attributs `data-accrochee` / `data-bord` compris : elle
+  déplaçait le module sans geste voulu. Le relâchement d'un glissement range donc toujours une place
+  LIBRE `{x, y}` (ramenée dans l'écran pour rester attrapable), et c'est le SEUL chemin qui écrit la
+  préférence. `decalageRetenu` ne garde que `x` et `y` : un ancien `bord` retenu est ignoré, jamais
+  ranimé. Verrouillé par `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
 - **L'ÉCOUTE PERMANENTE ne s'ouvre JAMAIS toute seule, et le mot de réveil est RÉGLABLE (défaut « Dis Haiko »)**
   (règles pures dans `shared/src/reveil-vocal.ts`, micro et découpe dans `web/src/lib/ecoute.ts`,
   affichage dans `web/src/components/voix-assistant.tsx`). Un interrupteur vit dans le panneau
