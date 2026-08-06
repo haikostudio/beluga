@@ -490,8 +490,17 @@ sans son point d'essai.
   qu'un groupe se forme) et la voix le PRÉFÈRE au repli par titre. Le soir, `phraseDepuisReponse` rend
   `null` (le ton bref préfère la courte phrase par titre). La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
-  `GET /api/speak?text=…` (bornée à `VOIX_LONGUEUR_MAX`, `server/src/http.ts`), avec repli sur la voix
-  du navigateur. **Le module est UN SEUL objet qui se MÉTAMORPHOSE** : il n'y a plus un bouton d'un
+  `GET /api/speak?text=…` (bornée par `normaliserTexteVoix`, `server/src/http.ts`), avec repli sur la voix
+  du navigateur. **Le son fabriqué est GARDÉ, et préparé d'avance** (`server/src/voice.ts`) : `speak`
+  range chaque son dans `<data>/audio/cache/<empreinte>.wav`, l'empreinte découlant de la VOIX résolue
+  ET du texte — même phrase, même voix, même fichier, donc une réécoute repart du fichier sans relancer
+  Piper. Une synthèse déjà EN COURS pour une empreinte n'est pas relancée (map `enCours`), et le cache
+  ne grossit pas sans fin : au-delà de `CACHE_SONS_MAX` (200) fichiers, les plus vieux tombent
+  (`rangerLeCache`, sur la date de dernier accès). L'AVANCE : dès qu'un événement porte une phrase
+  parlée (`input.voix` — fin de tâche, publication terminée ou en échec), `notify` (`server/src/notify.ts`)
+  appelle `precharger` en arrière-plan, si bien que le fichier est déjà là quand le navigateur le
+  demande. `/api/speak` reste en `cache-control: no-store` (l'URL ne porte pas la voix : un cache
+  navigateur servirait un ancien son après un changement de voix). **Le module est UN SEUL objet qui se MÉTAMORPHOSE** : il n'y a plus un bouton d'un
   côté et un panneau de l'autre. `formeDuModule(ouvert, parle, nb)` rend sa largeur, sa hauteur et son
   rayon en NOMBRES — rond de 44 px au repos (rayon = moitié, donc un cercle), bloc de 96 px quand ça
   parle, panneau de 256 px (borné à `80vw`) quand il est déplié, la hauteur suivant le nombre de
