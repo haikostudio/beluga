@@ -347,7 +347,17 @@ sans son point d'essai.
   Une publication en cours ailleurs éteint le bouton EN LE DISANT. Sous le bouton du déploiement,
   une ligne dit COMMENT l'instance de dev sera rafraîchie (`deploy.check` → `miseEnLigne.raison`) :
   ce n'est jamais un refus, seulement ce qui va se passer. Le pied de lot des deux colonnes ne bouge
-  pas.
+  pas. La TÊTE du bloc porte le bouton d'action ET, accolé à droite, un chevron (`data-chevron-process`)
+  qui ouvre le DÉROULÉ des SEPT étapes (`ProcessusEtapes`, ordre `ORDRE_ETAPES` = `merge`, `commit`,
+  `push`, `verify`, `build`, `publish`, `restart`) : chaque étape porte son état en clair (fait, en
+  cours, sauté, à venir, échoué) et cache une courte description révélée par un « ? » (survol souris,
+  clic tactile). Pendant MA publication (`active && mienne`), le bouton d'action est éteint et affiche
+  l'ÉTAPE en cours au lieu du verbe, le déroulé s'ouvre tout seul (`derouleOuvert`) et reflète les
+  états réels ; un échec garde son motif sous l'étape tombée. Le compte rendu (issue, `queued`,
+  adresse, « Arrêter »/« Relancer ») vit dans `DeployControls` sous la tête, et le résumé de réussite
+  garde le format `Publié (<étape>) : N tâche(s)`. Le texte du bouton d'action hors publication reste
+  `Tout <verbe> (<n>)` (`data-bouton-publication`), verrouillé par `scripts/verif-lot-production.mjs`
+  et `scripts/verif-bloc-publication.mjs`.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
   `shared/src/suivi-colonne.ts`). La règle par défaut ne bouge pas : aucun chemin AUTOMATIQUE n'en
   ressort une carte — ni un tour d'agent (`colonneAuDemarrage`), ni `board_move_card`, ni une

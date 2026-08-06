@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronRight, Loader2, Rocket, RotateCcw, Square, X, MinusCircle, AlertTriangle } from 'lucide-react';
+import { Check, ChevronDown, Loader2, Rocket, RotateCcw, Square, X, MinusCircle, AlertTriangle } from 'lucide-react';
 import {
   Card,
   ColumnKey,
@@ -18,6 +18,9 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
 
+/** L'ordre des sept étapes de la mise en ligne — le même que côté serveur. */
+const ORDRE_ETAPES: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
+
 const STEP_LABELS: Record<DeployStepKey, string> = {
   merge: 'Fusion des branches',
   commit: 'Enregistrement',
@@ -27,6 +30,40 @@ const STEP_LABELS: Record<DeployStepKey, string> = {
   publish: 'Mise en ligne',
   restart: 'Redémarrage du serveur',
 };
+
+/**
+ * Une phrase courte qui rappelle à quoi sert chaque étape. Masquée par défaut,
+ * révélée au « ? » : elle explique le déroulé sans qu'on ait à le connaître.
+ */
+const STEP_DESCRIPTIONS: Record<DeployStepKey, string> = {
+  merge: 'Les branches des cartes du lot sont réunies dans la branche principale.',
+  commit: "Le résultat de la fusion est inscrit dans l'historique du dépôt.",
+  push: 'Le code réuni est envoyé sur le dépôt distant.',
+  verify: 'Les contrôles du projet sont rejoués ; le moindre échec arrête la mise en ligne.',
+  build: 'Le projet est recompilé à partir du code réuni.',
+  publish: "L'instance de dev de ce serveur est rafraîchie avec la nouvelle version.",
+  restart: 'Le service est relancé pour servir la version fraîche.',
+};
+
+type EtatEtape = DeployRun['steps'][number]['state'];
+
+/** L'état d'une étape, dit en français simple. */
+const ETAT_LABELS: Record<EtatEtape, string> = {
+  todo: 'à venir',
+  running: 'en cours',
+  done: 'fait',
+  failed: 'échoué',
+  skipped: 'sauté',
+};
+
+/** La pastille d'état posée devant une étape, la même partout. */
+function IconeEtape({ etat }: { etat: EtatEtape }) {
+  if (etat === 'running') return <Loader2 className="h-2.5 w-2.5 animate-spin text-muted" />;
+  if (etat === 'done') return <Check className="h-2.5 w-2.5 text-success" />;
+  if (etat === 'failed') return <X className="h-2.5 w-2.5 text-danger" />;
+  if (etat === 'skipped') return <MinusCircle className="h-2.5 w-2.5 text-faint" />;
+  return <span className="block h-2.5 w-2.5 rounded-full border border-border" />;
+}
 
 type Conflict = { cardId: string; title: string; branch: string; files: string[] };
 
@@ -69,6 +106,8 @@ export function DeployPanel({
   const state = useApp();
   const run = state.deploys[projectId];
   const [busy, setBusy] = React.useState(false);
+  /* Le déroulé des sept étapes, replié par défaut : le chevron l'ouvre. */
+  const [processOuvert, setProcessOuvert] = React.useState(false);
   /*
    * Les deux étapes existent pour tout projet : la règle est PURE, le bloc la
    * rejoue lui-même et s'affiche tout de suite, sans attendre le serveur.
@@ -134,6 +173,16 @@ export function DeployPanel({
     };
   }, [projectId, signature, active, run?.state, colonne]);
 
+  /*
+   * Le déroulé suit la publication qui NOUS appartient : ouvert pendant le
+   * travail et sur un échec — c'est là qu'on lit ce qui a coincé —, refermé dès
+   * qu'elle aboutit. Hors publication, il ne bouge que sur clic du chevron.
+   */
+  React.useEffect(() => {
+    if (!mienne || !run) return;
+    setProcessOuvert(derouleOuvert(run.state));
+  }, [mienne, run?.id, run?.state]);
+
   const start = async () => {
     setBusy(true);
     try {
@@ -165,28 +214,63 @@ export function DeployPanel({
    */
   if (!etape) return null;
 
+  /* Ma publication tourne : le bouton porte alors l'étape en cours au lieu du
+     verbe, et le déroulé reflète les états réels. */
+  const publicationEnCours = active && mienne;
+  const etapeEnCours: DeployStepKey = run?.currentStep ?? 'merge';
+
   return (
     /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
        la liste des cartes. Un cadre complet le faisait passer pour une carte. */
     <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
-      {!(active && mienne) ? (
-        <>
-          <Button
-            variant={aPublier ? 'default' : 'outline'}
-            size="sm"
-            className="w-full"
-            data-bouton-publication
-            disabled={!aPublier || busy || active || busyAgents.length > 0}
-            onClick={start}
-          >
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
-            {/* Le compteur embarque TOUT : une branche en conflit n'est plus
-                écartée d'avance, l'agent de publication la reprend en route.
-                Le verbe vient de l'ÉTAPE : « Tout déployer » en tête de « À
-                déployer », « Tout publier » en tête de « En production ». */}
-            Tout {etape.verbe} ({aPublier})
-          </Button>
+      {/* La TÊTE : le bouton d'action à gauche, le chevron du déroulé à droite.
+          Pendant une publication, le bouton dit l'étape traitée. */}
+      <div className="flex items-stretch gap-1">
+        <Button
+          variant={publicationEnCours ? 'outline' : aPublier ? 'default' : 'outline'}
+          size="sm"
+          className="min-w-0 flex-1"
+          data-bouton-publication
+          disabled={publicationEnCours || !aPublier || busy || active || busyAgents.length > 0}
+          onClick={publicationEnCours ? undefined : start}
+        >
+          {publicationEnCours ? (
+            <>
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+              <span className="truncate">{STEP_LABELS[etapeEnCours]}…</span>
+            </>
+          ) : (
+            <>
+              {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <Rocket className="h-3 w-3 shrink-0" />}
+              {/* Le compteur embarque TOUT : une branche en conflit n'est plus
+                  écartée d'avance, l'agent de publication la reprend en route.
+                  Le verbe vient de l'ÉTAPE : « Tout déployer » en tête de « À
+                  déployer », « Tout publier » en tête de « En production ». */}
+              <span className="truncate">
+                Tout {etape.verbe} ({aPublier})
+              </span>
+            </>
+          )}
+        </Button>
 
+        {/* Le chevron ouvre le déroulé des sept étapes, publication ou non. */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 px-2"
+          data-chevron-process
+          aria-expanded={processOuvert}
+          aria-label="Voir le déroulé des sept étapes de la mise en ligne"
+          onClick={() => setProcessOuvert((v) => !v)}
+        >
+          <ChevronDown className={cn('h-3 w-3 transition-transform', processOuvert && 'rotate-180')} />
+        </Button>
+      </div>
+
+      {processOuvert ? <ProcessusEtapes run={mienne ? run : undefined} /> : null}
+
+      {!publicationEnCours ? (
+        <>
           {/* Une publication de l'AUTRE étape tourne déjà : une seule à la fois
               par projet, on le dit plutôt que d'éteindre le bouton sans un mot. */}
           {active && !mienne ? (
@@ -249,24 +333,84 @@ export function DeployPanel({
         </>
       ) : null}
 
-      {rapport ? <DeployProgress run={rapport} /> : null}
+      {publicationEnCours || rapport ? <DeployControls run={run!} /> : null}
     </div>
   );
 }
 
-function DeployProgress({ run }: { run: DeployRun }) {
-  const [open, setOpen] = React.useState(derouleOuvert(run.state));
-  const [, force] = React.useReducer((value: number) => value + 1, 0);
+/**
+ * Le déroulé des sept étapes, pleine largeur, ouvert par le chevron de la tête.
+ *
+ * Avec un `run`, chaque étape porte son état RÉEL (fait, en cours, sauté, à
+ * venir, échoué) ; sans lui — hors publication — les sept sont « à venir ».
+ * Chaque libellé cache une courte description, révélée par le « ? » (au survol
+ * à la souris, au clic partout ailleurs).
+ */
+function ProcessusEtapes({ run }: { run?: DeployRun }) {
+  const [montre, setMontre] = React.useState<DeployStepKey | null>(null);
 
-  /*
-   * Le déroulé suit la publication : ouvert pendant le travail, refermé dès
-   * qu'elle aboutit. Sans ce rappel, les sept étapes cochées restaient
-   * dépliées longtemps après la fin, comme si quelque chose tournait encore.
-   * Un échec, lui, reste ouvert : c'est là qu'on lit le motif.
-   */
-  React.useEffect(() => {
-    setOpen(derouleOuvert(run.state));
-  }, [run.id, run.state]);
+  return (
+    <div className="mt-1.5 rounded-md border border-border bg-raised p-2" data-processus-etapes>
+      <ul className="space-y-1">
+        {ORDRE_ETAPES.map((key) => {
+          const etape = run?.steps.find((step) => step.key === key);
+          const etat: EtatEtape = etape?.state ?? 'todo';
+          const ouverte = montre === key;
+          return (
+            <li key={key} className="text-[13px]" data-etape-process={key} data-etat-process={etat}>
+              <div className="flex items-start gap-1.5">
+                <span className="mt-[3px] shrink-0">
+                  <IconeEtape etat={etat} />
+                </span>
+                <span className={cn('flex-1 truncate', etat === 'failed' ? 'text-danger' : 'text-muted')}>
+                  {STEP_LABELS[key]}
+                </span>
+                <span className="mt-[1px] shrink-0 text-[11px] text-faint">{ETAT_LABELS[etat]}</span>
+                {/* Le « ? » révèle la description : au survol à la souris, au
+                    clic pour un écran tactile qui n'a pas de survol. */}
+                <button
+                  type="button"
+                  data-aide-etape={key}
+                  aria-label={`À quoi sert l'étape « ${STEP_LABELS[key]} »`}
+                  aria-expanded={ouverte}
+                  className={cn(
+                    'mt-[1px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border text-[10px] leading-none transition-colors',
+                    ouverte ? 'text-text' : 'text-faint hover:text-text',
+                  )}
+                  onMouseEnter={() => setMontre(key)}
+                  onMouseLeave={() => setMontre((v) => (v === key ? null : v))}
+                  onClick={() => setMontre((v) => (v === key ? null : key))}
+                >
+                  ?
+                </button>
+              </div>
+
+              {ouverte ? (
+                <p className="ml-[22px] mt-0.5 text-[12px] text-faint" data-description-etape={key}>
+                  {STEP_DESCRIPTIONS[key]}
+                </p>
+              ) : null}
+
+              {/* Un échec garde son motif sous l'étape tombée. */}
+              {etat === 'failed' && etape?.log ? (
+                <p className="ml-[22px] mt-0.5 whitespace-pre-wrap text-[12px] text-faint">{motifLisible(etape.log)}</p>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Sous la tête, le compte rendu de la publication et ses commandes : l'issue
+ * (réussite / échec), l'attente d'un autre lot, l'adresse contrôlée, et le
+ * bouton « Arrêter » ou « Relancer ». Les sept étapes, elles, vivent dans le
+ * déroulé du chevron.
+ */
+function DeployControls({ run }: { run: DeployRun }) {
+  const [, force] = React.useReducer((value: number) => value + 1, 0);
 
   React.useEffect(() => {
     if (run.state !== 'running') return;
@@ -274,105 +418,63 @@ function DeployProgress({ run }: { run: DeployRun }) {
     return () => clearInterval(timer);
   }, [run.state]);
 
-  const visible = run.steps.filter((step) => step.state !== 'todo' || run.state === 'running');
-
   return (
-    <div className={cn(run.state === 'running' ? 'mt-0' : 'mt-2')}>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-1.5 text-left"
-      >
-        {run.state === 'running' ? (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted" />
-        ) : run.state === 'success' ? (
-          <Check className="h-3 w-3 shrink-0 text-success" />
-        ) : (
-          <X className="h-3 w-3 shrink-0 text-danger" />
-        )}
-        {/* Le compte rendu NOMME son étape : un déploiement en cours ne se lit
-            pas comme une mise en production. */}
-        <span className="flex-1 truncate text-[13px] text-muted" data-etape-run={run.cible ?? 'dev'}>
-          {run.state === 'running'
-            ? `${STEP_LABELS[run.currentStep ?? 'merge']} — ${elapsed(run.startedAt)}`
-            : run.state === 'success'
-              ? `Publié (${libelleEtape(run.cible)}) : ${run.cardIds.length} tâche(s)`
-              : `Échec (${libelleEtape(run.cible)}) : ${run.error ?? 'étape interrompue'}`}
-        </span>
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
-      </button>
+    <div className="mt-2" data-etape-run={run.cible ?? 'dev'}>
+      {/* Le compte rendu NOMME son étape : un déploiement en cours ne se lit
+          pas comme une mise en production. */}
+      {run.state === 'running' ? (
+        <p className="flex items-center gap-1.5 text-[12px] text-faint">
+          <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" /> En cours depuis {elapsed(run.startedAt)}
+        </p>
+      ) : run.state === 'success' ? (
+        <p className="flex items-center gap-1.5 text-[13px] text-muted">
+          <Check className="h-3 w-3 shrink-0 text-success" /> Publié ({libelleEtape(run.cible)}) : {run.cardIds.length}{' '}
+          tâche(s)
+        </p>
+      ) : (
+        <p className="flex items-start gap-1.5 text-[13px] text-danger">
+          <X className="mt-[3px] h-3 w-3 shrink-0" /> Échec ({libelleEtape(run.cible)}) :{' '}
+          {run.error ?? 'étape interrompue'}
+        </p>
+      )}
 
       {run.queued ? (
         <p className="mt-1 text-[12px] text-warning">Une publication est en attente : elle partira ensuite.</p>
       ) : null}
 
-      {open ? (
-        <>
-          <ul className="mt-1.5 space-y-0.5">
-            {visible.map((step) => (
-              <li key={step.key} className="flex items-start gap-1.5 text-[13px]">
-                <span className="mt-[3px] shrink-0">
-                  {step.state === 'running' ? (
-                    <Loader2 className="h-2.5 w-2.5 animate-spin text-muted" />
-                  ) : step.state === 'done' ? (
-                    <Check className="h-2.5 w-2.5 text-success" />
-                  ) : step.state === 'failed' ? (
-                    <X className="h-2.5 w-2.5 text-danger" />
-                  ) : step.state === 'skipped' ? (
-                    <MinusCircle className="h-2.5 w-2.5 text-faint" />
-                  ) : (
-                    <span className="block h-2.5 w-2.5 rounded-full border border-border" />
-                  )}
-                </span>
-                <span className={cn('flex-1', step.state === 'failed' ? 'text-danger' : 'text-muted')}>
-                  {STEP_LABELS[step.key]}
-                  {step.log && step.state === 'failed' ? (
-                    <span className="mt-0.5 block whitespace-pre-wrap text-[12px] text-faint">
-                      {motifLisible(step.log)}
-                    </span>
-                  ) : null}
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          {run.url ? (
-            <a
-              href={run.url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1.5 block truncate text-[12px] text-muted underline underline-offset-2"
-            >
-              {run.url}
-            </a>
-          ) : null}
-
-          {/* Un bouton de décision prend toute la largeur de la carte : sous une
-              liste d'étapes alignées à gauche, un petit bouton sans contour se
-              lisait comme une étape de plus. */}
-          <div className="mt-2">
-            {run.state === 'running' ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                onClick={() => client.send({ type: 'deploy.stop', runId: run.id })}
-              >
-                <Square className="h-2.5 w-2.5 fill-current" /> Arrêter
-              </Button>
-            ) : run.state !== 'success' ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                onClick={() => client.send({ type: 'deploy.retry', runId: run.id })}
-              >
-                <RotateCcw className="h-2.5 w-2.5" /> Relancer
-              </Button>
-            ) : null}
-          </div>
-        </>
+      {run.url ? (
+        <a
+          href={run.url}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1.5 block truncate text-[12px] text-muted underline underline-offset-2"
+        >
+          {run.url}
+        </a>
       ) : null}
+
+      {/* Un bouton de décision prend toute la largeur du bloc. */}
+      <div className="mt-2">
+        {run.state === 'running' ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => client.send({ type: 'deploy.stop', runId: run.id })}
+          >
+            <Square className="h-2.5 w-2.5 fill-current" /> Arrêter
+          </Button>
+        ) : run.state !== 'success' ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => client.send({ type: 'deploy.retry', runId: run.id })}
+          >
+            <RotateCcw className="h-2.5 w-2.5" /> Relancer
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
