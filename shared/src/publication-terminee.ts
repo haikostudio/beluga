@@ -10,12 +10,14 @@
  * Règle pure : aucune base, aucun disque — donc rejouable telle quelle.
  */
 
-export type EtatPublication = 'running' | 'success' | 'failed' | 'stopped';
+export type EtatPublication = 'running' | 'awaiting' | 'success' | 'failed' | 'stopped';
 
 /**
  * Le rapport du dernier passage reste-t-il affiché ?
  *
  * - pendant le travail : oui, c'est lui qu'on regarde ;
+ * - pendant une ATTENTE d'accord avant envoi : oui, c'est lui qui porte la
+ *   décision et ses deux boutons — l'effacer laisserait la publication en plan ;
  * - après un échec ou un arrêt : oui, il porte le motif et le bouton
  *   « Relancer » — l'effacer priverait de la seule sortie ;
  * - après une réussite : seulement tant que rien de neuf n'attend. Dès qu'un
@@ -31,8 +33,9 @@ export function rapportAGarder(etat: EtatPublication | undefined, aPublier: numb
  * Le déroulé des étapes est-il déplié ?
  *
  * Il s'ouvre pendant le travail — on suit l'avancée — et se referme quand la
- * mise en ligne aboutit : une réussite tient en une ligne. Un échec ou un
- * arrêt reste ouvert, parce que c'est là qu'on lit ce qui a coincé.
+ * mise en ligne aboutit : une réussite tient en une ligne. Un échec, un arrêt
+ * ou une attente d'accord restent ouverts, parce que c'est là qu'on lit ce qui
+ * a coincé, ou ce qu'on doit trancher.
  */
 export function derouleOuvert(etat: EtatPublication): boolean {
   return etat !== 'success';

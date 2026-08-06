@@ -185,6 +185,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('deploy.start'), projectId: z.string() }),
   z.object({ type: z.literal('deploy.stop'), runId: z.string() }),
   z.object({ type: z.literal('deploy.retry'), runId: z.string() }),
+  /**
+   * La réponse à l'attente avant envoi : accord donné, la publication repart de
+   * la première étape ; refus, le lot reste entier et chaque carte le dit.
+   */
+  z.object({ type: z.literal('deploy.envoi'), runId: z.string(), accord: z.boolean() }),
   /** Ce qui coincerait si on publiait maintenant — sans rien publier. */
   z.object({ type: z.literal('deploy.check'), projectId: z.string() }),
 
@@ -331,11 +336,15 @@ export const ServerEvent = z.discriminatedUnion('type', [
       .array(
         z.object({
           projectId: z.string(),
-          /** La conversation où la décision se prend. */
-          agentId: z.string(),
+          /**
+           * La conversation où la décision se prend. Absente quand elle ne
+           * tient à aucun fil : l'accord avant envoi se prend dans le bloc de
+           * publication du projet.
+           */
+          agentId: z.string().optional(),
           /** La carte concernée, quand la décision est née dans son travail. */
           cardId: z.string().optional(),
-          genre: z.enum(['question', 'validation']),
+          genre: z.enum(['question', 'validation', 'envoi']),
           reglee: z.boolean().optional(),
           poseeA: z.number().optional(),
         }),

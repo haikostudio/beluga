@@ -41,6 +41,7 @@ import {
   startDeploy,
   stopDeploy,
   retryDeploy,
+  repondreEnvoi,
   conflitsPrevus,
   agentsOccupes,
   commitsEnAttente,
@@ -855,10 +856,23 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'deploy.retry':
       return retryDeploy(cmd.runId);
 
+    /*
+     * L'accord — ou le refus — avant tout envoi sur le dépôt. Un refus n'est
+     * pas une erreur : il rend `ok: true` et laisse le lot entier.
+     */
+    case 'deploy.envoi': {
+      const reponse = await repondreEnvoi(cmd.runId, cmd.accord);
+      if (!reponse.ok) throw new Error(reponse.error ?? 'réponse impossible');
+      return reponse;
+    }
+
     case 'deploy.check':
       return {
         conflicts: await conflitsPrevus(cmd.projectId),
         busy: agentsOccupes(cmd.projectId),
+        // Ce projet demandera-t-il l'accord avant d'envoyer ? Le dire AVANT le
+        // clic évite de découvrir l'attente au moment de publier.
+        envoiSurveille: store.getProject(cmd.projectId)?.deployeSurEnvoi === true,
         // Le travail enregistré sur la principale sans passer par une carte :
         // sans lui, la fenêtre de publication disparaissait et rien ne partait.
         enAttente: await commitsEnAttente(cmd.projectId),

@@ -69,6 +69,7 @@ node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poig
 node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt puis à la souris (serveur de développement, HAIKO_INTERRUPTEUR_URL ; aucun vrai compte touché)
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
+node scripts/verif-envoi-surveille.mjs # un projet « se déploie sur envoi » fait attendre avant tout envoi (démon et dépôt d'essai à soi, HAIKODEV_VERIF_PORT)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
@@ -162,6 +163,27 @@ sans son point d'essai.
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
   Une adresse publique qui ne répond pas, ou sept étapes toutes « ignorées », font échouer le run
   (`miseEnLigneReelle`). Chaque étape nomme ce qu'elle a fait ou pourquoi elle ne l'a pas fait.
+- **Un ENVOI qui met la production à jour ne part JAMAIS sans un clic**
+  (`shared/src/envoi-surveille.ts`, branché dans `server/src/deploy.ts`). Un projet peut DÉCLARER que
+  sa branche principale déclenche un déploiement chez le client (`Project.deployeSurEnvoi`, coché
+  dans les réglages du projet, bloc « Publication ») : envoyer, c'est alors mettre en ligne. Quand
+  c'est déclaré, `startDeploy` s'arrête AVANT la première commande git — pas entre
+  « Enregistrement » et « Envoi » : l'étape de fusion pousse déjà la branche courante
+  (`git push -u origin <branche>`), et un refus doit laisser le lot ENTIER, pas à moitié fusionné.
+  Les sept étapes et leur ordre ne bougent pas ; elles ne commencent simplement pas. La publication
+  prend l'état `awaiting` et porte son `attente` (branche, enregistrements, texte) : le texte NOMME
+  le projet, la branche, ce qui partirait (cinq enregistrements au plus, le reste compté), les cartes
+  du lot, l'adresse remplacée, et dit que rien n'est parti. La décision passe par le TRIANGLE ORANGE
+  déjà en place — quatrième source de `decisionsEnAttente` (`server/src/store.ts`), genre `envoi`,
+  SANS `agentId` : elle ne tient ni à une carte ni à une conversation, elle se tranche dans le bloc
+  de publication du projet — et par le motif `decision-attendue` du guichet `notify`. Chaque carte du
+  lot porte une `waitingReason` qui dit pourquoi elle ne part pas, jamais un triangle par carte (le
+  compte annoncé doit valoir le nombre de repères). `deploy.envoi { runId, accord }` tranche :
+  l'accord fait repartir LA MÊME publication depuis la première étape (`options.reprendre` garde son
+  identifiant — sinon la ligne « en attente » resterait en base et le triangle ne s'éteindrait
+  jamais), le refus la passe en `stopped`, laisse les cartes où elles sont et l'écrit dessus. Rien
+  n'est lu chez le client : c'est une déclaration faite ici. Un projet non déclaré ne change EN RIEN.
+  Verrouillé par `server/src/test/envoi-surveille.test.ts` et `scripts/verif-envoi-surveille.mjs`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette

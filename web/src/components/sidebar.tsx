@@ -934,7 +934,10 @@ function allerALaDecision(projectId: string, onChoose?: () => void): void {
   const lieu = premiereDecision(client.getSnapshot().decisions, projectId);
   if (!lieu) return;
   if (lieu.cardId) client.openCard(lieu.cardId);
-  else client.openConversation({ projectId: lieu.projectId, agentId: lieu.agentId });
+  // Sans conversation, la décision se prend sur le projet lui-même : c'est le
+  // cas de l'accord avant envoi, qui vit dans le bloc de publication. Le
+  // tableau du projet est déjà à l'écran, il n'y a rien de plus à ouvrir.
+  else if (lieu.agentId) client.openConversation({ projectId: lieu.projectId, agentId: lieu.agentId });
 }
 
 function RepereLigne({

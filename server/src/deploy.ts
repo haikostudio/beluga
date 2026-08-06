@@ -14,11 +14,19 @@ import {
   detailDEchec,
   detailDEchecConstruction,
   phraseDEchecConstruction,
+  enregistrementsAEnvoyer,
+  envoiDemandeAccord,
+  estMentionDEnvoi,
   estPlomberie,
+  mentionDAttenteSurCarte,
+  mentionDeRefusSurCarte,
   messageEchecPublication,
   miseEnLigneReelle,
   phraseDEchec,
   planDeMiseEnLigne,
+  raisonDuRefus,
+  texteDeLAttente,
+  titreDeLAttente,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -750,7 +758,102 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
   return { nombre: titres.length, titres: titres.slice(0, 6) };
 }
 
-export async function startDeploy(projectId: string): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
+/* ------------------------------------------------------------------ */
+/* Prévenir avant tout envoi qui met la production à jour              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ce que l'envoi emporterait, constaté sur le dépôt : la branche visée, les
+ * enregistrements qui partiraient, et si du travail non enregistré traîne.
+ *
+ * Deux sources d'enregistrements, réunies sans doublon : ce qui est déjà sur la
+ * branche principale sans avoir été envoyé, et ce que les branches des cartes du
+ * lot y ajouteraient.
+ */
+async function ceQuiPartirait(
+  cwd: string,
+  cards: Card[],
+): Promise<{ branche: string; enregistrements: string[]; travauxEnCours: boolean }> {
+  const branche = await mainBranchOf(cwd);
+  const sorties: string[] = [];
+
+  const dejaEnregistre = await runCommand(cwd, `git log --format=%s origin/${branche}..${branche}`, 30000);
+  if (dejaEnregistre.ok) sorties.push(dejaEnregistre.out);
+
+  for (const card of cards) {
+    const branch = card.github?.branch;
+    if (!branch) continue;
+    const journal = await runCommand(cwd, `git log --format=%s ${branche}..${branch}`, 30000);
+    if (journal.ok) sorties.push(journal.out);
+  }
+
+  const sale = await runCommand(cwd, 'git status --porcelain', 30000);
+  return {
+    branche,
+    enregistrements: enregistrementsAEnvoyer(sorties),
+    travauxEnCours: sale.out.trim().length > 0,
+  };
+}
+
+/**
+ * Écrit la même phrase sur chaque carte du lot. La décision, elle, reste posée
+ * à UN SEUL endroit — le bloc de publication : un triangle par carte ferait
+ * annoncer une décision et en montrer dix. Mais une carte qui ne part pas doit
+ * dire pourquoi, sinon elle semble bloquée sans raison.
+ */
+function marquerLesCartes(cardIds: string[], mention: string | undefined): void {
+  for (const cardId of cardIds) {
+    const card = store.getCard(cardId);
+    if (!card) continue;
+    const marquee = store.saveCard({
+      ...card,
+      scheduling: { ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }), waitingReason: mention },
+    });
+    bus.emit({ type: 'card.upsert', card: marquee });
+  }
+}
+
+/**
+ * L'accord donné : la publication repart du DÉBUT, ce qui est possible parce
+ * que l'attente est posée avant la moindre commande git — rien n'avait bougé.
+ * L'accord refusé : le lot reste entier, et chaque carte le dit.
+ */
+export async function repondreEnvoi(runId: string, accord: boolean): Promise<{ ok: boolean; error?: string }> {
+  const run = store.getDeploy(runId);
+  if (!run) return { ok: false, error: 'publication introuvable' };
+  if (run.state !== 'awaiting') return { ok: false, error: 'cette publication n’attend plus votre accord' };
+  const project = store.getProject(run.projectId);
+  if (!project) return { ok: false, error: 'projet introuvable' };
+  const branche = run.attente?.branche ?? 'la branche principale';
+
+  if (!accord) {
+    const raison = raisonDuRefus(project.name, branche);
+    emit({ ...run, state: 'stopped', attente: undefined, error: raison, endedAt: Date.now() });
+    /*
+     * Un refus n'est pas un échec : les cartes restent EXACTEMENT où elles
+     * sont, et portent la raison en toutes lettres — sinon le lot semblerait
+     * bloqué sans que rien ne dise pourquoi.
+     */
+    marquerLesCartes(run.cardIds, mentionDeRefusSurCarte(branche));
+    bus.emit({ type: 'attention', ...store.signalAttention() });
+    bus.toast('info', raison);
+    return { ok: true };
+  }
+
+  /*
+   * L'accord fait repartir LA MÊME publication (`reprendre`), pas une nouvelle :
+   * sinon la ligne « en attente » resterait en base et le triangle ne
+   * s'éteindrait jamais. Elle repart de la première étape — rien n'avait bougé.
+   */
+  const relance = await startDeploy(run.projectId, { accordEnvoi: true, reprendre: run });
+  bus.emit({ type: 'attention', ...store.signalAttention() });
+  return relance.ok ? { ok: true } : { ok: false, error: relance.error };
+}
+
+export async function startDeploy(
+  projectId: string,
+  options: { accordEnvoi?: boolean; reprendre?: DeployRun } = {},
+): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
 
@@ -789,17 +892,91 @@ export async function startDeploy(projectId: string): Promise<{ ok: boolean; err
   let cards = deployableCards(projectId);
   // Cartes dont la branche est en conflit : écartées du lot, jamais perdues.
   const ecartees = new Set<string>();
+
+  /*
+   * PRÉVENIR AVANT TOUT ENVOI QUI MET LA PRODUCTION À JOUR.
+   *
+   * Un projet peut avoir déclaré que sa branche principale déclenche un
+   * déploiement chez le client : envoyer, c'est alors mettre en ligne. On
+   * s'arrête ICI, avant la moindre commande git — la fusion elle-même pousse la
+   * branche courante quand du travail y traîne, et un refus doit laisser le lot
+   * entier, pas à moitié fusionné. La publication repartira de la première
+   * étape au clic, puisque rien n'a bougé.
+   */
+  if (project.deployeSurEnvoi && !options.accordEnvoi) {
+    const cwd = project.path;
+    const estUnDepot = (await runCommand(cwd, 'git rev-parse --git-dir', 20000)).ok;
+    const aUnDepotDistant = estUnDepot && (await runCommand(cwd, 'git remote', 20000)).out.trim().length > 0;
+    if (envoiDemandeAccord({ deployeSurEnvoi: true, estUnDepot, aUnDepotDistant })) {
+      const partirait = await ceQuiPartirait(cwd, cards);
+      const texte = texteDeLAttente({
+        projet: project.name,
+        branche: partirait.branche,
+        enregistrements: partirait.enregistrements,
+        cartes: cards.length,
+        adresse: project.deployUrl,
+        travauxEnCours: partirait.travauxEnCours,
+      });
+      const attente = DeployRun.parse({
+        id: store.newId(),
+        projectId,
+        state: 'awaiting',
+        steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
+        cardIds: cards.map((c) => c.id),
+        url: project.deployUrl,
+        attente: {
+          branche: partirait.branche,
+          enregistrements: partirait.enregistrements,
+          texte,
+          demandeeA: Date.now(),
+        },
+        startedAt: Date.now(),
+        queued: false,
+      });
+      emit(attente);
+      // Chaque carte du lot dit pourquoi elle ne part pas ; la DÉCISION, elle,
+      // reste à un seul endroit — le bloc de publication.
+      marquerLesCartes(attente.cardIds, mentionDAttenteSurCarte(partirait.branche));
+      // Le même triangle orange que toute décision attendue, et la même alerte.
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+      notify({
+        motif: 'decision-attendue',
+        title: titreDeLAttente(project.name),
+        body: texte.split('\n')[0].slice(0, 160),
+        reference: `${projectId}:envoi:${attente.id}`,
+        element: titreDeLAttente(project.name),
+        projectId,
+      });
+      return { ok: true, run: attente };
+    }
+  }
+
   const run: DeployRun = DeployRun.parse({
-    id: store.newId(),
+    // L'accord donné fait repartir LA MÊME publication : on garde son
+    // identifiant, sinon la ligne « en attente » resterait en base.
+    id: options.reprendre?.id ?? store.newId(),
     projectId,
     state: 'running',
     steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
     cardIds: cards.map((c) => c.id),
     url: project.deployUrl,
-    startedAt: Date.now(),
+    startedAt: options.reprendre?.startedAt ?? Date.now(),
     queued: false,
   });
   emit(run);
+
+  /*
+   * Une carte marquée par un refus d'envoi précédent repart propre : garder la
+   * mention ferait lire « refusé » sur une carte en train de partir en ligne.
+   */
+  for (const card of cards) {
+    if (!estMentionDEnvoi(card.scheduling?.waitingReason)) continue;
+    const propre = store.saveCard({
+      ...card,
+      scheduling: { ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }), waitingReason: undefined },
+    });
+    bus.emit({ type: 'card.upsert', card: propre });
+  }
 
   let stopped = false;
   // Le redémarrage du démon se fait EN DERNIER, une fois le run enregistré et

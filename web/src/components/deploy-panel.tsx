@@ -47,7 +47,9 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   const [busy, setBusy] = React.useState(false);
 
   const embarked = cards.filter((card) => !card.excludedFromDeploy && !card.deployedAt);
-  const active = run?.state === 'running';
+  /* Une publication qui attend l'accord occupe la place au même titre qu'une
+     qui travaille : le bouton « Tout déployer » n'a rien à faire au-dessus. */
+  const active = run?.state === 'running' || run?.state === 'awaiting';
 
   /*
    * Ce qui coincera se sait AVANT de cliquer : on interroge le serveur, qui
@@ -62,6 +64,9 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   /* Ce projet peut-il seulement être mis en ligne ? Le savoir avant le clic
      évite de découvrir le refus au moment de publier. */
   const [miseEnLigne, setMiseEnLigne] = React.useState<PlanDeMiseEnLigne | null>(null);
+  /* Ce projet se déploie-t-il tout seul à l'envoi ? On l'annonce AVANT le clic :
+     l'attente ne doit surprendre personne. */
+  const [envoiSurveille, setEnvoiSurveille] = React.useState(false);
   const signature = embarked.map((card) => card.id).join(',');
 
   /*
@@ -84,6 +89,7 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
           setBusyAgents(res?.busy ?? []);
           setEnAttente(res?.enAttente ?? { nombre: 0, titres: [] });
           setMiseEnLigne(res?.miseEnLigne ?? null);
+          setEnvoiSurveille(res?.envoiSurveille === true);
         })
         .catch(() => undefined);
     void controler();
@@ -149,6 +155,15 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
             </p>
           ) : null}
 
+          {/* Ce projet se met en ligne dès l'envoi : on le dit AVANT le clic,
+              sinon l'arrêt qui suit passerait pour une panne. */}
+          {envoiSurveille && aPublier ? (
+            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-muted" data-envoi-annonce>
+              <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0 text-warning" />
+              <span>Envoyer met ce site en ligne : votre accord sera demandé avant tout envoi.</span>
+            </p>
+          ) : null}
+
           {/* Rien à envoyer, mais la mise en ligne reste possible : le bouton est
               grisé et DIT pourquoi, plutôt qu'un bloc qui disparaît. */}
           {!aPublier && miseEnLigne?.possible !== false ? (
@@ -197,6 +212,49 @@ export function DeployPanel({ projectId, cards }: { projectId: string; cards: Ca
   );
 }
 
+/**
+ * La publication s'est arrêtée AVANT d'envoyer : ce projet se déploie tout seul
+ * à chaque envoi sur son dépôt. On montre exactement ce qui partirait, puis les
+ * deux gestes — envoyer, ou ne rien envoyer. Rien ne part sans le clic.
+ */
+function AttenteEnvoi({ run }: { run: DeployRun }) {
+  const [busy, setBusy] = React.useState<'accord' | 'refus' | null>(null);
+
+  const repondre = async (accord: boolean) => {
+    setBusy(accord ? 'accord' : 'refus');
+    try {
+      await client.call({ type: 'deploy.envoi', runId: run.id, accord });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'réponse impossible');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-md border border-warning/40 bg-surface px-2.5 py-2" data-attente-envoi>
+      <p className="whitespace-pre-wrap text-[12.5px] text-muted">{run.attente?.texte}</p>
+      <div className="mt-2 flex flex-col gap-1.5">
+        <Button size="sm" className="w-full" disabled={busy !== null} onClick={() => repondre(true)} data-envoi-accord>
+          {busy === 'accord' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Rocket className="h-2.5 w-2.5" />}
+          Envoyer et mettre en ligne
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full"
+          disabled={busy !== null}
+          onClick={() => repondre(false)}
+          data-envoi-refus
+        >
+          {busy === 'refus' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <X className="h-2.5 w-2.5" />}
+          Ne rien envoyer
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function DeployProgress({ run }: { run: DeployRun }) {
   const [open, setOpen] = React.useState(derouleOuvert(run.state));
   const [, force] = React.useReducer((value: number) => value + 1, 0);
@@ -228,17 +286,23 @@ function DeployProgress({ run }: { run: DeployRun }) {
       >
         {run.state === 'running' ? (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted" />
+        ) : run.state === 'awaiting' ? (
+          <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />
         ) : run.state === 'success' ? (
           <Check className="h-3 w-3 shrink-0 text-success" />
         ) : (
           <X className="h-3 w-3 shrink-0 text-danger" />
         )}
-        <span className="flex-1 truncate text-[13px] text-muted">
+        <span
+          className={cn('flex-1 truncate text-[13px]', run.state === 'awaiting' ? 'text-warning' : 'text-muted')}
+        >
           {run.state === 'running'
             ? `${STEP_LABELS[run.currentStep ?? 'merge']} — ${elapsed(run.startedAt)}`
-            : run.state === 'success'
-              ? `Publié : ${run.cardIds.length} tâche(s)`
-              : `Échec : ${run.error ?? 'étape interrompue'}`}
+            : run.state === 'awaiting'
+              ? 'Votre accord est attendu avant tout envoi'
+              : run.state === 'success'
+                ? `Publié : ${run.cardIds.length} tâche(s)`
+                : `Échec : ${run.error ?? 'étape interrompue'}`}
         </span>
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
       </button>
@@ -246,6 +310,10 @@ function DeployProgress({ run }: { run: DeployRun }) {
       {run.queued ? (
         <p className="mt-1 text-[12px] text-warning">Une publication est en attente : elle partira ensuite.</p>
       ) : null}
+
+      {/* La décision : ce que l'envoi va mettre en ligne, et les deux gestes.
+          Elle reste visible déroulé replié ou non — c'est elle qui bloque. */}
+      {run.state === 'awaiting' && run.attente ? <AttenteEnvoi run={run} /> : null}
 
       {open ? (
         <>
@@ -292,7 +360,7 @@ function DeployProgress({ run }: { run: DeployRun }) {
               liste d'étapes alignées à gauche, un petit bouton sans contour se
               lisait comme une étape de plus. */}
           <div className="mt-2">
-            {run.state === 'running' ? (
+            {run.state === 'awaiting' ? null : run.state === 'running' ? (
               <Button
                 size="sm"
                 variant="outline"
