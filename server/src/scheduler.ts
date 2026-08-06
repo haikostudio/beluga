@@ -394,6 +394,9 @@ Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (c
     silent: true,
     // Une carte lancée est une vraie tâche : elle mérite le compte rendu entier.
     ampleur: 'complete',
+    // Les images jointes au chef d'orchestre voyagent jusqu'ici : elles entrent
+    // dans le bloc « PIÈCES JOINTES » du prompt, comme pour un message direct.
+    attachments: card.attachments,
     onComplete: async (text, ok) => {
       const fresh = store.getCard(cardId);
       if (!fresh) return;

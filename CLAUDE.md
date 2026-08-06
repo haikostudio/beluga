@@ -547,6 +547,16 @@ sans son point d'essai.
   commande `question.answer`, sont retenues sur la question (`answerAttachments`, affichées à côté de
   la réponse) et l'agent reçoit leurs chemins par le même bloc « PIÈCES JOINTES » que le fil.
   Verrouillé par `server/src/test/images-reponse.test.ts`.
+- **Les images jointes au CHEF D'ORCHESTRE suivent la carte jusqu'à l'agent d'exécution.** Quand un
+  message avec images fait proposer une carte, les outils `board_create_card` / `propose_task`
+  (`server/src/tools.ts`) posent sur la proposition (`TaskProposal.attachments`) les pièces jointes
+  du SEUL message déclencheur — `imagesDuMessageDeclencheur` prend le DERNIER message `user` du fil,
+  jamais tout l'historique. La validation les recopie sur la carte (`Card.attachments`, passé à
+  `createCard`, ws.ts `proposal.decide`) et `startCard` (`server/src/scheduler.ts`) les donne à
+  `sendPrompt` par `options.attachments` — donc elles entrent dans le bloc « PIÈCES JOINTES » du
+  prompt, comme pour un message direct, sans redépôt. Les deux champs vivent dans le JSON de la
+  proposition et de la carte (défaut `[]` par zod) : aucune migration SQL. Verrouillé par
+  `server/src/test/images-carte-du-chef.test.ts`.
 - **Toute fonctionnalité vit sur sa propre branche, carte ou pas — UNE fonctionnalité = UNE branche =
   UNE carte.** À la fin d'un tour sans carte, le démon découpe les enregistrements (un enregistrement
   = une fonctionnalité, sauf « suite… », « correction… », « fixup! » qui restent collés au
