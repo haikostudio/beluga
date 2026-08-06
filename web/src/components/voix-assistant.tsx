@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { GripVertical, Volume2, VolumeX } from 'lucide-react';
+import { Ear, EarOff, GripVertical, Volume2, VolumeX } from 'lucide-react';
 import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
@@ -27,9 +27,18 @@ import { usePref } from '@/lib/prefs';
 import { useSurvol } from '@/lib/pointeur';
 import { useApp } from '@/lib/use-app';
 import { direVoix, lireNiveaux, taireVoix, useVoix } from '@/lib/voix';
+import { lireNiveauxMicro, useEcoutePermanente } from '@/lib/ecoute';
 
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
+
+/**
+ * La clé de préférence de l'ÉCOUTE PERMANENTE. Éteinte par défaut : le micro ne
+ * s'ouvre jamais sans que l'interrupteur ait été allumé à la main. Retenue comme
+ * les autres réglages de voix, donc côté serveur : la même sur tous les
+ * appareils.
+ */
+export const CLE_VOIX_ECOUTE = 'voix.ecoute';
 
 /** Combien de messages prononcés la liste dépliée MONTRE, le plus récent en tête. */
 export const VOIX_MESSAGES_MAX = 10;
@@ -101,15 +110,28 @@ export function hauteurDepliee(nbMessages: number): number {
 }
 
 /**
- * La géométrie de l'objet dans son état du moment. Le déplié l'emporte sur la
- * parole : on ne rétrécit pas un panneau qu'on est en train de lire parce que
- * l'assistant se met à parler. Les coins passent du cercle (moitié du rond) au
- * bloc arrondi, en continu.
+ * La hauteur du bandeau de DICTÉE : deux lignes de texte au-dessus du creux
+ * d'ondes. C'est la forme que prend le module pendant qu'il écoute une phrase.
  */
-export function formeDuModule(ouvert: boolean, parle: boolean, nbMessages: number) {
+const VOIX_HAUTEUR_DICTEE = 44 + VOIX_HAUTEUR_PIED;
+
+/**
+ * La géométrie de l'objet dans son état du moment. Le déplié l'emporte sur tout
+ * le reste : on ne rétrécit pas un panneau qu'on est en train de lire parce que
+ * l'assistant se met à parler. Vient ensuite la DICTÉE (le module s'élargit pour
+ * montrer la phrase entendue), puis la parole. Les coins passent du cercle
+ * (moitié du rond) au bloc arrondi, en continu.
+ */
+export function formeDuModule(
+  ouvert: boolean,
+  parle: boolean,
+  nbMessages: number,
+  dicte = false,
+) {
   if (ouvert) {
     return { largeur: VOIX_LARGEUR_OUVERTE, hauteur: hauteurDepliee(nbMessages), rayon: 12 };
   }
+  if (dicte) return { largeur: VOIX_LARGEUR_OUVERTE, hauteur: VOIX_HAUTEUR_DICTEE, rayon: 12 };
   if (parle) return { largeur: VOIX_LARGEUR_PARLE, hauteur: VOIX_ROND, rayon: 12 };
   return { largeur: VOIX_ROND, hauteur: VOIX_ROND, rayon: VOIX_ROND / 2 };
 }
@@ -212,16 +234,20 @@ const ONDES_LARGES = 16;
  * Un SEUL exemplaire vit dans le module — l'objet continu qui glisse du centre
  * du rond fermé au creux du pied déplié —, jamais deux qui se croiseraient.
  */
-function LigneOndes({ parle }: { parle: boolean }) {
+function LigneOndes({ parle, ecoute }: { parle: boolean; ecoute: boolean }) {
   // Les barres, pilotées à la main (sans re-rendu) au fil du son.
   const barresRef = React.useRef<(HTMLSpanElement | null)[]>([]);
   // L'analyse est-elle en place ? Faux → l'animation régulière prend le relais.
   const [analyse, setAnalyse] = React.useState(false);
   const analyseRef = React.useRef(false);
   analyseRef.current = analyse;
+  // L'ÉCOUTE l'emporte sur la parole : quand le micro recueille une phrase, les
+  // ondes disent d'abord qu'on est entendu. Elles suivent alors le volume du
+  // MICRO (`lireNiveauxMicro`) et non celui du son joué.
+  const vif = ecoute || parle;
 
   React.useEffect(() => {
-    if (!parle) {
+    if (!vif) {
       if (analyseRef.current) setAnalyse(false);
       return;
     }
@@ -229,7 +255,7 @@ function LigneOndes({ parle }: { parle: boolean }) {
     // Un lissage par barre : la hauteur glisse vers sa cible au lieu de sauter.
     const lisse = new Array<number>(ONDES_LARGES).fill(0);
     const boucle = () => {
-      const niveaux = lireNiveaux(ONDES_LARGES);
+      const niveaux = ecoute ? lireNiveauxMicro(ONDES_LARGES) : lireNiveaux(ONDES_LARGES);
       if (niveaux) {
         if (!analyseRef.current) setAnalyse(true);
         for (let i = 0; i < ONDES_LARGES; i += 1) {
@@ -245,17 +271,20 @@ function LigneOndes({ parle }: { parle: boolean }) {
     };
     image = requestAnimationFrame(boucle);
     return () => cancelAnimationFrame(image);
-  }, [parle]);
+  }, [vif, ecoute]);
 
-  if (parle) {
-    // Parole + analyse en place : hauteur pilotée par le volume (boucle ci-dessus).
-    // Sinon (analyse indisponible, voix de secours) : l'onde régulière — mais on
-    // n'arrive ici QUE pendant la parole, jamais sur un simple survol muet.
+  if (vif) {
+    // Parole ou écoute, analyse en place : hauteur pilotée par le volume (boucle
+    // ci-dessus). Sinon (analyse indisponible, voix de secours) : l'onde
+    // régulière — mais on n'arrive ici QUE quand ça parle ou que ça écoute,
+    // jamais sur un simple survol muet. La COULEUR dit lequel des deux : vert
+    // quand l'assistant parle, ROUGE quand le micro recueille une phrase.
     const piloté = analyse;
     return (
       <span
         data-onde-vocale=""
         data-onde-large
+        data-onde-ecoute={ecoute ? '' : undefined}
         className="flex w-full items-center justify-between gap-0.5 px-3"
         aria-hidden
       >
@@ -265,9 +294,9 @@ function LigneOndes({ parle }: { parle: boolean }) {
             ref={(el) => {
               barresRef.current[i] = el;
             }}
-            className={`h-5 w-1 shrink-0 origin-center rounded-full bg-success ${
-              piloté ? '' : 'animate-onde'
-            }`}
+            className={`h-5 w-1 shrink-0 origin-center rounded-full ${
+              ecoute ? 'bg-danger' : 'bg-success'
+            } ${piloté ? '' : 'animate-onde'}`}
             // Chaque barre décalée : l'onde ondule au lieu de battre d'un bloc.
             style={piloté ? { transform: 'scaleY(0.15)' } : { animationDelay: `${i * 60}ms` }}
           />
@@ -414,6 +443,20 @@ export function VoixAssistant() {
   // À la fermeture, on ne laisse pas un son continuer dans le vide.
   React.useEffect(() => taireVoix, []);
 
+  /*
+   * L'ÉCOUTE PERMANENTE. L'interrupteur vit dans le panneau déplié, à côté du
+   * Muet ; éteint, RIEN n'est ouvert — pas de micro, pas de flux, pas d'envoi.
+   * Allumé, le micro guette « Dis Haiko » ; le mot passé, la phrase est
+   * recueillie, relue deux secondes à l'écran, puis publiée. Tout le mécanisme
+   * (micro, découpe par le silence, transcription) vit dans `useEcoutePermanente` ;
+   * ici, on ne fait que l'afficher.
+   */
+  const [ecouteAllumee, setEcouteAllumee] = usePref<boolean>(CLE_VOIX_ECOUTE, false);
+  const ecoute = useEcoutePermanente(ecouteAllumee);
+  // Une dictée est en cours : le module s'élargit pour montrer la phrase, et les
+  // ondes passent au rouge. La relecture en fait partie — la phrase est encore là.
+  const dicteEnCours = ecoute.etat === 'ecoute' || ecoute.etat === 'relit';
+
   // Comment le module se déplie : au survol à la souris, à l'appui au doigt.
   const survolPossible = useSurvol();
   const geste = gesteDOuverture(survolPossible);
@@ -489,6 +532,10 @@ export function VoixAssistant() {
   // décalage libre. Accroché, il est calculé depuis le bord : pastille à moitié
   // dehors quand le module est fermé, rond entier collé au bord quand il est
   // ouvert (le panneau se déploie ensuite vers l'intérieur).
+  // Le module est-il DÉPLOYÉ (panneau ouvert, ou dictée en cours) ? Accroché à un
+  // bord, il ne se montre alors plus en pastille demi-dehors : il revient au ras
+  // du bord, sinon la phrase entendue s'afficherait à moitié hors de l'écran.
+  const deploye = ouvert || dicteEnCours;
   const decalage: DecalageVoix =
     vif ??
     (accrochee && place.bord && originBas != null
@@ -497,8 +544,8 @@ export function VoixAssistant() {
           place,
           originBas,
           { width: fenetre.width, height: fenetre.height },
-          ouvert ? VOIX_ROND : VOIX_PASTILLE,
-          !ouvert,
+          deploye ? VOIX_ROND : VOIX_PASTILLE,
+          !deploye,
         )
       : { x: place.x, y: place.y });
   decalageRef.current = decalage;
@@ -592,10 +639,12 @@ export function VoixAssistant() {
   // boîte EST le bas du rond. Elle sert d'ancre au recadrage et de repère pour
   // choisir le côté d'ouverture.
   React.useLayoutEffect(() => {
-    if (ouvert) return;
+    // Déployé (panneau ouvert OU dictée en cours), la correction d'ouverture
+    // décale la boîte : la mesure ne vaudrait plus le bas du rond.
+    if (deploye) return;
     const boite = racineRef.current?.getBoundingClientRect();
     if (boite) baseBasRef.current = boite.bottom;
-  }, [ouvert, decalage.x, decalage.y, parle, fenetre.width, fenetre.height]);
+  }, [deploye, decalage.x, decalage.y, parle, fenetre.width, fenetre.height]);
 
   // Au chargement et à chaque redimensionnement : on suit la taille de la fenêtre
   // (pour recalculer le côté d'ouverture), on rafraîchit la ligne de base même
@@ -687,9 +736,9 @@ export function VoixAssistant() {
   // ne coupe ni la voix ni les ondes, elle range seulement le module hors du
   // chemin. Le survol/appui le rouvre en panneau (via `ouvert`), comme partout.
   const forme =
-    accrochee && !ouvert
+    accrochee && !ouvert && !dicteEnCours
       ? { largeur: VOIX_PASTILLE, hauteur: VOIX_PASTILLE, rayon: VOIX_PASTILLE / 2 }
-      : formeDuModule(ouvert, parle, nb);
+      : formeDuModule(ouvert, parle, nb, dicteEnCours);
   // Le contenu se dévoile UNE FOIS la place faite : à l'ouverture il attend que
   // la boîte ait grandi, à la fermeture il s'efface d'abord, puis elle rétrécit.
   const attenteContenu = ouvert ? VOIX_MORPHISME_MS * 0.55 : 0;
@@ -724,6 +773,9 @@ export function VoixAssistant() {
       data-ouvert={ouvert ? '' : undefined}
       data-accrochee={accrochee ? '' : undefined}
       data-bord={accrochee ? place.bord : undefined}
+      // Où en est l'écoute permanente : « eteinte », « guette », « ecoute »,
+      // « relit » ou « refusee ». Un seul attribut, lu par les vérifications.
+      data-etat-ecoute={ecoute.etat}
       // UN SEUL objet : le rond du repos EST le panneau déplié. Largeur, hauteur
       // et coins sont des nombres, donc le navigateur les interpole ; rien ne
       // surgit à côté, rien ne saute. La classe `-translate-x-1/2` a disparu :
@@ -803,6 +855,36 @@ export function VoixAssistant() {
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
           <span>Derniers messages</span>
+          {/* L'ÉCOUTE PERMANENTE, à côté du Muet : les deux réglages de la voix
+              vivent au même endroit. Éteinte par défaut ; allumée, elle ouvre le
+              micro et guette « Dis Haiko ». L'appui ne replie pas le module. */}
+          <button
+            type="button"
+            data-interrupteur-ecoute
+            aria-pressed={ecouteAllumee}
+            onClick={(e) => {
+              e.stopPropagation();
+              setEcouteAllumee(!ecouteAllumee);
+            }}
+            className={`ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-raised ${
+              ecoute.etat === 'refusee'
+                ? 'text-danger'
+                : ecouteAllumee
+                  ? 'text-danger'
+                  : 'text-muted'
+            }`}
+            title={
+              ecouteAllumee
+                ? 'Couper l’écoute permanente'
+                : 'Écouter en permanence, et se réveiller sur « Dis Haiko »'
+            }
+            aria-label={
+              ecouteAllumee ? 'Couper l’écoute permanente' : 'Allumer l’écoute permanente'
+            }
+          >
+            {ecouteAllumee ? <Ear className="h-3.5 w-3.5" /> : <EarOff className="h-3.5 w-3.5" />}
+            {ecouteAllumee ? 'À l’écoute' : 'Écoute'}
+          </button>
           {/* Le réglage « Muet » vit ICI, dans le panneau déplié, à côté de la
               voix qu'il commande — plus dans le menu trois points du haut. Il ne
               change RIEN au comportement : il bascule la même préférence
@@ -826,6 +908,13 @@ export function VoixAssistant() {
             {muet ? 'Coupée' : 'Active'}
           </button>
         </div>
+        {/* Le micro refusé se DIT ici, en toutes lettres, en plus du message court
+            poussé au moment du refus : l'écoute ne tombe jamais en silence. */}
+        {ecoute.erreur && (
+          <p data-erreur-micro className="shrink-0 px-3 py-2 text-[11.5px] text-danger">
+            {ecoute.erreur}
+          </p>
+        )}
         {nb === 0 ? (
           <p className="flex-1 px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
         ) : (
@@ -888,6 +977,45 @@ export function VoixAssistant() {
         <div className="h-9 shrink-0 border-t border-border" aria-hidden />
       </div>
 
+      {/* LA PHRASE ENTENDUE. Elle se pose juste au-dessus du creux d'ondes, quel
+          que soit l'état du module : fermé, il s'élargit pour elle
+          (`formeDuModule`) ; ouvert, elle couvre le bas de l'historique. Un CLIC
+          la jette — c'est le geste demandé, jumeau du mot « Annule ». Pendant la
+          relecture (deux secondes), un liseré rappelle qu'elle part bientôt. */}
+      {dicteEnCours && (
+        <button
+          type="button"
+          data-dictee
+          data-relecture={ecoute.etat === 'relit' ? '' : undefined}
+          onClick={(e) => {
+            e.stopPropagation();
+            ecoute.annuler();
+          }}
+          title="Cliquer pour jeter la phrase"
+          aria-label={`Phrase entendue : ${ecoute.dictee || '…'} — cliquer pour la jeter`}
+          className={`absolute inset-x-0 flex items-center gap-2 border-t border-border bg-surface px-3 py-2 text-left text-[12.5px] text-text ${
+            ecoute.etat === 'relit' ? 'border-t-danger' : ''
+          }`}
+          style={{ bottom: `${VOIX_HAUTEUR_PIED}px` }}
+        >
+          <span className="h-2 w-2 shrink-0 animate-pulse-soft rounded-full bg-danger" aria-hidden />
+          <span className="min-w-0 flex-1 line-clamp-2">
+            {ecoute.dictee || <span className="text-faint">Je vous écoute…</span>}
+          </span>
+        </button>
+      )}
+
+      {/* LE MICRO EST-IL OUVERT ? Un point rouge discret sur le module tant que
+          l'écoute guette le mot de réveil : un micro ouvert ne se cache pas.
+          Il s'efface dès qu'une dictée commence (le bandeau le dit mieux). */}
+      {ecoute.etat === 'guette' && (
+        <span
+          data-temoin-micro
+          className="pointer-events-none absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-danger"
+          aria-hidden
+        />
+      )}
+
       {/* LA LIGNE D'ONDES, OBJET CONTINU ET UNIQUE. Elle n'est ni dans l'icône
           (qui s'efface) ni dans l'historique (qui fond) : elle vit à part,
           TOUJOURS visible, et GLISSE du centre du rond fermé jusqu'au creux du
@@ -910,7 +1038,7 @@ export function VoixAssistant() {
           transitionTimingFunction: 'ease-out',
         }}
       >
-        <LigneOndes parle={parle} />
+        <LigneOndes parle={parle} ecoute={dicteEnCours} />
       </div>
     </div>
 

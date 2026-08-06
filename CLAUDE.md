@@ -99,6 +99,7 @@ node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes e
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
+node scripts/verif-reveil-vocal.mjs # l'écoute permanente : interrupteur, réveil « Dis Haiko », ondes rouges, relecture puis envoi, « Annule » et clic (serveur de développement, HAIKO_REVEIL_URL ; micro FACTICE muet, phrases injectées par le point d'essai — ni micro réel ni Whisper jugés)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
 node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
 HAIKODEV_DATA=/root/haikodev/data node scripts/installer-kokoro.mjs # pose le moteur Kokoro : venv-kokoro + data/models/kokoro (rejouable)
@@ -125,8 +126,10 @@ bloquée sur « Connexion au serveur… ». De même, `HAIKODEV_URL` vaut par d�
 PUBLIÉE : pour juger d'un code non publié, viser le serveur de développement.
 
 Un point d'essai posé sur la page (`window.haikodevEssai`, `web/src/lib/client.ts`) permet de
-provoquer un message court (`message`) ou une annonce vocale (`annonce`, qui rejoue un événement
-`notify` par `client.handleEssai`) depuis un script. Il est gardé par `import.meta.env.MODE !==
+provoquer un message court (`message`), une annonce vocale (`annonce`, qui rejoue un événement
+`notify` par `client.handleEssai`) ou une PAROLE ENTENDUE (`parole`, posée par
+`useEcoutePermanente` : elle entre par le même point que le retour de `/api/transcribe`) depuis un
+script. Il est gardé par `import.meta.env.MODE !==
 'production'`, **jamais par `import.meta.env.DEV`** : cet indicateur suit `NODE_ENV`, qui vaut
 « production » dans l'environnement des agents — le serveur de développement se retrouvait alors
 sans son point d'essai.
@@ -591,8 +594,9 @@ sans son point d'essai.
   ondes qui retombaient sur l'animation régulière au lieu de suivre le volume. Sans analyse possible
   (contexte encore en veille, voix de secours du navigateur — où `detacherAnalyse` est appelé —,
   navigateur qui la refuse) on retombe sur l'animation régulière `animate-onde`, jamais sur des barres
-  figées — mais SEULEMENT pendant la parole. Aucun micro ni permission : on n'écoute que ce que
-  l'application joue. L'ouverture se déclenche au survol
+  figées — mais SEULEMENT pendant la parole. Cette analyse-là n'ouvre AUCUN micro : elle ne mesure que
+  ce que l'application joue (le micro, lui, est une affaire d'écoute permanente, réglée ci-dessous et
+  éteinte par défaut). L'ouverture se déclenche au survol
   (souris) ou à l'appui (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`,
   `(hover: hover) and (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
   `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), la ligne d'ondes
@@ -692,6 +696,43 @@ sans son point d'essai.
   au redimensionnement) : `ramenerDansLEcran` ne vaut donc QUE pour les places libres. Le module
   porte `data-accrochee` et `data-bord`. Verrouillé par `server/src/test/position-voix.test.ts` et
   `scripts/verif-position-voix.mjs` (cas d'accroche, souris et doigt).
+- **L'ÉCOUTE PERMANENTE ne s'ouvre JAMAIS toute seule, et le mot de réveil est « Dis Haiko »**
+  (règles pures dans `shared/src/reveil-vocal.ts`, micro et découpe dans `web/src/lib/ecoute.ts`,
+  affichage dans `web/src/components/voix-assistant.tsx`). Un interrupteur vit dans le panneau
+  déplié du module de voix, à côté du Muet (`data-interrupteur-ecoute`, préférence SERVEUR
+  `CLE_VOIX_ECOUTE` = `voix.ecoute`, **éteinte par défaut**) : tant qu'il est éteint, aucun micro,
+  aucun flux, aucun envoi. Allumé, `useEcoutePermanente` ouvre le micro, mesure le volume et
+  découpe ce qui est dit en TRANCHES séparées par `SILENCE_FIN_MS` (2 s) ; une tranche
+  SILENCIEUSE ne part jamais, et celles qui partent passent par le chemin DÉJÀ en place
+  (`/api/transcribe`, le même que le bouton micro de la barre d'écriture, qui ne bouge pas). Aucun
+  son n'est gardé : la tranche est envoyée puis jetée, et le serveur efface son fichier temporaire.
+  Le texte revenu entre par UN SEUL point (`recevoirParole`) — celui-là même que le point d'essai de
+  la page (`window.haikodevEssai.parole`) emprunte, si bien qu'un script vérifie ce qui tourne
+  vraiment. Les RÈGLES de lecture sont pures et sans navigateur : `finDuReveil` reconnaît « Dis
+  Haiko » à `REVEIL_ECART_MAX` (2) lettres près sur la forme normalisée `dishaiko` — accents,
+  majuscules et ponctuation effacés, mots recollés — donc « Dis Haïko », « Dis, Haiko »,
+  « Dishaiko », « Dit aïko » comptent, et le réveil vaut AU MILIEU d'une phrase (ce qui suit devient
+  la dictée). L'index rendu compte des mots du texte BRUT — la normalisation sert à reconnaître,
+  jamais à remplacer ce qui a été dit. `lireParole(texte, ecouteEnCours)` tranche : en guet, seule
+  une phrase portant le réveil compte ; en écoute, tout s'ajoute (`assemblerDictee`). Les états
+  (`EtatEcoute`, portés par `data-etat-ecoute`) sont `eteinte`, `guette`, `ecoute`, `relit`,
+  `refusee`. Le module se MÉTAMORPHOSE pour la dictée comme pour la parole (`formeDuModule` prend un
+  quatrième argument) : bandeau `data-dictee` au-dessus du creux d'ondes, et les ondes passent au
+  ROUGE (`bg-danger`, `data-onde-ecoute`) en suivant le volume du MICRO (`lireNiveauxMicro`), le vert
+  restant celui de la parole. Un point rouge (`data-temoin-micro`) dit qu'un micro est ouvert en
+  guet : jamais d'écoute muette. Une dictée VIDE (« Dis Haiko » seul) n'est jamais close — on attend
+  la suite ; une phrase complète s'affiche `RELECTURE_MS` (2 s) puis est PUBLIÉE sur un canal unique
+  (`EVENEMENT_DICTEE` = `haikodev:dictee`, `surDictee`) — À QUI elle est adressée ne se décide pas
+  là. « Annule » est entendu À TOUT MOMENT, la relecture comprise (c'est justement le temps qu'on a
+  pour se raviser), et un clic sur le bandeau fait la même chose. Un micro refusé se DIT
+  (`REFUS_MICRO`, message court + ligne `data-erreur-micro` dans le panneau). Verrouillé par
+  `server/src/test/reveil-vocal.test.ts` et `scripts/verif-reveil-vocal.mjs`.
+- **Une place retenue du module de voix au-delà de toute échelle d'écran est JETÉE**
+  (`DECALAGE_VOIX_MAX`, `shared/src/position-voix.ts`). `estDecalageVoix` ne se contentait plus d'un
+  nombre fini : le recadrage (`ramenerDansLEcran`) se calcule DEPUIS le décalage, si bien qu'une
+  valeur partie à la dérive borne son propre correctif et ne se répare jamais — le module se
+  retrouvait à des milliards de pixels, introuvable et figeant la page. Au-delà de 20 000 px, la
+  place retenue retombe donc sur l'origine, le bord d'accroche étant conservé.
 - **La voix est PARTAGÉE — un seul son à la fois — et TOUT message de la conversation s'écoute**
   (`web/src/lib/voix.ts`, `texteAEcouter` dans `shared/src/lecture-message.ts`). Les annonces
   automatiques (module de voix) et l'écoute d'un message passent par le MÊME lecteur : `direVoix`

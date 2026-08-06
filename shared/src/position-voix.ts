@@ -79,14 +79,32 @@ export interface FenetreVoix {
 }
 
 /**
+ * LA PLUS GRANDE PLACE CROYABLE, en pixels. Aucun écran ne fait vingt mille
+ * pixels de côté : au-delà, la place retenue n'est plus une place, c'est une
+ * valeur partie à la dérive. Le module se retrouverait alors si loin qu'on ne
+ * pourrait plus ni le voir ni le rattraper — le recadrage lui-même se calcule
+ * DEPUIS le décalage, si bien qu'une fois faussé il ne se corrige jamais tout
+ * seul. On la borne donc à la lecture, une fois pour toutes.
+ */
+export const DECALAGE_VOIX_MAX = 20_000;
+
+/**
  * Ce qui a été retenu est-il un vrai décalage ? Une préférence absente, d'un
- * ancien format ou abîmée ne doit pas envoyer le module hors de l'écran : on
- * retombe alors sur la place d'origine.
+ * ancien format, abîmée — ou partie à la dérive au-delà de toute échelle
+ * d'écran — ne doit pas envoyer le module hors de l'écran : on retombe alors
+ * sur la place d'origine.
  */
 export function estDecalageVoix(valeur: unknown): valeur is DecalageVoix {
   if (!valeur || typeof valeur !== 'object') return false;
   const { x, y } = valeur as Partial<DecalageVoix>;
-  return typeof x === 'number' && Number.isFinite(x) && typeof y === 'number' && Number.isFinite(y);
+  return (
+    typeof x === 'number' &&
+    Number.isFinite(x) &&
+    Math.abs(x) <= DECALAGE_VOIX_MAX &&
+    typeof y === 'number' &&
+    Number.isFinite(y) &&
+    Math.abs(y) <= DECALAGE_VOIX_MAX
+  );
 }
 
 /** Le décalage retenu, ramené à quelque chose d'utilisable. */

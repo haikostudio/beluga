@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
+  DECALAGE_VOIX_MAX,
   MARGE_VOIX,
   SEUIL_ACCROCHE_VOIX,
   SEUIL_GLISSEMENT_VOIX,
@@ -47,6 +48,20 @@ test('une préférence abîmée retombe sur la place d’origine', () => {
   assert.equal(estDecalageVoix(null), false);
   assert.equal(estDecalageVoix('12,4'), false);
   assert.deepEqual(decalageRetenu({ x: 'gauche', y: 0 }), DECALAGE_VOIX_DEFAUT);
+});
+
+test('une place partie à la dérive retombe sur la place d’origine', () => {
+  // Le recadrage se calcule DEPUIS le décalage : une valeur devenue absurde ne
+  // se corrigerait jamais toute seule, et le module resterait introuvable.
+  assert.equal(estDecalageVoix({ x: 21, y: -843_344_459_014 }), false);
+  assert.equal(estDecalageVoix({ x: DECALAGE_VOIX_MAX + 1, y: 0 }), false);
+  // Une place ordinaire, même sur un très grand écran, passe toujours.
+  assert.equal(estDecalageVoix({ x: -1200, y: -700 }), true);
+  assert.deepEqual(decalageRetenu({ x: 21, y: -843_344_459_014 }), DECALAGE_VOIX_DEFAUT);
+  assert.deepEqual(placeRetenue({ x: 21, y: -843_344_459_014, bord: 'droite' }), {
+    ...DECALAGE_VOIX_DEFAUT,
+    bord: 'droite',
+  });
 });
 
 /* ------------------------------------------------------------------ */
