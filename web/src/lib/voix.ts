@@ -41,6 +41,30 @@ let audio: HTMLAudioElement | null = null;
 let etat: EtatVoix = { parle: false, cle: null, avancement: null };
 const ecouteurs = new Set<() => void>();
 
+/*
+ * LE GARDE-FOU DE LA VOIX DU NAVIGATEUR. Quand le son du serveur (`/api/speak`)
+ * ne peut pas jouer — la politique d'autoplay des mobiles le refuse tant qu'un
+ * geste ne l'a pas débloqué — on retombe sur la voix du navigateur
+ * (`speechSynthesis`). Or celle-ci, surtout sur téléphone, oublie souvent de
+ * signaler sa fin (`onend`/`onerror` muets), ou ne démarre jamais faute de
+ * geste : `parle` restait alors vrai à jamais, et le module de voix affichait
+ * ses ondes vertes en continu sans revenir au rond au repos. On surveille donc
+ * l'état RÉEL de la synthèse, et l'on referme dès qu'elle s'est tue ou n'a
+ * jamais démarré. La cadence et la patience sont ici.
+ */
+let gardeSynthese: ReturnType<typeof setInterval> | null = null;
+const GARDE_SYNTHESE_MS = 250;
+/** Sans le moindre démarrage au bout de ce nombre de tics (~4 s), on referme. */
+const GARDE_SYNTHESE_TICS = 16;
+
+/** Arrête la surveillance de la voix du navigateur, s'il y en a une en cours. */
+function arreterGardeSynthese(): void {
+  if (gardeSynthese) {
+    clearInterval(gardeSynthese);
+    gardeSynthese = null;
+  }
+}
+
 function publier(suivant: EtatVoix): void {
   etat = suivant;
   for (const prevenir of ecouteurs) prevenir();
@@ -208,6 +232,7 @@ export function taireVoix(): void {
     /* l'audio était déjà arrêté */
   }
   audio = null;
+  arreterGardeSynthese();
   detacherAnalyse();
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -243,6 +268,7 @@ export function direVoix(texte: string, cle: string | null = null): void {
   const fin = () => {
     if (estCourant()) {
       audio = null;
+      arreterGardeSynthese();
       publier({ parle: false, cle: null, avancement: null });
     }
   };
@@ -270,11 +296,34 @@ export function direVoix(texte: string, cle: string | null = null): void {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       repliLance = true;
       publier({ parle: true, cle, avancement: 'indetermine' });
+      const synthese = window.speechSynthesis;
       const parole = new SpeechSynthesisUtterance(texte);
       parole.lang = 'fr-FR';
       parole.onend = fin;
       parole.onerror = fin;
-      window.speechSynthesis.speak(parole);
+      synthese.speak(parole);
+      // Garde-fou : `onend`/`onerror` sont muets sur bien des mobiles, et la
+      // parole ne démarre parfois jamais (aucun geste préalable). On surveille
+      // donc l'état réel de la synthèse — une fois qu'elle a parlé PUIS s'est
+      // tue, ou qu'elle n'a jamais démarré après ~4 s, on referme, pour que
+      // `parle` retombe à faux et que le module revienne au rond au repos.
+      arreterGardeSynthese();
+      let aParle = false;
+      let tics = 0;
+      const surveiller = () => {
+        // Une autre parole a pris la main : cette surveillance ne sert plus.
+        if (!estCourant()) {
+          arreterGardeSynthese();
+          return;
+        }
+        tics += 1;
+        if (synthese.speaking || synthese.pending) {
+          aParle = true;
+        } else if (aParle || tics >= GARDE_SYNTHESE_TICS) {
+          fin();
+        }
+      };
+      gardeSynthese = setInterval(surveiller, GARDE_SYNTHESE_MS);
     } else {
       fin();
     }

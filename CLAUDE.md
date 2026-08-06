@@ -635,7 +635,13 @@ sans son point d'essai.
   `null` (le ton bref préfère la courte phrase par titre). La
   phrase est courte, écrite pour l'oreille (mémoire n°35) ; on réutilise Piper par une adresse audio ordinaire
   `GET /api/speak?text=…` (bornée par `normaliserTexteVoix`, `server/src/http.ts`), avec repli sur la voix
-  du navigateur. La VITESSE est réglable par crans (`Settings.voixVitesse`, défaut « normale » = échelle
+  du navigateur. **L'état `parle` retombe TOUJOURS à faux quand le son cesse, même quand le navigateur
+  ne le signale pas** (`web/src/lib/voix.ts`) : sur mobile, l'audio `/api/speak` refusé par la politique
+  d'autoplay bascule sur `speechSynthesis`, dont `onend`/`onerror` sont souvent muets (ou la parole ne
+  démarre jamais faute de geste) — `parle` restait alors vrai à jamais et le module affichait ses ondes
+  vertes en continu au lieu du rond au repos. Un GARDE-FOU (`gardeSynthese`) surveille l'état réel de la
+  synthèse et referme dès qu'elle s'est tue, ou n'a jamais démarré après ~4 s ; il est arrêté par
+  `taireVoix` et par la fin normale. La VITESSE est réglable par crans (`Settings.voixVitesse`, défaut « normale » = échelle
   1 ; `CRANS_DE_VITESSE`/`echelleDeVitesse`, `shared/src/voix-vitesse.ts`) : `speak(text, voix, vitesse)`
   ajoute `--length_scale` à Piper (> 1 ralentit, < 1 accélère) et, sans vitesse imposée, la LIT dans les
   réglages — donc TOUTES les paroles (point du jour, annonces auto, réécoutes par `/api/speak`) la
