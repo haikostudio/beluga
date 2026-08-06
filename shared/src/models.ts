@@ -93,6 +93,12 @@ export const DeployEnvironment = z.object({
   url: z.string().optional(),
   /** Branche installée par cet environnement. Vide = la branche principale. */
   branche: z.string().optional(),
+  /**
+   * Consigne de déploiement, en français : renseignée, la mise en ligne est
+   * confiée à un agent qui la suit telle quelle
+   * (`shared/src/publication-confiee.ts`).
+   */
+  consigne: z.string().optional(),
 });
 export type DeployEnvironment = z.infer<typeof DeployEnvironment>;
 
