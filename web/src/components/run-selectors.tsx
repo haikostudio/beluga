@@ -41,11 +41,14 @@ export function RunSelectors({
   engines,
   choix,
   onSelect,
+  pleineLargeur,
 }: {
   engines: EngineInfo[];
   choix: RunChoix | undefined;
   /** Un seul réglage change à la fois ; celui qui appelle décide de la suite. */
   onSelect: (patch: RunChoix) => void;
+  /** Chaque menu prend toute la largeur, sans troncature — pour un pied empilé en lignes. */
+  pleineLargeur?: boolean;
 }) {
   const { installed, engine, models, model, thinkingOptions, thinking } = resoudreRun(engines, choix);
   return (
@@ -61,6 +64,7 @@ export function RunSelectors({
         // La liste ne contient QUE des moteurs connus : l'identifiant en vient.
         onSelect={(id) => onSelect({ engine: id as RunConfig['engine'] })}
         title="Moteur"
+        pleineLargeur={pleineLargeur}
       />
       <Selector
         label={model?.label ?? 'modèle'}
@@ -82,6 +86,7 @@ export function RunSelectors({
         title={engine?.live ? 'Modèle (liste du moteur)' : 'Modèle'}
         avertissement={messageDeRepli(engine)}
         repere="modele"
+        pleineLargeur={pleineLargeur}
       />
       {thinkingOptions.length > 1 ? (
         <Selector
@@ -94,6 +99,7 @@ export function RunSelectors({
           value={thinking?.id}
           onSelect={(id) => onSelect({ thinking: id })}
           title="Niveau de réflexion"
+          pleineLargeur={pleineLargeur}
         />
       ) : null}
     </>
@@ -108,6 +114,7 @@ export function Selector({
   title,
   avertissement,
   repere,
+  pleineLargeur,
 }: {
   label: string;
   items: { id: string; label: string; note?: string; description?: string; appetite?: 'light' | 'medium' | 'heavy' }[];
@@ -118,6 +125,8 @@ export function Selector({
   avertissement?: string | null;
   /** Repère stable pour les scripts de vérification, jamais lu par l'interface. */
   repere?: string;
+  /** Le menu prend toute la largeur, libellé entier à gauche, chevron à droite. */
+  pleineLargeur?: boolean;
 }) {
   if (!items.length) return null;
   return (
@@ -126,11 +135,16 @@ export function Selector({
         <Button
           variant="ghost"
           size="sm"
-          className="min-w-0 shrink gap-0.5 px-1 text-[13px] text-faint hover:text-text sm:gap-1 sm:px-1.5"
+          className={cn(
+            'text-[13px] text-faint hover:text-text',
+            pleineLargeur
+              ? 'w-full justify-between px-1.5'
+              : 'min-w-0 shrink gap-0.5 px-1 sm:gap-1 sm:px-1.5',
+          )}
           title={avertissement ?? undefined}
           data-selecteur={repere}
         >
-          <span className="max-w-[56px] truncate sm:max-w-[110px]">{label}</span>
+          <span className={pleineLargeur ? 'truncate' : 'max-w-[56px] truncate sm:max-w-[110px]'}>{label}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
         </Button>
       </DropdownMenuTrigger>

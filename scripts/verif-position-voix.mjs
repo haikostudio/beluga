@@ -137,6 +137,17 @@ const dansLEcran = (b) =>
   b.icone.x + b.icone.largeur <= b.fenetre.largeur &&
   b.icone.y + b.icone.hauteur <= b.fenetre.hauteur;
 
+/**
+ * Le module est-il AU MOINS partiellement visible ? Une pastille accrochée est à
+ * moitié engagée hors de l'écran : elle ne tient pas entièrement dedans, mais sa
+ * moitié visible reste attrapable.
+ */
+const partiellementVisible = (b) =>
+  b.icone.x < b.fenetre.largeur &&
+  b.icone.x + b.icone.largeur > 0 &&
+  b.icone.y < b.fenetre.hauteur &&
+  b.icone.y + b.icone.hauteur > 0;
+
 /* ---------- 1. À la souris : tirer l'icône déplace le module ---------- */
 
 const ordinateur = await navigateur.newContext({ viewport: { width: 1440, height: 900 } });
@@ -241,7 +252,7 @@ if (!depart) {
   await bureau.mouse.move(20, 120);
   await bureau.waitForTimeout(400);
 
-  /* ---------- 5. Tirer très loin ne le fait pas sortir de l'écran ---------- */
+  /* ---------- 5. Tiré jusqu'à un bord, le module s'accroche ---------- */
 
   const avant4 = await boite(bureau);
   await bureau.mouse.move(avant4.x, avant4.y - 20);
@@ -252,13 +263,114 @@ if (!depart) {
   await bureau.mouse.move(3000, 2000, { steps: 20 });
   await bureau.mouse.up();
   await bureau.waitForTimeout(800);
+  await bureau.mouse.move(60, 300);
+  await bureau.waitForTimeout(500);
   const auBord = await boite(bureau);
+  // Tiré jusqu'au coin, le module ne flotte plus au milieu de l'écran : il
+  // s'accroche au bord le plus proche et n'en montre plus qu'une pastille, à
+  // moitié dehors mais toujours attrapable.
   noter(
-    'tiré très loin, le module reste entièrement dans l’écran',
-    dansLEcran(auBord),
+    'tiré jusqu’à un bord, le module s’accroche',
+    (await bureau.locator('[data-module-voix][data-accrochee]').count()) > 0,
+  );
+  noter(
+    'accroché, la pastille reste au moins à moitié visible',
+    partiellementVisible(auBord),
     `x=${auBord.x} y=${auBord.y} (${auBord.fenetre.largeur}×${auBord.fenetre.hauteur})`,
   );
   await bureau.screenshot({ path: `${SHOTS}/voix-au-bord.png` });
+
+  /* ---------- 6. Accroche à un bord, réduction, décrochage ---------- */
+
+  // On repart d'une place libre, bien au centre. On accroche vers la GAUCHE : la
+  // poignée vit en bas à DROITE du module, donc tirer vers la gauche a toute la
+  // place voulue pour pousser le module contre ce bord (vers la droite, la
+  // poignée butte contre le bord de l'écran avant d'y arriver).
+  base
+    .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+    .run(CLE, JSON.stringify({ x: 0, y: -260 }), Date.now());
+  await bureau.reload({ waitUntil: 'domcontentloaded' });
+  await bureau.waitForSelector('[data-module-voix]', { timeout: 20000 });
+  await bureau.waitForTimeout(1500);
+  await bureau.mouse.move(700, 300);
+  await bureau.waitForTimeout(300);
+
+  const avantAccroche = await boite(bureau);
+  // Déplier au survol pour saisir la poignée, puis la tirer contre le bord gauche.
+  await bureau.mouse.move(avantAccroche.x, avantAccroche.y - 20);
+  await bureau.waitForTimeout(500);
+  const prise3 = await bureau.locator('[data-poignee-voix]').boundingBox();
+  await bureau.mouse.move(prise3.x + prise3.width / 2, prise3.y + prise3.height / 2);
+  await bureau.mouse.down();
+  await bureau.mouse.move(6, avantAccroche.y - 60, { steps: 20 });
+  await bureau.mouse.up();
+  await bureau.waitForTimeout(800);
+  // Écarter la souris pour que le module se referme en pastille.
+  await bureau.mouse.move(700, 300);
+  await bureau.waitForTimeout(700);
+
+  const accroche = await boite(bureau);
+  noter(
+    'tiré contre le bord gauche, le module s’accroche',
+    (await bureau.locator('[data-module-voix][data-accrochee][data-bord="gauche"]').count()) > 0,
+  );
+  noter('accroché, le module se réduit en pastille', accroche.largeur < 40, `largeur=${accroche.largeur}`);
+  noter(
+    'accroché, la pastille est à moitié hors de l’écran (bord gauche)',
+    accroche.x <= 6,
+    `centre x=${accroche.x}`,
+  );
+  await bureau.screenshot({ path: `${SHOTS}/voix-accrochee.png` });
+
+  const rangeAccroche = placeRangee();
+  noter(
+    'l’accroche est retenue côté serveur, avec son bord',
+    rangeAccroche !== null && rangeAccroche.bord === 'gauche',
+    JSON.stringify(rangeAccroche),
+  );
+
+  // Rechargée, la page la retrouve accrochée au même bord.
+  await bureau.reload({ waitUntil: 'domcontentloaded' });
+  await bureau.waitForSelector('[data-module-voix]', { timeout: 20000 });
+  await bureau.waitForTimeout(1500);
+  await bureau.mouse.move(700, 300);
+  await bureau.waitForTimeout(400);
+  noter(
+    'après rechargement, le module est toujours accroché à gauche',
+    (await bureau.locator('[data-module-voix][data-accrochee][data-bord="gauche"]').count()) > 0,
+  );
+
+  // Au survol, il revient à sa taille normale et ouvre son panneau.
+  const pastille = await boite(bureau);
+  await bureau.mouse.move(pastille.x + 12, pastille.y - 14);
+  await bureau.waitForTimeout(700);
+  const ouvertAccroche = await boite(bureau);
+  noter(
+    'au survol, le module accroché revient à sa taille et s’ouvre',
+    (await bureau.locator('[data-module-voix][data-ouvert]').count()) > 0 && ouvertAccroche.largeur > 40,
+    `largeur=${ouvertAccroche.largeur}`,
+  );
+  await bureau.screenshot({ path: `${SHOTS}/voix-accrochee-ouverte.png` });
+
+  // Ouvert, on saisit sa poignée et on le tire vers le centre : il se décroche.
+  // On rejoint la poignée EN RESTANT dans le panneau (passer par son centre), pour
+  // ne pas le refermer en route et perdre la prise.
+  await bureau.mouse.move(ouvertAccroche.x, ouvertAccroche.y - 30);
+  await bureau.waitForTimeout(300);
+  const prise4 = await bureau.locator('[data-poignee-voix]').boundingBox();
+  await bureau.mouse.move(prise4.x + prise4.width / 2, prise4.y + prise4.height / 2);
+  await bureau.mouse.down();
+  await bureau.mouse.move(ouvertAccroche.fenetre.largeur / 2, ouvertAccroche.fenetre.hauteur / 2, { steps: 20 });
+  await bureau.mouse.up();
+  await bureau.waitForTimeout(800);
+  await bureau.mouse.move(700, 300);
+  await bureau.waitForTimeout(600);
+  const apresDecroche = placeRangee();
+  noter(
+    'tiré vers le centre, le module se décroche',
+    (await bureau.locator('[data-module-voix][data-accrochee]').count()) === 0,
+    JSON.stringify(apresDecroche),
+  );
 
   noter('aucune erreur dans la page, à la souris', erreursBureau.length === 0, erreursBureau[0] ?? '');
 }
@@ -347,6 +459,50 @@ if (!surTelephone) {
   noter(
     'aucune poignée de déplacement sur téléphone',
     (await mobile.locator('[data-poignee-voix]').count()) === 0,
+  );
+
+  /* ---------- 7. Accroche au doigt, sur une fenêtre étroite ---------- */
+
+  // On repart d'une place libre, dégagée, puis on tire le module contre le bord
+  // droit du téléphone.
+  base
+    .prepare('INSERT INTO preferences (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+    .run(CLE, JSON.stringify({ x: 0, y: -320 }), Date.now());
+  await mobile.reload({ waitUntil: 'domcontentloaded' });
+  await mobile.waitForSelector('[data-module-voix]', { timeout: 20000 });
+  await mobile.waitForTimeout(1500);
+
+  const avantTactile = await boite(mobile);
+  const dxTac = avantTactile.icone.x + avantTactile.icone.largeur / 2;
+  const dyTac = avantTactile.icone.y + avantTactile.icone.hauteur / 2;
+  const versBord = avantTactile.fenetre.largeur;
+  await doigt('touchStart', dxTac, dyTac);
+  await mobile.waitForTimeout(120);
+  for (let i = 1; i <= 10; i += 1) {
+    await doigt('touchMove', dxTac + ((versBord - dxTac) * i) / 10 + 6, dyTac);
+    await mobile.waitForTimeout(60);
+  }
+  await doigt('touchEnd', versBord, dyTac);
+  await mobile.waitForTimeout(800);
+
+  noter(
+    'au doigt, le module s’accroche au bord droit',
+    (await mobile.locator('[data-module-voix][data-accrochee][data-bord="droite"]').count()) > 0,
+  );
+  const pastilleTactile = await boite(mobile);
+  noter(
+    'accroché au doigt, la pastille est réduite',
+    pastilleTactile.largeur < 40,
+    `largeur=${pastilleTactile.largeur}`,
+  );
+  await mobile.screenshot({ path: `${SHOTS}/voix-telephone-accrochee.png` });
+
+  // Un appui sur la moitié visible de la pastille la rouvre à sa taille normale.
+  await mobile.touchscreen.tap(pastilleTactile.x - 8, pastilleTactile.y - 10);
+  await mobile.waitForTimeout(700);
+  noter(
+    'un appui rouvre le module accroché',
+    (await mobile.locator('[data-module-voix][data-ouvert]').count()) > 0,
   );
 
   noter('aucune erreur dans la page, au doigt', erreursMobile.length === 0, erreursMobile[0] ?? '');

@@ -23,6 +23,50 @@ const PIPER_VOICE = path.join(VOICES, `${DEFAULT_VOICE}.onnx`);
 const TRANSCRIBE_SCRIPT = path.join(CONFIG.selfPath, 'scripts', 'transcribe.py');
 
 /* ------------------------------------------------------------------ */
+/* Le second moteur : Kokoro, à CÔTÉ de Piper                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Kokoro n'a ni « medium » ni « high » : c'est UN modèle unique, multilingue,
+ * accompagné d'un fichier qui porte toutes ses voix. Il vit dans son propre
+ * environnement Python (`venv-kokoro`) pour ne rien changer à celui de Piper.
+ *
+ * Il ne REMPLACE pas Piper : les deux cohabitent, la voix choisie décidant du
+ * moteur employé. Une voix Kokoro se nomme « kokoro:<voix> », ce qui la
+ * distingue sans ambiguïté d'un modèle Piper.
+ */
+const KOKORO_VENV = path.join(CONFIG.dataDir, 'venv-kokoro');
+const KOKORO_PYTHON = path.join(KOKORO_VENV, 'bin', 'python');
+const KOKORO_DIR = path.join(CONFIG.dataDir, 'models', 'kokoro');
+const KOKORO_MODELE = path.join(KOKORO_DIR, 'kokoro-v1.0.onnx');
+const KOKORO_VOIX = path.join(KOKORO_DIR, 'voices-v1.0.bin');
+const KOKORO_SCRIPT = path.join(CONFIG.selfPath, 'scripts', 'kokoro-voix.py');
+const KOKORO_PREFIXE = 'kokoro:';
+
+/**
+ * Les voix Kokoro proposées. La gamme française de ce moteur est MINCE : le
+ * modèle porte cinquante-quatre voix, dont une SEULE en français (`ff_siwis`).
+ * On ne montre que celle-là : les voix anglaises ne serviraient à rien pour un
+ * assistant qui parle français, et allongeraient la liste de cinquante lignes.
+ */
+const VOIX_KOKORO: Record<string, { label: string; description: string }> = {
+  ff_siwis: {
+    label: 'Camille',
+    description: 'Voix de femme, moteur Kokoro. La seule voix française de ce moteur.',
+  },
+};
+
+/** Kokoro est-il réellement posé sur ce serveur ? */
+function kokoroInstalle(): boolean {
+  return (
+    fs.existsSync(KOKORO_PYTHON) &&
+    fs.existsSync(KOKORO_MODELE) &&
+    fs.existsSync(KOKORO_VOIX) &&
+    fs.existsSync(KOKORO_SCRIPT)
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Les voix disponibles                                                */
 /* ------------------------------------------------------------------ */
 
@@ -52,16 +96,38 @@ export interface VoiceInfo {
   description: string;
 }
 
+/**
+ * Une voix RÉSOLUE : le fichier de modèle à charger, et de quoi le faire
+ * parler. `moteur` dit lequel des deux chemins de synthèse emprunter ; il
+ * entre aussi dans l'empreinte du cache, sans quoi deux voix homonymes de
+ * moteurs différents se partageraient le même son.
+ */
+export interface VoixResolue {
+  moteur: 'piper' | 'kokoro';
+  /** Le fichier de modèle : une voix Piper, ou le modèle unique de Kokoro. */
+  modele: string;
+  /** Piper : le numéro de la personne dans un modèle qui en porte plusieurs. */
+  personne?: number;
+  /** Kokoro : le nom de la voix à prendre dans le fichier de voix. */
+  voix?: string;
+}
+
 /** Le fichier de modèle d'une voix, et la personne à demander dedans. */
-function resoudre(id: string): { modele: string; personne?: number } | null {
+function resoudre(id: string): VoixResolue | null {
+  if (id.startsWith(KOKORO_PREFIXE)) {
+    const voix = id.slice(KOKORO_PREFIXE.length);
+    if (!VOIX_KOKORO[voix] || !kokoroInstalle()) return null;
+    return { moteur: 'kokoro', modele: KOKORO_MODELE, voix };
+  }
+
   const [modele, personne] = id.split(SEPARATEUR);
   const fichier = path.join(VOICES, `${modele}.onnx`);
   if (!fichier.startsWith(VOICES) || !fs.existsSync(fichier)) return null;
-  if (!personne) return { modele: fichier };
+  if (!personne) return { moteur: 'piper', modele: fichier };
   try {
     const carte = JSON.parse(fs.readFileSync(`${fichier}.json`, 'utf8')).speaker_id_map ?? {};
     const numero = carte[personne];
-    return typeof numero === 'number' ? { modele: fichier, personne: numero } : null;
+    return typeof numero === 'number' ? { moteur: 'piper', modele: fichier, personne: numero } : null;
   } catch {
     return null;
   }
@@ -98,6 +164,15 @@ export function listVoices(): VoiceInfo[] {
       });
     }
   }
+
+  // Les voix de l'autre moteur entrent dans la MÊME liste : côté réglages, une
+  // voix est une voix — le moteur qui la fabrique ne regarde que le serveur.
+  if (kokoroInstalle()) {
+    for (const [nom, connue] of Object.entries(VOIX_KOKORO)) {
+      voix.push({ id: `${KOKORO_PREFIXE}${nom}`, label: connue.label, description: connue.description });
+    }
+  }
+
   // La voix d'origine en tête : c'est celle qu'on entend sans rien régler.
   return voix.sort((a, b) => (a.id === DEFAULT_VOICE ? -1 : b.id === DEFAULT_VOICE ? 1 : a.label.localeCompare(b.label)));
 }
@@ -107,9 +182,11 @@ export function listVoices(): VoiceInfo[] {
  * (ou plus) sur le serveur, on retombe sur la voix livrée d'origine : mieux
  * vaut une autre voix que pas de son du tout.
  */
-export function voiceChoisie(demandee?: string): { modele: string; personne?: number } {
+export function voiceChoisie(demandee?: string): VoixResolue {
   const candidats: string[] = [];
-  if (demandee) candidats.push(demandee.replace(/[^\w.@-]/g, ''));
+  // Le deux-points sépare le moteur du nom de la voix : il fait partie des
+  // signes permis, au même titre que l'arobase des personnes d'un modèle.
+  if (demandee) candidats.push(demandee.replace(/[^\w.:@-]/g, ''));
   try {
     if (store.getSettings().ttsVoice) candidats.push(store.getSettings().ttsVoice);
   } catch {
@@ -121,7 +198,7 @@ export function voiceChoisie(demandee?: string): { modele: string; personne?: nu
     const resolue = resoudre(candidat);
     if (resolue) return resolue;
   }
-  return { modele: PIPER_VOICE };
+  return { moteur: 'piper', modele: PIPER_VOICE };
 }
 
 /** La phrase d'essai : courte, avec un nombre et une heure, comme un vrai point. */
@@ -131,7 +208,8 @@ export const EXTRAIT =
 export function voiceAvailable(): { transcribe: boolean; speak: boolean } {
   return {
     transcribe: fs.existsSync(PYTHON) && fs.existsSync(TRANSCRIBE_SCRIPT),
-    speak: fs.existsSync(PIPER) && listVoices().length > 0,
+    // Un seul des deux moteurs suffit à faire parler le serveur.
+    speak: (fs.existsSync(PIPER) || kokoroInstalle()) && listVoices().length > 0,
   };
 }
 
@@ -289,11 +367,17 @@ export function digestText(projectId?: string): string {
 const CACHE_SONS = path.join(PATHS.audio, 'cache');
 const CACHE_SONS_MAX = 200;
 
-/** L'empreinte d'un son : la voix résolue et le texte, rien d'autre. */
-function cleDuSon(retenue: { modele: string; personne?: number }, texte: string, echelle: number): string {
+/**
+ * L'empreinte d'un son : le MOTEUR, la voix résolue, la vitesse et le texte.
+ * Le moteur en fait partie — la même phrase dite par Piper et par Kokoro donne
+ * deux sons différents, donc deux fichiers différents.
+ */
+export function cleDuSon(retenue: VoixResolue, texte: string, echelle: number): string {
   return crypto
     .createHash('sha256')
-    .update(`${retenue.modele} ${retenue.personne ?? ''} ${echelle} ${texte}`)
+    .update(
+      `${retenue.moteur} ${retenue.modele} ${retenue.personne ?? ''} ${retenue.voix ?? ''} ${echelle} ${texte}`,
+    )
     .digest('hex')
     .slice(0, 32);
 }
@@ -348,6 +432,63 @@ function vitesseChoisie(vitesse?: string): number {
 }
 
 /**
+ * Lance le moteur qui convient et lui fait écrire le son demandé. C'est le SEUL
+ * endroit où les deux moteurs diffèrent : au-dessus (cache, empreinte, file
+ * d'attente) et en dessous (adresse `/api/speak`, essai de voix), tout est
+ * commun.
+ *
+ * Les deux prennent le texte sur leur entrée standard et rendent un WAV, et
+ * tous deux reçoivent la MÊME échelle de vitesse : le script de Kokoro se
+ * charge de la retourner, ce moteur comptant en vitesse là où Piper compte en
+ * longueur.
+ */
+function lancerLaSynthese(
+  retenue: VoixResolue,
+  texte: string,
+  echelle: number,
+  sortie: string,
+): Promise<void> {
+  const [commande, arguments_] =
+    retenue.moteur === 'kokoro'
+      ? [
+          KOKORO_PYTHON,
+          [
+            KOKORO_SCRIPT,
+            '--model',
+            retenue.modele,
+            '--voices',
+            KOKORO_VOIX,
+            '--voice',
+            String(retenue.voix),
+            '--length-scale',
+            String(echelle),
+            '--output-file',
+            sortie,
+          ],
+        ]
+      : [
+          PIPER,
+          [
+            '--model',
+            retenue.modele,
+            ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),
+            '--length_scale',
+            String(echelle),
+            '--output_file',
+            sortie,
+          ],
+        ];
+
+  return new Promise<void>((resolve, reject) => {
+    const child = execFile(commande, arguments_, { timeout: 180000 }, (err) =>
+      err ? reject(err) : resolve(),
+    );
+    child.stdin?.write(texte);
+    child.stdin?.end();
+  });
+}
+
+/**
  * Fabrique un fichier audio ordinaire, lisible partout. Sans voix précisée,
  * c'est celle des préférences — l'extrait d'essai, lui, en impose une ; de même
  * pour la vitesse.
@@ -387,24 +528,7 @@ export async function speak(
     // lecture concurrente ne tombe jamais sur un son à moitié écrit.
     const provisoire = path.join(CACHE_SONS, `.tmp-${crypto.randomBytes(6).toString('hex')}.wav`);
     try {
-      await new Promise<void>((resolve, reject) => {
-        const child = execFile(
-          PIPER,
-          [
-            '--model',
-            retenue.modele,
-            ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),
-            '--length_scale',
-            String(echelle),
-            '--output_file',
-            provisoire,
-          ],
-          { timeout: 180000 },
-          (err) => (err ? reject(err) : resolve()),
-        );
-        child.stdin?.write(text);
-        child.stdin?.end();
-      });
+      await lancerLaSynthese(retenue, text, echelle, provisoire);
       fs.renameSync(provisoire, file);
       rangerLeCache();
       return { ok: true, file };

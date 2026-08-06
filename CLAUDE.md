@@ -98,6 +98,9 @@ node scripts/verif-pile-messages.mjs # la pile des messages courts : commandes e
 node scripts/verif-pile-messages-appui.mjs # la pile des messages s'ouvre à l'appui au doigt, au survol à la souris (serveur de développement, HAIKO_PILE_URL)
 node scripts/verif-module-voix.mjs  # le module de voix se métamorphose : rond au repos, panneau au survol/appui, bloc d'ondes en parlant (serveur de développement, HAIKO_VOIX_URL)
 node scripts/verif-position-voix.mjs # le module de voix se tire à la souris et au doigt, sa place revient au rechargement et dans une autre fenêtre (serveur de développement, HAIKO_VOIX_URL)
+HAIKODEV_DATA=/root/haikodev/data node scripts/verif-voix-kokoro.mjs # les deux moteurs de voix (Piper, Kokoro) : même liste, résolution, cache séparé, son réel
+node scripts/installer-voix.mjs     # pose les quatre voix Piper (rejouable)
+HAIKODEV_DATA=/root/haikodev/data node scripts/installer-kokoro.mjs # pose le moteur Kokoro : venv-kokoro + data/models/kokoro (rejouable)
 HAIKODEV_DATA=/root/haikodev/data node scripts/verif-catalogue-codex.mjs # combien de modèles l'API Codex rend, combien en restent après dédoublonnage
 node scripts/verif-liste-modeles.mjs # le menu du modèle montre tous les modèles du serveur, et annonce une liste de secours (démon d'essai à soi)
 node scripts/verif-connexion-compte.mjs # connecter un compte depuis les réglages : adresse et code affichés, échec dit (démon et HOME d'essai à soi)
@@ -548,10 +551,20 @@ sans son point d'essai.
   du conteneur (`data-pied-ondes` en `inset-x-0`, ondes en `w-full justify-between`, `ONDES_LARGES`
   barres) dès que la voix PARLE ou que le module est OUVERT — jamais un petit paquet centré dans un
   pied vide. L'icône FIGÉE à cinq barres (`LigneOndes` sans `plein`, `data-icone-repos`) ne s'affiche
-  QUE lorsque la voix ne parle pas ET que le module est au repos (fermé). Pendant la parole
-  (`data-parle`, posé sur la RACINE) les barres larges sont des ondes VERTES animées (`data-onde-vocale`,
-  `bg-success animate-onde`, jeton `--success`, jamais une couleur en dur) ; module seulement ouvert,
-  elles sont neutres et animées. L'ouverture se déclenche au survol
+  QUE lorsque la voix ne parle pas ET que le module est au repos (fermé) : elle montre cinq barres
+  figées en vibration sonore SYMÉTRIQUE. Pendant la parole (`data-parle`, posé sur la RACINE) les
+  barres larges deviennent un flux d'ondes VERTES (`data-onde-vocale`, `bg-success`, jeton
+  `--success`, jamais une couleur en dur) qui SUIVENT LE VOLUME réellement entendu : une analyse Web
+  Audio est branchée sur l'élément audio du lecteur partagé (`brancherAnalyse`/`lireNiveaux`,
+  `web/src/lib/voix.ts`), chaque barre lit une tranche de fréquences basses-médiums (`getByteFrequencyData`),
+  et `LigneOndes` pilote leur `scaleY` par une boucle `requestAnimationFrame` LISSÉE — hautes quand la voix
+  porte, presque plates dans les silences. On ne route l'élément par le graphe QUE si le contexte audio
+  tourne déjà (`state === 'running'`) : router un son en veille le rendrait muet, donc à défaut on laisse
+  l'élément jouer seul. Sans analyse possible (contexte en veille, voix de secours du navigateur — où
+  `detacherAnalyse` est appelé —, navigateur qui la refuse) on retombe sur l'animation régulière
+  `animate-onde`, jamais sur des barres figées. Module seulement ouvert (voix muette), les barres
+  larges sont neutres et animées. Aucun micro ni permission : on n'écoute que ce que
+  l'application joue. L'ouverture se déclenche au survol
   (souris) ou à l'appui (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`,
   `(hover: hover) and (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
   `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), la ligne d'ondes
@@ -601,6 +614,24 @@ sans son point d'essai.
   se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
   (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. Verrouillé par
   `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
+- **DEUX moteurs de synthèse cohabitent, et c'est la VOIX CHOISIE qui décide lequel parle**
+  (`server/src/voice.ts`). Piper reste le moteur d'origine et la voix par défaut ne bouge pas
+  (`fr_FR-siwis-medium`, « Claire ») ; Kokoro s'ajoute À CÔTÉ, jamais à la place. Une voix Kokoro se
+  nomme `kokoro:<voix>` — le préfixe est la SEULE marque du moteur, d'où le deux-points ajouté aux
+  signes permis par `voiceChoisie`. `resoudre` rend une `VoixResolue` qui porte son `moteur`, et
+  `lancerLaSynthese` est le seul endroit qui diffère : au-dessus (empreinte, cache, file d'attente)
+  et en dessous (`/api/speak`, `/api/voice-sample`, module de voix) tout est commun. L'empreinte du
+  cache (`cleDuSon`) prend le MOTEUR en premier : la même phrase dite par les deux ne partage jamais
+  son fichier. Kokoro est UN modèle unique multilingue (`data/models/kokoro/kokoro-v1.0.onnx` +
+  `voices-v1.0.bin`), dans son PROPRE environnement Python (`data/venv-kokoro`) pour ne rien changer
+  à celui de Piper, appelé par `scripts/kokoro-voix.py` qui prend le texte sur l'entrée standard et
+  rend un WAV — comme Piper. Deux différences absorbées là : la vitesse (Piper compte en LONGUEUR,
+  `--length_scale` > 1 ralentit ; Kokoro en VITESSE, donc l'échelle est inversée) et la langue,
+  déduite de la première lettre du nom de la voix. Sa gamme FRANÇAISE est mince : sur 54 voix, une
+  seule est française (`ff_siwis`, affichée « Camille ») — les autres ne sont pas listées, elles ne
+  serviraient pas un assistant qui parle français. Une voix Kokoro inconnue, ou le moteur absent,
+  retombent sur Piper : jamais de silence. Posé par `scripts/installer-kokoro.mjs` (rejouable).
+  Verrouillé par `server/src/test/point-vocal.test.ts` et `scripts/verif-voix-kokoro.mjs`.
 - **Le PANNEAU s'ouvre du côté où il y a de la place, le bouton ne bouge pas**
   (`sensDouverture` / `correctionOuverture`, `shared/src/position-voix.ts`). Le module fermé est un
   rond de 44 px ; déplié, un panneau de 256 px de large. `sensDouverture` regarde la boîte du rond à
@@ -614,6 +645,23 @@ sans son point d'essai.
   centre de la fenêtre et la ligne du bas mesurée quand le module est fermé (`baseBasRef`), rafraîchie
   au redimensionnement. Le choix se recalcule à l'ouverture et au `resize`. Verrouillé par les cas
   « le panneau s'ouvre du côté où il y a de la place » de `server/src/test/position-voix.test.ts`.
+- **Lâché tout près d'un bord, le module de voix S'Y ACCROCHE et se RÉDUIT**
+  (`bordDaccroche` / `decalageAccroche`, `shared/src/position-voix.ts`). La place retenue reste un
+  décalage `{x, y}`, mais elle porte EN PLUS un `bord` (`gauche`, `droite` ou `bas`, JAMAIS le haut)
+  quand le module est accroché — `placeRetenue` lit l'ancien format `{x, y}` seul comme une place
+  libre. Au relâchement, `bordDaccroche` regarde la boîte du rond lâché : si un bord est à moins de
+  `SEUIL_ACCROCHE_VOIX` (20 px ; la règle de visibilité tient déjà le module à 8 px du bord, donc
+  bien en deçà), le module s'y range. Fermé, il se montre en PASTILLE réduite (`VOIX_PASTILLE`,
+  30 px, `voix-assistant.tsx`) À MOITIÉ engagée hors de l'écran (`demiDehors`), même en parlant —
+  l'accroche ne coupe ni la voix ni les ondes. Survolé (souris) ou touché (doigt), il revient à sa
+  taille et OUVRE son panneau, calé AU RAS du bord (`demiDehors` faux, bord extérieur sur le bord de
+  l'écran, jamais à une marge : sinon le panneau, en s'ouvrant vers l'intérieur, découvrirait le
+  point de survol et re-fermerait aussitôt) ; `sensDouverture` fait le reste. Tiré vers le centre, le
+  module se DÉCROCHE de lui-même : plus aucun bord proche au relâchement, la place rangée redevient
+  libre. La place accrochée se RECALCULE à chaque rendu depuis le bord et la fenêtre (jamais rangée
+  au redimensionnement) : `ramenerDansLEcran` ne vaut donc QUE pour les places libres. Le module
+  porte `data-accrochee` et `data-bord`. Verrouillé par `server/src/test/position-voix.test.ts` et
+  `scripts/verif-position-voix.mjs` (cas d'accroche, souris et doigt).
 - **La voix est PARTAGÉE — un seul son à la fois — et TOUT message de la conversation s'écoute**
   (`web/src/lib/voix.ts`, `texteAEcouter` dans `shared/src/lecture-message.ts`). Les annonces
   automatiques (module de voix) et l'écoute d'un message passent par le MÊME lecteur : `direVoix`
