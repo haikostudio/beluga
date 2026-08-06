@@ -4,8 +4,9 @@ import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
   NOM_UTILISATEUR,
+  bordDaccroche,
   correctionOuverture,
-  decalageRetenu,
+  decalageAccroche,
   decisionsOuvertes,
   estUnGlissement,
   gesteDOuverture,
@@ -13,10 +14,12 @@ import {
   phraseDecisionAttendue,
   phraseVocaleDeNotification,
   pileApres,
+  placeRetenue,
   ramenerDansLEcran,
   sensDouverture,
   type ContexteDecision,
   type DecalageVoix,
+  type PlaceVoix,
   type VoixOptions,
 } from '@haikodev/shared';
 import { client } from '@/lib/client';
@@ -53,6 +56,11 @@ export const CLE_VOIX_HISTORIQUE = 'haikodev.voix.historique';
 export const VOIX_MORPHISME_MS = 300;
 /** Le rond au repos : un carré parfait, donc un cercle une fois arrondi. */
 const VOIX_ROND = 44;
+/**
+ * La pastille RÉDUITE quand le module est accroché à un bord : plus petite que
+ * le rond, à moitié engagée hors de l'écran pour ne plus masquer le contenu.
+ */
+const VOIX_PASTILLE = 30;
 /** Le bloc de parole, quand le module n'est pas déplié. */
 const VOIX_LARGEUR_PARLE = 96;
 /** Le panneau déplié, borné à 80 % de l'écran pour les petits téléphones. */
@@ -428,18 +436,70 @@ export function VoixAssistant() {
    * OÙ LE MODULE SE POSE. Sa place est retenue dans le COMPTE, par le même
    * mécanisme que le bloc en bas à droite : une préférence serveur, donc la
    * même sur tous les appareils. Ce qu'on retient est un DÉCALAGE par rapport
-   * à la place d'origine (bas au centre), jamais une position absolue.
+   * à la place d'origine (bas au centre), plus — quand le module est ACCROCHÉ
+   * à un bord — le bord où il l'est ; jamais une position absolue.
    *
    * Pendant qu'on tire, la position « vive » (`vif`) mène la danse : l'écran
-   * suit le doigt sans écrire au serveur à chaque pixel. Le décalage n'est
-   * rangé qu'au relâchement.
+   * suit le doigt sans écrire au serveur à chaque pixel. La place n'est rangée
+   * qu'au relâchement, avec ou sans accroche selon où on a lâché.
    */
-  const [range, rangerDecalage] = usePref<DecalageVoix>(CLE_VOIX_POSITION, DECALAGE_VOIX_DEFAUT);
+  const [range, rangerDecalage] = usePref<PlaceVoix>(CLE_VOIX_POSITION, DECALAGE_VOIX_DEFAUT);
   const [vif, setVif] = React.useState<DecalageVoix | null>(null);
-  const decalage = vif ?? decalageRetenu(range);
-  // Lu par les écouteurs de glissement sans les réabonner à chaque pixel.
-  const decalageRef = React.useRef(decalage);
+  // La place retenue : décalage libre, ou décalage + bord d'accroche. Pendant un
+  // glissement (`vif` posé), l'accroche est en suspens : on montre le rond libre.
+  const place = placeRetenue(range);
+  const accrochee = place.bord !== undefined && vif === null;
+
+  // Lu par les écouteurs de glissement sans les réabonner à chaque pixel. Il
+  // porte le décalage EFFECTIF du dernier rendu.
+  const decalageRef = React.useRef<DecalageVoix>({ x: place.x, y: place.y });
+  // La ligne du bas du rond SANS décalage, déduite de la dernière mesure :
+  // `baseBas = originBas + décalage rendu`, donc on retranche le décalage du
+  // rendu PRÉCÉDENT (encore dans `decalageRef`). La boîte étant ancrée par le
+  // bas quelle que soit sa taille, ce calcul vaut pour la pastille comme pour le
+  // panneau. `null` tant qu'aucune mesure n'a eu lieu.
+  const originBas =
+    baseBasRef.current != null ? baseBasRef.current - decalageRef.current.y : null;
+
+  // Le décalage EFFECTIF. Hors accroche (ou pendant un glissement), c'est le
+  // décalage libre. Accroché, il est calculé depuis le bord : pastille à moitié
+  // dehors quand le module est fermé, rond entier collé au bord quand il est
+  // ouvert (le panneau se déploie ensuite vers l'intérieur).
+  const decalage: DecalageVoix =
+    vif ??
+    (accrochee && place.bord && originBas != null
+      ? decalageAccroche(
+          place.bord,
+          place,
+          originBas,
+          { width: fenetre.width, height: fenetre.height },
+          ouvert ? VOIX_ROND : VOIX_PASTILLE,
+          !ouvert,
+        )
+      : { x: place.x, y: place.y });
   decalageRef.current = decalage;
+
+  // D'où PART un glissement : la place libre courante, ou — si le module est
+  // accroché — le rond entier collé au bord (il « rentre » d'abord, puis suit le
+  // pointeur), pour ne pas sauter au premier mouvement.
+  const baseGlissement: DecalageVoix =
+    accrochee && place.bord && originBas != null
+      ? decalageAccroche(
+          place.bord,
+          place,
+          originBas,
+          { width: fenetre.width, height: fenetre.height },
+          VOIX_ROND,
+          false,
+        )
+      : decalage;
+  const baseGlissementRef = React.useRef(baseGlissement);
+  baseGlissementRef.current = baseGlissement;
+  // Lu par le relâchement (effet non réabonné) : l'origine et l'accroche rangée.
+  const originBasRef = React.useRef<number | null>(originBas);
+  originBasRef.current = originBas;
+  const accrocheeStoreeRef = React.useRef(place.bord !== undefined);
+  accrocheeStoreeRef.current = place.bord !== undefined;
 
   // Le glissement en cours : d'où il part, et depuis quelle place.
   const glissementRef = React.useRef<
@@ -462,7 +522,9 @@ export function VoixAssistant() {
     glissementRef.current = {
       departX: event.clientX,
       departY: event.clientY,
-      base: decalageRef.current,
+      // Accroché, on part du rond entier collé au bord : la pastille « rentre »
+      // et suit le pointeur, sans saut.
+      base: baseGlissementRef.current,
       bouge: false,
     };
     // Saisi : le transform suit le pointeur sans transition tant que le geste
@@ -521,6 +583,10 @@ export function VoixAssistant() {
     const replacer = () => {
       setFenetre({ width: window.innerWidth, height: window.innerHeight });
       if (glissementRef.current) return;
+      // Accroché, la place se recalcule à chaque rendu depuis le bord et la
+      // fenêtre : rien à recadrer ni à ranger. La règle de visibilité ne vaut
+      // que pour les places LIBRES.
+      if (accrocheeStoreeRef.current) return;
       if (ouvertRef.current) {
         const boite = racineRef.current?.getBoundingClientRect();
         if (boite) baseBasRef.current = boite.bottom - corrRef.current.y;
@@ -556,8 +622,30 @@ export function VoixAssistant() {
       if (!g.bouge) return;
       vientDeGlisserRef.current = true;
       const pose = recadrer(decalageRef.current);
-      setVif(pose);
-      rangerDecalage(pose);
+      // Lâché tout près d'un bord ? Le module s'y ACCROCHE en pastille ; sinon il
+      // reste à sa place libre. Tirer un module accroché vers le centre le
+      // décroche donc naturellement (plus aucun bord proche au relâchement).
+      const originActuel = originBasRef.current;
+      const bord =
+        originActuel != null
+          ? bordDaccroche(
+              {
+                left: window.innerWidth / 2 + pose.x - VOIX_ROND / 2,
+                top: originActuel + pose.y - VOIX_ROND,
+                width: VOIX_ROND,
+                height: VOIX_ROND,
+              },
+              { width: window.innerWidth, height: window.innerHeight },
+            )
+          : null;
+      if (bord) {
+        // La place accrochée se recalcule au rendu : on efface la position vive.
+        setVif(null);
+        rangerDecalage({ x: pose.x, y: pose.y, bord });
+      } else {
+        setVif(pose);
+        rangerDecalage({ x: pose.x, y: pose.y });
+      }
     };
     window.addEventListener('pointermove', bouger, { passive: false });
     window.addEventListener('pointerup', lacher);
@@ -570,8 +658,14 @@ export function VoixAssistant() {
   }, [recadrer, rangerDecalage]);
 
   const nb = messages.length;
-  // Le MÊME objet s'agrandit, qu'on le survole ou qu'il se mette à parler.
-  const forme = formeDuModule(ouvert, parle, nb);
+  // Le MÊME objet s'agrandit, qu'on le survole ou qu'il se mette à parler. Mais
+  // ACCROCHÉ et fermé, il se réduit en pastille — même en parlant : l'accroche
+  // ne coupe ni la voix ni les ondes, elle range seulement le module hors du
+  // chemin. Le survol/appui le rouvre en panneau (via `ouvert`), comme partout.
+  const forme =
+    accrochee && !ouvert
+      ? { largeur: VOIX_PASTILLE, hauteur: VOIX_PASTILLE, rayon: VOIX_PASTILLE / 2 }
+      : formeDuModule(ouvert, parle, nb);
   // Le contenu se dévoile UNE FOIS la place faite : à l'ouverture il attend que
   // la boîte ait grandi, à la fermeture il s'efface d'abord, puis elle rétrécit.
   const attenteContenu = ouvert ? VOIX_MORPHISME_MS * 0.55 : 0;
@@ -603,6 +697,8 @@ export function VoixAssistant() {
       data-module-voix
       data-parle={parle ? '' : undefined}
       data-ouvert={ouvert ? '' : undefined}
+      data-accrochee={accrochee ? '' : undefined}
+      data-bord={accrochee ? place.bord : undefined}
       // UN SEUL objet : le rond du repos EST le panneau déplié. Largeur, hauteur
       // et coins sont des nombres, donc le navigateur les interpole ; rien ne
       // surgit à côté, rien ne saute. La classe `-translate-x-1/2` a disparu :
