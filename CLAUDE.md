@@ -710,8 +710,15 @@ sans son point d'essai.
   démarrage suivant. Un glissement au doigt ne produit AUCUN clic : le repère « on vient de glisser »
   est donc remis à zéro au `pointerdown` suivant, sinon il mangerait l'appui d'après et le module ne
   se déplierait plus jamais. Le transform porte à la fois le centrage d'origine et le décalage
-  (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. Verrouillé par
-  `server/src/test/position-voix.test.ts` et `scripts/verif-position-voix.mjs`.
+  (`translate(calc(-50% + Xpx), Ypx)`) — il remplace la classe `-translate-x-1/2`. **SUR TÉLÉPHONE
+  (`useTelephone`, `ancreMenu`), le module ne flotte plus : il vient se poser AU CENTRE du menu du
+  bas** (la colonne du milieu lui est laissée, `data-place-voix`) — décalage FORCÉ à zéro, `bottom`
+  mesuré sur la barre (`nav[data-menu-bas]`) pour aligner le CENTRE du rond sur celui de la barre (il
+  déborde alors un peu en haut et en bas), et ni glissement (`onPointerDown` neutralisé), ni accroche
+  (`accrochee` faux), ni poignée. La place mémorisée n'est PAS effacée (l'effet de recadrage rend la
+  main tout de suite quand `ancreMenu`) : elle ressert dès qu'on repasse sur grand écran. Attribut
+  `data-ancre-menu`. Verrouillé par `server/src/test/position-voix.test.ts`,
+  `scripts/verif-position-voix.mjs` et `scripts/verif-menu-bas-telephone.mjs`.
 - **DEUX moteurs de synthèse cohabitent, et c'est la VOIX CHOISIE qui décide lequel parle**
   (`server/src/voice.ts`). Piper reste le moteur d'origine et la voix par défaut ne bouge pas
   (`fr_FR-siwis-medium`, « Claire ») ; Kokoro s'ajoute À CÔTÉ, jamais à la place. Une voix Kokoro se
@@ -900,12 +907,15 @@ sans son point d'essai.
   `env(safe-area-inset-bottom) + 0.5rem`) : il réserve exactement la place du menu, donc le contenu
   ne passe jamais derrière — mais il est nu, sans fond ni bordure. C'est le bloc INTÉRIEUR qui se
   voit : arrondi (`rounded-2xl`), fond `bg-surface`, ombre douce, une bordure sur ses quatre côtés —
-  jamais un `border-t` sur toute la largeur, qui coupait l'écran. Trois destinations, trois icônes
-  DISTINCTES (`Columns3` tableau, `BarChart3` bord, `MessageSquare` chef) et trois libellés d'un
-  mot — « Tableau », « Bord », « Chef » — qui tiennent sur une ligne à 360 px. Le triangle de
-  décision reste sur « Chef ». Rien au-dessus du seuil (`sm:hidden`). Le bloc en bas à droite part
-  de `bottom-14` sur téléphone (`sm:bottom-3` ailleurs) pour ne pas se poser sur ce menu. Vérifié
-  par `scripts/verif-menu-bas-telephone.mjs`.
+  jamais un `border-t` sur toute la largeur, qui coupait l'écran. DEUX destinations, deux icônes
+  DISTINCTES (`Columns3` tableau, `MessageSquare` chef) et deux libellés d'un mot — « Tableau »,
+  « Chef ». La colonne du MILIEU (grille `grid-cols-3`) est laissée VIDE (`data-place-voix`) : le
+  module de voix vient s'y poser, ancré au centre (voir la règle du module de voix ci-dessous). Le
+  tableau de bord — jadis le bouton « Bord » du centre — se rejoint donc par le MENU TROIS POINTS de
+  la barre du haut (`QuotaBar`, entrée « Tableau de bord » rendue seulement sur téléphone, la colonne
+  de gauche y menant déjà sur grand écran). Le triangle de décision reste sur « Chef ». Rien au-dessus
+  du seuil (`sm:hidden`). Le bloc en bas à droite part de `bottom-14` sur téléphone (`sm:bottom-3`
+  ailleurs) pour ne pas se poser sur ce menu. Vérifié par `scripts/verif-menu-bas-telephone.mjs`.
 - **Le tiroir d'une carte s'ÉPURE sur téléphone, jamais sur ordinateur** (`card-panel.tsx`). Le choix
   se fait sur la largeur du pointeur (`useTelephone`, `(max-width: 639px)`), relue au redimensionnement.
   Sous ce seuil, les tags (état, étiquettes, « modifiée », archivage) — le bloc `data-tags-carte` — sont

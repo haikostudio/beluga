@@ -25,6 +25,7 @@ import {
 import { client } from '@/lib/client';
 import { usePref } from '@/lib/prefs';
 import { useSurvol } from '@/lib/pointeur';
+import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
 import { direVoix, lireNiveaux, taireVoix, useVoix } from '@/lib/voix';
 import { lireNiveauxMicro, useEcoutePermanente } from '@/lib/ecoute';
@@ -343,6 +344,19 @@ function LigneOndes({ parle, ecoute }: { parle: boolean; ecoute: boolean }) {
 export function VoixAssistant() {
   const state = useApp();
   const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
+  /*
+   * ANCRÉ DANS LE MENU DU BAS, SUR TÉLÉPHONE. Là, le module ne flotte plus
+   * librement : il vient se poser AU CENTRE du menu du bas (la colonne du milieu
+   * lui est laissée, voir web/src/app.tsx), débordant un peu en haut et en bas
+   * comme un bouton d'action. Il garde tout ce qu'il sait faire — parler, montrer
+   * ses ondes, s'ouvrir, écouter — mais ne se DÉPLACE plus (pas de glissement,
+   * pas d'accroche, pas de poignée) : ces gestes n'ont plus de sens à cette
+   * place. La place mémorisée (`range`) n'est PAS effacée : elle ressert dès
+   * qu'on repasse sur grand écran.
+   */
+  const ancreMenu = useTelephone();
+  const ancreMenuRef = React.useRef(ancreMenu);
+  ancreMenuRef.current = ancreMenu;
   // Le prénom réglé (défaut « Chris ») et l'heure du moment personnalisent chaque
   // phrase : ils sont relus au fil de l'eau, sans réabonner les écouteurs.
   const nom = state.settings?.voixNom || NOM_UTILISATEUR;
@@ -473,6 +487,28 @@ export function VoixAssistant() {
     height: typeof window !== 'undefined' ? window.innerHeight : 0,
   }));
 
+  /*
+   * OÙ SE POSE LE ROND QUAND IL EST ANCRÉ AU MENU. On mesure la barre du bas
+   * (`nav[data-menu-bas]`, rendue AVANT ce module dans l'arbre) et l'on aligne le
+   * CENTRE du rond sur le centre de la barre : le rond de 44 px déborde alors un
+   * peu de la barre (~36 px de haut). La valeur est la distance, en pixels, du
+   * BAS de la boîte au bas de l'écran ; la boîte étant ancrée par le bas, le rond
+   * garde sa place quand le panneau grandit vers le haut. `null` hors téléphone
+   * (le module retrouve alors sa place flottante d'origine).
+   */
+  const [ancrageBas, setAncrageBas] = React.useState<number | null>(null);
+  React.useLayoutEffect(() => {
+    if (!ancreMenu) {
+      setAncrageBas(null);
+      return;
+    }
+    const bloc = document.querySelector('nav[data-menu-bas]')?.firstElementChild;
+    if (!bloc) return;
+    const r = bloc.getBoundingClientRect();
+    const centre = r.top + r.height / 2;
+    setAncrageBas(window.innerHeight - centre - VOIX_ROND / 2);
+  }, [ancreMenu, fenetre.width, fenetre.height]);
+
   // La ligne du BAS du rond fermé, en pixels d'écran : c'est là que le bouton se
   // pose, et la référence pour poser le panneau autour de lui. Mesurée quand le
   // module est fermé (où la correction d'ouverture est nulle), rafraîchie au
@@ -515,7 +551,8 @@ export function VoixAssistant() {
   // La place retenue : décalage libre, ou décalage + bord d'accroche. Pendant un
   // glissement (`vif` posé), l'accroche est en suspens : on montre le rond libre.
   const place = placeRetenue(range);
-  const accrochee = place.bord !== undefined && vif === null;
+  // Ancré au menu, jamais d'accroche à un bord : le module a une place imposée.
+  const accrochee = !ancreMenu && place.bord !== undefined && vif === null;
 
   // Lu par les écouteurs de glissement sans les réabonner à chaque pixel. Il
   // porte le décalage EFFECTIF du dernier rendu.
@@ -536,18 +573,22 @@ export function VoixAssistant() {
   // bord, il ne se montre alors plus en pastille demi-dehors : il revient au ras
   // du bord, sinon la phrase entendue s'afficherait à moitié hors de l'écran.
   const deploye = ouvert || dicteEnCours;
-  const decalage: DecalageVoix =
-    vif ??
-    (accrochee && place.bord && originBas != null
-      ? decalageAccroche(
-          place.bord,
-          place,
-          originBas,
-          { width: fenetre.width, height: fenetre.height },
-          deploye ? VOIX_ROND : VOIX_PASTILLE,
-          !deploye,
-        )
-      : { x: place.x, y: place.y });
+  // Ancré au menu : décalage NUL, on ne lit pas la place mémorisée (mais on ne
+  // l'efface pas non plus). Le module se centre alors sur le menu du bas, dont
+  // la hauteur donne la ligne du bas de la boîte (`ancrageBas`, plus bas).
+  const decalage: DecalageVoix = ancreMenu
+    ? { x: 0, y: 0 }
+    : vif ??
+      (accrochee && place.bord && originBas != null
+        ? decalageAccroche(
+            place.bord,
+            place,
+            originBas,
+            { width: fenetre.width, height: fenetre.height },
+            deploye ? VOIX_ROND : VOIX_PASTILLE,
+            !deploye,
+          )
+        : { x: place.x, y: place.y });
   decalageRef.current = decalage;
 
   // D'où PART un glissement : la place libre courante, ou — si le module est
@@ -656,6 +697,9 @@ export function VoixAssistant() {
     const replacer = () => {
       setFenetre({ width: window.innerWidth, height: window.innerHeight });
       if (glissementRef.current) return;
+      // Ancré au menu, la place est imposée : on ne recadre ni ne range rien —
+      // surtout, on n'écrase pas la place mémorisée, qui ressert sur grand écran.
+      if (ancreMenuRef.current) return;
       // Accroché, la place se recalcule à chaque rendu depuis le bord et la
       // fenêtre : rien à recadrer ni à ranger. La règle de visibilité ne vaut
       // que pour les places LIBRES.
@@ -773,6 +817,8 @@ export function VoixAssistant() {
       data-ouvert={ouvert ? '' : undefined}
       data-accrochee={accrochee ? '' : undefined}
       data-bord={accrochee ? place.bord : undefined}
+      // Ancré au centre du menu du bas (téléphone) : repère pour les vérifications.
+      data-ancre-menu={ancreMenu ? '' : undefined}
       // Où en est l'écoute permanente : « eteinte », « guette », « ecoute »,
       // « relit » ou « refusee ». Un seul attribut, lu par les vérifications.
       data-etat-ecoute={ecoute.etat}
@@ -782,7 +828,11 @@ export function VoixAssistant() {
       // un seul transform porte le centrage d'origine ET le décalage retenu.
       className="fixed bottom-20 left-1/2 z-30 max-w-[80vw] overflow-hidden border border-border bg-surface/90 shadow-lg backdrop-blur transition-all ease-out sm:bottom-6"
       style={{
-        marginBottom: 'env(safe-area-inset-bottom)',
+        // Ancré au menu, la ligne du bas vient de la mesure de la barre (safe-area
+        // déjà comprise) : on écrase alors `bottom` et la marge de sécurité.
+        ...(ancreMenu && ancrageBas != null
+          ? { bottom: `${ancrageBas}px`, marginBottom: 0 }
+          : { marginBottom: 'env(safe-area-inset-bottom)' }),
         width: `${forme.largeur}px`,
         height: `${forme.hauteur}px`,
         borderRadius: `${forme.rayon}px`,
@@ -824,7 +874,7 @@ export function VoixAssistant() {
         // à déplier (immobile) et à déplacer (qui glisse). À la souris, ce bouton
         // s'efface au survol (l'ouverture le rend `pointer-events-none`) et ne
         // peut plus être attrapé — c'est la POIGNÉE dédiée qui prend le relais.
-        onPointerDown={survolPossible ? undefined : commencerGlissement}
+        onPointerDown={survolPossible || ancreMenu ? undefined : commencerGlissement}
         className={`absolute inset-0 grid place-items-center transition-opacity hover:bg-raised ${
           ouvert ? 'pointer-events-none opacity-0' : 'opacity-100'
         }`}
@@ -1057,7 +1107,7 @@ export function VoixAssistant() {
           module fermé — hors survol, la poignée est là. Aucune poignée au doigt
           (`survolPossible` faux) : l'appui déplie et le bouton porte déjà le
           glissement. */}
-      {survolPossible && !ouvert && (
+      {survolPossible && !ouvert && !ancreMenu && (
         <button
           type="button"
           data-poignee-voix
