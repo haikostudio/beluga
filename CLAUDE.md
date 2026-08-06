@@ -546,8 +546,17 @@ sans son point d'essai.
   `VOIX_MORPHISME_MS` comme la boîte. Elle porte `data-pied-ondes` ; le pied de la liste n'est plus
   qu'un creux vide (`h-9 border-t`) où elle vient se poser. Au repos, `LigneOndes` (`data-icone-repos`)
   montre cinq barres figées en vibration sonore SYMÉTRIQUE ; pendant la parole (`data-parle`, posé sur
-  la RACINE) elle devient un flux d'ondes VERTES animées (`data-onde-vocale`, barres `bg-success
-  animate-onde`, jeton `--success`, jamais une couleur en dur). L'ouverture se déclenche au survol
+  la RACINE) elle devient un flux d'ondes VERTES (`data-onde-vocale`, huit barres `bg-success`, jeton
+  `--success`, jamais une couleur en dur) qui SUIVENT LE VOLUME réellement entendu : une analyse Web
+  Audio est branchée sur l'élément audio du lecteur partagé (`brancherAnalyse`/`lireNiveaux`,
+  `web/src/lib/voix.ts`), chaque barre lit une tranche de fréquences basses-médiums (`getByteFrequencyData`),
+  et `LigneOndes` pilote leur `scaleY` par une boucle `requestAnimationFrame` LISSÉE — hautes quand la voix
+  porte, presque plates dans les silences. On ne route l'élément par le graphe QUE si le contexte audio
+  tourne déjà (`state === 'running'`) : router un son en veille le rendrait muet, donc à défaut on laisse
+  l'élément jouer seul. Sans analyse possible (contexte en veille, voix de secours du navigateur — où
+  `detacherAnalyse` est appelé —, navigateur qui la refuse) on retombe sur l'animation régulière
+  `animate-onde`, jamais sur des barres figées. Aucun micro ni permission : on n'écoute que ce que
+  l'application joue. L'ouverture se déclenche au survol
   (souris) ou à l'appui (doigt) — même choix que la pile des messages (`gesteDOuverture`/`pileApres`,
   `(hover: hover) and (pointer: fine)`), attribut `data-ouvert` — et montre l'HISTORIQUE au-dessus (les
   `VOIX_MESSAGES_MAX` (10) derniers messages prononcés, le plus récent en haut), la ligne d'ondes

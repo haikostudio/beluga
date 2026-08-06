@@ -23,7 +23,7 @@ import { client } from '@/lib/client';
 import { usePref } from '@/lib/prefs';
 import { useSurvol } from '@/lib/pointeur';
 import { useApp } from '@/lib/use-app';
-import { direVoix, taireVoix, useVoix } from '@/lib/voix';
+import { direVoix, lireNiveaux, taireVoix, useVoix } from '@/lib/voix';
 
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
@@ -172,23 +172,72 @@ function contexteDecision(
   return { projet, tache };
 }
 
+/** Combien de barres dessinent la ligne d'ondes pendant la parole. */
+const VOIX_NB_BARRES = 8;
+
 /**
- * La ligne d'ondes : pendant la parole (`parle`), un flux d'ondes VERTES
- * animées ; au repos, cinq barres figées en vibration sonore symétrique. Un
- * SEUL exemplaire vit dans le module — l'objet continu qui glisse du centre du
- * rond fermé au creux du pied déplié —, jamais un dans le bouton et un autre au
- * pied qui se croiseraient en fondu.
+ * La ligne d'ondes : pendant la parole (`parle`), un flux d'ondes VERTES qui
+ * suivent le VOLUME réellement entendu — hautes quand la voix porte, presque
+ * plates dans les silences. Chaque barre lit une tranche de fréquences de
+ * l'analyseur du son (`lireNiveaux`), rafraîchie à chaque image et LISSÉE pour
+ * un mouvement doux, sans saccade. Quand l'analyse n'est pas possible (voix de
+ * secours du navigateur, contexte audio en veille), on retombe proprement sur
+ * l'animation régulière d'avant (`animate-onde`) — jamais sur des barres figées.
+ *
+ * Au repos, cinq barres figées en vibration sonore symétrique. Un SEUL
+ * exemplaire vit dans le module — l'objet continu qui glisse du centre du rond
+ * fermé au creux du pied déplié —, jamais un dans le bouton et un autre au pied
+ * qui se croiseraient en fondu.
  */
 function LigneOndes({ parle }: { parle: boolean }) {
+  // Les barres, pilotées à la main (sans re-rendu) au fil du son.
+  const barresRef = React.useRef<(HTMLSpanElement | null)[]>([]);
+  // L'analyse est-elle en place ? Faux → l'animation régulière prend le relais.
+  const [analyse, setAnalyse] = React.useState(false);
+  const analyseRef = React.useRef(false);
+  analyseRef.current = analyse;
+
+  React.useEffect(() => {
+    if (!parle) {
+      if (analyseRef.current) setAnalyse(false);
+      return;
+    }
+    let image = 0;
+    // Un lissage par barre : la hauteur glisse vers sa cible au lieu de sauter.
+    const lisse = new Array<number>(VOIX_NB_BARRES).fill(0);
+    const boucle = () => {
+      const niveaux = lireNiveaux(VOIX_NB_BARRES);
+      if (niveaux) {
+        if (!analyseRef.current) setAnalyse(true);
+        for (let i = 0; i < VOIX_NB_BARRES; i += 1) {
+          lisse[i] += (niveaux[i] - lisse[i]) * 0.35;
+          const barre = barresRef.current[i];
+          // Un plancher pour que la barre ne disparaisse jamais tout à fait.
+          if (barre) barre.style.transform = `scaleY(${(0.15 + 0.85 * lisse[i]).toFixed(3)})`;
+        }
+      } else if (analyseRef.current) {
+        setAnalyse(false);
+      }
+      image = requestAnimationFrame(boucle);
+    };
+    image = requestAnimationFrame(boucle);
+    return () => cancelAnimationFrame(image);
+  }, [parle]);
+
   if (parle) {
     return (
       <span data-onde-vocale className="flex items-center gap-0.5" aria-hidden>
-        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+        {Array.from({ length: VOIX_NB_BARRES }, (_, i) => (
           <span
             key={i}
-            className="h-5 w-1 origin-center rounded-full bg-success animate-onde"
-            // Chaque barre décalée : l'onde ondule au lieu de battre d'un bloc.
-            style={{ animationDelay: `${i * 90}ms` }}
+            ref={(el) => {
+              barresRef.current[i] = el;
+            }}
+            className={`h-5 w-1 origin-center rounded-full bg-success ${analyse ? '' : 'animate-onde'}`}
+            // Analyse active : hauteur pilotée par le volume, mise à jour par la
+            // boucle ci-dessus. Sinon, l'onde régulière, chaque barre décalée
+            // pour onduler au lieu de battre d'un bloc.
+            style={analyse ? { transform: 'scaleY(0.15)' } : { animationDelay: `${i * 90}ms` }}
           />
         ))}
       </span>
