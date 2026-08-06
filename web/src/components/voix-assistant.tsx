@@ -9,7 +9,7 @@ import {
   decalageAccroche,
   decisionsOuvertes,
   estUnGlissement,
-  formeDeReveil,
+  formesDeReveil,
   gesteDOuverture,
   memeDecalage,
   phraseDecisionAttendue,
@@ -485,9 +485,14 @@ export function VoixAssistant() {
    * ici, on ne fait que l'afficher.
    */
   const [ecouteAllumee, setEcouteAllumee] = usePref<boolean>(CLE_VOIX_ECOUTE, false);
-  // Le mot de réveil réglé (« Dis Haiko » par défaut), sous sa forme comparée.
-  const formeReveil = formeDeReveil(state.settings?.voixReveil);
-  const ecoute = useEcoutePermanente(ecouteAllumee, formeReveil);
+  // Le mot de réveil réglé (« Dis Haiko » par défaut), sous ses DEUX formes
+  // comparées : ses lettres, et ce qu'il sonne — la transcription n'écrit
+  // presque jamais « Haiko », mais elle en écrit toujours le son.
+  const reveil = React.useMemo(
+    () => formesDeReveil(state.settings?.voixReveil),
+    [state.settings?.voixReveil],
+  );
+  const ecoute = useEcoutePermanente(ecouteAllumee, reveil);
   // Une dictée est en cours : le module s'élargit pour montrer la phrase, et les
   // ondes passent au rouge. La relecture en fait partie — la phrase est encore là.
   const dicteEnCours = ecoute.etat === 'ecoute' || ecoute.etat === 'relit';

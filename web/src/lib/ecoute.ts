@@ -9,7 +9,9 @@ import {
   extensionDuType,
   formatDEnregistrement,
   lireParole,
+  phraseDEchecTranscription,
   type EtatEcoute,
+  type FormesDeReveil,
 } from '@haikodev/shared';
 import { client } from './client';
 
@@ -125,12 +127,12 @@ export interface Ecoute {
 /**
  * Ouvre le micro tant que `actif` est vrai, guette le mot de réveil, puis
  * recueille la phrase. Rien ne démarre tout seul : `actif` vient de
- * l'interrupteur du module de voix, éteint par défaut. `forme` est le mot de
- * réveil réglé, déjà normalisé (`formeDeReveil`) ; il est relu à chaque phrase
- * par une référence, si bien qu'un changement de réglage prend aussitôt sans
- * rouvrir le micro.
+ * l'interrupteur du module de voix, éteint par défaut. `formes` porte les DEUX
+ * façons de reconnaître le mot réglé — ses lettres et son son (`formesDeReveil`) ;
+ * elles sont relues à chaque phrase par une référence, si bien qu'un changement
+ * de réglage prend aussitôt sans rouvrir le micro.
  */
-export function useEcoutePermanente(actif: boolean, forme?: string): Ecoute {
+export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ecoute {
   const [etat, setEtat] = React.useState<EtatEcoute>('eteinte');
   const [dictee, setDictee] = React.useState('');
   const [erreur, setErreur] = React.useState<string | null>(null);
@@ -143,8 +145,8 @@ export function useEcoutePermanente(actif: boolean, forme?: string): Ecoute {
   dicteeRef.current = dictee;
   // Le mot de réveil réglé, relu à chaque phrase : un changement de réglage
   // prend tout de suite, sans reconstruire l'écoute ni rouvrir le micro.
-  const formeRef = React.useRef(forme);
-  formeRef.current = forme;
+  const formesRef = React.useRef(formes);
+  formesRef.current = formes;
   // L'instant du dernier son entendu : c'est LUI qui mesure le silence.
   const dernierSonRef = React.useRef(0);
   // La minuterie qui clôt la dictée après le silence, et celle de la relecture.
@@ -190,7 +192,7 @@ export function useEcoutePermanente(actif: boolean, forme?: string): Ecoute {
       const courant = etatRef.current;
       if (courant === 'eteinte' || courant === 'refusee') return;
 
-      const lu = lireParole(texte, courant === 'ecoute', formeRef.current);
+      const lu = lireParole(texte, courant === 'ecoute', formesRef.current);
       // « Annule » est entendu À TOUT MOMENT, la relecture comprise : ces deux
       // secondes sont justement le temps qu'on a pour se raviser. C'est le
       // pendant du clic sur la phrase, qui la jette lui aussi.
@@ -289,6 +291,23 @@ export function useEcoutePermanente(actif: boolean, forme?: string): Ecoute {
       client.pushToast('error', message);
     };
 
+    /*
+     * Une transcription qui échoue ne s'avale pas en silence : un micro ouvert
+     * qui ne comprendra jamais rien est exactement la panne que l'on ne voyait
+     * pas. On le DIT — mais une seule fois : une tranche part toutes les
+     * quelques secondes, et douze messages identiques n'apprendraient rien de
+     * plus. La première transcription revenue efface le message.
+     */
+    let panneDite = false;
+
+    const direLaPanne = (raison?: string | null) => {
+      if (!vivant || panneDite) return;
+      panneDite = true;
+      const message = phraseDEchecTranscription(raison);
+      setErreur(message);
+      client.pushToast('error', message);
+    };
+
     /** Envoyer la tranche au serveur, puis la jeter. Aucun son n'est gardé. */
     const transcrire = async (blob: Blob) => {
       try {
@@ -297,11 +316,22 @@ export function useEcoutePermanente(actif: boolean, forme?: string): Ecoute {
           headers: { 'content-type': 'application/octet-stream', 'x-audio-ext': format.extension },
           body: blob,
         });
-        const data = await reponse.json();
+        const data = await reponse.json().catch(() => ({}) as { ok?: boolean; text?: string; error?: string });
         if (!vivant) return;
-        if (data.ok && data.text) recevoirParoleRef.current(String(data.text));
+        if (!reponse.ok || !data.ok) {
+          direLaPanne(data.error ?? `réponse ${reponse.status}`);
+          return;
+        }
+        // Le serveur a répondu : ce qui bloquait ne bloque plus.
+        if (panneDite) {
+          panneDite = false;
+          setErreur(null);
+        }
+        if (data.text) recevoirParoleRef.current(String(data.text));
       } catch {
-        // Une tranche perdue n'arrête pas l'écoute : la suivante repart.
+        // Le serveur n'a pas répondu du tout : l'écoute continue (la tranche
+        // suivante repart), mais on ne laisse pas croire qu'elle comprend.
+        direLaPanne('le serveur n’a pas répondu');
       }
     };
 
