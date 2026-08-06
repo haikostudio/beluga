@@ -128,3 +128,29 @@ export function miseEnLigneReelle(etapes: {
 }): boolean {
   return etapes.publish === 'done' || etapes.restart === 'done' || etapes.build === 'done';
 }
+
+/**
+ * Le MESSAGE court d'une publication qui tombe.
+ *
+ * Le message brut recopiait l'exception (« La construction a échoué : rien
+ * n'est mis en ligne. ») sans nommer le PROJET, l'étape tombée, ni où lire le
+ * détail. On rend une phrase qui dit les trois : de quel projet il s'agit, à
+ * quelle étape la publication s'est arrêtée, et où regarder ensuite.
+ *
+ * Règle pure : l'appelant a déjà résolu le LIBELLÉ de l'étape (« Construction »,
+ * « Vérification du code »…) ; celui-ci reste ignorant des clés du serveur.
+ *
+ * @param projet le nom du projet, quand il est connu.
+ * @param etape  le libellé de l'étape tombée, quand une étape précise a échoué.
+ * @param raison le message d'erreur, déjà en français.
+ */
+export function messageEchecPublication(input: {
+  projet?: string;
+  etape?: string;
+  raison: string;
+}): string {
+  const quoi = input.projet?.trim() ? `Publication de « ${input.projet.trim()} »` : 'Publication';
+  const ou = input.etape?.trim() ? ` à l’étape « ${input.etape.trim()} »` : '';
+  const raison = input.raison?.trim() || 'raison inconnue';
+  return `${quoi} interrompue${ou} : ${raison} — voir le détail dans le bloc de publication du projet.`;
+}

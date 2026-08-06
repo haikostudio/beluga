@@ -566,6 +566,12 @@ export const Settings = z.object({
    */
   voixNom: z.string().default('Chris'),
   /**
+   * La VITESSE de la voix de l'assistant, par crans clairs (`voix-vitesse.ts`).
+   * « normale » = le débit d'origine ; s'applique à toutes les paroles, auto
+   * comme réécoutes manuelles.
+   */
+  voixVitesse: z.enum(['lente', 'normale', 'rapide']).default('normale'),
+  /**
    * Amorcer la fenêtre de cinq heures des comptes Claude dès qu'elle repart à
    * zéro. Se coupe d'un geste si le mécanisme faisait plus de mal que de bien.
    */
