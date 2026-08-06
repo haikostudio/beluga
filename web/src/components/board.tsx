@@ -42,6 +42,7 @@ import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
 import { readPref, writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
+import { useSurvol } from '@/lib/pointeur';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel } from '@/components/deploy-panel';
@@ -398,6 +399,15 @@ export function Board({
   const [colonneEnLot, setColonneEnLot] = React.useState<ColumnKey | null>(null);
   const [selection, setSelection] = React.useState<string[]>([]);
   const [lotEnCours, setLotEnCours] = React.useState(false);
+  /*
+   * L'ANCRE d'une plage : la dernière carte cochée au clavier. Maj+clic prend
+   * tout ce qui va d'ici à la carte visée, dans la même colonne. Un ref, pas un
+   * état : la changer ne doit pas redessiner le tableau.
+   */
+  const ancreSelection = React.useRef<string | null>(null);
+  // Les raccourcis clavier (Ctrl/Cmd, Maj) ne valent qu'au pointeur fin : au
+  // doigt, il n'y a pas de touche à tenir, et le clic simple garde son rôle.
+  const survolPossible = useSurvol();
 
   const cartesEnSelection = colonneEnLot ? byColumn(colonneEnLot) : [];
   // Changer de projet, ou vider la colonne, referme le mode : il n'aurait plus
@@ -405,6 +415,7 @@ export function Board({
   React.useEffect(() => {
     setColonneEnLot(null);
     setSelection([]);
+    ancreSelection.current = null;
   }, [projectId]);
   React.useEffect(() => {
     if (colonneEnLot && !cartesEnSelection.length) setColonneEnLot(null);
@@ -418,10 +429,59 @@ export function Board({
   const fermerLot = () => {
     setColonneEnLot(null);
     setSelection([]);
+    ancreSelection.current = null;
   };
 
   const basculer = (cardId: string) =>
     setSelection((liste) => (liste.includes(cardId) ? liste.filter((id) => id !== cardId) : [...liste, cardId]));
+
+  /*
+   * Le clic sur une carte, modificateurs compris. Sans touche, c'est le geste
+   * d'avant : en mode lot, la case bascule ; sinon le tiroir s'ouvre. Avec
+   * Ctrl/Cmd ou Maj (et un pointeur fin), on COMPOSE une sélection au lieu
+   * d'ouvrir — on réutilise l'état `selection` et le pied de lot déjà en place.
+   * Ctrl/Cmd bascule la carte ; Maj prend la plage depuis l'ancre. Une plage
+   * reste dans la colonne cliquée ; changer de colonne repart d'une sélection
+   * vide (une seule colonne en lot à la fois).
+   */
+  const clicCarte = (card: Card, column: ColumnKey, event?: React.MouseEvent) => {
+    const clavier = survolPossible && event && (event.ctrlKey || event.metaKey || event.shiftKey);
+    if (!clavier) {
+      if (colonneEnLot === column) {
+        basculer(card.id);
+        ancreSelection.current = card.id;
+      } else {
+        onOpenCard(card.id);
+      }
+      return;
+    }
+    if (!event) return;
+    // Contrairement au bouton de lot (qui coche tout), on démarre une sélection
+    // VIDE sur cette colonne : le clavier sert à choisir, pas à tout prendre.
+    if (colonneEnLot !== column) {
+      setColonneEnLot(column);
+      setSelection([card.id]);
+      ancreSelection.current = card.id;
+      return;
+    }
+    if (event.shiftKey) {
+      const ids = byColumn(column).map((c) => c.id);
+      const depart = ancreSelection.current ? ids.indexOf(ancreSelection.current) : -1;
+      const arrivee = ids.indexOf(card.id);
+      if (depart >= 0 && arrivee >= 0) {
+        const [a, b] = depart <= arrivee ? [depart, arrivee] : [arrivee, depart];
+        const plage = ids.slice(a, b + 1);
+        setSelection((liste) => Array.from(new Set([...liste, ...plage])));
+      } else {
+        // Sans ancre valable, Maj+clic vaut un simple ajout.
+        setSelection((liste) => (liste.includes(card.id) ? liste : [...liste, card.id]));
+        ancreSelection.current = card.id;
+      }
+    } else {
+      basculer(card.id);
+      ancreSelection.current = card.id;
+    }
+  };
 
   /*
    * Une carte tentée par le lot : on rejoue le MÊME appel que le bouton du
@@ -707,13 +767,16 @@ export function Board({
                   <CardTile
                     key={card.id}
                     card={card}
-                    onOpen={() =>
-                      cochable ? basculer(card.id) : onOpenCard(card.id)
-                    }
+                    onOpen={(event) => clicCarte(card, column, event)}
                     onPointerDown={
                       cochable
                         ? undefined
-                        : (event) => start(event, { id: card.id, kind: 'card', label: card.title })
+                        : (event) => {
+                            // Ctrl/Cmd/Maj ne lance pas un glissement : c'est un
+                            // geste de sélection, tranché ensuite au clic.
+                            if (survolPossible && (event.ctrlKey || event.metaKey || event.shiftKey)) return;
+                            start(event, { id: card.id, kind: 'card', label: card.title });
+                          }
                     }
                     dimmed={dragging?.id === card.id}
                     coche={cochable ? selection.includes(card.id) : undefined}
@@ -886,7 +949,7 @@ export function CardTile({
   onMenuChange,
 }: {
   card: Card;
-  onOpen: () => void;
+  onOpen: (event?: React.MouseEvent) => void;
   onPointerDown?: (event: React.PointerEvent) => void;
   dimmed?: boolean;
   /** Non défini : pas de sélection en cours. Défini : la case s'affiche, cochée ou non. */
@@ -904,9 +967,9 @@ export function CardTile({
   React.useEffect(() => {
     if (menuOuvert) ouvertureMenu.current = Date.now();
   }, [menuOuvert]);
-  const ouvrir = () => {
+  const ouvrir = (event: React.MouseEvent) => {
     if (menuOuvert || Date.now() - ouvertureMenu.current < 700) return;
-    onOpen();
+    onOpen(event);
   };
   const agent = card.agentId ? state.agents[card.agentId] : null;
   const waiting = card.scheduling?.waitingReason;
