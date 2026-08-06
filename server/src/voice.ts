@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { EtatDuPoint, composerLePoint, raisonParlee } from './digest.js';
+import { VOIX_LONGUEUR_MAX } from '@haikodev/shared';
 import * as store from './store.js';
 import { CONFIG, PATHS } from './config.js';
 import { cachedQuotas } from './accounts.js';
@@ -274,6 +275,63 @@ export function digestText(projectId?: string): string {
   return composerLePoint(etat);
 }
 
+/* ------------------------------------------------------------------ */
+/* La mémoire des sons : une phrase déjà dite ne se refait jamais       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Les sons déjà fabriqués sont RANGÉS dans un sous-dossier à eux, sous un nom
+ * qui découle du texte ET de la voix : même phrase, même voix, même fichier.
+ * Une réécoute — ou une annonce préparée d'avance — repart alors du fichier
+ * gardé, sans relancer Piper. Le dossier ne grossit pas sans fin : au-delà de
+ * `CACHE_SONS_MAX` fichiers, les plus vieux tombent (`rangerLeCache`).
+ */
+const CACHE_SONS = path.join(PATHS.audio, 'cache');
+const CACHE_SONS_MAX = 200;
+
+/** L'empreinte d'un son : la voix résolue et le texte, rien d'autre. */
+function cleDuSon(retenue: { modele: string; personne?: number }, texte: string, echelle: number): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${retenue.modele} ${retenue.personne ?? ''} ${echelle} ${texte}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+/**
+ * Une synthèse déjà EN COURS pour une même empreinte n'est pas relancée : le
+ * navigateur qui demande le son pendant qu'on le prépare d'avance attend le
+ * MÊME travail, jamais un second Piper sur la même phrase.
+ */
+const enCours = new Map<string, Promise<{ ok: boolean; file?: string; error?: string }>>();
+
+/** Ne garde que les `CACHE_SONS_MAX` sons les plus récents ; efface le reste. */
+function rangerLeCache(): void {
+  try {
+    const fichiers = fs
+      .readdirSync(CACHE_SONS)
+      .filter((n) => n.endsWith('.wav'))
+      .map((n) => {
+        const chemin = path.join(CACHE_SONS, n);
+        return { chemin, age: fs.statSync(chemin).mtimeMs };
+      })
+      .sort((a, b) => b.age - a.age);
+    for (const trop of fichiers.slice(CACHE_SONS_MAX)) fs.unlinkSync(trop.chemin);
+  } catch {
+    /* dossier absent ou fichier déjà parti : rien à ranger */
+  }
+}
+
+/**
+ * Le texte tel que Piper le recevra : borné à la longueur d'une annonce et
+ * débarrassé de ses espaces de bord. Appliqué au même endroit côté adresse
+ * `/api/speak` et côté préparation d'avance, pour que les deux tombent sur la
+ * MÊME empreinte — donc le même fichier.
+ */
+export function normaliserTexteVoix(texte: string): string {
+  return texte.slice(0, VOIX_LONGUEUR_MAX).trim();
+}
+
 /**
  * La vitesse lue est celle passée à l'appel (l'essai en impose une), sinon
  * celle des préférences : ainsi TOUTES les paroles — point du jour, annonces
@@ -302,34 +360,83 @@ export async function speak(
   const available = voiceAvailable();
   if (!available.speak) return { ok: false, error: 'voix absente du serveur' };
 
-  const file = path.join(PATHS.audio, `point-${crypto.randomBytes(6).toString('hex')}.wav`);
-  fs.mkdirSync(PATHS.audio, { recursive: true });
   const retenue = voiceChoisie(voix);
   const echelle = vitesseChoisie(vitesse);
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const child = execFile(
-        PIPER,
-        [
-          '--model',
-          retenue.modele,
-          ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),
-          '--length_scale',
-          String(echelle),
-          '--output_file',
-          file,
-        ],
-        { timeout: 180000 },
-        (err) => (err ? reject(err) : resolve()),
-      );
-      child.stdin?.write(text);
-      child.stdin?.end();
-    });
+  const cle = cleDuSon(retenue, text, echelle);
+  const file = path.join(CACHE_SONS, `${cle}.wav`);
+
+  // Déjà fabriqué : on le rend tel quel, et on rafraîchit sa date pour qu'un son
+  // souvent réécouté ne soit pas emporté par le nettoyage.
+  if (fs.existsSync(file)) {
+    try {
+      const maintenant = new Date();
+      fs.utimesSync(file, maintenant, maintenant);
+    } catch {
+      /* date non modifiable : sans importance */
+    }
     return { ok: true, file };
-  } catch (err: any) {
-    log.warn('synthèse vocale impossible', err?.message);
-    return { ok: false, error: 'synthèse vocale impossible' };
   }
+
+  // Déjà en cours de fabrication (préparation d'avance) : on attend le même son.
+  const dejaLa = enCours.get(cle);
+  if (dejaLa) return dejaLa;
+
+  const travail = (async () => {
+    fs.mkdirSync(CACHE_SONS, { recursive: true });
+    // On écrit d'abord dans un fichier temporaire, renommé à la fin : une
+    // lecture concurrente ne tombe jamais sur un son à moitié écrit.
+    const provisoire = path.join(CACHE_SONS, `.tmp-${crypto.randomBytes(6).toString('hex')}.wav`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = execFile(
+          PIPER,
+          [
+            '--model',
+            retenue.modele,
+            ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),
+            '--length_scale',
+            String(echelle),
+            '--output_file',
+            provisoire,
+          ],
+          { timeout: 180000 },
+          (err) => (err ? reject(err) : resolve()),
+        );
+        child.stdin?.write(text);
+        child.stdin?.end();
+      });
+      fs.renameSync(provisoire, file);
+      rangerLeCache();
+      return { ok: true, file };
+    } catch (err: any) {
+      log.warn('synthèse vocale impossible', err?.message);
+      try {
+        fs.unlinkSync(provisoire);
+      } catch {
+        /* rien à retirer */
+      }
+      return { ok: false, error: 'synthèse vocale impossible' };
+    }
+  })();
+
+  enCours.set(cle, travail);
+  try {
+    return await travail;
+  } finally {
+    enCours.delete(cle);
+  }
+}
+
+/**
+ * Prépare d'avance le son d'une phrase d'annonce, sans bloquer l'appelant : le
+ * fichier est ainsi déjà là quand le navigateur le demande, et l'annonce part
+ * sans délai perceptible. Un échec de synthèse est avalé — le navigateur
+ * retombera sur sa propre voix, comme aujourd'hui.
+ */
+export function precharger(texte: string): void {
+  const t = normaliserTexteVoix(texte);
+  if (!t || !voiceAvailable().speak) return;
+  void speak(t).catch(() => undefined);
 }
 
 /** Les premières phrases COMPLÈTES d'un texte, sans jamais couper un mot. */
@@ -381,7 +488,11 @@ export function purgeOldAudio(): void {
     const cutoff = Date.now() - 24 * 3600 * 1000;
     for (const entry of fs.readdirSync(PATHS.audio)) {
       const full = path.join(PATHS.audio, entry);
-      if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
+      const stat = fs.statSync(full);
+      // Le sous-dossier des sons gardés se nettoie tout seul (`rangerLeCache`) :
+      // on ne le touche pas ici, un `unlinkSync` sur un dossier échouerait.
+      if (stat.isDirectory()) continue;
+      if (stat.mtimeMs < cutoff) fs.unlinkSync(full);
     }
   } catch {
     /* rien à purger */

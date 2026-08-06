@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { Attachment, VOIX_LONGUEUR_MAX } from '@haikodev/shared';
+import { Attachment } from '@haikodev/shared';
 import { CONFIG, PATHS, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
 import * as store from './store.js';
@@ -10,7 +10,7 @@ import { bus } from './bus.js';
 import { callTool, toolsFor } from './tools.js';
 import { attachToCurrentMessage } from './runtime.js';
 import { readFilePreview, makeZip, safeJoin } from './files.js';
-import { EXTRAIT, transcribe, digestText, speak, voiceAvailable } from './voice.js';
+import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils } from './pont.js';
 import { log } from './logger.js';
@@ -418,7 +418,7 @@ export function createHttpServer(): http.Server {
        * exactement comme l'extrait d'une voix, par une adresse audio ordinaire.
        */
       if (route === '/api/speak') {
-        const texte = (url.searchParams.get('text') ?? '').slice(0, VOIX_LONGUEUR_MAX).trim();
+        const texte = normaliserTexteVoix(url.searchParams.get('text') ?? '');
         if (!texte) return json(res, 400, { error: 'aucun texte à lire' });
         const result = await speak(texte);
         if (!result.ok || !result.file) return json(res, 503, { error: result.error });

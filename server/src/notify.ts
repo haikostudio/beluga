@@ -117,6 +117,19 @@ export function notify(input: {
   if (evenementDejaVu(vus, cleEvenement(input.motif, reference), Date.now())) return;
 
   /*
+   * L'AVANCE : quand une phrase parlée est déjà décidée (fin de tâche,
+   * publication terminée ou en échec), on prépare son son AUSSITÔT — avant même
+   * que le navigateur ne le demande. Le fichier gardé sera alors déjà là, et
+   * l'annonce démarrera sans délai. Fabrication en arrière-plan, jamais
+   * bloquante ; un échec est sans conséquence (repli sur la voix du navigateur).
+   */
+  if (input.voix) {
+    void import('./voice.js')
+      .then((v) => v.precharger(input.voix!))
+      .catch(() => undefined);
+  }
+
+  /*
    * Le nom du projet et la description de la carte sont ajoutés ICI, une fois
    * pour toutes : les endroits qui appellent `notify` n'ont pas à y penser, et
    * l'alerte dit toujours de quoi elle parle.
