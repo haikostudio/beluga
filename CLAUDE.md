@@ -647,8 +647,11 @@ sans son point d'essai.
   demande. `/api/speak` reste en `cache-control: no-store` (l'URL ne porte pas la voix : un cache
   navigateur servirait un ancien son après un changement de voix). **Le module est UN SEUL objet qui se MÉTAMORPHOSE** : il n'y a plus un bouton d'un
   côté et un panneau de l'autre. `formeDuModule(ouvert, parle, nb)` rend sa largeur, sa hauteur et son
-  rayon en NOMBRES — rond de 44 px au repos (rayon = moitié, donc un cercle), bloc de 96 px quand ça
-  parle, panneau de 256 px (borné à `80vw`) quand il est déplié, la hauteur suivant le nombre de
+  rayon en NOMBRES — rond de 44 px au repos (rayon = moitié, donc un cercle), bloc de parole assez
+  LARGE pour contenir ses ondes quand ça parle (`VOIX_LARGEUR_PARLE` se DÉDUIT du nombre de barres
+  `ONDES_LARGES`, de leur largeur, de leur écart et de la marge `px-3` — élargir la ligne d'ondes
+  sans élargir le bloc faisait déborder les dernières barres), panneau de 256 px (borné à `80vw`)
+  quand il est déplié, la hauteur suivant le nombre de
   messages (`hauteurDepliee`) — et le navigateur les INTERPOLE en `VOIX_MORPHISME_MS` (300 ms) : des
   classes utilitaires de largeur sauteraient d'un cran à l'autre. Le déplié l'emporte sur la parole :
   on ne rétrécit pas un panneau qu'on lit. Deux visages se croisent en fondu DANS cette boîte, en
@@ -705,7 +708,11 @@ sans son point d'essai.
   côté de la voix qu'il commande — plus dans le menu trois points du haut : il bascule la
   préférence `voix.muet` (`CLE_VOIX_MUETTE`), retenue au rechargement, coupe la parole
   automatique et rien d'autre — ni l'icône, ni la réécoute manuelle, ni notifications visuelles, ni
-  badge. Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
+  badge. Les DEUX boutons de l'en-tête déplié (écoute, muet) ne portent que leur ICÔNE, sans libellé
+  (oreille barrée/non pour l'écoute, haut-parleur barré/non pour la voix) : l'état se lit à l'infobulle
+  et à l'`aria-label`. La couleur d'ALERTE (`text-danger`) est réservée à ce qui alerte vraiment — un
+  micro refusé —, jamais à un réglage simplement allumé (écoute active = `text-success`).
+  Verrouillé par `server/src/test/voix-annonce.test.ts` et `scripts/verif-module-voix.mjs`.
 - **Le module de voix SE DÉPLACE, et sa place est retenue dans le COMPTE**
   (`shared/src/position-voix.ts`, branché dans `web/src/components/voix-assistant.tsx`). Il était
   cloué en bas au centre et recouvrait parfois ce qu'on lit. Le glissement part d'où on peut

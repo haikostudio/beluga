@@ -76,8 +76,33 @@ const VOIX_ECART_POIGNEE = 6;
  * le rond, à moitié engagée hors de l'écran pour ne plus masquer le contenu.
  */
 const VOIX_PASTILLE = 30;
-/** Le bloc de parole, quand le module n'est pas déplié. */
-const VOIX_LARGEUR_PARLE = 96;
+/**
+ * Combien de barres compose la ligne d'ondes ÉLARGIE : assez pour remplir tout
+ * le pied du panneau (256 px) sans que les gros écarts ne le fassent paraître
+ * vide, et réparties (`justify-between`) pour tenir aussi le bloc de parole sans
+ * se chevaucher. C'est aussi le nombre de tranches de fréquences lues à
+ * l'analyseur pendant la parole. Défini ICI, avant `VOIX_LARGEUR_PARLE`, qui en
+ * DÉCOULE : le bloc de parole se dimensionne pour ce nombre de barres.
+ */
+const ONDES_LARGES = 16;
+/**
+ * La géométrie d'UNE barre d'ondes, en pixels : sa largeur (`w-1`), l'écart qui
+ * la sépare de la suivante (`gap-0.5`) et la marge au bord du bloc (`px-3`). Ces
+ * nombres SUIVENT les classes utilitaires de `LigneOndes` — c'est d'eux qu'on
+ * déduit la largeur du bloc de parole, pour qu'aucune barre n'en dépasse.
+ */
+const ONDE_BARRE = 4;
+const ONDE_ECART = 2;
+const ONDE_MARGE = 12;
+/**
+ * Le bloc de parole, quand le module n'est pas déplié. Il est assez LARGE pour
+ * contenir toutes ses ondes (les barres, leurs écarts et la même marge de chaque
+ * côté qu'au repos) : élargir la ligne d'ondes sans élargir le bloc faisait
+ * déborder les dernières barres, coupées par `overflow-hidden`. La largeur se
+ * DÉDUIT donc du nombre de barres — en changer une la suit.
+ */
+const VOIX_LARGEUR_PARLE =
+  ONDES_LARGES * ONDE_BARRE + (ONDES_LARGES - 1) * ONDE_ECART + 2 * ONDE_MARGE;
 /** Le panneau déplié, borné à 80 % de l'écran pour les petits téléphones. */
 const VOIX_LARGEUR_OUVERTE = 256;
 /** Les hauteurs des trois zones du panneau, pour calculer celle du tout. */
@@ -207,13 +232,6 @@ function contexteDecision(
   const tache = derniere?.cardId ? cards[derniere.cardId]?.title : undefined;
   return { projet, tache };
 }
-
-/** Combien de barres compose la ligne d'ondes ÉLARGIE : assez pour remplir tout
- * le pied du panneau (256 px) sans que les gros écarts ne le fassent paraître
- * vide, et réparties (`justify-between`) pour tenir aussi le petit bloc de parole
- * (96 px) sans se chevaucher. C'est aussi le nombre de tranches de fréquences
- * lues à l'analyseur pendant la parole. */
-const ONDES_LARGES = 16;
 
 /**
  * La ligne d'ondes. Deux visages, et son état ÉLARGI ne dépend QUE de la parole :
@@ -866,24 +884,25 @@ export function VoixAssistant() {
               e.stopPropagation();
               setEcouteAllumee(!ecouteAllumee);
             }}
-            className={`ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-raised ${
+            className={`ml-auto flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
               ecoute.etat === 'refusee'
                 ? 'text-danger'
                 : ecouteAllumee
-                  ? 'text-danger'
+                  ? 'text-success'
                   : 'text-muted'
             }`}
             title={
-              ecouteAllumee
-                ? 'Couper l’écoute permanente'
-                : 'Écouter en permanence, et se réveiller sur « Dis Haiko »'
+              ecoute.etat === 'refusee'
+                ? 'Micro refusé — cliquer pour réessayer l’écoute'
+                : ecouteAllumee
+                  ? 'Couper l’écoute permanente'
+                  : 'Écouter en permanence, et se réveiller sur « Dis Haiko »'
             }
             aria-label={
               ecouteAllumee ? 'Couper l’écoute permanente' : 'Allumer l’écoute permanente'
             }
           >
-            {ecouteAllumee ? <Ear className="h-3.5 w-3.5" /> : <EarOff className="h-3.5 w-3.5" />}
-            {ecouteAllumee ? 'À l’écoute' : 'Écoute'}
+            {ecouteAllumee ? <Ear className="h-4 w-4" /> : <EarOff className="h-4 w-4" />}
           </button>
           {/* Le réglage « Muet » vit ICI, dans le panneau déplié, à côté de la
               voix qu'il commande — plus dans le menu trois points du haut. Il ne
@@ -898,14 +917,13 @@ export function VoixAssistant() {
               e.stopPropagation();
               setMuet(!muet);
             }}
-            className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-raised ${
-              muet ? 'text-warning' : 'text-success'
+            className={`flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
+              muet ? 'text-muted' : 'text-success'
             }`}
             title={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
             aria-label={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
           >
-            {muet ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            {muet ? 'Coupée' : 'Active'}
+            {muet ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
         </div>
         {/* Le micro refusé se DIT ici, en toutes lettres, en plus du message court
