@@ -202,7 +202,9 @@ export function retirerEnvironnement(
 /** Ce que le bloc de publication a besoin de savoir d'un run passé. */
 export type ResultatDeRun = {
   environmentId?: string;
-  state: 'running' | 'success' | 'failed' | 'stopped';
+  /* « awaiting » : la publication s'est arrêtée avant l'envoi et attend l'accord
+     de l'utilisateur (`shared/src/envoi-surveille.ts`). */
+  state: 'running' | 'awaiting' | 'success' | 'failed' | 'stopped';
   startedAt: number;
   endedAt?: number;
   error?: string;
@@ -236,6 +238,8 @@ export function mentionResultat(resultat: ResultatDeRun | undefined): string {
   switch (resultat.state) {
     case 'running':
       return 'publication en cours';
+    case 'awaiting':
+      return 'votre accord est attendu avant tout envoi';
     case 'success':
       return 'dernière publication réussie';
     case 'stopped':

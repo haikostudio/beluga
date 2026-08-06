@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -84,8 +84,24 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
   done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy', participe: 'déployée' },
+  // La mise en ligne compte désormais DEUX étapes : « À déployer » pousse vers
+  // « En production », et c'est de là seulement qu'on archive. Un pied suit le
+  // parcours de la carte — on n'archive jamais par-dessus une étape.
+  to_deploy: {
+    libelle: 'Tout mettre en production',
+    icone: Globe,
+    verbe: 'Mettre en production',
+    cible: 'in_production',
+    participe: 'mise en production',
+  },
   // Dernière colonne du parcours, où le ménage se fait en lot.
-  to_deploy: { libelle: 'Tout archiver', icone: Archive, verbe: 'Archiver', cible: 'archived', participe: 'archivée' },
+  in_production: {
+    libelle: 'Tout archiver',
+    icone: Archive,
+    verbe: 'Archiver',
+    cible: 'archived',
+    participe: 'archivée',
+  },
 };
 
 /**

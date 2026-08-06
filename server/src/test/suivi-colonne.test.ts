@@ -44,8 +44,9 @@ test('une carte déjà en cours ne bouge pas : rien à annoncer', () => {
 test('une carte prête à publier ou archivée ne sort pas de son rangement', () => {
   // Poser une question dans sa conversation ne doit pas la retirer du lot.
   assert.equal(colonneAuDemarrage('to_deploy', 'task'), null);
+  assert.equal(colonneAuDemarrage('in_production', 'task'), null);
   assert.equal(colonneAuDemarrage('archived', 'task'), null);
-  assert.deepEqual(COLONNES_HORS_REPRISE, ['to_deploy', 'archived']);
+  assert.deepEqual(COLONNES_HORS_REPRISE, ['to_deploy', 'in_production', 'archived']);
 });
 
 /* -------- Le tour d'exécution se termine -------- */

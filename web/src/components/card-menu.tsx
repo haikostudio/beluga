@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Archive, ArrowRight, MoreVertical, RotateCcw, Trash2 } from 'lucide-react';
-import { COLUMN_KEYS, COLUMN_LABELS, Card, canMove, colonneDeReprise } from '@haikodev/shared';
+import { COLUMN_KEYS, COLUMN_LABELS, Card, canMove, colonneDeReprise, libelleDeReprise } from '@haikodev/shared';
 import {
   Button,
   ConfirmDialog,
@@ -55,8 +55,9 @@ export function MenuCarte({
    * Sortir une carte d'une fin de parcours est un geste HUMAIN, et il n'y en a
    * qu'un : « Archivé » ramène en « À faire » (elle repassera par la
    * validation, donc personne n'autorise une dépense sans le savoir),
-   * « À déployer » ramène en « Terminé ». La règle est partagée avec le bouton
-   * du tiroir : `colonneDeReprise`.
+   * « En production » ramène en « À déployer », « À déployer » en « Terminé ».
+   * Toujours l'étape juste avant. La règle est partagée avec le bouton du
+   * tiroir : `colonneDeReprise`.
    */
   const reprise = colonneDeReprise(card.column);
   const archivable = card.column !== 'archived' && canMove('user', card.column, 'archived').allowed;
@@ -94,9 +95,7 @@ export function MenuCarte({
           {reprise ? (
             <DropdownMenuItem onSelect={() => client.moveCard(card, reprise)}>
               <RotateCcw className="h-3.5 w-3.5" />
-              {card.column === 'archived'
-                ? `Sortir de l’archive → ${COLUMN_LABELS[reprise]}`
-                : `Retirer du lot à publier → ${COLUMN_LABELS[reprise]}`}
+              {`${libelleDeReprise(card.column)} → ${COLUMN_LABELS[reprise]}`}
             </DropdownMenuItem>
           ) : null}
 

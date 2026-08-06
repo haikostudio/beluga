@@ -114,6 +114,14 @@ export const Project = z.object({
    */
   deployCommand: z.string().optional(),
   deployUrl: z.string().optional(),
+  /**
+   * Le projet DÉCLARE que sa branche principale déclenche un déploiement
+   * automatique chez le client : envoyer sur le dépôt met la production à jour.
+   * La publication s'arrête alors avant tout envoi et demande l'accord
+   * (`shared/src/envoi-surveille.ts`). Rien n'est lu chez le client : c'est une
+   * déclaration faite ici.
+   */
+  deployeSurEnvoi: z.boolean().default(false),
   /** Les endroits où ce projet peut être mis en ligne, dans l'ordre voulu. */
   environments: z.array(DeployEnvironment).default([]),
   billing: BillingLink.optional(),
@@ -538,7 +546,12 @@ export type DeployStepKey = z.infer<typeof DeployStepKey>;
 export const DeployRun = z.object({
   id: z.string(),
   projectId: z.string(),
-  state: z.enum(['running', 'success', 'failed', 'stopped']),
+  /**
+   * `awaiting` : la publication attend l'accord de l'utilisateur avant tout
+   * envoi sur le dépôt (projet déclaré « se déploie sur envoi »). Rien n'a
+   * encore été touché — d'où la reprise depuis la première étape au clic.
+   */
+  state: z.enum(['running', 'awaiting', 'success', 'failed', 'stopped']),
   currentStep: DeployStepKey.optional(),
   steps: z
     .array(
@@ -558,6 +571,19 @@ export const DeployRun = z.object({
   url: z.string().optional(),
   targetCommit: z.string().optional(),
   agentId: z.string().optional(),
+  /**
+   * Ce que l'utilisateur doit trancher avant que le moindre envoi parte : la
+   * branche visée, les enregistrements concernés et le texte de la décision.
+   * Effacée dès que l'accord est donné ou l'envoi refusé.
+   */
+  attente: z
+    .object({
+      branche: z.string(),
+      enregistrements: z.array(z.string()).default([]),
+      texte: z.string(),
+      demandeeA: z.number(),
+    })
+    .optional(),
   error: z.string().optional(),
   queued: z.boolean().default(false),
   startedAt: z.number(),

@@ -32,6 +32,7 @@ import {
   DialogTitle,
   Input,
   Label,
+  Switch,
 } from '@/components/ui';
 import { Filet } from '@/components/filet';
 import { client } from '@/lib/client';
@@ -67,6 +68,9 @@ export function ProjectSettings({
   const [available, setAvailable] = React.useState(true);
 
   const [name, setName] = React.useState('');
+  /* Le projet déclare-t-il que sa branche principale déclenche une mise en
+     ligne chez le client ? Rien n'est lu là-bas : c'est une déclaration. */
+  const [deployeSurEnvoi, setDeployeSurEnvoi] = React.useState(false);
   /*
    * Les environnements de publication, dans l'ordre voulu. La liste est
    * TOUJOURS pleine : un projet réglé à l'ancienne se relit comme un
@@ -88,6 +92,7 @@ export function ProjectSettings({
   React.useEffect(() => {
     if (!project) return;
     setName(project.name);
+    setDeployeSurEnvoi(project.deployeSurEnvoi === true);
     const liste = environnementsDuProjet(project);
     setEnvironnements(liste);
     setEnvVise(liste[0]?.id ?? '');
@@ -134,6 +139,7 @@ export function ProjectSettings({
         patch: {
           name: name.trim() || project.name,
           defaultEngine: engine,
+          deployeSurEnvoi,
           /*
            * On écrit la LISTE, jamais les deux anciens champs : ils restent
            * tels quels en base pour un projet jamais rouvert, et la lecture
@@ -314,6 +320,26 @@ export function ProjectSettings({
               <p className="mt-1 text-[11.5px] text-faint">
                 Le port est celui sur lequel votre projet écoute sur le serveur.
               </p>
+            </div>
+
+            {/* Envoyer sur le dépôt met-il déjà le site à jour ? Sur un projet
+                client déployé tout seul, l'envoi EST la mise en ligne : la
+                publication doit alors s'arrêter et demander avant d'envoyer. */}
+            <div className="mt-2.5 flex items-start gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2">
+              <Switch
+                checked={deployeSurEnvoi}
+                onCheckedChange={(valeur) => setDeployeSurEnvoi(valeur === true)}
+                data-envoi-surveille
+                aria-label="Envoyer sur le dépôt met le site en ligne"
+                className="mt-0.5"
+              />
+              <div className="min-w-0">
+                <p className="text-[13px] text-text">Envoyer sur le dépôt met le site en ligne</p>
+                <p className="mt-0.5 text-[11.5px] text-faint">
+                  À cocher quand le serveur du client se met à jour tout seul à chaque envoi. HaikoDev s'arrêtera alors
+                  avant d'envoyer et vous demandera votre accord.
+                </p>
+              </div>
             </div>
           </div>
 

@@ -25,6 +25,7 @@ import {
   GesteCarte,
   ReglagesCarte,
   colonneDeReprise,
+  libelleDeReprise,
   decisionsParCarte,
   etatVisuelCarte,
   gesteCarte,
@@ -397,7 +398,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                 onClick={() => client.moveCard(card, colonneDeReprise(card.column)!)}
               >
                 <ArchiveRestore className="h-3 w-3" />
-                {card.column === 'archived' ? 'Sortir de l’archive' : 'Retirer du lot à publier'}
+                {libelleDeReprise(card.column)}
                 {' → '}
                 {COLUMN_LABELS[colonneDeReprise(card.column)!]}
               </Button>
