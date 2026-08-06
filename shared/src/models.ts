@@ -139,6 +139,16 @@ export const Project = z.object({
   consignesDeploiement: z
     .object({ to_deploy: z.string().optional(), in_production: z.string().optional() })
     .default({}),
+  /**
+   * La BASE de texte de chaque étape : la procédure brute écrite à la main, que
+   * l'utilisateur met en forme par un agent pour produire la consigne finale
+   * ci-dessus. Rangée par les mêmes colonnes ; une clé absente = pas de base
+   * saisie. Les deux sont conservées côte à côte pour pouvoir ré-éditer la base
+   * et relancer la génération.
+   */
+  basesDeploiement: z
+    .object({ to_deploy: z.string().optional(), in_production: z.string().optional() })
+    .default({}),
   billing: BillingLink.optional(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
   rank: z.number().default(1000),

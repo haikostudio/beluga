@@ -41,6 +41,7 @@ import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
+import { genererConsigne } from './consigne-deploiement.js';
 import { analyseCard, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
@@ -1152,6 +1153,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
      */
     case 'voix.demande':
       return deposerDemandeDictee(cmd.texte);
+
+    /*
+     * RÉDIGER une consigne de déploiement à partir d'une base brute, par un tour
+     * d'agent payant. On ne persiste ni ne déploie rien : l'interface reçoit le
+     * texte, le montre, et l'enregistre par `project.update`.
+     */
+    case 'consigne.generer':
+      return genererConsigne(cmd.projectId, cmd.colonne, cmd.base);
 
     case 'stats.usage':
       return {

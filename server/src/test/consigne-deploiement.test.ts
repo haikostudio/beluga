@@ -4,10 +4,14 @@ import {
   COLONNES_CONSIGNE,
   CONSIGNE_MAX,
   Project,
+  baseDeploiement,
   consigneDeploiement,
+  ecrireBaseDeploiement,
   ecrireConsigneDeploiement,
   estColonneDeConsigne,
   mentionConsigne,
+  nettoyerConsigneGeneree,
+  promptGenerationConsigne,
   rappelDeConsigne,
   titreDeConsigne,
 } from '@haikodev/shared';
@@ -82,6 +86,58 @@ test('l’écriture ne garde que les deux colonnes connues', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* La base de texte, à côté de la consigne                              */
+/* ------------------------------------------------------------------ */
+
+test('la base se lit et s’écrit comme la consigne, sans toucher l’autre étape', () => {
+  const avant = { to_deploy: 'brouillon dev' };
+  const apres = ecrireBaseDeploiement(avant, 'in_production', '  brouillon prod  ');
+  assert.equal(apres.to_deploy, 'brouillon dev');
+  assert.equal(apres.in_production, 'brouillon prod');
+  assert.equal(baseDeploiement({ basesDeploiement: apres }, 'in_production'), 'brouillon prod');
+});
+
+test('une base vide EFFACE la clé, comme la consigne', () => {
+  const apres = ecrireBaseDeploiement({ to_deploy: 'quelque chose' }, 'to_deploy', '   ');
+  assert.equal('to_deploy' in apres, false);
+});
+
+test('base et consigne sont deux objets distincts sur le projet', () => {
+  const projet = {
+    basesDeploiement: { to_deploy: 'ma base' },
+    consignesDeploiement: { to_deploy: 'ma consigne' },
+  };
+  assert.equal(baseDeploiement(projet, 'to_deploy'), 'ma base');
+  assert.equal(consigneDeploiement(projet, 'to_deploy'), 'ma consigne');
+});
+
+/* ------------------------------------------------------------------ */
+/* Le prompt de génération et le nettoyage du rendu                     */
+/* ------------------------------------------------------------------ */
+
+test('le prompt de génération porte la base, l’étape et le rappel du projet', () => {
+  const prompt = promptGenerationConsigne(
+    { deployCommand: 'bash publier.sh' },
+    'to_deploy',
+    'construire puis copier',
+  );
+  assert.match(prompt, /À déployer/);
+  assert.match(prompt, /construire puis copier/);
+  assert.match(prompt, /Interne/); // le rappel de l'environnement visé
+  assert.match(prompt, /SEUL texte/i); // consigne : rendre uniquement la consigne
+});
+
+test('le nettoyage retire un bloc de code qui enveloppe toute la réponse', () => {
+  assert.equal(nettoyerConsigneGeneree('```\nfaire ceci\npuis cela\n```'), 'faire ceci\npuis cela');
+  assert.equal(nettoyerConsigneGeneree('```md\nune ligne\n```'), 'une ligne');
+  assert.equal(nettoyerConsigneGeneree('  déjà propre  '), 'déjà propre');
+});
+
+test('le nettoyage borne la consigne générée à la longueur permise', () => {
+  assert.equal(nettoyerConsigneGeneree('y'.repeat(CONSIGNE_MAX + 200)).length, CONSIGNE_MAX);
+});
+
+/* ------------------------------------------------------------------ */
 /* Ce que la fenêtre rappelle                                           */
 /* ------------------------------------------------------------------ */
 
@@ -129,7 +185,24 @@ test('un projet enregistré sans consigne en rend un objet vide, jamais une erre
     updatedAt: 1,
   });
   assert.deepEqual(projet.consignesDeploiement, {});
+  assert.deepEqual(projet.basesDeploiement, {});
   assert.equal(consigneDeploiement(projet, 'to_deploy'), '');
+  assert.equal(baseDeploiement(projet, 'to_deploy'), '');
+});
+
+test('un projet garde base ET consigne après un aller-retour par le modèle', () => {
+  const projet = Project.parse({
+    id: 'p1',
+    name: 'Essai',
+    path: '/root/essai',
+    createdAt: 1,
+    updatedAt: 1,
+    basesDeploiement: { to_deploy: 'base dev' },
+    consignesDeploiement: { to_deploy: 'consigne dev' },
+  });
+  const relu = Project.parse(JSON.parse(JSON.stringify(projet)));
+  assert.equal(baseDeploiement(relu, 'to_deploy'), 'base dev');
+  assert.equal(consigneDeploiement(relu, 'to_deploy'), 'consigne dev');
 });
 
 test('un projet garde ses deux consignes après un aller-retour par le modèle', () => {
