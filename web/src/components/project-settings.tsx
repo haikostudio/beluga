@@ -9,19 +9,27 @@ import {
   Loader2,
   Plus,
   Rocket,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
 import {
   EnvironnementPublication,
+  PROMPT_PRODUCTION_MAX,
   Project,
   ROLES_ENVIRONNEMENT,
   RoleEnvironnement,
+  TITRE_MISE_EN_PRODUCTION,
   ajouterEnvironnement,
+  baseDeMiseEnProduction,
   deplacerEnvironnement,
+  ecrireMiseEnProduction,
   environnementsDuProjet,
   libelleRole,
+  mentionMiseEnProduction,
   modifierEnvironnement,
+  promptDeMiseEnProduction,
+  rappelDeMiseEnProduction,
   retirerEnvironnement,
 } from '@haikodev/shared';
 import {
@@ -33,6 +41,7 @@ import {
   Input,
   Label,
   Switch,
+  Textarea,
 } from '@/components/ui';
 import { Filet } from '@/components/filet';
 import { client } from '@/lib/client';
@@ -79,6 +88,15 @@ export function ProjectSettings({
    */
   const [environnements, setEnvironnements] = React.useState<EnvironnementPublication[]>([]);
   const [envVise, setEnvVise] = React.useState('');
+  /*
+   * LA MISE EN PRODUCTION, en deux textes conservés côte à côte : le concept
+   * écrit à la main (`baseProduction`) et le PROMPT que l'agent de mise en
+   * production recevra. Un bouton fabrique le second à partir du premier ; il
+   * reste modifiable et n'est retenu qu'à l'enregistrement.
+   */
+  const [baseProduction, setBaseProduction] = React.useState('');
+  const [promptProduction, setPromptProduction] = React.useState('');
+  const [generation, setGeneration] = React.useState(false);
   const [engine, setEngine] = React.useState<string>('claude');
   const [clientId, setClientId] = React.useState('');
   const [rate, setRate] = React.useState('130');
@@ -96,6 +114,8 @@ export function ProjectSettings({
     const liste = environnementsDuProjet(project);
     setEnvironnements(liste);
     setEnvVise(liste[0]?.id ?? '');
+    setBaseProduction(baseDeMiseEnProduction(project));
+    setPromptProduction(promptDeMiseEnProduction(project));
     setEngine(project.defaultEngine ?? 'claude');
     setClientId(project.billing?.clientId ?? '');
     setRate(String(project.billing?.hourlyRate ?? 130));
@@ -147,6 +167,12 @@ export function ProjectSettings({
            * même chose, ce sont deux vérités qui finissent par diverger.
            */
           environments: environnements,
+          /* Base et prompt partent ENSEMBLE, par le même `project.update` :
+             c'est ici seulement qu'un prompt généré devient le prompt retenu. */
+          miseEnProduction: ecrireMiseEnProduction(project.miseEnProduction, {
+            base: baseProduction,
+            prompt: promptProduction,
+          }),
           billing: clientId
             ? {
                 clientId,
@@ -167,6 +193,36 @@ export function ProjectSettings({
       client.pushToast('error', err?.message ?? 'enregistrement impossible');
     } finally {
       setSaving(false);
+    }
+  };
+
+  /*
+   * Fabriquer le prompt à partir du concept écrit à la main : un tour d'agent
+   * PAYANT, qui ne persiste RIEN et ne déploie RIEN. Le texte revient dans le
+   * champ modifiable ; seul « Enregistrer » le retient.
+   */
+  const genererPrompt = async () => {
+    if (!baseProduction.trim()) {
+      client.pushToast('error', 'Écrivez d’abord ce que vous attendez de la mise en production.');
+      return;
+    }
+    setGeneration(true);
+    try {
+      // Un tour d'agent peut être long : on laisse dix minutes.
+      const res = await client.call<{ ok: boolean; prompt?: string; raison?: string }>(
+        { type: 'production.generer', projectId: project.id, base: baseProduction },
+        600000,
+      );
+      if (res.ok && res.prompt) {
+        setPromptProduction(res.prompt);
+        client.pushToast('success', 'Prompt rédigé. Relisez-le, puis enregistrez.');
+      } else {
+        client.pushToast('error', res.raison ?? 'la génération n’a rien rendu');
+      }
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'génération impossible');
+    } finally {
+      setGeneration(false);
     }
   };
 
@@ -340,6 +396,86 @@ export function ProjectSettings({
                   avant d'envoyer et vous demandera votre accord.
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* ---------- Mise en production ---------- */}
+          {/*
+            UN SEUL endroit, UN SEUL texte. Le concept écrit dans vos mots, un
+            bouton qui en fabrique le prompt par un agent, et le prompt obtenu
+            modifiable puis enregistré. C'est ce prompt que le bouton de mise en
+            production suit, la fusion et l'envoi restant à HaikoDev.
+          */}
+          <div data-mise-en-production>
+            <h3 className="mb-1.5 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+              <Rocket className="h-3.5 w-3.5 text-faint" /> {TITRE_MISE_EN_PRODUCTION}
+            </h3>
+            <p className="mb-2 text-[12.5px] leading-snug text-faint">
+              Expliquez comment ce projet se met en production : quel serveur, par quel chemin le code y
+              arrive, ce qu'il faut contrôler. Le bouton de mise en production confiera ce texte à un
+              agent, qui le suivra.
+            </p>
+
+            <p
+              data-rappel-production
+              className="flex items-start gap-1.5 rounded-md border border-border bg-surface px-2.5 py-2 text-[12.5px] leading-snug text-faint"
+            >
+              <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{rappelDeMiseEnProduction({ ...project, environments: environnements })}</span>
+            </p>
+
+            <div className="mt-2">
+              <Label>Ce que vous attendez, dans vos mots</Label>
+              <Textarea
+                data-base-production
+                value={baseProduction}
+                maxLength={PROMPT_PRODUCTION_MAX}
+                disabled={generation || saving}
+                onChange={(event) => setBaseProduction(event.target.value)}
+                placeholder={
+                  'Sans soigner la formulation : où le site tourne, comment le code y arrive, ce qu’il faut relancer, à quoi on voit que c’est en ligne.\n' +
+                  'Dites aussi ce qu’il ne faut PAS faire.'
+                }
+                className="mt-1 min-h-[120px]"
+              />
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <p className="text-[12.5px] leading-snug text-faint">
+                  Générer confie ce texte à un agent qui rédige le prompt final. C’est un tour d’agent :
+                  cela consomme du quota, mais ne déploie rien.
+                </p>
+                <Button
+                  data-generer-production
+                  variant="subtle"
+                  onClick={genererPrompt}
+                  disabled={generation || saving || !baseProduction.trim()}
+                  className="shrink-0 gap-1.5"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {generation ? 'Génération…' : 'Générer'}
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-2">
+              <Label>Prompt donné à l’agent de mise en production</Label>
+              <Textarea
+                data-prompt-production
+                value={promptProduction}
+                maxLength={PROMPT_PRODUCTION_MAX}
+                disabled={generation || saving}
+                onChange={(event) => setPromptProduction(event.target.value)}
+                placeholder={
+                  generation
+                    ? 'Rédaction en cours…'
+                    : 'Le prompt rédigé apparaîtra ici. Vous pouvez aussi l’écrire ou le corriger à la main.'
+                }
+                className="mt-1 min-h-[150px]"
+              />
+              <p className="mt-1 text-[12.5px] leading-snug text-faint" data-mention-production>
+                {mentionMiseEnProduction(promptProduction)} Laissé vide, HaikoDev retombe sur ce qu’il sait
+                du projet — et sans rien à quoi se raccrocher, le bouton de mise en production s’éteint en
+                le disant.
+              </p>
             </div>
           </div>
 

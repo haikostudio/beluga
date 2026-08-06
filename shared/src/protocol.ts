@@ -333,15 +333,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('voix.demande'), texte: z.string() }),
   /**
-   * Rédige la consigne de déploiement d'une colonne à partir d'une BASE de
-   * texte brute, par un tour d'agent PAYANT. Ne persiste rien et ne déploie
+   * Rédige le PROMPT DE MISE EN PRODUCTION du projet à partir de la BASE écrite
+   * à la main, par un tour d'agent PAYANT. Ne persiste rien et ne déploie
    * rien : rend le texte généré, que l'interface montre et enregistre ensuite
    * par `project.update`.
    */
   z.object({
-    type: z.literal('consigne.generer'),
+    type: z.literal('production.generer'),
     projectId: z.string(),
-    colonne: z.enum(['to_deploy', 'in_production']),
     base: z.string(),
   }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),

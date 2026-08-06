@@ -17,12 +17,14 @@
 /** Ce dont le projet dispose réellement pour être mis en ligne. */
 export type MoyensDeMiseEnLigne = {
   /**
-   * CONSIGNE de déploiement de l'environnement visé, en français. Elle passe
-   * AVANT tout le reste : quand elle est écrite, c'est un agent qui mène la
-   * mise en ligne (`shared/src/publication-confiee.ts`), et il peut faire ce
-   * qu'aucun des quatre autres moyens ne sait décrire.
+   * PROMPT DE MISE EN PRODUCTION du projet, en français, réglé dans ses
+   * paramètres (`shared/src/mise-en-production.ts`). Il passe AVANT tout le
+   * reste : quand il est écrit, c'est un agent qui mène la mise en ligne
+   * (`shared/src/publication-confiee.ts`), et il peut faire ce qu'aucun des
+   * quatre autres moyens ne sait décrire. Il n'est transmis que pour une mise
+   * en PRODUCTION : la mise sur l'environnement de dev ne le lit pas.
    */
-  consigne?: string;
+  prompt?: string;
   /** Commande de publication renseignée dans les réglages du projet. */
   commande?: string;
   /** Le projet est HaikoDev : il sait se construire et s'installer lui-même. */
@@ -62,9 +64,9 @@ export type PlanDeMiseEnLigne = {
  * Comment ce projet peut-il être mis en ligne ?
  *
  * Cinq chemins, du plus explicite au plus deviné :
- * 1. une CONSIGNE de déploiement écrite pour cet environnement : un agent la
- *    suit de bout en bout, et elle peut décrire ce qu'aucun des quatre autres
- *    ne sait dire ;
+ * 1. le PROMPT DE MISE EN PRODUCTION écrit dans les réglages du projet : un
+ *    agent le suit de bout en bout, et il peut décrire ce qu'aucun des quatre
+ *    autres ne sait dire ;
  * 2. une commande de publication : elle fait foi, elle porte tout ;
  * 3. HaikoDev : construction, installation dans le dossier servi, redémarrage ;
  * 4. un service système sur le dossier : construire puis relancer le service,
@@ -83,20 +85,20 @@ export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLign
 
 function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
   /*
-   * La consigne passe DEVANT tout : c'est la seule façon de décrire un
-   * déploiement que les quatre autres moyens ne savent pas exprimer. Une
-   * consigne faite d'espaces n'en est pas une — on retombe alors sur le
-   * déroulé habituel, jamais sur un agent lancé sans rien à lui dire.
+   * Le prompt passe DEVANT tout : c'est la seule façon de décrire un
+   * déploiement que les quatre autres moyens ne savent pas exprimer. Un prompt
+   * fait d'espaces n'en est pas un — on retombe alors sur le déroulé habituel,
+   * jamais sur un agent lancé sans rien à lui dire.
    */
-  const consigne = moyens.consigne?.trim();
-  if (consigne) {
+  const prompt = moyens.prompt?.trim();
+  if (prompt) {
     return {
       possible: true,
       construction: 'agent',
       installation: 'agent',
       redemarrage: 'agent',
       raison:
-        'Un agent de publication suit la consigne de déploiement de cet environnement, de bout en bout.',
+        'Un agent de mise en production suit le prompt réglé dans les paramètres du projet, de bout en bout.',
     };
   }
 
@@ -156,8 +158,8 @@ function planSansEnvironnement(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLigne {
     installation: 'aucune',
     redemarrage: 'aucun',
     raison: nomme
-      ? `L’environnement « ${nomme} » n’a aucun moyen d’être mis en ligne : ni consigne de déploiement, ni commande de publication, aucun service système sur le dossier du projet, et ce dossier n’est servi par aucun serveur web. Renseignez la consigne de déploiement ou la commande de publication de cet environnement dans les réglages du projet — sans elles, publier ne ferait que fusionner du code.`
-      : 'Ce projet n’a aucun moyen d’être mis en ligne : ni consigne de déploiement, ni commande de publication, aucun service système sur son dossier, et son dossier n’est servi par aucun serveur web. Renseignez la consigne de déploiement ou la commande de publication dans les réglages du projet — sans elles, publier ne ferait que fusionner du code.',
+      ? `L’environnement « ${nomme} » n’a aucun moyen d’être mis en ligne : aucun prompt de mise en production, aucune commande de publication, aucun service système sur le dossier du projet, et ce dossier n’est servi par aucun serveur web. Écrivez le prompt dans le bloc « Mise en production » des réglages du projet — sans lui, publier ne ferait que fusionner du code.`
+      : 'Ce projet n’a aucun moyen d’être mis en ligne : aucun prompt de mise en production, aucune commande de publication, aucun service système sur son dossier, et son dossier n’est servi par aucun serveur web. Écrivez le prompt dans le bloc « Mise en production » des réglages du projet — sans lui, publier ne ferait que fusionner du code.',
   };
 }
 

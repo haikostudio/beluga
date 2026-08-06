@@ -1,5 +1,5 @@
 /**
- * CONFIER LA MISE EN LIGNE À UN AGENT QUI SUIT LA CONSIGNE RÉGLÉE.
+ * CONFIER LA MISE EN PRODUCTION À UN AGENT QUI SUIT LE PROMPT RÉGLÉ.
  *
  * La publication enchaînait sept étapes figées, les mêmes pour tous les
  * projets : fusion, enregistrement, envoi, vérification, construction, mise en
@@ -9,38 +9,21 @@
  * la commande X sur la machine Y ») était impossible : `planDeMiseEnLigne` ne
  * connaît que quatre moyens et refuse tout ce qui n'y entre pas.
  *
- * Un environnement de publication porte donc une CONSIGNE. Quand elle est
- * réglée, la mise en ligne proprement dite est confiée à un agent : il reçoit
- * la consigne telle quelle, le lot de cartes embarquées et l'environnement visé
- * avec son adresse et sa branche, et il mène le travail.
+ * Le projet porte donc UN PROMPT DE MISE EN PRODUCTION, réglé dans ses
+ * paramètres (`shared/src/mise-en-production.ts`). Quand il est écrit, la mise
+ * en ligne proprement dite est confiée à un agent : il reçoit le prompt tel
+ * quel, le lot de cartes embarquées et l'environnement visé avec son adresse et
+ * sa branche, et il mène le travail.
  *
  * Ce qui NE bouge pas : la plomberie git (fusion, enregistrement, envoi) reste
  * celle de HaikoDev — c'est elle qui garantit le lot, l'attente d'accord d'un
- * projet « se déploie sur envoi » et la fermeture des branches. Et sans
- * consigne réglée, rien de tout cela ne s'applique : le déroulé d'avant tient
- * mot pour mot.
+ * projet « se déploie sur envoi » et la fermeture des branches. Et sans prompt
+ * écrit, rien de tout cela ne s'applique : le déroulé d'avant tient mot pour
+ * mot. Le prompt ne vaut QUE pour la mise en production ; la mise sur
+ * l'environnement de dev ne le lit pas.
  *
  * Règles PURES : ni base, ni disque, ni date, ni horloge — donc rejouables.
  */
-
-/** Ce qu'on lit d'un environnement, vu d'ici : sa seule consigne. */
-export type PorteurDeConsigne = { consigne?: string };
-
-/**
- * La consigne de déploiement de cet environnement, ou rien.
- *
- * Une consigne faite d'espaces n'est pas une consigne : elle retombe sur le
- * déroulé d'avant plutôt que de lancer un agent sans rien à lui dire.
- */
-export function consigneDeDeploiement(env: PorteurDeConsigne | undefined): string | undefined {
-  const texte = env?.consigne?.trim();
-  return texte ? texte : undefined;
-}
-
-/** La mise en ligne de cet environnement est-elle confiée à un agent ? */
-export function publicationConfiee(env: PorteurDeConsigne | undefined): boolean {
-  return consigneDeDeploiement(env) !== undefined;
-}
 
 /* ------------------------------------------------------------------ */
 /* Les étapes, et ce que chacune dit                                    */
@@ -59,20 +42,21 @@ export type EtapeConfiee = (typeof ETAPES_CONFIEES)[number];
  * Ce qu'une étape confiée AFFICHE quand ce n'est pas elle qui porte le travail.
  *
  * Jamais une étape muette : « ignoré » sans motif se lit comme une panne. Ces
- * trois-là disent que la consigne de l'environnement les couvre, et l'étape
- * « Mise en ligne » porte le compte rendu de l'agent.
+ * trois-là disent que le prompt de mise en production les couvre, et l'étape
+ * « Mise en ligne » porte le compte rendu de l'agent. L'environnement est NOMMÉ
+ * — avec plusieurs environnements, « c'est l'agent qui la mène » ne dit pas où.
  */
 export function mentionEtapeConfiee(etape: EtapeConfiee, environnement: string): string {
-  const ou = `la consigne de déploiement de « ${environnement} »`;
+  const ou = `le prompt de mise en production du projet (environnement « ${environnement} »)`;
   switch (etape) {
     case 'verify':
-      return `Vérification comprise dans ${ou} : c'est l'agent de publication qui la mène.`;
+      return `Vérification comprise dans ${ou} : c'est l'agent de mise en production qui la mène.`;
     case 'build':
-      return `Construction comprise dans ${ou} : c'est l'agent de publication qui la mène.`;
+      return `Construction comprise dans ${ou} : c'est l'agent de mise en production qui la mène.`;
     case 'restart':
       return `Relance comprise dans ${ou} : rien à relancer ici.`;
     default:
-      return `Mise en ligne menée par l'agent de publication, d'après ${ou}.`;
+      return `Mise en ligne menée par l'agent de mise en production, d'après ${ou}.`;
   }
 }
 
@@ -91,8 +75,8 @@ export type ContexteDePublication = {
   dossier: string;
   /** L'environnement visé : son nom, son rôle, son adresse, sa branche. */
   environnement: { nom: string; role?: string; url?: string; branche?: string };
-  /** La consigne réglée pour cet environnement, reprise TELLE QUELLE. */
-  consigne: string;
+  /** Le prompt de mise en production du projet, repris TEL QUEL. */
+  prompt: string;
   /** Les cartes embarquées par ce lot. */
   cartes: CarteDuLot[];
   /** L'enregistrement sur lequel le lot se pose, quand il est connu. */
@@ -105,16 +89,16 @@ export type ContexteDePublication = {
 export const CARTES_NOMMEES_MAX = 12;
 
 /**
- * La consigne envoyée à l'agent de publication.
+ * La consigne envoyée à l'agent de mise en production.
  *
  * Elle vit ICI, dans une règle pure, pour deux raisons : un contrôle la lit
  * sans lancer un tour payant, et elle ne nomme AUCUN outil propre à un moteur —
  * elle vaut donc pareil sous Claude et sous Codex.
  *
- * La consigne réglée par l'utilisateur est recopiée TELLE QUELLE, entourée de
- * repères : la reformuler, c'est publier autre chose que ce qui est écrit.
+ * Le prompt réglé par l'utilisateur est recopié TEL QUEL, entouré de repères :
+ * le reformuler, c'est publier autre chose que ce qui est écrit.
  */
-export function consigneDeLAgentDePublication(ctx: ContexteDePublication): string {
+export function promptDeLAgentDeProduction(ctx: ContexteDePublication): string {
   const env = ctx.environnement;
   const nommees = ctx.cartes.slice(0, CARTES_NOMMEES_MAX);
   const reste = ctx.cartes.length - nommees.length;
@@ -142,13 +126,13 @@ export function consigneDeLAgentDePublication(ctx: ContexteDePublication): strin
     '',
     'Le code est DÉJÀ fusionné sur la branche installée, enregistré et envoyé sur le dépôt : il ne reste qu’à le mettre en ligne.',
     '',
-    'CONSIGNE DE DÉPLOIEMENT DE CET ENVIRONNEMENT — suis-la telle quelle :',
-    '--- début de la consigne ---',
-    ctx.consigne,
-    '--- fin de la consigne ---',
+    'PROMPT DE MISE EN PRODUCTION DE CE PROJET — suis-le tel quel :',
+    '--- début du prompt ---',
+    ctx.prompt,
+    '--- fin du prompt ---',
     '',
     'Fais exactement ceci, et rien d’autre :',
-    '1. Suis la consigne ci-dessus, de bout en bout. N’invente aucune étape qu’elle ne demande pas.',
+    '1. Suis le prompt ci-dessus, de bout en bout. N’invente aucune étape qu’il ne demande pas.',
     '2. Si une construction ou un contrôle tombe, répare la CAUSE puis rejoue. Ne supprime, ne désactive et ne mets en commentaire AUCUN test.',
     '3. Tu es dans le dossier du projet, sur la branche installée : n’en change pas et ne crée pas de branche. Le dossier est PARTAGÉ — nomme tes fichiers un par un, jamais `git add -A`.',
     '4. Ne touche pas au tableau : n’archive, ne déplace et ne clôture aucune carte. HaikoDev s’en charge quand tu auras fini.',
@@ -175,20 +159,21 @@ export const RECIT_MAX = 3000;
 export function recitDeLAgent(texte: string | undefined, environnement: string): string {
   const propre = texte?.trim();
   if (!propre) {
-    return `L’agent de publication a suivi la consigne de « ${environnement} » mais n’a rendu aucun compte rendu.`;
+    return `L’agent de mise en production a travaillé sur « ${environnement} » mais n’a rendu aucun compte rendu.`;
   }
   return propre.length > RECIT_MAX ? `${propre.slice(0, RECIT_MAX)}\n…` : propre;
 }
 
 /**
- * Le refus, quand l'agent de publication n'a pas mené la consigne à son terme.
+ * Le refus, quand l'agent n'a pas mené le prompt de mise en production à son
+ * terme.
  *
  * Un échec reste un échec, et il NOMME l'environnement : avec plusieurs
  * environnements, « la publication a échoué » ne dit pas lequel aller regarder.
  */
 export function phraseDEchecConfie(environnement: string, raison?: string): string {
   const motif = raison?.trim();
-  return `L’agent de publication n’a pas mené à son terme la consigne de « ${environnement} »${
+  return `L’agent de mise en production n’a pas mené à son terme le prompt du projet sur « ${environnement} »${
     motif ? ` : ${motif}` : ''
   }. Rien n’est mis en ligne, les cartes restent à déployer.`;
 }

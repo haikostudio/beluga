@@ -20,8 +20,8 @@ import {
   environnementVise,
   environnementsDuProjet,
   libelleRole,
-  consigneDeDeploiement,
-  consigneDeLAgentDePublication,
+  promptDeMiseEnProduction,
+  promptDeLAgentDeProduction,
   mentionEtapeConfiee,
   phraseDEchecConfie,
   recitDeLAgent,
@@ -151,17 +151,20 @@ function configurationsServeurWeb(): string[] {
 /**
  * Ce dont ce projet dispose pour être mis en ligne, constaté sur la machine.
  *
- * La CONSIGNE, la COMMANDE et le NOM viennent de l'environnement visé ; le
- * reste (service système, dossier servi, script de construction) est une
- * propriété du dossier et vaut donc pour tous les environnements.
+ * La COMMANDE et le NOM viennent de l'environnement visé ; le reste (service
+ * système, dossier servi, script de construction) est une propriété du dossier
+ * et vaut donc pour tous les environnements. Le PROMPT, lui, est un réglage du
+ * PROJET, et il n'entre en jeu que pour une mise en PRODUCTION : l'appelant le
+ * passe ou non, cette fonction ne décide pas de l'étape.
  */
 export function moyensDuProjet(
   cwd: string,
-  environnement?: Pick<EnvironnementPublication, 'nom' | 'commande' | 'consigne'>,
+  environnement?: Pick<EnvironnementPublication, 'nom' | 'commande'>,
   estHaikoDev = false,
+  prompt?: string,
 ): MoyensDeMiseEnLigne {
   return {
-    consigne: consigneDeDeploiement(environnement),
+    prompt: prompt?.trim() || undefined,
     commande: environnement?.commande,
     estHaikoDev,
     scriptBuild: scriptExiste(cwd, 'build'),
@@ -172,16 +175,33 @@ export function moyensDuProjet(
 }
 
 /**
+ * Le prompt de mise en production, mais SEULEMENT quand l'étape en est une.
+ *
+ * C'est le seul endroit qui tranche : une mise sur l'environnement de dev ne le
+ * lit pas — elle garde exactement les moyens d'avant — et l'étape unique d'un
+ * projet sans dev est bien une mise en production, donc elle le lit.
+ */
+function promptDeLEtape(project: Project, cible?: CiblePublication): string {
+  return cible === 'dev' ? '' : promptDeMiseEnProduction(project);
+}
+
+/**
  * Ce projet peut-il être mis en ligne, et comment ? Répondu SANS rien publier,
  * pour que la fenêtre de publication le dise avant le clic. Le jugement porte
  * sur l'environnement VISÉ : un projet peut très bien savoir installer son dev
  * client et pas sa production.
  */
-export function moyenDeMiseEnLigne(projectId: string, environmentId?: string): PlanDeMiseEnLigne | null {
+export function moyenDeMiseEnLigne(
+  projectId: string,
+  environmentId?: string,
+  cible?: CiblePublication,
+): PlanDeMiseEnLigne | null {
   const project = store.getProject(projectId);
   if (!project) return null;
   const env = environnementVise(project, environmentId);
-  return planDeMiseEnLigne(moyensDuProjet(project.path, env, project.isSelf));
+  return planDeMiseEnLigne(
+    moyensDuProjet(project.path, env, project.isSelf, promptDeLEtape(project, cible)),
+  );
 }
 
 /** Les environnements d'un projet, tels que l'interface doit les montrer. */
@@ -578,11 +598,11 @@ function derniereReponse(agentId: string): { texte?: string; erreur?: string } {
 }
 
 /**
- * CONFIER LA MISE EN LIGNE À UN AGENT.
+ * CONFIER LA MISE EN PRODUCTION À UN AGENT.
  *
  * Le code est déjà fusionné, enregistré et envoyé : il ne reste qu'à le mettre
- * en ligne, et c'est la consigne réglée pour cet environnement qui dit comment.
- * L'agent la reçoit telle quelle, avec le lot et l'environnement visé.
+ * en ligne, et c'est le prompt réglé dans les paramètres du projet qui dit
+ * comment. L'agent le reçoit tel quel, avec le lot et l'environnement visé.
  *
  * Rend le compte rendu à afficher, et `ok: false` quand le tour n'a pas abouti.
  * Aucune indulgence : un tour en échec est un échec NOMMÉ, et rien n'est
@@ -596,13 +616,16 @@ async function confierLaMiseEnLigne(
   const agent = createAgent({
     projectId,
     role: 'deploy',
-    title: `Publication — ${ctx.environnement.nom}`,
+    title: `Mise en production — ${ctx.environnement.nom}`,
   });
 
-  bus.toast('info', `Publication de « ${ctx.projet} » : l’agent suit la consigne de « ${ctx.environnement.nom} ».`);
+  bus.toast(
+    'info',
+    `Mise en production de « ${ctx.projet} » : l’agent suit le prompt du projet sur « ${ctx.environnement.nom} ».`,
+  );
 
   try {
-    await sendPrompt(agent.id, consigneDeLAgentDePublication(ctx), { template: 'free', silent: true });
+    await sendPrompt(agent.id, promptDeLAgentDeProduction(ctx), { template: 'free', silent: true });
   } catch (err: any) {
     const raison = err?.message ?? 'raison inconnue';
     return { ok: false, recit: phraseDEchecConfie(ctx.environnement.nom, raison), raison };
@@ -1052,7 +1075,10 @@ export async function startDeploy(
    * aux archives et rien n'avait bougé à l'écran. On refuse maintenant AVANT
    * de toucher au dépôt, en nommant ce qui manque.
    */
-  const plan = planDeMiseEnLigne(moyensDuProjet(project.path, environnement, project.isSelf));
+  const promptProduction = promptDeLEtape(project, etape.cible);
+  const plan = planDeMiseEnLigne(
+    moyensDuProjet(project.path, environnement, project.isSelf, promptProduction),
+  );
   if (!plan.possible) return { ok: false, error: plan.raison };
 
   let cards = deployableCards(projectId, etape.source);
@@ -1327,14 +1353,15 @@ export async function startDeploy(
       if (stopped) throw new Error('arrêt demandé');
 
       // 4 à 7 : la mise en ligne, telle que le plan l'a décidée avant de partir
-      const consigne = consigneDeDeploiement(environnement);
+      const prompt = promptProduction;
       const deployCommand = environnement.commande?.trim();
-      if (consigne) {
+      if (prompt) {
         /*
-         * UNE CONSIGNE EST RÉGLÉE : c'est un agent qui mène la mise en ligne.
+         * UN PROMPT DE MISE EN PRODUCTION EST RÉGLÉ : c'est un agent qui mène
+         * la mise en ligne.
          *
          * Les quatre étapes restent en place et parlent toutes — trois disent
-         * que la consigne les couvre, la quatrième porte le compte rendu de
+         * que le prompt les couvre, la quatrième porte le compte rendu de
          * l'agent. La plomberie git au-dessus, elle, n'a pas bougé : c'est elle
          * qui garantit le lot, l'attente d'accord et la fermeture des branches.
          */
@@ -1351,7 +1378,7 @@ export async function startDeploy(
             url: environnement.url,
             branche: environnement.branche,
           },
-          consigne,
+          prompt,
           cartes: cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
           enregistrement: current.targetCommit,
           clot: etape.clot,

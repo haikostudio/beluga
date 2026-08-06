@@ -161,6 +161,23 @@ async function main() {
           type: 'ack',
           ok: true,
           data: {
+            /*
+             * L'ÉTAPE de la colonne qui interroge. Le bloc de publication ne
+             * s'affiche PLUS sans elle (règle des deux étapes) : une réponse
+             * simulée qui l'oublie laisse la colonne nue. Ce banc d'essai ne
+             * déclare aucun environnement de dev, donc UNE seule étape.
+             */
+            etape:
+              (cmd.source ?? 'to_deploy') === 'to_deploy'
+                ? {
+                    cible: 'production',
+                    libelle: 'Mise en production',
+                    verbe: 'déployer',
+                    source: 'to_deploy',
+                    arrivee: 'archived',
+                    clot: true,
+                  }
+                : null,
             conflicts: [],
             busy: [],
             enAttente: { nombre: 2, titres: ['Essai A', 'Essai B'] },
@@ -324,7 +341,12 @@ async function main() {
     etats.join(' | '),
   );
 
-  const bouton = page.locator('button:has-text("Tout déployer")').first();
+  /*
+   * Le bouton du BLOC de publication, jamais celui du pied de colonne
+   * « Terminé » qui porte le même libellé : on vise `[data-bouton-publication]`
+   * dans le bloc de « À déployer ».
+   */
+  const bouton = page.locator('[data-bloc-publication="to_deploy"] [data-bouton-publication]').first();
   record(
     'le bouton nomme l’environnement visé',
     (await bouton.textContent())?.includes('Interne') === true,
@@ -336,7 +358,7 @@ async function main() {
   await page.waitForTimeout(1500);
   record(
     'viser un environnement sans moyen éteint le bouton',
-    await page.locator('button:has-text("Tout déployer")').first().isDisabled(),
+    await bouton.isDisabled(),
   );
   const avertissement = await page.locator('.text-warning').allTextContents();
   record(
