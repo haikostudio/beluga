@@ -208,9 +208,10 @@ function LigneOndes({ parle }: { parle: boolean }) {
  *
  * L'application parle d'elle-même aux moments qui comptent : une tâche qui se
  * termine (motif de notification « tache-terminee ») et une décision qui se met
- * à attendre (le compte d'« attention » qui monte). On réutilise Piper par une
- * adresse audio ordinaire (`/api/speak`) ; si le serveur n'a pas de voix, on
- * retombe sur celle du navigateur.
+ * à attendre (le compte d'« attention » qui monte). On réutilise la voix du
+ * serveur par une adresse audio ordinaire (`/api/speak`) — le moteur qui la
+ * fabrique se décide là-bas ; si le serveur n'a pas de voix, on retombe sur
+ * celle du navigateur.
  *
  * Le module est TOUJOURS à l'écran, réduit en un petit rond au centre en bas. Au
  * repos, il montre cinq barres figées en vibration sonore symétrique. Au survol
