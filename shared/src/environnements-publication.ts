@@ -49,13 +49,6 @@ export type EnvironnementPublication = {
   url?: string;
   /** Branche installée par cet environnement. Vide = la branche principale. */
   branche?: string;
-  /**
-   * La CONSIGNE de déploiement de cet environnement, en français. Renseignée,
-   * la mise en ligne est confiée à un agent qui la suit telle quelle
-   * (`shared/src/publication-confiee.ts`) ; vide, le déroulé habituel ne bouge
-   * pas d'un pouce.
-   */
-  consigne?: string;
 };
 
 /** Ce qu'un projet porte, vu d'ici : la liste neuve et les deux champs d'avant. */
@@ -102,7 +95,6 @@ function normaliserUn(env: EnvironnementPublication): EnvironnementPublication {
     commande: propre(env.commande),
     url: propre(env.url),
     branche: propre(env.branche),
-    consigne: propre(env.consigne),
   };
 }
 

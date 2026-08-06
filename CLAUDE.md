@@ -69,7 +69,7 @@ node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poig
 node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt puis à la souris (serveur de développement, HAIKO_INTERRUPTEUR_URL ; aucun vrai compte touché)
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
-node scripts/verif-consigne-deploiement.mjs # la consigne de déploiement réglée depuis le menu des colonnes « À déployer » / « En production » (serveur de développement, HAIKO_CONSIGNE_URL ; `project.update` intercepté, persistance imitée par le stockage local, aucun projet réel touché)
+node scripts/verif-mise-en-production.mjs # le bloc « Mise en production » des réglages du projet : concept écrit, prompt généré, enregistré, retrouvé au rechargement (serveur de développement, HAIKO_PRODUCTION_URL ; `project.update` et `production.generer` interceptés, persistance imitée par le stockage local, aucun projet réel touché)
 node scripts/verif-envoi-surveille.mjs # un projet « se déploie sur envoi » fait attendre avant tout envoi (démon et dépôt d'essai à soi, HAIKODEV_VERIF_PORT)
 node scripts/verif-environnements-publication.mjs # plusieurs environnements par projet : ajout dans les réglages, apparition dans le bloc de publication (serveur de développement, HAIKO_ENVS_URL ; `project.update` et `deploy.check` interceptés, aucun projet réel touché)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
@@ -167,8 +167,8 @@ sans son point d'essai.
   geste de l'utilisateur.
 - **Publier, c'est METTRE EN LIGNE — pas seulement fusionner** (`planDeMiseEnLigne`,
   `shared/src/mise-en-ligne.ts`). Avant de toucher au dépôt, la publication demande COMMENT le projet
-  peut être servi : la CONSIGNE de déploiement de l'environnement visé, sinon sa commande de
-  publication, sinon HaikoDev lui-même, sinon le service système qui
+  peut être servi : le PROMPT DE MISE EN PRODUCTION du projet (mise en production seulement), sinon
+  la commande de publication de l'environnement visé, sinon HaikoDev lui-même, sinon le service système qui
   tourne sur son dossier (sous-dossier compris), sinon un serveur web qui sert ce dossier tel quel
   (`root * …` dans Caddy, `root …;` dans nginx). Aucun des cinq : la publication est REFUSÉE, le
   bouton s'éteint et dit ce qui manque — jamais un lot annoncé « publié » sans que rien ne parte.
@@ -202,7 +202,7 @@ sans son point d'essai.
   (`deployCommand` / `deployUrl`) : décrire un dev chez le client ET une production était
   impossible. Il porte désormais une LISTE ORDONNÉE (`Project.environments`), chaque
   environnement ayant son nom, son rôle (`interne` / `dev-client` / `production`), sa commande, son
-  adresse à contrôler, sa branche installée et sa consigne de déploiement. `environnementsDuProjet` est le SEUL point de
+  adresse à contrôler et sa branche installée. `environnementsDuProjet` est le SEUL point de
   lecture : une liste vide rend UN environnement « Interne » portant les anciens champs, si bien
   qu'un projet déjà réglé se comporte exactement comme avant, sans migration de base. Les deux
   anciens champs ne sont plus jamais écrits — le volet de réglages n'écrit que `environments`, deux
@@ -221,57 +221,55 @@ sans son point d'essai.
   cette règle compte pour le premier), affiché dans le bloc de publication à côté du menu de choix.
   Verrouillé par `server/src/test/environnements-publication.test.ts` et
   `scripts/verif-environnements-publication.mjs`.
-- **Le DÉROULÉ de déploiement s'écrit à la main, une consigne par étape**
-  (`shared/src/consigne-deploiement.ts`). Un projet ne décrivait sa publication que par une commande
-  et une adresse par environnement : l'ORDRE des gestes, ce qu'il faut contrôler avant, ce qu'il ne
-  faut surtout pas faire n'avait aucune place. Le projet porte donc
-  `Project.consignesDeploiement`, à côté de `environments` : DEUX consignes en texte libre,
-  indépendantes, rangées PAR COLONNE (`COLONNES_CONSIGNE` = `to_deploy`, `in_production`) et non par
-  cible — selon qu'un environnement de dev existe, « À déployer » pousse vers le dev ou vers la
-  production, et une consigne qui changerait de sens sans qu'on y touche serait un piège. Une
-  consigne VIDE est un état NORMAL (« déroulé habituel ») : `ecrireConsigneDeploiement` EFFACE la clé
-  au lieu de ranger une chaîne vide, ne garde que les deux colonnes connues, borne à `CONSIGNE_MAX`
-  (4000 signes) et ne touche jamais à l'autre étape. `consigneDeploiement` est le SEUL point de
-  lecture. Elle se règle depuis le menu trois points de la tête de colonne (`MenuTeteColonne`,
-  `web/src/components/board.tsx`), qui reste donc AFFICHÉ sur ces deux colonnes même sans carte non
-  lue — un réglage du projet ne dépend pas de ce qui traîne dans la colonne ; ailleurs, la règle
-  d'avant ne bouge pas. La fenêtre (`web/src/components/consigne-deploiement.tsx`, tiroir bas sur
-  téléphone comme toute `DialogContent`) rappelle en une ligne ce qui est DÉJÀ connu
-  (`rappelDeConsigne` : environnement visé par défaut — le premier de la liste, comme
-  `environnementVise` — et branche installée, vide = branche principale). L'enregistrement passe par
-  `project.update`, jamais par un second chemin d'écriture. **Le mécanisme de publication ne lit pas
-  encore cette consigne** : l'écrire ne change rien au déroulé. La fenêtre porte DEUX textes par
-  colonne : une BASE brute (`Project.basesDeploiement`, mêmes clés, même `ecrireBaseDeploiement` que
-  la consigne) que l'utilisateur écrit dans ses mots, et la CONSIGNE finale (`consignesDeploiement`).
-  Un bouton « Générer » confie la base à un agent de rôle `deploy` — tour PAYANT — par la commande
-  `consigne.generer` (`server/src/consigne-deploiement.ts`, prompt pur `promptGenerationConsigne`,
-  gabarit `none` pour que la dernière réponse SOIT la consigne, `nettoyerConsigneGeneree` retire un
-  bloc de code enveloppant et borne à `CONSIGNE_MAX`). La génération ne persiste RIEN et ne déploie
-  RIEN : elle rend le texte, montré dans un champ MODIFIABLE ; base et consigne ne sont enregistrées
-  qu'au clic « Enregistrer », toujours par le même `project.update`. Les deux sont conservées côte à
-  côte : on ré-édite la base et on relance. Verrouillé par
-  `server/src/test/consigne-deploiement.test.ts` et `scripts/verif-consigne-deploiement.mjs`.
-- **Une CONSIGNE de déploiement confie la mise en ligne à un agent**
-  (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Un environnement de
-  publication porte, en plus de sa commande et de son adresse, une `consigne` en français
-  (`EnvironnementPublication.consigne`, `DeployEnvironment.consigne`). Vide — le cas de tous les
-  projets d'aujourd'hui — RIEN ne change : mêmes sept étapes, même ordre, mêmes refus. Écrite, elle
-  devient le PREMIER des cinq moyens de `planDeMiseEnLigne` (`construction`/`installation`/
-  `redemarrage` valent alors `agent`) et passe DEVANT la commande, HaikoDev, le service et le dossier
-  servi : c'est la seule façon de décrire un déploiement que les quatre autres ne savent pas dire.
-  La plomberie git ne bouge pas — fusion, enregistrement, envoi restent à HaikoDev, avec l'attente
-  d'accord d'un projet « se déploie sur envoi » et la fermeture des branches. Seules les QUATRE
-  étapes de mise en ligne changent de main : `verify`, `build` et `restart` disent que la consigne
-  les couvre (`mentionEtapeConfiee`, jamais une étape muette), et `publish` porte le compte rendu de
+- **La MISE EN PRODUCTION est pilotée par UN prompt, réglé dans les paramètres du projet**
+  (`shared/src/mise-en-production.ts`, branché dans `server/src/deploy.ts`). Deux mécanismes de
+  consigne coexistaient sans se rejoindre : celui que la publication LISAIT vivait sur un
+  environnement (`EnvironnementPublication.consigne`) et aucun champ ne permettait de l'écrire ;
+  celui qu'on pouvait ÉCRIRE — une fenêtre par colonne, une base et une consigne rangées par
+  colonne — n'était lu par personne. Les deux sont SUPPRIMÉS. Le projet porte `Project.
+  miseEnProduction`, à côté de `environments` : DEUX textes conservés côte à côte, la BASE (le
+  concept écrit par l'utilisateur dans ses mots) et le PROMPT (ce que l'agent de mise en production
+  reçoit). `promptDeMiseEnProduction` et `baseDeMiseEnProduction` sont les SEULS points de lecture ;
+  `ecrireMiseEnProduction` écrit l'un sans forcer l'autre, EFFACE la clé plutôt que de ranger du
+  vide, ne garde que les deux clés connues et borne à `PROMPT_PRODUCTION_MAX` (8000 signes). Un
+  prompt VIDE est un état NORMAL : la publication retombe sur les quatre moyens que HaikoDev sait
+  deviner, et sans aucun d'eux elle est REFUSÉE en renvoyant au bloc « Mise en production » des
+  réglages. Tout se règle dans le VOLET DU PROJET (`web/src/components/project-settings.tsx`, bloc
+  `data-mise-en-production`), qui rappelle en une ligne ce qui est déjà connu
+  (`rappelDeMiseEnProduction` : environnement de production visé — le premier de rôle `production`,
+  sinon le premier de la liste, comme `environnementParDefaut` —, sa branche et son adresse). Un
+  bouton « Générer » confie la base à un agent de rôle `deploy` — tour PAYANT — par la commande
+  `production.generer` (`server/src/mise-en-production.ts`, prompt pur
+  `promptGenerationMiseEnProduction`, gabarit `none` pour que la dernière réponse SOIT le prompt,
+  `nettoyerPromptGenere` retire un bloc de code enveloppant et borne). La génération ne persiste
+  RIEN et ne déploie RIEN : elle rend le texte, montré dans un champ MODIFIABLE ; base et prompt ne
+  sont enregistrés qu'au clic « Enregistrer », toujours par le même `project.update`. Le menu trois
+  points d'une tête de colonne (`MenuTeteColonne`, `web/src/components/board.tsx`) ne porte donc
+  plus qu'une entrée, « Marquer tout comme lu », et suit partout la règle commune : pas de carte non
+  lue, pas de bouton. Verrouillé par `server/src/test/mise-en-production.test.ts` et
+  `scripts/verif-mise-en-production.mjs`.
+- **Le PROMPT de mise en production confie la mise en ligne à un agent**
+  (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Vide — le cas de tous
+  les projets tant que rien n'est réglé — RIEN ne change : mêmes sept étapes, même ordre, mêmes
+  refus. Écrit, il devient le PREMIER des cinq moyens de `planDeMiseEnLigne`
+  (`MoyensDeMiseEnLigne.prompt` ; `construction`/`installation`/`redemarrage` valent alors `agent`)
+  et passe DEVANT la commande, HaikoDev, le service et le dossier servi : c'est la seule façon de
+  décrire un déploiement que les quatre autres ne savent pas dire. Il ne vaut QUE pour une mise en
+  PRODUCTION : `promptDeLEtape` (`server/src/deploy.ts`) est le SEUL endroit qui tranche — une étape
+  de cible `dev` rend la chaîne vide et garde exactement ses moyens d'avant, l'étape unique d'un
+  projet sans dev étant bien une mise en production, elle le lit. La plomberie git ne bouge pas —
+  fusion, enregistrement, envoi restent à HaikoDev, avec l'attente d'accord d'un projet « se déploie
+  sur envoi » et la fermeture des branches. Seules les QUATRE étapes de mise en ligne changent de
+  main : `verify`, `build` et `restart` disent que le prompt les couvre (`mentionEtapeConfiee`,
+  jamais une étape muette, et l'environnement est NOMMÉ), et `publish` porte le compte rendu de
   l'agent. Un agent de rôle « deploy » est appelé une fois (`confierLaMiseEnLigne`) avec
-  `consigneDeLAgentDePublication` : la consigne réglée TELLE QUELLE entre deux repères, le projet, le
-  dossier, l'environnement (nom, rôle, adresse, branche), l'enregistrement, si l'étape clôt les
-  cartes, et le lot embarqué (`CARTES_NOMMEES_MAX` cartes nommées, le reste compté). Il lui est
-  interdit de changer de branche, de faire `git add -A`, de désactiver un test et de toucher au
-  tableau. Un tour en échec fait ÉCHOUER la publication en nommant l'environnement
-  (`phraseDEchecConfie`) ; un compte rendu vide est dit comme tel (`recitDeLAgent`) ; l'adresse
-  publique et `miseEnLigneReelle` gardent le dernier mot. Verrouillé par
-  `server/src/test/publication-confiee.test.ts`.
+  `promptDeLAgentDeProduction` : le prompt réglé TEL QUEL entre deux repères, le projet, le dossier,
+  l'environnement (nom, rôle, adresse, branche), l'enregistrement, si l'étape clôt les cartes, et le
+  lot embarqué (`CARTES_NOMMEES_MAX` cartes nommées, le reste compté). Il lui est interdit de changer
+  de branche, de faire `git add -A`, de désactiver un test et de toucher au tableau. Un tour en échec
+  fait ÉCHOUER la publication en nommant l'environnement (`phraseDEchecConfie`) ; un compte rendu
+  vide est dit comme tel (`recitDeLAgent`) ; l'adresse publique et `miseEnLigneReelle` gardent le
+  dernier mot. Verrouillé par `server/src/test/publication-confiee.test.ts`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
   Mais la sortie ne se coupe plus aux derniers signes : `runCommand` la garde ENTIÈRE pour cette

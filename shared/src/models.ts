@@ -93,12 +93,6 @@ export const DeployEnvironment = z.object({
   url: z.string().optional(),
   /** Branche installée par cet environnement. Vide = la branche principale. */
   branche: z.string().optional(),
-  /**
-   * Consigne de déploiement, en français : renseignée, la mise en ligne est
-   * confiée à un agent qui la suit telle quelle
-   * (`shared/src/publication-confiee.ts`).
-   */
-  consigne: z.string().optional(),
 });
 export type DeployEnvironment = z.infer<typeof DeployEnvironment>;
 
@@ -131,23 +125,14 @@ export const Project = z.object({
   /** Les endroits où ce projet peut être mis en ligne, dans l'ordre voulu. */
   environments: z.array(DeployEnvironment).default([]),
   /**
-   * Ce qu'il faut FAIRE pour déployer ce projet, en texte libre, une consigne
-   * par étape du parcours : celle de « À déployer » et celle de « En
-   * production ». Les règles vivent dans `consigne-deploiement.ts`. Une clé
-   * absente est un état NORMAL : elle veut dire « déroulé habituel ».
+   * LA MISE EN PRODUCTION de ce projet, réglée dans ses paramètres : la BASE
+   * écrite à la main par l'utilisateur (le concept dans ses mots) et le PROMPT
+   * que l'agent de mise en production reçoit. Les règles vivent dans
+   * `mise-en-production.ts`. Une clé absente est un état NORMAL : la
+   * publication retombe alors sur les moyens que HaikoDev sait deviner.
    */
-  consignesDeploiement: z
-    .object({ to_deploy: z.string().optional(), in_production: z.string().optional() })
-    .default({}),
-  /**
-   * La BASE de texte de chaque étape : la procédure brute écrite à la main, que
-   * l'utilisateur met en forme par un agent pour produire la consigne finale
-   * ci-dessus. Rangée par les mêmes colonnes ; une clé absente = pas de base
-   * saisie. Les deux sont conservées côte à côte pour pouvoir ré-éditer la base
-   * et relancer la génération.
-   */
-  basesDeploiement: z
-    .object({ to_deploy: z.string().optional(), in_production: z.string().optional() })
+  miseEnProduction: z
+    .object({ base: z.string().optional(), prompt: z.string().optional() })
     .default({}),
   billing: BillingLink.optional(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */

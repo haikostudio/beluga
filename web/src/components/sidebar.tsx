@@ -1136,6 +1136,7 @@ function ProjectRow({
       <button
         onPointerDown={(event) => event.stopPropagation()}
         onClick={onSettings}
+        data-reglages-projet={project.id}
         className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover:opacity-100"
         title="Réglages du projet"
       >
