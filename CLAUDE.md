@@ -872,6 +872,24 @@ sans son point d'essai.
   `server/src/test/reveil-vocal.test.ts`, `scripts/verif-reveil-vocal.mjs` (l'écran, phrases
   injectées) et `scripts/verif-transcription-reveil.mjs` (le SON : de la vraie parole, vraiment
   transcrite — le seul endroit où la chaîne cassait, et le seul qu'aucun contrôle ne voyait).
+- **Le MODE CONVERSATION VOCALE vit À CÔTÉ de l'écoute par mot de réveil, et parle SANS « Dis Haiko »**
+  (règles pures `shared/src/conversation-vocale.ts`, micro `web/src/lib/conversation-vocale.ts`,
+  affichage `web/src/components/voix-assistant.tsx`). Un SECOND interrupteur dans le panneau déplié
+  (`data-interrupteur-conversation`, préférence serveur `CLE_VOIX_CONVERSATION` = `voix.conversation`,
+  ÉTEINTE par défaut) ouvre le micro par le MÊME mécanisme éprouvé que le bouton micro de la barre
+  d'écriture (`recorder.tsx`) : un `MediaRecorder` sans réglage de format, un blob `audio/webm` posté
+  à `/api/transcribe`. La seule chose en plus, c'est la DÉCOUPE au silence (`PAUSE_CONVERSATION_MS` =
+  3 s, plus long que la coupe du mot de réveil). Une phrase dite part TELLE QUELLE à la commande
+  `voix.demande` (routage inchangé, `routage-vocal.ts` — seulement RACCORDÉ ; c'était le maillon
+  manquant : `surDictee` n'avait AUCUN abonné, donc rien n'atteignait jamais l'agent). La réponse de
+  l'agent est LUE à voix haute une fois le tour fini : `reponseVocaleDeLAgent` choisit le dernier
+  message d'assistant terminé, non vide, posté APRÈS l'envoi, et `direVoix` le prononce (passe outre
+  le Muet — la conversation EST une demande explicite de parler). REPARLER coupe la parole en cours
+  (barge-in) : au premier son de la voix, `onParole` appelle `taireVoix`. Les ondes sont BLEUES
+  (`data-onde-conversation`, `bg-info`), le micro du mot de réveil restant ROUGE : `LigneOndes` prend
+  désormais une source (`lecteur`, `classeBarre`, `marque`) au lieu du seul `ecoute`. L'écoute par
+  mot de réveil, ses ondes rouges et ses contrôles (`verif-reveil-vocal`, `verif-ecoute-mobile`) ne
+  bougent pas. Verrouillé par `server/src/test/conversation-vocale.test.ts`.
 - **Le FORMAT d'enregistrement se DEMANDE au navigateur, il ne s'impose pas**
   (`shared/src/format-enregistrement.ts`). `new MediaRecorder(flux, { mimeType: 'audio/webm' })`
   lève une erreur sur Safari (iPhone compris), qui ne connaît pas ce format — et cette erreur,

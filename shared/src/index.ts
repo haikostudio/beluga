@@ -25,6 +25,7 @@ export * from './echec-construction.js';
 export * from './erreur-interface.js';
 export * from './echec-verification.js';
 export * from './etat-carte.js';
+export * from './conversation-vocale.js';
 export * from './format-enregistrement.js';
 export * from './heure-message.js';
 export * from './images-reponse.js';

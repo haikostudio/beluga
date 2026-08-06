@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Ear, EarOff, GripVertical, Volume2, VolumeX } from 'lucide-react';
+import { Ear, EarOff, GripVertical, MessagesSquare, Volume2, VolumeX } from 'lucide-react';
 import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
@@ -15,7 +15,9 @@ import {
   phraseVocaleDeNotification,
   pileApres,
   ramenerDansLEcran,
+  reponseVocaleDeLAgent,
   sensDouverture,
+  texteAEcouter,
   type ContexteDecision,
   type DecalageVoix,
   type VoixOptions,
@@ -27,6 +29,7 @@ import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
 import { direVoix, lireNiveaux, taireVoix, useVoix } from '@/lib/voix';
 import { lireNiveauxMicro, useEcoutePermanente } from '@/lib/ecoute';
+import { lireNiveauxConversation, useConversationVocale } from '@/lib/conversation-vocale';
 
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
@@ -38,6 +41,13 @@ export const CLE_VOIX_MUETTE = 'voix.muet';
  * appareils.
  */
 export const CLE_VOIX_ECOUTE = 'voix.ecoute';
+
+/**
+ * La clé de préférence du MODE CONVERSATION VOCALE. À CÔTÉ de l'écoute par mot de
+ * réveil (`CLE_VOIX_ECOUTE`) : ici on parle SANS « Dis Haiko », l'agent répond à
+ * la voix, et reparler coupe sa parole. Éteint par défaut, retenu côté serveur.
+ */
+export const CLE_VOIX_CONVERSATION = 'voix.conversation';
 
 /**
  * La clé qui dit que la place du module a DÉJÀ été remise à zéro une fois. La
@@ -257,20 +267,33 @@ function contexteDecision(
  * Un SEUL exemplaire vit dans le module — l'objet continu qui glisse du centre
  * du rond fermé au creux du pied déplié —, jamais deux qui se croiseraient.
  */
-function LigneOndes({ parle, ecoute }: { parle: boolean; ecoute: boolean }) {
+function LigneOndes({
+  actif,
+  lecteur,
+  classeBarre,
+  marque,
+}: {
+  /** L'onde s'anime-t-elle (parole, écoute par mot de réveil, ou conversation) ? */
+  actif: boolean;
+  /** D'où lire le volume : le son joué, le micro du réveil, ou celui de conversation. */
+  lecteur: (nombre: number) => number[] | null;
+  /** La couleur des barres : vert (parole), rouge (réveil), bleu (conversation). */
+  classeBarre: string;
+  /** Le repère lu par les vérifications, selon la source du son. */
+  marque?: 'ecoute' | 'conversation';
+}) {
   // Les barres, pilotées à la main (sans re-rendu) au fil du son.
   const barresRef = React.useRef<(HTMLSpanElement | null)[]>([]);
   // L'analyse est-elle en place ? Faux → l'animation régulière prend le relais.
   const [analyse, setAnalyse] = React.useState(false);
   const analyseRef = React.useRef(false);
   analyseRef.current = analyse;
-  // L'ÉCOUTE l'emporte sur la parole : quand le micro recueille une phrase, les
-  // ondes disent d'abord qu'on est entendu. Elles suivent alors le volume du
-  // MICRO (`lireNiveauxMicro`) et non celui du son joué.
-  const vif = ecoute || parle;
+  // La source du volume est relue au fil de l'eau, sans réabonner la boucle.
+  const lecteurRef = React.useRef(lecteur);
+  lecteurRef.current = lecteur;
 
   React.useEffect(() => {
-    if (!vif) {
+    if (!actif) {
       if (analyseRef.current) setAnalyse(false);
       return;
     }
@@ -278,7 +301,7 @@ function LigneOndes({ parle, ecoute }: { parle: boolean; ecoute: boolean }) {
     // Un lissage par barre : la hauteur glisse vers sa cible au lieu de sauter.
     const lisse = new Array<number>(ONDES_LARGES).fill(0);
     const boucle = () => {
-      const niveaux = ecoute ? lireNiveauxMicro(ONDES_LARGES) : lireNiveaux(ONDES_LARGES);
+      const niveaux = lecteurRef.current(ONDES_LARGES);
       if (niveaux) {
         if (!analyseRef.current) setAnalyse(true);
         for (let i = 0; i < ONDES_LARGES; i += 1) {
@@ -294,20 +317,21 @@ function LigneOndes({ parle, ecoute }: { parle: boolean; ecoute: boolean }) {
     };
     image = requestAnimationFrame(boucle);
     return () => cancelAnimationFrame(image);
-  }, [vif, ecoute]);
+  }, [actif]);
 
-  if (vif) {
-    // Parole ou écoute, analyse en place : hauteur pilotée par le volume (boucle
-    // ci-dessus). Sinon (analyse indisponible, voix de secours) : l'onde
-    // régulière — mais on n'arrive ici QUE quand ça parle ou que ça écoute,
-    // jamais sur un simple survol muet. La COULEUR dit lequel des deux : vert
-    // quand l'assistant parle, ROUGE quand le micro recueille une phrase.
+  if (actif) {
+    // Parole, écoute ou conversation, analyse en place : hauteur pilotée par le
+    // volume (boucle ci-dessus). Sinon (analyse indisponible, voix de secours) :
+    // l'onde régulière — jamais des barres figées, mais SEULEMENT quand c'est
+    // actif. La COULEUR dit la source : vert pour la parole, ROUGE pour le mot
+    // de réveil, BLEU pour la conversation.
     const piloté = analyse;
     return (
       <span
         data-onde-vocale=""
         data-onde-large
-        data-onde-ecoute={ecoute ? '' : undefined}
+        data-onde-ecoute={marque === 'ecoute' ? '' : undefined}
+        data-onde-conversation={marque === 'conversation' ? '' : undefined}
         className="flex w-full items-center justify-between gap-0.5 px-3"
         aria-hidden
       >
@@ -317,9 +341,9 @@ function LigneOndes({ parle, ecoute }: { parle: boolean; ecoute: boolean }) {
             ref={(el) => {
               barresRef.current[i] = el;
             }}
-            className={`h-5 w-1 shrink-0 origin-center rounded-full ${
-              ecoute ? 'bg-danger' : 'bg-success'
-            } ${piloté ? '' : 'animate-onde'}`}
+            className={`h-5 w-1 shrink-0 origin-center rounded-full ${classeBarre} ${
+              piloté ? '' : 'animate-onde'
+            }`}
             // Chaque barre décalée : l'onde ondule au lieu de battre d'un bloc.
             style={piloté ? { transform: 'scaleY(0.15)' } : { animationDelay: `${i * 60}ms` }}
           />
@@ -499,6 +523,63 @@ export function VoixAssistant() {
   // Une dictée est en cours : le module s'élargit pour montrer la phrase, et les
   // ondes passent au rouge. La relecture en fait partie — la phrase est encore là.
   const dicteEnCours = ecoute.etat === 'ecoute' || ecoute.etat === 'relit';
+
+  /*
+   * LE MODE CONVERSATION VOCALE, À CÔTÉ de l'écoute par mot de réveil. Allumé, on
+   * parle SANS « Dis Haiko » : la phrase dite part au bon projet (routage
+   * inchangé, commande `voix.demande`), et la réponse de l'agent est LUE à voix
+   * haute. Reparler coupe cette parole (`onParole` → `taireVoix`). Les ondes sont
+   * BLEUES (le micro du réveil, lui, reste rouge).
+   */
+  const [conversationAllumee, setConversationAllumee] = usePref<boolean>(CLE_VOIX_CONVERSATION, false);
+  // La réponse qu'on attend d'un agent après avoir envoyé une phrase parlée :
+  // relue au fil de l'eau par l'effet ci-dessous, sans le réabonner.
+  const attenteReponseRef = React.useRef<{ agentId: string; depuis: number } | null>(null);
+
+  const envoyerConversation = React.useCallback(async (texte: string) => {
+    const phrase = texte.trim();
+    if (!phrase) return;
+    try {
+      const depuis = Date.now();
+      const res = await client.call<{ agentId?: string; question?: string }>({
+        type: 'voix.demande',
+        texte: phrase,
+      });
+      // Une QUESTION posée est déjà dite par la voix (montée d'attention) : on
+      // n'attend une réponse à lire que si la phrase a été DÉPOSÉE chez un agent.
+      if (res?.agentId && !res.question) {
+        attenteReponseRef.current = { agentId: res.agentId, depuis };
+      }
+    } catch {
+      client.pushToast('error', "La demande vocale n’a pas pu partir.");
+    }
+  }, []);
+
+  const conversation = useConversationVocale(conversationAllumee, {
+    onTexte: envoyerConversation,
+    // Reparler coupe net la parole de l'assistant : on ne répond pas par-dessus.
+    onParole: () => taireVoix(),
+  });
+  const conversationEcoute = conversation.etat === 'ecoute';
+
+  // Lire la réponse de l'agent à voix haute, une fois le tour fini. On attend que
+  // l'agent soit au repos ET qu'un message d'assistant soit arrivé APRÈS l'envoi,
+  // puis on le prononce (nettoyé pour l'oreille). On passe outre le Muet : la
+  // conversation vocale EST une demande explicite de parler.
+  const agents = state.agents;
+  const messagesParAgent = state.messages;
+  React.useEffect(() => {
+    const attente = attenteReponseRef.current;
+    if (!attente) return;
+    const agent = agents[attente.agentId];
+    const auRepos = !agent || (agent.status !== 'running' && agent.status !== 'starting');
+    if (!auRepos) return;
+    const brut = reponseVocaleDeLAgent(messagesParAgent[attente.agentId] ?? [], attente.depuis);
+    if (!brut) return;
+    attenteReponseRef.current = null;
+    const aLire = texteAEcouter(brut);
+    if (aLire) direVoix(aLire, `conversation-${attente.agentId}`);
+  }, [agents, messagesParAgent]);
 
   // Comment le module se déplie : au survol à la souris, à l'appui au doigt.
   const survolPossible = useSurvol();
@@ -686,7 +767,7 @@ export function VoixAssistant() {
     if (deploye) return;
     const boite = racineRef.current?.getBoundingClientRect();
     if (boite) baseBasRef.current = boite.bottom;
-  }, [deploye, decalage.x, decalage.y, parle, fenetre.width, fenetre.height]);
+  }, [deploye, decalage.x, decalage.y, parle, conversationEcoute, fenetre.width, fenetre.height]);
 
   // Au chargement et à chaque redimensionnement : on suit la taille de la fenêtre
   // (pour recalculer le côté d'ouverture), on rafraîchit la ligne de base même
@@ -759,11 +840,26 @@ export function VoixAssistant() {
   }, [recadrer, rangerDecalage]);
 
   const nb = messages.length;
-  // Le MÊME objet s'agrandit, qu'on le survole ou qu'il se mette à parler.
-  const forme = formeDuModule(ouvert, parle, nb, dicteEnCours);
+  // Le MÊME objet s'agrandit, qu'on le survole, qu'il parle, ou qu'il écoute la
+  // conversation : dans ces deux derniers cas, il lui faut la place des ondes.
+  const forme = formeDuModule(ouvert, parle || conversationEcoute, nb, dicteEnCours);
   // Le contenu se dévoile UNE FOIS la place faite : à l'ouverture il attend que
   // la boîte ait grandi, à la fermeture il s'efface d'abord, puis elle rétrécit.
   const attenteContenu = ouvert ? VOIX_MORPHISME_MS * 0.55 : 0;
+
+  // LA SOURCE DES ONDES, par ordre de priorité : la conversation qu'on écoute
+  // (BLEU, micro de conversation), puis la dictée du mot de réveil (ROUGE, micro
+  // du réveil), puis la parole de l'assistant (VERT, son joué). Sinon, au repos.
+  const ondeSource: {
+    actif: boolean;
+    lecteur: (nombre: number) => number[] | null;
+    classeBarre: string;
+    marque?: 'ecoute' | 'conversation';
+  } = conversationEcoute
+    ? { actif: true, lecteur: lireNiveauxConversation, classeBarre: 'bg-info', marque: 'conversation' }
+    : dicteEnCours
+      ? { actif: true, lecteur: lireNiveauxMicro, classeBarre: 'bg-danger', marque: 'ecoute' }
+      : { actif: parle, lecteur: lireNiveaux, classeBarre: 'bg-success' };
 
   // DE QUEL CÔTÉ LE PANNEAU S'OUVRE. Le bouton (rond fermé) ne bouge pas : on
   // calcule sa boîte à l'écran (centre au milieu de la fenêtre + décalage, bas
@@ -881,6 +977,38 @@ export function VoixAssistant() {
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
           <span>Derniers messages</span>
+          {/* LE MODE CONVERSATION VOCALE, à côté de l'écoute et du Muet. Allumé,
+              on parle SANS mot de réveil, l'agent répond à la voix, et reparler
+              coupe sa parole. Bleu quand il écoute (les ondes le sont aussi),
+              rouge si le micro est refusé. L'appui ne replie pas le module. */}
+          <button
+            type="button"
+            data-interrupteur-conversation
+            aria-pressed={conversationAllumee}
+            onClick={(e) => {
+              e.stopPropagation();
+              setConversationAllumee(!conversationAllumee);
+            }}
+            className={`ml-auto flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
+              conversation.etat === 'refusee'
+                ? 'text-danger'
+                : conversationAllumee
+                  ? 'text-info'
+                  : 'text-muted'
+            }`}
+            title={
+              conversation.etat === 'refusee'
+                ? 'Micro refusé — cliquer pour réessayer la conversation'
+                : conversationAllumee
+                  ? 'Arrêter la conversation vocale'
+                  : 'Parler à l’assistant : il écoute, répond à la voix, et reparler le coupe'
+            }
+            aria-label={
+              conversationAllumee ? 'Arrêter la conversation vocale' : 'Démarrer la conversation vocale'
+            }
+          >
+            <MessagesSquare className="h-4 w-4" />
+          </button>
           {/* L'ÉCOUTE PERMANENTE, à côté du Muet : les deux réglages de la voix
               vivent au même endroit. Éteinte par défaut ; allumée, elle ouvre le
               micro et guette « Dis Haiko ». L'appui ne replie pas le module. */}
@@ -892,7 +1020,7 @@ export function VoixAssistant() {
               e.stopPropagation();
               setEcouteAllumee(!ecouteAllumee);
             }}
-            className={`ml-auto flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
+            className={`flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
               ecoute.etat === 'refusee'
                 ? 'text-danger'
                 : ecouteAllumee
@@ -939,6 +1067,11 @@ export function VoixAssistant() {
         {ecoute.erreur && (
           <p data-erreur-micro className="shrink-0 px-3 py-2 text-[11.5px] text-danger">
             {ecoute.erreur}
+          </p>
+        )}
+        {conversation.erreur && (
+          <p data-erreur-conversation className="shrink-0 px-3 py-2 text-[11.5px] text-danger">
+            {conversation.erreur}
           </p>
         )}
         {nb === 0 ? (
@@ -1064,7 +1197,12 @@ export function VoixAssistant() {
           transitionTimingFunction: 'ease-out',
         }}
       >
-        <LigneOndes parle={parle} ecoute={dicteEnCours} />
+        <LigneOndes
+          actif={ondeSource.actif}
+          lecteur={ondeSource.lecteur}
+          classeBarre={ondeSource.classeBarre}
+          marque={ondeSource.marque}
+        />
       </div>
     </div>
 
