@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { RotateCw, TriangleAlert } from 'lucide-react';
 import { ZoneDefilement } from '@/components/ui';
+import { detailErreur, signalerErreur } from '@/lib/erreurs';
 
 /**
  * Le filet de sécurité.
@@ -27,6 +28,18 @@ export class Filet extends React.Component<
   componentDidCatch(erreur: Error, infos: React.ErrorInfo) {
     // Laissé en clair dans la console : c'est ce qu'on relira pour corriger.
     console.error(`[HaikoDev] ${this.props.zone ?? 'application'} :`, erreur, infos.componentStack);
+    /*
+     * Et remontée au serveur : sur un téléphone, la console ne s'ouvre pas —
+     * sans cet envoi, une page blanche ne laisse aucune trace. La pile des
+     * composants part avec, c'est elle qui nomme le panneau fautif.
+     */
+    const detail = detailErreur(erreur);
+    signalerErreur({
+      source: 'affichage',
+      message: detail.message,
+      pile: [detail.pile, infos.componentStack].filter(Boolean).join('\n'),
+      zone: this.props.zone ?? 'application',
+    });
   }
 
   private reprendre = () => {
