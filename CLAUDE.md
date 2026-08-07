@@ -1565,6 +1565,21 @@ sans son point d'essai.
   Codex : `update_plan`), injecté par `rolePrompt` selon `agent.run.engine`. On nomme à chaque
   moteur SON seul outil — jamais le menu des deux, qui laisserait le modèle choisir. Verrouillé
   par `server/src/test/deroule-uniforme.test.ts`.
+- **La LONGUEUR de la réponse suit la DEMANDE et le tour, pas seulement la colonne**
+  (`shared/src/templates.ts`). Trois crans, inchangés (`AMPLEURS` : brève 120 mots / moyenne 250 /
+  complète 900) ; ce qui change, c'est QUAND ils s'appliquent. `ampleurParDefaut(kind, texte)` déduit
+  la référence de la demande (question, geste court → brève ; demande longue → complète) pour les
+  gabarits adaptables (`in_run`, `free`) ; les autres (`pre_run`, `deploy`…) gardent leur forme
+  fixe. Un tour de SUIVI (session déjà ouverte) part d'un cran plus bas — `ampleurDeSuivi`, appliqué
+  dans `sendPrompt` quand `!nouvelleSession`, jamais sous « brève », jamais sur un gabarit à forme
+  fixe. Les titres IMPOSÉS par `wrapPrompt` suivent la référence (`sectionsPour`) : une réponse brève
+  ne s'ouvre plus sur six titres à remplir (« Pas de titres imposés »), une moyenne n'en porte que
+  trois, et le guide « CONTENU DE CHAQUE SECTION » ne décrit que les sections demandées — c'est ce
+  qui empêche « Ce qui est fait », « Conséquences » et « Coûts » de se répéter sur une réponse
+  courte. Le sommaire cliquable de l'interface (`web/src/lib/markdown.tsx`) ne paraît qu'au-delà d'un
+  seuil (`SOMMAIRE_SIGNES_MIN` 1200 signes ET `SOMMAIRE_TITRES_MIN` 4 titres) : une réponse courte,
+  qui porte désormais moins de titres, passe naturellement dessous. Verrouillé par
+  `server/src/test/economie-quota.test.ts` et `server/src/test/rules.test.ts`.
 - **La MÉTHODE de travail est imposée, pas laissée au modèle** (constante `METHODE`,
   `server/src/runtime.ts`) : lire avant de répondre (fichier d'instructions, `project_memory` sur
   chaque ligne d'index touchée, fichiers repérés par recherche), constater par écrit, ne rien
