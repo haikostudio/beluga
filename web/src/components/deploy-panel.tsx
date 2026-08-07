@@ -108,6 +108,9 @@ export function DeployPanel({
   const [busy, setBusy] = React.useState(false);
   /* Le déroulé des sept étapes, replié par défaut : le chevron l'ouvre. */
   const [processOuvert, setProcessOuvert] = React.useState(false);
+  /* La TÊTE (bouton + chevron + déroulé en superposition) : un clic hors d'elle
+     referme le déroulé, comme un menu. */
+  const teteRef = React.useRef<HTMLDivElement>(null);
   /*
    * Les deux étapes existent pour tout projet : la règle est PURE, le bloc la
    * rejoue lui-même et s'affiche tout de suite, sans attendre le serveur.
@@ -183,6 +186,20 @@ export function DeployPanel({
     setProcessOuvert(derouleOuvert(run.state));
   }, [mienne, run?.id, run?.state]);
 
+  /*
+   * Le déroulé s'ouvre EN SUPERPOSITION au-dessus des cartes : un clic à
+   * l'extérieur le referme, comme un menu. On ne l'attache pas pendant une
+   * publication en cours, où c'est l'état du run qui pilote son ouverture.
+   */
+  React.useEffect(() => {
+    if (!processOuvert || (active && mienne)) return;
+    const surClic = (e: MouseEvent) => {
+      if (teteRef.current && !teteRef.current.contains(e.target as Node)) setProcessOuvert(false);
+    };
+    document.addEventListener('mousedown', surClic);
+    return () => document.removeEventListener('mousedown', surClic);
+  }, [processOuvert, active, mienne]);
+
   const start = async () => {
     setBusy(true);
     try {
@@ -225,7 +242,7 @@ export function DeployPanel({
     <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
       {/* La TÊTE : le bouton d'action à gauche, le chevron du déroulé à droite.
           Pendant une publication, le bouton dit l'étape traitée. */}
-      <div className="flex items-stretch gap-1">
+      <div className="relative flex items-stretch gap-1" ref={teteRef}>
         <Button
           variant={publicationEnCours ? 'outline' : aPublier ? 'default' : 'outline'}
           size="sm"
@@ -265,9 +282,15 @@ export function DeployPanel({
         >
           <ChevronDown className={cn('h-3 w-3 transition-transform', processOuvert && 'rotate-180')} />
         </Button>
-      </div>
 
-      {processOuvert ? <ProcessusEtapes run={mienne ? run : undefined} /> : null}
+        {/* Le déroulé s'ouvre PAR-DESSUS les cartes, ancré sous le chevron : il
+            ne pousse plus la colonne vers le bas. */}
+        {processOuvert ? (
+          <div className="absolute inset-x-0 top-full z-20">
+            <ProcessusEtapes run={mienne ? run : undefined} />
+          </div>
+        ) : null}
+      </div>
 
       {!publicationEnCours ? (
         <>
@@ -290,11 +313,9 @@ export function DeployPanel({
             </p>
           ) : null}
 
-          {/* Rien à envoyer : le bouton est grisé et DIT pourquoi, plutôt qu'un
-              bloc qui disparaît. */}
-          {!aPublier ? (
-            <p className="mt-1.5 text-[12px] text-muted">Rien à {etape.verbe} pour l'instant.</p>
-          ) : null}
+          {/* Rien à envoyer : plus aucune phrase sous le bouton. Le bouton reste
+              grisé (il dit déjà, par son compteur à zéro, qu'il n'y a rien) et
+              seul le chevron l'accompagne. */}
 
           {/* Ce qui attend sans carte : on le NOMME, sinon le compteur monte
               sans qu'on sache pourquoi. */}
@@ -350,7 +371,7 @@ function ProcessusEtapes({ run }: { run?: DeployRun }) {
   const [montre, setMontre] = React.useState<DeployStepKey | null>(null);
 
   return (
-    <div className="mt-1.5 rounded-md border border-border bg-raised p-2" data-processus-etapes>
+    <div className="mt-1.5 rounded-md border border-border bg-raised p-2 shadow-lg" data-processus-etapes>
       <ul className="space-y-1">
         {ORDRE_ETAPES.map((key) => {
           const etape = run?.steps.find((step) => step.key === key);
