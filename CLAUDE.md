@@ -344,10 +344,18 @@ sans son point d'essai.
   `cible` de l'étape. La publication RETIENT son étape (`DeployRun.cible`) : la relance et la file
   d'attente repartent de la MÊME, et `runDeLEtape` décide dans lequel des deux blocs le déroulé
   s'affiche (une publication sans cible est celle du lot de « À déployer », le seul qui existait).
-  Une publication en cours ailleurs éteint le bouton EN LE DISANT. Sous le bouton du déploiement,
-  une ligne dit COMMENT l'instance de dev sera rafraîchie (`deploy.check` → `miseEnLigne.raison`) :
-  ce n'est jamais un refus, seulement ce qui va se passer. Le pied de lot des deux colonnes ne bouge
-  pas. La TÊTE du bloc porte le bouton d'action ET, accolé à droite, un chevron (`data-chevron-process`)
+  Une publication en cours ailleurs éteint le bouton EN LE DISANT. Sous le bouton, il ne reste qu'UN
+  bandeau étroit, réservé aux ALERTES ORANGE (agent qui travaille encore dans le dossier, conflits
+  prévus) : sans alerte, RIEN, le bouton touche la première carte. Les textes INFORMATIFS —
+  comment l'instance de dev sera rafraîchie (`deploy.check` → `miseEnLigne.raison`, seulement pour la
+  cible `dev`), le travail enregistré sans carte, et l'éventuelle publication déjà en cours ailleurs —
+  ne s'empilent plus sous le bouton : ils sont remontés à la TÊTE DE COLONNE (prop `onInfos` du
+  `DeployPanel` → état de `Board`) et rangés derrière un bouton « ! » (`BoutonInfosPublication`,
+  `data-infos-publication`, icône `AlertCircle` neutre) posé à côté du menu trois points, dans les deux
+  colonnes qui publient. Le bouton ne paraît QUE s'il y a de quoi lire, dit au survol ce qu'il fait, et
+  un clic ouvre ces textes dans un menu (`DropdownMenu`) PAR-DESSUS le contenu, refermé au second clic
+  ou au clic dehors. Le pied de lot des deux colonnes ne bouge pas. La TÊTE du bloc porte le bouton
+  d'action ET, accolé à droite, un chevron (`data-chevron-process`)
   qui ouvre le DÉROULÉ des SEPT étapes (`ProcessusEtapes`, ordre `ORDRE_ETAPES` = `merge`, `commit`,
   `push`, `verify`, `build`, `publish`, `restart`) : chaque étape porte son état en clair (fait, en
   cours, sauté, à venir, échoué) et cache une courte description révélée par un « ? » (survol souris,

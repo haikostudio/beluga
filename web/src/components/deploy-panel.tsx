@@ -1,5 +1,16 @@
 import * as React from 'react';
-import { Check, ChevronDown, Loader2, Rocket, RotateCcw, Square, X, MinusCircle, AlertTriangle } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  Loader2,
+  Rocket,
+  RotateCcw,
+  Square,
+  X,
+  MinusCircle,
+  AlertTriangle,
+} from 'lucide-react';
 import {
   Card,
   ColumnKey,
@@ -13,7 +24,13 @@ import {
   rapportAGarder,
   runDeLEtape,
 } from '@haikodev/shared';
-import { Button } from '@/components/ui';
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  Tooltip,
+} from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
@@ -94,14 +111,32 @@ function motifLisible(log: string): string {
  * et c'est le serveur qui lui rend l'étape correspondante, ou rien du tout
  * quand cette colonne ne publie pas sur ce projet.
  */
+/**
+ * Les textes INFORMATIFS de la publication, réunis pour le bouton « ! » de la
+ * tête de colonne : comment l'instance sera rafraîchie, ce qui attend sans
+ * carte, et l'éventuelle publication déjà en cours ailleurs. Rien d'alarmant —
+ * les alertes orange (agent au travail, conflits) restent sous le bouton.
+ */
+export type InfosPublication = {
+  /** Comment l'instance de dev sera rafraîchie (« HaikoDev se construit… »). */
+  moyen?: string;
+  /** Du travail enregistré sans carte, embarqué dans le lot. */
+  enAttente?: { nombre: number; titres: string[] };
+  /** Une autre publication de ce projet tourne déjà. */
+  autrePublication?: boolean;
+};
+
 export function DeployPanel({
   projectId,
   cards,
   colonne = 'to_deploy',
+  onInfos,
 }: {
   projectId: string;
   cards: Card[];
   colonne?: ColumnKey;
+  /** Remonte à la tête de colonne ce qui va derrière le bouton « ! ». */
+  onInfos?: (infos: InfosPublication | null) => void;
 }) {
   const state = useApp();
   const run = state.deploys[projectId];
@@ -220,6 +255,32 @@ export function DeployPanel({
    * cours, un échec ou un arrêt gardent leur rapport (voir `rapportAGarder`).
    */
   const rapport = rapportAGarder(run?.state) && mienne ? run : null;
+
+  /*
+   * Ce qui va DERRIÈRE le bouton « ! » de la tête de colonne : les textes
+   * informatifs qui, sous le bouton, poussaient les cartes vers le bas. On les
+   * réunit ici et on les remonte à la tête de colonne. Pendant MA publication,
+   * le déroulé des étapes dit déjà tout — rien à ranger derrière le bouton.
+   */
+  const infosPublication = React.useMemo<InfosPublication | null>(() => {
+    if (active && mienne) return null;
+    const infos: InfosPublication = {};
+    if (active && !mienne) infos.autrePublication = true;
+    if (miseEnLigne && aPublier && etape?.cible === 'dev') infos.moyen = miseEnLigne.raison;
+    if (enAttente.nombre) infos.enAttente = enAttente;
+    return infos.moyen || infos.enAttente || infos.autrePublication ? infos : null;
+  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente]);
+
+  /* On remonte l'objet SANS en faire une dépendance : on suit sa signature,
+     sinon la fonction passée en prop, recréée à chaque rendu, bouclerait. */
+  const onInfosRef = React.useRef(onInfos);
+  onInfosRef.current = onInfos;
+  const signatureInfos = JSON.stringify(infosPublication);
+  React.useEffect(() => {
+    onInfosRef.current?.(infosPublication);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signatureInfos]);
+
   /*
    * Le bloc reste TOUJOURS en tête de la colonne « À déployer », même sans rien
    * à envoyer : le bouton « Tout déployer » y est visible partout, seulement
@@ -294,39 +355,11 @@ export function DeployPanel({
 
       {!publicationEnCours ? (
         <>
-          {/* Une publication de l'AUTRE étape tourne déjà : une seule à la fois
-              par projet, on le dit plutôt que d'éteindre le bouton sans un mot. */}
-          {active && !mienne ? (
-            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-muted" data-publication-ailleurs>
-              <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
-              <span>Une autre publication de ce projet est en cours : attendez qu’elle finisse.</span>
-            </p>
-          ) : null}
-
-          {/* CE QUI VA SE PASSER, en une ligne : construction, relance du
-              service, ou rien à relancer ici. Plus aucun refus faute de
-              réglage — mais on ne laisse pas croire à une mise en ligne qui
-              n'aura pas lieu. */}
-          {miseEnLigne && aPublier && etape.cible === 'dev' ? (
-            <p className="mt-1.5 text-[12px] text-faint" data-moyen-mise-en-ligne>
-              {miseEnLigne.raison}
-            </p>
-          ) : null}
-
-          {/* Rien à envoyer : plus aucune phrase sous le bouton. Le bouton reste
-              grisé (il dit déjà, par son compteur à zéro, qu'il n'y a rien) et
-              seul le chevron l'accompagne. */}
-
-          {/* Ce qui attend sans carte : on le NOMME, sinon le compteur monte
-              sans qu'on sache pourquoi. */}
-          {enAttente.nombre ? (
-            <p className="mt-1.5 text-[12px] text-muted">
-              Dont {enAttente.nombre} changement{enAttente.nombre > 1 ? 's' : ''} enregistré
-              {enAttente.nombre > 1 ? 's' : ''} sans carte :{' '}
-              <span className="text-faint">{enAttente.titres.join(' · ')}</span>
-            </p>
-          ) : null}
-
+          {/* Sous le bouton, un SEUL bandeau étroit : les alertes orange, et rien
+              d'autre. Les textes informatifs (rafraîchissement de l'instance,
+              travail sans carte, autre publication en cours) sont partis derrière
+              le bouton « ! » de la tête de colonne, pour que le bouton touche la
+              première carte quand il n'y a rien à signaler. */}
           {busyAgents.length ? (
             <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning">
               <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
@@ -356,6 +389,65 @@ export function DeployPanel({
 
       {publicationEnCours || rapport ? <DeployControls run={run!} /> : null}
     </div>
+  );
+}
+
+/**
+ * Le bouton « ! » de la tête de colonne : il range les textes INFORMATIFS de la
+ * publication (rafraîchissement de l'instance, travail sans carte, autre
+ * publication en cours) qui poussaient les cartes vers le bas. Un clic les ouvre
+ * dans un menu par-dessus le contenu ; il ne paraît que s'il y a quelque chose à
+ * lire, et dit au survol ce qu'il fait. Les alertes orange, elles, restent sous
+ * le bouton de publication.
+ */
+export function BoutonInfosPublication({
+  colonne,
+  infos,
+}: {
+  colonne: ColumnKey;
+  infos: InfosPublication | null;
+}) {
+  if (!infos) return null;
+  return (
+    <DropdownMenu>
+      <Tooltip label="À propos de la mise en ligne">
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 shrink-0 px-1.5 text-faint"
+            aria-label="À propos de la mise en ligne"
+            data-infos-publication={colonne}
+          >
+            <AlertCircle className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="sm:max-w-[280px]">
+        <div className="space-y-2 px-1 py-0.5 text-[12px] leading-snug">
+          {infos.autrePublication ? (
+            <p className="flex items-start gap-1.5 text-muted" data-publication-ailleurs>
+              <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
+              <span>Une autre publication de ce projet est en cours : attendez qu’elle finisse.</span>
+            </p>
+          ) : null}
+
+          {infos.moyen ? (
+            <p className="text-faint" data-moyen-mise-en-ligne>
+              {infos.moyen}
+            </p>
+          ) : null}
+
+          {infos.enAttente ? (
+            <p className="text-muted" data-enattente-publication>
+              Dont {infos.enAttente.nombre} changement{infos.enAttente.nombre > 1 ? 's' : ''} enregistré
+              {infos.enAttente.nombre > 1 ? 's' : ''} sans carte :{' '}
+              <span className="text-faint">{infos.enAttente.titres.join(' · ')}</span>
+            </p>
+          ) : null}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

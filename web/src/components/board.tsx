@@ -44,7 +44,7 @@ import { useTelephone } from '@/lib/telephone';
 import { useSurvol } from '@/lib/pointeur';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
-import { DeployPanel } from '@/components/deploy-panel';
+import { DeployPanel, BoutonInfosPublication, InfosPublication } from '@/components/deploy-panel';
 
 /**
  * Ce qu'un pied de colonne sait faire en lot. UN SEUL mécanisme, en deux temps :
@@ -164,6 +164,15 @@ export function Board({
   );
 
   const byColumn = (column: ColumnKey) => cards.filter((card) => card.column === column);
+
+  /*
+   * Les textes informatifs de la publication, remontés par le bloc de chaque
+   * colonne qui publie : le bouton « ! » de la tête de colonne les affiche à la
+   * demande, au lieu de les empiler sous le bouton et de repousser les cartes.
+   */
+  const [infosPublication, setInfosPublication] = React.useState<
+    Partial<Record<ColumnKey, InfosPublication | null>>
+  >({});
 
   /*
    * Ce qu'un ONGLET du tableau (téléphone) a à signaler, colonne par colonne :
@@ -378,6 +387,9 @@ export function Board({
     setColonneEnLot(null);
     setSelection([]);
     ancreSelection.current = null;
+    // Les infos de publication appartiennent au projet quitté : on repart net,
+    // chaque bloc les remontera pour le nouveau projet.
+    setInfosPublication({});
   }, [projectId]);
   React.useEffect(() => {
     if (colonneEnLot && !cartesEnSelection.length) setColonneEnLot(null);
@@ -693,10 +705,25 @@ export function Board({
               {column === 'todo' || column === 'notes' ? (
                 <ComposerInline projectId={projectId} column={column} />
               ) : null}
-              <MenuTeteColonne
-                colonne={column}
-                cartesNonLues={columnCards.filter((card) => etatDeCarte(card) === 'termine-non-lu')}
-              />
+              {/* En haut à droite des colonnes qui publient : le bouton « ! » qui
+                  range les textes informatifs, PUIS le menu trois points. Ils
+                  forment un seul groupe collé à droite (`ml-auto`), pour ne pas
+                  additionner deux marges automatiques. Le bouton « ! » ne paraît
+                  que s'il y a de quoi lire ; le menu, que s'il y a du non-lu. */}
+              {column === 'to_deploy' || column === 'in_production' ? (
+                <div className="ml-auto flex items-center gap-0.5">
+                  <BoutonInfosPublication colonne={column} infos={infosPublication[column] ?? null} />
+                  <MenuTeteColonne
+                    colonne={column}
+                    cartesNonLues={columnCards.filter((card) => etatDeCarte(card) === 'termine-non-lu')}
+                  />
+                </div>
+              ) : (
+                <MenuTeteColonne
+                  colonne={column}
+                  cartesNonLues={columnCards.filter((card) => etatDeCarte(card) === 'termine-non-lu')}
+                />
+              )}
             </div>
 
             {/*
@@ -714,7 +741,12 @@ export function Board({
                   pour le projet — c'est le bloc lui-même qui le demande au
                   serveur, et qui ne rend rien sinon. */}
               {column === 'to_deploy' || column === 'in_production' ? (
-                <DeployPanel projectId={projectId} cards={columnCards} colonne={column} />
+                <DeployPanel
+                  projectId={projectId}
+                  cards={columnCards}
+                  colonne={column}
+                  onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, [column]: infos }))}
+                />
               ) : null}
               <div
                 className={cn(
