@@ -287,6 +287,22 @@ sans son point d'essai.
   `vite`, que `npm run build` appelle. Si l'un des deux manque dans `node_modules/.bin`, l'étape de
   construction lance d'abord `NODE_ENV=development npm install --include=dev` et le DIT dans son
   détail. Aucune étape ajoutée ni déplacée : c'est la préparation de l'étape existante.
+- **Une publication coupée par un redémarrage est REPRISE, pas jetée**
+  (`shared/src/reprise-publication.ts` pour la règle pure, `recoverAfterRestart` dans
+  `server/src/runtime.ts`). Une publication trouvée « running » au démarrage a été coupée en plein
+  vol : comme un agent disparu juste au-dessus dans le même fichier, ce n'est pas un échec, on la
+  RELANCE depuis le début de son étape et avec la MÊME cible (`startDeploy` sait déjà repartir de
+  `DeployRun.cible`). La reprise ne part que si le démon a passé de quoi la lancer — `main.ts`
+  injecte un `reprendrePublication` APRÈS le chargement des comptes et des projets, jamais un
+  contrôle qui ne juge que la décision — et `startDeploy` refuse tout seul une seconde publication du
+  même projet. Une reprise qui se fait couper à son tour bouclerait : `DeployRun.reprises` compte les
+  reprises, `decisionRepriseCoupure` REPREND tant qu'on est sous `REPRISES_PUBLICATION_MAX` (1, une
+  seule reprise automatique) puis ABANDONNE en NOMMANT la cause (`raisonAbandonReprise`). L'ancienne
+  publication reprise est close en « stopped » pour ne pas être reprise de nouveau ; la nouvelle
+  porte `repriseApresCoupure`, que le compte rendu (`DeployControls`, `web/src/components/deploy-panel.tsx`)
+  DIT. Une publication réellement en échec (contrôles, construction, conflit) porte déjà « failed » :
+  `runningDeploys()` ne la rend pas, elle n'est jamais reprise. Verrouillé par
+  `server/src/test/reprise-publication.test.ts`.
 - **Ce qui plante DANS LA PAGE remonte au serveur** (`shared/src/erreur-interface.ts` pour les règles,
   `server/src/erreurs-interface.ts` pour le fichier). Sur un téléphone, `console.error` écrit dans une
   console qu'on ne peut pas ouvrir : une application qui blanchit ne laissait AUCUNE trace. Trois

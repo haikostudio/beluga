@@ -3,6 +3,7 @@ export * from './amorce.js';
 export * from './analyse.js';
 export * from './apercu-fichier.js';
 export * from './arret-carte.js';
+export * from './reprise-publication.js';
 export * from './attention.js';
 export * from './bloc-cerveau.js';
 export * from './branche-de-carte.js';

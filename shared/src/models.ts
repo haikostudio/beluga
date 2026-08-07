@@ -572,6 +572,18 @@ export const DeployRun = z.object({
    * qui l'a lancée, pas dans l'autre.
    */
   cible: z.enum(['dev', 'production']).optional(),
+  /**
+   * Combien de fois cette publication a déjà été REPRISE après une coupure par
+   * un redémarrage du serveur. 0 pour une publication lancée normalement ; au
+   * démarrage suivant, une publication coupée repart avec ce compte incrémenté.
+   * Au-delà du plafond (voir `REPRISES_PUBLICATION_MAX`), on n'en refait plus.
+   */
+  reprises: z.number().default(0),
+  /**
+   * Vrai quand cette publication est elle-même la reprise d'une publication
+   * coupée par un redémarrage : le compte rendu le DIT.
+   */
+  repriseApresCoupure: z.boolean().default(false),
   /** L'adresse contrôlée à la fin, quand le projet en déclare une. */
   url: z.string().optional(),
   targetCommit: z.string().optional(),

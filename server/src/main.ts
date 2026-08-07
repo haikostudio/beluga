@@ -10,6 +10,7 @@ import { bus } from './bus.js';
 import { sampleCapacity } from './capacity.js';
 import { startScheduler } from './scheduler.js';
 import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
+import { startDeploy } from './deploy.js';
 import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
 import { purgeOldArchives } from './files.js';
@@ -44,8 +45,12 @@ async function main(): Promise<void> {
   await refreshGitInfo();
 
   // Reprise après redémarrage AVANT d'accepter des connexions : les agents
-  // disparus repartent en file sans consommer de tentative.
-  recoverAfterRestart();
+  // disparus repartent en file sans consommer de tentative, et une publication
+  // coupée en plein vol est relancée depuis le début de son étape (comptes et
+  // projets sont déjà chargés à ce point).
+  recoverAfterRestart((run, reprises) => {
+    void startDeploy(run.projectId, { cible: run.cible, reprises });
+  });
   cleanupMcpConfigs();
   purgeOldArchives();
   purgeOldAudio();

@@ -904,7 +904,7 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
 
 export async function startDeploy(
   projectId: string,
-  options: { cible?: CiblePublication } = {},
+  options: { cible?: CiblePublication; reprises?: number } = {},
 ): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
@@ -979,6 +979,11 @@ export async function startDeploy(
     // L'étape voyage avec la publication : c'est elle qui dit dans quel bloc le
     // déroulé s'affiche, et d'où le lot repartira en cas de relance.
     cible: etape.cible,
+    // Reprise après une coupure par un redémarrage : on porte le compte des
+    // reprises déjà tentées, et on le DIT dans le compte rendu. 0 pour une
+    // publication lancée normalement ou relancée à la main.
+    reprises: options.reprises ?? 0,
+    repriseApresCoupure: (options.reprises ?? 0) > 0,
     // L'adresse de dev n'est l'adresse contrôlée que d'un DÉPLOIEMENT : une mise
     // en production suit son prompt, qui dit lui-même quoi contrôler.
     url: etape.cible === 'dev' ? project.devUrl : undefined,

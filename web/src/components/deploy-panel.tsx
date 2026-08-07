@@ -650,6 +650,12 @@ function DeployControls({ run }: { run: DeployRun }) {
         </p>
       )}
 
+      {run.repriseApresCoupure ? (
+        <p className="mt-1 text-[12px] text-faint" data-reprise-coupure>
+          Reprise après une coupure du serveur.
+        </p>
+      ) : null}
+
       {run.queued ? (
         <p className="mt-1 text-[12px] text-warning">Une publication est en attente : elle partira ensuite.</p>
       ) : null}
