@@ -21,6 +21,7 @@ import {
   derouleOuvert,
   etapeDePublication,
   etapeDeLaColonne,
+  natureDePublication,
   rapportAGarder,
   runDeLEtape,
 } from '@haikodev/shared';
@@ -644,10 +645,24 @@ function DeployControls({ run }: { run: DeployRun }) {
           tâche(s)
         </p>
       ) : (
-        <p className="flex items-start gap-1.5 text-[13px] text-danger">
-          <X className="mt-[3px] h-3 w-3 shrink-0" /> Échec ({libelleEtape(run.cible)}) :{' '}
-          {run.error ?? 'étape interrompue'}
-        </p>
+        (() => {
+          /* CASSÉE ou seulement INTERROMPUE ? Le rouge d'alerte est réservé au
+             code qui ne passe pas ; une coupure (redémarrage, arrêt demandé) se
+             dit en orange avec « Interrompue ». La nature se lit sur une étape
+             RÉELLEMENT tombée, jamais sur `currentStep`. */
+          const etapeTombee = run.steps.find((step) => step.state === 'failed')?.key ?? null;
+          const cassee = natureDePublication({ etat: run.state, etapeTombee, motif: run.error }) === 'cassee';
+          return (
+            <p className={cn('flex items-start gap-1.5 text-[13px]', cassee ? 'text-danger' : 'text-warning')}>
+              {cassee ? (
+                <X className="mt-[3px] h-3 w-3 shrink-0" />
+              ) : (
+                <AlertTriangle className="mt-[3px] h-3 w-3 shrink-0" />
+              )}{' '}
+              {cassee ? 'Échec' : 'Interrompue'} ({libelleEtape(run.cible)}) : {run.error ?? 'étape interrompue'}
+            </p>
+          );
+        })()
       )}
 
       {run.queued ? (

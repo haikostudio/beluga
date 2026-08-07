@@ -1240,6 +1240,20 @@ sans son point d'essai.
   `failed` (sinon `current.currentStep`), son libellé vient de `STEP_LABELS`, et la phrase renvoie
   vers le bloc de publication du projet. Les notifications qui SORTENT de l'application ne changent
   pas. Règle pure, ignorante des clés d'étape (l'appelant passe le libellé déjà résolu).
+- **Une publication qui n'aboutit pas est CASSÉE ou seulement INTERROMPUE** (`natureDePublication`,
+  `shared/src/mise-en-ligne.ts`). Les quatre états (`running`, `success`, `failed`, `stopped`) ne
+  suffisaient pas : une coupure par redémarrage tombait dans le même `failed` rouge qu'un vrai échec
+  de contrôles. La règle PURE tranche à partir de trois signaux — l'état, l'ÉTAPE RÉELLEMENT tombée
+  (une étape marquée `failed`, JAMAIS le repli `currentStep` qui reste posé quand le run meurt en
+  route) et le motif. `stopped` → interrompue ; `failed` avec une étape tombée → cassée (contrôles,
+  construction, conflit, service) ; `failed` sans étape tombée mais motif d'interruption
+  (`redémarrage`, `arrêt demandé`, `interrompue par`) → interrompue ; sinon cassée par défaut (mieux
+  vaut alerter à tort). `DeployControls` (`web/src/components/deploy-panel.tsx`) affiche « Échec » en
+  rouge (`text-danger`, croix) pour une casse et « Interrompue » en orange (`text-warning`, triangle)
+  pour une coupure — la couleur se lit sur `run.steps.find(state==='failed')`, pas sur `currentStep`.
+  `messageEchecPublication` prend la `nature` et dit « en échec » ou « interrompue » dans son verbe.
+  Le déroulé des étapes, les notifications qui SORTENT et l'arrêt d'un vrai échec ne changent pas.
+  Verrouillé par `server/src/test/nature-publication.test.ts`.
 - Une carte lancée a sa copie de travail à elle ; le dossier du projet, lui, reste **partagé** (chef
   d'orchestre, analyse, publication) : vérifier la branche avant de modifier, puis committer ses
   fichiers **nommés un par un** — jamais `git add -A`.
