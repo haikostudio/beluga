@@ -146,6 +146,18 @@ export function sectionsPour(kind: TemplateKind, ampleur: Ampleur): string[] {
 }
 
 /**
+ * Un cran plus bas, pour un tour de SUIVI. Le premier tour a déjà rendu la
+ * réponse ample ; une précision ou une question de suite n'a pas à la refaire au
+ * même volume. Ne joue que sur les gabarits adaptables — un chiffrage ou un
+ * journal de publication gardent leur forme.
+ */
+export function ampleurDeSuivi(kind: TemplateKind, ampleur: Ampleur): Ampleur {
+  if (!GABARITS_ADAPTABLES.has(kind)) return ampleur;
+  const ordre: Ampleur[] = ['breve', 'standard', 'complete'];
+  return ordre[Math.max(0, ordre.indexOf(ampleur) - 1)];
+}
+
+/**
  * La partie le plus souvent ratée : les moteurs rendent un pavé continu où les
  * sections se confondent. Elle est donc écrite à part, avant les règles de fond,
  * avec un plafond qui garde la réponse dense SANS la tasser.
@@ -219,12 +231,23 @@ export function wrapPrompt(
     return `${tête}DEMANDE :\n${userText}\n\n---\n${rappelDeForme(kind, ampleur)}`;
   }
 
-  // Une ligne vide ENTRE les titres : le gabarit montre lui-même l'aération
-  // qu'il réclame, au lieu de la décrire seulement.
-  const sections = tpl.sections.map((s, i) => `## ${i + 1}. ${s}`).join('\n\n');
+  // Les titres imposés suivent la LONGUEUR de référence, pas seulement la
+  // colonne : une réponse brève ne s'ouvre plus sur six titres à remplir, une
+  // réponse moyenne n'en porte que trois. Le moteur garde la liberté de MONTER
+  // si le travail se révèle plus lourd (la règle de longueur, plus bas, le dit).
+  const titres = sectionsPour(kind, ampleur);
+  const sections = titres.length
+    ? titres.map((s, i) => `## ${i + 1}. ${s}`).join('\n\n')
+    : 'Pas de titres imposés : réponds en quelques phrases.';
   const layout = LAYOUT_RULES.map((r) => `- ${r}`).join('\n');
   const rules = COMMON_RULES.map((r) => `- ${r}`).join('\n');
-  const guide = tpl.sections === REPORT_SECTIONS ? `\nCONTENU DE CHAQUE SECTION :\n${REPORT_GUIDE.map((g) => `- ${g}`).join('\n')}\n` : '';
+  // Le guide ne décrit que les sections RÉELLEMENT demandées : sur une réponse
+  // courte, il rappelle en une ligne ce que chacune dit — c'est ce qui empêche
+  // « Ce qui est fait », « Conséquences » et « Coûts » de se répéter.
+  const guideLines = REPORT_GUIDE.filter((g) => titres.some((t) => g.startsWith(t)));
+  const guide = guideLines.length
+    ? `\nCONTENU DE CHAQUE SECTION (chacune dit une chose neuve, sans redite) :\n${guideLines.map((g) => `- ${g}`).join('\n')}\n`
+    : '';
   const exclusions = tpl.exclusions.length
     ? `\nINTERDICTIONS :\n${tpl.exclusions.map((e) => `- ${e}`).join('\n')}\n`
     : '';
@@ -239,7 +262,7 @@ machineSeconds = ta durée d'exécution prévue en secondes ; seniorHours = le t
       : '';
 
   const evolutions =
-    tpl.sections.includes('Évolutions possibles')
+    titres.includes('Évolutions possibles')
       ? "\n« Évolutions possibles » : une suggestion par ligne en puce `- `, formulée comme une demande actionnable (cliquable pour la réutiliser).\n"
       : '';
 

@@ -128,7 +128,9 @@ test('le contrôle de forme repère une réponse hors format', () => {
 /* ------------------------------------------------------------------ */
 
 test('le compte rendu tient en six sections nettement séparées', () => {
-  const prompt = wrapPrompt('in_run', 'Range le tableau');
+  // Une vraie tâche : c'est là que les six sections s'imposent (une demande
+  // brève ne s'ouvre plus sur six titres à remplir).
+  const prompt = wrapPrompt('in_run', 'Range le tableau', undefined, { ampleur: 'complete' });
   for (const titre of ['Analyse', 'Ce qui est fait', 'Conséquences', 'Impact', 'Évolutions possibles', 'Coûts']) {
     assert.ok(prompt.includes(titre), `section manquante : ${titre}`);
   }

@@ -20,6 +20,7 @@ import {
   TaskProposal,
   TemplateKind,
   TodoItem,
+  ampleurDeSuivi,
   ampleurParDefaut,
   checkTemplate,
   cleDeSession,
@@ -310,7 +311,10 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     }
   }
 
-  const ampleur = options.ampleur ?? ampleurParDefaut(template, text);
+  let ampleur = options.ampleur ?? ampleurParDefaut(template, text);
+  // Un tour de SUIVI (session déjà ouverte) part d'un cran plus bas : la question
+  // de fond a eu sa réponse ample, la suite est une précision.
+  if (!nouvelleSession) ampleur = ampleurDeSuivi(template, ampleur);
   const prompt = wrapPrompt(template, text, contextParts.join('\n\n'), {
     // Session déjà ouverte : le gabarit entier est dans le fil, un rappel suffit.
     rappel: !nouvelleSession,
