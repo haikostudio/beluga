@@ -11,8 +11,10 @@ import {
   cleColonneTableau,
   colonneAReprendre,
   decisionsParCarte,
+  etapeDeLaColonne,
   etatVisuelCarte,
   mentionArchivage,
+  runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
   repereVisible,
@@ -700,6 +702,19 @@ export function Board({
             )}
           >
             <div className="relative flex shrink-0 items-center gap-1.5 px-2 py-1.5">
+              {/* Une publication de CETTE colonne tourne : un indicateur qui
+                  tourne, posé à GAUCHE du libellé, le signale sans aucun texte.
+                  Le déroulé (« En cours depuis… », adresse) vit dans le menu du
+                  chevron du bloc de publication. */}
+              {(() => {
+                const run = state.deploys[projectId];
+                const etapeCol = etapeDeLaColonne(column);
+                const publie =
+                  !!run && run.state === 'running' && !!etapeCol && runDeLEtape(run.cible, etapeCol);
+                return publie ? (
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin text-publie" data-publication-en-cours={column} />
+                ) : null;
+              })()}
               <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
               <span className="text-[12.5px] text-faint">{columnCards.length}</span>
               {column === 'todo' || column === 'notes' ? (

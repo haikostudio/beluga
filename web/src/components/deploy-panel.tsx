@@ -18,7 +18,6 @@ import {
   DeployStepKey,
   EtapeDePublication,
   PlanDeMiseEnLigne,
-  derouleOuvert,
   etapeDePublication,
   etapeDeLaColonne,
   natureDePublication,
@@ -236,28 +235,25 @@ export function DeployPanel({
   }, [projectId, signature, active, run?.state, colonne]);
 
   /*
-   * Le déroulé suit la publication qui NOUS appartient : ouvert pendant le
-   * travail et sur un échec — c'est là qu'on lit ce qui a coincé —, refermé dès
-   * qu'elle aboutit. Hors publication, il ne bouge que sur clic du chevron.
+   * Le déroulé reste FERMÉ par défaut, même pendant MA publication : il ne
+   * s'ouvre plus tout seul. C'est le chevron qui l'ouvre, et le texte d'état
+   * (« En cours depuis… », adresse, étapes) vit désormais À L'INTÉRIEUR — la
+   * colonne ne le déroule plus sous le bouton. Un indicateur qui tourne, posé
+   * dans l'en-tête de la colonne (board.tsx), signale la publication en cours.
    */
-  React.useEffect(() => {
-    if (!mienne || !run) return;
-    setProcessOuvert(derouleOuvert(run.state));
-  }, [mienne, run?.id, run?.state]);
 
   /*
    * Le déroulé s'ouvre EN SUPERPOSITION au-dessus des cartes : un clic à
-   * l'extérieur le referme, comme un menu. On ne l'attache pas pendant une
-   * publication en cours, où c'est l'état du run qui pilote son ouverture.
+   * l'extérieur le referme, comme un menu — publication en cours ou non.
    */
   React.useEffect(() => {
-    if (!processOuvert || (active && mienne)) return;
+    if (!processOuvert) return;
     const surClic = (e: MouseEvent) => {
       if (teteRef.current && !teteRef.current.contains(e.target as Node)) setProcessOuvert(false);
     };
     document.addEventListener('mousedown', surClic);
     return () => document.removeEventListener('mousedown', surClic);
-  }, [processOuvert, active, mienne]);
+  }, [processOuvert]);
 
   const start = async () => {
     setBusy(true);
@@ -390,10 +386,17 @@ export function DeployPanel({
         </Button>
 
         {/* Le déroulé s'ouvre PAR-DESSUS les cartes, ancré sous le chevron : il
-            ne pousse plus la colonne vers le bas. */}
+            ne pousse plus la colonne vers le bas. Le texte d'état de la
+            publication (« En cours depuis… », adresse, « Arrêter ») vit ICI,
+            sous les sept étapes — plus jamais étalé dans la colonne. */}
         {processOuvert ? (
           <div className="absolute inset-x-0 top-full z-20">
             <ProcessusEtapes run={mienne ? run : undefined} />
+            {(publicationEnCours || rapport) && run ? (
+              <div className="mt-1.5 rounded-md border border-border bg-raised p-2 shadow-lg">
+                <DeployControls run={run} />
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -431,8 +434,6 @@ export function DeployPanel({
           ) : null}
         </>
       ) : null}
-
-      {publicationEnCours || rapport ? <DeployControls run={run!} /> : null}
 
       {/* La confirmation de la MISE EN PRODUCTION : elle nomme l'étape, rappelle
           le lot qui part (le même compte que le bouton, travail sans carte

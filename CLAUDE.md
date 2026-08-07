@@ -471,13 +471,19 @@ sans son point d'essai.
   qu'on le sait sauté ; sans run (chevron ouvert hors publication), les sept restent « à venir ». Ce
   déroulé s'ouvre EN SUPERPOSITION (`position: absolute`, `top-full` sous la tête,
   `z-20`, `shadow-lg`) : il ne pousse JAMAIS les cartes de la colonne, et se referme au second clic du
-  chevron OU au clic hors de la tête (`teteRef`, sauf pendant `active && mienne` où c'est l'état du run
-  qui pilote). Lot vide : le bloc ne montre plus que le bouton grisé et le chevron — AUCUNE phrase
-  « Rien à … pour l'instant. » sous le bouton. Pendant MA publication (`active && mienne`), le bouton d'action est éteint et affiche
-  l'ÉTAPE en cours au lieu du verbe, le déroulé s'ouvre tout seul (`derouleOuvert`) et reflète les
-  états réels ; un échec garde son motif sous l'étape tombée. Le compte rendu (issue, `queued`,
-  adresse, « Arrêter »/« Relancer ») vit dans `DeployControls` sous la tête, et le résumé de réussite
-  garde le format `Publié (<étape>) : N tâche(s)`. Le texte du bouton d'action hors publication reste
+  chevron OU au clic hors de la tête (`teteRef`) — publication en cours ou non. Lot vide : le bloc ne
+  montre plus que le bouton grisé et le chevron — AUCUNE phrase
+  « Rien à … pour l'instant. » sous le bouton. Le déroulé reste FERMÉ par défaut, MÊME pendant MA
+  publication (`active && mienne`) : il ne s'ouvre plus tout seul (`derouleOuvert` retiré) — seul le
+  chevron l'ouvre. Le compte rendu (issue, `queued`, adresse, « Arrêter »/« Relancer ») et le texte
+  « En cours depuis N s » ne s'étalent PLUS dans la colonne : `DeployControls` vit désormais À
+  L'INTÉRIEUR du déroulé, sous les sept étapes (`ProcessusEtapes`), dans son propre encadré. Ce qui
+  signale une publication en cours, c'est un indicateur qui TOURNE (`Loader2`, couleur `publie`,
+  `data-publication-en-cours`) posé à GAUCHE du libellé de la colonne (`web/src/components/board.tsx`),
+  sans aucun texte — visible dans la colonne « À déployer » comme « En production » selon la cible du
+  run (`etapeDeLaColonne` + `runDeLEtape`). Pendant MA publication, le bouton d'action est éteint et
+  affiche l'ÉTAPE en cours au lieu du verbe ; un échec garde son motif sous l'étape tombée dans le
+  déroulé. Le résumé de réussite garde le format `Publié (<étape>) : N tâche(s)`. Le texte du bouton d'action hors publication reste
   `Tout <verbe> (<n>)` (`data-bouton-publication`), verrouillé par `scripts/verif-lot-production.mjs`
   et `scripts/verif-bloc-publication.mjs`.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN** (`repriseAutorisee`,
