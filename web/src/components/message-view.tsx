@@ -18,6 +18,7 @@ import {
   MEMORY_STEP_ID,
   Message,
   heureExacte,
+  propositionsDuFil,
   reponsePrete,
   texteAEcouter,
   texteDeReponse,
@@ -138,6 +139,11 @@ export function MessageView({
   const memoire = message.steps.find((step) => step.id === MEMORY_STEP_ID);
   const etapes = message.steps.filter((step) => step.id !== MEMORY_STEP_ID);
 
+  /* Les cartes proposées ENCORE EN ATTENTE ne vivent plus ici : elles sont
+     dans le bandeau fixe, au-dessus de la barre d'écriture. Le fil garde
+     celles qui ont déjà été validées ou refusées. */
+  const decidees = propositionsDuFil(message.proposals);
+
   // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
     <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
@@ -156,15 +162,13 @@ export function MessageView({
         <p className="text-[14px] text-faint">L'agent réfléchit…</p>
       ) : null}
 
-      {message.proposals.length ? (
+      {/* Seules les propositions DÉCIDÉES restent ici : celles qui attendent
+          encore un clic sont sorties du fil et se posent dans le bandeau fixe
+          au-dessus de la barre d'écriture (`propositionsDuFil`). */}
+      {decidees.length ? (
         <div className="mt-2 space-y-1.5">
-          {message.proposals.map((proposal) => (
-            <ProposalChip
-              key={proposal.id}
-              messageId={message.id}
-              agentId={message.agentId}
-              proposal={proposal}
-            />
+          {decidees.map((proposal) => (
+            <ProposalChip key={proposal.id} proposal={proposal} />
           ))}
         </div>
       ) : null}
@@ -578,116 +582,13 @@ function QuestionCard({
 }
 
 /**
- * La carte présentée dans la conversation : elle a l'allure d'une carte du
- * tableau, et RIEN n'entre dans une colonne tant que vous n'avez pas validé
- * (§10). Le titre et la description se corrigent avant le clic.
+ * Une carte proposée DÉJÀ DÉCIDÉE, laissée à sa place dans le fil : elle
+ * appartient à l'histoire de l'échange. Celles qui attendent encore un clic ne
+ * passent plus par ici — elles vivent dans le bandeau fixe au-dessus de la
+ * barre d'écriture (`BandeauPropositions`), où le défilement ne les emporte
+ * pas.
  */
-function ProposalChip({
-  messageId,
-  agentId,
-  proposal,
-}: {
-  messageId: string;
-  /** L'agent de la conversation : la carte hérite de SES réglages par défaut. */
-  agentId?: string;
-  proposal: Message['proposals'][number];
-}) {
-  const state = useApp();
-  const [busy, setBusy] = React.useState(false);
-  const [editing, setEditing] = React.useState(false);
-  const [title, setTitle] = React.useState(proposal.title);
-  const [description, setDescription] = React.useState(proposal.description);
-
-  /*
-   * Moteur, modèle et niveau de réflexion sont choisis AVANT que la carte
-   * existe : c'est avec eux que l'agent d'exécution sera lancé plus tard. Le
-   * point de départ est ce que la proposition demandait, sinon les réglages de
-   * la conversation en cours.
-   */
-  const agent = agentId ? state.agents[agentId] : undefined;
-  const [choix, setChoix] = React.useState<RunChoix | undefined>(proposal.run ?? agent?.run);
-  const retenu = resoudreRun(state.engines, choix);
-
-  // Changer de moteur remet le modèle et la réflexion à zéro : un modèle
-  // n'appartient qu'à son moteur, le garder n'aurait aucun sens.
-  const choisir = (patch: RunChoix) =>
-    setChoix((courant) =>
-      patch.engine ? { engine: patch.engine } : { ...(courant ?? {}), ...patch },
-    );
-
-  /*
-   * Un moteur sans compte disponible se DIT, il ne se contourne pas : sinon la
-   * carte partirait en silence sur l'autre moteur. Le constat est refait à
-   * chaque changement de moteur, sur les quotas réellement relevés ; le texte
-   * posé par le serveur au moment de la proposition sert de repli tant que les
-   * quotas ne sont pas encore arrivés.
-   */
-  const comptesDuMoteur = state.quotas.filter((q) => q.engine === retenu.engine?.id);
-  const avertissement = comptesDuMoteur.length
-    ? comptesDuMoteur.some((q) => q.available)
-      ? undefined
-      : `Aucun compte disponible pour ${retenu.engine?.label ?? 'ce moteur'} : la carte attendra qu'un compte se libère.`
-    : proposal.avertissement;
-
-  const decide = async (accept: boolean) => {
-    setBusy(true);
-    try {
-      await client.call({
-        type: 'proposal.decide',
-        messageId,
-        proposalId: proposal.id,
-        accept,
-        title: title.trim() || proposal.title,
-        description,
-        run: retenu.engine
-          ? { engine: retenu.engine.id, model: retenu.model?.id, thinking: retenu.thinking?.id }
-          : undefined,
-      });
-      client.pushToast(accept ? 'success' : 'info', accept ? 'Carte créée dans « À faire »' : 'Carte refusée');
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'décision impossible');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /* La carte, telle qu'elle apparaîtra sur le tableau. */
-  const corps = (
-    <>
-      {editing ? (
-        <>
-          <input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            className="w-full rounded border border-border bg-base px-2 py-1 text-[14.5px] font-medium text-text outline-none focus:border-accent"
-          />
-          <Textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            rows={5}
-            className="mt-1.5 w-full text-[13.5px]"
-          />
-        </>
-      ) : (
-        <>
-          <p className="text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
-          {proposal.description ? (
-            <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted">
-              {proposal.description}
-            </p>
-          ) : null}
-        </>
-      )}
-      {proposal.labels.length ? (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {proposal.labels.map((label) => (
-            <Badge key={label}>{label}</Badge>
-          ))}
-        </div>
-      ) : null}
-    </>
-  );
-
+function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) {
   if (proposal.decision === 'accepted') {
     return (
       <button
@@ -713,59 +614,11 @@ function ProposalChip({
     );
   }
 
-  if (proposal.decision === 'refused') {
-    return (
-      <div className="flex items-center gap-2 rounded-md border border-border bg-surface/60 px-3 py-2 text-[13.5px] text-faint">
-        <X className="h-3 w-3 shrink-0" />
-        <span className="min-w-0 flex-1 truncate line-through">{proposal.title}</span>
-        <span className="text-[12px]">carte refusée</span>
-      </div>
-    );
-  }
-
   return (
-    <div className="overflow-hidden rounded-md border border-accent/40 bg-surface">
-      <div className="flex items-center gap-1.5 border-b border-border bg-raised px-3 py-1.5 text-[12px] text-muted">
-        <LayoutGrid className="h-3 w-3 text-accent" />
-        À valider
-        <button
-          onClick={() => setEditing((current) => !current)}
-          className="ml-auto text-[12px] text-faint hover:text-text"
-        >
-          {editing ? 'Terminer' : 'Modifier'}
-        </button>
-      </div>
-
-      <div className="px-3 py-2.5">{corps}</div>
-
-      {avertissement ? (
-        <div className="mx-3 mb-2 flex gap-2 rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[12.5px] leading-relaxed text-warning">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{avertissement}</span>
-        </div>
-      ) : null}
-
-      {/* Les réglages de l'agent qui exécutera la carte, choisis dès maintenant.
-          Le pied s'empile en LIGNES : chaque menu (moteur, modèle, réflexion) prend
-          toute la largeur (pleineLargeur) et affiche son libellé entier — plus aucune
-          troncature en « C… ». Viennent ensuite « Créer la carte », puis « Refuser »
-          tout en bas. Une largeur qui rétrécit fait défiler la liste, jamais tronquer
-          les libellés. */}
-      <div className="flex flex-col gap-1 border-t border-border px-2 py-1.5">
-        <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} pleineLargeur />
-        <Button
-          size="sm"
-          variant="default"
-          disabled={busy}
-          onClick={() => decide(true)}
-          className="w-full"
-        >
-          <Check className="h-3 w-3" /> Créer la carte
-        </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => decide(false)} className="w-full">
-          Refuser
-        </Button>
-      </div>
+    <div className="flex items-center gap-2 rounded-md border border-border bg-surface/60 px-3 py-2 text-[13.5px] text-faint">
+      <X className="h-3 w-3 shrink-0" />
+      <span className="min-w-0 flex-1 truncate line-through">{proposal.title}</span>
+      <span className="text-[12px]">carte refusée</span>
     </div>
   );
 }
