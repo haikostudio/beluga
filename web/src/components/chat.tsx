@@ -237,35 +237,30 @@ export function Chat({
       {/* La liste des tâches est un volet FIXE, entre le fil et la barre
           d'écriture : elle ne remonte plus avec les messages. Elle porte celle
           du dernier échange — sans liste, elle s'efface entièrement. */}
-      <VoletTaches
-        todos={messages[messages.length - 1]?.todos}
-        streaming={busy}
-        creux={agent?.role === 'analysis' && !cardId && !creuxReserveAilleurs}
-      />
+      <VoletTaches todos={messages[messages.length - 1]?.todos} streaming={busy} />
 
-      {/* On ne discute pas avec un agent d'analyse : il chiffre et s'arrête.
-          La barre d'écriture revient dès que la tâche est lancée — et d'ici là
-          on n'affiche rien du tout : un bandeau d'explication figé sous chaque
-          analyse prenait de la place sans jamais rien apprendre de neuf. */}
+      {/* La barre d'écriture reste disponible FACE À UNE ANALYSE : on peut
+          corriger une hypothèse fausse ou ajouter une précision avant de lancer
+          la tâche. Un message relance alors un tour de l'agent d'analyse dans le
+          même fil (la carte reste en « Planifié », l'analyse ne déplace jamais
+          une carte), qui reprend son constat et son chiffrage. */}
       {/* L'agent attend une réponse écrite en toutes lettres : on le dit juste
           au-dessus de la barre, là où la réponse s'écrit. */}
       {questionEnTexte ? <RepereReponseTexte /> : null}
 
-      {agent?.role === 'analysis' ? null : (
-        <Composer
-          agent={agent}
-          engines={state.engines}
-          queue={queue}
-          busy={busy}
-          picked={picked}
-          onRemovePicked={(text) => setPicked((current) => current.filter((item) => item !== text))}
-          onClearPicked={() => setPicked([])}
-          projectId={projectId}
-          onProposeTask={onProposeTask}
-          dansTiroir={!!cardId || !!creuxReserveAilleurs}
-          cardId={cardId}
-        />
-      )}
+      <Composer
+        agent={agent}
+        engines={state.engines}
+        queue={queue}
+        busy={busy}
+        picked={picked}
+        onRemovePicked={(text) => setPicked((current) => current.filter((item) => item !== text))}
+        onClearPicked={() => setPicked([])}
+        projectId={projectId}
+        onProposeTask={onProposeTask}
+        dansTiroir={!!cardId || !!creuxReserveAilleurs}
+        cardId={cardId}
+      />
     </div>
   );
 }

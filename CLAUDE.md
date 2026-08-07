@@ -337,6 +337,17 @@ sans son point d'essai.
   une étude ni la rendre n'est faire le travail. Le passage « Validé » → « Planifié » → « En cours »
   au lancement de l'exécution reste le geste de l'ordonnanceur ; les règles pures ne le doublent
   pas. Vrai pour TOUTE carte, d'où qu'elle vienne.
+- **On PEUT discuter avec l'agent d'analyse d'une carte, la barre d'écriture reste là**
+  (`web/src/components/chat.tsx`, `appliquerChiffrageDiscute` dans `server/src/scheduler.ts`). Le
+  Composer n'est plus masqué pour un agent de rôle « analysis » : face à une analyse rendue (carte en
+  « Planifié »), on écrit une précision et un message relance un tour du MÊME agent d'analyse, dans le
+  même fil. La carte est en « Planifié » donc le gabarit reste `pre_run` (`templateForColumn`) : le
+  tour rend un nouveau chiffrage. `agent.prompt` (`server/src/ws.ts`) rebranche alors la lecture des
+  chiffres pour un agent d'analyse porteur d'une carte. Deux garde-fous voulus : on ne marque JAMAIS
+  la carte en échec (un tour sans chiffres frais laisse l'estimation d'origine intacte) et on ne
+  touche PAS à la colonne (l'analyse ne déplace jamais une carte : elle reste en « Planifié », le
+  lancement reste un geste de l'utilisateur). Verrouillé par
+  `server/src/test/chiffrage-discute.test.ts`.
 - **La mise en ligne compte DEUX étapes, TOUJOURS, et la colonne « En production » les sépare**
   (`shared/src/etapes-publication.ts`). La clé `in_production` s'insère entre `to_deploy` et
   `archived` dans `COLUMN_KEYS` — aucune clé existante n'est renommée ni supprimée, la règle gravée

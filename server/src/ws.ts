@@ -38,7 +38,7 @@ import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
-import { analyseCard, startCard, tick } from './scheduler.js';
+import { analyseCard, appliquerChiffrageDiscute, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
   deployableCards,
@@ -613,14 +613,25 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'agent.prompt': {
       // L'agent existe-t-il ? Ce contrôle-là doit répondre tout de suite.
-      if (!store.getAgent(cmd.agentId)) throw new Error('agent introuvable');
+      const agent = store.getAgent(cmd.agentId);
+      if (!agent) throw new Error('agent introuvable');
+      /*
+       * DISCUTER AVEC L'AGENT D'ANALYSE. Un message écrit à l'agent d'analyse
+       * d'une carte relance son analyse : on rebranche donc la lecture des
+       * chiffres pour que le chiffrage corrigé remonte sur la carte. Jamais
+       * marquée en échec, jamais déplacée (voir `appliquerChiffrageDiscute`).
+       */
+      const onComplete =
+        agent.role === 'analysis' && agent.cardId
+          ? (text: string, ok: boolean) => appliquerChiffrageDiscute(agent.cardId!, text, ok)
+          : undefined;
       /*
        * ON N'ATTEND PAS LA FIN DU TOUR. Un tour dure des minutes ; attendre
        * ici faisait expirer la commande côté navigateur au bout de deux
        * minutes, et le message semblait n'être jamais parti (il revenait
        * même dans la barre d'écriture). La suite arrive par abonnement.
        */
-      void sendPrompt(cmd.agentId, cmd.text, { attachments: cmd.attachments }).catch((err) =>
+      void sendPrompt(cmd.agentId, cmd.text, { attachments: cmd.attachments, onComplete }).catch((err) =>
         log.error('envoi de la demande impossible', err),
       );
       return { ok: true };
