@@ -49,6 +49,7 @@ import {
   agentsOccupes,
   commitsEnAttente,
   moyenDeMiseEnLigne,
+  blocageMiseEnProduction,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, redemarrerDemon } from './demon.js';
@@ -910,6 +911,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // COMMENT cette étape se fera. Le dire AVANT le clic vaut mieux que de
         // le découvrir dans le déroulé.
         miseEnLigne: moyenDeMiseEnLigne(cmd.projectId, etape?.cible),
+        // Une MISE EN PRODUCTION sans prompt réglé ne part pas : on le dit ici,
+        // pour que le bloc éteigne « Tout publier » et explique pourquoi.
+        productionBloquee: blocageMiseEnProduction(cmd.projectId, etape?.cible),
       };
     }
 

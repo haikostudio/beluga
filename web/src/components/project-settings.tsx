@@ -397,9 +397,9 @@ export function ProjectSettings({
                 className="mt-1 min-h-[150px]"
               />
               <p className="mt-1 text-[12.5px] leading-snug text-faint" data-mention-production>
-                {mentionMiseEnProduction(promptProduction)} Laissé vide, HaikoDev retombe sur ce qu’il sait
-                du projet — et sans rien à quoi se raccrocher, le bouton de mise en production s’éteint en
-                le disant.
+                {mentionMiseEnProduction(promptProduction)} Laissé vide, aucune mise en production ne part :
+                le bouton « Tout publier » de la colonne « En production » reste éteint et renvoie ici. Le
+                déploiement sur l’instance de dev, lui, n’a jamais besoin de ce prompt.
               </p>
             </div>
           </div>

@@ -198,9 +198,15 @@ sans son point d'essai.
   dans ses mots) et le PROMPT (ce que l'agent de mise en production reçoit).
   `promptDeMiseEnProduction` et `baseDeMiseEnProduction` sont les SEULS points de lecture ;
   `ecrireMiseEnProduction` écrit l'un sans forcer l'autre, EFFACE la clé plutôt que de ranger du
-  vide, ne garde que les deux clés connues et borne à `PROMPT_PRODUCTION_MAX` (8000 signes). Un
-  prompt VIDE est un état NORMAL : la mise en ligne retombe sur les trois constats, et sans aucun
-  d'eux elle le DIT en renvoyant au bloc « Mise en production » des réglages — jamais un refus. Tout
+  vide, ne garde que les deux clés connues et borne à `PROMPT_PRODUCTION_MAX` (8000 signes). La mise
+  en production ne suit QUE ce prompt : un prompt VIDE la REFUSE
+  (`refusSansPromptDeProduction`) — `startDeploy` rend `ok:false` avec la phrase qui renvoie au bloc
+  « Mise en production » AVANT même la file d'attente, et `blocageMiseEnProduction`
+  (`server/src/deploy.ts`, dans la réponse `deploy.check`) éteint le bouton « Tout publier » du bloc
+  et l'explique derrière le « ! » de la tête de colonne. Le DÉPLOIEMENT sur l'instance de dev, lui, ne
+  lit jamais le prompt et n'est jamais bloqué : il retombe sur les trois constats. L'adresse `devUrl`
+  n'est présentée comme adresse CONTRÔLÉE que d'un déploiement (`run.url`, contrôle final, contexte de
+  l'agent) : pour une mise en production, c'est le prompt qui dit quoi contrôler. Tout
   se règle dans le VOLET DU PROJET (`web/src/components/project-settings.tsx`, bloc
   `data-mise-en-production`), qui rappelle en une ligne ce qui est déjà connu
   (`rappelDeMiseEnProduction` : le lot part de la branche principale, et l'adresse réglée pour le
@@ -215,9 +221,10 @@ sans son point d'essai.
   tout comme lu », et suit partout la règle commune : pas de carte non lue, pas de bouton. Verrouillé
   par `server/src/test/mise-en-production.test.ts` et `scripts/verif-mise-en-production.mjs`.
 - **Le PROMPT de mise en production confie la mise en ligne à un agent**
-  (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Vide — le cas de tous
-  les projets tant que rien n'est réglé — RIEN ne change : mêmes sept étapes, même ordre, même
-  déroulé constaté. Écrit, il devient le PREMIER moyen de `planDeMiseEnLigne`
+  (`shared/src/publication-confiee.ts`, branché dans `server/src/deploy.ts`). Vide, le prompt ne
+  change RIEN au DÉPLOIEMENT (cible `dev`) : mêmes sept étapes, même ordre, même déroulé constaté —
+  mais une mise en PRODUCTION sans prompt est REFUSÉE (voir la règle du prompt ci-dessus), pas menée à
+  vide. Écrit, il devient le PREMIER moyen de `planDeMiseEnLigne`
   (`MoyensDeMiseEnLigne.prompt` ; `construction`/`installation`/`redemarrage` valent alors `agent`)
   et passe DEVANT HaikoDev, le service système et le dossier servi : c'est la seule façon de décrire
   une mise en ligne que les trois constats ne savent pas dire. Il ne vaut QUE pour une mise en
@@ -228,11 +235,12 @@ sans son point d'essai.
   que le prompt les couvre (`mentionEtapeConfiee`, jamais une étape muette), et `publish` porte le
   compte rendu de l'agent. Un agent de rôle « deploy » est appelé une fois (`confierLaMiseEnLigne`)
   avec `promptDeLAgentDeProduction` : le prompt réglé TEL QUEL entre deux repères, le projet, le
-  dossier, la branche installée, l'adresse à contrôler, l'enregistrement, si l'étape clôt les cartes,
-  et le lot embarqué (`CARTES_NOMMEES_MAX` cartes nommées, le reste compté). Il lui est interdit de
-  changer de branche, de faire `git add -A`, de désactiver un test et de toucher au tableau. Un tour
-  en échec fait ÉCHOUER la publication (`phraseDEchecConfie`) ; un compte rendu vide est dit comme
-  tel (`recitDeLAgent`) ; l'adresse publique et `miseEnLigneReelle` gardent le dernier mot.
+  dossier, la branche installée, l'enregistrement, si l'étape clôt les cartes, et le lot embarqué
+  (`CARTES_NOMMEES_MAX` cartes nommées, le reste compté). Aucune adresse ne lui est imposée
+  (`url: undefined`) : `devUrl` est l'instance de dev, pas la production, et c'est le prompt qui dit
+  quoi contrôler. Il lui est interdit de changer de branche, de faire `git add -A`, de désactiver un
+  test et de toucher au tableau. Un tour en échec fait ÉCHOUER la publication (`phraseDEchecConfie`) ;
+  un compte rendu vide est dit comme tel (`recitDeLAgent`) ; `miseEnLigneReelle` garde le dernier mot.
   Verrouillé par `server/src/test/publication-confiee.test.ts`.
 - **Un refus de publication NOMME ce qui tombe** (`shared/src/echec-verification.ts`). L'étape
   « verify » lance les contrôles du projet et s'arrête au moindre échec — ce refus ne bouge pas.
@@ -331,9 +339,11 @@ sans son point d'essai.
   garde-fou `!deployedAt` ne vaut QUE pour la première (une carte « En production » porte forcément
   une date de mise en ligne). `startDeploy(projectId, { cible })` et la commande `deploy.start`
   portent la cible ; sans cible, c'est la première étape. Publier reste un geste de l'utilisateur,
-  aux deux étapes. **La mise en production ne fait pour l'instant que ce que fait le déploiement**
-  (même rafraîchissement de l'instance de dev) : elle clôt les cartes, mais son vrai déroulé — un
-  agent qui suit la consigne d'`in_production` — reste à écrire. Verrouillé par
+  aux deux étapes. **La mise en production ne suit QUE le prompt réglé du projet** : avec un prompt,
+  un agent le mène puis les cartes sont closes ; sans prompt, elle est REFUSÉE (voir la règle du
+  prompt de mise en production) — jamais un simple rafraîchissement de l'instance de dev, jamais
+  l'adresse de dev présentée comme celle d'une production. Le déploiement, lui, reste ce
+  rafraîchissement constaté, sans réglage. Verrouillé par
   `server/src/test/colonne-en-production.test.ts` et `scripts/verif-lot-production.mjs`.
 - **Le bloc de publication sert les DEUX étapes, en tête de la colonne d'où part son lot**
   (`DeployPanel`, `web/src/components/deploy-panel.tsx`). Il sait de quelle COLONNE il est (propriété

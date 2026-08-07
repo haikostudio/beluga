@@ -124,6 +124,8 @@ export type InfosPublication = {
   enAttente?: { nombre: number; titres: string[] };
   /** Une autre publication de ce projet tourne déjà. */
   autrePublication?: boolean;
+  /** Une mise en production sans prompt réglé : elle ne peut pas partir. */
+  productionBloquee?: string;
 };
 
 export function DeployPanel({
@@ -179,6 +181,9 @@ export function DeployPanel({
   /* COMMENT l'instance de dev sera rafraîchie : on le dit avant le clic, pour
      que le déroulé ne soit pas une surprise. */
   const [miseEnLigne, setMiseEnLigne] = React.useState<PlanDeMiseEnLigne | null>(null);
+  /* Une MISE EN PRODUCTION sans prompt réglé ne part pas : le serveur nous le
+     dit, avec la phrase à afficher. Vide pour un déploiement, toujours. */
+  const [productionBloquee, setProductionBloquee] = React.useState<string | null>(null);
   const signature = embarked.map((card) => card.id).join(',');
 
   /*
@@ -201,6 +206,7 @@ export function DeployPanel({
           setBusyAgents(res?.busy ?? []);
           setEnAttente(res?.enAttente ?? { nombre: 0, titres: [] });
           setMiseEnLigne(res?.miseEnLigne ?? null);
+          setProductionBloquee(res?.productionBloquee ?? null);
         })
         .catch(() => undefined);
     void controler();
@@ -267,9 +273,14 @@ export function DeployPanel({
     const infos: InfosPublication = {};
     if (active && !mienne) infos.autrePublication = true;
     if (miseEnLigne && aPublier && etape?.cible === 'dev') infos.moyen = miseEnLigne.raison;
+    // Une mise en production sans prompt réglé : on l'explique dès qu'un lot
+    // attend et ne peut pas partir. Le déploiement ne connaît jamais ce cas.
+    if (productionBloquee && aPublier) infos.productionBloquee = productionBloquee;
     if (enAttente.nombre) infos.enAttente = enAttente;
-    return infos.moyen || infos.enAttente || infos.autrePublication ? infos : null;
-  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente]);
+    return infos.moyen || infos.enAttente || infos.autrePublication || infos.productionBloquee
+      ? infos
+      : null;
+  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente, productionBloquee]);
 
   /* On remonte l'objet SANS en faire une dépendance : on suit sa signature,
      sinon la fonction passée en prop, recréée à chaque rendu, bouclerait. */
@@ -309,7 +320,9 @@ export function DeployPanel({
           size="sm"
           className="min-w-0 flex-1"
           data-bouton-publication
-          disabled={publicationEnCours || !aPublier || busy || active || busyAgents.length > 0}
+          disabled={
+            publicationEnCours || !aPublier || busy || active || busyAgents.length > 0 || !!productionBloquee
+          }
           onClick={publicationEnCours ? undefined : start}
         >
           {publicationEnCours ? (
@@ -425,6 +438,13 @@ export function BoutonInfosPublication({
       </Tooltip>
       <DropdownMenuContent align="end" className="sm:max-w-[280px]">
         <div className="space-y-2 px-1 py-0.5 text-[12px] leading-snug">
+          {infos.productionBloquee ? (
+            <p className="flex items-start gap-1.5 text-warning" data-production-bloquee>
+              <AlertCircle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+              <span>{infos.productionBloquee}</span>
+            </p>
+          ) : null}
+
           {infos.autrePublication ? (
             <p className="flex items-start gap-1.5 text-muted" data-publication-ailleurs>
               <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />

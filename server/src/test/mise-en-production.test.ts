@@ -13,6 +13,7 @@ import {
   promptDeMiseEnProduction,
   promptGenerationMiseEnProduction,
   rappelDeMiseEnProduction,
+  refusSansPromptDeProduction,
 } from '@haikodev/shared';
 
 /*
@@ -100,7 +101,9 @@ test('sans adresse réglée, le rappel le dit — jamais un blanc', () => {
 });
 
 test('la mention dit l’état du réglage, vide comprise', () => {
-  assert.match(mentionMiseEnProduction(''), /Aucun prompt/i);
+  const vide = mentionMiseEnProduction('');
+  assert.match(vide, /Aucun prompt/i);
+  assert.match(vide, /aucune mise en production/i, 'vide veut dire « rien ne part », plus « débrouille-toi »');
   assert.match(mentionMiseEnProduction('une ligne\nune autre'), /2 lignes/);
 });
 
@@ -211,4 +214,44 @@ test('la commande de génération ne persiste ni ne déploie rien', () => {
   assert.match(source, /role: 'deploy'/);
   assert.match(source, /template: 'none'/, 'la dernière réponse EST le prompt');
   assert.doesNotMatch(source, /saveProject|startDeploy/, 'générer n’écrit rien et ne publie rien');
+});
+
+/* ------------------------------------------------------------------ */
+/* La mise en production ne suit QUE le prompt réglé                    */
+/* ------------------------------------------------------------------ */
+
+test('le refus sans prompt dit pourquoi et renvoie au bloc « Mise en production »', () => {
+  const phrase = refusSansPromptDeProduction();
+  assert.match(phrase, /Aucun prompt/i);
+  assert.match(phrase, /Mise en production/, 'il renvoie à l’endroit unique où l’écrire');
+  assert.match(phrase, /rien n’est mis en production/i);
+});
+
+test('startDeploy refuse une mise en production sans prompt, AVANT la file d’attente', () => {
+  const refus = SOURCE_DEPLOY.indexOf("if (etape.cible === 'production' && !promptProduction)");
+  const file = SOURCE_DEPLOY.indexOf('if (active.has(projectId))');
+  assert.notEqual(refus, -1, 'le refus doit être écrit noir sur blanc');
+  assert.ok(refus < file, 'on refuse avant même de mettre en file');
+  assert.match(
+    SOURCE_DEPLOY.slice(refus, refus + 160),
+    /return \{ ok: false, error: refusSansPromptDeProduction\(\) \}/,
+  );
+});
+
+test('le bloc peut demander pourquoi une mise en production est bloquée', () => {
+  const debut = SOURCE_DEPLOY.indexOf('export function blocageMiseEnProduction');
+  assert.notEqual(debut, -1, 'la règle interrogée par le bloc doit exister');
+  const corps = SOURCE_DEPLOY.slice(debut, SOURCE_DEPLOY.indexOf('\n}\n', debut));
+  assert.match(corps, /cible !== 'production'/, 'le déploiement n’est jamais bloqué');
+  assert.match(corps, /refusSansPromptDeProduction\(\)/);
+});
+
+test('l’adresse de dev n’est présentée comme contrôlée que pour un DÉPLOIEMENT', () => {
+  // Le run ne retient l'adresse de dev que pour dev, et le contrôle final aussi.
+  assert.match(SOURCE_DEPLOY, /url: etape\.cible === 'dev' \? project\.devUrl : undefined/);
+  assert.match(SOURCE_DEPLOY, /if \(etape\.cible === 'dev' && project\.devUrl\) \{/);
+  // L'agent de mise en production ne reçoit pas l'adresse de dev : c'est le
+  // prompt qui dit quoi contrôler.
+  const debut = SOURCE_DEPLOY.indexOf('const menee = await confierLaMiseEnLigne(');
+  assert.match(SOURCE_DEPLOY.slice(debut, debut + 400), /url: undefined/);
 });
