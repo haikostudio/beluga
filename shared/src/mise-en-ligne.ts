@@ -126,6 +126,30 @@ export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLign
   };
 }
 
+/**
+ * L'ANNONCE à afficher AVANT le clic « Tout déployer ».
+ *
+ * Le plan sait déjà COMMENT l'instance de dev sera rafraîchie (ou qu'aucune
+ * n'a été trouvée) : c'est sa `raison`. Il lui manque une chose que
+ * l'utilisateur ne découvrait qu'après coup — l'ADRESSE contrôlée à la fin.
+ * Sans adresse réglée, le contrôle final est purement sauté, sans un mot ; on
+ * le DIT ici, à la suite du moyen trouvé.
+ *
+ * Ne vaut que pour un DÉPLOIEMENT (cible dev) : une mise en production suit son
+ * prompt, qui dit lui-même quoi contrôler. Informe, ne bloque rien : le
+ * déploiement reste possible que l'adresse soit là ou non.
+ *
+ * @param plan   le plan déjà calculé par `planDeMiseEnLigne`.
+ * @param devUrl l'adresse réglée du projet, quand elle existe.
+ */
+export function annonceDeDeploiement(plan: PlanDeMiseEnLigne, devUrl?: string): string {
+  const url = devUrl?.trim();
+  const adresse = url
+    ? `À la fin, l’adresse ${url} sera vérifiée.`
+    : 'Aucune adresse à contrôler n’est réglée pour ce projet : la fin du déploiement ne vérifiera rien. Réglez-la dans « Adresse à contrôler » des paramètres du projet.';
+  return `${plan.raison} ${adresse}`;
+}
+
 /** L'état d'une étape de publication, tel que le tableau de bord l'affiche. */
 export type EtatEtape = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
 

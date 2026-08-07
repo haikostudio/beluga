@@ -414,7 +414,11 @@ sans son point d'essai.
   bandeau étroit, réservé aux ALERTES ORANGE (agent qui travaille encore dans le dossier, conflits
   prévus) : sans alerte, RIEN, le bouton touche la première carte. Les textes INFORMATIFS —
   comment l'instance de dev sera rafraîchie (`deploy.check` → `miseEnLigne.raison`, seulement pour la
-  cible `dev`), le travail enregistré sans carte, et l'éventuelle publication déjà en cours ailleurs —
+  cible `dev`) — cette raison est COMPLÉTÉE, pour un déploiement, par ce qui sera contrôlé à la fin :
+  l'adresse `devUrl` réglée, ou le fait qu'aucune adresse n'est réglée et que le contrôle final sera
+  sauté (`annonceDeDeploiement`, `shared/src/mise-en-ligne.ts`, ajoutée dans `moyenDeMiseEnLigne` de
+  `server/src/deploy.ts`) ; `planDeMiseEnLigne` n'est pas touchée —, le travail enregistré sans carte,
+  et l'éventuelle publication déjà en cours ailleurs —
   ne s'empilent plus sous le bouton : ils sont remontés à la TÊTE DE COLONNE (prop `onInfos` du
   `DeployPanel` → état de `Board`) et rangés derrière un bouton « ! » (`BoutonInfosPublication`,
   `data-infos-publication`, icône `AlertCircle` neutre) posé à côté du menu trois points, dans les deux
