@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
+  Agent,
   Card,
   Estimate,
   OccupantDossier,
@@ -42,21 +43,36 @@ export async function analyseCard(cardId: string): Promise<void> {
   // Les écarts passés du projet affinent les chiffrages (PLAN §24).
   const feedback = pastGaps(card.projectId);
 
+  /*
+   * UNE SEULE SESSION PAR CARTE. Le chiffrage et l'exécution partagent le même
+   * agent, donc le même fil de moteur : le contexte lourd (briefing, CLAUDE.md,
+   * index de la mémoire) n'est lu qu'UNE fois. Pour que le fil se REPRENNE au
+   * lancement, les deux tours doivent tourner dans le MÊME dossier — la session
+   * de Claude est rangée par dossier — : on ouvre donc la copie de travail de la
+   * carte dès le chiffrage. Un projet sans dépôt git n'en a pas : le chiffrage
+   * retombe alors sur le dossier du projet, et l'exécution sera de toute façon
+   * refusée par les portes dures.
+   */
+  const prepa = await prepareBranch(project.path, card).catch(() => null);
+  const workdir = prepa && prepa.kind === 'prete' ? prepa.dossier : undefined;
+
   const agent = createAgent({
     projectId: card.projectId,
     role: 'analysis',
     title: `Analyse — ${card.title}`,
     cardId: card.id,
-    // L'analyse est un chiffrage, pas un développement : modèle rapide.
-    run: { engine: card.run.engine, model: card.run.engine === 'claude' ? 'sonnet' : undefined, thinking: 'low' },
+    // MÊME moteur et MÊME modèle que l'exécution : c'est la condition pour que le
+    // fil se reprenne (Codex refuse un fil ouvert avec un autre modèle). Seul le
+    // niveau de réflexion est abaissé, le chiffrage étant plus léger — il peut
+    // varier d'un tour à l'autre sans casser la reprise.
+    run: { engine: card.run.engine, model: card.run.model, thinking: 'low' },
+    workdir,
   });
 
-  const prompt = `Analyse cette tâche AVANT exécution et chiffre-la.
+  const prompt = `Analyse cette tâche AVANT exécution et chiffre-la. C'est un tour de CHIFFRAGE, pas d'exécution : lis ce qu'il faut dans le projet pour comprendre l'ampleur du travail, mais ne modifie AUCUN fichier, n'enregistre rien, ne pousse rien, n'appelle pas « remember ». Tu feras le travail au tour suivant, quand l'utilisateur lancera la carte — dans ce même fil.
 
 TÂCHE : ${card.title}
-${card.description || '(pas de description)'}
-
-Lis ce qu'il faut dans le projet pour comprendre l'ampleur du travail, sans rien modifier.${
+${card.description || '(pas de description)'}${
     feedback ? `\n\nÉCARTS CONSTATÉS SUR LES TÂCHES PRÉCÉDENTES DE CE PROJET (pour affiner) :\n${feedback}` : ''
   }`;
 
@@ -357,6 +373,17 @@ function refus(card: Card, raison: string): { ok: false; error: string } {
   return { ok: false, error: raison };
 }
 
+/**
+ * Reprend-on l'agent d'analyse d'une carte pour son exécution, plutôt que d'en
+ * créer un second ? OUI quand il existe un agent d'analyse pour la carte et qu'il
+ * ne tourne pas : c'est lui qui a lu tout le contexte au chiffrage, on poursuit
+ * son fil. NON s'il n'y en a pas, s'il tourne encore, ou si le dernier agent de
+ * la carte est déjà un agent de tâche (carte relancée) — on repart neuf.
+ */
+export function reprendPourExecution(prealable: Agent | null, enCours: boolean): boolean {
+  return !!prealable && prealable.role === 'analysis' && !enCours;
+}
+
 export async function startCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
   const card = store.getCard(cardId);
   if (!card) return { ok: false, error: 'carte introuvable' };
@@ -382,16 +409,44 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
   if (prepa.kind === 'echec') return refus(card, prepa.raison);
   const branch = prepa.nom;
 
-  const agent = createAgent({
-    projectId: card.projectId,
-    role: 'task',
-    title: card.title,
-    cardId: card.id,
-    run: card.run,
-    // La carte a son dossier : l'agent y vit tout son tour, et le démon le
-    // referme à la fin (fusion dans la principale, puis `git worktree remove`).
-    workdir: prepa.dossier,
-  });
+  /*
+   * UNE SEULE SESSION PAR CARTE. Le chiffrage a déjà ouvert un agent pour cette
+   * carte et lu tout le contexte : on le REPREND pour l'exécution plutôt que d'en
+   * créer un second. Le fil du moteur se poursuit — briefing, CLAUDE.md et index
+   * de la mémoire ne sont pas relus. L'agent d'analyse devient agent de tâche
+   * (c'est le rôle « task » qui déplace la carte et referme son dossier en fin de
+   * tour) et reçoit les réglages RÉELS de la carte : moteur, modèle et réflexion
+   * ont pu changer depuis le chiffrage. Si le modèle a changé, la reprise ouvre
+   * d'elle-même un fil neuf (voir `cleDeSession`), ce qui est correct.
+   *
+   * Pas d'agent d'analyse réutilisable (chiffrage posé à la main, ou carte
+   * relancée dont l'agent précédent était déjà un agent de tâche) : on repart sur
+   * un agent neuf, comme avant.
+   */
+  const prealable = store.getLastAgentByCard(cardId);
+  const reprend = prealable ? reprendPourExecution(prealable, isRunning(prealable.id)) : false;
+  let agent: Agent;
+  if (reprend && prealable) {
+    agent = store.saveAgent({
+      ...prealable,
+      role: 'task',
+      run: card.run,
+      // La carte a son dossier : l'agent y vit tout son tour, et le démon le
+      // referme à la fin (fusion dans la principale, puis `git worktree remove`).
+      workdir: prepa.dossier,
+      status: 'idle',
+    });
+    bus.emit({ type: 'agent.upsert', agent });
+  } else {
+    agent = createAgent({
+      projectId: card.projectId,
+      role: 'task',
+      title: card.title,
+      cardId: card.id,
+      run: card.run,
+      workdir: prepa.dossier,
+    });
+  }
 
   const running = store.saveCard({
     ...card,

@@ -494,7 +494,20 @@ async function startTurn(
   // agent complet (PLAN §5). Le basculement se décide sur le CHEMIN du projet.
   const fullAccess = !isOrchestrator || project.isSelf;
 
-  const systemPrompt = rolePrompt(agent.role, project.isSelf, agent.run.engine);
+  /*
+   * LE CHIFFRAGE ET L'EXÉCUTION PARTAGENT UN SEUL FIL. Le tour d'analyse ouvre
+   * la session (rôle « analysis »), puis le même agent devient agent de tâche
+   * pour exécuter. La consigne système est GRAVÉE dans le fil au premier tour et
+   * Codex ne la renvoie pas en reprise : elle doit donc être celle de l'agent de
+   * TÂCHE dès le chiffrage, sinon l'exécution hériterait d'un « tu ne modifies
+   * aucun fichier ». Le rôle « analysis » ne sert plus qu'au suivi de colonne (il
+   * ne déplace pas la carte, ne referme pas son dossier) ; côté moteur, un agent
+   * d'analyse porteur d'une carte reçoit la consigne de tâche. Le tour lui-même
+   * reste un chiffrage : la demande dit de ne rien modifier, et le gabarit
+   * « pre_run » interdit d'écrire au passé.
+   */
+  const roleMoteur = agent.role === 'analysis' && agent.cardId ? 'task' : agent.role;
+  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine);
 
   const env: Record<string, string> = {
     HAIKODEV_TOKEN: token,

@@ -410,6 +410,22 @@ sans son point d'essai.
   touche PAS à la colonne (l'analyse ne déplace jamais une carte : elle reste en « Planifié », le
   lancement reste un geste de l'utilisateur). Verrouillé par
   `server/src/test/chiffrage-discute.test.ts`.
+- **Le chiffrage et l'exécution d'une carte partagent UNE SEULE session — UN seul agent par carte**
+  (`analyseCard` et `startCard`, `server/src/scheduler.ts`). Deux sessions rechargeaient chacune tout
+  le contexte lourd (briefing, CLAUDE.md, index de la mémoire) : payé DEUX fois pour une même carte.
+  Désormais `analyseCard` ouvre déjà la copie de travail de la carte (`prepareBranch`, dossier stable —
+  la session de Claude est rangée par dossier) et crée UN agent de rôle « analysis » avec le MÊME
+  moteur et le MÊME modèle que l'exécution (condition de reprise du fil : Codex refuse un fil ouvert
+  avec un autre modèle) ; seule la réflexion est abaissée. Au lancement, `startCard` REPREND cet agent
+  (`reprendPourExecution` : agent d'analyse existant et au repos) au lieu d'en créer un second : il
+  devient agent de rôle « task » avec les réglages RÉELS de la carte, et le fil du moteur se poursuit —
+  le contexte lourd n'est PAS relu (un modèle changé depuis le chiffrage rouvre un fil neuf, ce qui est
+  correct, voir `cleDeSession`). Le rôle « analysis » ne sert qu'au suivi de colonne (il ne déplace pas
+  la carte, ne referme pas son dossier en fin de tour) ; côté moteur, un agent d'analyse porteur d'une
+  carte reçoit la consigne système de TÂCHE (`roleMoteur` dans `runtime.ts`), car Codex ne la renvoie
+  pas en reprise et l'exécution ne doit pas hériter d'un « tu ne modifies rien ». Le tour de chiffrage
+  reste un chiffrage : la demande dit de ne rien modifier, le gabarit `pre_run` interdit le passé.
+  Verrouillé par `server/src/test/session-unique-carte.test.ts`.
 - **La mise en ligne compte DEUX étapes, TOUJOURS, et la colonne « En production » les sépare**
   (`shared/src/etapes-publication.ts`). La clé `in_production` s'insère entre `to_deploy` et
   `archived` dans `COLUMN_KEYS` — aucune clé existante n'est renommée ni supprimée, la règle gravée
