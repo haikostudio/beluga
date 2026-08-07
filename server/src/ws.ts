@@ -64,6 +64,7 @@ import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
 import { scanProjects, registerProject, reorderProjects, createProjectFolder } from './projects.js';
 import { publishSubdomain } from './dns.js';
+import { testerConnexionVps } from './acces-vps.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
@@ -995,6 +996,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'settings', settings });
       return { settings };
     }
+
+    case 'vps.test':
+      return await testerConnexionVps();
 
     case 'capacity.processes': {
       const processes = await listProcesses();
