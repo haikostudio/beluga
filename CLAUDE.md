@@ -351,7 +351,11 @@ sans son point d'essai.
   qui ouvre le DÉROULÉ des SEPT étapes (`ProcessusEtapes`, ordre `ORDRE_ETAPES` = `merge`, `commit`,
   `push`, `verify`, `build`, `publish`, `restart`) : chaque étape porte son état en clair (fait, en
   cours, sauté, à venir, échoué) et cache une courte description révélée par un « ? » (survol souris,
-  clic tactile). Pendant MA publication (`active && mienne`), le bouton d'action est éteint et affiche
+  clic tactile). Ce déroulé s'ouvre EN SUPERPOSITION (`position: absolute`, `top-full` sous la tête,
+  `z-20`, `shadow-lg`) : il ne pousse JAMAIS les cartes de la colonne, et se referme au second clic du
+  chevron OU au clic hors de la tête (`teteRef`, sauf pendant `active && mienne` où c'est l'état du run
+  qui pilote). Lot vide : le bloc ne montre plus que le bouton grisé et le chevron — AUCUNE phrase
+  « Rien à … pour l'instant. » sous le bouton. Pendant MA publication (`active && mienne`), le bouton d'action est éteint et affiche
   l'ÉTAPE en cours au lieu du verbe, le déroulé s'ouvre tout seul (`derouleOuvert`) et reflète les
   états réels ; un échec garde son motif sous l'étape tombée. Le compte rendu (issue, `queued`,
   adresse, « Arrêter »/« Relancer ») vit dans `DeployControls` sous la tête, et le résumé de réussite
