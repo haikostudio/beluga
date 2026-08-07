@@ -54,7 +54,14 @@ export interface AppState {
   capacity: CapacitySnapshot | null;
   processes: SystemProcess[];
   /** L'état du démon : sert au bouton de redémarrage, en bas de la colonne. */
-  demon: { demarreA: number; construitA?: number; agentsEnCours?: number; redemarrageNecessaire: boolean } | null;
+  demon: {
+    demarreA: number;
+    construitA?: number;
+    agentsEnCours?: number;
+    publications?: string[];
+    redemarrageEnAttente?: boolean;
+    redemarrageNecessaire: boolean;
+  } | null;
   agents: Record<string, Agent>;
   cards: Record<string, Card>;
   messages: Record<string, Message[]>;

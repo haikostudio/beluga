@@ -38,7 +38,7 @@ import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
 import { createAgent, sendPrompt, runningAgentIds } from './runtime.js';
-import { etatDemon, redemarrerDemon } from './demon.js';
+import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from './demon.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -1270,6 +1270,12 @@ export async function startDeploy(
          */
         const etat = etatDemon();
         const autres = runningAgentIds().length;
+        // Les AUTRES publications en cours (jamais celle-ci, encore « running »
+        // en base à cet instant) : les couper laisserait leur lot à moitié parti.
+        const autresPublications = store
+          .runningDeploys()
+          .filter((r) => r.id !== current.id)
+          .map((r) => store.getProject(r.projectId)?.name ?? 'un projet');
         if (!etat.redemarrageNecessaire) {
           current = setStep(current, 'restart', 'skipped', 'Seule l’interface a changé : le serveur en place sert déjà le bon code.');
         } else if (autres > 0) {
@@ -1279,6 +1285,18 @@ export async function startDeploy(
             'skipped',
             `${autres} agent(s) travaillent encore : le redémarrage attend pour ne pas couper leur travail. Il se fait d’un clic sous la liste des projets.`,
           );
+        } else if (autresPublications.length > 0) {
+          // Une autre publication tourne : le redémarrage est RETENU, il partira
+          // tout seul dès la dernière publication terminée.
+          current = setStep(
+            current,
+            'restart',
+            'skipped',
+            `${autresPublications.length} autre(s) publication(s) en cours (${autresPublications
+              .map((n) => `« ${n} »`)
+              .join(', ')}) : le redémarrage attend qu’elles finissent. Il partira tout seul dès la dernière terminée.`,
+          );
+          redemarrageDemande = true;
         } else {
           current = setStep(current, 'restart', 'done', 'Le serveur redémarre : il repart avec le nouveau code en quelques secondes.');
           redemarrageDemande = true;
@@ -1450,8 +1468,12 @@ export async function startDeploy(
       });
       bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${ou}${reste}`);
 
-      // Tout est enregistré : le serveur peut repartir avec le nouveau code.
-      if (redemarrageDemande) setTimeout(() => redemarrerDemon(), 2000);
+      // Tout est enregistré : le serveur peut repartir avec le nouveau code —
+      // mais jamais sous une AUTRE publication. `demanderRedemarrage` rejoue la
+      // règle : il part si plus rien ne publie, sinon il est retenu et repartira
+      // à la fin de la dernière publication. Cette publication-ci est déjà
+      // « réussie » en base, donc elle ne se compte plus.
+      if (redemarrageDemande) setTimeout(() => demanderRedemarrage(), 2000);
     } catch (err: any) {
       const raison = err?.message ?? String(err);
       current = emit({
@@ -1487,13 +1509,19 @@ export async function startDeploy(
       }
     } finally {
       active.delete(projectId);
-      if (waiting.has(projectId)) {
+      const relance = waiting.has(projectId);
+      if (relance) {
         // La publication en attente repart à SON étape, pas à celle de la
         // publication qui vient de se terminer.
         const suivant = waiting.get(projectId);
         waiting.delete(projectId);
         setTimeout(() => void startDeploy(projectId, { cible: suivant?.cible }), 1500);
       }
+      // Un redémarrage différé attendait la fin des publications : maintenant que
+      // celle-ci est finie, on rejoue la règle. On ne le fait que si plus aucune
+      // publication ne tourne NI n'est en file (`relance`) — sinon on couperait
+      // le lot suivant avant même son départ.
+      if (!relance && active.size === 0) appliquerRedemarrageEnAttente();
     }
   })();
 
