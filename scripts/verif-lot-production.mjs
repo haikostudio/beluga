@@ -46,6 +46,19 @@ const noter = (nom, ok, detail = '') => {
   console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}${detail ? ` — ${detail}` : ''}`);
 };
 
+/* Les commandes « deploy.start » RÉELLEMENT envoyées au serveur, captées sur le
+   fil WebSocket : c'est la preuve qu'un clic déclenche — ou non — une
+   publication. On les vide avant chaque geste qu'on veut mesurer. */
+const cadresDeployStart = [];
+function guetterDeployStart(page) {
+  page.on('websocket', (ws) => {
+    ws.on('framesent', (cadre) => {
+      const charge = typeof cadre.payload === 'string' ? cadre.payload : String(cadre.payload ?? '');
+      if (charge.includes('deploy.start')) cadresDeployStart.push(charge);
+    });
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* Un démon à soi                                                      */
 /* ------------------------------------------------------------------ */
@@ -253,6 +266,7 @@ async function ouvrirLeTableau(navigateur, viewport = { width: 1400, height: 900
   const page = await contexte.newPage();
   const erreurs = [];
   page.on('pageerror', (e) => erreurs.push(String(e)));
+  guetterDeployStart(page);
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(6000);
   const onglet = page.getByRole('button', { name: /^Tableau$/ });
@@ -392,6 +406,62 @@ async function main() {
   );
   await page.screenshot({ path: path.join(TMP, 'colonne-production.png') });
 
+  /* -------- La mise en production demande CONFIRMATION -------- */
+
+  // Le bouton « Tout publier » de la colonne « En production » n'envoie plus
+  // rien au premier clic : il ouvre une modale. Aucune commande deploy.start ne
+  // doit partir tant que « Publier » n'est pas cliqué.
+  cadresDeployStart.length = 0;
+  await page.evaluate(() => {
+    document.querySelector('[data-bloc-publication="in_production"] [data-bouton-publication]')?.click();
+  });
+  await page.waitForTimeout(700);
+  const modale = await page.evaluate(() => {
+    const dlg = document.querySelector('[role="dialog"]');
+    if (!dlg) return null;
+    const boutons = [...dlg.querySelectorAll('button')].map((b) => b.textContent?.trim() ?? '');
+    return {
+      texte: dlg.textContent ?? '',
+      publier: boutons.some((t) => t === 'Publier'),
+      annuler: boutons.some((t) => t === 'Annuler'),
+    };
+  });
+  noter(
+    'un clic sur « Tout publier » ouvre la modale de confirmation « Mise en production »',
+    !!modale && modale.texte.includes('Mise en production') && modale.publier && modale.annuler,
+    JSON.stringify(modale),
+  );
+  noter(
+    'la modale rappelle le lot qui part (2 tâches)',
+    !!modale && /2\s*tâches/.test(modale.texte),
+    modale?.texte?.slice(0, 140) ?? '—',
+  );
+  noter(
+    'aucune commande deploy.start n’est partie à l’ouverture de la modale',
+    cadresDeployStart.length === 0,
+    `${cadresDeployStart.length} envoi(s)`,
+  );
+
+  // « Annuler » referme sans rien lancer et laisse le lot intact.
+  await page.evaluate(() => {
+    const dlg = document.querySelector('[role="dialog"]');
+    [...(dlg?.querySelectorAll('button') ?? [])].find((b) => (b.textContent?.trim() ?? '') === 'Annuler')?.click();
+  });
+  await page.waitForTimeout(600);
+  const modaleFermee = await page.evaluate(() => !document.querySelector('[role="dialog"]'));
+  noter('« Annuler » referme la modale', modaleFermee);
+  noter(
+    '« Annuler » n’a lancé aucune publication',
+    cadresDeployStart.length === 0,
+    `${cadresDeployStart.length} envoi(s)`,
+  );
+  const apresAnnuler = colonnesEnBase();
+  noter(
+    'le lot d’« En production » est resté intact après « Annuler »',
+    TITRES.filter((t) => t !== gardee).every((t) => apresAnnuler[t] === 'in_production'),
+    JSON.stringify(apresAnnuler),
+  );
+
   await cliquerPied(page, 'Tout archiver', 'in_production');
   await page.waitForTimeout(800);
   await cliquerPied(page, 'Archiver', 'in_production');
@@ -436,6 +506,24 @@ async function main() {
     (await blocPublication(page, 'to_deploy'))?.bouton ?? '—',
   );
   await page.screenshot({ path: path.join(TMP, 'bouton-tout-publier.png') });
+
+  /* -------- « Tout déployer » part TOUJOURS d'un seul clic -------- */
+
+  // Le déploiement sur l'instance de dev n'est pas touché : aucune modale, et
+  // la commande deploy.start part dès le premier clic. (Fait en dernier : le
+  // run lancé sur ce dépôt d'essai isolé n'importe plus pour la suite.)
+  cadresDeployStart.length = 0;
+  await page.evaluate(() => {
+    document.querySelector('[data-bloc-publication="to_deploy"] [data-bouton-publication]')?.click();
+  });
+  await page.waitForTimeout(900);
+  const modaleDeploy = await page.evaluate(() => !!document.querySelector('[role="dialog"]'));
+  noter('« Tout déployer » n’ouvre AUCUNE modale', !modaleDeploy);
+  noter(
+    '« Tout déployer » envoie deploy.start au premier clic',
+    cadresDeployStart.length >= 1,
+    `${cadresDeployStart.length} envoi(s)`,
+  );
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
   await contexte.close();
