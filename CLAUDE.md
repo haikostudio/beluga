@@ -66,6 +66,7 @@ node scripts/verif-carte-sans-suite.mjs # « tour terminé sans suite » sur une
 node scripts/verif-progression-taches.mjs # l'avancement « n/N faites » dans le décroché des cartes « En cours » (serveur de développement, HAIKO_PROGRESSION_URL)
 node scripts/verif-ligne-projet.mjs # la ligne d'un projet sur écran de téléphone : robot, repère unique
 node scripts/verif-glissement-projets.mjs # ranger la colonne de gauche sans qu'une ligne saute
+node scripts/verif-espace-dev.mjs   # l'espace de développement en bouton à part, hors de la liste des projets (serveur de développement, HAIKO_ESPACE_DEV_URL)
 node scripts/verif-tiroir-quotas.mjs # le volet des quotas : défilement et poignée qui referme
 node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt puis à la souris (serveur de développement, HAIKO_INTERRUPTEUR_URL ; aucun vrai compte touché)
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
@@ -301,6 +302,22 @@ sans son point d'essai.
   prouver — la carte se clôt sur du vide. Quand le code de travail vit ailleurs que le dossier servi,
   le projet pointe sur le dépôt et porte une **commande de publication** qui installe la copie servie
   (sans elle, `planDeMiseEnLigne` refuse la mise en ligne, à raison).
+- **L'espace de développement de l'application ne vit PLUS dans la liste des projets**
+  (`LigneEspaceDev`, `web/src/components/sidebar.tsx`). Le projet posé sur le dossier de HaikoDev
+  porte déjà la marque `isSelf` (`server/src/projects.ts`) : ce n'est pas un projet client, c'est
+  l'atelier de l'outil. La colonne de gauche l'ÉCARTE donc de `actifs` — donc de la liste, des
+  groupes, du glisser-déposer et de `sidebar.reorder` — et lui donne un bouton à lui,
+  `data-ouvrir-espace-dev` (bloc `data-espace-dev="<id>"`), posé entre « Tableau de bord » et le
+  libellé « Projets », dans la même tenue. Libellé COURT (« Développement ») : la colonne fait moins
+  de 200 px et la ligne porte déjà l'outil, un repère et l'engrenage ; le nom réel du projet vit dans
+  l'infobulle. RIEN ne change côté serveur : même identifiant, mêmes cartes, mêmes conversations,
+  même `isSelf` — `sidebar.reorder` ne touchant que les éléments qu'on lui passe, son rang et son
+  groupe éventuel dorment intacts. Le bouton garde les MÊMES repères qu'une ligne de projet
+  (`RepereRobot` à la place de l'outil, `RepereePublication`, `RepereLigne` — triangle de décision
+  puis point bleu — et la secousse `useSecousse`) et le même engrenage `data-reglages-projet`. Il ne
+  s'allume que si cet espace est celui qu'on regarde ET que le tableau de bord est fermé ; un clic le
+  referme (`onCloseDashboard`, passé par `web/src/app.tsx` aux DEUX colonnes — grand écran et panneau
+  du téléphone), sans quoi le clic ne montrerait rien. Vérifié par `scripts/verif-espace-dev.mjs`.
 - **Un projet qu'on retire du tableau est MIS DE CÔTÉ, jamais supprimé** (`project.archive`,
   `archived = 1`). La colonne de gauche n'affiche que les projets non archivés
   (`store.listProjects`) ; le projet, ses cartes et ses conversations restent en base et
