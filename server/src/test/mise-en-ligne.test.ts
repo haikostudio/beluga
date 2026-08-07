@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { miseEnLigneReelle, planDeMiseEnLigne } from '@haikodev/shared';
+import { annonceDeDeploiement, miseEnLigneReelle, planDeMiseEnLigne } from '@haikodev/shared';
 import { dossierCiteParServeurWeb } from '../deploy.js';
 
 /* ------------------------------------------------------------------ */
@@ -57,6 +57,45 @@ test('HaikoDev passe devant le service et le dossier servi', () => {
   assert.equal(plan.installation, 'haikodev');
   // Et le service passe devant le dossier servi.
   assert.equal(planDeMiseEnLigne({ service: 'x.service', dossierServi: true }).installation, 'service');
+});
+
+/* ------------------------------------------------------------------ */
+/* Annoncer AVANT le clic ce qui se passera — moyen ET adresse          */
+/* ------------------------------------------------------------------ */
+
+test('sans instance ni adresse, l’annonce dit les deux manques', () => {
+  // Le cas du projet Brain : aucun service, aucun dossier servi, aucune adresse.
+  const plan = planDeMiseEnLigne({});
+  const annonce = annonceDeDeploiement(plan, undefined);
+  // Le moyen trouvé (ou son absence) est conservé...
+  assert.match(annonce, /Aucune instance de dev/);
+  // ...et complété par l'absence d'adresse à contrôler.
+  assert.match(annonce, /Aucune adresse à contrôler/);
+  assert.match(annonce, /ne vérifiera rien/);
+});
+
+test('un service et une adresse : l’annonce nomme les deux', () => {
+  const plan = planDeMiseEnLigne({ service: 'monsite.service', scriptBuild: true });
+  const annonce = annonceDeDeploiement(plan, 'https://mon-projet.haikostudio.cloud');
+  assert.match(annonce, /monsite\.service/);
+  assert.match(annonce, /mon-projet\.haikostudio\.cloud/);
+  assert.match(annonce, /sera vérifiée/);
+});
+
+test('une adresse tout en espaces vaut absence d’adresse', () => {
+  const plan = planDeMiseEnLigne({ dossierServi: true });
+  const annonce = annonceDeDeploiement(plan, '   ');
+  assert.match(annonce, /Aucune adresse à contrôler/);
+});
+
+test('l’annonce INFORME sans rien bloquer : le plan n’est pas touché', () => {
+  // Le déploiement reste possible dans les deux cas : l'annonce ne change ni le
+  // moyen d'installation ni rien du plan, elle ne fait qu'ajouter du texte.
+  const plan = planDeMiseEnLigne({ service: 'x.service' });
+  const avant = { ...plan };
+  const annonce = annonceDeDeploiement(plan, undefined);
+  assert.deepEqual(plan, avant);
+  assert.ok(annonce.startsWith(plan.raison));
 });
 
 /* ------------------------------------------------------------------ */

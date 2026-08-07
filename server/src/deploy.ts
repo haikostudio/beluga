@@ -30,6 +30,7 @@ import {
   miseEnLigneReelle,
   phraseDEchec,
   planDeMiseEnLigne,
+  annonceDeDeploiement,
   refusSansPromptDeProduction,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -197,9 +198,19 @@ export function moyenDeMiseEnLigne(
 ): PlanDeMiseEnLigne | null {
   const project = store.getProject(projectId);
   if (!project) return null;
-  return planDeMiseEnLigne(
+  const plan = planDeMiseEnLigne(
     moyensDuProjet(project.path, project.isSelf, promptDeLEtape(project, cible)),
   );
+  /*
+   * Pour un DÉPLOIEMENT (cible dev), on complète la raison par ce qui sera
+   * contrôlé à la fin : l'adresse réglée du projet, ou son absence — sinon le
+   * contrôle final est sauté sans un mot. La mise en production, elle, suit son
+   * prompt, qui dit lui-même quoi contrôler : on la laisse intacte.
+   */
+  if (cible !== 'production') {
+    return { ...plan, raison: annonceDeDeploiement(plan, project.devUrl) };
+  }
+  return plan;
 }
 
 /** Le projet a-t-il ce script dans son package.json ? */
