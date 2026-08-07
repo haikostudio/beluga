@@ -26,6 +26,7 @@ import {
   phraseDEchecConstruction,
   estPlomberie,
   messageEchecPublication,
+  natureDePublication,
   miseEnLigneReelle,
   phraseDEchec,
   planDeMiseEnLigne,
@@ -1463,10 +1464,20 @@ export async function startDeploy(
       // On nomme le projet, l'étape tombée (celle marquée en échec, sinon celle
       // qui tournait) et où lire le détail — jamais l'exception brute toute nue.
       const etapeTombee = current.steps.find((s) => s.state === 'failed')?.key ?? current.currentStep;
+      // La NATURE ne se lit que sur une étape RÉELLEMENT tombée : le repli sur
+      // `currentStep` reste posé même quand le run est mort en route, et ferait
+      // passer une coupure par redémarrage pour une casse.
+      const etapeReellementTombee = current.steps.find((s) => s.state === 'failed')?.key;
+      const nature = natureDePublication({
+        etat: stopped ? 'stopped' : 'failed',
+        etapeTombee: etapeReellementTombee,
+        motif: raison,
+      });
       const message = messageEchecPublication({
         projet: project?.name,
         etape: etapeTombee ? STEP_LABELS[etapeTombee] : undefined,
         raison,
+        nature: nature ?? undefined,
       });
       bus.toast('error', message);
       /*

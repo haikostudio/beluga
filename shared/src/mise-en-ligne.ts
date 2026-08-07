@@ -152,13 +152,71 @@ export function miseEnLigneReelle(etapes: {
   return Object.values(etapes).some((etat) => etat === 'done');
 }
 
+import type { EtatPublication } from './publication-terminee.js';
+
+/**
+ * La NATURE d'une publication qui n'a pas abouti.
+ *
+ * - `cassee` : le code ne passe pas — contrôles tombés, construction en échec,
+ *   conflit de fusion, service qui ne repart pas. C'est une vraie alerte, le
+ *   rouge lui est réservé.
+ * - `interrompue` : rien n'est cassé, la publication a seulement été coupée en
+ *   route (redémarrage du serveur, arrêt demandé à la main). Se dit en gris ou
+ *   en orange, pas en rouge d'alerte.
+ */
+export type NaturePublication = 'cassee' | 'interrompue';
+
+/** Les mots d'un motif qui trahissent une COUPURE, pas une casse du code. */
+const MARQUES_INTERRUPTION = ['redémarrage', 'redemarrage', 'arrêt demandé', 'arret demande', 'interrompue par'];
+
+function motifDInterruption(motif?: string): boolean {
+  const texte = (motif ?? '').toLowerCase();
+  return MARQUES_INTERRUPTION.some((marque) => texte.includes(marque));
+}
+
+/**
+ * Une publication finie est-elle CASSÉE, ou seulement INTERROMPUE ?
+ *
+ * Une publication n'a que quatre états, et tout ce qui n'aboutit pas tombe dans
+ * `failed` : un vrai échec de contrôles s'y présente exactement comme une
+ * coupure par redémarrage. Cette règle les sépare, à partir de trois signaux :
+ *
+ *  - `etat` : l'état du run ;
+ *  - `etapeTombee` : la clé d'une étape RÉELLEMENT marquée en échec — jamais le
+ *    simple `currentStep` de repli, qui reste posé même quand le run meurt en
+ *    route. Une étape tombée prouve que le code ne passe pas ;
+ *  - `motif` : le message d'erreur, déjà en français, qui nomme la coupure quand
+ *    aucune étape n'a échoué.
+ *
+ * Renvoie `null` tant qu'il n'y a rien à qualifier (en cours, ou réussi).
+ */
+export function natureDePublication(input: {
+  etat: EtatPublication;
+  etapeTombee?: string | null;
+  motif?: string;
+}): NaturePublication | null {
+  // Rien à qualifier tant que le run n'a pas échoué ni été arrêté.
+  if (input.etat !== 'failed' && input.etat !== 'stopped') return null;
+  // Un arrêt demandé à la main n'est jamais une casse du code.
+  if (input.etat === 'stopped') return 'interrompue';
+  // failed : une étape réellement tombée = le code ne passe pas.
+  if (input.etapeTombee) return 'cassee';
+  // Aucune étape tombée : le run a été coupé en route. Le motif le dit.
+  if (motifDInterruption(input.motif)) return 'interrompue';
+  // Par défaut, un échec sans marque d'interruption est traité comme cassé :
+  // mieux vaut alerter à tort que taire une vraie casse.
+  return 'cassee';
+}
+
 /**
  * Le MESSAGE court d'une publication qui tombe.
  *
  * Le message brut recopiait l'exception (« La construction a échoué : rien
  * n'est mis en ligne. ») sans nommer le PROJET, l'étape tombée, ni où lire le
  * détail. On rend une phrase qui dit les trois : de quel projet il s'agit, à
- * quelle étape la publication s'est arrêtée, et où regarder ensuite.
+ * quelle étape la publication s'est arrêtée, et où regarder ensuite. Le VERBE
+ * suit la nature : une publication cassée est « en échec », une publication
+ * seulement coupée est « interrompue ».
  *
  * Règle pure : l'appelant a déjà résolu le LIBELLÉ de l'étape (« Construction »,
  * « Vérification du code »…) ; celui-ci reste ignorant des clés du serveur.
@@ -166,14 +224,17 @@ export function miseEnLigneReelle(etapes: {
  * @param projet le nom du projet, quand il est connu.
  * @param etape  le libellé de l'étape tombée, quand une étape précise a échoué.
  * @param raison le message d'erreur, déjà en français.
+ * @param nature cassée ou interrompue ; par défaut « en échec ».
  */
 export function messageEchecPublication(input: {
   projet?: string;
   etape?: string;
   raison: string;
+  nature?: NaturePublication;
 }): string {
   const quoi = input.projet?.trim() ? `Publication de « ${input.projet.trim()} »` : 'Publication';
   const ou = input.etape?.trim() ? ` à l’étape « ${input.etape.trim()} »` : '';
   const raison = input.raison?.trim() || 'raison inconnue';
-  return `${quoi} interrompue${ou} : ${raison} — voir le détail dans le bloc de publication du projet.`;
+  const verbe = input.nature === 'interrompue' ? 'interrompue' : 'en échec';
+  return `${quoi} ${verbe}${ou} : ${raison} — voir le détail dans le bloc de publication du projet.`;
 }
