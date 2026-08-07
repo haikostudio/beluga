@@ -52,7 +52,7 @@ import {
   blocageMiseEnProduction,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
-import { etatDemon, redemarrerDemon } from './demon.js';
+import { etatDemon, demanderRedemarrage } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
 import { enregistrerCleCerveau } from './cle-cerveau.js';
 import {
@@ -1098,9 +1098,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'daemon.restart': {
       // On répond AVANT de couper : sinon le navigateur ne voit qu'une
-      // déconnexion, sans savoir si sa demande est passée.
-      redemarrerDemon();
-      return { ok: true };
+      // déconnexion, sans savoir si sa demande est passée. Une publication en
+      // cours REFUSE le redémarrage et dit quel projet elle sert — mais la
+      // demande est retenue et partira dès la dernière publication finie. Le
+      // clic reste un geste humain : il passe outre l'avertissement sur les
+      // agents (déjà vu dans la fenêtre de confirmation), jamais outre une
+      // publication.
+      return demanderRedemarrage({ ignorerAgents: true });
     }
 
     case 'backup.now': {

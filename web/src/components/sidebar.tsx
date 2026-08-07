@@ -27,6 +27,7 @@ import {
   type SignalProjet,
   ZONE_PROJETS,
   avertissementRedemarrage,
+  raisonPublications,
   doitSecouerLigne,
   premiereDecision,
   repereVisible,
@@ -703,33 +704,55 @@ function BoutonRedemarrage() {
 
   const demon = state.demon;
   const attendu = !!demon?.redemarrageNecessaire;
+  // Une publication en cours interdit le redémarrage : le couper laisserait un
+  // lot à moitié parti. Le bouton s'éteint et dit d'attendre ; la demande, elle,
+  // partira toute seule dès la dernière publication terminée.
+  const publications = demon?.publications ?? [];
+  const publie = publications.length > 0;
+  const enAttente = !!demon?.redemarrageEnAttente;
+
+  const libelle = enCours
+    ? 'Redémarrage…'
+    : publie
+      ? 'Publication en cours'
+      : enAttente
+        ? 'Redémarrage en attente'
+        : attendu
+          ? 'Redémarrage attendu'
+          : 'Redémarrer le serveur';
+  const titre = publie
+    ? raisonPublications(publications)
+    : enAttente
+      ? 'Un redémarrage attend la fin de la publication : il partira tout seul.'
+      : attendu
+        ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
+        : 'Redémarrer le serveur';
 
   return (
     <>
       <div className="border-t border-border px-1.5 py-1.5">
         <button
           onClick={() => setConfirmer(true)}
-          disabled={enCours}
+          disabled={enCours || publie}
           className={cn(
             'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors',
-            attendu ? 'text-warning hover:bg-warning/10' : 'text-faint hover:bg-surface hover:text-muted',
+            'disabled:cursor-not-allowed',
+            publie || enAttente
+              ? 'text-muted'
+              : attendu
+                ? 'text-warning hover:bg-warning/10'
+                : 'text-faint hover:bg-surface hover:text-muted',
           )}
-          title={
-            attendu
-              ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
-              : 'Redémarrer le serveur'
-          }
+          title={titre}
         >
-          {enCours ? (
-            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+          {enCours || publie || enAttente ? (
+            <Loader2 className={cn('h-3 w-3 shrink-0', enCours && 'animate-spin')} />
           ) : attendu ? (
             <TriangleAlert className="h-3 w-3 shrink-0" />
           ) : (
             <Power className="h-3 w-3 shrink-0" />
           )}
-          <span className="min-w-0 flex-1 truncate">
-            {enCours ? 'Redémarrage…' : attendu ? 'Redémarrage attendu' : 'Redémarrer le serveur'}
-          </span>
+          <span className="min-w-0 flex-1 truncate">{libelle}</span>
         </button>
       </div>
 
@@ -742,8 +765,18 @@ function BoutonRedemarrage() {
         onConfirm={() => {
           setEnCours(true);
           // La réponse part avant la coupure ; la reconnexion se fait toute
-          // seule, on rend donc la main au bout de quelques secondes.
-          void client.call({ type: 'daemon.restart' }).catch(() => undefined);
+          // seule, on rend donc la main au bout de quelques secondes. Un refus
+          // (publication en cours) revient AVANT la coupure : on le dit et on
+          // rend la main tout de suite.
+          void client
+            .call<{ ok: boolean; raison?: string }>({ type: 'daemon.restart' })
+            .then((res) => {
+              if (res && res.ok === false) {
+                setEnCours(false);
+                if (res.raison) client.pushToast('info', res.raison);
+              }
+            })
+            .catch(() => undefined);
           window.setTimeout(() => setEnCours(false), 12000);
         }}
         onClose={() => setConfirmer(false)}

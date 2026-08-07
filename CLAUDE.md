@@ -166,6 +166,22 @@ sans son point d'essai.
 
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur.
+- **Ne JAMAIS redémarrer le serveur pendant une publication** (`shared/src/demon.ts`, branché dans
+  `server/src/demon.ts`). Le démon porte TOUTES les publications : le redémarrer en coupe une en
+  plein vol, laissant un lot à moitié parti (« Publication interrompue par un redémarrage du
+  serveur », `markInterruptedRuns`). La règle est PURE : `decisionDeRedemarrage({demande,
+  publications, agents})` rend `redemarrer` / `attendre` / `rien`, la publication passant AVANT les
+  agents et NOMMANT le projet qui bloque ; `suiteDuRedemarrage` en tire la transition d'état (garantit
+  le « une seule fois »). Un redémarrage demandé est RETENU (`redemarrageEnAttente` dans
+  `server/src/demon.ts`, `demanderRedemarrage` / `appliquerRedemarrageEnAttente`) et rejoué à chaque
+  fin de publication (bloc `finally` de `startDeploy`) : dès la DERNIÈRE terminée (réussite, échec ou
+  arrêt), il part TOUT SEUL par le même `redemarrerDemon()`. Le bouton `daemon.restart` (`ws.ts`)
+  passe outre l'avertissement sur les AGENTS (geste humain déjà confirmé, `ignorerAgents: true`),
+  jamais outre une publication : il rend `{ok:false, raison}` et le bouton sous la liste des projets
+  s'éteint en le disant (`web/src/components/sidebar.tsx`, champs `EtatDemon.publications` /
+  `redemarrageEnAttente`). L'étape « restart » d'une publication de HaikoDev garde son garde-fou sur
+  les agents et gagne le même sur les autres publications. Verrouillé par
+  `server/src/test/redemarrage-serveur.test.ts`.
 - **DÉPLOYER, c'est fusionner tout le lot ET rafraîchir l'instance de dev de ce serveur**
   (`planDeMiseEnLigne`, `shared/src/mise-en-ligne.ts`). Le déploiement est UNE seule chose, toujours
   disponible et SANS aucun réglage : les branches « tache/… » des cartes de « À déployer » sont

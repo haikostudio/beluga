@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { EtatDemon, redemarrageNecessaire } from '@haikodev/shared';
+import { EtatDemon, redemarrageNecessaire, suiteDuRedemarrage } from '@haikodev/shared';
 import { ROOT } from './config.js';
 import { bus } from './bus.js';
 import { runningAgentIds } from './runtime.js';
+import * as store from './store.js';
 import { notify, viderLesGroupes } from './notify.js';
 import { log } from './logger.js';
 
@@ -44,12 +45,19 @@ function derniereEcriture(dossier: string, profondeur = 0): number {
   return derniere;
 }
 
+/** Les noms des projets dont une publication tourne en ce moment. */
+export function publicationsEnCours(): string[] {
+  return store.runningDeploys().map((run) => store.getProject(run.projectId)?.name ?? 'un projet');
+}
+
 export function etatDemon(): EtatDemon & { redemarrageNecessaire: boolean } {
   const construitA = Math.max(...DOSSIERS_CONSTRUITS.map((d) => derniereEcriture(d)), 0) || undefined;
   const etat: EtatDemon = {
     demarreA: DEMARRE_A,
     construitA,
     agentsEnCours: runningAgentIds().length,
+    publications: publicationsEnCours(),
+    redemarrageEnAttente,
   };
   return { ...etat, redemarrageNecessaire: redemarrageNecessaire(etat) };
 }
@@ -60,10 +68,63 @@ let dernierEnvoi = '';
 /** Diffuse l'état s'il a changé. Appelé au rythme du relevé de capacité. */
 export function diffuserEtatDemon(force = false): void {
   const etat = etatDemon();
-  const signature = `${etat.redemarrageNecessaire}:${etat.agentsEnCours}`;
+  const signature = `${etat.redemarrageNecessaire}:${etat.agentsEnCours}:${etat.redemarrageEnAttente}:${(etat.publications ?? []).join('|')}`;
   if (!force && signature === dernierEnvoi) return;
   dernierEnvoi = signature;
   bus.emit({ type: 'demon', etat });
+}
+
+/*
+ * UN REDÉMARRAGE PEUT ÊTRE DEMANDÉ SANS PARTIR TOUT DE SUITE. Tant qu'une
+ * publication tourne (celle de HaikoDev ou celle d'un autre projet), le
+ * redémarrage attend : on ne coupe jamais un lot en plein vol. La demande est
+ * RETENUE ici, et rejouée à chaque fin de publication jusqu'à ce qu'elle puisse
+ * partir. Un seul mécanisme : la même règle pure sert le bouton et la fin de
+ * publication.
+ */
+let redemarrageEnAttente = false;
+
+/** Un redémarrage demandé attend-il la fin d'une publication ? */
+export function redemarrageEstEnAttente(): boolean {
+  return redemarrageEnAttente;
+}
+
+/**
+ * Rejoue la règle : redémarre, reste en attente, ou ne fait rien. `ignorerAgents`
+ * vaut pour le BOUTON, geste humain qui a déjà vu l'avertissement sur les agents
+ * et passe outre — mais jamais outre une publication, qu'aucun avertissement ne
+ * couvre.
+ */
+function evaluerRedemarrage(ignorerAgents: boolean): { ok: boolean; raison?: string; enAttente: boolean } {
+  const suite = suiteDuRedemarrage(redemarrageEnAttente, {
+    publications: publicationsEnCours(),
+    agents: ignorerAgents ? 0 : runningAgentIds().length,
+  });
+  redemarrageEnAttente = suite.enAttente;
+  if (suite.redemarrer) {
+    redemarrerDemon();
+    return { ok: true, enAttente: false };
+  }
+  diffuserEtatDemon();
+  return { ok: false, raison: suite.raison, enAttente: suite.enAttente };
+}
+
+/**
+ * Demande un redémarrage. S'il peut partir, il part ; sinon il est retenu et la
+ * raison (nom du projet qui publie) est rendue à qui l'a demandé.
+ */
+export function demanderRedemarrage(opts?: { ignorerAgents?: boolean }): { ok: boolean; raison?: string; enAttente: boolean } {
+  redemarrageEnAttente = true;
+  return evaluerRedemarrage(opts?.ignorerAgents ?? false);
+}
+
+/**
+ * À appeler quand une publication vient de se terminer : si un redémarrage
+ * attendait, on rejoue la règle. Dès la DERNIÈRE publication finie, il part.
+ */
+export function appliquerRedemarrageEnAttente(): void {
+  if (!redemarrageEnAttente) return;
+  evaluerRedemarrage(false);
 }
 
 /**
