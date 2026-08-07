@@ -550,6 +550,13 @@ export const DeployRun = z.object({
         key: DeployStepKey,
         state: z.enum(['todo', 'running', 'done', 'failed', 'skipped']),
         log: z.string().default(''),
+        /**
+         * Ce que l'étape est en train de faire, PENDANT qu'elle tourne : la
+         * branche en cours de fusion (« branche 3 sur 6 »), le contrôle lancé, la
+         * commande de construction. Transitoire — effacé dès que l'étape se
+         * termine, où c'est la durée qui prend le relais.
+         */
+        progress: z.string().optional(),
         startedAt: z.number().optional(),
         endedAt: z.number().optional(),
       }),

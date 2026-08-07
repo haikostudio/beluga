@@ -413,9 +413,14 @@ export const REPARATIONS_MAX = 2;
  * `npm test` lit `server/dist` : sans recompiler d'abord, on jugerait le code
  * du dernier lancement du démon et non le lot qu'on vient de fusionner.
  */
-async function controlerLeProjet(cwd: string): Promise<{ ok: boolean; etape: 'compilation' | 'controles'; out: string }> {
+async function controlerLeProjet(
+  cwd: string,
+  onEtape?: (label: string) => void,
+): Promise<{ ok: boolean; etape: 'compilation' | 'controles'; out: string }> {
+  onEtape?.('Compilation du code (npm run build:server)…');
   const compile = await runCommand(cwd, 'npm run build:server', 10 * 60 * 1000, Infinity);
   if (!compile.ok) return { ok: false, etape: 'compilation', out: compile.out };
+  onEtape?.('Contrôles du projet (npm test)…');
   const test = await runCommand(cwd, 'npm test', 10 * 60 * 1000, Infinity);
   return { ok: test.ok, etape: 'controles', out: test.out };
 }
@@ -646,12 +651,25 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
           ...step,
           state,
           log: (step.log + (logText ? `\n${logText}` : '')).slice(-4000),
+          // La progression n'a de sens que le temps de l'étape : dès qu'elle
+          // s'achève, c'est la durée qui la remplace à l'écran.
+          progress: state === 'running' ? step.progress : undefined,
           startedAt: step.startedAt ?? Date.now(),
           endedAt: state === 'running' ? undefined : Date.now(),
         }
       : step,
   );
   return emit({ ...run, steps, currentStep: state === 'running' ? key : run.currentStep });
+}
+
+/**
+ * Ce qu'une étape est en train de faire, réémis pour que l'écran suive à vue :
+ * la branche en cours de fusion, le contrôle lancé, la commande de construction.
+ * L'étape reste « en cours » — on ne fait qu'écrire sa ligne de progression.
+ */
+function progresserEtape(run: DeployRun, key: DeployStepKey, progress: string): DeployRun {
+  const steps = run.steps.map((step) => (step.key === key ? { ...step, progress } : step));
+  return emit({ ...run, steps });
 }
 
 /**
@@ -995,6 +1013,7 @@ export async function startDeploy(
          */
         const enCours = await runCommand(cwd, 'git status --porcelain');
         if (enCours.out.trim()) {
+          current = progresserEtape(current, 'merge', 'Enregistrement des travaux en cours…');
           const branche = (await runCommand(cwd, 'git rev-parse --abbrev-ref HEAD')).out.trim() || 'branche courante';
           await runCommand(cwd, 'git add -A');
           const enregistre = await runCommand(
@@ -1026,9 +1045,16 @@ export async function startDeploy(
          * écartées restent dans « À déployer » et repartiront au prochain coup.
          */
         let fusionnees = 0;
+        // Le nombre de branches réellement à fusionner : c'est lui qui donne le
+        // « sur N » de la progression, jamais le total des cartes (certaines
+        // n'ont pas de branche).
+        const aFusionner = cards.filter((card) => card.github?.branch).length;
+        let rang = 0;
         for (const card of cards) {
           const branch = card.github?.branch;
           if (!branch) continue;
+          rang += 1;
+          current = progresserEtape(current, 'merge', `Branche ${rang} sur ${aFusionner} : ${branch}`);
 
           // Une branche déjà nettoyée (carte ancienne, dépôt réinitialisé) ne
           // doit pas faire échouer tout le lot : on le dit et on continue.
@@ -1150,6 +1176,7 @@ export async function startDeploy(
         current = setStep(current, 'build', 'skipped', mentionEtapeConfiee('build'));
 
         current = setStep(current, 'publish', 'running', mentionEtapeConfiee('publish'));
+        current = progresserEtape(current, 'publish', 'L’agent de mise en production suit le prompt du projet…');
         const menee = await confierLaMiseEnLigne(project.id, {
           projet: project.name,
           dossier: cwd,
@@ -1185,7 +1212,10 @@ export async function startDeploy(
          * suit refait l'ensemble, interface comprise.
          */
         const poseVerif = await poserLesOutilsDeConstruction(cwd);
-        let verify = await controlerLeProjet(cwd);
+        const suivreControle = (label: string) => {
+          current = progresserEtape(current, 'verify', label);
+        };
+        let verify = await controlerLeProjet(cwd, suivreControle);
         const passes: string[] = [];
         /*
          * Un contrôle tombé n'arrête plus la publication du premier coup : un
@@ -1197,7 +1227,7 @@ export async function startDeploy(
           const repare = await reparerLesControles(project.id, cwd, verify, passe);
           passes.push(repare.recit);
           if (!repare.tente) break;
-          verify = await controlerLeProjet(cwd);
+          verify = await controlerLeProjet(cwd, suivreControle);
         }
         const journalDesPasses = passes.length ? `\n\nRéparations tentées :\n${passes.map((p) => `- ${p}`).join('\n')}` : '';
         if (!verify.ok && verify.etape === 'compilation') {
@@ -1221,12 +1251,14 @@ export async function startDeploy(
         if (!verify.ok) throw new Error(phraseDEchec(verify.out));
 
         current = setStep(current, 'build', 'running');
+        current = progresserEtape(current, 'build', 'Recompilation du projet (npm run build)…');
         const pose = await poserLesOutilsDeConstruction(cwd);
         const build = await construireAvecReparation(project.id, cwd, 'npm run build', pose);
         current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.detail);
         if (!build.ok) throw new Error(build.phrase);
 
         current = setStep(current, 'publish', 'running');
+        current = progresserEtape(current, 'publish', 'Installation de la nouvelle version dans le dossier servi…');
         const installe = installerApplication();
         current = setStep(current, 'publish', 'done', installe);
 
@@ -1269,6 +1301,7 @@ export async function startDeploy(
 
         if (plan.construction === 'npm') {
           current = setStep(current, 'build', 'running');
+          current = progresserEtape(current, 'build', 'Construction du projet (npm run build)…');
           const build = await construireAvecReparation(project.id, cwd, 'npm run build');
           current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.detail);
           if (!build.ok) throw new Error(build.phrase);
@@ -1322,6 +1355,7 @@ export async function startDeploy(
             throw new Error('Le service système attendu sur ce dossier a disparu : rien n’a été mis en ligne.');
           }
           current = setStep(current, 'restart', 'running');
+          current = progresserEtape(current, 'restart', `Redémarrage du service ${service}…`);
           const bilan = await redemarrerService(cwd, service);
           current = setStep(current, 'restart', bilan.ok ? 'done' : 'failed', bilan.recit);
           // Le motif exact remonte tel quel : plus de ligne rouge sans explication.

@@ -425,7 +425,15 @@ sans son point d'essai.
   qui ouvre le DÉROULÉ des SEPT étapes (`ProcessusEtapes`, ordre `ORDRE_ETAPES` = `merge`, `commit`,
   `push`, `verify`, `build`, `publish`, `restart`) : chaque étape porte son état en clair (fait, en
   cours, sauté, à venir, échoué) et cache une courte description révélée par un « ? » (survol souris,
-  clic tactile). Ce déroulé s'ouvre EN SUPERPOSITION (`position: absolute`, `top-full` sous la tête,
+  clic tactile). Le déroulé AVANCE À VUE : le serveur RÉÉMET l'état à chaque pas (`progresserEtape`,
+  `server/src/deploy.ts`, champ `progress` d'une étape dans `DeployRun.steps`), si bien qu'une étape
+  EN COURS affiche ce qu'elle fait (`data-progress-etape` : fusion « Branche n sur N : … », contrôle
+  ou commande lancés) et une étape TERMINÉE sa DURÉE (`dureeEtape`, `startedAt`→`endedAt`, « fait ·
+  4 s », `data-duree-etape`). La progression est TRANSITOIRE : `setStep` l'efface dès que l'étape
+  s'achève. La liste n'annonce QUE ce qui va réellement se faire : une étape SAUTÉE n'y figure pas
+  (filtrée dans `ProcessusEtapes`) — le redémarrage du serveur, souvent inutile, disparaît ainsi dès
+  qu'on le sait sauté ; sans run (chevron ouvert hors publication), les sept restent « à venir ». Ce
+  déroulé s'ouvre EN SUPERPOSITION (`position: absolute`, `top-full` sous la tête,
   `z-20`, `shadow-lg`) : il ne pousse JAMAIS les cartes de la colonne, et se referme au second clic du
   chevron OU au clic hors de la tête (`teteRef`, sauf pendant `active && mienne` où c'est l'état du run
   qui pilote). Lot vide : le bloc ne montre plus que le bouton grisé et le chevron — AUCUNE phrase
