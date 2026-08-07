@@ -140,6 +140,34 @@ export function parseEstimate(text: string): Estimate | null {
   return null;
 }
 
+/**
+ * Mettre à jour le chiffrage d'une carte après un tour d'analyse DISCUTÉ.
+ *
+ * Quand on écrit à l'agent d'analyse d'une carte pour corriger une hypothèse ou
+ * ajouter une précision, il rejoue son analyse (même gabarit « pre_run », car la
+ * carte est en « Planifié ») et rend souvent un nouveau chiffrage. On le relit
+ * pour que la carte reflète la version corrigée.
+ *
+ * Deux différences AVEC l'analyse d'origine, voulues :
+ *   - on ne marque JAMAIS la carte en échec. Un tour qui ne rend pas de chiffres
+ *     frais (l'agent a seulement répondu à une question) laisse le chiffrage
+ *     précédent intact — discuter ne doit pas casser une estimation déjà bonne ;
+ *   - on ne touche PAS à la colonne. L'analyse ne déplace jamais une carte : elle
+ *     reste en « Planifié », le lancement reste un geste de l'utilisateur.
+ */
+export function appliquerChiffrageDiscute(cardId: string, text: string, ok: boolean): void {
+  if (!ok) return;
+  const estimate = parseEstimate(text);
+  if (!estimate) return;
+  const fresh = store.getCard(cardId);
+  if (!fresh) return;
+  const updated = store.saveCard({
+    ...fresh,
+    estimate: { ...estimate, summary: estimate.summary ?? text.slice(0, 2000), producedAt: Date.now() },
+  });
+  bus.emit({ type: 'card.upsert', card: updated });
+}
+
 function num(value: unknown): number | undefined {
   const n = typeof value === 'string' ? Number(value.replace(',', '.')) : value;
   return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
