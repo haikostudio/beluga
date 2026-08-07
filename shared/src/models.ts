@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ColumnKey } from './columns.js';
+import { MOYENS_VPS } from './acces-vps.js';
 
 /* ------------------------------------------------------------------ */
 /* Moteurs, modèles, niveaux de réflexion                              */
@@ -632,6 +633,18 @@ export const Settings = z.object({
   orchestratorEngine: z.string().optional(),
   orchestratorModel: z.string().optional(),
   orchestratorThinking: z.string().optional(),
+  /**
+   * Les ACCÈS À LA MACHINE (le VPS), réglés dans l'onglet Système. Laissés vides
+   * (l'état par défaut), rien ne change : la création d'une adresse publique
+   * garde son fonctionnement LOCAL. Renseignés, elle passe par la machine
+   * distante en SSH. Voir `shared/src/acces-vps.ts`.
+   */
+  vpsHote: z.string().default(''),
+  vpsPort: z.number().default(22),
+  vpsUtilisateur: z.string().default(''),
+  vpsMoyen: z.enum(MOYENS_VPS).default('agent'),
+  vpsCle: z.string().default(''),
+  vpsMotDePasse: z.string().default(''),
 });
 export type Settings = z.infer<typeof Settings>;
 

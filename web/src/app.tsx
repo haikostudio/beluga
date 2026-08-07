@@ -477,6 +477,7 @@ export function App() {
                 width={gauche.width}
                 onOpenDashboard={ouvrirTableauDeBord}
                 dashboardActive={dashboardOpen}
+                onCloseDashboard={() => setDashboardOpen(false)}
               />
             </Filet>
           </div>
@@ -541,6 +542,7 @@ export function App() {
               onChoose={() => setProjetsOuverts(false)}
               onOpenDashboard={ouvrirTableauDeBord}
               dashboardActive={dashboardOpen}
+              onCloseDashboard={() => setDashboardOpen(false)}
             />
           </Filet>
         </SidePanel>

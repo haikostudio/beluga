@@ -29,6 +29,7 @@ import {
   miseEnLigneReelle,
   phraseDEchec,
   planDeMiseEnLigne,
+  refusSansPromptDeProduction,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -165,6 +166,23 @@ export function moyensDuProjet(
  */
 function promptDeLEtape(project: Project, cible?: CiblePublication): string {
   return cible === 'dev' ? '' : promptDeMiseEnProduction(project);
+}
+
+/**
+ * Le refus d'une MISE EN PRODUCTION sans prompt réglé, dit AVANT le clic — ou
+ * `null` quand rien ne bloque.
+ *
+ * La mise en production suit le PROMPT réglé, et lui seul : sans prompt, elle ne
+ * part pas et renvoie au bloc « Mise en production » des réglages. Le
+ * DÉPLOIEMENT sur l'instance de dev (cible « dev »), lui, ne lit jamais le
+ * prompt : il n'est jamais bloqué ici. Le bloc de publication interroge cette
+ * règle pour éteindre le bouton « Tout publier » et dire pourquoi.
+ */
+export function blocageMiseEnProduction(projectId: string, cible?: CiblePublication): string | null {
+  if (cible !== 'production') return null;
+  const project = store.getProject(projectId);
+  if (!project) return null;
+  return promptDeMiseEnProduction(project) ? null : refusSansPromptDeProduction();
 }
 
 /**
@@ -880,6 +898,23 @@ export async function startDeploy(
    */
   const etape = etapeDePublication(options.cible);
 
+  /*
+   * COMMENT la mise en ligne se fera, décidé une fois pour tout le run : le
+   * prompt de mise en production s'il y en a un — et seulement pour une mise en
+   * production —, sinon ce qu'on constate sur la machine pour le déploiement.
+   */
+  const promptProduction = promptDeLEtape(project, etape.cible);
+
+  /*
+   * La MISE EN PRODUCTION ne suit QUE le prompt réglé : sans prompt, rien ne
+   * part. On refuse AVANT tout — avant même la file d'attente —, en renvoyant au
+   * bloc « Mise en production ». Le déploiement sur l'instance de dev, lui, ne
+   * lit jamais le prompt et n'est jamais bloqué ici.
+   */
+  if (etape.cible === 'production' && !promptProduction) {
+    return { ok: false, error: refusSansPromptDeProduction() };
+  }
+
   // Une deuxième demande n'ouvre pas un run parallèle : elle attend son tour.
   if (active.has(projectId)) {
     waiting.set(projectId, { cible: etape.cible });
@@ -904,13 +939,11 @@ export async function startDeploy(
   }
 
   /*
-   * COMMENT la mise en ligne se fera, décidé une fois pour tout le run : le
-   * prompt de mise en production s'il y en a un — et seulement pour une mise en
-   * production —, sinon ce qu'on constate sur la machine. Ce n'est plus une
-   * porte : un projet sans instance sur ce serveur déploie quand même, le plan
-   * le dit plutôt que d'éteindre le bouton.
+   * Le plan constaté sert le DÉPLOIEMENT sur l'instance de dev : un projet sans
+   * instance sur ce serveur déploie quand même, le plan le dit plutôt que
+   * d'éteindre le bouton. La mise en production, elle, suit le prompt (refusé
+   * plus haut s'il manque).
    */
-  const promptProduction = promptDeLEtape(project, etape.cible);
   const plan = planDeMiseEnLigne(
     moyensDuProjet(project.path, project.isSelf, promptProduction),
   );
@@ -928,7 +961,9 @@ export async function startDeploy(
     // L'étape voyage avec la publication : c'est elle qui dit dans quel bloc le
     // déroulé s'affiche, et d'où le lot repartira en cas de relance.
     cible: etape.cible,
-    url: project.devUrl,
+    // L'adresse de dev n'est l'adresse contrôlée que d'un DÉPLOIEMENT : une mise
+    // en production suit son prompt, qui dit lui-même quoi contrôler.
+    url: etape.cible === 'dev' ? project.devUrl : undefined,
     startedAt: Date.now(),
     queued: false,
   });
@@ -1119,7 +1154,9 @@ export async function startDeploy(
           projet: project.name,
           dossier: cwd,
           branche: await mainBranchOf(cwd),
-          url: project.devUrl,
+          // Pas d'adresse imposée : l'adresse de dev n'est pas celle d'une mise
+          // en production, et c'est le prompt qui dit quoi contrôler.
+          url: undefined,
           prompt,
           cartes: cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
           enregistrement: current.targetCommit,
@@ -1293,8 +1330,11 @@ export async function startDeploy(
       }
 
       // Le verdict se lit sur le RÉSULTAT, pas sur le processus (PLAN §11) :
-      // on vérifie ce qui est réellement servi à l'adresse de dev.
-      if (project.devUrl) {
+      // on vérifie ce qui est réellement servi à l'adresse de dev. Ce contrôle
+      // ne vaut QUE pour un DÉPLOIEMENT : l'adresse de dev n'est pas celle d'une
+      // mise en production, dont c'est le prompt de l'agent qui dit quoi
+      // contrôler.
+      if (etape.cible === 'dev' && project.devUrl) {
         const online = await checkOnline(project.devUrl);
         const verdict = online.ok
           ? `Adresse ${project.devUrl} joignable (${online.status}).`

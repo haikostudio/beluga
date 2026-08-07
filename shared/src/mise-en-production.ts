@@ -15,10 +15,11 @@
  *    fabrique à partir de la base par un tour d'agent ; il reste MODIFIABLE et
  *    n'est retenu qu'à l'enregistrement.
  *
- * Un prompt VIDE est un état normal : la mise en production retombe alors sur
- * ce que HaikoDev CONSTATE du projet (service système, dossier servi…), et
- * quand il n'y a rien à constater, elle le dit au lieu de mentir. C'est pourquoi
- * l'écriture RETIRE la clé plutôt que de ranger une chaîne vide — deux façons de
+ * Un prompt VIDE reste un état normal, mais il ne veut plus dire « débrouille-toi
+ * avec ce que tu constates » : une MISE EN PRODUCTION sans prompt ne part PAS
+ * (`refusSansPromptDeProduction`) et renvoie ici. Le DÉPLOIEMENT sur l'instance
+ * de dev, lui, ne lit jamais le prompt et reste disponible sans réglage.
+ * L'écriture RETIRE la clé plutôt que de ranger une chaîne vide — deux façons de
  * dire la même chose finissent par diverger.
  *
  * Règles PURES : ni base, ni disque, ni date.
@@ -109,9 +110,22 @@ export function rappelDeMiseEnProduction(projet: ProjetMisEnProduction | undefin
 /** L'état du réglage, dit en une ligne sous le bloc. */
 export function mentionMiseEnProduction(prompt: string): string {
   const propre = prompt.trim();
-  if (!propre) return 'Aucun prompt : HaikoDev se débrouille avec ce qu’il constate du projet.';
+  if (!propre) return 'Aucun prompt : sans lui, aucune mise en production ne peut partir.';
   const lignes = propre.split('\n').filter((ligne) => ligne.trim()).length;
   return `Prompt écrit : ${propre.length} signes, ${lignes} ligne${lignes > 1 ? 's' : ''}.`;
+}
+
+/**
+ * Le refus d'une MISE EN PRODUCTION sans prompt réglé.
+ *
+ * La mise en production ne se DEVINE pas : sans prompt écrit, aucune ne part.
+ * Le message dit pourquoi et renvoie à l'endroit UNIQUE où l'écrire. Il vit ici,
+ * en règle pure, pour que le serveur (qui refuse `deploy.start`) et l'interface
+ * (qui éteint le bouton « Tout publier ») disent EXACTEMENT la même chose. Le
+ * DÉPLOIEMENT sur l'instance de dev, lui, n'est jamais bloqué par ce refus.
+ */
+export function refusSansPromptDeProduction(): string {
+  return `Aucun prompt de mise en production n’est réglé pour ce projet : rien n’est mis en production. Écrivez-le dans le bloc « ${TITRE_MISE_EN_PRODUCTION} » des réglages du projet.`;
 }
 
 /* ------------------------------------------------------------------ */

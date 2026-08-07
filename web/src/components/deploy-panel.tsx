@@ -26,6 +26,7 @@ import {
 } from '@haikodev/shared';
 import {
   Button,
+  ConfirmDialog,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
@@ -124,6 +125,8 @@ export type InfosPublication = {
   enAttente?: { nombre: number; titres: string[] };
   /** Une autre publication de ce projet tourne déjà. */
   autrePublication?: boolean;
+  /** Une mise en production sans prompt réglé : elle ne peut pas partir. */
+  productionBloquee?: string;
 };
 
 export function DeployPanel({
@@ -141,6 +144,10 @@ export function DeployPanel({
   const state = useApp();
   const run = state.deploys[projectId];
   const [busy, setBusy] = React.useState(false);
+  /* La mise en production met le code chez le client, clôt les cartes et les
+     archive : ce geste demande une confirmation. Le déploiement sur l'instance
+     de dev, lui, part toujours d'un seul clic. */
+  const [confirmation, setConfirmation] = React.useState(false);
   /* Le déroulé des sept étapes, replié par défaut : le chevron l'ouvre. */
   const [processOuvert, setProcessOuvert] = React.useState(false);
   /* La TÊTE (bouton + chevron + déroulé en superposition) : un clic hors d'elle
@@ -179,6 +186,9 @@ export function DeployPanel({
   /* COMMENT l'instance de dev sera rafraîchie : on le dit avant le clic, pour
      que le déroulé ne soit pas une surprise. */
   const [miseEnLigne, setMiseEnLigne] = React.useState<PlanDeMiseEnLigne | null>(null);
+  /* Une MISE EN PRODUCTION sans prompt réglé ne part pas : le serveur nous le
+     dit, avec la phrase à afficher. Vide pour un déploiement, toujours. */
+  const [productionBloquee, setProductionBloquee] = React.useState<string | null>(null);
   const signature = embarked.map((card) => card.id).join(',');
 
   /*
@@ -201,6 +211,7 @@ export function DeployPanel({
           setBusyAgents(res?.busy ?? []);
           setEnAttente(res?.enAttente ?? { nombre: 0, titres: [] });
           setMiseEnLigne(res?.miseEnLigne ?? null);
+          setProductionBloquee(res?.productionBloquee ?? null);
         })
         .catch(() => undefined);
     void controler();
@@ -248,6 +259,20 @@ export function DeployPanel({
     }
   };
 
+  /*
+   * Le clic sur le bouton d'action. Pour la MISE EN PRODUCTION, il n'envoie
+   * plus rien tout de suite : il ouvre la modale de confirmation, et
+   * `deploy.start` n'est appelé qu'après « Publier ». Le déploiement sur
+   * l'instance de dev garde son départ au premier clic.
+   */
+  const demarrer = () => {
+    if (etape?.cible === 'production') {
+      setConfirmation(true);
+      return;
+    }
+    void start();
+  };
+
   const aPublier = embarked.length + enAttente.nombre;
   /*
    * Une publication réussie n'affiche plus son compte rendu : dès qu'elle
@@ -267,9 +292,14 @@ export function DeployPanel({
     const infos: InfosPublication = {};
     if (active && !mienne) infos.autrePublication = true;
     if (miseEnLigne && aPublier && etape?.cible === 'dev') infos.moyen = miseEnLigne.raison;
+    // Une mise en production sans prompt réglé : on l'explique dès qu'un lot
+    // attend et ne peut pas partir. Le déploiement ne connaît jamais ce cas.
+    if (productionBloquee && aPublier) infos.productionBloquee = productionBloquee;
     if (enAttente.nombre) infos.enAttente = enAttente;
-    return infos.moyen || infos.enAttente || infos.autrePublication ? infos : null;
-  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente]);
+    return infos.moyen || infos.enAttente || infos.autrePublication || infos.productionBloquee
+      ? infos
+      : null;
+  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente, productionBloquee]);
 
   /* On remonte l'objet SANS en faire une dépendance : on suit sa signature,
      sinon la fonction passée en prop, recréée à chaque rendu, bouclerait. */
@@ -309,8 +339,10 @@ export function DeployPanel({
           size="sm"
           className="min-w-0 flex-1"
           data-bouton-publication
-          disabled={publicationEnCours || !aPublier || busy || active || busyAgents.length > 0}
-          onClick={publicationEnCours ? undefined : start}
+          disabled={
+            publicationEnCours || !aPublier || busy || active || busyAgents.length > 0 || !!productionBloquee
+          }
+          onClick={publicationEnCours ? undefined : demarrer}
         >
           {publicationEnCours ? (
             <>
@@ -388,6 +420,28 @@ export function DeployPanel({
       ) : null}
 
       {publicationEnCours || rapport ? <DeployControls run={run!} /> : null}
+
+      {/* La confirmation de la MISE EN PRODUCTION : elle nomme l'étape, rappelle
+          le lot qui part (le même compte que le bouton, travail sans carte
+          compris) et prévient que ces cartes seront closes puis archivées.
+          « Publier » lance seul la publication ; « Annuler » ne touche à rien. */}
+      <ConfirmDialog
+        open={confirmation}
+        title="Mise en production"
+        description={
+          aPublier > 1 ? (
+            <>
+              {aPublier} tâches vont partir chez le client. Une fois publiées, elles seront closes puis archivées.
+            </>
+          ) : (
+            <>Une tâche va partir chez le client. Une fois publiée, elle sera close puis archivée.</>
+          )
+        }
+        confirmLabel="Publier"
+        danger
+        onConfirm={() => void start()}
+        onClose={() => setConfirmation(false)}
+      />
     </div>
   );
 }
@@ -425,6 +479,13 @@ export function BoutonInfosPublication({
       </Tooltip>
       <DropdownMenuContent align="end" className="sm:max-w-[280px]">
         <div className="space-y-2 px-1 py-0.5 text-[12px] leading-snug">
+          {infos.productionBloquee ? (
+            <p className="flex items-start gap-1.5 text-warning" data-production-bloquee>
+              <AlertCircle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+              <span>{infos.productionBloquee}</span>
+            </p>
+          ) : null}
+
           {infos.autrePublication ? (
             <p className="flex items-start gap-1.5 text-muted" data-publication-ailleurs>
               <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />

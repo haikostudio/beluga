@@ -12,7 +12,9 @@ import {
   RefreshCw,
   Save,
   Send,
+  Server,
   ShieldCheck,
+  Wifi,
   Trash2,
   Volume2,
 } from 'lucide-react';
@@ -295,6 +297,8 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
         </div>
       </section>
 
+      <SectionAccesVps />
+
       <SectionCerveau />
 
       <SectionErreursInterface />
@@ -315,6 +319,182 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
         onClose={() => setAConfirmer(null)}
       />
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Les accès à la machine (le VPS)                                      */
+/* ------------------------------------------------------------------ */
+
+const MOYENS_ACCES_VPS: { id: 'agent' | 'cle' | 'mot-de-passe'; libelle: string }[] = [
+  { id: 'agent', libelle: 'Clés SSH déjà en place' },
+  { id: 'cle', libelle: 'Fichier de clé privée' },
+  { id: 'mot-de-passe', libelle: 'Mot de passe' },
+];
+
+/**
+ * Ce qui touche à HaikoDev lui-même — la machine où il tourne — se règle ICI,
+ * jamais dans les réglages d'un projet. Renseignés, ces accès servent à créer
+ * une adresse publique sur la machine distante ; laissés vides, la création
+ * d'adresse garde son fonctionnement local d'aujourd'hui.
+ */
+function SectionAccesVps() {
+  const settings = useApp().settings;
+  const [hote, setHote] = React.useState('');
+  const [port, setPort] = React.useState('22');
+  const [utilisateur, setUtilisateur] = React.useState('');
+  const [moyen, setMoyen] = React.useState<'agent' | 'cle' | 'mot-de-passe'>('agent');
+  const [cle, setCle] = React.useState('');
+  const [motDePasse, setMotDePasse] = React.useState('');
+  const [enregistre, setEnregistre] = React.useState(false);
+  const [testEnCours, setTestEnCours] = React.useState(false);
+  const [resultat, setResultat] = React.useState<{ ok: boolean; message: string } | null>(null);
+
+  // Les champs partent des réglages du serveur et les rejoignent au rechargement.
+  React.useEffect(() => {
+    if (!settings) return;
+    setHote(settings.vpsHote ?? '');
+    setPort(String(settings.vpsPort ?? 22));
+    setUtilisateur(settings.vpsUtilisateur ?? '');
+    setMoyen((settings.vpsMoyen as any) ?? 'agent');
+    setCle(settings.vpsCle ?? '');
+    setMotDePasse(settings.vpsMotDePasse ?? '');
+  }, [settings?.vpsHote, settings?.vpsPort, settings?.vpsUtilisateur, settings?.vpsMoyen, settings?.vpsCle, settings?.vpsMotDePasse]);
+
+  const patch = () => ({
+    vpsHote: hote.trim(),
+    vpsPort: Number.parseInt(port, 10) || 22,
+    vpsUtilisateur: utilisateur.trim(),
+    vpsMoyen: moyen,
+    vpsCle: cle.trim(),
+    vpsMotDePasse: motDePasse,
+  });
+
+  const enregistrer = () => {
+    client.send({ type: 'settings.update', patch: patch() });
+    setEnregistre(true);
+    window.setTimeout(() => setEnregistre(false), 1600);
+  };
+
+  const tester = async () => {
+    setResultat(null);
+    setTestEnCours(true);
+    try {
+      // On teste ce qui est à l'écran : on l'enregistre d'abord, puis le serveur
+      // éprouve les accès qu'il vient de recevoir (même connexion, dans l'ordre).
+      client.send({ type: 'settings.update', patch: patch() });
+      const data = await client.call<{ ok: boolean; message: string }>({ type: 'vps.test' });
+      setResultat(data);
+    } catch (err: any) {
+      setResultat({ ok: false, message: err?.message ?? 'test impossible' });
+    } finally {
+      setTestEnCours(false);
+    }
+  };
+
+  return (
+    <section className="mt-4" data-bloc-vps>
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <Server className="h-3.5 w-3.5 text-faint" /> Accès au VPS
+      </h3>
+
+      <p className="mb-2 text-[12.5px] leading-relaxed text-faint">
+        La machine sur laquelle tourne HaikoDev. Renseignés, ces accès servent à créer une adresse publique ; laissés
+        vides, la création d'adresse reste locale, comme aujourd'hui.
+      </p>
+
+      <div className="rounded-md border border-border bg-surface px-2.5 py-2.5">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-0.5 block text-[12px] text-faint">Adresse de la machine</span>
+            <Input
+              value={hote}
+              onChange={(e) => setHote(e.target.value)}
+              placeholder="ex. 203.0.113.10"
+              className="h-7 w-full text-[12.5px]"
+              autoComplete="off"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[12px] text-faint">Port</span>
+            <Input
+              value={port}
+              onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="22"
+              inputMode="numeric"
+              className="h-7 w-full text-[12.5px]"
+              autoComplete="off"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[12px] text-faint">Utilisateur</span>
+            <Input
+              value={utilisateur}
+              onChange={(e) => setUtilisateur(e.target.value)}
+              placeholder="ex. root"
+              className="h-7 w-full text-[12.5px]"
+              autoComplete="off"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[12px] text-faint">Moyen de connexion</span>
+            <select
+              value={moyen}
+              onChange={(e) => setMoyen(e.target.value as any)}
+              className="h-7 w-full rounded-md border border-border bg-bg px-2 text-[12.5px] text-text"
+            >
+              {MOYENS_ACCES_VPS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.libelle}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {moyen === 'cle' ? (
+          <label className="mt-2 block">
+            <span className="mb-0.5 block text-[12px] text-faint">Chemin du fichier de clé privée</span>
+            <Input
+              value={cle}
+              onChange={(e) => setCle(e.target.value)}
+              placeholder="ex. /root/.ssh/id_ed25519"
+              className="h-7 w-full text-[12.5px]"
+              autoComplete="off"
+            />
+          </label>
+        ) : null}
+
+        {moyen === 'mot-de-passe' ? (
+          <label className="mt-2 block">
+            <span className="mb-0.5 block text-[12px] text-faint">Mot de passe</span>
+            <Input
+              type="password"
+              value={motDePasse}
+              onChange={(e) => setMotDePasse(e.target.value)}
+              placeholder="Mot de passe de la machine"
+              className="h-7 w-full text-[12.5px]"
+              autoComplete="off"
+            />
+          </label>
+        ) : null}
+
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <Button variant="secondary" size="sm" onClick={enregistrer}>
+            {enregistre ? <ShieldCheck className="h-3 w-3 text-success" /> : <Save className="h-3 w-3" />}
+            {enregistre ? 'Enregistré' : 'Enregistrer'}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={tester} disabled={testEnCours}>
+            {testEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
+            Tester la connexion
+          </Button>
+        </div>
+
+        {resultat ? (
+          <p className={cn('mt-2 text-[13px]', resultat.ok ? 'text-success' : 'text-danger')}>{resultat.message}</p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

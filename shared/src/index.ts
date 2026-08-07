@@ -1,3 +1,4 @@
+export * from './acces-vps.js';
 export * from './amorce.js';
 export * from './analyse.js';
 export * from './apercu-fichier.js';

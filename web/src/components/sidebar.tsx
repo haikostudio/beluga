@@ -18,6 +18,7 @@ import {
   Search,
   Settings2,
   TriangleAlert,
+  Wrench,
   X,
 } from 'lucide-react';
 import {
@@ -72,6 +73,7 @@ export function Sidebar({
   onChoose,
   onOpenDashboard,
   dashboardActive,
+  onCloseDashboard,
 }: {
   onOpenAgent: (agentId: string) => void;
   width?: number;
@@ -81,6 +83,8 @@ export function Sidebar({
   onOpenDashboard?: () => void;
   /** La page « Tableau de bord » est-elle ouverte ? Le bouton s'allume alors. */
   dashboardActive?: boolean;
+  /** Referme la page « Tableau de bord » pour laisser voir un tableau de projet. */
+  onCloseDashboard?: () => void;
 }) {
   const state = useApp();
   const [adding, setAdding] = React.useState(false);
@@ -162,7 +166,15 @@ export function Sidebar({
     return { id: '__racine__', kind: 'root', position: 'inside' as const };
   }, []);
 
-  const actifs = state.projects.filter((p) => !p.archived);
+  /*
+   * L'espace de développement de l'application (le projet marqué `isSelf`)
+   * n'est PAS un projet comme les autres : il ne se range pas, ne se glisse pas
+   * et n'entre dans aucun groupe. Il sort donc de la liste — et de tout ce qui
+   * en découle, groupes compris — pour vivre dans son propre bouton, posé
+   * au-dessus du libellé « Projets », à côté du tableau de bord.
+   */
+  const actifs = state.projects.filter((p) => !p.archived && !p.isSelf);
+  const espaceDev = state.projects.find((p) => !p.archived && p.isSelf) ?? null;
   const groups = state.groups;
 
   /** Projets hors groupe et groupes rangés ENSEMBLE, par rang. */
@@ -364,6 +376,24 @@ export function Sidebar({
             <LayoutDashboard className="h-3.5 w-3.5" /> Tableau de bord
           </Button>
         </div>
+      ) : null}
+
+      {/* Juste en dessous, toujours AU-DESSUS des projets : l'espace de
+          développement de l'application elle-même. Ce n'est pas un projet
+          client, il ne se range donc pas avec eux — mais il garde tous ses
+          repères, sinon on cesserait de voir ce qui s'y passe. */}
+      {espaceDev ? (
+        <LigneEspaceDev
+          project={espaceDev}
+          active={espaceDev.id === state.activeProjectId && !dashboardActive}
+          running={runningOf(espaceDev.id)}
+          publie={publieOf(espaceDev.id)}
+          attention={state.attention[espaceDev.id]}
+          rendus={state.rendus[espaceDev.id]}
+          onSettings={() => setSettingsFor(espaceDev.id)}
+          onChoose={onChoose}
+          onQuitterTableauDeBord={onCloseDashboard}
+        />
       ) : null}
 
       <div className="flex items-center gap-1 px-2 py-2">
@@ -1026,6 +1056,102 @@ function Trait({ ou }: { ou?: 'before' | 'after' }) {
         ou === 'before' ? '-top-px' : '-bottom-px',
       )}
     />
+  );
+}
+
+/**
+ * L'espace de développement de l'application, en bouton à part.
+ *
+ * Le projet posé sur le dossier de HaikoDev (marque `isSelf`) n'est pas un
+ * projet client : c'est l'atelier où l'outil lui-même évolue. Il quitte donc la
+ * liste — plus de poignée de rangement, plus de groupe possible — pour prendre
+ * place au-dessus du libellé « Projets », dans la tenue du bouton « Tableau de
+ * bord ». Rien d'autre ne change : même identifiant, mêmes cartes, même
+ * conversation, mêmes réglages, et les MÊMES repères qu'une ligne de projet
+ * (robot, triangle de décision, point bleu de travail rendu, point jaune de
+ * publication) — les perdre reviendrait à cesser de voir ce qui s'y passe.
+ */
+function LigneEspaceDev({
+  project,
+  active,
+  running,
+  publie,
+  attention,
+  rendus,
+  onSettings,
+  onChoose,
+  onQuitterTableauDeBord,
+}: {
+  project: Project;
+  active: boolean;
+  running: number;
+  publie?: boolean;
+  attention?: number;
+  rendus?: number;
+  onSettings: () => void;
+  onChoose?: () => void;
+  /** Le tableau de bord occupe la place : un clic ici doit le refermer. */
+  onQuitterTableauDeBord?: () => void;
+}) {
+  const secoue = useSecousse({ attention, rendus }, active);
+  const ouvrir = () => {
+    client.setActiveProject(project.id);
+    onQuitterTableauDeBord?.();
+    onChoose?.();
+  };
+  return (
+    <div className="px-1.5 pt-1">
+      <div
+        data-espace-dev={project.id}
+        data-espace-dev-attention={attention || undefined}
+        data-espace-dev-rendus={rendus || undefined}
+        className={cn(
+          'group relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px]',
+          'transition-[background-color,color] duration-150 motion-reduce:transition-none',
+          active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
+          secoue && 'animate-secousse',
+        )}
+      >
+        <button
+          data-ouvrir-espace-dev
+          onClick={ouvrir}
+          title={`${project.name} — l’espace où l’application elle-même est développée`}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          {/* Le robot prend la place de l'outil tant qu'un agent écrit : même
+              emplacement, donc rien ne s'ajoute à la ligne. */}
+          {running ? (
+            <RepereRobot running={running} />
+          ) : (
+            <Wrench className="h-3.5 w-3.5 shrink-0" />
+          )}
+          <RepereePublication publie={!!publie} />
+          {/* Un libellé COURT : la colonne fait moins de 200 px, et la ligne
+              porte déjà l'outil, un repère et l'engrenage. « Développement de
+              l'application » y finissait en points de suspension. */}
+          <span className="min-w-0 flex-1 truncate">Développement</span>
+        </button>
+        {/* Hors du bouton : un repère porte son propre geste, et un bouton n'en
+            contient pas un autre. */}
+        <RepereLigne
+          signal={{ attention, rendus }}
+          onLu={() => client.call({ type: 'project.read', projectId: project.id })}
+          onDecision={() => {
+            onQuitterTableauDeBord?.();
+            allerALaDecision(project.id, onChoose);
+          }}
+          className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
+        />
+        <button
+          onClick={onSettings}
+          data-reglages-projet={project.id}
+          className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover:opacity-100"
+          title="Réglages de l’espace de développement"
+        >
+          <Settings2 className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
   );
 }
 
