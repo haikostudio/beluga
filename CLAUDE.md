@@ -1600,10 +1600,16 @@ sans son point d'essai.
   rien ne change : tout se fait EN LOCAL, mot pour mot. Rien d'autre ne bascule sur ces accès (ni le
   déploiement, ni la mise en production, ni les agents), et le champ `Project.devUrl` garde son rôle.
   Verrouillé par `server/src/test/acces-vps.test.ts`.
-- **Un moteur qui ne recolle pas sa consigne système la reçoit en rappel.** Claude Code repasse
-  `--append-system-prompt` à chaque tour ; Codex n'a la sienne qu'au premier message du fil, donc
-  toute reprise part avec `systemPromptRappel` (`rappelDeMethode`) devant la demande — le pavé
-  entier, lui, ne repart jamais. Sans ce rappel, le déroulé s'effaçait d'un moteur et pas de l'autre.
+- **En reprise, chaque moteur ne reçoit que le RAPPEL de méthode, jamais la consigne entière.**
+  La consigne de rôle entière (`rolePrompt`) ne part qu'au PREMIER tour d'une session ; les tours
+  suivants n'emportent que `systemPromptRappel` (`rappelDeMethode`) — le pavé entier ne repart
+  jamais, la session (cache) le portant déjà, et le déroulé imposé reste présent car le rappel le
+  porte. Vaut pour les DEUX moteurs, par le même choix `resuming ? rappel : entier` : Claude Code
+  passe l'en-tête par `--append-system-prompt` (`buildClaudeArgs`, `server/src/engines/claude.ts`),
+  réappliqué à chaque invocation — on renvoyait donc la consigne entière (~1 050 jetons pour une
+  tâche, ~1 930 pour le chef) à chaque reprise pour rien ; Codex la colle devant la demande
+  (`buildCodexArgs`), où elle entre dans l'historique du fil. Sans ce rappel, le déroulé s'effaçait.
+  Verrouillé par `server/src/test/systeme-claude.test.ts` et `server/src/test/deroule-uniforme.test.ts`.
 - La liste de tâches (`TodoWrite`, `TaskCreate`/`TaskUpdate`, `TaskList`, `TaskGet`) est
   AUTORISÉE même au chef d'orchestre bridé : elle n'écrit rien, elle affiche le déroulé. Lancer un
   travail en arrière-plan (`Task`, `Agent`, `Workflow`, `TaskStop`, `TaskOutput`) reste interdit.
