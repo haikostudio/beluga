@@ -8,6 +8,7 @@ import {
   CONSIGNE_CREATION_PROJET,
   CONSIGNE_DESCRIPTION_CARTE,
   Card,
+  DeployRun,
   ETAPE_PONT,
   ETAPE_PONT_ID,
   EngineId,
@@ -15,6 +16,7 @@ import {
   Message,
   Project,
   RunStep,
+  decisionRepriseCoupure,
   TaskProposal,
   TemplateKind,
   TodoItem,
@@ -1082,7 +1084,9 @@ Si ta tâche a changé une règle durable, une architecture ou une commande, met
 /* Reprise après redémarrage (PLAN §12)                                */
 /* ------------------------------------------------------------------ */
 
-export function recoverAfterRestart(): void {
+export function recoverAfterRestart(
+  reprendrePublication?: (run: DeployRun, reprises: number) => void,
+): void {
   const agents = store.listAgents().filter((a) => a.status === 'running' || a.status === 'starting');
   for (const agent of agents) {
     // Le processus a disparu avec le démon : on remet en file SANS consommer
@@ -1120,14 +1124,45 @@ export function recoverAfterRestart(): void {
     }
   }
 
-  // Un lot de publication interrompu doit être signalé, pas laissé « en cours ».
+  /*
+   * Une publication « running » a été coupée en plein vol par le redémarrage :
+   * comme un agent disparu juste au-dessus, ce n'est pas un échec, on la REPREND
+   * depuis le début de son étape et avec la même cible. Mais une reprise qui se
+   * fait couper à son tour bouclerait à l'infini : on compte les reprises et, au
+   * plafond, l'échec reste et NOMME la cause. La reprise elle-même ne part que si
+   * le démon nous a passé de quoi la lancer (comptes et projets déjà chargés) —
+   * jamais depuis un contrôle qui ne juge que la décision.
+   *
+   * Une publication réellement en échec (contrôles, construction, conflit) porte
+   * déjà l'état « failed » : `runningDeploys()` ne la rend pas, elle n'est donc
+   * jamais reprise.
+   */
   for (const run of store.runningDeploys()) {
-    store.saveDeploy({
-      ...run,
-      state: 'failed',
-      error: 'Publication interrompue par un redémarrage du serveur.',
-      endedAt: Date.now(),
-    });
+    const decision = decisionRepriseCoupure(run.reprises ?? 0);
+    if (decision.reprendre && reprendrePublication) {
+      // L'ancien run est CLOS pour ne pas être repris de nouveau au prochain
+      // démarrage : la reprise vit dans une NOUVELLE publication, qui portera le
+      // compte incrémenté.
+      store.saveDeploy({
+        ...run,
+        state: 'stopped',
+        error: 'Publication interrompue par un redémarrage — reprise dans une nouvelle publication.',
+        endedAt: Date.now(),
+      });
+      log.info(
+        `publication du projet ${run.projectId} reprise après redémarrage (reprise ${decision.reprises})`,
+      );
+      reprendrePublication(run, decision.reprises);
+    } else {
+      store.saveDeploy({
+        ...run,
+        state: 'failed',
+        error: decision.reprendre
+          ? 'Publication interrompue par un redémarrage du serveur.'
+          : decision.erreur,
+        endedAt: Date.now(),
+      });
+    }
   }
 }
 
