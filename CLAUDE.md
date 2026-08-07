@@ -58,6 +58,7 @@ node scripts/verif-tableau-de-bord.mjs # la page « Tableau de bord » (serveur 
 node scripts/verif-prevision-quota.mjs # la prévision d'épuisement, dans le volet des quotas
 node scripts/verif-defilement-tableau.mjs # les axes de défilement du tableau, sur écran de téléphone
 node scripts/verif-volet-taches.mjs # le volet des tâches, fixe en bas de la conversation
+node scripts/verif-bandeau-propositions.mjs # les cartes proposées en bandeau fixe au-dessus de la barre d'écriture (démon d'essai à soi)
 node scripts/verif-heure-permanente.mjs # l'heure sous les messages, sombre / clair / téléphone
 node scripts/verif-signal-attention.mjs # la secousse, le triangle et le badge bleu — et leur report sur carte / conversation
 node scripts/verif-onglets-tableau.mjs # le repère sur les onglets du tableau (téléphone) : triangle décision / point bleu non lu (serveur de développement, HAIKO_ONGLETS_URL)
@@ -1180,6 +1181,25 @@ sans son point d'essai.
   trop long serait comprimé au lieu de défiler. Le fil porte `data-fil="conversation"`, seul repère
   des scripts de vérification. Verrouillé par `scripts/verif-vide-carte-validee.mjs`, qui couvre le
   fil court, le fil dont les échanges précédents sont repliés, et l'accès au haut du fil.
+- **Une carte proposée qui ATTEND un clic vit dans un bandeau FIXE, jamais dans le fil**
+  (`shared/src/propositions-en-attente.ts`, `web/src/components/propositions.tsx`). Rendue dans le
+  message qui la portait, elle remontait avec les échanges : ses boutons « Créer la carte » /
+  « Refuser » sortaient de l'écran dès qu'une réponse arrivait, ou dès qu'une description en quatre
+  parties dépassait un écran de téléphone. `propositionsEnAttente(messages)` les sort donc du fil et
+  `BandeauPropositions` les pose entre la conversation et le volet des tâches (`data-bandeau
+  ="propositions"`), au-dessus de la barre d'écriture — même place, même esprit que `VoletTaches`,
+  qui ne bouge pas. Elles s'y rangent en LIGNE, une vignette chacune
+  (`data-vignette="proposition"`, largeur `min(320px,80vw)`), et le bandeau glisse
+  HORIZONTALEMENT seulement (`ZoneDefilement axe="horizontal"`, qui écrit `overflow-y-hidden` en
+  toutes lettres). Chaque vignette garde titre, réglages moteur / modèle / réflexion, avertissement
+  et les deux boutons ; la description est repliée au-delà de `DESCRIPTION_REPLIEE_MAX` (160
+  signes, donc TOUJOURS pour une description en règle) et s'ouvre au clic dans une zone bornée qui
+  défile sur elle-même — le bandeau reste une bande. Le fil, lui, garde les propositions DÉCIDÉES
+  (`propositionsDuFil`, `ProposalChip` réduit aux deux états « créée » / « refusée ») : une
+  proposition est à UN seul endroit, jamais aux deux ni à aucun. Aucune en attente : le bandeau ne
+  rend RIEN et ne prend aucune place. La décision elle-même ne change pas — même `proposal.decide`,
+  même héritage des réglages de la conversation, aucune commande serveur nouvelle. Verrouillé par
+  `server/src/test/propositions-en-attente.test.ts` et `scripts/verif-bandeau-propositions.mjs`.
 - **Le bloc en bas à droite porte DEUX piles, jamais une seule** (`web/src/components/pile.tsx`).
   Les messages courts et les vignettes d'agents s'empilent par le MÊME composant `Pile`, qui écrit
   une fois pour toutes la géométrie (`placeDansLaPile`), le survol et l'appui — mais chacun dans SA

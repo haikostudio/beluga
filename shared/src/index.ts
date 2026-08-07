@@ -48,6 +48,7 @@ export * from './pont-outils.js';
 export * from './position-voix.js';
 export * from './progression-taches.js';
 export * from './projet-actif.js';
+export * from './propositions-en-attente.js';
 export * from './protocol.js';
 export * from './publication-terminee.js';
 export * from './question-en-texte.js';

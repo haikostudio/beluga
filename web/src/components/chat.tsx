@@ -15,6 +15,7 @@ import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { useArretAgent } from '@/components/arret-agent';
 import { VoletTaches } from '@/components/todos';
+import { BandeauPropositions } from '@/components/propositions';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -226,6 +227,12 @@ export function Chat({
         </div>
       </ZoneDefilement>
       </div>
+
+      {/* Les cartes proposées qui attendent encore un clic sont posées en
+          bandeau FIXE, juste au-dessus du volet des tâches : elles ne remontent
+          plus avec les messages et leurs boutons restent sous les yeux. Sans
+          proposition en attente, le bandeau ne rend rien. */}
+      <BandeauPropositions messages={messages} />
 
       {/* La liste des tâches est un volet FIXE, entre le fil et la barre
           d'écriture : elle ne remonte plus avec les messages. Elle porte celle
