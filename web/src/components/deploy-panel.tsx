@@ -34,7 +34,7 @@ import {
 } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
-import { cn, elapsed } from '@/lib/utils';
+import { cn, duration, elapsed } from '@/lib/utils';
 
 /** L'ordre des sept étapes de la mise en ligne — le même que côté serveur. */
 const ORDRE_ETAPES: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
@@ -63,7 +63,19 @@ const STEP_DESCRIPTIONS: Record<DeployStepKey, string> = {
   restart: 'Le service est relancé pour servir la version fraîche.',
 };
 
-type EtatEtape = DeployRun['steps'][number]['state'];
+type EtapeRun = DeployRun['steps'][number];
+type EtatEtape = EtapeRun['state'];
+
+/**
+ * La DURÉE d'une étape terminée, en une poignée de signes. Les étapes rapides
+ * (enregistrement, envoi) tiennent sous la seconde : on le dit plutôt que
+ * d'afficher un tiret, qui se lirait comme « durée inconnue ».
+ */
+function dureeEtape(etape?: EtapeRun): string | null {
+  if (!etape?.startedAt || !etape.endedAt) return null;
+  const secondes = (etape.endedAt - etape.startedAt) / 1000;
+  return secondes < 1 ? '< 1 s' : duration(secondes);
+}
 
 /** L'état d'une étape, dit en français simple. */
 const ETAT_LABELS: Record<EtatEtape, string> = {
@@ -515,21 +527,33 @@ export function BoutonInfosPublication({
 /**
  * Le déroulé des sept étapes, pleine largeur, ouvert par le chevron de la tête.
  *
- * Avec un `run`, chaque étape porte son état RÉEL (fait, en cours, sauté, à
- * venir, échoué) ; sans lui — hors publication — les sept sont « à venir ».
+ * Il AVANCE À VUE : le serveur réémet l'état à chaque pas, si bien qu'une étape
+ * en cours porte sa PROGRESSION (la branche en cours de fusion, le contrôle
+ * lancé, la commande de construction) et une étape terminée sa DURÉE. La liste
+ * n'annonce QUE ce qui va réellement se faire : une étape SAUTÉE n'y figure pas
+ * — le redémarrage du serveur, souvent inutile, disparaît ainsi dès qu'on sait
+ * qu'il ne sera pas fait.
+ *
+ * Sans `run` — chevron ouvert hors publication —, les sept sont « à venir » :
+ * c'est l'aperçu du déroulé complet, aucune étape n'étant encore décidée.
  * Chaque libellé cache une courte description, révélée par le « ? » (au survol
  * à la souris, au clic partout ailleurs).
  */
 function ProcessusEtapes({ run }: { run?: DeployRun }) {
   const [montre, setMontre] = React.useState<DeployStepKey | null>(null);
 
+  // Une étape sautée ne s'affiche pas : la liste ne montre que ce qui va
+  // réellement être fait. Hors publication (aucun run), rien n'est sauté.
+  const affichees = ORDRE_ETAPES.filter((key) => run?.steps.find((step) => step.key === key)?.state !== 'skipped');
+
   return (
     <div className="mt-1.5 rounded-md border border-border bg-raised p-2 shadow-lg" data-processus-etapes>
       <ul className="space-y-1">
-        {ORDRE_ETAPES.map((key) => {
+        {affichees.map((key) => {
           const etape = run?.steps.find((step) => step.key === key);
           const etat: EtatEtape = etape?.state ?? 'todo';
           const ouverte = montre === key;
+          const duree = dureeEtape(etape);
           return (
             <li key={key} className="text-[13px]" data-etape-process={key} data-etat-process={etat}>
               <div className="flex items-start gap-1.5">
@@ -539,7 +563,13 @@ function ProcessusEtapes({ run }: { run?: DeployRun }) {
                 <span className={cn('flex-1 truncate', etat === 'failed' ? 'text-danger' : 'text-muted')}>
                   {STEP_LABELS[key]}
                 </span>
-                <span className="mt-[1px] shrink-0 text-[11px] text-faint">{ETAT_LABELS[etat]}</span>
+                {/* L'état, et la DURÉE quand l'étape est terminée : « fait · 4 s ». */}
+                <span className="mt-[1px] shrink-0 text-[11px] text-faint" data-etat-etape={etat}>
+                  {ETAT_LABELS[etat]}
+                  {duree && (etat === 'done' || etat === 'failed') ? (
+                    <span data-duree-etape={key}> · {duree}</span>
+                  ) : null}
+                </span>
                 {/* Le « ? » révèle la description : au survol à la souris, au
                     clic pour un écran tactile qui n'a pas de survol. */}
                 <button
@@ -558,6 +588,14 @@ function ProcessusEtapes({ run }: { run?: DeployRun }) {
                   ?
                 </button>
               </div>
+
+              {/* PENDANT qu'une étape tourne, ce qu'elle est en train de faire :
+                  la branche en cours de fusion, le contrôle lancé, la commande. */}
+              {etat === 'running' && etape?.progress ? (
+                <p className="ml-[22px] mt-0.5 text-[12px] text-muted" data-progress-etape={key}>
+                  {etape.progress}
+                </p>
+              ) : null}
 
               {ouverte ? (
                 <p className="ml-[22px] mt-0.5 text-[12px] text-faint" data-description-etape={key}>
