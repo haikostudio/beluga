@@ -1462,6 +1462,20 @@ sans son point d'essai.
   regarder le mot de passe, en disant le temps restant (`tempsRestantEnClair`). `login` prend la
   décision AVANT de vérifier le mot de passe. Une connexion RÉUSSIE (ok = 1) n'est ni comptée ni
   ralentie : seuls les ratés pèsent. Verrouillé par `server/src/test/mur-acces.test.ts`.
+- **Les accès à la MACHINE (le VPS) se règlent dans l'onglet Système, pas dans un projet**
+  (`shared/src/acces-vps.ts` pour les règles pures, `server/src/acces-vps.ts` pour l'exécution). Ce
+  qui touche à HaikoDev lui-même n'a rien à faire dans les réglages d'un projet. Les réglages portent
+  six champs à plat (`vpsHote`, `vpsPort`, `vpsUtilisateur`, `vpsMoyen` ∈ {`agent`, `cle`,
+  `mot-de-passe`}, `vpsCle`, `vpsMotDePasse`), enregistrés comme le reste. `accesRenseignes` = une
+  adresse ET un utilisateur ; `argumentsSsh` fabrique l'appel `ssh` (ou `sshpass ssh`) et
+  `commandeDistante` recompose une commande sûre entre guillemets. `vps.test` (bloc `data-bloc-vps`)
+  lance une commande anodine et DIT en clair si la machine répond, `messageErreurSsh` traduisant la
+  panne. La création d'une adresse publique (`publishSubdomain`, `server/src/dns.ts`) passe par ces
+  accès en SSH quand ils sont renseignés — jeton lu, reverse-proxy écrit et service web rechargé sur
+  la machine distante ; la résolution DNS reste locale (le nom est visible partout). LAISSÉS VIDES,
+  rien ne change : tout se fait EN LOCAL, mot pour mot. Rien d'autre ne bascule sur ces accès (ni le
+  déploiement, ni la mise en production, ni les agents), et le champ `Project.devUrl` garde son rôle.
+  Verrouillé par `server/src/test/acces-vps.test.ts`.
 - **Un moteur qui ne recolle pas sa consigne système la reçoit en rappel.** Claude Code repasse
   `--append-system-prompt` à chaque tour ; Codex n'a la sienne qu'au premier message du fil, donc
   toute reprise part avec `systemPromptRappel` (`rappelDeMethode`) devant la demande — le pavé

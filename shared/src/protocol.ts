@@ -250,6 +250,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Réglages d'affichage (largeurs, thème, replis) : conservés en base. */
   z.object({ type: z.literal('prefs.set'), key: z.string(), value: z.any() }),
   z.object({ type: z.literal('settings.update'), patch: z.record(z.any()) }),
+  /** Éprouve les accès au VPS réglés dans l'onglet Système. */
+  z.object({ type: z.literal('vps.test') }),
   z.object({ type: z.literal('capacity.processes') }),
   z.object({ type: z.literal('capacity.history') }),
   z.object({ type: z.literal('process.stop'), id: z.string() }),
