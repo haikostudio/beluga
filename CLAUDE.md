@@ -340,7 +340,12 @@ sans son point d'essai.
   `colonne`, `to_deploy` par défaut) et rejoue lui-même `etapeDeLaColonne` — donc il s'affiche tout
   de suite, sans attendre le serveur. Toute autre colonne ne rend RIEN. Le VERBE vient de l'étape
   (`EtapeDePublication.verbe`) : « Tout déployer » en tête de « À déployer », « Tout publier » en
-  tête de « En production », et la phrase du bouton éteint suit. Le compteur rejoue la règle du
+  tête de « En production », et la phrase du bouton éteint suit. **La MISE EN PRODUCTION demande
+  CONFIRMATION** : un clic sur « Tout publier » (cible `production`) n'envoie plus rien, il ouvre la
+  modale `ConfirmDialog` maison (titre « Mise en production », rappel du lot qui part, avertissement
+  que les cartes seront closes puis archivées, bouton « Publier ») ; `deploy.start` ne part qu'après
+  « Publier », « Annuler » ne lance rien. Le « Tout déployer » de « À déployer » (cible `dev`) part
+  toujours d'un seul clic, sans modale. Le compteur rejoue la règle du
   serveur — le garde-fou `!deployedAt` ne vaut que pour `to_deploy` —, et `deploy.start` emporte la
   `cible` de l'étape. La publication RETIENT son étape (`DeployRun.cible`) : la relance et la file
   d'attente repartent de la MÊME, et `runDeLEtape` décide dans lequel des deux blocs le déroulé
