@@ -167,7 +167,13 @@ test('une publication ne s’affiche que dans le bloc qui l’a lancée', () => 
 test('le bloc de publication est posé en tête des deux colonnes de mise en ligne', () => {
   const source = fs.readFileSync(path.join(RACINE, 'web/src/components/board.tsx'), 'utf8');
   assert.match(source, /column === 'to_deploy' \|\| column === 'in_production'/);
-  assert.match(source, /<DeployPanel projectId=\{projectId\} cards=\{columnCards\} colonne=\{column\} \/>/);
+  // Le bloc peut désormais recevoir d'autres props (il remonte ses textes
+  // informatifs à la tête de colonne) : on vérifie qu'il est posé avec la
+  // colonne et ses cartes, sans exiger une seule ligne.
+  assert.match(
+    source,
+    /<DeployPanel[\s\S]*?projectId=\{projectId\}[\s\S]*?cards=\{columnCards\}[\s\S]*?colonne=\{column\}/,
+  );
 });
 
 /* -------- Le pied de lot de la colonne -------- */
