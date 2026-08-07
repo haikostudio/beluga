@@ -63,7 +63,6 @@ import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
 import { scanProjects, registerProject, reorderProjects, createProjectFolder } from './projects.js';
-import { publishSubdomain } from './dns.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
@@ -230,19 +229,6 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'project.scan':
       return { found: await scanProjects() };
 
-    case 'project.publishDomain': {
-      const project = store.getProject(cmd.id);
-      if (!project) throw new Error('projet introuvable');
-      const result = await publishSubdomain(cmd.subdomain, cmd.port);
-      if (!result.ok) throw new Error(result.error ?? 'publication du nom impossible');
-      // Un projet n'a plus qu'UNE adresse : celle de son instance de dev,
-      // contrôlée à la fin de chaque déploiement.
-      const updated = store.saveProject({ ...project, devUrl: result.url });
-      bus.emit({ type: 'project.upsert', project: updated });
-      bus.toast('success', `Adresse en ligne : ${result.url}`);
-      return result;
-    }
-
     case 'project.group': {
       const project = store.getProject(cmd.id);
       if (!project) throw new Error('projet introuvable');
@@ -330,6 +316,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         gitRemote: cmd.gitRemote,
         github: cmd.github,
         githubPublic: cmd.githubPublic,
+        sousDomaine: cmd.sousDomaine,
+        port: cmd.port,
       });
       bus.emit({ type: 'project.upsert', project });
       // Une étape ratée se dit : le projet existe quand même, mais il lui

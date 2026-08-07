@@ -24,6 +24,7 @@ import {
   Project,
   ProjectGroup,
   type SignalProjet,
+  ZONE_PROJETS,
   avertissementRedemarrage,
   doitSecouerLigne,
   premiereDecision,
@@ -373,7 +374,7 @@ export function Sidebar({
           </Button>
         </Tooltip>
         <Tooltip label="Ajouter ou créer un projet">
-          <Button variant="ghost" size="icon-sm" onClick={() => setAdding(true)}>
+          <Button variant="ghost" size="icon-sm" data-ouvrir-projets onClick={() => setAdding(true)}>
             <Plus className="h-3 w-3" />
           </Button>
         </Tooltip>
@@ -1175,6 +1176,10 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
   const [newResume, setNewResume] = React.useState('');
   const [withGit, setWithGit] = React.useState(true);
   const [withGithub, setWithGithub] = React.useState(true);
+  /* L'adresse publique se demande ICI, au montage : un projet monté sans elle
+     est un projet dont le déploiement n'a rien à contrôler à la fin. */
+  const [newSousDomaine, setNewSousDomaine] = React.useState('');
+  const [newPort, setNewPort] = React.useState('');
   /* Le déroulé du montage : on le garde à l'écran après coup, sinon une étape
      ratée passerait dans un message qui s'efface tout seul. */
   const [etapes, setEtapes] = React.useState<Etape[] | null>(null);
@@ -1221,8 +1226,12 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
           git: withGit,
           gitRemote: newRemote.trim() || undefined,
           github: withGithub,
+          sousDomaine: newSousDomaine.trim() || undefined,
+          port: newPort ? Number(newPort) : undefined,
         },
-        180000,
+        /* La création de l'adresse attend que le nom soit visible sur Internet :
+           le montage peut donc durer plus longtemps qu'avant. */
+        300000,
       );
       client.setActiveProject(data.project.id);
       setEtapes(data.etapes ?? []);
@@ -1230,6 +1239,8 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
       setNewFolder('');
       setNewRemote('');
       setNewResume('');
+      setNewSousDomaine('');
+      setNewPort('');
       /* La fenêtre reste ouverte tant qu'une étape a échoué : c'est le seul
          endroit où l'on peut lire laquelle et pourquoi. */
       if ((data.etapes ?? []).every((etape) => etape.fait)) onClose();
@@ -1336,6 +1347,31 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
               />
               <p className="mt-1 text-[12px] leading-snug text-faint">
                 Cette phrase ouvre la documentation du projet et décrit le dépôt sur GitHub.
+              </p>
+            </div>
+            {/* L'adresse publique : demandée ici, créée pendant le montage. */}
+            <div data-adresse-nouveau-projet>
+              <Label>Adresse publique du projet (facultatif)</Label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Input
+                  value={newSousDomaine}
+                  onChange={(event) => setNewSousDomaine(event.target.value)}
+                  placeholder="nom-du-site"
+                  className="flex-1"
+                  data-sous-domaine
+                />
+                <span className="shrink-0 text-[12.5px] text-faint">.{ZONE_PROJETS}</span>
+                <Input
+                  value={newPort}
+                  onChange={(event) => setNewPort(event.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="port"
+                  className="w-[74px]"
+                  data-port-projet
+                />
+              </div>
+              <p className="mt-1 text-[12px] leading-snug text-faint">
+                Le nom et le port sur lequel le projet écoutera. HaikoDev crée l'adresse pendant le montage : c'est elle
+                qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est monté sans adresse.
               </p>
             </div>
             <div>

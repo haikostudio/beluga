@@ -5,6 +5,7 @@ import {
   Agent,
   AgentRole,
   Ampleur,
+  CONSIGNE_CREATION_PROJET,
   CONSIGNE_DESCRIPTION_CARTE,
   Card,
   ETAPE_PONT,
@@ -1014,7 +1015,11 @@ export function rolePrompt(role: AgentRole, isSelf: boolean, engine: EngineId = 
     `1. AVANT d'agir, annonce ta liste de tâches avec ${outilListe} : une ligne par action prévue, formulée en français simple.\n` +
     "2. Passe la ligne en cours à « en cours », et coche-la dès qu'elle est terminée, AVANT d'attaquer la suivante. Une seule ligne en cours à la fois.\n" +
     "Cette liste s'affiche dans la conversation et se coche sous les yeux de l'utilisateur : c'est ainsi qu'il suit ton avancement. Ne la recopie pas en texte, elle est déjà à l'écran.\n\n" +
-    `${METHODE}`;
+    `${METHODE}\n\n` +
+    /* Vaut pour TOUS les rôles : celui qui monte le projet comme celui qui
+       propose la carte qui le montera. Un projet monté sans adresse est un
+       projet dont chaque déploiement finira sans rien à contrôler. */
+    `${CONSIGNE_CREATION_PROJET}`;
 
   if (role === 'orchestrator') {
     const base = `${common}

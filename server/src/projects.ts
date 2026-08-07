@@ -3,11 +3,12 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { EngineId, Project } from '@haikodev/shared';
+import { EngineId, Project, TITRE_ETAPE_ADRESSE, adresseDuSousDomaine, jugerAdresseDemandee } from '@haikodev/shared';
 import * as store from './store.js';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { creerFichierInstructions } from './memory.js';
+import { DnsResult, publishSubdomain } from './dns.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -100,6 +101,41 @@ export function reorderProjects(ids: string[]): Project[] {
 export type EtapeCreation = { titre: string; fait: boolean; detail?: string };
 
 /**
+ * L'ADRESSE PUBLIQUE, étape du montage comme les autres.
+ *
+ * Rien de demandé : AUCUNE étape et aucun échec — un projet sans adresse reste
+ * parfaitement normal. Demandé mais mal saisi, ou refusé par le fournisseur :
+ * l'étape est notée en échec, avec sa cause, et le montage continue. Le
+ * mécanisme de création lui-même n'est pas touché : on l'appelle, c'est tout.
+ *
+ * `creer` n'est là que pour être remplacé par un contrôle : en vrai, c'est
+ * toujours le mécanisme existant.
+ */
+export async function etapeAdressePublique(
+  saisie: { sousDomaine?: string | null; port?: string | number | null },
+  creer: (sousDomaine: string, port: number) => Promise<DnsResult> = publishSubdomain,
+): Promise<{ etape?: EtapeCreation; url?: string }> {
+  const demande = jugerAdresseDemandee(saisie);
+  if (!demande.demandee) return {};
+
+  if (demande.erreur || !demande.sousDomaine || demande.port === undefined) {
+    return { etape: { titre: TITRE_ETAPE_ADRESSE, fait: false, detail: demande.erreur ?? 'adresse incomplète' } };
+  }
+
+  const attendue = adresseDuSousDomaine(demande.sousDomaine);
+  try {
+    const resultat = await creer(demande.sousDomaine, demande.port);
+    if (!resultat.ok) {
+      return { etape: { titre: TITRE_ETAPE_ADRESSE, fait: false, detail: resultat.error ?? 'création impossible' } };
+    }
+    const url = resultat.url ?? attendue;
+    return { etape: { titre: TITRE_ETAPE_ADRESSE, fait: true, detail: `${url} → port ${demande.port}` }, url };
+  } catch (err: any) {
+    return { etape: { titre: TITRE_ETAPE_ADRESSE, fait: false, detail: messageErreur(err) } };
+  }
+}
+
+/**
  * Crée un dossier NEUF sur le serveur puis l'inscrit : un nouveau projet
  * existe pour de vrai, il n'est pas seulement une ligne dans une liste.
  *
@@ -122,6 +158,10 @@ export async function createProjectFolder(input: {
   github?: boolean;
   /** Dépôt privé (défaut) ou public. */
   githubPublic?: boolean;
+  /** Le nom court de l'adresse publique voulue. Vide : aucune adresse créée. */
+  sousDomaine?: string;
+  /** Le port sur lequel le projet écoute sur le serveur. */
+  port?: number;
 }): Promise<{ project: Project; etapes: EtapeCreation[] }> {
   const slug =
     (input.folder?.trim() || input.name)
@@ -197,8 +237,22 @@ export async function createProjectFolder(input: {
     noter('Dépôt GitHub créé et poussé', resultat.ok, resultat.detail);
   }
 
+  /*
+   * L'adresse publique, AVANT l'inscription : c'est elle qu'on range dans le
+   * projet, et c'est elle que chaque déploiement contrôlera à la fin. Un échec
+   * n'arrête rien — le projet existe, il lui manque seulement son adresse.
+   */
+  const adresse = await etapeAdressePublique({ sousDomaine: input.sousDomaine, port: input.port });
+  if (adresse.etape) etapes.push(adresse.etape);
+
   log.info(`nouveau projet créé sur le serveur : ${target}`);
-  const project = registerProject({ name: input.name, path: target, gitRemote: remote, rank: 5 });
+  const project = registerProject({
+    name: input.name,
+    path: target,
+    gitRemote: remote,
+    devUrl: adresse.url,
+    rank: 5,
+  });
   noter('Projet inscrit dans la colonne de gauche', true);
   return { project, etapes };
 }

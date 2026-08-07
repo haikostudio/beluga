@@ -71,6 +71,7 @@ node scripts/verif-interrupteur-compte.mjs # l'interrupteur d'un compte au doigt
 node scripts/verif-tiroir-carte-telephone.mjs # le tiroir d'une carte épuré sur téléphone : tags repliés derrière un chevron, barre d'onglets cachée au défilement (serveur de développement, HAIKO_TIROIR_URL)
 node scripts/verif-bloc-publication.mjs # le bloc de publication repart à zéro après une mise en ligne
 node scripts/verif-mise-en-production.mjs # le bloc « Mise en production » des réglages du projet : concept écrit, prompt généré, enregistré, retrouvé au rechargement (serveur de développement, HAIKO_PRODUCTION_URL ; `project.update` et `production.generer` interceptés, persistance imitée par le stockage local, aucun projet réel touché)
+node scripts/verif-adresse-nouveau-projet.mjs # l'adresse publique demandée au montage : champs de l'onglet « Nouveau projet », étape dans le déroulé, réglages sans créateur manuel (serveur de développement, HAIKO_ADRESSE_URL ; `project.new` intercepté, aucun dossier ni nom réellement créé)
 node scripts/verif-decoupe-hors-tache.mjs # une fonctionnalité sans carte = une branche (dépôt d'essai)
 node scripts/verif-fondu-defilement.mjs # le fondu flouté en haut et en bas des zones qui défilent
 node scripts/verif-vide-carte-validee.mjs # un échange court finit sous le dernier bloc, pas au-dessus d'un grand vide (démon d'essai à soi)
@@ -309,8 +310,29 @@ sans son point d'essai.
 - **Créer un projet, c'est le MONTER en entier**, toujours de la même façon : dossier sur le serveur,
   dépôt git sur `main`, dépôt GitHub privé créé et poussé, puis les sept fichiers de départ
   (`README.md`, `CLAUDE.md`, `AGENTS.md` qui renvoie au premier, `DOCUMENTATION.md`, `MEMOIRE.md`,
-  `HISTORIQUE.md`, `.gitignore`), et enfin l'inscription dans la colonne de gauche. Rien n'est
-  écrasé, une étape ratée n'arrête pas les autres et se dit dans le formulaire.
+  `HISTORIQUE.md`, `.gitignore`), l'ADRESSE PUBLIQUE quand elle est demandée, et enfin l'inscription
+  dans la colonne de gauche. Rien n'est écrasé, une étape ratée n'arrête pas les autres et se dit
+  dans le formulaire.
+- **L'ADRESSE PUBLIQUE se demande AU MONTAGE, jamais après coup**
+  (`shared/src/sous-domaine-projet.ts` pour les règles, `etapeAdressePublique` dans
+  `server/src/projects.ts`). Le sous-domaine se fabriquait à la main, dans un bloc des réglages du
+  projet, une fois le projet monté : un projet neuf naissait donc SANS adresse, et le déploiement
+  finissait sans rien à contrôler. L'onglet « Nouveau projet » demande donc le NOM COURT et le PORT
+  (`data-adresse-nouveau-projet`), `project.new` les emporte (`sousDomaine`, `port`) et le montage
+  porte une ÉTAPE de plus, nommée dans le déroulé comme les autres, posée AVANT l'inscription — son
+  résultat devient `Project.devUrl`, l'adresse contrôlée à la fin de chaque déploiement. Le
+  mécanisme de création ne bouge pas d'une ligne : c'est toujours `publishSubdomain`
+  (`server/src/dns.ts`), même fournisseur, même ordre (nom d'abord, reverse-proxy ensuite), mêmes
+  messages d'échec. Les règles sont PURES et ne touchent à rien : `normaliserSousDomaine` tolère
+  l'adresse entière, le `https://` et la zone collée ; `jugerAdresseDemandee` rend « non demandée »
+  quand les deux champs sont vides — un état NORMAL, aucune étape, aucun échec —, et DIT ce qui
+  manque quand une moitié seulement est saisie (sans appeler le fournisseur). Un refus n'arrête
+  RIEN : l'étape est notée en échec avec sa cause, le projet existe et reste utilisable. Le
+  créateur manuel de sous-domaine et sa commande `project.publishDomain` sont SUPPRIMÉS ; le champ
+  « Adresse à contrôler » reste, simplement rempli tout seul et corrigeable à la main. Tout agent
+  reçoit `CONSIGNE_CREATION_PROJET` (branchée dans le tronc commun de `rolePrompt`) : monter un
+  projet suppose de DEMANDER l'adresse avec `ask_user` avant le premier dossier. Verrouillé par
+  `server/src/test/sous-domaine-projet.test.ts` et `scripts/verif-adresse-nouveau-projet.mjs`.
 - **La carte suit les ÉTAPES RÉELLES du travail, et seul l'agent d'EXÉCUTION la déplace**
   (`shared/src/suivi-colonne.ts`). Parcours : « À faire » → (clic de validation) → « Validé » →
   (analyse rendue) → « En cours » → (exécution rendue) → « Terminé ». Un tour d'agent de rôle

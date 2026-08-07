@@ -81,9 +81,6 @@ export function ProjectSettings({
   const [documentId, setDocumentId] = React.useState('');
   const [documentType, setDocumentType] = React.useState<'offer' | 'invoice'>('invoice');
   const [confirmSuppression, setConfirmSuppression] = React.useState(false);
-  const [sousDomaine, setSousDomaine] = React.useState('');
-  const [portLocal, setPortLocal] = React.useState('');
-  const [publication, setPublication] = React.useState(false);
 
   React.useEffect(() => {
     if (!project) return;
@@ -267,61 +264,12 @@ export function ProjectSettings({
                 placeholder="https://mon-projet.haikostudio.cloud"
               />
               <p className="mt-1 text-[11.5px] text-faint">
-                Elle est ouverte à la fin de chaque déploiement : si elle ne répond pas, le déploiement est déclaré en
-                échec. Laissée vide, aucune adresse n'est contrôlée.
+                Elle est remplie toute seule à la création du projet, et se corrige ici à la main. Elle est ouverte à la
+                fin de chaque déploiement : si elle ne répond pas, le déploiement est déclaré en échec. Laissée vide,
+                aucune adresse n'est contrôlée.
               </p>
             </div>
 
-            <div className="mt-2 rounded-md border border-border bg-surface px-2.5 py-2">
-              <p className="text-[12.5px] text-muted">
-                Pas encore d'adresse ? HaikoDev peut la créer : nom, certificat et redirection en une fois.
-              </p>
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <Input
-                  value={sousDomaine}
-                  onChange={(event) => setSousDomaine(event.target.value)}
-                  placeholder="nom-du-site"
-                  className="h-8 flex-1"
-                />
-                <span className="shrink-0 text-[12.5px] text-faint">.haikostudio.cloud</span>
-                <Input
-                  value={portLocal}
-                  onChange={(event) => setPortLocal(event.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="port"
-                  className="h-8 w-[74px]"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!sousDomaine.trim() || !portLocal || publication}
-                  onClick={async () => {
-                    setPublication(true);
-                    try {
-                      const res = await client.call<{ url?: string }>(
-                        {
-                          type: 'project.publishDomain',
-                          id: project.id,
-                          subdomain: sousDomaine.trim(),
-                          port: Number(portLocal),
-                        },
-                        180000,
-                      );
-                      if (res?.url) setDevUrl(res.url);
-                    } catch (err: any) {
-                      client.pushToast('error', err?.message ?? 'création impossible');
-                    } finally {
-                      setPublication(false);
-                    }
-                  }}
-                >
-                  {publication ? <Loader2 className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
-                  Créer
-                </Button>
-              </div>
-              <p className="mt-1 text-[11.5px] text-faint">
-                Le port est celui sur lequel votre projet écoute sur le serveur.
-              </p>
-            </div>
           </div>
 
           {/* ---------- Mise en production ---------- */}

@@ -51,13 +51,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('project.open'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
-  /** Crée l'adresse publique d'un projet (nom + reverse-proxy) en une fois. */
-  z.object({
-    type: z.literal('project.publishDomain'),
-    id: z.string(),
-    subdomain: z.string(),
-    port: z.number(),
-  }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
   /** Ranger un projet dans un groupe (ou l'en sortir avec un groupe vide). */
@@ -85,7 +78,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /**
    * Monte un projet NEUF de bout en bout : dossier sur le serveur, dépôt git
    * sur « main », dépôt GitHub, fichiers d'instructions, mémoire et
-   * documentation, puis inscription dans la colonne de gauche.
+   * documentation, l'adresse publique quand elle est demandée, puis
+   * inscription dans la colonne de gauche.
    */
   z.object({
     type: z.literal('project.new'),
@@ -96,6 +90,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
     gitRemote: z.string().optional(),
     github: z.boolean().optional(),
     githubPublic: z.boolean().optional(),
+    /** Le nom court de l'adresse publique. Vide : le projet naît sans adresse. */
+    sousDomaine: z.string().optional(),
+    /** Le port sur lequel le projet écoute sur le serveur. */
+    port: z.number().optional(),
   }),
 
   // Cartes

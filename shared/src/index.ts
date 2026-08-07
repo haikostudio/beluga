@@ -62,6 +62,7 @@ export * from './reveil-vocal.js';
 export * from './reprise-moteur.js';
 export * from './routage-vocal.js';
 export * from './signal-projet.js';
+export * from './sous-domaine-projet.js';
 export * from './suivi-colonne.js';
 export * from './templates.js';
 export * from './travail-hors-tache.js';
