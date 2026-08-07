@@ -758,7 +758,13 @@ export function Board({
                           ? 'Glissez ici pour lancer le travail.'
                           : column === 'planned'
                             ? 'Glissez une carte hors de « En cours » pour suspendre son agent.'
-                            : '—'}
+                            : column === 'done'
+                              ? 'Aucun travail terminé pour l’instant.'
+                              : column === 'to_deploy'
+                                ? 'Rien à mettre en ligne pour l’instant.'
+                                : column === 'in_production'
+                                  ? 'Aucune carte en attente de mise en production.'
+                                  : 'Aucune carte rangée ici pour l’instant.'}
                 </p>
               ) : null}
               </div>
