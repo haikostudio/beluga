@@ -26,6 +26,7 @@ import {
 } from '@haikodev/shared';
 import {
   Button,
+  ConfirmDialog,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
@@ -143,6 +144,10 @@ export function DeployPanel({
   const state = useApp();
   const run = state.deploys[projectId];
   const [busy, setBusy] = React.useState(false);
+  /* La mise en production met le code chez le client, clôt les cartes et les
+     archive : ce geste demande une confirmation. Le déploiement sur l'instance
+     de dev, lui, part toujours d'un seul clic. */
+  const [confirmation, setConfirmation] = React.useState(false);
   /* Le déroulé des sept étapes, replié par défaut : le chevron l'ouvre. */
   const [processOuvert, setProcessOuvert] = React.useState(false);
   /* La TÊTE (bouton + chevron + déroulé en superposition) : un clic hors d'elle
@@ -254,6 +259,20 @@ export function DeployPanel({
     }
   };
 
+  /*
+   * Le clic sur le bouton d'action. Pour la MISE EN PRODUCTION, il n'envoie
+   * plus rien tout de suite : il ouvre la modale de confirmation, et
+   * `deploy.start` n'est appelé qu'après « Publier ». Le déploiement sur
+   * l'instance de dev garde son départ au premier clic.
+   */
+  const demarrer = () => {
+    if (etape?.cible === 'production') {
+      setConfirmation(true);
+      return;
+    }
+    void start();
+  };
+
   const aPublier = embarked.length + enAttente.nombre;
   /*
    * Une publication réussie n'affiche plus son compte rendu : dès qu'elle
@@ -323,7 +342,7 @@ export function DeployPanel({
           disabled={
             publicationEnCours || !aPublier || busy || active || busyAgents.length > 0 || !!productionBloquee
           }
-          onClick={publicationEnCours ? undefined : start}
+          onClick={publicationEnCours ? undefined : demarrer}
         >
           {publicationEnCours ? (
             <>
@@ -401,6 +420,28 @@ export function DeployPanel({
       ) : null}
 
       {publicationEnCours || rapport ? <DeployControls run={run!} /> : null}
+
+      {/* La confirmation de la MISE EN PRODUCTION : elle nomme l'étape, rappelle
+          le lot qui part (le même compte que le bouton, travail sans carte
+          compris) et prévient que ces cartes seront closes puis archivées.
+          « Publier » lance seul la publication ; « Annuler » ne touche à rien. */}
+      <ConfirmDialog
+        open={confirmation}
+        title="Mise en production"
+        description={
+          aPublier > 1 ? (
+            <>
+              {aPublier} tâches vont partir chez le client. Une fois publiées, elles seront closes puis archivées.
+            </>
+          ) : (
+            <>Une tâche va partir chez le client. Une fois publiée, elle sera close puis archivée.</>
+          )
+        }
+        confirmLabel="Publier"
+        danger
+        onConfirm={() => void start()}
+        onClose={() => setConfirmation(false)}
+      />
     </div>
   );
 }

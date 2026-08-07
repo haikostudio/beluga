@@ -80,13 +80,9 @@ function choixInitial(): boolean {
 export function VoletTaches({
   todos,
   streaming,
-  creux,
 }: {
   todos?: TodoItem[];
   streaming: boolean;
-  /** Rien ne vient en dessous (pas de barre d'écriture) : le volet réserve
-      alors lui-même le creux du téléphone. */
-  creux?: boolean;
 }) {
   const [open, setOpen] = React.useState(choixInitial);
 
@@ -118,11 +114,7 @@ export function VoletTaches({
   const tout = faites === todos.length;
 
   return (
-    <div
-      data-volet="taches"
-      className="shrink-0 border-t border-border bg-surface"
-      style={creux ? { paddingBottom: 'env(safe-area-inset-bottom)' } : undefined}
-    >
+    <div data-volet="taches" className="shrink-0 border-t border-border bg-surface">
       <button
         type="button"
         aria-expanded={open}

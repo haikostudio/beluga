@@ -97,12 +97,33 @@ async function main() {
     await page.waitForTimeout(2500);
   }
 
-  const bouton = page.getByRole('button', { name: /Tout déployer/ });
-  const aBouton = (await bouton.count()) > 0;
-  const libelle = aBouton ? ((await bouton.first().textContent()) ?? '').trim() : '';
+  /* Sur téléphone, le tableau se lit onglet par onglet, et une colonne inactive
+     sort de l'arbre d'accessibilité : on active « À déployer » pour être sûr
+     que son bloc de publication est bien à l'écran, quel que soit l'onglet
+     rouvert. */
+  const ongletDeploy = page.locator('[data-onglet-colonne="to_deploy"]');
+  if (await ongletDeploy.count()) {
+    await ongletDeploy.first().click();
+    await page.waitForTimeout(1200);
+  }
+
+  /* On vise le bouton du bloc par son attribut DOM, jamais par sa seule
+     étiquette : il porte toujours « Tout déployer (n) », même à zéro. */
+  const boutonDeploy = page.locator('[data-bloc-publication="to_deploy"] [data-bouton-publication]');
+  const aBouton = (await boutonDeploy.count()) > 0;
+  const libelle = aBouton ? ((await boutonDeploy.first().textContent()) ?? '').trim() : '';
   // Le nombre entre parenthèses : ce qui attend vraiment de partir.
   const enAttente = Number((libelle.match(/\((\d+)\)/) ?? [])[1] ?? 0);
-  noter('le bouton « Tout déployer » est présent', aBouton, libelle);
+  noter('le bouton « Tout déployer » est présent', aBouton && /Tout déployer/.test(libelle), libelle);
+
+  // Le déploiement sur l'instance de dev n'est pas touché : seule la MISE EN
+  // PRODUCTION demande confirmation. Le bouton « Tout déployer » n'est donc pas
+  // un déclencheur de modale — on le CONSTATE sans cliquer, pour ne rien
+  // publier sur ce serveur.
+  const ouvreModale = aBouton
+    ? await boutonDeploy.first().evaluate((el) => el.getAttribute('aria-haspopup') === 'dialog')
+    : false;
+  noter('« Tout déployer » n’ouvre pas de modale de confirmation', aBouton && !ouvreModale);
 
   const texte = await page.locator('body').innerText();
   const rapport = /Publié\s*(\([^)]*\))?\s*:\s*\d+\s*tâche/.test(texte);
