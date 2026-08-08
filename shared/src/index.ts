@@ -36,6 +36,7 @@ export * from './lecture-message.js';
 export * from './lot-colonne.js';
 export * from './memoire.js';
 export * from './mise-en-ligne.js';
+export * from './regles.js';
 export * from './etapes-publication.js';
 export * from './publication-confiee.js';
 export * from './models.js';

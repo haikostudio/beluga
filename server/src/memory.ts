@@ -2,13 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   chercherFaits,
+  decouperRegles,
   estLigneDeJournal,
   fichierNatif,
   instructionsQuiFontFoi,
   nettoyer,
+  reglesContenant,
+  SUJETS_REGLES,
+  sujetsPourRequete,
   texteIndex,
   texteDesCompetences,
   type InstructionsDuProjet,
+  type SujetRegles,
 } from '@haikodev/shared';
 import { listerCompetences } from './competences.js';
 
@@ -203,6 +208,91 @@ export function detailMemoire(projectPath: string, requete: string): string {
     return `Aucun fait ne correspond à « ${requete} ».\n\nL'index complet :\n\n${texteIndex(faits)}`;
   }
   return trouves.map((f) => `${f.numero}. ${f.texte}`).join('\n\n');
+}
+
+/**
+ * Le titre de la section des CONTRÔLES d'un sujet, dans `docs/verifications.md`.
+ * Le fichier range les scripts de vérification sous ces titres exacts : on y va
+ * chercher les seuls contrôles qui touchent le sujet demandé.
+ */
+const TITRE_CONTROLES: Record<string, string> = {
+  publication: 'Publication',
+  cartes: 'Cartes',
+  branches: 'Branches et dossiers',
+  projets: 'Projets',
+  interface: 'Interface, téléphone et notifications',
+  quotas: 'Quotas, comptes et modèles',
+  voix: 'Voix et écoute',
+  methode: 'Méthode, moteurs et outils',
+};
+
+function lireDoc(projectPath: string, relatif: string): string {
+  try {
+    return fs.readFileSync(path.join(projectPath, relatif), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** La section « ## <titre> » d'un document, jusqu'au prochain « ## ». */
+function sectionDoc(texte: string, titre: string): string {
+  const lignes = texte.split('\n');
+  const debut = lignes.findIndex((l) => l.trim() === `## ${titre}`);
+  if (debut < 0) return '';
+  let fin = debut + 1;
+  while (fin < lignes.length && !/^## /.test(lignes[fin])) fin++;
+  return lignes.slice(debut, fin).join('\n').trim();
+}
+
+/** Les règles ET les contrôles d'un sujet, réunis. */
+function texteDuSujet(projectPath: string, sujet: SujetRegles): string {
+  const regles = lireDoc(projectPath, sujet.fichier).trim();
+  const controles = sectionDoc(lireDoc(projectPath, 'docs/verifications.md'), TITRE_CONTROLES[sujet.id] ?? '');
+  return [regles, controles && `CONTRÔLES — ${sujet.libelle}\n\n${controles}`].filter(Boolean).join('\n\n');
+}
+
+/**
+ * Le détail des RÈGLES et CONTRÔLES touchés par une demande. Comme les faits,
+ * ils ne partent plus en bloc : rangés par sujet dans `docs/regles/` et
+ * `docs/verifications.md`, ils se demandent à la carte. Rend une chaîne vide sur
+ * un projet qui n'a pas ces fichiers (rien à ajouter aux faits).
+ */
+export function detailRegles(projectPath: string, requete: string): string {
+  if (!fs.existsSync(path.join(projectPath, 'docs', 'regles'))) return '';
+
+  const demande = requete.trim();
+  if (!demande) {
+    return (
+      'RÈGLES DU PROJET — par sujet (demande-en un par son nom ou des mots-clés, ' +
+      'tu recevras ses règles ET ses contrôles) :\n' +
+      SUJETS_REGLES.map((s) => `  ${s.id} — ${s.libelle}`).join('\n')
+    );
+  }
+
+  const sujets = sujetsPourRequete(demande);
+  if (sujets.length) {
+    return sujets.map((s) => texteDuSujet(projectPath, s)).join('\n\n———\n\n');
+  }
+
+  // Repli : aucune rubrique reconnue, on cherche les mots dans toutes les règles.
+  const toutes = SUJETS_REGLES.flatMap((s) => decouperRegles(lireDoc(projectPath, s.fichier)));
+  const trouves = reglesContenant(toutes, demande);
+  if (!trouves.length) return '';
+  return `RÈGLES qui mentionnent « ${demande} » :\n\n${trouves.join('\n\n')}`;
+}
+
+/**
+ * Ce que rend l'outil `project_memory` : les FAITS de la mémoire ET les RÈGLES /
+ * CONTRÔLES touchés par la demande, réunis. Quand la demande vise clairement une
+ * règle (aucun fait ne correspond), on ne noie pas la réponse sous l'index des
+ * faits.
+ */
+export function detailProjet(projectPath: string, requete: string): string {
+  const faits = detailMemoire(projectPath, requete);
+  const regles = detailRegles(projectPath, requete);
+  if (!regles) return faits;
+  const faitsMuets = requete.trim() && /^Aucun fait ne correspond/.test(faits);
+  return [faitsMuets ? '' : faits, regles].filter(Boolean).join('\n\n═══\n\n');
 }
 
 /** Le nom du fichier d'instructions natif du moteur. */

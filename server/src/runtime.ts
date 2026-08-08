@@ -995,7 +995,7 @@ const OUTIL_LISTE: Record<EngineId, string> = {
  * deux, y figurent.
  */
 const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de HaikoDev, pas de toi : applique-la telle quelle, dans cet ordre) :
-1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis l'outil « project_memory » pour CHAQUE ligne de l'index qui touche au sujet, puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
+1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis l'outil « project_memory » — pour CHAQUE ligne de l'index qui touche au sujet ET pour le SUJET de ta tâche (« publication », « cartes », « voix », « quotas »…) : il rend d'un coup les FAITS, les RÈGLES du moteur et les CONTRÔLES qui le concernent, sans le reste. Puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
 2. CONSTATER PAR ÉCRIT avant de conclure : ce que le projet fait aujourd'hui, ce que la demande veut, ce qui manque entre les deux. C'est ce qui remplit la section « Analyse » de ta réponse.
 3. NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Ce que tu n'as pas vérifié se dit comme une hypothèse, en toutes lettres.
 4. VÉRIFIER À LA FIN : rejoue les contrôles du projet qui touchent à ce que tu as changé, et donne leur résultat, même en échec. Un échec tu, c'est un travail rendu faux.
