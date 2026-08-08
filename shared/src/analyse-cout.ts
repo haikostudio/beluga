@@ -1,4 +1,4 @@
-import type { AnalysisMeasurement, ContextBreakdown, Estimate, TurnMeasurement } from './models.js';
+import type { AnalysisMeasurement, Card, ContextBreakdown, Estimate, TaskProposal, TurnMeasurement } from './models.js';
 
 /**
  * Additionne uniquement des grandeurs rendues par le moteur. Le cache est une
@@ -59,6 +59,55 @@ export function mesureDeContexte(input: {
 /** Les mesures du moteur gagnent toujours sur les nombres rédigés par l'agent. */
 export function avecMesureAnalyse(estimate: Estimate, turn: TurnMeasurement): Estimate {
   return { ...estimate, analysisMeasurement: mesureDeContexte(turn) };
+}
+
+/**
+ * Le tour du chef est le tour d'analyse de la proposition. Une fois le moteur
+ * arrêté, HaikoDev ajoute sa mesure réelle au chiffrage rédigé avant l'appel
+ * d'outil ; le modèle ne peut donc jamais fabriquer cette partie.
+ */
+export function finaliserAnalyseDeProposition(
+  proposal: TaskProposal,
+  turn: TurnMeasurement,
+  producedAt = Date.now(),
+): TaskProposal {
+  if (!proposal.estimate || !proposal.analysisContext?.trim()) return proposal;
+  return {
+    ...proposal,
+    estimate: {
+      ...avecMesureAnalyse(proposal.estimate, turn),
+      producedAt,
+    },
+  };
+}
+
+/** Une analyse du chef n'est réutilisable que si chiffres ET relais existent. */
+export function analyseDuChefReutilisable(
+  card: Pick<Card, 'estimate' | 'analysisContext'>,
+): boolean {
+  return !!card.estimate && !card.estimate.failed && !!card.analysisContext?.trim();
+}
+
+/** Une édition du sujet au dernier clic rend l'analyse précédente caduque. */
+export function heritageAnalyseDeProposition(
+  proposal: Pick<TaskProposal, 'title' | 'description' | 'estimate' | 'analysisContext'>,
+  title: string,
+  description: string,
+): Pick<Card, 'estimate' | 'analysisContext'> {
+  if (title !== proposal.title || description !== proposal.description) {
+    return { estimate: undefined, analysisContext: undefined };
+  }
+  return { estimate: proposal.estimate, analysisContext: proposal.analysisContext };
+}
+
+/** Bloc explicite ajouté au premier tour de l'agent d'exécution. */
+export function contexteHeritePourExecution(
+  card: Pick<Card, 'analysisContext'>,
+): string | undefined {
+  const context = card.analysisContext?.trim();
+  return context
+    ? `ANALYSE DÉJÀ EFFECTUÉE PAR LE CHEF D'ORCHESTRE — reprends cette base, ne recommence pas son étude :\n${context}`
+    : undefined;
 }
 
 export function valeurMesuree(value: number | undefined): string {

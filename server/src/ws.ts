@@ -11,10 +11,12 @@ import {
   Project,
   RunConfig,
   ServerEvent,
+  TaskProposal,
   canMove,
   effetDuDepot,
   etapeDeLaColonne,
   etatVisuelCarte,
+  heritageAnalyseDeProposition,
   sortieAutorisee,
   RAISON_SUSPENDU,
   RAISON_ARRETE_A_LA_MAIN,
@@ -38,7 +40,7 @@ import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
-import { analyseCard, appliquerChiffrageDiscute, startCard, tick } from './scheduler.js';
+import { analyseCard, appliquerChiffrageDiscute, reprendreAnalyseDuChef, startCard, tick } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
   deployableCards,
@@ -352,7 +354,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (!card) throw new Error('carte introuvable');
       const patch = { ...cmd.patch };
       delete (patch as any).column; // une colonne se change par card.move
-      const updated = store.saveCard(Card.parse({ ...card, ...patch, id: card.id }));
+      const title = typeof patch.title === 'string' ? patch.title : card.title;
+      const description = typeof patch.description === 'string' ? patch.description : card.description;
+      const updated = store.saveCard(Card.parse({
+        ...card,
+        ...patch,
+        ...heritageAnalyseDeProposition(card, title, description),
+        id: card.id,
+      }));
       bus.emit({ type: 'card.upsert', card: updated });
       return { card: updated };
     }
@@ -446,7 +455,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
       // C'est ce geste qui autorise la dépense : l'analyse part maintenant.
       if (target === 'validated') {
-        void analyseCard(updated.id);
+        if (!reprendreAnalyseDuChef(updated.id)) void analyseCard(updated.id);
       }
       if (target === 'archived') {
         void archiveCard(updated.id);
@@ -844,6 +853,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         labels: cmd.labels ?? proposal.labels,
         ...(run ? { run } : {}),
       };
+      // Modifier le fond au dernier clic invalide l'étude faite juste avant :
+      // mieux vaut rechiffrer que transmettre une analyse devenue fausse.
+      const heritage = heritageAnalyseDeProposition(
+        proposal,
+        retenu.title,
+        retenu.description,
+      );
 
       let cardId: string | undefined;
       if (cmd.accept) {
@@ -853,12 +869,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           ...retenu,
           origin: 'agent',
           attachments: proposal.attachments,
+          ...heritage,
         });
         cardId = card.id;
         bus.emit({ type: 'card.upsert', card });
       }
 
-      const decided = {
+      const decided = TaskProposal.parse({
         ...(store.decideProposal(cmd.proposalId, cmd.accept ? 'accepted' : 'refused', cardId) ?? {
           ...proposal,
           decision: cmd.accept ? ('accepted' as const) : ('refused' as const),
@@ -866,7 +883,11 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           decidedAt: Date.now(),
         }),
         ...retenu,
-      };
+        ...heritage,
+      });
+      // La table dédiée garde elle aussi la version réellement validée : une
+      // édition du sujet ne doit pas y laisser un ancien relais réutilisable.
+      store.saveProposal(message.id, agent.projectId, decided);
 
       // La décision est mémorisée SUR LE TABLEAU : elle survit au rechargement.
       const updatedMessage = store.saveMessage({
