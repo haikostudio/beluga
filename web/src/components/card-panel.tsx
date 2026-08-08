@@ -714,45 +714,98 @@ function CardSummary({ card }: { card: Card }) {
         </p>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2">
-        <Metric
-          label="Durée machine prévue"
-          value={duration(card.estimate?.machineSeconds)}
-          hint="Sert à l'ordonnanceur, jamais à la facture"
-        />
-        <Metric
-          label="Durée réelle"
-          value={duration(card.consumption?.machineSeconds)}
-          tone={
-            card.estimate?.machineSeconds && card.consumption?.machineSeconds
-              ? card.consumption.machineSeconds > card.estimate.machineSeconds * 1.3
-                ? 'warning'
+      <MomentDetail
+        numero="1"
+        titre="Analyse initiale"
+        description="Ce qui a été mesuré et prévu avant le lancement du travail."
+        moment="analyse-initiale"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <Metric
+            label="Durée machine prévue"
+            value={duration(card.estimate?.machineSeconds)}
+            hint="Sert à l'ordonnanceur, jamais à la facture"
+          />
+          {/* Retiré du pied des cartes : c'est ici qu'on vient le chercher. */}
+          <Metric
+            label="Heures développeur senior"
+            value={card.estimate?.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
+            hint="Base de la facture, jamais la durée machine"
+          />
+        </div>
+
+        {card.estimate ? <DetailCoutAnalyse card={card} /> : null}
+
+        {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
+            forme, dès qu'il est terminé. En recopier ici un extrait tronqué
+            faisait lire deux fois la même chose, et moins bien. */}
+        {card.estimate?.summary ? (
+          <p className="text-[13px] text-faint">
+            Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
+          </p>
+        ) : null}
+      </MomentDetail>
+
+      <MomentDetail
+        numero="2"
+        titre="Exécution réelle"
+        description="Ce que le travail a réellement consommé après son lancement."
+        moment="execution-reelle"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <Metric
+            label="Durée réelle"
+            value={duration(card.consumption?.machineSeconds)}
+            tone={
+              card.estimate?.machineSeconds && card.consumption?.machineSeconds
+                ? card.consumption.machineSeconds > card.estimate.machineSeconds * 1.3
+                  ? 'warning'
+                  : 'neutral'
                 : 'neutral'
-              : 'neutral'
-          }
-        />
-        {/* Retiré du pied des cartes : c'est ici qu'on vient le chercher. */}
-        <Metric
-          label="Heures développeur senior"
-          value={card.estimate?.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
-          hint="Base de la facture, jamais la durée machine"
-        />
-        {/* Le compte utilisé n'est plus ici : il vit avec les réglages de
-            l'agent, en haut, là où il explique le quota consommé. */}
-        <Metric label="Jetons consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
-      </div>
-
-      {card.estimate ? <DetailCoutAnalyse card={card} /> : null}
-
-      {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
-          forme, dès qu'il est terminé. En recopier ici un extrait tronqué
-          faisait lire deux fois la même chose, et moins bien. */}
-      {card.estimate?.summary ? (
-        <p className="text-[13px] text-faint">
-          Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
-        </p>
-      ) : null}
+            }
+          />
+          {/* Le compte utilisé n'est plus ici : il vit avec les réglages de
+              l'agent, en haut, là où il explique le quota consommé. */}
+          <Metric label="Jetons consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
+        </div>
+        {!card.consumption ? (
+          <p className="text-[13px] text-faint">L’exécution n’a pas encore produit de mesure.</p>
+        ) : null}
+      </MomentDetail>
     </div>
+  );
+}
+
+/** Une étape bien délimitée du parcours de la carte : analyse, puis exécution. */
+function MomentDetail({
+  numero,
+  titre,
+  description,
+  moment,
+  children,
+}: {
+  numero: string;
+  titre: string;
+  description: string;
+  moment: 'analyse-initiale' | 'execution-reelle';
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-surface" data-moment-detail={moment}>
+      <div className="flex items-start gap-2.5 border-b border-border bg-raised px-3 py-2.5">
+        <span
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-info/15 text-[12px] font-semibold text-info"
+          aria-hidden="true"
+        >
+          {numero}
+        </span>
+        <div>
+          <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
+          <p className="mt-0.5 text-[12.5px] leading-relaxed text-faint">{description}</p>
+        </div>
+      </div>
+      <div className="space-y-3 px-3 py-3">{children}</div>
+    </section>
   );
 }
 
