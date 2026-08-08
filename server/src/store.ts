@@ -1241,6 +1241,10 @@ export interface UsageRow {
   account?: string;
   engine?: string;
   tokens?: number;
+  /** Tokens ENVOYÉS (entrée) réellement rendus par le moteur pour ce tour. */
+  tokensIn?: number;
+  /** Tokens REÇUS (sortie) réellement rendus par le moteur pour ce tour. */
+  tokensOut?: number;
   quotaShare?: number;
   /** Part du quota de 5 heures consommée par la tâche (avant / après le tour). */
   quota5h?: number;
@@ -1258,8 +1262,8 @@ export function recordUsage(row: UsageRow): void {
     : null;
   getDb()
     .prepare(
-      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, tokens, tokens_in, tokens_out, quota_share, quota_5h, quota_semaine, seconds, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.projectId ?? null,
@@ -1269,12 +1273,35 @@ export function recordUsage(row: UsageRow): void {
       row.account ?? null,
       row.engine ?? null,
       Math.round(row.tokens ?? 0),
+      row.tokensIn !== undefined ? Math.round(row.tokensIn) : null,
+      row.tokensOut !== undefined ? Math.round(row.tokensOut) : null,
       row.quotaShare ?? 0,
       row.quota5h ?? 0,
       row.quotaSemaine ?? 0,
       row.seconds ?? 0,
       now(),
     );
+}
+
+/**
+ * Pour une carte, les totaux ENVOYÉS / REÇUS cumulés par agent — chef compris.
+ * Ne compte que les tours où la séparation a été mesurée (`tokens_in` /
+ * `tokens_out` non NULL) : une ligne ancienne, sans séparation, ne fausse pas
+ * la somme en comptant comme zéro.
+ */
+export function usageTokensByCardAndAgent(cardId: string): {
+  agentId: string;
+  tokensIn: number;
+  tokensOut: number;
+}[] {
+  return getDb()
+    .prepare(
+      `SELECT agent_id AS agentId, SUM(tokens_in) AS tokensIn, SUM(tokens_out) AS tokensOut
+       FROM usage
+       WHERE card_id = ? AND agent_id IS NOT NULL AND tokens_in IS NOT NULL AND tokens_out IS NOT NULL
+       GROUP BY agent_id`,
+    )
+    .all(cardId) as any;
 }
 
 /**

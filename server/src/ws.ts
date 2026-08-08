@@ -1159,6 +1159,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'card.quota':
       return store.usageQuotaByCard(cmd.cardId);
 
+    case 'card.tokens':
+      return { agents: store.usageTokensByCardAndAgent(cmd.cardId) };
+
     case 'stats.dashboard': {
       // Le titre, le projet et la colonne d'une carte vivent dans son JSON, pas
       // dans la table `usage` : on raccroche la conso par carte aux cartes de

@@ -916,6 +916,8 @@ async function startTurn(
     account: account.id,
     engine: agent.run.engine,
     tokens,
+    tokensIn: runState.usage ? (runState.usage.inputTokens ?? 0) + (runState.usage.cachedTokens ?? 0) : undefined,
+    tokensOut: runState.usage ? (runState.usage.outputTokens ?? 0) : undefined,
     quota5h: parts.quota5h,
     quotaSemaine: parts.quotaSemaine,
     seconds: elapsedSeconds,
