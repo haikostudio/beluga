@@ -171,6 +171,8 @@ le nom, là-bas le texte).
 
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
+- **Une demande réellement partie garde son contexte envoyé et sa mesure moteur** ; en reprise,
+  l'historique opaque est seulement nommé, jamais recopié ni inventé.
 - **Un chef sans choix manuel part sur Sonnet 5 sous Claude ou GPT-5.4 sous Codex, en réflexion
   moyenne**, toujours ramené vers un modèle réellement présent dans le catalogue du moteur.
 - **Rien ne pointe vers le dossier personnel d'un utilisateur** (`/home/<quelqu'un>/…` écrit en dur) :

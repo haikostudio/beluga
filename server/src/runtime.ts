@@ -16,6 +16,8 @@ import {
   Message,
   Project,
   RunStep,
+  SentContextBlock,
+  SentContextSnapshot,
   decisionRepriseCoupure,
   TaskProposal,
   TemplateKind,
@@ -189,6 +191,77 @@ export interface PromptOptions {
   onComplete?: (text: string, ok: boolean, measurement: TurnMeasurement) => void | Promise<void>;
 }
 
+interface ContexteUtilisateurDuTour {
+  messageId: string;
+  blocks: SentContextBlock[];
+}
+
+/** Fabrique la photographie persistée sur la demande, sans lire l'ancien fil. */
+export function instantaneContexteEnvoye(input: {
+  engine: EngineId;
+  model?: string;
+  nouvelleSession: boolean;
+  prompt: string;
+  systemPrompt: string;
+  blocks: SentContextBlock[];
+  sentAt?: number;
+}): SentContextSnapshot {
+  return SentContextSnapshot.parse({
+    engine: input.engine,
+    model: input.model,
+    session: input.nouvelleSession ? 'new' : 'resumed',
+    prompt: input.prompt,
+    systemInstruction: {
+      kind: input.nouvelleSession ? 'full' : 'reminder',
+      content: input.systemPrompt,
+      // Claude porte cette consigne dans une option séparée ; Codex la place
+      // devant le prompt. Le tiroir peut ainsi décrire le transport exact.
+      transport: input.engine === 'claude' ? 'separate' : 'prefixed',
+    },
+    blocks: [
+      ...input.blocks,
+      {
+        kind: 'system',
+        label: input.nouvelleSession ? 'Consigne système complète' : 'Rappel de méthode',
+        characters: input.systemPrompt.length,
+      },
+    ],
+    history: input.nouvelleSession ? 'none' : 'retained_by_engine',
+    sentAt: input.sentAt ?? Date.now(),
+  });
+}
+
+/** La mesure d'entrée appartient à la demande, pas au message de réponse. */
+export function mesureEntreeMoteur(usage: NonNullable<EngineEvent['usage']>): {
+  inputTokens: number;
+  cachedInputTokens?: number;
+  totalInputTokens: number;
+} {
+  return {
+    inputTokens: usage.inputTokens,
+    cachedInputTokens: usage.cachedTokens,
+    totalInputTokens: usage.inputTokens + (usage.cachedTokens ?? 0),
+  };
+}
+
+function mesurerContexteUtilisateur(messageId: string, usage: NonNullable<EngineEvent['usage']>): void {
+  const message = store.getMessage(messageId);
+  if (!message?.sentContext) return;
+  const mesure = mesureEntreeMoteur(usage);
+  const updated = store.saveMessage({
+    ...message,
+    tokens: mesure.totalInputTokens,
+    sentContext: {
+      ...message.sentContext,
+      usage: {
+        inputTokens: mesure.inputTokens,
+        cachedInputTokens: mesure.cachedInputTokens,
+      },
+    },
+  });
+  bus.emit({ type: 'message.upsert', message: updated });
+}
+
 /**
  * LA CARTE QUITTE « TERMINÉ » DÈS QUE SON TRAVAIL REPART — quel que soit le
  * chemin qui l'a relancé : bouton « Lancer maintenant », dépôt dans « En
@@ -269,6 +342,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   const project = store.getProject(agent.projectId);
   if (!project) throw new Error('projet introuvable');
 
+  let userMessageId: string | undefined;
   if (!options.silent) {
     const userMessage = store.saveMessage(
       Message.parse({
@@ -277,11 +351,10 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
         role: 'user',
         content: text,
         attachments: options.attachments ?? [],
-        // Estimation courante : environ quatre caractères par jeton.
-        tokens: Math.max(1, Math.round(text.length / 4)),
         createdAt: store.now(),
       }),
     );
+    userMessageId = userMessage.id;
     bus.emit({ type: 'message.upsert', message: userMessage });
   }
 
@@ -304,30 +377,32 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * on n'envoie donc que les faits AJOUTÉS depuis.
    */
   const nouvelleSession = !store.getSessionId(agent.id, cleDeSession(agent.run.engine, agent.run.model));
-  const contextParts: string[] = [];
+  const contextParts: { label: string; kind: SentContextBlock['kind']; content: string }[] = [];
   let memoryAndInstructionsCharacters = 0;
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, index de la
     // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
     const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir);
-    contextParts.push(ouverture);
+    contextParts.push({ label: 'Briefing et index de la mémoire', kind: 'briefing', content: ouverture });
     memoryAndInstructionsCharacters += ouverture.length;
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
     if (nouveaux.length) {
       const ajout = `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`;
-      contextParts.push(ajout);
+      contextParts.push({ label: 'Nouveaux faits de la mémoire', kind: 'memory', content: ajout });
       memoryAndInstructionsCharacters += ajout.length;
       store.setMemorySeen(agent.id, memoryFacts(project.path).length);
     }
   }
 
-  if (options.context) contextParts.push(options.context);
+  if (options.context) {
+    contextParts.push({ label: 'Contexte ajouté par HaikoDev', kind: 'extra', content: options.context });
+  }
   if (card) {
     const bloc = carteContexte(agent.id, card, nouvelleSession);
-    if (bloc) contextParts.push(bloc);
+    if (bloc) contextParts.push({ label: 'Carte en cours', kind: 'card', content: bloc });
   }
   if (options.attachments?.length) {
     const files = options.attachments
@@ -335,7 +410,11 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
       .filter(Boolean)
       .map((a) => path.join(PATHS.attachments, `${a!.id}-${a!.name}`));
     if (files.length) {
-      contextParts.push(`PIÈCES JOINTES fournies par l'utilisateur (lis-les) :\n${files.join('\n')}`);
+      contextParts.push({
+        label: 'Pièces jointes',
+        kind: 'attachment',
+        content: `PIÈCES JOINTES fournies par l'utilisateur (lis-les) :\n${files.join('\n')}`,
+      });
     }
   }
 
@@ -343,19 +422,38 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   // Un tour de SUIVI (session déjà ouverte) part d'un cran plus bas : la question
   // de fond a eu sa réponse ample, la suite est une précision.
   if (!nouvelleSession) ampleur = ampleurDeSuivi(template, ampleur);
-  const prompt = wrapPrompt(template, text, contextParts.join('\n\n'), {
+  const contexteAssemble = contextParts.map((part) => part.content).join('\n\n');
+  const prompt = wrapPrompt(template, text, contexteAssemble, {
     // Session déjà ouverte : le gabarit entier est dans le fil, un rappel suffit.
     rappel: !nouvelleSession,
     ampleur,
   });
   const description = card?.description ?? '';
   const occurrencesDescription = description ? prompt.split(description).length - 1 : 0;
-  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession, ampleur, {
-    promptCharacters: prompt.length,
-    systemPromptCharacters: 0,
-    cardDescriptionCharacters: description.length * occurrencesDescription,
-    memoryAndInstructionsCharacters,
-  });
+  const blocks: SentContextBlock[] = [
+    { kind: 'request', label: 'Demande utilisateur', characters: text.length },
+    ...contextParts.map((part) => ({ kind: part.kind, label: part.label, characters: part.content.length })),
+    {
+      kind: 'format',
+      label: 'Gabarit et séparateurs HaikoDev',
+      characters: Math.max(0, prompt.length - text.length - contexteAssemble.length),
+    },
+  ];
+  await startTurn(
+    agent,
+    prompt,
+    template,
+    options.onComplete,
+    nouvelleSession,
+    ampleur,
+    {
+      promptCharacters: prompt.length,
+      systemPromptCharacters: 0,
+      cardDescriptionCharacters: description.length * occurrencesDescription,
+      memoryAndInstructionsCharacters,
+    },
+    userMessageId ? { messageId: userMessageId, blocks } : undefined,
+  );
 }
 
 /**
@@ -419,6 +517,7 @@ async function startTurn(
     cardDescriptionCharacters: 0,
     memoryAndInstructionsCharacters: 0,
   },
+  contexteUtilisateur?: ContexteUtilisateurDuTour,
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -576,6 +675,17 @@ async function startTurn(
    */
   const cleSession = cleDeSession(agent.run.engine, agent.run.model);
   const sessionId = store.getSessionId(agent.id, cleSession);
+  const systemPromptRappel = rappelDeMethode(agent.run.engine);
+  const instantane = contexteUtilisateur
+    ? instantaneContexteEnvoye({
+        engine: agent.run.engine,
+        model: agent.run.model ?? adapter.defaultModel,
+        nouvelleSession: !sessionId,
+        prompt,
+        systemPrompt: sessionId ? systemPromptRappel : systemPrompt,
+        blocks: contexteUtilisateur.blocks,
+      })
+    : undefined;
 
   // Le pont d'outils du tour précédent ne prouve rien pour celui-ci.
   oublierLePont(agent.id);
@@ -593,7 +703,7 @@ async function startTurn(
     thinking: agent.run.thinking,
     sessionId,
     systemPrompt,
-    systemPromptRappel: rappelDeMethode(agent.run.engine),
+    systemPromptRappel,
     mcpConfigPath,
     mcpBridgePath: bridgePath,
     fullAccess,
@@ -675,6 +785,9 @@ async function startTurn(
           break;
         case 'usage':
           runState.usage = event.usage;
+          if (contexteUtilisateur && event.usage) {
+            mesurerContexteUtilisateur(contexteUtilisateur.messageId, event.usage);
+          }
           break;
         case 'ratelimit':
           if (event.rateLimit) noteAccountUse(account.id, event.rateLimit);
@@ -687,6 +800,19 @@ async function startTurn(
       }
     },
   });
+
+  // Seulement après que l'adaptateur a accepté et lancé le tour : une demande
+  // restée en file ou refusée avant ce point n'affiche aucun faux envoi.
+  if (contexteUtilisateur && instantane) {
+    const message = store.getMessage(contexteUtilisateur.messageId);
+    if (message) {
+      const updated = store.saveMessage({ ...message, sentContext: instantane });
+      bus.emit({ type: 'message.upsert', message: updated });
+      // Un adaptateur d'essai peut rendre l'usage dès son appel ; dans ce cas
+      // on applique aussitôt la mesure qui serait sinon arrivée trop tôt.
+      if (runState.usage) mesurerContexteUtilisateur(contexteUtilisateur.messageId, runState.usage);
+    }
+  }
 
   runState.handle = handle;
   live.set(agent.id, runState);
@@ -730,7 +856,12 @@ async function startTurn(
       dernierQuotaReparti.set(account.id, quotaApres);
     }
 
-    const resultat = { quota5h: runState.quota5h, quotaSemaine: runState.quotaSemaine };
+    const resultat = {
+      quota5h: runState.quota5h,
+      quotaSemaine: runState.quotaSemaine,
+      quota5hMesuree: quotaAvant.session !== undefined && quotaApres?.session !== undefined,
+      quotaSemaineMesuree: quotaAvant.weekly !== undefined && quotaApres?.weekly !== undefined,
+    };
     live.delete(agent.id);
     if (![...live.values()].some((run) => run.account === account.id)) dernierQuotaReparti.delete(account.id);
     return resultat;
@@ -901,10 +1032,8 @@ async function startTurn(
           outputTokens: runState.usage?.outputTokens ?? 0,
         },
         quota: {
-          quota5h:
-            quotaAvant.session !== undefined && quotaApres.session !== undefined ? part5h : undefined,
-          quotaWeekly:
-            quotaAvant.weekly !== undefined && quotaApres.weekly !== undefined ? partSemaine : undefined,
+          quota5h: parts.quota5hMesuree ? parts.quota5h : undefined,
+          quotaWeekly: parts.quotaSemaineMesuree ? parts.quotaSemaine : undefined,
         },
         composition,
       });

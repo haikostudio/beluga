@@ -459,6 +459,43 @@ export const DownloadOffer = z.object({
 });
 export type DownloadOffer = z.infer<typeof DownloadOffer>;
 
+/** Une part du contenu assemblé par HaikoDev pour ce tour. */
+export const SentContextBlock = z.object({
+  kind: z.enum(['request', 'briefing', 'memory', 'card', 'attachment', 'extra', 'format', 'system']),
+  label: z.string(),
+  characters: z.number().int().nonnegative(),
+});
+export type SentContextBlock = z.infer<typeof SentContextBlock>;
+
+/**
+ * Photographie du SEUL contenu transmis pendant ce tour. L'historique d'une
+ * session reprise reste chez le moteur : on le nomme, sans le recopier ni
+ * prétendre pouvoir le relire.
+ */
+export const SentContextSnapshot = z.object({
+  engine: EngineId,
+  model: z.string().optional(),
+  session: z.enum(['new', 'resumed']),
+  prompt: z.string(),
+  systemInstruction: z.object({
+    kind: z.enum(['full', 'reminder']),
+    content: z.string(),
+    transport: z.enum(['separate', 'prefixed']),
+  }),
+  blocks: z.array(SentContextBlock),
+  history: z.enum(['none', 'retained_by_engine']),
+  usage: z
+    .object({
+      /** Entrée nouvelle, hors cache relu. */
+      inputTokens: z.number().nonnegative(),
+      /** Absent si le moteur ne communique pas ce détail. */
+      cachedInputTokens: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  sentAt: z.number(),
+});
+export type SentContextSnapshot = z.infer<typeof SentContextSnapshot>;
+
 export const Message = z.object({
   id: z.string(),
   agentId: z.string(),
@@ -474,8 +511,10 @@ export const Message = z.object({
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */
   streaming: z.boolean().default(false),
-  /** Jetons de ce tour, durée d'exécution et compte utilisé : affichés sous le message. */
+  /** Jetons associés au message : entrée moteur sur la demande, total du tour sur la réponse. */
   tokens: z.number().optional(),
+  /** Ce que HaikoDev a réellement transmis pour cette demande utilisateur. */
+  sentContext: SentContextSnapshot.optional(),
   durationMs: z.number().optional(),
   account: z.string().optional(),
   error: z.string().optional(),

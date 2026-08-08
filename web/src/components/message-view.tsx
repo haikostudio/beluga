@@ -1,7 +1,9 @@
 import * as React from 'react';
 import {
   AlertCircle,
+  Braces,
   Check,
+  ChevronRight,
   Circle,
   Copy,
   Download,
@@ -17,6 +19,7 @@ import {
   Attachment,
   MEMORY_STEP_ID,
   Message,
+  SentContextSnapshot,
   heureExacte,
   propositionsDuFil,
   reponsePrete,
@@ -25,7 +28,7 @@ import {
   triImages,
 } from '@haikodev/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
-import { Badge, Button, Textarea } from '@/components/ui';
+import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { MemoryNote } from '@/components/todos';
@@ -118,13 +121,12 @@ export function MessageView({
           <LigneReperes
             at={message.createdAt}
             montrerHeure={montrerHeure}
-            complements={[
-              message.tokens ? `${message.tokens.toLocaleString('fr-CH')} jetons envoyés` : null,
-            ]}
+            complements={[]}
             texte={message.content}
             cle={message.id}
             aDroite
           />
+          {message.sentContext ? <ContexteEnvoye contexte={message.sentContext} /> : null}
         </div>
       </div>
     );
@@ -267,7 +269,15 @@ function BoutonEcoute({ texte, cle }: { texte: string; cle: string }) {
  * Copier un message en entier. Le bouton reste discret et confirme d'un mot :
  * sans retour visible, on ne sait pas si le clic a pris.
  */
-function BoutonCopier({ texte }: { texte: string }) {
+function BoutonCopier({
+  texte,
+  libelle = 'Copier',
+  titre = 'Copier le message',
+}: {
+  texte: string;
+  libelle?: string;
+  titre?: string;
+}) {
   const [copie, setCopie] = React.useState(false);
   if (!texte?.trim()) return null;
 
@@ -294,12 +304,144 @@ function BoutonCopier({ texte }: { texte: string }) {
     <button
       type="button"
       onClick={copier}
-      title="Copier le message"
+      title={titre}
       className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
     >
       {copie ? <Check className="h-2.5 w-2.5 text-success" /> : <Copy className="h-2.5 w-2.5" />}
-      {copie ? 'Copié' : 'Copier'}
+      {copie ? 'Copié' : libelle}
     </button>
+  );
+}
+
+function nombre(value: number): string {
+  return value.toLocaleString('fr-CH');
+}
+
+/** Le détail exact du nouveau contenu transmis pendant ce tour. */
+function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
+  const [open, setOpen] = React.useState(false);
+  const usage = contexte.usage;
+  const totalEntree = usage ? usage.inputTokens + (usage.cachedInputTokens ?? 0) : undefined;
+  const moteur = contexte.engine === 'claude' ? 'Claude Code' : 'Codex';
+  const session = contexte.session === 'new' ? 'Nouvelle session' : 'Reprise de session';
+  const instruction =
+    contexte.systemInstruction.kind === 'full' ? 'Consigne système complète' : 'Rappel de méthode';
+  const texteCopiable = [
+    `${moteur}${contexte.model ? ` — ${contexte.model}` : ''}`,
+    session,
+    usage
+      ? `Entrée nouvelle : ${nombre(usage.inputTokens)} jetons\nCache relu : ${
+          usage.cachedInputTokens === undefined ? 'non communiqué' : `${nombre(usage.cachedInputTokens)} jetons`
+        }`
+      : 'Mesure des jetons en attente',
+    `${instruction}\n\n${contexte.systemInstruction.content}`,
+    `Prompt HaikoDev\n\n${contexte.prompt}`,
+  ].join('\n\n---\n\n');
+
+  return (
+    <>
+      <button
+        type="button"
+        data-contexte-envoye
+        onClick={() => setOpen(true)}
+        className="mt-2 flex w-full items-center gap-2 rounded-md border border-border bg-surface/60 px-2.5 py-1.5 text-left transition-colors hover:bg-raised"
+      >
+        <Braces className="h-3 w-3 shrink-0 text-accent" />
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">Contexte envoyé</span>
+        <span className="shrink-0 text-[12px] tabular-nums text-faint">
+          {totalEntree === undefined ? 'mesure en cours' : `${nombre(totalEntree)} jetons`}
+        </span>
+        <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
+      </button>
+
+      <Drawer open={open} onClose={() => setOpen(false)}>
+        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+          <Braces className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <DialogTitle className="min-w-0 flex-1 truncate">Contexte envoyé</DialogTitle>
+          <BoutonCopier
+            texte={texteCopiable}
+            libelle="Tout copier"
+            titre="Copier tout le contexte envoyé"
+          />
+        </header>
+
+        <ZoneDefilement data-contexte-envoye-contenu className="px-3 py-3">
+          <div className="space-y-4 text-[13.5px] leading-relaxed text-muted">
+            <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                ['Moteur', moteur],
+                ['Modèle', contexte.model ?? 'Modèle par défaut'],
+                ['Tour', session],
+                ['Envoyé', new Date(contexte.sentAt).toLocaleString('fr-CH')],
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0 rounded-md bg-surface px-2.5 py-2">
+                  <div className="text-[11.5px] text-faint">{label}</div>
+                  <div className="break-words text-text">{value}</div>
+                </div>
+              ))}
+            </section>
+
+            <section>
+              <h3 className="mb-1.5 text-[13px] font-medium text-text">Mesure rendue par le moteur</h3>
+              {usage ? (
+                <div className="rounded-md bg-surface px-2.5 py-2">
+                  {nombre(usage.inputTokens)} jetons nouveaux
+                  <span className="text-faint"> · </span>
+                  {usage.cachedInputTokens === undefined
+                    ? 'détail du cache non communiqué'
+                    : `${nombre(usage.cachedInputTokens)} jetons relus depuis le cache`}
+                </div>
+              ) : (
+                <p className="rounded-md bg-surface px-2.5 py-2 text-faint">
+                  La mesure arrivera à la fin du tour moteur.
+                </p>
+              )}
+            </section>
+
+            <section>
+              <h3 className="mb-1.5 text-[13px] font-medium text-text">Composition du nouveau contenu</h3>
+              <ul className="divide-y divide-border rounded-md bg-surface px-2.5">
+                {contexte.blocks.map((bloc, index) => (
+                  <li key={`${bloc.kind}-${index}`} className="flex items-center justify-between gap-3 py-1.5">
+                    <span>{bloc.label}</span>
+                    <span className="shrink-0 tabular-nums text-faint">{nombre(bloc.characters)} signes</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            {contexte.history === 'retained_by_engine' ? (
+              <p className="rounded-md border border-border bg-surface px-2.5 py-2 text-faint">
+                L’historique précédent est déjà porté par la session du moteur. Il n’est pas renvoyé par
+                HaikoDev et le moteur ne permet pas de le relire ici.
+              </p>
+            ) : null}
+
+            <section>
+              <h3 className="mb-1.5 text-[13px] font-medium text-text">{instruction}</h3>
+              <p className="mb-1.5 text-[12px] text-faint">
+                {contexte.systemInstruction.transport === 'separate'
+                  ? 'Transmise séparément du prompt.'
+                  : 'Ajoutée par l’adaptateur devant le prompt.'}
+              </p>
+              <pre className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]">
+                {contexte.systemInstruction.content}
+              </pre>
+            </section>
+
+            <section>
+              <h3 className="mb-1.5 text-[13px] font-medium text-text">Prompt exact remis à l’adaptateur</h3>
+              <pre
+                data-prompt-envoye
+                className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]"
+              >
+                {contexte.prompt}
+              </pre>
+            </section>
+          </div>
+        </ZoneDefilement>
+      </Drawer>
+    </>
   );
 }
 
