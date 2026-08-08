@@ -1,6 +1,7 @@
 export * from './acces-vps.js';
 export * from './amorce.js';
 export * from './analyse.js';
+export * from './analyse-cout.js';
 export * from './apercu-fichier.js';
 export * from './arret-carte.js';
 export * from './reprise-publication.js';

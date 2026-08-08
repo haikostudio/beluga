@@ -174,6 +174,8 @@ le nom, là-bas le texte).
 
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
+- **Un chef sans choix manuel part sur Sonnet 5 sous Claude ou GPT-5.4 sous Codex, en réflexion
+  moyenne**, toujours ramené vers un modèle réellement présent dans le catalogue du moteur.
 - **Rien ne pointe vers le dossier personnel d'un utilisateur** (`/home/<quelqu'un>/…` écrit en dur) :
   une bibliothèque se déclare dans `package.json`, un outil dont le démon dépend se copie dans
   `outils/`. Le dossier de travail d'un projet vit sous `/root/<projet>`.
@@ -182,8 +184,16 @@ le nom, là-bas le texte).
 - **Une compétence partagée vit dans `data/competences/`** (un dossier avec son `SKILL.md`) : le démon
   la pose dans le coffre de chaque compte Claude et le briefing l'annonce à tout agent.
 
+### Quotas
+
+- **Chaque hausse mesurée sur un compte n'est attribuée qu'une fois** (`cumulerPartsQuota`,
+  `shared/src/quota.ts`) : les tours simultanés cumulent leur part depuis un repère commun, mis à
+  jour après chaque fin de tour. Deux fins décalées ne repartent jamais du même ancien relevé.
+
 ### Coûts
 
+- Le chiffrage d'une carte sépare l'analyse MESURÉE (événement d'usage du moteur et delta de quota)
+  de l'exécution PROJETÉE (formule et hypothèses visibles) ; une part non mesurable se dit indisponible.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.

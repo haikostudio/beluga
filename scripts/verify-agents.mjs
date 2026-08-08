@@ -151,9 +151,9 @@ async function main() {
   const { agent: orchestrator } = await session.call({ type: 'agent.orchestrator', projectId: project.id });
   record('Chef d\'orchestre : agent permanent créé', !!orchestrator?.id);
   record(
-    'Chef d\'orchestre : son modèle est épinglé, pas hérité du catalogue',
-    orchestrator.run.model === 'sonnet',
-    `modèle ${orchestrator.run.model}`,
+    'Chef d\'orchestre : son modèle et sa réflexion ont les bons défauts',
+    orchestrator.run.model?.includes('sonnet-5') && orchestrator.run.thinking === 'medium',
+    `modèle ${orchestrator.run.model}, réflexion ${orchestrator.run.thinking}`,
   );
 
   const cardsBefore = (await session.call({ type: 'project.open', id: project.id }), 0);

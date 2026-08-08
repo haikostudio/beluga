@@ -122,11 +122,63 @@ export type Project = z.infer<typeof Project>;
 /* Estimation & consommation                                           */
 /* ------------------------------------------------------------------ */
 
+export const ContextBreakdown = z.object({
+  status: z.enum(['measured', 'unavailable']),
+  /** Grandeur exacte disponible avant l'appel moteur : des signes, pas des jetons estimés. */
+  characters: z.number().int().nonnegative().optional(),
+  note: z.string(),
+});
+export type ContextBreakdown = z.infer<typeof ContextBreakdown>;
+
+export const AnalysisMeasurement = z.object({
+  /** Entrée hors partie déjà en cache. */
+  inputTokens: z.number().nonnegative(),
+  cachedInputTokens: z.number().nonnegative().optional(),
+  outputTokens: z.number().nonnegative(),
+  /** Absent si le moteur n'a pas communiqué le cache : aucun faux total exact. */
+  totalTokens: z.number().nonnegative().optional(),
+  /** Points de pourcentage réellement consommés dans chaque fenêtre. */
+  quota5h: z.number().nonnegative().optional(),
+  quotaWeekly: z.number().nonnegative().optional(),
+  breakdown: z.object({
+    haikoDevInstructions: ContextBreakdown,
+    cardDescription: ContextBreakdown,
+    memoryAndInstructions: ContextBreakdown,
+    agentReads: ContextBreakdown,
+  }),
+  measuredAt: z.number(),
+});
+export type AnalysisMeasurement = z.infer<typeof AnalysisMeasurement>;
+
+export const ExecutionProjection = z.object({
+  tokens: z.number().nonnegative().optional(),
+  quotaShare: z.number().nonnegative().optional(),
+  formula: z.string().optional(),
+  assumptions: z.array(z.string()).default([]),
+});
+export type ExecutionProjection = z.infer<typeof ExecutionProjection>;
+
+/** Données internes du tour, produites par HaikoDev et jamais par le texte de l'agent. */
+export interface TurnMeasurement {
+  usage: { inputTokens: number; cachedInputTokens?: number; outputTokens: number };
+  quota: { quota5h?: number; quotaWeekly?: number };
+  composition: {
+    promptCharacters: number;
+    systemPromptCharacters: number;
+    cardDescriptionCharacters: number;
+    memoryAndInstructionsCharacters: number;
+  };
+}
+
 export const Estimate = z.object({
   /** Durée machine prévue, en secondes. Sert à l'ordonnanceur, JAMAIS à la facture. */
   machineSeconds: z.number().optional(),
   tokens: z.number().optional(),
   quotaShare: z.number().optional(),
+  /** Projection future rédigée par l'analyse, avec sa formule et ses hypothèses. */
+  projection: ExecutionProjection.optional(),
+  /** Coût déjà consommé par le chiffrage, mesuré indépendamment du JSON de l'agent. */
+  analysisMeasurement: AnalysisMeasurement.optional(),
   confidence: z.enum(['low', 'medium', 'high']).optional(),
   summary: z.string().optional(),
   /** Heures qu'un développeur senior facturerait à la main. Sert à la facture. */
