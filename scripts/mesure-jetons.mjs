@@ -84,14 +84,16 @@ try {
  *  — APRÈS : l'index seul (une ligne brève par fait, groupée par sujet), le
  *    journal ayant déménagé dans HISTORIQUE.md et le détail se demandant.
  */
-const MEMOIRE = fs.readFileSync(path.join(RACINE, 'MEMOIRE.md'), 'utf8').trim();
+const memory = await import(path.join(RACINE, 'server/dist/memory.js'));
+
+// La mémoire ENTIÈRE, réunie depuis ses fichiers par sujet : c'est elle qui
+// partait autrefois d'un bloc, et c'est à elle qu'on compare l'index.
+const MEMOIRE = memory.readMemory(RACINE).trim();
 const HISTORIQUE = fs.existsSync(path.join(RACINE, 'HISTORIQUE.md'))
   ? fs.readFileSync(path.join(RACINE, 'HISTORIQUE.md'), 'utf8').trim()
   : '';
 // La mémoire d'avant : les faits ET les livraisons datées, dans le même fichier.
 const MEMOIRE_AVANT = [MEMOIRE, ...HISTORIQUE.split('\n').filter((l) => l.trim().startsWith('- '))].join('\n');
-
-const memory = await import(path.join(RACINE, 'server/dist/memory.js'));
 
 /*
  * LE CONTRAT LU À L'OUVERTURE. Le briefing ne porte PAS CLAUDE.md : c'est la

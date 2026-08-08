@@ -28,6 +28,14 @@ export const CERVEAU_SOURCE = 'haikodev';
 export const FICHIERS_PRIORITAIRES = ['MEMOIRE.md', 'CLAUDE.md', 'AGENTS.md', 'DOCUMENTATION.md'] as const;
 
 /**
+ * Les faits durables ne vivent plus dans le seul MEMOIRE.md : ils sont rangés
+ * PAR SUJET dans `docs/memoire/`. Ces pages-là partent juste après le sommaire,
+ * avant le reste de la documentation — c'est la mémoire du projet, ce que le
+ * cerveau vient chercher en premier.
+ */
+export const DOSSIER_MEMOIRE_PROJET = 'docs/memoire';
+
+/**
  * L'historique est un JOURNAL de livraisons : il n'a jamais été destiné à un
  * moteur, et il n'a rien à faire dans une mémoire d'apprentissage. La mémoire
  * d'avant resserrement est une COPIE périmée : elle ferait double emploi.
@@ -89,6 +97,8 @@ export function ordonnerPages(chemins: string[]): string[] {
   const rang = (chemin: string) => {
     const index = FICHIERS_PRIORITAIRES.indexOf(chemin as (typeof FICHIERS_PRIORITAIRES)[number]);
     if (index >= 0) return index;
+    // Les fichiers de mémoire par sujet suivent immédiatement les porteurs.
+    if (chemin.startsWith(`${DOSSIER_MEMOIRE_PROJET}/`)) return FICHIERS_PRIORITAIRES.length;
     return chemin.includes('/') ? 100 + chemin.split('/').length : 50;
   };
   return [...chemins].sort((a, b) => rang(a) - rang(b) || a.localeCompare(b));

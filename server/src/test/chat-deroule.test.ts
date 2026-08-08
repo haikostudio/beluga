@@ -7,7 +7,14 @@ import { MEMORY_STEP_ID, Message } from '@haikodev/shared';
 import { EngineEvent, normalizeTodos } from '../engines/types.js';
 import { SuiviDesTaches, emitFromClaude } from '../engines/claude.js';
 import { buildCodexArgs, emitFromCodex } from '../engines/codex.js';
-import { appendMemory, briefing, memoryFacts, memorySummary, newFactsSince } from '../memory.js';
+import {
+  appendMemory,
+  briefing,
+  empreintesDesFaits,
+  memoryFacts,
+  memorySummary,
+  newFactsSince,
+} from '../memory.js';
 import { ORCHESTRATOR_ALLOWED_NATIVE, ORCHESTRATOR_DENIED_NATIVE } from '../tools.js';
 import { allDone, mergeTodos } from '../todos.js';
 
@@ -293,8 +300,8 @@ test('seuls les faits ajoutés depuis sont renvoyés à l\'agent', () => {
   try {
     appendMemory(dossier, 'Premier fait.');
     appendMemory(dossier, 'Deuxième fait.');
-    const vus = memoryFacts(dossier).length;
-    assert.equal(vus, 2);
+    const vus = empreintesDesFaits(dossier);
+    assert.equal(memoryFacts(dossier).length, 2);
     assert.deepEqual(newFactsSince(dossier, vus), []);
 
     appendMemory(dossier, 'Troisième fait, appris en route.');
@@ -302,8 +309,13 @@ test('seuls les faits ajoutés depuis sont renvoyés à l\'agent', () => {
     assert.equal(nouveaux.length, 1);
     assert.match(nouveaux[0], /Troisième fait/);
 
-    // Mémoire raccourcie entre-temps : on repart du tout plutôt que de rien.
-    assert.equal(newFactsSince(dossier, 99).length, 3);
+    // Un fait rangé sous un AUTRE sujet ne passe pas pour déjà vu, alors même
+    // qu'il ne s'ajoute pas à la fin de la liste.
+    appendMemory(dossier, 'La publication fusionne les branches du lot dans la principale.');
+    assert.equal(newFactsSince(dossier, vus).length, 2);
+
+    // Session neuve, rien de vu : on repart du tout plutôt que de rien.
+    assert.equal(newFactsSince(dossier, []).length, 4);
   } finally {
     fs.rmSync(dossier, { recursive: true, force: true });
   }

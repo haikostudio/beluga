@@ -134,6 +134,16 @@ export function contexteApresCompression(
   };
 }
 
+/**
+ * La part de MÉMOIRE d'une reprise : les seuls sujets utiles à la carte et au
+ * rôle en cours, jamais la mémoire entière. Les autres sont NOMMÉS, pour que
+ * l'agent sache qu'ils existent et aille les chercher s'il en a besoin.
+ */
+export interface MemoireDeReprise {
+  sujets: { id: string; libelle: string; faits: string[] }[];
+  autres?: string[];
+}
+
 export interface EntreeResumeContinuite {
   project: string;
   workdir: string;
@@ -144,9 +154,13 @@ export interface EntreeResumeContinuite {
   decisions?: string[];
   todos?: string[];
   attachments?: string[];
+  memoire?: MemoireDeReprise;
 }
 
 const LIMITE_ECHANGES = 12_000;
+
+/** Une reprise ne réinjecte pas des milliers de signes de mémoire. */
+const LIMITE_MEMOIRE = 6_000;
 
 function couper(texte: string, limite: number): string {
   const propre = texte.trim();
@@ -171,6 +185,31 @@ export function resumeContinuite(entree: EntreeResumeContinuite): string {
       `Carte : ${entree.card.title}`,
       `Colonne : ${entree.card.column}`,
       `Demande de la carte : ${couper(entree.card.description ?? '(sans description)', 4_000)}`,
+    );
+  }
+
+  /*
+   * LA MÉMOIRE D'UNE REPRISE SE CHOISIT. Recharger tous les faits du projet à
+   * chaque compression, c'est repayer la mémoire entière à chaque fois — et
+   * pousser vers la compression suivante. On ne remet donc que les fichiers de
+   * SUJET que touche la carte en cours ; les autres sont nommés, à la demande.
+   */
+  if (entree.memoire?.sujets.length) {
+    lignes.push('Mémoire du projet — les seuls sujets utiles à cette carte (les autres ne sont PAS rechargés) :');
+    let place = 0;
+    for (const sujet of entree.memoire.sujets) {
+      lignes.push(`${sujet.libelle} :`);
+      for (const fait of sujet.faits) {
+        const ligne = `- ${couper(fait, 600)}`;
+        if (place + ligne.length > LIMITE_MEMOIRE) break;
+        lignes.push(ligne);
+        place += ligne.length;
+      }
+    }
+  }
+  if (entree.memoire?.autres?.length) {
+    lignes.push(
+      `Autres sujets de mémoire, à demander avec « project_memory » seulement s'ils te servent : ${entree.memoire.autres.join(', ')}.`,
     );
   }
 

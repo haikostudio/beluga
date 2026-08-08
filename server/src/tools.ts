@@ -569,8 +569,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'project_memory': {
       // Le détail à la demande : l'index seul part au lancement ; le texte
       // entier des faits, des règles et des contrôles d'un sujet se demande
-      // quand ce sujet concerne vraiment la tâche.
-      return { ok: true, text: detailProjet(project.path, String(args.sujet ?? '')) };
+      // quand ce sujet concerne vraiment la tâche — et UNE SEULE FOIS par
+      // session : un sujet déjà servi n'est pas repayé.
+      const servi = detailProjet(project.path, String(args.sujet ?? ''), store.sujetsMemoireServis(ctx.agentId));
+      store.marquerSujetsMemoireServis(ctx.agentId, servi.servis);
+      return { ok: true, text: servi.texte };
     }
 
     case 'remember': {

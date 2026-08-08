@@ -593,7 +593,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
       store.setNouveauDepart(agent.id, store.now());
       store.clearSessions(agent.id);
-      store.setMemorySeen(agent.id, 0);
+      store.oublierMemoireServie(agent.id);
       store.setCarteVue(agent.id, '');
       envoyerConversation(agent.id);
       bus.toast('success', 'Nouvelle conversation. Les échanges précédents restent consultables.');
