@@ -5,8 +5,10 @@ import {
   Card,
   Estimate,
   OccupantDossier,
+  RAISON_ATTENTE_LANCEMENT,
   RAISON_SANS_DEPOT,
   cheminDossierDeCarte,
+  demarrageAutomatiqueAutorise,
   nomDeBranche,
   phraseDepuisReponse,
   porteDuDepot,
@@ -103,13 +105,22 @@ ${card.description || '(pas de description)'}${
           return;
         }
 
-        // Promotion automatique en « Planifié » dès l'analyse réussie.
+        // Promotion automatique en « Planifié » dès l'analyse réussie — mais
+        // PAS en « En cours » : l'agent d'analyse s'arrête là. La carte porte sa
+        // raison d'attente, l'ordonnanceur ne la démarre pas sans le geste de
+        // l'utilisateur (voir `demarrageAutomatiqueAutorise`).
+        const scheduling = fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
         const updated = store.saveCard({
           ...fresh,
           estimate: { ...estimate, summary: estimate.summary ?? text.slice(0, 2000), producedAt: Date.now() },
           column: fresh.column === 'validated' ? 'planned' : fresh.column,
           position: store.nextPosition(fresh.projectId, 'planned'),
-          scheduling: { ...(fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 }), waitingReason: undefined },
+          scheduling: {
+            ...scheduling,
+            // La raison ne s'affiche que si la carte attend VRAIMENT le geste : une
+            // carte déjà autorisée (« Dès que possible », déjà lancée) partira.
+            waitingReason: demarrageAutomatiqueAutorise(scheduling) ? undefined : RAISON_ATTENTE_LANCEMENT,
+          },
         });
         bus.emit({ type: 'card.upsert', card: updated });
         void tick();
@@ -550,6 +561,11 @@ export async function tick(): Promise<void> {
         if (card.agentId && isRunning(card.agentId)) continue;
         // Suspendue à la main : elle reste en file, mais elle attend un geste.
         if (card.scheduling?.suspendu) continue;
+        // Session fusionnée : une carte fraîchement analysée ne s'exécute pas
+        // toute seule. L'ordonnanceur ne reprend d'office qu'une carte déjà
+        // autorisée (« Dès que possible », ou déjà lancée puis interrompue) ;
+        // sinon la bascule Validé → En cours attend le clic de l'utilisateur.
+        if (!demarrageAutomatiqueAutorise(card.scheduling)) continue;
         const gate = await checkGates(card);
         if (!gate.ok) {
           if (card.scheduling?.waitingReason !== gate.reason) {

@@ -150,6 +150,44 @@ export function colonneAuDemarrage(colonne: ColumnKey, role: AgentRole): ColumnK
 }
 
 /**
+ * La phrase portée par une carte dont l'analyse est rendue mais qui n'a pas
+ * encore reçu son geste de lancement. Elle dit l'essentiel : le chiffrage est
+ * là, et rien ne partira tant que l'utilisateur n'aura pas cliqué.
+ */
+export const RAISON_ATTENTE_LANCEMENT =
+  'Analyse rendue : la carte attend votre lancement, rien ne démarre tout seul.';
+
+/**
+ * L'ordonnanceur a-t-il le droit de DÉMARRER cette carte de lui-même, sans un
+ * nouveau geste de l'utilisateur ?
+ *
+ * C'est le garde-fou de la session fusionnée : le chiffrage et l'exécution
+ * partagent un même agent et un même contexte (on économise le quota), mais
+ * l'agent d'analyse ne doit JAMAIS enchaîner tout seul sur l'exécution. Une
+ * carte fraîchement analysée — jamais lancée, pas marquée « dès que possible » —
+ * reste donc en attente : la bascule Validé → En cours reste un clic.
+ *
+ * L'ordonnanceur ne reprend AUTOMATIQUEMENT que deux sortes de cartes :
+ *   - celle que l'utilisateur a poussée avec « Dès que possible » (`asap`) —
+ *     c'est LÀ son geste de lancement ;
+ *   - celle qui a DÉJÀ été lancée puis interrompue (un tour coupé, une reprise
+ *     après redémarrage du serveur : `attempts`/`restarts` l'attestent) — on ne
+ *     lui redemande pas un clic pour reprendre un travail déjà autorisé.
+ *
+ * Le geste direct (« Lancer maintenant », dépôt dans « En cours », « Tout
+ * lancer ») ne passe pas par ici : il appelle le démarrage sans détour.
+ */
+export function demarrageAutomatiqueAutorise(scheduling?: {
+  asap?: boolean;
+  attempts?: number;
+  restarts?: number;
+}): boolean {
+  if (!scheduling) return false;
+  if (scheduling.asap) return true;
+  return (scheduling.attempts ?? 0) > 0 || (scheduling.restarts ?? 0) > 0;
+}
+
+/**
  * Le tour qui se termine est-il encore CELUI de la carte ?
  *
  * Une carte ne porte qu'un agent d'exécution à la fois (`card.agentId`), et un
