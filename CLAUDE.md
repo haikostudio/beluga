@@ -2,10 +2,11 @@
 
 Fichier court et factuel, tenu à jour AU FIL des tâches : comment lancer, comment vérifier, où
 vivent les choses, ce qu'on n'enfreint pas. Aucun journal ici — les livraisons vont dans
-`HISTORIQUE.md`, les règles apprises dans `MEMOIRE.md`. Le fichier est chargé À CHAQUE session : il
+`HISTORIQUE.md`, les règles apprises dans `docs/memoire/`. Le fichier est chargé À CHAQUE session : il
 ne garde donc que le CONTRAT essentiel. Le TEXTE ENTIER des règles vit PAR SUJET dans `docs/regles/`,
-la liste des contrôles dans `docs/verifications.md`, le texte d'un fait dans `MEMOIRE.md` — tout se
-demande à la carte avec l'outil `project_memory`, qui ne rend que le sujet touché par la tâche.
+la liste des contrôles dans `docs/verifications.md`, le texte des faits PAR SUJET dans `docs/memoire/`
+— tout se demande à la carte avec l'outil `project_memory`, qui ne rend que le sujet touché par la
+tâche, et une seule fois par session.
 
 ## Où vivent les choses
 
@@ -15,7 +16,7 @@ demande à la carte avec l'outil `project_memory`, qui ne rend que le sujet touc
 | `web/` | L'interface : tableau, conversations, réglages, application installable |
 | `shared/` | Les règles pures, sans base ni disque — donc testables seules |
 | `scripts/` | Service système, identifiants, scripts de vérification |
-| `docs/` | La documentation : les règles PAR SUJET (`regles/`), la liste des contrôles (`verifications.md`), les audits |
+| `docs/` | La documentation : les règles PAR SUJET (`regles/`), les faits PAR SUJET (`memoire/`), la liste des contrôles (`verifications.md`), les audits |
 | `outils/` | Les outils tiers dont le démon dépend, versionnés ici (`outils/compta/` : facturation) |
 | `data/live` | **Ce qui est réellement servi** : écrit uniquement par la publication |
 | `data/competences` | Les **compétences partagées** : un dossier par compétence, chacun avec son `SKILL.md` |
@@ -59,6 +60,7 @@ Les contrôles de TOUS LES JOURS :
 npm test                            # tous les tests du démon (compilés dans server/dist)
 node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
+node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
@@ -76,11 +78,16 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
 
 ## Mémoire du projet
 
-- `MEMOIRE.md` — faits durables et pièges. Seul son **index** (une ligne brève par fait, groupée par
-  sujet) part au moteur au lancement d'un agent ; le texte entier se demande avec l'outil
-  `project_memory`. **Le même outil sert aussi les RÈGLES (`docs/regles/`) et les CONTRÔLES
-  (`docs/verifications.md`)** : un sujet demandé rend les faits, les règles ET les contrôles qui le
-  concernent, jamais le reste.
+- `docs/memoire/<sujet>.md` — les faits durables et les pièges, **un fichier par sujet**, comme
+  `docs/regles/`. `MEMOIRE.md` n'en garde que le **sommaire** (aucun fait). Seul l'**index** (une
+  ligne brève par fait, groupée par sujet) part au moteur au lancement d'un agent ; le fichier d'un
+  sujet se demande avec l'outil `project_memory`. **Le même outil sert aussi les RÈGLES
+  (`docs/regles/`) et les CONTRÔLES (`docs/verifications.md`)** : un sujet demandé rend les faits, les
+  règles ET les contrôles qui le concernent, jamais le reste.
+- **Un sujet servi une fois ne l'est pas deux dans la même session** : redemandé, il rend une ligne
+  de rappel — sauf s'il a CHANGÉ depuis. Et une **reprise après compression** ne recharge que les
+  sujets utiles à la carte (trois au plus), les autres étant seulement nommés. Même règle pour le
+  chef d'orchestre et pour les agents de tâche.
 - `HISTORIQUE.md` — les livraisons datées, écrites à la clôture d'une carte. **Jamais** envoyé au
   moteur.
 - Au-delà d'un seuil, un petit modèle relit la mémoire et la resserre ; la version d'avant reste
@@ -91,7 +98,8 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   `https://memoire.haiko-s1.com` (`POST /v1/memories`). Jamais `HISTORIQUE.md` ni
   `MEMOIRE.avant-synthese.md`, jamais un fichier écarté par `.gitignore`, jamais un dossier de
   machine (`node_modules`, `dist`, `data`…) ; 5 niveaux de profondeur, 150 pages et 300 000 signes
-  au plus, les porteuses d'abord. Un `discussion_id` stable par projet
+  au plus, les porteuses d'abord — le sommaire, les instructions, puis `docs/memoire/`. Un
+  `discussion_id` stable par projet
   et par fichier fait REMPLACER au lieu d'empiler ; une empreinte SHA-256 par fichier évite de
   renvoyer l'inchangé, sauf rattrapage hebdomadaire. La clé vient de `CERVEAU_API_KEY`
   (`/etc/haikodev.env`, hors dépôt) : sans elle, l'envoi se tait et le dit dans les réglages.

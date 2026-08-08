@@ -716,19 +716,50 @@ export function clearSession(agentId: string, cle = 'claude'): void {
     .run(Object.keys(sessions).length ? JSON.stringify(sessions) : null, agentId);
 }
 
-/**
- * Combien de faits de la mémoire du projet cet agent a DÉJÀ dans son contexte.
- * Sert à ne lui renvoyer que les faits nouveaux au lieu de recoller la mémoire
- * entière à chaque message.
- */
-export function memorySeen(agentId: string): number {
-  const raw = getMeta(`memoire.vue.${agentId}`);
-  const n = raw ? Number(raw) : 0;
-  return Number.isFinite(n) && n > 0 ? n : 0;
+function listeMeta(cle: string): string[] {
+  try {
+    const raw = getMeta(cle);
+    const valeurs = raw ? JSON.parse(raw) : [];
+    return Array.isArray(valeurs) ? valeurs.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
-export function setMemorySeen(agentId: string, facts: number): void {
-  setMeta(`memoire.vue.${agentId}`, String(Math.max(0, Math.round(facts))));
+/**
+ * Les faits de la mémoire que cet agent a DÉJÀ dans son contexte, par leur
+ * empreinte courte. Sert à ne lui renvoyer que les faits nouveaux au lieu de
+ * recoller l'index entier à chaque message. On retient l'empreinte et non un
+ * décompte : un fait rangé sous son sujet ne s'ajoute pas forcément à la fin.
+ */
+export function memorySeen(agentId: string): string[] {
+  return listeMeta(`memoire.vue.${agentId}`);
+}
+
+export function setMemorySeen(agentId: string, empreintes: string[]): void {
+  setMeta(`memoire.vue.${agentId}`, JSON.stringify([...new Set(empreintes)]));
+}
+
+/**
+ * Les SUJETS (faits, règles, contrôles) déjà servis en entier à cet agent dans
+ * cette session. Un sujet pèse des milliers de signes : le resservir parce que
+ * l'agent le redemande paie deux fois le même contexte. La clé porte l'empreinte
+ * du contenu — un sujet qui a changé depuis repart, lui.
+ */
+export function sujetsMemoireServis(agentId: string): string[] {
+  return listeMeta(`memoire.sujets.${agentId}`);
+}
+
+export function marquerSujetsMemoireServis(agentId: string, cles: string[]): void {
+  if (!cles.length) return;
+  const deja = sujetsMemoireServis(agentId);
+  setMeta(`memoire.sujets.${agentId}`, JSON.stringify([...new Set([...deja, ...cles])].slice(-40)));
+}
+
+/** Une session neuve repart d'un contexte vide : plus rien n'est « déjà servi ». */
+export function oublierMemoireServie(agentId: string): void {
+  setMeta(`memoire.vue.${agentId}`, '[]');
+  setMeta(`memoire.sujets.${agentId}`, '[]');
 }
 
 /**

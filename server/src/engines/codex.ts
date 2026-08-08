@@ -250,7 +250,7 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
      * Même raison pour la mémoire PROPRE de Codex (son dossier `memories`) :
      * elle est commune à tous les projets, HaikoDev n'y écrit rien, et elle
      * suffit au modèle pour se croire renseigné. La mémoire d'un projet vit
-     * dans `MEMOIRE.md`, et se lit avec `project_memory`.
+     * par sujet dans `docs/memoire/`, et se lit avec `project_memory`.
      */
     args.push('-c', 'features.memories=false');
   }

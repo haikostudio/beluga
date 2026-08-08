@@ -284,7 +284,7 @@ export function ecrireFichiersDeDepart(target: string, nom: string, description?
       `## Documents du projet\n\n` +
       `- \`CLAUDE.md\` — les instructions du moteur : lancer, vérifier, où vivent les choses.\n` +
       `- \`DOCUMENTATION.md\` — la documentation du projet, tenue à jour au fil des tâches.\n` +
-      `- \`MEMOIRE.md\` — les faits durables et les pièges, une ligne par fait.\n` +
+      `- \`MEMOIRE.md\` — le sommaire de la mémoire ; les faits durables vivent par sujet dans \`docs/memoire/\`.\n` +
       `- \`HISTORIQUE.md\` — les livraisons datées.\n`,
   );
 
@@ -314,7 +314,8 @@ export function ecrireFichiersDeDepart(target: string, nom: string, description?
   poser(
     'MEMOIRE.md',
     `# Mémoire du projet\n\n` +
-      `_Tenue automatiquement par HaikoDev : faits durables uniquement, une ligne par fait._\n\n`,
+      `_Tenue automatiquement par HaikoDev. Les faits durables sont rangés PAR SUJET dans \`docs/memoire/\` ` +
+      `— un fichier par sujet, demandé à la carte avec l'outil \`project_memory\`. Ce sommaire ne porte aucun fait._\n\n`,
   );
 
   poser(

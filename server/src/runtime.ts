@@ -33,12 +33,16 @@ import {
   contexteApresCompression,
   decisionEnTexteLibre,
   etatDuPont,
+  libelleSujet,
+  MemoireDeReprise,
   nomDeBranche,
   observerContexte,
   poidsDeTour,
   raisonSansModification,
   resumeContinuite,
   ROLES_QUI_DEPLACENT,
+  SUJETS_MEMOIRE,
+  sujetsUtiles,
   templateForColumn,
   tourDeLaCarte,
   wrapPrompt,
@@ -50,7 +54,7 @@ import { CONFIG, PATHS } from './config.js';
 import { adapterFor, contextWindowFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
-import { briefing, memoryFacts, memorySummary, newFactsSince } from './memory.js';
+import { briefing, empreintesDesFaits, faitsDuSujet, memorySummary, newFactsSince } from './memory.js';
 import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
@@ -406,7 +410,11 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
         `confiée à un agent de tâche.`;
       contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', content: espace });
     }
-    store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+    // Session neuve : l'agent repart d'un contexte vide — plus rien de ce qui
+    // lui a été servi avant n'y est. On oublie les sujets déjà donnés, sinon
+    // une reprise se retrouverait privée de la mémoire qu'elle n'a plus.
+    store.oublierMemoireServie(agent.id);
+    store.setMemorySeen(agent.id, empreintesDesFaits(project.path));
     if (agent.context?.continuitySummary) {
       contextParts.push({
         label: 'Résumé de continuité après compression',
@@ -420,7 +428,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
       const ajout = `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`;
       contextParts.push({ label: 'Nouveaux faits de la mémoire', kind: 'memory', content: ajout });
       memoryAndInstructionsCharacters += ajout.length;
-      store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+      store.setMemorySeen(agent.id, empreintesDesFaits(project.path));
     }
   }
 
@@ -1277,7 +1285,37 @@ function resumePourAgent(agent: Agent): string {
     decisions,
     todos: dernierAvecTaches?.todos.map((todo) => `${todo.state} : ${todo.label}`),
     attachments,
+    memoire: memoireDeReprise(project.path, agent, card),
   });
+}
+
+/**
+ * LA MÉMOIRE QU'UNE REPRISE RECHARGE : les fichiers de sujet que touche le
+ * travail en cours, jamais toute la mémoire. Le texte examiné est le même pour
+ * TOUS les rôles — carte, titre de l'agent, rôle réunis : le chef d'orchestre et
+ * l'agent de tâche passent par la même règle, seul leur travail diffère.
+ */
+function memoireDeReprise(projectPath: string, agent: Agent, card: Card | null): MemoireDeReprise | undefined {
+  const texte = [
+    card?.title,
+    card?.description,
+    agent.title,
+    agent.role === 'orchestrator' ? "chef d'orchestre : cartes, projets, conversation" : agent.role,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const retenus = sujetsUtiles(texte);
+  const sujets = retenus
+    .map((id) => ({ id, libelle: libelleSujet(id), faits: faitsDuSujet(projectPath, id) }))
+    .filter((sujet) => sujet.faits.length);
+  if (!sujets.length) return undefined;
+
+  const autres = SUJETS_MEMOIRE.filter(
+    (sujet) => !retenus.includes(sujet.id) && faitsDuSujet(projectPath, sujet.id).length,
+  ).map((sujet) => sujet.libelle);
+
+  return { sujets, autres };
 }
 
 async function compresserContexte(agent: Agent, options: OptionsCompression): Promise<void> {

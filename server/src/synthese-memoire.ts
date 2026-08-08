@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { SEUIL_SYNTHESE, doitSynthetiser, nettoyer, syntheseAcceptable } from '@haikodev/shared';
-import { memoryFacts, memoryPath, replaceMemory } from './memory.js';
+import { memoryFacts, readMemory, replaceMemory } from './memory.js';
 import { adapterFor } from './engines/index.js';
 import { log } from './logger.js';
 
@@ -74,9 +74,11 @@ export async function synthetiserMemoire(projectPath: string): Promise<ResultatS
     return { fait: false, avant: avant.length, apres: apres.length, raison: verdict.raison };
   }
 
-  // Réversible : la version d'avant reste à côté, dans le dépôt.
+  // Réversible : la version d'avant reste à côté, dans le dépôt. La mémoire
+  // étant découpée par sujet, on dépose son texte RÉUNI — un seul fichier à
+  // relire, exactement comme avant le découpage.
   try {
-    fs.copyFileSync(memoryPath(projectPath), path.join(projectPath, FICHIER_AVANT));
+    fs.writeFileSync(path.join(projectPath, FICHIER_AVANT), readMemory(projectPath), 'utf8');
   } catch (err) {
     log.warn('mémoire : copie de sauvegarde impossible', err);
   }
