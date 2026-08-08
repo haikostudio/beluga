@@ -112,12 +112,6 @@ async function main() {
     await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(4000);
 
-    // Le bon projet, puis la colonne où dort la carte.
-    const ligneProjet = page.getByText(projet.name, { exact: true }).first();
-    if (await ligneProjet.count()) {
-      await ligneProjet.click();
-      await page.waitForTimeout(2500);
-    }
     /*
      * L'application rouvre le tiroir quitté la veille : si c'est déjà notre
      * carte, on ne clique pas (le voile avalerait le clic) ; si c'en est une
@@ -127,8 +121,22 @@ async function main() {
     const dejaOuvert = (await dialogue.count()) ? await dialogue.innerText() : '';
     if (!dejaOuvert.includes(carte.title.slice(0, 30))) {
       if (dejaOuvert) {
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(1200);
+        // Plusieurs panneaux peuvent avoir été retenus par l'application.
+        // Leur poignée est toujours le premier bouton du dialogue : la fermer
+        // évite que son voile n'avale le clic suivant sur le projet.
+        for (let tentative = 0; tentative < 3; tentative += 1) {
+          const ouverts = page.locator('[role="dialog"]:visible');
+          if ((await ouverts.count()) === 0) break;
+          await ouverts.last().locator('button').first().click({ force: true });
+          await page.waitForTimeout(500);
+        }
+      }
+      // Le bon projet, puis la colonne où dort la carte. Ce clic vient APRÈS
+      // la fermeture du tiroir précédent, dont le voile l'intercepterait.
+      const ligneProjet = page.getByText(projet.name, { exact: true }).first();
+      if (await ligneProjet.count()) {
+        await ligneProjet.click();
+        await page.waitForTimeout(2500);
       }
       const colonne = page.locator(`[data-column="${carte.column_key || 'planned'}"]`);
       await colonne.first().scrollIntoViewIfNeeded();
@@ -206,6 +214,13 @@ async function main() {
     await tiroir.getByRole('tab', { name: 'Détails' }).click();
     await page.waitForTimeout(1200);
     const details = (await tiroir.innerText()).replace(/\s+/g, ' ');
+    const zoneAnalyse = tiroir.locator('[data-moment-detail="analyse-initiale"]');
+    const zoneExecution = tiroir.locator('[data-moment-detail="execution-reelle"]');
+    // `innerText` omet le contenu encore sous le fondu de la zone de
+    // défilement. `textContent` vérifie tout ce qui est réellement rendu dans
+    // chacune des deux zones, puis le défilement ci-dessous les montre.
+    const texteAnalyse = ((await zoneAnalyse.textContent()) ?? '').replace(/\s+/g, ' ');
+    const texteExecution = ((await zoneExecution.textContent()) ?? '').replace(/\s+/g, ' ');
     record(
       'Les détails ne recopient plus le compte rendu',
       !/Résumé de l’analyse|Résumé de l'analyse/.test(details),
@@ -216,9 +231,26 @@ async function main() {
       /Analyse mesurée — déjà consommée/.test(details) && /Exécution projetée — estimation future/.test(details),
     );
     record(
-      'Une ancienne mesure absente est nommée comme telle',
-      /Mesure détaillée indisponible/.test(details) || /Entrée hors cache/.test(details),
+      'Le détail présente l’analyse initiale avant l’exécution réelle',
+      (await zoneAnalyse.count()) === 1 &&
+        (await zoneExecution.count()) === 1 &&
+        (await zoneAnalyse.evaluate((element, suivante) =>
+          !!(element.compareDocumentPosition(document.querySelector(suivante)) & Node.DOCUMENT_POSITION_FOLLOWING),
+        '[data-moment-detail="execution-reelle"]')),
     );
+    record(
+      'Les prévisions et les consommations gardent leurs valeurs',
+      /Durée machine prévue/.test(texteAnalyse) &&
+        /Heures développeur senior/.test(texteAnalyse) &&
+        /Durée réelle/.test(texteExecution) &&
+        /Jetons consommés/.test(texteExecution),
+    );
+    record(
+      'Une ancienne mesure absente est nommée comme telle',
+      /Mesure détaillée indisponible/.test(texteAnalyse) || /Entrée hors cache/.test(texteAnalyse),
+    );
+    await zoneExecution.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
     await page.screenshot({ path: `${SHOTS}/analyse-lisible-details.png` });
 
     record('Aucune erreur dans la console', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
