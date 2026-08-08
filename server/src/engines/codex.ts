@@ -4,7 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { chefBride, serveursTiers, surchargesCodexDuChef } from '@haikodev/shared';
-import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
+import {
+  EngineAdapter,
+  EngineEvent,
+  EngineHandle,
+  EngineRunOptions,
+  humanStep,
+  normalizeTodos,
+  sommeContexte,
+} from './types.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -298,6 +306,14 @@ export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): vo
           inputTokens: usage.input_tokens ?? 0,
           outputTokens: (usage.output_tokens ?? 0) + (usage.reasoning_output_tokens ?? 0),
           cachedTokens: usage.cached_input_tokens ?? 0,
+          contextTokens:
+            typeof usage.total_tokens === 'number'
+              ? usage.total_tokens
+              : sommeContexte(
+                  usage.input_tokens,
+                  usage.output_tokens,
+                  usage.reasoning_output_tokens,
+                ),
         },
       });
       return;
@@ -346,15 +362,28 @@ export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): vo
         },
       });
       break;
-    case 'token_count':
+    case 'token_count': {
+      const derniereMesure = msg.info?.last_token_usage;
       onEvent({
         kind: 'usage',
         usage: {
           inputTokens: msg.info?.total_token_usage?.input_tokens ?? 0,
           outputTokens: msg.info?.total_token_usage?.output_tokens ?? 0,
+          contextTokens:
+            typeof derniereMesure?.total_tokens === 'number'
+              ? derniereMesure.total_tokens
+              : sommeContexte(
+                  derniereMesure?.input_tokens,
+                  derniereMesure?.cached_input_tokens,
+                  derniereMesure?.output_tokens,
+                  derniereMesure?.reasoning_output_tokens,
+                ),
+          contextWindow:
+            typeof msg.info?.model_context_window === 'number' ? msg.info.model_context_window : undefined,
         },
       });
       break;
+    }
     case 'error':
       onEvent({ kind: 'error', error: msg.message ?? 'Erreur du moteur.' });
       break;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ColumnKey } from './columns.js';
 import { MOYENS_VPS } from './acces-vps.js';
+import { AgentContextUsage } from './contexte-agent.js';
 
 /* ------------------------------------------------------------------ */
 /* Moteurs, modèles, niveaux de réflexion                              */
@@ -319,6 +320,8 @@ export const Agent = z.object({
    * d'afficher « n/N faites » dans le décroché d'une carte sans l'ouvrir.
    */
   todos: z.object({ done: z.number().int(), total: z.number().int() }).optional(),
+  /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
+  contextUsage: AgentContextUsage.optional(),
   pid: z.number().optional(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),

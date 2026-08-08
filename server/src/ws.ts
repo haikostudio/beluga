@@ -696,7 +696,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         thinking,
         mode: cmd.run.mode ?? agent.run.mode,
       };
-      const updated = store.saveAgent({ ...agent, run: run as any });
+      const updated = store.saveAgent({
+        ...agent,
+        run: run as any,
+        // Changer de moteur ou de modèle ouvre un autre fil : l'ancienne
+        // mesure ne décrit plus le contexte qui sera utilisé.
+        contextUsage: modelChanged ? undefined : agent.contextUsage,
+      });
       bus.emit({ type: 'agent.upsert', agent: updated });
 
       // Le réglage d'un chef d'orchestre devient le réglage retenu : les chefs

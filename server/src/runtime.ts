@@ -37,11 +37,12 @@ import {
   templateForColumn,
   tourDeLaCarte,
   wrapPrompt,
+  mesurerContexte,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
-import { adapterFor, EngineEvent, EngineHandle } from './engines/index.js';
+import { adapterFor, EngineEvent, EngineHandle, listEngines } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
 import { briefing, memoryFacts, memorySummary, newFactsSince } from './memory.js';
@@ -384,6 +385,13 @@ async function startTurn(
   const agent = store.getAgent(agentBefore.id) ?? agentBefore;
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
+  const moteurs = await listEngines();
+  const moteur = moteurs.find((item) => item.id === agent.run.engine);
+  const modele =
+    moteur?.models.find((item) => item.id === agent.run.model) ??
+    moteur?.models.find((item) => item.id === moteur.defaultModel) ??
+    moteur?.models[0];
+  const capaciteContexte = modele?.contextWindow;
 
   /*
    * OÙ CET AGENT TRAVAILLE. Une carte lancée a sa propre copie de travail
@@ -534,7 +542,14 @@ async function startTurn(
 
   // L'avancement d'un tour précédent ne vaut rien pour celui-ci : on repart
   // sans liste, sinon le décroché de la carte montrerait un vieux « 3/3 ».
-  setStatus(agent, 'running', { startedAt: Date.now(), account: account.id, todos: undefined });
+  setStatus(agent, 'running', {
+    startedAt: Date.now(),
+    account: account.id,
+    todos: undefined,
+    // Un fil neuf ne réutilise jamais la mesure du fil précédent. Tant que le
+    // moteur ne parle pas, l'interface montre explicitement « indisponible ».
+    contextUsage: nouvelleSession ? undefined : agent.contextUsage,
+  });
 
   let sawError: string | undefined;
 
@@ -627,6 +642,21 @@ async function startTurn(
           break;
         case 'usage':
           runState.usage = event.usage;
+          if (event.usage) {
+            const mesure = mesurerContexte(
+              event.usage.contextTokens,
+              event.usage.contextWindow ?? capaciteContexte,
+            );
+            if (mesure) {
+              // Une compression produit une mesure plus basse : elle remplace
+              // l'ancienne comme n'importe quelle autre information d'usage.
+              const frais = store.getAgent(agent.id);
+              if (frais) {
+                const maj = store.saveAgent({ ...frais, contextUsage: mesure });
+                bus.emit({ type: 'agent.upsert', agent: maj });
+              }
+            }
+          }
           break;
         case 'ratelimit':
           if (event.rateLimit) noteAccountUse(account.id, event.rateLimit);

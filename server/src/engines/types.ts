@@ -11,7 +11,18 @@ export interface EngineEvent {
   /** kind=todo : la liste de tâches annoncée par l'agent, entière à chaque fois */
   todos?: TodoItem[];
   /** kind=usage */
-  usage?: { inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd?: number; durationMs?: number; turns?: number };
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedTokens?: number;
+    /** Jetons présents dans le contexte courant, distincts du cumul facturé du tour. */
+    contextTokens?: number;
+    /** Capacité annoncée par l'événement lui-même, quand le moteur la fournit. */
+    contextWindow?: number;
+    costUsd?: number;
+    durationMs?: number;
+    turns?: number;
+  };
   /** kind=ratelimit */
   rateLimit?: { status: string; resetsAt?: number; type?: string };
   /** kind=error | done */
@@ -64,6 +75,12 @@ export interface EngineAdapter {
   models: () => Promise<unknown[]>;
   defaultModel: string;
   run: (options: EngineRunOptions) => EngineHandle;
+}
+
+/** Additionne seulement des nombres réellement présents : aucune valeur reçue ne devient zéro. */
+export function sommeContexte(...valeurs: unknown[]): number | undefined {
+  const presentes = valeurs.filter((valeur): valeur is number => typeof valeur === 'number' && Number.isFinite(valeur));
+  return presentes.length ? presentes.reduce((total, valeur) => total + valeur, 0) : undefined;
 }
 
 /**

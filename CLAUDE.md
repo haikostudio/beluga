@@ -169,6 +169,10 @@ le nom, là-bas le texte).
 
 ### Interface et code
 
+- **Le composeur montre le contexte de CHAQUE agent, jamais son quota** (`Agent.contextUsage`,
+  `shared/src/contexte-agent.ts`) : mesure absente = tiret, vrai zéro = `0 %`, mise à jour à chaque
+  usage du moteur et après compression. Vérifié par `server/src/test/contexte-agent.test.ts` et
+  `scripts/verif-contexte-composeur.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
 - **Rien ne pointe vers le dossier personnel d'un utilisateur** (`/home/<quelqu'un>/…` écrit en dur) :

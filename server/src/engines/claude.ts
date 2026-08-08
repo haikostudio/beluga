@@ -2,7 +2,15 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { TodoItem } from '@haikodev/shared';
-import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
+import {
+  EngineAdapter,
+  EngineEvent,
+  EngineHandle,
+  EngineRunOptions,
+  humanStep,
+  normalizeTodos,
+  sommeContexte,
+} from './types.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -296,6 +304,12 @@ export function emitFromClaude(
           inputTokens: (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
           outputTokens: usage.output_tokens ?? 0,
           cachedTokens: usage.cache_read_input_tokens ?? 0,
+          contextTokens: sommeContexte(
+            usage.input_tokens,
+            usage.cache_creation_input_tokens,
+            usage.cache_read_input_tokens,
+            usage.output_tokens,
+          ),
           costUsd: event.total_cost_usd,
           durationMs: event.duration_ms,
           turns: event.num_turns,
