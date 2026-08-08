@@ -28,8 +28,9 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
   const effort = effortFor(options.thinking);
   if (effort) args.push('--effort', effort);
 
-  if (options.sessionId) {
-    args.push('--resume', options.sessionId);
+  const resuming = Boolean(options.sessionId);
+  if (resuming) {
+    args.push('--resume', options.sessionId as string);
   } else {
     args.push('--session-id', randomUUID());
   }
@@ -38,7 +39,13 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
   // validant la carte, pas dans une succession de fenêtres (PLAN §6).
   args.push('--permission-mode', options.fullAccess ? 'bypassPermissions' : 'manual');
 
-  if (options.systemPrompt) args.push('--append-system-prompt', options.systemPrompt);
+  // `--append-system-prompt` est réappliqué à CHAQUE tour : on renvoyait donc la
+  // consigne de rôle ENTIÈRE (~1 050 jetons pour une tâche, ~1 930 pour le chef)
+  // à chaque reprise, pour un déroulé que la session porte déjà. En reprise, seul
+  // le RAPPEL court repart — comme Codex : le déroulé imposé y est, sans repayer
+  // le pavé entier. Au premier tour, la consigne entière part toujours.
+  const entete = resuming ? options.systemPromptRappel : options.systemPrompt;
+  if (entete) args.push('--append-system-prompt', entete);
   if (options.mcpConfigPath) args.push('--mcp-config', options.mcpConfigPath);
   if (options.allowedTools?.length) args.push('--allowedTools', options.allowedTools.join(','));
   if (options.disallowedTools?.length) args.push('--disallowedTools', options.disallowedTools.join(','));

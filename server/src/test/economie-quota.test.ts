@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AMPLEURS,
+  ampleurDeSuivi,
   ampleurEffective,
   ampleurParDefaut,
   checkTemplate,
@@ -52,6 +53,38 @@ test('les trois longueurs demandent trois jeux de titres', () => {
   assert.equal(sectionsPour('in_run', 'complete').length, 6);
 });
 
+test('un tour de suivi part d\'un cran plus bas, sans jamais descendre sous « brève »', () => {
+  assert.equal(ampleurDeSuivi('in_run', 'complete'), 'standard');
+  assert.equal(ampleurDeSuivi('in_run', 'standard'), 'breve');
+  assert.equal(ampleurDeSuivi('in_run', 'breve'), 'breve');
+  assert.equal(ampleurDeSuivi('free', 'complete'), 'standard');
+  // Un gabarit à forme fixe ne bouge pas : un chiffrage ou un journal restent entiers.
+  assert.equal(ampleurDeSuivi('pre_run', 'complete'), 'complete');
+  assert.equal(ampleurDeSuivi('deploy', 'complete'), 'complete');
+});
+
+test('les titres imposés suivent la longueur : rien à remplir sur une réponse brève', () => {
+  const bref = wrapPrompt('in_run', 'Pourquoi ?', undefined, { ampleur: 'breve' });
+  assert.match(bref, /Pas de titres imposés/);
+  assert.doesNotMatch(bref, /## 1\. Analyse/);
+  assert.doesNotMatch(bref, /Évolutions possibles/);
+  // Sans titres à remplir, aucun guide de sections à répéter.
+  assert.doesNotMatch(bref, /CONTENU DE CHAQUE SECTION/);
+
+  const moyen = wrapPrompt('in_run', 'x', undefined, { ampleur: 'standard' });
+  assert.match(moyen, /## 1\. Ce qui est fait/);
+  assert.match(moyen, /## 3\. Coûts/);
+  assert.doesNotMatch(moyen, /## 4\./);
+  // Le guide rappelle ce que chaque section dit, pour qu'elles ne se répètent pas.
+  assert.match(moyen, /sans redite/);
+  assert.doesNotMatch(moyen, /Évolutions possibles/);
+
+  const complet = wrapPrompt('in_run', 'x', undefined, { ampleur: 'complete' });
+  assert.match(complet, /## 1\. Analyse/);
+  assert.match(complet, /## 6\. Coûts/);
+  assert.match(complet, /Évolutions possibles/);
+});
+
 test('répondre plus court que la référence est un gain, pas une faute', () => {
   const court = "## Ce qui est fait\n\nJ'ai corrigé la faute dans le titre.\n\nRien d'autre n'a bougé.";
   assert.equal(checkTemplate('in_run', court, 'complete').ok, true);
@@ -71,7 +104,8 @@ test("une réponse longue reste tenue de se structurer", () => {
 
 test('le gabarit entier ne part qu\'une fois : ensuite un rappel d\'une ligne', () => {
   const demande = 'Corrige la faute dans le titre de la carte.';
-  const complet = wrapPrompt('in_run', demande);
+  // Une vraie tâche pour que le compte rendu entier (guide compris) soit servi.
+  const complet = wrapPrompt('in_run', demande, undefined, { ampleur: 'complete' });
   const rappel = wrapPrompt('in_run', demande, undefined, { rappel: true });
 
   assert.match(complet, /MISE EN FORME/);

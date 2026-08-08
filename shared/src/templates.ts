@@ -146,35 +146,43 @@ export function sectionsPour(kind: TemplateKind, ampleur: Ampleur): string[] {
 }
 
 /**
+ * Un cran plus bas, pour un tour de SUIVI. Le premier tour a déjà rendu la
+ * réponse ample ; une précision ou une question de suite n'a pas à la refaire au
+ * même volume. Ne joue que sur les gabarits adaptables — un chiffrage ou un
+ * journal de publication gardent leur forme.
+ */
+export function ampleurDeSuivi(kind: TemplateKind, ampleur: Ampleur): Ampleur {
+  if (!GABARITS_ADAPTABLES.has(kind)) return ampleur;
+  const ordre: Ampleur[] = ['breve', 'standard', 'complete'];
+  return ordre[Math.max(0, ordre.indexOf(ampleur) - 1)];
+}
+
+/**
  * La partie le plus souvent ratée : les moteurs rendent un pavé continu où les
  * sections se confondent. Elle est donc écrite à part, avant les règles de fond,
  * avec un plafond qui garde la réponse dense SANS la tasser.
  */
 const LAYOUT_RULES = [
-  'Chaque section est un BLOC LISIBLE : son titre, puis un ou plusieurs paragraphes courts.',
-  'Un paragraphe = 2 à 3 phrases. Deux paragraphes sont TOUJOURS séparés par une LIGNE VIDE.',
-  'Laisse une ligne vide avant et après chaque titre, chaque liste et chaque encadré.',
-  'Une puce = une idée, sur une seule ligne, sans sous-liste.',
-  'Jamais de pavé continu, jamais de section réduite à une phrase collée au titre.',
-  'Reste dense malgré tout : au plus 3 paragraphes courts OU 5 puces par section.',
+  'Chaque section : son titre, puis des paragraphes courts (2 à 3 phrases), séparés par une LIGNE VIDE.',
+  'Une ligne vide avant et après chaque titre, liste ou encadré.',
+  'Une puce = une idée sur une seule ligne, sans sous-liste.',
+  'Jamais de pavé ni de section réduite à une phrase collée au titre ; au plus 3 paragraphes OU 5 puces par section.',
 ];
 
 const COMMON_RULES = [
-  'Écris en français simple, pour un lecteur qui n\'est pas informaticien.',
-  'Titres numérotés en Markdown : `## 1. Titre`, `## 2. Titre`… sans icône (l\'application les ajoute).',
-  'Commence par UNE ligne d\'en-tête : modèle utilisé, niveau, temps estimé, coût approximatif à 130 CHF/heure.',
-  'Pas de préambule, pas de conclusion générale, aucune redite d\'une section à l\'autre.',
-  'Pas de chemins de fichiers ni de jargon sauf demande explicite.',
-  'Encadrés `> [!TIP]`, `> [!NOTE]`, `> [!WARNING]` uniquement quand ils aident vraiment.',
+  'Français simple, pour un lecteur non informaticien ; pas de jargon ni de chemins de fichiers sauf demande.',
+  'Titres numérotés Markdown `## 1. Titre` sans icône (l\'application les ajoute).',
+  'Commence par UNE ligne d\'en-tête : modèle, niveau, temps estimé, coût approximatif à 130 CHF/heure.',
+  'Pas de préambule ni de conclusion, aucune redite entre sections ; encadrés `> [!TIP]`/`> [!NOTE]`/`> [!WARNING]` seulement s\'ils aident.',
 ];
 
 /** Ce que chaque section du compte rendu doit contenir — sinon elles se répètent. */
 const REPORT_GUIDE = [
-  'Analyse : ce que tu as compris de la demande et l\'état trouvé avant de toucher à quoi que ce soit.',
+  'Analyse : la demande comprise et l\'état trouvé avant de toucher à quoi que ce soit.',
   'Ce qui est fait : les actions réellement menées, au passé, une par idée.',
-  'Conséquences : ce que ces actions entraînent concrètement dans le produit.',
-  'Impact : ce que ça change pour la personne qui s\'en sert au quotidien.',
-  'Coûts : temps machine, heures d\'un développeur senior, coût approximatif à 130 CHF/heure.',
+  'Conséquences : ce qu\'elles entraînent concrètement dans le produit.',
+  'Impact : ce que ça change pour qui s\'en sert au quotidien.',
+  'Coûts : temps machine, heures d\'un développeur senior, coût à 130 CHF/heure.',
 ];
 
 export interface OptionsEnveloppe {
@@ -200,10 +208,10 @@ function rappelDeForme(kind: TemplateKind, ampleur: Ampleur): string {
 
 /** Les trois longueurs, écrites une seule fois par session. */
 const RÈGLE_LONGUEUR = `LONGUEUR DE TA RÉPONSE — elle suit le travail RÉELLEMENT fait, pas le gabarit :
-- Question, information, geste d'une seule ligne → quelques phrases, aucune section imposée, ${AMPLEURS.breve.mots} mots au plus.
-- Correction ou ajustement contenu → trois titres seulement (${AMPLEURS.standard.sections.join(', ')}), ${AMPLEURS.standard.mots} mots au plus.
+- Question, information, geste d'une ligne → quelques phrases, sans titres imposés, ${AMPLEURS.breve.mots} mots au plus.
+- Correction ou ajustement → trois titres seulement (${AMPLEURS.standard.sections.join(', ')}), ${AMPLEURS.standard.mots} mots au plus.
 - Vraie tâche (plusieurs fichiers, décisions à expliquer) → tous les titres ci-dessus.
-Une section qui n'a rien à dire ne s'écrit pas : mieux vaut trois lignes vraies que six sections délayées. Raccourcir ne veut jamais dire taire un changement, un échec ou une décision.`;
+Une section sans rien à dire ne s'écrit pas. Raccourcir ne veut jamais dire taire un changement, un échec ou une décision.`;
 
 /** L'enveloppe réellement ajoutée à l'instruction envoyée au moteur. */
 export function wrapPrompt(
@@ -223,28 +231,39 @@ export function wrapPrompt(
     return `${tête}DEMANDE :\n${userText}\n\n---\n${rappelDeForme(kind, ampleur)}`;
   }
 
-  // Une ligne vide ENTRE les titres : le gabarit montre lui-même l'aération
-  // qu'il réclame, au lieu de la décrire seulement.
-  const sections = tpl.sections.map((s, i) => `## ${i + 1}. ${s}`).join('\n\n');
+  // Les titres imposés suivent la LONGUEUR de référence, pas seulement la
+  // colonne : une réponse brève ne s'ouvre plus sur six titres à remplir, une
+  // réponse moyenne n'en porte que trois. Le moteur garde la liberté de MONTER
+  // si le travail se révèle plus lourd (la règle de longueur, plus bas, le dit).
+  const titres = sectionsPour(kind, ampleur);
+  const sections = titres.length
+    ? titres.map((s, i) => `## ${i + 1}. ${s}`).join('\n\n')
+    : 'Pas de titres imposés : réponds en quelques phrases.';
   const layout = LAYOUT_RULES.map((r) => `- ${r}`).join('\n');
   const rules = COMMON_RULES.map((r) => `- ${r}`).join('\n');
-  const guide = tpl.sections === REPORT_SECTIONS ? `\nCONTENU DE CHAQUE SECTION :\n${REPORT_GUIDE.map((g) => `- ${g}`).join('\n')}\n` : '';
+  // Le guide ne décrit que les sections RÉELLEMENT demandées : sur une réponse
+  // courte, il rappelle en une ligne ce que chacune dit — c'est ce qui empêche
+  // « Ce qui est fait », « Conséquences » et « Coûts » de se répéter.
+  const guideLines = REPORT_GUIDE.filter((g) => titres.some((t) => g.startsWith(t)));
+  const guide = guideLines.length
+    ? `\nCONTENU DE CHAQUE SECTION (chacune dit une chose neuve, sans redite) :\n${guideLines.map((g) => `- ${g}`).join('\n')}\n`
+    : '';
   const exclusions = tpl.exclusions.length
     ? `\nINTERDICTIONS :\n${tpl.exclusions.map((e) => `- ${e}`).join('\n')}\n`
     : '';
 
   const extra =
     kind === 'pre_run'
-      ? `\nLes deux dernières sections sont LUES PAR L'APPLICATION. Termine ta réponse par un bloc de code json (et rien après) :
+      ? `\nLes deux dernières sections sont LUES PAR L'APPLICATION. Termine par un bloc json (et rien après) :
 \`\`\`json
 {"machineSeconds": 600, "tokens": 40000, "quotaShare": 0.03, "confidence": "medium", "summary": "…", "seniorHours": 2.5, "billingTitle": "…", "billingDescription": "…"}
 \`\`\`
-machineSeconds = ta durée d'exécution prévue en secondes. seniorHours = le temps qu'un développeur senior mettrait à la main. Ne confonds JAMAIS les deux.\n`
+machineSeconds = ta durée d'exécution prévue en secondes ; seniorHours = le temps d'un développeur senior à la main. Ne confonds JAMAIS les deux.\n`
       : '';
 
   const evolutions =
-    tpl.sections.includes('Évolutions possibles')
-      ? "\nDans « Évolutions possibles », écris chaque suggestion sur sa propre ligne, en puce `- `, formulée comme une demande actionnable (l'utilisateur peut cliquer dessus pour la réutiliser).\n"
+    titres.includes('Évolutions possibles')
+      ? "\n« Évolutions possibles » : une suggestion par ligne en puce `- `, formulée comme une demande actionnable (cliquable pour la réutiliser).\n"
       : '';
 
   // La règle de longueur ne concerne que les gabarits adaptables : un journal
@@ -257,11 +276,11 @@ machineSeconds = ta durée d'exécution prévue en secondes. seniorHours = le te
 ${userText}
 
 ---
-FORME DE TA RÉPONSE FINALE (imposée, non négociable) — utilise exactement ces titres, dans cet ordre :
+FORME DE TA RÉPONSE FINALE (imposée) — exactement ces titres, dans cet ordre :
 
 ${sections}
 ${longueur}
-MISE EN FORME (la partie le plus souvent ratée — relis-la avant d'envoyer) :
+MISE EN FORME (souvent ratée — relis-la avant d'envoyer) :
 ${layout}
 
 RÈGLES :
