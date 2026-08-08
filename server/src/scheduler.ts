@@ -4,6 +4,7 @@ import {
   Agent,
   Card,
   Estimate,
+  TurnMeasurement,
   OccupantDossier,
   RAISON_ATTENTE_LANCEMENT,
   RAISON_SANS_DEPOT,
@@ -13,6 +14,8 @@ import {
   phraseDepuisReponse,
   porteDuDepot,
   porteDuDossier,
+  avecMesureAnalyse,
+  mesureDeContexte,
 } from '@haikodev/shared';
 import { menageDesDossiers, ouvrirDossierDeCarte } from './dossier-de-carte.js';
 import * as store from './store.js';
@@ -82,7 +85,7 @@ ${card.description || '(pas de description)'}${
     await sendPrompt(agent.id, prompt, {
       template: 'pre_run',
       silent: true,
-      onComplete: async (text, ok) => {
+      onComplete: async (text, ok, measurement) => {
         analysing.delete(cardId);
         const fresh = store.getCard(cardId);
         if (!fresh) return;
@@ -98,6 +101,7 @@ ${card.description || '(pas de description)'}${
               failureReason: ok ? "L'analyse n'a pas rendu de chiffres exploitables." : "L'analyse a échoué.",
               summary: text.slice(0, 2000),
               producedAt: Date.now(),
+              analysisMeasurement: mesureDeContexte(measurement),
             },
           });
           bus.emit({ type: 'card.upsert', card: updated });
@@ -112,7 +116,11 @@ ${card.description || '(pas de description)'}${
         const scheduling = fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
         const updated = store.saveCard({
           ...fresh,
-          estimate: { ...estimate, summary: estimate.summary ?? text.slice(0, 2000), producedAt: Date.now() },
+          estimate: {
+            ...avecMesureAnalyse(estimate, measurement),
+            summary: estimate.summary ?? text.slice(0, 2000),
+            producedAt: Date.now(),
+          },
           column: fresh.column === 'validated' ? 'planned' : fresh.column,
           position: store.nextPosition(fresh.projectId, 'planned'),
           scheduling: {
@@ -146,13 +154,24 @@ export function parseEstimate(text: string): Estimate | null {
   for (const candidate of candidates.reverse()) {
     try {
       const raw = JSON.parse(candidate.trim());
+      const projection = raw.projection && typeof raw.projection === 'object' ? raw.projection : raw;
       const machineSeconds = num(raw.machineSeconds);
       const seniorHours = num(raw.seniorHours);
       if (machineSeconds === undefined && seniorHours === undefined) continue;
       return Estimate.parse({
         machineSeconds,
-        tokens: num(raw.tokens),
-        quotaShare: num(raw.quotaShare),
+        // Ces valeurs décrivent le FUTUR. Elles restent recopiées à plat pour
+        // les anciennes vues, mais vivent désormais avec leur formule.
+        tokens: num(projection.tokens),
+        quotaShare: num(projection.quotaShare),
+        projection: {
+          tokens: num(projection.tokens),
+          quotaShare: num(projection.quotaShare),
+          formula: typeof projection.formula === 'string' ? projection.formula : undefined,
+          assumptions: Array.isArray(projection.assumptions)
+            ? projection.assumptions.filter((item: unknown): item is string => typeof item === 'string')
+            : [],
+        },
         confidence: ['low', 'medium', 'high'].includes(raw.confidence) ? raw.confidence : 'medium',
         summary: typeof raw.summary === 'string' ? raw.summary : undefined,
         seniorHours,
@@ -182,7 +201,12 @@ export function parseEstimate(text: string): Estimate | null {
  *   - on ne touche PAS à la colonne. L'analyse ne déplace jamais une carte : elle
  *     reste en « Planifié », le lancement reste un geste de l'utilisateur.
  */
-export function appliquerChiffrageDiscute(cardId: string, text: string, ok: boolean): void {
+export function appliquerChiffrageDiscute(
+  cardId: string,
+  text: string,
+  ok: boolean,
+  measurement?: TurnMeasurement,
+): void {
   if (!ok) return;
   const estimate = parseEstimate(text);
   if (!estimate) return;
@@ -190,7 +214,11 @@ export function appliquerChiffrageDiscute(cardId: string, text: string, ok: bool
   if (!fresh) return;
   const updated = store.saveCard({
     ...fresh,
-    estimate: { ...estimate, summary: estimate.summary ?? text.slice(0, 2000), producedAt: Date.now() },
+    estimate: {
+      ...(measurement ? avecMesureAnalyse(estimate, measurement) : estimate),
+      summary: estimate.summary ?? text.slice(0, 2000),
+      producedAt: Date.now(),
+    },
   });
   bus.emit({ type: 'card.upsert', card: updated });
 }

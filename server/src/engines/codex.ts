@@ -292,12 +292,16 @@ export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): vo
 
     case 'turn.completed': {
       const usage = event.usage ?? {};
+      const cached = usage.cached_input_tokens ?? 0;
       onEvent({
         kind: 'usage',
         usage: {
-          inputTokens: usage.input_tokens ?? 0,
+          // Codex inclut le cache dans `input_tokens`. Le contrat interne garde
+          // les deux parts disjointes afin que entrée + cache + sortie soit un
+          // vrai total, sans double comptage.
+          inputTokens: Math.max(0, (usage.input_tokens ?? 0) - cached),
           outputTokens: (usage.output_tokens ?? 0) + (usage.reasoning_output_tokens ?? 0),
-          cachedTokens: usage.cached_input_tokens ?? 0,
+          cachedTokens: cached,
         },
       });
       return;
@@ -352,6 +356,8 @@ export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): vo
         usage: {
           inputTokens: msg.info?.total_token_usage?.input_tokens ?? 0,
           outputTokens: msg.info?.total_token_usage?.output_tokens ?? 0,
+          // Cet ancien format ne communique pas le cache : on le laisse absent
+          // pour que l'interface dise « indisponible », jamais zéro.
         },
       });
       break;

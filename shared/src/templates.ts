@@ -256,9 +256,9 @@ export function wrapPrompt(
     kind === 'pre_run'
       ? `\nLes deux dernières sections sont LUES PAR L'APPLICATION. Termine par un bloc json (et rien après) :
 \`\`\`json
-{"machineSeconds": 600, "tokens": 40000, "quotaShare": 0.03, "confidence": "medium", "summary": "…", "seniorHours": 2.5, "billingTitle": "…", "billingDescription": "…"}
+{"machineSeconds": 600, "projection": {"tokens": 40000, "quotaShare": 0.03, "formula": "jetons de l’analyse × facteur lié à l’ampleur", "assumptions": ["3 fichiers à modifier", "construction et tests complets"]}, "confidence": "medium", "summary": "…", "seniorHours": 2.5, "billingTitle": "…", "billingDescription": "…"}
 \`\`\`
-machineSeconds = ta durée d'exécution prévue en secondes ; seniorHours = le temps d'un développeur senior à la main. Ne confonds JAMAIS les deux.\n`
+machineSeconds = ta durée d'exécution prévue en secondes ; seniorHours = le temps d'un développeur senior à la main. Ne confonds JAMAIS les deux. projection décrit le FUTUR : donne sa formule et ses hypothèses, sans la présenter comme une mesure. Les jetons et le quota DÉJÀ consommés par cette analyse seront ajoutés par HaikoDev depuis l'événement d'usage du moteur — ne les invente pas.\n`
       : '';
 
   const evolutions =

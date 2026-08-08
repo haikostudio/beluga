@@ -20,6 +20,7 @@ import {
   TaskProposal,
   TemplateKind,
   TodoItem,
+  TurnMeasurement,
   ampleurDeSuivi,
   ampleurParDefaut,
   checkTemplate,
@@ -160,8 +161,8 @@ export interface PromptOptions {
   /** Ne pas enregistrer le message utilisateur (relances internes). */
   silent?: boolean;
   attachments?: string[];
-  /** Appelé quand le tour est fini, avec le texte complet de la réponse. */
-  onComplete?: (text: string, ok: boolean) => void | Promise<void>;
+  /** Appelé quand le tour est fini, avec le texte et les mesures indépendantes du moteur. */
+  onComplete?: (text: string, ok: boolean, measurement: TurnMeasurement) => void | Promise<void>;
 }
 
 /**
@@ -280,18 +281,21 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    */
   const nouvelleSession = !store.getSessionId(agent.id, cleDeSession(agent.run.engine, agent.run.model));
   const contextParts: string[] = [];
+  let memoryAndInstructionsCharacters = 0;
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, index de la
     // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
-    contextParts.push(briefing(project.path, project.name, true, agent.run.engine, agent.workdir));
+    const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir);
+    contextParts.push(ouverture);
+    memoryAndInstructionsCharacters += ouverture.length;
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
     if (nouveaux.length) {
-      contextParts.push(
-        `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`,
-      );
+      const ajout = `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`;
+      contextParts.push(ajout);
+      memoryAndInstructionsCharacters += ajout.length;
       store.setMemorySeen(agent.id, memoryFacts(project.path).length);
     }
   }
@@ -320,7 +324,14 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     rappel: !nouvelleSession,
     ampleur,
   });
-  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession, ampleur);
+  const description = card?.description ?? '';
+  const occurrencesDescription = description ? prompt.split(description).length - 1 : 0;
+  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession, ampleur, {
+    promptCharacters: prompt.length,
+    systemPromptCharacters: 0,
+    cardDescriptionCharacters: description.length * occurrencesDescription,
+    memoryAndInstructionsCharacters,
+  });
 }
 
 /**
@@ -378,6 +389,12 @@ async function startTurn(
   /** Vrai au tout premier tour d'une session : c'est là qu'on lit la mémoire. */
   nouvelleSession = true,
   ampleur: Ampleur = 'complete',
+  composition: TurnMeasurement['composition'] = {
+    promptCharacters: 0,
+    systemPromptCharacters: 0,
+    cardDescriptionCharacters: 0,
+    memoryAndInstructionsCharacters: 0,
+  },
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -512,6 +529,7 @@ async function startTurn(
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId ? 'task' : agent.role;
   const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine);
+  composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
     HAIKODEV_TOKEN: token,
@@ -648,7 +666,10 @@ async function startTurn(
   live.delete(agent.id);
 
   const elapsedSeconds = (Date.now() - runState.startedAt) / 1000;
-  const tokens = (runState.usage?.inputTokens ?? 0) + (runState.usage?.outputTokens ?? 0);
+  const tokens =
+    (runState.usage?.inputTokens ?? 0) +
+    (runState.usage?.cachedTokens ?? 0) +
+    (runState.usage?.outputTokens ?? 0);
 
   // Lecture FRAÎCHE des deux fenêtres après le tour, comparée au relevé d'avant.
   // Une lecture en échec rend `null` : les parts restent alors à 0.
@@ -838,7 +859,20 @@ async function startTurn(
 
   if (onComplete) {
     try {
-      await onComplete(finalText, !failed);
+      await onComplete(finalText, !failed, {
+        usage: {
+          inputTokens: runState.usage?.inputTokens ?? 0,
+          cachedInputTokens: runState.usage?.cachedTokens,
+          outputTokens: runState.usage?.outputTokens ?? 0,
+        },
+        quota: {
+          quota5h:
+            quotaAvant.session !== undefined && quotaApres.session !== undefined ? part5h : undefined,
+          quotaWeekly:
+            quotaAvant.weekly !== undefined && quotaApres.weekly !== undefined ? partSemaine : undefined,
+        },
+        composition,
+      });
     } catch (err) {
       log.error('post-traitement du tour impossible', err);
     }

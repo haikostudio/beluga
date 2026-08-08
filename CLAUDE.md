@@ -181,6 +181,8 @@ le nom, là-bas le texte).
 
 ### Coûts
 
+- Le chiffrage d'une carte sépare l'analyse MESURÉE (événement d'usage du moteur et delta de quota)
+  de l'exécution PROJETÉE (formule et hypothèses visibles) ; une part non mesurable se dit indisponible.
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
 - Les moteurs sont les outils en ligne de commande déjà authentifiés sur le serveur : aucune clé
   facturée à l'appel.
