@@ -161,6 +161,9 @@ le nom, là-bas le texte).
 - **La MÉTHODE de travail est imposée** (`METHODE`, `server/src/runtime.ts`), la même sous Claude et
   Codex : lire avant de répondre (instructions, mémoire, fichiers repérés par recherche), constater
   par écrit, ne rien affirmer sans l'avoir vu, rejouer les contrôles du projet et en dire le résultat.
+- **Le CONTEXTE du modèle se compresse à 50 % entre deux tours**, pour tous les rôles
+  (`shared/src/contexte-agent.ts`, `server/src/runtime.ts`) : fonction native de Claude, sinon résumé
+  contrôlé et session neuve ; messages visibles, carte, décisions, tâches, modèle et compte restent.
 - **Aucun agent ne commente le stockage des identifiants** : mots de passe, clés, jetons gardés dans
   le projet sont un choix ASSUMÉ de l'utilisateur. On n'en parle pas — mais une PANNE (identifiant
   absent, expiré, refusé qui bloque le travail) se dit toujours.

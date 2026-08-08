@@ -1,7 +1,7 @@
 import { EngineId, ThinkingLevel, TodoItem } from '@haikodev/shared';
 
 export interface EngineEvent {
-  kind: 'session' | 'text' | 'step' | 'todo' | 'usage' | 'ratelimit' | 'error' | 'done';
+  kind: 'session' | 'text' | 'step' | 'todo' | 'usage' | 'context' | 'compaction' | 'ratelimit' | 'error' | 'done';
   /** kind=session */
   sessionId?: string;
   /** kind=text : fragment de réponse */
@@ -12,6 +12,10 @@ export interface EngineEvent {
   todos?: TodoItem[];
   /** kind=usage */
   usage?: { inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd?: number; durationMs?: number; turns?: number };
+  /** kind=context : taille du DERNIER appel, jamais le total facturé. */
+  context?: { tokens: number; window?: number };
+  /** kind=compaction : résultat de la fonction native du moteur. */
+  compaction?: { ok: boolean; error?: string };
   /** kind=ratelimit */
   rateLimit?: { status: string; resetsAt?: number; type?: string };
   /** kind=error | done */
@@ -64,6 +68,8 @@ export interface EngineAdapter {
   models: () => Promise<unknown[]>;
   defaultModel: string;
   run: (options: EngineRunOptions) => EngineHandle;
+  /** Compression native d'une session, quand le moteur l'expose. */
+  compact?: (options: EngineRunOptions) => Promise<{ ok: boolean; context?: { tokens: number; window?: number }; error?: string }>;
 }
 
 /**

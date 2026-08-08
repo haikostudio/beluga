@@ -56,6 +56,7 @@ export const codexAdapter: EngineAdapter = {
 
     let buffer = '';
     let stderr = '';
+    let sessionId = options.sessionId ?? undefined;
 
     const handleLine = (line: string) => {
       const trimmed = line.trim();
@@ -66,6 +67,7 @@ export const codexAdapter: EngineAdapter = {
       } catch {
         return;
       }
+      if (event.type === 'thread.started' && event.thread_id) sessionId = event.thread_id;
       emitFromCodex(event, options.onEvent);
     };
 
@@ -88,6 +90,8 @@ export const codexAdapter: EngineAdapter = {
       });
       child.on('close', (code) => {
         if (buffer.trim()) handleLine(buffer);
+        const context = lireContexteCodex(options.env?.CODEX_HOME, sessionId);
+        if (context) options.onEvent({ kind: 'context', context });
         const ok = code === 0;
         if (!ok) {
           const message = stderr.trim().split('\n').slice(-4).join('\n') || `Le moteur s'est arrêté (code ${code}).`;
@@ -114,6 +118,66 @@ export const codexAdapter: EngineAdapter = {
     };
   },
 };
+
+const fichiersDeSession = new Map<string, string>();
+
+function fichierSessionCodex(codexHome: string, sessionId: string): string | null {
+  const cle = `${codexHome}:${sessionId}`;
+  const connu = fichiersDeSession.get(cle);
+  if (connu && fs.existsSync(connu)) return connu;
+  const racine = path.join(codexHome, 'sessions');
+  try {
+    const relatifs = fs.readdirSync(racine, { recursive: true, encoding: 'utf8' }) as string[];
+    const relatif = relatifs.find((nom) => nom.endsWith(`${sessionId}.jsonl`));
+    if (!relatif) return null;
+    const trouve = path.join(racine, relatif);
+    fichiersDeSession.set(cle, trouve);
+    return trouve;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Codex expose le total du tour sur stdout, mais le DERNIER appel et la
+ * fenêtre dans son journal natif de session. On ne lit que la fin du fichier.
+ */
+export function lireContexteCodex(
+  codexHome: string | undefined,
+  sessionId: string | null | undefined,
+): { tokens: number; window?: number } | null {
+  if (!codexHome || !sessionId) return null;
+  const fichier = fichierSessionCodex(codexHome, sessionId);
+  if (!fichier) return null;
+  try {
+    const fd = fs.openSync(fichier, 'r');
+    try {
+      const taille = fs.fstatSync(fd).size;
+      const longueur = Math.min(taille, 512 * 1024);
+      const tampon = Buffer.alloc(longueur);
+      fs.readSync(fd, tampon, 0, longueur, taille - longueur);
+      const lignes = tampon.toString('utf8').split('\n').reverse();
+      for (const ligne of lignes) {
+        if (!ligne.includes('"type":"token_count"')) continue;
+        try {
+          const evenement = JSON.parse(ligne);
+          const info = evenement?.payload?.info ?? evenement?.msg?.info;
+          const dernier = info?.last_token_usage;
+          const tokens = dernier?.total_tokens ??
+            ((dernier?.input_tokens ?? 0) + (dernier?.output_tokens ?? 0));
+          if (tokens > 0) return { tokens, window: info?.model_context_window };
+        } catch {
+          // Le premier morceau du tampon peut commencer au milieu d'une ligne.
+        }
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 export function buildCodexArgs(options: EngineRunOptions): string[] {
   const resuming = Boolean(options.sessionId);
@@ -347,6 +411,16 @@ export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): vo
       });
       break;
     case 'token_count':
+      if (msg.info?.last_token_usage) {
+        const dernier = msg.info.last_token_usage;
+        onEvent({
+          kind: 'context',
+          context: {
+            tokens: dernier.total_tokens ?? (dernier.input_tokens ?? 0) + (dernier.output_tokens ?? 0),
+            window: msg.info.model_context_window,
+          },
+        });
+      }
       onEvent({
         kind: 'usage',
         usage: {
