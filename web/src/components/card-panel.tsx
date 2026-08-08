@@ -15,6 +15,7 @@ import {
   Play,
   RefreshCw,
   Rocket,
+  Sparkles,
   Zap,
 } from 'lucide-react';
 import {
@@ -452,7 +453,10 @@ function Geste({ decision, children }: { decision: DecisionGeste; children: Reac
  * catalogue des moteurs, et on retombe sur l'identifiant seulement s'il n'y
  * figure plus (modèle retiré depuis, moteur désinstallé).
  */
-function libellesDuRun(engines: EngineInfo[], vu: ReglagesCarte) {
+function libellesDuRun(
+  engines: EngineInfo[],
+  vu: Pick<ReglagesCarte, 'engine' | 'model' | 'thinking'>,
+) {
   const moteur = engines.find((e) => e.id === vu.engine);
   const modele = moteur?.models.find((m) => m.id === vu.model);
   const niveau = modele?.thinking?.find((t) => t.id === vu.thinking);
@@ -461,6 +465,61 @@ function libellesDuRun(engines: EngineInfo[], vu: ReglagesCarte) {
     modele: modele?.label ?? vu.model ?? '—',
     reflexion: niveau?.label ?? vu.thinking ?? '—',
   };
+}
+
+/**
+ * Ce qui était déjà prêt lorsque la proposition du chef d'orchestre est
+ * devenue une carte. On ne fabrique aucun historique : le bloc ne lit que les
+ * champs conservés sur la carte et distingue le chiffrage, produit ensuite
+ * par l'analyse mais toujours avant l'exécution.
+ */
+function PreparationChef({ card }: { card: Card }) {
+  const state = useApp();
+  if (card.origin !== 'agent') return null;
+
+  const reglages = libellesDuRun(state.engines, card.run);
+  const estimation = card.estimate?.machineSeconds
+    ? duration(card.estimate.machineSeconds)
+    : card.estimate?.failed
+      ? 'Chiffrage indisponible'
+      : 'Chiffrage en attente';
+  const pieces = card.attachments.length;
+  const etiquettes = card.labels.length;
+
+  return (
+    <div
+      className="rounded-md border border-accent/25 bg-accent/5 px-3 py-3"
+      data-preparation-chef
+    >
+      <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-text">
+        <Sparkles className="h-3.5 w-3.5 text-accent" />
+        Préparé depuis la proposition du chef d’orchestre
+      </div>
+      <p className="mt-0.5 text-[12.5px] text-faint">
+        Ces éléments étaient déjà dans la carte avant son exécution.
+      </p>
+
+      <div className="mt-2 space-y-1.5 text-[13px]">
+        <div>
+          <span className="text-faint">Réglages repris </span>
+          <span className="text-text">
+            {reglages.moteur} · {reglages.modele} · {reglages.reflexion}
+          </span>
+        </div>
+        <div>
+          <span className="text-faint">Contenu transmis </span>
+          <span className="text-text">
+            consigne de la carte · {etiquettes} {etiquettes === 1 ? 'étiquette' : 'étiquettes'} · {pieces}{' '}
+            {pieces === 1 ? 'image' : 'images'}
+          </span>
+        </div>
+        <div>
+          <span className="text-faint">Préparation avant exécution </span>
+          <span className="text-text">{estimation} · analyse et exécution dans la même conversation</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -688,6 +747,7 @@ function CardSummary({ card }: { card: Card }) {
           chercher avant de valider, et ce qu'on relit après coup quand le
           résultat surprend. */}
       <ReglagesAgent card={card} />
+      <PreparationChef card={card} />
       <TokensParAgent card={card} />
 
       <div>

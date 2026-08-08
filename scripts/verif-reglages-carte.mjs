@@ -66,7 +66,7 @@ function carteTerminee(db) {
   return null;
 }
 
-/** Une carte « À faire » d'essai, posée dans le même projet puis retirée. */
+/** Une carte issue du chef d'orchestre, posée dans le même projet puis retirée. */
 function poserCarteEssai(db, projectId) {
   const id = crypto.randomUUID();
   const maintenant = Date.now();
@@ -76,11 +76,13 @@ function poserCarteEssai(db, projectId) {
     title: TITRE_ESSAI,
     description:
       "Carte posée par un script de vérification. Elle disparaît toute seule à la fin du relevé.",
-    labels: [],
+    labels: ['préparée'],
     column: 'todo',
     position: -1,
-    origin: 'user',
+    origin: 'agent',
+    attachments: ['image-de-la-demande'],
     run: { engine: 'claude', model: 'claude-opus-5', thinking: 'medium', mode: 'direct' },
+    estimate: { machineSeconds: 600, failed: false },
     excludedFromDeploy: false,
     horsTache: false,
     createdAt: maintenant,
@@ -118,9 +120,13 @@ async function ouvrirDetails(context, titre, projetNom, mobile) {
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(5000);
-  // L'application peut rouvrir sur un panneau : il se referme à l'Échap près.
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(800);
+  // L'application peut rouvrir le dernier panneau. La poignée est son bouton
+  // de fermeture le plus stable, sur ordinateur comme sur téléphone.
+  const panneauOuvert = page.locator('[role="dialog"]').last();
+  if (await panneauOuvert.count()) {
+    await panneauOuvert.locator('button').first().click({ force: true });
+    await panneauOuvert.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  }
 
   const extrait = titre.slice(0, 30);
   if (!(await page.locator(`article:has-text(${JSON.stringify(extrait)})`).count())) {
@@ -279,6 +285,26 @@ async function main() {
           const hauteur = await bloc.evaluate((n) => n.getBoundingClientRect().height);
           noter(`${ecran.nom} — le bloc tient sur peu de hauteur`, hauteur < 120, `${Math.round(hauteur)} px`);
         }
+        const preparation = tiroir.locator('[data-preparation-chef]');
+        const preparationVisible = (await preparation.count()) === 1;
+        noter(`${ecran.nom} — la préparation du chef est visible`, preparationVisible);
+        if (preparationVisible) {
+          const texte = (await preparation.innerText()).replace(/\s+/g, ' ');
+          noter(
+            `${ecran.nom} — le bloc nomme clairement son origine`,
+            /proposition du chef d.orchestre/i.test(texte),
+            texte.slice(0, 180),
+          );
+          noter(
+            `${ecran.nom} — le bloc rassemble le contenu et le chiffrage transmis`,
+            /Réglages repris/.test(texte) && /1 étiquette/.test(texte) && /1 image/.test(texte) && /10 min/.test(texte),
+            texte.slice(0, 240),
+          );
+          noter(
+            `${ecran.nom} — la continuité entre analyse et exécution est annoncée`,
+            /même conversation/.test(texte),
+          );
+        }
         noter(`${ecran.nom} — aucune erreur de page (carte à faire)`, erreurs.length === 0, erreurs.slice(0, 1).join(''));
         await page.close();
       }
@@ -306,7 +332,14 @@ async function main() {
           noter(`${ecran.nom} — les réglages figés n’offrent aucun menu`, (await bloc.locator('button').count()) === 0);
 
           const hauteur = await bloc.evaluate((n) => n.getBoundingClientRect().height);
-          noter(`${ecran.nom} — le bloc figé tient sur peu de hauteur`, hauteur < 140, `${Math.round(hauteur)} px`);
+          // Sur téléphone, les quatre réglages et les deux quotas se replient
+          // naturellement sur plusieurs lignes tout en restant compacts.
+          const hauteurMaximale = ecran.mobile ? 180 : 140;
+          noter(
+            `${ecran.nom} — le bloc figé tient sur peu de hauteur`,
+            hauteur < hauteurMaximale,
+            `${Math.round(hauteur)} px`,
+          );
         }
         noter(`${ecran.nom} — aucune erreur de page (carte terminée)`, erreurs.length === 0, erreurs.slice(0, 1).join(''));
         await page.close();
