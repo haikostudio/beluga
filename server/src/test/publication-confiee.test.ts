@@ -227,7 +227,10 @@ test('la publication confie la mise en production à un agent de rôle « deploy
   const corps = SOURCE.slice(debut, SOURCE.indexOf('\n}\n', debut));
   assert.match(corps, /role: 'deploy'/);
   assert.match(corps, /promptDeLAgentDeProduction\(ctx\)/, 'le prompt pur est celui qui part');
-  assert.match(corps, /template: 'free', silent: true/);
+  // Les options peuvent tenir sur une ligne ou plusieurs (le motif d'appel s'y
+  // est ajouté) : c'est leur CONTENU qui compte, pas leur mise en page.
+  assert.match(corps, /template: 'free',?\s/);
+  assert.match(corps, /silent: true,?\s/);
 });
 
 test('le prompt est jugé AVANT le déroulé constaté', () => {
