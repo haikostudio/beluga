@@ -18,6 +18,7 @@ export * from './cerveau.js';
 export * from './columns.js';
 export * from './competences.js';
 export * from './connexion-compte.js';
+export * from './contexte-agent.js';
 export * from './mise-en-production.js';
 export * from './couleur-intensite.js';
 export * from './decision-attendue.js';

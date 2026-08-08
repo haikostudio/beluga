@@ -30,20 +30,24 @@ import {
   colonneAuDemarrage,
   colonneEnFinDeTour,
   cumulerPartsQuota,
+  contexteApresCompression,
   decisionEnTexteLibre,
   etatDuPont,
   nomDeBranche,
+  observerContexte,
   poidsDeTour,
   raisonSansModification,
+  resumeContinuite,
   ROLES_QUI_DEPLACENT,
   templateForColumn,
   tourDeLaCarte,
   wrapPrompt,
+  mesurerContexte,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
-import { adapterFor, EngineEvent, EngineHandle } from './engines/index.js';
+import { adapterFor, contextWindowFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
 import { briefing, memoryFacts, memorySummary, newFactsSince } from './memory.js';
@@ -72,9 +76,12 @@ export interface LiveRun {
   todosNotified?: boolean;
   text: string;
   usage?: EngineEvent['usage'];
+  context?: { tokens: number; window?: number };
   account?: string;
   quota5h: number;
   quotaSemaine: number;
+  /** Le tour reste occupé pendant la compression, mais ne pèse plus dans le quota partagé. */
+  quotaTermine?: boolean;
   stopping?: boolean;
 }
 
@@ -387,6 +394,13 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     contextParts.push({ label: 'Briefing et index de la mémoire', kind: 'briefing', content: ouverture });
     memoryAndInstructionsCharacters += ouverture.length;
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+    if (agent.context?.continuitySummary) {
+      contextParts.push({
+        label: 'Résumé de continuité après compression',
+        kind: 'extra',
+        content: agent.context.continuitySummary,
+      });
+    }
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
     if (nouveaux.length) {
@@ -524,6 +538,7 @@ async function startTurn(
   const agent = store.getAgent(agentBefore.id) ?? agentBefore;
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
+  const catalogContextWindow = await contextWindowFor(agent.run.engine, agent.run.model).catch(() => undefined);
 
   /*
    * OÙ CET AGENT TRAVAILLE. Une carte lancée a sa propre copie de travail
@@ -692,7 +707,14 @@ async function startTurn(
 
   // L'avancement d'un tour précédent ne vaut rien pour celui-ci : on repart
   // sans liste, sinon le décroché de la carte montrerait un vieux « 3/3 ».
-  setStatus(agent, 'running', { startedAt: Date.now(), account: account.id, todos: undefined });
+  setStatus(agent, 'running', {
+    startedAt: Date.now(),
+    account: account.id,
+    todos: undefined,
+    // Un fil neuf ne réutilise jamais la mesure du fil précédent. Tant que le
+    // moteur ne parle pas, l'interface montre explicitement « indisponible ».
+    contextUsage: nouvelleSession ? undefined : agent.contextUsage,
+  });
 
   let sawError: string | undefined;
 
@@ -714,7 +736,9 @@ async function startTurn(
       agentLog(PATHS.logs, agent.id, JSON.stringify(event));
       switch (event.kind) {
         case 'session':
-          if (event.sessionId) store.setSessionId(agent.id, event.sessionId, cleSession);
+          if (event.sessionId) {
+            store.setSessionId(agent.id, event.sessionId, cleSession);
+          }
           break;
         case 'text':
           if (event.text) {
@@ -789,6 +813,21 @@ async function startTurn(
             mesurerContexteUtilisateur(contexteUtilisateur.messageId, event.usage);
           }
           break;
+        case 'context':
+          if (event.context) {
+            const window = event.context.window ?? catalogContextWindow;
+            runState.context = {
+              tokens: event.context.tokens,
+              window,
+            };
+            const contextUsage = mesurerContexte(event.context.tokens, window);
+            const frais = store.getAgent(agent.id);
+            if (frais && contextUsage) {
+              const maj = store.saveAgent({ ...frais, contextUsage });
+              bus.emit({ type: 'agent.upsert', agent: maj });
+            }
+          }
+          break;
         case 'ratelimit':
           if (event.rateLimit) noteAccountUse(account.id, event.rateLimit);
           break;
@@ -819,7 +858,6 @@ async function startTurn(
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
   const result = await handle.finished;
-
   const elapsedSeconds = (Date.now() - runState.startedAt) / 1000;
   const tokens =
     (runState.usage?.inputTokens ?? 0) +
@@ -829,14 +867,16 @@ async function startTurn(
   /*
    * Le repère appartient au COMPTE, pas à chaque tour. Une fin ne répartit que
    * la hausse depuis le relevé précédent et la cumule sur les tours présents.
-   * Le tour fini sort ensuite : la fin suivante ne recompte jamais cette hausse.
+   * Le tour fini est ensuite écarté du quota partagé, mais reste dans `live`
+   * jusqu'à la fin de la compression : une nouvelle demande doit encore
+   * s'empiler pendant cette frontière sûre.
    */
   const parts = await enSerieSurCompte(account.id, async () => {
     const quotaApres = await relireQuotaDuCompte(account.id).catch(() => null);
     if (quotaApres) {
       const maintenant = Date.now();
       const tours = [...live.values()]
-        .filter((run) => run.account === account.id)
+        .filter((run) => run.account === account.id && !run.quotaTermine)
         .map((run) => ({
           id: run.agentId,
           poids: poidsDeTour(
@@ -859,11 +899,13 @@ async function startTurn(
     const resultat = {
       quota5h: runState.quota5h,
       quotaSemaine: runState.quotaSemaine,
-      quota5hMesuree: quotaAvant.session !== undefined && quotaApres?.session !== undefined,
-      quotaSemaineMesuree: quotaAvant.weekly !== undefined && quotaApres?.weekly !== undefined,
+      quota5hMesurable: quotaApres?.session !== undefined,
+      quotaSemaineMesurable: quotaApres?.weekly !== undefined,
     };
-    live.delete(agent.id);
-    if (![...live.values()].some((run) => run.account === account.id)) dernierQuotaReparti.delete(account.id);
+    runState.quotaTermine = true;
+    if (![...live.values()].some((run) => run.account === account.id && !run.quotaTermine)) {
+      dernierQuotaReparti.delete(account.id);
+    }
     return resultat;
   });
 
@@ -913,6 +955,21 @@ async function startTurn(
   }
 
   const failed = !result.ok || !!sawError;
+  // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
+  // session RÉUSSI. Une session créée puis refusée doit pouvoir le renvoyer.
+  if (nouvelleSession) {
+    const frais = store.getAgent(agent.id);
+    if (!failed && frais?.context?.continuitySummary) {
+      const context = { ...frais.context };
+      delete context.continuitySummary;
+      const maj = store.saveAgent({ ...frais, context });
+      bus.emit({ type: 'agent.upsert', agent: maj });
+    } else if (failed && frais?.context?.continuitySummary) {
+      // Le moteur a pu annoncer un identifiant avant de refuser le tour. On
+      // l'oublie pour que le prochain essai reparte bien AVEC le résumé.
+      store.clearSession(agent.id, cleSession);
+    }
+  }
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
@@ -927,6 +984,40 @@ async function startTurn(
     account: account.label,
     error: failed ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin." : undefined,
   });
+
+  /*
+   * FRONTIÈRE SÛRE : la réponse visible est finie, mais l'agent reste dans
+   * `live`, donc toute nouvelle demande s'empile encore. C'est ici seulement
+   * que le remplissage est gravé et qu'une éventuelle compression peut partir.
+   */
+  const contextWindow = runState.context?.window ?? catalogContextWindow;
+  if (runState.context && contextWindow) {
+    const frais = store.getAgent(agent.id)!;
+    const observation = observerContexte(frais.context, runState.context.tokens, contextWindow);
+    if (observation) {
+      const mesure = store.saveAgent({
+        ...frais,
+        context: observation.state,
+        contextUsage: mesurerContexte(runState.context.tokens, contextWindow),
+      });
+      bus.emit({ type: 'agent.upsert', agent: mesure });
+      if (observation.shouldCompress) {
+        await compresserContexte(mesure, {
+          adapter,
+          dossier,
+          sessionId: store.getSessionId(agent.id, cleSession),
+          systemPrompt,
+          mcpConfigPath,
+          mcpBridgePath: bridgePath,
+          fullAccess,
+          allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
+          disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+          env,
+          cleSession,
+        });
+      }
+    }
+  }
 
   const finalAgent = store.getAgent(agent.id)!;
   setStatus(finalAgent, failed ? 'failed' : 'done', { endedAt: Date.now() });
@@ -1032,8 +1123,9 @@ async function startTurn(
           outputTokens: runState.usage?.outputTokens ?? 0,
         },
         quota: {
-          quota5h: parts.quota5hMesuree ? parts.quota5h : undefined,
-          quotaWeekly: parts.quotaSemaineMesuree ? parts.quotaSemaine : undefined,
+          quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
+          quotaWeekly:
+            quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
         },
         composition,
       });
@@ -1090,6 +1182,9 @@ async function startTurn(
     }
   }
 
+  live.delete(agent.id);
+  bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
+
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
   const next = store.dequeuePrompt(agent.id);
   bus.emit({ type: 'queue.snapshot', agentId: agent.id, queue: store.listQueue(agent.id) });
@@ -1100,6 +1195,152 @@ async function startTurn(
       );
     }, 400);
   }
+}
+
+interface OptionsCompression {
+  adapter: ReturnType<typeof adapterFor>;
+  dossier: string;
+  sessionId: string | null;
+  systemPrompt: string;
+  mcpConfigPath: string;
+  mcpBridgePath: string;
+  fullAccess: boolean;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  env: Record<string, string>;
+  cleSession: string;
+}
+
+function resumePourAgent(agent: Agent): string {
+  const project = store.getProject(agent.projectId)!;
+  const card = agent.cardId ? store.getCard(agent.cardId) : null;
+  const messages = store.listMessages(agent.id);
+  const dernierAvecTaches = [...messages].reverse().find((message) => message.todos.length);
+  const decisions = messages.flatMap((message) => [
+    ...message.questions.map((question) =>
+      question.answer
+        ? `${question.question} → ${question.answer}`
+        : `${question.question} → réponse encore attendue`,
+    ),
+    ...message.proposals.map((proposal) => `${proposal.title} → ${proposal.decision}`),
+  ]);
+  const attachments = [...new Set(messages.flatMap((message) => [
+    ...message.attachments,
+    ...message.questions.flatMap((question) => question.answerAttachments),
+  ]))]
+    .map((id) => store.getAttachment(id))
+    .filter(Boolean)
+    .map((attachment) => path.join(PATHS.attachments, `${attachment!.id}-${attachment!.name}`));
+
+  return resumeContinuite({
+    project: project.name,
+    workdir: agent.workdir ?? project.path,
+    role: agent.role,
+    title: agent.title,
+    card: card ? { title: card.title, description: card.description, column: card.column } : undefined,
+    exchanges: messages.map((message) => ({ role: message.role, content: message.content })),
+    decisions,
+    todos: dernierAvecTaches?.todos.map((todo) => `${todo.state} : ${todo.label}`),
+    attachments,
+  });
+}
+
+async function compresserContexte(agent: Agent, options: OptionsCompression): Promise<void> {
+  if (!agent.context?.pending) return;
+
+  if (options.adapter.compact && options.sessionId) {
+    const native = await options.adapter.compact({
+      cwd: options.dossier,
+      prompt: '/compact',
+      model: agent.run.model,
+      thinking: agent.run.thinking,
+      sessionId: options.sessionId,
+      systemPrompt: options.systemPrompt,
+      mcpConfigPath: options.mcpConfigPath,
+      mcpBridgePath: options.mcpBridgePath,
+      fullAccess: options.fullAccess,
+      allowedTools: options.allowedTools,
+      disallowedTools: options.disallowedTools,
+      env: options.env,
+      onEvent: () => {},
+    });
+    if (native.ok && native.context) {
+      const frais = store.getAgent(agent.id) ?? agent;
+      const context = contexteApresCompression(frais.context!, {
+        at: Date.now(),
+        method: 'native',
+        tokens: native.context.tokens,
+        window: native.context.window,
+      });
+      const maj = store.saveAgent({
+        ...frais,
+        context,
+        contextUsage: mesurerContexte(context.tokens, context.window),
+      });
+      bus.emit({ type: 'agent.upsert', agent: maj });
+      return;
+    }
+    log.warn(`compression native impossible pour l'agent ${agent.id} : ${native.error ?? 'raison inconnue'}`);
+  }
+
+  // Repli commun : aucun message visible n'est touché. Seul le fil du moteur
+  // courant est remplacé, avec un résumé borné qui repart au prochain tour.
+  // Le socle déterministe garantit les champs indispensables ; le moteur
+  // ajoute la compréhension des décisions formulées librement dans un fil long.
+  const socle = resumePourAgent(agent);
+  const semantique = options.sessionId
+    ? await resumeSemantique(agent, options)
+    : '';
+  const summary = semantique
+    ? `${socle}\n\nSYNTHÈSE SÉMANTIQUE DU FIL\n${semantique.slice(0, 8_000)}`
+    : socle;
+  store.clearSession(agent.id, options.cleSession);
+  const frais = store.getAgent(agent.id) ?? agent;
+  const context = contexteApresCompression(frais.context!, {
+    at: Date.now(),
+    method: 'summary',
+    tokens: 0,
+    summary,
+  });
+  const maj = store.saveAgent({ ...frais, context, contextUsage: undefined });
+  bus.emit({ type: 'agent.upsert', agent: maj });
+}
+
+async function resumeSemantique(agent: Agent, options: OptionsCompression): Promise<string> {
+  let texte = '';
+  let erreur = false;
+  const outilsInterdits = [
+    'Bash',
+    'Read',
+    'Write',
+    'Edit',
+    'WebSearch',
+    'WebFetch',
+    'Task',
+    'Agent',
+    'Workflow',
+    ...toolsFor(agent.role).map((outil) => `mcp__haikodev__${outil.name}`),
+  ];
+  const handle = options.adapter.run({
+    cwd: options.dossier,
+    prompt:
+      'COMPRESSION INTERNE — sans outil et sans question. Résume ce fil pour ton prochain démarrage en 1 200 mots maximum. ' +
+      "Conserve l'objectif actif, les décisions même formulées librement, ce qui est terminé, ce qui reste à faire, " +
+      'les noms exacts utiles et les pièges à éviter. Réponds uniquement par le résumé.',
+    model: agent.run.model,
+    thinking: agent.run.thinking,
+    sessionId: options.sessionId,
+    fullAccess: false,
+    mcpBridgePath: options.mcpBridgePath,
+    disallowedTools: outilsInterdits,
+    env: options.env,
+    onEvent: (event) => {
+      if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
+      if (event.kind === 'error') erreur = true;
+    },
+  });
+  const resultat = await handle.finished;
+  return resultat.ok && !erreur ? texte.trim() : '';
 }
 
 function pushMessage(run: LiveRun, patch: Partial<Message>): void {

@@ -161,6 +161,9 @@ le nom, là-bas le texte).
 - **La MÉTHODE de travail est imposée** (`METHODE`, `server/src/runtime.ts`), la même sous Claude et
   Codex : lire avant de répondre (instructions, mémoire, fichiers repérés par recherche), constater
   par écrit, ne rien affirmer sans l'avoir vu, rejouer les contrôles du projet et en dire le résultat.
+- **Le CONTEXTE du modèle se compresse à 50 % entre deux tours**, pour tous les rôles
+  (`shared/src/contexte-agent.ts`, `server/src/runtime.ts`) : fonction native de Claude, sinon résumé
+  contrôlé et session neuve ; messages visibles, carte, décisions, tâches, modèle et compte restent.
 - **Aucun agent ne commente le stockage des identifiants** : mots de passe, clés, jetons gardés dans
   le projet sont un choix ASSUMÉ de l'utilisateur. On n'en parle pas — mais une PANNE (identifiant
   absent, expiré, refusé qui bloque le travail) se dit toujours.
@@ -169,6 +172,10 @@ le nom, là-bas le texte).
 
 ### Interface et code
 
+- **Le composeur montre le contexte de CHAQUE agent, jamais son quota** (`Agent.contextUsage`,
+  `shared/src/contexte-agent.ts`) : mesure absente = tiret, vrai zéro = `0 %`, mise à jour à chaque
+  usage du moteur et après compression. Vérifié par `server/src/test/contexte-agent.test.ts` et
+  `scripts/verif-contexte-composeur.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
 - **Une demande réellement partie garde son contexte envoyé et sa mesure moteur** ; en reprise,

@@ -2,7 +2,15 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { TodoItem } from '@haikodev/shared';
-import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
+import {
+  EngineAdapter,
+  EngineEvent,
+  EngineHandle,
+  EngineRunOptions,
+  humanStep,
+  normalizeTodos,
+  sommeContexte,
+} from './types.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -146,7 +154,94 @@ export const claudeAdapter: EngineAdapter = {
       finished,
     };
   },
+
+  async compact(options: EngineRunOptions) {
+    let compactee = false;
+    let erreur: string | undefined;
+    const compression = claudeAdapter.run({
+      ...options,
+      prompt: '/compact',
+      systemPrompt: undefined,
+      systemPromptRappel: undefined,
+      onEvent: (event) => {
+        if (event.kind === 'compaction') {
+          compactee = event.compaction?.ok === true;
+          erreur = event.compaction?.error;
+        }
+      },
+    });
+    const resultat = await compression.finished;
+    if (!resultat.ok || !compactee) {
+      return { ok: false, error: erreur ?? resultat.error ?? 'La compression native a été refusée.' };
+    }
+
+    // `/context` est une commande locale de Claude : elle mesure la session
+    // compactée sans ajouter un nouveau tour de modèle.
+    let texteContexte = '';
+    const mesure = claudeAdapter.run({
+      ...options,
+      prompt: '/context',
+      systemPrompt: undefined,
+      systemPromptRappel: undefined,
+      onEvent: (event) => {
+        if (event.kind === 'text' && event.text) texteContexte += event.text;
+      },
+    });
+    await mesure.finished;
+    const context = lireCommandeContexteClaude(texteContexte);
+    return context
+      ? { ok: true, context }
+      : { ok: false, error: "La session a été compactée, mais sa nouvelle taille n'a pas pu être mesurée." };
+  },
 };
+
+function nombreAvecUnite(valeur: string, unite: string | undefined): number {
+  const n = Number(valeur.replace(',', '.'));
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * (unite?.toLowerCase() === 'm' ? 1_000_000 : unite?.toLowerCase() === 'k' ? 1_000 : 1));
+}
+
+/** Traduit la sortie locale de `/context` : « Tokens: 29.4k / 1m ». */
+export function lireCommandeContexteClaude(texte: string): { tokens: number; window: number } | null {
+  const trouve = texte.match(/Tokens:\*?\*?\s*([\d.,]+)\s*([km])?\s*\/\s*([\d.,]+)\s*([km])?/i);
+  if (!trouve) return null;
+  const tokens = nombreAvecUnite(trouve[1], trouve[2]);
+  const window = nombreAvecUnite(trouve[3], trouve[4]);
+  return window ? { tokens, window } : null;
+}
+
+/** Le dernier appel Claude, distinct du total cumulé rendu pour la facture. */
+export function contexteDepuisResultatClaude(event: any): { tokens: number; window?: number } | null {
+  const iterations = Array.isArray(event?.usage?.iterations)
+    ? event.usage.iterations
+    : Array.isArray(event?.iterations)
+      ? event.iterations
+      : [];
+  const derniere = iterations[iterations.length - 1];
+  if (!derniere) return null;
+  const tokens =
+    (derniere.input_tokens ?? 0) +
+    (derniere.cache_creation_input_tokens ?? 0) +
+    (derniere.cache_read_input_tokens ?? 0) +
+    (derniere.output_tokens ?? 0);
+  if (!tokens) return null;
+
+  const usages = Object.values(event?.modelUsage ?? {}) as any[];
+  const totalPrincipal =
+    (event?.usage?.input_tokens ?? 0) +
+    (event?.usage?.cache_read_input_tokens ?? 0) +
+    (event?.usage?.cache_creation_input_tokens ?? 0);
+  const poids = (usage: any) =>
+    (usage?.inputTokens ?? 0) +
+    (usage?.cacheReadInputTokens ?? 0) +
+    (usage?.cacheCreationInputTokens ?? 0);
+  // `modelUsage` peut aussi contenir des sous-agents. Le moteur principal est
+  // celui dont le total correspond au `usage` du résultat courant.
+  const principal = usages.sort(
+    (a, b) => Math.abs(poids(a) - totalPrincipal) - Math.abs(poids(b) - totalPrincipal),
+  )[0];
+  return { tokens, window: principal?.contextWindow };
+}
 
 /**
  * La liste de tâches annoncée par le moteur. Les versions récentes de Claude
@@ -209,6 +304,15 @@ export function emitFromClaude(
   switch (event.type) {
     case 'system':
       if (event.session_id) onEvent({ kind: 'session', sessionId: event.session_id });
+      if (event.subtype === 'status' && event.compact_result) {
+        onEvent({
+          kind: 'compaction',
+          compaction: {
+            ok: event.compact_result === 'success',
+            error: typeof event.compact_error === 'string' ? event.compact_error : undefined,
+          },
+        });
+      }
       break;
 
     case 'rate_limit_event':
@@ -289,6 +393,8 @@ export function emitFromClaude(
 
     case 'result': {
       if (event.session_id) onEvent({ kind: 'session', sessionId: event.session_id });
+      const context = contexteDepuisResultatClaude(event);
+      if (context) onEvent({ kind: 'context', context });
       const usage = event.usage ?? {};
       onEvent({
         kind: 'usage',
@@ -296,6 +402,12 @@ export function emitFromClaude(
           inputTokens: (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
           outputTokens: usage.output_tokens ?? 0,
           cachedTokens: usage.cache_read_input_tokens ?? 0,
+          contextTokens: sommeContexte(
+            usage.input_tokens,
+            usage.cache_creation_input_tokens,
+            usage.cache_read_input_tokens,
+            usage.output_tokens,
+          ),
           costUsd: event.total_cost_usd,
           durationMs: event.duration_ms,
           turns: event.num_turns,

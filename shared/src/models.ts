@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ColumnKey } from './columns.js';
 import { MOYENS_VPS } from './acces-vps.js';
+import { AgentContextUsage } from './contexte-agent.js';
 
 /* ------------------------------------------------------------------ */
 /* Moteurs, modèles, niveaux de réflexion                              */
@@ -348,6 +349,22 @@ export type AgentRole = z.infer<typeof AgentRole>;
 export const AgentStatus = z.enum(['idle', 'starting', 'running', 'stopped', 'failed', 'done']);
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
+export const AgentContext = z.object({
+  /** Jetons réellement présents dans le dernier appel au modèle. */
+  tokens: z.number().nonnegative(),
+  /** Capacité du modèle qui porte cette session. */
+  window: z.number().positive(),
+  ratio: z.number().nonnegative(),
+  armed: z.boolean().default(true),
+  pending: z.boolean().default(false),
+  lastCompressionAt: z.number().optional(),
+  lastCompressionTokens: z.number().nonnegative().optional(),
+  lastCompressionMethod: z.enum(['native', 'summary']).optional(),
+  compressionCount: z.number().int().nonnegative().optional(),
+  continuitySummary: z.string().optional(),
+});
+export type AgentContext = z.infer<typeof AgentContext>;
+
 export const Agent = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -371,6 +388,10 @@ export const Agent = z.object({
    * d'afficher « n/N faites » dans le décroché d'une carte sans l'ouvrir.
    */
   todos: z.object({ done: z.number().int(), total: z.number().int() }).optional(),
+  /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
+  contextUsage: AgentContextUsage.optional(),
+  /** Remplissage du contexte du modèle, distinct des quotas du compte. */
+  context: AgentContext.optional(),
   pid: z.number().optional(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
