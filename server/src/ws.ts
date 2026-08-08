@@ -612,7 +612,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       const onComplete =
         agent.role === 'analysis' && agent.cardId
-          ? (text: string, ok: boolean) => appliquerChiffrageDiscute(agent.cardId!, text, ok)
+          ? (text: string, ok: boolean, measurement: import('@haikodev/shared').TurnMeasurement) =>
+              appliquerChiffrageDiscute(agent.cardId!, text, ok, measurement)
           : undefined;
       /*
        * ON N'ATTEND PAS LA FIN DU TOUR. Un tour dure des minutes ; attendre

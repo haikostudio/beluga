@@ -706,6 +706,16 @@ export function clearSessions(agentId: string): void {
   getDb().prepare('UPDATE agents SET session_id = NULL WHERE id = ?').run(agentId);
 }
 
+/** Oublie seulement le fil visé : les autres moteurs et modèles restent intacts. */
+export function clearSession(agentId: string, cle = 'claude'): void {
+  const sessions = readSessions(agentId);
+  if (!(cle in sessions)) return;
+  delete sessions[cle];
+  getDb()
+    .prepare('UPDATE agents SET session_id = ? WHERE id = ?')
+    .run(Object.keys(sessions).length ? JSON.stringify(sessions) : null, agentId);
+}
+
 /**
  * Combien de faits de la mémoire du projet cet agent a DÉJÀ dans son contexte.
  * Sert à ne lui renvoyer que les faits nouveaux au lieu de recoller la mémoire

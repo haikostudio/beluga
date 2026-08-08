@@ -20,19 +20,22 @@ import {
   TaskProposal,
   TemplateKind,
   TodoItem,
+  TurnMeasurement,
   ampleurDeSuivi,
   ampleurParDefaut,
   checkTemplate,
   cleDeSession,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  cumulerPartsQuota,
+  contexteApresCompression,
   decisionEnTexteLibre,
   etatDuPont,
   nomDeBranche,
-  partQuotaConsommee,
+  observerContexte,
   poidsDeTour,
   raisonSansModification,
-  repartirPartQuota,
+  resumeContinuite,
   ROLES_QUI_DEPLACENT,
   templateForColumn,
   tourDeLaCarte,
@@ -42,7 +45,7 @@ import {
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
-import { adapterFor, EngineEvent, EngineHandle, listEngines } from './engines/index.js';
+import { adapterFor, contextWindowFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
 import { briefing, memoryFacts, memorySummary, newFactsSince } from './memory.js';
@@ -71,11 +74,39 @@ export interface LiveRun {
   todosNotified?: boolean;
   text: string;
   usage?: EngineEvent['usage'];
+  context?: { tokens: number; window?: number };
   account?: string;
+  quota5h: number;
+  quotaSemaine: number;
+  /** Le tour reste occupé pendant la compression, mais ne pèse plus dans le quota partagé. */
+  quotaTermine?: boolean;
   stopping?: boolean;
 }
 
 const live = new Map<string, LiveRun>();
+
+/** Dernier relevé dont la hausse a déjà été répartie, compte par compte. */
+const dernierQuotaReparti = new Map<string, { session?: number; weekly?: number }>();
+
+/** Deux fins très proches passent dans cette file pour partager les relevés dans l'ordre. */
+const filesRepartitionQuota = new Map<string, Promise<void>>();
+
+async function enSerieSurCompte<T>(accountId: string, travail: () => Promise<T>): Promise<T> {
+  const precedente = filesRepartitionQuota.get(accountId) ?? Promise.resolve();
+  let liberer!: () => void;
+  const verrou = new Promise<void>((resolve) => {
+    liberer = resolve;
+  });
+  const file = precedente.then(() => verrou);
+  filesRepartitionQuota.set(accountId, file);
+  await precedente;
+  try {
+    return await travail();
+  } finally {
+    liberer();
+    if (filesRepartitionQuota.get(accountId) === file) filesRepartitionQuota.delete(accountId);
+  }
+}
 
 export function isRunning(agentId: string): boolean {
   return live.has(agentId);
@@ -161,8 +192,8 @@ export interface PromptOptions {
   /** Ne pas enregistrer le message utilisateur (relances internes). */
   silent?: boolean;
   attachments?: string[];
-  /** Appelé quand le tour est fini, avec le texte complet de la réponse. */
-  onComplete?: (text: string, ok: boolean) => void | Promise<void>;
+  /** Appelé quand le tour est fini, avec le texte et les mesures indépendantes du moteur. */
+  onComplete?: (text: string, ok: boolean, measurement: TurnMeasurement) => void | Promise<void>;
 }
 
 /**
@@ -281,18 +312,24 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    */
   const nouvelleSession = !store.getSessionId(agent.id, cleDeSession(agent.run.engine, agent.run.model));
   const contextParts: string[] = [];
+  let memoryAndInstructionsCharacters = 0;
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, index de la
     // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
-    contextParts.push(briefing(project.path, project.name, true, agent.run.engine, agent.workdir));
+    const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir);
+    contextParts.push(ouverture);
+    memoryAndInstructionsCharacters += ouverture.length;
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+    if (agent.context?.continuitySummary) {
+      contextParts.push(agent.context.continuitySummary);
+    }
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
     if (nouveaux.length) {
-      contextParts.push(
-        `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`,
-      );
+      const ajout = `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`;
+      contextParts.push(ajout);
+      memoryAndInstructionsCharacters += ajout.length;
       store.setMemorySeen(agent.id, memoryFacts(project.path).length);
     }
   }
@@ -321,7 +358,14 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     rappel: !nouvelleSession,
     ampleur,
   });
-  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession, ampleur);
+  const description = card?.description ?? '';
+  const occurrencesDescription = description ? prompt.split(description).length - 1 : 0;
+  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession, ampleur, {
+    promptCharacters: prompt.length,
+    systemPromptCharacters: 0,
+    cardDescriptionCharacters: description.length * occurrencesDescription,
+    memoryAndInstructionsCharacters,
+  });
 }
 
 /**
@@ -379,19 +423,19 @@ async function startTurn(
   /** Vrai au tout premier tour d'une session : c'est là qu'on lit la mémoire. */
   nouvelleSession = true,
   ampleur: Ampleur = 'complete',
+  composition: TurnMeasurement['composition'] = {
+    promptCharacters: 0,
+    systemPromptCharacters: 0,
+    cardDescriptionCharacters: 0,
+    memoryAndInstructionsCharacters: 0,
+  },
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
   const agent = store.getAgent(agentBefore.id) ?? agentBefore;
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
-  const moteurs = await listEngines();
-  const moteur = moteurs.find((item) => item.id === agent.run.engine);
-  const modele =
-    moteur?.models.find((item) => item.id === agent.run.model) ??
-    moteur?.models.find((item) => item.id === moteur.defaultModel) ??
-    moteur?.models[0];
-  const capaciteContexte = modele?.contextWindow;
+  const catalogContextWindow = await contextWindowFor(agent.run.engine, agent.run.model).catch(() => undefined);
 
   /*
    * OÙ CET AGENT TRAVAILLE. Une carte lancée a sa propre copie de travail
@@ -492,7 +536,13 @@ async function startTurn(
     todos: [],
     text: '',
     account: account.id,
+    quota5h: 0,
+    quotaSemaine: 0,
   };
+
+  // Le premier tour du groupe pose le repère commun. Les suivants le gardent
+  // jusqu'à ce que le dernier tour du compte soit rangé.
+  if (!dernierQuotaReparti.has(account.id)) dernierQuotaReparti.set(account.id, quotaAvant);
 
   // Outils du démon : le pont MCP, avec la liste d'outils de ce rôle.
   const mcpConfigPath = path.join(PATHS.logs, `mcp-${agent.id}.json`);
@@ -520,6 +570,7 @@ async function startTurn(
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId ? 'task' : agent.role;
   const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine);
+  composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
     HAIKODEV_TOKEN: token,
@@ -571,7 +622,9 @@ async function startTurn(
       agentLog(PATHS.logs, agent.id, JSON.stringify(event));
       switch (event.kind) {
         case 'session':
-          if (event.sessionId) store.setSessionId(agent.id, event.sessionId, cleSession);
+          if (event.sessionId) {
+            store.setSessionId(agent.id, event.sessionId, cleSession);
+          }
           break;
         case 'text':
           if (event.text) {
@@ -642,19 +695,19 @@ async function startTurn(
           break;
         case 'usage':
           runState.usage = event.usage;
-          if (event.usage) {
-            const mesure = mesurerContexte(
-              event.usage.contextTokens,
-              event.usage.contextWindow ?? capaciteContexte,
-            );
-            if (mesure) {
-              // Une compression produit une mesure plus basse : elle remplace
-              // l'ancienne comme n'importe quelle autre information d'usage.
-              const frais = store.getAgent(agent.id);
-              if (frais) {
-                const maj = store.saveAgent({ ...frais, contextUsage: mesure });
-                bus.emit({ type: 'agent.upsert', agent: maj });
-              }
+          break;
+        case 'context':
+          if (event.context) {
+            const window = event.context.window ?? catalogContextWindow;
+            runState.context = {
+              tokens: event.context.tokens,
+              window,
+            };
+            const contextUsage = mesurerContexte(event.context.tokens, window);
+            const frais = store.getAgent(agent.id);
+            if (frais && contextUsage) {
+              const maj = store.saveAgent({ ...frais, contextUsage });
+              bus.emit({ type: 'agent.upsert', agent: maj });
             }
           }
           break;
@@ -675,40 +728,56 @@ async function startTurn(
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
   const result = await handle.finished;
-  live.delete(agent.id);
-
   const elapsedSeconds = (Date.now() - runState.startedAt) / 1000;
-  const tokens = (runState.usage?.inputTokens ?? 0) + (runState.usage?.outputTokens ?? 0);
-
-  // Lecture FRAÎCHE des deux fenêtres après le tour, comparée au relevé d'avant.
-  // Une lecture en échec rend `null` : les parts restent alors à 0.
-  const quotaApres = (await relireQuotaDuCompte(account.id).catch(() => null)) ?? {};
-  const delta5h = partQuotaConsommee(quotaAvant.session, quotaApres.session);
-  const deltaSemaine = partQuotaConsommee(quotaAvant.weekly, quotaApres.weekly);
+  const tokens =
+    (runState.usage?.inputTokens ?? 0) +
+    (runState.usage?.cachedTokens ?? 0) +
+    (runState.usage?.outputTokens ?? 0);
 
   /*
-   * PARTAGE DU DELTA ENTRE TOURS PARALLÈLES. Plusieurs cartes d'un même projet
-   * tournent sur le MÊME compte : chacune relève le même compteur global et
-   * s'attribuerait tout le delta, gonflant la somme au-delà du réel. On rend
-   * donc à ce tour sa part au prorata de son poids (ses jetons, à défaut sa
-   * durée), rapporté au groupe des tours qui tournent EN CE MOMENT sur ce
-   * compte. Cet agent vient d'être retiré de `live` (juste au-dessus) : on l'y
-   * ajoute explicitement pour peser le groupe entier. Les deux fenêtres suivent
-   * la même répartition (mêmes poids).
+   * Le repère appartient au COMPTE, pas à chaque tour. Une fin ne répartit que
+   * la hausse depuis le relevé précédent et la cumule sur les tours présents.
+   * Le tour fini est ensuite écarté du quota partagé, mais reste dans `live`
+   * jusqu'à la fin de la compression : une nouvelle demande doit encore
+   * s'empiler pendant cette frontière sûre.
    */
-  const maintenant = Date.now();
-  const poidsPropre = poidsDeTour(tokens, elapsedSeconds);
-  const poidsConcurrents = [...live.values()]
-    .filter((run) => run.account === account.id)
-    .map((run) =>
-      poidsDeTour(
-        (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
-        (maintenant - run.startedAt) / 1000,
-      ),
-    );
-  const poidsGroupe = [poidsPropre, ...poidsConcurrents];
-  const part5h = repartirPartQuota(delta5h, poidsPropre, poidsGroupe);
-  const partSemaine = repartirPartQuota(deltaSemaine, poidsPropre, poidsGroupe);
+  const parts = await enSerieSurCompte(account.id, async () => {
+    const quotaApres = await relireQuotaDuCompte(account.id).catch(() => null);
+    if (quotaApres) {
+      const maintenant = Date.now();
+      const tours = [...live.values()]
+        .filter((run) => run.account === account.id && !run.quotaTermine)
+        .map((run) => ({
+          id: run.agentId,
+          poids: poidsDeTour(
+            (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
+            (maintenant - run.startedAt) / 1000,
+          ),
+          quota5h: run.quota5h,
+          quotaSemaine: run.quotaSemaine,
+        }));
+      const cumuls = cumulerPartsQuota(dernierQuotaReparti.get(account.id) ?? quotaAvant, quotaApres, tours);
+      for (const cumul of cumuls) {
+        const run = live.get(cumul.id);
+        if (!run) continue;
+        run.quota5h = cumul.quota5h;
+        run.quotaSemaine = cumul.quotaSemaine;
+      }
+      dernierQuotaReparti.set(account.id, quotaApres);
+    }
+
+    const resultat = {
+      quota5h: runState.quota5h,
+      quotaSemaine: runState.quotaSemaine,
+      quota5hMesurable: quotaApres?.session !== undefined,
+      quotaSemaineMesurable: quotaApres?.weekly !== undefined,
+    };
+    runState.quotaTermine = true;
+    if (![...live.values()].some((run) => run.account === account.id && !run.quotaTermine)) {
+      dernierQuotaReparti.delete(account.id);
+    }
+    return resultat;
+  });
 
   store.recordUsage({
     projectId: agent.projectId,
@@ -717,8 +786,8 @@ async function startTurn(
     account: account.id,
     engine: agent.run.engine,
     tokens,
-    quota5h: part5h,
-    quotaSemaine: partSemaine,
+    quota5h: parts.quota5h,
+    quotaSemaine: parts.quotaSemaine,
     seconds: elapsedSeconds,
   });
 
@@ -756,6 +825,21 @@ async function startTurn(
   }
 
   const failed = !result.ok || !!sawError;
+  // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
+  // session RÉUSSI. Une session créée puis refusée doit pouvoir le renvoyer.
+  if (nouvelleSession) {
+    const frais = store.getAgent(agent.id);
+    if (!failed && frais?.context?.continuitySummary) {
+      const context = { ...frais.context };
+      delete context.continuitySummary;
+      const maj = store.saveAgent({ ...frais, context });
+      bus.emit({ type: 'agent.upsert', agent: maj });
+    } else if (failed && frais?.context?.continuitySummary) {
+      // Le moteur a pu annoncer un identifiant avant de refuser le tour. On
+      // l'oublie pour que le prochain essai reparte bien AVEC le résumé.
+      store.clearSession(agent.id, cleSession);
+    }
+  }
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
@@ -770,6 +854,40 @@ async function startTurn(
     account: account.label,
     error: failed ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin." : undefined,
   });
+
+  /*
+   * FRONTIÈRE SÛRE : la réponse visible est finie, mais l'agent reste dans
+   * `live`, donc toute nouvelle demande s'empile encore. C'est ici seulement
+   * que le remplissage est gravé et qu'une éventuelle compression peut partir.
+   */
+  const contextWindow = runState.context?.window ?? catalogContextWindow;
+  if (runState.context && contextWindow) {
+    const frais = store.getAgent(agent.id)!;
+    const observation = observerContexte(frais.context, runState.context.tokens, contextWindow);
+    if (observation) {
+      const mesure = store.saveAgent({
+        ...frais,
+        context: observation.state,
+        contextUsage: mesurerContexte(runState.context.tokens, contextWindow),
+      });
+      bus.emit({ type: 'agent.upsert', agent: mesure });
+      if (observation.shouldCompress) {
+        await compresserContexte(mesure, {
+          adapter,
+          dossier,
+          sessionId: store.getSessionId(agent.id, cleSession),
+          systemPrompt,
+          mcpConfigPath,
+          mcpBridgePath: bridgePath,
+          fullAccess,
+          allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
+          disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+          env,
+          cleSession,
+        });
+      }
+    }
+  }
 
   const finalAgent = store.getAgent(agent.id)!;
   setStatus(finalAgent, failed ? 'failed' : 'done', { endedAt: Date.now() });
@@ -868,7 +986,19 @@ async function startTurn(
 
   if (onComplete) {
     try {
-      await onComplete(finalText, !failed);
+      await onComplete(finalText, !failed, {
+        usage: {
+          inputTokens: runState.usage?.inputTokens ?? 0,
+          cachedInputTokens: runState.usage?.cachedTokens,
+          outputTokens: runState.usage?.outputTokens ?? 0,
+        },
+        quota: {
+          quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
+          quotaWeekly:
+            quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
+        },
+        composition,
+      });
     } catch (err) {
       log.error('post-traitement du tour impossible', err);
     }
@@ -922,6 +1052,9 @@ async function startTurn(
     }
   }
 
+  live.delete(agent.id);
+  bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
+
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
   const next = store.dequeuePrompt(agent.id);
   bus.emit({ type: 'queue.snapshot', agentId: agent.id, queue: store.listQueue(agent.id) });
@@ -932,6 +1065,152 @@ async function startTurn(
       );
     }, 400);
   }
+}
+
+interface OptionsCompression {
+  adapter: ReturnType<typeof adapterFor>;
+  dossier: string;
+  sessionId: string | null;
+  systemPrompt: string;
+  mcpConfigPath: string;
+  mcpBridgePath: string;
+  fullAccess: boolean;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  env: Record<string, string>;
+  cleSession: string;
+}
+
+function resumePourAgent(agent: Agent): string {
+  const project = store.getProject(agent.projectId)!;
+  const card = agent.cardId ? store.getCard(agent.cardId) : null;
+  const messages = store.listMessages(agent.id);
+  const dernierAvecTaches = [...messages].reverse().find((message) => message.todos.length);
+  const decisions = messages.flatMap((message) => [
+    ...message.questions.map((question) =>
+      question.answer
+        ? `${question.question} → ${question.answer}`
+        : `${question.question} → réponse encore attendue`,
+    ),
+    ...message.proposals.map((proposal) => `${proposal.title} → ${proposal.decision}`),
+  ]);
+  const attachments = [...new Set(messages.flatMap((message) => [
+    ...message.attachments,
+    ...message.questions.flatMap((question) => question.answerAttachments),
+  ]))]
+    .map((id) => store.getAttachment(id))
+    .filter(Boolean)
+    .map((attachment) => path.join(PATHS.attachments, `${attachment!.id}-${attachment!.name}`));
+
+  return resumeContinuite({
+    project: project.name,
+    workdir: agent.workdir ?? project.path,
+    role: agent.role,
+    title: agent.title,
+    card: card ? { title: card.title, description: card.description, column: card.column } : undefined,
+    exchanges: messages.map((message) => ({ role: message.role, content: message.content })),
+    decisions,
+    todos: dernierAvecTaches?.todos.map((todo) => `${todo.state} : ${todo.label}`),
+    attachments,
+  });
+}
+
+async function compresserContexte(agent: Agent, options: OptionsCompression): Promise<void> {
+  if (!agent.context?.pending) return;
+
+  if (options.adapter.compact && options.sessionId) {
+    const native = await options.adapter.compact({
+      cwd: options.dossier,
+      prompt: '/compact',
+      model: agent.run.model,
+      thinking: agent.run.thinking,
+      sessionId: options.sessionId,
+      systemPrompt: options.systemPrompt,
+      mcpConfigPath: options.mcpConfigPath,
+      mcpBridgePath: options.mcpBridgePath,
+      fullAccess: options.fullAccess,
+      allowedTools: options.allowedTools,
+      disallowedTools: options.disallowedTools,
+      env: options.env,
+      onEvent: () => {},
+    });
+    if (native.ok && native.context) {
+      const frais = store.getAgent(agent.id) ?? agent;
+      const context = contexteApresCompression(frais.context!, {
+        at: Date.now(),
+        method: 'native',
+        tokens: native.context.tokens,
+        window: native.context.window,
+      });
+      const maj = store.saveAgent({
+        ...frais,
+        context,
+        contextUsage: mesurerContexte(context.tokens, context.window),
+      });
+      bus.emit({ type: 'agent.upsert', agent: maj });
+      return;
+    }
+    log.warn(`compression native impossible pour l'agent ${agent.id} : ${native.error ?? 'raison inconnue'}`);
+  }
+
+  // Repli commun : aucun message visible n'est touché. Seul le fil du moteur
+  // courant est remplacé, avec un résumé borné qui repart au prochain tour.
+  // Le socle déterministe garantit les champs indispensables ; le moteur
+  // ajoute la compréhension des décisions formulées librement dans un fil long.
+  const socle = resumePourAgent(agent);
+  const semantique = options.sessionId
+    ? await resumeSemantique(agent, options)
+    : '';
+  const summary = semantique
+    ? `${socle}\n\nSYNTHÈSE SÉMANTIQUE DU FIL\n${semantique.slice(0, 8_000)}`
+    : socle;
+  store.clearSession(agent.id, options.cleSession);
+  const frais = store.getAgent(agent.id) ?? agent;
+  const context = contexteApresCompression(frais.context!, {
+    at: Date.now(),
+    method: 'summary',
+    tokens: 0,
+    summary,
+  });
+  const maj = store.saveAgent({ ...frais, context, contextUsage: undefined });
+  bus.emit({ type: 'agent.upsert', agent: maj });
+}
+
+async function resumeSemantique(agent: Agent, options: OptionsCompression): Promise<string> {
+  let texte = '';
+  let erreur = false;
+  const outilsInterdits = [
+    'Bash',
+    'Read',
+    'Write',
+    'Edit',
+    'WebSearch',
+    'WebFetch',
+    'Task',
+    'Agent',
+    'Workflow',
+    ...toolsFor(agent.role).map((outil) => `mcp__haikodev__${outil.name}`),
+  ];
+  const handle = options.adapter.run({
+    cwd: options.dossier,
+    prompt:
+      'COMPRESSION INTERNE — sans outil et sans question. Résume ce fil pour ton prochain démarrage en 1 200 mots maximum. ' +
+      "Conserve l'objectif actif, les décisions même formulées librement, ce qui est terminé, ce qui reste à faire, " +
+      'les noms exacts utiles et les pièges à éviter. Réponds uniquement par le résumé.',
+    model: agent.run.model,
+    thinking: agent.run.thinking,
+    sessionId: options.sessionId,
+    fullAccess: false,
+    mcpBridgePath: options.mcpBridgePath,
+    disallowedTools: outilsInterdits,
+    env: options.env,
+    onEvent: (event) => {
+      if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
+      if (event.kind === 'error') erreur = true;
+    },
+  });
+  const resultat = await handle.finished;
+  return resultat.ok && !erreur ? texte.trim() : '';
 }
 
 function pushMessage(run: LiveRun, patch: Partial<Message>): void {

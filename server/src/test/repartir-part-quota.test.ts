@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { partQuotaConsommee, poidsDeTour, repartirPartQuota } from '@haikodev/shared';
+import { cumulerPartsQuota, partQuotaConsommee, poidsDeTour, repartirPartQuota } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
 /* Deux tâches qui se CHEVAUCHENT sur le même compte se partagent le    */
@@ -58,6 +58,41 @@ test('un tour seul reçoit tout le delta ; sans poids, on partage à égalité',
   // Delta nul ou négatif : rien à répartir.
   assert.equal(repartirPartQuota(0, 500, [500, 500]), 0);
   assert.equal(repartirPartQuota(-3, 500, [500, 500]), 0);
+});
+
+test('deux fins décalées : chaque hausse du compte est comptée une seule fois', () => {
+  let tours = [
+    { id: 'tour-a', poids: 1000, quota5h: 0, quotaSemaine: 0 },
+    { id: 'tour-b', poids: 1000, quota5h: 0, quotaSemaine: 0 },
+  ];
+
+  // Les deux tours partent à 0 %. Quand A finit à 82 %, la première hausse
+  // est partagée entre A et B.
+  tours = cumulerPartsQuota({ session: 0, weekly: 10 }, { session: 82, weekly: 18 }, tours);
+  const tourA = tours.find((tour) => tour.id === 'tour-a')!;
+  assert.equal(tourA.quota5h, 41);
+  assert.equal(tourA.quotaSemaine, 4);
+
+  // A est rangé. B finit à 100 % : seuls les 18 nouveaux points s'ajoutent à
+  // sa part déjà cumulée, au lieu de recompter les 100 points depuis le départ.
+  tours = cumulerPartsQuota(
+    { session: 82, weekly: 18 },
+    { session: 100, weekly: 20 },
+    tours.filter((tour) => tour.id === 'tour-b'),
+  );
+  const tourB = tours[0];
+
+  assert.equal(tourB.quota5h, 59);
+  assert.equal(tourB.quotaSemaine, 6);
+  assert.equal(tourA.quota5h + tourB.quota5h, 100, 'la fenêtre de 5 h totalise la hausse réelle');
+  assert.equal(tourA.quotaSemaine + tourB.quotaSemaine, 10, 'la semaine totalise la hausse réelle');
+
+  store.recordUsage({ cardId: 'carte-fin-a', quota5h: tourA.quota5h, quotaSemaine: tourA.quotaSemaine });
+  store.recordUsage({ cardId: 'carte-fin-b', quota5h: tourB.quota5h, quotaSemaine: tourB.quotaSemaine });
+  const carteA = store.usageQuotaByCard('carte-fin-a');
+  const carteB = store.usageQuotaByCard('carte-fin-b');
+  assert.equal(carteA.quota5h + carteB.quota5h, 100);
+  assert.equal(carteA.quotaSemaine + carteB.quotaSemaine, 10);
 });
 
 test('les parts rangées par recordUsage se somment au delta connu', () => {

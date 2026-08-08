@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseEstimate, branchName } from '../scheduler.js';
-import { Card } from '@haikodev/shared';
+import { Card, avecMesureAnalyse } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
 /* Calculs de facturation (PLAN §7)                                    */
@@ -52,6 +52,26 @@ Correction après relecture :
 test('les nombres écrits à la française sont acceptés', () => {
   const estimate = parseEstimate('```json\n{"machineSeconds": "300", "seniorHours": "1,5"}\n```')!;
   assert.equal(estimate.seniorHours, 1.5);
+});
+
+test("une mesure inventée dans le JSON de l'agent est ignorée au profit de l'événement moteur", () => {
+  const estimate = parseEstimate(`\`\`\`json
+{"machineSeconds": 300, "analysisMeasurement": {"inputTokens": 999999, "outputTokens": 999999}}
+\`\`\``)!;
+  assert.equal(estimate.analysisMeasurement, undefined, 'le JSON ne peut pas écrire une mesure');
+
+  const mesure = avecMesureAnalyse(estimate, {
+    usage: { inputTokens: 120, cachedInputTokens: 30, outputTokens: 10 },
+    quota: { quota5h: 0.2, quotaWeekly: 0.05 },
+    composition: {
+      promptCharacters: 1_000,
+      systemPromptCharacters: 500,
+      cardDescriptionCharacters: 200,
+      memoryAndInstructionsCharacters: 300,
+    },
+  });
+  assert.equal(mesure.analysisMeasurement?.inputTokens, 120);
+  assert.equal(mesure.analysisMeasurement?.totalTokens, 160);
 });
 
 /* ------------------------------------------------------------------ */

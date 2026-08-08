@@ -3,7 +3,7 @@ import * as store from './store.js';
 import { createAgent } from './runtime.js';
 import { bus } from './bus.js';
 import { listEngines } from './engines/index.js';
-import { normaliseThinking, orchestratorModel, resolveModel } from './engines/catalog.js';
+import { orchestratorChoice, resolveModel } from './engines/catalog.js';
 
 /**
  * Le chef d'orchestre (PLAN §5) : un agent permanent par projet, dont la
@@ -42,13 +42,15 @@ export async function getOrCreateOrchestrator(projectId: string): Promise<Agent>
 
   // Le modèle retenu peut avoir disparu du catalogue : on le ramène vers un
   // modèle réel, sinon l'interface afficherait autre chose que ce qui tourne.
-  const memorisedModel = memorisedEngine
+  const memorisedModel = memorisedEngine && settings.orchestratorModel
     ? resolveModel(engine?.models ?? [], settings.orchestratorModel)
     : undefined;
-  const model = memorisedModel ?? orchestratorModel(engine?.models ?? []);
-  const thinking = memorisedModel
-    ? normaliseThinking(engine?.models ?? [], model, settings.orchestratorThinking)
-    : 'none';
+  const { model, thinking } = orchestratorChoice(
+    engine?.id ?? 'claude',
+    engine?.models ?? [],
+    memorisedModel,
+    settings.orchestratorThinking,
+  );
 
   const agent = createAgent({
     projectId,
