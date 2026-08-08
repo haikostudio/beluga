@@ -676,6 +676,16 @@ export const ORCHESTRATOR_ALLOWED_NATIVE = [
   'WebFetch',
   'WebSearch',
   'ToolSearch',
+  // Le chef a TOUS LES DROITS SAUF modifier le code du projet : le shell lui est
+  // ouvert (sondages, études, analyses, écritures de brouillon dans son dossier
+  // de travail). Ce qui garde le PROJET intouchable n'est pas l'absence de ces
+  // outils, mais le bac à sable : le projet est monté en lecture seule, une
+  // commande qui tente d'y écrire échoue. Les outils d'ÉDITION de fichiers
+  // (« Edit », « Write », « NotebookEdit »), eux, restent interdits plus bas —
+  // la ceinture par-dessus le bac à sable. Voir `shared/src/bridage-chef.ts`.
+  'Bash',
+  'BashOutput',
+  'KillShell',
   // La liste de tâches ne touche à rien : elle affiche seulement le déroulé
   // annoncé, coché en direct dans la conversation. « TodoWrite » est l'ancien
   // nom ; les versions récentes du moteur parlent « TaskCreate / TaskUpdate ».
@@ -690,12 +700,13 @@ export const ORCHESTRATOR_ALLOWED_NATIVE = [
 ];
 
 export const ORCHESTRATOR_DENIED_NATIVE = [
+  // Les outils d'ÉDITION restent fermés au chef : modifier le code du projet
+  // s'ouvre en carte confiée à un agent de tâche (règle absolue). Le shell, lui,
+  // est désormais PERMIS plus haut ; c'est le bac à sable qui garde le projet en
+  // lecture seule, pas l'absence de « Bash ».
   'Edit',
   'Write',
   'NotebookEdit',
-  'Bash',
-  'BashOutput',
-  'KillShell',
   'Task',
   'Agent',
   // Apparu avec une mise à jour du moteur : lance des agents en masse, donc

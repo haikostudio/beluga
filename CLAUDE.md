@@ -209,8 +209,16 @@ l'effacer — et une règle durable qui change se met à jour AUX DEUX endroits.
   fonctionnalité = une branche = un enregistrement, nommé.
 - **Dossier partagé (chef, analyse, publication) : `git add` NOMMÉ un par un, jamais `git add -A`**
   — sinon on emporte le travail d'un autre agent dans son propre enregistrement.
-- **Un agent de tâche travaille en accès complet ; le chef d'orchestre ne modifie aucun fichier
-  existant** (sauf sur HaikoDev lui-même).
+- **Un agent de tâche travaille en accès complet. Le chef d'orchestre a TOUS LES DROITS SAUF modifier
+  le code du projet** (sauf sur HaikoDev lui-même) : il lance des commandes (`Bash`), cherche sur le
+  web, écrit ses brouillons dans un DOSSIER DE TRAVAIL à part (son `cwd`, le seul écrivable) ; le
+  PROJET est monté en LECTURE SEULE par le bac à sable — une écriture y échoue, une modification du
+  code s'ouvre en carte. Frontière identique sous les deux moteurs (`shared/src/bridage-chef.ts`),
+  posée au niveau système (`bwrap`) — elle EXIGE les espaces de noms utilisateur non privilégiés
+  (`kernel.apparmor_restrict_unprivileged_userns=0`, `/etc/sysctl.d/99-haikodev-userns.conf`) : sans
+  eux, toute commande d'un chef bridé échoue avec « bwrap: … Permission denied ». Les outils d'ÉDITION
+  (`Edit`, `Write`, `NotebookEdit`) lui restent interdits. Verrouillé par
+  `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
 
 ### Projets
 

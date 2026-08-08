@@ -285,6 +285,19 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     // Le briefing (chemin du projet, fichiers d'instructions, index de la
     // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
     contextParts.push(briefing(project.path, project.name, true, agent.run.engine, agent.workdir));
+    // Le chef bridé a tous les droits SAUF modifier le code du projet : on lui
+    // dit où il peut écrire (son dossier de travail) et que le projet est en
+    // lecture seule — une écriture y échoue, une modification s'ouvre en carte.
+    if (agent.role === 'orchestrator' && !project.isSelf) {
+      const scratch = path.join(PATHS.chefScratch, project.id);
+      contextParts.push(
+        `TON ESPACE DE TRAVAIL : tu peux lancer des commandes (sondages, études, analyses) et ` +
+          `écrire tes brouillons dans ${scratch} — c'est le SEUL dossier où tu as le droit d'écrire. ` +
+          `Le projet (${project.path}) est monté en LECTURE SEULE : lis-y tout ce qu'il te faut, mais ` +
+          `toute écriture y échoue. Modifier le code du projet n'est pas ton rôle : tu l'ouvres en carte ` +
+          `confiée à un agent de tâche.`,
+      );
+    }
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
@@ -499,6 +512,25 @@ async function startTurn(
   const fullAccess = !isOrchestrator || project.isSelf;
 
   /*
+   * LA FRONTIÈRE DU CHEF BRIDÉ. Il a tous les droits sauf modifier le code du
+   * projet : on lui donne un DOSSIER DE TRAVAIL à part comme `cwd` — le seul
+   * écrivable — et on garde le projet en LECTURE SEULE (monté par `projectRoot`,
+   * jamais dans l'espace écrivable du bac à sable). Un dossier par projet, hors
+   * des dépôts, gardé d'un tour à l'autre pour que le chef y retrouve ses notes.
+   * L'agent de tâche et le chef d'HaikoDev lui-même, eux, travaillent dans le
+   * dossier du projet (`dossier`).
+   */
+  const bride = isOrchestrator && !project.isSelf;
+  let cwd = dossier;
+  let projectRoot: string | undefined;
+  if (bride) {
+    const scratch = path.join(PATHS.chefScratch, project.id);
+    fs.mkdirSync(scratch, { recursive: true });
+    cwd = scratch;
+    projectRoot = project.path;
+  }
+
+  /*
    * LE CHIFFRAGE ET L'EXÉCUTION PARTAGENT UN SEUL FIL. Le tour d'analyse ouvre
    * la session (rôle « analysis »), puis le même agent devient agent de tâche
    * pour exécuter. La consigne système est GRAVÉE dans le fil au premier tour et
@@ -539,7 +571,8 @@ async function startTurn(
   let sawError: string | undefined;
 
   const handle = adapter.run({
-    cwd: dossier,
+    cwd,
+    projectRoot,
     prompt,
     model: agent.run.model ?? undefined,
     thinking: agent.run.thinking,

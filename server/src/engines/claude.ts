@@ -2,6 +2,7 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { TodoItem } from '@haikodev/shared';
+import { reglagesClaudeDuChef } from '@haikodev/shared';
 import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
 import { log } from '../logger.js';
 
@@ -49,6 +50,17 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
   if (options.mcpConfigPath) args.push('--mcp-config', options.mcpConfigPath);
   if (options.allowedTools?.length) args.push('--allowedTools', options.allowedTools.join(','));
   if (options.disallowedTools?.length) args.push('--disallowedTools', options.disallowedTools.join(','));
+
+  // LA FRONTIÈRE DU CHEF BRIDÉ, côté Claude. Le bac à sable `bwrap` est allumé :
+  // le dossier de travail (`cwd`) reste écrivable, le PROJET est monté en lecture
+  // par `--add-dir` — on l'y lit, jamais on n'y écrit, même par une commande
+  // shell. C'est le pendant exact du `workspace-write` de Codex. Absent pour un
+  // agent de tâche, qui garde son accès complet.
+  const reglages = reglagesClaudeDuChef(options, options.projectRoot);
+  if (reglages) {
+    args.push('--settings', JSON.stringify(reglages));
+    if (options.projectRoot) args.push('--add-dir', options.projectRoot);
+  }
   return args;
 }
 
