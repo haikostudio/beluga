@@ -321,9 +321,37 @@ export function resolveModel(models: ModelInfo[], wanted: string | undefined): s
 }
 
 /**
- * Le modèle du chef d'orchestre : épinglé volontairement sur un modèle rapide
- * et bon marché (PLAN §5), choisi dans le catalogue RÉEL et non deviné.
+ * Le modèle du chef d'orchestre dépend de son moteur. On cherche d'abord la
+ * version précise voulue dans le catalogue réel, puis on se replie par famille
+ * sur un modèle qui existe vraiment.
  */
-export function orchestratorModel(models: ModelInfo[]): string | undefined {
-  return resolveModel(models, 'sonnet');
+export function orchestratorModel(engine: EngineId, models: ModelInfo[]): string | undefined {
+  if (!models.length) return undefined;
+
+  const wanted = engine === 'codex' ? 'gpt-5.4' : 'sonnet-5';
+  const cible = wanted.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const preferred = models.find((model) => {
+    const id = model.id.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const label = model.label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    return model.id === wanted || id.includes(cible) || label.includes(cible);
+  });
+  return preferred?.id ?? resolveModel(models, wanted);
+}
+
+/** Les choix manuels l'emportent ; sans eux, les défauts du chef s'appliquent. */
+export function orchestratorChoice(
+  engine: EngineId,
+  models: ModelInfo[],
+  memorisedModel?: string,
+  memorisedThinking?: string,
+): { model: string | undefined; thinking: string } {
+  const model = memorisedModel
+    ? resolveModel(models, memorisedModel)
+    : orchestratorModel(engine, models);
+  const thinking = normaliseThinking(
+    models,
+    model,
+    memorisedModel ? memorisedThinking : 'medium',
+  );
+  return { model, thinking };
 }

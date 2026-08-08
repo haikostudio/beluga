@@ -171,6 +171,8 @@ le nom, là-bas le texte).
 
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
+- **Un chef sans choix manuel part sur Sonnet 5 sous Claude ou GPT-5.4 sous Codex, en réflexion
+  moyenne**, toujours ramené vers un modèle réellement présent dans le catalogue du moteur.
 - **Rien ne pointe vers le dossier personnel d'un utilisateur** (`/home/<quelqu'un>/…` écrit en dur) :
   une bibliothèque se déclare dans `package.json`, un outil dont le démon dépend se copie dans
   `outils/`. Le dossier de travail d'un projet vit sous `/root/<projet>`.
