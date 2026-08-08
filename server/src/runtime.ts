@@ -33,6 +33,7 @@ import {
   contexteApresCompression,
   decisionEnTexteLibre,
   etatDuPont,
+  finaliserAnalyseDeProposition,
   libelleSujet,
   MemoireDeReprise,
   type MotifDAppel,
@@ -988,6 +989,20 @@ async function startTurn(
     seconds: elapsedSeconds,
   });
 
+  const measurement: TurnMeasurement = {
+    usage: {
+      inputTokens: runState.usage?.inputTokens ?? 0,
+      cachedInputTokens: runState.usage?.cachedTokens,
+      outputTokens: runState.usage?.outputTokens ?? 0,
+    },
+    quota: {
+      quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
+      quotaWeekly:
+        quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
+    },
+    composition,
+  };
+
   // Contrôle de forme : un moteur qui ignore le gabarit se fait rattraper.
   let finalText = runState.text.trim();
   const formCheck = checkTemplate(template, finalText, ampleur);
@@ -1022,6 +1037,9 @@ async function startTurn(
   }
 
   const failed = !result.ok || !!sawError;
+  if (!failed && agent.role === 'orchestrator') {
+    finaliserPropositionsDuChef(runState.messageId, agent.projectId, measurement);
+  }
   // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
   // session RÉUSSI. Une session créée puis refusée doit pouvoir le renvoyer.
   if (nouvelleSession) {
@@ -1183,19 +1201,7 @@ async function startTurn(
 
   if (onComplete) {
     try {
-      await onComplete(finalText, !failed, {
-        usage: {
-          inputTokens: runState.usage?.inputTokens ?? 0,
-          cachedInputTokens: runState.usage?.cachedTokens,
-          outputTokens: runState.usage?.outputTokens ?? 0,
-        },
-        quota: {
-          quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
-          quotaWeekly:
-            quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
-        },
-        composition,
-      });
+      await onComplete(finalText, !failed, measurement);
     } catch (err) {
       log.error('post-traitement du tour impossible', err);
     }
@@ -1497,6 +1503,46 @@ export function attachToCurrentMessage(
   }
 }
 
+/**
+ * Une proposition naît pendant le tour, avant que l'usage réel soit connu.
+ * À la fin du tour du chef, on complète son chiffrage dans les DEUX sources
+ * persistantes (message et table des propositions). Si l'utilisateur a déjà
+ * cliqué, la carte reçoit aussi cette mesure tardive sans relancer d'analyse.
+ */
+function finaliserPropositionsDuChef(
+  messageId: string,
+  projectId: string,
+  measurement: TurnMeasurement,
+): void {
+  const current = store.getMessage(messageId);
+  if (!current?.proposals.length) return;
+
+  let change = false;
+  const proposals = current.proposals.map((proposal) => {
+    const finalisee = finaliserAnalyseDeProposition(proposal, measurement);
+    if (finalisee === proposal) return proposal;
+    change = true;
+    store.saveProposal(messageId, projectId, finalisee);
+
+    if (finalisee.cardId) {
+      const card = store.getCard(finalisee.cardId);
+      if (card) {
+        const updated = store.saveCard({
+          ...card,
+          estimate: finalisee.estimate,
+          analysisContext: finalisee.analysisContext,
+        });
+        bus.emit({ type: 'card.upsert', card: updated });
+      }
+    }
+    return finalisee;
+  });
+
+  if (!change) return;
+  const updated = store.saveMessage({ ...current, proposals });
+  bus.emit({ type: 'message.upsert', message: updated });
+}
+
 export function stopAgent(agentId: string): boolean {
   const run = live.get(agentId);
   if (!run) return false;
@@ -1626,6 +1672,8 @@ NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche d
 5. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
 
 ${CONSIGNE_DESCRIPTION_CARTE}
+
+AVANT de proposer, tu as déjà lu le projet pour établir le constat. Dans le champ « analysis » de board_create_card ou propose_task, transmets donc aussi le chiffrage FUTUR et un relais court (faits utiles, fichiers concernés, approche et contrôles). HaikoDev ajoutera lui-même la mesure RÉELLE de ton tour : ne l'invente jamais. C'est ce qui permet à l'agent d'exécution de reprendre ton étude sans payer un second tour d'analyse identique.
 
 Tu peux lire le code, chercher, écrire un document (write_document) et préparer une archive (make_archive).
 

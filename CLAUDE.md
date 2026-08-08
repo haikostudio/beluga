@@ -136,6 +136,9 @@ le nom, là-bas le texte).
   le chef PROPOSE (`board_create_card` / `propose_task`, description en quatre parties), la validation
   de l'utilisateur seule crée la carte. Une simple question se répond sans carte. Verrouillé par
   `server/src/test/tri-du-chef.test.ts`.
+- **L'analyse faite par le chef voyage avec sa proposition** : chiffrage futur, mesure réelle ajoutée
+  par le démon et relais factuel sont recopiés sur la carte ; sa validation va directement en
+  « Planifié », sans second chiffrage, mais l'exécution attend toujours un geste humain.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une

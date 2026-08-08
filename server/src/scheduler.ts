@@ -15,6 +15,8 @@ import {
   porteDuDepot,
   porteDuDossier,
   avecMesureAnalyse,
+  analyseDuChefReutilisable,
+  contexteHeritePourExecution,
   mesureDeContexte,
 } from '@haikodev/shared';
 import { menageDesDossiers, ouvrirDossierDeCarte } from './dossier-de-carte.js';
@@ -423,6 +425,30 @@ export function reprendPourExecution(prealable: Agent | null, enCours: boolean):
   return !!prealable && prealable.role === 'analysis' && !enCours;
 }
 
+/**
+ * Une carte proposée par le chef arrive avec son chiffrage et son relais. Le
+ * geste « Valider » la place donc directement en attente de lancement, sans
+ * créer un deuxième tour d'analyse. Les cartes ordinaires gardent exactement
+ * l'ancien parcours.
+ */
+export function reprendreAnalyseDuChef(cardId: string): boolean {
+  const card = store.getCard(cardId);
+  if (!card || card.column !== 'validated' || !analyseDuChefReutilisable(card)) return false;
+  const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
+  const updated = store.saveCard({
+    ...card,
+    column: 'planned',
+    position: store.nextPosition(card.projectId, 'planned'),
+    scheduling: {
+      ...scheduling,
+      waitingReason: demarrageAutomatiqueAutorise(scheduling) ? undefined : RAISON_ATTENTE_LANCEMENT,
+    },
+  });
+  bus.emit({ type: 'card.upsert', card: updated });
+  void tick();
+  return true;
+}
+
 export async function startCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
   const card = store.getCard(cardId);
   if (!card) return { ok: false, error: 'carte introuvable' };
@@ -514,6 +540,7 @@ Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (c
 
   await sendPrompt(agent.id, prompt, {
     silent: true,
+    context: contexteHeritePourExecution(card),
     // Une carte lancée est une vraie tâche : elle mérite le compte rendu entier.
     ampleur: 'complete',
     // Les images jointes au chef d'orchestre voyagent jusqu'ici : elles entrent
@@ -575,6 +602,7 @@ export async function tick(): Promise<void> {
     for (const project of store.listProjects()) {
       // Analyse : les cartes fraîchement validées.
       for (const card of store.listCardsInColumn(project.id, 'validated')) {
+        if (reprendreAnalyseDuChef(card.id)) continue;
         if (!card.estimate && !analysing.has(card.id)) {
           void analyseCard(card.id);
         }
