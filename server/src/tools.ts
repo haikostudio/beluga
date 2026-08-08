@@ -23,7 +23,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { PATHS } from './config.js';
 import { mintDownload } from './auth.js';
-import { readMemory, appendMemory, detailMemoire } from './memory.js';
+import { readMemory, appendMemory, detailProjet } from './memory.js';
 import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
 import { log } from './logger.js';
@@ -244,14 +244,14 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'project_memory',
     description:
-      "Le TEXTE ENTIER des faits de la mémoire du projet. L'index reçu au lancement est tronqué : appelle cet outil dès qu'une ligne de l'index touche à ce que tu vas modifier. Sans argument, il rend l'index complet.",
+      "Le TEXTE ENTIER de la mémoire du projet À LA DEMANDE : les FAITS (dont l'index reçu au lancement est tronqué), MAIS AUSSI les RÈGLES du moteur et les CONTRÔLES, rangés par sujet. Appelle-le dès qu'une ligne de l'index — ou le sujet de ta tâche — touche à ce que tu vas modifier : tu recevras d'un coup les faits, les règles et les scripts de vérification qui le concernent. Sans argument, il rend l'index des faits et la liste des sujets de règles.",
     inputSchema: {
       type: 'object',
       properties: {
         sujet: {
           type: 'string',
           description:
-            "Ce que tu cherches : un numéro de l'index (« 12 »), un nom de sujet (« mobile », « publication »), ou des mots-clés.",
+            "Ce que tu cherches : un numéro de l'index de faits (« 12 »), un nom de sujet (« publication », « cartes », « voix », « quotas »…), ou des mots-clés.",
         },
       },
     },
@@ -567,9 +567,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     case 'project_memory': {
-      // Le détail à la demande : l'index seul part au lancement, le texte
-      // entier d'un fait se demande quand le sujet concerne vraiment la tâche.
-      return { ok: true, text: detailMemoire(project.path, String(args.sujet ?? '')) };
+      // Le détail à la demande : l'index seul part au lancement ; le texte
+      // entier des faits, des règles et des contrôles d'un sujet se demande
+      // quand ce sujet concerne vraiment la tâche.
+      return { ok: true, text: detailProjet(project.path, String(args.sujet ?? '')) };
     }
 
     case 'remember': {
