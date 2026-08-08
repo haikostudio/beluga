@@ -602,6 +602,68 @@ function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
   );
 }
 
+/**
+ * Pour chaque agent qui a touché la carte (analyse, exécution, publication),
+ * ses deux totaux cumulés sur toute la vie de la carte — venus d'une vraie
+ * mesure moteur, jamais d'une estimation. Une carte sans aucun tour mesuré
+ * (lignes anciennes, sans séparation) ne montre rien : pas de zéro trompeur.
+ */
+function TokensParAgent({ card }: { card: Card }) {
+  const state = useApp();
+  const [totaux, setTotaux] = React.useState<{ agentId: string; tokensIn: number; tokensOut: number }[] | null>(
+    null,
+  );
+  React.useEffect(() => {
+    let vivant = true;
+    setTotaux(null);
+    client
+      .call({ type: 'card.tokens', cardId: card.id })
+      .then((data) => {
+        if (vivant) setTotaux(data.agents ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      vivant = false;
+    };
+  }, [card.id]);
+
+  if (!totaux || !totaux.length) return null;
+
+  const lignes = totaux
+    .map((ligne) => ({ ...ligne, agent: state.agents[ligne.agentId] }))
+    .sort((a, b) => (a.agent?.createdAt ?? 0) - (b.agent?.createdAt ?? 0));
+
+  return (
+    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+      <div className="text-[11.5px] uppercase tracking-wide text-faint">Jetons envoyés / reçus, par agent</div>
+      <div className="mt-1 space-y-1">
+        {lignes.map((ligne) => (
+          <div key={ligne.agentId} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13.5px]">
+            <span className="min-w-[110px] shrink-0 text-faint">{libelleRoleAgent(ligne.agent?.role)}</span>
+            <Etiquette nom="Envoyés" valeur={ligne.tokensIn.toLocaleString('fr-CH')} />
+            <Etiquette nom="Reçus" valeur={ligne.tokensOut.toLocaleString('fr-CH')} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function libelleRoleAgent(role?: string): string {
+  switch (role) {
+    case 'analysis':
+      return 'Analyse';
+    case 'task':
+      return 'Exécution';
+    case 'deploy':
+      return 'Publication';
+    case 'orchestrator':
+      return "Chef d'orchestre";
+    default:
+      return 'Agent';
+  }
+}
+
 function CardSummary({ card }: { card: Card }) {
   const [description, setDescription] = React.useState(card.description);
   React.useEffect(() => setDescription(card.description), [card.id]);
@@ -626,6 +688,7 @@ function CardSummary({ card }: { card: Card }) {
           chercher avant de valider, et ce qu'on relit après coup quand le
           résultat surprend. */}
       <ReglagesAgent card={card} />
+      <TokensParAgent card={card} />
 
       <div>
         <Label htmlFor="carte-description">Description</Label>
