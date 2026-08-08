@@ -35,6 +35,9 @@ import {
   etatDuPont,
   libelleSujet,
   MemoireDeReprise,
+  type MotifDAppel,
+  type NiveauDAccueil,
+  niveauDAccueil,
   nomDeBranche,
   observerContexte,
   poidsDeTour,
@@ -197,6 +200,14 @@ export interface PromptOptions {
   ampleur?: Ampleur;
   /** Ne pas enregistrer le message utilisateur (relances internes). */
   silent?: boolean;
+  /**
+   * Pourquoi cet agent est appelé, quand ce n'est pas pour une carte. Un motif
+   * de DÉPANNAGE (conflit de fusion, contrôles tombés, construction cassée)
+   * réduit l'accueil au strict nécessaire : la demande nomme déjà les fichiers
+   * et les commandes, l'index de la mémoire n'y sert à rien
+   * (`shared/src/accueil-agent.ts`).
+   */
+  motif?: MotifDAppel;
   attachments?: string[];
   /** Appelé quand le tour est fini, avec le texte et les mesures indépendantes du moteur. */
   onComplete?: (text: string, ok: boolean, measurement: TurnMeasurement) => void | Promise<void>;
@@ -388,14 +399,24 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * on n'envoie donc que les faits AJOUTÉS depuis.
    */
   const nouvelleSession = !store.getSessionId(agent.id, cleDeSession(agent.run.engine, agent.run.model));
+  /*
+   * Le NIVEAU d'accueil ne dit pas QUAND on accueille (ça, c'est
+   * `nouvelleSession`), mais AVEC QUOI. Un dépannage de publication n'emporte
+   * ni index de mémoire, ni compétences, ni fichiers d'instructions.
+   */
+  const niveau = niveauDAccueil({ role: agent.role, motif: options.motif });
   const contextParts: { label: string; kind: SentContextBlock['kind']; content: string }[] = [];
   let memoryAndInstructionsCharacters = 0;
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, index de la
     // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
-    const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir);
-    contextParts.push({ label: 'Briefing et index de la mémoire', kind: 'briefing', content: ouverture });
+    const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir, niveau);
+    contextParts.push({
+      label: niveau === 'minimal' ? 'Briefing réduit (dépannage)' : 'Briefing et index de la mémoire',
+      kind: 'briefing',
+      content: ouverture,
+    });
     memoryAndInstructionsCharacters += ouverture.length;
     // Le chef bridé a tous les droits SAUF modifier le code du projet : on lui
     // dit où il peut écrire (son dossier de travail) et que le projet est en
@@ -488,6 +509,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
       memoryAndInstructionsCharacters,
     },
     userMessageId ? { messageId: userMessageId, blocks } : undefined,
+    niveau,
   );
 }
 
@@ -553,6 +575,8 @@ async function startTurn(
     memoryAndInstructionsCharacters: 0,
   },
   contexteUtilisateur?: ContexteUtilisateurDuTour,
+  /** L'accueil que mérite cet agent : « minimal » pour un dépannage de publication. */
+  niveau: NiveauDAccueil = 'complet',
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -712,7 +736,7 @@ async function startTurn(
    * « pre_run » interdit d'écrire au passé.
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId ? 'task' : agent.role;
-  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine);
+  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine, niveau);
   composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
@@ -1529,11 +1553,43 @@ export function rappelDeMethode(engine: EngineId = 'claude'): string {
 }
 
 /**
+ * LA CONSIGNE D'UN DÉPANNAGE DE PUBLICATION, à la place du déroulé complet.
+ *
+ * Un agent appelé pour un conflit de fusion, un contrôle tombé ou une
+ * construction cassée reçoit une demande qui NOMME déjà les fichiers, les
+ * contrôles ou la cause, et qui liste les gestes dans l'ordre. La méthode
+ * générale, elle, lui dirait d'annoncer une liste de tâches, de lire le fichier
+ * d'instructions du projet et d'interroger la mémoire par sujet : trois détours
+ * payants pour une panne de plomberie, et deux d'entre eux renvoient à un
+ * briefing qu'il n'a plus. Ne restent donc que les interdits qui valent partout.
+ */
+const CONSIGNE_DEPANNAGE = `Tu travailles dans HaikoDev. Réponds en français simple, très court.
+
+TU ES UN AGENT DE DÉPANNAGE appelé PENDANT une publication déjà en cours. Une seule chose bloque, elle t'est nommée dans la demande : tu la répares, tu t'arrêtes. Tu n'ouvres pas le projet en grand, tu ne cherches pas de travail à côté, tu n'annonces pas de liste de tâches.
+Fais EXACTEMENT les gestes demandés, dans l'ordre donné, et rien d'autre. Ce qui n'est pas dans la demande n'est pas de ton ressort.
+NE PUBLIE RIEN et NE REDÉMARRE RIEN : la publication reprend toute seule dès que ton tour est fini.
+NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Si tu n'arrives pas à réparer, dis-le en une phrase avec ce qui bloque encore — un échec tu, c'est une publication qui repart sur du faux.
+SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
+
+/**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
  * demande de programmation passe par une carte » se perdrait à la première
  * réécriture du texte si rien ne la retenait.
  */
-export function rolePrompt(role: AgentRole, isSelf: boolean, engine: EngineId = 'claude'): string {
+export function rolePrompt(
+  role: AgentRole,
+  isSelf: boolean,
+  engine: EngineId = 'claude',
+  /**
+   * L'accueil de cet agent. « minimal » — un dépannage de publication — reçoit
+   * une consigne CIBLÉE au lieu du déroulé complet : la méthode générale envoie
+   * lire le fichier d'instructions et interroger la mémoire par sujet, ce que
+   * l'agent n'a plus sous la main et ce dont sa panne n'a que faire.
+   */
+  niveau: NiveauDAccueil = 'complet',
+): string {
+  if (niveau === 'minimal') return CONSIGNE_DEPANNAGE;
+
   // Le déroulé est le MÊME quel que soit le moteur : c'est HaikoDev qui décide,
   // pas le modèle. Seul le NOM de l'outil de liste change d'un moteur à l'autre.
   // On n'annonce donc à chaque moteur QUE son propre outil — lui présenter le

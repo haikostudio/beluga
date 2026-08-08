@@ -12,6 +12,7 @@ import {
   instructionsQuiFontFoi,
   libelleSujet,
   nettoyer,
+  partsDAccueil,
   reglesContenant,
   rendreFichierSujet,
   repartirParSujet,
@@ -23,6 +24,7 @@ import {
   texteIndex,
   texteDesCompetences,
   type InstructionsDuProjet,
+  type NiveauDAccueil,
   type SujetRegles,
 } from '@haikodev/shared';
 import { listerCompetences } from './competences.js';
@@ -647,7 +649,14 @@ export function briefing(
    * annoncé doit être celui où l'agent écrit.
    */
   dossierDeTravail?: string,
+  /**
+   * Ce que l'accueil emporte. « minimal » ne dit que le projet et le dossier :
+   * un agent appelé pour un dépannage de publication n'a que faire de l'index
+   * de la mémoire ni de la liste des compétences (`shared/src/accueil-agent.ts`).
+   */
+  niveau: NiveauDAccueil = 'complet',
 ): string {
+  const emporte = partsDAccueil(niveau);
   migrerJournal(projectPath);
   // Le découpage par sujet se fait au premier briefing venu : un projet monté
   // avant lui n'a rien à faire pour en profiter.
@@ -660,11 +669,13 @@ export function briefing(
   ];
 
   const { fichier: quiFaitFoi, renvoiDepuis } = instructionsDuProjet(projectPath, engine);
-  const instructions = [quiFaitFoi, 'CLAUDE.md', 'AGENTS.md', 'README.md'].filter(
-    (f, i, tab) => tab.indexOf(f) === i && fs.existsSync(path.join(projectPath, f)),
-  );
+  const instructions = emporte.instructions
+    ? [quiFaitFoi, 'CLAUDE.md', 'AGENTS.md', 'README.md'].filter(
+        (f, i, tab) => tab.indexOf(f) === i && fs.existsSync(path.join(projectPath, f)),
+      )
+    : [];
   if (instructions.length) parts.push(`Fichiers d'instructions présents : ${instructions.join(', ')}.`);
-  if (renvoiDepuis) {
+  if (emporte.instructions && renvoiDepuis) {
     parts.push(
       `${renvoiDepuis} ne fait que RENVOYER à ${quiFaitFoi} : c'est ${quiFaitFoi} qui porte les instructions de ce projet, ` +
         `c'est lui que tu lis et lui que tu tiens à jour.`,
@@ -678,10 +689,10 @@ export function briefing(
    * cette ligne, le même projet « ne sait pas créer une offre » d'un moteur à
    * l'autre. Un chemin de fichier se lit partout.
    */
-  const competences = texteDesCompetences(listerCompetences());
+  const competences = emporte.competences ? texteDesCompetences(listerCompetences()) : '';
   if (competences) parts.push(competences);
 
-  if (!avecMemoire) return parts.join('\n\n');
+  if (!avecMemoire || !emporte.memoire) return parts.join('\n\n');
 
   parts.push(blocMemoire(projectPath));
 

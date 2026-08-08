@@ -1,4 +1,5 @@
 export * from './acces-vps.js';
+export * from './accueil-agent.js';
 export * from './amorce.js';
 export * from './analyse.js';
 export * from './analyse-cout.js';

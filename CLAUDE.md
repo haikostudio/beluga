@@ -120,6 +120,10 @@ le nom, là-bas le texte).
 - **Ne JAMAIS redémarrer le serveur pendant une publication** (`shared/src/demon.ts`) : le démon
   porte toutes les publications, le couper en tranche une en plein vol. Un redémarrage demandé est
   retenu et rejoué tout seul dès la dernière publication finie.
+- **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
+  `shared/src/accueil-agent.ts`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
+  ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
+  une consigne ciblée. La mise en production confiée, elle, garde l'accueil complet.
 - **Déployer, c'est fusionner le lot « À déployer » dans la principale, enregistrer, pousser, puis
   rafraîchir l'instance de dev** (`planDeMiseEnLigne`, `shared/src/mise-en-ligne.ts`) — toujours
   disponible, sans réglage. La MISE EN PRODUCTION, elle, ne suit QUE le prompt réglé du projet :

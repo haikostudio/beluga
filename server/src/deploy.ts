@@ -393,7 +393,7 @@ async function resoudreConflit(
   bus.toast('info', `Conflit sur « ${card.title} » : l’agent de publication le résout.`);
 
   try {
-    await sendPrompt(agent.id, prompt, { template: 'free', silent: true });
+    await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'conflit' });
   } catch (err: any) {
     return { fusionnee: false, recit: `agent de résolution en échec (${err?.message ?? 'raison inconnue'})` };
   }
@@ -487,7 +487,7 @@ async function reparerLesControles(
   bus.toast('info', `Publication bloquée : l’agent de publication répare les contrôles (passe ${passe}).`);
 
   try {
-    await sendPrompt(agent.id, prompt, { template: 'free', silent: true });
+    await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'controles' });
   } catch (err: any) {
     return { tente: false, recit: `agent de réparation en échec (${err?.message ?? 'raison inconnue'})` };
   }
@@ -528,7 +528,7 @@ async function reparerLaConstruction(
   bus.toast('info', `Publication bloquée : l’agent de publication répare la construction (passe ${passe}).`);
 
   try {
-    await sendPrompt(agent.id, prompt, { template: 'free', silent: true });
+    await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'construction' });
   } catch (err: any) {
     return { tente: false, recit: `agent de réparation en échec (${err?.message ?? 'raison inconnue'})` };
   }
@@ -611,7 +611,16 @@ async function confierLaMiseEnLigne(
   bus.toast('info', `Mise en production de « ${ctx.projet} » : l’agent suit le prompt du projet.`);
 
   try {
-    await sendPrompt(agent.id, promptDeLAgentDeProduction(ctx), { template: 'free', silent: true });
+    /*
+     * Motif ANNONCÉ, mais accueil COMPLET : la mise en production agit sur le
+     * projet entier d'après son prompt réglé, elle n'est pas un dépannage
+     * (`niveauDAccueil`, `shared/src/accueil-agent.ts`).
+     */
+    await sendPrompt(agent.id, promptDeLAgentDeProduction(ctx), {
+      template: 'free',
+      silent: true,
+      motif: 'mise-en-ligne',
+    });
   } catch (err: any) {
     const raison = err?.message ?? 'raison inconnue';
     return { ok: false, recit: phraseDEchecConfie(raison), raison };
