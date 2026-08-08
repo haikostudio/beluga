@@ -26,13 +26,12 @@ import {
   cleDeSession,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  cumulerPartsQuota,
   decisionEnTexteLibre,
   etatDuPont,
   nomDeBranche,
-  partQuotaConsommee,
   poidsDeTour,
   raisonSansModification,
-  repartirPartQuota,
   ROLES_QUI_DEPLACENT,
   templateForColumn,
   tourDeLaCarte,
@@ -71,10 +70,35 @@ export interface LiveRun {
   text: string;
   usage?: EngineEvent['usage'];
   account?: string;
+  quota5h: number;
+  quotaSemaine: number;
   stopping?: boolean;
 }
 
 const live = new Map<string, LiveRun>();
+
+/** Dernier relevé dont la hausse a déjà été répartie, compte par compte. */
+const dernierQuotaReparti = new Map<string, { session?: number; weekly?: number }>();
+
+/** Deux fins très proches passent dans cette file pour partager les relevés dans l'ordre. */
+const filesRepartitionQuota = new Map<string, Promise<void>>();
+
+async function enSerieSurCompte<T>(accountId: string, travail: () => Promise<T>): Promise<T> {
+  const precedente = filesRepartitionQuota.get(accountId) ?? Promise.resolve();
+  let liberer!: () => void;
+  const verrou = new Promise<void>((resolve) => {
+    liberer = resolve;
+  });
+  const file = precedente.then(() => verrou);
+  filesRepartitionQuota.set(accountId, file);
+  await precedente;
+  try {
+    return await travail();
+  } finally {
+    liberer();
+    if (filesRepartitionQuota.get(accountId) === file) filesRepartitionQuota.delete(accountId);
+  }
+}
 
 export function isRunning(agentId: string): boolean {
   return live.has(agentId);
@@ -484,7 +508,13 @@ async function startTurn(
     todos: [],
     text: '',
     account: account.id,
+    quota5h: 0,
+    quotaSemaine: 0,
   };
+
+  // Le premier tour du groupe pose le repère commun. Les suivants le gardent
+  // jusqu'à ce que le dernier tour du compte soit rangé.
+  if (!dernierQuotaReparti.has(account.id)) dernierQuotaReparti.set(account.id, quotaAvant);
 
   // Outils du démon : le pont MCP, avec la liste d'outils de ce rôle.
   const mcpConfigPath = path.join(PATHS.logs, `mcp-${agent.id}.json`);
@@ -645,40 +675,45 @@ async function startTurn(
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
   const result = await handle.finished;
-  live.delete(agent.id);
 
   const elapsedSeconds = (Date.now() - runState.startedAt) / 1000;
   const tokens = (runState.usage?.inputTokens ?? 0) + (runState.usage?.outputTokens ?? 0);
 
-  // Lecture FRAÎCHE des deux fenêtres après le tour, comparée au relevé d'avant.
-  // Une lecture en échec rend `null` : les parts restent alors à 0.
-  const quotaApres = (await relireQuotaDuCompte(account.id).catch(() => null)) ?? {};
-  const delta5h = partQuotaConsommee(quotaAvant.session, quotaApres.session);
-  const deltaSemaine = partQuotaConsommee(quotaAvant.weekly, quotaApres.weekly);
-
   /*
-   * PARTAGE DU DELTA ENTRE TOURS PARALLÈLES. Plusieurs cartes d'un même projet
-   * tournent sur le MÊME compte : chacune relève le même compteur global et
-   * s'attribuerait tout le delta, gonflant la somme au-delà du réel. On rend
-   * donc à ce tour sa part au prorata de son poids (ses jetons, à défaut sa
-   * durée), rapporté au groupe des tours qui tournent EN CE MOMENT sur ce
-   * compte. Cet agent vient d'être retiré de `live` (juste au-dessus) : on l'y
-   * ajoute explicitement pour peser le groupe entier. Les deux fenêtres suivent
-   * la même répartition (mêmes poids).
+   * Le repère appartient au COMPTE, pas à chaque tour. Une fin ne répartit que
+   * la hausse depuis le relevé précédent et la cumule sur les tours présents.
+   * Le tour fini sort ensuite : la fin suivante ne recompte jamais cette hausse.
    */
-  const maintenant = Date.now();
-  const poidsPropre = poidsDeTour(tokens, elapsedSeconds);
-  const poidsConcurrents = [...live.values()]
-    .filter((run) => run.account === account.id)
-    .map((run) =>
-      poidsDeTour(
-        (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
-        (maintenant - run.startedAt) / 1000,
-      ),
-    );
-  const poidsGroupe = [poidsPropre, ...poidsConcurrents];
-  const part5h = repartirPartQuota(delta5h, poidsPropre, poidsGroupe);
-  const partSemaine = repartirPartQuota(deltaSemaine, poidsPropre, poidsGroupe);
+  const parts = await enSerieSurCompte(account.id, async () => {
+    const quotaApres = await relireQuotaDuCompte(account.id).catch(() => null);
+    if (quotaApres) {
+      const maintenant = Date.now();
+      const tours = [...live.values()]
+        .filter((run) => run.account === account.id)
+        .map((run) => ({
+          id: run.agentId,
+          poids: poidsDeTour(
+            (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
+            (maintenant - run.startedAt) / 1000,
+          ),
+          quota5h: run.quota5h,
+          quotaSemaine: run.quotaSemaine,
+        }));
+      const cumuls = cumulerPartsQuota(dernierQuotaReparti.get(account.id) ?? quotaAvant, quotaApres, tours);
+      for (const cumul of cumuls) {
+        const run = live.get(cumul.id);
+        if (!run) continue;
+        run.quota5h = cumul.quota5h;
+        run.quotaSemaine = cumul.quotaSemaine;
+      }
+      dernierQuotaReparti.set(account.id, quotaApres);
+    }
+
+    const resultat = { quota5h: runState.quota5h, quotaSemaine: runState.quotaSemaine };
+    live.delete(agent.id);
+    if (![...live.values()].some((run) => run.account === account.id)) dernierQuotaReparti.delete(account.id);
+    return resultat;
+  });
 
   store.recordUsage({
     projectId: agent.projectId,
@@ -687,8 +722,8 @@ async function startTurn(
     account: account.id,
     engine: agent.run.engine,
     tokens,
-    quota5h: part5h,
-    quotaSemaine: partSemaine,
+    quota5h: parts.quota5h,
+    quotaSemaine: parts.quotaSemaine,
     seconds: elapsedSeconds,
   });
 

@@ -179,6 +179,12 @@ le nom, là-bas le texte).
 - **Une compétence partagée vit dans `data/competences/`** (un dossier avec son `SKILL.md`) : le démon
   la pose dans le coffre de chaque compte Claude et le briefing l'annonce à tout agent.
 
+### Quotas
+
+- **Chaque hausse mesurée sur un compte n'est attribuée qu'une fois** (`cumulerPartsQuota`,
+  `shared/src/quota.ts`) : les tours simultanés cumulent leur part depuis un repère commun, mis à
+  jour après chaque fin de tour. Deux fins décalées ne repartent jamais du même ancien relevé.
+
 ### Coûts
 
 - Les heures facturées sont celles d'un développeur senior, jamais la durée machine de l'agent.
