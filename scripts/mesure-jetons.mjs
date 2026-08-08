@@ -93,6 +93,25 @@ const MEMOIRE_AVANT = [MEMOIRE, ...HISTORIQUE.split('\n').filter((l) => l.trim()
 
 const memory = await import(path.join(RACINE, 'server/dist/memory.js'));
 
+/*
+ * LE CONTRAT LU À L'OUVERTURE. Le briefing ne porte PAS CLAUDE.md : c'est la
+ * MÉTHODE qui fait lire le fichier d'instructions au premier tour. Depuis la
+ * tâche « la mémoire par sujet », ce fichier est court — la longue liste des
+ * contrôles est partie dans `docs/verifications.md`, le texte des règles dans
+ * `docs/regles/`, tout servi à la demande par `project_memory`. On pèse donc ce
+ * que CLAUDE.md a cessé d'imposer à CHAQUE ouverture de session. La version
+ * d'avant est relue dans git (le dernier état enregistré) ; si elle manque, on
+ * ne compare pas le contrat.
+ */
+let contratAvant = 0;
+let contratApres = 0;
+try {
+  contratApres = jetons(fs.readFileSync(path.join(RACINE, 'CLAUDE.md'), 'utf8'));
+  contratAvant = jetons(git('show', 'HEAD:CLAUDE.md'));
+} catch {
+  /* pas de version d'avant dans git : on laisse le contrat hors du relevé */
+}
+
 const BRIEFING = `Projet : HaikoDev (dossier ${RACINE}).\n\nFichiers d'instructions présents : README.md.\n\nMÉMOIRE DU PROJET (à connaître avant d'explorer) :\n${MEMOIRE_AVANT}`;
 const BRIEFING_APRES = memory.briefing(RACINE, 'HaikoDev', true);
 const BRIEFING_COURT = `Projet : HaikoDev (dossier ${RACINE}).\n\nFichiers d'instructions présents : CLAUDE.md, README.md.`;
@@ -138,8 +157,13 @@ TOURS.forEach((tour, i) => {
     ampleur,
   });
 
-  const a = jetons(promptAvant);
-  const b = jetons(promptApres);
+  let a = jetons(promptAvant);
+  let b = jetons(promptApres);
+  // Au premier tour, la MÉTHODE fait lire le contrat : on l'ajoute à l'enveloppe.
+  if (premier) {
+    a += contratAvant;
+    b += contratApres;
+  }
   totalAvant += a;
   totalApres += b;
   lignes.push({ tour: tour.nom, avant: a, apres: b, gain: a - b, reference: ampleur });
@@ -158,6 +182,12 @@ for (const l of lignes) {
 console.log('-'.repeat(largeur + 40));
 console.log(`${pad('TOTAL', largeur)}  ${num(totalAvant, 7)}  ${num(totalApres, 7)}  ${num(totalAvant - totalApres, 7)}`);
 console.log(`\nGain sur la conversation : ${Math.round((1 - totalApres / totalAvant) * 100)} %`);
+if (contratAvant) {
+  console.log(
+    `  dont le CONTRAT lu à l'ouverture (CLAUDE.md) : ${contratAvant} → ${contratApres} jetons ` +
+      `(${Math.round((1 - contratApres / contratAvant) * 100)} % en moins, une fois par session).`,
+  );
+}
 
 const suivants = lignes.slice(1);
 const sa = suivants.reduce((s, l) => s + l.avant, 0);

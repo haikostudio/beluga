@@ -330,6 +330,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),
+  /** Les totaux ENVOYÉS / REÇUS cumulés, par agent, sur toute la vie d'une carte. */
+  z.object({ type: z.literal('card.tokens'), cardId: z.string() }),
   /** Tout ce que montre la page « Tableau de bord » : conso par projet, par jour, par carte. */
   z.object({ type: z.literal('stats.dashboard') }),
   z.object({ type: z.literal('memory.get'), projectId: z.string() }),

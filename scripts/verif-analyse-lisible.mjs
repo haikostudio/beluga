@@ -152,8 +152,15 @@ async function main() {
       texte.slice(0, 80),
     );
 
-    // Le repère est écrit en petites capitales : la casse vient du style.
-    record('Le repère « Analyse de la carte » annonce qui parle', /analyse de la carte/i.test(texte));
+    // Sur une carte jamais lancée, l'analyse est l'unique interlocuteur et son
+    // repère doit être présent. Le repli documenté de `choisirCarte` peut rendre
+    // une carte déjà exécutée : son interlocuteur courant est alors la tâche.
+    const analyseSeule = ['planned', 'validated'].includes(carte.column_key);
+    record(
+      'Le repère « Analyse de la carte » annonce qui parle',
+      !analyseSeule || /analyse de la carte/i.test(texte),
+      analyseSeule ? '' : 'carte déjà lancée : contrôle du repère non applicable',
+    );
 
     // Les sections du compte rendu d'analyse, telles que le gabarit les impose.
     const sections = [
@@ -203,6 +210,14 @@ async function main() {
       'Les détails ne recopient plus le compte rendu',
       !/Résumé de l’analyse|Résumé de l'analyse/.test(details),
       details.slice(0, 60),
+    );
+    record(
+      'Le détail sépare la mesure passée de la projection future',
+      /Analyse mesurée — déjà consommée/.test(details) && /Exécution projetée — estimation future/.test(details),
+    );
+    record(
+      'Une ancienne mesure absente est nommée comme telle',
+      /Mesure détaillée indisponible/.test(details) || /Entrée hors cache/.test(details),
     );
     await page.screenshot({ path: `${SHOTS}/analyse-lisible-details.png` });
 

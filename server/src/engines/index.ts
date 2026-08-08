@@ -53,3 +53,11 @@ export async function listEngines(force = false): Promise<EngineInfo[]> {
   cache = { at: Date.now(), engines };
   return engines;
 }
+
+/** Capacité du modèle réellement retenu, telle que le catalogue l'annonce. */
+export async function contextWindowFor(engineId: EngineId, modelId?: string): Promise<number | undefined> {
+  const engine = (await listEngines()).find((entry) => entry.id === engineId);
+  if (!engine) return undefined;
+  const resolved = resolveModel(engine.models, modelId ?? engine.defaultModel);
+  return engine.models.find((model) => model.id === resolved)?.contextWindow;
+}

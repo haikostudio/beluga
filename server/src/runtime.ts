@@ -16,32 +16,38 @@ import {
   Message,
   Project,
   RunStep,
+  SentContextBlock,
+  SentContextSnapshot,
   decisionRepriseCoupure,
   TaskProposal,
   TemplateKind,
   TodoItem,
+  TurnMeasurement,
   ampleurDeSuivi,
   ampleurParDefaut,
   checkTemplate,
   cleDeSession,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  cumulerPartsQuota,
+  contexteApresCompression,
   decisionEnTexteLibre,
   etatDuPont,
   nomDeBranche,
-  partQuotaConsommee,
+  observerContexte,
   poidsDeTour,
   raisonSansModification,
-  repartirPartQuota,
+  resumeContinuite,
   ROLES_QUI_DEPLACENT,
   templateForColumn,
   tourDeLaCarte,
   wrapPrompt,
+  mesurerContexte,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
-import { adapterFor, EngineEvent, EngineHandle } from './engines/index.js';
+import { adapterFor, contextWindowFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
 import { briefing, memoryFacts, memorySummary, newFactsSince } from './memory.js';
@@ -70,11 +76,39 @@ export interface LiveRun {
   todosNotified?: boolean;
   text: string;
   usage?: EngineEvent['usage'];
+  context?: { tokens: number; window?: number };
   account?: string;
+  quota5h: number;
+  quotaSemaine: number;
+  /** Le tour reste occupé pendant la compression, mais ne pèse plus dans le quota partagé. */
+  quotaTermine?: boolean;
   stopping?: boolean;
 }
 
 const live = new Map<string, LiveRun>();
+
+/** Dernier relevé dont la hausse a déjà été répartie, compte par compte. */
+const dernierQuotaReparti = new Map<string, { session?: number; weekly?: number }>();
+
+/** Deux fins très proches passent dans cette file pour partager les relevés dans l'ordre. */
+const filesRepartitionQuota = new Map<string, Promise<void>>();
+
+async function enSerieSurCompte<T>(accountId: string, travail: () => Promise<T>): Promise<T> {
+  const precedente = filesRepartitionQuota.get(accountId) ?? Promise.resolve();
+  let liberer!: () => void;
+  const verrou = new Promise<void>((resolve) => {
+    liberer = resolve;
+  });
+  const file = precedente.then(() => verrou);
+  filesRepartitionQuota.set(accountId, file);
+  await precedente;
+  try {
+    return await travail();
+  } finally {
+    liberer();
+    if (filesRepartitionQuota.get(accountId) === file) filesRepartitionQuota.delete(accountId);
+  }
+}
 
 export function isRunning(agentId: string): boolean {
   return live.has(agentId);
@@ -160,8 +194,79 @@ export interface PromptOptions {
   /** Ne pas enregistrer le message utilisateur (relances internes). */
   silent?: boolean;
   attachments?: string[];
-  /** Appelé quand le tour est fini, avec le texte complet de la réponse. */
-  onComplete?: (text: string, ok: boolean) => void | Promise<void>;
+  /** Appelé quand le tour est fini, avec le texte et les mesures indépendantes du moteur. */
+  onComplete?: (text: string, ok: boolean, measurement: TurnMeasurement) => void | Promise<void>;
+}
+
+interface ContexteUtilisateurDuTour {
+  messageId: string;
+  blocks: SentContextBlock[];
+}
+
+/** Fabrique la photographie persistée sur la demande, sans lire l'ancien fil. */
+export function instantaneContexteEnvoye(input: {
+  engine: EngineId;
+  model?: string;
+  nouvelleSession: boolean;
+  prompt: string;
+  systemPrompt: string;
+  blocks: SentContextBlock[];
+  sentAt?: number;
+}): SentContextSnapshot {
+  return SentContextSnapshot.parse({
+    engine: input.engine,
+    model: input.model,
+    session: input.nouvelleSession ? 'new' : 'resumed',
+    prompt: input.prompt,
+    systemInstruction: {
+      kind: input.nouvelleSession ? 'full' : 'reminder',
+      content: input.systemPrompt,
+      // Claude porte cette consigne dans une option séparée ; Codex la place
+      // devant le prompt. Le tiroir peut ainsi décrire le transport exact.
+      transport: input.engine === 'claude' ? 'separate' : 'prefixed',
+    },
+    blocks: [
+      ...input.blocks,
+      {
+        kind: 'system',
+        label: input.nouvelleSession ? 'Consigne système complète' : 'Rappel de méthode',
+        characters: input.systemPrompt.length,
+      },
+    ],
+    history: input.nouvelleSession ? 'none' : 'retained_by_engine',
+    sentAt: input.sentAt ?? Date.now(),
+  });
+}
+
+/** La mesure d'entrée appartient à la demande, pas au message de réponse. */
+export function mesureEntreeMoteur(usage: NonNullable<EngineEvent['usage']>): {
+  inputTokens: number;
+  cachedInputTokens?: number;
+  totalInputTokens: number;
+} {
+  return {
+    inputTokens: usage.inputTokens,
+    cachedInputTokens: usage.cachedTokens,
+    totalInputTokens: usage.inputTokens + (usage.cachedTokens ?? 0),
+  };
+}
+
+function mesurerContexteUtilisateur(messageId: string, usage: NonNullable<EngineEvent['usage']>): void {
+  const message = store.getMessage(messageId);
+  if (!message?.sentContext) return;
+  const mesure = mesureEntreeMoteur(usage);
+  const updated = store.saveMessage({
+    ...message,
+    tokens: mesure.totalInputTokens,
+    sentContext: {
+      ...message.sentContext,
+      usage: {
+        inputTokens: mesure.inputTokens,
+        cachedInputTokens: mesure.cachedInputTokens,
+      },
+    },
+  });
+  bus.emit({ type: 'message.upsert', message: updated });
 }
 
 /**
@@ -244,6 +349,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   const project = store.getProject(agent.projectId);
   if (!project) throw new Error('projet introuvable');
 
+  let userMessageId: string | undefined;
   if (!options.silent) {
     const userMessage = store.saveMessage(
       Message.parse({
@@ -252,11 +358,10 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
         role: 'user',
         content: text,
         attachments: options.attachments ?? [],
-        // Estimation courante : environ quatre caractères par jeton.
-        tokens: Math.max(1, Math.round(text.length / 4)),
         createdAt: store.now(),
       }),
     );
+    userMessageId = userMessage.id;
     bus.emit({ type: 'message.upsert', message: userMessage });
   }
 
@@ -279,40 +384,52 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * on n'envoie donc que les faits AJOUTÉS depuis.
    */
   const nouvelleSession = !store.getSessionId(agent.id, cleDeSession(agent.run.engine, agent.run.model));
-  const contextParts: string[] = [];
+  const contextParts: { label: string; kind: SentContextBlock['kind']; content: string }[] = [];
+  let memoryAndInstructionsCharacters = 0;
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, index de la
     // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
-    contextParts.push(briefing(project.path, project.name, true, agent.run.engine, agent.workdir));
+    const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir);
+    contextParts.push({ label: 'Briefing et index de la mémoire', kind: 'briefing', content: ouverture });
+    memoryAndInstructionsCharacters += ouverture.length;
     // Le chef bridé a tous les droits SAUF modifier le code du projet : on lui
     // dit où il peut écrire (son dossier de travail) et que le projet est en
     // lecture seule — une écriture y échoue, une modification s'ouvre en carte.
     if (agent.role === 'orchestrator' && !project.isSelf) {
       const scratch = path.join(PATHS.chefScratch, project.id);
-      contextParts.push(
+      const espace =
         `TON ESPACE DE TRAVAIL : tu peux lancer des commandes (sondages, études, analyses) et ` +
-          `écrire tes brouillons dans ${scratch} — c'est le SEUL dossier où tu as le droit d'écrire. ` +
-          `Le projet (${project.path}) est monté en LECTURE SEULE : lis-y tout ce qu'il te faut, mais ` +
-          `toute écriture y échoue. Modifier le code du projet n'est pas ton rôle : tu l'ouvres en carte ` +
-          `confiée à un agent de tâche.`,
-      );
+        `écrire tes brouillons dans ${scratch} — c'est le SEUL dossier où tu as le droit d'écrire. ` +
+        `Le projet (${project.path}) est monté en LECTURE SEULE : lis-y tout ce qu'il te faut, mais ` +
+        `toute écriture y échoue. Modifier le code du projet n'est pas ton rôle : tu l'ouvres en carte ` +
+        `confiée à un agent de tâche.`;
+      contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', content: espace });
     }
     store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+    if (agent.context?.continuitySummary) {
+      contextParts.push({
+        label: 'Résumé de continuité après compression',
+        kind: 'extra',
+        content: agent.context.continuitySummary,
+      });
+    }
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
     if (nouveaux.length) {
-      contextParts.push(
-        `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`,
-      );
+      const ajout = `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`;
+      contextParts.push({ label: 'Nouveaux faits de la mémoire', kind: 'memory', content: ajout });
+      memoryAndInstructionsCharacters += ajout.length;
       store.setMemorySeen(agent.id, memoryFacts(project.path).length);
     }
   }
 
-  if (options.context) contextParts.push(options.context);
+  if (options.context) {
+    contextParts.push({ label: 'Contexte ajouté par HaikoDev', kind: 'extra', content: options.context });
+  }
   if (card) {
     const bloc = carteContexte(agent.id, card, nouvelleSession);
-    if (bloc) contextParts.push(bloc);
+    if (bloc) contextParts.push({ label: 'Carte en cours', kind: 'card', content: bloc });
   }
   if (options.attachments?.length) {
     const files = options.attachments
@@ -320,7 +437,11 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
       .filter(Boolean)
       .map((a) => path.join(PATHS.attachments, `${a!.id}-${a!.name}`));
     if (files.length) {
-      contextParts.push(`PIÈCES JOINTES fournies par l'utilisateur (lis-les) :\n${files.join('\n')}`);
+      contextParts.push({
+        label: 'Pièces jointes',
+        kind: 'attachment',
+        content: `PIÈCES JOINTES fournies par l'utilisateur (lis-les) :\n${files.join('\n')}`,
+      });
     }
   }
 
@@ -328,12 +449,38 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   // Un tour de SUIVI (session déjà ouverte) part d'un cran plus bas : la question
   // de fond a eu sa réponse ample, la suite est une précision.
   if (!nouvelleSession) ampleur = ampleurDeSuivi(template, ampleur);
-  const prompt = wrapPrompt(template, text, contextParts.join('\n\n'), {
+  const contexteAssemble = contextParts.map((part) => part.content).join('\n\n');
+  const prompt = wrapPrompt(template, text, contexteAssemble, {
     // Session déjà ouverte : le gabarit entier est dans le fil, un rappel suffit.
     rappel: !nouvelleSession,
     ampleur,
   });
-  await startTurn(agent, prompt, template, options.onComplete, nouvelleSession, ampleur);
+  const description = card?.description ?? '';
+  const occurrencesDescription = description ? prompt.split(description).length - 1 : 0;
+  const blocks: SentContextBlock[] = [
+    { kind: 'request', label: 'Demande utilisateur', characters: text.length },
+    ...contextParts.map((part) => ({ kind: part.kind, label: part.label, characters: part.content.length })),
+    {
+      kind: 'format',
+      label: 'Gabarit et séparateurs HaikoDev',
+      characters: Math.max(0, prompt.length - text.length - contexteAssemble.length),
+    },
+  ];
+  await startTurn(
+    agent,
+    prompt,
+    template,
+    options.onComplete,
+    nouvelleSession,
+    ampleur,
+    {
+      promptCharacters: prompt.length,
+      systemPromptCharacters: 0,
+      cardDescriptionCharacters: description.length * occurrencesDescription,
+      memoryAndInstructionsCharacters,
+    },
+    userMessageId ? { messageId: userMessageId, blocks } : undefined,
+  );
 }
 
 /**
@@ -391,12 +538,20 @@ async function startTurn(
   /** Vrai au tout premier tour d'une session : c'est là qu'on lit la mémoire. */
   nouvelleSession = true,
   ampleur: Ampleur = 'complete',
+  composition: TurnMeasurement['composition'] = {
+    promptCharacters: 0,
+    systemPromptCharacters: 0,
+    cardDescriptionCharacters: 0,
+    memoryAndInstructionsCharacters: 0,
+  },
+  contexteUtilisateur?: ContexteUtilisateurDuTour,
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
   const agent = store.getAgent(agentBefore.id) ?? agentBefore;
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
+  const catalogContextWindow = await contextWindowFor(agent.run.engine, agent.run.model).catch(() => undefined);
 
   /*
    * OÙ CET AGENT TRAVAILLE. Une carte lancée a sa propre copie de travail
@@ -497,7 +652,13 @@ async function startTurn(
     todos: [],
     text: '',
     account: account.id,
+    quota5h: 0,
+    quotaSemaine: 0,
   };
+
+  // Le premier tour du groupe pose le repère commun. Les suivants le gardent
+  // jusqu'à ce que le dernier tour du compte soit rangé.
+  if (!dernierQuotaReparti.has(account.id)) dernierQuotaReparti.set(account.id, quotaAvant);
 
   // Outils du démon : le pont MCP, avec la liste d'outils de ce rôle.
   const mcpConfigPath = path.join(PATHS.logs, `mcp-${agent.id}.json`);
@@ -544,6 +705,7 @@ async function startTurn(
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId ? 'task' : agent.role;
   const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine);
+  composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
     HAIKODEV_TOKEN: token,
@@ -560,13 +722,31 @@ async function startTurn(
    */
   const cleSession = cleDeSession(agent.run.engine, agent.run.model);
   const sessionId = store.getSessionId(agent.id, cleSession);
+  const systemPromptRappel = rappelDeMethode(agent.run.engine);
+  const instantane = contexteUtilisateur
+    ? instantaneContexteEnvoye({
+        engine: agent.run.engine,
+        model: agent.run.model ?? adapter.defaultModel,
+        nouvelleSession: !sessionId,
+        prompt,
+        systemPrompt: sessionId ? systemPromptRappel : systemPrompt,
+        blocks: contexteUtilisateur.blocks,
+      })
+    : undefined;
 
   // Le pont d'outils du tour précédent ne prouve rien pour celui-ci.
   oublierLePont(agent.id);
 
   // L'avancement d'un tour précédent ne vaut rien pour celui-ci : on repart
   // sans liste, sinon le décroché de la carte montrerait un vieux « 3/3 ».
-  setStatus(agent, 'running', { startedAt: Date.now(), account: account.id, todos: undefined });
+  setStatus(agent, 'running', {
+    startedAt: Date.now(),
+    account: account.id,
+    todos: undefined,
+    // Un fil neuf ne réutilise jamais la mesure du fil précédent. Tant que le
+    // moteur ne parle pas, l'interface montre explicitement « indisponible ».
+    contextUsage: nouvelleSession ? undefined : agent.contextUsage,
+  });
 
   let sawError: string | undefined;
 
@@ -578,7 +758,7 @@ async function startTurn(
     thinking: agent.run.thinking,
     sessionId,
     systemPrompt,
-    systemPromptRappel: rappelDeMethode(agent.run.engine),
+    systemPromptRappel,
     mcpConfigPath,
     mcpBridgePath: bridgePath,
     fullAccess,
@@ -589,7 +769,9 @@ async function startTurn(
       agentLog(PATHS.logs, agent.id, JSON.stringify(event));
       switch (event.kind) {
         case 'session':
-          if (event.sessionId) store.setSessionId(agent.id, event.sessionId, cleSession);
+          if (event.sessionId) {
+            store.setSessionId(agent.id, event.sessionId, cleSession);
+          }
           break;
         case 'text':
           if (event.text) {
@@ -660,6 +842,24 @@ async function startTurn(
           break;
         case 'usage':
           runState.usage = event.usage;
+          if (contexteUtilisateur && event.usage) {
+            mesurerContexteUtilisateur(contexteUtilisateur.messageId, event.usage);
+          }
+          break;
+        case 'context':
+          if (event.context) {
+            const window = event.context.window ?? catalogContextWindow;
+            runState.context = {
+              tokens: event.context.tokens,
+              window,
+            };
+            const contextUsage = mesurerContexte(event.context.tokens, window);
+            const frais = store.getAgent(agent.id);
+            if (frais && contextUsage) {
+              const maj = store.saveAgent({ ...frais, contextUsage });
+              bus.emit({ type: 'agent.upsert', agent: maj });
+            }
+          }
           break;
         case 'ratelimit':
           if (event.rateLimit) noteAccountUse(account.id, event.rateLimit);
@@ -673,45 +873,74 @@ async function startTurn(
     },
   });
 
+  // Seulement après que l'adaptateur a accepté et lancé le tour : une demande
+  // restée en file ou refusée avant ce point n'affiche aucun faux envoi.
+  if (contexteUtilisateur && instantane) {
+    const message = store.getMessage(contexteUtilisateur.messageId);
+    if (message) {
+      const updated = store.saveMessage({ ...message, sentContext: instantane });
+      bus.emit({ type: 'message.upsert', message: updated });
+      // Un adaptateur d'essai peut rendre l'usage dès son appel ; dans ce cas
+      // on applique aussitôt la mesure qui serait sinon arrivée trop tôt.
+      if (runState.usage) mesurerContexteUtilisateur(contexteUtilisateur.messageId, runState.usage);
+    }
+  }
+
   runState.handle = handle;
   live.set(agent.id, runState);
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
   const result = await handle.finished;
-  live.delete(agent.id);
-
   const elapsedSeconds = (Date.now() - runState.startedAt) / 1000;
-  const tokens = (runState.usage?.inputTokens ?? 0) + (runState.usage?.outputTokens ?? 0);
-
-  // Lecture FRAÎCHE des deux fenêtres après le tour, comparée au relevé d'avant.
-  // Une lecture en échec rend `null` : les parts restent alors à 0.
-  const quotaApres = (await relireQuotaDuCompte(account.id).catch(() => null)) ?? {};
-  const delta5h = partQuotaConsommee(quotaAvant.session, quotaApres.session);
-  const deltaSemaine = partQuotaConsommee(quotaAvant.weekly, quotaApres.weekly);
+  const tokens =
+    (runState.usage?.inputTokens ?? 0) +
+    (runState.usage?.cachedTokens ?? 0) +
+    (runState.usage?.outputTokens ?? 0);
 
   /*
-   * PARTAGE DU DELTA ENTRE TOURS PARALLÈLES. Plusieurs cartes d'un même projet
-   * tournent sur le MÊME compte : chacune relève le même compteur global et
-   * s'attribuerait tout le delta, gonflant la somme au-delà du réel. On rend
-   * donc à ce tour sa part au prorata de son poids (ses jetons, à défaut sa
-   * durée), rapporté au groupe des tours qui tournent EN CE MOMENT sur ce
-   * compte. Cet agent vient d'être retiré de `live` (juste au-dessus) : on l'y
-   * ajoute explicitement pour peser le groupe entier. Les deux fenêtres suivent
-   * la même répartition (mêmes poids).
+   * Le repère appartient au COMPTE, pas à chaque tour. Une fin ne répartit que
+   * la hausse depuis le relevé précédent et la cumule sur les tours présents.
+   * Le tour fini est ensuite écarté du quota partagé, mais reste dans `live`
+   * jusqu'à la fin de la compression : une nouvelle demande doit encore
+   * s'empiler pendant cette frontière sûre.
    */
-  const maintenant = Date.now();
-  const poidsPropre = poidsDeTour(tokens, elapsedSeconds);
-  const poidsConcurrents = [...live.values()]
-    .filter((run) => run.account === account.id)
-    .map((run) =>
-      poidsDeTour(
-        (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
-        (maintenant - run.startedAt) / 1000,
-      ),
-    );
-  const poidsGroupe = [poidsPropre, ...poidsConcurrents];
-  const part5h = repartirPartQuota(delta5h, poidsPropre, poidsGroupe);
-  const partSemaine = repartirPartQuota(deltaSemaine, poidsPropre, poidsGroupe);
+  const parts = await enSerieSurCompte(account.id, async () => {
+    const quotaApres = await relireQuotaDuCompte(account.id).catch(() => null);
+    if (quotaApres) {
+      const maintenant = Date.now();
+      const tours = [...live.values()]
+        .filter((run) => run.account === account.id && !run.quotaTermine)
+        .map((run) => ({
+          id: run.agentId,
+          poids: poidsDeTour(
+            (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
+            (maintenant - run.startedAt) / 1000,
+          ),
+          quota5h: run.quota5h,
+          quotaSemaine: run.quotaSemaine,
+        }));
+      const cumuls = cumulerPartsQuota(dernierQuotaReparti.get(account.id) ?? quotaAvant, quotaApres, tours);
+      for (const cumul of cumuls) {
+        const run = live.get(cumul.id);
+        if (!run) continue;
+        run.quota5h = cumul.quota5h;
+        run.quotaSemaine = cumul.quotaSemaine;
+      }
+      dernierQuotaReparti.set(account.id, quotaApres);
+    }
+
+    const resultat = {
+      quota5h: runState.quota5h,
+      quotaSemaine: runState.quotaSemaine,
+      quota5hMesurable: quotaApres?.session !== undefined,
+      quotaSemaineMesurable: quotaApres?.weekly !== undefined,
+    };
+    runState.quotaTermine = true;
+    if (![...live.values()].some((run) => run.account === account.id && !run.quotaTermine)) {
+      dernierQuotaReparti.delete(account.id);
+    }
+    return resultat;
+  });
 
   store.recordUsage({
     projectId: agent.projectId,
@@ -720,8 +949,10 @@ async function startTurn(
     account: account.id,
     engine: agent.run.engine,
     tokens,
-    quota5h: part5h,
-    quotaSemaine: partSemaine,
+    tokensIn: runState.usage ? (runState.usage.inputTokens ?? 0) + (runState.usage.cachedTokens ?? 0) : undefined,
+    tokensOut: runState.usage ? (runState.usage.outputTokens ?? 0) : undefined,
+    quota5h: parts.quota5h,
+    quotaSemaine: parts.quotaSemaine,
     seconds: elapsedSeconds,
   });
 
@@ -759,6 +990,21 @@ async function startTurn(
   }
 
   const failed = !result.ok || !!sawError;
+  // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
+  // session RÉUSSI. Une session créée puis refusée doit pouvoir le renvoyer.
+  if (nouvelleSession) {
+    const frais = store.getAgent(agent.id);
+    if (!failed && frais?.context?.continuitySummary) {
+      const context = { ...frais.context };
+      delete context.continuitySummary;
+      const maj = store.saveAgent({ ...frais, context });
+      bus.emit({ type: 'agent.upsert', agent: maj });
+    } else if (failed && frais?.context?.continuitySummary) {
+      // Le moteur a pu annoncer un identifiant avant de refuser le tour. On
+      // l'oublie pour que le prochain essai reparte bien AVEC le résumé.
+      store.clearSession(agent.id, cleSession);
+    }
+  }
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
@@ -773,6 +1019,40 @@ async function startTurn(
     account: account.label,
     error: failed ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin." : undefined,
   });
+
+  /*
+   * FRONTIÈRE SÛRE : la réponse visible est finie, mais l'agent reste dans
+   * `live`, donc toute nouvelle demande s'empile encore. C'est ici seulement
+   * que le remplissage est gravé et qu'une éventuelle compression peut partir.
+   */
+  const contextWindow = runState.context?.window ?? catalogContextWindow;
+  if (runState.context && contextWindow) {
+    const frais = store.getAgent(agent.id)!;
+    const observation = observerContexte(frais.context, runState.context.tokens, contextWindow);
+    if (observation) {
+      const mesure = store.saveAgent({
+        ...frais,
+        context: observation.state,
+        contextUsage: mesurerContexte(runState.context.tokens, contextWindow),
+      });
+      bus.emit({ type: 'agent.upsert', agent: mesure });
+      if (observation.shouldCompress) {
+        await compresserContexte(mesure, {
+          adapter,
+          dossier,
+          sessionId: store.getSessionId(agent.id, cleSession),
+          systemPrompt,
+          mcpConfigPath,
+          mcpBridgePath: bridgePath,
+          fullAccess,
+          allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
+          disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+          env,
+          cleSession,
+        });
+      }
+    }
+  }
 
   const finalAgent = store.getAgent(agent.id)!;
   setStatus(finalAgent, failed ? 'failed' : 'done', { endedAt: Date.now() });
@@ -871,7 +1151,19 @@ async function startTurn(
 
   if (onComplete) {
     try {
-      await onComplete(finalText, !failed);
+      await onComplete(finalText, !failed, {
+        usage: {
+          inputTokens: runState.usage?.inputTokens ?? 0,
+          cachedInputTokens: runState.usage?.cachedTokens,
+          outputTokens: runState.usage?.outputTokens ?? 0,
+        },
+        quota: {
+          quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
+          quotaWeekly:
+            quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
+        },
+        composition,
+      });
     } catch (err) {
       log.error('post-traitement du tour impossible', err);
     }
@@ -925,6 +1217,9 @@ async function startTurn(
     }
   }
 
+  live.delete(agent.id);
+  bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
+
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
   const next = store.dequeuePrompt(agent.id);
   bus.emit({ type: 'queue.snapshot', agentId: agent.id, queue: store.listQueue(agent.id) });
@@ -935,6 +1230,152 @@ async function startTurn(
       );
     }, 400);
   }
+}
+
+interface OptionsCompression {
+  adapter: ReturnType<typeof adapterFor>;
+  dossier: string;
+  sessionId: string | null;
+  systemPrompt: string;
+  mcpConfigPath: string;
+  mcpBridgePath: string;
+  fullAccess: boolean;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  env: Record<string, string>;
+  cleSession: string;
+}
+
+function resumePourAgent(agent: Agent): string {
+  const project = store.getProject(agent.projectId)!;
+  const card = agent.cardId ? store.getCard(agent.cardId) : null;
+  const messages = store.listMessages(agent.id);
+  const dernierAvecTaches = [...messages].reverse().find((message) => message.todos.length);
+  const decisions = messages.flatMap((message) => [
+    ...message.questions.map((question) =>
+      question.answer
+        ? `${question.question} → ${question.answer}`
+        : `${question.question} → réponse encore attendue`,
+    ),
+    ...message.proposals.map((proposal) => `${proposal.title} → ${proposal.decision}`),
+  ]);
+  const attachments = [...new Set(messages.flatMap((message) => [
+    ...message.attachments,
+    ...message.questions.flatMap((question) => question.answerAttachments),
+  ]))]
+    .map((id) => store.getAttachment(id))
+    .filter(Boolean)
+    .map((attachment) => path.join(PATHS.attachments, `${attachment!.id}-${attachment!.name}`));
+
+  return resumeContinuite({
+    project: project.name,
+    workdir: agent.workdir ?? project.path,
+    role: agent.role,
+    title: agent.title,
+    card: card ? { title: card.title, description: card.description, column: card.column } : undefined,
+    exchanges: messages.map((message) => ({ role: message.role, content: message.content })),
+    decisions,
+    todos: dernierAvecTaches?.todos.map((todo) => `${todo.state} : ${todo.label}`),
+    attachments,
+  });
+}
+
+async function compresserContexte(agent: Agent, options: OptionsCompression): Promise<void> {
+  if (!agent.context?.pending) return;
+
+  if (options.adapter.compact && options.sessionId) {
+    const native = await options.adapter.compact({
+      cwd: options.dossier,
+      prompt: '/compact',
+      model: agent.run.model,
+      thinking: agent.run.thinking,
+      sessionId: options.sessionId,
+      systemPrompt: options.systemPrompt,
+      mcpConfigPath: options.mcpConfigPath,
+      mcpBridgePath: options.mcpBridgePath,
+      fullAccess: options.fullAccess,
+      allowedTools: options.allowedTools,
+      disallowedTools: options.disallowedTools,
+      env: options.env,
+      onEvent: () => {},
+    });
+    if (native.ok && native.context) {
+      const frais = store.getAgent(agent.id) ?? agent;
+      const context = contexteApresCompression(frais.context!, {
+        at: Date.now(),
+        method: 'native',
+        tokens: native.context.tokens,
+        window: native.context.window,
+      });
+      const maj = store.saveAgent({
+        ...frais,
+        context,
+        contextUsage: mesurerContexte(context.tokens, context.window),
+      });
+      bus.emit({ type: 'agent.upsert', agent: maj });
+      return;
+    }
+    log.warn(`compression native impossible pour l'agent ${agent.id} : ${native.error ?? 'raison inconnue'}`);
+  }
+
+  // Repli commun : aucun message visible n'est touché. Seul le fil du moteur
+  // courant est remplacé, avec un résumé borné qui repart au prochain tour.
+  // Le socle déterministe garantit les champs indispensables ; le moteur
+  // ajoute la compréhension des décisions formulées librement dans un fil long.
+  const socle = resumePourAgent(agent);
+  const semantique = options.sessionId
+    ? await resumeSemantique(agent, options)
+    : '';
+  const summary = semantique
+    ? `${socle}\n\nSYNTHÈSE SÉMANTIQUE DU FIL\n${semantique.slice(0, 8_000)}`
+    : socle;
+  store.clearSession(agent.id, options.cleSession);
+  const frais = store.getAgent(agent.id) ?? agent;
+  const context = contexteApresCompression(frais.context!, {
+    at: Date.now(),
+    method: 'summary',
+    tokens: 0,
+    summary,
+  });
+  const maj = store.saveAgent({ ...frais, context, contextUsage: undefined });
+  bus.emit({ type: 'agent.upsert', agent: maj });
+}
+
+async function resumeSemantique(agent: Agent, options: OptionsCompression): Promise<string> {
+  let texte = '';
+  let erreur = false;
+  const outilsInterdits = [
+    'Bash',
+    'Read',
+    'Write',
+    'Edit',
+    'WebSearch',
+    'WebFetch',
+    'Task',
+    'Agent',
+    'Workflow',
+    ...toolsFor(agent.role).map((outil) => `mcp__haikodev__${outil.name}`),
+  ];
+  const handle = options.adapter.run({
+    cwd: options.dossier,
+    prompt:
+      'COMPRESSION INTERNE — sans outil et sans question. Résume ce fil pour ton prochain démarrage en 1 200 mots maximum. ' +
+      "Conserve l'objectif actif, les décisions même formulées librement, ce qui est terminé, ce qui reste à faire, " +
+      'les noms exacts utiles et les pièges à éviter. Réponds uniquement par le résumé.',
+    model: agent.run.model,
+    thinking: agent.run.thinking,
+    sessionId: options.sessionId,
+    fullAccess: false,
+    mcpBridgePath: options.mcpBridgePath,
+    disallowedTools: outilsInterdits,
+    env: options.env,
+    onEvent: (event) => {
+      if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
+      if (event.kind === 'error') erreur = true;
+    },
+  });
+  const resultat = await handle.finished;
+  return resultat.ok && !erreur ? texte.trim() : '';
 }
 
 function pushMessage(run: LiveRun, patch: Partial<Message>): void {
@@ -1028,7 +1469,7 @@ const OUTIL_LISTE: Record<EngineId, string> = {
  * deux, y figurent.
  */
 const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de HaikoDev, pas de toi : applique-la telle quelle, dans cet ordre) :
-1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis l'outil « project_memory » pour CHAQUE ligne de l'index qui touche au sujet, puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
+1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis l'outil « project_memory » — pour CHAQUE ligne de l'index qui touche au sujet ET pour le SUJET de ta tâche (« publication », « cartes », « voix », « quotas »…) : il rend d'un coup les FAITS, les RÈGLES du moteur et les CONTRÔLES qui le concernent, sans le reste. Puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
 2. CONSTATER PAR ÉCRIT avant de conclure : ce que le projet fait aujourd'hui, ce que la demande veut, ce qui manque entre les deux. C'est ce qui remplit la section « Analyse » de ta réponse.
 3. NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Ce que tu n'as pas vérifié se dit comme une hypothèse, en toutes lettres.
 4. VÉRIFIER À LA FIN : rejoue les contrôles du projet qui touchent à ce que tu as changé, et donne leur résultat, même en échec. Un échec tu, c'est un travail rendu faux.

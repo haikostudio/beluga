@@ -446,7 +446,8 @@ export function Composer({
         </div>
       ) : null}
 
-      <div className={cn('rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
+      <div className={cn('relative rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
+        {agent ? <CapsuleContexte agent={agent} /> : null}
         <Textarea
           ref={textareaRef}
           value={text}
@@ -474,7 +475,7 @@ export function Composer({
                 : 'Écrivez votre demande…'
           }
           rows={1}
-          className="min-h-[38px] border-0 bg-transparent focus-visible:ring-0"
+          className="min-h-[38px] border-0 bg-transparent pr-14 focus-visible:ring-0"
         />
 
         {/* Une seule ligne, même sur téléphone : les réglages rétrécissent,
@@ -542,6 +543,32 @@ export function Composer({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Le contexte n'est pas le quota : c'est la place occupée dans la conversation
+ * de CET agent. La capsule reste visible sans mesure, avec un tiret plutôt
+ * qu'un zéro inventé ; son libellé détaillé rend la différence explicite.
+ */
+function CapsuleContexte({ agent }: { agent: Agent }) {
+  const mesure = agent.contextUsage;
+  const libelle = mesure
+    ? `Contexte utilisé : ${mesure.usedTokens.toLocaleString('fr-CH')} jetons sur ${mesure.capacityTokens.toLocaleString('fr-CH')} (${mesure.percentage} %)`
+    : 'Contexte utilisé : mesure indisponible';
+
+  return (
+    <span
+      data-contexte-agent
+      data-agent-contexte={agent.id}
+      data-etat-contexte={mesure ? 'mesure' : 'indisponible'}
+      data-pourcentage-contexte={mesure?.percentage}
+      aria-label={libelle}
+      title={libelle}
+      className="absolute right-1.5 top-1.5 z-10 select-none rounded-full border border-border bg-surface px-1.5 text-[10.5px] leading-4 text-faint"
+    >
+      {mesure ? `${mesure.percentage} %` : '—'}
+    </span>
   );
 }
 

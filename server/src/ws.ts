@@ -612,7 +612,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       const onComplete =
         agent.role === 'analysis' && agent.cardId
-          ? (text: string, ok: boolean) => appliquerChiffrageDiscute(agent.cardId!, text, ok)
+          ? (text: string, ok: boolean, measurement: import('@haikodev/shared').TurnMeasurement) =>
+              appliquerChiffrageDiscute(agent.cardId!, text, ok, measurement)
           : undefined;
       /*
        * ON N'ATTEND PAS LA FIN DU TOUR. Un tour dure des minutes ; attendre
@@ -696,7 +697,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         thinking,
         mode: cmd.run.mode ?? agent.run.mode,
       };
-      const updated = store.saveAgent({ ...agent, run: run as any });
+      const updated = store.saveAgent({
+        ...agent,
+        run: run as any,
+        // Changer de moteur ou de modèle ouvre un autre fil : l'ancienne
+        // mesure ne décrit plus le contexte qui sera utilisé.
+        contextUsage: modelChanged ? undefined : agent.contextUsage,
+      });
       bus.emit({ type: 'agent.upsert', agent: updated });
 
       // Le réglage d'un chef d'orchestre devient le réglage retenu : les chefs
@@ -1151,6 +1158,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'card.quota':
       return store.usageQuotaByCard(cmd.cardId);
+
+    case 'card.tokens':
+      return { agents: store.usageTokensByCardAndAgent(cmd.cardId) };
 
     case 'stats.dashboard': {
       // Le titre, le projet et la colonne d'une carte vivent dans son JSON, pas

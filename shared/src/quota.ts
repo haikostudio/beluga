@@ -941,3 +941,35 @@ export function repartirPartQuota(delta: number, poidsPropre: number, poidsGroup
   }
   return delta * (propre / total);
 }
+
+export interface TourAvecPartQuota {
+  id: string;
+  poids: number;
+  quota5h: number;
+  quotaSemaine: number;
+}
+
+/**
+ * Répartit seulement la hausse apparue DEPUIS LE DERNIER RELEVÉ partagé, puis
+ * l'ajoute au cumul de chaque tour encore actif. Un tour qui finit garde ainsi
+ * sa part des premiers intervalles ; les tours restants ne revoient ensuite que
+ * la hausse suivante, jamais le delta complet depuis leur départ.
+ *
+ * La fonction ne modifie pas ses entrées : le démon peut retirer le tour fini
+ * du résultat et conserver les cumuls des autres jusqu'au relevé suivant.
+ */
+export function cumulerPartsQuota(
+  avant: { session?: number; weekly?: number },
+  apres: { session?: number; weekly?: number },
+  tours: TourAvecPartQuota[],
+): TourAvecPartQuota[] {
+  const delta5h = partQuotaConsommee(avant.session, apres.session);
+  const deltaSemaine = partQuotaConsommee(avant.weekly, apres.weekly);
+  const poidsGroupe = tours.map((tour) => tour.poids);
+
+  return tours.map((tour) => ({
+    ...tour,
+    quota5h: tour.quota5h + repartirPartQuota(delta5h, tour.poids, poidsGroupe),
+    quotaSemaine: tour.quotaSemaine + repartirPartQuota(deltaSemaine, tour.poids, poidsGroupe),
+  }));
+}

@@ -33,6 +33,8 @@ import {
   motAnalyse,
   phaseAnalyse,
   reglagesDeLaCarte,
+  totalMesureEnClair,
+  valeurMesuree,
 } from '@haikodev/shared';
 import {
   Badge,
@@ -600,6 +602,68 @@ function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
   );
 }
 
+/**
+ * Pour chaque agent qui a touché la carte (analyse, exécution, publication),
+ * ses deux totaux cumulés sur toute la vie de la carte — venus d'une vraie
+ * mesure moteur, jamais d'une estimation. Une carte sans aucun tour mesuré
+ * (lignes anciennes, sans séparation) ne montre rien : pas de zéro trompeur.
+ */
+function TokensParAgent({ card }: { card: Card }) {
+  const state = useApp();
+  const [totaux, setTotaux] = React.useState<{ agentId: string; tokensIn: number; tokensOut: number }[] | null>(
+    null,
+  );
+  React.useEffect(() => {
+    let vivant = true;
+    setTotaux(null);
+    client
+      .call({ type: 'card.tokens', cardId: card.id })
+      .then((data) => {
+        if (vivant) setTotaux(data.agents ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      vivant = false;
+    };
+  }, [card.id]);
+
+  if (!totaux || !totaux.length) return null;
+
+  const lignes = totaux
+    .map((ligne) => ({ ...ligne, agent: state.agents[ligne.agentId] }))
+    .sort((a, b) => (a.agent?.createdAt ?? 0) - (b.agent?.createdAt ?? 0));
+
+  return (
+    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+      <div className="text-[11.5px] uppercase tracking-wide text-faint">Jetons envoyés / reçus, par agent</div>
+      <div className="mt-1 space-y-1">
+        {lignes.map((ligne) => (
+          <div key={ligne.agentId} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13.5px]">
+            <span className="min-w-[110px] shrink-0 text-faint">{libelleRoleAgent(ligne.agent?.role)}</span>
+            <Etiquette nom="Envoyés" valeur={ligne.tokensIn.toLocaleString('fr-CH')} />
+            <Etiquette nom="Reçus" valeur={ligne.tokensOut.toLocaleString('fr-CH')} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function libelleRoleAgent(role?: string): string {
+  switch (role) {
+    case 'analysis':
+      return 'Analyse';
+    case 'task':
+      return 'Exécution';
+    case 'deploy':
+      return 'Publication';
+    case 'orchestrator':
+      return "Chef d'orchestre";
+    default:
+      return 'Agent';
+  }
+}
+
 function CardSummary({ card }: { card: Card }) {
   const [description, setDescription] = React.useState(card.description);
   React.useEffect(() => setDescription(card.description), [card.id]);
@@ -624,6 +688,7 @@ function CardSummary({ card }: { card: Card }) {
           chercher avant de valider, et ce qu'on relit après coup quand le
           résultat surprend. */}
       <ReglagesAgent card={card} />
+      <TokensParAgent card={card} />
 
       <div>
         <Label htmlFor="carte-description">Description</Label>
@@ -677,6 +742,8 @@ function CardSummary({ card }: { card: Card }) {
         <Metric label="Jetons consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
       </div>
 
+      {card.estimate ? <DetailCoutAnalyse card={card} /> : null}
+
       {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
           forme, dès qu'il est terminé. En recopier ici un extrait tronqué
           faisait lire deux fois la même chose, et moins bien. */}
@@ -685,6 +752,102 @@ function CardSummary({ card }: { card: Card }) {
           Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** Mesure passée et projection future restent deux blocs visuellement séparés. */
+function DetailCoutAnalyse({ card }: { card: Card }) {
+  const mesure = card.estimate?.analysisMeasurement;
+  const projection = card.estimate?.projection ??
+    (card.estimate?.tokens !== undefined || card.estimate?.quotaShare !== undefined
+      ? { tokens: card.estimate.tokens, quotaShare: card.estimate.quotaShare, assumptions: [] }
+      : undefined);
+
+  const parties = mesure
+    ? [
+        ['Consignes HaikoDev', mesure.breakdown.haikoDevInstructions],
+        ['Description de la carte', mesure.breakdown.cardDescription],
+        ['Mémoire et instructions', mesure.breakdown.memoryAndInstructions],
+        ["Lectures faites par l’agent", mesure.breakdown.agentReads],
+      ] as const
+    : [];
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-surface px-3 py-3" data-detail-cout-analyse>
+      <div>
+        <p className="text-[13.5px] font-semibold text-text">Analyse mesurée — déjà consommée</p>
+        <p className="mt-0.5 text-[12.5px] text-faint">Ces chiffres viennent de l’événement d’usage du moteur.</p>
+      </div>
+
+      {mesure ? (
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-total-analyse={mesure.totalTokens ?? ''}>
+            <Metric label="Entrée hors cache" value={valeurMesuree(mesure.inputTokens)} />
+            <Metric label="Déjà en cache" value={valeurMesuree(mesure.cachedInputTokens)} />
+            <Metric label="Sortie" value={valeurMesuree(mesure.outputTokens)} />
+            <Metric label="Total exact" value={totalMesureEnClair(mesure)} />
+          </div>
+
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+            <Etiquette
+              nom="Quota 5 h mesuré"
+              valeur={mesure.quota5h === undefined ? 'indisponible' : partQuota(mesure.quota5h)}
+            />
+            <Etiquette
+              nom="Quota semaine mesuré"
+              valeur={mesure.quotaWeekly === undefined ? 'indisponible' : partQuota(mesure.quotaWeekly)}
+            />
+          </div>
+
+          <div className="space-y-1.5 border-t border-border pt-2" data-ventilation-analyse>
+            <p className="text-[12px] font-medium uppercase tracking-wide text-faint">Ventilation mesurable</p>
+            {parties.map(([label, part]) => (
+              <div key={label} className="flex items-start justify-between gap-3 text-[13px]">
+                <span className="text-faint">{label}</span>
+                <span className="text-right text-text" title={part.note}>
+                  {part.status === 'measured' && part.characters !== undefined
+                    ? `${part.characters.toLocaleString('fr-CH')} signes`
+                    : `indisponible — ${part.note}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="text-[13px] text-faint">Mesure détaillée indisponible pour cette analyse.</p>
+      )}
+
+      <div className="space-y-2 border-t border-border pt-2" data-projection-execution>
+        <div>
+          <p className="text-[13.5px] font-semibold text-text">Exécution projetée — estimation future</p>
+          <p className="mt-0.5 text-[12.5px] text-faint">Ces valeurs ne sont pas une mesure de travail déjà effectué.</p>
+        </div>
+        {projection ? (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <Metric label="Jetons projetés" value={valeurMesuree(projection.tokens)} />
+              <Metric
+                label="Part de quota projetée"
+                value={projection.quotaShare === undefined ? 'indisponible' : partQuota(projection.quotaShare * 100)}
+              />
+            </div>
+            <p className="text-[13px] text-text">
+              <span className="text-faint">Formule </span>
+              {projection.formula ?? 'indisponible'}
+            </p>
+            {projection.assumptions.length ? (
+              <ul className="list-disc space-y-1 pl-5 text-[13px] text-faint">
+                {projection.assumptions.map((hypothese) => <li key={hypothese}>{hypothese}</li>)}
+              </ul>
+            ) : (
+              <p className="text-[13px] text-faint">Hypothèses indisponibles.</p>
+            )}
+          </>
+        ) : (
+          <p className="text-[13px] text-faint">Projection indisponible.</p>
+        )}
+      </div>
     </div>
   );
 }

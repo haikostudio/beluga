@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ColumnKey } from './columns.js';
 import { MOYENS_VPS } from './acces-vps.js';
+import { AgentContextUsage } from './contexte-agent.js';
 
 /* ------------------------------------------------------------------ */
 /* Moteurs, modèles, niveaux de réflexion                              */
@@ -122,11 +123,63 @@ export type Project = z.infer<typeof Project>;
 /* Estimation & consommation                                           */
 /* ------------------------------------------------------------------ */
 
+export const ContextBreakdown = z.object({
+  status: z.enum(['measured', 'unavailable']),
+  /** Grandeur exacte disponible avant l'appel moteur : des signes, pas des jetons estimés. */
+  characters: z.number().int().nonnegative().optional(),
+  note: z.string(),
+});
+export type ContextBreakdown = z.infer<typeof ContextBreakdown>;
+
+export const AnalysisMeasurement = z.object({
+  /** Entrée hors partie déjà en cache. */
+  inputTokens: z.number().nonnegative(),
+  cachedInputTokens: z.number().nonnegative().optional(),
+  outputTokens: z.number().nonnegative(),
+  /** Absent si le moteur n'a pas communiqué le cache : aucun faux total exact. */
+  totalTokens: z.number().nonnegative().optional(),
+  /** Points de pourcentage réellement consommés dans chaque fenêtre. */
+  quota5h: z.number().nonnegative().optional(),
+  quotaWeekly: z.number().nonnegative().optional(),
+  breakdown: z.object({
+    haikoDevInstructions: ContextBreakdown,
+    cardDescription: ContextBreakdown,
+    memoryAndInstructions: ContextBreakdown,
+    agentReads: ContextBreakdown,
+  }),
+  measuredAt: z.number(),
+});
+export type AnalysisMeasurement = z.infer<typeof AnalysisMeasurement>;
+
+export const ExecutionProjection = z.object({
+  tokens: z.number().nonnegative().optional(),
+  quotaShare: z.number().nonnegative().optional(),
+  formula: z.string().optional(),
+  assumptions: z.array(z.string()).default([]),
+});
+export type ExecutionProjection = z.infer<typeof ExecutionProjection>;
+
+/** Données internes du tour, produites par HaikoDev et jamais par le texte de l'agent. */
+export interface TurnMeasurement {
+  usage: { inputTokens: number; cachedInputTokens?: number; outputTokens: number };
+  quota: { quota5h?: number; quotaWeekly?: number };
+  composition: {
+    promptCharacters: number;
+    systemPromptCharacters: number;
+    cardDescriptionCharacters: number;
+    memoryAndInstructionsCharacters: number;
+  };
+}
+
 export const Estimate = z.object({
   /** Durée machine prévue, en secondes. Sert à l'ordonnanceur, JAMAIS à la facture. */
   machineSeconds: z.number().optional(),
   tokens: z.number().optional(),
   quotaShare: z.number().optional(),
+  /** Projection future rédigée par l'analyse, avec sa formule et ses hypothèses. */
+  projection: ExecutionProjection.optional(),
+  /** Coût déjà consommé par le chiffrage, mesuré indépendamment du JSON de l'agent. */
+  analysisMeasurement: AnalysisMeasurement.optional(),
   confidence: z.enum(['low', 'medium', 'high']).optional(),
   summary: z.string().optional(),
   /** Heures qu'un développeur senior facturerait à la main. Sert à la facture. */
@@ -296,6 +349,22 @@ export type AgentRole = z.infer<typeof AgentRole>;
 export const AgentStatus = z.enum(['idle', 'starting', 'running', 'stopped', 'failed', 'done']);
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
+export const AgentContext = z.object({
+  /** Jetons réellement présents dans le dernier appel au modèle. */
+  tokens: z.number().nonnegative(),
+  /** Capacité du modèle qui porte cette session. */
+  window: z.number().positive(),
+  ratio: z.number().nonnegative(),
+  armed: z.boolean().default(true),
+  pending: z.boolean().default(false),
+  lastCompressionAt: z.number().optional(),
+  lastCompressionTokens: z.number().nonnegative().optional(),
+  lastCompressionMethod: z.enum(['native', 'summary']).optional(),
+  compressionCount: z.number().int().nonnegative().optional(),
+  continuitySummary: z.string().optional(),
+});
+export type AgentContext = z.infer<typeof AgentContext>;
+
 export const Agent = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -319,6 +388,10 @@ export const Agent = z.object({
    * d'afficher « n/N faites » dans le décroché d'une carte sans l'ouvrir.
    */
   todos: z.object({ done: z.number().int(), total: z.number().int() }).optional(),
+  /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
+  contextUsage: AgentContextUsage.optional(),
+  /** Remplissage du contexte du modèle, distinct des quotas du compte. */
+  context: AgentContext.optional(),
   pid: z.number().optional(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
@@ -407,6 +480,43 @@ export const DownloadOffer = z.object({
 });
 export type DownloadOffer = z.infer<typeof DownloadOffer>;
 
+/** Une part du contenu assemblé par HaikoDev pour ce tour. */
+export const SentContextBlock = z.object({
+  kind: z.enum(['request', 'briefing', 'memory', 'card', 'attachment', 'extra', 'format', 'system']),
+  label: z.string(),
+  characters: z.number().int().nonnegative(),
+});
+export type SentContextBlock = z.infer<typeof SentContextBlock>;
+
+/**
+ * Photographie du SEUL contenu transmis pendant ce tour. L'historique d'une
+ * session reprise reste chez le moteur : on le nomme, sans le recopier ni
+ * prétendre pouvoir le relire.
+ */
+export const SentContextSnapshot = z.object({
+  engine: EngineId,
+  model: z.string().optional(),
+  session: z.enum(['new', 'resumed']),
+  prompt: z.string(),
+  systemInstruction: z.object({
+    kind: z.enum(['full', 'reminder']),
+    content: z.string(),
+    transport: z.enum(['separate', 'prefixed']),
+  }),
+  blocks: z.array(SentContextBlock),
+  history: z.enum(['none', 'retained_by_engine']),
+  usage: z
+    .object({
+      /** Entrée nouvelle, hors cache relu. */
+      inputTokens: z.number().nonnegative(),
+      /** Absent si le moteur ne communique pas ce détail. */
+      cachedInputTokens: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  sentAt: z.number(),
+});
+export type SentContextSnapshot = z.infer<typeof SentContextSnapshot>;
+
 export const Message = z.object({
   id: z.string(),
   agentId: z.string(),
@@ -422,8 +532,10 @@ export const Message = z.object({
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */
   streaming: z.boolean().default(false),
-  /** Jetons de ce tour, durée d'exécution et compte utilisé : affichés sous le message. */
+  /** Jetons associés au message : entrée moteur sur la demande, total du tour sur la réponse. */
   tokens: z.number().optional(),
+  /** Ce que HaikoDev a réellement transmis pour cette demande utilisateur. */
+  sentContext: SentContextSnapshot.optional(),
   durationMs: z.number().optional(),
   account: z.string().optional(),
   error: z.string().optional(),
