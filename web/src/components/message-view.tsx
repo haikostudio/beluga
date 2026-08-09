@@ -20,6 +20,7 @@ import {
   MEMORY_STEP_ID,
   Message,
   SentContextSnapshot,
+  coutEnClair,
   heureExacte,
   propositionsDuFil,
   reponsePrete,
@@ -126,7 +127,9 @@ export function MessageView({
             cle={message.id}
             aDroite
           />
-          {message.sentContext ? <ContexteEnvoye contexte={message.sentContext} /> : null}
+          {message.sentContext ? (
+            <ContexteEnvoye contexte={message.sentContext} agentId={message.agentId} />
+          ) : null}
         </div>
       </div>
     );
@@ -317,8 +320,93 @@ function nombre(value: number): string {
   return value.toLocaleString('fr-CH');
 }
 
+/** Un tour déjà mesuré, tel que le démon le rend pour l'historique. */
+type TourMesure = {
+  at: number;
+  engine?: string;
+  model?: string;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  tokens: number;
+  seconds: number;
+};
+
+/**
+ * L'HISTORIQUE DES TOURS DE L'AGENT : une ligne par tour réellement parti, du
+ * plus ancien au plus récent. Chaque chiffre vient de la mesure rangée à la fin
+ * du tour — un tour d'avant cette mesure montre un tiret, jamais une estimation.
+ */
+function HistoriqueDesTours({ agentId }: { agentId: string }) {
+  const [tours, setTours] = React.useState<TourMesure[] | null>(null);
+  const [panne, setPanne] = React.useState(false);
+
+  React.useEffect(() => {
+    let vivant = true;
+    client
+      .call({ type: 'agent.usage', agentId })
+      .then((res: any) => {
+        if (vivant) setTours(res?.turns ?? []);
+      })
+      .catch(() => {
+        if (vivant) setPanne(true);
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [agentId]);
+
+  if (panne) {
+    return <p className="rounded-md bg-surface px-2.5 py-2 text-faint">Historique indisponible.</p>;
+  }
+  if (!tours) {
+    return <p className="rounded-md bg-surface px-2.5 py-2 text-faint">Lecture des tours…</p>;
+  }
+  if (!tours.length) {
+    return (
+      <p className="rounded-md bg-surface px-2.5 py-2 text-faint">
+        Aucun tour mesuré pour cet agent pour l’instant.
+      </p>
+    );
+  }
+
+  return (
+    <ZoneDefilement
+      data-historique-tours
+      fond="hsl(var(--surface))"
+      hauteur={24}
+      classeEnveloppe="max-h-72 overflow-hidden rounded-md bg-surface"
+    >
+      <ul className="divide-y divide-border px-2.5">
+        {tours.map((tour, index) => {
+          const detail = tour.inputTokens + tour.cachedTokens + tour.outputTokens > 0;
+          const cout = coutEnClair({
+            inputTokens: tour.inputTokens,
+            cachedTokens: tour.cachedTokens,
+            outputTokens: tour.outputTokens,
+            model: tour.model,
+          });
+          return (
+            <li key={`${tour.at}-${index}`} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5">
+              <span className="shrink-0 tabular-nums text-text">
+                {new Date(tour.at).toLocaleString('fr-CH')}
+              </span>
+              <span className="min-w-0 flex-1 tabular-nums text-muted">
+                {detail
+                  ? `${nombre(tour.inputTokens + tour.cachedTokens)} envoyés · ${nombre(tour.outputTokens)} reçus`
+                  : 'détail non mesuré'}
+              </span>
+              <span className="shrink-0 tabular-nums text-faint">{cout}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </ZoneDefilement>
+  );
+}
+
 /** Le détail exact du nouveau contenu transmis pendant ce tour. */
-function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
+function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; agentId?: string }) {
   const [open, setOpen] = React.useState(false);
   const usage = contexte.usage;
   const totalEntree = usage ? usage.inputTokens + (usage.cachedInputTokens ?? 0) : undefined;
@@ -397,6 +485,17 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
                 </p>
               )}
             </section>
+
+            {open && agentId ? (
+              <section>
+                <h3 className="mb-1.5 text-[13px] font-medium text-text">Tours de cet agent</h3>
+                <p className="mb-1.5 text-[12px] text-faint">
+                  Un tour par ligne, du plus ancien au plus récent. Le coût n’est donné que si le
+                  tarif du modèle est connu.
+                </p>
+                <HistoriqueDesTours agentId={agentId} />
+              </section>
+            ) : null}
 
             <section>
               <h3 className="mb-1.5 text-[13px] font-medium text-text">Composition du nouveau contenu</h3>

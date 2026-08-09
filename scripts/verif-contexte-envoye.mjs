@@ -166,6 +166,25 @@ function poserDecor() {
     t,
   );
   message('m-file', { content: 'Cette demande est encore en file.' }, t + 1000);
+
+  /*
+   * TROIS TOURS DÉJÀ MESURÉS pour cet agent : deux sur un modèle dont le tarif
+   * est connu, un sur un modèle inconnu (son coût doit se dire « indisponible »).
+   * Ils sont écrits dans le DÉSORDRE : la liste doit les remettre dans l'ordre
+   * du temps.
+   */
+  const tour = (quand, model, entree, cache, sortie) =>
+    db
+      .prepare(
+        `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens,
+                            input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
+         VALUES (?, ?, NULL, ?, 'compte', 'claude', ?, ?, ?, ?, ?, 0, 0, 0, 10, ?)`,
+      )
+      .run(PROJET_ID, 'Essai contexte envoyé', AGENT_ID, model, entree + cache + sortie, entree, cache, sortie, quand);
+
+  tour(t + 2000, 'claude-sonnet-5', 20_000, 5_000, 2_000);
+  tour(t - 20_000, 'claude-sonnet-5', 10_000, 1_000, 900);
+  tour(t + 1000, 'gpt-5.4', 7_000, 0, 500);
   db.close();
 }
 
@@ -246,6 +265,30 @@ try {
         return zone.scrollHeight > zone.clientHeight && zone.scrollTop > avant;
       });
       noter(`${cas.nom} : le contenu du tiroir défile`, defile);
+
+      /*
+       * L'HISTORIQUE DES TOURS : trois tours écrits dans le désordre doivent
+       * ressortir un par ligne, du plus ancien au plus récent, avec un coût
+       * seulement là où le tarif du modèle est connu.
+       */
+      const lignes = tiroir.locator('[data-historique-tours] li');
+      await lignes.first().waitFor({ state: 'visible', timeout: 10_000 });
+      noter(`${cas.nom} : un tour par ligne`, (await lignes.count()) === 3);
+      const tours = await lignes.allInnerTexts();
+      noter(
+        `${cas.nom} : les tours sont dans l’ordre du temps`,
+        /11\D?000 envoyés/.test(tours[0]) && /7\D?000 envoyés/.test(tours[1]) && /25\D?000 envoyés/.test(tours[2]),
+        tours.join(' | '),
+      );
+      noter(`${cas.nom} : ce qui est reçu est dit`, /900 reçus/.test(tours[0]));
+      noter(`${cas.nom} : un tarif connu donne un coût en francs`, /CHF/.test(tours[0]) && /CHF/.test(tours[2]));
+      noter(`${cas.nom} : un modèle sans tarif se dit indisponible`, /indisponible/.test(tours[1]));
+      const defileTours = await tiroir.locator('[data-historique-tours]').evaluate((zone) => {
+        // La liste peut être longue : elle doit défiler seule, sans étirer le tiroir.
+        const style = getComputedStyle(zone);
+        return style.overflowY === 'auto' || style.overflowY === 'scroll';
+      });
+      noter(`${cas.nom} : la liste des tours défile seule`, defileTours);
       noter(`${cas.nom} : aucune erreur de page`, erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, `contexte-envoye-${cas.telephone ? 'telephone' : 'ordinateur'}.png`) });
     } finally {

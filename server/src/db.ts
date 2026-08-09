@@ -315,6 +315,23 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
        WHERE state = 'awaiting';
     `,
   },
+  {
+    id: 14,
+    name: 'detail-des-tours-envoyes-recus',
+    // Le journal d'usage ne gardait qu'un TOTAL de jetons par tour : impossible
+    // de dire ce qui était parti et ce qui était revenu, ni sur quel modèle —
+    // donc impossible d'en chiffrer le coût. Ajout PUREMENT additif : les
+    // colonnes existantes, le quota et la facturation ne bougent pas, et les
+    // tours déjà enregistrés gardent 0 (l'écran les montre alors sans détail
+    // plutôt qu'avec un faux chiffre).
+    sql: `
+      ALTER TABLE usage ADD COLUMN input_tokens INTEGER DEFAULT 0;
+      ALTER TABLE usage ADD COLUMN cached_tokens INTEGER DEFAULT 0;
+      ALTER TABLE usage ADD COLUMN output_tokens INTEGER DEFAULT 0;
+      ALTER TABLE usage ADD COLUMN model TEXT;
+      CREATE INDEX idx_usage_agent ON usage(agent_id, created_at);
+    `,
+  },
 ];
 
 export function openDb(): DB {

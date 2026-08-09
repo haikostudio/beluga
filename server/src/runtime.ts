@@ -915,6 +915,12 @@ async function startTurn(
     agentId: agent.id,
     account: account.id,
     engine: agent.run.engine,
+    // Le DÉTAIL du tour, pour que l'historique puisse dire ce qui est parti et
+    // ce qui est revenu — et le chiffrer quand le tarif du modèle est connu.
+    model: agent.run.model ?? adapter.defaultModel,
+    inputTokens: runState.usage?.inputTokens,
+    cachedTokens: runState.usage?.cachedTokens,
+    outputTokens: runState.usage?.outputTokens,
     tokens,
     quota5h: parts.quota5h,
     quotaSemaine: parts.quotaSemaine,

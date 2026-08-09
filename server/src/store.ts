@@ -1247,6 +1247,28 @@ export interface UsageRow {
   /** Part du quota hebdomadaire consommée par la tâche (avant / après le tour). */
   quotaSemaine?: number;
   seconds?: number;
+  /**
+   * Le DÉTAIL du tour, tel que le moteur l'a rendu. `tokens` reste le total qui
+   * sert aux totaux et à la facturation : ces trois nombres ne le remplacent
+   * pas, ils disent seulement ce qui est parti et ce qui est revenu.
+   */
+  inputTokens?: number;
+  cachedTokens?: number;
+  outputTokens?: number;
+  /** Le modèle qui a porté le tour : sans lui, aucun coût ne peut être établi. */
+  model?: string;
+}
+
+/** Un tour réellement envoyé, tel qu'il est ressorti pour l'historique. */
+export interface UsageTurnRow {
+  at: number;
+  engine?: string;
+  model?: string;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  tokens: number;
+  seconds: number;
 }
 
 export function recordUsage(row: UsageRow): void {
@@ -1258,8 +1280,8 @@ export function recordUsage(row: UsageRow): void {
     : null;
   getDb()
     .prepare(
-      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens, input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.projectId ?? null,
@@ -1268,13 +1290,49 @@ export function recordUsage(row: UsageRow): void {
       row.agentId ?? null,
       row.account ?? null,
       row.engine ?? null,
+      row.model ?? null,
       Math.round(row.tokens ?? 0),
+      Math.round(row.inputTokens ?? 0),
+      Math.round(row.cachedTokens ?? 0),
+      Math.round(row.outputTokens ?? 0),
       row.quotaShare ?? 0,
       row.quota5h ?? 0,
       row.quotaSemaine ?? 0,
       row.seconds ?? 0,
       now(),
     );
+}
+
+/**
+ * L'HISTORIQUE DES TOURS D'UN AGENT, du plus ancien au plus récent : une ligne
+ * par tour réellement parti, telle qu'elle a été écrite à la fin du tour. Rien
+ * n'est recalculé ni complété ici — un tour ancien, écrit avant que le détail
+ * ne soit rangé, ressort simplement avec ses zéros.
+ *
+ * La limite protège l'affichage d'une carte très longue : ce sont les tours les
+ * plus RÉCENTS qui sont gardés, puis remis dans l'ordre du temps.
+ */
+export function usageByAgent(agentId: string, limit = 200): UsageTurnRow[] {
+  const lignes = getDb()
+    .prepare(
+      `SELECT created_at AS at, engine, model, tokens, input_tokens AS inputTokens,
+              cached_tokens AS cachedTokens, output_tokens AS outputTokens, seconds
+       FROM usage WHERE agent_id = ?
+       ORDER BY created_at DESC, id DESC LIMIT ?`,
+    )
+    .all(agentId, limit) as any[];
+  return lignes
+    .map((ligne) => ({
+      at: ligne.at,
+      engine: ligne.engine ?? undefined,
+      model: ligne.model ?? undefined,
+      inputTokens: ligne.inputTokens ?? 0,
+      cachedTokens: ligne.cachedTokens ?? 0,
+      outputTokens: ligne.outputTokens ?? 0,
+      tokens: ligne.tokens ?? 0,
+      seconds: ligne.seconds ?? 0,
+    }))
+    .reverse();
 }
 
 /**
