@@ -103,6 +103,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
     title: z.string(),
     description: z.string().optional(),
     labels: z.array(z.string()).optional(),
+    attachments: z.array(z.string()).optional(),
     run: RunConfig.partial().optional(),
     polish: z.boolean().optional(),
   }),

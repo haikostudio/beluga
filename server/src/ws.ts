@@ -342,6 +342,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         title: cmd.title,
         description: cmd.description,
         labels: cmd.labels,
+        attachments: cmd.attachments,
         origin: 'user',
         run: cmd.run as any,
       });
