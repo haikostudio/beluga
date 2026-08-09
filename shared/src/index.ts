@@ -21,6 +21,7 @@ export * from './competences.js';
 export * from './connexion-compte.js';
 export * from './contexte-agent.js';
 export * from './cout-tour.js';
+export * from './couches-tokens.js';
 export * from './mise-en-production.js';
 export * from './couleur-intensite.js';
 export * from './decision-attendue.js';

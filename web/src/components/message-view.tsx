@@ -17,11 +17,18 @@ import {
 } from 'lucide-react';
 import {
   Attachment,
+  CoucheDeTokens,
   MEMORY_STEP_ID,
   Message,
   SentContextSnapshot,
+  TourMesureAgent,
+  coucheDAnalyse,
+  coucheDExecution,
   coutEnClair,
+  ecartProjete,
   heureExacte,
+  montantEnFrancs,
+  projectionDeLExecution,
   propositionsDuFil,
   reponsePrete,
   texteAEcouter,
@@ -320,28 +327,17 @@ function nombre(value: number): string {
   return value.toLocaleString('fr-CH');
 }
 
-/** Un tour déjà mesuré, tel que le démon le rend pour l'historique. */
-type TourMesure = {
-  at: number;
-  engine?: string;
-  model?: string;
-  inputTokens: number;
-  cachedTokens: number;
-  outputTokens: number;
-  tokens: number;
-  seconds: number;
-};
-
 /**
- * L'HISTORIQUE DES TOURS DE L'AGENT : une ligne par tour réellement parti, du
- * plus ancien au plus récent. Chaque chiffre vient de la mesure rangée à la fin
- * du tour — un tour d'avant cette mesure montre un tiret, jamais une estimation.
+ * Les tours déjà mesurés de l'agent, demandés au démon à l'ouverture du tiroir.
+ * Ils servent DEUX affichages : la couche « exécution » (leur somme) et la
+ * liste tour par tour — d'où la lecture faite une seule fois, ici.
  */
-function HistoriqueDesTours({ agentId }: { agentId: string }) {
-  const [tours, setTours] = React.useState<TourMesure[] | null>(null);
+function useToursDeLAgent(agentId: string | undefined, actif: boolean) {
+  const [tours, setTours] = React.useState<TourMesureAgent[] | null>(null);
   const [panne, setPanne] = React.useState(false);
 
   React.useEffect(() => {
+    if (!agentId || !actif) return;
     let vivant = true;
     client
       .call({ type: 'agent.usage', agentId })
@@ -354,8 +350,23 @@ function HistoriqueDesTours({ agentId }: { agentId: string }) {
     return () => {
       vivant = false;
     };
-  }, [agentId]);
+  }, [agentId, actif]);
 
+  return { tours, panne };
+}
+
+/**
+ * L'HISTORIQUE DES TOURS DE L'AGENT : une ligne par tour réellement parti, du
+ * plus ancien au plus récent. Chaque chiffre vient de la mesure rangée à la fin
+ * du tour — un tour d'avant cette mesure montre un tiret, jamais une estimation.
+ */
+function HistoriqueDesTours({
+  tours,
+  panne,
+}: {
+  tours: TourMesureAgent[] | null;
+  panne: boolean;
+}) {
   if (panne) {
     return <p className="rounded-md bg-surface px-2.5 py-2 text-faint">Historique indisponible.</p>;
   }
@@ -405,9 +416,74 @@ function HistoriqueDesTours({ agentId }: { agentId: string }) {
   );
 }
 
+/** Le nom d'une couche d'exécution suit le RÔLE de l'agent qui l'a portée. */
+const NOM_DE_COUCHE: Record<string, string> = {
+  task: 'Exécution de la tâche',
+  orchestrator: 'Échange avec le chef d’orchestre',
+  analysis: 'Analyse de la carte',
+  deploy: 'Publication',
+};
+
+/** Une ligne de chiffres d'une couche : le libellé au-dessus, la valeur dessous. */
+function Chiffre({ nom, valeur }: { nom: string; valeur: string }) {
+  return (
+    <div className="min-w-0 rounded-md bg-raised px-2.5 py-1.5">
+      <div className="text-[11.5px] text-faint">{nom}</div>
+      <div className="break-words tabular-nums text-text">{valeur}</div>
+    </div>
+  );
+}
+
+/**
+ * UNE COUCHE DE TOKENS RÉELLEMENT MESURÉS : ce qu'elle a envoyé (dont la part
+ * relue depuis le cache) et ce qu'elle a reçu. Ce que le moteur n'a pas rendu
+ * se dit « indisponible » — jamais un zéro qui rassure à tort.
+ */
+function CoucheMesuree({ couche }: { couche: CoucheDeTokens }) {
+  const chiffre = (valeur?: number) =>
+    valeur === undefined ? 'indisponible' : nombre(valeur);
+  return (
+    <div className="rounded-md bg-surface px-2.5 py-2" data-couche-tokens={couche.cle}>
+      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
+        <span className="text-[13px] font-medium text-text">{couche.nom}</span>
+        <span className="text-[11.5px] text-faint">
+          {couche.tours === undefined
+            ? couche.origine
+            : `${couche.tours} tour${couche.tours > 1 ? 's' : ''} mesuré${couche.tours > 1 ? 's' : ''}`}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        <Chiffre nom="Entrée hors cache" valeur={chiffre(couche.entree)} />
+        <Chiffre nom="Relu du cache" valeur={chiffre(couche.cache)} />
+        <Chiffre nom="Sortie" valeur={chiffre(couche.sortie)} />
+        <Chiffre nom="Coût" valeur={montantEnFrancs(couche.cout)} />
+      </div>
+      <p className="mt-1 text-[12px] tabular-nums text-faint">
+        Total : {chiffre(couche.total)} tokens
+      </p>
+    </div>
+  );
+}
+
 /** Le détail exact du nouveau contenu transmis pendant ce tour. */
 function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; agentId?: string }) {
   const [open, setOpen] = React.useState(false);
+  /* Le détail brut (composition, consigne, prompt) est REPLIÉ par défaut : on
+     l'ouvre quand on cherche pourquoi un chiffre est ce qu'il est. */
+  const [detail, setDetail] = React.useState(false);
+  const state = useApp();
+  const agent = agentId ? state.agents[agentId] : undefined;
+  const carte = agent?.cardId ? state.cards[agent.cardId] : undefined;
+
+  const { tours, panne } = useToursDeLAgent(agentId, open);
+  const projection = projectionDeLExecution(carte?.estimate);
+  const analyse = coucheDAnalyse(carte?.estimate?.analysisMeasurement);
+  const execution = coucheDExecution(
+    tours ?? [],
+    NOM_DE_COUCHE[agent?.role ?? 'task'] ?? 'Exécution de la tâche',
+  );
+  const ecart = ecartProjete(projection?.tokens, execution?.total);
+
   const usage = contexte.usage;
   const totalEntree = usage ? usage.inputTokens + (usage.cachedInputTokens ?? 0) : undefined;
   const moteur = contexte.engine === 'claude' ? 'Claude Code' : 'Codex';
@@ -455,35 +531,76 @@ function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; 
 
         <ZoneDefilement data-contexte-envoye-contenu className="px-3 py-3">
           <div className="space-y-4 text-[13.5px] leading-relaxed text-muted">
-            <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                ['Moteur', moteur],
-                ['Modèle', contexte.model ?? 'Modèle par défaut'],
-                ['Tour', session],
-                ['Envoyé', new Date(contexte.sentAt).toLocaleString('fr-CH')],
-              ].map(([label, value]) => (
-                <div key={label} className="min-w-0 rounded-md bg-surface px-2.5 py-2">
-                  <div className="text-[11.5px] text-faint">{label}</div>
-                  <div className="break-words text-text">{value}</div>
-                </div>
-              ))}
-            </section>
+            {/* L'identité du tour tient en une ligne : quatre encadrés pour
+                quatre mots occupaient le premier écran du tiroir pour rien. */}
+            <p className="text-[12.5px] text-faint" data-identite-tour>
+              {moteur}
+              {contexte.model ? ` · ${contexte.model}` : ''} · {session} ·{' '}
+              {new Date(contexte.sentAt).toLocaleString('fr-CH')}
+            </p>
 
-            <section>
-              <h3 className="mb-1.5 text-[13px] font-medium text-text">Mesure rendue par le moteur</h3>
-              {usage ? (
+            {/* 1. CE QUI ÉTAIT ESTIMÉ. Toujours en premier quand un chiffrage
+                existe : c'est la promesse à laquelle le réel se compare. */}
+            {projection ? (
+              <section data-tokens-estimes>
+                <h3 className="mb-1.5 text-[13px] font-medium text-text">Estimé avant le travail</h3>
                 <div className="rounded-md bg-surface px-2.5 py-2">
-                  {nombre(usage.inputTokens)} tokens nouveaux
-                  <span className="text-faint"> · </span>
-                  {usage.cachedInputTokens === undefined
-                    ? 'détail du cache non communiqué'
-                    : `${nombre(usage.cachedInputTokens)} tokens relus depuis le cache`}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Chiffre
+                      nom="Tokens projetés"
+                      valeur={projection.tokens === undefined ? 'indisponible' : nombre(projection.tokens)}
+                    />
+                    <Chiffre
+                      nom="Part de quota projetée"
+                      valeur={
+                        projection.quotaShare === undefined
+                          ? 'indisponible'
+                          : `${(projection.quotaShare * 100).toLocaleString('fr-CH', { maximumFractionDigits: 1 })} %`
+                      }
+                    />
+                  </div>
+                  <p className="mt-1 text-[12px] text-faint">
+                    Projection rédigée par l’analyse du chef d’orchestre — ce n’est pas une mesure.
+                  </p>
                 </div>
-              ) : (
-                <p className="rounded-md bg-surface px-2.5 py-2 text-faint">
-                  La mesure arrivera à la fin du tour moteur.
+              </section>
+            ) : null}
+
+            {/* 2. CE QUI A ÉTÉ RÉELLEMENT MESURÉ, couche par couche : la
+                réflexion du chef d'abord, l'exécution ensuite. */}
+            <section data-tokens-reels>
+              <h3 className="mb-1.5 text-[13px] font-medium text-text">Réellement mesuré</h3>
+              <div className="space-y-2">
+                {analyse ? <CoucheMesuree couche={analyse} /> : null}
+                {execution ? (
+                  <CoucheMesuree couche={execution} />
+                ) : (
+                  <p className="rounded-md bg-surface px-2.5 py-2 text-faint">
+                    {panne
+                      ? 'Mesure des tours indisponible.'
+                      : tours
+                        ? 'Aucun tour mesuré pour cet agent pour l’instant.'
+                        : 'Lecture des tours…'}
+                  </p>
+                )}
+              </div>
+              {ecart !== undefined ? (
+                <p className="mt-1.5 text-[12px] text-faint" data-ecart-projection>
+                  {ecart >= 0
+                    ? `Soit ${(ecart * 100).toLocaleString('fr-CH', { maximumFractionDigits: 0 })} % de plus que projeté.`
+                    : `Soit ${(-ecart * 100).toLocaleString('fr-CH', { maximumFractionDigits: 0 })} % de moins que projeté.`}
                 </p>
-              )}
+              ) : null}
+              <p className="mt-1.5 text-[12px] text-faint">
+                Ce tour-ci :{' '}
+                {usage
+                  ? `${nombre(usage.inputTokens)} tokens nouveaux · ${
+                      usage.cachedInputTokens === undefined
+                        ? 'détail du cache non communiqué'
+                        : `${nombre(usage.cachedInputTokens)} tokens relus depuis le cache`
+                    }`
+                  : 'la mesure arrivera à la fin du tour moteur.'}
+              </p>
             </section>
 
             {open && agentId ? (
@@ -493,21 +610,9 @@ function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; 
                   Un tour par ligne, du plus ancien au plus récent. Le coût n’est donné que si le
                   tarif du modèle est connu.
                 </p>
-                <HistoriqueDesTours agentId={agentId} />
+                <HistoriqueDesTours tours={tours} panne={panne} />
               </section>
             ) : null}
-
-            <section>
-              <h3 className="mb-1.5 text-[13px] font-medium text-text">Composition du nouveau contenu</h3>
-              <ul className="divide-y divide-border rounded-md bg-surface px-2.5">
-                {contexte.blocks.map((bloc, index) => (
-                  <li key={`${bloc.kind}-${index}`} className="flex items-center justify-between gap-3 py-1.5">
-                    <span>{bloc.label}</span>
-                    <span className="shrink-0 tabular-nums text-faint">{nombre(bloc.characters)} caractères</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
 
             {contexte.history === 'retained_by_engine' ? (
               <p className="rounded-md border border-border bg-surface px-2.5 py-2 text-faint">
@@ -516,26 +621,74 @@ function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; 
               </p>
             ) : null}
 
+            {/* 3. LE DÉTAIL BRUT, REPLIÉ. Composition, consigne et prompt entier
+                ne servent qu'à comprendre un chiffre surprenant : les afficher
+                d'office noyait les deux sections qui précèdent. */}
             <section>
-              <h3 className="mb-1.5 text-[13px] font-medium text-text">{instruction}</h3>
-              <p className="mb-1.5 text-[12px] text-faint">
-                {contexte.systemInstruction.transport === 'separate'
-                  ? 'Transmise séparément du prompt.'
-                  : 'Ajoutée par l’adaptateur devant le prompt.'}
-              </p>
-              <pre className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]">
-                {contexte.systemInstruction.content}
-              </pre>
-            </section>
-
-            <section>
-              <h3 className="mb-1.5 text-[13px] font-medium text-text">Prompt exact remis à l’adaptateur</h3>
-              <pre
-                data-prompt-envoye
-                className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]"
+              <button
+                type="button"
+                data-voir-detail-brut
+                aria-expanded={detail}
+                onClick={() => setDetail((ouvert) => !ouvert)}
+                className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-raised"
               >
-                {contexte.prompt}
-              </pre>
+                <ChevronRight
+                  className={cn('h-3 w-3 shrink-0 text-faint transition-transform', detail && 'rotate-90')}
+                />
+                <span className="min-w-0 flex-1">
+                  {detail ? 'Masquer le détail' : 'Voir le détail'}
+                </span>
+                <span className="shrink-0 text-[11.5px] text-faint">
+                  composition, consigne, prompt exact
+                </span>
+              </button>
+
+              {detail ? (
+                <div className="mt-2 space-y-4" data-detail-brut>
+                  <div>
+                    <h3 className="mb-1.5 text-[13px] font-medium text-text">
+                      Composition du nouveau contenu
+                    </h3>
+                    <ul className="divide-y divide-border rounded-md bg-surface px-2.5">
+                      {contexte.blocks.map((bloc, index) => (
+                        <li
+                          key={`${bloc.kind}-${index}`}
+                          className="flex items-center justify-between gap-3 py-1.5"
+                        >
+                          <span>{bloc.label}</span>
+                          <span className="shrink-0 tabular-nums text-faint">
+                            {nombre(bloc.characters)} caractères
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h3 className="mb-1.5 text-[13px] font-medium text-text">{instruction}</h3>
+                    <p className="mb-1.5 text-[12px] text-faint">
+                      {contexte.systemInstruction.transport === 'separate'
+                        ? 'Transmise séparément du prompt.'
+                        : 'Ajoutée par l’adaptateur devant le prompt.'}
+                    </p>
+                    <pre className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]">
+                      {contexte.systemInstruction.content}
+                    </pre>
+                  </div>
+
+                  <div>
+                    <h3 className="mb-1.5 text-[13px] font-medium text-text">
+                      Prompt exact remis à l’adaptateur
+                    </h3>
+                    <pre
+                      data-prompt-envoye
+                      className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]"
+                    >
+                      {contexte.prompt}
+                    </pre>
+                  </div>
+                </div>
+              ) : null}
             </section>
           </div>
         </ZoneDefilement>

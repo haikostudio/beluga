@@ -206,6 +206,9 @@ le nom, là-bas le texte).
 - **Le tiroir « Contexte envoyé » liste les TOURS de l'agent** (`store.usageByAgent`, commande
   `agent.usage`) : une ligne par tour mesuré, dans l'ordre du temps, coût en francs seulement si le
   tarif du modèle est connu (`shared/src/cout-tour.ts`), sinon « indisponible ».
+- **Le même tiroir se lit dans UN SEUL ordre : l'ESTIMÉ, puis le RÉEL couche par couche**
+  (`shared/src/couches-tokens.ts`) — réflexion du chef d'orchestre, puis exécution ; composition,
+  consigne système et prompt entier sont repliés derrière « Voir le détail ».
 - **Le détail d'une carte issue du chef montre ce qui était préparé avant l'exécution** : réglages
   repris, contenu transmis, chiffrage disponible et continuité du fil. Vérifié par
   `scripts/verif-reglages-carte.mjs`.
