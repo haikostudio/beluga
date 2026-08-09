@@ -1310,7 +1310,7 @@ export function CardTile({
         {card.sansModification ? (
           <div className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning">
             <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
-            <span className="min-w-0">{card.sansModification}</span>
+            <span className="min-w-0 truncate">{card.sansModification}</span>
           </div>
         ) : null}
 
@@ -1322,7 +1322,7 @@ export function CardTile({
         {sansSuite ? (
           <div className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-faint">
             <Clock className="mt-[2px] h-3 w-3 shrink-0" />
-            <span className="min-w-0" data-mention-sans-suite>
+            <span className="min-w-0 truncate" data-mention-sans-suite>
               {sansSuite}
             </span>
           </div>
