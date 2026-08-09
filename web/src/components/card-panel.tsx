@@ -676,7 +676,7 @@ function CardSummary({ card }: { card: Card }) {
         />
         {/* Le compte utilisé n'est plus ici : il vit avec les réglages de
             l'agent, en haut, là où il explique le quota consommé. */}
-        <Metric label="Jetons consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
+        <Metric label="Tokens consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
       </div>
 
       {card.estimate ? <DetailCoutAnalyse card={card} /> : null}
@@ -744,7 +744,7 @@ function DetailCoutAnalyse({ card }: { card: Card }) {
                 <span className="text-faint">{label}</span>
                 <span className="text-right text-text" title={part.note}>
                   {part.status === 'measured' && part.characters !== undefined
-                    ? `${part.characters.toLocaleString('fr-CH')} signes`
+                    ? `${part.characters.toLocaleString('fr-CH')} caractères`
                     : `indisponible — ${part.note}`}
                 </span>
               </div>
@@ -763,7 +763,7 @@ function DetailCoutAnalyse({ card }: { card: Card }) {
         {projection ? (
           <>
             <div className="grid grid-cols-2 gap-2">
-              <Metric label="Jetons projetés" value={valeurMesuree(projection.tokens)} />
+              <Metric label="Tokens projetés" value={valeurMesuree(projection.tokens)} />
               <Metric
                 label="Part de quota projetée"
                 value={projection.quotaShare === undefined ? 'indisponible' : partQuota(projection.quotaShare * 100)}

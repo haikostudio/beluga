@@ -1598,7 +1598,7 @@ function UsageSection({ open }: { open: boolean }) {
       </h3>
       <p className="mb-2 mt-0.5 text-[12.5px] leading-relaxed text-faint">
         Le total de ce que les agents ont dépensé depuis le début, projet par projet : nombre de tâches, temps de travail
-        des agents et jetons consommés chez les moteurs. C'est une mesure d'usage, pas une facture — rien ici n'est
+        des agents et tokens consommés chez les moteurs. C'est une mesure d'usage, pas une facture — rien ici n'est
         facturé à personne.
       </p>
 
@@ -1609,7 +1609,7 @@ function UsageSection({ open }: { open: boolean }) {
               <p className="truncate text-[13.5px] text-text">{nomDuProjet(row)}</p>
               <p className="mt-0.5 text-[11.5px] text-faint">
                 {row.tasks} tâche{row.tasks > 1 ? 's' : ''} · {Math.round(row.seconds / 60)} min ·{' '}
-                {(row.tokens ?? 0).toLocaleString('fr-CH')} jetons
+                {(row.tokens ?? 0).toLocaleString('fr-CH')} tokens
               </p>
             </div>
           ))}

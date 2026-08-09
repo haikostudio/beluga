@@ -38,14 +38,14 @@ export function mesureDeContexte(input: {
     quota5h: quota.quota5h,
     quotaWeekly: quota.quotaWeekly,
     breakdown: {
-      haikoDevInstructions: mesure(instructions, 'signes réellement envoyés par HaikoDev'),
+      haikoDevInstructions: mesure(instructions, 'caractères réellement envoyés par HaikoDev'),
       cardDescription: mesure(
         composition.cardDescriptionCharacters,
-        'signes de la description réellement présents dans la demande',
+        'caractères de la description réellement présents dans la demande',
       ),
       memoryAndInstructions: mesure(
         composition.memoryAndInstructionsCharacters,
-        'signes du briefing, de la mémoire et des instructions envoyées à l’ouverture',
+        'caractères du briefing, de la mémoire et des instructions envoyées à l’ouverture',
       ),
       agentReads: {
         status: 'unavailable',
