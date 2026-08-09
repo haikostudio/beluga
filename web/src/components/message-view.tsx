@@ -509,9 +509,11 @@ function QuestionCard({
     return (
       <div className="rounded-md border border-border bg-surface/60 px-2.5 py-2">
         <p className="text-[13px] text-faint">{question.question}</p>
-        <p className="mt-1 flex items-start gap-1.5 text-[14px] text-text">
+        <p className="mt-1 flex min-w-0 items-start gap-1.5 text-[14px] text-text">
           <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />
-          {question.answer}
+          <span className="min-w-0 flex-1 truncate" data-reponse-question>
+            {question.answer}
+          </span>
         </p>
         {/* La réponse déjà donnée montre ses images, à côté de son texte. */}
         {question.answerAttachments?.length ? (
