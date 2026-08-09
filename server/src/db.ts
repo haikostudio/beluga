@@ -315,6 +315,17 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
        WHERE state = 'awaiting';
     `,
   },
+  {
+    id: 14,
+    name: 'tokens-envoyes-et-recus',
+    // `tokens` restait un total combiné : entrée et sortie séparées, à côté,
+    // pour un total par agent. Les lignes déjà écrites gardent NULL ici — leur
+    // seul total combiné reste valable, rien n'est recalculé.
+    sql: `
+      ALTER TABLE usage ADD COLUMN tokens_in INTEGER;
+      ALTER TABLE usage ADD COLUMN tokens_out INTEGER;
+    `,
+  },
 ];
 
 export function openDb(): DB {

@@ -1,30 +1,46 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   chercherFaits,
   decouperRegles,
+  DOSSIER_MEMOIRE,
   estLigneDeJournal,
+  faitsDuTexte,
+  fichierDuSujet,
   fichierNatif,
   instructionsQuiFontFoi,
+  libelleSujet,
   nettoyer,
+  partsDAccueil,
   reglesContenant,
+  rendreFichierSujet,
+  repartirParSujet,
+  SUJETS_MEMOIRE,
   SUJETS_REGLES,
+  sujetDeLaRequete,
+  sujetDuFait,
   sujetsPourRequete,
   texteIndex,
   texteDesCompetences,
   type InstructionsDuProjet,
+  type NiveauDAccueil,
   type SujetRegles,
 } from '@haikodev/shared';
 import { listerCompetences } from './competences.js';
 
 /**
- * La mémoire du projet (PLAN §25) : un court fichier texte DANS le dépôt, que
- * les agents lisent naturellement et qui suit le code dans l'historique.
- * Règle d'hygiène : une ligne devenue fausse est remplacée, pas empilée.
+ * La mémoire du projet (PLAN §25) : du texte DANS le dépôt, que les agents
+ * lisent naturellement et qui suit le code dans l'historique. Règle d'hygiène :
+ * une ligne devenue fausse est remplacée, pas empilée.
  *
- * Deux fichiers, deux usages :
- *  — MEMOIRE.md  : les faits durables et les pièges. Seul son INDEX part au
- *    moteur au lancement d'un agent ; le texte entier d'un fait se demande.
+ * Trois endroits, trois usages :
+ *  — `docs/memoire/<sujet>.md` : les faits durables et les pièges, RANGÉS PAR
+ *    SUJET comme les règles de `docs/regles/`. Seul l'INDEX (une ligne brève par
+ *    fait) part au moteur au lancement d'un agent ; le fichier d'un sujet se
+ *    demande à la carte, et une fois pour toutes dans une session.
+ *  — MEMOIRE.md : le SOMMAIRE de ces fichiers. Il ne porte plus de faits — il
+ *    dit où ils vivent, pour qui ouvre le dépôt à la main.
  *  — HISTORIQUE.md : les livraisons datées. Relisible par un humain, jamais
  *    envoyé au moteur : « telle carte livrée le 3 août » n'apprend rien à un
  *    agent qui commence une tâche.
@@ -32,7 +48,6 @@ import { listerCompetences } from './competences.js';
 
 const FILE_NAME = 'MEMOIRE.md';
 const HISTORY_NAME = 'HISTORIQUE.md';
-const HEADER = '# Mémoire du projet\n\n_Tenue automatiquement par HaikoDev : faits durables uniquement, une ligne par fait._\n\n';
 const HISTORY_HEADER =
   "# Historique des livraisons\n\n_Tenu automatiquement par HaikoDev. Ce fichier n'est JAMAIS envoyé au moteur : il se relit à la main._\n\n";
 
@@ -51,12 +66,142 @@ export function historyPath(projectPath: string): string {
   return path.join(projectPath, HISTORY_NAME);
 }
 
-export function readMemory(projectPath: string): string {
+/** Le fichier d'un sujet de mémoire, sur le disque. */
+export function cheminDuSujet(projectPath: string, sujet: string): string {
+  return path.join(projectPath, ...fichierDuSujet(sujet).split('/'));
+}
+
+function lireFichier(chemin: string): string {
   try {
-    return fs.readFileSync(memoryPath(projectPath), 'utf8');
+    return fs.readFileSync(chemin, 'utf8');
   } catch {
     return '';
   }
+}
+
+/**
+ * La marque du SOMMAIRE. Sans elle, les lignes de MEMOIRE.md qui renvoient aux
+ * fichiers de sujet seraient relues comme autant de faits — la mémoire se
+ * remplirait d'elle-même à chaque passage.
+ */
+const MARQUE_SOMMAIRE = '<!-- haikodev:memoire-par-sujet -->';
+
+/** Les faits restés dans le vieux fichier plat : rien si c'est déjà le sommaire. */
+function faitsRestes(projectPath: string): string[] {
+  const texte = lireFichier(memoryPath(projectPath));
+  if (texte.includes(MARQUE_SOMMAIRE)) return [];
+  return faitsDuTexte(texte);
+}
+
+/** Les faits d'un SEUL sujet, tels qu'écrits dans son fichier. */
+export function faitsDuSujet(projectPath: string, sujet: string): string[] {
+  return faitsDuTexte(lireFichier(cheminDuSujet(projectPath, sujet)));
+}
+
+/**
+ * Les faits rangés par sujet, lus sur le disque. Un projet pas encore découpé
+ * (ou un projet tiers) garde ses faits dans MEMOIRE.md : ils sont répartis à la
+ * volée, si bien que rien ne dépend de la migration pour être LU.
+ */
+export function faitsParSujet(projectPath: string): Map<string, string[]> {
+  const parSujet = new Map<string, string[]>();
+  for (const sujet of SUJETS_MEMOIRE) {
+    const faits = faitsDuSujet(projectPath, sujet.id);
+    if (faits.length) parSujet.set(sujet.id, faits);
+  }
+  const restes = faitsRestes(projectPath);
+  if (!restes.length) return parSujet;
+
+  // Le fichier plat n'est pas encore découpé : on le range sans l'écrire.
+  for (const [sujet, faits] of repartirParSujet(restes)) {
+    const dedans = parSujet.get(sujet) ?? [];
+    for (const fait of faits) {
+      if (!dedans.some((f) => f.toLowerCase() === fait.toLowerCase())) dedans.push(fait);
+    }
+    parSujet.set(sujet, dedans);
+  }
+  // On réordonne : la numérotation de l'index suit l'ordre des sujets.
+  const ordonne = new Map<string, string[]>();
+  for (const sujet of SUJETS_MEMOIRE) {
+    const dedans = parSujet.get(sujet.id);
+    if (dedans?.length) ordonne.set(sujet.id, dedans);
+  }
+  return ordonne;
+}
+
+/**
+ * La mémoire ENTIÈRE, en un seul texte. Elle ne part jamais telle quelle à un
+ * moteur : elle sert à l'affichage dans l'application et aux contrôles, qui ont
+ * besoin d'un point de comparaison.
+ */
+export function readMemory(projectPath: string): string {
+  const parSujet = faitsParSujet(projectPath);
+  if (!parSujet.size) return '';
+  const morceaux: string[] = ['# Mémoire du projet'];
+  for (const [sujet, faits] of parSujet) {
+    morceaux.push(`## ${libelleSujet(sujet)}\n\n${faits.map((f) => `- ${f}`).join('\n')}`);
+  }
+  return `${morceaux.join('\n\n')}\n`;
+}
+
+/** Le sommaire écrit dans MEMOIRE.md : où vivent les faits, et combien par sujet. */
+function sommaireMemoire(parSujet: Map<string, string[]>): string {
+  const lignes = [
+    '# Mémoire du projet',
+    '',
+    MARQUE_SOMMAIRE,
+    '',
+    '_Tenue automatiquement par HaikoDev. Les faits durables vivent PAR SUJET dans ' +
+      `\`${DOSSIER_MEMOIRE}/\` — un fichier par sujet, demandé à la carte avec l'outil ` +
+      "`project_memory`. Ce sommaire ne porte aucun fait._",
+    '',
+  ];
+  for (const [sujet, faits] of parSujet) {
+    const compte = faits.length > 1 ? `${faits.length} faits` : '1 fait';
+    lignes.push(`- \`${fichierDuSujet(sujet)}\` — ${libelleSujet(sujet)} (${compte})`);
+  }
+  if (!parSujet.size) lignes.push('_Aucun fait retenu pour le moment._');
+  return `${lignes.join('\n')}\n`;
+}
+
+/**
+ * Écrit la mémoire telle qu'elle doit être sur le disque : un fichier par
+ * sujet, le sommaire dans MEMOIRE.md, et plus rien qui traîne pour un sujet
+ * devenu vide.
+ */
+function ecrireParSujet(projectPath: string, parSujet: Map<string, string[]>): void {
+  for (const sujet of SUJETS_MEMOIRE) {
+    const faits = parSujet.get(sujet.id) ?? [];
+    const chemin = cheminDuSujet(projectPath, sujet.id);
+    if (!faits.length) {
+      try {
+        if (fs.existsSync(chemin)) fs.rmSync(chemin);
+      } catch {
+        /* la mémoire ne doit jamais faire échouer une tâche */
+      }
+      continue;
+    }
+    writeSafely(chemin, rendreFichierSujet(sujet.id, faits));
+  }
+  writeSafely(memoryPath(projectPath), sommaireMemoire(parSujet));
+}
+
+/**
+ * LE DÉCOUPAGE, une fois pour toutes. Un projet qui garde ses faits dans le
+ * vieux fichier plat les voit partir dans `docs/memoire/`, sans rien perdre :
+ * chaque fait est simplement rangé sous son sujet. Rejouable — un deuxième
+ * passage ne trouve plus rien à déplacer et rend 0.
+ */
+export function migrerParSujet(projectPath: string): number {
+  const restes = faitsRestes(projectPath);
+  const parSujet = faitsParSujet(projectPath);
+  if (!restes.length) {
+    // Rien à déplacer, mais le sommaire peut manquer sur un projet neuf.
+    if (parSujet.size && !fs.existsSync(memoryPath(projectPath))) ecrireParSujet(projectPath, parSujet);
+    return 0;
+  }
+  ecrireParSujet(projectPath, parSujet);
+  return restes.length;
 }
 
 export function readHistory(projectPath: string): string {
@@ -84,20 +229,23 @@ export function appendHistory(projectPath: string, line: string): void {
  * cessent seulement d'occuper le contexte des agents.
  */
 export function migrerJournal(projectPath: string): number {
-  const content = readMemory(projectPath);
-  if (!content.trim()) return 0;
-  const lines = content.split('\n');
-  const gardees: string[] = [];
-  const deplacees: string[] = [];
+  const parSujet = faitsParSujet(projectPath);
+  if (!parSujet.size) return 0;
 
-  for (const line of lines) {
-    if (line.trim().startsWith('- ') && estLigneDeJournal(line)) deplacees.push(line);
-    else gardees.push(line);
+  const gardes = new Map<string, string[]>();
+  const deplacees: string[] = [];
+  for (const [sujet, faits] of parSujet) {
+    const restants = faits.filter((fait) => {
+      if (!estLigneDeJournal(fait)) return true;
+      deplacees.push(fait);
+      return false;
+    });
+    if (restants.length) gardes.set(sujet, restants);
   }
   if (!deplacees.length) return 0;
 
   for (const line of deplacees) appendHistory(projectPath, line);
-  writeSafely(memoryPath(projectPath), gardees.join('\n'));
+  ecrireParSujet(projectPath, gardes);
   return deplacees.length;
 }
 
@@ -108,51 +256,58 @@ export function appendMemory(projectPath: string, line: string, replaces?: strin
     return;
   }
 
-  const file = memoryPath(projectPath);
   migrerJournal(projectPath);
-  let content = readMemory(projectPath);
-  if (!content.trim()) content = HEADER;
+  const parSujet = faitsParSujet(projectPath);
+  const clean = nettoyer(line);
 
-  const clean = `- ${nettoyer(line)}`;
-  const lines = content.split('\n');
-
+  // Un fait qui en REMPLACE un autre prend sa place, où qu'il soit rangé — et
+  // change de fichier si son sujet a changé.
   if (replaces) {
     const needle = nettoyer(replaces).toLowerCase().slice(0, 40);
-    const idx = lines.findIndex((l) => l.trim().toLowerCase().replace(/^[-*]\s*/, '').startsWith(needle));
-    if (idx >= 0) {
-      lines[idx] = clean;
-      writeSafely(file, lines.join('\n'));
+    for (const [sujet, faits] of parSujet) {
+      const idx = faits.findIndex((f) => f.toLowerCase().startsWith(needle));
+      if (idx < 0) continue;
+      faits.splice(idx, 1);
+      if (!faits.length) parSujet.delete(sujet);
+      poserLeFait(parSujet, clean);
+      ecrireParSujet(projectPath, plafonner(parSujet));
       return;
     }
   }
 
-  // Doublon exact : on ne l'empile pas.
-  const already = lines.some((l) => l.trim().toLowerCase() === clean.toLowerCase());
-  if (already) return;
+  if (!poserLeFait(parSujet, clean)) return; // doublon exact : on ne l'empile pas
+  ecrireParSujet(projectPath, plafonner(parSujet));
+}
 
-  lines.push(clean);
+/** Range un fait sous son sujet. Rend faux si le fait y était déjà. */
+function poserLeFait(parSujet: Map<string, string[]>, fait: string): boolean {
+  const sujet = sujetDuFait(fait);
+  const dedans = parSujet.get(sujet) ?? [];
+  if (dedans.some((f) => f.toLowerCase() === fait.toLowerCase())) return false;
+  dedans.push(fait);
+  parSujet.set(sujet, dedans);
+  return true;
+}
 
-  // Plafond de sécurité seulement : au-delà, la synthèse a déjà dû passer.
-  const factLines = lines.filter((l) => l.trim().startsWith('- '));
-  if (factLines.length > MAX_LINES) {
-    const excess = factLines.length - MAX_LINES;
-    let removed = 0;
-    for (let i = 0; i < lines.length && removed < excess; i++) {
-      if (lines[i].trim().startsWith('- ')) {
-        lines.splice(i, 1);
-        i--;
-        removed++;
-      }
-    }
+/**
+ * Plafond de sécurité seulement : au-delà, la synthèse a déjà dû passer. On
+ * retire les plus anciens faits, sujet par sujet, en commençant par les plus
+ * fournis — jamais un sujet entier.
+ */
+function plafonner(parSujet: Map<string, string[]>): Map<string, string[]> {
+  let total = [...parSujet.values()].reduce((n, faits) => n + faits.length, 0);
+  while (total > MAX_LINES) {
+    const plusFourni = [...parSujet.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+    if (!plusFourni || plusFourni[1].length <= 1) break;
+    plusFourni[1].shift();
+    total--;
   }
-
-  writeSafely(file, lines.join('\n'));
+  return parSujet;
 }
 
 /** Réécrit la mémoire entière (synthèse relue et acceptée). */
 export function replaceMemory(projectPath: string, faits: string[]): void {
-  const body = faits.map((f) => `- ${nettoyer(f)}`).join('\n');
-  writeSafely(memoryPath(projectPath), `${HEADER}${body}\n`);
+  ecrireParSujet(projectPath, repartirParSujet(faits));
 }
 
 function writeSafely(file: string, content: string): void {
@@ -175,25 +330,33 @@ export function memorySummary(projectPath: string): { facts: number; text: strin
   return { facts, text: memory };
 }
 
-/** Les faits de la mémoire, un par ligne, dans leur ordre d'écriture. */
+/** Les faits de la mémoire, sujet par sujet, dans l'ordre de l'index. */
 export function memoryFacts(projectPath: string): string[] {
-  return readMemory(projectPath)
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('- '))
-    .map((line) => nettoyer(line));
+  return [...faitsParSujet(projectPath).values()].flat();
 }
 
 /**
- * Les faits ajoutés DEPUIS un point donné. Une session d'agent garde la mémoire
- * dans son contexte : la renvoyer en entier à chaque message la répéterait des
+ * Les faits ajoutés DEPUIS un point donné. Une session d'agent garde l'index
+ * dans son contexte : le renvoyer en entier à chaque message le répéterait des
  * dizaines de fois pour rien. Seul le complément est utile.
+ *
+ * On compare le TEXTE, jamais un rang : un fait rangé sous son sujet ne
+ * s'ajoute plus forcément à la fin, et un décompte aurait fait passer pour
+ * neufs des faits déjà lus.
  */
-export function newFactsSince(projectPath: string, alreadySeen: number): string[] {
-  const facts = memoryFacts(projectPath);
-  // La mémoire a été raccourcie ou réécrite : on repart du tout.
-  if (alreadySeen > facts.length) return facts;
-  return facts.slice(alreadySeen);
+export function newFactsSince(projectPath: string, dejaVus: string[]): string[] {
+  const connus = new Set(dejaVus);
+  return memoryFacts(projectPath).filter((fait) => !connus.has(empreinteDuFait(fait)));
+}
+
+/** L'empreinte courte d'un fait : ce qu'on retient d'une session, pas son texte. */
+export function empreinteDuFait(texte: string): string {
+  return crypto.createHash('sha1').update(nettoyer(texte).toLowerCase()).digest('hex').slice(0, 8);
+}
+
+/** Les empreintes de TOUS les faits : ce qu'un agent a sous les yeux après son briefing. */
+export function empreintesDesFaits(projectPath: string): string[] {
+  return memoryFacts(projectPath).map(empreinteDuFait);
 }
 
 /** Le détail demandé par un agent : le texte ENTIER des faits qui l'intéressent. */
@@ -208,6 +371,23 @@ export function detailMemoire(projectPath: string, requete: string): string {
     return `Aucun fait ne correspond à « ${requete} ».\n\nL'index complet :\n\n${texteIndex(faits)}`;
   }
   return trouves.map((f) => `${f.numero}. ${f.texte}`).join('\n\n');
+}
+
+/**
+ * UN MORCEAU DE RÉPONSE, avec sa CLÉ. La clé nomme le sujet ET son contenu :
+ * même sujet, même texte, même clé — c'est ce qui permet de ne pas resservir
+ * dans une session ce que l'agent a déjà sous les yeux, tout en renvoyant quand
+ * même un sujet qui a CHANGÉ depuis (un fait ajouté en cours de tâche).
+ */
+interface MorceauServi {
+  cle: string;
+  /** Comment le nommer quand on refuse de le resservir. */
+  libelle: string;
+  texte: string;
+}
+
+function cleMorceau(genre: string, id: string, texte: string): string {
+  return `${genre}:${id}:${crypto.createHash('sha1').update(texte).digest('hex').slice(0, 8)}`;
 }
 
 /**
@@ -258,27 +438,61 @@ function texteDuSujet(projectPath: string, sujet: SujetRegles): string {
  * un projet qui n'a pas ces fichiers (rien à ajouter aux faits).
  */
 export function detailRegles(projectPath: string, requete: string): string {
-  if (!fs.existsSync(path.join(projectPath, 'docs', 'regles'))) return '';
+  return morceauxRegles(projectPath, requete)
+    .map((m) => m.texte)
+    .join('\n\n———\n\n');
+}
+
+/** Les morceaux de règles servis par une demande, chacun avec sa clé. */
+function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
+  if (!fs.existsSync(path.join(projectPath, 'docs', 'regles'))) return [];
 
   const demande = requete.trim();
   if (!demande) {
-    return (
-      'RÈGLES DU PROJET — par sujet (demande-en un par son nom ou des mots-clés, ' +
-      'tu recevras ses règles ET ses contrôles) :\n' +
-      SUJETS_REGLES.map((s) => `  ${s.id} — ${s.libelle}`).join('\n')
-    );
+    return [
+      {
+        cle: '',
+        libelle: 'la liste des sujets de règles',
+        texte:
+          'RÈGLES DU PROJET — par sujet (demande-en un par son nom ou des mots-clés, ' +
+          'tu recevras ses règles ET ses contrôles) :\n' +
+          SUJETS_REGLES.map((s) => `  ${s.id} — ${s.libelle}`).join('\n'),
+      },
+    ];
   }
 
   const sujets = sujetsPourRequete(demande);
   if (sujets.length) {
-    return sujets.map((s) => texteDuSujet(projectPath, s)).join('\n\n———\n\n');
+    return sujets.map((sujet) => {
+      const texte = texteDuSujet(projectPath, sujet);
+      return { cle: cleMorceau('regles', sujet.id, texte), libelle: `les règles « ${sujet.libelle} »`, texte };
+    });
   }
 
   // Repli : aucune rubrique reconnue, on cherche les mots dans toutes les règles.
   const toutes = SUJETS_REGLES.flatMap((s) => decouperRegles(lireDoc(projectPath, s.fichier)));
   const trouves = reglesContenant(toutes, demande);
-  if (!trouves.length) return '';
-  return `RÈGLES qui mentionnent « ${demande} » :\n\n${trouves.join('\n\n')}`;
+  if (!trouves.length) return [];
+  return [
+    { cle: '', libelle: 'ces règles', texte: `RÈGLES qui mentionnent « ${demande} » :\n\n${trouves.join('\n\n')}` },
+  ];
+}
+
+/** Les morceaux de FAITS servis par une demande. */
+function morceauxFaits(projectPath: string, requete: string): MorceauServi[] {
+  const texte = detailMemoire(projectPath, requete);
+  const sujet = sujetDeLaRequete(requete);
+  // Seule une demande qui NOMME un sujet se dédoublonne : un numéro ou des
+  // mots-clés rendent un extrait, jamais un fichier entier.
+  if (!sujet) return [{ cle: '', libelle: 'ces faits', texte }];
+  return [{ cle: cleMorceau('faits', sujet.id, texte), libelle: `les faits « ${sujet.libelle} »`, texte }];
+}
+
+/** Ce que l'outil `project_memory` rend, et ce qu'il faut retenir d'avoir servi. */
+export interface DetailProjet {
+  texte: string;
+  /** Les clés des sujets réellement servis : à retenir pour ne pas les resservir. */
+  servis: string[];
 }
 
 /**
@@ -286,13 +500,38 @@ export function detailRegles(projectPath: string, requete: string): string {
  * CONTRÔLES touchés par la demande, réunis. Quand la demande vise clairement une
  * règle (aucun fait ne correspond), on ne noie pas la réponse sous l'index des
  * faits.
+ *
+ * ÉCONOMIE DE JETONS : un sujet DÉJÀ SERVI dans la session n'est pas renvoyé une
+ * seconde fois — l'agent l'a encore sous les yeux, et un fichier de mémoire ou de
+ * règles pèse des milliers de signes. Il reçoit une ligne qui le lui rappelle. Un
+ * sujet qui a CHANGÉ depuis (un fait ajouté en cours de tâche) porte une autre
+ * clé : il repart, lui.
  */
-export function detailProjet(projectPath: string, requete: string): string {
-  const faits = detailMemoire(projectPath, requete);
-  const regles = detailRegles(projectPath, requete);
-  if (!regles) return faits;
-  const faitsMuets = requete.trim() && /^Aucun fait ne correspond/.test(faits);
-  return [faitsMuets ? '' : faits, regles].filter(Boolean).join('\n\n═══\n\n');
+export function detailProjet(projectPath: string, requete: string, dejaServis: string[] = []): DetailProjet {
+  const connus = new Set(dejaServis);
+  const morceaux = [...morceauxFaits(projectPath, requete), ...morceauxRegles(projectPath, requete)];
+
+  const aServir = morceaux.filter((m) => !m.cle || !connus.has(m.cle));
+  const rappels = morceaux.filter((m) => m.cle && connus.has(m.cle));
+
+  // La demande vise une règle et aucun fait ne correspond : on ne noie pas la
+  // réponse sous l'index des faits.
+  const utiles = aServir.filter(
+    (m, i) => !(i === 0 && requete.trim() && /^Aucun fait ne correspond/.test(m.texte) && aServir.length > 1),
+  );
+
+  const parties = utiles.map((m) => m.texte);
+  if (rappels.length) {
+    parties.push(
+      `DÉJÀ DANS TON CONTEXTE, inchangé depuis : ${rappels.map((m) => m.libelle).join(', ')}. ` +
+        `Relis plus haut dans cette session, ne le redemande pas.`,
+    );
+  }
+
+  return {
+    texte: parties.filter(Boolean).join('\n\n═══\n\n'),
+    servis: utiles.map((m) => m.cle).filter(Boolean),
+  };
 }
 
 /** Le nom du fichier d'instructions natif du moteur. */
@@ -380,8 +619,9 @@ export function blocMemoire(projectPath: string): string {
   return (
     `MÉMOIRE DU PROJET — index des faits retenus (${faits.length}), une ligne par fait, groupée par sujet :\n` +
     `${texteIndex(faits)}\n\n` +
-    `Ces lignes sont VOLONTAIREMENT tronquées. Le texte entier d'un fait se demande avec l'outil « project_memory » ` +
-    `(argument « sujet » : un numéro, un nom de sujet, ou des mots-clés) — fais-le dès qu'une ligne touche à ce que tu vas modifier.`
+    `Ces lignes sont VOLONTAIREMENT tronquées. Chaque sujet est un FICHIER (${DOSSIER_MEMOIRE}/<sujet>.md) : ` +
+    `demande-le avec l'outil « project_memory » (argument « sujet » : un numéro, un nom de sujet, ou des mots-clés) ` +
+    `dès qu'une ligne touche à ce que tu vas modifier — et UNE SEULE FOIS par session, il reste ensuite dans ton contexte.`
   );
 }
 
@@ -409,8 +649,18 @@ export function briefing(
    * annoncé doit être celui où l'agent écrit.
    */
   dossierDeTravail?: string,
+  /**
+   * Ce que l'accueil emporte. « minimal » ne dit que le projet et le dossier :
+   * un agent appelé pour un dépannage de publication n'a que faire de l'index
+   * de la mémoire ni de la liste des compétences (`shared/src/accueil-agent.ts`).
+   */
+  niveau: NiveauDAccueil = 'complet',
 ): string {
+  const emporte = partsDAccueil(niveau);
   migrerJournal(projectPath);
+  // Le découpage par sujet se fait au premier briefing venu : un projet monté
+  // avant lui n'a rien à faire pour en profiter.
+  migrerParSujet(projectPath);
   const dossier = dossierDeTravail?.trim() || projectPath;
   const parts: string[] = [
     dossier === projectPath
@@ -419,11 +669,13 @@ export function briefing(
   ];
 
   const { fichier: quiFaitFoi, renvoiDepuis } = instructionsDuProjet(projectPath, engine);
-  const instructions = [quiFaitFoi, 'CLAUDE.md', 'AGENTS.md', 'README.md'].filter(
-    (f, i, tab) => tab.indexOf(f) === i && fs.existsSync(path.join(projectPath, f)),
-  );
+  const instructions = emporte.instructions
+    ? [quiFaitFoi, 'CLAUDE.md', 'AGENTS.md', 'README.md'].filter(
+        (f, i, tab) => tab.indexOf(f) === i && fs.existsSync(path.join(projectPath, f)),
+      )
+    : [];
   if (instructions.length) parts.push(`Fichiers d'instructions présents : ${instructions.join(', ')}.`);
-  if (renvoiDepuis) {
+  if (emporte.instructions && renvoiDepuis) {
     parts.push(
       `${renvoiDepuis} ne fait que RENVOYER à ${quiFaitFoi} : c'est ${quiFaitFoi} qui porte les instructions de ce projet, ` +
         `c'est lui que tu lis et lui que tu tiens à jour.`,
@@ -437,10 +689,10 @@ export function briefing(
    * cette ligne, le même projet « ne sait pas créer une offre » d'un moteur à
    * l'autre. Un chemin de fichier se lit partout.
    */
-  const competences = texteDesCompetences(listerCompetences());
+  const competences = emporte.competences ? texteDesCompetences(listerCompetences()) : '';
   if (competences) parts.push(competences);
 
-  if (!avecMemoire) return parts.join('\n\n');
+  if (!avecMemoire || !emporte.memoire) return parts.join('\n\n');
 
   parts.push(blocMemoire(projectPath));
 

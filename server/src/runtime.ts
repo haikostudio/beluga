@@ -33,12 +33,20 @@ import {
   contexteApresCompression,
   decisionEnTexteLibre,
   etatDuPont,
+  finaliserAnalyseDeProposition,
+  libelleSujet,
+  MemoireDeReprise,
+  type MotifDAppel,
+  type NiveauDAccueil,
+  niveauDAccueil,
   nomDeBranche,
   observerContexte,
   poidsDeTour,
   raisonSansModification,
   resumeContinuite,
   ROLES_QUI_DEPLACENT,
+  SUJETS_MEMOIRE,
+  sujetsUtiles,
   templateForColumn,
   tourDeLaCarte,
   wrapPrompt,
@@ -50,7 +58,7 @@ import { CONFIG, PATHS } from './config.js';
 import { adapterFor, contextWindowFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
-import { briefing, memoryFacts, memorySummary, newFactsSince } from './memory.js';
+import { briefing, empreintesDesFaits, faitsDuSujet, memorySummary, newFactsSince } from './memory.js';
 import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
@@ -193,6 +201,14 @@ export interface PromptOptions {
   ampleur?: Ampleur;
   /** Ne pas enregistrer le message utilisateur (relances internes). */
   silent?: boolean;
+  /**
+   * Pourquoi cet agent est appelé, quand ce n'est pas pour une carte. Un motif
+   * de DÉPANNAGE (conflit de fusion, contrôles tombés, construction cassée)
+   * réduit l'accueil au strict nécessaire : la demande nomme déjà les fichiers
+   * et les commandes, l'index de la mémoire n'y sert à rien
+   * (`shared/src/accueil-agent.ts`).
+   */
+  motif?: MotifDAppel;
   attachments?: string[];
   /** Appelé quand le tour est fini, avec le texte et les mesures indépendantes du moteur. */
   onComplete?: (text: string, ok: boolean, measurement: TurnMeasurement) => void | Promise<void>;
@@ -384,16 +400,43 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * on n'envoie donc que les faits AJOUTÉS depuis.
    */
   const nouvelleSession = !store.getSessionId(agent.id, cleDeSession(agent.run.engine, agent.run.model));
+  /*
+   * Le NIVEAU d'accueil ne dit pas QUAND on accueille (ça, c'est
+   * `nouvelleSession`), mais AVEC QUOI. Un dépannage de publication n'emporte
+   * ni index de mémoire, ni compétences, ni fichiers d'instructions.
+   */
+  const niveau = niveauDAccueil({ role: agent.role, motif: options.motif });
   const contextParts: { label: string; kind: SentContextBlock['kind']; content: string }[] = [];
   let memoryAndInstructionsCharacters = 0;
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, index de la
     // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
-    const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir);
-    contextParts.push({ label: 'Briefing et index de la mémoire', kind: 'briefing', content: ouverture });
+    const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir, niveau);
+    contextParts.push({
+      label: niveau === 'minimal' ? 'Briefing réduit (dépannage)' : 'Briefing et index de la mémoire',
+      kind: 'briefing',
+      content: ouverture,
+    });
     memoryAndInstructionsCharacters += ouverture.length;
-    store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+    // Le chef bridé a tous les droits SAUF modifier le code du projet : on lui
+    // dit où il peut écrire (son dossier de travail) et que le projet est en
+    // lecture seule — une écriture y échoue, une modification s'ouvre en carte.
+    if (agent.role === 'orchestrator' && !project.isSelf) {
+      const scratch = path.join(PATHS.chefScratch, project.id);
+      const espace =
+        `TON ESPACE DE TRAVAIL : tu peux lancer des commandes (sondages, études, analyses) et ` +
+        `écrire tes brouillons dans ${scratch} — c'est le SEUL dossier où tu as le droit d'écrire. ` +
+        `Le projet (${project.path}) est monté en LECTURE SEULE : lis-y tout ce qu'il te faut, mais ` +
+        `toute écriture y échoue. Modifier le code du projet n'est pas ton rôle : tu l'ouvres en carte ` +
+        `confiée à un agent de tâche.`;
+      contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', content: espace });
+    }
+    // Session neuve : l'agent repart d'un contexte vide — plus rien de ce qui
+    // lui a été servi avant n'y est. On oublie les sujets déjà donnés, sinon
+    // une reprise se retrouverait privée de la mémoire qu'elle n'a plus.
+    store.oublierMemoireServie(agent.id);
+    store.setMemorySeen(agent.id, empreintesDesFaits(project.path));
     if (agent.context?.continuitySummary) {
       contextParts.push({
         label: 'Résumé de continuité après compression',
@@ -407,7 +450,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
       const ajout = `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`;
       contextParts.push({ label: 'Nouveaux faits de la mémoire', kind: 'memory', content: ajout });
       memoryAndInstructionsCharacters += ajout.length;
-      store.setMemorySeen(agent.id, memoryFacts(project.path).length);
+      store.setMemorySeen(agent.id, empreintesDesFaits(project.path));
     }
   }
 
@@ -467,6 +510,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
       memoryAndInstructionsCharacters,
     },
     userMessageId ? { messageId: userMessageId, blocks } : undefined,
+    niveau,
   );
 }
 
@@ -532,6 +576,8 @@ async function startTurn(
     memoryAndInstructionsCharacters: 0,
   },
   contexteUtilisateur?: ContexteUtilisateurDuTour,
+  /** L'accueil que mérite cet agent : « minimal » pour un dépannage de publication. */
+  niveau: NiveauDAccueil = 'complet',
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -660,6 +706,25 @@ async function startTurn(
   const fullAccess = !isOrchestrator || project.isSelf;
 
   /*
+   * LA FRONTIÈRE DU CHEF BRIDÉ. Il a tous les droits sauf modifier le code du
+   * projet : on lui donne un DOSSIER DE TRAVAIL à part comme `cwd` — le seul
+   * écrivable — et on garde le projet en LECTURE SEULE (monté par `projectRoot`,
+   * jamais dans l'espace écrivable du bac à sable). Un dossier par projet, hors
+   * des dépôts, gardé d'un tour à l'autre pour que le chef y retrouve ses notes.
+   * L'agent de tâche et le chef d'HaikoDev lui-même, eux, travaillent dans le
+   * dossier du projet (`dossier`).
+   */
+  const bride = isOrchestrator && !project.isSelf;
+  let cwd = dossier;
+  let projectRoot: string | undefined;
+  if (bride) {
+    const scratch = path.join(PATHS.chefScratch, project.id);
+    fs.mkdirSync(scratch, { recursive: true });
+    cwd = scratch;
+    projectRoot = project.path;
+  }
+
+  /*
    * LE CHIFFRAGE ET L'EXÉCUTION PARTAGENT UN SEUL FIL. Le tour d'analyse ouvre
    * la session (rôle « analysis »), puis le même agent devient agent de tâche
    * pour exécuter. La consigne système est GRAVÉE dans le fil au premier tour et
@@ -672,7 +737,7 @@ async function startTurn(
    * « pre_run » interdit d'écrire au passé.
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId ? 'task' : agent.role;
-  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine);
+  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine, niveau);
   composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
@@ -719,7 +784,8 @@ async function startTurn(
   let sawError: string | undefined;
 
   const handle = adapter.run({
-    cwd: dossier,
+    cwd,
+    projectRoot,
     prompt,
     model: agent.run.model ?? undefined,
     thinking: agent.run.thinking,
@@ -916,10 +982,26 @@ async function startTurn(
     account: account.id,
     engine: agent.run.engine,
     tokens,
+    tokensIn: runState.usage ? (runState.usage.inputTokens ?? 0) + (runState.usage.cachedTokens ?? 0) : undefined,
+    tokensOut: runState.usage ? (runState.usage.outputTokens ?? 0) : undefined,
     quota5h: parts.quota5h,
     quotaSemaine: parts.quotaSemaine,
     seconds: elapsedSeconds,
   });
+
+  const measurement: TurnMeasurement = {
+    usage: {
+      inputTokens: runState.usage?.inputTokens ?? 0,
+      cachedInputTokens: runState.usage?.cachedTokens,
+      outputTokens: runState.usage?.outputTokens ?? 0,
+    },
+    quota: {
+      quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
+      quotaWeekly:
+        quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
+    },
+    composition,
+  };
 
   // Contrôle de forme : un moteur qui ignore le gabarit se fait rattraper.
   let finalText = runState.text.trim();
@@ -955,6 +1037,9 @@ async function startTurn(
   }
 
   const failed = !result.ok || !!sawError;
+  if (!failed && agent.role === 'orchestrator') {
+    finaliserPropositionsDuChef(runState.messageId, agent.projectId, measurement);
+  }
   // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
   // session RÉUSSI. Une session créée puis refusée doit pouvoir le renvoyer.
   if (nouvelleSession) {
@@ -1116,19 +1201,7 @@ async function startTurn(
 
   if (onComplete) {
     try {
-      await onComplete(finalText, !failed, {
-        usage: {
-          inputTokens: runState.usage?.inputTokens ?? 0,
-          cachedInputTokens: runState.usage?.cachedTokens,
-          outputTokens: runState.usage?.outputTokens ?? 0,
-        },
-        quota: {
-          quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
-          quotaWeekly:
-            quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
-        },
-        composition,
-      });
+      await onComplete(finalText, !failed, measurement);
     } catch (err) {
       log.error('post-traitement du tour impossible', err);
     }
@@ -1242,7 +1315,37 @@ function resumePourAgent(agent: Agent): string {
     decisions,
     todos: dernierAvecTaches?.todos.map((todo) => `${todo.state} : ${todo.label}`),
     attachments,
+    memoire: memoireDeReprise(project.path, agent, card),
   });
+}
+
+/**
+ * LA MÉMOIRE QU'UNE REPRISE RECHARGE : les fichiers de sujet que touche le
+ * travail en cours, jamais toute la mémoire. Le texte examiné est le même pour
+ * TOUS les rôles — carte, titre de l'agent, rôle réunis : le chef d'orchestre et
+ * l'agent de tâche passent par la même règle, seul leur travail diffère.
+ */
+function memoireDeReprise(projectPath: string, agent: Agent, card: Card | null): MemoireDeReprise | undefined {
+  const texte = [
+    card?.title,
+    card?.description,
+    agent.title,
+    agent.role === 'orchestrator' ? "chef d'orchestre : cartes, projets, conversation" : agent.role,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const retenus = sujetsUtiles(texte);
+  const sujets = retenus
+    .map((id) => ({ id, libelle: libelleSujet(id), faits: faitsDuSujet(projectPath, id) }))
+    .filter((sujet) => sujet.faits.length);
+  if (!sujets.length) return undefined;
+
+  const autres = SUJETS_MEMOIRE.filter(
+    (sujet) => !retenus.includes(sujet.id) && faitsDuSujet(projectPath, sujet.id).length,
+  ).map((sujet) => sujet.libelle);
+
+  return { sujets, autres };
 }
 
 async function compresserContexte(agent: Agent, options: OptionsCompression): Promise<void> {
@@ -1400,6 +1503,46 @@ export function attachToCurrentMessage(
   }
 }
 
+/**
+ * Une proposition naît pendant le tour, avant que l'usage réel soit connu.
+ * À la fin du tour du chef, on complète son chiffrage dans les DEUX sources
+ * persistantes (message et table des propositions). Si l'utilisateur a déjà
+ * cliqué, la carte reçoit aussi cette mesure tardive sans relancer d'analyse.
+ */
+function finaliserPropositionsDuChef(
+  messageId: string,
+  projectId: string,
+  measurement: TurnMeasurement,
+): void {
+  const current = store.getMessage(messageId);
+  if (!current?.proposals.length) return;
+
+  let change = false;
+  const proposals = current.proposals.map((proposal) => {
+    const finalisee = finaliserAnalyseDeProposition(proposal, measurement);
+    if (finalisee === proposal) return proposal;
+    change = true;
+    store.saveProposal(messageId, projectId, finalisee);
+
+    if (finalisee.cardId) {
+      const card = store.getCard(finalisee.cardId);
+      if (card) {
+        const updated = store.saveCard({
+          ...card,
+          estimate: finalisee.estimate,
+          analysisContext: finalisee.analysisContext,
+        });
+        bus.emit({ type: 'card.upsert', card: updated });
+      }
+    }
+    return finalisee;
+  });
+
+  if (!change) return;
+  const updated = store.saveMessage({ ...current, proposals });
+  bus.emit({ type: 'message.upsert', message: updated });
+}
+
 export function stopAgent(agentId: string): boolean {
   const run = live.get(agentId);
   if (!run) return false;
@@ -1456,11 +1599,43 @@ export function rappelDeMethode(engine: EngineId = 'claude'): string {
 }
 
 /**
+ * LA CONSIGNE D'UN DÉPANNAGE DE PUBLICATION, à la place du déroulé complet.
+ *
+ * Un agent appelé pour un conflit de fusion, un contrôle tombé ou une
+ * construction cassée reçoit une demande qui NOMME déjà les fichiers, les
+ * contrôles ou la cause, et qui liste les gestes dans l'ordre. La méthode
+ * générale, elle, lui dirait d'annoncer une liste de tâches, de lire le fichier
+ * d'instructions du projet et d'interroger la mémoire par sujet : trois détours
+ * payants pour une panne de plomberie, et deux d'entre eux renvoient à un
+ * briefing qu'il n'a plus. Ne restent donc que les interdits qui valent partout.
+ */
+const CONSIGNE_DEPANNAGE = `Tu travailles dans HaikoDev. Réponds en français simple, très court.
+
+TU ES UN AGENT DE DÉPANNAGE appelé PENDANT une publication déjà en cours. Une seule chose bloque, elle t'est nommée dans la demande : tu la répares, tu t'arrêtes. Tu n'ouvres pas le projet en grand, tu ne cherches pas de travail à côté, tu n'annonces pas de liste de tâches.
+Fais EXACTEMENT les gestes demandés, dans l'ordre donné, et rien d'autre. Ce qui n'est pas dans la demande n'est pas de ton ressort.
+NE PUBLIE RIEN et NE REDÉMARRE RIEN : la publication reprend toute seule dès que ton tour est fini.
+NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Si tu n'arrives pas à réparer, dis-le en une phrase avec ce qui bloque encore — un échec tu, c'est une publication qui repart sur du faux.
+SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
+
+/**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
  * demande de programmation passe par une carte » se perdrait à la première
  * réécriture du texte si rien ne la retenait.
  */
-export function rolePrompt(role: AgentRole, isSelf: boolean, engine: EngineId = 'claude'): string {
+export function rolePrompt(
+  role: AgentRole,
+  isSelf: boolean,
+  engine: EngineId = 'claude',
+  /**
+   * L'accueil de cet agent. « minimal » — un dépannage de publication — reçoit
+   * une consigne CIBLÉE au lieu du déroulé complet : la méthode générale envoie
+   * lire le fichier d'instructions et interroger la mémoire par sujet, ce que
+   * l'agent n'a plus sous la main et ce dont sa panne n'a que faire.
+   */
+  niveau: NiveauDAccueil = 'complet',
+): string {
+  if (niveau === 'minimal') return CONSIGNE_DEPANNAGE;
+
   // Le déroulé est le MÊME quel que soit le moteur : c'est HaikoDev qui décide,
   // pas le modèle. Seul le NOM de l'outil de liste change d'un moteur à l'autre.
   // On n'annonce donc à chaque moteur QUE son propre outil — lui présenter le
@@ -1497,6 +1672,8 @@ NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche d
 5. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
 
 ${CONSIGNE_DESCRIPTION_CARTE}
+
+AVANT de proposer, tu as déjà lu le projet pour établir le constat. Dans le champ « analysis » de board_create_card ou propose_task, transmets donc aussi le chiffrage FUTUR et un relais court (faits utiles, fichiers concernés, approche et contrôles). HaikoDev ajoutera lui-même la mesure RÉELLE de ton tour : ne l'invente jamais. C'est ce qui permet à l'agent d'exécution de reprendre ton étude sans payer un second tour d'analyse identique.
 
 Tu peux lire le code, chercher, écrire un document (write_document) et préparer une archive (make_archive).
 

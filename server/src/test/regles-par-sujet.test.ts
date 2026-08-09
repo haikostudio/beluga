@@ -98,7 +98,7 @@ test('un invariant critique se retrouve par mots-clés hors nom de sujet', () =>
 test('detailProjet réunit faits et règles, sans noyer une règle sous l\'index', () => {
   const dossier = projetDEssai();
   appendMemory(dossier, 'La barre du haut ne garde que deux repères, réseau à gauche et menu à droite.');
-  const texte = detailProjet(dossier, 'publication');
+  const { texte } = detailProjet(dossier, 'publication');
   assert.match(texte, /Ne jamais publier/, 'la règle doit être là');
   // La demande vise une règle : l'index complet des faits ne doit pas la noyer.
   assert.doesNotMatch(texte, /barre du haut/);
@@ -109,6 +109,6 @@ test('sans docs/regles, detailRegles se tait et detailProjet ne rend que les fai
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'haikodev-sans-regles-'));
   appendMemory(dossier, 'Un fait durable quelconque du projet, retenu pour plus tard.');
   assert.equal(detailRegles(dossier, 'publication'), '');
-  assert.match(detailProjet(dossier, ''), /MÉMOIRE DU PROJET/);
+  assert.match(detailProjet(dossier, '').texte, /MÉMOIRE DU PROJET/);
   fs.rmSync(dossier, { recursive: true, force: true });
 });

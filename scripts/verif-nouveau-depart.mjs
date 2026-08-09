@@ -77,9 +77,9 @@ const avantEnveloppe = jetons(wrapPrompt('free', DEMANDE, '', { rappel: true, am
 
 // APRÈS : plus d'historique du tout. Le briefing et la mémoire du projet
 // repartent une fois — c'est le prix, honnête, du nouveau départ.
-const briefing = fs.existsSync(path.join(RACINE, 'MEMOIRE.md'))
-  ? fs.readFileSync(path.join(RACINE, 'MEMOIRE.md'), 'utf8')
-  : '';
+// Ce qui repart vraiment : l'index de la mémoire, pas ses fichiers par sujet.
+const memory = await import(path.join(RACINE, 'server/dist/memory.js'));
+const briefing = memory.blocMemoire(RACINE);
 const apresEnveloppe = jetons(
   wrapPrompt('free', DEMANDE, briefing, { rappel: false, ampleur: 'breve' }),
 );

@@ -15,6 +15,7 @@ import {
   Play,
   RefreshCw,
   Rocket,
+  Sparkles,
   Zap,
 } from 'lucide-react';
 import {
@@ -452,7 +453,10 @@ function Geste({ decision, children }: { decision: DecisionGeste; children: Reac
  * catalogue des moteurs, et on retombe sur l'identifiant seulement s'il n'y
  * figure plus (modèle retiré depuis, moteur désinstallé).
  */
-function libellesDuRun(engines: EngineInfo[], vu: ReglagesCarte) {
+function libellesDuRun(
+  engines: EngineInfo[],
+  vu: Pick<ReglagesCarte, 'engine' | 'model' | 'thinking'>,
+) {
   const moteur = engines.find((e) => e.id === vu.engine);
   const modele = moteur?.models.find((m) => m.id === vu.model);
   const niveau = modele?.thinking?.find((t) => t.id === vu.thinking);
@@ -461,6 +465,61 @@ function libellesDuRun(engines: EngineInfo[], vu: ReglagesCarte) {
     modele: modele?.label ?? vu.model ?? '—',
     reflexion: niveau?.label ?? vu.thinking ?? '—',
   };
+}
+
+/**
+ * Ce qui était déjà prêt lorsque la proposition du chef d'orchestre est
+ * devenue une carte. On ne fabrique aucun historique : le bloc ne lit que les
+ * champs conservés sur la carte et distingue le chiffrage, produit ensuite
+ * par l'analyse mais toujours avant l'exécution.
+ */
+function PreparationChef({ card }: { card: Card }) {
+  const state = useApp();
+  if (card.origin !== 'agent') return null;
+
+  const reglages = libellesDuRun(state.engines, card.run);
+  const estimation = card.estimate?.machineSeconds
+    ? duration(card.estimate.machineSeconds)
+    : card.estimate?.failed
+      ? 'Chiffrage indisponible'
+      : 'Chiffrage en attente';
+  const pieces = card.attachments.length;
+  const etiquettes = card.labels.length;
+
+  return (
+    <div
+      className="rounded-md border border-accent/25 bg-accent/5 px-3 py-3"
+      data-preparation-chef
+    >
+      <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-text">
+        <Sparkles className="h-3.5 w-3.5 text-accent" />
+        Préparé depuis la proposition du chef d’orchestre
+      </div>
+      <p className="mt-0.5 text-[12.5px] text-faint">
+        Ces éléments étaient déjà dans la carte avant son exécution.
+      </p>
+
+      <div className="mt-2 space-y-1.5 text-[13px]">
+        <div>
+          <span className="text-faint">Réglages repris </span>
+          <span className="text-text">
+            {reglages.moteur} · {reglages.modele} · {reglages.reflexion}
+          </span>
+        </div>
+        <div>
+          <span className="text-faint">Contenu transmis </span>
+          <span className="text-text">
+            consigne de la carte · {etiquettes} {etiquettes === 1 ? 'étiquette' : 'étiquettes'} · {pieces}{' '}
+            {pieces === 1 ? 'image' : 'images'}
+          </span>
+        </div>
+        <div>
+          <span className="text-faint">Préparation avant exécution </span>
+          <span className="text-text">{estimation} · analyse et exécution dans la même conversation</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -602,6 +661,68 @@ function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
   );
 }
 
+/**
+ * Pour chaque agent qui a touché la carte (analyse, exécution, publication),
+ * ses deux totaux cumulés sur toute la vie de la carte — venus d'une vraie
+ * mesure moteur, jamais d'une estimation. Une carte sans aucun tour mesuré
+ * (lignes anciennes, sans séparation) ne montre rien : pas de zéro trompeur.
+ */
+function TokensParAgent({ card }: { card: Card }) {
+  const state = useApp();
+  const [totaux, setTotaux] = React.useState<{ agentId: string; tokensIn: number; tokensOut: number }[] | null>(
+    null,
+  );
+  React.useEffect(() => {
+    let vivant = true;
+    setTotaux(null);
+    client
+      .call({ type: 'card.tokens', cardId: card.id })
+      .then((data) => {
+        if (vivant) setTotaux(data.agents ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      vivant = false;
+    };
+  }, [card.id]);
+
+  if (!totaux || !totaux.length) return null;
+
+  const lignes = totaux
+    .map((ligne) => ({ ...ligne, agent: state.agents[ligne.agentId] }))
+    .sort((a, b) => (a.agent?.createdAt ?? 0) - (b.agent?.createdAt ?? 0));
+
+  return (
+    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+      <div className="text-[11.5px] uppercase tracking-wide text-faint">Jetons envoyés / reçus, par agent</div>
+      <div className="mt-1 space-y-1">
+        {lignes.map((ligne) => (
+          <div key={ligne.agentId} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13.5px]">
+            <span className="min-w-[110px] shrink-0 text-faint">{libelleRoleAgent(ligne.agent?.role)}</span>
+            <Etiquette nom="Envoyés" valeur={ligne.tokensIn.toLocaleString('fr-CH')} />
+            <Etiquette nom="Reçus" valeur={ligne.tokensOut.toLocaleString('fr-CH')} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function libelleRoleAgent(role?: string): string {
+  switch (role) {
+    case 'analysis':
+      return 'Analyse';
+    case 'task':
+      return 'Exécution';
+    case 'deploy':
+      return 'Publication';
+    case 'orchestrator':
+      return "Chef d'orchestre";
+    default:
+      return 'Agent';
+  }
+}
+
 function CardSummary({ card }: { card: Card }) {
   const [description, setDescription] = React.useState(card.description);
   React.useEffect(() => setDescription(card.description), [card.id]);
@@ -626,6 +747,8 @@ function CardSummary({ card }: { card: Card }) {
           chercher avant de valider, et ce qu'on relit après coup quand le
           résultat surprend. */}
       <ReglagesAgent card={card} />
+      <PreparationChef card={card} />
+      <TokensParAgent card={card} />
 
       <div>
         <Label htmlFor="carte-description">Description</Label>
@@ -651,45 +774,98 @@ function CardSummary({ card }: { card: Card }) {
         </p>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2">
-        <Metric
-          label="Durée machine prévue"
-          value={duration(card.estimate?.machineSeconds)}
-          hint="Sert à l'ordonnanceur, jamais à la facture"
-        />
-        <Metric
-          label="Durée réelle"
-          value={duration(card.consumption?.machineSeconds)}
-          tone={
-            card.estimate?.machineSeconds && card.consumption?.machineSeconds
-              ? card.consumption.machineSeconds > card.estimate.machineSeconds * 1.3
-                ? 'warning'
+      <MomentDetail
+        numero="1"
+        titre="Analyse initiale"
+        description="Ce qui a été mesuré et prévu avant le lancement du travail."
+        moment="analyse-initiale"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <Metric
+            label="Durée machine prévue"
+            value={duration(card.estimate?.machineSeconds)}
+            hint="Sert à l'ordonnanceur, jamais à la facture"
+          />
+          {/* Retiré du pied des cartes : c'est ici qu'on vient le chercher. */}
+          <Metric
+            label="Heures développeur senior"
+            value={card.estimate?.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
+            hint="Base de la facture, jamais la durée machine"
+          />
+        </div>
+
+        {card.estimate ? <DetailCoutAnalyse card={card} /> : null}
+
+        {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
+            forme, dès qu'il est terminé. En recopier ici un extrait tronqué
+            faisait lire deux fois la même chose, et moins bien. */}
+        {card.estimate?.summary ? (
+          <p className="text-[13px] text-faint">
+            Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
+          </p>
+        ) : null}
+      </MomentDetail>
+
+      <MomentDetail
+        numero="2"
+        titre="Exécution réelle"
+        description="Ce que le travail a réellement consommé après son lancement."
+        moment="execution-reelle"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <Metric
+            label="Durée réelle"
+            value={duration(card.consumption?.machineSeconds)}
+            tone={
+              card.estimate?.machineSeconds && card.consumption?.machineSeconds
+                ? card.consumption.machineSeconds > card.estimate.machineSeconds * 1.3
+                  ? 'warning'
+                  : 'neutral'
                 : 'neutral'
-              : 'neutral'
-          }
-        />
-        {/* Retiré du pied des cartes : c'est ici qu'on vient le chercher. */}
-        <Metric
-          label="Heures développeur senior"
-          value={card.estimate?.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
-          hint="Base de la facture, jamais la durée machine"
-        />
-        {/* Le compte utilisé n'est plus ici : il vit avec les réglages de
-            l'agent, en haut, là où il explique le quota consommé. */}
-        <Metric label="Tokens consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
-      </div>
-
-      {card.estimate ? <DetailCoutAnalyse card={card} /> : null}
-
-      {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
-          forme, dès qu'il est terminé. En recopier ici un extrait tronqué
-          faisait lire deux fois la même chose, et moins bien. */}
-      {card.estimate?.summary ? (
-        <p className="text-[13px] text-faint">
-          Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
-        </p>
-      ) : null}
+            }
+          />
+          {/* Le compte utilisé n'est plus ici : il vit avec les réglages de
+              l'agent, en haut, là où il explique le quota consommé. */}
+          <Metric label="Tokens consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
+        </div>
+        {!card.consumption ? (
+          <p className="text-[13px] text-faint">L’exécution n’a pas encore produit de mesure.</p>
+        ) : null}
+      </MomentDetail>
     </div>
+  );
+}
+
+/** Une étape bien délimitée du parcours de la carte : analyse, puis exécution. */
+function MomentDetail({
+  numero,
+  titre,
+  description,
+  moment,
+  children,
+}: {
+  numero: string;
+  titre: string;
+  description: string;
+  moment: 'analyse-initiale' | 'execution-reelle';
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-surface" data-moment-detail={moment}>
+      <div className="flex items-start gap-2.5 border-b border-border bg-raised px-3 py-2.5">
+        <span
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-info/15 text-[12px] font-semibold text-info"
+          aria-hidden="true"
+        >
+          {numero}
+        </span>
+        <div>
+          <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
+          <p className="mt-0.5 text-[12.5px] leading-relaxed text-faint">{description}</p>
+        </div>
+      </div>
+      <div className="space-y-3 px-3 py-3">{children}</div>
+    </section>
   );
 }
 

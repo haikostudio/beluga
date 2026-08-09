@@ -288,6 +288,12 @@ export const Card = z.object({
   attachments: z.array(z.string()).default([]),
   run: RunConfig,
   estimate: Estimate.optional(),
+  /**
+   * Relais court préparé par le chef d'orchestre pendant la proposition.
+   * L'agent d'exécution le reçoit à son premier tour : il repart des constats
+   * déjà faits sans ouvrir un second tour de chiffrage identique.
+   */
+  analysisContext: z.string().optional(),
   consumption: Consumption.optional(),
   scheduling: SchedulingState.optional(),
   agentId: z.string().optional(),
@@ -441,6 +447,10 @@ export const TaskProposal = z.object({
    * fil de la conversation.
    */
   attachments: z.array(z.string()).default([]),
+  /** Chiffrage futur préparé pendant le tour qui propose la carte. */
+  estimate: Estimate.optional(),
+  /** Faits, choix et contrôles déjà établis, transmis à l'agent d'exécution. */
+  analysisContext: z.string().optional(),
   /**
    * Ce qui cloche dans les réglages proposés — moteur absent, aucun compte
    * disponible — écrit en toutes lettres sur la proposition. On ne bascule

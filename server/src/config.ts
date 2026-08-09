@@ -74,6 +74,13 @@ export const PATHS = {
    * comptes — voir `server/src/competences.ts`.
    */
   competences: env('HAIKODEV_COMPETENCES', path.join(CONFIG.dataDir, 'competences')),
+  /**
+   * Le DOSSIER DE TRAVAIL du chef d'orchestre bridé : un sous-dossier par projet,
+   * le seul endroit où il a le droit d'écrire (brouillons, sorties d'analyse). Il
+   * vit hors des dépôts des projets — le projet, lui, reste monté en lecture
+   * seule. Voir `shared/src/bridage-chef.ts`.
+   */
+  chefScratch: path.join(CONFIG.dataDir, 'chef-scratch'),
 };
 
 export function ensureDirs(): void {
@@ -87,6 +94,7 @@ export function ensureDirs(): void {
     PATHS.backups,
     PATHS.accounts,
     PATHS.competences,
+    PATHS.chefScratch,
   ]) {
     fs.mkdirSync(dir, { recursive: true });
   }

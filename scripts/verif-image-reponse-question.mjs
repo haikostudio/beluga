@@ -21,16 +21,17 @@
  *   npm run build && node scripts/verif-image-reponse-question.mjs
  */
 import { chromium } from 'playwright';
-import WebSocket from '/root/haikodev/node_modules/ws/index.js';
-import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
+import WebSocket from 'ws';
+import Database from 'better-sqlite3';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const RACINE = '/root/haikodev';
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7191);
 const BASE = `http://127.0.0.1:${PORT}`;
 const SHOTS = `${RACINE}/data/verification`;
@@ -104,6 +105,7 @@ const TEXTES = {
   transport: `Vérification ${marque} — transport des images`,
   enAttente: `Vérification ${marque} — que voyez-vous sur cette capture ?`,
   reponse: `Vérification ${marque} — voici la capture`,
+  reponseLongue: `Vérification-${marque}-${'sans-espace-'.repeat(80)}`,
 };
 
 function poserLeDecor() {
@@ -270,7 +272,18 @@ async function ecran(navigateur, telephone) {
   const page = await context.newPage();
   const erreurs = [];
   page.on('pageerror', (error) => erreurs.push(String(error)));
-  page.on('console', (m) => m.type() === 'error' && erreurs.push(m.text()));
+  // La synthèse vocale est volontairement absente du démon isolé : son 503 ne
+  // concerne ni la question ni son rendu. Les autres échecs réseau restent vus
+  // par le relevé de réponse ci-dessous.
+  page.on(
+    'console',
+    (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && erreurs.push(m.text()),
+  );
+  page.on('response', (response) => {
+    if (response.status() >= 400 && !response.url().includes('/api/speak?')) {
+      erreurs.push(`HTTP ${response.status()} ${response.url()}`);
+    }
+  });
 
   try {
     await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -279,7 +292,7 @@ async function ecran(navigateur, telephone) {
     await page.waitForTimeout(1000);
     if (telephone) {
       // Sur téléphone, la conversation du chef vit derrière son onglet.
-      const ongletChef = page.getByRole('button', { name: 'Chef', exact: true }).first();
+      const ongletChef = page.getByRole('button', { name: /Chef/ }).first();
       if (await ongletChef.count()) {
         await ongletChef.click({ force: true });
         await page.waitForTimeout(2500);
@@ -287,6 +300,9 @@ async function ecran(navigateur, telephone) {
     }
 
     const bloc = blocQuestion(page, TEXTES.enAttente);
+    // Le premier écran peut ouvrir la liaison pendant que le démon achève son
+    // instantané initial : on attend la question au lieu de juger cet instant.
+    await bloc.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
     const vue = (await bloc.count()) > 0;
     noter(`${nom} : la question en attente est affichée`, vue);
     if (!vue) {
@@ -383,6 +399,23 @@ async function ecran(navigateur, telephone) {
       await donnee.scrollIntoViewIfNeeded().catch(() => {});
       await page.waitForTimeout(1500);
       noter(`${nom} : la réponse déjà donnée montre son image`, (await donnee.locator('img').count()) > 0);
+      const troncature = await donnee.locator('[data-reponse-question]').evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          contenuEntier: element.textContent?.length ?? 0,
+          deborde: element.scrollWidth > element.clientWidth,
+          ellipse: style.textOverflow === 'ellipsis',
+          uneLigne: style.whiteSpace === 'nowrap',
+        };
+      });
+      noter(
+        `${nom} : une réponse longue reste dans sa carte et se termine par des points`,
+        troncature.contenuEntier === TEXTES.reponseLongue.length &&
+          troncature.deborde &&
+          troncature.ellipse &&
+          troncature.uneLigne,
+        JSON.stringify(troncature),
+      );
       await page.screenshot({ path: `${SHOTS}/reponse-image-${nom}-donnee.png` });
     } else {
       noter(`${nom} : la réponse déjà donnée montre son image`, false, 'bloc introuvable');
@@ -450,7 +483,7 @@ async function main() {
     kind: 'text',
     options: [],
     allowFreeText: true,
-    answer: '1 image jointe',
+    answer: TEXTES.reponseLongue,
     answerAttachments: [imageId],
     answeredAt: Date.now(),
   });
