@@ -8,10 +8,12 @@ import {
   COLUMN_LABELS,
   Card,
   ColumnKey,
+  Estimate,
   RunConfig,
   SouhaitReglages,
   TaskProposal,
   canMove,
+  heritageAnalyseDeProposition,
   repriseAutorisee,
   reglagesDeLaProposition,
   composerDescription,
@@ -85,6 +87,69 @@ const CHAMP_DESCRIPTION =
   'Les quatre champs séparés (constat, attendu, limites, verification) font le même travail : HaikoDev les met en forme.';
 
 /**
+ * Le chef vient de lire le projet pour produire la description : ce travail
+ * est déjà l'analyse de la future carte. On lui demande donc, dans le MÊME
+ * appel d'outil, les chiffres futurs et un relais factuel pour l'exécution.
+ */
+const CHAMP_ANALYSE = {
+  type: 'object',
+  required: ['machineSeconds', 'seniorHours', 'context'],
+  description:
+    "Chiffrage et relais issus de l'analyse que tu viens de faire. Ils évitent à la carte de recommencer la même étude après validation.",
+  properties: {
+    machineSeconds: { type: 'number', description: "Durée machine prévue pour l'exécution, en secondes" },
+    seniorHours: { type: 'number', description: "Temps d'un développeur senior à la main, en heures" },
+    projection: {
+      type: 'object',
+      properties: {
+        tokens: { type: 'number' },
+        quotaShare: { type: 'number' },
+        formula: { type: 'string' },
+        assumptions: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+    summary: { type: 'string', description: 'Résumé court du travail prévu' },
+    billingTitle: { type: 'string' },
+    billingDescription: { type: 'string' },
+    context: {
+      type: 'string',
+      description:
+        "Relais factuel pour l'agent : constats utiles, fichiers concernés, approche retenue et contrôles à rejouer. Ne recopie pas toute la carte.",
+    },
+  },
+};
+
+/** Ignore toute prétendue mesure : elle sera ajoutée par le démon en fin de tour. */
+function analyseDeProposition(args: any): Pick<TaskProposal, 'estimate' | 'analysisContext'> | Record<string, never> {
+  const raw = args?.analysis;
+  const analysisContext = typeof raw?.context === 'string' ? raw.context.trim().slice(0, 12_000) : '';
+  if (!analysisContext) return {};
+  const projection = raw?.projection && typeof raw.projection === 'object' ? raw.projection : {};
+  const estimate = Estimate.safeParse({
+    machineSeconds: raw.machineSeconds,
+    tokens: projection.tokens,
+    quotaShare: projection.quotaShare,
+    projection: {
+      tokens: projection.tokens,
+      quotaShare: projection.quotaShare,
+      formula: projection.formula,
+      assumptions: Array.isArray(projection.assumptions) ? projection.assumptions : [],
+    },
+    confidence: raw.confidence ?? 'medium',
+    summary: raw.summary,
+    seniorHours: raw.seniorHours,
+    billingTitle: raw.billingTitle,
+    billingDescription: raw.billingDescription,
+    failed: false,
+  });
+  if (!estimate.success || (estimate.data.machineSeconds === undefined && estimate.data.seniorHours === undefined)) {
+    return {};
+  }
+  return { estimate: estimate.data, analysisContext };
+}
+
+/**
  * Fabrique la description d'une proposition, à partir des quatre champs
  * séparés OU du texte libre, puis la juge. Une description qui ne tient pas
  * debout ne devient PAS une proposition : elle est rendue au moteur avec le
@@ -127,7 +192,7 @@ export const TOOL_DEFS: ToolDef[] = [
       "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « À faire » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation.",
     inputSchema: {
       type: 'object',
-      required: ['title'],
+      required: ['title', 'analysis'],
       properties: {
         title: { type: 'string', description: 'Titre court et clair' },
         description: { type: 'string', description: CHAMP_DESCRIPTION },
@@ -136,6 +201,7 @@ export const TOOL_DEFS: ToolDef[] = [
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
         labels: { type: 'array', items: { type: 'string' } },
+        analysis: CHAMP_ANALYSE,
       },
     },
   },
@@ -177,7 +243,7 @@ export const TOOL_DEFS: ToolDef[] = [
       "Propose une tâche à l'utilisateur SANS créer de carte : une carte à valider ou refuser apparaît dans la conversation. À utiliser dans les cas ambigus.",
     inputSchema: {
       type: 'object',
-      required: ['title'],
+      required: ['title', 'analysis'],
       properties: {
         title: { type: 'string' },
         description: { type: 'string', description: CHAMP_DESCRIPTION },
@@ -186,6 +252,7 @@ export const TOOL_DEFS: ToolDef[] = [
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
         labels: { type: 'array', items: { type: 'string' } },
+        analysis: CHAMP_ANALYSE,
       },
     },
   },
@@ -414,6 +481,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if ('refus' in texte) return { ok: false, text: texte.refus };
 
       const reglages = await reglagesProposes(ctx.run);
+      const analyse = analyseDeProposition(args);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
@@ -422,6 +490,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         // Les images jointes au message qui a fait naître la proposition
         // suivent la carte jusqu'à l'agent d'exécution.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
+        ...analyse,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
@@ -439,11 +508,14 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'board_update_card': {
       const card = store.getCard(String(args.cardId));
       if (!card || card.projectId !== ctx.projectId) return { ok: false, text: 'Carte introuvable.' };
+      const title = typeof args.title === 'string' ? args.title : card.title;
+      const description = typeof args.description === 'string' ? args.description : card.description;
       const updated = store.saveCard({
         ...card,
-        title: typeof args.title === 'string' ? args.title : card.title,
-        description: typeof args.description === 'string' ? args.description : card.description,
+        title,
+        description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : card.labels,
+        ...heritageAnalyseDeProposition(card, title, description),
       });
       bus.emit({ type: 'card.upsert', card: updated });
       return { ok: true, text: `Carte mise à jour : ${updated.title}.` };
@@ -491,6 +563,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if ('refus' in texte) return { ok: false, text: texte.refus };
 
       const reglages = await reglagesProposes(ctx.run);
+      const analyse = analyseDeProposition(args);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
@@ -498,6 +571,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
         // Mêmes images que board_create_card : celles du message déclencheur.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
+        ...analyse,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
@@ -569,8 +643,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'project_memory': {
       // Le détail à la demande : l'index seul part au lancement ; le texte
       // entier des faits, des règles et des contrôles d'un sujet se demande
-      // quand ce sujet concerne vraiment la tâche.
-      return { ok: true, text: detailProjet(project.path, String(args.sujet ?? '')) };
+      // quand ce sujet concerne vraiment la tâche — et UNE SEULE FOIS par
+      // session : un sujet déjà servi n'est pas repayé.
+      const servi = detailProjet(project.path, String(args.sujet ?? ''), store.sujetsMemoireServis(ctx.agentId));
+      store.marquerSujetsMemoireServis(ctx.agentId, servi.servis);
+      return { ok: true, text: servi.texte };
     }
 
     case 'remember': {
@@ -633,6 +710,10 @@ export function createCard(
     run?: Partial<Card['run']>;
     /** Images héritées de la proposition (jointes au chef d'orchestre). */
     attachments?: string[];
+    /** Chiffrage préparé par le chef, déjà mesuré en fin de son tour. */
+    estimate?: Card['estimate'];
+    /** Relais factuel qui évite à l'exécution de recommencer l'étude. */
+    analysisContext?: string;
   },
 ): Card {
   const project = store.getProject(projectId);
@@ -643,6 +724,8 @@ export function createCard(
     description: input.description ?? '',
     labels: input.labels ?? [],
     attachments: input.attachments ?? [],
+    estimate: input.estimate,
+    analysisContext: input.analysisContext,
     // Le champ « colonne » est ignoré à la création : invariant 1.
     column: 'todo' as ColumnKey,
     position: store.nextPosition(projectId, 'todo'),
@@ -677,6 +760,16 @@ export const ORCHESTRATOR_ALLOWED_NATIVE = [
   'WebFetch',
   'WebSearch',
   'ToolSearch',
+  // Le chef a TOUS LES DROITS SAUF modifier le code du projet : le shell lui est
+  // ouvert (sondages, études, analyses, écritures de brouillon dans son dossier
+  // de travail). Ce qui garde le PROJET intouchable n'est pas l'absence de ces
+  // outils, mais le bac à sable : le projet est monté en lecture seule, une
+  // commande qui tente d'y écrire échoue. Les outils d'ÉDITION de fichiers
+  // (« Edit », « Write », « NotebookEdit »), eux, restent interdits plus bas —
+  // la ceinture par-dessus le bac à sable. Voir `shared/src/bridage-chef.ts`.
+  'Bash',
+  'BashOutput',
+  'KillShell',
   // La liste de tâches ne touche à rien : elle affiche seulement le déroulé
   // annoncé, coché en direct dans la conversation. « TodoWrite » est l'ancien
   // nom ; les versions récentes du moteur parlent « TaskCreate / TaskUpdate ».
@@ -691,12 +784,13 @@ export const ORCHESTRATOR_ALLOWED_NATIVE = [
 ];
 
 export const ORCHESTRATOR_DENIED_NATIVE = [
+  // Les outils d'ÉDITION restent fermés au chef : modifier le code du projet
+  // s'ouvre en carte confiée à un agent de tâche (règle absolue). Le shell, lui,
+  // est désormais PERMIS plus haut ; c'est le bac à sable qui garde le projet en
+  // lecture seule, pas l'absence de « Bash ».
   'Edit',
   'Write',
   'NotebookEdit',
-  'Bash',
-  'BashOutput',
-  'KillShell',
   'Task',
   'Agent',
   // Apparu avec une mise à jour du moteur : lance des agents en masse, donc

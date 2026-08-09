@@ -61,6 +61,14 @@ export interface EngineRunOptions {
   fullAccess: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
+  /**
+   * La racine du PROJET, montée en LECTURE SEULE pour un chef bridé. Son `cwd`
+   * (ci-dessus) est un dossier de travail à part, le seul écrivable ; le projet,
+   * lui, se lit sans se modifier. Claude l'ajoute à sa portée par `--add-dir` ;
+   * Codex lit partout depuis son bac à sable `workspace-write`. Absent pour un
+   * agent de tâche, qui travaille directement dans le projet.
+   */
+  projectRoot?: string;
   env?: Record<string, string>;
   onEvent: (event: EngineEvent) => void;
 }

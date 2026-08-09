@@ -401,7 +401,7 @@ function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
                 <span className="shrink-0 text-faint">{heureCourte(entree.at)}</span>
                 <span className="min-w-0 flex-1 truncate text-muted">{nom(entree.account)}</span>
                 <span className={cn('shrink-0', entree.ok ? 'text-faint' : 'text-warning')}>
-                  {entree.ok ? `${entree.tokens ?? 0} jetons` : (entree.error ?? 'refus')}
+                  {entree.ok ? `${entree.tokens ?? 0} tokens` : (entree.error ?? 'refus')}
                 </span>
               </li>
             ))}

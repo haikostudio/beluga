@@ -317,10 +317,21 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
   },
   {
     id: 14,
+    name: 'tokens-envoyes-et-recus',
+    // `tokens` restait un total combiné : entrée et sortie séparées, à côté,
+    // pour un total par agent. Les lignes déjà écrites gardent NULL ici — leur
+    // seul total combiné reste valable, rien n'est recalculé.
+    sql: `
+      ALTER TABLE usage ADD COLUMN tokens_in INTEGER;
+      ALTER TABLE usage ADD COLUMN tokens_out INTEGER;
+    `,
+  },
+  {
+    id: 15,
     name: 'detail-des-tours-envoyes-recus',
-    // Le journal d'usage ne gardait qu'un TOTAL de jetons par tour : impossible
-    // de dire ce qui était parti et ce qui était revenu, ni sur quel modèle —
-    // donc impossible d'en chiffrer le coût. Ajout PUREMENT additif : les
+    // Le journal d'usage ne disait pas ce qui était RELU depuis le cache ni sur
+    // quel modèle — donc impossible d'en chiffrer le coût. Ajout PUREMENT
+    // additif, à côté de `tokens_in` / `tokens_out` (migration 14) : les
     // colonnes existantes, le quota et la facturation ne bougent pas, et les
     // tours déjà enregistrés gardent 0 (l'écran les montre alors sans détail
     // plutôt qu'avec un faux chiffre).

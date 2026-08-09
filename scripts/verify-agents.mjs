@@ -3,19 +3,32 @@
  * Essais fonctionnels RÉELS : de vrais agents, sur un vrai projet.
  * Pilote le démon par son protocole, exactement comme le fait l'interface.
  */
-import WebSocket from '/root/haikodev/node_modules/ws/index.js';
+import WebSocket from 'ws';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const BASE = 'http://127.0.0.1:7070';
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const BASE = process.env.HAIKODEV_AGENTS_URL || 'http://127.0.0.1:7070';
 const USER = process.env.HAIKODEV_USER;
 const PASS = process.env.HAIKODEV_PASSWORD;
-const SANDBOX = '/root/haikodev/data/bac-a-sable';
+const SANDBOX = process.env.HAIKODEV_AGENTS_SANDBOX || path.join(RACINE, 'data', 'bac-a-sable');
+const ENGINE = process.env.HAIKODEV_AGENTS_ENGINE || 'claude';
 
 const results = [];
 function record(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
+}
+
+function terminer() {
+  const failed = results.filter((r) => !r.ok);
+  console.log(`\n${results.length - failed.length}/${results.length} essais réussis`);
+  if (failed.length) {
+    console.log('Échecs :');
+    for (const failure of failed) console.log(` - ${failure.name} ${failure.detail}`);
+    process.exitCode = 1;
+  }
 }
 
 async function login() {
@@ -125,34 +138,39 @@ async function main() {
     type: 'project.create',
     name: 'Bac à sable',
     path: SANDBOX,
+    defaultEngine: ENGINE,
   });
   record('Projet : inscription d\'un dossier du serveur', !!project?.id, project?.name);
 
   /* ---------- Invariant : une carte naît dans « À faire » ---------- */
-  const { card } = await session.call({
+  const { card: carteManuelle } = await session.call({
     type: 'card.create',
     projectId: project.id,
     title: 'Corriger la fonction somme qui soustrait au lieu d\'additionner',
     description: 'Le fichier calcul.js contient une fonction somme qui fait une soustraction. Corrige-la.',
   });
-  record('Carte : elle naît toujours dans « À faire »', card.column === 'todo', `colonne ${card.column}`);
+  record('Carte : elle naît toujours dans « À faire »', carteManuelle.column === 'todo', `colonne ${carteManuelle.column}`);
 
   /* ---------- Refus des colonnes interdites aux agents ---------- */
   let refused = false;
   try {
-    await session.call({ type: 'card.move', id: card.id, column: 'planned' });
+    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'planned' });
   } catch {
     refused = true;
   }
   record('Règle : l\'utilisateur peut déplacer librement (aucun blocage abusif)', !refused);
-  await session.call({ type: 'card.move', id: card.id, column: 'todo' });
+  await session.call({ type: 'card.move', id: carteManuelle.id, column: 'todo' });
+  await session.call({ type: 'card.delete', id: carteManuelle.id });
 
   /* ---------- Chef d'orchestre : le tri en familles ---------- */
   const { agent: orchestrator } = await session.call({ type: 'agent.orchestrator', projectId: project.id });
   record('Chef d\'orchestre : agent permanent créé', !!orchestrator?.id);
   record(
     'Chef d\'orchestre : son modèle et sa réflexion ont les bons défauts',
-    orchestrator.run.model?.includes('sonnet-5') && orchestrator.run.thinking === 'medium',
+    (ENGINE === 'codex'
+      ? orchestrator.run.engine === 'codex' && orchestrator.run.model?.includes('gpt-5.4')
+      : orchestrator.run.engine === 'claude' && orchestrator.run.model?.includes('sonnet-5')) &&
+      orchestrator.run.thinking === 'medium',
     `modèle ${orchestrator.run.model}, réflexion ${orchestrator.run.thinking}`,
   );
 
@@ -162,36 +180,72 @@ async function main() {
 
   // 1) Une QUESTION ne doit créer aucune carte.
   const beforeQuestion = countCards();
+  const anciensMessages = new Set(
+    session.events.filter((e) => e.type === 'message.upsert').map((e) => e.message.id),
+  );
   await session.call({ type: 'agent.prompt', agentId: orchestrator.id, text: 'À quoi sert le fichier calcul.js ?' });
-  await session.waitFor(
-    (e) => e.type === 'message.upsert' && e.message.agentId === orchestrator.id && !e.message.streaming && e.message.role === 'assistant' && e.message.content.length > 20,
+  const questionRendue = await session.waitFor(
+    (e) =>
+      e.type === 'message.upsert' &&
+      !anciensMessages.has(e.message.id) &&
+      e.message.agentId === orchestrator.id &&
+      !e.message.streaming &&
+      e.message.role === 'assistant' &&
+      e.message.content.length > 20,
     300000,
     'réponse du chef d\'orchestre',
   );
   await new Promise((r) => setTimeout(r, 1500));
   const afterQuestion = countCards();
-  const answer = session.events
-    .filter((e) => e.type === 'message.upsert' && e.message.agentId === orchestrator.id && e.message.role === 'assistant')
-    .slice(-1)[0]?.message;
+  const answer = questionRendue.message;
   record(
     'Chef d\'orchestre : une question reçoit une réponse, sans créer de carte',
     afterQuestion === beforeQuestion && !!answer?.content,
     (answer?.content ?? '').slice(0, 70).replace(/\n/g, ' '),
   );
 
-  /* ---------- Validation : l'analyse démarre et chiffre ---------- */
-  await session.call({ type: 'card.move', id: card.id, column: 'validated' });
-  const analysed = await session.waitFor(
-    (e) => e.type === 'card.upsert' && e.card.id === card.id && !!e.card.estimate,
+  /* ---------- Proposition : le chef analyse UNE fois et transmet ---------- */
+  await session.call({
+    type: 'agent.prompt',
+    agentId: orchestrator.id,
+    text: 'Corrige la fonction somme de calcul.js : elle soustrait au lieu d’additionner.',
+  });
+  const propositionRendue = await session.waitFor(
+    (e) =>
+      e.type === 'message.upsert' &&
+      e.message.agentId === orchestrator.id &&
+      e.message.role === 'assistant' &&
+      !e.message.streaming &&
+      e.message.proposals?.some((p) => p.decision === 'pending' && p.estimate?.analysisMeasurement),
     600000,
-    'analyse de la carte',
+    'proposition chiffrée du chef',
   );
-  const estimate = analysed.card.estimate;
-  record('Analyse : la validation déclenche le chiffrage', !!estimate, estimate?.failed ? 'sans chiffres' : 'chiffrée');
+  const proposal = propositionRendue.message.proposals.find((p) => p.decision === 'pending');
+  record('Chef : la proposition porte déjà le chiffrage', !!proposal?.estimate && !!proposal?.analysisContext);
+  record('Chef : la mesure réelle de son tour accompagne le chiffrage', !!proposal?.estimate?.analysisMeasurement);
+
+  const { cardId } = await session.call({
+    type: 'proposal.decide',
+    messageId: propositionRendue.message.id,
+    proposalId: proposal.id,
+    accept: true,
+  });
+  const creee = await session.waitFor(
+    (e) => e.type === 'card.upsert' && e.card.id === cardId,
+    120000,
+    'création de la carte proposée',
+  );
+  let card = creee.card;
+  record(
+    'Validation : la carte hérite des chiffres et du relais',
+    !!card.estimate?.analysisMeasurement && !!card.analysisContext,
+  );
+
+  await session.call({ type: 'card.move', id: card.id, column: 'validated' });
   record(
     'Analyse : durée machine et heures humaines sont distinctes',
-    !estimate.failed && typeof estimate.machineSeconds === 'number' && typeof estimate.seniorHours === 'number',
-    `machine ${estimate.machineSeconds}s · senior ${estimate.seniorHours}h`,
+    !card.estimate.failed && typeof card.estimate.machineSeconds === 'number' && typeof card.estimate.seniorHours === 'number',
+    `machine ${card.estimate.machineSeconds}s · senior ${card.estimate.seniorHours}h`,
   );
 
   const planned = await session.waitFor(
@@ -199,7 +253,19 @@ async function main() {
     120000,
     'promotion en planifié',
   );
-  record('Ordonnancement : promotion automatique en « Planifié »', planned.card.column === 'planned');
+  card = planned.card;
+  record('Ordonnancement : la carte déjà analysée va directement en « Planifié »', card.column === 'planned');
+  await new Promise((r) => setTimeout(r, 1500));
+  const analysesRedondantes = session.events.filter(
+    (e) => e.type === 'agent.upsert' && e.agent.cardId === card.id && e.agent.role === 'analysis',
+  );
+  record('Analyse : aucun second agent de chiffrage n’est créé', analysesRedondantes.length === 0);
+
+  if (process.env.HAIKODEV_AGENTS_PLAN_ONLY === '1') {
+    session.close();
+    terminer();
+    return;
+  }
 
   /* ---------- Agent de tâche : exécution réelle ---------- */
   await session.call({ type: 'card.start', id: card.id });
@@ -230,7 +296,7 @@ async function main() {
   record('Liste d\'exécution : les étapes sont annoncées et cochées', steps.length > 0, `${steps.length} étapes`);
 
   const content = finalMessage.message.content ?? '';
-  const hasTemplate = ['Ce qui est fait', 'Ce qui change', 'Impact'].every((section) => content.includes(section));
+  const hasTemplate = ['Analyse', 'Ce qui est fait', 'Conséquences', 'Impact', 'Coûts'].every((section) => content.includes(section));
   record('Gabarit : la réponse suit la forme imposée par la colonne', hasTemplate);
 
   /* ---------- Mémoire du projet ---------- */
@@ -245,6 +311,12 @@ async function main() {
     .slice(-1)[0]?.card.consumption;
   record('Consommation : jetons, durée et compte relevés', !!consumed?.tokens && !!consumed?.machineSeconds,
     consumed ? `${consumed.tokens} jetons · ${Math.round(consumed.machineSeconds)}s · ${consumed.account}` : '');
+
+  if (process.env.HAIKODEV_AGENTS_CARTES_ONLY === '1') {
+    session.close();
+    terminer();
+    return;
+  }
 
   /* ---------- Clôture, publication, archivage ---------- */
   await session.call({ type: 'card.finish', id: card.id });
@@ -303,13 +375,7 @@ async function main() {
 
   session.close();
 
-  const failed = results.filter((r) => !r.ok);
-  console.log(`\n${results.length - failed.length}/${results.length} essais réussis`);
-  if (failed.length) {
-    console.log('Échecs :');
-    for (const failure of failed) console.log(` - ${failure.name} ${failure.detail}`);
-    process.exit(1);
-  }
+  terminer();
 }
 
 main().catch((err) => {

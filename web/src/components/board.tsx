@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe } from 'lucide-react';
+import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, X } from 'lucide-react';
 import {
+  Attachment,
   COLUMN_KEYS,
   COLUMN_LABELS,
   Card,
@@ -47,6 +48,7 @@ import { useSurvol } from '@/lib/pointeur';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel, BoutonInfosPublication, InfosPublication } from '@/components/deploy-panel';
+import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 
 /**
  * Ce qu'un pied de colonne sait faire en lot. UN SEUL mécanisme, en deux temps :
@@ -880,7 +882,42 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
+  const [attachments, setAttachments] = React.useState<Attachment[]>([]);
+  const [apercu, setApercu] = React.useState<Attachment | null>(null);
+  const [uploading, setUploading] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const upload = async (files: FileList | File[]) => {
+    if (!files.length) return;
+    const dejaVues = new Set(attachments.map((item) => item.id));
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const response = await fetch(`/api/upload?project=${encodeURIComponent(projectId)}`, {
+          method: 'POST',
+          headers: {
+            'content-type': file.type || 'application/octet-stream',
+            'x-file-name': encodeURIComponent(file.name),
+          },
+          body: file,
+        });
+        if (!response.ok) throw new Error(String(response.status));
+        const data = await response.json();
+        const jointe: Attachment | undefined = data.attachment;
+        if (!jointe || dejaVues.has(jointe.id)) continue;
+        dejaVues.add(jointe.id);
+        setAttachments((current) =>
+          current.some((item) => item.id === jointe.id) ? current : [...current, jointe],
+        );
+      }
+    } catch {
+      client.pushToast('error', 'Envoi du fichier impossible');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
   const create = async () => {
     if (!title.trim()) return;
@@ -891,6 +928,7 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
         projectId,
         title: title.trim(),
         description: description.trim() || undefined,
+        attachments: attachments.map((item) => item.id),
       });
       // Une carte naît toujours dans « À faire » : pour une note, on la déplace
       // ensuite — c'est le seul chemin autorisé par le serveur.
@@ -899,6 +937,8 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
       }
       setTitle('');
       setDescription('');
+      setAttachments([]);
+      setApercu(null);
       setOpen(false);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'création impossible');
@@ -910,7 +950,13 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
   if (!open) {
     return (
       <Tooltip label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}>
-        <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setOpen(true)}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="ml-auto"
+          aria-label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}
+          onClick={() => setOpen(true)}
+        >
           <Plus className="h-3 w-3" />
         </Button>
       </Tooltip>
@@ -940,11 +986,50 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
           if (event.key === 'Escape') setOpen(false);
         }}
       />
-      <div className="mt-1.5 flex items-center gap-1.5">
-        <Button variant="default" size="sm" disabled={!title.trim() || busy} onClick={create}>
+      {column === 'notes' && attachments.length ? (
+        <div className="mt-1.5 flex flex-wrap gap-1.5" data-note-attachments>
+          {attachments.map((item) => (
+            <div key={item.id} className="relative">
+              <AttachmentThumb item={item} compact onOpen={() => setApercu(item)} />
+              <button
+                type="button"
+                title="Retirer ce fichier"
+                onClick={() => setAttachments((current) => current.filter((file) => file.id !== item.id))}
+                className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-faint hover:border-danger/40 hover:text-danger"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <Button variant="default" size="sm" disabled={!title.trim() || busy || uploading} onClick={create}>
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
           {column === 'notes' ? 'Ajouter la note' : 'Ajouter la tâche'}
         </Button>
+        {column === 'notes' ? (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              className="hidden"
+              data-note-file-input
+              onChange={(event) => event.target.files && void upload(event.target.files)}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || uploading}
+              onClick={() => fileRef.current?.click()}
+            >
+              {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
+              Joindre
+            </Button>
+          </>
+        ) : null}
         <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
           Annuler
         </Button>
@@ -1225,7 +1310,7 @@ export function CardTile({
         {card.sansModification ? (
           <div className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning">
             <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
-            <span className="min-w-0">{card.sansModification}</span>
+            <span className="min-w-0 truncate">{card.sansModification}</span>
           </div>
         ) : null}
 
@@ -1237,7 +1322,7 @@ export function CardTile({
         {sansSuite ? (
           <div className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-faint">
             <Clock className="mt-[2px] h-3 w-3 shrink-0" />
-            <span className="min-w-0" data-mention-sans-suite>
+            <span className="min-w-0 truncate" data-mention-sans-suite>
               {sansSuite}
             </span>
           </div>

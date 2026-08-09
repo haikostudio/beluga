@@ -76,7 +76,7 @@ function Tuile({ icone, titre, valeur, dessous }: { icone: React.ReactNode; titr
 }
 
 /**
- * Histogramme des jetons dépensés jour par jour, tous moteurs confondus. Une
+ * Histogramme des tokens dépensés jour par jour, tous moteurs confondus. Une
  * barre par jour, du plus ancien au plus récent. À la souris, une infobulle
  * donne le détail au survol ; au toucher (téléphone, sans survol), un appui sur
  * une barre affiche ses chiffres sous le graphique et la met en évidence — un
@@ -101,8 +101,8 @@ function CourbeParJour({ jours }: { jours: DonneesTableau['byDay'] }) {
               onClick={() => setActif((prec) => (prec === jour.day ? null : jour.day))}
               className="flex min-w-0 flex-1 flex-col items-center gap-1"
               aria-pressed={estActif}
-              aria-label={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} jetons · ${dureeEnClair(jour.seconds)}`}
-              title={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} jetons · ${dureeEnClair(jour.seconds)}`}
+              aria-label={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} tokens · ${dureeEnClair(jour.seconds)}`}
+              title={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} tokens · ${dureeEnClair(jour.seconds)}`}
             >
               <div className="flex w-full flex-1 items-end">
                 {/* La COULEUR dit l'intensité du jour (calme → chargé) ; la barre
@@ -126,7 +126,7 @@ function CourbeParJour({ jours }: { jours: DonneesTableau['byDay'] }) {
         {jourActif ? (
           <>
             <span className="font-semibold text-text">{jourEnClair(jourActif.day)}</span>
-            {` · ${jourActif.tokens.toLocaleString('fr-CH')} jetons · ${dureeEnClair(jourActif.seconds)}`}
+            {` · ${jourActif.tokens.toLocaleString('fr-CH')} tokens · ${dureeEnClair(jourActif.seconds)}`}
           </>
         ) : (
           'Touchez une barre pour voir le détail du jour.'
@@ -159,7 +159,7 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
   const byProject = donnees?.byProject ?? [];
   const tempsTotal = byProject.reduce((total, p) => total + (p.seconds ?? 0), 0);
   const tachesTotal = byProject.reduce((total, p) => total + (p.tasks ?? 0), 0);
-  const jetonsTotal = byProject.reduce((total, p) => total + (p.tokens ?? 0), 0);
+  const tokensTotal = byProject.reduce((total, p) => total + (p.tokens ?? 0), 0);
   // Le classement suit le TEMPS de travail (ce que la ligne affiche), le plus long en tête,
   // et la barre mesure la même grandeur : elle décroît donc du haut vers le bas.
   const projetsParTemps = [...byProject].sort((a, b) => (b.seconds ?? 0) - (a.seconds ?? 0));
@@ -196,7 +196,7 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
             <p className="text-[13px] text-faint">Les statistiques n'ont pas pu être chargées. Réessayez dans un instant.</p>
           ) : null}
 
-          {/* 1. Chiffres de tête : temps de travail, tâches, jetons. */}
+          {/* 1. Chiffres de tête : temps de travail, tâches, tokens. */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <Tuile
               icone={<Clock className="h-3.5 w-3.5" />}
@@ -212,8 +212,8 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
             />
             <Tuile
               icone={<Activity className="h-3.5 w-3.5" />}
-              titre="Jetons consommés"
-              valeur={jetonsTotal.toLocaleString('fr-CH')}
+              titre="Tokens consommés"
+              valeur={tokensTotal.toLocaleString('fr-CH')}
               dessous="Tous moteurs confondus"
             />
           </div>
@@ -224,7 +224,7 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
               <TrendingUp className="h-3.5 w-3.5 text-faint" /> Consommation au fil des jours
             </h2>
             <p className="mb-3 mt-0.5 text-[12.5px] text-faint">
-              Les jetons dépensés chaque jour, tous moteurs confondus, sur le dernier mois.
+              Les tokens dépensés chaque jour, tous moteurs confondus, sur le dernier mois.
             </p>
             <CourbeParJour jours={jours} />
           </section>

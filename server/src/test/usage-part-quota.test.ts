@@ -131,3 +131,70 @@ test('usageByCard somme les deux parts de quota et classe sur la semaine', () =>
     assert.ok(lignes[i - 1].quotaSemaine >= lignes[i].quotaSemaine, 'liste décroissante sur la part de semaine');
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* Tokens ENVOYÉS / REÇUS, séparés et cumulés PAR AGENT sur une carte   */
+/* ------------------------------------------------------------------ */
+
+test('usageTokensByCardAndAgent somme entrée et sortie séparément, par agent', () => {
+  const carte = 'carte-jetons-par-agent';
+
+  // Deux tours du chef (agent « analyse »), puis un tour de l'agent d'exécution.
+  store.recordUsage({
+    cardId: carte,
+    agentId: 'agent-analyse',
+    account: 'compte-a',
+    engine: 'claude',
+    tokens: 1500,
+    tokensIn: 1000,
+    tokensOut: 500,
+    seconds: 10,
+  });
+  store.recordUsage({
+    cardId: carte,
+    agentId: 'agent-analyse',
+    account: 'compte-a',
+    engine: 'claude',
+    tokens: 900,
+    tokensIn: 600,
+    tokensOut: 300,
+    seconds: 8,
+  });
+  store.recordUsage({
+    cardId: carte,
+    agentId: 'agent-execution',
+    account: 'compte-a',
+    engine: 'claude',
+    tokens: 4000,
+    tokensIn: 3000,
+    tokensOut: 1000,
+    seconds: 60,
+  });
+
+  const totaux = store.usageTokensByCardAndAgent(carte);
+  const parAgent = new Map(totaux.map((t) => [t.agentId, t]));
+
+  assert.equal(parAgent.get('agent-analyse')?.tokensIn, 1600);
+  assert.equal(parAgent.get('agent-analyse')?.tokensOut, 800);
+  assert.equal(parAgent.get('agent-execution')?.tokensIn, 3000);
+  assert.equal(parAgent.get('agent-execution')?.tokensOut, 1000);
+});
+
+test('une ligne ancienne, sans séparation, ne fausse pas la somme par agent', () => {
+  const carte = 'carte-jetons-ligne-ancienne';
+
+  // Une ligne d'AVANT cette fonctionnalité : total combiné, jamais de séparation.
+  store.recordUsage({
+    cardId: carte,
+    agentId: 'agent-vieux-tour',
+    account: 'compte-a',
+    engine: 'claude',
+    tokens: 5000,
+    seconds: 20,
+  });
+
+  // Rien d'exploitable : l'agent n'apparaît pas comme « 0 envoyé / 0 reçu »,
+  // ce qui ferait croire à une vraie mesure à zéro.
+  const totaux = store.usageTokensByCardAndAgent(carte);
+  assert.equal(totaux.find((t) => t.agentId === 'agent-vieux-tour'), undefined);
+});

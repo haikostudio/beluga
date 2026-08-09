@@ -79,7 +79,10 @@ test('la liste d\'interdiction est explicite, jamais un joker', () => {
   const deny = orchestratorDenyList();
   assert.ok(deny.length >= ORCHESTRATOR_DENIED_NATIVE.length);
   assert.equal(deny.includes('*'), false);
-  assert.ok(deny.includes('Bash'));
+  // Le shell est désormais PERMIS au chef ; c'est le bac à sable qui garde le
+  // projet en lecture seule, pas l'absence de « Bash ».
+  assert.equal(deny.includes('Bash'), false);
+  // L'édition de fichiers et les travaux de fond restent, eux, interdits.
   assert.ok(deny.includes('Edit'));
   assert.ok(deny.includes('Write'));
   assert.ok(deny.includes('Task'));
@@ -97,8 +100,8 @@ test('le chef d\'orchestre ne voit pas les outils réservés aux agents de tâch
 });
 
 test('la facturation est ouverte au chef d\'orchestre, comme aux agents de tâche', () => {
-  // Le chef bridé ne peut lancer ni Bash ni Skill : l'outil MCP « compta » est
-  // son seul accès à la facturation, et il doit donc lui rester ouvert.
+  // Le chef bridé ne peut pas éditer de fichiers ni lancer « Skill » : l'outil
+  // MCP « compta » est son accès à la facturation, et il doit lui rester ouvert.
   const chef = toolsFor('orchestrator').map((tool) => tool.name);
   assert.ok(chef.includes('compta'), 'le chef doit voir l\'outil de facturation');
   assert.ok(orchestratorAllowList().includes('mcp__haikodev__compta'), 'compta doit être dans la liste blanche du chef');

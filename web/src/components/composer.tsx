@@ -554,7 +554,7 @@ export function Composer({
 function CapsuleContexte({ agent }: { agent: Agent }) {
   const mesure = agent.contextUsage;
   const libelle = mesure
-    ? `Contexte utilisé : ${mesure.usedTokens.toLocaleString('fr-CH')} jetons sur ${mesure.capacityTokens.toLocaleString('fr-CH')} (${mesure.percentage} %)`
+    ? `Contexte utilisé : ${mesure.usedTokens.toLocaleString('fr-CH')} tokens sur ${mesure.capacityTokens.toLocaleString('fr-CH')} (${mesure.percentage} %)`
     : 'Contexte utilisé : mesure indisponible';
 
   return (

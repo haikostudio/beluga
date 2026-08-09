@@ -103,6 +103,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
     title: z.string(),
     description: z.string().optional(),
     labels: z.array(z.string()).optional(),
+    attachments: z.array(z.string()).optional(),
     run: RunConfig.partial().optional(),
     polish: z.boolean().optional(),
   }),
@@ -335,6 +336,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * du plus ancien au plus récent, telle qu'elle a été mesurée à la fin du tour.
    */
   z.object({ type: z.literal('agent.usage'), agentId: z.string(), limit: z.number().int().positive().optional() }),
+  /** Les totaux ENVOYÉS / REÇUS cumulés, par agent, sur toute la vie d'une carte. */
+  z.object({ type: z.literal('card.tokens'), cardId: z.string() }),
   /** Tout ce que montre la page « Tableau de bord » : conso par projet, par jour, par carte. */
   z.object({ type: z.literal('stats.dashboard') }),
   z.object({ type: z.literal('memory.get'), projectId: z.string() }),

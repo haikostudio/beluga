@@ -41,7 +41,7 @@ import { cn, duration, relativeTime } from '@/lib/utils';
 
 /**
  * La ligne de repères sous un message : l'ancienneté, ce qui est propre à ce
- * message (durée de travail, jetons), puis le bouton « Copier ».
+ * message (durée de travail, tokens), puis le bouton « Copier ».
  *
  * Une SEULE règle pour les deux côtés du fil : toujours visible, mise au second
  * plan par la couleur et la taille, jamais par la transparence. L'ancienneté
@@ -418,10 +418,10 @@ function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; 
     `${moteur}${contexte.model ? ` — ${contexte.model}` : ''}`,
     session,
     usage
-      ? `Entrée nouvelle : ${nombre(usage.inputTokens)} jetons\nCache relu : ${
-          usage.cachedInputTokens === undefined ? 'non communiqué' : `${nombre(usage.cachedInputTokens)} jetons`
+      ? `Entrée nouvelle : ${nombre(usage.inputTokens)} tokens\nCache relu : ${
+          usage.cachedInputTokens === undefined ? 'non communiqué' : `${nombre(usage.cachedInputTokens)} tokens`
         }`
-      : 'Mesure des jetons en attente',
+      : 'Mesure des tokens en attente',
     `${instruction}\n\n${contexte.systemInstruction.content}`,
     `Prompt HaikoDev\n\n${contexte.prompt}`,
   ].join('\n\n---\n\n');
@@ -437,7 +437,7 @@ function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; 
         <Braces className="h-3 w-3 shrink-0 text-accent" />
         <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">Contexte envoyé</span>
         <span className="shrink-0 text-[12px] tabular-nums text-faint">
-          {totalEntree === undefined ? 'mesure en cours' : `${nombre(totalEntree)} jetons`}
+          {totalEntree === undefined ? 'mesure en cours' : `${nombre(totalEntree)} tokens`}
         </span>
         <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
       </button>
@@ -473,11 +473,11 @@ function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; 
               <h3 className="mb-1.5 text-[13px] font-medium text-text">Mesure rendue par le moteur</h3>
               {usage ? (
                 <div className="rounded-md bg-surface px-2.5 py-2">
-                  {nombre(usage.inputTokens)} jetons nouveaux
+                  {nombre(usage.inputTokens)} tokens nouveaux
                   <span className="text-faint"> · </span>
                   {usage.cachedInputTokens === undefined
                     ? 'détail du cache non communiqué'
-                    : `${nombre(usage.cachedInputTokens)} jetons relus depuis le cache`}
+                    : `${nombre(usage.cachedInputTokens)} tokens relus depuis le cache`}
                 </div>
               ) : (
                 <p className="rounded-md bg-surface px-2.5 py-2 text-faint">
@@ -503,7 +503,7 @@ function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; 
                 {contexte.blocks.map((bloc, index) => (
                   <li key={`${bloc.kind}-${index}`} className="flex items-center justify-between gap-3 py-1.5">
                     <span>{bloc.label}</span>
-                    <span className="shrink-0 tabular-nums text-faint">{nombre(bloc.characters)} signes</span>
+                    <span className="shrink-0 tabular-nums text-faint">{nombre(bloc.characters)} caractères</span>
                   </li>
                 ))}
               </ul>
@@ -608,9 +608,11 @@ function QuestionCard({
     return (
       <div className="rounded-md border border-border bg-surface/60 px-2.5 py-2">
         <p className="text-[13px] text-faint">{question.question}</p>
-        <p className="mt-1 flex items-start gap-1.5 text-[14px] text-text">
+        <p className="mt-1 flex min-w-0 items-start gap-1.5 text-[14px] text-text">
           <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />
-          {question.answer}
+          <span className="min-w-0 flex-1 truncate" data-reponse-question>
+            {question.answer}
+          </span>
         </p>
         {/* La réponse déjà donnée montre ses images, à côté de son texte. */}
         {question.answerAttachments?.length ? (

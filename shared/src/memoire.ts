@@ -10,6 +10,11 @@
  *    existe ;
  *  — le TEXTE COMPLET d'un fait reste disponible à la demande, par l'outil de
  *    mémoire, quand le sujet concerne vraiment la tâche en cours.
+ *
+ * Le texte complet ne vit plus dans un seul fichier plat : il est RANGÉ PAR
+ * SUJET dans `docs/memoire/<sujet>.md`, sur le modèle de `docs/regles/`. Un
+ * agent reçoit l'index général, puis ouvre le SEUL fichier de son sujet — on ne
+ * charge jamais la mémoire entière, ni au lancement ni à la reprise.
  */
 
 /** Un sujet de classement, avec les mots qui le désignent. */
@@ -123,6 +128,101 @@ export function libelleSujet(id: string): string {
   return SUJETS_MEMOIRE.find((s) => s.id === id)?.libelle ?? 'Divers';
 }
 
+/* ------------------------------------------------------------------ */
+/* Un fichier par sujet                                                */
+/* ------------------------------------------------------------------ */
+
+/** Le dossier où vivent les faits, un fichier par sujet, comme `docs/regles/`. */
+export const DOSSIER_MEMOIRE = 'docs/memoire';
+
+/** Le fichier d'un sujet, relatif à la racine du projet. */
+export function fichierDuSujet(id: string): string {
+  return `${DOSSIER_MEMOIRE}/${id}.md`;
+}
+
+/** Le sujet porté par un chemin de fichier de mémoire, s'il en est un. */
+export function sujetDuFichier(cheminRelatif: string): string | undefined {
+  const normalise = cheminRelatif.replace(/\\/g, '/');
+  if (!normalise.startsWith(`${DOSSIER_MEMOIRE}/`)) return undefined;
+  const id = normalise.slice(DOSSIER_MEMOIRE.length + 1).replace(/\.mdx?$/i, '');
+  return SUJETS_MEMOIRE.some((s) => s.id === id) ? id : undefined;
+}
+
+/** Le contenu d'un fichier de sujet : un titre, puis une ligne par fait. */
+export function rendreFichierSujet(id: string, faits: string[]): string {
+  const entete =
+    `# Mémoire du projet — ${libelleSujet(id)}\n\n` +
+    `_Tenue automatiquement par HaikoDev : faits durables uniquement, une ligne par fait. ` +
+    `Ce fichier se demande à la carte avec l'outil \`project_memory\` (sujet « ${id} »)._\n\n`;
+  return `${entete}${faits.map((f) => `- ${nettoyer(f)}`).join('\n')}\n`;
+}
+
+/** Les faits écrits dans un fichier de mémoire : les lignes à puce, nettoyées. */
+export function faitsDuTexte(texte: string): string[] {
+  return texte
+    .split('\n')
+    .map((ligne) => ligne.trim())
+    .filter((ligne) => /^[-*]\s+/.test(ligne))
+    .map(nettoyer)
+    .filter(Boolean);
+}
+
+/**
+ * Les faits rangés par sujet, dans l'ordre des sujets. Sert au découpage comme
+ * à la réécriture après synthèse : un seul endroit décide où va un fait.
+ */
+export function repartirParSujet(faits: string[]): Map<string, string[]> {
+  const parSujet = new Map<string, string[]>();
+  for (const fait of faits) {
+    const propre = nettoyer(fait);
+    if (!propre) continue;
+    const sujet = sujetDuFait(propre);
+    const dedans = parSujet.get(sujet) ?? [];
+    if (!dedans.some((f) => f.toLowerCase() === propre.toLowerCase())) dedans.push(propre);
+    parSujet.set(sujet, dedans);
+  }
+  // L'ordre des sujets, jamais celui d'arrivée : la numérotation de l'index en dépend.
+  const ordonne = new Map<string, string[]>();
+  for (const sujet of SUJETS_MEMOIRE) {
+    const dedans = parSujet.get(sujet.id);
+    if (dedans?.length) ordonne.set(sujet.id, dedans);
+  }
+  return ordonne;
+}
+
+/* ------------------------------------------------------------------ */
+/* Les sujets utiles à un travail donné                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Au-delà de trois sujets, une reprise recharge presque toute la mémoire : ce
+ * qu'on cherchait précisément à éviter.
+ */
+export const SUJETS_UTILES_MAX = 3;
+
+/**
+ * Les sujets de mémoire que TOUCHE un travail donné — titre de carte,
+ * description, rôle de l'agent réunis en un seul texte. C'est la règle de la
+ * reprise après compression : on ne recharge que ces fichiers-là, jamais la
+ * mémoire entière. Le chef d'orchestre et l'agent de tâche passent par la même
+ * fonction : seul le TEXTE qu'on lui donne diffère, jamais le traitement.
+ */
+export function sujetsUtiles(texte: string, max = SUJETS_UTILES_MAX): string[] {
+  const cible = texte.toLowerCase();
+  if (!cible.trim()) return [];
+
+  const scores = SUJETS_MEMOIRE.filter((sujet) => sujet.mots.length)
+    .map((sujet, rang) => ({
+      id: sujet.id,
+      rang,
+      poids: sujet.mots.filter((mot) => cible.includes(mot)).length,
+    }))
+    .filter((s) => s.poids > 0);
+
+  scores.sort((a, b) => b.poids - a.poids || a.rang - b.rang);
+  return scores.slice(0, Math.max(0, max)).map((s) => s.id);
+}
+
 const LONGUEUR_INDEX = 110;
 
 /**
@@ -189,6 +289,19 @@ export function texteIndex(faits: string[]): string {
 }
 
 /**
+ * Le SUJET visé par une demande, quand elle en nomme un. C'est lui qui permet
+ * de ne pas resservir deux fois le même fichier dans une session : une demande
+ * qui ne vise aucun sujet précis (un numéro, des mots) n'est jamais dédoublonnée.
+ */
+export function sujetDeLaRequete(requete: string): SujetMemoire | undefined {
+  const demande = requete.trim().toLowerCase();
+  if (!demande) return undefined;
+  return SUJETS_MEMOIRE.find(
+    (s) => s.id === demande || s.libelle.toLowerCase() === demande || demande.includes(s.id),
+  );
+}
+
+/**
  * Ce qu'on demande à l'outil de mémoire : un numéro, un sujet, ou des mots.
  * Un numéro rend le fait entier ; un sujet rend tous les faits du sujet ; des
  * mots rendent les faits qui les contiennent.
@@ -207,9 +320,7 @@ export function chercherFaits(faits: string[], requete: string): FaitIndexe[] {
   }
 
   // Un sujet, par son identifiant ou son libellé.
-  const sujet = SUJETS_MEMOIRE.find(
-    (s) => s.id === demande || s.libelle.toLowerCase() === demande || demande.includes(s.id),
-  );
+  const sujet = sujetDeLaRequete(demande);
   if (sujet) {
     const trouves = indexes.filter((f) => f.sujet === sujet.id);
     if (trouves.length) return trouves;
