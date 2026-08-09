@@ -33,6 +33,7 @@ import {
   mentionArchivage,
   motAnalyse,
   phaseAnalyse,
+  projectionDeLExecution,
   reglagesDeLaCarte,
   totalMesureEnClair,
   valeurMesuree,
@@ -872,10 +873,9 @@ function MomentDetail({
 /** Mesure passée et projection future restent deux blocs visuellement séparés. */
 function DetailCoutAnalyse({ card }: { card: Card }) {
   const mesure = card.estimate?.analysisMeasurement;
-  const projection = card.estimate?.projection ??
-    (card.estimate?.tokens !== undefined || card.estimate?.quotaShare !== undefined
-      ? { tokens: card.estimate.tokens, quotaShare: card.estimate.quotaShare, assumptions: [] }
-      : undefined);
+  /* La même lecture que le tiroir « Contexte envoyé » : une seule règle, dans
+     `shared`, pour retrouver la projection d'un chiffrage ancien ou récent. */
+  const projection = projectionDeLExecution(card.estimate);
 
   const parties = mesure
     ? [

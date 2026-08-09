@@ -77,9 +77,12 @@ export function coutDuTour(mesure: MesureDeTour): number | undefined {
   return dollars * TAUX_USD_CHF;
 }
 
-/** Ce qui s'affiche dans la colonne « coût » : un montant, ou le mot qui le dit. */
-export function coutEnClair(mesure: MesureDeTour): string {
-  const cout = coutDuTour(mesure);
+/**
+ * Un montant déjà calculé, écrit en francs — ou le mot qui dit qu'il manque.
+ * Sert aussi bien à un tour qu'à la somme d'une couche : une seule écriture du
+ * montant, donc un seul arrondi.
+ */
+export function montantEnFrancs(cout: number | undefined): string {
   if (cout === undefined) return 'indisponible';
   // Sous le centime, un arrondi à deux décimales n'afficherait que « 0.00 ».
   const decimales = cout < 0.1 ? 3 : 2;
@@ -87,4 +90,9 @@ export function coutEnClair(mesure: MesureDeTour): string {
     minimumFractionDigits: decimales,
     maximumFractionDigits: decimales,
   })} CHF`;
+}
+
+/** Ce qui s'affiche dans la colonne « coût » : un montant, ou le mot qui le dit. */
+export function coutEnClair(mesure: MesureDeTour): string {
+  return montantEnFrancs(coutDuTour(mesure));
 }

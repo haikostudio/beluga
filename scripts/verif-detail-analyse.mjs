@@ -43,7 +43,8 @@ verifier(
 );
 verifier(
   'les consommations restent dans la zone d’exécution réelle',
-  blocExecution.includes('Durée réelle') && blocExecution.includes('Jetons consommés'),
+  // Le mot affiché est « tokens » depuis le renommage : le contrôle le suit.
+  blocExecution.includes('Durée réelle') && blocExecution.includes('Tokens consommés'),
 );
 verifier(
   'les deux moments portent des repères visibles et testables',

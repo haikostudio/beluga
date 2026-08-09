@@ -1,0 +1,138 @@
+import { totalJetonsMesures } from './analyse-cout.js';
+import { coutDuTour } from './cout-tour.js';
+import type { AnalysisMeasurement, Estimate, ExecutionProjection } from './models.js';
+
+/**
+ * LES TOKENS D'UNE CARTE, RANGÉS PAR COUCHE.
+ *
+ * Le tiroir « Contexte envoyé » lit d'abord ce qui était ESTIMÉ, puis ce qui a
+ * été RÉELLEMENT mesuré — et le réel se lit couche par couche : la réflexion du
+ * chef d'orchestre d'un côté, l'exécution de la tâche de l'autre. C'est cette
+ * séparation qui permet de voir OÙ le contexte part.
+ *
+ * Aucune de ces fonctions ne mesure quoi que ce soit : elles ne font que
+ * regrouper des chiffres déjà rendus par le moteur. Ce qui n'a pas été mesuré
+ * reste `undefined` et s'affiche « indisponible » — jamais un zéro consolant.
+ */
+
+/** Un tour déjà mesuré, tel que le démon le range dans la table `usage`. */
+export interface TourMesureAgent {
+  at: number;
+  engine?: string;
+  model?: string;
+  /** Entrée nouvelle, hors cache relu. */
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  /** Total rangé pour les quotas et la facturation : jamais recalculé ici. */
+  tokens: number;
+  seconds: number;
+}
+
+export type CleCouche = 'analyse' | 'execution';
+
+/** Ce qu'une couche a envoyé et reçu, additionné une seule fois. */
+export interface CoucheDeTokens {
+  cle: CleCouche;
+  nom: string;
+  /** En une phrase : d'où viennent ces chiffres. */
+  origine: string;
+  /** Nombre de tours réellement mesurés, quand ils sont comptés un par un. */
+  tours?: number;
+  /** Entrée nouvelle, hors cache. */
+  entree: number;
+  /** Absent quand le moteur n'a pas communiqué la part relue depuis le cache. */
+  cache?: number;
+  sortie: number;
+  /** Absent dès qu'une part manque : un total partiel serait un faux total. */
+  total?: number;
+  /** En francs, seulement si le tarif de CHAQUE tour compté est connu. */
+  cout?: number;
+}
+
+/** Un tour dont le moteur n'a rien rendu ne compte pas comme un tour mesuré. */
+export function tourMesure(tour: TourMesureAgent): boolean {
+  return tour.inputTokens + tour.cachedTokens + tour.outputTokens > 0;
+}
+
+/**
+ * LA COUCHE DE RÉFLEXION : ce que le chiffrage du chef d'orchestre a consommé.
+ * Elle vient de la mesure rangée sur la carte (`estimate.analysisMeasurement`),
+ * qui ne porte pas le modèle employé — son coût en francs reste donc inconnu.
+ */
+export function coucheDAnalyse(mesure?: AnalysisMeasurement): CoucheDeTokens | undefined {
+  if (!mesure) return undefined;
+  return {
+    cle: 'analyse',
+    nom: 'Analyse par le chef d’orchestre',
+    origine: 'Mesure rendue par le moteur à la fin du chiffrage.',
+    entree: mesure.inputTokens,
+    cache: mesure.cachedInputTokens,
+    sortie: mesure.outputTokens,
+    total: mesure.totalTokens ?? totalJetonsMesures(mesure),
+    cout: undefined,
+  };
+}
+
+/**
+ * LA COUCHE D'EXÉCUTION : la somme des tours réellement partis pour cet agent.
+ * Le coût n'est donné que si TOUS les tours comptés portent un modèle tarifé —
+ * un seul tarif manquant, et le total serait sous-évalué sans le dire.
+ */
+export function coucheDExecution(
+  tours: TourMesureAgent[],
+  nom = 'Exécution de la tâche',
+): CoucheDeTokens | undefined {
+  const mesures = tours.filter(tourMesure);
+  if (!mesures.length) return undefined;
+
+  const somme = (lire: (tour: TourMesureAgent) => number) =>
+    mesures.reduce((total, tour) => total + lire(tour), 0);
+
+  const couts = mesures.map((tour) =>
+    coutDuTour({
+      inputTokens: tour.inputTokens,
+      cachedTokens: tour.cachedTokens,
+      outputTokens: tour.outputTokens,
+      model: tour.model,
+    }),
+  );
+
+  const entree = somme((tour) => tour.inputTokens);
+  const cache = somme((tour) => tour.cachedTokens);
+  const sortie = somme((tour) => tour.outputTokens);
+  return {
+    cle: 'execution',
+    nom,
+    origine: 'Somme des tours mesurés de cet agent.',
+    tours: mesures.length,
+    entree,
+    cache,
+    sortie,
+    total: entree + cache + sortie,
+    cout: couts.some((cout) => cout === undefined)
+      ? undefined
+      : couts.reduce<number>((total, cout) => total + (cout ?? 0), 0),
+  };
+}
+
+/**
+ * LA PROJECTION D'EXÉCUTION du chiffrage. Une analyse ancienne n'écrivait que
+ * `tokens` et `quotaShare` à plat : on la relit sous la même forme que les
+ * projections d'aujourd'hui, sans rien inventer de plus.
+ */
+export function projectionDeLExecution(estimate?: Estimate): ExecutionProjection | undefined {
+  if (!estimate) return undefined;
+  if (estimate.projection) return estimate.projection;
+  if (estimate.tokens === undefined && estimate.quotaShare === undefined) return undefined;
+  return { tokens: estimate.tokens, quotaShare: estimate.quotaShare, assumptions: [] };
+}
+
+/**
+ * L'écart entre ce qui était projeté et ce qui a été mesuré, en part du projeté.
+ * Rien à comparer, projection à zéro : `undefined`, jamais une division vide.
+ */
+export function ecartProjete(projete?: number, mesure?: number): number | undefined {
+  if (projete === undefined || mesure === undefined || projete <= 0) return undefined;
+  return (mesure - projete) / projete;
+}

@@ -78,6 +78,12 @@ const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const jeton = crypto.randomBytes(32).toString('hex');
 const PROJET_ID = 'p-contexte-envoye';
 const AGENT_ID = 'a-contexte-envoye';
+/* Une carte RÉELLEMENT passée par une analyse du chef puis exécutée : c'est le
+   seul cas où le tiroir montre les DEUX couches (réflexion, puis exécution) et
+   les tokens estimés avant le travail. */
+const CARTE_ID = 'c-contexte-envoye';
+const AGENT_TACHE = 'a-contexte-tache';
+const TITRE_CARTE = 'Essai — tokens par couche';
 const PROMPT = [
   'DEMANDE : vérifier le contexte exact.',
   ...Array.from({ length: 90 }, (_, i) => `Bloc de contexte ${i + 1} — contenu assez long pour imposer le défilement du tiroir.`),
@@ -185,6 +191,117 @@ function poserDecor() {
   tour(t + 2000, 'claude-sonnet-5', 20_000, 5_000, 2_000);
   tour(t - 20_000, 'claude-sonnet-5', 10_000, 1_000, 900);
   tour(t + 1000, 'gpt-5.4', 7_000, 0, 500);
+
+  /*
+   * LA CARTE ANALYSÉE PUIS EXÉCUTÉE : son chiffrage porte la mesure de
+   * l'analyse du chef (couche « réflexion ») et une projection ; son agent
+   * d'exécution porte ses propres tours (couche « exécution »).
+   */
+  const carte = {
+    id: CARTE_ID,
+    projectId: PROJET_ID,
+    title: TITRE_CARTE,
+    description: 'Carte d’essai posée par le script de vérification.',
+    labels: [],
+    column: 'done',
+    position: 0,
+    origin: 'agent',
+    attachments: [],
+    run: { engine: 'claude', model: 'claude-sonnet-5', thinking: 'medium', mode: 'direct' },
+    estimate: {
+      failed: false,
+      machineSeconds: 600,
+      seniorHours: 2,
+      projection: { tokens: 100_000, quotaShare: 0.04, formula: '4 tours × 25 000', assumptions: [] },
+      analysisMeasurement: {
+        inputTokens: 30_000,
+        cachedInputTokens: 12_000,
+        outputTokens: 3_000,
+        totalTokens: 45_000,
+        breakdown: {
+          haikoDevInstructions: { status: 'measured', characters: 4_000, note: '' },
+          cardDescription: { status: 'measured', characters: 900, note: '' },
+          memoryAndInstructions: { status: 'measured', characters: 6_000, note: '' },
+          agentReads: { status: 'unavailable', note: 'part non isolable' },
+        },
+        measuredAt: t,
+      },
+    },
+    agentId: AGENT_TACHE,
+    excludedFromDeploy: false,
+    horsTache: false,
+    codeDejaEnregistre: true,
+    createdAt: t,
+    updatedAt: t,
+  };
+  db.prepare(
+    'INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(CARTE_ID, PROJET_ID, 'done', 0, TITRE_CARTE, JSON.stringify(carte), t, t);
+
+  const agentTache = {
+    id: AGENT_TACHE,
+    projectId: PROJET_ID,
+    cardId: CARTE_ID,
+    role: 'task',
+    title: TITRE_CARTE,
+    run: { engine: 'claude', model: 'claude-sonnet-5', thinking: 'medium', mode: 'direct' },
+    status: 'done',
+    createdAt: t,
+    updatedAt: t,
+  };
+  db.prepare(
+    `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
+     VALUES (?, ?, ?, 'task', 'done', ?, ?, ?)`,
+  ).run(AGENT_TACHE, PROJET_ID, CARTE_ID, JSON.stringify(agentTache), t, t);
+
+  const idMessage = 'm-tache';
+  db.prepare('INSERT INTO messages (id, agent_id, role, data, created_at) VALUES (?, ?, ?, ?, ?)').run(
+    idMessage,
+    AGENT_TACHE,
+    'user',
+    JSON.stringify({
+      id: idMessage,
+      agentId: AGENT_TACHE,
+      role: 'user',
+      content: 'Réalise cette tâche.',
+      createdAt: t,
+      tokens: 5_000,
+      sentContext: {
+        engine: 'claude',
+        model: 'claude-sonnet-5',
+        session: 'new',
+        prompt: PROMPT,
+        systemInstruction: { kind: 'full', content: 'MÉTHODE : lire, constater, vérifier.', transport: 'separate' },
+        blocks: [{ kind: 'request', label: 'Demande utilisateur', characters: 42 }],
+        history: 'none',
+        usage: { inputTokens: 4_000, cachedInputTokens: 1_000 },
+        sentAt: t,
+      },
+    }),
+    t,
+  );
+
+  const tourTache = (quand, model, entree, cache, sortie) =>
+    db
+      .prepare(
+        `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens,
+                            input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
+         VALUES (?, ?, ?, ?, 'compte', 'claude', ?, ?, ?, ?, ?, 0, 0, 0, 10, ?)`,
+      )
+      .run(
+        PROJET_ID,
+        'Essai contexte envoyé',
+        CARTE_ID,
+        AGENT_TACHE,
+        model,
+        entree + cache + sortie,
+        entree,
+        cache,
+        sortie,
+        quand,
+      );
+  tourTache(t + 100, 'claude-sonnet-5', 40_000, 10_000, 4_000);
+  tourTache(t + 200, 'claude-sonnet-5', 25_000, 8_000, 3_000);
   db.close();
 }
 
@@ -237,7 +354,8 @@ try {
     try {
       const boutons = page.locator('[data-contexte-envoye]:visible');
       noter(`${cas.nom} : seule la demande partie porte le bouton`, (await boutons.count()) === 1);
-      noter(`${cas.nom} : la mesure moteur est affichée`, /1\D?234 jetons/.test(await boutons.first().innerText()));
+      // Le mot affiché est « tokens » depuis le renommage : le contrôle le suit.
+      noter(`${cas.nom} : la mesure moteur est affichée`, /1\D?234 tokens/.test(await boutons.first().innerText()));
       const suitReperes = await boutons.first().evaluate((el) => (el.previousElementSibling?.textContent ?? '').includes('Copier'));
       noter(`${cas.nom} : le bouton suit les repères du message`, suitReperes);
 
@@ -246,7 +364,30 @@ try {
       await tiroir.waitFor({ state: 'visible' });
       noter(`${cas.nom} : le tiroir distingue la reprise`, (await tiroir.innerText()).includes('Reprise de session'));
       noter(`${cas.nom} : l’historique opaque est nommé`, (await tiroir.innerText()).includes('déjà porté par la session'));
-      noter(`${cas.nom} : le prompt exact est visible`, (await tiroir.locator('[data-prompt-envoye]').innerText()) === PROMPT);
+
+      /*
+       * LE DÉTAIL BRUT EST REPLIÉ : composition, consigne système et prompt
+       * entier ne s'ouvrent que sur demande. Sans carte analysée, aucune
+       * section « estimé » — on n'affiche pas un chiffrage qui n'existe pas.
+       */
+      noter(
+        `${cas.nom} : le détail brut est replié par défaut`,
+        (await tiroir.locator('[data-detail-brut]').count()) === 0 &&
+          (await tiroir.locator('[data-prompt-envoye]').count()) === 0,
+      );
+      noter(
+        `${cas.nom} : sans chiffrage, aucune section « estimé »`,
+        (await tiroir.locator('[data-tokens-estimes]').count()) === 0 &&
+          (await tiroir.locator('[data-tokens-reels]').count()) === 1,
+      );
+      noter(
+        `${cas.nom} : la couche réellement mesurée est nommée`,
+        (await tiroir.locator('[data-couche-tokens="execution"]').count()) === 1,
+      );
+
+      await tiroir.locator('[data-voir-detail-brut]').click();
+      await page.waitForTimeout(300);
+      noter(`${cas.nom} : le prompt exact est visible une fois déplié`, (await tiroir.locator('[data-prompt-envoye]').innerText()) === PROMPT);
 
       await page.evaluate(() => {
         window.__contexteCopie = '';
@@ -291,6 +432,80 @@ try {
       noter(`${cas.nom} : la liste des tours défile seule`, defileTours);
       noter(`${cas.nom} : aucune erreur de page`, erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, `contexte-envoye-${cas.telephone ? 'telephone' : 'ordinateur'}.png`) });
+    } finally {
+      await contexte.close();
+    }
+  }
+
+  /*
+   * UNE CARTE ANALYSÉE PUIS EXÉCUTÉE : c'est là que le tiroir montre l'ordre
+   * complet — d'abord les tokens ESTIMÉS par le chiffrage, ensuite les tokens
+   * RÉELS, séparés en deux couches nommées (réflexion du chef, puis exécution).
+   */
+  choisirTheme('dark');
+  {
+    const { contexte, page, erreurs } = await ouvrir(navigateur, false);
+    try {
+      const carte = page.locator('article').filter({ hasText: TITRE_CARTE }).first();
+      await carte.waitFor({ state: 'visible', timeout: 20_000 });
+      await carte.click();
+      await page.waitForTimeout(1500);
+      const panneau = page.getByRole('dialog').last();
+      await panneau.getByRole('tab', { name: 'Conversation' }).click();
+      await page.waitForTimeout(1200);
+
+      await panneau.locator('[data-contexte-envoye]').first().click();
+      const tiroir = page.getByRole('dialog').last();
+      await tiroir.locator('[data-tokens-reels]').waitFor({ state: 'visible', timeout: 10_000 });
+
+      const rang = async (repere) =>
+        tiroir.locator(repere).first().evaluate((el) => {
+          const tous = Array.from(document.querySelectorAll('[data-tokens-estimes],[data-tokens-reels],[data-couche-tokens],[data-voir-detail-brut]'));
+          return tous.indexOf(el);
+        });
+      const estime = await rang('[data-tokens-estimes]');
+      const reel = await rang('[data-tokens-reels]');
+      const analyse = await rang('[data-couche-tokens="analyse"]');
+      const execution = await rang('[data-couche-tokens="execution"]');
+      const detail = await rang('[data-voir-detail-brut]');
+
+      noter('carte : l’estimé paraît avant le réel', estime >= 0 && reel > estime, `${estime} → ${reel}`);
+      noter(
+        'carte : la réflexion du chef paraît avant l’exécution',
+        analyse > reel && execution > analyse,
+        `${analyse} → ${execution}`,
+      );
+      noter('carte : le détail brut ferme la marche', detail > execution);
+      noter(
+        'carte : le détail brut reste replié',
+        (await tiroir.locator('[data-detail-brut]').count()) === 0,
+      );
+
+      const texteEstime = await tiroir.locator('[data-tokens-estimes]').innerText();
+      noter('carte : les tokens projetés sont dits', /100\D?000/.test(texteEstime), texteEstime.replace(/\n/g, ' '));
+      const texteAnalyse = await tiroir.locator('[data-couche-tokens="analyse"]').innerText();
+      noter(
+        'carte : la couche d’analyse rend entrée, cache et sortie',
+        /30\D?000/.test(texteAnalyse) && /12\D?000/.test(texteAnalyse) && /3\D?000/.test(texteAnalyse),
+        texteAnalyse.replace(/\n/g, ' '),
+      );
+      noter(
+        'carte : sans modèle connu, le coût de l’analyse se dit indisponible',
+        /indisponible/.test(texteAnalyse),
+      );
+      const texteExecution = await tiroir.locator('[data-couche-tokens="execution"]').innerText();
+      noter(
+        'carte : la couche d’exécution somme les tours mesurés',
+        /65\D?000/.test(texteExecution) && /18\D?000/.test(texteExecution) && /2 tours mesurés/.test(texteExecution),
+        texteExecution.replace(/\n/g, ' '),
+      );
+      noter('carte : un tarif connu chiffre la couche', /CHF/.test(texteExecution));
+      noter(
+        'carte : l’écart au projeté est dit',
+        (await tiroir.locator('[data-ecart-projection]').count()) === 1,
+      );
+      noter('carte : aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');
+      await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte.png') });
     } finally {
       await contexte.close();
     }
