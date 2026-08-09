@@ -22,6 +22,12 @@ export interface EtatAnalyse {
   estimationEchouee: boolean;
   /** Un agent d'analyse tourne en ce moment pour cette carte. */
   analyseEnCours: boolean;
+  /**
+   * La carte a été validée et attend son chiffrage. C'est le drapeau de la
+   * carte (`analyseDemandee`) qui le dit, plus une colonne : « Validé » n'existe
+   * plus, la carte reste dans « À faire » le temps de l'analyse.
+   */
+  analyseDemandee?: boolean;
 }
 
 /**
@@ -33,7 +39,7 @@ export function phaseAnalyse(etat: EtatAnalyse): PhaseAnalyse {
   if (etat.analyseEnCours) return 'en_cours';
   if (etat.estimationEchouee) return 'echouee';
   if (etat.aEstimation) return 'prete';
-  if (etat.column === 'validated') return 'en_cours';
+  if (etat.analyseDemandee) return 'en_cours';
   return 'aucune';
 }
 

@@ -252,7 +252,7 @@ async function main() {
     title: 'Ajouter un commentaire en tête de index.js',
     description: 'Ajoute un commentaire d\'une ligne en haut du fichier index.js.',
   });
-  await session.call({ type: 'card.move', id: card.id, column: 'validated' });
+  await session.call({ type: 'card.validate', id: card.id });
   await session.waitFor(
     (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'planned',
     600000,

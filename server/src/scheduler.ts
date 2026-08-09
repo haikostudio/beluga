@@ -98,6 +98,9 @@ ${card.description || '(pas de description)'}${
           // lieu d'être maquillée avec une estimation par défaut (PLAN §9).
           const updated = store.saveCard({
             ...fresh,
+            // L'analyse a rendu : le drapeau s'éteint, même sans chiffres. Sinon
+            // la carte garderait « Chiffrage du travail… » pour toujours.
+            analyseDemandee: false,
             estimate: {
               failed: true,
               failureReason: ok ? "L'analyse n'a pas rendu de chiffres exploitables." : "L'analyse a échoué.",
@@ -115,15 +118,20 @@ ${card.description || '(pas de description)'}${
         // PAS en « En cours » : l'agent d'analyse s'arrête là. La carte porte sa
         // raison d'attente, l'ordonnanceur ne la démarre pas sans le geste de
         // l'utilisateur (voir `demarrageAutomatiqueAutorise`).
+        //
+        // La carte validée attendait son chiffrage DANS « À faire » : c'est de
+        // là qu'elle monte en « Planifié ». Une carte déjà ailleurs (analyse
+        // relancée depuis « Planifié ») ne bouge pas.
         const scheduling = fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
         const updated = store.saveCard({
           ...fresh,
+          analyseDemandee: false,
           estimate: {
             ...avecMesureAnalyse(estimate, measurement),
             summary: estimate.summary ?? text.slice(0, 2000),
             producedAt: Date.now(),
           },
-          column: fresh.column === 'validated' ? 'planned' : fresh.column,
+          column: fresh.column === 'todo' ? 'planned' : fresh.column,
           position: store.nextPosition(fresh.projectId, 'planned'),
           scheduling: {
             ...scheduling,
@@ -429,15 +437,16 @@ export function reprendPourExecution(prealable: Agent | null, enCours: boolean):
  * Une carte proposée par le chef arrive avec son chiffrage et son relais. Le
  * geste « Valider » la place donc directement en attente de lancement, sans
  * créer un deuxième tour d'analyse. Les cartes ordinaires gardent exactement
- * l'ancien parcours.
+ * l'ancien parcours — analyse d'abord, promotion ensuite.
  */
 export function reprendreAnalyseDuChef(cardId: string): boolean {
   const card = store.getCard(cardId);
-  if (!card || card.column !== 'validated' || !analyseDuChefReutilisable(card)) return false;
+  if (!card || card.column !== 'todo' || !analyseDuChefReutilisable(card)) return false;
   const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
   const updated = store.saveCard({
     ...card,
     column: 'planned',
+    analyseDemandee: false,
     position: store.nextPosition(card.projectId, 'planned'),
     scheduling: {
       ...scheduling,
@@ -447,6 +456,33 @@ export function reprendreAnalyseDuChef(cardId: string): boolean {
   bus.emit({ type: 'card.upsert', card: updated });
   void tick();
   return true;
+}
+
+/**
+ * VALIDER une carte : le geste qui autorise la dépense.
+ *
+ * Il n'y a plus de colonne « Validé » à traverser. La carte reste dans « À
+ * faire », marquée `analyseDemandee`, et son analyse part tout de suite ; elle
+ * n'apparaîtra en « Planifié » qu'une fois le chiffrage rendu. Une carte déjà
+ * analysée par le chef d'orchestre saute l'étape, comme avant : son chiffrage
+ * est réutilisé tel quel, sans second tour.
+ *
+ * Le drapeau est ce qui rend le geste RATTRAPABLE : un démon redémarré pendant
+ * le chiffrage retrouve la carte dans « À faire » et relance son analyse.
+ */
+export function validerCarte(cardId: string): { ok: boolean; error?: string } {
+  const card = store.getCard(cardId);
+  if (!card) return { ok: false, error: 'carte introuvable' };
+  if (card.column !== 'todo') {
+    return { ok: false, error: 'seule une carte de « À faire » se valide.' };
+  }
+  if (reprendreAnalyseDuChef(cardId)) return { ok: true };
+
+  const updated = store.saveCard({ ...card, analyseDemandee: true });
+  bus.emit({ type: 'card.upsert', card: updated });
+  // C'est ce geste qui autorise la dépense : l'analyse part maintenant.
+  void analyseCard(cardId);
+  return { ok: true };
 }
 
 export async function startCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
@@ -600,8 +636,15 @@ export async function tick(): Promise<void> {
   ticking = true;
   try {
     for (const project of store.listProjects()) {
-      // Analyse : les cartes fraîchement validées.
-      for (const card of store.listCardsInColumn(project.id, 'validated')) {
+      /*
+       * Analyse : les cartes validées, qui attendent leur chiffrage SUR PLACE
+       * dans « À faire ». Le drapeau `analyseDemandee` est la trace du geste —
+       * une carte simplement posée dans « À faire » ne coûte rien. Ce balayage
+       * est le filet : il rattrape une analyse coupée par un redémarrage du
+       * démon, la validation elle-même partant sans attendre le tour de boucle.
+       */
+      for (const card of store.listCardsInColumn(project.id, 'todo')) {
+        if (!card.analyseDemandee) continue;
         if (reprendreAnalyseDuChef(card.id)) continue;
         if (!card.estimate && !analysing.has(card.id)) {
           void analyseCard(card.id);

@@ -39,7 +39,6 @@ test('« En production » s’intercale entre « À déployer » et « Archivé 
   assert.deepEqual(COLUMN_KEYS, [
     'notes',
     'todo',
-    'validated',
     'planned',
     'running',
     'done',
@@ -53,7 +52,7 @@ test('« En production » s’intercale entre « À déployer » et « Archivé 
 test('aucune clé existante n’est renommée ni supprimée', () => {
   // Règle gravée : on change l'étiquette, jamais la clé. Une carte enregistrée
   // hier dans « À déployer » doit encore s'y retrouver aujourd'hui.
-  for (const cle of ['notes', 'todo', 'validated', 'planned', 'running', 'done', 'to_deploy', 'archived'] as const) {
+  for (const cle of ['notes', 'todo', 'planned', 'running', 'done', 'to_deploy', 'archived'] as const) {
     assert.ok(COLUMN_KEYS.includes(cle), `la clé « ${cle} » a disparu`);
   }
   assert.equal(COLUMN_LABELS.to_deploy, 'À déployer');

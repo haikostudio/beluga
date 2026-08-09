@@ -38,12 +38,11 @@ test('un agent ne peut pas sortir une carte du pipeline', () => {
 
 test('la validation reste un geste humain : la machine ne touche pas « à faire »', () => {
   assert.equal(canMove('machine', 'todo', 'planned').allowed, false);
-  assert.equal(canMove('machine', 'validated', 'planned').allowed, true);
   assert.equal(canMove('machine', 'planned', 'running').allowed, true);
 });
 
-test('la machine ne peut pas promouvoir vers validé ni à déployer', () => {
-  for (const target of ['validated', 'to_deploy'] as ColumnKey[]) {
+test('la machine ne peut pas promouvoir vers le lot à publier', () => {
+  for (const target of ['to_deploy', 'in_production'] as ColumnKey[]) {
     assert.equal(canMove('machine', 'planned', target).allowed, false);
   }
 });
@@ -70,7 +69,6 @@ test("l'utilisateur peut tout déplacer", () => {
 /* ------------------------------------------------------------------ */
 
 test('le gabarit dépend de la colonne', () => {
-  assert.equal(templateForColumn('validated'), 'pre_run');
   assert.equal(templateForColumn('planned'), 'pre_run');
   assert.equal(templateForColumn('running'), 'in_run');
   assert.equal(templateForColumn('done'), 'in_run');

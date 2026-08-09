@@ -17,8 +17,8 @@ test('une carte à faire montre ce qui est prévu, et se laisse modifier', () =>
   assert.equal(vu.raison, undefined);
 });
 
-test('une carte validée ou planifiée se laisse encore modifier', () => {
-  for (const colonne of ['validated', 'planned'] as const) {
+test('une carte à faire ou planifiée se laisse encore modifier', () => {
+  for (const colonne of ['todo', 'planned'] as const) {
     const vu = reglagesDeLaCarte({ colonne, carte: PREVU });
     assert.equal(vu.modifiable, true, colonne);
     assert.equal(vu.compte, undefined, colonne);

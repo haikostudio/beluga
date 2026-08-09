@@ -115,6 +115,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
     position: z.number().optional(),
   }),
   z.object({ type: z.literal('card.delete'), id: z.string() }),
+  /**
+   * Valider une carte de « À faire » : c'est le geste qui AUTORISE la dépense
+   * et lance l'analyse. La carte ne change pas de colonne tout de suite — elle
+   * reste sur place, marquée « chiffrage en cours », et part en « Planifié »
+   * quand l'analyse a rendu.
+   */
+  z.object({ type: z.literal('card.validate'), id: z.string() }),
   z.object({ type: z.literal('card.start'), id: z.string() }),
   z.object({ type: z.literal('card.finish'), id: z.string() }),
   z.object({ type: z.literal('card.reanalyze'), id: z.string() }),

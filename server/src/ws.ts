@@ -40,7 +40,7 @@ import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
-import { analyseCard, appliquerChiffrageDiscute, reprendreAnalyseDuChef, startCard, tick } from './scheduler.js';
+import { analyseCard, appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
   deployableCards,
@@ -454,10 +454,6 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         );
       }
 
-      // C'est ce geste qui autorise la dépense : l'analyse part maintenant.
-      if (target === 'validated') {
-        if (!reprendreAnalyseDuChef(updated.id)) void analyseCard(updated.id);
-      }
       if (target === 'archived') {
         void archiveCard(updated.id);
       }
@@ -471,6 +467,12 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'card.delete', id: cmd.id, projectId: card.projectId });
       bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
       return { ok: true };
+    }
+
+    case 'card.validate': {
+      const result = validerCarte(cmd.id);
+      if (!result.ok) throw new Error(result.error ?? 'validation impossible');
+      return { card: store.getCard(cmd.id) };
     }
 
     case 'card.start': {
@@ -507,7 +509,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'card.reanalyze': {
       const card = store.getCard(cmd.id);
       if (!card) throw new Error('carte introuvable');
-      store.saveCard({ ...card, estimate: undefined });
+      // Le drapeau rallume le signal « Chiffrage du travail… » : une analyse
+      // relancée doit se voir comme la première.
+      const relancee = store.saveCard({ ...card, estimate: undefined, analyseDemandee: true });
+      bus.emit({ type: 'card.upsert', card: relancee });
       void analyseCard(cmd.id);
       return { ok: true };
     }

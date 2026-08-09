@@ -147,7 +147,7 @@ async function main() {
     const textes = [
       'Le serveur ne répond pas',
       'La carte « essai » attend une place',
-      'Trois cartes déplacées vers « Validé »',
+      'Trois cartes déplacées vers « À déployer »',
       'Le point du jour est prêt',
       'La branche a été enregistrée',
     ];

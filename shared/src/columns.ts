@@ -8,7 +8,9 @@ import { z } from 'zod';
 export const COLUMN_KEYS = [
   'notes',
   'todo',
-  'validated',
+  // « Validé » a disparu : valider une carte de « À faire » lance son analyse
+  // SUR PLACE, et la carte n'apparaît en « Planifié » qu'une fois le chiffrage
+  // rendu. Une étape d'attente en moins sur le tableau.
   'planned',
   'running',
   'done',
@@ -23,7 +25,6 @@ export type ColumnKey = z.infer<typeof ColumnKey>;
 export const COLUMN_LABELS: Record<ColumnKey, string> = {
   notes: 'Notes',
   todo: 'À faire',
-  validated: 'Validé',
   planned: 'Planifié',
   running: 'En cours',
   done: 'Terminé',
@@ -39,7 +40,7 @@ export const AGENT_MOVABLE_COLUMNS: ColumnKey[] = ['notes', 'todo'];
  * Colonnes que seul l'utilisateur peut atteindre. « Terminé » n'en fait plus
  * partie : la carte y va d'elle-même quand son agent a rendu.
  */
-export const USER_ONLY_TARGETS: ColumnKey[] = ['validated', 'to_deploy', 'in_production'];
+export const USER_ONLY_TARGETS: ColumnKey[] = ['to_deploy', 'in_production'];
 
 /**
  * Colonnes que seule la machine peut attribuer. « Terminé » en fait partie

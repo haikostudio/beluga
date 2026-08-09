@@ -100,7 +100,6 @@ export const TEMPLATES: Record<TemplateKind, ResponseTemplate> = {
 export function templateForColumn(column: ColumnKey | undefined, deployed = false): TemplateKind {
   if (deployed) return 'deploy';
   switch (column) {
-    case 'validated':
     case 'planned':
       return 'pre_run';
     case 'running':

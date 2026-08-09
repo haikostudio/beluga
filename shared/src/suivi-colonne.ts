@@ -4,9 +4,9 @@ import type { AgentRole } from './models.js';
 /**
  * La carte suit les ÉTAPES RÉELLES du travail.
  *
- * Parcours attendu : « À faire » → (clic de validation) → « Validé » →
- * (analyse rendue, chiffrage posé) → « En cours » → (exécution rendue) →
- * « Terminé ».
+ * Parcours attendu : « À faire » → (clic de validation : l'analyse part, la
+ * carte reste sur place le temps du chiffrage) → « Planifié » → (clic de
+ * lancement) → « En cours » → (exécution rendue) → « Terminé ».
  *
  * Le piège : l'analyse, l'orchestration et la publication portent elles aussi
  * le numéro de carte. Appliquées à tout agent, les deux règles ci-dessous
@@ -17,8 +17,8 @@ import type { AgentRole } from './models.js';
  * D'où la règle unique : seul l'agent d'EXÉCUTION (rôle « task ») déplace une
  * carte. Il la met en « En cours » quand son tour démarre, en « Terminé »
  * quand son tour réussit. Les autres rôles la laissent exactement où elle est.
- * Le passage de « Validé » à « Planifié » puis « En cours » au lancement de
- * l'exécution reste le travail de l'ordonnanceur : ces règles ne le doublent
+ * Le passage de « À faire » à « Planifié » (analyse rendue) puis à « En cours »
+ * (lancement) reste le travail de l'ordonnanceur : ces règles ne le doublent
  * pas.
  *
  * Second piège, le plus coûteux : un tour d'exécution qui RÉPOND sans rien
@@ -165,7 +165,7 @@ export const RAISON_ATTENTE_LANCEMENT =
  * partagent un même agent et un même contexte (on économise le quota), mais
  * l'agent d'analyse ne doit JAMAIS enchaîner tout seul sur l'exécution. Une
  * carte fraîchement analysée — jamais lancée, pas marquée « dès que possible » —
- * reste donc en attente : la bascule Validé → En cours reste un clic.
+ * reste donc en attente : la bascule Planifié → En cours reste un clic.
  *
  * L'ordonnanceur ne reprend AUTOMATIQUEMENT que deux sortes de cartes :
  *   - celle que l'utilisateur a poussée avec « Dès que possible » (`asap`) —

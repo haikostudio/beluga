@@ -141,6 +141,9 @@ le nom, là-bas le texte).
   « Planifié », sans second chiffrage, mais l'exécution attend toujours un geste humain.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
+- **Il n'y a PAS de colonne « Validé »** (`validerCarte`, `server/src/scheduler.ts`) : valider une
+  carte de « À faire » lance son chiffrage SUR PLACE (drapeau `card.analyseDemandee`) ; elle monte en
+  « Planifié » une fois l'analyse rendue, et le lancement reste un geste humain.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
   carte, jamais le fait que le moteur ait répondu.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN.** Un projet
