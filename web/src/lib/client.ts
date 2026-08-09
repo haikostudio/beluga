@@ -525,6 +525,24 @@ class Client {
    * les cartes suivantes et faire son compte. `silencieux` lui laisse dire les
    * refus à sa façon, en une seule fois, au lieu d'empiler une bulle par carte.
    */
+  /**
+   * Valider une carte de « À faire » : le geste qui autorise la dépense et
+   * lance l'analyse. La carte ne change pas de colonne — elle reste sur place,
+   * marquée « chiffrage en cours », et le serveur la promeut en « Planifié »
+   * quand les chiffres sont là. Même forme de réponse que `moveCard` : le pied
+   * de lot s'en sert exactement pareil.
+   */
+  async validerCarte(card: Card, options: { silencieux?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await this.call({ type: 'card.validate', id: card.id });
+      return { ok: true };
+    } catch (err: any) {
+      const raison = err?.message ?? 'validation refusée';
+      if (!options.silencieux) this.pushToast('error', raison, card.id);
+      return { ok: false, error: raison };
+    }
+  }
+
   async moveCard(
     card: Card,
     column: Card['column'],

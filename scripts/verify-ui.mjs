@@ -105,9 +105,11 @@ async function main() {
   const columns = await page.evaluate(() =>
     Array.from(document.querySelectorAll('h2')).map((h) => h.textContent?.trim()),
   );
-  const expected = ['Notes', 'À faire', 'Validé', 'Planifié', 'En cours', 'Terminé', 'À déployer', 'Archivé'];
+  // « Validé » a disparu : valider une carte lance son chiffrage sur place,
+  // dans « À faire », et la carte n'apparaît en « Planifié » qu'une fois chiffrée.
+  const expected = ['Notes', 'À faire', 'Planifié', 'En cours', 'Terminé', 'À déployer', 'Archivé'];
   const allColumns = expected.every((label) => columns.includes(label));
-  record('Tableau : les huit colonnes sont présentes', allColumns, columns.filter(Boolean).join(' · '));
+  record('Tableau : les colonnes attendues sont présentes', allColumns, columns.filter(Boolean).join(' · '));
 
   /* ---------- 5. Création d'une carte ---------- */
   const before = await page.locator('article').count();

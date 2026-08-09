@@ -241,7 +241,7 @@ async function main() {
     !!card.estimate?.analysisMeasurement && !!card.analysisContext,
   );
 
-  await session.call({ type: 'card.move', id: card.id, column: 'validated' });
+  await session.call({ type: 'card.validate', id: card.id });
   record(
     'Analyse : durée machine et heures humaines sont distinctes',
     !card.estimate.failed && typeof card.estimate.machineSeconds === 'number' && typeof card.estimate.seniorHours === 'number',

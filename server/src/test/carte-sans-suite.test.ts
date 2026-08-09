@@ -43,7 +43,7 @@ test('une décision en attente : le triangle dit mieux ce qui bloque', () => {
 });
 
 test('hors de « En cours », la colonne dit déjà où en est la carte', () => {
-  for (const column of ['todo', 'validated', 'planned', 'done', 'to_deploy', 'archived']) {
+  for (const column of ['todo', 'planned', 'done', 'to_deploy', 'archived']) {
     assert.equal(mentionSansSuite({ ...FIGEE, column }, MAINTENANT), null);
   }
 });

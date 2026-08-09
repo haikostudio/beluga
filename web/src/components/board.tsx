@@ -52,9 +52,9 @@ import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-prev
 
 /**
  * Ce qu'un pied de colonne sait faire en lot. UN SEUL mécanisme, en deux temps :
- * le premier clic sort les cases à cocher (toutes cochées), le second déplace
- * ce qui est resté coché vers `cible`. Seules les colonnes listées ici ont un
- * pied : ailleurs, le geste de masse n'a pas de sens.
+ * le premier clic sort les cases à cocher (toutes cochées), le second applique
+ * à ce qui est resté coché le MÊME geste que le bouton du tiroir. Seules les
+ * colonnes listées ici ont un pied : ailleurs, le geste de masse n'a pas de sens.
  */
 type ActionDeLot = {
   /** Le bouton au repos. */
@@ -62,7 +62,13 @@ type ActionDeLot = {
   icone: React.ComponentType<{ className?: string }>;
   /** Le bouton de confirmation, suivi du nombre de cartes cochées. */
   verbe: string;
-  cible: ColumnKey;
+  /**
+   * La colonne d'arrivée, quand le geste EST un déplacement. « Tout valider »
+   * fait exception : valider ne déplace plus rien (la colonne « Validé »
+   * n'existe plus), la carte reste sur place le temps de son chiffrage — le lot
+   * appelle donc `validerCarte`, le même geste que le bouton du tiroir.
+   */
+  cible?: ColumnKey;
   /** Le participe passé féminin, pour le compte rendu : « 2 cartes lancées ». */
   participe: string;
   /**
@@ -78,8 +84,10 @@ type ActionDeLot = {
 
 const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
-  // carte : passer en « Validé ». Rien n'est lancé — l'ordonnanceur décide.
-  todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', cible: 'validated', participe: 'validée' },
+  // carte : autoriser la dépense, donc lancer le chiffrage. Les cartes restent
+  // dans « À faire » le temps de l'analyse et montent en « Planifié » une fois
+  // chiffrées. Rien n'est exécuté — le lancement reste un geste.
+  todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', participe: 'validée' },
   // Déposer une carte dans « En cours » VAUT le clic sur « Lancer maintenant » :
   // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
   // carte et le serveur passe par `startCard` — portes dures comprises. Une
@@ -194,7 +202,7 @@ export function Board({
       analyseEnCours: Object.values(state.agents).some(
         (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
       ),
-      chiffrageEnCours: card.column === 'validated' && !card.estimate,
+      chiffrageEnCours: !!card.analyseDemandee && !card.estimate,
       enAttente: !!card.scheduling?.waitingReason,
       estimationEchouee: card.estimate?.failed,
       enLigne: !!card.deployedAt,
@@ -468,11 +476,13 @@ export function Board({
    * et chacune doit être tentée pour recevoir sa raison) ; le `catch` couvre
    * l'imprévu (réseau coupé).
    */
-  const tenterUneCarte = async (id: string, cible: ColumnKey): Promise<'faite' | RefusDeLot | null> => {
+  const tenterUneCarte = async (id: string, action: ActionDeLot): Promise<'faite' | RefusDeLot | null> => {
     const card = client.getSnapshot().cards[id];
     if (!card) return null;
     try {
-      const issue = await client.moveCard(card, cible, { silencieux: true });
+      const issue = action.cible
+        ? await client.moveCard(card, action.cible, { silencieux: true })
+        : await client.validerCarte(card, { silencieux: true });
       return issue.ok ? 'faite' : { titre: card.title, raison: issue.error };
     } catch (err: any) {
       return { titre: card.title, raison: err?.message };
@@ -496,7 +506,7 @@ export function Board({
          * s'allumer en même temps. L'instantané est lu une fois, en tête : ces
          * cartes sont indépendantes, aucune ne change la colonne d'une autre.
          */
-        const issues = await Promise.all(selection.map((id) => tenterUneCarte(id, action.cible)));
+        const issues = await Promise.all(selection.map((id) => tenterUneCarte(id, action)));
         issues.forEach(compter);
       } else {
         /*
@@ -506,7 +516,7 @@ export function Board({
          * tour de boucle, la carte précédente ayant pu changer de colonne.
          */
         for (const id of selection) {
-          compter(await tenterUneCarte(id, action.cible));
+          compter(await tenterUneCarte(id, action));
         }
       }
     } finally {
@@ -801,19 +811,17 @@ export function Board({
                     ? 'Idées en vrac.'
                     : column === 'todo'
                       ? 'Rien à faire pour l’instant.'
-                      : column === 'validated'
-                        ? 'Glissez ici pour autoriser la dépense.'
                         : column === 'running'
-                          ? 'Glissez ici pour lancer le travail.'
-                          : column === 'planned'
-                            ? 'Glissez une carte hors de « En cours » pour suspendre son agent.'
-                            : column === 'done'
-                              ? 'Aucun travail terminé pour l’instant.'
-                              : column === 'to_deploy'
-                                ? 'Rien à mettre en ligne pour l’instant.'
-                                : column === 'in_production'
-                                  ? 'Aucune carte en attente de mise en production.'
-                                  : 'Aucune carte rangée ici pour l’instant.'}
+                        ? 'Glissez ici pour lancer le travail.'
+                        : column === 'planned'
+                          ? 'Glissez une carte hors de « En cours » pour suspendre son agent.'
+                          : column === 'done'
+                            ? 'Aucun travail terminé pour l’instant.'
+                            : column === 'to_deploy'
+                              ? 'Rien à mettre en ligne pour l’instant.'
+                              : column === 'in_production'
+                                ? 'Aucune carte en attente de mise en production.'
+                                : 'Aucune carte rangée ici pour l’instant.'}
                 </p>
               ) : null}
               </div>
@@ -1074,8 +1082,9 @@ export function CardTile({
   const waiting = card.scheduling?.waitingReason;
   const estimateFailed = card.estimate?.failed;
   // Entre la validation et le chiffrage, la carte doit montrer qu'il se passe
-  // quelque chose — sinon on croit que rien ne démarre.
-  const analysing = card.column === 'validated' && !card.estimate;
+  // quelque chose — sinon on croit que rien ne démarre. La carte n'a pas changé
+  // de colonne : c'est son drapeau de validation qui allume le signal.
+  const analysing = !!card.analyseDemandee && !card.estimate;
   const analyseEnCours = Object.values(state.agents).some(
     (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
   );

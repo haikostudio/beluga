@@ -107,7 +107,10 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
     origin: 'agent',
     ...heritage,
   });
-  const validee = store.saveCard({ ...card, column: 'validated' });
+  // Plus de colonne « Validé » : la carte reste dans « À faire » et c'est le
+  // geste de validation qui la fait monter — ici, directement en « Planifié »,
+  // son chiffrage venant du chef.
+  const validee = store.getCard(card.id)!;
 
   assert.equal(validee.estimate?.analysisMeasurement?.totalTokens, 1_120);
   assert.equal(validee.estimate?.producedAt, 1234);
@@ -148,7 +151,6 @@ test('une édition du sujet ou une carte ordinaire garde le chiffrage habituel',
   assert.equal(store.getCard(heritee.id)?.analysisContext, undefined);
 
   const ordinaire = createCard(projet.id, { title: 'Carte ordinaire', description: DESCRIPTION });
-  store.saveCard({ ...ordinaire, column: 'validated' });
   assert.equal(reprendreAnalyseDuChef(ordinaire.id), false);
-  assert.equal(store.getCard(ordinaire.id)?.column, 'validated');
+  assert.equal(store.getCard(ordinaire.id)?.column, 'todo');
 });

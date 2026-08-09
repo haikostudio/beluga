@@ -343,6 +343,41 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX idx_usage_agent ON usage(agent_id, created_at);
     `,
   },
+  {
+    id: 16,
+    name: 'retrait-de-la-colonne-validee',
+    // La colonne « Validé » n'existe plus : valider une carte lance son analyse
+    // sur place, dans « À faire ». Les cartes qui y dormaient doivent être
+    // reprises AVANT toute lecture — leur clé de colonne n'est plus reconnue et
+    // la carte ne se relirait pas.
+    //
+    // Trois sorts, selon ce qui avait déjà été payé : une carte DÉJÀ chiffrée
+    // part en « Planifié » (son analyse est là, elle n'attend que le
+    // lancement) ; une carte dont l'analyse a échoué revient dans « À faire »
+    // sans rien relancer — on ne repaie pas un chiffrage tout seul, l'échec se
+    // lit toujours sur la carte ; une carte encore sans chiffres revient dans
+    // « À faire » en gardant sa validation (`analyseDemandee`), et
+    // l'ordonnanceur relancera son analyse au premier tour de boucle.
+    sql: `
+      UPDATE cards
+         SET column_key = 'planned',
+             data = json_set(json_set(data, '$.column', 'planned'), '$.analyseDemandee', json('false'))
+       WHERE column_key = 'validated'
+         AND json_extract(data, '$.estimate') IS NOT NULL
+         AND COALESCE(json_extract(data, '$.estimate.failed'), 0) = 0;
+
+      UPDATE cards
+         SET column_key = 'todo',
+             data = json_set(json_set(data, '$.column', 'todo'), '$.analyseDemandee', json('false'))
+       WHERE column_key = 'validated'
+         AND json_extract(data, '$.estimate') IS NOT NULL;
+
+      UPDATE cards
+         SET column_key = 'todo',
+             data = json_set(json_set(data, '$.column', 'todo'), '$.analyseDemandee', json('true'))
+       WHERE column_key = 'validated';
+    `,
+  },
 ];
 
 export function openDb(): DB {

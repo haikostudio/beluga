@@ -65,7 +65,7 @@ test('une carte déjà lancée puis interrompue se reprend sans nouveau clic', (
 
 test("un tour d'analyse ne fait entrer aucune carte en « En cours »", () => {
   // Le rôle « analysis » ne déplace jamais une carte, quelle que soit sa colonne.
-  assert.equal(colonneAuDemarrage('validated', 'analysis'), null);
+  assert.equal(colonneAuDemarrage('todo', 'analysis'), null);
   assert.equal(colonneAuDemarrage('planned', 'analysis'), null);
   // …et il ne la clôt pas non plus, même s'il avait modifié le dépôt.
   assert.equal(colonneEnFinDeTour('running', true, 'analysis', true), null);
@@ -95,5 +95,5 @@ test("l'analyse promeut la carte en « Planifié », jamais en « En cours »", 
   // Le corps d'analyseCard : on n'y écrit jamais column: 'running'.
   const corps = scheduler.split('export async function analyseCard(')[1].split('\nexport ')[0];
   assert.doesNotMatch(corps, /column: 'running'/);
-  assert.match(corps, /column: fresh\.column === 'validated' \? 'planned' : fresh\.column/);
+  assert.match(corps, /column: fresh\.column === 'todo' \? 'planned' : fresh\.column/);
 });

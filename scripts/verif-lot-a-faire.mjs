@@ -4,8 +4,9 @@
  * fonctionne en DEUX TEMPS, exactement comme « Tout archiver » des colonnes de
  * fin de parcours : premier clic, les cases sortent au coin haut-gauche des
  * cartes, toutes cochées ; le pied affiche « Annuler » et « Valider (n) ».
- * Annuler ne touche à rien, valider fait passer les cartes cochées en
- * « Validé » — et laisse les décochées où elles sont.
+ * Annuler ne touche à rien, valider autorise la dépense des cartes cochées et
+ * lance leur chiffrage — la colonne « Validé » n'existe plus, la carte reste
+ * dans « À faire » le temps de l'analyse — et laisse les décochées intactes.
  *
  *   node scripts/verif-lot-a-faire.mjs
  *
@@ -22,8 +23,15 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const RACINE = '/root/haikodev';
+/*
+ * Le dépôt d'où PART ce script, jamais `/root/haikodev` en dur : lancé depuis
+ * une copie de travail, il doit juger CETTE copie — sinon il monte son démon
+ * d'essai sur la construction du dossier principal et ne voit pas le code qu'on
+ * vient d'écrire.
+ */
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7192);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-lot-'));
@@ -162,6 +170,19 @@ function colonnesEnBase() {
   const lignes = db.prepare('SELECT title, column_key FROM cards').all();
   db.close();
   return Object.fromEntries(lignes.map((l) => [l.title, l.column_key]));
+}
+
+/**
+ * La marque de VALIDATION de chaque carte : titre → vrai/faux. Valider ne
+ * déplace plus rien — la colonne « Validé » n'existe plus, la carte reste dans
+ * « À faire » le temps de son chiffrage. C'est donc ce drapeau qu'on lit pour
+ * savoir ce que le lot a vraiment fait.
+ */
+function validationsEnBase() {
+  const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
+  const lignes = db.prepare("SELECT title, json_extract(data, '$.analyseDemandee') AS marque FROM cards").all();
+  db.close();
+  return Object.fromEntries(lignes.map((l) => [l.title, !!l.marque]));
 }
 
 /** Où chaque carte se trouve À L'ÉCRAN : titre → colonne affichée. */
@@ -304,6 +325,11 @@ async function main() {
   await page.waitForTimeout(1200);
   noter('« Annuler » referme les cases', (await casesAFaire(page)).length === 0);
   noter('« Annuler » ne déplace AUCUNE carte', TITRES.every((t) => colonnesEnBase()[t] === 'todo'), JSON.stringify(colonnesEnBase()));
+  noter(
+    '« Annuler » ne valide AUCUNE carte',
+    TITRES.every((t) => !validationsEnBase()[t]),
+    JSON.stringify(validationsEnBase()),
+  );
 
   /* -------- Recommencer, décocher une carte, puis VALIDER -------- */
 
@@ -321,12 +347,20 @@ async function main() {
   await page.waitForTimeout(4000);
 
   const apres = colonnesEnBase();
+  const validees = validationsEnBase();
+  // Valider ne DÉPLACE plus : la carte reste dans « À faire » pendant son
+  // chiffrage et ne montera en « Planifié » qu'une fois l'analyse rendue. Les
+  // deux états valent donc « validée » — on n'attend pas un vrai tour de moteur.
   noter(
-    'les deux cartes cochées sont passées en « Validé »',
-    TITRES.filter((t) => t !== gardee).every((t) => apres[t] === 'validated'),
-    JSON.stringify(apres),
+    'les deux cartes cochées sont validées : chiffrage lancé sur place',
+    TITRES.filter((t) => t !== gardee).every((t) => validees[t] || apres[t] === 'planned'),
+    `${JSON.stringify(apres)} · ${JSON.stringify(validees)}`,
   );
-  noter(`la carte décochée (« ${gardee} ») est restée dans « À faire »`, apres[gardee] === 'todo', apres[gardee]);
+  noter(
+    `la carte décochée (« ${gardee} ») est restée intacte dans « À faire »`,
+    apres[gardee] === 'todo' && !validees[gardee],
+    `${apres[gardee]} · validée : ${validees[gardee]}`,
+  );
 
   const ecran = await colonnesAffichees(page);
   noter(
@@ -349,10 +383,12 @@ async function main() {
 
   await cliquerPied(mobile, 'Tout valider');
   await mobile.waitForTimeout(800);
+  // Les trois cartes sont toujours dans « À faire » : valider ne déplace plus
+  // rien, il lance le chiffrage sur place. Chacune doit donc sortir sa case.
   const casesMobile = await casesAFaire(mobile);
   noter(
-    'téléphone — la case de la carte restante sort cochée, en haut à gauche',
-    casesMobile.length === 1 && casesMobile[0].cochee && casesMobile[0].enHautAGauche,
+    'téléphone — chaque carte sort sa case cochée, en haut à gauche',
+    casesMobile.length === TITRES.length && casesMobile.every((c) => c.cochee && c.enHautAGauche),
     `${casesMobile.length} case(s)`,
   );
 
@@ -367,17 +403,19 @@ async function main() {
 
   await cliquerPied(mobile, 'Annuler');
   await mobile.waitForTimeout(1000);
-  noter('téléphone — « Annuler » laisse la carte dans « À faire »', colonnesEnBase()[gardee] === 'todo');
+  noter('téléphone — « Annuler » laisse les cartes dans « À faire »', TITRES.every((t) => colonnesEnBase()[t] === 'todo'));
   await mobile.screenshot({ path: path.join(TMP, 'lot-telephone.png') });
 
-  /* -------- 3. Les autres colonnes n'ont pas bougé -------- */
+  /* -------- 3. La colonne « Validé » a bel et bien disparu -------- */
 
-  const piedValide = await page.evaluate(() => {
-    const colonne = document.querySelector('[data-column="validated"]');
-    const pied = colonne?.lastElementChild;
-    return [...(pied?.querySelectorAll('button') ?? [])].map((b) => b.textContent?.trim() ?? '');
-  });
-  noter('la colonne « Validé » n’a toujours aucun bouton de pied', piedValide.length === 0, piedValide.join(' | '));
+  const colonnesDuTableau = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-column]')].map((c) => c.getAttribute('data-column')),
+  );
+  noter(
+    'le tableau ne porte plus de colonne « Validé »',
+    !colonnesDuTableau.includes('validated'),
+    colonnesDuTableau.join(' | '),
+  );
 
   const toutes = [...erreurs, ...erreursMobile];
   noter('aucune erreur de page', toutes.length === 0, toutes.slice(0, 2).join(' | '));
