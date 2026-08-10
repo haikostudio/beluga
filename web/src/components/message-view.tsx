@@ -25,6 +25,7 @@ import {
   SentContextSnapshot,
   choixPossible,
   comptesDeReprise,
+  EtatDuPlan,
   heureExacte,
   propositionsDuFil,
   repartitionMemoireEnvoi,
@@ -95,7 +96,7 @@ export function MessageView({
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
-  dernier = true,
+  etatPlan = 'courant',
 }: {
   message: Message;
   /** Pour déplier la mémoire du projet sous l'étape de lecture. */
@@ -105,9 +106,10 @@ export function MessageView({
   pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
-  /** Faux dès qu'un message suit celui-ci dans le fil : un plan alors non lu
-   *  se replie tout seul (`PlanBlock`). */
-  dernier?: boolean;
+  /** Pour un message écrit en mode plan : est-ce le plan encore en jeu, ou une
+   *  itération passée ? Une itération passée se replie et perd ses boutons
+   *  (`indexDuPlanCourant`, `shared/src/plan-conversation.ts`). */
+  etatPlan?: EtatDuPlan;
 }) {
   const isUser = message.role === 'user';
 
@@ -169,7 +171,7 @@ export function MessageView({
         message.plan ? (
           <PlanBlock
             message={message}
-            dernier={dernier}
+            etat={etatPlan}
             pickedEvolutions={pickedEvolutions}
             onToggleEvolution={onToggleEvolution}
             onToggleAll={onToggleAll}
@@ -267,35 +269,39 @@ const TEXTE_VALIDATION_PLAN = 'Vas-y, lance ce plan.';
 const TEXTE_REFUS_PLAN = 'Je refuse ce plan : réfléchis à une autre approche.';
 
 /**
- * Le cadre d'un plan proposé en mode plan. Un plan qui n'est plus le dernier
- * message du fil (un message a suivi) se replie tout seul sur un simple
- * bandeau — il reste dépliable d'un clic, rien n'est perdu.
+ * Le cadre d'un plan écrit en mode plan. Le plan s'affine par itérations : seul
+ * le DERNIER est encore en jeu (`etat === 'courant'`). Une itération passée se
+ * replie toute seule sur un bandeau — elle se rouvre d'un clic, rien n'est
+ * perdu — et ne porte AUCUN bouton : décider sur une version périmée lancerait
+ * un travail que personne n'a relu.
  *
  * Les deux boutons du bas ne créent rien eux-mêmes : ils envoient un message
  * ordinaire dans la conversation, exactement ce que taperait quelqu'un qui
  * valide ou refuse à la main (§PLAN mode plan). « Valider » repasse en plus
  * la conversation en mode direct, seule façon dont le chef sait qu'il peut
- * proposer la carte.
+ * proposer la carte ; « Refuser » reste en mode plan, et le chef rend alors un
+ * nouveau plan complet.
  */
 function PlanBlock({
   message,
-  dernier,
+  etat,
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
 }: {
   message: Message;
-  dernier: boolean;
+  etat: EtatDuPlan;
   pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
 }) {
-  const [replie, setReplie] = React.useState(() => !dernier);
-  const etaitDernier = React.useRef(dernier);
+  const courant = etat === 'courant';
+  const [replie, setReplie] = React.useState(() => !courant);
+  const etaitCourant = React.useRef(courant);
   React.useEffect(() => {
-    if (etaitDernier.current && !dernier) setReplie(true);
-    etaitDernier.current = dernier;
-  }, [dernier]);
+    if (etaitCourant.current && !courant) setReplie(true);
+    etaitCourant.current = courant;
+  }, [courant]);
 
   const [enCours, setEnCours] = React.useState<'valider' | 'refuser' | null>(null);
 
@@ -322,12 +328,13 @@ function PlanBlock({
       <button
         type="button"
         data-mode-plan-reponse="replie"
+        data-mode-plan-etat={etat}
         onClick={() => setReplie(false)}
         className="flex w-full items-center gap-1.5 rounded-lg border border-border bg-surface/60 px-3 py-2 text-left text-[12px] font-medium uppercase tracking-wide text-muted transition-colors hover:bg-surface hover:text-text"
       >
         <ChevronRight className="h-3.5 w-3.5 shrink-0" />
         <Route className="h-3.5 w-3.5 shrink-0" />
-        Plan proposé
+        {courant ? 'Plan proposé' : 'Version précédente du plan'}
       </button>
     );
   }
@@ -336,10 +343,26 @@ function PlanBlock({
     /* Un plan se lit d'un coup d'œil : un cadre gris à lui, distinct
        d'une réponse de tâche classique — pas seulement un emoji devant
        le titre. */
-    <div data-mode-plan-reponse="ouvert" className="rounded-lg border-2 border-border bg-surface/80 px-3 py-3">
+    <div
+      data-mode-plan-reponse="ouvert"
+      data-mode-plan-etat={etat}
+      className={cn(
+        'rounded-lg border-2 px-3 py-3',
+        courant ? 'border-border bg-surface/80' : 'border-border/60 bg-surface/40',
+      )}
+    >
       <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
         <Route className="h-3.5 w-3.5" />
-        Plan proposé
+        {courant ? 'Plan proposé' : 'Version précédente du plan'}
+        {courant ? null : (
+          <button
+            type="button"
+            onClick={() => setReplie(true)}
+            className="ml-auto rounded px-1 py-0.5 text-[11.5px] normal-case tracking-normal text-faint transition-colors hover:text-text"
+          >
+            Replier
+          </button>
+        )}
       </div>
       <Markdown
         content={message.content}
@@ -348,6 +371,9 @@ function PlanBlock({
         onToggleAll={onToggleAll}
         streaming={message.streaming}
       />
+      {/* Les boutons n'appartiennent qu'au plan ENCORE EN JEU : une version
+          précédente se relit, elle ne se décide plus. */}
+      {!courant ? null : (
       <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
         <Button
           variant="default"
@@ -370,6 +396,7 @@ function PlanBlock({
           Refuser
         </Button>
       </div>
+      )}
     </div>
   );
 }

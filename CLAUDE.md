@@ -170,6 +170,11 @@ le nom, là-bas le texte).
   réelle ajoutée par le démon et relais factuel sont recopiés sur la carte ; l'agent lancé ne rechiffre
   alors pas par-dessus, mais l'exécution attend toujours un geste humain. Une carte du chef, elle,
   n'emporte aucun chiffrage : c'est son agent d'exécution qui chiffrera, au lancement.
+- **Le MODE PLAN s'affine par ITÉRATIONS** (`TRI_MODE_PLAN`, `server/src/runtime.ts` ;
+  `indexDuPlanCourant`, `shared/src/plan-conversation.ts`) : chaque réponse — relance, ajustement,
+  refus — rend de nouveau les QUATRE parties EN ENTIER, enrichies des versions précédentes ; un seul
+  plan vit dans la conversation, le DERNIER. Lui seul porte « Valider » / « Refuser » ; les
+  précédents se replient et se relisent sans rien à décider.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
 - **Une carte NAÎT dans « Planifié »** (`createCard`, `server/src/tools.ts`) : ni « Validé » ni « À

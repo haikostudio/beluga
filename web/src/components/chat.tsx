@@ -5,6 +5,7 @@ import {
   Message,
   afficherHeure,
   carteRangee,
+  etatDuPlan,
   libellePrecedents,
   peutRepartir,
   questionEnTexteLibre,
@@ -213,7 +214,7 @@ export function Chat({
                   pickedEvolutions={picked}
                   onToggleEvolution={toggleEvolution}
                   onToggleAll={toggleAll}
-                  dernier={index === messages.length - 1}
+                  etatPlan={etatDuPlan(messages, index) ?? 'courant'}
                 />
               </React.Fragment>
             ))

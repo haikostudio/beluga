@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * LES BOUTONS « VALIDER / REFUSER » AU BAS D'UN PLAN, ET SON REPLI AUTOMATIQUE
- * — dans un vrai navigateur, sur un agent RÉEL.
+ * LES BOUTONS « VALIDER / REFUSER » AU BAS D'UN PLAN, ET LE REPLI DES
+ * ITÉRATIONS PRÉCÉDENTES — dans un vrai navigateur, sur un agent RÉEL.
+ *
+ * Le plan s'affine par itérations : seul le DERNIER porte ses boutons. Une
+ * version précédente se replie toute seule, se rouvre en lecture, et n'offre
+ * plus rien à décider (`indexDuPlanCourant`, `shared/src/plan-conversation.ts`).
  *
  * Le plan lui-même est INJECTÉ par le point d'essai de la page
  * (`window.haikodevEssai.plan`, `web/src/lib/client.ts`) : on n'attend pas
@@ -167,12 +171,26 @@ noter(
 );
 await page.screenshot({ path: `${SHOTS}/boutons-plan-replie.png` });
 
+noter(
+  'le plan replié est annoncé comme une version précédente',
+  (await replieApresValidation.first().getAttribute('data-mode-plan-etat')) === 'ancien',
+);
+
 await replieApresValidation.first().click();
 await page.waitForTimeout(300);
 const rouvertOk = (await page.locator('[data-mode-plan-reponse="ouvert"]').count()) >= 1;
 noter('un clic sur le bandeau replié rouvre le plan, contenu intact', rouvertOk);
 const contenuIntact = await page.locator('text=Un export de plus').count();
 noter('le contenu rouvert est bien celui d’origine, inchangé', contenuIntact >= 1);
+
+// Une version périmée se relit, elle ne se décide plus : aucun bouton dedans.
+const ancienOuvert = page.locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="ancien"]');
+noter('le plan rouvert est bien marqué « ancien »', (await ancienOuvert.count()) === 1);
+noter(
+  'un plan précédent rouvert ne porte plus aucun bouton d’action',
+  (await ancienOuvert.getByRole('button', { name: 'Valider' }).count()) === 0 &&
+    (await ancienOuvert.getByRole('button', { name: 'Refuser' }).count()) === 0,
+);
 await page.screenshot({ path: `${SHOTS}/boutons-plan-rouvert.png` });
 
 /* ---------- 4. Un second plan, plus récent : « Refuser » ---------- */
@@ -184,8 +202,14 @@ const PLAN_2 =
 await page.evaluate(([id, texte]) => window.haikodevEssai.plan(id, texte), [agentId, PLAN_2]);
 await page.waitForTimeout(400);
 
-const dernierCadre = page.locator('[data-mode-plan-reponse="ouvert"]').last();
+const dernierCadre = page.locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="courant"]');
 noter('le second plan s’affiche déplié, lui aussi', (await dernierCadre.count()) === 1);
+noter(
+  'un seul plan porte ses boutons : le plus récent',
+  (await page.locator('[data-fil="conversation"]').getByRole('button', { name: 'Valider', exact: true }).count()) ===
+    1,
+);
+await page.screenshot({ path: `${SHOTS}/boutons-plan-iterations.png` });
 
 const messagesRefusAvant = await page.locator('text=Je refuse ce plan').count();
 await dernierCadre.getByRole('button', { name: 'Refuser' }).click();

@@ -1916,16 +1916,24 @@ NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche d
  * de proposer une carte mais de rendre un PLAN COMPLET, lisible par un lecteur
  * non technique, qui reste dans la conversation jusqu'à sa validation.
  *
+ * Le plan s'AFFINE par itérations : chaque réponse — relance, ajustement, refus
+ * — rend de nouveau les quatre parties EN ENTIER, enrichies des versions
+ * précédentes, de sorte qu'un seul texte soit à lire (celui du bas). Côté
+ * interface, seul ce dernier plan porte ses boutons ; les précédents se replient
+ * en lecture seule (`indexDuPlanCourant`, `shared/src/plan-conversation.ts`).
+ *
  * `board_create_card` et `propose_task` sont déjà refusés au niveau de l'outil
  * (`tools.ts`, PLAN §2 principe 3) : cette consigne évite au modèle de buter
  * dessus en silence, et lui dit quoi faire à la place.
  */
 export const TRI_MODE_PLAN = `TU ES EN MODE PLAN (bouton « Plan » activé) : pour toute demande de programmation ou d'exécution (cas 2 et 3 ci-dessus), tu NE PROPOSES AUCUNE carte — board_create_card et propose_task sont refusés par l'outil. Le tableau reste intact.
 À LA PLACE, tu réponds DANS LA CONVERSATION avec un plan complet, en quatre parties claires : FAISABILITÉ (est-ce possible, avec quelles réserves), CHEMIN À SUIVRE (les grandes étapes, dans l'ordre), CONSÉQUENCES (ce que ça change concrètement dans le produit) et AMÉLIORATIONS APPORTÉES (ce que l'utilisateur y gagne). Reste concis et concret, sans jargon.
-SI UN PLAN A DÉJÀ ÉTÉ ÉCRIT PLUS HAUT DANS CETTE CONVERSATION et que le nouveau message en demande un ajustement, REPARS DE CE DERNIER PLAN : reprends-le entier et améliore-le selon la nouvelle demande, dans les mêmes quatre parties. Ne rédige jamais un second plan indépendant à côté du premier — un seul plan vit dans la conversation, à jour.
+CHAQUE RÉPONSE EN MODE PLAN EST UN PLAN COMPLET, JAMAIS UN COMMENTAIRE NI UN MORCEAU. Même pour une retouche minuscule, même après un refus, tu réécris les QUATRE PARTIES en entier : l'utilisateur n'a alors qu'un seul texte à lire, à jour, sans rien à recoller de tête.
+SI UN PLAN A DÉJÀ ÉTÉ ÉCRIT PLUS HAUT DANS CETTE CONVERSATION, LE NOUVEAU LE REPREND ET L'ENRICHIT : ce qui tenait debout est conservé, la nouvelle demande s'y intègre, ce qui a été écarté ne revient pas. Ne rédige jamais un second plan indépendant à côté du premier, ni une simple liste des changements : un seul plan vit dans la conversation, le DERNIER, et il porte à lui seul tout ce qui a été dit avant.
+UN REFUS (« je refuse ce plan », « réfléchis à une autre approche », « ce n'est pas ça ») N'EST PAS UNE FIN : tu rends AUSSITÔT un nouveau plan complet, aux mêmes quatre parties, qui prend un chemin DIFFÉRENT — et tu dis en une phrase, dans FAISABILITÉ, ce que tu abandonnes du plan précédent et pourquoi. Jamais un refus répondu par une question seule, une excuse ou un paragraphe sans plan.
 Une question restée ouverte se pose avec l'outil « ask_user », jamais en fin de plan.
-CE PLAN N'EST PAS UNE PROPOSITION DE CARTE : rien à valider par un clic, c'est un texte à lire. Le tableau n'en sait rien tant que l'utilisateur ne l'a pas dit.
-UNE FOIS QUE L'UTILISATEUR VALIDE CE PLAN dans un message qui suit (« vas-y », « lance-le », un accord clair) — et une fois le mode repassé sur « direct » —, tu proposes la carte comme d'habitude (cas 2 ou 3 du tri), MAIS tu recopies alors le plan entier, tel que tu l'as écrit, dans le champ \`analysis.context\` de board_create_card/propose_task : c'est ainsi qu'il voyage jusqu'à l'agent qui exécutera la carte, qui le suit pendant le travail.`;
+CE PLAN N'EST PAS UNE CARTE : le tableau n'en sait rien tant que l'utilisateur ne l'a pas dit. Le plan le plus récent s'affiche avec deux boutons au bas de son cadre, « Valider » et « Refuser », qui envoient un message ordinaire dans la conversation ; les plans plus anciens se replient et n'en portent plus. Ne demande donc jamais à l'utilisateur de recopier un accord.
+UNE FOIS QUE L'UTILISATEUR VALIDE CE PLAN dans un message qui suit (« vas-y », « lance-le », un accord clair) — et une fois le mode repassé sur « direct » —, tu proposes la carte comme d'habitude (cas 2 ou 3 du tri), MAIS tu recopies alors le DERNIER plan entier, tel que tu l'as écrit, dans le champ \`analysis.context\` de board_create_card/propose_task : c'est ainsi qu'il voyage jusqu'à l'agent qui exécutera la carte, qui le suit pendant le travail.`;
 
 /**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute

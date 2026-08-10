@@ -58,6 +58,7 @@ export * from './nouveau-depart.js';
 export * from './outil-natif.js';
 export * from './ouverture-pile.js';
 export * from './pile-messages.js';
+export * from './plan-conversation.js';
 export * from './pont-outils.js';
 export * from './position-voix.js';
 export * from './progression-taches.js';

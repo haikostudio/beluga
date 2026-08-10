@@ -6,6 +6,7 @@ import path from 'node:path';
 import { buildClaudeArgs } from '../engines/claude.js';
 import { buildCodexArgs } from '../engines/codex.js';
 import { rolePrompt, TRI_MODE_PLAN } from '../runtime.js';
+import { etatDuPlan, indexDuPlanCourant } from '@haikodev/shared';
 
 const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'mode-plan-'));
 process.env.HAIKODEV_DATA = bacASable;
@@ -161,4 +162,46 @@ test('la consigne du chef en mode plan porte les quatre parties du plan et inter
 test('la consigne du chef en mode direct ne porte pas le texte du mode plan', () => {
   const consigne = rolePrompt('orchestrator', false, 'claude');
   assert.ok(!consigne.includes(TRI_MODE_PLAN));
+});
+
+test('la consigne exige un plan COMPLET à chaque itération, refus compris', () => {
+  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  assert.match(consigne, /CHAQUE RÉPONSE EN MODE PLAN EST UN PLAN COMPLET/);
+  assert.match(consigne, /LE NOUVEAU LE REPREND ET L'ENRICHIT/);
+  assert.match(consigne, /UN REFUS .* N'EST PAS UNE FIN/);
+  assert.match(consigne, /nouveau plan complet/);
+});
+
+/* ------------------------------------------------------------------ */
+/* Les ITÉRATIONS du plan : un seul plan est encore en jeu, le dernier. */
+/* Les précédents se replient et ne portent plus aucun bouton.          */
+/* ------------------------------------------------------------------ */
+
+const PLAN = (texte: string) => ({ plan: true, content: texte });
+const REPONSE = (texte: string) => ({ plan: false, content: texte });
+
+test('le plan courant est le dernier plan écrit, les précédents sont d’anciennes itérations', () => {
+  const fil = [REPONSE('bonjour'), PLAN('version 1'), REPONSE('affine-le'), PLAN('version 2')];
+  assert.equal(indexDuPlanCourant(fil), 3);
+  assert.equal(etatDuPlan(fil, 1), 'ancien');
+  assert.equal(etatDuPlan(fil, 3), 'courant');
+  assert.equal(etatDuPlan(fil, 0), null, 'un message ordinaire ne porte aucun plan');
+});
+
+test('un plan suivi d’un message n’attend plus de décision', () => {
+  const fil = [PLAN('version 1'), REPONSE('Vas-y, lance ce plan.')];
+  assert.equal(indexDuPlanCourant(fil), -1);
+  assert.equal(etatDuPlan(fil, 0), 'ancien');
+});
+
+test('le tour qui démarre (message encore vide) ne périme pas le plan affiché', () => {
+  const fil = [PLAN('version 1'), { plan: true, content: '' }];
+  assert.equal(indexDuPlanCourant(fil), 0);
+  assert.equal(etatDuPlan(fil, 0), 'courant');
+  assert.equal(etatDuPlan(fil, 1), null, 'un plan sans texte ne s’affiche pas encore');
+});
+
+test('une conversation sans plan n’a pas de plan courant', () => {
+  assert.equal(indexDuPlanCourant([REPONSE('bonjour'), REPONSE('salut')]), -1);
+  assert.equal(indexDuPlanCourant([]), -1);
 });
