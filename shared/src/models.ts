@@ -62,6 +62,13 @@ export const RunConfig = z.object({
   model: z.string().optional(),
   thinking: ThinkingLevel.default('none'),
   mode: z.enum(['direct', 'plan']).default('direct'),
+  /**
+   * Le PALIER choisi par le chef d'orchestre (`shared/src/niveau-agent.ts`) :
+   * léger, standard ou approfondi. Le modèle et la réflexion ci-dessus en
+   * découlent, mais restent modifiables à la main — c'est pourquoi le palier est
+   * retenu à part, comme une intention, jamais comme un réglage de plus.
+   */
+  niveau: z.enum(['leger', 'standard', 'approfondi']).optional(),
 });
 export type RunConfig = z.infer<typeof RunConfig>;
 

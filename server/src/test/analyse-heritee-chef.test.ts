@@ -54,12 +54,19 @@ function projetDEssai() {
   } as any);
 }
 
-test('les outils du chef exigent le chiffrage et le relais dans la proposition', () => {
+/*
+ * Le chef d'orchestre ne chiffre PLUS : il trie, et l'étude appartient à la
+ * carte. Le champ reste offert — un agent qui vient réellement d'analyser y
+ * transmet son relais — mais il n'est plus exigé ; ce qui l'est, c'est le
+ * NIVEAU de l'agent qui exécutera.
+ */
+test('les outils du chef exigent le niveau, et offrent encore le relais d’analyse', () => {
   for (const nom of ['board_create_card', 'propose_task']) {
     const outil = TOOL_DEFS.find((item) => item.name === nom)!;
     const schema = outil.inputSchema as any;
-    assert.ok(schema.required.includes('analysis'), `${nom} doit demander l’analyse`);
-    assert.ok(schema.properties.analysis.properties.context, `${nom} doit demander le relais`);
+    assert.ok(schema.required.includes('niveau'), `${nom} doit demander le niveau`);
+    assert.ok(!schema.required.includes('analysis'), `${nom} ne doit plus exiger l’analyse`);
+    assert.ok(schema.properties.analysis.properties.context, `${nom} doit offrir le relais`);
   }
 });
 

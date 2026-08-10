@@ -4,8 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  CONSIGNE_CARTE_COURTE,
   CONSIGNE_DESCRIPTION_CARTE,
   MAX_SIGNES_DESCRIPTION,
+  MIN_SIGNES_CARTE_COURTE,
   MIN_SIGNES_DESCRIPTION,
   composerDescription,
   contientRepereConcret,
@@ -38,6 +40,14 @@ const BONNE_DESCRIPTION = [
   "Limites : on ne touche ni au glisser-déposer, ni aux autres colonnes, ni aux règles de passage d'une colonne à l'autre.",
   'Vérification : rejouer `npm test` puis regarder la colonne pendant qu’une carte y entre, sur écran de téléphone.',
 ].join('\n');
+
+/**
+ * Une carte de TRI : la demande reformulée, sans partie annoncée ni repère
+ * concret — le chef n'a pas ouvert le projet, il n'a rien à citer.
+ */
+const CARTE_COURTE =
+  'Rendre la colonne « À déployer » stable quand une carte y entre : aujourd’hui elle clignote, ' +
+  'et cela gêne la lecture du tableau au moment du déploiement.';
 
 function projetDEssai() {
   return store.saveProject({
@@ -138,21 +148,44 @@ test('les quatre champs séparés sont mis en forme par HaikoDev', () => {
 for (const outil of ['board_create_card', 'propose_task']) {
   test(`${outil} : une description bâclée ne devient PAS une proposition`, async () => {
     const projet = projetDEssai();
-    const resultat = await callTool({ projectId: projet.id } as any, outil, {
+    const resultat = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, outil, {
       title: 'Corriger le tableau',
       description: 'Il faudrait corriger ça.',
+      niveau: 'leger',
     });
     assert.equal(resultat.ok, false);
     assert.equal(resultat.proposal, undefined, 'rien ne doit s’afficher dans la conversation');
     assert.match(resultat.text, /REFUS/i);
-    assert.match(resultat.text, /Constat/);
+    assert.match(resultat.text, /reformul/i);
   });
 
   test(`${outil} : un titre seul est refusé`, async () => {
     const projet = projetDEssai();
-    const resultat = await callTool({ projectId: projet.id } as any, outil, { title: 'Corriger le tableau' });
+    const resultat = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, outil, {
+      title: 'Corriger le tableau',
+      niveau: 'leger',
+    });
     assert.equal(resultat.ok, false);
     assert.equal(resultat.proposal, undefined);
+  });
+
+  test(`${outil} : la carte COURTE du chef passe, la même carte d’un autre rôle non`, async () => {
+    const projet = projetDEssai();
+    const duChef = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, outil, {
+      title: 'Stabiliser la colonne « À déployer »',
+      description: CARTE_COURTE,
+      niveau: 'standard',
+    });
+    assert.equal(duChef.ok, true, duChef.text);
+    assert.equal(duChef.proposal?.description, CARTE_COURTE);
+
+    // Un agent d'un autre rôle a, lui, vraiment étudié : il garde les quatre parties.
+    const dUnAutre = await callTool({ projectId: projet.id, role: 'analysis' } as any, outil, {
+      title: 'Stabiliser la colonne « À déployer »',
+      description: CARTE_COURTE,
+    });
+    assert.equal(dUnAutre.ok, false);
+    assert.match(dUnAutre.text, /Constat/);
   });
 
   test(`${outil} : une vraie description est acceptée`, async () => {
@@ -182,7 +215,7 @@ for (const outil of ['board_create_card', 'propose_task']) {
   test(`${outil} : le champ description dit ce qu'il attend`, () => {
     const def = TOOL_DEFS.find((t) => t.name === outil);
     const champs = (def?.inputSchema as any)?.properties ?? {};
-    assert.match(String(champs.description?.description ?? ''), /Constat/);
+    assert.match(String(champs.description?.description ?? ''), /REFORMUL/i);
     for (const partie of ['constat', 'attendu', 'limites', 'verification']) {
       assert.ok(partie in champs, `le champ « ${partie} » manque à ${outil}`);
     }
@@ -193,15 +226,46 @@ for (const outil of ['board_create_card', 'propose_task']) {
 /* La même exigence sous les deux moteurs                               */
 /* ------------------------------------------------------------------ */
 
-test('le chef reçoit la MÊME consigne de description, quel que soit le moteur', () => {
+test('le chef reçoit la MÊME consigne de carte courte, quel que soit le moteur', () => {
   for (const isSelf of [false, true]) {
     const claude = rolePrompt('orchestrator', isSelf, 'claude');
     const codex = rolePrompt('orchestrator', isSelf, 'codex');
-    assert.ok(claude.includes(CONSIGNE_DESCRIPTION_CARTE), 'consigne absente du briefing Claude');
-    assert.ok(codex.includes(CONSIGNE_DESCRIPTION_CARTE), 'consigne absente du briefing Codex');
+    assert.ok(claude.includes(CONSIGNE_CARTE_COURTE), 'consigne absente du briefing Claude');
+    assert.ok(codex.includes(CONSIGNE_CARTE_COURTE), 'consigne absente du briefing Codex');
+    // Il ne reçoit PLUS l'exigence en quatre parties : il n'ouvre pas le projet.
+    assert.ok(!claude.includes(CONSIGNE_DESCRIPTION_CARTE), 'le chef ne doit plus porter les quatre parties');
   }
 });
 
-test('la consigne ne nomme aucun outil propre à un moteur', () => {
-  assert.doesNotMatch(CONSIGNE_DESCRIPTION_CARTE, /TaskCreate|TaskUpdate|update_plan|TodoWrite/);
+test('la consigne de carte courte dit de ne rien inventer sur le code', () => {
+  assert.match(CONSIGNE_CARTE_COURTE, /REFORMULE la demande/);
+  assert.match(CONSIGNE_CARTE_COURTE, /N'OUVRES PAS LE PROJET/);
+});
+
+test('aucune des deux consignes ne nomme un outil propre à un moteur', () => {
+  for (const consigne of [CONSIGNE_DESCRIPTION_CARTE, CONSIGNE_CARTE_COURTE]) {
+    assert.doesNotMatch(consigne, /TaskCreate|TaskUpdate|update_plan|TodoWrite/);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* La règle pure : deux exigences, un seul juge                         */
+/* ------------------------------------------------------------------ */
+
+test('une carte courte passe en exigence « courte », jamais en « complete »', () => {
+  assert.equal(jugerDescription(CARTE_COURTE, 'courte').ok, true);
+  const complete = jugerDescription(CARTE_COURTE, 'complete');
+  assert.equal(complete.ok, false);
+  assert.ok(complete.manques.includes('constat'));
+});
+
+test('une carte courte trop maigre est refusée, même en exigence « courte »', () => {
+  const verdict = jugerDescription('Corrige ça.', 'courte');
+  assert.equal(verdict.ok, false);
+  assert.deepEqual(verdict.manques, ['trop-courte']);
+  assert.ok(verdict.signes < MIN_SIGNES_CARTE_COURTE);
+});
+
+test('une description complète reste acceptée en exigence « courte »', () => {
+  assert.equal(jugerDescription(BONNE_DESCRIPTION, 'courte').ok, true);
 });

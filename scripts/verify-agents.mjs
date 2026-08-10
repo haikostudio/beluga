@@ -165,13 +165,21 @@ async function main() {
   /* ---------- Chef d'orchestre : le tri en familles ---------- */
   const { agent: orchestrator } = await session.call({ type: 'agent.orchestrator', projectId: project.id });
   record('Chef d\'orchestre : agent permanent créé', !!orchestrator?.id);
+  /*
+   * Le chef ne fait plus qu'un tri : son modèle par défaut est ÉCONOME sous
+   * Claude (Haiku 4.5). Un choix manuel enregistré dans les réglages l'emporte,
+   * et le contrôle le DIT au lieu de tomber en erreur.
+   */
+  const choixManuel = !!(await session.call({ type: 'settings.get' }))?.settings?.orchestratorModel;
   record(
     'Chef d\'orchestre : son modèle et sa réflexion ont les bons défauts',
-    (ENGINE === 'codex'
-      ? orchestrator.run.engine === 'codex' && orchestrator.run.model?.includes('gpt-5.4')
-      : orchestrator.run.engine === 'claude' && orchestrator.run.model?.includes('sonnet-5')) &&
-      orchestrator.run.thinking === 'medium',
-    `modèle ${orchestrator.run.model}, réflexion ${orchestrator.run.thinking}`,
+    choixManuel ||
+      (ENGINE === 'codex'
+        ? orchestrator.run.engine === 'codex' && orchestrator.run.model?.includes('gpt-5.4')
+        : orchestrator.run.engine === 'claude' && /haiku/i.test(orchestrator.run.model ?? '')),
+    choixManuel
+      ? `choix manuel enregistré : ${orchestrator.run.model}`
+      : `modèle ${orchestrator.run.model}, réflexion ${orchestrator.run.thinking}`,
   );
 
   const cardsBefore = (await session.call({ type: 'project.open', id: project.id }), 0);

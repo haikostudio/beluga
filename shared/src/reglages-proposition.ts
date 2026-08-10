@@ -10,15 +10,28 @@
  * sélectionné dans la barre d'écriture) et le CATALOGUE RÉEL des moteurs, et
  * rend un réglage entier, toujours cohérent — jamais un modèle emprunté à un
  * autre moteur.
+ *
+ * Depuis que le chef d'orchestre tourne sur un modèle économe, le MODÈLE de la
+ * conversation ne se recopie plus tel quel : un chef qui trie sur un petit
+ * modèle ferait exécuter toutes les cartes sur ce petit modèle. Le chef annonce
+ * donc un NIVEAU (`niveau-agent.ts`), et c'est lui qui décide du modèle et de la
+ * réflexion. Le MOTEUR, lui, reste celui de la conversation : discuter avec
+ * Codex et se voir proposer du Claude n'a toujours aucun sens.
  */
+
+import { reglagesDuNiveau, type NiveauAgent } from './niveau-agent.js';
 
 export type IdMoteur = 'claude' | 'codex';
 
 export interface ModeleCatalogue {
   id: string;
+  /** Le nom affiché par le moteur : sert à reconnaître une famille de modèles. */
+  label?: string;
   /** Niveaux de réflexion réellement proposés par CE modèle. */
   thinking: { id: string }[];
   defaultThinking?: string;
+  /** L'appétit en quota, tel que le catalogue le classe (voir `niveau-agent.ts`). */
+  appetite?: 'light' | 'medium' | 'heavy';
 }
 
 export interface MoteurCatalogue {
@@ -37,10 +50,20 @@ export interface SouhaitReglages {
   thinking?: string;
 }
 
+/**
+ * Ce que le chef d'orchestre demande pour la carte : un NIVEAU, jamais un
+ * modèle. Le moteur, lui, reste celui de la conversation.
+ */
+export interface SouhaitNiveau {
+  niveau?: NiveauAgent;
+}
+
 export interface ReglagesProposition {
   engine: IdMoteur;
   model?: string;
   thinking: string;
+  /** Le palier demandé par le chef, retenu sur la carte pour être relu. */
+  niveau?: NiveauAgent;
   /**
    * Ce qui empêche ce réglage de partir tel quel, écrit en toutes lettres sur
    * la proposition. Vide quand tout va bien : on ne bascule jamais en silence.
@@ -69,13 +92,15 @@ function niveauDuModele(moteur: MoteurCatalogue | undefined, modele: string | un
 /**
  * Le réglage à poser sur une carte proposée.
  *
- * Trois principes, dans cet ordre :
- * 1. on suit le souhait de la conversation tant qu'il est réalisable ;
- * 2. le modèle vient TOUJOURS du catalogue du moteur retenu ;
- * 3. un obstacle (moteur absent, aucun compte) se DIT au lieu de se contourner.
+ * Quatre principes, dans cet ordre :
+ * 1. le MOTEUR suit la conversation tant qu'il est réalisable ;
+ * 2. le NIVEAU annoncé par le chef décide du modèle et de la réflexion ; sans
+ *    niveau, on retombe sur le souhait de la conversation ;
+ * 3. le modèle vient TOUJOURS du catalogue du moteur retenu ;
+ * 4. un obstacle (moteur absent, aucun compte) se DIT au lieu de se contourner.
  */
 export function reglagesDeLaProposition(
-  souhait: SouhaitReglages | undefined,
+  souhait: (SouhaitReglages & SouhaitNiveau) | undefined,
   catalogue: MoteurCatalogue[],
 ): ReglagesProposition | undefined {
   const installes = catalogue.filter((m) => m.installed);
@@ -88,8 +113,13 @@ export function reglagesDeLaProposition(
   // Le modèle souhaité ne vaut que s'il vient du moteur retenu : un identifiant
   // recopié d'un autre moteur est jeté, pas traîné.
   const memeMoteur = !absent;
-  const model = modeleDuMoteur(moteur, memeMoteur ? souhait?.model : undefined);
-  const thinking = niveauDuModele(moteur, model, memeMoteur ? souhait?.thinking : undefined);
+  const duNiveau = souhait?.niveau ? reglagesDuNiveau(moteur, souhait.niveau) : undefined;
+  const model = duNiveau
+    ? duNiveau.model
+    : modeleDuMoteur(moteur, memeMoteur ? souhait?.model : undefined);
+  const thinking = duNiveau
+    ? duNiveau.thinking
+    : niveauDuModele(moteur, model, memeMoteur ? souhait?.thinking : undefined);
 
   const avertissements: string[] = [];
   if (absent) {
@@ -104,6 +134,7 @@ export function reglagesDeLaProposition(
     engine: moteur.id,
     model,
     thinking,
+    ...(souhait?.niveau ? { niveau: souhait.niveau } : {}),
     ...(avertissements.length ? { avertissement: avertissements.join(' ') } : {}),
   };
 }

@@ -19,7 +19,13 @@ import {
   composerDescription,
   jugerDescription,
   MAX_SIGNES_DESCRIPTION,
-  MIN_SIGNES_DESCRIPTION,
+  MIN_SIGNES_CARTE_COURTE,
+  type ExigenceDescription,
+  DEFINITIONS_NIVEAU,
+  NIVEAUX_AGENT,
+  NIVEAU_PAR_DEFAUT,
+  niveauDemande,
+  type NiveauAgent,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -81,21 +87,30 @@ export interface ToolDef {
  * moteurs : ce qu'on attend d'une description n'est pas laissé au modèle.
  */
 const CHAMP_DESCRIPTION =
-  'Quatre parties annoncées — Constat (ce que fait le projet aujourd’hui, avec un repère concret que tu as VU : fichier, commande, ' +
-  'libellé affiché, règle existante), Attendu, Limites, Vérification. ' +
-  `Entre ${MIN_SIGNES_DESCRIPTION} et ${MAX_SIGNES_DESCRIPTION} signes. Une description pauvre est REFUSÉE et rendue à réécrire. ` +
-  'Les quatre champs séparés (constat, attendu, limites, verification) font le même travail : HaikoDev les met en forme.';
+  'La demande REFORMULÉE en deux ou trois phrases : ce que veut l’utilisateur et ce qui compte pour lui. ' +
+  `Entre ${MIN_SIGNES_CARTE_COURTE} et ${MAX_SIGNES_DESCRIPTION} signes ; une description vide ou réduite au titre est REFUSÉE et rendue à réécrire. ` +
+  'N’ouvre pas le projet et n’invente aucun constat sur le code : l’étude est le travail de l’agent qui exécutera la carte. ' +
+  'Les champs séparés (constat, attendu, limites, verification) restent acceptés quand tu les as vraiment établis : HaikoDev les met en forme.';
+
+/** Les trois paliers, décrits une seule fois (`shared/src/niveau-agent.ts`). */
+const CHAMP_NIVEAU = {
+  type: 'string',
+  enum: NIVEAUX_AGENT,
+  description:
+    "Le NIVEAU de l'agent qui exécutera la carte — " +
+    NIVEAUX_AGENT.map((id) => `« ${id} » : ${DEFINITIONS_NIVEAU[id].quand}`).join(' ') +
+    ` Dans le doute, « ${NIVEAU_PAR_DEFAUT} ». Tu ne nommes jamais un modèle : HaikoDev traduit le niveau.`,
+};
 
 /**
- * Le chef vient de lire le projet pour produire la description : ce travail
- * est déjà l'analyse de la future carte. On lui demande donc, dans le MÊME
- * appel d'outil, les chiffres futurs et un relais factuel pour l'exécution.
+ * Le relais d'une analyse RÉELLEMENT menée. Le chef d'orchestre ne le remplit
+ * plus — il ne lit plus le projet avant de proposer —, mais le champ reste :
+ * un agent qui vient de chiffrer une carte y transmet ses constats.
  */
 const CHAMP_ANALYSE = {
   type: 'object',
-  required: ['machineSeconds', 'seniorHours', 'context'],
   description:
-    "Chiffrage et relais issus de l'analyse que tu viens de faire. Ils évitent à la carte de recommencer la même étude après validation.",
+    "FACULTATIF, et le chef d'orchestre ne le remplit plus : il ne chiffre plus, l'étude appartient à la carte. Réservé à un agent qui vient RÉELLEMENT de mener l'analyse.",
   properties: {
     machineSeconds: { type: 'number', description: "Durée machine prévue pour l'exécution, en secondes" },
     seniorHours: { type: 'number', description: "Temps d'un développeur senior à la main, en heures" },
@@ -150,13 +165,25 @@ function analyseDeProposition(args: any): Pick<TaskProposal, 'estimate' | 'analy
 }
 
 /**
+ * Ce qu'on exige de la description, selon QUI propose. Le chef d'orchestre
+ * trie : sa carte est courte, et c'est voulu. Tout autre rôle qui propose une
+ * carte vient d'étudier le projet : il garde les quatre parties.
+ */
+function exigenceDuRole(role: ToolContext['role']): ExigenceDescription {
+  return role === 'orchestrator' ? 'courte' : 'complete';
+}
+
+/**
  * Fabrique la description d'une proposition, à partir des quatre champs
  * séparés OU du texte libre, puis la juge. Une description qui ne tient pas
  * debout ne devient PAS une proposition : elle est rendue au moteur avec le
  * gabarit, et le chef recommence. C'est le seul endroit où l'exigence est
  * appliquée — les deux outils du chef passent par ici.
  */
-function descriptionDeProposition(args: any): { description: string } | { refus: string } {
+function descriptionDeProposition(
+  args: any,
+  exigence: ExigenceDescription,
+): { description: string } | { refus: string } {
   const parties = {
     constat: typeof args.constat === 'string' ? args.constat : '',
     attendu: typeof args.attendu === 'string' ? args.attendu : '',
@@ -168,7 +195,13 @@ function descriptionDeProposition(args: any): { description: string } | { refus:
   // Les champs séparés l'emportent : c'est HaikoDev qui met alors en forme.
   const description = composee || libre;
 
-  const verdict = jugerDescription(description);
+  /*
+   * Une carte du chef d'orchestre est jugée « courte » : il ne lit plus le
+   * projet, donc lui réclamer quatre parties et un repère concret reviendrait à
+   * lui faire inventer un constat. Un agent d'un AUTRE rôle qui propose une
+   * carte a, lui, vraiment étudié : il garde l'exigence complète.
+   */
+  const verdict = jugerDescription(description, exigence);
   if (!verdict.ok) return { refus: verdict.message };
   return { description };
 }
@@ -192,7 +225,7 @@ export const TOOL_DEFS: ToolDef[] = [
       "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « À faire » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation.",
     inputSchema: {
       type: 'object',
-      required: ['title', 'analysis'],
+      required: ['title', 'niveau'],
       properties: {
         title: { type: 'string', description: 'Titre court et clair' },
         description: { type: 'string', description: CHAMP_DESCRIPTION },
@@ -200,6 +233,7 @@ export const TOOL_DEFS: ToolDef[] = [
         attendu: { type: 'string', description: 'Ce que le projet doit faire une fois la carte terminée' },
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
+        niveau: CHAMP_NIVEAU,
         labels: { type: 'array', items: { type: 'string' } },
         analysis: CHAMP_ANALYSE,
       },
@@ -243,7 +277,7 @@ export const TOOL_DEFS: ToolDef[] = [
       "Propose une tâche à l'utilisateur SANS créer de carte : une carte à valider ou refuser apparaît dans la conversation. À utiliser dans les cas ambigus.",
     inputSchema: {
       type: 'object',
-      required: ['title', 'analysis'],
+      required: ['title', 'niveau'],
       properties: {
         title: { type: 'string' },
         description: { type: 'string', description: CHAMP_DESCRIPTION },
@@ -251,6 +285,7 @@ export const TOOL_DEFS: ToolDef[] = [
         attendu: { type: 'string', description: 'Ce que le projet doit faire une fois la carte terminée' },
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
+        niveau: CHAMP_NIVEAU,
         labels: { type: 'array', items: { type: 'string' } },
         analysis: CHAMP_ANALYSE,
       },
@@ -391,17 +426,28 @@ export interface ToolContext {
 }
 
 /**
- * Les réglages à poser sur une carte proposée : ceux de la conversation,
- * ramenés vers un modèle qui existe VRAIMENT chez le moteur retenu.
+ * Les réglages à poser sur une carte proposée : le MOTEUR de la conversation,
+ * et un modèle qui existe VRAIMENT chez lui.
+ *
+ * Le modèle, lui, ne se recopie plus de la conversation quand le chef annonce un
+ * NIVEAU : le chef trie sur un modèle économe, et recopier son modèle ferait
+ * exécuter toutes les cartes au rabais. Sans niveau annoncé — un agent d'un
+ * autre rôle qui propose —, l'ancien héritage s'applique tel quel.
  */
 async function reglagesProposes(
   souhait: SouhaitReglages | undefined,
+  niveau?: NiveauAgent,
 ): Promise<{ run?: RunConfig; avertissement?: string }> {
   try {
-    const retenu = reglagesDeLaProposition(souhait, await catalogueMoteurs());
+    const retenu = reglagesDeLaProposition({ ...souhait, niveau }, await catalogueMoteurs());
     if (!retenu) return {};
     return {
-      run: RunConfig.parse({ engine: retenu.engine, model: retenu.model, thinking: retenu.thinking }),
+      run: RunConfig.parse({
+        engine: retenu.engine,
+        model: retenu.model,
+        thinking: retenu.thinking,
+        niveau: retenu.niveau,
+      }),
       avertissement: retenu.avertissement,
     };
   } catch (err) {
@@ -430,8 +476,9 @@ function imagesDuMessageDeclencheur(agentId: string): string[] {
 function resumeReglages(reglages: { run?: RunConfig; avertissement?: string }): string {
   if (!reglages.run) return '';
   const modele = reglages.run.model ? ` / ${reglages.run.model}` : '';
+  const niveau = reglages.run.niveau ? ` Niveau « ${reglages.run.niveau} », traduit par HaikoDev en` : ' Réglages repris de cette conversation :';
   return (
-    ` Réglages repris de cette conversation : ${reglages.run.engine}${modele} (réflexion : ${reglages.run.thinking}).` +
+    `${niveau} ${reglages.run.engine}${modele} (réflexion : ${reglages.run.thinking}).` +
     (reglages.avertissement ? ` ${reglages.avertissement}` : '')
   );
 }
@@ -477,10 +524,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * Et rien ne s'affiche tant que la DESCRIPTION ne tient pas debout :
        * une carte pauvre condamne l'agent qui l'exécutera.
        */
-      const texte = descriptionDeProposition(args);
+      const texte = descriptionDeProposition(args, exigenceDuRole(ctx.role));
       if ('refus' in texte) return { ok: false, text: texte.refus };
 
-      const reglages = await reglagesProposes(ctx.run);
+      const reglages = await reglagesProposes(ctx.run, niveauDemande(args.niveau));
       const analyse = analyseDeProposition(args);
       const proposal: TaskProposal = {
         id: store.newId(),
@@ -559,10 +606,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (!args.title) return { ok: false, text: 'Un titre est obligatoire.' };
       // Même exigence que board_create_card : une proposition sans description
       // solide n'est pas affichée, elle est rendue à réécrire.
-      const texte = descriptionDeProposition(args);
+      const texte = descriptionDeProposition(args, exigenceDuRole(ctx.role));
       if ('refus' in texte) return { ok: false, text: texte.refus };
 
-      const reglages = await reglagesProposes(ctx.run);
+      const reglages = await reglagesProposes(ctx.run, niveauDemande(args.niveau));
       const analyse = analyseDeProposition(args);
       const proposal: TaskProposal = {
         id: store.newId(),

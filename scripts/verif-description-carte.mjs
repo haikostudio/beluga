@@ -54,14 +54,15 @@ function ecrirePont(dossier) {
     pont,
     `import fs from 'node:fs';
 import readline from 'node:readline';
-import { jugerDescription, composerDescription } from ${JSON.stringify(path.join(RACINE, 'shared/dist/index.js'))};
+import { jugerDescription, composerDescription, niveauDemande } from ${JSON.stringify(path.join(RACINE, 'shared/dist/index.js'))};
 
 const JOURNAL = ${JSON.stringify(journal)};
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
 const envoyer = (p) => process.stdout.write(JSON.stringify(p) + '\\n');
 const OUTILS = [
-  { name: 'board_create_card', description: 'Propose une carte', inputSchema: { type: 'object', required: ['title'], properties: {
+  { name: 'board_create_card', description: 'Propose une carte', inputSchema: { type: 'object', required: ['title', 'niveau'], properties: {
       title: { type: 'string' }, description: { type: 'string' },
+      niveau: { type: 'string', enum: ['leger', 'standard', 'approfondi'] },
       constat: { type: 'string' }, attendu: { type: 'string' }, limites: { type: 'string' }, verification: { type: 'string' },
   } } },
   { name: 'project_memory', description: 'Le texte entier des faits du projet', inputSchema: { type: 'object', properties: { sujet: { type: 'string' } } } },
@@ -82,8 +83,10 @@ rl.on('line', (ligne) => {
         limites: args.limites ?? '', verification: args.verification ?? '',
       });
       const description = composee || String(args.description ?? '');
-      const verdict = jugerDescription(description);
-      fs.appendFileSync(JOURNAL, JSON.stringify({ description, ok: verdict.ok, manques: verdict.manques }) + '\\n');
+      // Le chef d'orchestre est jugé sur une carte COURTE : il ne lit plus le projet.
+      const verdict = jugerDescription(description, 'courte');
+      const niveau = niveauDemande(args.niveau);
+      fs.appendFileSync(JOURNAL, JSON.stringify({ description, niveau, ok: verdict.ok, manques: verdict.manques }) + '\\n');
       texte = verdict.ok
         ? \`Carte « \${args.title} » proposée dans la conversation.\`
         : verdict.message;
@@ -127,7 +130,7 @@ async function tourDeChef(moteur) {
   const handle = adaptateur.run({
     cwd: dossier,
     prompt: wrapPrompt('in_run', DEMANDE, `Projet : Essai (dossier ${dossier}).`),
-    systemPrompt: rolePrompt('orchestrator', false, moteur),
+    systemPrompt: rolePrompt('orchestrator', false, moteur, 'tri'),
     mcpConfigPath: config,
     mcpBridgePath: pont,
     fullAccess: false,
@@ -190,9 +193,21 @@ for (const moteur of MOTEURS) {
     console.log('  …  aucune tentative refusée : la description était bonne du premier coup');
   }
 
-  // Le repère concret : la preuve que le chef est allé regarder.
-  const verdict = jugerDescription(dernier.description);
-  noter(`${moteur} : la description cite un repère du projet`, !verdict.manques.includes('sans-repere'));
+  /*
+   * Le chef ne fait plus qu'un tri : on ne lui demande PLUS de repère tiré du
+   * projet (il ne l'ouvre pas), mais le NIVEAU de l'agent qui exécutera — son
+   * second et dernier geste.
+   */
+  noter(
+    `${moteur} : la carte annonce le niveau de l'agent qui exécutera`,
+    !!dernier.niveau,
+    dernier.niveau ? `niveau « ${dernier.niveau} »` : 'aucun niveau reconnaissable',
+  );
+  noter(
+    `${moteur} : la carte reste COURTE (pas de constat inventé)`,
+    dernier.description.length <= 1200,
+    `${dernier.description.length} signes`,
+  );
 }
 
 const echecs = resultats.filter((r) => !r.ok);
