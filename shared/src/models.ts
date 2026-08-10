@@ -615,6 +615,13 @@ export const SentContextSnapshot = z.object({
    * automatiquement doit rester vérifiable. Vide quand l'index a servi tel quel.
    */
   passages: z.array(PassageRetrouve).default([]),
+  /**
+   * Pourquoi `passages` est vide — dit en clair plutôt que laissé à zéro sans
+   * explication : reprise de session, accueil sans mémoire, ou recherche
+   * retombée sur l'index complet (rien au-dessus du seuil, ou trop cher).
+   * Absent quand `passages` n'est pas vide.
+   */
+  passagesRaison: z.string().optional(),
   history: z.enum(['none', 'retained_by_engine']),
   usage: z
     .object({

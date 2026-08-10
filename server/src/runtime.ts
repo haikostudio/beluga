@@ -51,6 +51,7 @@ import {
   nomDeBranche,
   observerContexte,
   poidsDeTour,
+  raisonAbsenceDePassages,
   raisonSansModification,
   RAISON_MOTEUR_INJOIGNABLE,
   resumeContinuite,
@@ -284,6 +285,8 @@ interface ContexteUtilisateurDuTour {
   blocks: SentContextBlock[];
   /** Les passages retrouvés par recherche pour CE tour, quand il y en a. */
   passages?: PassageRetrouve[];
+  /** Pourquoi `passages` est vide, quand c'est le cas. */
+  passagesRaison?: string;
 }
 
 /** Fabrique la photographie persistée sur la demande, sans lire l'ancien fil. */
@@ -295,6 +298,7 @@ export function instantaneContexteEnvoye(input: {
   systemPrompt: string;
   blocks: SentContextBlock[];
   passages?: PassageRetrouve[];
+  passagesRaison?: string;
   sentAt?: number;
 }): SentContextSnapshot {
   return SentContextSnapshot.parse({
@@ -318,6 +322,7 @@ export function instantaneContexteEnvoye(input: {
       },
     ],
     passages: input.passages ?? [],
+    passagesRaison: input.passages?.length ? undefined : input.passagesRaison,
     history: input.nouvelleSession ? 'none' : 'retained_by_engine',
     sentAt: input.sentAt ?? Date.now(),
   });
@@ -512,6 +517,14 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
         { texte: blocMemoire(project.path), faits: memoryFacts(project.path).length },
       )
     : undefined;
+  /*
+   * POURQUOI AUCUN PASSAGE, dit en clair pour le tiroir « Contexte envoyé » —
+   * jamais une case à zéro sans explication (`raisonAbsenceDePassages`,
+   * shared/src/couches-tokens.ts, pure et testée seule).
+   */
+  const passagesRaison = recherche
+    ? undefined
+    : raisonAbsenceDePassages({ nouvelleSession, accueilEmporteLaMemoire: partsDAccueil(niveau).memoire });
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, compétences)
@@ -686,6 +699,7 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
             tokens: passage.jetons,
             texte: passage.texte,
           })),
+          passagesRaison,
         }
       : undefined,
     niveau,
@@ -956,6 +970,7 @@ async function startTurn(
         systemPrompt: sessionId ? systemPromptRappel : systemPrompt,
         blocks: contexteUtilisateur.blocks,
         passages: contexteUtilisateur.passages,
+        passagesRaison: contexteUtilisateur.passagesRaison,
       })
     : undefined;
 

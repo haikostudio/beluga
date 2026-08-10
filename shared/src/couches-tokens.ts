@@ -174,3 +174,25 @@ export function repartitionMemoireEnvoi(
   const part = envoyeTokens !== undefined && envoyeTokens > 0 ? memoireTokens / envoyeTokens : undefined;
   return { memoireTokens, envoyeTokens, part };
 }
+
+/**
+ * POURQUOI AUCUN PASSAGE n'a été retrouvé pour ce tour — le tiroir « Contexte
+ * envoyé » doit le DIRE en clair plutôt que laisser une case à zéro. Trois cas,
+ * dans l'ordre où le démon les rencontre (`server/src/runtime.ts`) :
+ *  1. reprise de session — la mémoire est déjà dans le contexte du moteur ;
+ *  2. accueil sans mémoire (tri du chef, dépannage) ;
+ *  3. recherche tentée mais repliée sur l'index complet (rien au-dessus du
+ *     seuil, ou plus cher que l'index).
+ */
+export function raisonAbsenceDePassages(input: {
+  nouvelleSession: boolean;
+  accueilEmporteLaMemoire: boolean;
+}): string {
+  if (!input.nouvelleSession) {
+    return 'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil, seuls les faits ajoutés depuis sont renvoyés.';
+  }
+  if (!input.accueilEmporteLaMemoire) {
+    return 'Cet accueil (tri du chef ou dépannage) n’emporte pas la mémoire du projet.';
+  }
+  return 'Repli sur l’index complet de la mémoire : la recherche n’a rien trouvé au-dessus du seuil de pertinence, ou coûterait plus cher que l’index.';
+}

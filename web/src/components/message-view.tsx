@@ -674,9 +674,6 @@ function Chiffre({ nom, valeur }: { nom: string; valeur: string }) {
 /** Le détail exact du nouveau contenu transmis pendant ce tour. */
 function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
   const [open, setOpen] = React.useState(false);
-  /* Le détail brut (composition, consigne, prompt) est REPLIÉ par défaut : on
-     l'ouvre quand on cherche pourquoi un chiffre est ce qu'il est. */
-  const [detail, setDetail] = React.useState(false);
 
   const repartition = repartitionMemoireEnvoi(contexte.blocks, contexte.usage);
   const usage = contexte.usage;
@@ -808,76 +805,60 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
                   reste de la mémoire reste à un appel de « project_memory ».
                 </p>
               </section>
-            ) : null}
+            ) : (
+              <section data-passages-retrouves-absents>
+                <h3 className="mb-1.5 text-[13px] font-medium text-text">Passages retrouvés</h3>
+                <p className="text-[12.5px] text-faint">
+                  {contexte.passagesRaison ??
+                    'Aucune recherche de passages pour ce tour.'}
+                </p>
+              </section>
+            )}
 
-            {/* 3. LE DÉTAIL BRUT, REPLIÉ. Composition, consigne et prompt entier
-                ne servent qu'à comprendre un chiffre surprenant : les afficher
-                d'office noyait les deux sections qui précèdent. */}
-            <section>
-              <button
-                type="button"
-                data-voir-detail-brut
-                aria-expanded={detail}
-                onClick={() => setDetail((ouvert) => !ouvert)}
-                className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-raised"
-              >
-                <ChevronRight
-                  className={cn('h-3 w-3 shrink-0 text-faint transition-transform', detail && 'rotate-90')}
-                />
-                <span className="min-w-0 flex-1">
-                  {detail ? 'Masquer le détail' : 'Voir le détail'}
-                </span>
-                <span className="shrink-0 text-[11.5px] text-faint">
-                  composition, consigne, prompt exact
-                </span>
-              </button>
-
-              {detail ? (
-                <div className="mt-2 space-y-4" data-detail-brut>
-                  <div>
-                    <h3 className="mb-1.5 text-[13px] font-medium text-text">
-                      Composition du nouveau contenu
-                    </h3>
-                    <ul className="divide-y divide-border rounded-md bg-surface px-2.5">
-                      {contexte.blocks.map((bloc, index) => (
-                        <li
-                          key={`${bloc.kind}-${index}`}
-                          className="flex items-center justify-between gap-3 py-1.5"
-                        >
-                          <span>{bloc.label}</span>
-                          <span className="shrink-0 tabular-nums text-faint">
-                            {nombre(bloc.characters)} caractères
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div>
-                    <h3 className="mb-1.5 text-[13px] font-medium text-text">{instruction}</h3>
-                    <p className="mb-1.5 text-[12px] text-faint">
-                      {contexte.systemInstruction.transport === 'separate'
-                        ? 'Transmise séparément du prompt.'
-                        : 'Ajoutée par l’adaptateur devant le prompt.'}
-                    </p>
-                    <pre className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]">
-                      {contexte.systemInstruction.content}
-                    </pre>
-                  </div>
-
-                  <div>
-                    <h3 className="mb-1.5 text-[13px] font-medium text-text">
-                      Prompt exact remis à l’adaptateur
-                    </h3>
-                    <pre
-                      data-prompt-envoye
-                      className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]"
+            {/* 3. LE DÉTAIL BRUT, TOUT AFFICHÉ D'EMBLÉE — plus rien à déplier. */}
+            <section data-detail-brut>
+              <div>
+                <h3 className="mb-1.5 text-[13px] font-medium text-text">
+                  Composition du nouveau contenu
+                </h3>
+                <ul className="divide-y divide-border rounded-md bg-surface px-2.5">
+                  {contexte.blocks.map((bloc, index) => (
+                    <li
+                      key={`${bloc.kind}-${index}`}
+                      className="flex items-center justify-between gap-3 py-1.5"
                     >
-                      {contexte.prompt}
-                    </pre>
-                  </div>
-                </div>
-              ) : null}
+                      <span>{bloc.label}</span>
+                      <span className="shrink-0 tabular-nums text-faint">
+                        {nombre(bloc.characters)} caractères
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="mt-4">
+                <h3 className="mb-1.5 text-[13px] font-medium text-text">{instruction}</h3>
+                <p className="mb-1.5 text-[12px] text-faint">
+                  {contexte.systemInstruction.transport === 'separate'
+                    ? 'Transmise séparément du prompt.'
+                    : 'Ajoutée par l’adaptateur devant le prompt.'}
+                </p>
+                <pre className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]">
+                  {contexte.systemInstruction.content}
+                </pre>
+              </div>
+
+              <div className="mt-4">
+                <h3 className="mb-1.5 text-[13px] font-medium text-text">
+                  Prompt exact remis à l’adaptateur
+                </h3>
+                <pre
+                  data-prompt-envoye
+                  className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]"
+                >
+                  {contexte.prompt}
+                </pre>
+              </div>
             </section>
           </div>
         </ZoneDefilement>
