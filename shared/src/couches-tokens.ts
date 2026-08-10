@@ -1,6 +1,6 @@
 import { totalJetonsMesures } from './analyse-cout.js';
 import { coutDuTour } from './cout-tour.js';
-import type { AnalysisMeasurement, Estimate, ExecutionProjection } from './models.js';
+import type { AnalysisMeasurement, Estimate, ExecutionProjection, SentContextBlock } from './models.js';
 
 /**
  * LES TOKENS D'UNE CARTE, RANGÉS PAR COUCHE.
@@ -135,4 +135,42 @@ export function projectionDeLExecution(estimate?: Estimate): ExecutionProjection
 export function ecartProjete(projete?: number, mesure?: number): number | undefined {
   if (projete === undefined || mesure === undefined || projete <= 0) return undefined;
   return (mesure - projete) / projete;
+}
+
+/**
+ * Estimation maison — la même que `scripts/mesure-jetons.mjs` — quand aucune
+ * mesure du moteur n'existe pour une part du contexte : environ quatre signes
+ * par jeton.
+ */
+export function jetonsApproches(caracteres: number): number {
+  return Math.max(0, Math.round(caracteres / 4));
+}
+
+/**
+ * LE VOLET « CONTEXTE ENVOYÉ », EN DEUX PARTIES : ce qui vient de la mémoire du
+ * projet (les blocs `kind: 'memory'` — l'index complet au premier tour, les
+ * seuls faits ajoutés ensuite) contre ce qui a été RÉELLEMENT envoyé au moteur
+ * pour ce tour (la mesure d'entrée rendue par le moteur, cache compris). La
+ * mémoire est estimée en tokens depuis ses caractères, faute d'une mesure du
+ * moteur qui la découpe bloc par bloc ; l'envoi, lui, est la vraie mesure quand
+ * elle est connue.
+ */
+export interface RepartitionMemoireEnvoi {
+  memoireTokens: number;
+  envoyeTokens?: number;
+  /** Part de la mémoire dans l'envoi — indéfinie tant que l'envoi n'est pas mesuré. */
+  part?: number;
+}
+
+export function repartitionMemoireEnvoi(
+  blocks: SentContextBlock[],
+  usage?: { inputTokens: number; cachedInputTokens?: number },
+): RepartitionMemoireEnvoi {
+  const memoireCaracteres = blocks
+    .filter((bloc) => bloc.kind === 'memory')
+    .reduce((total, bloc) => total + bloc.characters, 0);
+  const memoireTokens = jetonsApproches(memoireCaracteres);
+  const envoyeTokens = usage ? usage.inputTokens + (usage.cachedInputTokens ?? 0) : undefined;
+  const part = envoyeTokens !== undefined && envoyeTokens > 0 ? memoireTokens / envoyeTokens : undefined;
+  return { memoireTokens, envoyeTokens, part };
 }

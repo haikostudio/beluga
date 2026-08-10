@@ -60,7 +60,7 @@ import { CONFIG, PATHS } from './config.js';
 import { adapterFor, contextWindowFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
-import { briefing, empreintesDesFaits, faitsDuSujet, memorySummary, newFactsSince } from './memory.js';
+import { briefingSepare, empreintesDesFaits, faitsDuSujet, memorySummary, newFactsSince } from './memory.js';
 import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
@@ -473,20 +473,33 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
   let memoryAndInstructionsCharacters = 0;
 
   if (nouvelleSession) {
-    // Le briefing (chemin du projet, fichiers d'instructions, index de la
-    // mémoire) n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte.
-    const ouverture = briefing(project.path, project.name, true, agent.run.engine, agent.workdir, niveau);
+    // Le briefing (chemin du projet, fichiers d'instructions, compétences)
+    // n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte. L'index
+    // de la mémoire voyage à part (`kind: 'memory'`) : c'est ce qui permet au
+    // tiroir « Contexte envoyé » de distinguer mémoire et reste du briefing.
+    const { sansMemoire, memoire } = briefingSepare(
+      project.path,
+      project.name,
+      true,
+      agent.run.engine,
+      agent.workdir,
+      niveau,
+    );
     contextParts.push({
       label:
         niveau === 'minimal'
           ? 'Briefing réduit (dépannage)'
           : niveau === 'tri'
             ? 'Briefing réduit (tri du chef)'
-            : 'Briefing et index de la mémoire',
+            : 'Briefing du projet',
       kind: 'briefing',
-      content: ouverture,
+      content: sansMemoire,
     });
-    memoryAndInstructionsCharacters += ouverture.length;
+    memoryAndInstructionsCharacters += sansMemoire.length;
+    if (memoire) {
+      contextParts.push({ label: 'Index de la mémoire du projet', kind: 'memory', content: memoire });
+      memoryAndInstructionsCharacters += memoire.length;
+    }
     // Le chef bridé a tous les droits SAUF modifier le code du projet : on lui
     // dit où il peut écrire (son dossier de travail) et que le projet est en
     // lecture seule — une écriture y échoue, une modification s'ouvre en carte.

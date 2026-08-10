@@ -4,8 +4,10 @@ import {
   coucheDAnalyse,
   coucheDExecution,
   ecartProjete,
+  jetonsApproches,
   montantEnFrancs,
   projectionDeLExecution,
+  repartitionMemoireEnvoi,
   type TourMesureAgent,
 } from '@haikodev/shared';
 
@@ -139,4 +141,35 @@ test('l’écart au projeté ne se calcule que sur deux nombres réels', () => {
   assert.equal(ecartProjete(undefined, 500), undefined);
   assert.equal(ecartProjete(1_000, undefined), undefined);
   assert.equal(ecartProjete(0, 500), undefined);
+});
+
+test('l’estimation maison compte environ quatre signes par jeton', () => {
+  assert.equal(jetonsApproches(400), 100);
+  assert.equal(jetonsApproches(0), 0);
+  assert.equal(jetonsApproches(-10), 0);
+});
+
+test('la répartition mémoire / envoi ne compte que les blocs de mémoire', () => {
+  const blocks = [
+    { kind: 'briefing' as const, label: 'Briefing du projet', characters: 800 },
+    { kind: 'memory' as const, label: 'Index de la mémoire du projet', characters: 4_000 },
+    { kind: 'request' as const, label: 'Demande utilisateur', characters: 200 },
+  ];
+  const repartition = repartitionMemoireEnvoi(blocks, { inputTokens: 3_000, cachedInputTokens: 1_000 });
+  assert.equal(repartition.memoireTokens, 1_000); // 4 000 signes / 4
+  assert.equal(repartition.envoyeTokens, 4_000);
+  assert.equal(repartition.part, 0.25);
+});
+
+test('sans mesure d’envoi, la part reste indéfinie — jamais une division par zéro déguisée', () => {
+  const blocks = [{ kind: 'memory' as const, label: 'Nouveaux faits de la mémoire', characters: 400 }];
+  const repartition = repartitionMemoireEnvoi(blocks);
+  assert.equal(repartition.memoireTokens, 100);
+  assert.equal(repartition.envoyeTokens, undefined);
+  assert.equal(repartition.part, undefined);
+});
+
+test('aucun bloc de mémoire : la part mémoire est à zéro, pas indisponible', () => {
+  const blocks = [{ kind: 'request' as const, label: 'Demande utilisateur', characters: 200 }];
+  assert.equal(repartitionMemoireEnvoi(blocks).memoireTokens, 0);
 });

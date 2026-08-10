@@ -19,21 +19,14 @@ import {
 } from 'lucide-react';
 import {
   Attachment,
-  CoucheDeTokens,
   MEMORY_STEP_ID,
   Message,
   SentContextSnapshot,
-  TourMesureAgent,
-  coucheDAnalyse,
-  coucheDExecution,
   choixPossible,
   comptesDeReprise,
-  coutEnClair,
-  ecartProjete,
   heureExacte,
-  montantEnFrancs,
-  projectionDeLExecution,
   propositionsDuFil,
+  repartitionMemoireEnvoi,
   reponsePrete,
   texteAEcouter,
   tempsRestant,
@@ -140,7 +133,7 @@ export function MessageView({
             aDroite
           />
           {message.sentContext ? (
-            <ContexteEnvoye contexte={message.sentContext} agentId={message.agentId} />
+            <ContexteEnvoye contexte={message.sentContext} />
           ) : null}
         </div>
       </div>
@@ -334,103 +327,6 @@ function nombre(value: number): string {
   return value.toLocaleString('fr-CH');
 }
 
-/**
- * Les tours déjà mesurés de l'agent, demandés au démon à l'ouverture du tiroir.
- * Ils servent DEUX affichages : la couche « exécution » (leur somme) et la
- * liste tour par tour — d'où la lecture faite une seule fois, ici.
- */
-function useToursDeLAgent(agentId: string | undefined, actif: boolean) {
-  const [tours, setTours] = React.useState<TourMesureAgent[] | null>(null);
-  const [panne, setPanne] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!agentId || !actif) return;
-    let vivant = true;
-    client
-      .call({ type: 'agent.usage', agentId })
-      .then((res: any) => {
-        if (vivant) setTours(res?.turns ?? []);
-      })
-      .catch(() => {
-        if (vivant) setPanne(true);
-      });
-    return () => {
-      vivant = false;
-    };
-  }, [agentId, actif]);
-
-  return { tours, panne };
-}
-
-/**
- * L'HISTORIQUE DES TOURS DE L'AGENT : une ligne par tour réellement parti, du
- * plus ancien au plus récent. Chaque chiffre vient de la mesure rangée à la fin
- * du tour — un tour d'avant cette mesure montre un tiret, jamais une estimation.
- */
-function HistoriqueDesTours({
-  tours,
-  panne,
-}: {
-  tours: TourMesureAgent[] | null;
-  panne: boolean;
-}) {
-  if (panne) {
-    return <p className="rounded-md bg-surface px-2.5 py-2 text-faint">Historique indisponible.</p>;
-  }
-  if (!tours) {
-    return <p className="rounded-md bg-surface px-2.5 py-2 text-faint">Lecture des tours…</p>;
-  }
-  if (!tours.length) {
-    return (
-      <p className="rounded-md bg-surface px-2.5 py-2 text-faint">
-        Aucun tour mesuré pour cet agent pour l’instant.
-      </p>
-    );
-  }
-
-  return (
-    <ZoneDefilement
-      data-historique-tours
-      fond="hsl(var(--surface))"
-      hauteur={24}
-      classeEnveloppe="max-h-72 overflow-hidden rounded-md bg-surface"
-    >
-      <ul className="divide-y divide-border px-2.5">
-        {tours.map((tour, index) => {
-          const detail = tour.inputTokens + tour.cachedTokens + tour.outputTokens > 0;
-          const cout = coutEnClair({
-            inputTokens: tour.inputTokens,
-            cachedTokens: tour.cachedTokens,
-            outputTokens: tour.outputTokens,
-            model: tour.model,
-          });
-          return (
-            <li key={`${tour.at}-${index}`} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5">
-              <span className="shrink-0 tabular-nums text-text">
-                {new Date(tour.at).toLocaleString('fr-CH')}
-              </span>
-              <span className="min-w-0 flex-1 tabular-nums text-muted">
-                {detail
-                  ? `${nombre(tour.inputTokens + tour.cachedTokens)} envoyés · ${nombre(tour.outputTokens)} reçus`
-                  : 'détail non mesuré'}
-              </span>
-              <span className="shrink-0 tabular-nums text-faint">{cout}</span>
-            </li>
-          );
-        })}
-      </ul>
-    </ZoneDefilement>
-  );
-}
-
-/** Le nom d'une couche d'exécution suit le RÔLE de l'agent qui l'a portée. */
-const NOM_DE_COUCHE: Record<string, string> = {
-  task: 'Exécution de la tâche',
-  orchestrator: 'Échange avec le chef d’orchestre',
-  analysis: 'Analyse de la carte',
-  deploy: 'Publication',
-};
-
 /** Une ligne de chiffres d'une couche : le libellé au-dessus, la valeur dessous. */
 function Chiffre({ nom, valeur }: { nom: string; valeur: string }) {
   return (
@@ -441,56 +337,14 @@ function Chiffre({ nom, valeur }: { nom: string; valeur: string }) {
   );
 }
 
-/**
- * UNE COUCHE DE TOKENS RÉELLEMENT MESURÉS : ce qu'elle a envoyé (dont la part
- * relue depuis le cache) et ce qu'elle a reçu. Ce que le moteur n'a pas rendu
- * se dit « indisponible » — jamais un zéro qui rassure à tort.
- */
-function CoucheMesuree({ couche }: { couche: CoucheDeTokens }) {
-  const chiffre = (valeur?: number) =>
-    valeur === undefined ? 'indisponible' : nombre(valeur);
-  return (
-    <div className="rounded-md bg-surface px-2.5 py-2" data-couche-tokens={couche.cle}>
-      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
-        <span className="text-[13px] font-medium text-text">{couche.nom}</span>
-        <span className="text-[11.5px] text-faint">
-          {couche.tours === undefined
-            ? couche.origine
-            : `${couche.tours} tour${couche.tours > 1 ? 's' : ''} mesuré${couche.tours > 1 ? 's' : ''}`}
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-        <Chiffre nom="Entrée hors cache" valeur={chiffre(couche.entree)} />
-        <Chiffre nom="Relu du cache" valeur={chiffre(couche.cache)} />
-        <Chiffre nom="Sortie" valeur={chiffre(couche.sortie)} />
-        <Chiffre nom="Coût" valeur={montantEnFrancs(couche.cout)} />
-      </div>
-      <p className="mt-1 text-[12px] tabular-nums text-faint">
-        Total : {chiffre(couche.total)} tokens
-      </p>
-    </div>
-  );
-}
-
 /** Le détail exact du nouveau contenu transmis pendant ce tour. */
-function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; agentId?: string }) {
+function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
   const [open, setOpen] = React.useState(false);
   /* Le détail brut (composition, consigne, prompt) est REPLIÉ par défaut : on
      l'ouvre quand on cherche pourquoi un chiffre est ce qu'il est. */
   const [detail, setDetail] = React.useState(false);
-  const state = useApp();
-  const agent = agentId ? state.agents[agentId] : undefined;
-  const carte = agent?.cardId ? state.cards[agent.cardId] : undefined;
 
-  const { tours, panne } = useToursDeLAgent(agentId, open);
-  const projection = projectionDeLExecution(carte?.estimate);
-  const analyse = coucheDAnalyse(carte?.estimate?.analysisMeasurement);
-  const execution = coucheDExecution(
-    tours ?? [],
-    NOM_DE_COUCHE[agent?.role ?? 'task'] ?? 'Exécution de la tâche',
-  );
-  const ecart = ecartProjete(projection?.tokens, execution?.total);
-
+  const repartition = repartitionMemoireEnvoi(contexte.blocks, contexte.usage);
   const usage = contexte.usage;
   const totalEntree = usage ? usage.inputTokens + (usage.cachedInputTokens ?? 0) : undefined;
   const moteur = contexte.engine === 'claude' ? 'Claude Code' : 'Codex';
@@ -546,87 +400,28 @@ function ContexteEnvoye({ contexte, agentId }: { contexte: SentContextSnapshot; 
               {new Date(contexte.sentAt).toLocaleString('fr-CH')}
             </p>
 
-            {/* 1. CE QUI ÉTAIT ESTIMÉ. Toujours en premier quand un chiffrage
-                existe : c'est la promesse à laquelle le réel se compare. */}
-            {projection ? (
-              <section data-tokens-estimes>
-                <h3 className="mb-1.5 text-[13px] font-medium text-text">Estimé avant le travail</h3>
-                <div className="rounded-md bg-surface px-2.5 py-2">
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <Chiffre
-                      nom="Tokens projetés"
-                      valeur={projection.tokens === undefined ? 'indisponible' : nombre(projection.tokens)}
-                    />
-                    <Chiffre
-                      nom="Part de quota projetée"
-                      valeur={
-                        projection.quotaShare === undefined
-                          ? 'indisponible'
-                          : `${(projection.quotaShare * 100).toLocaleString('fr-CH', { maximumFractionDigits: 1 })} %`
-                      }
-                    />
-                  </div>
-                  <p className="mt-1 text-[12px] text-faint">
-                    Projection rédigée par l’analyse du chef d’orchestre — ce n’est pas une mesure.
-                  </p>
-                </div>
-              </section>
-            ) : null}
-
-            {/* 2. CE QUI A ÉTÉ RÉELLEMENT MESURÉ, couche par couche : la
-                réflexion du chef d'abord, l'exécution ensuite. */}
-            <section data-tokens-reels>
-              <h3 className="mb-1.5 text-[13px] font-medium text-text">Réellement mesuré</h3>
-              <div className="space-y-2">
-                {analyse ? <CoucheMesuree couche={analyse} /> : null}
-                {execution ? (
-                  <CoucheMesuree couche={execution} />
-                ) : (
-                  <p className="rounded-md bg-surface px-2.5 py-2 text-faint">
-                    {panne
-                      ? 'Mesure des tours indisponible.'
-                      : tours
-                        ? 'Aucun tour mesuré pour cet agent pour l’instant.'
-                        : 'Lecture des tours…'}
-                  </p>
-                )}
+            {/* DEUX PARTIES, EN TOKENS : ce qui vient de la mémoire du projet
+                (l'index complet au premier tour, les faits ajoutés ensuite)
+                contre ce que le moteur a réellement reçu pour ce tour. */}
+            <section data-memoire-vs-envoi>
+              <h3 className="mb-1.5 text-[13px] font-medium text-text">Mémoire et envoi</h3>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Chiffre nom="Récupéré depuis la mémoire du projet" valeur={`${nombre(repartition.memoireTokens)} tokens`} />
+                <Chiffre
+                  nom="Envoyé au moteur"
+                  valeur={
+                    repartition.envoyeTokens === undefined
+                      ? 'mesure en cours'
+                      : `${nombre(repartition.envoyeTokens)} tokens`
+                  }
+                />
               </div>
-              {ecart !== undefined ? (
-                <p className="mt-1.5 text-[12px] text-faint" data-ecart-projection>
-                  {ecart >= 0
-                    ? `Soit ${(ecart * 100).toLocaleString('fr-CH', { maximumFractionDigits: 0 })} % de plus que projeté.`
-                    : `Soit ${(-ecart * 100).toLocaleString('fr-CH', { maximumFractionDigits: 0 })} % de moins que projeté.`}
-                </p>
-              ) : null}
               <p className="mt-1.5 text-[12px] text-faint">
-                Ce tour-ci :{' '}
-                {usage
-                  ? `${nombre(usage.inputTokens)} tokens nouveaux · ${
-                      usage.cachedInputTokens === undefined
-                        ? 'détail du cache non communiqué'
-                        : `${nombre(usage.cachedInputTokens)} tokens relus depuis le cache`
-                    }`
-                  : 'la mesure arrivera à la fin du tour moteur.'}
+                {repartition.part === undefined
+                  ? 'La mémoire est estimée depuis sa taille en caractères ; le moteur n’a pas encore rendu sa mesure d’entrée.'
+                  : `Soit ${(repartition.part * 100).toLocaleString('fr-CH', { maximumFractionDigits: 0 })} % de l’envoi.`}
               </p>
             </section>
-
-            {open && agentId ? (
-              <section>
-                <h3 className="mb-1.5 text-[13px] font-medium text-text">Tours de cet agent</h3>
-                <p className="mb-1.5 text-[12px] text-faint">
-                  Un tour par ligne, du plus ancien au plus récent. Le coût n’est donné que si le
-                  tarif du modèle est connu.
-                </p>
-                <HistoriqueDesTours tours={tours} panne={panne} />
-              </section>
-            ) : null}
-
-            {contexte.history === 'retained_by_engine' ? (
-              <p className="rounded-md border border-border bg-surface px-2.5 py-2 text-faint">
-                L’historique précédent est déjà porté par la session du moteur. Il n’est pas renvoyé par
-                HaikoDev et le moteur ne permet pas de le relire ici.
-              </p>
-            ) : null}
 
             {/* 3. LE DÉTAIL BRUT, REPLIÉ. Composition, consigne et prompt entier
                 ne servent qu'à comprendre un chiffre surprenant : les afficher
