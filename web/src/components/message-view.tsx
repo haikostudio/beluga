@@ -557,18 +557,23 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
 
             {/* LES PASSAGES RETROUVÉS. Quand la recherche a remplacé l'index de
                 la mémoire, on montre CE QU'ELLE A REMONTÉ : le fichier, le
-                titre, la pertinence et le coût. Un contexte choisi par la
-                machine doit rester vérifiable à l'œil. */}
+                titre, la pertinence, le coût — ET le texte lui-même, en clair,
+                ouvert et à la suite. Un contexte choisi par la machine doit
+                rester vérifiable à l'œil, sans repli à déplier. */}
             {contexte.passages.length ? (
               <section data-passages-retrouves>
                 <h3 className="mb-1.5 text-[13px] font-medium text-text">
-                  Passages retrouvés dans la documentation
+                  Passages retrouvés (documentation, mémoire du projet, mémoire centrale)
                 </h3>
-                <ul className="divide-y divide-border rounded-md bg-surface px-2.5">
+                <ul className="space-y-2.5">
                   {contexte.passages.map((passage, index) => (
-                    <li key={`${passage.source}-${index}`} className="py-1.5">
+                    <li
+                      key={`${passage.source}-${index}`}
+                      data-passage-retrouve
+                      className="rounded-md border border-border bg-surface px-2.5 py-2"
+                    >
                       <div className="flex items-baseline justify-between gap-3">
-                        <span className="min-w-0 flex-1 break-words text-[13px] text-text">
+                        <span className="min-w-0 flex-1 break-words text-[13px] font-medium text-text">
                           {passage.source}
                         </span>
                         <span className="shrink-0 text-[12px] tabular-nums text-faint">
@@ -584,6 +589,14 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
                           %
                         </span>
                       </div>
+                      {passage.texte ? (
+                        <pre
+                          data-passage-texte
+                          className="mt-1.5 whitespace-pre-wrap break-words rounded bg-raised px-2 py-1.5 font-sans text-[12.5px] leading-relaxed text-muted"
+                        >
+                          {passage.texte}
+                        </pre>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

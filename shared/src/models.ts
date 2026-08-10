@@ -587,6 +587,8 @@ export const PassageRetrouve = z.object({
   /** Le score mixte (sens + mots exacts), entre 0 et 1 environ. */
   score: z.number(),
   tokens: z.number().int().nonnegative(),
+  /** Le texte du passage tel qu'il a été envoyé au moteur, en clair. */
+  texte: z.string().default(''),
 });
 export type PassageRetrouve = z.infer<typeof PassageRetrouve>;
 

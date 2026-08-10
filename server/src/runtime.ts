@@ -556,6 +556,7 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
           titre: passage.titre,
           score: Math.round(passage.score * 1000) / 1000,
           tokens: passage.jetons,
+          texte: passage.texte,
         })),
       );
     }
@@ -659,6 +660,7 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
             titre: passage.titre,
             score: Math.round(passage.score * 1000) / 1000,
             tokens: passage.jetons,
+            texte: passage.texte,
           })),
         }
       : undefined,
