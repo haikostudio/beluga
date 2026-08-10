@@ -36,9 +36,7 @@ import {
   mentionDepartProgramme,
   motAnalyse,
   phaseAnalyse,
-  projectionDeLExecution,
   reglagesDeLaCarte,
-  valeurMesuree,
 } from '@haikodev/shared';
 import {
   Badge,
@@ -813,9 +811,6 @@ function CardSummary({ card }: { card: Card }) {
  * travail fait.
  */
 function CeQuiEtaitPrevu({ card }: { card: Card }) {
-  /* La même lecture que le tiroir « Contexte envoyé » : une seule règle, dans
-     `shared`, pour retrouver la projection d'un chiffrage ancien ou récent. */
-  const projection = projectionDeLExecution(card.estimate);
   if (!card.estimate) return null;
 
   const prevue = card.estimate.machineSeconds;
@@ -852,34 +847,6 @@ function CeQuiEtaitPrevu({ card }: { card: Card }) {
           Durée réelle {duration(reelle)} — {debordement ? 'nettement au-delà' : 'dans l’ordre'} de la prévision.
         </p>
       ) : null}
-
-      <div className="space-y-1.5 border-t border-border pt-2" data-projection-execution>
-        <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
-          Jetons projetés — estimation future
-        </p>
-        {projection ? (
-          <>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
-              <Etiquette nom="Jetons projetés" valeur={valeurMesuree(projection.tokens)} />
-              <Etiquette
-                nom="Part de quota projetée"
-                valeur={projection.quotaShare === undefined ? 'indisponible' : partQuota(projection.quotaShare * 100)}
-              />
-            </div>
-            <p className="text-[13px] text-text">
-              <span className="text-faint">Formule </span>
-              {projection.formula ?? 'indisponible'}
-            </p>
-            {projection.assumptions.length ? (
-              <ul className="list-disc space-y-1 pl-5 text-[13px] text-faint">
-                {projection.assumptions.map((hypothese) => <li key={hypothese}>{hypothese}</li>)}
-              </ul>
-            ) : null}
-          </>
-        ) : (
-          <p className="text-[13px] text-faint">Projection indisponible.</p>
-        )}
-      </div>
 
       {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
           forme. En recopier ici un extrait tronqué faisait lire deux fois la

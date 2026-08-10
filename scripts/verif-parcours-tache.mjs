@@ -206,12 +206,12 @@ function poserDecor() {
     'INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   ).run(CARTE_ID, PROJET_ID, 'done', 0, TITRE_CARTE, JSON.stringify(carte), t, t);
 
-  const tour = (agentId, cardId, quand, model, entree, cache, sortie) =>
+  const tour = (agentId, cardId, quand, model, entree, cache, sortie, quota5h = 0, quotaSemaine = 0) =>
     db
       .prepare(
         `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens,
                             input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
-         VALUES (?, ?, ?, ?, 'compte', 'claude', ?, ?, ?, ?, ?, 0, 0, 0, 12, ?)`,
+         VALUES (?, ?, ?, ?, 'compte', 'claude', ?, ?, ?, ?, ?, 0, ?, ?, 12, ?)`,
       )
       .run(
         PROJET_ID,
@@ -223,15 +223,19 @@ function poserDecor() {
         entree,
         cache,
         sortie,
+        quota5h,
+        quotaSemaine,
         quand,
       );
 
   // Le tour du CHEF, écrit après la proposition : c'est lui que le parcours doit
   // retrouver pour donner une mesure à l'étape de tri.
   tour(CHEF_ID, null, t + 5_000, 'claude-sonnet-5', 3_000, 1_000, 400);
-  // Les tours de l'agent de TRAVAIL.
-  tour(TACHE_ID, CARTE_ID, t + 100_000, 'claude-sonnet-5', 40_000, 10_000, 4_000);
-  tour(TACHE_ID, CARTE_ID, t + 200_000, 'claude-sonnet-5', 25_000, 8_000, 3_000);
+  // Les tours de l'agent de TRAVAIL, avec leur part de quota RÉELLEMENT
+  // consommée — c'est elle que le parcours doit reprendre à la place de
+  // l'ancienne projection.
+  tour(TACHE_ID, CARTE_ID, t + 100_000, 'claude-sonnet-5', 40_000, 10_000, 4_000, 1.2, 0.3);
+  tour(TACHE_ID, CARTE_ID, t + 200_000, 'claude-sonnet-5', 25_000, 8_000, 3_000, 0.8, 0.2);
   db.close();
 }
 
@@ -330,6 +334,16 @@ async function relever(navigateur, telephone) {
     noter(`${ou} — le détail nomme ce que l’étape est allée chercher`, /allée chercher/i.test(texte));
     noter(`${ou} — les sujets de mémoire demandés sont nommés`, /cartes/.test(texte) && /interface/.test(texte), texte);
     noter(`${ou} — le découpage des jetons est celui du moteur`, /Entrée hors cache/.test(texte) && /Relu du cache/.test(texte));
+  }
+
+  /* La part de quota RÉELLEMENT consommée remplace l'ancienne projection,
+     dans un bloc à part sous les étapes — jamais mêlée aux jetons mesurés. */
+  const quotaReel = parcours.locator('[data-quota-reel-parcours]');
+  noter(`${ou} — la part de quota réelle est affichée, distincte des étapes`, (await quotaReel.count()) > 0);
+  if (await quotaReel.count()) {
+    const texte = (await quotaReel.innerText()).replace(/\n/g, ' ');
+    noter(`${ou} — la fenêtre de 5 h réellement consommée est chiffrée`, /2\s*%/.test(texte), texte);
+    noter(`${ou} — aucune trace de l’ancienne projection de jetons`, !/Jetons projetés/.test(texte), texte);
   }
 
   /* Le PRÉVU reste à part, et se dit prévision. */
