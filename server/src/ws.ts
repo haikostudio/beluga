@@ -931,6 +931,16 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { cardId };
     }
 
+    case 'proposal.merge': {
+      const resultat = store.mergePendingProposals(cmd.items);
+      // Les messages qui portaient les sources sont tous rafraîchis. La
+      // proposition réunie vit dans le premier : elle apparaît aussitôt dans
+      // le bandeau, sans nouveau tour d'IA et sans carte créée.
+      for (const message of resultat.messages) bus.emit({ type: 'message.upsert', message });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+      return { proposalId: resultat.proposal.id, already: resultat.already ?? false };
+    }
+
     /* -------- Publication -------- */
 
     case 'deploy.start': {

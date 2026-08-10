@@ -107,12 +107,18 @@ const TITRE_A = 'Première carte proposée — en attente';
 const TITRE_B = 'Deuxième carte proposée — en attente';
 const TITRE_REFUSEE = 'Carte déjà refusée';
 
-/** Une description de carte en règle : quatre parties, largement repliable. */
-const DESCRIPTION = [
-  '**Constat** : la proposition vivait dans le fil et remontait avec les messages.',
-  '**Attendu** : elle se pose dans un bandeau fixe au-dessus de la barre d’écriture.',
-  '**Limites** : rien n’est validé ni refusé automatiquement, le clic reste seul maître.',
-  '**Vérification** : ouvrir la conversation, faire défiler, les boutons restent visibles.',
+/** Deux étapes complémentaires, chacune avec sa description complète. */
+const DESCRIPTION_A = [
+  '**Constat** : `web/src/components/propositions.tsx` affiche chaque proposition séparément.',
+  '**Attendu** : permettre de sélectionner les propositions complémentaires dans le bandeau.',
+  '**Limites** : ne créer aucune carte pendant la sélection.',
+  '**Vérification** : contrôler les cases et le compteur sur ordinateur et téléphone.',
+].join('\n\n');
+const DESCRIPTION_B = [
+  '**Constat** : `server/src/ws.ts` décide aujourd’hui chaque proposition séparément.',
+  '**Attendu** : réunir les sélections, relire la proposition composée puis la valider une seule fois.',
+  '**Limites** : garder les sources traçables et ne rien lancer automatiquement.',
+  '**Vérification** : recharger la page, double-cliquer puis compter les cartes créées.',
 ].join('\n\n');
 
 function poserLeDecor() {
@@ -177,18 +183,36 @@ function poserLeDecor() {
     );
   };
 
-  const proposition = (id, title, decision) => ({
+  const proposition = (id, title, decision, options = {}) => ({
     id,
     title,
-    description: DESCRIPTION,
-    labels: ['interface'],
+    description: options.description ?? DESCRIPTION_A,
+    labels: options.labels ?? ['interface'],
+    attachments: options.attachments ?? [],
+    run: options.run,
+    estimate: options.estimate,
+    analysisContext: options.analysisContext,
     decision,
     decidedAt: decision === 'pending' ? undefined : t + 2000,
   });
 
   const propositions = [
-    proposition('prop-a', TITRE_A, 'pending'),
-    proposition('prop-b', TITRE_B, 'pending'),
+    proposition('prop-a', TITRE_A, 'pending', {
+      description: DESCRIPTION_A,
+      labels: ['interface', 'commun'],
+      attachments: ['image-a', 'image-commune'],
+      run: { engine: 'claude', model: 'claude-opus-5', thinking: 'medium', mode: 'direct' },
+      estimate: { machineSeconds: 120, tokens: 1000, seniorHours: 1, confidence: 'high', failed: false },
+      analysisContext: 'La sélection vit dans propositions.tsx.',
+    }),
+    proposition('prop-b', TITRE_B, 'pending', {
+      description: DESCRIPTION_B,
+      labels: ['mobile', 'commun'],
+      attachments: ['image-b', 'image-commune'],
+      run: { engine: 'codex', model: 'gpt-5.6', thinking: 'high', mode: 'direct' },
+      estimate: { machineSeconds: 180, tokens: 2000, seniorHours: 2, confidence: 'medium', failed: false },
+      analysisContext: 'La décision finale passe par ws.ts.',
+    }),
     proposition('prop-refusee', TITRE_REFUSEE, 'refused'),
   ];
 
@@ -278,6 +302,18 @@ async function ouvrir(navigateur, telephone) {
   return { contexte, page, erreurs };
 }
 
+/** Ce que la fusion a réellement écrit — propositions et cartes. */
+function lireEtat() {
+  const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
+  const cards = db.prepare('SELECT data FROM cards WHERE project_id = ? ORDER BY created_at').all(PROJET_ID).map((row) => JSON.parse(row.data));
+  const proposals = db
+    .prepare('SELECT decision, data FROM proposals WHERE project_id = ? ORDER BY created_at')
+    .all(PROJET_ID)
+    .map((row) => ({ decision: row.decision, ...JSON.parse(row.data) }));
+  db.close();
+  return { cards, proposals };
+}
+
 /* ------------------------------------------------------------------ */
 
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -327,31 +363,111 @@ try {
       const apres = await place(page);
       noter(`${ecran} : en remontant la conversation, le bandeau reste à l’écran`, apres.dansLEcran);
 
-      // Les boutons de décision sont visibles sans défiler le bandeau.
-      const boutons = page.locator('[data-vignette="proposition"]').first().getByRole('button', {
-        name: /Créer la carte/,
-      });
-      noter(`${ecran} : le bouton « Créer la carte » est visible`, await boutons.first().isVisible());
+      // Le mode de fusion est visible et sélectionne d'abord les deux sources :
+      // on peut ensuite retirer précisément ce qu'on ne veut pas réunir.
+      const boutonFusion = page.getByRole('button', { name: /^Fusionner$/ });
+      noter(`${ecran} : le bouton « Fusionner » est visible`, await boutonFusion.isVisible());
+      await boutonFusion.click();
+      const actions = page.locator('[data-fusion-propositions="actions"]');
+      noter(`${ecran} : le mode de sélection s'ouvre`, await actions.isVisible());
+      const confirmerFusion = actions.getByRole('button', { name: /Fusionner \(2\)/ });
+      noter(`${ecran} : les deux propositions sont sélectionnées`, await confirmerFusion.isEnabled());
+
+      // Retirer puis remettre une source prouve qu'il s'agit bien d'une
+      // sélection, pas d'un bouton qui fusionne aveuglément tout le bandeau.
+      const secondeCase = page.getByRole('button', { name: new RegExp(`Retirer « ${TITRE_B}`) });
+      await secondeCase.click();
+      noter(
+        `${ecran} : une seule source ne peut pas être fusionnée`,
+        await actions.getByRole('button', { name: /Fusionner \(1\)/ }).isDisabled(),
+      );
+      await page.getByRole('button', { name: new RegExp(`Ajouter « ${TITRE_B}`) }).click();
 
       await page.screenshot({
         path: path.join(SHOTS, `bandeau-propositions-${telephone ? 'telephone' : 'ordinateur'}.png`),
       });
 
-      // On valide la première : elle quitte le bandeau et reparaît dans le fil.
-      await boutons.first().click();
+      const cartesAvant = lireEtat().cards.length;
+      await actions.getByRole('button', { name: /Fusionner \(2\)/ }).click();
       await page.waitForTimeout(2500);
-      const restant = await place(page);
+      const apresFusion = await place(page);
       noter(
-        `${ecran} : la carte validée quitte le bandeau`,
-        restant.present && restant.vignettes === 1,
-        `${restant.vignettes ?? 0} vignette(s)`,
+        `${ecran} : les deux sources deviennent une proposition réunie`,
+        apresFusion.present && apresFusion.vignettes === 1,
+        `${apresFusion.vignettes ?? 0} vignette(s)`,
       );
-      noter(`${ecran} : elle reparaît décidée dans le fil`, await dansLeFil(page, TITRE_A));
+      const etatFusion = lireEtat();
+      noter(`${ecran} : aucune carte n'existe avant le clic final`, etatFusion.cards.length === cartesAvant);
+      noter(
+        `${ecran} : les sources restent tracées comme fusionnées, jamais refusées`,
+        ['prop-a', 'prop-b'].every((id) => etatFusion.proposals.find((item) => item.id === id)?.decision === 'merged'),
+      );
+      const composee = etatFusion.proposals.find((item) => item.decision === 'pending');
+      noter(
+        `${ecran} : étiquettes et pièces jointes sont conservées sans doublon`,
+        JSON.stringify(composee?.labels) === JSON.stringify(['interface', 'commun', 'mobile']) &&
+          JSON.stringify(composee?.attachments) === JSON.stringify(['image-a', 'image-commune', 'image-b']),
+      );
+      noter(
+        `${ecran} : relais et chiffrage des deux étapes sont réunis`,
+        /propositions\.tsx/.test(composee?.analysisContext ?? '') &&
+          /ws\.ts/.test(composee?.analysisContext ?? '') &&
+          composee?.estimate?.machineSeconds === 300,
+      );
+      noter(
+        `${ecran} : les réglages différents sont signalés et restent modifiables`,
+        /réglages différents/i.test(composee?.avertissement ?? '') &&
+          (await page.locator('[data-vignette="proposition"]').getByText(/réglages différents/i).count()) > 0,
+      );
 
-      // On refuse la seconde : le bandeau disparaît entièrement.
-      const refus = page.locator('[data-vignette="proposition"]').first().getByRole('button', { name: /Refuser/ });
-      await refus.first().click();
+      // Rechargement réel : la proposition composée et la trace des sources
+      // viennent alors uniquement de la base.
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(5000);
+      const chefRecharge = page.getByRole('button', { name: /^Chef/ });
+      if (await chefRecharge.count()) {
+        await chefRecharge.first().click();
+        await page.waitForTimeout(1500);
+      }
+      const rechargee = await place(page);
+      noter(
+        `${ecran} : la proposition réunie survit au rechargement`,
+        rechargee.present && rechargee.vignettes === 1,
+      );
+      noter(
+        `${ecran} : les deux sources fusionnées restent visibles dans l'historique`,
+        (await dansLeFil(page, TITRE_A)) && (await dansLeFil(page, TITRE_B)),
+      );
+
+      const vignette = page.locator('[data-vignette="proposition"]').first();
+      const titreEdite = `Chantier réuni — ${telephone ? 'téléphone' : 'ordinateur'}`;
+      const champTitre = vignette.locator('input').first();
+      const champDescription = vignette.locator('textarea').first();
+      noter(
+        `${ecran} : la proposition réunie s'ouvre directement en modification`,
+        (await champTitre.isVisible()) && (await champDescription.isVisible()),
+      );
+      await champTitre.fill(titreEdite);
+      await champDescription.fill(`${await champDescription.inputValue()}\nContrôle final ajouté avant validation.`);
+      await vignette.getByRole('button', { name: 'Terminer' }).click();
+
+      // Un double clic final reste idempotent : une seule carte, avec ce qui
+      // était affiché et les pièces jointes réunies.
+      const creer = vignette.getByRole('button', { name: /Créer la carte/ });
+      await creer.dblclick();
       await page.waitForTimeout(2500);
+      const final = lireEtat();
+      const carte = final.cards.find((item) => item.title === titreEdite);
+      noter(`${ecran} : le double clic final ne crée qu'une carte`, final.cards.length === cartesAvant + 1);
+      noter(
+        `${ecran} : la carte unique reprend l'édition et les contenus réunis`,
+        !!carte && /Contrôle final ajouté/.test(carte.description) && carte.labels.length === 3,
+      );
+      noter(
+        `${ecran} : la carte unique reprend toutes les pièces jointes`,
+        JSON.stringify(carte?.attachments) === JSON.stringify(['image-a', 'image-commune', 'image-b']),
+      );
+
       const vide = await place(page);
       noter(`${ecran} : sans proposition en attente, le bandeau ne rend rien`, vide.present === false);
 

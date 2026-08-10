@@ -195,6 +195,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
      */
     run: RunConfig.partial().optional(),
   }),
+  /**
+   * Réunir plusieurs propositions en attente. L'opération ne crée aucune
+   * carte : elle remplace les sources par une nouvelle proposition éditable.
+   */
+  z.object({
+    type: z.literal('proposal.merge'),
+    items: z
+      .array(z.object({ messageId: z.string(), proposalId: z.string() }))
+      .min(2),
+  }),
 
   // Publication
   /*

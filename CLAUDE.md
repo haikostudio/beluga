@@ -136,6 +136,10 @@ le nom, là-bas le texte).
   le chef PROPOSE (`board_create_card` / `propose_task`, description en quatre parties), la validation
   de l'utilisateur seule crée la carte. Une simple question se répond sans carte. Verrouillé par
   `server/src/test/tri-du-chef.test.ts`.
+- **Les étapes complémentaires d'un même objectif forment UNE proposition** : le chef regroupe par
+  résultat, chantier et ordre logique ; le bandeau permet aussi de fusionner plusieurs propositions
+  encore en attente, sans créer de carte. Les sources restent marquées « fusionnées » et la
+  proposition réunie reste éditable avant son unique validation.
 - **L'analyse faite par le chef voyage avec sa proposition** : chiffrage futur, mesure réelle ajoutée
   par le démon et relais factuel sont recopiés sur la carte ; sa validation va directement en
   « Planifié », sans second chiffrage, mais l'exécution attend toujours un geste humain.
