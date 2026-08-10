@@ -116,11 +116,11 @@ test('un agent de tâche dispose de tous les outils du démon', () => {
 test('l\'outil de déplacement n\'accepte que notes et à faire', () => {
   const move = TOOL_DEFS.find((tool) => tool.name === 'board_move_card');
   const column = (move?.inputSchema as any)?.properties?.column;
-  assert.deepEqual(column.enum, ['notes', 'todo']);
+  assert.deepEqual(column.enum, ['notes', 'planned']);
 });
 
 test('la création de carte ne propose aucun champ « colonne »', () => {
   const create = TOOL_DEFS.find((tool) => tool.name === 'board_create_card');
   const properties = (create?.inputSchema as any)?.properties ?? {};
-  assert.equal('column' in properties, false, 'une carte naît toujours dans « À faire »');
+  assert.equal('column' in properties, false, 'une carte naît toujours dans « Planifié »');
 });

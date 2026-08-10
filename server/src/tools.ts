@@ -20,6 +20,7 @@ import {
   jugerDescription,
   MAX_SIGNES_DESCRIPTION,
   MIN_SIGNES_DESCRIPTION,
+  RAISON_ATTENTE_LANCEMENT,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -189,7 +190,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'board_create_card',
     description:
-      "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « À faire » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation.",
+      "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « Planifié » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation.",
     inputSchema: {
       type: 'object',
       required: ['title', 'analysis'],
@@ -222,13 +223,13 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'board_move_card',
     description:
-      "Déplace une carte. Seules les colonnes « notes » et « todo » sont acceptées : toute autre cible est refusée par l'outil.",
+      "Déplace une carte. Seules les colonnes « notes » et « planned » sont acceptées : toute autre cible est refusée par l'outil.",
     inputSchema: {
       type: 'object',
       required: ['cardId', 'column'],
       properties: {
         cardId: { type: 'string' },
-        column: { type: 'string', enum: ['notes', 'todo'] },
+        column: { type: 'string', enum: ['notes', 'planned'] },
       },
     },
   },
@@ -468,8 +469,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * Rien n'entre sur le tableau sans un clic de l'utilisateur. L'outil
        * n'écrit donc AUCUNE carte : il affiche une proposition dans la
        * conversation, avec ses boutons valider / refuser. C'est la validation
-       * qui fait naître la carte dans « À faire », d'où part ensuite le
-       * parcours habituel (analyse, chiffrage, exécution, lot à publier).
+       * qui fait naître la carte dans « Planifié », d'où part ensuite le
+       * parcours habituel (chiffrage, lancement, exécution, lot à publier).
        *
        * La règle « toute demande de programmation passe par une carte » reste
        * entière : c'est le mode de création qui change, pas l'obligation.
@@ -499,7 +500,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ok: true,
         text:
           `Carte « ${proposal.title} » proposée dans la conversation. ` +
-          `Elle n'entrera dans « À faire » qu'après la validation de l'utilisateur.` +
+          `Elle n'entrera dans « Planifié » qu'après la validation de l'utilisateur.` +
           resumeReglages(reglages),
         proposal,
       };
@@ -726,9 +727,11 @@ export function createCard(
     attachments: input.attachments ?? [],
     estimate: input.estimate,
     analysisContext: input.analysisContext,
-    // Le champ « colonne » est ignoré à la création : invariant 1.
-    column: 'todo' as ColumnKey,
-    position: store.nextPosition(projectId, 'todo'),
+    // Le champ « colonne » est ignoré à la création : invariant 1. Une carte
+    // naît dans « Planifié » — il n'y a plus de colonne d'attente avant elle.
+    // Naître là ne fait rien démarrer : le lancement reste un geste humain.
+    column: 'planned' as ColumnKey,
+    position: store.nextPosition(projectId, 'planned'),
     origin: input.origin ?? 'user',
     run: {
       engine: input.run?.engine ?? project?.defaultEngine ?? 'claude',
@@ -736,7 +739,18 @@ export function createCard(
       thinking: input.run?.thinking ?? 'none',
       mode: input.run?.mode ?? 'direct',
     },
-    scheduling: { asap: false, attempts: 0, restarts: 0 },
+    scheduling: {
+      asap: false,
+      attempts: 0,
+      restarts: 0,
+      /*
+       * Une carte qui naît DÉJÀ chiffrée (l'analyse du chef d'orchestre voyage
+       * avec sa proposition) attend son lancement, et le DIT — exactement comme
+       * une carte qui sort de son analyse. Sans chiffrage, rien à annoncer : la
+       * carte vient d'être posée.
+       */
+      ...(input.estimate && !input.estimate.failed ? { waitingReason: RAISON_ATTENTE_LANCEMENT } : {}),
+    },
     excludedFromDeploy: false,
     createdAt: store.now(),
     updatedAt: store.now(),

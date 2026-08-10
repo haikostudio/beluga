@@ -24,7 +24,7 @@ export const CLE_ONGLET_MOBILE = 'mobile.view';
 /**
  * La colonne à retrouver. Le réglage enregistré peut nommer une colonne qui
  * n'existe plus : on rend alors null, et l'appelant garde son comportement
- * habituel (« À faire » sur téléphone).
+ * habituel (« Planifié » sur téléphone).
  */
 export function colonneAReprendre(memorise: unknown): ColumnKey | null {
   return typeof memorise === 'string' && (COLUMN_KEYS as readonly string[]).includes(memorise)

@@ -63,18 +63,18 @@ type ActionDeLot = {
   /** Le bouton de confirmation, suivi du nombre de cartes cochées. */
   verbe: string;
   /**
-   * La colonne d'arrivée, quand le geste EST un déplacement. « Tout valider »
-   * fait exception : valider ne déplace plus rien (la colonne « Validé »
-   * n'existe plus), la carte reste sur place le temps de son chiffrage — le lot
-   * appelle donc `validerCarte`, le même geste que le bouton du tiroir.
+   * La colonne d'arrivée, quand le geste EST un déplacement. Un geste qui ne
+   * déplace RIEN laisse ce champ vide : le lot appelle alors `validerCarte`, le
+   * même geste que le bouton du tiroir. Aujourd'hui les cinq entrées déplacent
+   * toutes — « Planifié » n'a plus qu'un pied, « Tout lancer ».
    */
   cible?: ColumnKey;
   /** Le participe passé féminin, pour le compte rendu : « 2 cartes lancées ». */
   participe: string;
   /**
    * Les cartes partent-elles ENSEMBLE ? Par défaut, un lot les traite l'une
-   * après l'autre (l'archivage écrit un document, la validation chiffre — huit
-   * demandes d'un coup se marcheraient dessus). « Tout lancer » fait exception :
+   * après l'autre (l'archivage écrit un document — huit demandes d'un coup se
+   * marcheraient dessus). « Tout lancer » fait exception :
    * chaque carte lancée obtient SA copie de travail et sa branche, donc rien ne
    * les empêche de démarrer en parallèle, et l'utilisateur voit les robots
    * s'allumer ensemble au lieu d'attendre en file.
@@ -83,11 +83,6 @@ type ActionDeLot = {
 };
 
 const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
-  // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
-  // carte : autoriser la dépense, donc lancer le chiffrage. Les cartes restent
-  // dans « À faire » le temps de l'analyse et montent en « Planifié » une fois
-  // chiffrées. Rien n'est exécuté — le lancement reste un geste.
-  todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', participe: 'validée' },
   // Déposer une carte dans « En cours » VAUT le clic sur « Lancer maintenant » :
   // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
   // carte et le serveur passe par `startCard` — portes dures comprises. Une
@@ -236,7 +231,7 @@ export function Board({
    * On rouvre le tableau LÀ OÙ on l'avait laissé : la colonne regardée est
    * retenue projet par projet, en base. Sans souvenir (ou si la colonne
    * enregistrée n'existe plus), on revient au comportement d'origine : sur
-   * téléphone « À faire », sinon on ouvre sur des notes souvent vides.
+   * téléphone « Planifié », sinon on ouvre sur des notes souvent vides.
    */
   const rail = React.useRef<HTMLDivElement>(null);
   const barreOnglets = React.useRef<HTMLDivElement>(null);
@@ -262,7 +257,7 @@ export function Board({
 
   React.useEffect(() => {
     const memorisee = colonneAReprendre(readPref(cleColonneTableau(projectId), null));
-    const voulue = memorisee ?? (window.innerWidth < 640 ? 'todo' : null);
+    const voulue = memorisee ?? (window.innerWidth < 640 ? 'planned' : null);
     if (voulue) {
       const cible = rail.current?.querySelector<HTMLElement>(`[data-column="${voulue}"]`);
       if (cible) rail.current!.scrollLeft = cible.offsetLeft - 12;
@@ -729,7 +724,7 @@ export function Board({
               })()}
               <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
               <span className="text-[12.5px] text-faint">{columnCards.length}</span>
-              {column === 'todo' || column === 'notes' ? (
+              {column === 'planned' || column === 'notes' ? (
                 <ComposerInline projectId={projectId} column={column} />
               ) : null}
               {/* En haut à droite des colonnes qui publient : le bouton « ! » qui
@@ -809,19 +804,17 @@ export function Board({
                 <p className="px-1.5 py-3 text-[13px] text-faint">
                   {column === 'notes'
                     ? 'Idées en vrac.'
-                    : column === 'todo'
-                      ? 'Rien à faire pour l’instant.'
-                        : column === 'running'
+                    : column === 'planned'
+                      ? 'Rien à faire pour l’instant : ajoutez une carte avec « + ».'
+                      : column === 'running'
                         ? 'Glissez ici pour lancer le travail.'
-                        : column === 'planned'
-                          ? 'Glissez une carte hors de « En cours » pour suspendre son agent.'
-                          : column === 'done'
-                            ? 'Aucun travail terminé pour l’instant.'
-                            : column === 'to_deploy'
-                              ? 'Rien à mettre en ligne pour l’instant.'
-                              : column === 'in_production'
-                                ? 'Aucune carte en attente de mise en production.'
-                                : 'Aucune carte rangée ici pour l’instant.'}
+                        : column === 'done'
+                          ? 'Aucun travail terminé pour l’instant.'
+                          : column === 'to_deploy'
+                            ? 'Rien à mettre en ligne pour l’instant.'
+                            : column === 'in_production'
+                              ? 'Aucune carte en attente de mise en production.'
+                              : 'Aucune carte rangée ici pour l’instant.'}
                 </p>
               ) : null}
               </div>
@@ -938,8 +931,8 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
         description: description.trim() || undefined,
         attachments: attachments.map((item) => item.id),
       });
-      // Une carte naît toujours dans « À faire » : pour une note, on la déplace
-      // ensuite — c'est le seul chemin autorisé par le serveur.
+      // Une carte naît toujours dans « Planifié » : pour une note, on la
+      // déplace ensuite — c'est le seul chemin autorisé par le serveur.
       if (column === 'notes' && data?.card) {
         await client.call({ type: 'card.move', id: data.card.id, column: 'notes' });
       }

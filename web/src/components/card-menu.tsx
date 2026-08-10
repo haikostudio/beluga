@@ -58,8 +58,9 @@ export function MenuCarte({
 
   /*
    * Sortir une carte d'une fin de parcours est un geste HUMAIN, et il n'y en a
-   * qu'un : « Archivé » ramène en « À faire » (elle repassera par la
-   * validation, donc personne n'autorise une dépense sans le savoir),
+   * qu'un : « Archivé » ramène en « Planifié » (la colonne où naît une carte :
+   * rien n'y démarre sans un geste, donc personne n'autorise une dépense sans
+   * le savoir),
    * « En production » ramène en « À déployer », « À déployer » en « Terminé ».
    * Toujours l'étape juste avant. La règle est partagée avec le bouton du
    * tiroir : `colonneDeReprise`.

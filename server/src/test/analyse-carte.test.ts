@@ -9,10 +9,10 @@ import { motAnalyse, phaseAnalyse, titreDeBloc, wrapPrompt } from '@haikodev/sha
 const base = { aEstimation: false, estimationEchouee: false, analyseEnCours: false } as const;
 
 test("une carte validée sans chiffres est en cours d'analyse, même avant que son agent parte", () => {
-  // Plus de colonne « Validé » : la carte reste dans « À faire » le temps du
-  // chiffrage, c'est son drapeau de validation qui le dit.
-  assert.equal(phaseAnalyse({ ...base, column: 'todo', analyseDemandee: true }), 'en_cours');
-  assert.equal(phaseAnalyse({ ...base, column: 'todo' }), 'aucune');
+  // Plus de colonne « Validé » ni de colonne « À faire » : la carte reste dans
+  // « Planifié » le temps du chiffrage, c'est son drapeau qui le dit.
+  assert.equal(phaseAnalyse({ ...base, column: 'planned', analyseDemandee: true }), 'en_cours');
+  assert.equal(phaseAnalyse({ ...base, column: 'planned' }), 'aucune');
 });
 
 test("un agent d'analyse qui tourne l'emporte sur la colonne", () => {
@@ -29,7 +29,7 @@ test('une analyse finie se dit prête, une analyse sans chiffres se dit échoué
 });
 
 test("une carte jamais validée n'annonce aucune analyse", () => {
-  assert.equal(phaseAnalyse({ ...base, column: 'todo' }), 'aucune');
+  assert.equal(phaseAnalyse({ ...base, column: 'planned' }), 'aucune');
   assert.equal(phaseAnalyse({ ...base, column: 'notes' }), 'aucune');
 });
 

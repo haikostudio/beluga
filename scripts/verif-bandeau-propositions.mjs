@@ -127,7 +127,7 @@ function poserLeDecor() {
     'vérification bandeau des propositions',
   );
 
-  // Aucun agent ne doit démarrer : une carte créée reste sagement en « À faire ».
+  // Aucun agent ne doit démarrer : une carte créée reste sagement en « Planifié ».
   const reglages = JSON.parse(db.prepare("SELECT value FROM meta WHERE key = 'settings'").get()?.value ?? '{}');
   db.prepare(
     "INSERT INTO meta (key, value) VALUES ('settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",

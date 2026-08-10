@@ -21,7 +21,7 @@ test('le pluriel suit le décompte, comme le volet des tâches', () => {
 
 test('hors de « En cours », rien : la colonne dit déjà où en est la carte', () => {
   assert.equal(mentionProgressionTaches({ ...EN_COURS, column: 'done' }), null);
-  assert.equal(mentionProgressionTaches({ ...EN_COURS, column: 'todo' }), null);
+  assert.equal(mentionProgressionTaches({ ...EN_COURS, column: 'planned' }), null);
 });
 
 test('aucun agent au travail : un avancement figé n’apprend rien de vivant', () => {

@@ -290,12 +290,12 @@ export const Card = z.object({
   estimate: Estimate.optional(),
   /**
    * L'utilisateur a VALIDÉ la carte : la dépense est autorisée, l'analyse est
-   * demandée. La carte reste dans « À faire » le temps du chiffrage (il n'y a
-   * plus de colonne « Validé ») et porte ce drapeau, qui allume le signal
-   * « Chiffrage du travail… » et permet à l'ordonnanceur de reprendre une
-   * analyse coupée par un redémarrage. Il s'efface dès que l'analyse a rendu —
-   * avec ses chiffres (la carte part en « Planifié ») ou sans (l'échec se lit
-   * sur l'estimation).
+   * demandée. La carte ne bouge pas : elle naît et reste dans « Planifié » (il
+   * n'y a plus de colonne « Validé » ni de colonne « À faire ») et porte ce
+   * drapeau, qui allume le signal « Chiffrage du travail… » et permet à
+   * l'ordonnanceur de reprendre une analyse coupée par un redémarrage. Il
+   * s'efface dès que l'analyse a rendu — avec ses chiffres ou sans (l'échec se
+   * lit sur l'estimation).
    */
   analyseDemandee: z.boolean().default(false),
   /**

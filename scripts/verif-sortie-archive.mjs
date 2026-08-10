@@ -4,7 +4,7 @@
  *
  * Trois choses vérifiées dans un vrai navigateur :
  *   1. archiver une carte au glisser-déposer lui pose une date d'archivage ;
- *   2. la RESSORTIR au glisser-déposer la fait atterrir dans « À faire », et
+ *   2. la RESSORTIR au glisser-déposer la fait atterrir dans « Planifié », et
  *      elle garde la mention de son archivage, en toutes lettres, sur la carte ;
  *   3. le bouton dédié du tiroir fait la même chose, depuis « Archivé » comme
  *      depuis « À déployer » (« Retirer du lot à publier »).
@@ -321,17 +321,17 @@ async function main() {
 
   /* -------- 2. La ressortir au glissement -------- */
 
-  await glisser(page, glissee.titre, 'todo');
+  await glisser(page, glissee.titre, 'planned');
   const ressortie = lireCarte(glissee.id);
-  noter('un geste humain la ressort d’« Archivé »', ressortie?.column === 'todo', ressortie?.column);
+  noter('un geste humain la ressort d’« Archivé »', ressortie?.column === 'planned', ressortie?.column);
   noter(
     'elle garde la date de son archivage',
     ressortie?.archivedAt === archivee?.archivedAt,
     String(ressortie?.archivedAt),
   );
   noter(
-    'le tableau la montre bien dans « À faire »',
-    (await colonneAffichee(page, glissee.titre)) === 'todo',
+    'le tableau la montre bien dans « Planifié »',
+    (await colonneAffichee(page, glissee.titre)) === 'planned',
     String(await colonneAffichee(page, glissee.titre)),
   );
   const mention = await mentionSurLaCarte(page, glissee.titre);
@@ -343,12 +343,12 @@ async function main() {
   const parBouton = CARTES[1];
   const libelle = await ouvrirCarte(page, parBouton.titre);
   noter('le tiroir d’une carte archivée porte « Sortir de l’archive »', /Sortir de l’archive/.test(libelle ?? ''), String(libelle));
-  noter('le bouton annonce où elle retombe', /À faire/.test(libelle ?? ''), String(libelle));
+  noter('le bouton annonce où elle retombe', /archive/i.test(libelle ?? ''), String(libelle));
   await page.screenshot({ path: path.join(TMP, '3-bouton.png') });
   const avantClic = lireCarte(parBouton.id);
   await cliquerReprise(page);
   const sortieBouton = lireCarte(parBouton.id);
-  noter('le bouton la ramène dans « À faire »', sortieBouton?.column === 'todo', sortieBouton?.column);
+  noter('le bouton la ramène dans « Planifié »', sortieBouton?.column === 'planned', sortieBouton?.column);
   noter(
     'sa date d’archivage, vieille de trois jours, est intacte',
     !!avantClic?.archivedAt && sortieBouton?.archivedAt === avantClic.archivedAt,
@@ -372,7 +372,7 @@ async function main() {
   /* -------- 5. Un bouton qui n'a pas lieu d'être ne s'affiche pas -------- */
 
   const ailleurs = await ouvrirCarte(page, glissee.titre);
-  noter('une carte d’« À faire » n’a aucun bouton de reprise', ailleurs === null, String(ailleurs));
+  noter('une carte de « Planifié » n’a aucun bouton de reprise', ailleurs === null, String(ailleurs));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(600);
 

@@ -128,7 +128,7 @@ function VignetteProposition({
           ? { engine: retenu.engine.id, model: retenu.model?.id, thinking: retenu.thinking?.id }
           : undefined,
       });
-      client.pushToast(accept ? 'success' : 'info', accept ? 'Carte créée dans « À faire »' : 'Carte refusée');
+      client.pushToast(accept ? 'success' : 'info', accept ? 'Carte créée dans « Planifié »' : 'Carte refusée');
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'décision impossible');
     } finally {
