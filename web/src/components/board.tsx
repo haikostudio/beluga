@@ -185,6 +185,15 @@ export function Board({
   >({});
 
   /*
+   * Le compte EXACT du bouton « Tout <verbe> (n) », remonté par le bloc de
+   * publication : pour « À déployer » et « En production », le lot embarque
+   * aussi le travail enregistré sans carte (`enAttente`) — le chiffre de
+   * l'en-tête doit donc dire le MÊME total, jamais seulement les cartes
+   * physiquement posées dans la colonne.
+   */
+  const [deployCounts, setDeployCounts] = React.useState<Partial<Record<ColumnKey, number>>>({});
+
+  /*
    * Ce qu'un ONGLET du tableau (téléphone) a à signaler, colonne par colonne :
    * les mêmes deux comptes que la ligne d'un projet — une décision attendue, un
    * travail rendu pas encore lu. On ne réinvente rien : le compte des décisions
@@ -225,6 +234,13 @@ export function Board({
       // d'ACTIVITÉ vit à côté des repères d'attente, il ne passe pas par
       // `repereVisible` — il n'y a rien à trancher, on montre les deux.
       if (etat === 'travaille') travaille += 1;
+    }
+    // « À déployer » et « En production » embarquent aussi le travail enregistré
+    // sans carte : le total remonté par le bloc de publication (`deployCounts`)
+    // remplace alors le compte de cartes, pour dire le MÊME chiffre que le
+    // bouton « Tout <verbe> (n) » et que la tête de colonne.
+    if ((column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null) {
+      total = deployCounts[column]!;
     }
     return { attention, rendus, travaille, total };
   };
@@ -725,7 +741,11 @@ export function Board({
                 ) : null;
               })()}
               <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
-              <span className="text-[12.5px] text-faint">{columnCards.length}</span>
+              <span className="text-[12.5px] text-faint">
+                {(column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null
+                  ? deployCounts[column]
+                  : columnCards.length}
+              </span>
               {column === 'planned' || column === 'notes' ? (
                 <ComposerInline projectId={projectId} column={column} />
               ) : null}
@@ -770,6 +790,7 @@ export function Board({
                   cards={columnCards}
                   colonne={column}
                   onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, [column]: infos }))}
+                  onCount={(n) => setDeployCounts((prev) => (prev[column] === n ? prev : { ...prev, [column]: n }))}
                 />
               ) : null}
               <div
