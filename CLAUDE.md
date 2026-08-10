@@ -185,6 +185,15 @@ le nom, là-bas le texte).
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
   heure manquée est rattrapée, la suspension à la main l'emporte, et le départ CONSOMME la date.
+- **Une carte dont un agent TRAVAILLE ne s'affiche jamais ailleurs qu'en « En cours »**
+  (`colonneAffichee`, `shared/src/colonne-affichee.ts`, branché sur `byColumn` dans `board.tsx`) :
+  quand un agent tourne, l'agent fait foi, pas la colonne enregistrée — qu'on ne touche pas. Correction
+  d'AFFICHAGE seulement, DITE sur la carte, et uniquement depuis « Notes » / « Planifié » : une carte
+  rendue dont on relance l'agent ne bouge pas.
+- **L'alerte « le serveur ne répond pas » ne paraît que sur une indisponibilité RÉELLE et DURABLE**
+  (`alerteServeurInjoignable`, `shared/src/panne-serveur.ts` ; `Client.signalerRefus`) : canal coupé
+  depuis plus de 15 s, ou deux requêtes d'affilée sans réponse. Une requête isolée qui expire est
+  rendue à l'appelant, jamais affichée en bulle rouge — un lancement ne répond qu'à la FIN du tour.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
   carte, jamais le fait que le moteur ait répondu.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN.** Un projet
