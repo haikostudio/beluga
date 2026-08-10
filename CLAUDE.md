@@ -230,6 +230,10 @@ le nom, là-bas le texte).
 - **Chaque hausse mesurée sur un compte n'est attribuée qu'une fois** (`cumulerPartsQuota`,
   `shared/src/quota.ts`) : les tours simultanés cumulent leur part depuis un repère commun, mis à
   jour après chaque fin de tour. Deux fins décalées ne repartent jamais du même ancien relevé.
+- **Chaque échéance de quota connue déclenche une lecture ciblée après 15 s**
+  (`server/src/quota-echeances.ts`) : échéances proches groupées, lecture en cours partagée,
+  temporisation du fournisseur respectée, nouvel essai jusqu'à un relevé frais puis réveil immédiat
+  de l'ordonnanceur. La boucle de dix minutes reste le filet de sécurité.
 
 ### Coûts
 

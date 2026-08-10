@@ -12,12 +12,15 @@
 /**
  * Ce qu'il reste avant la remise à zéro, dit court : « reste 3 h 57 »,
  * « reste 12 min », « reste 2 j 4 h ». Rien du tout sans heure connue, et
- * « remise à zéro imminente » quand l'échéance est passée — le fournisseur
- * annonce parfois l'heure une poignée de secondes avant de basculer.
+ * « remise à zéro imminente » juste autour de l'échéance — le fournisseur
+ * annonce parfois l'heure une poignée de secondes avant de basculer. Au-delà
+ * d'une minute, on dit que l'échéance est dépassée : l'ancien message ne doit
+ * jamais donner l'impression que la bascule est encore à quelques secondes.
  */
 export function tempsRestant(resetsAt?: number, maintenant = Date.now()): string | null {
   if (!resetsAt) return null;
   const restant = resetsAt - maintenant;
+  if (restant <= -60_000) return 'échéance dépassée — vérification en cours';
   if (restant <= 0) return 'remise à zéro imminente';
 
   const minutes = Math.floor(restant / 60_000);
@@ -35,6 +38,23 @@ export function tempsRestant(resetsAt?: number, maintenant = Date.now()): string
   }
   // Sous la minute, « reste 0 min » donnerait l'impression d'un compteur figé.
   return minutes >= 1 ? `reste ${minutes} min` : 'reste moins d’une minute';
+}
+
+/**
+ * Âge lisible du dernier relevé réussi. Cette phrase n'est montrée que lorsque
+ * la lecture suivante échoue : les pourcentages restent utiles, mais personne
+ * ne doit les prendre pour des chiffres frais.
+ */
+export function fraicheurDuReleve(fetchedAt?: number, maintenant = Date.now()): string | null {
+  if (!fetchedAt) return null;
+  const age = Math.max(0, maintenant - fetchedAt);
+  const minutes = Math.floor(age / 60_000);
+  const heures = Math.floor(minutes / 60);
+  const jours = Math.floor(heures / 24);
+  if (jours >= 1) return `dernier relevé il y a ${jours} jour${jours > 1 ? 's' : ''}`;
+  if (heures >= 1) return `dernier relevé il y a ${heures} h`;
+  if (minutes >= 1) return `dernier relevé il y a ${minutes} min`;
+  return 'dernier relevé il y a moins d’une minute';
 }
 
 /* ------------------------------------------------------------------ */
