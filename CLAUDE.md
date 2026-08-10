@@ -244,6 +244,14 @@ le nom, là-bas le texte).
 - **Chaque hausse mesurée sur un compte n'est attribuée qu'une fois** (`cumulerPartsQuota`,
   `shared/src/quota.ts`) : les tours simultanés cumulent leur part depuis un repère commun, mis à
   jour après chaque fin de tour. Deux fins décalées ne repartent jamais du même ancien relevé.
+- **Un tour COUPÉ PAR LA LIMITE D'UN COMPTE n'est pas un échec** (`motifDArretQuota`,
+  `shared/src/reprise-compte.ts`) : la conversation propose « Avec quel compte poursuivre ? » avec
+  les autres comptes du MÊME moteur, jamais le compte tombé ni un compte coupé. Reconnu sur
+  l'événement structuré du moteur ou sa bannière de texte, jamais sur un à-peu-près — arrêt manuel,
+  tour réussi et citation d'un agent sont écartés. Le clic revérifie le compte sur un relevé frais,
+  retient le choix AVANT de lancer (double clic sans effet) et relance le MÊME agent avec sa
+  session, sa branche et ses étapes restantes. Aucun compte libre : le choix reste ouvert et
+  s'actualise tout seul avec les quotas.
 - **Chaque échéance de quota connue déclenche une lecture ciblée après 15 s**
   (`server/src/quota-echeances.ts`) : échéances proches groupées, lecture en cours partagée,
   temporisation du fournisseur respectée, nouvel essai jusqu'à un relevé frais puis réveil immédiat

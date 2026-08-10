@@ -36,6 +36,7 @@ import { listEngines } from './engines/index.js';
 import { normaliseThinking } from './engines/catalog.js';
 import { cachedQuotas, refreshQuotas, renameAccount, setAccountDisabled } from './accounts.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
+import { reprendreSurCompte } from './reprise-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
@@ -842,6 +843,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       }).catch((err) =>
         log.error('reprise après réponse impossible', err),
       );
+      return { ok: true };
+    }
+
+    /*
+     * POURSUIVRE APRÈS ÉPUISEMENT. Tout se joue dans `reprendreSurCompte` :
+     * relevé frais du compte visé, décision fermée AVANT le lancement (donc un
+     * double clic ne lance rien), puis reprise du même agent. Un refus rend son
+     * motif en français, sans rien lancer.
+     */
+    case 'reprise.compte': {
+      const resultat = await reprendreSurCompte(cmd.messageId, cmd.accountId);
+      if (!resultat.ok) throw new Error(resultat.error ?? 'reprise impossible');
       return { ok: true };
     }
 

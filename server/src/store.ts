@@ -887,8 +887,82 @@ export function setNouveauDepart(agentId: string, at: number): void {
  * cherche à supprimer. Le décompte, lui, ne change pas de règle : il vit dans
  * `shared` et se teste seul.
  */
+/**
+ * Les tours COUPÉS PAR LA LIMITE D'UN COMPTE qui attendent encore de savoir sur
+ * quel compte poursuivre. Sert deux fois : à allumer le triangle orange comme
+ * n'importe quelle décision, et à prévenir quand un compte se libère enfin.
+ *
+ * Un choix déjà fait ferme la décision : le travail est reparti, il n'y a plus
+ * rien à trancher.
+ */
+export interface RepriseEnAttente {
+  projectId: string;
+  agentId: string;
+  cardId?: string;
+  messageId: string;
+  engine: string;
+  compteEpuise: string;
+  poseeA: number;
+}
+
+export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
+              m.id AS messageId, m.data AS data, m.created_at AS createdAt
+       FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+       WHERE m.data LIKE '%"repriseCompte":{%'`,
+    )
+    .all() as {
+    projectId: string;
+    agentId: string;
+    cardId: string | null;
+    messageId: string;
+    data: string;
+    createdAt: number;
+  }[];
+
+  const attentes: RepriseEnAttente[] = [];
+  for (const row of rows) {
+    try {
+      const message = Message.parse(JSON.parse(row.data));
+      const reprise = message.repriseCompte;
+      if (!reprise || reprise.choisi) continue;
+      attentes.push({
+        projectId: row.projectId,
+        agentId: row.agentId,
+        cardId: row.cardId ?? undefined,
+        messageId: row.messageId,
+        engine: reprise.engine,
+        compteEpuise: reprise.compteEpuise,
+        poseeA: row.createdAt,
+      });
+    } catch {
+      /* message illisible : on l'ignore */
+    }
+  }
+  return attentes;
+}
+
 export function decisionsEnAttente(): DecisionAttendue[] {
   const decisions: DecisionAttendue[] = [];
+
+  /*
+   * Un tour coupé par la limite d'un compte attend un choix au même titre
+   * qu'une question : il allume donc le même triangle orange, à l'endroit où le
+   * choix se prend — la conversation, et la carte quand il y en a une.
+   */
+  for (const attente of reprisesDeCompteEnAttente()) {
+    decisions.push({
+      projectId: attente.projectId,
+      agentId: attente.agentId,
+      cardId: attente.cardId,
+      genre: 'question',
+      reglee: false,
+      poseeA: attente.poseeA,
+    });
+  }
 
   const rows = getDb()
     .prepare(

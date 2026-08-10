@@ -513,6 +513,35 @@ export const AgentQuestion = z.object({
 });
 export type AgentQuestion = z.infer<typeof AgentQuestion>;
 
+/**
+ * UN TOUR COUPÉ PAR LA LIMITE D'UN COMPTE. Le travail n'est pas cassé : il lui
+ * manque du quota. Le message porte alors cette décision — « Avec quel compte
+ * poursuivre ? » — au lieu d'un échec ordinaire, et le travail reprend au clic,
+ * avec le même agent, le même fil et la même branche.
+ *
+ * Les comptes proposés ne sont PAS recopiés ici : l'interface les lit dans le
+ * relevé de quota qu'elle reçoit déjà, si bien que la liste se rafraîchit toute
+ * seule quand un compte se libère. Ne vit ici que ce qui ne peut pas se
+ * recalculer : ce qui est tombé, et ce qui a été choisi.
+ */
+export const RepriseDeCompte = z.object({
+  /** Le moteur du tour arrêté : on ne propose jamais les comptes d'un autre. */
+  engine: EngineId,
+  /** Le compte qui a atteint sa limite. */
+  compteEpuise: z.string(),
+  compteEpuiseLabel: z.string(),
+  /** Quand ce compte se remet à zéro, quand on le sait. */
+  resetsAt: z.number().optional(),
+  /** Comment l'arrêt a été reconnu : événement du moteur, ou texte de limite. */
+  motif: z.enum(['limite-structuree', 'texte-de-limite']),
+  /** Le compte retenu au clic. Posé une fois, il ferme la décision pour de bon. */
+  choisi: z.string().optional(),
+  choisiLabel: z.string().optional(),
+  choisiA: z.number().optional(),
+  at: z.number(),
+});
+export type RepriseDeCompte = z.infer<typeof RepriseDeCompte>;
+
 export const DownloadOffer = z.object({
   id: z.string(),
   label: z.string(),
@@ -569,6 +598,8 @@ export const Message = z.object({
   todos: z.array(TodoItem).default([]),
   proposals: z.array(TaskProposal).default([]),
   questions: z.array(AgentQuestion).default([]),
+  /** Ce tour a été coupé par la limite d'un compte : sur lequel poursuivre ? */
+  repriseCompte: RepriseDeCompte.optional(),
   downloads: z.array(DownloadOffer).default([]),
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */

@@ -27,6 +27,12 @@ export interface MessageAJuger {
   questions?: unknown[];
   /** Des propositions en attente : elles comptent déjà comme décision. */
   proposals?: unknown[];
+  /**
+   * Un tour coupé par la limite d'un compte : le choix du compte de reprise est
+   * DÉJÀ une décision attendue, comptée à un seul endroit. La compter deux fois
+   * ferait annoncer deux attentes là où l'écran n'en montre qu'une.
+   */
+  repriseCompte?: unknown;
 }
 
 /**
@@ -94,6 +100,7 @@ export function questionEnTexteLibre(message: MessageAJuger): string | null {
   if (message.streaming) return null;
   if (message.questions?.length) return null;
   if (message.proposals?.length) return null;
+  if (message.repriseCompte) return null;
 
   const phrase = dernierePhrase(message.content ?? '');
   if (!phrase.endsWith('?')) return null;

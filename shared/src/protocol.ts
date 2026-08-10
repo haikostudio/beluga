@@ -178,6 +178,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     /** Les images jointes à la réponse : l'agent les reçoit comme celles du fil. */
     attachments: z.array(z.string()).default([]),
   }),
+  /**
+   * POURSUIVRE UN TRAVAIL COUPÉ PAR LA LIMITE D'UN COMPTE, sur le compte
+   * choisi. Le serveur revérifie la disponibilité au moment du clic : un compte
+   * tombé entre-temps ne lance rien et rafraîchit les choix.
+   */
+  z.object({
+    type: z.literal('reprise.compte'),
+    messageId: z.string(),
+    accountId: z.string(),
+  }),
   z.object({
     type: z.literal('proposal.decide'),
     messageId: z.string(),
