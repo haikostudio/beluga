@@ -398,11 +398,15 @@ export function Drawer({
   onClose,
   children,
   className,
+  empile,
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  /** Un tiroir ouvert PAR-DESSUS un autre tiroir déjà ouvert : un liseré et
+   * une ombre plus marqués font sentir la couche du dessus. */
+  empile?: boolean;
 }) {
   /*
    * Le tiroir se referme en le tirant vers le bas, comme une vraie feuille :
@@ -448,6 +452,7 @@ export function Drawer({
             // Une feuille qui MONTE : le décalage de 6 px des fenêtres se
             // voyait à peine sur un panneau de cette taille.
             'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
+            empile && 'border-t-2 border-t-accent/50 shadow-[0_-14px_38px_-10px_rgba(0,0,0,0.7)]',
             className,
           )}
           style={{
