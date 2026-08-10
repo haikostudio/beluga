@@ -4,6 +4,7 @@ import {
   BatteryLow,
   Braces,
   Check,
+  ChevronDown,
   ChevronRight,
   Circle,
   Copy,
@@ -29,14 +30,16 @@ import {
   NIVEAU_PAR_DEFAUT,
   NiveauAgent,
   SentContextSnapshot,
+  TourEnvoye,
   choixPossible,
+  chronologieContexteEnvoye,
   comptesDeReprise,
   EtatDuPlan,
   differencesDeTexte,
   heureExacte,
   numeroDeVersion,
   propositionsDuFil,
-  repartitionMemoireEnvoi,
+  recapitulatifEnvoi,
   reponsePrete,
   texteAEcouter,
   tempsRestant,
@@ -153,7 +156,7 @@ export function MessageView({
             aDroite
           />
           {message.sentContext ? (
-            <ContexteEnvoye contexte={message.sentContext} />
+            <ContexteEnvoye contexte={message.sentContext} messageId={message.id} allMessages={allMessages} />
           ) : null}
         </div>
       </div>
@@ -671,20 +674,21 @@ function Chiffre({ nom, valeur }: { nom: string; valeur: string }) {
   );
 }
 
-/** Le détail exact du nouveau contenu transmis pendant ce tour. */
-function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
-  const [open, setOpen] = React.useState(false);
+function nomMoteur(engine: SentContextSnapshot['engine']): string {
+  return engine === 'claude' ? 'Claude Code' : 'Codex';
+}
 
-  const repartition = repartitionMemoireEnvoi(contexte.blocks, contexte.usage);
+function nomSession(session: SentContextSnapshot['session']): string {
+  return session === 'new' ? 'Nouvelle session' : 'Reprise de session';
+}
+
+function texteDunTour(tour: TourEnvoye): string {
+  const { contexte } = tour;
   const usage = contexte.usage;
-  const totalEntree = usage ? usage.inputTokens + (usage.cachedInputTokens ?? 0) : undefined;
-  const moteur = contexte.engine === 'claude' ? 'Claude Code' : 'Codex';
-  const session = contexte.session === 'new' ? 'Nouvelle session' : 'Reprise de session';
-  const instruction =
-    contexte.systemInstruction.kind === 'full' ? 'Consigne système complète' : 'Rappel de méthode';
-  const texteCopiable = [
-    `${moteur}${contexte.model ? ` — ${contexte.model}` : ''}`,
-    session,
+  const instruction = contexte.systemInstruction.kind === 'full' ? 'Consigne système complète' : 'Rappel de méthode';
+  return [
+    `Tour ${tour.numero} — ${new Date(contexte.sentAt).toLocaleString('fr-CH')}`,
+    `${nomMoteur(contexte.engine)}${contexte.model ? ` — ${contexte.model}` : ''} · ${nomSession(contexte.session)}`,
     usage
       ? `Entrée nouvelle : ${nombre(usage.inputTokens)} tokens\nCache relu : ${
           usage.cachedInputTokens === undefined ? 'non communiqué' : `${nombre(usage.cachedInputTokens)} tokens`
@@ -693,6 +697,38 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
     `${instruction}\n\n${contexte.systemInstruction.content}`,
     `Prompt HaikoDev\n\n${contexte.prompt}`,
   ].join('\n\n---\n\n');
+}
+
+/**
+ * LE TIROIR « CONTEXTE ENVOYÉ », EN CHRONOLOGIE. Chaque tour parti de cette
+ * conversation (`message.sentContext`) porte son propre instantané : le
+ * tiroir ne les montre plus un par un, séparément, mais les rassemble en une
+ * pile verticale ordonnée dans le temps (`chronologieContexteEnvoye`,
+ * `shared/src/couches-tokens.ts`) — c'est la seule façon de voir un tour à
+ * côté de l'autre. Le bouton qui ouvre le tiroir reste sous CHAQUE demande
+ * réellement partie et affiche la mesure de CE tour ; la pile, elle, montre
+ * tous les tours de la conversation, avec le tour d'origine déplié en entrant.
+ */
+function ContexteEnvoye({
+  contexte,
+  messageId,
+  allMessages,
+}: {
+  contexte: SentContextSnapshot;
+  messageId: string;
+  allMessages: Message[];
+}) {
+  const [open, setOpen] = React.useState(false);
+
+  const usage = contexte.usage;
+  const totalEntree = usage ? usage.inputTokens + (usage.cachedInputTokens ?? 0) : undefined;
+
+  const tours = React.useMemo(() => chronologieContexteEnvoye(allMessages), [allMessages]);
+  const recap = React.useMemo(() => recapitulatifEnvoi(tours), [tours]);
+  const tourInitial = tours.find((tour) => tour.messageId === messageId)?.numero ?? tours.at(-1)?.numero;
+  const [depliés, setDepliés] = React.useState<Set<number>>(() => new Set(tourInitial ? [tourInitial] : []));
+
+  const texteCopiable = tours.map(texteDunTour).join('\n\n===\n\n');
 
   return (
     <>
@@ -722,17 +758,115 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
         </header>
 
         <ZoneDefilement data-contexte-envoye-contenu className="px-3 py-3">
-          <div className="space-y-4 text-[13.5px] leading-relaxed text-muted">
-            {/* L'identité du tour tient en une ligne : quatre encadrés pour
-                quatre mots occupaient le premier écran du tiroir pour rien. */}
-            <p className="text-[12.5px] text-faint" data-identite-tour>
-              {moteur}
-              {contexte.model ? ` · ${contexte.model}` : ''} · {session} ·{' '}
-              {new Date(contexte.sentAt).toLocaleString('fr-CH')}
-            </p>
+          <div className="space-y-3 text-[13.5px] leading-relaxed text-muted">
+            {/* LE RÉCAPITULATIF, EN TÊTE : de quoi comparer les tours entre eux
+                d'un coup d'œil, avant de rentrer dans le détail de chacun. */}
+            <section
+              data-recap-envoi
+              className="rounded-md border border-border bg-surface px-2.5 py-2"
+            >
+              <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
+                {recap.tours} {recap.tours === 1 ? 'tour envoyé' : 'tours envoyés'} dans cette conversation
+              </p>
+              <div className="mt-1 grid grid-cols-2 gap-1.5">
+                <Chiffre nom="Mémoire récupérée, au total" valeur={`${nombre(recap.memoireTotale)} tokens`} />
+                <Chiffre
+                  nom="Envoyé au moteur, au total"
+                  valeur={recap.envoyeTotal === undefined ? 'mesure en cours' : `${nombre(recap.envoyeTotal)} tokens`}
+                />
+              </div>
+            </section>
 
+            {/* LA PILE VERTICALE : un bloc par tour réellement parti, numéroté
+                et daté, dans l'ordre où il est parti. */}
+            <ol
+              data-chronologie-tours
+              className="relative space-y-1.5 pl-[22px] before:absolute before:bottom-3 before:left-[9px] before:top-3 before:w-px before:bg-border"
+            >
+              {tours.map((tour) => (
+                <TourEnvoyeBloc
+                  key={tour.messageId}
+                  tour={tour}
+                  actuel={tour.messageId === messageId}
+                  ouvert={depliés.has(tour.numero)}
+                  onBasculer={() =>
+                    setDepliés((current) => {
+                      const suivant = new Set(current);
+                      if (suivant.has(tour.numero)) suivant.delete(tour.numero);
+                      else suivant.add(tour.numero);
+                      return suivant;
+                    })
+                  }
+                />
+              ))}
+            </ol>
+          </div>
+        </ZoneDefilement>
+      </Drawer>
+    </>
+  );
+}
+
+/** Un tour de la chronologie : son en-tête toujours visible, son détail à déplier. */
+function TourEnvoyeBloc({
+  tour,
+  actuel,
+  ouvert,
+  onBasculer,
+}: {
+  tour: TourEnvoye;
+  /** Le tour d'où le tiroir a été ouvert : déplié en entrant, repéré à l'œil. */
+  actuel: boolean;
+  ouvert: boolean;
+  onBasculer: () => void;
+}) {
+  const { contexte, repartition } = tour;
+  const instruction =
+    contexte.systemInstruction.kind === 'full' ? 'Consigne système complète' : 'Rappel de méthode';
+
+  return (
+    <li className="relative" data-tour-envoye data-numero={tour.numero}>
+      <span className="absolute left-[-22px] top-1.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border border-border bg-raised text-[10px] font-medium tabular-nums text-faint">
+        {tour.numero}
+      </span>
+      <div className="rounded-lg border border-border bg-surface px-2.5 py-2">
+        <button
+          type="button"
+          className="flex w-full items-start gap-2 text-left"
+          aria-expanded={ouvert}
+          onClick={onBasculer}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="text-[13px] font-medium text-text">
+                Tour {tour.numero}
+                {actuel ? ' · ce tour' : ''}
+              </span>
+              <span className="text-[12px] text-faint">{new Date(contexte.sentAt).toLocaleString('fr-CH')}</span>
+            </div>
+            <p className="mt-0.5 text-[12px] text-faint">
+              {nomMoteur(contexte.engine)}
+              {contexte.model ? ` · ${contexte.model}` : ''} · {nomSession(contexte.session)}
+            </p>
+            <p className="mt-0.5 text-[12.5px] text-text">
+              <span className="font-medium">{nombre(repartition.memoireTokens)} tokens</span> de mémoire ·{' '}
+              {repartition.envoyeTokens === undefined ? (
+                <span className="text-faint">mesure en cours</span>
+              ) : (
+                <span className="font-medium">{nombre(repartition.envoyeTokens)} tokens</span>
+              )}{' '}
+              envoyés
+            </p>
+          </div>
+          <ChevronDown
+            className={cn('mt-0.5 h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-180')}
+            aria-hidden="true"
+          />
+        </button>
+
+        {ouvert ? (
+          <div className="mt-2 space-y-3 border-t border-border pt-2">
             {/* DEUX PARTIES, EN TOKENS : ce qui vient de la mémoire du projet
-                (l'index complet au premier tour, les faits ajoutés ensuite)
                 contre ce que le moteur a réellement reçu pour ce tour. */}
             <section data-memoire-vs-envoi>
               <h3 className="mb-1.5 text-[13px] font-medium text-text">Mémoire et envoi</h3>
@@ -809,19 +943,19 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
               <section data-passages-retrouves-absents>
                 <h3 className="mb-1.5 text-[13px] font-medium text-text">Passages retrouvés</h3>
                 <p className="text-[12.5px] text-faint">
-                  {contexte.passagesRaison ??
-                    'Aucune recherche de passages pour ce tour.'}
+                  {contexte.passagesRaison ?? 'Aucune recherche de passages pour ce tour.'}
                 </p>
               </section>
             )}
 
-            {/* 3. LE DÉTAIL BRUT, TOUT AFFICHÉ D'EMBLÉE — plus rien à déplier. */}
+            {/* LE DÉTAIL BRUT DE CE TOUR, TOUT AFFICHÉ DÈS QU'IL EST DÉPLIÉ —
+                rien de plus à déplier une fois le tour ouvert. */}
             <section data-detail-brut>
               <div>
                 <h3 className="mb-1.5 text-[13px] font-medium text-text">
                   Composition du nouveau contenu
                 </h3>
-                <ul className="divide-y divide-border rounded-md bg-surface px-2.5">
+                <ul className="divide-y divide-border rounded-md bg-raised px-2.5">
                   {contexte.blocks.map((bloc, index) => (
                     <li
                       key={`${bloc.kind}-${index}`}
@@ -836,34 +970,34 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
                 </ul>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-3">
                 <h3 className="mb-1.5 text-[13px] font-medium text-text">{instruction}</h3>
                 <p className="mb-1.5 text-[12px] text-faint">
                   {contexte.systemInstruction.transport === 'separate'
                     ? 'Transmise séparément du prompt.'
                     : 'Ajoutée par l’adaptateur devant le prompt.'}
                 </p>
-                <pre className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]">
+                <pre className="whitespace-pre-wrap break-words rounded-md bg-raised px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]">
                   {contexte.systemInstruction.content}
                 </pre>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-3">
                 <h3 className="mb-1.5 text-[13px] font-medium text-text">
                   Prompt exact remis à l’adaptateur
                 </h3>
                 <pre
                   data-prompt-envoye
-                  className="whitespace-pre-wrap break-words rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]"
+                  className="whitespace-pre-wrap break-words rounded-md bg-raised px-2.5 py-2 text-[12.5px] text-muted [overflow-wrap:anywhere]"
                 >
                   {contexte.prompt}
                 </pre>
               </div>
             </section>
           </div>
-        </ZoneDefilement>
-      </Drawer>
-    </>
+        ) : null}
+      </div>
+    </li>
   );
 }
 

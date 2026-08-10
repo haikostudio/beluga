@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCodexArgs } from '../engines/codex.js';
 import { instantaneContexteEnvoye, mesureEntreeMoteur } from '../runtime.js';
+import { chronologieContexteEnvoye, recapitulatifEnvoi } from '@haikodev/shared';
 
 const PROMPT = 'DEMANDE : montre exactement ce nouveau contenu.';
 const BLOCS = [{ kind: 'request' as const, label: 'Demande utilisateur', characters: PROMPT.length }];
@@ -104,4 +105,51 @@ test('une demande mise en file ne reçoit aucun instantané avant son vrai dépa
   assert.ok(file >= 0 && retour > file && message > retour, 'la file rend la main avant de créer le message utilisateur');
   assert.ok(depart >= 0 && rattachement > depart, 'l’instantané n’est rattaché qu’après le lancement par l’adaptateur');
   assert.doesNotMatch(sendPrompt.slice(message, message + 700), /text\.length \/ 4/);
+});
+
+function tourEssai(sentAt: number, memoireCaracteres: number, usage?: { inputTokens: number; cachedInputTokens?: number }) {
+  return {
+    engine: 'claude' as const,
+    session: 'resumed' as const,
+    prompt: 'demande',
+    systemInstruction: { kind: 'reminder' as const, content: 'rappel', transport: 'separate' as const },
+    blocks: [{ kind: 'memory' as const, label: 'faits ajoutés', characters: memoireCaracteres }],
+    passages: [],
+    passagesRaison: 'sans objet pour cet essai',
+    history: 'retained_by_engine' as const,
+    usage,
+    sentAt,
+  };
+}
+
+test('la chronologie numérote les tours dans l’ordre où ils sont réellement partis', () => {
+  const messages = [
+    { id: 'm-2', sentContext: tourEssai(200, 400, { inputTokens: 500 }) },
+    { id: 'm-1', sentContext: tourEssai(100, 800, { inputTokens: 1000, cachedInputTokens: 200 }) },
+    { id: 'm-sans', sentContext: undefined },
+  ];
+  const tours = chronologieContexteEnvoye(messages);
+  assert.deepEqual(
+    tours.map((t) => [t.numero, t.messageId]),
+    [[1, 'm-1'], [2, 'm-2']],
+  );
+  assert.equal(tours[0].repartition.memoireTokens, 200);
+  assert.equal(tours[1].repartition.envoyeTokens, 500);
+});
+
+test('le récapitulatif additionne la mémoire et l’envoi de tous les tours mesurés', () => {
+  const tours = chronologieContexteEnvoye([
+    { id: 'm-1', sentContext: tourEssai(100, 800, { inputTokens: 1000, cachedInputTokens: 200 }) },
+    { id: 'm-2', sentContext: tourEssai(200, 400, { inputTokens: 500 }) },
+  ]);
+  const recap = recapitulatifEnvoi(tours);
+  assert.equal(recap.tours, 2);
+  assert.equal(recap.memoireTotale, 300);
+  assert.equal(recap.envoyeTotal, 1_700);
+});
+
+test('un envoi non mesuré ne fausse pas le total : il reste indéfini plutôt que sous-évalué', () => {
+  const tours = chronologieContexteEnvoye([{ id: 'm-1', sentContext: tourEssai(100, 800) }]);
+  const recap = recapitulatifEnvoi(tours);
+  assert.equal(recap.envoyeTotal, undefined);
 });
