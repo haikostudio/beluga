@@ -8,14 +8,14 @@ import { motAnalyse, phaseAnalyse, titreDeBloc, wrapPrompt } from '@haikodev/sha
 
 const base = { aEstimation: false, estimationEchouee: false, analyseEnCours: false } as const;
 
-test("une carte validée sans chiffres est en cours d'analyse, même avant que son agent parte", () => {
-  // Plus de colonne « Validé » : la carte reste dans « À faire » le temps du
-  // chiffrage, c'est son drapeau de validation qui le dit.
-  assert.equal(phaseAnalyse({ ...base, column: 'todo', analyseDemandee: true }), 'en_cours');
+test('une carte validée qui attend son lancement n’annonce aucune analyse', () => {
+  // Rien ne part au moteur avant le lancement : une carte « Planifié » sans
+  // chiffres n'a rien à montrer, et elle n'a rien coûté.
+  assert.equal(phaseAnalyse({ ...base, column: 'planned' }), 'aucune');
   assert.equal(phaseAnalyse({ ...base, column: 'todo' }), 'aucune');
 });
 
-test("un agent d'analyse qui tourne l'emporte sur la colonne", () => {
+test("un agent qui tourne l'emporte sur la colonne", () => {
   assert.equal(phaseAnalyse({ ...base, column: 'planned', analyseEnCours: true }), 'en_cours');
   assert.equal(
     phaseAnalyse({ ...base, column: 'planned', aEstimation: true, analyseEnCours: true }),
@@ -23,12 +23,12 @@ test("un agent d'analyse qui tourne l'emporte sur la colonne", () => {
   );
 });
 
-test('une analyse finie se dit prête, une analyse sans chiffres se dit échouée', () => {
-  assert.equal(phaseAnalyse({ ...base, column: 'planned', aEstimation: true }), 'prete');
-  assert.equal(phaseAnalyse({ ...base, column: 'planned', estimationEchouee: true }), 'echouee');
+test('un chiffrage rendu se dit prêt, un chiffrage sans chiffres se dit échoué', () => {
+  assert.equal(phaseAnalyse({ ...base, column: 'running', aEstimation: true }), 'prete');
+  assert.equal(phaseAnalyse({ ...base, column: 'running', estimationEchouee: true }), 'echouee');
 });
 
-test("une carte jamais validée n'annonce aucune analyse", () => {
+test("une carte jamais lancée n'annonce aucune analyse", () => {
   assert.equal(phaseAnalyse({ ...base, column: 'todo' }), 'aucune');
   assert.equal(phaseAnalyse({ ...base, column: 'notes' }), 'aucune');
 });

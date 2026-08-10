@@ -16,7 +16,7 @@ process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
 const { callTool, createCard, TOOL_DEFS } = await import('../tools.js');
-const { reprendreAnalyseDuChef } = await import('../scheduler.js');
+const { validerCarte } = await import('../scheduler.js');
 
 const DESCRIPTION = [
   'Constat : `server/src/ws.ts` déclenche actuellement une analyse après chaque validation.',
@@ -115,7 +115,7 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
   assert.equal(validee.estimate?.analysisMeasurement?.totalTokens, 1_120);
   assert.equal(validee.estimate?.producedAt, 1234);
   assert.match(contexteHeritePourExecution(validee) ?? '', /ne recommence pas/);
-  assert.equal(reprendreAnalyseDuChef(validee.id), true);
+  assert.equal(validerCarte(validee.id).ok, true);
 
   const planifiee = store.getCard(validee.id)!;
   assert.equal(planifiee.column, 'planned');
@@ -150,7 +150,13 @@ test('une édition du sujet ou une carte ordinaire garde le chiffrage habituel',
   assert.equal(store.getCard(heritee.id)?.estimate, undefined, 'modifier la carte invalide son ancien chiffrage');
   assert.equal(store.getCard(heritee.id)?.analysisContext, undefined);
 
+  // Une carte SANS chiffrage du chef suit le même chemin : elle monte en
+  // « Planifié » et y attend son lancement, sans chiffres et sans rien envoyer
+  // au moteur — c'est l'agent d'exécution qui chiffrera.
   const ordinaire = createCard(projet.id, { title: 'Carte ordinaire', description: DESCRIPTION });
-  assert.equal(reprendreAnalyseDuChef(ordinaire.id), false);
-  assert.equal(store.getCard(ordinaire.id)?.column, 'todo');
+  assert.equal(validerCarte(ordinaire.id).ok, true);
+  const validee = store.getCard(ordinaire.id)!;
+  assert.equal(validee.column, 'planned');
+  assert.equal(validee.estimate, undefined, 'aucun chiffrage n’est fabriqué avant le lancement');
+  assert.equal(store.getLastAgentByCard(ordinaire.id), null, 'aucun agent ne naît à la validation');
 });

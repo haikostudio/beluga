@@ -40,7 +40,7 @@ import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
-import { analyseCard, appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
+import { appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
   deployableCards,
@@ -506,17 +506,6 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { card: updated };
     }
 
-    case 'card.reanalyze': {
-      const card = store.getCard(cmd.id);
-      if (!card) throw new Error('carte introuvable');
-      // Le drapeau rallume le signal « Chiffrage du travail… » : une analyse
-      // relancée doit se voir comme la première.
-      const relancee = store.saveCard({ ...card, estimate: undefined, analyseDemandee: true });
-      bus.emit({ type: 'card.upsert', card: relancee });
-      void analyseCard(cmd.id);
-      return { ok: true };
-    }
-
     case 'card.asap': {
       const card = store.getCard(cmd.id);
       if (!card) throw new Error('carte introuvable');
@@ -620,13 +609,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const agent = store.getAgent(cmd.agentId);
       if (!agent) throw new Error('agent introuvable');
       /*
-       * DISCUTER AVEC L'AGENT D'ANALYSE. Un message écrit à l'agent d'analyse
-       * d'une carte relance son analyse : on rebranche donc la lecture des
-       * chiffres pour que le chiffrage corrigé remonte sur la carte. Jamais
-       * marquée en échec, jamais déplacée (voir `appliquerChiffrageDiscute`).
+       * DISCUTER D'UN CHIFFRAGE. Le chiffrage vit désormais dans le tour de
+       * l'agent d'exécution : c'est donc à LUI qu'on écrit pour corriger une
+       * hypothèse, et son tour rend souvent des chiffres frais. On rebranche
+       * leur lecture pour qu'ils remontent sur la carte — jamais marquée en
+       * échec, jamais déplacée (voir `appliquerChiffrageDiscute`). Les agents
+       * d'analyse d'avant ce changement gardent le même branchement.
        */
       const onComplete =
-        agent.role === 'analysis' && agent.cardId
+        (agent.role === 'task' || agent.role === 'analysis') && agent.cardId
           ? (text: string, ok: boolean, measurement: import('@haikodev/shared').TurnMeasurement) =>
               appliquerChiffrageDiscute(agent.cardId!, text, ok, measurement)
           : undefined;

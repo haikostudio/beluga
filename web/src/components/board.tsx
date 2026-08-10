@@ -200,9 +200,8 @@ export function Board({
     return etatVisuelCarte({
       agentStatut: agentCarte?.status,
       analyseEnCours: Object.values(state.agents).some(
-        (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
+        (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
       ),
-      chiffrageEnCours: !!card.analyseDemandee && !card.estimate,
       enAttente: !!card.scheduling?.waitingReason,
       estimationEchouee: card.estimate?.failed,
       enLigne: !!card.deployedAt,
@@ -1081,12 +1080,10 @@ export function CardTile({
   const agent = card.agentId ? state.agents[card.agentId] : null;
   const waiting = card.scheduling?.waitingReason;
   const estimateFailed = card.estimate?.failed;
-  // Entre la validation et le chiffrage, la carte doit montrer qu'il se passe
-  // quelque chose — sinon on croit que rien ne démarre. La carte n'a pas changé
-  // de colonne : c'est son drapeau de validation qui allume le signal.
-  const analysing = !!card.analyseDemandee && !card.estimate;
-  const analyseEnCours = Object.values(state.agents).some(
-    (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
+  // Un agent au travail sur la carte, quel qu'il soit : le voyant doit tourner
+  // même quand la carte n'a pas encore retenu son agent.
+  const agentAuTravail = Object.values(state.agents).some(
+    (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
   );
 
   /*
@@ -1106,29 +1103,25 @@ export function CardTile({
   /*
    * L'état en cours ne s'affiche PAS dans le corps de la carte : il sort par le
    * bas, comme une étiquette glissée derrière, sur un fond un peu plus clair.
-   * Les états d'analyse, d'attente et d'échec gardent la priorité ; l'avancement
-   * « n/N faites » ne parle que lorsqu'aucun d'eux ne parle.
+   * L'attente et l'échec gardent la priorité ; l'avancement « n/N faites » ne
+   * parle que lorsqu'aucun d'eux ne parle.
    */
-  const statut =
-    analysing || analyseEnCours
-      ? // Le sujet suffit : la roue qui tourne dit déjà que c'est en cours.
-        { icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, texte: 'Chiffrage du travail…', ton: 'text-muted' }
-      : waiting
-        ? { icon: <Clock className="h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
-        : estimateFailed
-          ? {
-              icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,
-              texte: card.estimate?.failureReason ?? 'analyse sans chiffres',
-              ton: 'text-danger',
-            }
-          : progression
-            ? {
-                icon: <ListChecks className="h-2.5 w-2.5 shrink-0" />,
-                texte: progression,
-                ton: 'text-muted',
-                marqueur: 'progression-taches' as const,
-              }
-            : null;
+  const statut = waiting
+    ? { icon: <Clock className="h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
+    : estimateFailed
+      ? {
+          icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,
+          texte: card.estimate?.failureReason ?? 'chiffrage sans chiffres',
+          ton: 'text-danger',
+        }
+      : progression
+        ? {
+            icon: <ListChecks className="h-2.5 w-2.5 shrink-0" />,
+            texte: progression,
+            ton: 'text-muted',
+            marqueur: 'progression-taches' as const,
+          }
+        : null;
 
   /*
    * Le voyant du titre : une seule règle, partagée et testée. Elle distingue
@@ -1163,8 +1156,7 @@ export function CardTile({
 
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
-    analyseEnCours,
-    chiffrageEnCours: analysing,
+    analyseEnCours: agentAuTravail,
     enAttente: !!waiting,
     estimationEchouee: estimateFailed,
     enLigne: !!card.deployedAt,

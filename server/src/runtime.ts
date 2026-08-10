@@ -199,6 +199,12 @@ export interface PromptOptions {
    * de la demande.
    */
   ampleur?: Ampleur;
+  /**
+   * Ce tour doit AUSSI rendre le chiffrage de la tâche, dans son bloc json. Le
+   * lancement d'une carte encore sans chiffres le demande : un seul agent
+   * étudie, chiffre, puis exécute.
+   */
+  chiffrage?: boolean;
   /** Ne pas enregistrer le message utilisateur (relances internes). */
   silent?: boolean;
   /**
@@ -484,6 +490,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     // Session déjà ouverte : le gabarit entier est dans le fil, un rappel suffit.
     rappel: !nouvelleSession,
     ampleur,
+    chiffrage: options.chiffrage,
   });
   const description = card?.description ?? '';
   const occurrencesDescription = description ? prompt.split(description).length - 1 : 0;

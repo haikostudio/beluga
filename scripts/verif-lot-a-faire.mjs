@@ -173,16 +173,13 @@ function colonnesEnBase() {
 }
 
 /**
- * La marque de VALIDATION de chaque carte : titre → vrai/faux. Valider ne
- * déplace plus rien — la colonne « Validé » n'existe plus, la carte reste dans
- * « À faire » le temps de son chiffrage. C'est donc ce drapeau qu'on lit pour
- * savoir ce que le lot a vraiment fait.
+ * Une carte VALIDÉE monte en « Planifié » : plus de colonne « Validé », plus de
+ * chiffrage sur place non plus — rien ne part au moteur avant le lancement.
+ * C'est donc la colonne, et elle seule, qui dit ce que le lot a fait.
  */
 function validationsEnBase() {
-  const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
-  const lignes = db.prepare("SELECT title, json_extract(data, '$.analyseDemandee') AS marque FROM cards").all();
-  db.close();
-  return Object.fromEntries(lignes.map((l) => [l.title, !!l.marque]));
+  const colonnes = colonnesEnBase();
+  return Object.fromEntries(Object.entries(colonnes).map(([titre, col]) => [titre, col === 'planned']));
 }
 
 /** Où chaque carte se trouve À L'ÉCRAN : titre → colonne affichée. */
@@ -348,11 +345,10 @@ async function main() {
 
   const apres = colonnesEnBase();
   const validees = validationsEnBase();
-  // Valider ne DÉPLACE plus : la carte reste dans « À faire » pendant son
-  // chiffrage et ne montera en « Planifié » qu'une fois l'analyse rendue. Les
-  // deux états valent donc « validée » — on n'attend pas un vrai tour de moteur.
+  // Valider monte la carte en « Planifié », où elle attend son lancement : rien
+  // n'est envoyé au moteur, aucun tour n'est à attendre.
   noter(
-    'les deux cartes cochées sont validées : chiffrage lancé sur place',
+    'les deux cartes cochées sont validées : montées en « Planifié »',
     TITRES.filter((t) => t !== gardee).every((t) => validees[t] || apres[t] === 'planned'),
     `${JSON.stringify(apres)} · ${JSON.stringify(validees)}`,
   );
@@ -383,13 +379,17 @@ async function main() {
 
   await cliquerPied(mobile, 'Tout valider');
   await mobile.waitForTimeout(800);
-  // Les trois cartes sont toujours dans « À faire » : valider ne déplace plus
-  // rien, il lance le chiffrage sur place. Chacune doit donc sortir sa case.
+  // Deux cartes sont déjà parties en « Planifié » à l'étape précédente : sur
+  // téléphone, ce sont les cartes ENCORE dans « À faire » qui doivent sortir
+  // leur case, chacune cochée et posée en haut à gauche.
+  const restantes = TITRES.filter((t) => colonnesEnBase()[t] === 'todo');
   const casesMobile = await casesAFaire(mobile);
   noter(
     'téléphone — chaque carte sort sa case cochée, en haut à gauche',
-    casesMobile.length === TITRES.length && casesMobile.every((c) => c.cochee && c.enHautAGauche),
-    `${casesMobile.length} case(s)`,
+    casesMobile.length === restantes.length &&
+      casesMobile.length > 0 &&
+      casesMobile.every((c) => c.cochee && c.enHautAGauche),
+    `${casesMobile.length} case(s) pour ${restantes.length} carte(s) restante(s)`,
   );
 
   // Rien ne doit dépasser latéralement : la case déborde, la colonne doit
@@ -403,7 +403,11 @@ async function main() {
 
   await cliquerPied(mobile, 'Annuler');
   await mobile.waitForTimeout(1000);
-  noter('téléphone — « Annuler » laisse les cartes dans « À faire »', TITRES.every((t) => colonnesEnBase()[t] === 'todo'));
+  noter(
+    'téléphone — « Annuler » laisse les cartes dans « À faire »',
+    restantes.every((t) => colonnesEnBase()[t] === 'todo'),
+    JSON.stringify(colonnesEnBase()),
+  );
   await mobile.screenshot({ path: path.join(TMP, 'lot-telephone.png') });
 
   /* -------- 3. La colonne « Validé » a bel et bien disparu -------- */

@@ -16,13 +16,11 @@ import { carteNonLue } from './travail-rendu.js';
 export interface EtatVisuelEntree {
   /** Statut de l'agent de la carte, s'il y en a un. */
   agentStatut?: 'idle' | 'starting' | 'running' | 'stopped' | 'failed' | 'done';
-  /** Une analyse tourne en ce moment pour cette carte. */
+  /** Un agent de la carte travaille, sans être celui qu'elle a retenu. */
   analyseEnCours?: boolean;
-  /** La carte est validée mais pas encore chiffrée : le travail est déjà lancé. */
-  chiffrageEnCours?: boolean;
   /** La carte attend quelque chose (heure creuse, place libre, réponse). */
   enAttente?: boolean;
-  /** L'analyse s'est terminée sans chiffres exploitables. */
+  /** Le chiffrage s'est terminé sans chiffres exploitables. */
   estimationEchouee?: boolean;
   /** La carte est en ligne. */
   enLigne?: boolean;
@@ -44,7 +42,7 @@ export type EtatVisuelCarte =
 export function etatVisuelCarte(entree: EtatVisuelEntree): EtatVisuelCarte {
   // Ce qui tourne prime sur tout : c'est l'information la plus fraîche.
   if (entree.agentStatut === 'running' || entree.agentStatut === 'starting') return 'travaille';
-  if (entree.analyseEnCours || entree.chiffrageEnCours) return 'travaille';
+  if (entree.analyseEnCours) return 'travaille';
 
   if (entree.agentStatut === 'failed' || entree.estimationEchouee) return 'echec';
   if (entree.enAttente) return 'attente';

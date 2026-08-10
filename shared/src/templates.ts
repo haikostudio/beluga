@@ -194,7 +194,27 @@ export interface OptionsEnveloppe {
   rappel?: boolean;
   /** La longueur de référence annoncée ; déduite de la demande si absente. */
   ampleur?: Ampleur;
+  /**
+   * Ce tour doit AUSSI rendre le chiffrage de la tâche. Le gabarit `pre_run`
+   * le demande toujours ; un tour de travail ne le demande qu'au LANCEMENT
+   * d'une carte encore sans chiffres, puisque le même agent étudie, chiffre,
+   * puis exécute dans la foulée.
+   */
+  chiffrage?: boolean;
 }
+
+/**
+ * Le bloc json du chiffrage, LU par l'application. Une seule formulation pour
+ * les deux endroits qui le demandent : le gabarit de chiffrage `pre_run` (le
+ * chef qui prépare une proposition) et le premier tour d'une carte lancée.
+ */
+export const CONSIGNE_CHIFFRAGE = `
+LE CHIFFRAGE EST LU PAR L'APPLICATION. Termine ta réponse par un bloc json (et rien après) :
+\`\`\`json
+{"machineSeconds": 600, "projection": {"tokens": 40000, "quotaShare": 0.03, "formula": "jetons de l’étude × facteur lié à l’ampleur", "assumptions": ["3 fichiers à modifier", "construction et tests complets"]}, "confidence": "medium", "summary": "…", "seniorHours": 2.5, "billingTitle": "…", "billingDescription": "…"}
+\`\`\`
+machineSeconds = la durée d'exécution prévue en secondes ; seniorHours = le temps d'un développeur senior à la main. Ne confonds JAMAIS les deux. projection décrit le FUTUR : donne sa formule et ses hypothèses, sans la présenter comme une mesure. Les jetons et le quota RÉELLEMENT consommés seront ajoutés par HaikoDev depuis l'événement d'usage du moteur — ne les invente pas.
+`;
 
 /** Le rappel de forme des tours suivants : quelques mots au lieu du bloc entier. */
 function rappelDeForme(kind: TemplateKind, ampleur: Ampleur): string {
@@ -227,7 +247,10 @@ export function wrapPrompt(
 
   if (options.rappel) {
     const tête = context ? `${context}\n\n---\n\n` : '';
-    return `${tête}DEMANDE :\n${userText}\n\n---\n${rappelDeForme(kind, ampleur)}`;
+    // Le chiffrage n'est pas une question de forme : s'il est demandé, sa
+    // consigne part même quand le reste du gabarit est déjà dans le fil.
+    const chiffrage = options.chiffrage ? `\n${CONSIGNE_CHIFFRAGE}` : '';
+    return `${tête}DEMANDE :\n${userText}\n\n---\n${rappelDeForme(kind, ampleur)}${chiffrage}`;
   }
 
   // Les titres imposés suivent la LONGUEUR de référence, pas seulement la
@@ -251,14 +274,7 @@ export function wrapPrompt(
     ? `\nINTERDICTIONS :\n${tpl.exclusions.map((e) => `- ${e}`).join('\n')}\n`
     : '';
 
-  const extra =
-    kind === 'pre_run'
-      ? `\nLes deux dernières sections sont LUES PAR L'APPLICATION. Termine par un bloc json (et rien après) :
-\`\`\`json
-{"machineSeconds": 600, "projection": {"tokens": 40000, "quotaShare": 0.03, "formula": "jetons de l’analyse × facteur lié à l’ampleur", "assumptions": ["3 fichiers à modifier", "construction et tests complets"]}, "confidence": "medium", "summary": "…", "seniorHours": 2.5, "billingTitle": "…", "billingDescription": "…"}
-\`\`\`
-machineSeconds = ta durée d'exécution prévue en secondes ; seniorHours = le temps d'un développeur senior à la main. Ne confonds JAMAIS les deux. projection décrit le FUTUR : donne sa formule et ses hypothèses, sans la présenter comme une mesure. Les jetons et le quota DÉJÀ consommés par cette analyse seront ajoutés par HaikoDev depuis l'événement d'usage du moteur — ne les invente pas.\n`
-      : '';
+  const extra = kind === 'pre_run' || options.chiffrage ? CONSIGNE_CHIFFRAGE : '';
 
   const evolutions =
     titres.includes('Évolutions possibles')

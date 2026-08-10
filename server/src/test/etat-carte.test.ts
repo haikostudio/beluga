@@ -5,8 +5,9 @@ import { etatVisuelCarte, gesteCarte, sortieAutorisee } from '@haikodev/shared';
 test('l’agent travaille : la roue tourne', () => {
   assert.equal(etatVisuelCarte({ agentStatut: 'running' }), 'travaille');
   assert.equal(etatVisuelCarte({ agentStatut: 'starting' }), 'travaille');
+  // Un agent de la carte au travail, même quand la carte n'a pas encore retenu
+  // le sien : le voyant tourne quand même.
   assert.equal(etatVisuelCarte({ analyseEnCours: true }), 'travaille');
-  assert.equal(etatVisuelCarte({ chiffrageEnCours: true }), 'travaille');
 });
 
 test('l’agent a rendu son travail : la coche', () => {
