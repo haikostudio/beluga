@@ -146,12 +146,17 @@ export function DeployPanel({
   cards,
   colonne = 'to_deploy',
   onInfos,
+  onCount,
 }: {
   projectId: string;
   cards: Card[];
   colonne?: ColumnKey;
   /** Remonte à la tête de colonne ce qui va derrière le bouton « ! ». */
   onInfos?: (infos: InfosPublication | null) => void;
+  /** Remonte à la tête de colonne le compte EXACT du bouton « Tout <verbe> (n) »,
+   *  pour que le chiffre de l'en-tête ne raconte plus autre chose que le lot qui
+   *  partira vraiment (cartes ET travail enregistré sans carte). */
+  onCount?: (n: number) => void;
 }) {
   const state = useApp();
   const run = state.deploys[projectId];
@@ -320,6 +325,16 @@ export function DeployPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signatureInfos]);
 
+  /* Même règle pour le compte : la tête de colonne affichait le nombre de
+     cartes PHYSIQUEMENT posées dans la colonne, quand le bouton affichait en
+     plus le travail enregistré sans carte (`enAttente`) — deux chiffres pour
+     une seule réalité. On remonte ici le total EXACT que le bouton annonce. */
+  const onCountRef = React.useRef(onCount);
+  onCountRef.current = onCount;
+  React.useEffect(() => {
+    onCountRef.current?.(aPublier);
+  }, [aPublier]);
+
   /*
    * Le bloc reste TOUJOURS en tête de la colonne « À déployer », même sans rien
    * à envoyer : le bouton « Tout déployer » y est visible partout, seulement
@@ -391,12 +406,28 @@ export function DeployPanel({
             sous les sept étapes — plus jamais étalé dans la colonne. */}
         {processOuvert ? (
           <div className="absolute inset-x-0 top-full z-20">
-            <ProcessusEtapes run={mienne ? run : undefined} />
-            {(publicationEnCours || rapport) && run ? (
-              <div className="mt-1.5 rounded-md border border-border bg-raised p-2 shadow-lg">
-                <DeployControls run={run} />
+            {mienne && run?.state === 'success' ? (
+              /* Une réussite tient en une ligne (`derouleOuvert`) : rouvrir le
+                 chevron À LA MAIN ne doit pas refaire apparaître les sept
+                 étapes cochées comme si la publication tournait encore —
+                 seul ce résumé dit qu'elle est TERMINÉE. */
+              <div
+                className="mt-1.5 flex items-center gap-1.5 rounded-md border border-border bg-raised p-2 text-[13px] text-muted shadow-lg"
+                data-publication-terminee
+              >
+                <Check className="h-3 w-3 shrink-0 text-success" />
+                Publié ({libelleEtape(run.cible)}) : {run.cardIds.length} tâche(s)
               </div>
-            ) : null}
+            ) : (
+              <>
+                <ProcessusEtapes run={mienne ? run : undefined} />
+                {(publicationEnCours || rapport) && run ? (
+                  <div className="mt-1.5 rounded-md border border-border bg-raised p-2 shadow-lg">
+                    <DeployControls run={run} />
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
         ) : null}
       </div>
