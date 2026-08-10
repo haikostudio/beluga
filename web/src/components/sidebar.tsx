@@ -502,7 +502,7 @@ export function Sidebar({
                 />
                 <button
                   onClick={() => toggle(entry.id)}
-                  className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-muted hover:text-text"
+                  className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-text hover:text-text"
                 >
                   <ChevronRight
                     className={cn(
@@ -1236,7 +1236,7 @@ function ProjectRow({
         // Le décalage suit la même durée que les autres transitions ; le réglage
         // « réduire les animations » du système le rend immédiat.
         'transition-[transform,background-color,color] duration-150 motion-reduce:transition-none',
-        active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
+        active ? 'bg-raised text-text' : 'text-text hover:bg-surface',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
       )}
