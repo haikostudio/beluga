@@ -64,7 +64,7 @@ async function main() {
     }
 
     /* ---------- Une carte d'essai, créée comme n'importe qui ---------- */
-    const colonne = page.locator('[data-column="todo"]');
+    const colonne = page.locator('[data-column="planned"]');
     await colonne.scrollIntoViewIfNeeded();
     await colonne.getByRole('button').first().click();
     await page.waitForTimeout(500);

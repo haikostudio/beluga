@@ -45,16 +45,31 @@ test('seul un agent de publication en dépannage reçoit un accueil minimal', ()
   assert.equal(niveauDAccueil({ role: 'deploy' }), 'complet');
 });
 
-test('les autres rôles gardent leur accueil, quel que soit le motif', () => {
-  for (const role of ['task', 'orchestrator', 'analysis'] as const) {
+test('les agents de tâche et d’analyse gardent leur accueil, quel que soit le motif', () => {
+  for (const role of ['task', 'analysis'] as const) {
     assert.equal(niveauDAccueil({ role }), 'complet');
     assert.equal(niveauDAccueil({ role, motif: 'conflit' }), 'complet');
   }
 });
 
+test('le chef d’orchestre reçoit l’accueil de TRI : il ne lit plus le projet', () => {
+  assert.equal(niveauDAccueil({ role: 'orchestrator' }), 'tri');
+  assert.equal(niveauDAccueil({ role: 'orchestrator', motif: 'conflit' }), 'tri');
+});
+
 test('l’accueil minimal n’emporte ni mémoire, ni compétences, ni instructions', () => {
   assert.deepEqual(partsDAccueil('minimal'), { instructions: false, competences: false, memoire: false });
   assert.deepEqual(partsDAccueil('complet'), { instructions: true, competences: true, memoire: true });
+});
+
+/*
+ * Le tri garde les COMPÉTENCES : le chef n'a pas le droit d'ouvrir celles de son
+ * moteur, et sans cette ligne il répondrait « je ne sais pas faire » devant un
+ * mode d'emploi qui existe. L'index de la mémoire (des dizaines de faits) et les
+ * fichiers d'instructions, eux, ne lui servent plus à rien.
+ */
+test('l’accueil de tri garde les compétences, mais laisse mémoire et instructions', () => {
+  assert.deepEqual(partsDAccueil('tri'), { instructions: false, competences: true, memoire: false });
 });
 
 /* ------------------------------------------------------------------ */

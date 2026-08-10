@@ -197,6 +197,65 @@ const sb = suivants.reduce((s, l) => s + l.apres, 0);
 console.log(`Gain sur les tours SUIVANT l'ouverture : ${Math.round((1 - sb / sa) * 100)} % (${sa} → ${sb} jetons)`);
 
 /* ------------------------------------------------------------------ */
+/* L'OUVERTURE DU CHEF D'ORCHESTRE                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Ce que le chef reçoit au PREMIER tour d'une conversation, avant même la
+ * demande : son briefing et sa consigne de rôle. Depuis la tâche « alléger le
+ * chef d'orchestre », il ne fait plus qu'un tri — carte courte et niveau de
+ * l'agent qui exécutera — donc il ne reçoit plus ni index de la mémoire, ni
+ * fichiers d'instructions, ni méthode de travail en six points, ni exigence de
+ * description en quatre parties.
+ *
+ * L'AVANT est reconstruit à partir des blocs qu'il portait alors, tous encore
+ * dans le code : le briefing COMPLET, la consigne commune des rôles qui
+ * travaillent (déroulé visible + méthode + création de projet), le tri, et
+ * l'exigence de description en quatre parties. Il OMET les trois paragraphes de
+ * queue (relais d'analyse, outils, mise en forme) : le gain annoncé est donc
+ * prudent, jamais gonflé.
+ */
+const runtime = await import(path.join(RACINE, 'server/dist/runtime.js'));
+const partage = await import(path.join(RACINE, 'shared/dist/index.js'));
+
+const CHEF_AVANT =
+  memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet') +
+  '\n\n' +
+  runtime.rolePrompt('task', true, 'claude', 'complet') +
+  '\n\n' +
+  runtime.TRI_DU_CHEF +
+  '\n\n' +
+  partage.CONSIGNE_DESCRIPTION_CARTE;
+
+const CHEF_APRES =
+  memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, partage.niveauDAccueil({ role: 'orchestrator' })) +
+  '\n\n' +
+  runtime.rolePrompt('orchestrator', true, 'claude', partage.niveauDAccueil({ role: 'orchestrator' }));
+
+const chefAvant = jetons(CHEF_AVANT);
+const chefApres = jetons(CHEF_APRES);
+
+console.log("\nL'OUVERTURE DU CHEF D'ORCHESTRE — jetons envoyés au premier tour d'une conversation\n");
+console.log(`${pad('Bloc', largeur)}  ${num('avant', 7)}  ${num('après', 7)}  ${num('gain', 7)}`);
+console.log('-'.repeat(largeur + 40));
+console.log(
+  `${pad('Briefing du chef', largeur)}  ${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')), 7)}  ` +
+    `${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri')), 7)}  ` +
+    `${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')) - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri')), 7)}`,
+);
+console.log(
+  `${pad('Consigne de rôle', largeur)}  ${num(chefAvant - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')), 7)}  ` +
+    `${num(chefApres - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri')), 7)}  ` +
+    `${num(chefAvant - chefApres - (jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')) - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri'))), 7)}`,
+);
+console.log('-'.repeat(largeur + 40));
+console.log(`${pad('TOTAL', largeur)}  ${num(chefAvant, 7)}  ${num(chefApres, 7)}  ${num(chefAvant - chefApres, 7)}`);
+console.log(
+  `\nGain à CHAQUE conversation neuve du chef : ${Math.round((1 - chefApres / chefAvant) * 100)} %.\n` +
+    "L'avant est reconstruit des blocs qu'il portait (trois paragraphes de queue omis) : le gain réel est un peu plus grand.",
+);
+
+/* ------------------------------------------------------------------ */
 /* Ce qui sort                                                         */
 /* ------------------------------------------------------------------ */
 

@@ -232,9 +232,9 @@ async function main() {
   );
   record(
     'une colonne sans rien (« todo ») garde son onglet nu',
-    (await aRepere('[data-onglet-attention="todo"]')) === 0 &&
-      (await aRepere('[data-onglet-non-lu="todo"]')) === 0 &&
-      (await aRepere('[data-onglet-travail="todo"]')) === 0,
+    (await aRepere('[data-onglet-attention="planned"]')) === 0 &&
+      (await aRepere('[data-onglet-non-lu="planned"]')) === 0 &&
+      (await aRepere('[data-onglet-travail="planned"]')) === 0,
   );
   record(
     'la colonne « planned » (agent au travail) montre le robot d’activité',
@@ -340,7 +340,7 @@ async function main() {
           title: 'Essai — agent au travail',
           description: '',
           labels: [],
-          column: 'todo',
+          column: 'planned',
           position: quand + 0.4,
           origin: 'user',
           run: { engine: 'codex', mode: 'direct' },

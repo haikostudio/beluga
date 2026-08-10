@@ -16,9 +16,7 @@ import {
   porteDuDepot,
   porteDuDossier,
   avecMesureAnalyse,
-  analyseDuChefReutilisable,
   contexteHeritePourExecution,
-  mesureDeContexte,
 } from '@haikodev/shared';
 import { menageDesDossiers, ouvrirDossierDeCarte } from './dossier-de-carte.js';
 import * as store from './store.js';
@@ -32,125 +30,8 @@ import { log } from './logger.js';
 const execFileAsync = promisify(execFile);
 
 /* ------------------------------------------------------------------ */
-/* Analyse profonde (PLAN §6 étape 3)                                  */
+/* Le chiffrage : rendu par l'agent d'exécution, AU LANCEMENT           */
 /* ------------------------------------------------------------------ */
-
-const analysing = new Set<string>();
-
-export async function analyseCard(cardId: string): Promise<void> {
-  const card = store.getCard(cardId);
-  if (!card || analysing.has(cardId)) return;
-  analysing.add(cardId);
-
-  const project = store.getProject(card.projectId);
-  if (!project) {
-    analysing.delete(cardId);
-    return;
-  }
-
-  // Les écarts passés du projet affinent les chiffrages (PLAN §24).
-  const feedback = pastGaps(card.projectId);
-
-  /*
-   * UNE SEULE SESSION PAR CARTE. Le chiffrage et l'exécution partagent le même
-   * agent, donc le même fil de moteur : le contexte lourd (briefing, CLAUDE.md,
-   * index de la mémoire) n'est lu qu'UNE fois. Pour que le fil se REPRENNE au
-   * lancement, les deux tours doivent tourner dans le MÊME dossier — la session
-   * de Claude est rangée par dossier — : on ouvre donc la copie de travail de la
-   * carte dès le chiffrage. Un projet sans dépôt git n'en a pas : le chiffrage
-   * retombe alors sur le dossier du projet, et l'exécution sera de toute façon
-   * refusée par les portes dures.
-   */
-  const prepa = await prepareBranch(project.path, card).catch(() => null);
-  const workdir = prepa && prepa.kind === 'prete' ? prepa.dossier : undefined;
-
-  const agent = createAgent({
-    projectId: card.projectId,
-    role: 'analysis',
-    title: `Analyse — ${card.title}`,
-    cardId: card.id,
-    // MÊME moteur et MÊME modèle que l'exécution : c'est la condition pour que le
-    // fil se reprenne (Codex refuse un fil ouvert avec un autre modèle). Seul le
-    // niveau de réflexion est abaissé, le chiffrage étant plus léger — il peut
-    // varier d'un tour à l'autre sans casser la reprise.
-    run: { engine: card.run.engine, model: card.run.model, thinking: 'low' },
-    workdir,
-  });
-
-  const prompt = `Analyse cette tâche AVANT exécution et chiffre-la. C'est un tour de CHIFFRAGE, pas d'exécution : lis ce qu'il faut dans le projet pour comprendre l'ampleur du travail, mais ne modifie AUCUN fichier, n'enregistre rien, ne pousse rien, n'appelle pas « remember ». Tu feras le travail au tour suivant, quand l'utilisateur lancera la carte — dans ce même fil.
-
-TÂCHE : ${card.title}
-${card.description || '(pas de description)'}${
-    feedback ? `\n\nÉCARTS CONSTATÉS SUR LES TÂCHES PRÉCÉDENTES DE CE PROJET (pour affiner) :\n${feedback}` : ''
-  }`;
-
-  try {
-    await sendPrompt(agent.id, prompt, {
-      template: 'pre_run',
-      silent: true,
-      onComplete: async (text, ok, measurement) => {
-        analysing.delete(cardId);
-        const fresh = store.getCard(cardId);
-        if (!fresh) return;
-
-        const estimate = ok ? parseEstimate(text) : null;
-        if (!estimate) {
-          // Une analyse qui ne produit pas de chiffres le DIT sur la carte, au
-          // lieu d'être maquillée avec une estimation par défaut (PLAN §9).
-          const updated = store.saveCard({
-            ...fresh,
-            // L'analyse a rendu : le drapeau s'éteint, même sans chiffres. Sinon
-            // la carte garderait « Chiffrage du travail… » pour toujours.
-            analyseDemandee: false,
-            estimate: {
-              failed: true,
-              failureReason: ok ? "L'analyse n'a pas rendu de chiffres exploitables." : "L'analyse a échoué.",
-              summary: text.slice(0, 2000),
-              producedAt: Date.now(),
-              analysisMeasurement: mesureDeContexte(measurement),
-            },
-          });
-          bus.emit({ type: 'card.upsert', card: updated });
-          bus.toast('warning', `Analyse sans chiffres : ${fresh.title}`, fresh.id);
-          return;
-        }
-
-        // Promotion automatique en « Planifié » dès l'analyse réussie — mais
-        // PAS en « En cours » : l'agent d'analyse s'arrête là. La carte porte sa
-        // raison d'attente, l'ordonnanceur ne la démarre pas sans le geste de
-        // l'utilisateur (voir `demarrageAutomatiqueAutorise`).
-        //
-        // La carte validée attendait son chiffrage DANS « À faire » : c'est de
-        // là qu'elle monte en « Planifié ». Une carte déjà ailleurs (analyse
-        // relancée depuis « Planifié ») ne bouge pas.
-        const scheduling = fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
-        const updated = store.saveCard({
-          ...fresh,
-          analyseDemandee: false,
-          estimate: {
-            ...avecMesureAnalyse(estimate, measurement),
-            summary: estimate.summary ?? text.slice(0, 2000),
-            producedAt: Date.now(),
-          },
-          column: fresh.column === 'todo' ? 'planned' : fresh.column,
-          position: store.nextPosition(fresh.projectId, 'planned'),
-          scheduling: {
-            ...scheduling,
-            // La raison ne s'affiche que si la carte attend VRAIMENT le geste : une
-            // carte déjà autorisée (« Dès que possible », date de départ posée,
-            // déjà lancée) partira sans qu'on lui demande rien.
-            waitingReason: raisonDattente(scheduling),
-          },
-        });
-        bus.emit({ type: 'card.upsert', card: updated });
-        void tick();
-      },
-    });
-  } catch (err) {
-    analysing.delete(cardId);
-    log.error("analyse impossible", err);
-  }
-}
 
 /** Les chiffres se lisent UNE fois et se rangent (PLAN §30). */
 export function parseEstimate(text: string): Estimate | null {
@@ -199,19 +80,19 @@ export function parseEstimate(text: string): Estimate | null {
 }
 
 /**
- * Mettre à jour le chiffrage d'une carte après un tour d'analyse DISCUTÉ.
+ * Mettre à jour le chiffrage d'une carte après un tour DISCUTÉ.
  *
- * Quand on écrit à l'agent d'analyse d'une carte pour corriger une hypothèse ou
- * ajouter une précision, il rejoue son analyse (même gabarit « pre_run », car la
- * carte est en « Planifié ») et rend souvent un nouveau chiffrage. On le relit
+ * Le chiffrage vit désormais dans le tour de lancement, avec l'exécution. Quand
+ * on écrit à l'agent d'une carte pour corriger une hypothèse ou demander de
+ * revoir l'estimation, son tour rend souvent des chiffres frais : on les relit
  * pour que la carte reflète la version corrigée.
  *
- * Deux différences AVEC l'analyse d'origine, voulues :
+ * Deux garde-fous, voulus :
  *   - on ne marque JAMAIS la carte en échec. Un tour qui ne rend pas de chiffres
  *     frais (l'agent a seulement répondu à une question) laisse le chiffrage
  *     précédent intact — discuter ne doit pas casser une estimation déjà bonne ;
- *   - on ne touche PAS à la colonne. L'analyse ne déplace jamais une carte : elle
- *     reste en « Planifié », le lancement reste un geste de l'utilisateur.
+ *   - on ne touche PAS à la colonne : c'est le suivi de colonne, et lui seul,
+ *     qui déplace une carte.
  */
 export function appliquerChiffrageDiscute(
   cardId: string,
@@ -437,65 +318,42 @@ function refus(card: Card, raison: string): { ok: false; error: string } {
 }
 
 /**
- * Reprend-on l'agent d'analyse d'une carte pour son exécution, plutôt que d'en
- * créer un second ? OUI quand il existe un agent d'analyse pour la carte et qu'il
- * ne tourne pas : c'est lui qui a lu tout le contexte au chiffrage, on poursuit
- * son fil. NON s'il n'y en a pas, s'il tourne encore, ou si le dernier agent de
- * la carte est déjà un agent de tâche (carte relancée) — on repart neuf.
+ * VALIDER une carte : le geste qui autorise la dépense.
+ *
+ * Il n'y a plus de colonne à traverser, ni « Validé » ni « À faire » : la carte
+ * NAÎT dans « Planifié » et n'en bouge pas. Et il n'y a plus d'analyse AVANT le
+ * lancement : le geste marque seulement l'autorisation (`analyseDemandee`) et
+ * écrit la raison d'attente. Rien ne part au moteur — une carte planifiée ne
+ * coûte donc rien. Le chiffrage est rendu par l'agent d'exécution, au
+ * lancement, dans le même tour que le travail (voir `startCard`), et une carte
+ * qui porte déjà les chiffres du chef d'orchestre n'est jamais rechiffrée.
+ *
+ * La carte porte sa raison d'attente : l'ordonnanceur ne la démarre pas sans
+ * geste de l'utilisateur (voir `demarrageAutomatiqueAutorise`).
  */
-export function reprendPourExecution(prealable: Agent | null, enCours: boolean): boolean {
-  return !!prealable && prealable.role === 'analysis' && !enCours;
-}
-
-/**
- * Une carte proposée par le chef arrive avec son chiffrage et son relais. Le
- * geste « Valider » la place donc directement en attente de lancement, sans
- * créer un deuxième tour d'analyse. Les cartes ordinaires gardent exactement
- * l'ancien parcours — analyse d'abord, promotion ensuite.
- */
-export function reprendreAnalyseDuChef(cardId: string): boolean {
+export function validerCarte(cardId: string): { ok: boolean; error?: string } {
   const card = store.getCard(cardId);
-  if (!card || card.column !== 'todo' || !analyseDuChefReutilisable(card)) return false;
+  if (!card) return { ok: false, error: 'carte introuvable' };
+  if (card.column !== 'planned') {
+    return { ok: false, error: 'seule une carte de « Planifié » se valide.' };
+  }
+
   const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
   const updated = store.saveCard({
     ...card,
-    column: 'planned',
-    analyseDemandee: false,
-    position: store.nextPosition(card.projectId, 'planned'),
+    // La trace du geste : c'est elle qui retire le bouton « Valider » d'une
+    // carte déjà autorisée. Elle n'ouvre plus aucun tour de moteur.
+    analyseDemandee: true,
     scheduling: {
       ...scheduling,
+      // La raison ne s'affiche que si la carte attend VRAIMENT le geste : une
+      // carte déjà autorisée (« Dès que possible », date de départ posée, déjà
+      // lancée) partira sans qu'on lui demande rien.
       waitingReason: raisonDattente(scheduling),
     },
   });
   bus.emit({ type: 'card.upsert', card: updated });
   void tick();
-  return true;
-}
-
-/**
- * VALIDER une carte : le geste qui autorise la dépense.
- *
- * Il n'y a plus de colonne « Validé » à traverser. La carte reste dans « À
- * faire », marquée `analyseDemandee`, et son analyse part tout de suite ; elle
- * n'apparaîtra en « Planifié » qu'une fois le chiffrage rendu. Une carte déjà
- * analysée par le chef d'orchestre saute l'étape, comme avant : son chiffrage
- * est réutilisé tel quel, sans second tour.
- *
- * Le drapeau est ce qui rend le geste RATTRAPABLE : un démon redémarré pendant
- * le chiffrage retrouve la carte dans « À faire » et relance son analyse.
- */
-export function validerCarte(cardId: string): { ok: boolean; error?: string } {
-  const card = store.getCard(cardId);
-  if (!card) return { ok: false, error: 'carte introuvable' };
-  if (card.column !== 'todo') {
-    return { ok: false, error: 'seule une carte de « À faire » se valide.' };
-  }
-  if (reprendreAnalyseDuChef(cardId)) return { ok: true };
-
-  const updated = store.saveCard({ ...card, analyseDemandee: true });
-  bus.emit({ type: 'card.upsert', card: updated });
-  // C'est ce geste qui autorise la dépense : l'analyse part maintenant.
-  void analyseCard(cardId);
   return { ok: true };
 }
 
@@ -525,43 +383,22 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
   const branch = prepa.nom;
 
   /*
-   * UNE SEULE SESSION PAR CARTE. Le chiffrage a déjà ouvert un agent pour cette
-   * carte et lu tout le contexte : on le REPREND pour l'exécution plutôt que d'en
-   * créer un second. Le fil du moteur se poursuit — briefing, CLAUDE.md et index
-   * de la mémoire ne sont pas relus. L'agent d'analyse devient agent de tâche
-   * (c'est le rôle « task » qui déplace la carte et referme son dossier en fin de
-   * tour) et reçoit les réglages RÉELS de la carte : moteur, modèle et réflexion
-   * ont pu changer depuis le chiffrage. Si le modèle a changé, la reprise ouvre
-   * d'elle-même un fil neuf (voir `cleDeSession`), ce qui est correct.
-   *
-   * Pas d'agent d'analyse réutilisable (chiffrage posé à la main, ou carte
-   * relancée dont l'agent précédent était déjà un agent de tâche) : on repart sur
-   * un agent neuf, comme avant.
+   * UN SEUL AGENT PAR CARTE, de l'étude à la livraison. Plus rien ne tourne
+   * avant ce moment : l'agent créé ici est le premier et le seul de la carte.
+   * Il lit le contexte lourd une fois (briefing, CLAUDE.md, index de la
+   * mémoire), chiffre le travail, puis l'exécute dans la foulée — un seul tour,
+   * une seule attente, une seule dépense. La carte a son dossier : l'agent y vit
+   * tout son tour, et le démon le referme à la fin (fusion dans la principale,
+   * puis `git worktree remove`).
    */
-  const prealable = store.getLastAgentByCard(cardId);
-  const reprend = prealable ? reprendPourExecution(prealable, isRunning(prealable.id)) : false;
-  let agent: Agent;
-  if (reprend && prealable) {
-    agent = store.saveAgent({
-      ...prealable,
-      role: 'task',
-      run: card.run,
-      // La carte a son dossier : l'agent y vit tout son tour, et le démon le
-      // referme à la fin (fusion dans la principale, puis `git worktree remove`).
-      workdir: prepa.dossier,
-      status: 'idle',
-    });
-    bus.emit({ type: 'agent.upsert', agent });
-  } else {
-    agent = createAgent({
-      projectId: card.projectId,
-      role: 'task',
-      title: card.title,
-      cardId: card.id,
-      run: card.run,
-      workdir: prepa.dossier,
-    });
-  }
+  const agent = createAgent({
+    projectId: card.projectId,
+    role: 'task',
+    title: card.title,
+    cardId: card.id,
+    run: card.run,
+    workdir: prepa.dossier,
+  });
 
   const running = store.saveCard({
     ...card,
@@ -583,6 +420,21 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
   });
   bus.emit({ type: 'card.upsert', card: running });
 
+  /*
+   * Le chiffrage se fait ICI, dans le tour de lancement — sauf si la carte en
+   * porte déjà un (le chef d'orchestre l'a préparé avec sa proposition, ou la
+   * carte a déjà été lancée une fois). On ne rechiffre jamais par-dessus des
+   * chiffres existants : ils sont ce que l'utilisateur a vu en décidant.
+   */
+  const chiffrageAttendu = !card.estimate || card.estimate.failed;
+  // Les écarts passés du projet affinent les chiffrages (PLAN §24).
+  const ecarts = chiffrageAttendu ? pastGaps(card.projectId) : null;
+  const consigneChiffrage = chiffrageAttendu
+    ? `COMMENCE PAR ÉTUDIER ET CHIFFRER, PUIS ENCHAÎNE. Lis d'abord ce qu'il faut dans le projet pour mesurer l'ampleur du travail et arrête ton chiffrage : durée machine prévue et heures d'un développeur senior. Fais ensuite le travail dans la foulée, sans attendre — c'est le même tour. Le bloc json final reprend le chiffrage arrêté AVANT de commencer, pas un décompte rédigé après coup.${
+        ecarts ? `\n\nÉCARTS CONSTATÉS SUR LES TÂCHES PRÉCÉDENTES DE CE PROJET (pour affiner) :\n${ecarts}` : ''
+      }\n\n`
+    : '';
+
   const prompt = `Réalise cette tâche.
 
 TITRE : ${card.title}
@@ -590,17 +442,44 @@ ${card.description || '(pas de description)'}
 
 Tu travailles sur la branche « ${branch} », dans le dossier « ${prepa.dossier} » — une copie de travail à toi seul, créée pour cette carte. Reste dedans : n'en change pas et ne change pas de branche. HaikoDev fusionne ta branche dans la principale et referme ce dossier dès que tu as rendu ; ne le fais pas toi-même.
 
-Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (commit + push). Ne publie pas.`;
+${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (commit + push). Ne publie pas.`;
 
   await sendPrompt(agent.id, prompt, {
     silent: true,
     context: contexteHeritePourExecution(card),
     // Une carte lancée est une vraie tâche : elle mérite le compte rendu entier.
     ampleur: 'complete',
+    // Le bloc json du chiffrage s'ajoute au gabarit du compte rendu : un seul
+    // tour rend les deux.
+    chiffrage: chiffrageAttendu,
     // Les images jointes au chef d'orchestre voyagent jusqu'ici : elles entrent
     // dans le bloc « PIÈCES JOINTES » du prompt, comme pour un message direct.
     attachments: card.attachments,
-    onComplete: async (text, ok) => {
+    onComplete: async (text, ok, measurement) => {
+      /*
+       * Le chiffrage voyage dans la réponse du tour de lancement. HaikoDev y
+       * joint LUI-MÊME la mesure réelle du moteur : une mesure rédigée par
+       * l'agent serait ignorée. Aucun chiffre rendu ne casse rien — la carte
+       * garde son estimation absente plutôt qu'une estimation inventée.
+       */
+      if (ok && chiffrageAttendu) {
+        const estimate = parseEstimate(text);
+        if (estimate) {
+          const avant = store.getCard(cardId);
+          if (avant) {
+            const chiffree = store.saveCard({
+              ...avant,
+              estimate: {
+                ...avecMesureAnalyse(estimate, measurement),
+                summary: estimate.summary ?? text.slice(0, 2000),
+                producedAt: Date.now(),
+              },
+            });
+            bus.emit({ type: 'card.upsert', card: chiffree });
+          }
+        }
+      }
+
       const fresh = store.getCard(cardId);
       if (!fresh) return;
       if (ok) {
@@ -655,21 +534,13 @@ export async function tick(): Promise<void> {
   try {
     for (const project of store.listProjects()) {
       /*
-       * Analyse : les cartes validées, qui attendent leur chiffrage SUR PLACE
-       * dans « À faire ». Le drapeau `analyseDemandee` est la trace du geste —
-       * une carte simplement posée dans « À faire » ne coûte rien. Ce balayage
-       * est le filet : il rattrape une analyse coupée par un redémarrage du
-       * démon, la validation elle-même partant sans attendre le tour de boucle.
+       * Aucun balayage de chiffrage : une carte validée n'attend plus d'analyse,
+       * et rien ne part au moteur avant le lancement. « Planifié » est la
+       * colonne où toute carte naît, et une carte simplement posée sur le
+       * tableau ne coûte rien.
+       *
+       * Démarrage : les cartes planifiées, dans l'ordre d'ancienneté.
        */
-      for (const card of store.listCardsInColumn(project.id, 'todo')) {
-        if (!card.analyseDemandee) continue;
-        if (reprendreAnalyseDuChef(card.id)) continue;
-        if (!card.estimate && !analysing.has(card.id)) {
-          void analyseCard(card.id);
-        }
-      }
-
-      // Démarrage : les cartes planifiées, dans l'ordre d'ancienneté.
       const planned = store
         .listCardsInColumn(project.id, 'planned')
         .sort((a, b) => (b.scheduling?.asap ? 1 : 0) - (a.scheduling?.asap ? 1 : 0) || a.createdAt - b.createdAt);
@@ -678,12 +549,14 @@ export async function tick(): Promise<void> {
         if (card.agentId && isRunning(card.agentId)) continue;
         // Suspendue à la main : elle reste en file, mais elle attend un geste.
         if (card.scheduling?.suspendu) continue;
-        // Session fusionnée : une carte fraîchement analysée ne s'exécute pas
-        // toute seule. L'ordonnanceur ne reprend d'office qu'une carte déjà
+        // Une carte validée ne s'exécute pas toute seule : lancer, c'est
+        // dépenser. L'ordonnanceur ne reprend d'office qu'une carte déjà
         // autorisée (« Dès que possible », HEURE DITE arrivée, ou déjà lancée
-        // puis interrompue) ; sinon la bascule Validé → En cours attend le clic
-        // de l'utilisateur. La boucle repassant toutes les quinze secondes, une
-        // heure manquée pendant un arrêt du démon est RATTRAPÉE au retour.
+        // puis interrompue) ; sinon la bascule Planifié → En cours attend le
+        // clic de l'utilisateur. La boucle repassant toutes les quinze
+        // secondes, une heure manquée pendant un arrêt du démon est RATTRAPÉE
+        // au retour. Plus rien ne tourne avant ce moment : il n'y a donc plus
+        // de chiffrage en vol dont il faudrait se garder.
         if (!demarrageAutomatiqueAutorise(card.scheduling)) continue;
         const gate = await checkGates(card);
         if (!gate.ok) {

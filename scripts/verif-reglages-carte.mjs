@@ -6,7 +6,7 @@
  *   1. la RÈGLE (`reglagesDeLaCarte`) : une carte à faire se laisse régler, une
  *      carte qui a tourné rend ce qui a RÉELLEMENT servi ;
  *   2. l'ÉCRAN, dans un vrai navigateur, sur ordinateur PUIS sur téléphone :
- *      une carte « À faire » ouvre ses menus, une carte « Terminé » affiche
+ *      une carte « Planifié » ouvre ses menus, une carte « Terminé » affiche
  *      moteur, modèle, réflexion et compte, figés, sur une ligne qui se replie.
  *
  * Une carte d'essai est posée en base le temps du relevé, puis retirée ; le
@@ -78,7 +78,7 @@ function poserCarteEssai(db, projectId) {
     description:
       "Carte posée par un script de vérification. Elle disparaît toute seule à la fin du relevé.",
     labels: ['préparée'],
-    column: 'todo',
+    column: 'planned',
     position: -1,
     origin: 'agent',
     attachments: ['image-de-la-demande'],
@@ -91,7 +91,7 @@ function poserCarteEssai(db, projectId) {
   };
   db.prepare(
     'INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(id, projectId, 'todo', -1, TITRE_ESSAI, JSON.stringify(carte), maintenant, maintenant);
+  ).run(id, projectId, 'planned', -1, TITRE_ESSAI, JSON.stringify(carte), maintenant, maintenant);
   return id;
 }
 
@@ -168,7 +168,7 @@ async function main() {
   /* ---------------- 1. La règle, jouée seule ---------------- */
 
   const prevu = { engine: 'claude', model: 'claude-opus-5', thinking: 'medium' };
-  const aFaire = reglagesDeLaCarte({ colonne: 'todo', carte: prevu });
+  const aFaire = reglagesDeLaCarte({ colonne: 'planned', carte: prevu });
   noter('une carte à faire se laisse régler', aFaire.modifiable && aFaire.source === 'prevu');
   noter('avant le départ, aucun compte n’est annoncé', aFaire.compte === undefined);
 
@@ -237,7 +237,7 @@ async function main() {
         { name: 'haikodev_session', value: session.cookie, url: new URL(BASE).origin, httpOnly: true, sameSite: 'Lax' },
       ]);
 
-      /* ---------- Une carte « À faire » : réglages modifiables ---------- */
+      /* ---------- Une carte « Planifié » : réglages modifiables ---------- */
       {
         const { page, tiroir, erreurs } = await ouvrirDetails(context, TITRE_ESSAI, finie.projet, ecran.mobile);
         const bloc = blocReglages(tiroir);

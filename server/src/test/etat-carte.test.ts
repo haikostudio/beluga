@@ -5,8 +5,9 @@ import { etatVisuelCarte, gesteCarte, sortieAutorisee } from '@haikodev/shared';
 test('l’agent travaille : la roue tourne', () => {
   assert.equal(etatVisuelCarte({ agentStatut: 'running' }), 'travaille');
   assert.equal(etatVisuelCarte({ agentStatut: 'starting' }), 'travaille');
+  // Un agent de la carte au travail, même quand la carte n'a pas encore retenu
+  // le sien : le voyant tourne quand même.
   assert.equal(etatVisuelCarte({ analyseEnCours: true }), 'travaille');
-  assert.equal(etatVisuelCarte({ chiffrageEnCours: true }), 'travaille');
 });
 
 test('l’agent a rendu son travail : la coche', () => {
@@ -95,7 +96,7 @@ test('le geste ne s’affiche pas hors de sa colonne', () => {
   assert.equal(gesteCarte('terminer', { colonne: 'planned', etat: 'termine', agentLance: true }).affiche, false);
   assert.equal(gesteCarte('valider', { colonne: 'running', etat: 'repos' }).affiche, false);
   assert.equal(gesteCarte('publier', { colonne: 'running', etat: 'termine' }).affiche, false);
-  assert.equal(gesteCarte('lancer', { colonne: 'todo', etat: 'repos' }).affiche, false);
+  assert.equal(gesteCarte('lancer', { colonne: 'notes', etat: 'repos' }).affiche, false);
 });
 
 test('« Lancer maintenant » s’éteint si un agent tourne déjà', () => {
@@ -104,8 +105,15 @@ test('« Lancer maintenant » s’éteint si un agent tourne déjà', () => {
 });
 
 test('les gestes de début et de publication restent simples', () => {
-  assert.deepEqual(gesteCarte('valider', { colonne: 'todo', etat: 'repos' }), { affiche: true, possible: true });
+  assert.deepEqual(gesteCarte('valider', { colonne: 'planned', etat: 'repos' }), { affiche: true, possible: true });
   assert.deepEqual(gesteCarte('publier', { colonne: 'done', etat: 'repos' }), { affiche: true, possible: true });
+});
+
+test('une carte déjà chiffrée n’a plus de dépense à autoriser', () => {
+  // Le geste vit dans « Planifié », la colonne où la carte naît : c'est le
+  // chiffrage — rendu, ou déjà demandé — qui l'éteint, pas un déplacement.
+  assert.equal(gesteCarte('valider', { colonne: 'planned', etat: 'repos', chiffree: true }).affiche, false);
+  assert.equal(gesteCarte('valider', { colonne: 'notes', etat: 'repos' }).affiche, false);
 });
 
 test('une carte ne quitte pas « En cours » pendant que son agent écrit', () => {
@@ -116,7 +124,7 @@ test('une carte ne quitte pas « En cours » pendant que son agent écrit', () =
 
 test('l’agent a rendu : la carte se déplace librement', () => {
   assert.equal(sortieAutorisee({ colonne: 'running', etat: 'termine', agentLance: true }, 'done').possible, true);
-  assert.equal(sortieAutorisee({ colonne: 'running', etat: 'echec', agentLance: true }, 'todo').possible, true);
+  assert.equal(sortieAutorisee({ colonne: 'running', etat: 'echec', agentLance: true }, 'notes').possible, true);
 });
 
 test('rester dans sa colonne n’est jamais refusé', () => {
@@ -124,6 +132,6 @@ test('rester dans sa colonne n’est jamais refusé', () => {
 });
 
 test('les autres colonnes ne sont pas verrouillées', () => {
-  assert.equal(sortieAutorisee({ colonne: 'planned', etat: 'travaille' }, 'todo').possible, true);
+  assert.equal(sortieAutorisee({ colonne: 'planned', etat: 'travaille' }, 'notes').possible, true);
   assert.equal(sortieAutorisee({ colonne: 'done', etat: 'repos' }, 'to_deploy').possible, true);
 });

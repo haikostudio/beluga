@@ -67,9 +67,17 @@ test('sans moteur précisé, le déroulé reste celui de Claude (valeur par déf
 /* La MÉTHODE : lire, constater, ne rien inventer, vérifier             */
 /* ------------------------------------------------------------------ */
 
-test('la méthode de travail est imposée à tous les rôles et à tous les moteurs', () => {
+/*
+ * Le CHEF D'ORCHESTRE est hors de cette liste depuis qu'il ne fait plus qu'un
+ * tri : il n'ouvre plus le projet, ne constate plus par écrit et ne rejoue plus
+ * les contrôles — l'étude appartient à la carte, après validation. Sa consigne
+ * porte sa propre méthode, courte, vérifiée juste en dessous.
+ */
+const ROLES_QUI_TRAVAILLENT = ['analysis', 'deploy', 'task'] as const;
+
+test('la méthode de travail est imposée à tous les rôles qui travaillent, et à tous les moteurs', () => {
   for (const engine of ['claude', 'codex'] as const) {
-    for (const role of ROLES) {
+    for (const role of ROLES_QUI_TRAVAILLENT) {
       const p = rolePrompt(role, false, engine);
       assert.match(p, /MÉTHODE DE TRAVAIL IMPOSÉE/, `${role} / ${engine}`);
       assert.match(p, /LIRE AVANT DE RÉPONDRE/, `${role} / ${engine}`);
@@ -78,6 +86,18 @@ test('la méthode de travail est imposée à tous les rôles et à tous les mote
       assert.match(p, /NE RIEN INVENTER/, `${role} / ${engine}`);
       assert.match(p, /VÉRIFIER À LA FIN/, `${role} / ${engine}`);
     }
+  }
+});
+
+test('le chef d’orchestre porte sa méthode À LUI : deux gestes, aucune étude', () => {
+  for (const engine of ['claude', 'codex'] as const) {
+    const p = rolePrompt('orchestrator', false, engine);
+    assert.match(p, /tu ne fais QUE DEUX CHOSES/, engine);
+    assert.match(p, /Tu n'ouvres pas le projet pour étudier une demande, tu ne chiffres rien/, engine);
+    assert.match(p, /NE RIEN INVENTER/, engine);
+    // Ce qu'il ne porte PLUS : le déroulé visible et la méthode en six points.
+    assert.doesNotMatch(p, /MÉTHODE DE TRAVAIL IMPOSÉE/, engine);
+    assert.doesNotMatch(p, /DÉROULÉ VISIBLE/, engine);
   }
 });
 

@@ -14,8 +14,10 @@ import {
   decisionsParCarte,
   etapeDeLaColonne,
   etatVisuelCarte,
+  lireDateDeDepart,
   mentionArchivage,
   mentionDepartProgramme,
+  phraseDepartProgramme,
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
@@ -64,18 +66,18 @@ type ActionDeLot = {
   /** Le bouton de confirmation, suivi du nombre de cartes cochées. */
   verbe: string;
   /**
-   * La colonne d'arrivée, quand le geste EST un déplacement. « Tout valider »
-   * fait exception : valider ne déplace plus rien (la colonne « Validé »
-   * n'existe plus), la carte reste sur place le temps de son chiffrage — le lot
-   * appelle donc `validerCarte`, le même geste que le bouton du tiroir.
+   * La colonne d'arrivée, quand le geste EST un déplacement. Un geste qui ne
+   * déplace RIEN laisse ce champ vide : le lot appelle alors `validerCarte`, le
+   * même geste que le bouton du tiroir. Aujourd'hui les cinq entrées déplacent
+   * toutes — « Planifié » n'a plus qu'un pied, « Tout lancer ».
    */
   cible?: ColumnKey;
   /** Le participe passé féminin, pour le compte rendu : « 2 cartes lancées ». */
   participe: string;
   /**
    * Les cartes partent-elles ENSEMBLE ? Par défaut, un lot les traite l'une
-   * après l'autre (l'archivage écrit un document, la validation chiffre — huit
-   * demandes d'un coup se marcheraient dessus). « Tout lancer » fait exception :
+   * après l'autre (l'archivage écrit un document — huit demandes d'un coup se
+   * marcheraient dessus). « Tout lancer » fait exception :
    * chaque carte lancée obtient SA copie de travail et sa branche, donc rien ne
    * les empêche de démarrer en parallèle, et l'utilisateur voit les robots
    * s'allumer ensemble au lieu d'attendre en file.
@@ -84,11 +86,6 @@ type ActionDeLot = {
 };
 
 const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
-  // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
-  // carte : autoriser la dépense, donc lancer le chiffrage. Les cartes restent
-  // dans « À faire » le temps de l'analyse et montent en « Planifié » une fois
-  // chiffrées. Rien n'est exécuté — le lancement reste un geste.
-  todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', participe: 'validée' },
   // Déposer une carte dans « En cours » VAUT le clic sur « Lancer maintenant » :
   // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
   // carte et le serveur passe par `startCard` — portes dures comprises. Une
@@ -201,9 +198,8 @@ export function Board({
     return etatVisuelCarte({
       agentStatut: agentCarte?.status,
       analyseEnCours: Object.values(state.agents).some(
-        (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
+        (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
       ),
-      chiffrageEnCours: !!card.analyseDemandee && !card.estimate,
       enAttente: !!card.scheduling?.waitingReason,
       estimationEchouee: card.estimate?.failed,
       enLigne: !!card.deployedAt,
@@ -237,7 +233,7 @@ export function Board({
    * On rouvre le tableau LÀ OÙ on l'avait laissé : la colonne regardée est
    * retenue projet par projet, en base. Sans souvenir (ou si la colonne
    * enregistrée n'existe plus), on revient au comportement d'origine : sur
-   * téléphone « À faire », sinon on ouvre sur des notes souvent vides.
+   * téléphone « Planifié », sinon on ouvre sur des notes souvent vides.
    */
   const rail = React.useRef<HTMLDivElement>(null);
   const barreOnglets = React.useRef<HTMLDivElement>(null);
@@ -263,7 +259,7 @@ export function Board({
 
   React.useEffect(() => {
     const memorisee = colonneAReprendre(readPref(cleColonneTableau(projectId), null));
-    const voulue = memorisee ?? (window.innerWidth < 640 ? 'todo' : null);
+    const voulue = memorisee ?? (window.innerWidth < 640 ? 'planned' : null);
     if (voulue) {
       const cible = rail.current?.querySelector<HTMLElement>(`[data-column="${voulue}"]`);
       if (cible) rail.current!.scrollLeft = cible.offsetLeft - 12;
@@ -730,7 +726,7 @@ export function Board({
               })()}
               <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
               <span className="text-[12.5px] text-faint">{columnCards.length}</span>
-              {column === 'todo' || column === 'notes' ? (
+              {column === 'planned' || column === 'notes' ? (
                 <ComposerInline projectId={projectId} column={column} />
               ) : null}
               {/* En haut à droite des colonnes qui publient : le bouton « ! » qui
@@ -810,19 +806,17 @@ export function Board({
                 <p className="px-1.5 py-3 text-[13px] text-faint">
                   {column === 'notes'
                     ? 'Idées en vrac.'
-                    : column === 'todo'
-                      ? 'Rien à faire pour l’instant.'
-                        : column === 'running'
+                    : column === 'planned'
+                      ? 'Rien à faire pour l’instant : ajoutez une carte avec « + ».'
+                      : column === 'running'
                         ? 'Glissez ici pour lancer le travail.'
-                        : column === 'planned'
-                          ? 'Glissez une carte hors de « En cours » pour suspendre son agent.'
-                          : column === 'done'
-                            ? 'Aucun travail terminé pour l’instant.'
-                            : column === 'to_deploy'
-                              ? 'Rien à mettre en ligne pour l’instant.'
-                              : column === 'in_production'
-                                ? 'Aucune carte en attente de mise en production.'
-                                : 'Aucune carte rangée ici pour l’instant.'}
+                        : column === 'done'
+                          ? 'Aucun travail terminé pour l’instant.'
+                          : column === 'to_deploy'
+                            ? 'Rien à mettre en ligne pour l’instant.'
+                            : column === 'in_production'
+                              ? 'Aucune carte en attente de mise en production.'
+                              : 'Aucune carte rangée ici pour l’instant.'}
                 </p>
               ) : null}
               </div>
@@ -887,10 +881,39 @@ export function Board({
   );
 }
 
+/**
+ * L'instant présent, écrit comme l'attend un champ « datetime-local » : date
+ * LOCALE, sans secondes ni fuseau. Passer par `toISOString` afficherait l'heure
+ * de Greenwich — 6 h posées le soir d'été deviendraient 4 h.
+ */
+function maintenantEnChamp(): string {
+  const date = new Date();
+  const deux = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${deux(date.getMonth() + 1)}-${deux(date.getDate())}T${deux(date.getHours())}:${deux(
+    date.getMinutes(),
+  )}`;
+}
+
 function ComposerInline({ projectId, column }: { projectId: string; column: ColumnKey }) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
+  /*
+   * L'HEURE DE DÉPART, réglable dès la création. Le champ part de MAINTENANT :
+   * on n'a plus qu'à pousser l'heure ou le jour, sans tout retaper.
+   *
+   * Seule une heure À VENIR programme quelque chose. Une heure déjà passée —
+   * dont celle affichée par défaut, si on n'y touche pas — ne pose AUCUNE date :
+   * la carte attend son lancement, comme aujourd'hui. C'est ce qui garde la
+   * règle du moteur intacte (rien ne part sans un geste) tout en laissant la
+   * date à portée de main.
+   */
+  const [depart, setDepart] = React.useState(maintenantEnChamp);
+  const minute = useMinute();
+  const departPrevu = React.useMemo(() => {
+    const lu = lireDateDeDepart(depart);
+    return lu && lu > minute ? lu : null;
+  }, [depart, minute]);
   const [attachments, setAttachments] = React.useState<Attachment[]>([]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [uploading, setUploading] = React.useState(false);
@@ -939,13 +962,22 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
         description: description.trim() || undefined,
         attachments: attachments.map((item) => item.id),
       });
-      // Une carte naît toujours dans « À faire » : pour une note, on la déplace
-      // ensuite — c'est le seul chemin autorisé par le serveur.
+      // Une carte naît toujours dans « Planifié » : pour une note, on la
+      // déplace ensuite — c'est le seul chemin autorisé par le serveur.
       if (column === 'notes' && data?.card) {
         await client.call({ type: 'card.move', id: data.card.id, column: 'notes' });
       }
+      /*
+       * L'heure dite est posée par la MÊME commande que le champ du tiroir
+       * (`card.schedule`) : un seul chemin, une seule règle d'attente écrite sur
+       * la carte. Elle ne part que si elle est encore à venir.
+       */
+      if (column !== 'notes' && departPrevu && data?.card) {
+        await client.call({ type: 'card.schedule', id: data.card.id, at: departPrevu });
+      }
       setTitle('');
       setDescription('');
+      setDepart(maintenantEnChamp());
       setAttachments([]);
       setApercu(null);
       setOpen(false);
@@ -964,7 +996,12 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
           size="icon-sm"
           className="ml-auto"
           aria-label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            // Le champ repart de l'heure qu'il est, pas de celle d'il y a
+            // trois heures quand le formulaire avait été ouvert la dernière fois.
+            setDepart(maintenantEnChamp());
+            setOpen(true);
+          }}
         >
           <Plus className="h-3 w-3" />
         </Button>
@@ -995,6 +1032,29 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
           if (event.key === 'Escape') setOpen(false);
         }}
       />
+      {/* L'HEURE DE DÉPART, réglable dès la création : la carte n'a plus à être
+          ouverte après coup pour être programmée. Une note ne s'exécute jamais,
+          elle n'a donc rien à programmer. */}
+      {column !== 'notes' ? (
+        <div className="mt-1.5" data-depart-nouvelle-carte>
+          <label className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
+            <CalendarClock className="h-3 w-3" />
+            Départ
+          </label>
+          <Input
+            type="datetime-local"
+            aria-label="Date et heure de départ"
+            value={depart}
+            onChange={(event) => setDepart(event.target.value)}
+            className="mt-1 w-full text-[13.5px]"
+          />
+          <p className="mt-1 text-[12.5px] text-faint">
+            {departPrevu
+              ? phraseDepartProgramme(departPrevu, minute)
+              : 'Heure déjà passée : la carte attendra votre lancement. Poussez la date pour programmer un départ.'}
+          </p>
+        </div>
+      ) : null}
       {column === 'notes' && attachments.length ? (
         <div className="mt-1.5 flex flex-wrap gap-1.5" data-note-attachments>
           {attachments.map((item) => (
@@ -1088,12 +1148,10 @@ export function CardTile({
      lue en base : une phrase figée dirait encore « demain » trois jours après. */
   const depart = mentionDepartProgramme(card, maintenant);
   const estimateFailed = card.estimate?.failed;
-  // Entre la validation et le chiffrage, la carte doit montrer qu'il se passe
-  // quelque chose — sinon on croit que rien ne démarre. La carte n'a pas changé
-  // de colonne : c'est son drapeau de validation qui allume le signal.
-  const analysing = !!card.analyseDemandee && !card.estimate;
-  const analyseEnCours = Object.values(state.agents).some(
-    (a) => a.cardId === card.id && a.role === 'analysis' && a.status === 'running',
+  // Un agent au travail sur la carte, quel qu'il soit : le voyant doit tourner
+  // même quand la carte n'a pas encore retenu son agent.
+  const agentAuTravail = Object.values(state.agents).some(
+    (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
   );
 
   /*
@@ -1113,38 +1171,34 @@ export function CardTile({
   /*
    * L'état en cours ne s'affiche PAS dans le corps de la carte : il sort par le
    * bas, comme une étiquette glissée derrière, sur un fond un peu plus clair.
-   * Les états d'analyse, d'attente et d'échec gardent la priorité ; l'avancement
-   * « n/N faites » ne parle que lorsqu'aucun d'eux ne parle.
+   * L'attente et l'échec gardent la priorité ; l'avancement « n/N faites » ne
+   * parle que lorsqu'aucun d'eux ne parle.
    */
-  const statut =
-    analysing || analyseEnCours
-      ? // Le sujet suffit : la roue qui tourne dit déjà que c'est en cours.
-        { icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, texte: 'Chiffrage du travail…', ton: 'text-muted' }
-      : depart
-        ? // L'heure dite passe avant la raison d'attente : elle dit mieux ce
-          // qui retient la carte, et surtout qu'elle repartira sans nous.
-          {
-            icon: <CalendarClock className="h-2.5 w-2.5 shrink-0" />,
-            texte: depart,
-            ton: 'text-muted',
-            marqueur: 'depart-programme' as const,
+  const statut = depart
+    ? // L'heure dite passe avant la raison d'attente : elle dit mieux ce qui
+      // retient la carte, et surtout qu'elle repartira sans nous.
+      {
+        icon: <CalendarClock className="h-2.5 w-2.5 shrink-0" />,
+        texte: depart,
+        ton: 'text-muted',
+        marqueur: 'depart-programme' as const,
+      }
+    : waiting
+      ? { icon: <Clock className="h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
+      : estimateFailed
+        ? {
+            icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,
+            texte: card.estimate?.failureReason ?? 'chiffrage sans chiffres',
+            ton: 'text-danger',
           }
-      : waiting
-        ? { icon: <Clock className="h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
-        : estimateFailed
+        : progression
           ? {
-              icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,
-              texte: card.estimate?.failureReason ?? 'analyse sans chiffres',
-              ton: 'text-danger',
+              icon: <ListChecks className="h-2.5 w-2.5 shrink-0" />,
+              texte: progression,
+              ton: 'text-muted',
+              marqueur: 'progression-taches' as const,
             }
-          : progression
-            ? {
-                icon: <ListChecks className="h-2.5 w-2.5 shrink-0" />,
-                texte: progression,
-                ton: 'text-muted',
-                marqueur: 'progression-taches' as const,
-              }
-            : null;
+          : null;
 
   /*
    * Le voyant du titre : une seule règle, partagée et testée. Elle distingue
@@ -1179,8 +1233,7 @@ export function CardTile({
 
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
-    analyseEnCours,
-    chiffrageEnCours: analysing,
+    analyseEnCours: agentAuTravail,
     enAttente: !!waiting,
     estimationEchouee: estimateFailed,
     enLigne: !!card.deployedAt,

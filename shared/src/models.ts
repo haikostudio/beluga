@@ -62,6 +62,13 @@ export const RunConfig = z.object({
   model: z.string().optional(),
   thinking: ThinkingLevel.default('none'),
   mode: z.enum(['direct', 'plan']).default('direct'),
+  /**
+   * Le PALIER choisi par le chef d'orchestre (`shared/src/niveau-agent.ts`) :
+   * léger, standard ou approfondi. Le modèle et la réflexion ci-dessus en
+   * découlent, mais restent modifiables à la main — c'est pourquoi le palier est
+   * retenu à part, comme une intention, jamais comme un réglage de plus.
+   */
+  niveau: z.enum(['leger', 'standard', 'approfondi']).optional(),
 });
 export type RunConfig = z.infer<typeof RunConfig>;
 
@@ -296,13 +303,13 @@ export const Card = z.object({
   run: RunConfig,
   estimate: Estimate.optional(),
   /**
-   * L'utilisateur a VALIDÉ la carte : la dépense est autorisée, l'analyse est
-   * demandée. La carte reste dans « À faire » le temps du chiffrage (il n'y a
-   * plus de colonne « Validé ») et porte ce drapeau, qui allume le signal
-   * « Chiffrage du travail… » et permet à l'ordonnanceur de reprendre une
-   * analyse coupée par un redémarrage. Il s'efface dès que l'analyse a rendu —
-   * avec ses chiffres (la carte part en « Planifié ») ou sans (l'échec se lit
-   * sur l'estimation).
+   * L'utilisateur a VALIDÉ la carte : la dépense est autorisée. La carte ne
+   * bouge pas — elle naît et reste dans « Planifié » (il n'y a plus de colonne
+   * « Validé » ni de colonne « À faire ») et porte ce drapeau. Il ne déclenche
+   * plus aucun tour de moteur : le chiffrage est rendu par l'agent d'exécution,
+   * au lancement. Le drapeau garde la trace du geste — c'est lui qui retire le
+   * bouton « Valider » d'une carte déjà autorisée — et il est une VRAIE colonne
+   * SQL (`analyse_demandee`).
    */
   analyseDemandee: z.boolean().default(false),
   /**

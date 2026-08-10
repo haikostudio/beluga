@@ -231,7 +231,7 @@ function poserLeDecor(decision, replie = false) {
       title: TITRE_CARTE,
       description: proposition.description,
       labels: ['interface'],
-      column: 'todo',
+      column: 'planned',
       position: 1,
       origin: 'orchestrator',
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
@@ -244,7 +244,7 @@ function poserLeDecor(decision, replie = false) {
     db2
       .prepare(
         `INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at)
-         VALUES (?, ?, 'todo', 1, ?, ?, ?, ?)`,
+         VALUES (?, ?, 'planned', 1, ?, ?, ?, ?)`,
       )
       .run('c-essai', PROJET_ID, TITRE_CARTE, JSON.stringify(carte), t + 2000, t + 2000);
   }

@@ -1136,7 +1136,7 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
       >
         <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-success">
           <Check className="h-3 w-3" />
-          Carte créée dans « À faire »
+          Carte créée dans « Planifié »
         </div>
         <p className="text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
         {proposal.description ? (

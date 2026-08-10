@@ -111,6 +111,7 @@ const jeton = crypto.randomBytes(32).toString('hex');
 const PROJET_ID = 'p-essai';
 const PROJET_NOM = 'Essai départ';
 const HEURE = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
 
 const PASSEE = 'Carte d’essai — heure passée';
 const FUTURE = 'Carte d’essai — heure à venir';
@@ -205,6 +206,14 @@ function ordonnancementsEnBase() {
       return [l.title, scheduling];
     }),
   );
+}
+
+/** La colonne de chaque carte, lue en base : titre → clé de colonne. */
+function colonnesEnBase() {
+  const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
+  const lignes = db.prepare('SELECT title, column_key FROM cards').all();
+  db.close();
+  return Object.fromEntries(lignes.map((l) => [l.title, l.column_key]));
 }
 
 /** Combien d'agents de carte ont été créés ? Doit rester à zéro. */
@@ -369,6 +378,62 @@ async function main() {
     'la date se retire, et la carte redit qu’elle attend le lancement',
     !apresRetrait?.departPrevu && /attend votre lancement/.test(apresRetrait?.waitingReason ?? ''),
     JSON.stringify(apresRetrait),
+  );
+
+  /* -------- Le champ de DÉPART du formulaire de création -------- */
+
+  // Refermer le tiroir : le formulaire vit sur le tableau, derrière lui.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(1200);
+
+  await page.locator('[data-column="planned"]').scrollIntoViewIfNeeded();
+  await page.locator('[data-column="planned"] button[aria-label="Nouvelle tâche"]').click();
+  await page.waitForTimeout(800);
+
+  const bloc = page.locator('[data-depart-nouvelle-carte]');
+  noter('le formulaire de création porte un champ de départ', (await bloc.count()) === 1);
+
+  const prerempli = await bloc.locator('input[type="datetime-local"]').inputValue();
+  const luPrerempli = Date.parse(prerempli);
+  noter(
+    'il est pré-rempli à MAINTENANT, à la minute près',
+    Number.isFinite(luPrerempli) && Math.abs(luPrerempli - Date.now()) < 2 * MINUTE,
+    prerempli || '(vide)',
+  );
+  noter(
+    'sans y toucher, il annonce que la carte attendra le lancement',
+    /attendra votre lancement/.test(await bloc.innerText()),
+    (await bloc.innerText()).replace(/\n/g, ' '),
+  );
+
+  // Une heure POUSSÉE dans le futur, elle, programme vraiment le départ.
+  const voulu = new Date(Date.now() + 3 * HEURE);
+  const valeurNouvelle = `${voulu.getFullYear()}-${deux(voulu.getMonth() + 1)}-${deux(voulu.getDate())}T${deux(
+    voulu.getHours(),
+  )}:${deux(voulu.getMinutes())}`;
+  await bloc.locator('input[type="datetime-local"]').fill(valeurNouvelle);
+  await page.waitForTimeout(500);
+  noter(
+    'une heure à venir annonce le départ programmé',
+    /Départ programmé/.test(await bloc.innerText()),
+    (await bloc.innerText()).replace(/\n/g, ' '),
+  );
+
+  const TITRE_NEUF = 'Carte d’essai — créée avec son heure';
+  await page.locator('[data-column="planned"] input[placeholder="Titre de la tâche…"]').fill(TITRE_NEUF);
+  await page.locator('[data-column="planned"] button', { hasText: 'Ajouter la tâche' }).click();
+  await page.waitForTimeout(3000);
+
+  const neuve = Object.entries(ordonnancementsEnBase()).find(([titre]) => titre === TITRE_NEUF)?.[1];
+  noter(
+    'la carte naît dans « Planifié » avec sa date de départ',
+    typeof neuve?.departPrevu === 'number' && Math.abs(neuve.departPrevu - voulu.getTime()) < 60_000,
+    neuve?.departPrevu ? new Date(neuve.departPrevu).toLocaleString('fr-CH') : 'aucune date',
+  );
+  noter(
+    'elle reste dans « Planifié », rien n’est parti',
+    colonnesEnBase()[TITRE_NEUF] === 'planned',
+    colonnesEnBase()[TITRE_NEUF] ?? '(introuvable)',
   );
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));

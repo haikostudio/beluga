@@ -107,8 +107,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     column: card.column,
     aEstimation: !!card.estimate && !card.estimate.failed,
     estimationEchouee: !!card.estimate?.failed,
-    analyseEnCours: agent?.role === 'analysis' && agent.status === 'running',
-    analyseDemandee: card.analyseDemandee,
+    analyseEnCours: agent?.status === 'running' || agent?.status === 'starting',
   });
 
   /*
@@ -138,13 +137,21 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    */
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
-    analyseEnCours: agent?.role === 'analysis' && agent.status === 'running',
-    chiffrageEnCours: !!card.analyseDemandee && !card.estimate,
     enAttente: !!card.scheduling?.waitingReason,
     estimationEchouee: !!card.estimate?.failed,
     enLigne: !!card.deployedAt,
   });
-  const contexteGeste = { colonne: card.column, etat, agentLance: !!agent };
+  /*
+   * « Valider (autorise la dépense) » n'a de sens que sur une carte pas encore
+   * chiffrée : la carte naissant désormais dans « Planifié », c'est le chiffrage
+   * — présent, ou déjà demandé — qui dit si le geste a encore lieu d'être.
+   */
+  const contexteGeste = {
+    colonne: card.column,
+    etat,
+    agentLance: !!agent,
+    chiffree: !!card.estimate || !!card.analyseDemandee,
+  };
   const peut = (geste: GesteCarte) => gesteCarte(geste, contexteGeste);
 
   /*
@@ -159,7 +166,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     peut('terminer').affiche ||
     peut('publier').affiche ||
     peut('reprendre').affiche ||
-    !!card.estimate?.failed ||
     !!card.closureDoc;
 
   /*
@@ -351,8 +357,8 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               suivante en dessous de 150 px, toujours sans laisser de vide. */}
           <div className="grid items-center gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))] [&>*]:w-full">
             {peut('valider').affiche ? (
-              <Button size="sm" variant="default" onClick={() => client.validerCarte(card)}>
-                <Check className="h-3 w-3" /> Valider (autorise la dépense)
+              <Button size="sm" variant="outline" onClick={() => client.validerCarte(card)}>
+                <Check className="h-3 w-3" /> Chiffrer (autorise la dépense)
               </Button>
             ) : null}
             {card.column === 'planned' ? (
@@ -410,11 +416,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                 {libelleDeReprise(card.column)}
                 {' → '}
                 {COLUMN_LABELS[colonneDeReprise(card.column)!]}
-              </Button>
-            ) : null}
-            {card.estimate?.failed ? (
-              <Button size="sm" variant="outline" onClick={() => client.call({ type: 'card.reanalyze', id: card.id })}>
-                <RefreshCw className="h-3 w-3" /> Relancer l'analyse
               </Button>
             ) : null}
             {card.closureDoc ? (
@@ -854,7 +855,7 @@ function CardSummary({ card }: { card: Card }) {
       <MomentDetail
         numero="1"
         titre="Analyse initiale"
-        description="Ce qui a été mesuré et prévu avant le lancement du travail."
+        description="Ce que l’agent a mesuré et prévu au début de son tour, avant de toucher au code."
         moment="analyse-initiale"
       >
         <div className="grid grid-cols-2 gap-2">

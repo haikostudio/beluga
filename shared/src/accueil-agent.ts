@@ -16,7 +16,16 @@ import type { AgentRole } from './models.js';
  * entier à CHAQUE incident — plusieurs fois par publication, pour un geste de
  * plomberie de trois minutes.
  *
- * D'où deux niveaux, et la règle qui tranche entre eux. Elle ne connaît ni base
+ * Pour le CHEF D'ORCHESTRE, non plus. Depuis qu'il ne fait qu'un tri — rédiger
+ * une carte courte, choisir le niveau de l'agent qui l'exécutera —, il n'a plus
+ * à lire le projet avant de proposer : l'étude est faite après validation, par
+ * la carte elle-même. L'index de la mémoire et les fichiers d'instructions ne
+ * lui servent donc plus à rien, et ils repartaient à chaque conversation neuve.
+ * Les COMPÉTENCES PARTAGÉES, elles, restent : le chef n'a pas le droit d'ouvrir
+ * celles de son moteur, et sans cette ligne il répondrait « je ne sais pas
+ * faire » devant un mode d'emploi qui existe (règle du sujet « methode »).
+ *
+ * D'où trois niveaux, et la règle qui tranche entre eux. Elle ne connaît ni base
  * ni disque : on lui donne le rôle et le MOTIF de l'appel, elle rend le niveau,
  * puis les parts que ce niveau contient.
  *
@@ -26,7 +35,7 @@ import type { AgentRole } from './models.js';
  */
 
 /** Ce qu'un agent reçoit au premier tour de sa session. */
-export type NiveauDAccueil = 'complet' | 'minimal';
+export type NiveauDAccueil = 'complet' | 'tri' | 'minimal';
 
 /**
  * Pourquoi cet agent est lancé, quand ce n'est pas pour une carte.
@@ -54,12 +63,14 @@ export interface PartsDAccueil {
 /**
  * Le niveau d'accueil d'un agent qui démarre.
  *
- * Minimal UNIQUEMENT pour un agent de publication appelé sur un dépannage :
- * partout ailleurs — agent de tâche, chef d'orchestre, analyse, et jusqu'à la
- * mise en ligne confiée — l'accueil reste complet. Dans le doute, on accueille :
- * un motif inconnu ne rogne rien.
+ * Minimal UNIQUEMENT pour un agent de publication appelé sur un dépannage ; tri
+ * pour le chef d'orchestre, qui ne lit plus le projet avant de proposer. Partout
+ * ailleurs — agent de tâche, analyse, et jusqu'à la mise en ligne confiée —
+ * l'accueil reste complet. Dans le doute, on accueille : un motif inconnu ne
+ * rogne rien.
  */
 export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }): NiveauDAccueil {
+  if (input.role === 'orchestrator') return 'tri';
   if (input.role !== 'deploy') return 'complet';
   if (!input.motif) return 'complet';
   return MOTIFS_DE_DEPANNAGE.includes(input.motif) ? 'minimal' : 'complet';
@@ -71,5 +82,9 @@ export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }):
  */
 export function partsDAccueil(niveau: NiveauDAccueil): PartsDAccueil {
   if (niveau === 'minimal') return { instructions: false, competences: false, memoire: false };
+  // Le chef trie : ni instructions du projet, ni index de la mémoire. Les
+  // compétences partagées restent, elles seules lui disent ce que HaikoDev sait
+  // déjà faire (facturation…), et il n'a pas le droit d'aller les chercher.
+  if (niveau === 'tri') return { instructions: false, competences: true, memoire: false };
   return { instructions: true, competences: true, memoire: true };
 }

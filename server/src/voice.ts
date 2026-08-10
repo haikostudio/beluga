@@ -339,15 +339,20 @@ export function digestText(projectId?: string): string {
           break;
         }
         case 'planned':
+          /*
+           * « Planifié » est désormais la colonne où la carte NAÎT : on y trouve
+           * aussi bien celles qui attendent leur feu vert que celles qui, déjà
+           * chiffrées, attendent leur lancement. Une carte sans chiffrage et
+           * sans chiffrage demandé est de la première sorte.
+           */
           if (card.scheduling?.waitingReason) {
             etat.bloquees.push({ ...dite, detail: raisonParlee(card.scheduling.waitingReason) });
+          } else if (!card.estimate && !card.analyseDemandee) {
+            etat.aValider.push(dite);
           }
           break;
         case 'to_deploy':
           if (!card.deployedAt) etat.aPublier.push(dite);
-          break;
-        case 'todo':
-          etat.aValider.push(dite);
           break;
         default:
           break;

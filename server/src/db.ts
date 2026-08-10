@@ -347,17 +347,18 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
     id: 16,
     name: 'retrait-de-la-colonne-validee',
     // La colonne « Validé » n'existe plus : valider une carte lance son analyse
-    // sur place, dans « À faire ». Les cartes qui y dormaient doivent être
+    // sur place. Les cartes qui y dormaient doivent être
     // reprises AVANT toute lecture — leur clé de colonne n'est plus reconnue et
     // la carte ne se relirait pas.
     //
     // Trois sorts, selon ce qui avait déjà été payé : une carte DÉJÀ chiffrée
     // part en « Planifié » (son analyse est là, elle n'attend que le
-    // lancement) ; une carte dont l'analyse a échoué revient dans « À faire »
-    // sans rien relancer — on ne repaie pas un chiffrage tout seul, l'échec se
-    // lit toujours sur la carte ; une carte encore sans chiffres revient dans
-    // « À faire » en gardant sa validation (`analyseDemandee`), et
-    // l'ordonnanceur relancera son analyse au premier tour de boucle.
+    // lancement) ; une carte dont l'analyse a échoué retombe dans la colonne
+    // d'attente d'alors sans rien relancer — on ne repaie pas un chiffrage tout
+    // seul, l'échec se lit toujours sur la carte ; une carte encore sans
+    // chiffres y retombe en gardant sa validation (`analyseDemandee`).
+    // La migration 18, plus bas, reprend ensuite ces cartes : « À faire » a
+    // disparu à son tour.
     sql: `
       UPDATE cards
          SET column_key = 'planned',
@@ -466,6 +467,55 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
 
       CREATE INDEX idx_cards_agent ON cards(agent_id);
       CREATE INDEX idx_cards_lecture ON cards(project_id, last_read_at);
+    `,
+  },
+  {
+    id: 18,
+    name: 'retrait-de-la-colonne-a-faire',
+    // La colonne « À faire » n'existe plus : une carte NAÎT dans « Planifié » et
+    // son chiffrage se lance sur place. Les cartes qui dormaient dans l'ancienne
+    // colonne doivent être reprises AVANT toute lecture — leur clé n'est plus
+    // reconnue, et la carte ne se relirait pas.
+    //
+    // Elles montent EN TÊTE de « Planifié » (les cartes se lisent par position
+    // décroissante), dans leur ordre d'origine, sans rien perdre : ni leur date
+    // de création, ni leur validation. Une carte encore marquée `analyseDemandee`
+    // verra donc son chiffrage repris par le premier tour de boucle, là où il
+    // s'était arrêté.
+    //
+    // Chaque carte garde sa position d'origine, décalée d'un même nombre :
+    // l'ordre relatif est alors conservé À L'IDENTIQUE, et le repère reste dans
+    // l'échelle du reste de la base (les positions sont des dates). Le décalage
+    // est calculé par PROJET — juste ce qu'il faut pour passer au-dessus de la
+    // dernière carte déjà planifiée, et rien de plus.
+    //
+    // Il se calcule d'ABORD, dans une table de passage : le lire au fil de
+    // l'écriture le ferait porter sur des positions déjà modifiées.
+    //
+    // La migration 17 a sorti `column` et `position` du bloc `data` : seules les
+    // VRAIES colonnes sont écrites ici, il n'y a plus de JSON à tenir à jour.
+    sql: `
+      CREATE TEMP TABLE reprise_a_faire AS
+        SELECT c.id AS id,
+               c.position + MAX(
+                 0,
+                 (SELECT COALESCE(MAX(p.position), 0)
+                    FROM cards p
+                   WHERE p.project_id = c.project_id AND p.column_key = 'planned')
+                 + 1
+                 - (SELECT COALESCE(MIN(t.position), 0)
+                      FROM cards t
+                     WHERE t.project_id = c.project_id AND t.column_key = 'todo')
+               ) AS position
+          FROM cards c
+         WHERE c.column_key = 'todo';
+
+      UPDATE cards
+         SET position = (SELECT r.position FROM reprise_a_faire r WHERE r.id = cards.id),
+             column_key = 'planned'
+       WHERE column_key = 'todo';
+
+      DROP TABLE reprise_a_faire;
     `,
   },
 ];

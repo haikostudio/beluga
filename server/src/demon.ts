@@ -3,7 +3,7 @@ import path from 'node:path';
 import { EtatDemon, redemarrageNecessaire, suiteDuRedemarrage } from '@haikodev/shared';
 import { ROOT } from './config.js';
 import { bus } from './bus.js';
-import { runningAgentIds } from './runtime.js';
+import { agentsActifs } from './runtime.js';
 import * as store from './store.js';
 import { notify, viderLesGroupes } from './notify.js';
 import { log } from './logger.js';
@@ -55,7 +55,7 @@ export function etatDemon(): EtatDemon & { redemarrageNecessaire: boolean } {
   const etat: EtatDemon = {
     demarreA: DEMARRE_A,
     construitA,
-    agentsEnCours: runningAgentIds().length,
+    agentsEnCours: agentsActifs().length,
     publications: publicationsEnCours(),
     redemarrageEnAttente,
   };
@@ -98,7 +98,7 @@ export function redemarrageEstEnAttente(): boolean {
 function evaluerRedemarrage(ignorerAgents: boolean): { ok: boolean; raison?: string; enAttente: boolean } {
   const suite = suiteDuRedemarrage(redemarrageEnAttente, {
     publications: publicationsEnCours(),
-    agents: ignorerAgents ? 0 : runningAgentIds().length,
+    agents: ignorerAgents ? 0 : agentsActifs().length,
   });
   redemarrageEnAttente = suite.enAttente;
   if (suite.redemarrer) {

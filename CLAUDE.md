@@ -121,7 +121,7 @@ le nom, là-bas le texte).
   porte toutes les publications, le couper en tranche une en plein vol. Un redémarrage demandé est
   retenu et rejoué tout seul dès la dernière publication finie.
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
-  `shared/src/accueil-agent.ts`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
+  `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
   une consigne ciblée. La mise en production confiée, elle, garde l'accueil complet.
 - **Déployer, c'est fusionner le lot « À déployer » dans la principale, enregistrer, pousser, puis
@@ -133,21 +133,40 @@ le nom, là-bas le texte).
 ### Cartes
 
 - **Toute demande de PROGRAMMATION ou d'EXÉCUTION passe par une carte**, quelle que soit sa taille :
-  le chef PROPOSE (`board_create_card` / `propose_task`, description en quatre parties), la validation
-  de l'utilisateur seule crée la carte. Une simple question se répond sans carte. Verrouillé par
-  `server/src/test/tri-du-chef.test.ts`.
+  le chef PROPOSE (`board_create_card` / `propose_task`), la validation de l'utilisateur seule crée la
+  carte. Une simple question se répond sans carte. Verrouillé par `server/src/test/tri-du-chef.test.ts`.
 - **Les étapes complémentaires d'un même objectif forment UNE proposition** : le chef regroupe par
   résultat, chantier et ordre logique ; le bandeau permet aussi de fusionner plusieurs propositions
   encore en attente, sans créer de carte. Les sources restent marquées « fusionnées » et la
   proposition réunie reste éditable avant son unique validation.
-- **L'analyse faite par le chef voyage avec sa proposition** : chiffrage futur, mesure réelle ajoutée
-  par le démon et relais factuel sont recopiés sur la carte ; sa validation va directement en
-  « Planifié », sans second chiffrage, mais l'exécution attend toujours un geste humain.
+- **Le CHEF D'ORCHESTRE NE FAIT QUE DEUX CHOSES : une carte COURTE et le NIVEAU de son agent.** Il
+  n'ouvre plus le projet, ne chiffre plus, ne prépare plus de relais — l'étude appartient à la carte,
+  après validation. Accueil ramené au palier `tri` (`niveauDAccueil`, `shared/src/accueil-agent.ts` :
+  ni index de mémoire, ni fichiers d'instructions ; les compétences restent), consigne sans déroulé ni
+  MÉTHODE en six points (`COMMUN_DU_CHEF`, `server/src/runtime.ts`), modèle par défaut économe. Le TRI
+  lui-même ne bouge pas.
+- **Trois NIVEAUX, jamais un modèle nommé** (`shared/src/niveau-agent.ts`) : « leger », « standard »,
+  « approfondi », traduits en modèle et réflexion réels par l'appétit du catalogue. Le niveau décide du
+  modèle de la carte, PAS celui du chef — sinon un chef économe ferait exécuter tout le tableau au
+  rabais. Retenu sur `RunConfig.niveau`, modifiable à la main avant lancement.
+- **La description exigée dépend de QUI propose** (`jugerDescription`, `shared/src/description-carte.ts`) :
+  quatre parties et un repère concret (320-2400 signes) pour un agent qui a étudié ; la demande
+  simplement REFORMULÉE (80-2400 signes) pour le chef, qui n'a rien ouvert et n'a donc rien à citer.
+- **L'analyse d'un agent qui a VRAIMENT étudié voyage avec sa proposition** : chiffrage futur, mesure
+  réelle ajoutée par le démon et relais factuel sont recopiés sur la carte ; l'agent lancé ne rechiffre
+  alors pas par-dessus, mais l'exécution attend toujours un geste humain. Une carte du chef, elle,
+  n'emporte aucun chiffrage : c'est son agent d'exécution qui chiffrera, au lancement.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
-- **Il n'y a PAS de colonne « Validé »** (`validerCarte`, `server/src/scheduler.ts`) : valider une
-  carte de « À faire » lance son chiffrage SUR PLACE (drapeau `card.analyseDemandee`) ; elle monte en
-  « Planifié » une fois l'analyse rendue, et le lancement reste un geste humain.
+- **Une carte NAÎT dans « Planifié »** (`createCard`, `server/src/tools.ts`) : ni « Validé » ni « À
+  faire » n'existent, le tableau compte SEPT colonnes (`COLUMN_KEYS`, `shared/src/columns.ts`).
+  Valider une carte AUTORISE la dépense sans la déplacer et sans rien envoyer au moteur (drapeau
+  `card.analyseDemandee`), et le lancement reste un geste humain — garanti par la règle de pause, pas
+  par une colonne d'attente.
+- **RIEN NE PART AU MOTEUR AVANT LE LANCEMENT** (`startCard`, `server/src/scheduler.ts`) : une carte
+  en « Planifié » ne coûte rien. Le lancement crée UN SEUL agent, qui étudie le projet, chiffre la
+  tâche et l'exécute dans le MÊME tour ; les chiffres rendus (bloc json, `CONSIGNE_CHIFFRAGE`) sont
+  écrits sur la carte avec la mesure réelle du moteur.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
@@ -199,8 +218,9 @@ le nom, là-bas le texte).
 ### Méthode et silence
 
 - **La MÉTHODE de travail est imposée** (`METHODE`, `server/src/runtime.ts`), la même sous Claude et
-  Codex : lire avant de répondre (instructions, mémoire, fichiers repérés par recherche), constater
-  par écrit, ne rien affirmer sans l'avoir vu, rejouer les contrôles du projet et en dire le résultat.
+  Codex, pour tous les rôles QUI TRAVAILLENT : lire avant de répondre (instructions, mémoire, fichiers
+  repérés par recherche), constater par écrit, ne rien affirmer sans l'avoir vu, rejouer les contrôles
+  du projet et en dire le résultat. Le chef d'orchestre en est dispensé : il trie, il n'étudie pas.
 - **Le CONTEXTE du modèle se compresse à 50 % entre deux tours**, pour tous les rôles
   (`shared/src/contexte-agent.ts`, `server/src/runtime.ts`) : fonction native de Claude, sinon résumé
   contrôlé et session neuve ; messages visibles, carte, décisions, tâches, modèle et compte restent.
@@ -229,8 +249,9 @@ le nom, là-bas le texte).
 - **Le détail d'une carte issue du chef montre ce qui était préparé avant l'exécution** : réglages
   repris, contenu transmis, chiffrage disponible et continuité du fil. Vérifié par
   `scripts/verif-reglages-carte.mjs`.
-- **Un chef sans choix manuel part sur Sonnet 5 sous Claude ou GPT-5.4 sous Codex, en réflexion
-  moyenne**, toujours ramené vers un modèle réellement présent dans le catalogue du moteur.
+- **Un chef sans choix manuel part sur Haiku 4.5 sous Claude ou GPT-5.4 sous Codex, en réflexion
+  moyenne**, toujours ramené vers un modèle réellement présent dans le catalogue du moteur : il ne
+  fait qu'un tri, un modèle de raisonnement n'y sert à rien.
 - **Rien ne pointe vers le dossier personnel d'un utilisateur** (`/home/<quelqu'un>/…` écrit en dur) :
   une bibliothèque se déclare dans `package.json`, un outil dont le démon dépend se copie dans
   `outils/`. Le dossier de travail d'un projet vit sous `/root/<projet>`.

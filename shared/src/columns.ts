@@ -7,10 +7,10 @@ import { z } from 'zod';
  */
 export const COLUMN_KEYS = [
   'notes',
-  'todo',
-  // « Validé » a disparu : valider une carte de « À faire » lance son analyse
-  // SUR PLACE, et la carte n'apparaît en « Planifié » qu'une fois le chiffrage
-  // rendu. Une étape d'attente en moins sur le tableau.
+  // « Validé » puis « À faire » ont disparu : une carte NAÎT dans « Planifié ».
+  // Son chiffrage se lance SUR PLACE (drapeau `analyseDemandee`) et la carte n'en
+  // bouge pas ; seul le geste de lancement la fait entrer en « En cours ». Deux
+  // étapes d'attente en moins sur le tableau, aucune dépense de plus.
   'planned',
   'running',
   'done',
@@ -24,7 +24,6 @@ export type ColumnKey = z.infer<typeof ColumnKey>;
 
 export const COLUMN_LABELS: Record<ColumnKey, string> = {
   notes: 'Notes',
-  todo: 'À faire',
   planned: 'Planifié',
   running: 'En cours',
   done: 'Terminé',
@@ -33,8 +32,14 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
   archived: 'Archivé',
 };
 
-/** Les deux seules colonnes ouvertes aux agents (PLAN §4). */
-export const AGENT_MOVABLE_COLUMNS: ColumnKey[] = ['notes', 'todo'];
+/**
+ * Les deux seules colonnes ouvertes aux agents (PLAN §4). « À faire » n'existant
+ * plus, c'est « Planifié » — la colonne où NAÎT une carte — qui prend sa place :
+ * un agent range une carte en note ou la remet dans la file d'attente, et rien
+ * de plus. Y poser une carte ne la lance pas : le départ reste un geste humain
+ * (voir `demarrageAutomatiqueAutorise`, `suivi-colonne.ts`).
+ */
+export const AGENT_MOVABLE_COLUMNS: ColumnKey[] = ['notes', 'planned'];
 
 /**
  * Colonnes que seul l'utilisateur peut atteindre. « Terminé » n'en fait plus
@@ -67,7 +72,7 @@ export function canMove(actor: Actor, from: ColumnKey, to: ColumnKey): MoveDecis
     if (!AGENT_MOVABLE_COLUMNS.includes(to)) {
       return {
         allowed: false,
-        reason: `Un agent ne peut déplacer une carte que vers « ${COLUMN_LABELS.notes} » ou « ${COLUMN_LABELS.todo} ». Cible refusée : « ${COLUMN_LABELS[to]} ».`,
+        reason: `Un agent ne peut déplacer une carte que vers « ${COLUMN_LABELS.notes} » ou « ${COLUMN_LABELS.planned} ». Cible refusée : « ${COLUMN_LABELS[to]} ».`,
       };
     }
     if (!AGENT_MOVABLE_COLUMNS.includes(from)) {
@@ -80,18 +85,20 @@ export function canMove(actor: Actor, from: ColumnKey, to: ColumnKey): MoveDecis
   }
 
   if (actor === 'machine') {
-    if (!MACHINE_ONLY_TARGETS.includes(to) && to !== 'archived' && to !== 'todo') {
+    if (!MACHINE_ONLY_TARGETS.includes(to) && to !== 'archived') {
       return {
         allowed: false,
         reason: `L'ordonnanceur ne promeut que vers « ${COLUMN_LABELS.planned} » ou « ${COLUMN_LABELS.running} ».`,
       };
     }
-    if (from === 'todo') {
-      return {
-        allowed: false,
-        reason: "L'ordonnanceur ne touche jamais une carte de « À faire » : la validation humaine manque.",
-      };
-    }
+    /*
+     * Il n'y a plus de colonne d'attente AVANT « Planifié » : c'est là qu'une
+     * carte naît, chiffrée ou non. Ce qui protégeait la dépense n'est donc plus
+     * une colonne interdite à l'ordonnanceur, c'est la règle de pause
+     * (`demarrageAutomatiqueAutorise`) : sans geste humain — « Lancer
+     * maintenant », « Dès que possible », dépôt dans « En cours » —, aucune
+     * carte de « Planifié » ne part d'elle-même.
+     */
     return { allowed: true };
   }
 
