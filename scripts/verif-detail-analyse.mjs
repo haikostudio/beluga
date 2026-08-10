@@ -1,55 +1,137 @@
 #!/usr/bin/env node
-/** Contrôle ciblé du calcul et des libellés du détail d'une carte analysée. */
+/*
+ * LE DÉTAIL D'UNE CARTE : le parcours mesuré, et la prévision à part.
+ *
+ * L'onglet montrait sept encadrés — « Analyse initiale », « Exécution réelle »,
+ * la ventilation, la projection, les jetons par agent — qui disaient chacun une
+ * part de la même histoire, dans le désordre, et dont deux comptaient les mêmes
+ * jetons deux fois. Il montre désormais UNE ligne de temps : une étape par
+ * moment réel, du tri par le chef d'orchestre jusqu'à la mise en production.
+ *
+ * Ce contrôle vérifie les deux choses qui font tenir cette lecture :
+ *   — chaque étape porte ce qu'elle est allée CHERCHER et ce qu'elle a
+ *     RÉELLEMENT consommé, jamais une estimation ;
+ *   — le PRÉVU vit dans un bloc séparé, nommé prévision, sous le parcours.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { totalJetonsMesures, totalMesureEnClair } from '../shared/dist/analyse-cout.js';
+import { construireParcours, totalDuParcours } from '../shared/dist/parcours-carte.js';
 
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = fs.readFileSync(path.join(RACINE, 'web/src/components/card-panel.tsx'), 'utf8');
+const parcours = fs.readFileSync(path.join(RACINE, 'web/src/components/parcours-tache.tsx'), 'utf8');
+const panneau = fs.readFileSync(path.join(RACINE, 'web/src/components/card-panel.tsx'), 'utf8');
+
 const resultats = [];
 const verifier = (nom, ok) => {
   resultats.push(ok);
   console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}`);
 };
 
-verifier('le total additionne entrée, cache et sortie', totalJetonsMesures({ inputTokens: 12, cachedInputTokens: 8, outputTokens: 5 }) === 25);
+/* ------------------------------------------------------------------ */
+/* Le calcul                                                           */
+/* ------------------------------------------------------------------ */
+
+verifier(
+  'le total additionne entrée, cache et sortie',
+  totalJetonsMesures({ inputTokens: 12, cachedInputTokens: 8, outputTokens: 5 }) === 25,
+);
 verifier(
   'un cache non communiqué est nommé indisponible',
   /indisponible/.test(totalMesureEnClair({ inputTokens: 12, outputTokens: 5 })),
 );
-for (const libelle of [
-  'Analyse initiale',
-  'Exécution réelle',
-  'Analyse mesurée — déjà consommée',
-  'Entrée hors cache',
-  'Déjà en cache',
-  'Lectures faites par l’agent',
-  'Exécution projetée — estimation future',
-  'Formule',
-]) {
-  verifier(`le détail affiche « ${libelle} »`, source.includes(libelle));
-}
-verifier('la mesure et la projection ont deux repères distincts', source.includes('data-detail-cout-analyse') && source.includes('data-projection-execution'));
 
-const debutAnalyse = source.indexOf('moment="analyse-initiale"');
-const debutExecution = source.indexOf('moment="execution-reelle"');
-const blocAnalyse = source.slice(debutAnalyse, debutExecution);
-const blocExecution = source.slice(debutExecution, source.indexOf('/** Une étape bien délimitée', debutExecution));
-verifier('l’analyse initiale paraît avant l’exécution réelle', debutAnalyse !== -1 && debutExecution > debutAnalyse);
+const tour = (entree, cache, sortie) => ({
+  at: 1,
+  model: 'claude-sonnet-5',
+  inputTokens: entree,
+  cachedTokens: cache,
+  outputTokens: sortie,
+  tokens: entree + cache + sortie,
+  seconds: 5,
+});
+const etapes = construireParcours({
+  origin: 'agent',
+  createdAt: 1,
+  autorisee: true,
+  colonne: 'done',
+  doneAt: 9,
+  tri: { tours: [tour(300, 100, 40)], sujetsMemoire: ['cartes'] },
+  agents: [
+    {
+      id: 'a1',
+      role: 'task',
+      createdAt: 2,
+      tours: [tour(1000, 500, 200)],
+      sujetsMemoire: ['interface'],
+      accueil: { instructions: true, competences: true, memoire: true },
+    },
+  ],
+});
+
+verifier('le parcours ouvre sur le tri du chef', etapes[0]?.cle === 'tri');
+verifier('le parcours finit par le travail de l’agent', etapes[etapes.length - 1]?.cle === 'execution');
 verifier(
-  'les prévisions restent dans la zone d’analyse initiale',
-  blocAnalyse.includes('Durée machine prévue') && blocAnalyse.includes('Heures développeur senior'),
+  'chaque étape mesurée porte son total, sans recouvrement',
+  totalDuParcours(etapes)?.total === 440 + 1700,
 );
 verifier(
-  'les consommations restent dans la zone d’exécution réelle',
-  // Le mot affiché est « tokens » depuis le renommage : le contrôle le suit.
-  blocExecution.includes('Durée réelle') && blocExecution.includes('Tokens consommés'),
+  'chaque étape dit ce qu’elle est allée chercher',
+  etapes.every((etape) => Array.isArray(etape.cherche)) &&
+    etapes.some((etape) => etape.cherche.some((l) => l.includes('cartes'))) &&
+    etapes.some((etape) => etape.cherche.some((l) => l.includes('interface'))),
 );
 verifier(
-  'les deux moments portent des repères visibles et testables',
-  source.includes('data-moment-detail={moment}') &&
-    source.includes("moment: 'analyse-initiale' | 'execution-reelle'"),
+  'une étape sans mesure dit POURQUOI, jamais un zéro',
+  etapes.every((etape) => etape.mesure || etape.sansMesure),
+);
+
+/* ------------------------------------------------------------------ */
+/* Ce que la page affiche                                              */
+/* ------------------------------------------------------------------ */
+
+for (const libelle of [
+  'Le parcours de cette tâche',
+  'Ce qu’elle est allée chercher',
+  'Jetons réellement mesurés',
+  'Entrée hors cache',
+  'Relu du cache',
+]) {
+  verifier(`le parcours affiche « ${libelle} »`, parcours.includes(libelle));
+}
+
+verifier('le parcours porte un repère testable', parcours.includes('data-parcours-tache'));
+verifier('chaque étape porte sa clé et son état', parcours.includes('data-etape=') && parcours.includes('data-etat='));
+verifier(
+  'le détail d’une étape se replie, il ne s’empile pas',
+  parcours.includes('data-detail-etape') && parcours.includes('aria-expanded'),
+);
+
+for (const libelle of ['Ce qui était prévu', 'Durée machine prévue', 'Heures développeur senior', 'Formule']) {
+  verifier(`le bloc de prévision affiche « ${libelle} »`, panneau.includes(libelle));
+}
+verifier(
+  'le prévu et le mesuré ont deux repères distincts',
+  panneau.includes('data-ce-qui-etait-prevu') && panneau.includes('data-projection-execution'),
+);
+verifier(
+  'la prévision se dit prévision, jamais mesure',
+  panneau.includes('Ce ne sont pas des mesures') && panneau.includes('estimation future'),
+);
+verifier(
+  'le parcours paraît AVANT le bloc de prévision',
+  panneau.indexOf('<ParcoursTache') !== -1 &&
+    panneau.indexOf('<ParcoursTache') < panneau.indexOf('<CeQuiEtaitPrevu'),
+);
+// On vise les REPÈRES de l'ancienne présentation, pas les mots : le commentaire
+// qui explique ce qu'elle était a le droit de la nommer.
+verifier(
+  'les anciens encadrés qui doublaient les chiffres ont disparu',
+  !panneau.includes('data-moment-detail') &&
+    !panneau.includes('data-detail-cout-analyse') &&
+    !panneau.includes('data-ventilation-analyse') &&
+    !panneau.includes('MomentDetail'),
 );
 
 const echecs = resultats.filter((ok) => !ok).length;

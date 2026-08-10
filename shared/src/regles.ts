@@ -90,8 +90,15 @@ export const SUJETS_REGLES: SujetRegles[] = [
   },
 ];
 
-/** Le sujet nommé par son identifiant ou son libellé exact, sinon rien. */
-function sujetNomme(demande: string): SujetRegles | undefined {
+/**
+ * Le sujet nommé par son identifiant ou son libellé exact, sinon rien.
+ *
+ * La distinction compte : NOMMER un sujet est un choix explicite de l'agent, qui
+ * lui vaut le fichier ENTIER ; des mots-clés ne décrivent qu'un besoin, et ne
+ * valent qu'un extrait (`shared/src/extrait-regles.ts`).
+ */
+export function sujetNomme(requete: string): SujetRegles | undefined {
+  const demande = requete.trim().toLowerCase();
   return SUJETS_REGLES.find((s) => s.id === demande || s.libelle.toLowerCase() === demande);
 }
 
@@ -105,7 +112,7 @@ export function sujetsPourRequete(requete: string): SujetRegles[] {
   const demande = requete.trim().toLowerCase();
   if (!demande) return [];
 
-  const nomme = sujetNomme(demande);
+  const nomme = sujetNomme(requete);
   if (nomme) return [nomme];
 
   return SUJETS_REGLES.filter((s) => s.mots.some((mot) => demande.includes(mot)));

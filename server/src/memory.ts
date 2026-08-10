@@ -3,15 +3,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   chercherFaits,
+  classerRegles,
   decouperRegles,
   DOSSIER_MEMOIRE,
   estLigneDeJournal,
+  extraitDeSujet,
   faitsDuTexte,
   fichierDuSujet,
   fichierNatif,
   instructionsQuiFontFoi,
   libelleSujet,
+  mentionDEcart,
   nettoyer,
+  partagerSujets,
   partsDAccueil,
   reglesContenant,
   rendreFichierSujet,
@@ -20,6 +24,7 @@ import {
   SUJETS_REGLES,
   sujetDeLaRequete,
   sujetDuFait,
+  sujetNomme,
   sujetsPourRequete,
   texteIndex,
   texteDesCompetences,
@@ -461,12 +466,71 @@ function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
     ];
   }
 
-  const sujets = sujetsPourRequete(demande);
-  if (sujets.length) {
-    return sujets.map((sujet) => {
-      const texte = texteDuSujet(projectPath, sujet);
-      return { cle: cleMorceau('regles', sujet.id, texte), libelle: `les règles « ${sujet.libelle} »`, texte };
-    });
+  /*
+   * UN SUJET NOMMÉ vaut le fichier ENTIER, contrôles compris : l'agent l'a
+   * demandé par son nom, c'est un choix, on obéit sans rogner.
+   */
+  const nomme = sujetNomme(demande);
+  if (nomme) {
+    const texte = texteDuSujet(projectPath, nomme);
+    return [{ cle: cleMorceau('regles', nomme.id, texte), libelle: `les règles « ${nomme.libelle} »`, texte }];
+  }
+
+  /*
+   * DES MOTS-CLÉS, eux, ne demandent pas un fichier : ils décrivent un besoin.
+   * On ouvrait pourtant chaque sujet touché EN ENTIER — « détail de carte »
+   * emportait les 36 000 signes de `cartes.md`, « tiroir » les 31 000 de
+   * `interface.md`, pour deux invariants qui en pèsent quatre cents. On ne rend
+   * donc que les règles qui PARLENT de ces mots, les mieux placées d'abord, et
+   * on NOMME le reste avec la façon de l'obtenir en entier.
+   */
+  const touches = sujetsPourRequete(demande);
+  if (touches.length) {
+    const decoupes = new Map(touches.map((sujet) => [sujet.id, decouperRegles(lireDoc(projectPath, sujet.fichier))]));
+    const classees = new Map(touches.map((sujet) => [sujet.id, classerRegles(decoupes.get(sujet.id) ?? [], demande)]));
+
+    const { ouverts } = partagerSujets(touches, (sujet) => classees.get(sujet.id)?.length ?? 0);
+
+    const morceaux: MorceauServi[] = [];
+    const rendus = new Set<string>();
+    for (const sujet of ouverts) {
+      const extrait = extraitDeSujet(decoupes.get(sujet.id) ?? [], demande);
+      if (!extrait.gardees.length) continue;
+      /*
+       * Les CONTRÔLES du sujet suivent l'extrait, eux, en entier : la MÉTHODE
+       * impose de rejouer les contrôles touchés, et la section d'un sujet pèse
+       * quelques centaines de signes, pas des dizaines de milliers.
+       */
+      const controles = sectionDoc(lireDoc(projectPath, 'docs/verifications.md'), TITRE_CONTROLES[sujet.id] ?? '');
+      const texte = [
+        `RÈGLES « ${sujet.libelle} » qui touchent ta demande :`,
+        extrait.gardees.join('\n\n'),
+        mentionDEcart(sujet, extrait),
+        controles && `CONTRÔLES — ${sujet.libelle}\n\n${controles}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      rendus.add(sujet.id);
+      morceaux.push({
+        cle: cleMorceau('extrait', sujet.id, texte),
+        libelle: `un extrait des règles « ${sujet.libelle} »`,
+        texte,
+      });
+    }
+
+    // Les sujets touchés qu'on n'a pas ouverts sont DITS : un plafond silencieux
+    // se lirait comme une réponse complète.
+    const restants = touches.filter((sujet) => !rendus.has(sujet.id));
+    if (morceaux.length && restants.length) {
+      morceaux.push({
+        cle: '',
+        libelle: 'les autres sujets touchés',
+        texte:
+          `AUTRES SUJETS touchés par ta demande, non ouverts ici : ` +
+          `${restants.map((s) => `« ${s.id} »`).join(', ')}. Demande-les par leur nom si tu en as besoin.`,
+      });
+    }
+    if (morceaux.length) return morceaux;
   }
 
   // Repli : aucune rubrique reconnue, on cherche les mots dans toutes les règles.

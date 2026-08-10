@@ -256,6 +256,62 @@ console.log(
 );
 
 /* ------------------------------------------------------------------ */
+/* LA MÉMOIRE DEMANDÉE EN COURS DE TÂCHE                               */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Le poste le plus lourd d'une tâche n'est pas l'ouverture : c'est `project_memory`,
+ * appelé trois ou quatre fois pendant le travail. Un mot vague ouvrait chaque sujet
+ * touché EN ENTIER — « détail de carte » emportait les 36 000 signes de `cartes.md`.
+ * Depuis `shared/src/extrait-regles.ts`, des MOTS-CLÉS ne rendent que les règles qui
+ * en parlent, plafonnées, le reste étant nommé ; un sujet NOMMÉ garde son fichier
+ * entier. On pèse ici les deux, sur des demandes réelles.
+ */
+const DEMANDES = [
+  'détail de carte, tiroir contexte envoyé, couches de tokens, historique des tours',
+  'contexte envoyé, couches tokens, accueil agent, consommation de jetons',
+  "changer le mot de réveil de l'écoute",
+  'conflit de fusion pendant un déploiement',
+];
+
+console.log('\nLA MÉMOIRE DEMANDÉE EN COURS DE TÂCHE — jetons rendus par « project_memory »\n');
+const largeurDemande = Math.max(...DEMANDES.map((d) => Math.min(d.length, 52)));
+console.log(`${pad('Demande', largeurDemande)}  ${num('avant', 7)}  ${num('après', 7)}  ${num('gain', 7)}   sujets`);
+console.log('-'.repeat(largeurDemande + 40));
+
+let memAvant = 0;
+let memApres = 0;
+for (const demande of DEMANDES) {
+  const sujets = partage.sujetsPourRequete(demande);
+  // AVANT : chaque sujet touché partait en entier, règles ET contrôles.
+  const avantSignes = sujets.reduce((total, sujet) => {
+    let texte = '';
+    try {
+      texte = fs.readFileSync(path.join(RACINE, sujet.fichier), 'utf8');
+    } catch {
+      /* sujet sans fichier : rien à peser */
+    }
+    return total + texte.length;
+  }, 0);
+  const apresSignes = memory.detailProjet(RACINE, demande).texte.length;
+  const a = Math.round(avantSignes / 4);
+  const b = Math.round(apresSignes / 4);
+  memAvant += a;
+  memApres += b;
+  console.log(
+    `${pad(demande.slice(0, largeurDemande), largeurDemande)}  ${num(a, 7)}  ${num(b, 7)}  ${num(a - b, 7)}   ` +
+      sujets.map((s) => s.id).join(', '),
+  );
+}
+console.log('-'.repeat(largeurDemande + 40));
+console.log(`${pad('TOTAL', largeurDemande)}  ${num(memAvant, 7)}  ${num(memApres, 7)}  ${num(memAvant - memApres, 7)}`);
+console.log(
+  `\nGain sur la mémoire demandée : ${Math.round((1 - memApres / memAvant) * 100)} %.\n` +
+    "L'avant ne compte que les RÈGLES (les contrôles partaient en plus) : le gain réel est un peu plus grand.\n" +
+    'Un sujet demandé par son NOM rend toujours tout — la nuance est voulue, elle appartient à l’agent.',
+);
+
+/* ------------------------------------------------------------------ */
 /* Ce qui sort                                                         */
 /* ------------------------------------------------------------------ */
 

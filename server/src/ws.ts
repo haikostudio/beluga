@@ -13,8 +13,12 @@ import {
   ServerEvent,
   TaskProposal,
   canMove,
+  construireParcours,
   effetDuDepot,
   etapeDeLaColonne,
+  niveauDAccueil,
+  partsDAccueil,
+  totalDuParcours,
   etatVisuelCarte,
   heritageAnalyseDeProposition,
   sortieAutorisee,
@@ -904,6 +908,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           // L'heure dite voyage avec la proposition : elle ne s'édite pas au
           // dernier clic, elle se retire ensuite dans l'onglet « Détails ».
           departPrevu: proposal.departPrevu,
+          // Le tour du chef qui a produit cette carte : c'est ce lien qui donne
+          // au parcours de la tâche sa PREMIÈRE mesure réelle (le tri).
+          origineAgentId: agent.id,
+          origineAt: message.createdAt,
           ...heritage,
         });
         cardId = card.id;
@@ -1232,6 +1240,57 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'card.tokens':
       return { agents: store.usageTokensByCardAndAgent(cmd.cardId) };
+
+    /*
+     * LE PARCOURS D'UNE TÂCHE. Le serveur ne fait que RASSEMBLER des faits déjà
+     * écrits — la carte, ses agents, leurs tours mesurés, les sujets de mémoire
+     * qu'ils sont allés chercher — ; la mise en ordre est une règle pure
+     * (`construireParcours`), donc lisible et testable sans base.
+     */
+    case 'card.parcours': {
+      const card = store.getCard(cmd.cardId);
+      if (!card) return { etapes: [] };
+
+      const agents = store.agentsDeLaCarte(card.id).map((agent) => ({
+        id: agent.id,
+        role: agent.role,
+        titre: agent.title,
+        createdAt: agent.createdAt,
+        tours: store.usageByAgent(agent.id),
+        sujetsMemoire: store.sujetsMemoireDemandes(agent.id),
+        accueil: partsDAccueil(niveauDAccueil({ role: agent.role })),
+      }));
+
+      const ventilation = card.estimate?.analysisMeasurement?.breakdown;
+      const lire = (part?: { status: string; characters?: number }) =>
+        part?.status === 'measured' ? part.characters : undefined;
+
+      const etapes = construireParcours({
+        origin: card.origin,
+        createdAt: card.createdAt,
+        autorisee: card.analyseDemandee,
+        colonne: card.column,
+        doneAt: card.doneAt,
+        deployedAt: card.deployedAt,
+        archivedAt: card.archivedAt,
+        tri:
+          card.origineAgentId && card.origineAt
+            ? {
+                tours: store.usageTourCouvrant(card.origineAgentId, card.origineAt),
+                sujetsMemoire: store.sujetsMemoireDemandes(card.origineAgentId),
+              }
+            : undefined,
+        agents,
+        ventilation: ventilation
+          ? {
+              consignes: lire(ventilation.haikoDevInstructions),
+              description: lire(ventilation.cardDescription),
+              memoireEtInstructions: lire(ventilation.memoryAndInstructions),
+            }
+          : undefined,
+      });
+      return { etapes, total: totalDuParcours(etapes) };
+    }
 
     case 'stats.dashboard': {
       // Le titre, le projet et la colonne d'une carte vivent dans son JSON, pas

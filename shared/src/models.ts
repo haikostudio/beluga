@@ -318,6 +318,16 @@ export const Card = z.object({
    * déjà faits sans ouvrir un second tour de chiffrage identique.
    */
   analysisContext: z.string().optional(),
+  /**
+   * L'agent qui a PROPOSÉ cette carte (le chef d'orchestre), et le moment de sa
+   * proposition. Sans ce lien, la première étape du parcours d'une tâche — le
+   * tri — ne pouvait porter aucune mesure : le tour du chef vit dans SA
+   * conversation, sans `cardId`. Le couple permet de retrouver, dans la table
+   * `usage`, le tour de CET agent qui a produit CETTE carte
+   * (`shared/src/parcours-carte.ts`). Il ne sert qu'à lire, jamais à décider.
+   */
+  origineAgentId: z.string().optional(),
+  origineAt: z.number().optional(),
   consumption: Consumption.optional(),
   scheduling: SchedulingState.optional(),
   agentId: z.string().optional(),
