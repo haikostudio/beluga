@@ -5,10 +5,9 @@ import type { AgentRole } from './models.js';
 /**
  * La carte suit les ÉTAPES RÉELLES du travail.
  *
- * Parcours attendu : « À faire » → (clic de validation : l'analyse part, la
- * carte reste sur place le temps du chiffrage, puis garde ses chiffres SANS
- * changer de colonne) → (clic de lancement, ou heure dite) → « En cours » →
- * (exécution rendue) → « Terminé ».
+ * Parcours attendu : « Planifié » (où la carte NAÎT ; un clic de validation y
+ * lance son chiffrage sur place, sans la déplacer) → (clic de lancement) →
+ * « En cours » → (exécution rendue) → « Terminé ».
  *
  * Le piège : l'analyse, l'orchestration et la publication portent elles aussi
  * le numéro de carte. Appliquées à tout agent, les deux règles ci-dessous
@@ -19,7 +18,7 @@ import type { AgentRole } from './models.js';
  * D'où la règle unique : seul l'agent d'EXÉCUTION (rôle « task ») déplace une
  * carte. Il la met en « En cours » quand son tour démarre, en « Terminé »
  * quand son tour réussit. Les autres rôles la laissent exactement où elle est.
- * Le passage de « À faire » à « En cours » (lancement) reste le travail de
+ * Le passage de « Planifié » à « En cours » (lancement) reste le travail de
  * l'ordonnanceur : ces règles ne le doublent pas.
  *
  * Second piège, le plus coûteux : un tour d'exécution qui RÉPOND sans rien
@@ -82,8 +81,9 @@ export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): Deci
 /**
  * Où retombe une carte qu'on sort d'une fin de parcours, d'un seul geste.
  *
- *   - « Archivé » → « À faire » : elle repassera par la validation, donc
- *     personne ne rouvre une dépense sans le savoir ;
+ *   - « Archivé » → « Planifié » : la colonne où toute carte naît, celle d'où
+ *     part le geste de lancement — personne ne rouvre une dépense sans le
+ *     savoir, puisque rien n'y démarre tout seul ;
  *   - « À déployer » → « Terminé » : elle sort du lot à publier et revient à
  *     l'étape juste avant, celle d'où l'on décide de publier ;
  *   - « En production » → « À déployer » : le travail est en ligne quelque
@@ -95,7 +95,7 @@ export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): Deci
  * Rend `null` pour toute autre colonne : il n'y a rien à reprendre.
  */
 export function colonneDeReprise(colonne: ColumnKey): ColumnKey | null {
-  if (colonne === 'archived') return 'todo';
+  if (colonne === 'archived') return 'planned';
   if (colonne === 'in_production') return 'to_deploy';
   if (colonne === 'to_deploy') return 'done';
   return null;
@@ -166,7 +166,7 @@ export const RAISON_ATTENTE_LANCEMENT =
  * partagent un même agent et un même contexte (on économise le quota), mais
  * l'agent d'analyse ne doit JAMAIS enchaîner tout seul sur l'exécution. Une
  * carte fraîchement analysée — jamais lancée, pas marquée « dès que possible » —
- * reste donc en attente : la bascule À faire → En cours reste un clic.
+ * reste donc en attente : la bascule Planifié → En cours reste un clic.
  *
  * L'ordonnanceur ne reprend AUTOMATIQUEMENT que trois sortes de cartes :
  *   - celle dont l'HEURE DITE est arrivée (`departPrevu`, posé à la création ou
@@ -212,7 +212,7 @@ export function demarrageAutomatiqueAutorise(
 }
 
 /**
- * Ce que porte une carte d'« À faire » qui ne partira pas toute seule tout de
+ * Ce que porte une carte de « Planifié » qui ne partira pas toute seule tout de
  * suite. Une seule phrase à la fois, dans cet ordre : la suspension d'abord (le
  * geste le plus fort), puis la date (elle dit déjà tout ce qu'il y a à savoir),
  * puis l'attente du clic. Rend `undefined` quand la carte est prête à partir :
@@ -302,7 +302,7 @@ export function colonneEnFinDeTour(
  * Désormais le dépôt VAUT le geste que la colonne d'arrivée désigne :
  *   - déposer dans « En cours » = cliquer sur « Lancer maintenant » (le même
  *     chemin de lancement, pas un raccourci parallèle) ;
- *   - sortir de « En cours » vers « À faire » = suspendre l'agent en travail,
+ *   - sortir de « En cours » vers « Planifié » = suspendre l'agent en travail,
  *     la carte restant en file ;
  *   - tout le reste = un simple rangement.
  */
@@ -311,7 +311,7 @@ export type EffetDuDepot = 'lancer' | 'suspendre' | 'ranger';
 export function effetDuDepot(depart: ColumnKey, arrivee: ColumnKey): EffetDuDepot {
   if (depart === arrivee) return 'ranger';
   if (arrivee === 'running') return 'lancer';
-  if (depart === 'running' && arrivee === 'todo') return 'suspendre';
+  if (depart === 'running' && arrivee === 'planned') return 'suspendre';
   return 'ranger';
 }
 

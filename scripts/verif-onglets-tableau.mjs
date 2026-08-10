@@ -188,10 +188,10 @@ async function main() {
     finiA: maintenant,
     position: maintenant + 0.3,
   });
-  // « todo » : un agent AU TRAVAIL → l'onglet porte le robot d'activité.
+  // « planned » : un agent AU TRAVAIL → l'onglet porte le robot d'activité.
   const carteTravail = await poserCarte({
-    suffixe: 'todo-travail',
-    column: 'todo',
+    suffixe: 'planned-travail',
+    column: 'planned',
     titre: 'Essai — agent au travail',
     statutAgent: 'running',
     position: maintenant + 0.4,
@@ -232,13 +232,13 @@ async function main() {
   );
   record(
     'une colonne sans rien (« todo ») garde son onglet nu',
-    (await aRepere('[data-onglet-attention="todo"]')) === 0 &&
-      (await aRepere('[data-onglet-non-lu="todo"]')) === 0 &&
-      (await aRepere('[data-onglet-travail="todo"]')) === 0,
+    (await aRepere('[data-onglet-attention="planned"]')) === 0 &&
+      (await aRepere('[data-onglet-non-lu="planned"]')) === 0 &&
+      (await aRepere('[data-onglet-travail="planned"]')) === 0,
   );
   record(
-    'la colonne « todo » (agent au travail) montre le robot d’activité',
-    (await aRepere('[data-onglet-travail="todo"]')) === 1,
+    'la colonne « planned » (agent au travail) montre le robot d’activité',
+    (await aRepere('[data-onglet-travail="planned"]')) === 1,
   );
 
   /*
@@ -302,7 +302,7 @@ async function main() {
   );
 
   // Le travail s'achève : l'agent passe à « done », le robot d'activité doit
-  // disparaître de l'onglet « todo ».
+  // disparaître de l'onglet « planned ».
   await page.evaluate(
     ([projectId, cardId, agentId, quand]) => {
       window.__injecter({
@@ -326,7 +326,7 @@ async function main() {
   await page.waitForTimeout(700);
   record(
     'le travail achevé éteint le robot d’activité de son onglet',
-    (await aRepere('[data-onglet-travail="todo"]')) === 0,
+    (await aRepere('[data-onglet-travail="planned"]')) === 0,
   );
 
   // Une carte change de colonne : les deux comptes doivent bouger ENSEMBLE.
@@ -340,7 +340,7 @@ async function main() {
           title: 'Essai — agent au travail',
           description: '',
           labels: [],
-          column: 'todo',
+          column: 'planned',
           position: quand + 0.4,
           origin: 'user',
           run: { engine: 'codex', mode: 'direct' },

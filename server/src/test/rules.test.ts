@@ -19,10 +19,10 @@ import {
 /* Règles de déplacement des cartes (PLAN §4)                          */
 /* ------------------------------------------------------------------ */
 
-test('un agent ne peut déplacer une carte que vers notes ou à faire', () => {
+test('un agent ne peut déplacer une carte que vers notes ou planifié', () => {
   for (const target of COLUMN_KEYS) {
-    const decision = canMove('agent', 'todo', target);
-    if (AGENT_MOVABLE_COLUMNS.includes(target) || target === 'todo') {
+    const decision = canMove('agent', 'planned', target);
+    if (AGENT_MOVABLE_COLUMNS.includes(target)) {
       assert.equal(decision.allowed, true, `${target} devrait être autorisée`);
     } else {
       assert.equal(decision.allowed, false, `${target} devrait être refusée`);
@@ -32,26 +32,25 @@ test('un agent ne peut déplacer une carte que vers notes ou à faire', () => {
 });
 
 test('un agent ne peut pas sortir une carte du pipeline', () => {
-  const decision = canMove('agent', 'running', 'todo');
+  const decision = canMove('agent', 'running', 'planned');
   assert.equal(decision.allowed, false);
 });
 
-test('la machine lance une carte d’« À faire », qui est la seule file d’attente', () => {
-  // « Planifié » a disparu : c'est de « À faire » que part une carte déjà
-  // autorisée (heure dite, « dès que possible », tour interrompu).
-  assert.equal(canMove('machine', 'todo', 'running').allowed, true);
+test('la machine promeut dans le pipeline, et nulle part ailleurs', () => {
+  assert.equal(canMove('machine', 'planned', 'running').allowed, true);
+  assert.equal(canMove('machine', 'planned', 'notes').allowed, false);
 });
 
 test('la machine ne peut pas promouvoir vers le lot à publier', () => {
   for (const target of ['to_deploy', 'in_production'] as ColumnKey[]) {
-    assert.equal(canMove('machine', 'todo', target).allowed, false);
+    assert.equal(canMove('machine', 'planned', target).allowed, false);
   }
 });
 
 /*
  * « Terminé » fait exception depuis que la carte suit l'état de son agent :
- * elle y va d'elle-même quand le travail est rendu. La validation, elle, reste
- * hors de portée de la machine.
+ * elle y va d'elle-même quand le travail est rendu. Le LANCEMENT, lui, reste un
+ * geste humain — garde tenue par la règle de pause, pas par une colonne.
  */
 test('la machine peut en revanche poser une carte en terminé', () => {
   assert.equal(canMove('machine', 'running', 'done').allowed, true);
@@ -70,8 +69,7 @@ test("l'utilisateur peut tout déplacer", () => {
 /* ------------------------------------------------------------------ */
 
 test('le gabarit dépend de la colonne', () => {
-  // « À faire » est la colonne d'AVANT le travail : c'est là qu'on chiffre.
-  assert.equal(templateForColumn('todo'), 'pre_run');
+  assert.equal(templateForColumn('planned'), 'pre_run');
   assert.equal(templateForColumn('running'), 'in_run');
   assert.equal(templateForColumn('done'), 'in_run');
   assert.equal(templateForColumn('to_deploy'), 'in_run');

@@ -16,12 +16,23 @@ function choice(engine: EngineId, models: ModelInfo[], wanted?: string, thinking
   return orchestratorChoice(engine, models, wanted, thinking);
 }
 
-test('un chef Claude choisit Sonnet 5 avec une réflexion moyenne', () => {
-  const models = [model('claude-opus-5'), model('claude-sonnet-5-20260801')];
+/*
+ * Le chef ne fait plus qu'un tri : rédiger une carte courte et choisir le niveau
+ * de l'agent qui l'exécutera. Payer un modèle de raisonnement pour ce geste-là
+ * revenait à payer une analyse à chaque message — d'où Haiku 4.5.
+ */
+test('un chef Claude choisit Haiku 4.5, le modèle économe', () => {
+  const models = [model('claude-opus-5'), model('claude-sonnet-5-20260801'), model('claude-haiku-4-5-20251001')];
   assert.deepEqual(choice('claude', models), {
-    model: 'claude-sonnet-5-20260801',
+    model: 'claude-haiku-4-5-20251001',
     thinking: 'medium',
   });
+});
+
+test('sans Haiku au catalogue, le chef Claude se replie sur un modèle réel', () => {
+  const models = [model('claude-opus-5'), model('claude-sonnet-5-20260801')];
+  const retenu = choice('claude', models);
+  assert.ok(models.some((entry) => entry.id === retenu.model), `modèle inventé : ${retenu.model}`);
 });
 
 test('un chef Codex choisit GPT-5.4 avec une réflexion moyenne', () => {

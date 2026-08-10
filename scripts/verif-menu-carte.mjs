@@ -121,7 +121,7 @@ async function controler(page, erreurs, ecran) {
   record(`${ecran} — le menu propose l'archivage`, /Archiver la carte/.test(texte));
   record(`${ecran} — le menu propose de déplacer vers d'autres colonnes`, /Déplacer vers/.test(texte));
 
-  const colonnes = ['Notes', 'À faire', 'En cours', 'Terminé', 'À déployer'];
+  const colonnes = ['Notes', 'Planifié', 'En cours', 'Terminé', 'À déployer'];
   const proposees = colonnes.filter((nom) => menu.locator(`[role="menuitem"]:text-is("${nom}")`));
   const items = await menu.locator('[role="menuitem"]').allTextContents();
   record(

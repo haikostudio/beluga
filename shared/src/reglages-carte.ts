@@ -16,9 +16,9 @@
 import { ColumnKey } from './columns.js';
 
 /**
- * Les colonnes où le travail a déjà commencé. « À faire » n'en fait pas
- * partie : une carte en file, même chiffrée, n'a pas encore de compte ni
- * d'agent d'exécution — on peut encore changer d'avis jusqu'au départ.
+ * Les colonnes où le travail a déjà commencé. « Planifié » n'en fait pas
+ * partie : une carte en file n'a pas encore de compte ni d'agent, on peut
+ * encore changer d'avis jusqu'au départ.
  */
 export const COLONNES_DEMARREES: ColumnKey[] = ['running', 'done', 'to_deploy', 'in_production', 'archived'];
 

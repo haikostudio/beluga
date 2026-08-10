@@ -293,11 +293,11 @@ async function main() {
     const require = createRequire(import.meta.url);
     const db = require('/root/haikodev/node_modules/better-sqlite3')('/root/haikodev/data/haikodev.db');
     const carte = db
-      /* « À faire » d'abord : c'est la colonne visible d'emblée, donc celle où
+      /* « Planifié » d'abord : c'est la colonne visible d'emblée, donc celle où
          la copie d'écran montre vraiment quelque chose. */
       .prepare(
         `SELECT id FROM cards WHERE project_id = ? AND column_key <> 'archived'
-         ORDER BY column_key = 'todo' DESC, position DESC LIMIT 1`,
+         ORDER BY column_key = 'planned' DESC, position DESC LIMIT 1`,
       )
       .get(actif.id);
     db.close();

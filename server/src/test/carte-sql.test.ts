@@ -25,7 +25,7 @@ const CARTE_ANCIENNE = {
   title: 'Une carte venue de la base d’avant',
   description: 'Constat, attendu, limites, vérification.',
   labels: ['urgent', 'base'],
-  column: 'todo',
+  column: 'planned',
   position: 1_700_000_000_000,
   origin: 'agent',
   attachments: ['/data/attachments/une-image.png', '/data/attachments/deux.png'],

@@ -21,8 +21,13 @@ export async function catalogueMoteurs(): Promise<MoteurCatalogue[]> {
     installed: engine.installed,
     models: engine.models.map((m) => ({
       id: m.id,
+      label: m.label,
       thinking: m.thinking.map((t) => ({ id: t.id })),
       defaultThinking: m.defaultThinking,
+      // L'appétit sert à traduire le NIVEAU choisi par le chef en modèle réel
+      // (`shared/src/niveau-agent.ts`) : sans lui, on retomberait sur les noms
+      // de familles, qui vieillissent.
+      appetite: m.appetite,
     })),
     defaultModel: engine.defaultModel,
     comptesDisponibles: comptes.filter(

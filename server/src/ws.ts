@@ -36,12 +36,13 @@ import { listEngines } from './engines/index.js';
 import { normaliseThinking } from './engines/catalog.js';
 import { cachedQuotas, refreshQuotas, renameAccount, setAccountDisabled } from './accounts.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
+import { reprendreSurCompte } from './reprise-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
-import { analyseCard, appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
+import { appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
 import {
   deployableCards,
@@ -406,7 +407,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       }
 
       /*
-       * Sortir une carte de « En cours » vers « À faire », c'est SUSPENDRE :
+       * Sortir une carte de « En cours » vers « Planifié », c'est SUSPENDRE :
        * le tour est arrêté proprement, la carte reste en file avec la raison
        * écrite dessus, et l'ordonnanceur ne la reprend pas de lui-même.
        */
@@ -414,8 +415,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
         const suspendue = store.saveCard({
           ...card,
-          column: 'todo',
-          position: store.nextPosition(card.projectId, 'todo'),
+          column: 'planned',
+          position: store.nextPosition(card.projectId, 'planned'),
           scheduling: {
             ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
             suspendu: true,
@@ -505,17 +506,6 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         projectId: card.projectId,
       });
       return { card: updated };
-    }
-
-    case 'card.reanalyze': {
-      const card = store.getCard(cmd.id);
-      if (!card) throw new Error('carte introuvable');
-      // Le drapeau rallume le signal « Chiffrage du travail… » : une analyse
-      // relancée doit se voir comme la première.
-      const relancee = store.saveCard({ ...card, estimate: undefined, analyseDemandee: true });
-      bus.emit({ type: 'card.upsert', card: relancee });
-      void analyseCard(cmd.id);
-      return { ok: true };
     }
 
     case 'card.asap': {
@@ -642,13 +632,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const agent = store.getAgent(cmd.agentId);
       if (!agent) throw new Error('agent introuvable');
       /*
-       * DISCUTER AVEC L'AGENT D'ANALYSE. Un message écrit à l'agent d'analyse
-       * d'une carte relance son analyse : on rebranche donc la lecture des
-       * chiffres pour que le chiffrage corrigé remonte sur la carte. Jamais
-       * marquée en échec, jamais déplacée (voir `appliquerChiffrageDiscute`).
+       * DISCUTER D'UN CHIFFRAGE. Le chiffrage vit désormais dans le tour de
+       * l'agent d'exécution : c'est donc à LUI qu'on écrit pour corriger une
+       * hypothèse, et son tour rend souvent des chiffres frais. On rebranche
+       * leur lecture pour qu'ils remontent sur la carte — jamais marquée en
+       * échec, jamais déplacée (voir `appliquerChiffrageDiscute`). Les agents
+       * d'analyse d'avant ce changement gardent le même branchement.
        */
       const onComplete =
-        agent.role === 'analysis' && agent.cardId
+        (agent.role === 'task' || agent.role === 'analysis') && agent.cardId
           ? (text: string, ok: boolean, measurement: import('@haikodev/shared').TurnMeasurement) =>
               appliquerChiffrageDiscute(agent.cardId!, text, ok, measurement)
           : undefined;
@@ -845,6 +837,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { ok: true };
     }
 
+    /*
+     * POURSUIVRE APRÈS ÉPUISEMENT. Tout se joue dans `reprendreSurCompte` :
+     * relevé frais du compte visé, décision fermée AVANT le lancement (donc un
+     * double clic ne lance rien), puis reprise du même agent. Un refus rend son
+     * motif en français, sans rien lancer.
+     */
+    case 'reprise.compte': {
+      const resultat = await reprendreSurCompte(cmd.messageId, cmd.accountId);
+      if (!resultat.ok) throw new Error(resultat.error ?? 'reprise impossible');
+      return { ok: true };
+    }
+
     case 'proposal.decide': {
       const message = store.getMessage(cmd.messageId);
       if (!message) throw new Error('message introuvable');
@@ -929,6 +933,16 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // Tranchée, la proposition ne réclame plus rien : le signal s'éteint.
       bus.emit({ type: 'attention', ...store.signalAttention() });
       return { cardId };
+    }
+
+    case 'proposal.merge': {
+      const resultat = store.mergePendingProposals(cmd.items);
+      // Les messages qui portaient les sources sont tous rafraîchis. La
+      // proposition réunie vit dans le premier : elle apparaît aussitôt dans
+      // le bandeau, sans nouveau tour d'IA et sans carte créée.
+      for (const message of resultat.messages) bus.emit({ type: 'message.upsert', message });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+      return { proposalId: resultat.proposal.id, already: resultat.already ?? false };
     }
 
     /* -------- Publication -------- */

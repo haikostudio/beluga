@@ -32,7 +32,7 @@ test('une carte terminée sur laquelle on relance une exécution repasse en cour
 });
 
 test('une carte en amont du parcours part en cours quand l’exécution démarre', () => {
-  for (const depart of ['notes', 'todo'] as const) {
+  for (const depart of ['notes', 'planned'] as const) {
     assert.equal(colonneAuDemarrage(depart, 'task'), 'running', `depuis « ${depart} »`);
   }
 });
@@ -57,7 +57,7 @@ test('un tour d’exécution réussi pose la carte en terminé', () => {
 
 test('un tour d’exécution en échec ne déplace rien : le travail n’est pas fait', () => {
   assert.equal(colonneEnFinDeTour('running', false, 'task', true), null);
-  for (const depart of ['todo', 'done'] as const) {
+  for (const depart of ['notes', 'planned', 'done'] as const) {
     assert.equal(colonneEnFinDeTour(depart, false, 'task', true), null, `depuis « ${depart} »`);
   }
 });
@@ -120,9 +120,9 @@ test('rien à publier, rien dans le lot : « À déployer » se gagne par « Ter
 
 test('une analyse qui démarre laisse la carte validée où elle est', () => {
   // Le défaut d'origine : la carte sautait en « En cours » dès l'analyse.
-  // La carte validée attend son chiffrage DANS « À faire » : plus de colonne
-  // « Validé » à traverser.
-  assert.equal(colonneAuDemarrage('todo', 'analysis'), null);
+  // La carte validée attend son chiffrage DANS « Planifié », la colonne où elle
+  // naît : plus de colonne « Validé » ni de colonne « À faire » à traverser.
+  assert.equal(colonneAuDemarrage('planned', 'analysis'), null);
   for (const depart of COLUMN_KEYS) {
     assert.equal(colonneAuDemarrage(depart, 'analysis'), null, `depuis « ${depart} »`);
   }
@@ -130,12 +130,12 @@ test('une analyse qui démarre laisse la carte validée où elle est', () => {
 
 test('un tour d’analyse réussi ne clôt pas la carte : rien n’a été exécuté', () => {
   assert.equal(colonneEnFinDeTour('running', true, 'analysis', true), null);
-  assert.equal(colonneEnFinDeTour('todo', true, 'analysis', true), null);
+  assert.equal(colonneEnFinDeTour('planned', true, 'analysis', true), null);
 });
 
 test('ni l’orchestration ni la publication ne déplacent une carte', () => {
   for (const role of ['orchestrator', 'deploy'] as const) {
-    assert.equal(colonneAuDemarrage('todo', role), null, `démarrage « ${role} »`);
+    assert.equal(colonneAuDemarrage('planned', role), null, `démarrage « ${role} »`);
     assert.equal(colonneAuDemarrage('done', role), null, `démarrage « ${role} »`);
     assert.equal(colonneEnFinDeTour('running', true, role, true), null, `fin « ${role} »`);
   }
@@ -150,13 +150,13 @@ test('la liste des rôles qui déplacent se réduit à l’exécution', () => {
 /* -------- Le parcours complet -------- */
 
 test('validé, analyse, exécution : la carte ne bouge qu’au bon moment', () => {
-  // 1. L'analyse démarre sur une carte validée : elle reste dans « À faire ».
-  assert.equal(colonneAuDemarrage('todo', 'analysis'), null);
-  // 2. L'analyse rend son chiffrage : la carte ne bouge pas d'un pouce — il n'y
-  //    a plus de colonne « Planifié » où la promouvoir.
-  assert.equal(colonneEnFinDeTour('todo', true, 'analysis', true), null);
-  // 3. Le lancement part de « À faire » : la carte passe en cours.
-  assert.equal(colonneAuDemarrage('todo', 'task'), 'running');
+  // 1. L'analyse démarre sur une carte validée : elle reste dans « Planifié ».
+  assert.equal(colonneAuDemarrage('planned', 'analysis'), null);
+  // 2. L'analyse rend son chiffrage : ces règles ne la déplacent toujours pas
+  //    — la carte chiffre SUR PLACE, il n'y a plus de promotion à faire.
+  assert.equal(colonneEnFinDeTour('planned', true, 'analysis', true), null);
+  // 3. L'ordonnanceur lance l'exécution : la carte passe en cours.
+  assert.equal(colonneAuDemarrage('planned', 'task'), 'running');
   // 4. L'exécution rend son rapport : terminé.
   assert.equal(colonneEnFinDeTour('running', true, 'task', true), 'done');
 });
@@ -177,10 +177,13 @@ test('la machine a le droit de poser une carte en terminé', () => {
   assert.equal(canMove('machine', 'running', 'done').allowed, true);
 });
 
-test('l’ordonnanceur lance depuis « À faire », devenue la seule file d’attente', () => {
-  // L'autorisation, elle, ne se juge pas ici mais dans `demarrageAutomatiqueAutorise` :
-  // une carte simplement posée là ne part toujours pas toute seule.
-  assert.equal(canMove('machine', 'todo', 'running').allowed, true);
+test('l’ordonnanceur ne pousse jamais une carte vers une étape de publication', () => {
+  // Ce qui protège la dépense n'est plus une colonne interdite — « À faire » a
+  // disparu —, c'est la règle de pause. Ici on garde l'autre garde-fou : la
+  // machine ne promeut que dans le pipeline d'exécution.
+  assert.equal(canMove('machine', 'planned', 'to_deploy').allowed, false);
+  assert.equal(canMove('machine', 'planned', 'in_production').allowed, false);
+  assert.equal(canMove('machine', 'planned', 'running').allowed, true);
 });
 
 /* ------------------------------------------------------------------ */
@@ -188,13 +191,13 @@ test('l’ordonnanceur lance depuis « À faire », devenue la seule file d’at
 /* ------------------------------------------------------------------ */
 
 test('déposer une carte dans « En cours » vaut un lancement, d’où qu’elle vienne', () => {
-  for (const depart of ['notes', 'todo', 'done'] as const) {
+  for (const depart of ['notes', 'planned', 'done'] as const) {
     assert.equal(effetDuDepot(depart, 'running'), 'lancer', `depuis « ${depart} »`);
   }
 });
 
-test('sortir une carte de « En cours » vers « À faire » suspend son agent', () => {
-  assert.equal(effetDuDepot('running', 'todo'), 'suspendre');
+test('sortir une carte de « En cours » vers « Planifié » suspend son agent', () => {
+  assert.equal(effetDuDepot('running', 'planned'), 'suspendre');
 });
 
 test('les autres sorties de « En cours » restent de simples rangements', () => {
@@ -212,10 +215,10 @@ test('reposer une carte dans sa propre colonne ne déclenche rien', () => {
 });
 
 test('un rangement ordinaire n’est ni un lancement ni une suspension', () => {
-  assert.equal(effetDuDepot('todo', 'notes'), 'ranger');
+  assert.equal(effetDuDepot('planned', 'notes'), 'ranger');
   assert.equal(effetDuDepot('done', 'to_deploy'), 'ranger');
-  // « À faire » n'est une suspension QUE depuis « En cours ».
-  assert.equal(effetDuDepot('notes', 'todo'), 'ranger');
+  // « Planifié » n'est une suspension QUE depuis « En cours ».
+  assert.equal(effetDuDepot('notes', 'planned'), 'ranger');
 });
 
 /* -------- Ce que le glissement a le droit de faire pendant le travail -------- */
@@ -223,7 +226,7 @@ test('un rangement ordinaire n’est ni un lancement ni une suspension', () => {
 const enTravail = { colonne: 'running', etat: etatVisuelCarte({ agentStatut: 'running' }), agentLance: true };
 
 test('la suspension passe même pendant que l’agent écrit : c’est sa raison d’être', () => {
-  assert.equal(sortieAutorisee(enTravail, 'todo').possible, true);
+  assert.equal(sortieAutorisee(enTravail, 'planned').possible, true);
 });
 
 test('toute autre sortie reste refusée tant que l’agent écrit', () => {
@@ -280,7 +283,7 @@ test('un tour d’agent reste bloqué : la règle par défaut n’a pas bougé',
 });
 
 test('la carte ressortie retombe à l’étape juste avant sa fin de parcours', () => {
-  assert.equal(colonneDeReprise('archived'), 'todo');
+  assert.equal(colonneDeReprise('archived'), 'planned');
   assert.equal(colonneDeReprise('to_deploy'), 'done');
   for (const colonne of COLUMN_KEYS.filter((c) => !COLONNES_HORS_REPRISE.includes(c))) {
     assert.equal(colonneDeReprise(colonne), null, `« ${colonne} »`);
@@ -299,7 +302,7 @@ test('le bouton de reprise n’existe que sur les deux fins de parcours', () => 
 
 test('une carte ressortie dit qu’elle avait été archivée, et quand', () => {
   const quand = new Date('2026-08-04T10:00:00Z').getTime();
-  const mention = mentionArchivage({ column: 'todo', archivedAt: quand });
+  const mention = mentionArchivage({ column: 'planned', archivedAt: quand });
   assert.ok(mention);
   assert.match(mention!, /Archivée le /);
   assert.match(mention!, new RegExp(new Date(quand).toLocaleDateString('fr-CH').replace(/\./g, '\\.')));

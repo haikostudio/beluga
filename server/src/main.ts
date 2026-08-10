@@ -22,6 +22,7 @@ import { amorcerFenetres } from './amorce.js';
 import { envoyerAuCerveau } from './cerveau.js';
 import { diffuserEtatDemon } from './demon.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
+import { surveillerRepriseDeCompte } from './reprise-compte.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -87,6 +88,9 @@ async function main(): Promise<void> {
   const suivreEcheances = bus.subscribe((evenement) => {
     if (evenement.type === 'quotas') quotaEcheances.actualiser(evenement.quotas);
   });
+  // Un travail coupé par une limite attend peut-être qu'un compte se libère :
+  // le même flux de quotas le lui dit, sans boucle en plus.
+  const suivreReprises = surveillerRepriseDeCompte();
   const capacityTimer = setInterval(() => {
     sampleCapacity();
     // Le même rythme sert à dire si le démon tourne encore sur du code périmé :
@@ -134,6 +138,7 @@ async function main(): Promise<void> {
     clearInterval(quotaTimer);
     quotaEcheances.arreter();
     suivreEcheances();
+    suivreReprises();
     clearInterval(backupTimer);
     clearInterval(digestTimer);
     clearInterval(janitorTimer);

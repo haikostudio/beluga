@@ -211,8 +211,8 @@ async function main() {
     .map((e) => e.card);
   const unique = new Map(created.map((c) => [c.id, c]));
   record(
-    'Chef d\'orchestre : une demande d\'action crée une carte dans « À faire »',
-    unique.size === 1 && [...unique.values()][0].column === 'todo',
+    'Chef d\'orchestre : une demande d\'action crée une carte dans « Planifié »',
+    unique.size === 1 && [...unique.values()][0].column === 'planned',
     [...unique.values()].map((c) => c.title).join(' | '),
   );
   record(
@@ -254,7 +254,7 @@ async function main() {
   });
   await session.call({ type: 'card.validate', id: card.id });
   await session.waitFor(
-    (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'todo',
+    (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'planned',
     600000,
     'analyse puis planification',
   );

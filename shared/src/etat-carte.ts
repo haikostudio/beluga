@@ -16,13 +16,11 @@ import { carteNonLue } from './travail-rendu.js';
 export interface EtatVisuelEntree {
   /** Statut de l'agent de la carte, s'il y en a un. */
   agentStatut?: 'idle' | 'starting' | 'running' | 'stopped' | 'failed' | 'done';
-  /** Une analyse tourne en ce moment pour cette carte. */
+  /** Un agent de la carte travaille, sans être celui qu'elle a retenu. */
   analyseEnCours?: boolean;
-  /** La carte est validée mais pas encore chiffrée : le travail est déjà lancé. */
-  chiffrageEnCours?: boolean;
   /** La carte attend quelque chose (heure creuse, place libre, réponse). */
   enAttente?: boolean;
-  /** L'analyse s'est terminée sans chiffres exploitables. */
+  /** Le chiffrage s'est terminé sans chiffres exploitables. */
   estimationEchouee?: boolean;
   /** La carte est en ligne. */
   enLigne?: boolean;
@@ -44,7 +42,7 @@ export type EtatVisuelCarte =
 export function etatVisuelCarte(entree: EtatVisuelEntree): EtatVisuelCarte {
   // Ce qui tourne prime sur tout : c'est l'information la plus fraîche.
   if (entree.agentStatut === 'running' || entree.agentStatut === 'starting') return 'travaille';
-  if (entree.analyseEnCours || entree.chiffrageEnCours) return 'travaille';
+  if (entree.analyseEnCours) return 'travaille';
 
   if (entree.agentStatut === 'failed' || entree.estimationEchouee) return 'echec';
   if (entree.enAttente) return 'attente';
@@ -87,13 +85,12 @@ export interface ContexteGeste {
   /** Un agent a-t-il déjà travaillé sur cette carte ? */
   agentLance?: boolean;
   /**
-   * La dépense a-t-elle DÉJÀ été autorisée ? Vrai dès que le chiffrage est
-   * demandé, en cours ou rendu. « À faire » étant devenue la seule colonne
-   * d'avant-travail, « Valider » et « Lancer maintenant » y cohabitent : sans ce
-   * repère, le bouton de validation resterait affiché sur une carte déjà
-   * chiffrée, où il n'aurait plus rien à autoriser.
+   * La carte a-t-elle DÉJÀ son chiffrage, ou l'a-t-elle déjà demandé ? C'est ce
+   * qui décide de l'existence du bouton « Valider (autorise la dépense) » :
+   * autoriser deux fois la même dépense n'aurait pas de sens, et une analyse
+   * refaite passe par le geste rare « Relancer l'analyse ».
    */
-  chiffrageEngage?: boolean;
+  chiffree?: boolean;
 }
 
 export interface DecisionGeste {
@@ -110,17 +107,17 @@ const ABSENT: DecisionGeste = { affiche: false, possible: false };
 export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste {
   switch (geste) {
     case 'valider':
-      // Autoriser la dépense se fait depuis « À faire », et de nulle part
-      // ailleurs — et une seule fois : un chiffrage déjà demandé ou rendu a
-      // consommé le geste, le bouton s'efface au profit du lancement.
-      return ctx.colonne === 'todo' && !ctx.chiffrageEngage
-        ? { affiche: true, possible: true }
-        : ABSENT;
+      /*
+       * Autoriser la dépense se fait depuis « Planifié », la colonne où la carte
+       * naît, et de nulle part ailleurs. Le geste ne déplace rien : il lance le
+       * chiffrage SUR PLACE. Une carte déjà chiffrée — ou dont le chiffrage est
+       * en route — n'affiche plus le bouton : il n'y a plus rien à autoriser.
+       */
+      if (ctx.colonne !== 'planned') return ABSENT;
+      return ctx.chiffree ? ABSENT : { affiche: true, possible: true };
 
     case 'lancer':
-      // Le lancement part lui aussi d'« À faire » : il n'y a plus de colonne
-      // « Planifié » à traverser entre le chiffrage et le travail.
-      if (ctx.colonne !== 'todo') return ABSENT;
+      if (ctx.colonne !== 'planned') return ABSENT;
       return ctx.etat === 'travaille'
         ? { affiche: true, possible: false, raison: 'Un agent travaille déjà sur cette carte.' }
         : { affiche: true, possible: true };
@@ -173,11 +170,11 @@ export function sortieAutorisee(ctx: ContexteGeste, vers: string): DecisionGeste
   if (ctx.colonne === vers) return { affiche: true, possible: true };
   /*
    * Une seule sortie est permise pendant que l'agent écrit : le retour en
-   * « À faire ». Ce n'est pas un déplacement de rangement, c'est la demande
+   * « Planifié ». Ce n'est pas un déplacement de rangement, c'est la demande
    * de SUSPENDRE — le tour est arrêté proprement, la carte reste en file.
    * Toutes les autres destinations perdraient le fil du travail en cours.
    */
-  if (ctx.colonne === 'running' && vers === 'todo') return { affiche: true, possible: true };
+  if (ctx.colonne === 'running' && vers === 'planned') return { affiche: true, possible: true };
   if (ctx.colonne === 'running' && ctx.etat === 'travaille') {
     return {
       affiche: true,

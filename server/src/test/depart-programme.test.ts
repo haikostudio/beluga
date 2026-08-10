@@ -85,7 +85,7 @@ test('la phrase d’attente dépend de ce qui retient vraiment la carte', () => 
 
 test('la mention affichée dit QUAND la carte partira', () => {
   const mention = mentionDepartProgramme(
-    { column: 'todo', scheduling: { departPrevu: MAINTENANT + 2 * HEURE } },
+    { column: 'planned', scheduling: { departPrevu: MAINTENANT + 2 * HEURE } },
     MAINTENANT,
   );
   assert.ok(mention);
@@ -96,7 +96,7 @@ test('la mention affichée dit QUAND la carte partira', () => {
 
 test('l’heure atteinte, la mention annonce le départ imminent', () => {
   const mention = mentionDepartProgramme(
-    { column: 'todo', scheduling: { departPrevu: MAINTENANT - MINUTE } },
+    { column: 'planned', scheduling: { departPrevu: MAINTENANT - MINUTE } },
     MAINTENANT,
   );
   assert.match(mention ?? '', /Heure de départ atteinte/);
@@ -107,9 +107,9 @@ test('la mention se tait là où la date n’a plus de sens', () => {
   for (const column of ['running', 'done', 'to_deploy', 'in_production', 'archived', 'notes']) {
     assert.equal(mentionDepartProgramme({ column, scheduling: datee }, MAINTENANT), null);
   }
-  assert.equal(mentionDepartProgramme({ column: 'todo', scheduling: {} }, MAINTENANT), null);
+  assert.equal(mentionDepartProgramme({ column: 'planned', scheduling: {} }, MAINTENANT), null);
   assert.equal(
-    mentionDepartProgramme({ column: 'todo', scheduling: { ...datee, suspendu: true } }, MAINTENANT),
+    mentionDepartProgramme({ column: 'planned', scheduling: { ...datee, suspendu: true } }, MAINTENANT),
     null,
   );
 });

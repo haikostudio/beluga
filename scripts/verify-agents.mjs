@@ -142,36 +142,44 @@ async function main() {
   });
   record('Projet : inscription d\'un dossier du serveur', !!project?.id, project?.name);
 
-  /* ---------- Invariant : une carte naît dans « À faire » ---------- */
+  /* ---------- Invariant : une carte naît dans « Planifié » ---------- */
   const { card: carteManuelle } = await session.call({
     type: 'card.create',
     projectId: project.id,
     title: 'Corriger la fonction somme qui soustrait au lieu d\'additionner',
     description: 'Le fichier calcul.js contient une fonction somme qui fait une soustraction. Corrige-la.',
   });
-  record('Carte : elle naît toujours dans « À faire »', carteManuelle.column === 'todo', `colonne ${carteManuelle.column}`);
+  record('Carte : elle naît toujours dans « Planifié »', carteManuelle.column === 'planned', `colonne ${carteManuelle.column}`);
 
   /* ---------- Refus des colonnes interdites aux agents ---------- */
   let refused = false;
   try {
-    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'todo' });
+    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'done' });
   } catch {
     refused = true;
   }
   record('Règle : l\'utilisateur peut déplacer librement (aucun blocage abusif)', !refused);
-  await session.call({ type: 'card.move', id: carteManuelle.id, column: 'todo' });
+  await session.call({ type: 'card.move', id: carteManuelle.id, column: 'planned' });
   await session.call({ type: 'card.delete', id: carteManuelle.id });
 
   /* ---------- Chef d'orchestre : le tri en familles ---------- */
   const { agent: orchestrator } = await session.call({ type: 'agent.orchestrator', projectId: project.id });
   record('Chef d\'orchestre : agent permanent créé', !!orchestrator?.id);
+  /*
+   * Le chef ne fait plus qu'un tri : son modèle par défaut est ÉCONOME sous
+   * Claude (Haiku 4.5). Un choix manuel enregistré dans les réglages l'emporte,
+   * et le contrôle le DIT au lieu de tomber en erreur.
+   */
+  const choixManuel = !!(await session.call({ type: 'settings.get' }))?.settings?.orchestratorModel;
   record(
     'Chef d\'orchestre : son modèle et sa réflexion ont les bons défauts',
-    (ENGINE === 'codex'
-      ? orchestrator.run.engine === 'codex' && orchestrator.run.model?.includes('gpt-5.4')
-      : orchestrator.run.engine === 'claude' && orchestrator.run.model?.includes('sonnet-5')) &&
-      orchestrator.run.thinking === 'medium',
-    `modèle ${orchestrator.run.model}, réflexion ${orchestrator.run.thinking}`,
+    choixManuel ||
+      (ENGINE === 'codex'
+        ? orchestrator.run.engine === 'codex' && orchestrator.run.model?.includes('gpt-5.4')
+        : orchestrator.run.engine === 'claude' && /haiku/i.test(orchestrator.run.model ?? '')),
+    choixManuel
+      ? `choix manuel enregistré : ${orchestrator.run.model}`
+      : `modèle ${orchestrator.run.model}, réflexion ${orchestrator.run.thinking}`,
   );
 
   const cardsBefore = (await session.call({ type: 'project.open', id: project.id }), 0);
@@ -249,12 +257,12 @@ async function main() {
   );
 
   const planned = await session.waitFor(
-    (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'todo',
+    (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'planned',
     120000,
     'promotion en planifié',
   );
   card = planned.card;
-  record('Ordonnancement : la carte déjà analysée attend son lancement dans « À faire »', card.column === 'todo');
+  record('Ordonnancement : la carte déjà analysée va directement en « Planifié »', card.column === 'planned');
   await new Promise((r) => setTimeout(r, 1500));
   const analysesRedondantes = session.events.filter(
     (e) => e.type === 'agent.upsert' && e.agent.cardId === card.id && e.agent.role === 'analysis',

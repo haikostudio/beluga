@@ -19,7 +19,7 @@
 
 /** Ce qu'il faut savoir d'une proposition pour la trier. */
 export interface PropositionTriable {
-  decision?: 'pending' | 'accepted' | 'refused';
+  decision?: 'pending' | 'accepted' | 'refused' | 'merged';
 }
 
 /** Ce qu'il faut savoir d'un message pour en tirer ses propositions. */

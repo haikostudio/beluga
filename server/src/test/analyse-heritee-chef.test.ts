@@ -16,7 +16,7 @@ process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
 const { callTool, createCard, TOOL_DEFS } = await import('../tools.js');
-const { reprendreAnalyseDuChef } = await import('../scheduler.js');
+const { validerCarte } = await import('../scheduler.js');
 
 const DESCRIPTION = [
   'Constat : `server/src/ws.ts` déclenche actuellement une analyse après chaque validation.',
@@ -54,12 +54,19 @@ function projetDEssai() {
   } as any);
 }
 
-test('les outils du chef exigent le chiffrage et le relais dans la proposition', () => {
+/*
+ * Le chef d'orchestre ne chiffre PLUS : il trie, et l'étude appartient à la
+ * carte. Le champ reste offert — un agent qui vient réellement d'analyser y
+ * transmet son relais — mais il n'est plus exigé ; ce qui l'est, c'est le
+ * NIVEAU de l'agent qui exécutera.
+ */
+test('les outils du chef exigent le niveau, et offrent encore le relais d’analyse', () => {
   for (const nom of ['board_create_card', 'propose_task']) {
     const outil = TOOL_DEFS.find((item) => item.name === nom)!;
     const schema = outil.inputSchema as any;
-    assert.ok(schema.required.includes('analysis'), `${nom} doit demander l’analyse`);
-    assert.ok(schema.properties.analysis.properties.context, `${nom} doit demander le relais`);
+    assert.ok(schema.required.includes('niveau'), `${nom} doit demander le niveau`);
+    assert.ok(!schema.required.includes('analysis'), `${nom} ne doit plus exiger l’analyse`);
+    assert.ok(schema.properties.analysis.properties.context, `${nom} doit offrir le relais`);
   }
 });
 
@@ -107,20 +114,18 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
     origin: 'agent',
     ...heritage,
   });
-  // Plus de colonne « Validé » ni de colonne « Planifié » : la carte reste dans
-  // « À faire » de bout en bout. La validation d'une carte du chef n'a donc
-  // qu'à poser l'attente de lancement — son chiffrage est déjà là.
+  // La carte NAÎT dans « Planifié », déjà chiffrée par le chef : il n'y a plus
+  // de colonne à traverser, seulement une raison d'attente à écrire.
   const validee = store.getCard(card.id)!;
 
   assert.equal(validee.estimate?.analysisMeasurement?.totalTokens, 1_120);
   assert.equal(validee.estimate?.producedAt, 1234);
   assert.match(contexteHeritePourExecution(validee) ?? '', /ne recommence pas/);
-  assert.equal(reprendreAnalyseDuChef(validee.id), true);
+  assert.equal(validerCarte(validee.id).ok, true);
 
-  const prete = store.getCard(validee.id)!;
-  assert.equal(prete.column, 'todo', 'la carte ne quitte pas « À faire »');
-  assert.equal(prete.analyseDemandee, false, 'aucun chiffrage ne reste demandé');
-  assert.equal(prete.scheduling?.waitingReason, RAISON_ATTENTE_LANCEMENT);
+  const planifiee = store.getCard(validee.id)!;
+  assert.equal(planifiee.column, 'planned');
+  assert.equal(planifiee.scheduling?.waitingReason, RAISON_ATTENTE_LANCEMENT);
   assert.equal(store.getLastAgentByCard(validee.id), null, 'aucun second agent d’analyse ne doit naître');
 });
 
@@ -151,7 +156,17 @@ test('une édition du sujet ou une carte ordinaire garde le chiffrage habituel',
   assert.equal(store.getCard(heritee.id)?.estimate, undefined, 'modifier la carte invalide son ancien chiffrage');
   assert.equal(store.getCard(heritee.id)?.analysisContext, undefined);
 
+  // Une carte SANS chiffrage du chef suit le même chemin : elle monte en
+  // « Planifié » et y attend son lancement, sans chiffres et sans rien envoyer
+  // au moteur — c'est l'agent d'exécution qui chiffrera.
   const ordinaire = createCard(projet.id, { title: 'Carte ordinaire', description: DESCRIPTION });
-  assert.equal(reprendreAnalyseDuChef(ordinaire.id), false);
-  assert.equal(store.getCard(ordinaire.id)?.column, 'todo');
+  // Avant la validation, rien ne l'annonce en attente de lancement : elle
+  // attend d'abord qu'on autorise sa dépense.
+  assert.equal(store.getCard(ordinaire.id)?.scheduling?.waitingReason, undefined);
+  assert.equal(validerCarte(ordinaire.id).ok, true);
+  const validee = store.getCard(ordinaire.id)!;
+  assert.equal(validee.column, 'planned');
+  assert.equal(validee.scheduling?.waitingReason, RAISON_ATTENTE_LANCEMENT);
+  assert.equal(validee.estimate, undefined, 'aucun chiffrage n’est fabriqué avant le lancement');
+  assert.equal(store.getLastAgentByCard(ordinaire.id), null, 'aucun agent ne naît à la validation');
 });

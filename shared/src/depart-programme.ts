@@ -1,8 +1,8 @@
 /**
  * « Cette carte partira mardi à 6 h. »
  *
- * Une carte prête à partir n'avait que deux vitesses : elle attendait un clic,
- * ou elle partait « dès que possible ». Rien ne permettait de dire QUAND — d'où
+ * Une carte planifiée n'avait que deux vitesses : elle attendait un clic, ou
+ * elle partait « dès que possible ». Rien ne permettait de dire QUAND — d'où
  * cette date de départ souhaitée, posée sur l'état d'ordonnancement
  * (`SchedulingState.departPrevu`, en millisecondes).
  *
@@ -126,7 +126,7 @@ export function mentionDepartProgramme(
   carte: { column: string; scheduling?: DepartAJuger },
   maintenant: number,
 ): string | null {
-  if (carte.column !== 'todo') return null;
+  if (carte.column !== 'todo' && carte.column !== 'planned') return null;
   if (carte.scheduling?.suspendu) return null;
   const date = carte.scheduling?.departPrevu;
   if (!date) return null;

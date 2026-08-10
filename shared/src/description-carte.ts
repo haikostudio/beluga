@@ -22,11 +22,34 @@
  * règle existante citée). Sans ce repère, la description n'est qu'une
  * reformulation de la demande.
  *
+ * DEUX EXIGENCES, depuis que le chef d'orchestre ne fait plus que trier. Une
+ * carte qu'il propose n'est plus le fruit d'une étude : il n'ouvre plus le
+ * projet, l'analyse est faite APRÈS validation, par la carte elle-même. Lui
+ * réclamer quatre parties et un repère concret revenait à lui faire inventer un
+ * constat qu'il n'avait pas vérifié — le contraire de ce qu'on veut. Sa carte
+ * est donc jugée « courte » : un titre et la demande REFORMULÉE, assez pour que
+ * l'utilisateur reconnaisse ce qu'il a demandé avant de cliquer. L'exigence
+ * « complète » (quatre parties, repère concret) reste la référence pour une
+ * description écrite après une vraie étude.
+ *
  * Aucune base, aucun disque, aucun moteur : les tests rejouent tout.
  */
 
 /** Le plancher : en dessous, la carte n'est pas exécutable seule. */
 export const MIN_SIGNES_DESCRIPTION = 320;
+
+/**
+ * Le plancher d'une carte de TRI : une phrase reformulée, pas un mot. En
+ * dessous, l'utilisateur ne reconnaît pas sa demande dans la carte qu'on lui
+ * présente.
+ */
+export const MIN_SIGNES_CARTE_COURTE = 80;
+
+/**
+ * Ce qu'on exige de la description : « complete » après une étude,
+ * « courte » pour une carte de tri proposée par le chef d'orchestre.
+ */
+export type ExigenceDescription = 'complete' | 'courte';
 
 /** Le plafond : au-dessus, ce n'est plus une carte, c'est un dossier. */
 export const MAX_SIGNES_DESCRIPTION = 2400;
@@ -147,33 +170,55 @@ const LIBELLE_MANQUE: Record<ManqueDescription, string> = {
   verification: "la manière de VÉRIFIER que c'est fait manque",
 };
 
+/** Les mêmes manques, dits autrement quand on n'attend qu'une carte de tri. */
+const LIBELLE_MANQUE_COURT: Partial<Record<ManqueDescription, string>> = {
+  vide: 'la description est vide ou réduite au titre',
+  'trop-courte': `la demande n'est pas reformulée (moins de ${MIN_SIGNES_CARTE_COURTE} signes)`,
+};
+
 /**
  * Le jugement, seul point d'entrée du démon. Il ne réécrit rien : il dit si la
  * description peut être affichée, et sinon ce qu'il faut y ajouter.
+ *
+ * L'exigence « courte » est celle d'une carte de TRI : on vérifie seulement que
+ * la demande est REFORMULÉE — ni quatre parties, ni repère concret, puisque le
+ * chef n'a pas ouvert le projet et n'a donc rien vu à citer.
  */
-export function jugerDescription(description: string | undefined | null): VerdictDescription {
+export function jugerDescription(
+  description: string | undefined | null,
+  exigence: ExigenceDescription = 'complete',
+): VerdictDescription {
   const texte = String(description ?? '').trim();
   const signes = signesUtiles(texte);
   const manques: ManqueDescription[] = [];
+  const plancher = exigence === 'courte' ? MIN_SIGNES_CARTE_COURTE : MIN_SIGNES_DESCRIPTION;
 
   if (!texte) {
     manques.push('vide');
   } else {
-    if (signes < MIN_SIGNES_DESCRIPTION) manques.push('trop-courte');
+    if (signes < plancher) manques.push('trop-courte');
     if (signes > MAX_SIGNES_DESCRIPTION) manques.push('trop-longue');
-    const trouvees = partiesTrouvees(texte);
-    for (const partie of PARTIES_DESCRIPTION) if (!trouvees.has(partie)) manques.push(partie);
-    if (!contientRepereConcret(texte)) manques.push('sans-repere');
+    if (exigence === 'complete') {
+      const trouvees = partiesTrouvees(texte);
+      for (const partie of PARTIES_DESCRIPTION) if (!trouvees.has(partie)) manques.push(partie);
+      if (!contientRepereConcret(texte)) manques.push('sans-repere');
+    }
   }
 
   if (!manques.length) return { ok: true, manques: [], signes, message: '' };
 
   const message =
-    'Proposition REFUSÉE — elle ne part pas dans la conversation tant que sa description ne tient pas debout.\n' +
-    `Ce qui manque : ${manques.map((m) => LIBELLE_MANQUE[m]).join(' ; ')}.\n\n` +
-    `Reprends l'outil avec une description bâtie ainsi (entre ${MIN_SIGNES_DESCRIPTION} et ${MAX_SIGNES_DESCRIPTION} signes, quatre parties annoncées) :\n` +
-    GABARIT_DESCRIPTION +
-    "\n\nVa REGARDER le projet avant de réécrire : une description qui ne fait que redire la demande de l'utilisateur sera refusée de nouveau.";
+    exigence === 'courte'
+      ? 'Proposition REFUSÉE — elle ne part pas dans la conversation tant que la demande n’y est pas reformulée.\n' +
+        `Ce qui manque : ${manques.map((m) => LIBELLE_MANQUE_COURT[m] ?? LIBELLE_MANQUE[m]).join(' ; ')}.\n\n` +
+        `Reprends l'outil avec deux ou trois phrases (entre ${MIN_SIGNES_CARTE_COURTE} et ${MAX_SIGNES_DESCRIPTION} signes) : ` +
+        "ce que l'utilisateur demande, dans tes mots, assez précisément pour qu'il reconnaisse sa demande avant de cliquer. " +
+        "N'invente aucun constat sur le projet : tu ne l'as pas ouvert, et l'agent de la carte s'en chargera."
+      : 'Proposition REFUSÉE — elle ne part pas dans la conversation tant que sa description ne tient pas debout.\n' +
+        `Ce qui manque : ${manques.map((m) => LIBELLE_MANQUE[m]).join(' ; ')}.\n\n` +
+        `Reprends l'outil avec une description bâtie ainsi (entre ${MIN_SIGNES_DESCRIPTION} et ${MAX_SIGNES_DESCRIPTION} signes, quatre parties annoncées) :\n` +
+        GABARIT_DESCRIPTION +
+        "\n\nVa REGARDER le projet avant de réécrire : une description qui ne fait que redire la demande de l'utilisateur sera refusée de nouveau.";
 
   return { ok: false, manques, signes, message };
 }
@@ -203,3 +248,17 @@ export const CONSIGNE_DESCRIPTION_CARTE =
   `Longueur : entre ${MIN_SIGNES_DESCRIPTION} et ${MAX_SIGNES_DESCRIPTION} signes — assez pour être exécutée sans toi, jamais un pavé.\n` +
   "REGARDE LE PROJET AVANT DE PROPOSER : la description doit citer au moins un repère concret que tu as vu (un fichier, une commande, un libellé affiché, une règle existante). " +
   "Reformuler la demande de l'utilisateur ne suffit pas ; une proposition vide ou réduite au titre est refusée et t'est rendue à réécrire.";
+
+/**
+ * La consigne donnée au CHEF D'ORCHESTRE, qui ne fait plus que trier. Elle dit
+ * l'inverse de la précédente sur un point, et c'est voulu : il ne va PAS
+ * regarder le projet. Une carte courte, honnête, sans constat inventé.
+ */
+export const CONSIGNE_CARTE_COURTE =
+  "CE QUE DOIT CONTENIR LA CARTE QUE TU PROPOSES (imposé par HaikoDev, l'outil refuse le reste) :\n" +
+  "un TITRE court et clair, et une DESCRIPTION de deux ou trois phrases qui REFORMULE la demande — ce que l'utilisateur veut, " +
+  "et ce qui compte pour lui (l'écran, le comportement, la contrainte qu'il a dite).\n" +
+  `Longueur : entre ${MIN_SIGNES_CARTE_COURTE} et ${MAX_SIGNES_DESCRIPTION} signes.\n` +
+  "TU N'OUVRES PAS LE PROJET POUR ÉCRIRE CETTE CARTE et tu n'inventes AUCUN constat sur le code : l'étude, le chiffrage et " +
+  "les contrôles à rejouer sont le travail de l'agent qui exécutera la carte, une fois qu'elle sera validée. " +
+  "Une description vide ou réduite au titre est refusée et t'est rendue à réécrire.";

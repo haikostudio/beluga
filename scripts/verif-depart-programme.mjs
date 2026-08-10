@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Une carte peut porter une DATE de départ : elle attend dans « À faire » et
+ * Une carte peut porter une DATE de départ : elle attend dans « Planifié » et
  * part à l'heure dite, sans clic.
  *
  *   node scripts/verif-depart-programme.mjs
@@ -103,7 +103,7 @@ async function attendrePort(limiteMs = 60000) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Le décor : quatre cartes « À faire », une session                   */
+/* Le décor : quatre cartes « Planifié », une session                   */
 /* ------------------------------------------------------------------ */
 
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
@@ -172,7 +172,7 @@ function poserLeDecor() {
       title: titre,
       description: 'Carte fabriquée par le script de vérification.',
       labels: [],
-      column: 'todo',
+      column: 'planned',
       position: index + 1,
       origin: 'user',
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
@@ -185,7 +185,7 @@ function poserLeDecor() {
     db.prepare(
       `INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(carte.id, PROJET_ID, 'todo', carte.position, titre, JSON.stringify(carte), maintenant, maintenant);
+    ).run(carte.id, PROJET_ID, 'planned', carte.position, titre, JSON.stringify(carte), maintenant, maintenant);
   });
   db.close();
 }
@@ -247,7 +247,7 @@ async function ouvrirLeTableau(navigateur) {
     await onglet.first().click();
     await page.waitForTimeout(2000);
   }
-  await page.locator('[data-column="todo"]').scrollIntoViewIfNeeded();
+  await page.locator('[data-column="planned"]').scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
   return { page, erreurs };
 }
@@ -386,8 +386,8 @@ async function main() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(1200);
 
-  await page.locator('[data-column="todo"]').scrollIntoViewIfNeeded();
-  await page.locator('[data-column="todo"] button[aria-label="Nouvelle tâche"]').click();
+  await page.locator('[data-column="planned"]').scrollIntoViewIfNeeded();
+  await page.locator('[data-column="planned"] button[aria-label="Nouvelle tâche"]').click();
   await page.waitForTimeout(800);
 
   const bloc = page.locator('[data-depart-nouvelle-carte]');
@@ -420,19 +420,19 @@ async function main() {
   );
 
   const TITRE_NEUF = 'Carte d’essai — créée avec son heure';
-  await page.locator('[data-column="todo"] input[placeholder="Titre de la tâche…"]').fill(TITRE_NEUF);
-  await page.locator('[data-column="todo"] button', { hasText: 'Ajouter la tâche' }).click();
+  await page.locator('[data-column="planned"] input[placeholder="Titre de la tâche…"]').fill(TITRE_NEUF);
+  await page.locator('[data-column="planned"] button', { hasText: 'Ajouter la tâche' }).click();
   await page.waitForTimeout(3000);
 
   const neuve = Object.entries(ordonnancementsEnBase()).find(([titre]) => titre === TITRE_NEUF)?.[1];
   noter(
-    'la carte naît dans « À faire » avec sa date de départ',
+    'la carte naît dans « Planifié » avec sa date de départ',
     typeof neuve?.departPrevu === 'number' && Math.abs(neuve.departPrevu - voulu.getTime()) < 60_000,
     neuve?.departPrevu ? new Date(neuve.departPrevu).toLocaleString('fr-CH') : 'aucune date',
   );
   noter(
-    'elle reste dans « À faire », rien n’est parti',
-    colonnesEnBase()[TITRE_NEUF] === 'todo',
+    'elle reste dans « Planifié », rien n’est parti',
+    colonnesEnBase()[TITRE_NEUF] === 'planned',
     colonnesEnBase()[TITRE_NEUF] ?? '(introuvable)',
   );
 

@@ -1,12 +1,14 @@
 import * as React from 'react';
 import {
   AlertCircle,
+  BatteryLow,
   Braces,
   Check,
   ChevronRight,
   Circle,
   Copy,
   Download,
+  GitMerge,
   HelpCircle,
   LayoutGrid,
   Loader2,
@@ -24,6 +26,8 @@ import {
   TourMesureAgent,
   coucheDAnalyse,
   coucheDExecution,
+  choixPossible,
+  comptesDeReprise,
   coutEnClair,
   ecartProjete,
   heureExacte,
@@ -32,6 +36,7 @@ import {
   propositionsDuFil,
   reponsePrete,
   texteAEcouter,
+  tempsRestant,
   texteDeReponse,
   triImages,
 } from '@haikodev/shared';
@@ -184,6 +189,8 @@ export function MessageView({
           ))}
         </div>
       ) : null}
+
+      {message.repriseCompte ? <RepriseDeCompteCard message={message} /> : null}
 
       {message.questions.length ? (
         <div className="mt-2 space-y-2">
@@ -978,6 +985,142 @@ function QuestionCard({
 }
 
 /**
+ * « AVEC QUEL COMPTE POURSUIVRE ? »
+ *
+ * Le tour a été coupé net par la limite d'un compte. Le travail n'est pas
+ * cassé : il lui manque du quota. Ce bloc propose les AUTRES comptes du même
+ * moteur — jamais un autre moteur, jamais le compte tombé — et le clic relance
+ * le même agent, avec son fil, sa branche et ses étapes restantes.
+ *
+ * La liste n'est pas figée dans le message : elle se calcule à chaque rendu
+ * depuis le relevé de quota reçu par l'application. Un compte qui se libère
+ * apparaît donc TOUT SEUL, sans recharger la page — c'est ce qui fait tenir le
+ * cas « aucun compte libre pour l'instant ».
+ */
+function RepriseDeCompteCard({ message }: { message: Message }) {
+  const { quotas } = useApp();
+  const [busy, setBusy] = React.useState(false);
+  const reprise = message.repriseCompte!;
+
+  const choix = React.useMemo(
+    () =>
+      comptesDeReprise(
+        reprise.engine,
+        reprise.compteEpuise,
+        quotas.map((quota) => ({
+          id: quota.id,
+          label: quota.label,
+          engine: quota.engine,
+          disponible: quota.available !== false && !quota.disabled,
+          coupe: quota.disabled,
+          consommePct: Math.max(quota.session?.usedPct ?? 0, quota.weekly?.usedPct ?? 0),
+          resetsAt: [quota.session?.resetsAt, quota.weekly?.resetsAt]
+            .filter((v): v is number => typeof v === 'number' && v > 0)
+            .sort((a, b) => a - b)[0],
+        })),
+      ),
+    [quotas, reprise.engine, reprise.compteEpuise],
+  );
+  const possible = choixPossible(choix);
+
+  // Décision déjà prise : le bloc reste dans le fil, refermé, et dit sur quel
+  // compte le travail est reparti. Aucun bouton — on ne repart pas deux fois.
+  if (reprise.choisi) {
+    return (
+      <div
+        className="mt-2 rounded-md border border-border bg-surface/60 px-2.5 py-2"
+        data-reprise-compte="reprise"
+      >
+        <p className="flex min-w-0 items-start gap-1.5 text-[13.5px] text-muted">
+          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+          <span className="min-w-0">
+            Le compte « {reprise.compteEpuiseLabel} » avait atteint sa limite : le travail a repris sur
+            « {reprise.choisiLabel ?? reprise.choisi} ».
+          </span>
+        </p>
+      </div>
+    );
+  }
+
+  const reprendre = async (accountId: string) => {
+    setBusy(true);
+    try {
+      await client.call({ type: 'reprise.compte', messageId: message.id, accountId });
+    } catch (err: any) {
+      client.pushToast('warning', err?.message ?? 'reprise impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="mt-2 rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2"
+      data-reprise-compte="attente"
+    >
+      <p className="flex items-start gap-1.5 text-[14px] font-medium text-text">
+        <BatteryLow className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+        Avec quel compte poursuivre ?
+      </p>
+      <p className="mt-1 text-[13px] leading-relaxed text-muted">
+        Le compte « {reprise.compteEpuiseLabel} » a atteint sa limite en plein travail
+        {tempsRestant(reprise.resetsAt) ? ` (${tempsRestant(reprise.resetsAt)})` : ''}. Le travail
+        n’est pas perdu : il repart où il s’est arrêté, avec le même agent et la même branche.
+      </p>
+
+      {possible ? (
+        <div className="mt-2 space-y-1">
+          {choix
+            .filter((compte) => compte.disponible)
+            .map((compte) => (
+              <button
+                key={compte.id}
+                type="button"
+                disabled={busy}
+                data-compte-reprise={compte.id}
+                onClick={() => void reprendre(compte.id)}
+                className="flex w-full items-center gap-2 rounded-md border border-border bg-transparent px-2 py-1.5 text-left text-muted transition-colors hover:bg-raised disabled:opacity-60"
+              >
+                {busy ? (
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                ) : (
+                  <Circle className="h-3 w-3 shrink-0 text-faint" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-[14px] text-text">{compte.label}</span>
+                {typeof compte.consommePct === 'number' ? (
+                  <span className="shrink-0 text-[12px] text-faint">
+                    {Math.round(compte.consommePct)} % consommés
+                  </span>
+                ) : null}
+              </button>
+            ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-[13px] text-warning" data-reprise-attente>
+          Aucun autre compte n’est libre pour l’instant. Ce choix reste ouvert et s’actualise tout
+          seul : dès qu’un compte retrouve du quota, il apparaît ici.
+        </p>
+      )}
+
+      {/* Les comptes du même moteur encore à sec : les nommer vaut mieux qu'un
+          vide, on sait ce qu'on attend et pour combien de temps. */}
+      {choix.some((compte) => !compte.disponible) ? (
+        <ul className="mt-2 space-y-0.5">
+          {choix
+            .filter((compte) => !compte.disponible)
+            .map((compte) => (
+              <li key={compte.id} className="flex items-center gap-2 px-2 text-[12.5px] text-faint">
+                <span className="min-w-0 flex-1 truncate">{compte.label}</span>
+                <span className="shrink-0">{tempsRestant(compte.resetsAt) ?? 'à sec'}</span>
+              </li>
+            ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Une carte proposée DÉJÀ DÉCIDÉE, laissée à sa place dans le fil : elle
  * appartient à l'histoire de l'échange. Celles qui attendent encore un clic ne
  * passent plus par ici — elles vivent dans le bandeau fixe au-dessus de la
@@ -993,7 +1136,7 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
       >
         <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-success">
           <Check className="h-3 w-3" />
-          Carte créée dans « À faire »
+          Carte créée dans « Planifié »
         </div>
         <p className="text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
         {proposal.description ? (
@@ -1007,6 +1150,16 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
           </div>
         ) : null}
       </button>
+    );
+  }
+
+  if (proposal.decision === 'merged') {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-accent/30 bg-surface/60 px-3 py-2 text-[13.5px] text-muted">
+        <GitMerge className="h-3 w-3 shrink-0 text-accent" />
+        <span className="min-w-0 flex-1 truncate">{proposal.title}</span>
+        <span className="text-[12px]">réunie dans une autre proposition</span>
+      </div>
     );
   }
 

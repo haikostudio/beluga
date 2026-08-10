@@ -866,12 +866,22 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
 /** Les statuts qui signifient vraiment « ce compte ne répond plus ». */
 const STATUTS_BLOQUANTS = new Set(['rejected', 'exceeded', 'blocked', 'exhausted', 'limit_reached']);
 
+/**
+ * Cet événement de limite BLOQUE-T-IL le compte ? Un avertissement
+ * (« allowed_warning ») dit qu'on approche, pas qu'on y est. Exporté parce que
+ * le tour lui-même a besoin de le savoir : c'est la preuve la plus sûre qu'un
+ * arrêt vient du quota, et non d'une panne.
+ */
+export function limiteBloquante(statut: string | undefined): boolean {
+  return !!statut && STATUTS_BLOQUANTS.has(statut.toLowerCase());
+}
+
 export function noteAccountUse(accountId: string, rateLimit: { status: string; resetsAt?: number; type?: string }): void {
   const quota = quotaCache.get(accountId);
   if (!quota) return;
   // Un avertissement (« allowed_warning ») dit qu'on approche de la limite,
   // pas qu'on l'a atteinte : le compte reste utilisable.
-  if (rateLimit.status && STATUTS_BLOQUANTS.has(rateLimit.status.toLowerCase())) {
+  if (limiteBloquante(rateLimit.status)) {
     quota.available = false;
     if (rateLimit.type === 'seven_day' || rateLimit.type === 'weekly') {
       quota.weekly = { ...(quota.weekly ?? {}), resetsAt: rateLimit.resetsAt };

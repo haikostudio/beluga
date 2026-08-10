@@ -6,7 +6,7 @@ const PREVU = { engine: 'claude', model: 'claude-opus-5', thinking: 'high' };
 const SERVI = { engine: 'codex', model: 'gpt-5.1-codex-max', thinking: 'xhigh', compte: 'codex-2' };
 
 test('une carte à faire montre ce qui est prévu, et se laisse modifier', () => {
-  const vu = reglagesDeLaCarte({ colonne: 'todo', carte: PREVU });
+  const vu = reglagesDeLaCarte({ colonne: 'planned', carte: PREVU });
   assert.equal(vu.modifiable, true);
   assert.equal(vu.source, 'prevu');
   assert.equal(vu.engine, 'claude');
@@ -18,7 +18,7 @@ test('une carte à faire montre ce qui est prévu, et se laisse modifier', () =>
 });
 
 test('une carte à faire ou planifiée se laisse encore modifier', () => {
-  for (const colonne of ['todo'] as const) {
+  for (const colonne of ['notes', 'planned'] as const) {
     const vu = reglagesDeLaCarte({ colonne, carte: PREVU });
     assert.equal(vu.modifiable, true, colonne);
     assert.equal(vu.compte, undefined, colonne);
@@ -44,7 +44,7 @@ test("ce qui a servi prime sur ce qui était prévu, compte compris", () => {
 });
 
 test("un agent déjà passé fige la carte même revenue en arrière", () => {
-  const vu = reglagesDeLaCarte({ colonne: 'todo', carte: PREVU, agent: SERVI });
+  const vu = reglagesDeLaCarte({ colonne: 'planned', carte: PREVU, agent: SERVI });
   assert.equal(vu.modifiable, false);
   assert.equal(vu.source, 'reel');
   assert.equal(vu.engine, 'codex');

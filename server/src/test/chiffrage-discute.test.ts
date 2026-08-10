@@ -35,13 +35,13 @@ function projetDEssai() {
   } as any);
 }
 
-function carteAChiffrageRendu(projetId: string) {
+function carteEnPlanifie(projetId: string) {
   return store.saveCard({
     id: store.newId(),
     projectId: projetId,
     title: 'Carte d’essai',
     description: 'Une tâche à chiffrer.',
-    column: 'todo',
+    column: 'planned',
     position: 1,
     run: { engine: 'claude' },
     estimate: {
@@ -65,7 +65,7 @@ const REPONSE_CHIFFREE = `Après la précision, je revois mon chiffrage.
 
 test('un nouveau chiffrage remonte sur la carte, sans la déplacer', () => {
   const projet = projetDEssai();
-  const carte = carteAChiffrageRendu(projet.id);
+  const carte = carteEnPlanifie(projet.id);
 
   appliquerChiffrageDiscute(carte.id, REPONSE_CHIFFREE, true);
 
@@ -73,12 +73,12 @@ test('un nouveau chiffrage remonte sur la carte, sans la déplacer', () => {
   assert.equal(relue.estimate?.seniorHours, 5, 'les heures senior suivent la correction');
   assert.equal(relue.estimate?.machineSeconds, 1800);
   assert.equal(relue.estimate?.failed, false);
-  assert.equal(relue.column, 'todo', 'la carte ne quitte jamais « À faire »');
+  assert.equal(relue.column, 'planned', 'la carte ne quitte jamais « Planifié »');
 });
 
 test('un tour sans chiffres frais laisse l’estimation intacte', () => {
   const projet = projetDEssai();
-  const carte = carteAChiffrageRendu(projet.id);
+  const carte = carteEnPlanifie(projet.id);
 
   appliquerChiffrageDiscute(carte.id, "Bonne question — je regarde et je te réponds.", true);
 
@@ -89,7 +89,7 @@ test('un tour sans chiffres frais laisse l’estimation intacte', () => {
 
 test('un tour en échec ne touche à rien', () => {
   const projet = projetDEssai();
-  const carte = carteAChiffrageRendu(projet.id);
+  const carte = carteEnPlanifie(projet.id);
 
   appliquerChiffrageDiscute(carte.id, REPONSE_CHIFFREE, false);
 

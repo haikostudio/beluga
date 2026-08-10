@@ -526,10 +526,10 @@ class Client {
    * refus à sa façon, en une seule fois, au lieu d'empiler une bulle par carte.
    */
   /**
-   * Valider une carte de « À faire » : le geste qui autorise la dépense et
+   * Valider une carte de « Planifié » : le geste qui autorise la dépense et
    * lance l'analyse. La carte ne change pas de colonne — elle reste sur place,
-   * marquée « chiffrage en cours », et le serveur y pose les chiffres
-   * quand ils sont là. Même forme de réponse que `moveCard` : le pied
+   * marquée « chiffrage en cours », et affiche ses chiffres dès qu'ils sont
+   * là. Même forme de réponse que `moveCard` : le pied
    * de lot s'en sert exactement pareil.
    */
   async validerCarte(card: Card, options: { silencieux?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {

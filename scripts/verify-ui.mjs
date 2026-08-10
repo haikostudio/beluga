@@ -105,10 +105,11 @@ async function main() {
   const columns = await page.evaluate(() =>
     Array.from(document.querySelectorAll('h2')).map((h) => h.textContent?.trim()),
   );
-  // « Validé » a disparu : valider une carte lance son chiffrage sur place,
-  // dans « À faire », et elle y reste ensuite avec ses chiffres : « Planifié »
-  // a disparu à son tour.
-  const expected = ['Notes', 'À faire', 'En cours', 'Terminé', 'À déployer', 'Archivé'];
+  // « Validé » puis « À faire » ont disparu : une carte NAÎT dans « Planifié »
+  // et y chiffre sur place. Sept colonnes, pas huit.
+  const expected = ['Notes', 'Planifié', 'En cours', 'Terminé', 'À déployer', 'En production', 'Archivé'];
+  const disparues = ['À faire', 'Validé'].filter((label) => columns.includes(label));
+  record('Tableau : les colonnes retirées ne reviennent pas', disparues.length === 0, disparues.join(' · ') || 'aucune');
   const allColumns = expected.every((label) => columns.includes(label));
   record('Tableau : les colonnes attendues sont présentes', allColumns, columns.filter(Boolean).join(' · '));
 
@@ -116,7 +117,7 @@ async function main() {
   const before = await page.locator('article').count();
   await page.evaluate(() => {
     const buttons = Array.from(document.querySelectorAll('button'));
-    const plus = buttons.find((b) => b.querySelector('.lucide-plus') && b.closest('div')?.textContent?.includes('À faire'));
+    const plus = buttons.find((b) => b.querySelector('.lucide-plus') && b.closest('div')?.textContent?.includes('Planifié'));
     plus?.click();
   });
   await page.waitForTimeout(600);
@@ -565,8 +566,8 @@ async function main() {
   // L'essai crée sa propre carte : il ne dépend pas de ce qui traîne au tableau.
   await page.evaluate(() => {
     const colonnes = Array.from(document.querySelectorAll('h2'));
-    const aFaire = colonnes.find((h) => h.textContent?.trim() === 'À faire');
-    (aFaire?.parentElement?.querySelector('button') ?? null)?.click();
+    const planifie = colonnes.find((h) => h.textContent?.trim() === 'Planifié');
+    (planifie?.parentElement?.querySelector('button') ?? null)?.click();
   });
   await page.waitForTimeout(800);
   const champ = page.locator('input[placeholder="Titre de la tâche…"]');
