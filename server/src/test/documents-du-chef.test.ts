@@ -4,14 +4,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DOSSIER_PLANS, cheminDuDocumentDuChef, nomDeFichierPropre } from '@haikodev/shared';
-import { CONSIGNE_DOCUMENTS_DU_CHEF, rolePrompt } from '../runtime.js';
 
+/*
+ * `../runtime.js` importe `../config.js` en cascade (via `../store.js`) : un
+ * `import` statique de haut de fichier se résout AVANT toute autre ligne du
+ * module, HAIKODEV_DATA compris — la base réelle du démon serait figée dans
+ * `PATHS.db` avant même d'être redirigée. D'où l'import dynamique, comme pour
+ * `store.js` et `tools.js` juste en dessous.
+ */
 const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'documents-du-chef-'));
 process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
 const { callTool } = await import('../tools.js');
 const { fichiersAIndexer } = await import('../passages.js');
+const { CONSIGNE_DOCUMENTS_DU_CHEF, rolePrompt } = await import('../runtime.js');
 
 const projet = fs.mkdtempSync(path.join(os.tmpdir(), 'projet-plans-'));
 
