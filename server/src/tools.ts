@@ -18,6 +18,8 @@ import {
   reglagesDeLaProposition,
   composerDescription,
   jugerDescription,
+  lireDateDeDepart,
+  momentDeDepart,
   MAX_SIGNES_DESCRIPTION,
   MIN_SIGNES_DESCRIPTION,
 } from '@haikodev/shared';
@@ -87,6 +89,15 @@ const CHAMP_DESCRIPTION =
   'Les quatre champs séparés (constat, attendu, limites, verification) font le même travail : HaikoDev les met en forme.';
 
 /**
+ * La date de départ, facultative. Elle ne remplace aucun geste : elle donne le
+ * geste à l'AVANCE. Sans elle, la carte attend le lancement comme aujourd'hui.
+ */
+const CHAMP_DEPART =
+  "Facultatif. Date et heure de départ souhaitées, au format ISO (« 2026-08-12T06:00 »). La carte attend alors dans " +
+  "« Planifié » et part TOUTE SEULE à l'heure dite, sans clic. À ne mettre que si l'utilisateur a demandé un moment " +
+  'précis. Sans ce champ, rien ne change : la carte attend son geste de lancement.';
+
+/**
  * Le chef vient de lire le projet pour produire la description : ce travail
  * est déjà l'analyse de la future carte. On lui demande donc, dans le MÊME
  * appel d'outil, les chiffres futurs et un relais factuel pour l'exécution.
@@ -150,6 +161,23 @@ function analyseDeProposition(args: any): Pick<TaskProposal, 'estimate' | 'analy
 }
 
 /**
+ * La date de départ demandée par le chef, s'il y en a une. Ce qui n'est pas une
+ * date est ignoré en silence : une proposition ne doit pas être refusée parce
+ * qu'un moteur a écrit « mardi prochain » dans un champ facultatif — la carte
+ * repart alors simplement sur le geste de lancement habituel.
+ */
+function departDeProposition(args: any): Pick<TaskProposal, 'departPrevu'> | Record<string, never> {
+  const date = lireDateDeDepart(args?.depart);
+  return date ? { departPrevu: date } : {};
+}
+
+/** Ce que l'outil répond au chef quand une date a été retenue. */
+function resumeDepart(depart: Pick<TaskProposal, 'departPrevu'> | Record<string, never>): string {
+  if (!('departPrevu' in depart) || !depart.departPrevu) return '';
+  return ` Départ programmé ${momentDeDepart(depart.departPrevu, Date.now())} : la carte partira toute seule à l'heure dite.`;
+}
+
+/**
  * Fabrique la description d'une proposition, à partir des quatre champs
  * séparés OU du texte libre, puis la juge. Une description qui ne tient pas
  * debout ne devient PAS une proposition : elle est rendue au moteur avec le
@@ -201,6 +229,7 @@ export const TOOL_DEFS: ToolDef[] = [
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
         labels: { type: 'array', items: { type: 'string' } },
+        depart: { type: 'string', description: CHAMP_DEPART },
         analysis: CHAMP_ANALYSE,
       },
     },
@@ -252,6 +281,7 @@ export const TOOL_DEFS: ToolDef[] = [
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
         labels: { type: 'array', items: { type: 'string' } },
+        depart: { type: 'string', description: CHAMP_DEPART },
         analysis: CHAMP_ANALYSE,
       },
     },
@@ -482,6 +512,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
       const reglages = await reglagesProposes(ctx.run);
       const analyse = analyseDeProposition(args);
+      const depart = departDeProposition(args);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
@@ -491,6 +522,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         // suivent la carte jusqu'à l'agent d'exécution.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
         ...analyse,
+        ...depart,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
@@ -500,7 +532,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         text:
           `Carte « ${proposal.title} » proposée dans la conversation. ` +
           `Elle n'entrera dans « À faire » qu'après la validation de l'utilisateur.` +
-          resumeReglages(reglages),
+          resumeReglages(reglages) +
+          resumeDepart(depart),
         proposal,
       };
     }
@@ -564,6 +597,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
       const reglages = await reglagesProposes(ctx.run);
       const analyse = analyseDeProposition(args);
+      const depart = departDeProposition(args);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
@@ -572,6 +606,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         // Mêmes images que board_create_card : celles du message déclencheur.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
         ...analyse,
+        ...depart,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
@@ -580,7 +615,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ok: true,
         text:
           `Proposition affichée à l'utilisateur : « ${proposal.title} ». Rien n'est créé tant qu'il n'a pas validé.` +
-          resumeReglages(reglages),
+          resumeReglages(reglages) +
+          resumeDepart(depart),
         proposal,
       };
     }
@@ -714,6 +750,8 @@ export function createCard(
     estimate?: Card['estimate'];
     /** Relais factuel qui évite à l'exécution de recommencer l'étude. */
     analysisContext?: string;
+    /** Heure de départ souhaitée : la carte partira toute seule ce moment venu. */
+    departPrevu?: number;
   },
 ): Card {
   const project = store.getProject(projectId);
@@ -736,7 +774,7 @@ export function createCard(
       thinking: input.run?.thinking ?? 'none',
       mode: input.run?.mode ?? 'direct',
     },
-    scheduling: { asap: false, attempts: 0, restarts: 0 },
+    scheduling: { asap: false, attempts: 0, restarts: 0, departPrevu: input.departPrevu },
     excludedFromDeploy: false,
     createdAt: store.now(),
     updatedAt: store.now(),

@@ -6,10 +6,11 @@ import {
   Estimate,
   TurnMeasurement,
   OccupantDossier,
-  RAISON_ATTENTE_LANCEMENT,
   RAISON_SANS_DEPOT,
   cheminDossierDeCarte,
   demarrageAutomatiqueAutorise,
+  etatDuDepart,
+  raisonDattente,
   nomDeBranche,
   phraseDepuisReponse,
   porteDuDepot,
@@ -136,8 +137,9 @@ ${card.description || '(pas de description)'}${
           scheduling: {
             ...scheduling,
             // La raison ne s'affiche que si la carte attend VRAIMENT le geste : une
-            // carte déjà autorisée (« Dès que possible », déjà lancée) partira.
-            waitingReason: demarrageAutomatiqueAutorise(scheduling) ? undefined : RAISON_ATTENTE_LANCEMENT,
+            // carte déjà autorisée (« Dès que possible », date de départ posée,
+            // déjà lancée) partira sans qu'on lui demande rien.
+            waitingReason: raisonDattente(scheduling),
           },
         });
         bus.emit({ type: 'card.upsert', card: updated });
@@ -330,7 +332,19 @@ export async function checkGates(card: Card): Promise<Gate> {
 
   const settings = store.getSettings();
   const heavy = (card.estimate?.machineSeconds ?? 0) >= settings.heavyTaskSeconds;
-  if (heavy && !card.scheduling?.asap && !isOffPeak()) {
+  /*
+   * Une HEURE DITE passe cette porte, comme « Dès que possible ». Sans cela, une
+   * tâche lourde programmée pour 14 h attendrait 22 h : la carte promet qu'elle
+   * part à l'heure dite, on ne peut pas la reporter dans son dos. L'heure creuse
+   * ne bouge pas pour autant — elle continue de retenir tout ce qui n'a reçu
+   * aucune consigne explicite.
+   */
+  if (
+    heavy &&
+    !card.scheduling?.asap &&
+    etatDuDepart(card.scheduling, Date.now()) !== 'venu' &&
+    !isOffPeak()
+  ) {
     return {
       ok: false,
       reason: `Tâche lourde : elle attend les heures creuses (à partir de ${settings.offPeakStart} h). Bouton « Dès que possible » pour forcer.`,
@@ -450,7 +464,7 @@ export function reprendreAnalyseDuChef(cardId: string): boolean {
     position: store.nextPosition(card.projectId, 'planned'),
     scheduling: {
       ...scheduling,
-      waitingReason: demarrageAutomatiqueAutorise(scheduling) ? undefined : RAISON_ATTENTE_LANCEMENT,
+      waitingReason: raisonDattente(scheduling),
     },
   });
   bus.emit({ type: 'card.upsert', card: updated });
@@ -561,6 +575,10 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
       waitingReason: undefined,
       // Un départ efface la suspension : c'est le geste qu'elle attendait.
       suspendu: false,
+      // Le départ CONSOMME la date : une date, une fois, jamais une récurrence.
+      // Sans cela, une carte relancée plus tard traînerait une heure déjà passée
+      // et repartirait toute seule à la première boucle.
+      departPrevu: undefined,
     },
   });
   bus.emit({ type: 'card.upsert', card: running });
@@ -662,8 +680,10 @@ export async function tick(): Promise<void> {
         if (card.scheduling?.suspendu) continue;
         // Session fusionnée : une carte fraîchement analysée ne s'exécute pas
         // toute seule. L'ordonnanceur ne reprend d'office qu'une carte déjà
-        // autorisée (« Dès que possible », ou déjà lancée puis interrompue) ;
-        // sinon la bascule Validé → En cours attend le clic de l'utilisateur.
+        // autorisée (« Dès que possible », HEURE DITE arrivée, ou déjà lancée
+        // puis interrompue) ; sinon la bascule Validé → En cours attend le clic
+        // de l'utilisateur. La boucle repassant toutes les quinze secondes, une
+        // heure manquée pendant un arrêt du démon est RATTRAPÉE au retour.
         if (!demarrageAutomatiqueAutorise(card.scheduling)) continue;
         const gate = await checkGates(card);
         if (!gate.ok) {

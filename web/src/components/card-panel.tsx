@@ -2,6 +2,7 @@ import * as React from 'react';
 import {
   Archive,
   ArchiveRestore,
+  CalendarClock,
   Check,
   ChevronDown,
   CircleDollarSign,
@@ -30,7 +31,9 @@ import {
   decisionsParCarte,
   etatVisuelCarte,
   gesteCarte,
+  lireDateDeDepart,
   mentionArchivage,
+  mentionDepartProgramme,
   motAnalyse,
   phaseAnalyse,
   projectionDeLExecution,
@@ -60,6 +63,7 @@ import { MenuCarte } from '@/components/card-menu';
 import { RepereAttention } from '@/components/repere-attention';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
+import { useMinute } from '@/lib/horloge';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
@@ -725,6 +729,74 @@ function libelleRoleAgent(role?: string): string {
   }
 }
 
+/**
+ * L'HEURE DITE : la carte attend dans « Planifié » et part toute seule au
+ * moment choisi, sans qu'on ait à cliquer. Le champ ne s'affiche que là où la
+ * date a encore un sens — avant le départ du travail ; une fois la carte
+ * lancée, l'heure est passée et il n'y a plus rien à programmer.
+ *
+ * La phrase affichée se RECALCULE (`mentionDepartProgramme`, horloge partagée) :
+ * une phrase figée en base dirait encore « demain » trois jours plus tard.
+ */
+function DepartProgramme({ card }: { card: Card }) {
+  const maintenant = useMinute();
+  if (card.column !== 'todo' && card.column !== 'planned') return null;
+
+  const depart = card.scheduling?.departPrevu;
+  const mention = mentionDepartProgramme(card, maintenant);
+
+  const poser = (valeur: string) => {
+    const date = lireDateDeDepart(valeur);
+    client.call({ type: 'card.schedule', id: card.id, at: date });
+  };
+
+  return (
+    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+      <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
+        <CalendarClock className="h-3 w-3" />
+        Départ programmé
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        <Input
+          type="datetime-local"
+          aria-label="Date et heure de départ"
+          value={versChampDate(depart)}
+          onChange={(event) => poser(event.target.value)}
+          className="w-auto min-w-[200px] text-[13.5px]"
+        />
+        {depart ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => client.call({ type: 'card.schedule', id: card.id, at: null })}
+          >
+            Retirer la date
+          </Button>
+        ) : null}
+      </div>
+
+      <p className="mt-1.5 text-[13px] text-faint">
+        {mention ?? 'Sans date, la carte attend votre lancement : rien ne démarre tout seul.'}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Un instant vers ce qu'attend un champ « datetime-local » : la date LOCALE,
+ * sans secondes ni fuseau. Passer par `toISOString` afficherait l'heure de
+ * Greenwich, donc 6 h posées le soir d'été deviendraient 4 h.
+ */
+function versChampDate(instant?: number): string {
+  if (!instant) return '';
+  const date = new Date(instant);
+  const deux = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${deux(date.getMonth() + 1)}-${deux(date.getDate())}T${deux(date.getHours())}:${deux(
+    date.getMinutes(),
+  )}`;
+}
+
 function CardSummary({ card }: { card: Card }) {
   const [description, setDescription] = React.useState(card.description);
   React.useEffect(() => setDescription(card.description), [card.id]);
@@ -749,6 +821,9 @@ function CardSummary({ card }: { card: Card }) {
           chercher avant de valider, et ce qu'on relit après coup quand le
           résultat surprend. */}
       <ReglagesAgent card={card} />
+      {/* Juste après « avec quoi » : QUAND. Les deux se règlent avant le
+          départ, au même endroit et de la même façon. */}
+      <DepartProgramme card={card} />
       <PreparationChef card={card} />
       <TokensParAgent card={card} />
 
