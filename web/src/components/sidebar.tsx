@@ -699,7 +699,7 @@ function BoutonRedemarrage() {
   // à l'ouverture : sinon le bouton reste muet jusqu'au premier battement.
   React.useEffect(() => {
     if (!state.connected) return;
-    void client.call({ type: 'daemon.status' }).catch(() => undefined);
+    void client.refreshDaemonStatus();
   }, [state.connected]);
 
   const demon = state.demon;

@@ -484,6 +484,22 @@ class Client {
     });
   }
 
+  /**
+   * L'état du démon n'arrive normalement que par l'événement `demon`, diffusé
+   * toutes les trente secondes — trop lent après une reconnexion (redémarrage
+   * du serveur, réseau qui revient) : le bandeau resterait figé sur le dernier
+   * état connu avant la coupure. On le redemande explicitement et on l'applique
+   * ici, au lieu de laisser la réponse de `daemon.status` sans effet.
+   */
+  async refreshDaemonStatus(): Promise<void> {
+    try {
+      const res = await this.call<{ etat: AppState['demon'] }>({ type: 'daemon.status' });
+      if (res?.etat) this.set({ demon: res.etat });
+    } catch {
+      // Pas connecté, ou serveur pas encore remonté : le prochain appel réessaiera.
+    }
+  }
+
   setActiveProject(id: string | null): void {
     this.set({ activeProjectId: id });
     if (id) {
