@@ -235,6 +235,12 @@ le nom, là-bas le texte).
   chaque déploiement.
 - **Un projet se déclare sur son DÉPÔT DE TRAVAIL, jamais sur son dossier publié** : un dossier servi
   n'est pas un dépôt git, l'agent n'y prouve rien.
+- **La COLONNE DE GAUCHE se pilote par outil** (`project_manage`, `group_manage`,
+  `shared/src/gestion-projets.ts`) : lister, monter, renommer, ranger, remonter, mettre de côté un
+  projet ; créer, renommer, régler un groupe. On désigne par le NOM, chaque geste est réémis à
+  l'interface, et trois refus sont posés DANS l'outil — pas de suppression de projet (« retirer » le
+  met de côté, ses cartes vivantes nommées), pas de montage sans adresse, pas de retrait de groupe
+  par un agent.
 
 ### Méthode et silence
 
