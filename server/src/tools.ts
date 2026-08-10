@@ -490,6 +490,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         // Les images jointes au message qui a fait naître la proposition
         // suivent la carte jusqu'à l'agent d'exécution.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
+        sourceProposalIds: [],
         ...analyse,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
@@ -571,6 +572,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
         // Mêmes images que board_create_card : celles du message déclencheur.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
+        sourceProposalIds: [],
         ...analyse,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),

@@ -467,8 +467,16 @@ export const TaskProposal = z.object({
    * jamais de moteur en silence.
    */
   avertissement: z.string().optional(),
-  /** Décision mémorisée : une proposition refusée ne revient jamais (PLAN §30). */
-  decision: z.enum(['pending', 'accepted', 'refused']).default('pending'),
+  /**
+   * Décision mémorisée. « merged » distingue une proposition réunie dans une
+   * autre d'un refus : elle reste dans l'historique, mais ne réclame plus de
+   * clic et n'a créé aucune carte.
+   */
+  decision: z.enum(['pending', 'accepted', 'refused', 'merged']).default('pending'),
+  /** Proposition nouvelle dans laquelle cette source a été réunie. */
+  mergedInto: z.string().optional(),
+  /** Sources directes d'une proposition composée, pour garder toute la trace. */
+  sourceProposalIds: z.array(z.string()).default([]),
   cardId: z.string().optional(),
   decidedAt: z.number().optional(),
 });

@@ -11,6 +11,7 @@ import {
   ProjetJoignable,
   attentionParProjet,
   DeployRun,
+  fusionnerPropositions,
   Message,
   Project,
   ProjectGroup,
@@ -1229,6 +1230,120 @@ export function decideProposal(proposalId: string, decision: 'accepted' | 'refus
     .prepare('UPDATE proposals SET decision = ?, data = ?, decided_at = ? WHERE id = ?')
     .run(decision, JSON.stringify(proposal), proposal.decidedAt, proposalId);
   return proposal;
+}
+
+export interface ReferenceProposition {
+  messageId: string;
+  proposalId: string;
+}
+
+export interface ResultatFusionPropositions {
+  proposal: TaskProposal;
+  messages: Message[];
+  projectId: string;
+  already?: boolean;
+}
+
+/**
+ * Réunit plusieurs propositions dans UNE transaction : soit toutes les
+ * sources deviennent « merged » et la nouvelle proposition existe, soit rien
+ * ne change. Le tableau des cartes n'est jamais touché ici.
+ */
+export function mergePendingProposals(items: ReferenceProposition[]): ResultatFusionPropositions {
+  const uniques = items.filter(
+    (item, index, liste) =>
+      liste.findIndex((autre) => autre.messageId === item.messageId && autre.proposalId === item.proposalId) === index,
+  );
+  if (uniques.length < 2) throw new Error('sélectionnez au moins deux propositions différentes');
+
+  const db = getDb();
+  return db.transaction(() => {
+    const lignes = uniques.map((item) => {
+      const ligne = db
+        .prepare(
+          `SELECT p.project_id AS projectId, p.message_id AS messageId, p.decision AS decision,
+                  p.data AS proposalData, m.data AS messageData
+             FROM proposals p JOIN messages m ON m.id = p.message_id
+            WHERE p.id = ? AND p.message_id = ?`,
+        )
+        .get(item.proposalId, item.messageId) as
+        | {
+            projectId: string;
+            messageId: string;
+            decision: string;
+            proposalData: string;
+            messageData: string;
+          }
+        | undefined;
+      if (!ligne) throw new Error('une proposition sélectionnée est introuvable');
+      return { ...ligne, proposal: TaskProposal.parse(JSON.parse(ligne.proposalData)) };
+    });
+
+    const projets = new Set(lignes.map((ligne) => ligne.projectId));
+    if (projets.size !== 1) throw new Error('les propositions doivent appartenir au même projet');
+    const projectId = lignes[0].projectId;
+
+    if (lignes.some((ligne) => ligne.decision !== 'pending' || ligne.proposal.decision !== 'pending')) {
+      // Deux clics très rapprochés doivent rendre le même résultat, jamais une
+      // seconde proposition. On ne considère rejouable que le même ensemble
+      // déjà réuni vers une cible unique.
+      const cibles = new Set(lignes.map((ligne) => ligne.proposal.mergedInto).filter(Boolean));
+      const toutesFusionnees = lignes.every(
+        (ligne) => ligne.decision === 'merged' && ligne.proposal.decision === 'merged' && ligne.proposal.mergedInto,
+      );
+      if (toutesFusionnees && cibles.size === 1) {
+        const cible = [...cibles][0]!;
+        const existante = db.prepare('SELECT project_id AS projectId, data FROM proposals WHERE id = ?').get(cible) as
+          | { projectId: string; data: string }
+          | undefined;
+        if (existante?.projectId === projectId) {
+          return { proposal: TaskProposal.parse(JSON.parse(existante.data)), messages: [], projectId, already: true };
+        }
+      }
+      throw new Error('seules des propositions encore en attente peuvent être fusionnées');
+    }
+
+    const id = newId();
+    const proposal = TaskProposal.parse(fusionnerPropositions(lignes.map((ligne) => ligne.proposal), id));
+    const decidedAt = now();
+    const sources = new Map(
+      lignes.map((ligne) => [
+        ligne.proposal.id,
+        TaskProposal.parse({ ...ligne.proposal, decision: 'merged', mergedInto: id, decidedAt }),
+      ]),
+    );
+
+    const messagesParId = new Map<string, Message>();
+    for (const ligne of lignes) {
+      if (!messagesParId.has(ligne.messageId)) {
+        messagesParId.set(ligne.messageId, Message.parse(JSON.parse(ligne.messageData)));
+      }
+    }
+
+    const messageCible = lignes[0].messageId;
+    const messages = [...messagesParId.entries()].map(([messageId, message]) => {
+      const propositions = message.proposals.map((courante) => sources.get(courante.id) ?? courante);
+      if (messageId === messageCible) propositions.push(proposal);
+      const miseAJour = Message.parse({ ...message, proposals: propositions });
+      db.prepare('UPDATE messages SET data = ? WHERE id = ?').run(JSON.stringify(miseAJour), messageId);
+      return miseAJour;
+    });
+
+    for (const source of sources.values()) {
+      db.prepare('UPDATE proposals SET decision = ?, data = ?, decided_at = ? WHERE id = ?').run(
+        'merged',
+        JSON.stringify(source),
+        decidedAt,
+        source.id,
+      );
+    }
+    db.prepare(
+      `INSERT INTO proposals (id, message_id, project_id, decision, data, created_at)
+       VALUES (?, ?, ?, 'pending', ?, ?)`,
+    ).run(proposal.id, messageCible, projectId, JSON.stringify(proposal), decidedAt);
+
+    return { proposal, messages, projectId };
+  })();
 }
 
 /* ------------------------------------------------------------------ */

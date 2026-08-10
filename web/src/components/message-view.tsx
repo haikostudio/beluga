@@ -7,6 +7,7 @@ import {
   Circle,
   Copy,
   Download,
+  GitMerge,
   HelpCircle,
   LayoutGrid,
   Loader2,
@@ -1007,6 +1008,16 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
           </div>
         ) : null}
       </button>
+    );
+  }
+
+  if (proposal.decision === 'merged') {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-accent/30 bg-surface/60 px-3 py-2 text-[13.5px] text-muted">
+        <GitMerge className="h-3 w-3 shrink-0 text-accent" />
+        <span className="min-w-0 flex-1 truncate">{proposal.title}</span>
+        <span className="text-[12px]">réunie dans une autre proposition</span>
+      </div>
     );
   }
 

@@ -9,7 +9,7 @@ import {
 } from '@haikodev/shared';
 
 /** Une proposition, réduite à ce que le tri regarde. */
-const p = (id: string, decision?: 'pending' | 'accepted' | 'refused') => ({ id, decision });
+const p = (id: string, decision?: 'pending' | 'accepted' | 'refused' | 'merged') => ({ id, decision });
 
 const FIL = [
   { id: 'm1', agentId: 'a1', proposals: [p('p1', 'accepted')] },
@@ -23,6 +23,7 @@ test('une décision absente vaut « en attente » : c’est la valeur de départ
   assert.equal(propositionEnAttente({ decision: 'pending' }), true);
   assert.equal(propositionEnAttente({ decision: 'accepted' }), false);
   assert.equal(propositionEnAttente({ decision: 'refused' }), false);
+  assert.equal(propositionEnAttente({ decision: 'merged' }), false);
 });
 
 test('le bandeau prend les propositions en attente, dans l’ordre des messages', () => {
@@ -56,6 +57,12 @@ test('une proposition décidée reste dans le fil, jamais les deux à la fois', 
   const dansLeBandeau = propositionsEnAttente([message]).map((entree) => entree.proposal.id);
   const dansLeFil = propositionsDuFil(message.proposals).map((proposal) => proposal.id);
   assert.deepEqual([...dansLeBandeau, ...dansLeFil].sort(), ['p2', 'p3']);
+});
+
+test('une source fusionnée reste dans le fil sans revenir dans le bandeau', () => {
+  const message = { id: 'm-fusion', proposals: [p('source', 'merged'), p('composee', 'pending')] };
+  assert.deepEqual(propositionsDuFil(message.proposals).map((proposal) => proposal.id), ['source']);
+  assert.deepEqual(propositionsEnAttente([message]).map((entree) => entree.proposal.id), ['composee']);
 });
 
 test('une description longue est repliée, une courte ne l’est pas', () => {
