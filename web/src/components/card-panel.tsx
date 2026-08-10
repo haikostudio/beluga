@@ -328,7 +328,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         </ZoneDefilement>
         </div>
 
-        <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
+        <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
           <Chat agent={agent} projectId={card.projectId} cardId={card.id} vide={motAnalyse(phase)} />
         </TabsContent>
 
