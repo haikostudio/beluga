@@ -371,7 +371,10 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                         .then(() =>
                           client
                             .call({ type: 'card.start', id: card.id })
-                            .catch((err: any) => client.pushToast('error', err?.message ?? 'lancement refusé', card.id))
+                            // Un lancement ne répond qu'à la FIN du tour : le
+                            // délai dépassé n'est pas un refus, et n'allume
+                            // donc pas l'alerte de serveur injoignable.
+                            .catch((err: any) => client.signalerRefus(err?.message ?? 'lancement refusé', card.id))
                         )
                     }
                   >

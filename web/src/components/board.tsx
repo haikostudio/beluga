@@ -11,7 +11,9 @@ import {
   canMove,
   cleColonneTableau,
   colonneAReprendre,
+  colonneAffichee,
   decisionsParCarte,
+  mentionColonneCorrigee,
   etapeDeLaColonne,
   etatVisuelCarte,
   lireDateDeDepart,
@@ -173,7 +175,24 @@ export function Board({
     [state.cards, projectId],
   );
 
-  const byColumn = (column: ColumnKey) => cards.filter((card) => card.column === column);
+  /*
+   * Où RANGER chaque carte — pas où elle est enregistrée. Une carte dont un
+   * agent travaille ne peut pas être affichée ailleurs qu'en « En cours », même
+   * si sa colonne connue est restée en arrière (requête de lancement qui
+   * n'aboutit pas, événement en retard). La règle est partagée et testée
+   * (`colonneAffichee`) ; ici on ne fait que lui dire si un agent tourne.
+   *
+   * Tout le tableau passe par `byColumn` : colonnes, comptes des en-têtes,
+   * onglets du téléphone et lots voient donc la MÊME carte au MÊME endroit.
+   */
+  const agentAuTravail = (card: Card) =>
+    Object.values(state.agents).some(
+      (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
+    );
+  const byColumn = (column: ColumnKey) =>
+    cards.filter(
+      (card) => colonneAffichee({ column: card.column, agentAuTravail: agentAuTravail(card) }) === column,
+    );
 
   /*
    * Les textes informatifs de la publication, remontés par le bloc de chaque
@@ -1189,8 +1208,15 @@ export function CardTile({
   const agentTacheActif = Object.values(state.agents).find(
     (a) => a.cardId === card.id && a.role === 'task' && (a.status === 'running' || a.status === 'starting'),
   );
+  /*
+   * La colonne où la carte est MONTRÉE, pas celle qu'elle a enregistrée : une
+   * carte replacée dans « En cours » parce qu'un agent y travaille doit dire
+   * son avancement comme n'importe quelle carte de cette colonne.
+   */
+  const colonneMontree = colonneAffichee({ column: card.column, agentAuTravail });
+  const anomalieColonne = mentionColonneCorrigee({ column: card.column, agentAuTravail });
   const progression = mentionProgressionTaches({
-    column: card.column,
+    column: colonneMontree,
     agentActif: !!agentTacheActif,
     todos: agentTacheActif?.todos,
   });
@@ -1201,7 +1227,16 @@ export function CardTile({
    * L'attente et l'échec gardent la priorité ; l'avancement « n/N faites » ne
    * parle que lorsqu'aucun d'eux ne parle.
    */
-  const statut = depart
+  const statut = anomalieColonne
+    ? // L'anomalie passe AVANT tout le reste : la carte n'est pas à la place
+      // que le serveur lui connaît, et cela doit se lire, jamais se masquer.
+      {
+        icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,
+        texte: anomalieColonne,
+        ton: 'text-warning',
+        marqueur: 'colonne-corrigee' as const,
+      }
+    : depart
     ? // L'heure dite passe avant la raison d'attente : elle dit mieux ce qui
       // retient la carte, et surtout qu'elle repartira sans nous.
       {
@@ -1484,6 +1519,7 @@ export function CardTile({
               className="min-w-0 flex-1 truncate"
               data-progression-taches={'marqueur' in statut && statut.marqueur === 'progression-taches' ? card.id : undefined}
               data-depart-programme={'marqueur' in statut && statut.marqueur === 'depart-programme' ? card.id : undefined}
+              data-colonne-corrigee={'marqueur' in statut && statut.marqueur === 'colonne-corrigee' ? card.id : undefined}
             >
               {statut.texte}
             </span>

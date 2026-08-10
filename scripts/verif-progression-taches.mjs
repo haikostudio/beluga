@@ -125,9 +125,17 @@ async function main() {
   await page.waitForTimeout(600);
   page.setDefaultTimeout(8000);
 
-  // Le projet affiché : c'est dans SON tableau qu'on pose les cartes d'essai.
+  /*
+   * Le projet AFFICHÉ : c'est dans SON tableau qu'on pose les cartes d'essai.
+   * L'espace de développement de HaikoDev ne vit plus dans la liste des projets
+   * (il a son propre bouton) : sans lui, on posait les cartes dans le tableau
+   * d'un AUTRE projet, où elles restaient invisibles.
+   */
   const projectId = await page.evaluate(
-    () => document.querySelector('[data-drag-kind="project"]')?.getAttribute('data-drag-id') ?? null,
+    () =>
+      document.querySelector('[data-espace-dev]')?.getAttribute('data-espace-dev') ??
+      document.querySelector('[data-drag-kind="project"]')?.getAttribute('data-drag-id') ??
+      null,
   );
   record('un projet est ouvert', !!projectId, projectId ?? 'aucun');
   if (!projectId) throw new Error('aucun projet dans la colonne de gauche');
@@ -229,27 +237,19 @@ async function main() {
     !(await texteProgression(terminee.cardId)),
   );
 
-  // L'agent coche la dernière étape : il renvoie 3/3, le décroché doit suivre.
-  await page.evaluate(
-    ([projectId, cardId, agentId]) => {
-      window.__injecter({
-        type: 'agent.upsert',
-        agent: {
-          id: agentId,
-          projectId,
-          cardId,
-          role: 'task',
-          title: 'Essai — liste 2/3',
-          run: { engine: 'codex', mode: 'direct' },
-          status: 'running',
-          todos: { done: 3, total: 3 },
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-      });
-    },
-    [projectId, deuxSurTrois.cardId, deuxSurTrois.agentId],
-  );
+  /*
+   * L'agent coche la dernière étape : il renvoie 3/3, le décroché doit suivre.
+   * On repose la carte AVEC son agent : entre-temps, le serveur a pu rediffuser
+   * la vraie liste des cartes du projet (un agent qui travaille pour de bon),
+   * ce qui efface les cartes d'essai injectées.
+   */
+  await poser('en-cours', {
+    column: 'running',
+    titre: 'Essai — liste 2/3',
+    statutAgent: 'running',
+    todos: { done: 3, total: 3 },
+    position: maintenant + 0.1,
+  });
   await page.waitForTimeout(700);
   const t2 = await texteProgression(deuxSurTrois.cardId);
   record('le compteur passe à « 3/3 » quand une étape est cochée', /3\/3/.test(t2 ?? ''), t2 ?? 'absent');
