@@ -18,7 +18,7 @@ nommé (`shared/src/extrait-regles.ts`).
 | `web/` | L'interface : tableau, conversations, réglages, application installable |
 | `shared/` | Les règles pures, sans base ni disque — donc testables seules |
 | `scripts/` | Service système, identifiants, scripts de vérification |
-| `docs/` | La documentation : les règles PAR SUJET (`regles/`), les faits PAR SUJET (`memoire/`), les MÉCANIQUES réutilisables (`mecaniques/`), la liste des contrôles (`verifications.md`), les audits |
+| `docs/` | La documentation : les règles PAR SUJET (`regles/`), les faits PAR SUJET (`memoire/`), les MÉCANIQUES réutilisables (`mecaniques/`), les PLANS du chef (`plans/`), la liste des contrôles (`verifications.md`), les audits |
 | `outils/` | Les outils tiers dont le démon dépend, versionnés ici (`outils/compta/` : facturation) |
 | `data/live` | **Ce qui est réellement servi** : écrit uniquement par la publication |
 | `data/competences` | Les **compétences partagées** : un dossier par compétence, chacun avec son `SKILL.md` |
@@ -217,6 +217,13 @@ le nom, là-bas le texte).
   eux, toute commande d'un chef bridé échoue avec « bwrap: … Permission denied ». Les outils d'ÉDITION
   (`Edit`, `Write`, `NotebookEdit`) lui restent interdits. Verrouillé par
   `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
+- **Le chef écrit ses documents et ses plans dans `docs/plans/`, et NULLE PART AILLEURS**
+  (`shared/src/documents-du-chef.ts`) : `write_document` y ramène la demande, nettoie le nom,
+  n'accepte que `.md`/`.txt` et refuse tout autre dossier — plus de `.md` écrit par-dessus
+  `docs/regles/`. Le bac à sable ne bouge pas : le projet reste en lecture seule. Le dossier est
+  INDEXÉ par la recherche de passages, en priorité haute : le plan écrit avant la carte remonte tout
+  seul au lancement de l'agent qui l'exécute. Verrouillé par
+  `server/src/test/documents-du-chef.test.ts` et `scripts/verif-plans-du-chef.mjs`.
 
 ### Projets
 

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   DOSSIER_MEMOIRE,
+  DOSSIER_PLANS,
   PRIORITE,
   choisirPassages,
   classerPassages,
@@ -89,6 +90,17 @@ export function fichiersAIndexer(projectPath: string): FichierIndexable[] {
   // Les fiches de MÉCANIQUES d'abord : écrites pour être resservies.
   for (const nom of fichiersMarkdown(path.join(projectPath, DOSSIER_MECANIQUES))) {
     ajouter(`${DOSSIER_MECANIQUES}/${nom}`, nom.replace(/\.md$/i, ''), PRIORITE.mecanique);
+  }
+  /*
+   * LES PLANS DU CHEF D'ORCHESTRE. Un plan est écrit AVANT la carte qui le
+   * réalise, pour cette carte-là : à score égal il passe donc devant, comme une
+   * mécanique. C'est tout l'intérêt du dossier — ce que le chef a préparé
+   * revient tout seul au lancement, sans que personne ne le recopie.
+   * Le sujet est PRÉFIXÉ (`plan-…`) : deux fichiers du même nom, l'un en règle
+   * l'autre en plan, ne se confondent pas dans `project_memory`.
+   */
+  for (const nom of fichiersMarkdown(path.join(projectPath, ...DOSSIER_PLANS.split('/')))) {
+    ajouter(`${DOSSIER_PLANS}/${nom}`, `plan-${nom.replace(/\.md$/i, '')}`, PRIORITE.mecanique);
   }
   // Les règles, les faits, les contrôles.
   for (const nom of fichiersMarkdown(path.join(projectPath, 'docs', 'regles'))) {
