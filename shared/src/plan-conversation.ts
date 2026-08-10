@@ -83,6 +83,26 @@ export function planEnAttente(messages: MessageDePlan[]): PlanEnAttente | null {
   return { index, numero, contenu: messages[index].content!.trim() };
 }
 
+/**
+ * LE DERNIER PLAN ÉCRIT dans ce fil, qu'il attende encore une décision ou non.
+ *
+ * `planEnAttente` (ci-dessus) exige que le plan soit le DERNIER mot du fil :
+ * c'est la bonne question quand on prépare un tour. À la FIN d'un tour, elle ne
+ * l'est plus — le fil s'est déjà enrichi de la demande et de la réponse en
+ * cours d'écriture. Or c'est là qu'on doit savoir si une VERSION précédente
+ * existe, pour exiger que celle qui vient soit son successeur entier.
+ */
+export function dernierPlanRedige(messages: MessageDePlan[]): PlanEnAttente | null {
+  let numero = 0;
+  let dernier: PlanEnAttente | null = null;
+  messages.forEach((message, index) => {
+    if (!message?.plan || !redige(message)) return;
+    numero += 1;
+    dernier = { index, numero, contenu: message.content!.trim() };
+  });
+  return dernier;
+}
+
 /** Au-delà, on ne recopie pas le plan précédent : son début suffit à le reconnaître. */
 export const SIGNES_PLAN_RECOPIE = 8000;
 
@@ -108,7 +128,9 @@ export function consigneDeRepriseDuPlan(plan: PlanEnAttente): string {
     `PLAN EN COURS — VERSION ${plan.numero}, REFUSÉE D'OFFICE PAR LE MESSAGE CI-DESSOUS.`,
     `Le message qui suit remplace cette version : il ne s'ajoute pas à côté d'elle.`,
     `REPRENDS ce plan, ADAPTE-LE à ce qui vient d'être demandé, et rends la VERSION ${plan.numero + 1}`,
-    `EN ENTIER — les quatre parties, jamais un fragment ni une liste des changements.`,
+    `EN ENTIER — les quatre parties sous leurs titres, jamais un fragment ni une liste des changements.`,
+    `MÊME SI LE MESSAGE CI-DESSOUS EST UNE QUESTION : sa réponse s'INTÈGRE au plan, elle ne le remplace pas.`,
+    `Un choix à soumettre se pose APRÈS les quatre parties, en une ligne — jamais à leur place.`,
     '',
     `--- VERSION ${plan.numero} DU PLAN ---`,
     contenu,

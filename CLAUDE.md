@@ -176,7 +176,11 @@ le nom, là-bas le texte).
   plan vit dans la conversation, le DERNIER. Lui seul porte « Valider » / « Refuser » ; les
   précédents se replient et se relisent sans rien à décider. **Tout nouveau message REFUSE le plan
   précédent** : le démon le recopie dans le contexte du tour avec sa consigne de reprise
-  (`planEnAttente` / `consigneDeRepriseDuPlan`). **Le mode plan ne retire PAS ses outils au chef**
+  (`planEnAttente` / `consigneDeRepriseDuPlan`). **Un texte qui n'annonce pas ses quatre parties
+  n'est PAS un plan, et le démon le VÉRIFIE** (`jugerLePlan`, `shared/src/plan-complet.ts`, jugé en
+  fin de `startTurn`) : incomplet avec une version précédente au fil, le chef est RELANCÉ une fois,
+  sans outil ; sinon le message perd son cadre et ses boutons. Une QUESTION se répond DANS le plan,
+  un choix à soumettre se pose APRÈS les quatre parties. **Le mode plan ne retire PAS ses outils au chef**
   (`modePlanFermeLEcriture`, `shared/src/droits-mode-plan.ts`) : il garde `write_document` et
   `ask_user`, et une décision qui ne lui appartient pas se demande AVANT le plan, jamais tranchée
   « par défaut ». L'entête du cadre tient sur UNE ligne.

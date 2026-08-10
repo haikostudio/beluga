@@ -5,7 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildClaudeArgs } from '../engines/claude.js';
 import { buildCodexArgs } from '../engines/codex.js';
-import { consigneDeRepriseDuPlan, etatDuPlan, indexDuPlanCourant, planEnAttente } from '@haikodev/shared';
+import {
+  consigneDePlanEntier,
+  consigneDeRepriseDuPlan,
+  dernierPlanRedige,
+  etatDuPlan,
+  indexDuPlanCourant,
+  jugerLePlan,
+  planEnAttente,
+} from '@haikodev/shared';
 
 /*
  * `../runtime.js` importe `../config.js` en cascade (via `../store.js`) : un
@@ -302,6 +310,107 @@ test('la consigne du mode plan impose la question posée AVANT le plan', () => {
 test('la consigne du mode plan dit le refus automatique du plan précédent', () => {
   const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /TOUT NOUVEAU MESSAGE DE L'UTILISATEUR REFUSE LE PLAN PRÉCÉDENT/);
+});
+
+/* ------------------------------------------------------------------ */
+/* UNE ITÉRATION REND LE PLAN ENTIER — et le démon le vérifie.          */
+/* Le texte rendu doit ANNONCER ses quatre parties : sinon ce n'est pas */
+/* un plan, il ne porte pas de bouton, et le chef est relancé une fois. */
+/* ------------------------------------------------------------------ */
+
+const PLAN_ENTIER = [
+  '## Faisabilité',
+  'Oui, tout tient avec le moteur actuel.',
+  '',
+  '## Chemin à suivre',
+  '1. Mesurer le découpage. 2. Pondérer par fraîcheur.',
+  '',
+  '## Conséquences',
+  'La recherche remonte des passages plus courts.',
+  '',
+  '## Améliorations apportées',
+  'Moins de bruit dans le contexte envoyé.',
+].join('\n');
+
+/* Le cas RÉEL qui a motivé la carte : trois pistes présentées en « version 3 ». */
+const FRAGMENT = [
+  'Trois pistes, par ordre de gain réel :',
+  '',
+  '**Le découpage avant le modèle.** La qualité d’un RAG tient surtout à la taille des passages.',
+  '',
+  '**Pondérer par fraîcheur.** À pertinence égale, remonter le passage le plus récent.',
+  '',
+  '**Garder la voie des mots exacts.** Elle existe déjà et rattrape ce que le sens seul rate.',
+  '',
+  'Dites-moi laquelle intégrer au plan.',
+].join('\n');
+
+test('un texte qui annonce les quatre parties est un plan entier', () => {
+  assert.deepEqual(jugerLePlan(PLAN_ENTIER), { complet: true, manquantes: [] });
+});
+
+test('les quatre parties se reconnaissent aussi en gras et en tête de ligne', () => {
+  const autre = [
+    '**Faisabilité.** Réalisable en une carte.',
+    '',
+    'CHEMIN À SUIVRE : trois étapes courtes.',
+    '',
+    '**Conséquences** — le tiroir change d’aspect.',
+    '',
+    '- Améliorations apportées : un seul texte à lire.',
+  ].join('\n');
+  assert.equal(jugerLePlan(autre).complet, true);
+});
+
+test('une liste de pistes suivie d’une question n’est PAS un plan', () => {
+  const jugement = jugerLePlan(FRAGMENT);
+  assert.equal(jugement.complet, false);
+  assert.deepEqual(jugement.manquantes, [
+    'Faisabilité',
+    'Chemin à suivre',
+    'Conséquences',
+    'Améliorations apportées',
+  ]);
+});
+
+test('une partie manquante est nommée, les autres ne le sont pas', () => {
+  const troisParties = PLAN_ENTIER.split('\n## Conséquences')[0];
+  assert.deepEqual(jugerLePlan(troisParties).manquantes, ['Conséquences', 'Améliorations apportées']);
+});
+
+test('une notion citée en pleine phrase ne vaut pas une partie du plan', () => {
+  const prose = 'Les conséquences seront faibles et les améliorations viendront plus tard.';
+  assert.equal(jugerLePlan(prose).complet, false);
+});
+
+test('le dernier plan écrit est retrouvé même quand un message le suit', () => {
+  const fil = [PLAN('version 1'), REPONSE('affine-le'), PLAN('version 2'), REPONSE('et si on faisait autrement ?')];
+  const dernier = dernierPlanRedige(fil);
+  assert.equal(dernier?.numero, 2);
+  assert.equal(dernier?.contenu, 'version 2');
+  assert.equal(planEnAttente(fil), null, 'ce plan n’attend plus de décision, mais il existe');
+  assert.equal(dernierPlanRedige([REPONSE('bonjour')]), null);
+});
+
+test('la relance nomme la version attendue, les parties manquantes et la place de la question', () => {
+  const texte = consigneDePlanEntier(3, ['Conséquences', 'Améliorations apportées']);
+  assert.match(texte, /VERSION 3/);
+  assert.match(texte, /Conséquences, Améliorations apportées/);
+  assert.match(texte, /APRÈS les quatre parties/);
+  assert.match(texte, /N'EST PAS UN PLAN ENTIER/);
+});
+
+test('la consigne du chef dit qu’une question se répond DANS le plan, et que le démon vérifie', () => {
+  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  assert.match(consigne, /UNE QUESTION DE L'UTILISATEUR SE RÉPOND DANS LE PLAN/);
+  assert.match(consigne, /dites-moi laquelle intégrer au plan/i);
+  assert.match(consigne, /LE DÉMON VÉRIFIE/);
+});
+
+test('la consigne de reprise dit qu’une question ne remplace pas le plan', () => {
+  const texte = consigneDeRepriseDuPlan({ index: 0, numero: 1, contenu: 'version 1' });
+  assert.match(texte, /MÊME SI LE MESSAGE CI-DESSOUS EST UNE QUESTION/);
+  assert.match(texte, /APRÈS les quatre parties/);
 });
 
 test('le refus de carte en mode plan ne renvoie pas l’utilisateur au bouton « Plan »', async () => {

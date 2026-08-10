@@ -12,6 +12,8 @@ import {
   EXTENSIONS_DOCUMENT,
   Card,
   DeployRun,
+  ETAPE_PLAN,
+  ETAPE_PLAN_ID,
   ETAPE_PONT,
   ETAPE_PONT_ID,
   EngineId,
@@ -48,6 +50,9 @@ import {
   partsDAccueil,
   planEnAttente,
   consigneDeRepriseDuPlan,
+  dernierPlanRedige,
+  jugerLePlan,
+  consigneDePlanEntier,
   nomDeBranche,
   observerContexte,
   poidsDeTour,
@@ -66,7 +71,7 @@ import {
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
-import { adapterFor, contextWindowFor, EngineEvent, EngineHandle } from './engines/index.js';
+import { adapterFor, contextWindowFor, EngineAdapter, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
 import {
@@ -1284,6 +1289,73 @@ async function startTurn(
     ? repriseDeCompte({ engine: agent.run.engine, compte: account, motif: motifQuota })
     : undefined;
 
+  /*
+   * LE PLAN RENDU EST-IL ENTIER ? La consigne le demandait déjà en toutes
+   * lettres ; rien ne la faisait respecter. Une relance formulée en QUESTION
+   * recevait une réponse ordinaire — trois pistes et « dites-moi laquelle
+   * intégrer au plan » — habillée quand même en « Plan proposé · version 3 »,
+   * avec ses boutons de décision : l'utilisateur perdait son plan, et
+   * « Valider » portait sur un fragment.
+   *
+   * On regarde donc le texte rendu (`jugerLePlan`, `shared/src/plan-complet.ts`) :
+   *   — un fil qui portait DÉJÀ un plan exige son successeur entier, donc le
+   *     chef est RELANCÉ une fois, dans la même session, avec les parties
+   *     manquantes nommées ;
+   *   — si la relance ne suffit pas — ou si aucun plan n'avait encore été écrit,
+   *     cas d'une simple question —, le message n'est pas un plan : ni cadre,
+   *     ni « Valider » sur un texte incomplet.
+   */
+  let planRendu = agent.run.mode === 'plan' && !failed;
+  if (planRendu) {
+    const jugement = jugerLePlan(finalText);
+    const precedent = jugement.complet
+      ? null
+      : dernierPlanRedige(store.listMessages(agent.id).filter((m) => m.id !== runState.messageId));
+    if (!jugement.complet && precedent) {
+      runState.steps.set(ETAPE_PLAN_ID, {
+        id: ETAPE_PLAN_ID,
+        label: `${ETAPE_PLAN} — il manque ${jugement.manquantes.join(', ')}`,
+        state: 'running',
+        startedAt: Date.now(),
+      });
+      pushMessage(runState, { steps: [...runState.steps.values()] });
+      const entier = await rendreLePlanEntier({
+        adapter,
+        cwd,
+        projectRoot,
+        agent,
+        sessionId: store.getSessionId(agent.id, cleSession),
+        mcpBridgePath: bridgePath,
+        fullAccess,
+        env,
+        consigne: consigneDePlanEntier(precedent.numero + 1, jugement.manquantes),
+      }).catch(() => '');
+      const refait = entier ? jugerLePlan(entier) : { complet: false, manquantes: jugement.manquantes };
+      if (refait.complet) {
+        finalText = entier;
+        runState.steps.set(ETAPE_PLAN_ID, {
+          id: ETAPE_PLAN_ID,
+          label: `${ETAPE_PLAN} — version ${precedent.numero + 1} rendue en entier`,
+          state: 'done',
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+        });
+      } else {
+        planRendu = false;
+        runState.steps.set(ETAPE_PLAN_ID, {
+          id: ETAPE_PLAN_ID,
+          label: `${ETAPE_PLAN} — refusé : il manque toujours ${refait.manquantes.join(', ')}`,
+          state: 'failed',
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+        });
+        finalText += `\n\n> [!WARNING]\n> Cette réponse n'est pas un plan entier (${refait.manquantes.join(', ')} manque). Elle ne porte donc pas de bouton « Valider » : redemandez le plan complet.`;
+      }
+    } else if (!jugement.complet) {
+      planRendu = false;
+    }
+  }
+
   if (!failed && agent.role === 'orchestrator') {
     finaliserPropositionsDuChef(runState.messageId, agent.projectId, measurement);
   }
@@ -1329,7 +1401,11 @@ async function startTurn(
     // décision. La clé n'est posée QUE dans ce cas — l'inclure toujours
     // écraserait `plan: true` des tours de mode plan qui réussissent,
     // `pushMessage` fusionnant par spread.
-    ...(failed ? { plan: false } : {}),
+    //
+    // MÊME RAISON pour un texte qui n'est pas un plan ENTIER (`planRendu`,
+    // plus haut) : le cadre « Plan proposé » et ses boutons ne s'ouvrent que
+    // sur les quatre parties, jamais sur un fragment.
+    ...(failed || (agent.run.mode === 'plan' && !planRendu) ? { plan: false } : {}),
   });
 
   /*
@@ -1706,6 +1782,62 @@ async function compresserContexte(agent: Agent, options: OptionsCompression): Pr
   bus.emit({ type: 'agent.upsert', agent: maj });
 }
 
+/**
+ * LA RELANCE QUI EXIGE LE PLAN ENTIER.
+ *
+ * Un second passage dans la MÊME session : le chef a donc encore sous les yeux
+ * la demande et sa propre réponse, il ne relit rien et ne coûte qu'un tour
+ * court. Aucun outil ne lui est laissé — on ne veut qu'un texte, et une
+ * question posée ici (`ask_user`) bloquerait le tour déjà fini.
+ */
+async function rendreLePlanEntier(options: {
+  adapter: EngineAdapter;
+  cwd: string;
+  projectRoot?: string;
+  agent: Agent;
+  sessionId?: string | null;
+  mcpBridgePath?: string;
+  fullAccess: boolean;
+  env?: Record<string, string>;
+  consigne: string;
+}): Promise<string> {
+  let texte = '';
+  let erreur = false;
+  const handle = options.adapter.run({
+    cwd: options.cwd,
+    projectRoot: options.projectRoot,
+    prompt: options.consigne,
+    model: options.agent.run.model ?? undefined,
+    thinking: options.agent.run.thinking,
+    sessionId: options.sessionId,
+    fullAccess: options.fullAccess,
+    role: options.agent.role,
+    mcpBridgePath: options.mcpBridgePath,
+    disallowedTools: OUTILS_FERMES_POUR_LA_RELANCE,
+    env: options.env,
+    onEvent: (event) => {
+      if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
+      if (event.kind === 'error') erreur = true;
+    },
+  });
+  const resultat = await handle.finished;
+  return resultat.ok && !erreur ? texte.trim() : '';
+}
+
+/** Tout ce que la relance n'a pas à toucher : elle ne rend qu'un texte. */
+const OUTILS_FERMES_POUR_LA_RELANCE = [
+  'Bash',
+  'Read',
+  'Write',
+  'Edit',
+  'WebSearch',
+  'WebFetch',
+  'Task',
+  'Agent',
+  'Workflow',
+  ...toolsFor('orchestrator').map((outil) => `mcp__haikodev__${outil.name}`),
+];
+
 async function resumeSemantique(agent: Agent, options: OptionsCompression): Promise<string> {
   let texte = '';
   let erreur = false;
@@ -2018,6 +2150,8 @@ export const TRI_MODE_PLAN = `TU ES EN MODE PLAN (bouton « Plan » activé) : p
 CHAQUE RÉPONSE EN MODE PLAN EST UN PLAN COMPLET, JAMAIS UN COMMENTAIRE NI UN MORCEAU. Même pour une retouche minuscule, même après un refus, tu réécris les QUATRE PARTIES en entier : l'utilisateur n'a alors qu'un seul texte à lire, à jour, sans rien à recoller de tête.
 SI UN PLAN A DÉJÀ ÉTÉ ÉCRIT PLUS HAUT DANS CETTE CONVERSATION, LE NOUVEAU LE REPREND ET L'ENRICHIT : ce qui tenait debout est conservé, la nouvelle demande s'y intègre, ce qui a été écarté ne revient pas. Ne rédige jamais un second plan indépendant à côté du premier, ni une simple liste des changements : un seul plan vit dans la conversation, le DERNIER, et il porte à lui seul tout ce qui a été dit avant.
 TOUT NOUVEAU MESSAGE DE L'UTILISATEUR REFUSE LE PLAN PRÉCÉDENT : il ne s'ajoute pas à côté, il le REMPLACE. Tu reprends donc le dernier plan, tu l'adaptes à ce qui vient d'être dit, et tu rends la VERSION SUIVANTE en entier — c'est elle, et elle seule, qui portera les boutons.
+UNE QUESTION DE L'UTILISATEUR SE RÉPOND DANS LE PLAN, PAS À CÔTÉ. « Que proposes-tu pour tel point ? », « quelles options ? », « qu'en penses-tu ? » : la réponse ne s'écrit pas en texte libre — elle s'INTÈGRE aux quatre parties et tu rends la version suivante ENTIÈRE. Une liste de pistes suivie de « dites-moi laquelle intégrer au plan » n'est PAS un plan : c'est le plan que l'utilisateur perd, et le bouton « Valider » porterait sur un fragment. Si un choix doit lui revenir, tu poses la question APRÈS les quatre parties, en une ligne, et le plan reste lisible du début à la fin sans elle.
+LE DÉMON VÉRIFIE. Un texte rendu en mode plan qui n'annonce pas ses quatre parties sous leurs titres est REFUSÉ : tu es relancé pour le rendre en entier, et s'il manque encore quelque chose ta réponse s'affiche sans cadre ni bouton de décision. Écris donc les quatre titres, toujours, même pour une retouche d'une ligne.
 UN REFUS (« je refuse ce plan », « réfléchis à une autre approche », « ce n'est pas ça ») N'EST PAS UNE FIN : tu rends AUSSITÔT un nouveau plan complet, aux mêmes quatre parties, qui prend un chemin DIFFÉRENT — et tu dis en une phrase, dans FAISABILITÉ, ce que tu abandonnes du plan précédent et pourquoi. Jamais un refus répondu par une question seule, une excuse ou un paragraphe sans plan.
 TU AS TOUS TES OUTILS EN MODE PLAN, écriture comprise : « write_document » et « ask_user » marchent ici comme ailleurs. Ne dis JAMAIS que le mode plan t'empêche d'écrire un fichier ou de poser une question — ce serait faux.
 UNE DÉCISION QUI NE T'APPARTIENT PAS SE DEMANDE AVANT LE PLAN, avec l'outil « ask_user », et tu ATTENDS la réponse : deux options possibles, une préférence, une information qui te manque. Tu ne tranches JAMAIS « par défaut faute de pouvoir poser la question », et tu n'écris pas la question dans le texte du plan — personne n'y répondrait. Ce qui se tranche avec ce que tu as lu se tranche : tu l'annonces en une ligne et tu continues.
