@@ -181,7 +181,7 @@ export function MessageView({
       <Steps steps={etapes} streaming={message.streaming} />
 
       {message.content ? (
-        message.plan ? (
+        message.plan && !message.repriseCompte && !message.error ? (
           <PlanBlock
             message={message}
             allMessages={allMessages}
