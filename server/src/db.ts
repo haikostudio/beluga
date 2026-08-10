@@ -378,6 +378,96 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
        WHERE column_key = 'validated';
     `,
   },
+  {
+    id: 17,
+    name: 'colonnes-reelles-des-cartes',
+    // La carte tenait dans une seule colonne fourre-tout `data`, en JSON : rien
+    // ne pouvait être filtré, trié ni compté sans relire et décoder chaque
+    // ligne. Les champs STABLES deviennent de vraies colonnes ; les listes
+    // VARIABLES (étiquettes, pièces jointes) prennent leur table fille, liée à
+    // la carte et effacée avec elle.
+    //
+    // Migration PUREMENT additive côté données : les valeurs sont RECOPIÉES
+    // depuis le JSON, jamais recalculées. Le bloc `data` est ensuite allégé des
+    // champs partis — il ne doit pas exister deux versions d'une même valeur —
+    // et garde le vraiment libre : chiffrage, consommation, planification,
+    // facturation, suivi GitHub.
+    sql: `
+      ALTER TABLE cards ADD COLUMN description TEXT;
+      ALTER TABLE cards ADD COLUMN origin TEXT;
+      ALTER TABLE cards ADD COLUMN agent_id TEXT;
+      ALTER TABLE cards ADD COLUMN conversation_agent_id TEXT;
+      ALTER TABLE cards ADD COLUMN analyse_demandee INTEGER;
+      ALTER TABLE cards ADD COLUMN code_deja_enregistre INTEGER;
+      ALTER TABLE cards ADD COLUMN hors_tache INTEGER;
+      ALTER TABLE cards ADD COLUMN excluded_from_deploy INTEGER;
+      ALTER TABLE cards ADD COLUMN done_at INTEGER;
+      ALTER TABLE cards ADD COLUMN archived_at INTEGER;
+      ALTER TABLE cards ADD COLUMN last_read_at INTEGER;
+      ALTER TABLE cards ADD COLUMN run_engine TEXT;
+      ALTER TABLE cards ADD COLUMN run_model TEXT;
+      ALTER TABLE cards ADD COLUMN run_thinking TEXT;
+      ALTER TABLE cards ADD COLUMN run_mode TEXT;
+
+      CREATE TABLE card_labels (
+        card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        PRIMARY KEY (card_id, position)
+      );
+      CREATE INDEX idx_card_labels_label ON card_labels(label);
+
+      CREATE TABLE card_attachments (
+        card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        PRIMARY KEY (card_id, position)
+      );
+
+      UPDATE cards
+         SET description = COALESCE(json_extract(data, '$.description'), ''),
+             origin = COALESCE(json_extract(data, '$.origin'), 'user'),
+             agent_id = json_extract(data, '$.agentId'),
+             conversation_agent_id = json_extract(data, '$.conversationAgentId'),
+             analyse_demandee = COALESCE(json_extract(data, '$.analyseDemandee'), 0),
+             code_deja_enregistre = COALESCE(json_extract(data, '$.codeDejaEnregistre'), 0),
+             hors_tache = COALESCE(json_extract(data, '$.horsTache'), 0),
+             excluded_from_deploy = COALESCE(json_extract(data, '$.excludedFromDeploy'), 0),
+             done_at = json_extract(data, '$.doneAt'),
+             archived_at = json_extract(data, '$.archivedAt'),
+             last_read_at = json_extract(data, '$.lastReadAt'),
+             deployed_at = COALESCE(deployed_at, json_extract(data, '$.deployedAt')),
+             run_engine = COALESCE(json_extract(data, '$.run.engine'), 'claude'),
+             run_model = json_extract(data, '$.run.model'),
+             run_thinking = COALESCE(json_extract(data, '$.run.thinking'), 'none'),
+             run_mode = COALESCE(json_extract(data, '$.run.mode'), 'direct');
+
+      INSERT INTO card_labels (card_id, position, label)
+      SELECT c.id, j.key, j.value
+        FROM (SELECT id, data FROM cards WHERE json_type(data, '$.labels') = 'array') c,
+             json_each(c.data, '$.labels') j
+       WHERE j.value IS NOT NULL;
+
+      INSERT INTO card_attachments (card_id, position, path)
+      SELECT c.id, j.key, j.value
+        FROM (SELECT id, data FROM cards WHERE json_type(data, '$.attachments') = 'array') c,
+             json_each(c.data, '$.attachments') j
+       WHERE j.value IS NOT NULL;
+
+      UPDATE cards
+         SET data = json_remove(
+               data,
+               '$.id', '$.projectId', '$.title', '$.description', '$.labels', '$.column',
+               '$.position', '$.origin', '$.attachments', '$.run', '$.analyseDemandee',
+               '$.codeDejaEnregistre', '$.horsTache', '$.excludedFromDeploy', '$.agentId',
+               '$.conversationAgentId', '$.doneAt', '$.archivedAt', '$.lastReadAt',
+               '$.deployedAt', '$.createdAt', '$.updatedAt'
+             );
+
+      CREATE INDEX idx_cards_agent ON cards(agent_id);
+      CREATE INDEX idx_cards_lecture ON cards(project_id, last_read_at);
+    `,
+  },
 ];
 
 export function openDb(): DB {

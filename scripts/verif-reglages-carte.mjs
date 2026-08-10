@@ -18,6 +18,7 @@ import { chromium } from 'playwright';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { reglagesDeLaCarte } from '../shared/dist/reglages-carte.js';
+import { carteDeLaLigne, lireCarteParId } from './carte-en-base.mjs';
 
 /* On vise le serveur de DÉVELOPPEMENT : HAIKODEV_URL, posée pour les agents,
    pointe l'application déjà publiée — on y verrait l'ancienne version. */
@@ -49,19 +50,19 @@ function poserSession(db) {
 function carteTerminee(db) {
   const lignes = db
     .prepare(
-      `SELECT c.id, c.title, c.project_id AS projectId, c.data, p.name AS projet
+      `SELECT c.*, p.name AS projet
          FROM cards c JOIN projects p ON p.id = c.project_id
         WHERE c.column_key IN ('done','to_deploy') AND p.archived = 0
         ORDER BY c.updated_at DESC LIMIT 12`,
     )
     .all();
   for (const ligne of lignes) {
-    const carte = JSON.parse(ligne.data);
+    const carte = carteDeLaLigne(db, ligne);
     const agent = carte.agentId
       ? db.prepare('SELECT data FROM agents WHERE id = ?').get(carte.agentId)
       : null;
     if (!agent) continue;
-    return { ...ligne, carte, agent: JSON.parse(agent.data) };
+    return { ...ligne, projectId: ligne.project_id, carte, agent: JSON.parse(agent.data) };
   }
   return null;
 }
@@ -267,10 +268,10 @@ async function main() {
             if (!texte.startsWith(moteurAffiche)) autre = entrees.nth(index);
           }
           if (autre) {
-            const avant = JSON.parse(db.prepare('SELECT data FROM cards WHERE id = ?').get(carteId).data).run;
+            const avant = lireCarteParId(db, carteId).run;
             await autre.click({ force: true });
             await page.waitForTimeout(1800);
-            const apres = JSON.parse(db.prepare('SELECT data FROM cards WHERE id = ?').get(carteId).data).run;
+            const apres = lireCarteParId(db, carteId).run;
             noter(
               `${ecran.nom} — un changement de moteur est enregistré sur la carte`,
               apres.engine !== avant.engine && !!apres.model,
