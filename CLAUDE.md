@@ -293,15 +293,15 @@ le nom, là-bas le texte).
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
 - **Une demande réellement partie garde son contexte envoyé et sa mesure moteur** ; en reprise,
   l'historique opaque est seulement nommé, jamais recopié ni inventé.
-- **Le tiroir « Contexte envoyé » montre DEUX PARTIES, en tokens** (`repartitionMemoireEnvoi`,
-  `shared/src/couches-tokens.ts`) : ce qui vient de la mémoire du projet (les blocs `kind: 'memory'`
-  du tour — l'index complet au premier tour via `briefingSepare`, `server/src/memory.ts`, les seuls
-  faits ajoutés ensuite) contre ce qui a été RÉELLEMENT envoyé au moteur pour ce tour (la mesure
-  d'entrée rendue par le moteur, cache compris). La mémoire est estimée depuis ses caractères (environ
-  quatre signes par jeton, `jetonsApproches`) faute d'une mesure du moteur qui la découpe bloc par
-  bloc. Plus d'historique des tours passés ni de pavé « estimé / réellement mesuré » par couche dans
-  ce tiroir : composition, consigne système et prompt entier restent repliés derrière « Voir le
-  détail ». Vérifié par `scripts/verif-contexte-envoye.mjs`.
+- **Le tiroir « Contexte envoyé » est une CHRONOLOGIE VERTICALE** (`chronologieContexteEnvoye`,
+  `recapitulatifEnvoi`, `shared/src/couches-tokens.ts`) : un bloc par tour RÉELLEMENT parti dans la
+  conversation, numéroté et daté — pas seulement l'instantané du message sous lequel on a cliqué. Un
+  récapitulatif en tête additionne mémoire et envoi de tous les tours, pour les comparer entre eux ;
+  chaque tour montre ensuite ses DEUX PARTIES en tokens (mémoire du projet contre ce qui a été
+  RÉELLEMENT envoyé au moteur, mesure d'entrée du moteur, cache compris ; la mémoire est estimée depuis
+  ses caractères, environ quatre signes par jeton, `jetonsApproches`) et ses passages retrouvés. Le
+  tour d'où on a ouvert le tiroir est déplié d'emblée, les autres repliés. Vérifié par
+  `scripts/verif-contexte-envoye.mjs`.
 - **L'onglet « Détails » d'une carte est une LIGNE DE TEMPS** (`shared/src/parcours-carte.ts`,
   commande `card.parcours`) : une étape par moment réel — tri du chef, autorisation, travail,
   déploiement, mise en production —, chacune avec ce qu'elle est allée CHERCHER et ce qu'elle a

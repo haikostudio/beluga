@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Le contexte réellement envoyé reste-t-il consultable sous la demande ?
- * Le tiroir montre deux parties, en tokens : ce qui vient de la mémoire du
- * projet, et ce qui a été réellement envoyé au moteur. Plus d'historique des
- * tours passés, plus de pavé « estimé / réellement mesuré » par couche.
- * Démon et base d'essai à soi, aucun moteur appelé, téléphone + ordinateur.
+ * Le contexte réellement envoyé reste-t-il consultable sous la demande ? Le
+ * tiroir montre une CHRONOLOGIE VERTICALE : un bloc par tour réellement parti
+ * dans la conversation (numéroté, daté), les deux parties en tokens
+ * (mémoire récupérée / envoi réel), les passages retrouvés — et un
+ * récapitulatif en tête pour comparer les tours entre eux. Plus de pavé
+ * « estimé / réellement mesuré » par couche. Démon et base d'essai à soi,
+ * aucun moteur appelé, téléphone + ordinateur.
  */
 import { chromium } from 'playwright';
 import Database from 'better-sqlite3';
@@ -96,6 +98,8 @@ const PROMPT = [
 const MEMOIRE_SUIVI = 'x'.repeat(3_200);
 /* 8 000 signes de briefing + index complet ≈ 2 000 tokens. */
 const MEMOIRE_OUVERTURE = 'y'.repeat(8_000);
+/* 1 200 signes de mémoire, pour le DEUXIÈME tour ≈ 300 tokens. */
+const MEMOIRE_DEUXIEME_TOUR = 'z'.repeat(1_200);
 
 function poserDecor() {
   const db = new Database(path.join(DATA, 'haikodev.db'));
@@ -184,6 +188,44 @@ function poserDecor() {
     t,
   );
   message('m-file', { content: 'Cette demande est encore en file.' }, t + 1000);
+
+  /* UN DEUXIÈME TOUR, plus tard dans la même conversation : c'est lui qui
+     fait exister une CHRONOLOGIE — un seul tour ne prouverait rien. */
+  message(
+    'm-envoye-2',
+    {
+      content: 'Et maintenant, montre-moi le tour suivant.',
+      tokens: 2_000,
+      sentContext: {
+        engine: 'codex',
+        model: 'gpt-5.4',
+        session: 'resumed',
+        prompt: 'DEMANDE : et le tour suivant ?',
+        systemInstruction: {
+          kind: 'reminder',
+          content: 'RAPPEL DE MÉTHODE : lis, constate et vérifie.',
+          transport: 'prefixed',
+        },
+        blocks: [
+          { kind: 'request', label: 'Demande utilisateur', characters: 40 },
+          { kind: 'memory', label: 'Nouveaux faits de la mémoire', characters: MEMOIRE_DEUXIEME_TOUR.length },
+        ],
+        passages: [
+          {
+            source: 'docs/regles/quotas.md',
+            titre: 'Quotas › Chaque hausse mesurée n’est attribuée qu’une fois',
+            score: 0.52,
+            tokens: 210,
+            texte: 'Chaque hausse mesurée sur un compte n’est attribuée qu’une fois : les tours simultanés cumulent leur part depuis un repère commun.',
+          },
+        ],
+        history: 'retained_by_engine',
+        usage: { inputTokens: 2_000 },
+        sentAt: t + 2000,
+      },
+    },
+    t + 2000,
+  );
 
   const carte = {
     id: CARTE_ID,
@@ -323,33 +365,43 @@ try {
     const { contexte, page, erreurs } = await ouvrir(navigateur, cas.telephone);
     try {
       const boutons = page.locator('[data-contexte-envoye]:visible');
-      noter(`${cas.nom} : seule la demande partie porte le bouton`, (await boutons.count()) === 1);
-      noter(`${cas.nom} : la mesure moteur est affichée`, /1\D?234 tokens/.test(await boutons.first().innerText()));
+      noter(`${cas.nom} : seuls les deux tours réellement partis portent un bouton`, (await boutons.count()) === 2);
+      noter(`${cas.nom} : le premier bouton affiche la mesure de SON tour`, /1\D?234 tokens/.test(await boutons.first().innerText()));
+      noter(`${cas.nom} : le second bouton affiche la mesure de SON tour`, /2\D?000 tokens/.test(await boutons.last().innerText()));
       const suitReperes = await boutons.first().evaluate((el) => (el.previousElementSibling?.textContent ?? '').includes('Copier'));
       noter(`${cas.nom} : le bouton suit les repères du message`, suitReperes);
 
       await boutons.first().click();
       const tiroir = page.getByRole('dialog');
       await tiroir.waitFor({ state: 'visible' });
-      noter(`${cas.nom} : le tiroir distingue la reprise`, (await tiroir.innerText()).includes('Reprise de session'));
 
       /*
-       * TOUT EST AFFICHÉ D'EMBLÉE : composition, consigne système et prompt
-       * entier sont visibles sans rien à déplier.
+       * LE RÉCAPITULATIF, EN TÊTE : de quoi comparer les deux tours entre eux
+       * d'un coup d'œil — 2 tours, 1 100 tokens de mémoire (800 + 300),
+       * 3 234 tokens envoyés au total (1 234 + 2 000).
        */
+      const recap = tiroir.locator('[data-recap-envoi]');
+      noter(`${cas.nom} : le récapitulatif est présent`, (await recap.count()) === 1);
+      const texteRecap = await recap.innerText();
+      noter(`${cas.nom} : le récapitulatif compte les deux tours`, /2 tours envoyés/i.test(texteRecap), texteRecap.replace(/\n/g, ' '));
+      noter(`${cas.nom} : le récapitulatif additionne la mémoire des deux tours`, /1\D?100 tokens/.test(texteRecap), texteRecap.replace(/\n/g, ' '));
+      noter(`${cas.nom} : le récapitulatif additionne l’envoi des deux tours`, /3\D?234 tokens/.test(texteRecap), texteRecap.replace(/\n/g, ' '));
+
+      /*
+       * LA PILE VERTICALE : un bloc par tour, numéroté et daté, dans l'ordre
+       * où il est réellement parti.
+       */
+      const tours = tiroir.locator('[data-tour-envoye]');
+      noter(`${cas.nom} : la chronologie montre les deux tours`, (await tours.count()) === 2);
       noter(
-        `${cas.nom} : le détail brut est affiché d’emblée, sans repli`,
-        (await tiroir.locator('[data-detail-brut]').count()) === 1 &&
-          (await tiroir.locator('[data-prompt-envoye]').count()) === 1 &&
-          (await tiroir.locator('[data-voir-detail-brut]').count()) === 0,
+        `${cas.nom} : les tours sont numérotés dans l’ordre chronologique`,
+        (await tours.nth(0).getAttribute('data-numero')) === '1' && (await tours.nth(1).getAttribute('data-numero')) === '2',
       );
 
-      /*
-       * AUCUN PASSAGE POUR CE TOUR (reprise de session) : le tiroir DIT
-       * pourquoi, au lieu de laisser une case à zéro sans explication.
-       */
-      const raisonAbsence = tiroir.locator('[data-passages-retrouves-absents]');
-      noter(`${cas.nom} : l’absence de passages est expliquée`, (await raisonAbsence.count()) === 1);
+      // Le tour d'où le tiroir a été ouvert (le premier) est déplié en entrant.
+      noter(`${cas.nom} : le tour d’origine distingue la reprise`, (await tours.nth(0).innerText()).includes('Reprise de session'));
+      const raisonAbsence = tours.nth(0).locator('[data-passages-retrouves-absents]');
+      noter(`${cas.nom} : l’absence de passages du premier tour est expliquée`, (await raisonAbsence.count()) === 1);
       const texteRaison = (await raisonAbsence.count()) ? await raisonAbsence.innerText() : '';
       noter(
         `${cas.nom} : la raison nomme la reprise de session`,
@@ -358,29 +410,29 @@ try {
       );
 
       /*
-       * DEUX PARTIES, EN TOKENS : la mémoire (800 tokens, 3 200 signes / 4)
-       * contre l'envoi réel (1 234 tokens, mesurés par le moteur).
+       * DEUX PARTIES, EN TOKENS, POUR LE PREMIER TOUR : la mémoire
+       * (800 tokens, 3 200 signes / 4) contre l'envoi réel (1 234 tokens).
        */
-      const bloc = tiroir.locator('[data-memoire-vs-envoi]');
-      noter(`${cas.nom} : le bloc mémoire / envoi est présent`, (await bloc.count()) === 1);
+      const bloc = tours.nth(0).locator('[data-memoire-vs-envoi]');
+      noter(`${cas.nom} : le bloc mémoire / envoi du premier tour est présent`, (await bloc.count()) === 1);
       const texteBloc = await bloc.innerText();
       noter(`${cas.nom} : la mémoire récupérée est en tokens`, /800 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
       noter(`${cas.nom} : l’envoi réel est en tokens`, /1\D?234 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
       noter(`${cas.nom} : la part de la mémoire dans l’envoi est dite`, /65 %/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
 
-      noter(
-        `${cas.nom} : plus de pavé « estimé / réellement mesuré » par couche`,
-        (await tiroir.locator('[data-tokens-estimes]').count()) === 0 &&
-          (await tiroir.locator('[data-tokens-reels]').count()) === 0 &&
-          (await tiroir.locator('[data-couche-tokens]').count()) === 0,
-      );
-      noter(
-        `${cas.nom} : plus d’historique des tours passés`,
-        (await tiroir.locator('[data-historique-tours]').count()) === 0 &&
-          !(await tiroir.innerText()).includes('Tours de cet agent'),
-      );
+      noter(`${cas.nom} : le prompt exact du premier tour est visible dès qu’il est déplié`, (await tours.nth(0).locator('[data-prompt-envoye]').innerText()) === PROMPT);
 
-      noter(`${cas.nom} : le prompt exact est visible directement`, (await tiroir.locator('[data-prompt-envoye]').innerText()) === PROMPT);
+      // Le second tour, replié par défaut, se déplie au clic et montre son propre passage retrouvé.
+      noter(`${cas.nom} : le second tour est replié par défaut`, (await tours.nth(1).locator('[data-passages-retrouves]').count()) === 0);
+      await tours.nth(1).getByRole('button').first().click();
+      const passagesSecondTour = tours.nth(1).locator('[data-passages-retrouves]');
+      noter(`${cas.nom} : déplié, le second tour montre son passage retrouvé`, (await passagesSecondTour.count()) === 1);
+      noter(
+        `${cas.nom} : le passage du second tour nomme sa source`,
+        /docs\/regles\/quotas\.md/.test(await passagesSecondTour.innerText()),
+      );
+      const pliages = await tours.nth(1).locator('[data-passage-retrouve] button, [data-passage-retrouve] [aria-expanded]').count();
+      noter(`${cas.nom} : aucun repli à déplier sur un passage`, pliages === 0);
 
       await page.evaluate(() => {
         window.__contexteCopie = '';
@@ -391,7 +443,7 @@ try {
       });
       await tiroir.getByRole('button', { name: /Tout copier/ }).click();
       const copie = await page.evaluate(() => window.__contexteCopie);
-      noter(`${cas.nom} : la copie contient le prompt exact`, copie.includes(PROMPT));
+      noter(`${cas.nom} : la copie contient les deux tours`, copie.includes(PROMPT) && copie.includes('Tour 2'));
 
       const defile = await tiroir.locator('[data-contexte-envoye-contenu]').evaluate((zone) => {
         const avant = zone.scrollTop;

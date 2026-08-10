@@ -1,6 +1,12 @@
 import { totalJetonsMesures } from './analyse-cout.js';
 import { coutDuTour } from './cout-tour.js';
-import type { AnalysisMeasurement, Estimate, ExecutionProjection, SentContextBlock } from './models.js';
+import type {
+  AnalysisMeasurement,
+  Estimate,
+  ExecutionProjection,
+  SentContextBlock,
+  SentContextSnapshot,
+} from './models.js';
 
 /**
  * LES TOKENS D'UNE CARTE, RANGÉS PAR COUCHE.
@@ -184,6 +190,53 @@ export function repartitionMemoireEnvoi(
  *  3. recherche tentée mais repliée sur l'index complet (rien au-dessus du
  *     seuil, ou plus cher que l'index).
  */
+/**
+ * LA CHRONOLOGIE DU TIROIR « CONTEXTE ENVOYÉ » : un bloc par tour RÉELLEMENT
+ * parti, dans l'ordre où il est parti. Chaque message porte son propre
+ * instantané (`message.sentContext`) — cette fonction ne fait que les
+ * rassembler et les numéroter, sans rien recalculer ni deviner.
+ */
+export interface TourEnvoye {
+  /** 1 au premier tour parti de la conversation, croît ensuite. */
+  numero: number;
+  messageId: string;
+  contexte: SentContextSnapshot;
+  repartition: RepartitionMemoireEnvoi;
+}
+
+export function chronologieContexteEnvoye(
+  messages: { id: string; sentContext?: SentContextSnapshot }[],
+): TourEnvoye[] {
+  return messages
+    .filter((message): message is typeof message & { sentContext: SentContextSnapshot } =>
+      Boolean(message.sentContext),
+    )
+    .sort((a, b) => a.sentContext.sentAt - b.sentContext.sentAt)
+    .map((message, index) => ({
+      numero: index + 1,
+      messageId: message.id,
+      contexte: message.sentContext,
+      repartition: repartitionMemoireEnvoi(message.sentContext.blocks, message.sentContext.usage),
+    }));
+}
+
+/** Le récapitulatif en tête du tiroir : de quoi comparer les tours entre eux. */
+export interface RecapitulatifEnvoi {
+  tours: number;
+  memoireTotale: number;
+  /** Absent tant qu'aucun tour n'a reçu sa mesure d'entrée du moteur. */
+  envoyeTotal?: number;
+}
+
+export function recapitulatifEnvoi(tours: TourEnvoye[]): RecapitulatifEnvoi {
+  const memoireTotale = tours.reduce((total, tour) => total + tour.repartition.memoireTokens, 0);
+  const mesures = tours.filter((tour) => tour.repartition.envoyeTokens !== undefined);
+  const envoyeTotal = mesures.length
+    ? mesures.reduce((total, tour) => total + (tour.repartition.envoyeTokens ?? 0), 0)
+    : undefined;
+  return { tours: tours.length, memoireTotale, envoyeTotal };
+}
+
 export function raisonAbsenceDePassages(input: {
   nouvelleSession: boolean;
   accueilEmporteLaMemoire: boolean;
