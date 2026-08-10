@@ -256,7 +256,9 @@ function descriptionDeProposition(
  * Le mode plan attend un PLAN écrit dans la conversation, pas une carte.
  */
 const REFUS_MODE_PLAN =
-  "Refusé : la conversation est en MODE PLAN. N'appelle pas cet outil ici — réponds directement dans la conversation avec un plan complet et structuré (faisabilité, chemin à suivre, conséquences, améliorations possibles), sans carte ni bouton. Ce n'est qu'une fois ce plan validé par l'utilisateur, et le mode repassé en « direct », que tu proposeras la carte — en recopiant alors le plan entier dans le champ `analysis.context` pour qu'il suive l'agent d'exécution.";
+  "Refusé : la conversation est en MODE PLAN. N'appelle pas cet outil ici — réponds directement dans la conversation avec un plan complet et structuré (faisabilité, chemin à suivre, conséquences, améliorations apportées), sans carte ni bouton. " +
+  "NE DIS PAS À L'UTILISATEUR QUE LA CRÉATION EST BLOQUÉE et ne lui demande pas de quitter le mode plan : le bouton « Valider » au bas de ton plan s'en charge tout seul, et le tour suivant te laissera proposer la carte. " +
+  'Écris donc ton plan, entier, et rien d’autre : c’est lui qu’on attend. Une fois validé, tu proposeras la carte en recopiant le plan entier dans le champ `analysis.context`, pour qu’il suive l’agent d’exécution.';
 
 /**
  * Les outils du démon, exposés aux agents. Les interdits sont posés ICI, au
@@ -348,19 +350,28 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'write_document',
     description:
-      `Écrit ou réécrit un document Markdown (plan, note, compte-rendu) dans « ${DOSSIER_PLANS}/ ». ` +
-      "Seul outil d'écriture du chef d'orchestre : ce dossier est le seul endroit du projet où il écrit, " +
-      "et ce qu'il y range est relu par la recherche au lancement d'une carte sur le même sujet. " +
-      'Pour MODIFIER un document, relis-le puis réécris-le entier sous le même nom.',
+      'Crée, remplace ou SUPPRIME un document (texte, Markdown, traitement de texte) ' +
+      `n'importe où dans le projet : ${EXTENSIONS_DOCUMENT.join(', ')}. Seul outil d'écriture du ` +
+      "chef d'orchestre, et le seul geste qui survive à la conversation. Le CODE en est exclu : " +
+      "le créer, le modifier ou l'effacer se délègue à un agent de tâche, par une carte. " +
+      'Pour MODIFIER un document, relis-le puis réécris-le entier sous le même chemin. ' +
+      `Un nom NU sans dossier (« refonte-accueil ») est rangé dans ${DOSSIER_PLANS}/.`,
     inputSchema: {
       type: 'object',
-      required: ['relativePath', 'content'],
+      required: ['relativePath'],
       properties: {
         relativePath: {
           type: 'string',
-          description: `Nom du fichier, ex. « refonte-accueil.md » (rangé d'office dans ${DOSSIER_PLANS}/)`,
+          description:
+            `Chemin dans le projet, ex. « docs/memoire/cartes.md » ou « README.md ». ` +
+            `Un nom sans dossier est rangé d'office dans ${DOSSIER_PLANS}/.`,
         },
-        content: { type: 'string' },
+        content: { type: 'string', description: "Le contenu ENTIER du document (inutile pour « supprimer »)" },
+        action: {
+          type: 'string',
+          enum: ['ecrire', 'supprimer'],
+          description: "« ecrire » (par défaut) crée ou remplace ; « supprimer » efface le document",
+        },
       },
     },
   },
@@ -833,33 +844,61 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
     case 'write_document': {
       /*
-       * LE CHEF N'ÉCRIT QUE DANS SON DOSSIER DE PLANS. C'est son SEUL geste
-       * d'écriture dans le projet — le bac à sable garde tout le reste en
-       * lecture seule — et il est ramené ici à `docs/plans/`
-       * (`shared/src/documents-du-chef.ts`) : sans cela, un `.md` pouvait
-       * s'écrire par-dessus les règles du moteur. Les autres rôles, qui ont de
-       * toute façon les outils d'édition, gardent le dossier entier.
+       * LE CHEF ÉCRIT LES DOCUMENTS, PARTOUT, ET JAMAIS LE CODE. Sa frontière
+       * ne tient plus à un DOSSIER mais à la NATURE du fichier
+       * (`shared/src/documents-du-chef.ts`) : tout ce qui est du texte —
+       * documentation, mémoire, compte rendu, fichier d'instructions — se crée,
+       * se remplace et s'efface librement ; le code est refusé par la liste des
+       * extensions, pas par la bonne volonté du modèle. Un nom NU reste rangé
+       * dans le dossier des plans, sauf s'il désigne un fichier existant de la
+       * racine (« CLAUDE.md »). Le bac à sable, lui, ne bouge pas : c'est le
+       * DÉMON qui écrit ici, pas le moteur.
        */
       const demande = String(args.relativePath ?? '');
+      const supprimer = String(args.action ?? 'ecrire') === 'supprimer';
       let rel = demande;
       if (ctx.role === 'orchestrator') {
-        const choix = cheminDuDocumentDuChef(demande);
+        const choix = cheminDuDocumentDuChef(demande, (relatif) => {
+          const cible = safeJoin(project.path, relatif);
+          return !!cible && fs.existsSync(cible);
+        });
         if (!choix.ok) return { ok: false, text: choix.raison };
         rel = choix.chemin;
-      } else if (!EXTENSIONS_DOCUMENT.some((fin) => rel.endsWith(fin))) {
+      } else if (!EXTENSIONS_DOCUMENT.some((fin) => rel.toLowerCase().endsWith(fin))) {
         return { ok: false, text: `Seuls les documents ${EXTENSIONS_DOCUMENT.join(' ou ')} sont autorisés par cet outil.` };
       }
       const full = safeJoin(project.path, rel);
       if (!full) return { ok: false, text: 'Chemin refusé : on ne sort jamais du dossier du projet.' };
       const existait = fs.existsSync(full);
+
+      // SUPPRIMER est un geste à part : effacer un document qui n'existe pas se
+      // dit, plutôt que de rendre un succès qui n'a rien fait.
+      if (supprimer) {
+        if (!existait) return { ok: false, text: `Aucun document à supprimer : « ${rel} » n'existe pas.` };
+        if (fs.statSync(full).isDirectory()) {
+          return { ok: false, text: `Refusé : « ${rel} » est un dossier, pas un document.` };
+        }
+        fs.rmSync(full);
+        return { ok: true, text: `Document supprimé : ${rel}.` };
+      }
+
+      if (typeof args.content !== 'string') {
+        return { ok: false, text: 'Le contenu du document est obligatoire (il remplace le fichier en entier).' };
+      }
+      if (existait && fs.statSync(full).isDirectory()) {
+        return { ok: false, text: `Refusé : « ${rel} » est un dossier, pas un document.` };
+      }
       fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, String(args.content ?? ''), 'utf8');
+      fs.writeFileSync(full, args.content, 'utf8');
       // Le chef doit savoir s'il a CRÉÉ ou REMPLACÉ : un plan qu'on croit
       // ajuster et qu'on écrase sous un autre nom se perd en silence.
       const geste = existait ? 'Document mis à jour' : 'Document créé';
       const rappel =
         ctx.role === 'orchestrator'
-          ? ` Il sera relu par la recherche au lancement d'une carte sur le même sujet ; pour le modifier, relis-le et réécris « ${rel} ».`
+          ? ` Pour le modifier, relis-le et réécris « ${rel} » en entier.` +
+            (rel.startsWith(`${DOSSIER_PLANS}/`)
+              ? " Il sera relu par la recherche au lancement d'une carte sur le même sujet."
+              : '')
           : '';
       return { ok: true, text: `${geste} : ${rel}.${rappel}` };
     }

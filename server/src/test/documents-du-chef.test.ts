@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DOSSIER_PLANS, cheminDuDocumentDuChef, nomDeFichierPropre } from '@haikodev/shared';
+import { DOSSIER_PLANS, cheminDuDocumentDuChef, estUnDocument, nomDeFichierPropre } from '@haikodev/shared';
 
 /*
  * `../runtime.js` importe `../config.js` en cascade (via `../store.js`) : un
@@ -43,6 +43,7 @@ test('un nom simple est rangé d’office dans le dossier des plans', () => {
   const choix = cheminDuDocumentDuChef('refonte-accueil');
   assert.equal(choix.ok, true);
   assert.equal(choix.ok && choix.chemin, `${DOSSIER_PLANS}/refonte-accueil.md`);
+  assert.equal(choix.ok && choix.parDefaut, true, 'le dossier des plans a été posé d’office');
 });
 
 test('le dossier déjà écrit n’est pas redoublé', () => {
@@ -56,21 +57,46 @@ test('un nom porté par un humain devient un nom de fichier propre', () => {
   assert.equal(choix.ok && choix.chemin, `${DOSSIER_PLANS}/plan-refonte-de-l-accueil.md`);
 });
 
-test('tout autre dossier du projet est refusé, avec la raison dite', () => {
-  for (const chemin of ['docs/regles/cartes.md', 'docs/memoire/cartes.md', '../ailleurs.md', '/etc/passwd.md']) {
+test('un DOCUMENT s’écrit n’importe où dans le projet, dossier nommé', () => {
+  for (const chemin of ['docs/regles/cartes.md', 'docs/memoire/cartes.md', 'docs/audit/2026/bilan.txt']) {
+    const choix = cheminDuDocumentDuChef(chemin);
+    assert.equal(choix.ok, true, `« ${chemin} » aurait dû être accepté`);
+    assert.equal(choix.ok && choix.chemin, chemin);
+  }
+});
+
+test('un fichier de la racine qui EXISTE déjà se modifie sous son nom nu', () => {
+  const choix = cheminDuDocumentDuChef('CLAUDE.md', (rel) => rel === 'CLAUDE.md');
+  assert.equal(choix.ok && choix.chemin, 'CLAUDE.md');
+  // Sans fichier connu, le même nom reste un plan.
+  const sansFichier = cheminDuDocumentDuChef('CLAUDE.md');
+  assert.equal(sansFichier.ok && sansFichier.chemin, `${DOSSIER_PLANS}/CLAUDE.md`);
+});
+
+test('le CODE reste fermé, quelle que soit sa place', () => {
+  for (const chemin of ['runtime.ts', 'server/src/runtime.ts', 'package.json', 'scripts/verif.mjs', 'style.css']) {
+    const choix = cheminDuDocumentDuChef(chemin);
+    assert.equal(choix.ok, false, `« ${chemin} » aurait dû être refusé`);
+    assert.match(!choix.ok ? choix.raison : '', /document|carte/i);
+  }
+});
+
+test('on ne sort pas du projet, on ne touche ni au caché ni aux dossiers de machine', () => {
+  for (const chemin of ['../ailleurs.md', '/etc/passwd.md', '.git/config.md', 'node_modules/paquet/lisez.md']) {
     const choix = cheminDuDocumentDuChef(chemin);
     assert.equal(choix.ok, false, `« ${chemin} » aurait dû être refusé`);
     assert.match(!choix.ok ? choix.raison : '', /refus/i);
   }
 });
 
-test('un fichier de code ne passe pas par cet outil', () => {
-  const choix = cheminDuDocumentDuChef('runtime.ts');
-  assert.equal(choix.ok, false);
+test('« estUnDocument » sépare le texte du code', () => {
+  assert.equal(estUnDocument('docs/note.md'), true);
+  assert.equal(estUnDocument('note.TXT'), true);
+  assert.equal(estUnDocument('server/src/tools.ts'), false);
 });
 
 /* ------------------------------------------------------------------ */
-/* L'outil : le chef écrit dans son dossier, et nulle part ailleurs    */
+/* L'outil : le chef écrit les documents, partout, et jamais le code   */
 /* ------------------------------------------------------------------ */
 
 test('le chef écrit son plan dans le dossier des plans', async () => {
@@ -95,15 +121,53 @@ test('réécrire le même plan est une MISE À JOUR, pas un doublon', async () =
   assert.equal(fs.readFileSync(path.join(projet, DOSSIER_PLANS, 'ajustable.md'), 'utf8'), 'après');
 });
 
-test('le chef ne peut pas écrire par-dessus les règles du moteur', async () => {
+test('le chef écrit la documentation du projet, hors du dossier des plans', async () => {
   const p = projetDEssai();
   const resultat = await callTool(
     { projectId: p.id, role: 'orchestrator' } as any,
     'write_document',
-    { relativePath: 'docs/regles/cartes.md', content: 'plus de règles' },
+    { relativePath: 'docs/memoire/nouveau-sujet.md', content: '# Un sujet' },
+  );
+  assert.equal(resultat.ok, true, resultat.text);
+  assert.equal(fs.existsSync(path.join(projet, 'docs', 'memoire', 'nouveau-sujet.md')), true);
+});
+
+test('le chef modifie le fichier d’instructions du moteur sous son nom nu', async () => {
+  const p = projetDEssai();
+  fs.writeFileSync(path.join(projet, 'CLAUDE.md'), 'avant', 'utf8');
+  const resultat = await callTool(
+    { projectId: p.id, role: 'orchestrator' } as any,
+    'write_document',
+    { relativePath: 'CLAUDE.md', content: 'après' },
+  );
+  assert.equal(resultat.ok, true, resultat.text);
+  assert.equal(fs.readFileSync(path.join(projet, 'CLAUDE.md'), 'utf8'), 'après');
+});
+
+test('le chef SUPPRIME un document, et un document seulement', async () => {
+  const p = projetDEssai();
+  const ctx = { projectId: p.id, role: 'orchestrator' } as any;
+  await callTool(ctx, 'write_document', { relativePath: 'docs/jetable.md', content: 'à effacer' });
+  const supprime = await callTool(ctx, 'write_document', { relativePath: 'docs/jetable.md', action: 'supprimer' });
+  assert.equal(supprime.ok, true, supprime.text);
+  assert.equal(fs.existsSync(path.join(projet, 'docs', 'jetable.md')), false);
+
+  const absent = await callTool(ctx, 'write_document', { relativePath: 'docs/jetable.md', action: 'supprimer' });
+  assert.equal(absent.ok, false, 'effacer un document absent se dit');
+
+  const code = await callTool(ctx, 'write_document', { relativePath: 'server/src/tools.ts', action: 'supprimer' });
+  assert.equal(code.ok, false, 'le code ne s’efface pas par cet outil');
+});
+
+test('le chef ne peut pas écrire un fichier de CODE', async () => {
+  const p = projetDEssai();
+  const resultat = await callTool(
+    { projectId: p.id, role: 'orchestrator' } as any,
+    'write_document',
+    { relativePath: 'server/src/runtime.ts', content: 'export const x = 1;' },
   );
   assert.equal(resultat.ok, false);
-  assert.equal(fs.existsSync(path.join(projet, 'docs', 'regles', 'cartes.md')), false);
+  assert.equal(fs.existsSync(path.join(projet, 'server', 'src', 'runtime.ts')), false);
 });
 
 test('un agent de tâche, lui, garde le dossier entier', async () => {
@@ -131,10 +195,12 @@ test('les plans entrent dans l’index de la recherche, en priorité haute', () 
   assert.ok(plan!.priorite >= 2, 'un plan passe devant à score égal');
 });
 
-test('la consigne du chef nomme son dossier d’écriture', () => {
+test('la consigne du chef dit ce qu’il écrit, et ce qui lui reste fermé', () => {
   const consigne = rolePrompt('orchestrator', false);
   assert.ok(consigne.includes(CONSIGNE_DOCUMENTS_DU_CHEF));
   assert.ok(consigne.includes(DOSSIER_PLANS));
+  assert.match(consigne, /LE CODE RESTE FERMÉ/);
+  assert.match(consigne, /supprimer/i);
 });
 
 test('en mode plan, le plan écrit est aussi enregistré', () => {

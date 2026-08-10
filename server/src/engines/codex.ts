@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { chefBride, serveursTiers, surchargesCodexDuChef } from '@haikodev/shared';
+import { chefBride, modePlanFermeLEcriture, serveursTiers, surchargesCodexDuChef } from '@haikodev/shared';
 import {
   EngineAdapter,
   EngineEvent,
@@ -206,7 +206,10 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
    * travaux de fond éteints) — voir `shared/src/bridage-chef.ts`.
    */
   const bride = chefBride(options);
-  const plan = options.mode === 'plan';
+  // Le mode plan ne ferme l'écriture QUE pour les agents qui travaillent dans le
+  // dépôt : le chef, lui, est déjà tenu par son bac à sable, et la lecture seule
+  // lui retirait ses propres outils (`modePlanFermeLEcriture`).
+  const plan = modePlanFermeLEcriture(options.mode, options.role);
   if (plan && !bride) {
     // Mode plan : le bac à sable reste en lecture seule même pour un agent en
     // accès complet — aucune commande d'écriture ne doit passer.

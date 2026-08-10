@@ -1,4 +1,4 @@
-import { EngineId, ThinkingLevel, TodoItem } from '@haikodev/shared';
+import { EngineId, RoleDAgent, ThinkingLevel, TodoItem } from '@haikodev/shared';
 
 export interface EngineEvent {
   kind: 'session' | 'text' | 'step' | 'todo' | 'usage' | 'context' | 'compaction' | 'ratelimit' | 'error' | 'done';
@@ -63,8 +63,16 @@ export interface EngineRunOptions {
    * Mode plan : l'agent réfléchit et propose SANS modifier un fichier ni lancer
    * de commande d'écriture, quel que soit `fullAccess`. Priorité absolue sur le
    * bac à sable habituel — voir `buildClaudeArgs` / `buildCodexArgs`.
+   *
+   * EXCEPTION, le chef d'orchestre : sa frontière est déjà posée par son bac à
+   * sable (projet en lecture seule) et par ses listes d'outils. Fermer en plus
+   * l'écriture au niveau du moteur ne protégeait rien et lui retirait ses
+   * propres outils — écrire son plan, poser une question
+   * (`modePlanFermeLEcriture`, `shared/src/droits-mode-plan.ts`).
    */
   mode?: 'direct' | 'plan';
+  /** Le rôle de l'agent : c'est lui qui décide de l'effet du mode plan. */
+  role?: RoleDAgent;
   allowedTools?: string[];
   disallowedTools?: string[];
   /**

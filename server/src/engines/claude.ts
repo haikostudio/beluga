@@ -2,7 +2,7 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { TodoItem } from '@haikodev/shared';
-import { reglagesClaudeDuChef } from '@haikodev/shared';
+import { modePlanFermeLEcriture, reglagesClaudeDuChef } from '@haikodev/shared';
 import {
   EngineAdapter,
   EngineEvent,
@@ -46,10 +46,17 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
 
   // Accès complet pour les agents de tâche : le consentement a été donné en
   // validant la carte, pas dans une succession de fenêtres (PLAN §6). Le mode
-  // plan l'emporte sur cet accès : l'agent prépare sans jamais écrire.
+  // plan l'emporte sur cet accès : l'agent prépare sans jamais écrire — SAUF
+  // pour le chef d'orchestre, dont la frontière est le bac à sable, pas le mode
+  // (`modePlanFermeLEcriture`) : `--permission-mode plan` lui fermait aussi ses
+  // OUTILS, donc son plan écrit et ses questions.
   args.push(
     '--permission-mode',
-    options.mode === 'plan' ? 'plan' : options.fullAccess ? 'bypassPermissions' : 'manual',
+    modePlanFermeLEcriture(options.mode, options.role)
+      ? 'plan'
+      : options.fullAccess
+        ? 'bypassPermissions'
+        : 'manual',
   );
 
   // `--append-system-prompt` est réappliqué à CHAQUE tour : on renvoyait donc la

@@ -2,15 +2,16 @@
 /*
  * LES DOCUMENTS ET LES PLANS DU CHEF D'ORCHESTRE, REJOUÉS DE BOUT EN BOUT.
  *
- * Le chef écrit dans UN dossier — `docs/plans/` — et ce qu'il y range revient
- * tout seul au lancement d'une carte sur le même sujet. Ce contrôle rejoue le
- * parcours entier sur un projet jetable, sans moteur et sans démon :
+ * Le chef écrit les DOCUMENTS partout dans le projet et le CODE nulle part ; un
+ * nom nu reste rangé dans `docs/plans/`, d'où il revient tout seul au lancement
+ * d'une carte sur le même sujet. Ce contrôle rejoue le parcours entier sur un
+ * projet jetable, sans moteur et sans démon :
  *
  *  1. le chef ÉCRIT un plan : le fichier est là, au bon endroit, sous un nom propre ;
  *  2. il le MODIFIE : le même fichier est remplacé, aucun doublon ;
- *  3. tout autre chemin du projet lui est REFUSÉ, la raison dite ;
+ *  3. il écrit et SUPPRIME un document ailleurs dans le projet ; le CODE lui est REFUSÉ ;
  *  4. le plan REMONTE dans les passages d'une carte sur le même sujet ;
- *  5. sa consigne lui dit où écrire, et le mode plan lui dit d'enregistrer.
+ *  5. sa consigne lui dit ce qu'il écrit, et le mode plan lui dit d'enregistrer.
  *
  *   node scripts/verif-plans-du-chef.mjs
  */
@@ -111,27 +112,44 @@ verifier(
 /* 3. Le reste du projet lui reste fermé                               */
 /* ------------------------------------------------------------------ */
 
-console.log('\n3. Le reste du projet lui reste fermé');
-for (const chemin of ['docs/regles/cartes.md', 'docs/memoire/cartes.md', 'server/src/runtime.ts', '../evasion.md']) {
+console.log('\n3. Les documents partout, le code nulle part');
+for (const chemin of ['docs/regles/cartes.md', 'docs/memoire/cartes.md', 'notes/reunion.txt']) {
+  const ecrit = await outils.callTool(CHEF, 'write_document', { relativePath: chemin, content: '# Document' });
+  verifier(ecrit.ok, `« ${chemin} » est accepté`, ecrit.text.slice(0, 80));
+  verifier(fs.existsSync(path.join(PROJET, ...chemin.split('/'))), `« ${chemin} » est bien sur le disque`);
+}
+
+/* Un document s'EFFACE aussi : c'est le troisième geste du chef. */
+const efface = await outils.callTool(CHEF, 'write_document', {
+  relativePath: 'notes/reunion.txt',
+  action: 'supprimer',
+});
+verifier(efface.ok, 'un document se supprime', efface.text.slice(0, 60));
+verifier(!fs.existsSync(path.join(PROJET, 'notes', 'reunion.txt')), 'le document supprimé a bien disparu');
+
+/* LE CODE, lui, reste fermé — quelle que soit sa place dans le projet. */
+for (const chemin of ['server/src/runtime.ts', 'package.json', 'scripts/verif.mjs', '../evasion.md']) {
   const refus = await outils.callTool(CHEF, 'write_document', { relativePath: chemin, content: 'non' });
   verifier(!refus.ok, `« ${chemin} » est refusé`, refus.text.slice(0, 80));
 }
 verifier(
-  !fs.existsSync(path.join(PROJET, 'docs', 'regles')) && !fs.existsSync(path.join(PROJET, 'server')),
-  'aucun fichier n’a été créé hors du dossier des plans',
+  !fs.existsSync(path.join(PROJET, 'server')) && !fs.existsSync(path.join(PROJET, 'package.json')),
+  'aucun fichier de code n’a été créé',
 );
 
-/* Un nom NU, lui, n'est pas refusé : il est RAMENÉ dans le dossier des plans.
-   Un chef qui demande « CLAUDE.md » écrit `docs/plans/claude.md`, jamais le
-   fichier d'instructions du moteur. */
+/* Un nom NU qui désigne un fichier EXISTANT de la racine se modifie sur place :
+   c'est ainsi que le chef tient le fichier d'instructions du moteur. */
 fs.writeFileSync(path.join(PROJET, 'CLAUDE.md'), 'les instructions du moteur', 'utf8');
-const ramene = await outils.callTool(CHEF, 'write_document', { relativePath: 'CLAUDE.md', content: 'ma note' });
-verifier(ramene.ok, '« CLAUDE.md » n’est pas refusé mais RAMENÉ dans les plans', ramene.text.slice(0, 60));
+const racine = await outils.callTool(CHEF, 'write_document', {
+  relativePath: 'CLAUDE.md',
+  content: 'les instructions du moteur, tenues à jour',
+});
+verifier(racine.ok, '« CLAUDE.md » existant se modifie sur place', racine.text.slice(0, 60));
 verifier(
-  fs.readFileSync(path.join(PROJET, 'CLAUDE.md'), 'utf8') === 'les instructions du moteur',
-  'le fichier d’instructions du moteur est intact',
+  fs.readFileSync(path.join(PROJET, 'CLAUDE.md'), 'utf8').includes('tenues à jour'),
+  'le fichier d’instructions du moteur porte la nouvelle version',
 );
-fs.rmSync(path.join(dossier, 'claude.md'), { force: true });
+verifier(!fs.existsSync(path.join(dossier, 'CLAUDE.md')), 'aucun doublon dans le dossier des plans');
 
 /* ------------------------------------------------------------------ */
 /* 4. Le plan remonte au lancement d'une carte                         */
@@ -168,12 +186,16 @@ verifier(
 /* 5. Ce que le chef en sait                                           */
 /* ------------------------------------------------------------------ */
 
-console.log('\n5. Le chef sait où écrire');
+console.log('\n5. Le chef sait ce qu’il écrit');
 const consigne = runtime.rolePrompt('orchestrator', false);
 verifier(consigne.includes(partage.DOSSIER_PLANS), 'sa consigne nomme le dossier des plans');
+verifier(/LE CODE RESTE FERMÉ/.test(consigne), 'sa consigne dit que le code lui reste fermé');
+verifier(/supprimer/i.test(consigne), 'sa consigne lui dit qu’il peut supprimer un document');
+const enPlan = runtime.rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+verifier(enPlan.includes('ENREGISTRE CHAQUE PLAN'), 'le mode plan lui dit d’enregistrer son plan');
 verifier(
-  runtime.rolePrompt('orchestrator', false, 'claude', 'complet', 'plan').includes('ENREGISTRE CHAQUE PLAN'),
-  'le mode plan lui dit d’enregistrer son plan',
+  /TU AS TOUS TES OUTILS EN MODE PLAN/.test(enPlan),
+  'le mode plan lui dit que ses outils d’écriture restent ouverts',
 );
 
 console.log('');

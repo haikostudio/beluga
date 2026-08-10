@@ -46,6 +46,7 @@ export * from './lecture-message.js';
 export * from './lot-colonne.js';
 export * from './memoire.js';
 export * from './documents-du-chef.js';
+export * from './droits-mode-plan.js';
 export * from './gestion-projets.js';
 export * from './parcours-carte.js';
 export * from './panne-serveur.js';

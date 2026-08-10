@@ -9,6 +9,7 @@ import {
   CONSIGNE_CARTE_COURTE,
   CONSIGNE_NIVEAU_AGENT,
   DOSSIER_PLANS,
+  EXTENSIONS_DOCUMENT,
   Card,
   DeployRun,
   ETAPE_PONT,
@@ -45,6 +46,8 @@ import {
   type NiveauDAccueil,
   niveauDAccueil,
   partsDAccueil,
+  planEnAttente,
+  consigneDeRepriseDuPlan,
   nomDeBranche,
   observerContexte,
   poidsDeTour,
@@ -595,6 +598,27 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
     }
   }
 
+  /*
+   * LE PLAN PRÉCÉDENT EST REFUSÉ D'OFFICE PAR CE MESSAGE. En mode plan, un
+   * nouveau message ne s'ajoute pas à côté du plan affiché : il le remplace.
+   * L'interface le savait déjà (le plan perd ses boutons dès qu'un message
+   * rédigé le suit) ; le chef, lui, ne le savait pas et commentait au lieu de
+   * refaire. On lui redonne donc le plan qui attendait, TEXTE COMPRIS — la
+   * consigne seule ne survivrait pas à une compression du contexte.
+   */
+  if (agent.run.mode === 'plan') {
+    // La demande de CE tour est déjà enregistrée au-dessus : la compter
+    // périmerait le plan qu'on cherche justement à faire reprendre.
+    const plan = planEnAttente(store.listMessages(agent.id).filter((m) => m.id !== userMessageId));
+    if (plan) {
+      contextParts.push({
+        label: `Plan à reprendre (version ${plan.numero})`,
+        kind: 'extra',
+        content: consigneDeRepriseDuPlan(plan),
+      });
+    }
+  }
+
   if (options.context) {
     contextParts.push({ label: 'Contexte ajouté par HaikoDev', kind: 'extra', content: options.context });
   }
@@ -964,6 +988,9 @@ async function startTurn(
     mcpBridgePath: bridgePath,
     fullAccess,
     mode: agent.run.mode,
+    // Le RÔLE décide de l'effet du mode plan : un agent de tâche prépare sans
+    // écrire, le chef garde ses outils (`modePlanFermeLEcriture`).
+    role: agent.role,
     allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
     disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
     env,
@@ -1887,17 +1914,19 @@ SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fich
  * demandée avant de monter un projet.
  */
 /**
- * LE DOSSIER D'ÉCRITURE DU CHEF, annoncé au modèle.
+ * CE QUE LE CHEF ÉCRIT, annoncé au modèle.
  *
- * L'outil refuse déjà tout autre chemin (`cheminDuDocumentDuChef`,
- * `shared/src/documents-du-chef.ts`) : cette consigne évite au chef de buter
- * dessus, et surtout lui dit POURQUOI ranger là — ce qu'il y écrit revient tout
- * seul au lancement de la carte, par la recherche de passages. Un document gardé
- * dans la seule conversation, lui, meurt avec elle.
+ * Sa frontière ne tient plus à un DOSSIER mais à la NATURE du fichier
+ * (`cheminDuDocumentDuChef`, `shared/src/documents-du-chef.ts`) : les DOCUMENTS
+ * partout, le CODE jamais. Cette consigne évite au chef de buter sur un refus,
+ * et lui dit pourquoi le dossier des plans reste le rangement par défaut — ce
+ * qu'il y écrit revient tout seul au lancement de la carte, par la recherche de
+ * passages. Un document gardé dans la seule conversation, lui, meurt avec elle.
  */
-export const CONSIGNE_DOCUMENTS_DU_CHEF = `TES DOCUMENTS ET TES PLANS S'ÉCRIVENT DANS « ${DOSSIER_PLANS}/ », avec l'outil « write_document » : c'est le SEUL endroit du projet où tu écris, et le seul qui survit à la conversation. Un document demandé (« fais-moi la doc de X », un plan, un compte-rendu) s'y range TOUJOURS, en plus de ta réponse.
-CE DOSSIER EST RELU PAR LA RECHERCHE : au lancement d'une carte sur le même sujet, ton plan remonte tout seul dans le contexte de l'agent qui l'exécute. C'est ainsi qu'un plan sert deux fois.
-POUR MODIFIER un document existant, relis-le d'abord (« Read »), puis réécris-le ENTIER sous le MÊME nom — « write_document » remplace le fichier, il n'ajoute pas à la fin. Un nouveau nom à chaque ajustement laisserait cinq versions du même plan dans le dossier.`;
+export const CONSIGNE_DOCUMENTS_DU_CHEF = `TES DOCUMENTS S'ÉCRIVENT AVEC L'OUTIL « write_document », ET IL ÉCRIT PARTOUT DANS LE PROJET : documentation, mémoire, fichier d'instructions, compte-rendu, plan — tout ce qui est du TEXTE (${EXTENSIONS_DOCUMENT.join(', ')}) se crée, se remplace et se SUPPRIME (\`action: "supprimer"\`) sans carte et sans permission à demander. C'est ton seul geste d'écriture, et le seul qui survive à la conversation.
+LE CODE RESTE FERMÉ, et lui seul : un fichier de programme, de configuration ou de script se crée, se modifie et s'efface par une CARTE confiée à un agent de tâche. L'outil refuse de toute façon toute autre extension que celles ci-dessus.
+POUR MODIFIER un document existant, relis-le d'abord (« Read »), puis réécris-le ENTIER sous le MÊME chemin — « write_document » remplace le fichier, il n'ajoute pas à la fin.
+UN NOM SANS DOSSIER EST RANGÉ DANS « ${DOSSIER_PLANS}/ » : c'est là que vivent tes plans, et CE DOSSIER EST RELU PAR LA RECHERCHE — au lancement d'une carte sur le même sujet, ton plan remonte tout seul dans le contexte de l'agent qui l'exécute. Pour écrire ailleurs, donne le chemin entier (« docs/memoire/cartes.md », « README.md »).`;
 
 /**
  * LA COLONNE DE GAUCHE, ANNONCÉE AU CHEF.
@@ -1965,11 +1994,13 @@ export const TRI_MODE_PLAN = `TU ES EN MODE PLAN (bouton « Plan » activé) : p
 À LA PLACE, tu réponds DANS LA CONVERSATION avec un plan complet, en quatre parties claires : FAISABILITÉ (est-ce possible, avec quelles réserves), CHEMIN À SUIVRE (les grandes étapes, dans l'ordre), CONSÉQUENCES (ce que ça change concrètement dans le produit) et AMÉLIORATIONS APPORTÉES (ce que l'utilisateur y gagne). Reste concis et concret, sans jargon.
 CHAQUE RÉPONSE EN MODE PLAN EST UN PLAN COMPLET, JAMAIS UN COMMENTAIRE NI UN MORCEAU. Même pour une retouche minuscule, même après un refus, tu réécris les QUATRE PARTIES en entier : l'utilisateur n'a alors qu'un seul texte à lire, à jour, sans rien à recoller de tête.
 SI UN PLAN A DÉJÀ ÉTÉ ÉCRIT PLUS HAUT DANS CETTE CONVERSATION, LE NOUVEAU LE REPREND ET L'ENRICHIT : ce qui tenait debout est conservé, la nouvelle demande s'y intègre, ce qui a été écarté ne revient pas. Ne rédige jamais un second plan indépendant à côté du premier, ni une simple liste des changements : un seul plan vit dans la conversation, le DERNIER, et il porte à lui seul tout ce qui a été dit avant.
+TOUT NOUVEAU MESSAGE DE L'UTILISATEUR REFUSE LE PLAN PRÉCÉDENT : il ne s'ajoute pas à côté, il le REMPLACE. Tu reprends donc le dernier plan, tu l'adaptes à ce qui vient d'être dit, et tu rends la VERSION SUIVANTE en entier — c'est elle, et elle seule, qui portera les boutons.
 UN REFUS (« je refuse ce plan », « réfléchis à une autre approche », « ce n'est pas ça ») N'EST PAS UNE FIN : tu rends AUSSITÔT un nouveau plan complet, aux mêmes quatre parties, qui prend un chemin DIFFÉRENT — et tu dis en une phrase, dans FAISABILITÉ, ce que tu abandonnes du plan précédent et pourquoi. Jamais un refus répondu par une question seule, une excuse ou un paragraphe sans plan.
+TU AS TOUS TES OUTILS EN MODE PLAN, écriture comprise : « write_document » et « ask_user » marchent ici comme ailleurs. Ne dis JAMAIS que le mode plan t'empêche d'écrire un fichier ou de poser une question — ce serait faux.
+UNE DÉCISION QUI NE T'APPARTIENT PAS SE DEMANDE AVANT LE PLAN, avec l'outil « ask_user », et tu ATTENDS la réponse : deux options possibles, une préférence, une information qui te manque. Tu ne tranches JAMAIS « par défaut faute de pouvoir poser la question », et tu n'écris pas la question dans le texte du plan — personne n'y répondrait. Ce qui se tranche avec ce que tu as lu se tranche : tu l'annonces en une ligne et tu continues.
 ENREGISTRE CHAQUE PLAN dans « ${DOSSIER_PLANS}/ » avec « write_document », en plus de l'écrire dans la conversation : un nom de fichier par SUJET (« refonte-accueil.md »), les mêmes quatre parties, et un titre en tête. Un ajustement RÉÉCRIT LE MÊME FICHIER, jamais un second. C'est ce fichier qui remontera tout seul au lancement de la carte, quand l'utilisateur validera.
-Une question restée ouverte se pose avec l'outil « ask_user », jamais en fin de plan.
-CE PLAN N'EST PAS UNE CARTE : le tableau n'en sait rien tant que l'utilisateur ne l'a pas dit. Le plan le plus récent s'affiche avec deux boutons au bas de son cadre, « Valider » et « Refuser », qui envoient un message ordinaire dans la conversation ; les plans plus anciens se replient et n'en portent plus. Ne demande donc jamais à l'utilisateur de recopier un accord.
-UNE FOIS QUE L'UTILISATEUR VALIDE CE PLAN dans un message qui suit (« vas-y », « lance-le », un accord clair) — et une fois le mode repassé sur « direct » —, tu proposes la carte comme d'habitude (cas 2 ou 3 du tri), MAIS tu recopies alors le DERNIER plan entier, tel que tu l'as écrit, dans le champ \`analysis.context\` de board_create_card/propose_task : c'est ainsi qu'il voyage jusqu'à l'agent qui exécutera la carte, qui le suit pendant le travail.`;
+CE PLAN N'EST PAS UNE CARTE : le tableau n'en sait rien tant que l'utilisateur ne l'a pas dit. Le plan le plus récent s'affiche avec deux boutons au bas de son cadre, « Valider » et « Refuser », qui envoient un message ordinaire dans la conversation ; les plans plus anciens se replient et n'en portent plus. Ne demande donc jamais à l'utilisateur de recopier un accord, et ne lui demande JAMAIS de quitter le mode plan lui-même : le bouton « Valider » s'en charge.
+UNE FOIS QUE L'UTILISATEUR VALIDE CE PLAN dans un message qui suit (« vas-y », « lance-le », un accord clair) — le mode repasse alors tout seul sur « direct » —, tu proposes la carte comme d'habitude (cas 2 ou 3 du tri), MAIS tu recopies alors le DERNIER plan entier, tel que tu l'as écrit, dans le champ \`analysis.context\` de board_create_card/propose_task : c'est ainsi qu'il voyage jusqu'à l'agent qui exécutera la carte, qui le suit pendant le travail.`;
 
 /**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute

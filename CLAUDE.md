@@ -174,7 +174,12 @@ le nom, là-bas le texte).
   `indexDuPlanCourant`, `shared/src/plan-conversation.ts`) : chaque réponse — relance, ajustement,
   refus — rend de nouveau les QUATRE parties EN ENTIER, enrichies des versions précédentes ; un seul
   plan vit dans la conversation, le DERNIER. Lui seul porte « Valider » / « Refuser » ; les
-  précédents se replient et se relisent sans rien à décider.
+  précédents se replient et se relisent sans rien à décider. **Tout nouveau message REFUSE le plan
+  précédent** : le démon le recopie dans le contexte du tour avec sa consigne de reprise
+  (`planEnAttente` / `consigneDeRepriseDuPlan`). **Le mode plan ne retire PAS ses outils au chef**
+  (`modePlanFermeLEcriture`, `shared/src/droits-mode-plan.ts`) : il garde `write_document` et
+  `ask_user`, et une décision qui ne lui appartient pas se demande AVANT le plan, jamais tranchée
+  « par défaut ». L'entête du cadre tient sur UNE ligne.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
 - **Une carte NAÎT dans « Planifié »** (`createCard`, `server/src/tools.ts`) : ni « Validé » ni « À
@@ -229,14 +234,17 @@ le nom, là-bas le texte).
   posée au niveau système (`bwrap`) — elle EXIGE les espaces de noms utilisateur non privilégiés
   (`kernel.apparmor_restrict_unprivileged_userns=0`, `/etc/sysctl.d/99-haikodev-userns.conf`) : sans
   eux, toute commande d'un chef bridé échoue avec « bwrap: … Permission denied ». Les outils d'ÉDITION
-  (`Edit`, `Write`, `NotebookEdit`) lui restent interdits. Verrouillé par
+  (`Edit`, `Write`, `NotebookEdit`) lui restent interdits — il écrit ses DOCUMENTS par
+  `write_document`, servi par le démon (règle suivante). Verrouillé par
   `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
-- **Le chef écrit ses documents et ses plans dans `docs/plans/`, et NULLE PART AILLEURS**
-  (`shared/src/documents-du-chef.ts`) : `write_document` y ramène la demande, nettoie le nom,
-  n'accepte que `.md`/`.txt` et refuse tout autre dossier — plus de `.md` écrit par-dessus
-  `docs/regles/`. Le bac à sable ne bouge pas : le projet reste en lecture seule. Le dossier est
-  INDEXÉ par la recherche de passages, en priorité haute : le plan écrit avant la carte remonte tout
-  seul au lancement de l'agent qui l'exécute. Verrouillé par
+- **Le chef écrit les DOCUMENTS partout dans le projet, et le CODE nulle part**
+  (`shared/src/documents-du-chef.ts`) : `write_document` crée, remplace et SUPPRIME tout fichier de
+  texte (`.md`, `.txt`, `.doc`…) où qu'il soit ; le code est refusé par la liste des extensions, et
+  se modifie par une carte. Refusés aussi : sortir du projet, le caché, les dossiers de machine. Un
+  nom NU est rangé dans `docs/plans/`, sauf s'il désigne un fichier EXISTANT de la racine
+  (« CLAUDE.md »). Le bac à sable ne bouge pas : le projet reste en lecture seule pour ses commandes.
+  `docs/plans/` est INDEXÉ par la recherche de passages, en priorité haute : le plan écrit avant la
+  carte remonte tout seul au lancement de l'agent qui l'exécute. Verrouillé par
   `server/src/test/documents-du-chef.test.ts` et `scripts/verif-plans-du-chef.mjs`.
 
 ### Projets

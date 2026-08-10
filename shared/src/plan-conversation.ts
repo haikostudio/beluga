@@ -59,3 +59,59 @@ export function etatDuPlan(messages: MessageDePlan[], index: number): EtatDuPlan
   if (!message?.plan || !redige(message)) return null;
   return index === indexDuPlanCourant(messages) ? 'courant' : 'ancien';
 }
+
+/** Le plan qui attend encore une décision, avec son numéro de version. */
+export interface PlanEnAttente {
+  index: number;
+  /** Son numéro de version (1 pour le premier plan du fil). */
+  numero: number;
+  contenu: string;
+}
+
+/**
+ * LE PLAN QUI ATTENDAIT UNE DÉCISION quand un nouveau message arrive.
+ *
+ * `null` s'il n'y en a pas — fil neuf, ou plan déjà dépassé par une réponse.
+ */
+export function planEnAttente(messages: MessageDePlan[]): PlanEnAttente | null {
+  const index = indexDuPlanCourant(messages);
+  if (index < 0) return null;
+  let numero = 0;
+  for (let i = 0; i <= index; i += 1) {
+    if (messages[i]?.plan && redige(messages[i])) numero += 1;
+  }
+  return { index, numero, contenu: messages[index].content!.trim() };
+}
+
+/** Au-delà, on ne recopie pas le plan précédent : son début suffit à le reconnaître. */
+export const SIGNES_PLAN_RECOPIE = 8000;
+
+/**
+ * LE REFUS AUTOMATIQUE, DIT AU CHEF.
+ *
+ * Un nouveau message de l'utilisateur ne s'ajoute pas à côté du plan affiché :
+ * il le REFUSE. L'interface le sait déjà (le plan perd ses boutons dès qu'un
+ * message rédigé le suit) ; le chef, lui, ne le savait pas — d'où des réponses
+ * qui commentaient le plan au lieu de le refaire.
+ *
+ * On lui redonne donc, à chaque tour de mode plan, le plan qui attendait ET la
+ * consigne : reprends-le, adapte-le, rends la version suivante EN ENTIER. Le
+ * texte recopié le rend insensible à la compression du contexte — c'est le seul
+ * endroit où le plan précédent survit à coup sûr.
+ */
+export function consigneDeRepriseDuPlan(plan: PlanEnAttente): string {
+  const contenu =
+    plan.contenu.length > SIGNES_PLAN_RECOPIE
+      ? `${plan.contenu.slice(0, SIGNES_PLAN_RECOPIE)}\n[…]`
+      : plan.contenu;
+  return [
+    `PLAN EN COURS — VERSION ${plan.numero}, REFUSÉE D'OFFICE PAR LE MESSAGE CI-DESSOUS.`,
+    `Le message qui suit remplace cette version : il ne s'ajoute pas à côté d'elle.`,
+    `REPRENDS ce plan, ADAPTE-LE à ce qui vient d'être demandé, et rends la VERSION ${plan.numero + 1}`,
+    `EN ENTIER — les quatre parties, jamais un fragment ni une liste des changements.`,
+    '',
+    `--- VERSION ${plan.numero} DU PLAN ---`,
+    contenu,
+    `--- fin de la version ${plan.numero} ---`,
+  ].join('\n');
+}

@@ -127,7 +127,13 @@ const PLAN_1 =
 await page.evaluate(([id, texte]) => window.haikodevEssai.plan(id, texte), [agentId, PLAN_1]);
 await page.waitForTimeout(400);
 
-const cadre = page.locator('[data-mode-plan-reponse="ouvert"]');
+/*
+ * L'APPLICATION MONTE DEUX CONVERSATIONS — celle du grand écran et celle du
+ * téléphone —, dont une seule est visible à la fois (l'autre mesure zéro pixel).
+ * Tout ce qu'on juge ici se lit donc dans le fil VISIBLE : sans « :visible », le
+ * moindre compte vaudrait deux et le moindre clic serait ambigu.
+ */
+const cadre = page.locator('[data-mode-plan-reponse="ouvert"]:visible');
 noter('le plan affiche son cadre dédié, déplié d’emblée', (await cadre.count()) === 1);
 noter('le bouton Valider est visible', await cadre.getByRole('button', { name: 'Valider' }).isVisible());
 noter('le bouton Refuser est visible', await cadre.getByRole('button', { name: 'Refuser' }).isVisible());
@@ -152,7 +158,7 @@ noter(
 
 /* ---------- 2. « Valider » bascule en direct et enchaîne, sans rien taper ---------- */
 
-const avantTexte = await page.locator('textarea[placeholder="Écrivez votre demande…"]').inputValue();
+const avantTexte = await page.locator('textarea[placeholder="Écrivez votre demande…"]:visible').first().inputValue();
 noter('rien n’est écrit dans la barre avant de valider', avantTexte === '');
 
 const messagesAvant = await page.locator('[data-fil="conversation"] >> text=Vas-y, lance ce plan.').count();
@@ -185,7 +191,7 @@ if (await arret.count()) {
 /* ---------- 3. Le plan précédent s'est replié tout seul, et se rouvre au clic ---------- */
 
 await page.waitForTimeout(300);
-const replieApresValidation = page.locator('[data-mode-plan-reponse="replie"]');
+const replieApresValidation = page.locator('[data-mode-plan-reponse="replie"]:visible');
 noter(
   'le plan validé se replie tout seul dès qu’un message le suit',
   (await replieApresValidation.count()) >= 1,
@@ -199,14 +205,14 @@ noter(
 
 await replieApresValidation.first().click();
 await page.waitForTimeout(300);
-const rouvert = page.locator('[data-mode-plan-reponse="ouvert"]').first();
-const rouvertOk = (await page.locator('[data-mode-plan-reponse="ouvert"]').count()) >= 1;
+const rouvert = page.locator('[data-mode-plan-reponse="ouvert"]:visible').first();
+const rouvertOk = (await page.locator('[data-mode-plan-reponse="ouvert"]:visible').count()) >= 1;
 noter('un clic sur le bandeau replié rouvre le plan, contenu intact', rouvertOk);
 const contenuIntact = await page.locator('text=Un export de plus').count();
 noter('le contenu rouvert est bien celui d’origine, inchangé', contenuIntact >= 1);
 
 // Une version périmée se relit, elle ne se décide plus : aucun bouton d'action dedans.
-const ancienOuvert = page.locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="ancien"]');
+const ancienOuvert = page.locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="ancien"]:visible');
 noter('le plan rouvert est bien marqué « ancien »', (await ancienOuvert.count()) === 1);
 noter(
   'un plan précédent rouvert ne porte plus de bouton Valider / Refuser',
@@ -236,14 +242,45 @@ const PLAN_2 =
 await page.evaluate(([id, texte]) => window.haikodevEssai.plan(id, texte), [agentId, PLAN_2]);
 await page.waitForTimeout(400);
 
-const dernierCadre = page.locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="courant"]');
+const dernierCadre = page.locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="courant"]:visible');
 noter('le second plan s’affiche déplié, lui aussi', (await dernierCadre.count()) === 1);
 noter(
   'un seul plan porte ses boutons : le plus récent',
-  (await page.locator('[data-fil="conversation"]').getByRole('button', { name: 'Valider', exact: true }).count()) ===
+  (await page.locator('[data-fil="conversation"]:visible').getByRole('button', { name: 'Valider', exact: true }).count()) ===
     1,
 );
 await page.screenshot({ path: `${SHOTS}/boutons-plan-iterations.png` });
+
+/* ---------- 3 bis. L'ENTÊTE TIENT SUR UNE SEULE LIGNE ---------- */
+
+/*
+ * « Plan proposé », le numéro de version et le rappel des versions précédentes
+ * s'empilaient en colonnes dès que la largeur manquait. On mesure donc la
+ * HAUTEUR RÉELLE de l'entête : une seule ligne de texte, jamais deux.
+ */
+const entete = await dernierCadre.locator('[data-entete-plan]').first().boundingBox();
+noter(
+  'l’entête du plan tient sur une seule ligne',
+  !!entete && entete.height <= 28,
+  entete ? `${Math.round(entete.height)} px de haut` : 'entête introuvable',
+);
+const enteteEtroit = await (async () => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  const boite = await page
+    .locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="courant"]:visible [data-entete-plan]')
+    .first()
+    .boundingBox();
+  await page.screenshot({ path: `${SHOTS}/boutons-plan-entete-telephone.png` });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(300);
+  return boite;
+})();
+noter(
+  'sur un téléphone aussi, l’entête reste sur une ligne',
+  !!enteteEtroit && enteteEtroit.height <= 28,
+  enteteEtroit ? `${Math.round(enteteEtroit.height)} px de haut` : 'entête introuvable',
+);
 
 noter('il porte le repère « version 2 »', (await dernierCadre.locator('text=version 2').count()) >= 1);
 
@@ -280,7 +317,20 @@ if (await arretRefus.count()) await arretRefus.click();
 
 /* ---------- 5. « Repartir de cette version » relance le mode plan ---------- */
 
-await page.waitForTimeout(300);
+/*
+ * L'ARRÊT N'EST PAS INSTANTANÉ, et un message envoyé à un agent encore occupé
+ * part en FILE D'ATTENTE : il ne s'affiche donc pas dans le fil, et le contrôle
+ * suivant conclurait à tort que le bouton n'envoie rien. On attend que le tour
+ * précédent soit vraiment fini — le bouton d'arrêt disparaît avec lui.
+ */
+await page
+  .waitForFunction(
+    () => !document.querySelector('button[aria-label="Arrêter l\'action en cours"], button[title="Arrêter l\'action en cours"]'),
+    null,
+    { timeout: 20000 },
+  )
+  .catch(() => {});
+await page.waitForTimeout(500);
 const messagesRepriseAvant = await page
   .locator('[data-fil="conversation"] >> text=Abandonne les versions écrites après la version 1')
   .count();

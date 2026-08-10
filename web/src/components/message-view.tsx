@@ -379,12 +379,14 @@ function PlanBlock({
         data-mode-plan-reponse="replie"
         data-mode-plan-etat={etat}
         onClick={() => setReplie(false)}
-        className="flex w-full items-center gap-1.5 rounded-lg border border-border bg-surface/60 px-3 py-2 text-left text-[12px] font-medium uppercase tracking-wide text-muted transition-colors hover:bg-surface hover:text-text"
+        className="flex w-full flex-nowrap items-center gap-1.5 overflow-hidden rounded-lg border border-border bg-surface/60 px-3 py-2 text-left text-[12px] font-medium uppercase tracking-wide text-muted transition-colors hover:bg-surface hover:text-text"
       >
         <ChevronRight className="h-3.5 w-3.5 shrink-0" />
         <Route className="h-3.5 w-3.5 shrink-0" />
-        {courant ? 'Plan proposé' : 'Version précédente du plan'}
-        {numero ? <span className="text-faint">— version {numero}</span> : null}
+        <span className="truncate">{courant ? 'Plan proposé' : 'Version précédente'}</span>
+        {numero ? (
+          <span className="shrink-0 whitespace-nowrap normal-case tracking-normal text-faint">· version {numero}</span>
+        ) : null}
       </button>
     );
   }
@@ -401,30 +403,41 @@ function PlanBlock({
         courant ? 'border-border bg-surface/80' : 'border-border/60 bg-surface/40',
       )}
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-          <Route className="h-3.5 w-3.5" />
-          {courant ? 'Plan proposé' : 'Version précédente du plan'}
-          {numero ? <span className="text-faint">— version {numero}</span> : null}
+      {/* L'ENTÊTE TIENT SUR UNE SEULE LIGNE, même sur un téléphone : le titre,
+          le numéro de version et le rappel des versions précédentes étaient
+          empilés en colonnes dès que la largeur manquait. Rien ne revient donc
+          à la ligne (« flex-nowrap », « whitespace-nowrap ») ; c'est le TITRE
+          qui se laisse tronquer, jamais les chiffres, et les mots qui ne
+          servent qu'au confort disparaissent sur écran étroit. */}
+      <div data-entete-plan className="mb-2 flex flex-nowrap items-center justify-between gap-2 overflow-hidden">
+        <div className="flex min-w-0 flex-nowrap items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
+          <Route className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{courant ? 'Plan proposé' : 'Version précédente'}</span>
+          {numero ? (
+          <span className="shrink-0 whitespace-nowrap normal-case tracking-normal text-faint">· version {numero}</span>
+        ) : null}
         </div>
         {courant && precedentes.length ? (
           <button
             type="button"
             data-versions-plan
+            title={`${precedentes.length} version${precedentes.length > 1 ? 's' : ''} précédente${precedentes.length > 1 ? 's' : ''}`}
             onClick={() => setVersionsOuvertes((v) => !v)}
-            className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-faint transition-colors hover:bg-surface hover:text-text"
+            className="flex shrink-0 flex-nowrap items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-1 text-[12px] text-faint transition-colors hover:bg-surface hover:text-text"
           >
-            <History className="h-3 w-3" />
-            {precedentes.length} version{precedentes.length > 1 ? 's' : ''} précédente
-            {precedentes.length > 1 ? 's' : ''}
-            <ChevronRight className={cn('h-3 w-3 transition-transform', versionsOuvertes && 'rotate-90')} />
+            <History className="h-3 w-3 shrink-0" />
+            {precedentes.length} version{precedentes.length > 1 ? 's' : ''}
+            <span className="hidden sm:inline">
+              précédente{precedentes.length > 1 ? 's' : ''}
+            </span>
+            <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', versionsOuvertes && 'rotate-90')} />
           </button>
         ) : null}
         {courant ? null : (
           <button
             type="button"
             onClick={() => setReplie(true)}
-            className="shrink-0 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:text-text"
+            className="shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:text-text"
           >
             Replier
           </button>
