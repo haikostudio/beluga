@@ -250,10 +250,14 @@ async function main() {
             /choisi au lancement/i.test(texte),
             texte.slice(0, 120),
           );
-          // Le menu du moteur s'ouvre : les réglages sont bien modifiables.
-          const menu = bloc.locator('button').first();
-          const moteurAffiche = (await menu.innerText()).trim();
-          await menu.click({ force: true });
+          // Le point d'entrée unique des réglages s'ouvre sur un aperçu, dont
+          // la ligne « Moteur » creuse vers la liste verticale des moteurs.
+          const entree = bloc.locator('[data-selecteur="config"]').first();
+          await entree.click({ force: true });
+          await page.waitForTimeout(800);
+          const ligneMoteur = page.locator('[data-selecteur="moteur"]').first();
+          const moteurAffiche = ((await ligneMoteur.getAttribute('data-valeur')) || '').trim();
+          await ligneMoteur.click({ force: true });
           await page.waitForTimeout(1200);
           const entrees = page.getByRole('menu').last().getByRole('menuitem');
           const combien = await entrees.count();

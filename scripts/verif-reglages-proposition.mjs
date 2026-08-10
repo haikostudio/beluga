@@ -361,7 +361,14 @@ async function main() {
       await bloc.scrollIntoViewIfNeeded().catch(() => {});
       await page.waitForTimeout(600);
       const texte = (await bloc.innerText()).replace(/\s+/g, ' ');
-      const modeleAffiche = ((await bloc.locator('[data-selecteur="modele"]').innerText().catch(() => '')) || '').trim();
+      // Le point d'entrée unique des réglages : son aperçu porte la ligne
+      // « Modèle », avec la valeur affichée en clair dans `data-valeur`.
+      await bloc.locator('[data-selecteur="config"]').first().click({ force: true }).catch(() => {});
+      await page.waitForTimeout(600);
+      // Le contenu du menu est posé dans un PORTAIL, hors du bloc de la carte.
+      const modeleAffiche = ((await page.locator('[data-selecteur="modele"]').first().getAttribute('data-valeur').catch(() => '')) || '').trim();
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
       noter('le moteur de la conversation est affiché sur la carte à valider', texte.includes(codex.label), texte.slice(0, 160));
       const modelesCodexAffiches = (moteursAffiches.find((moteur) => moteur.id === 'codex')?.models ?? []).map(
         (modele) => modele.label,
@@ -377,16 +384,16 @@ async function main() {
         .filter((label) => texte.toLowerCase().includes(label.toLowerCase()));
       noter('aucun modèle Claude n’apparaît sur une proposition Codex', intrus.length === 0, intrus.join(', '));
 
-      // Les trois réglages restent MODIFIABLES : le menu du moteur s'ouvre.
-      const menuMoteur = bloc.getByRole('button', { name: new RegExp(codex.label, 'i') }).first();
-      if (await menuMoteur.count()) {
-        await menuMoteur.click({ force: true });
+      // Les trois réglages restent MODIFIABLES : le point d'entrée s'ouvre.
+      const entreeReglages = bloc.locator('[data-selecteur="config"]').first();
+      if (await entreeReglages.count()) {
+        await entreeReglages.click({ force: true });
         await page.waitForTimeout(1200);
         const ouvert = await page.getByRole('menu').count();
         noter('les réglages restent modifiables avant validation', ouvert > 0);
         await page.keyboard.press('Escape');
       } else {
-        noter('les réglages restent modifiables avant validation', false, 'menu du moteur introuvable');
+        noter('les réglages restent modifiables avant validation', false, 'point d’entrée des réglages introuvable');
       }
     }
 
