@@ -213,6 +213,7 @@ export function Chat({
                   pickedEvolutions={picked}
                   onToggleEvolution={toggleEvolution}
                   onToggleAll={toggleAll}
+                  dernier={index === messages.length - 1}
                 />
               </React.Fragment>
             ))

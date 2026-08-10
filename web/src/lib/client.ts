@@ -614,5 +614,26 @@ if (import.meta.env.MODE !== 'production') {
         motif: 'tache-terminee',
         voix: texte,
       }),
+    // Un plan écrit par un agent, sans attendre un vrai tour d'écriture :
+    // permet de juger le cadre et ses deux boutons pour de vrai, sur le
+    // fil d'un agent RÉEL (les boutons, eux, envoient un vrai message).
+    plan: (agentId: string, content: string) => {
+      const message: Message = {
+        id: `essai-${Math.random().toString(36).slice(2)}`,
+        agentId,
+        role: 'assistant',
+        content,
+        steps: [],
+        todos: [],
+        proposals: [],
+        questions: [],
+        downloads: [],
+        attachments: [],
+        streaming: false,
+        plan: true,
+        createdAt: Date.now(),
+      };
+      client.handleEssai({ type: 'message.upsert', message });
+    },
   };
 }
