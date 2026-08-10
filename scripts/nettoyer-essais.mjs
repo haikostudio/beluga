@@ -21,9 +21,19 @@ for (const motif of TITRES) {
   }
 }
 
-// Les projets d'essai créés par les scripts d'agents.
+// Les projets d'essai créés par les scripts d'agents — y compris ceux qu'un
+// contrôle mal isolé aurait laissés pointer vers un dossier temporaire.
 let projets = 0;
-for (const projet of db.prepare("SELECT id, path FROM projects WHERE path LIKE '%bac-a-sable%' OR path LIKE '%essai-creation%'").all()) {
+for (const projet of db
+  .prepare(
+    "SELECT id, path FROM projects WHERE path LIKE '%bac-a-sable%' OR path LIKE '%essai-creation%' OR path LIKE '/tmp/%'",
+  )
+  .all()) {
+  for (const agent of db.prepare('SELECT id FROM agents WHERE project_id = ?').all(projet.id)) {
+    db.prepare('DELETE FROM messages WHERE agent_id = ?').run(agent.id);
+    db.prepare('DELETE FROM queue WHERE agent_id = ?').run(agent.id);
+    db.prepare('DELETE FROM agents WHERE id = ?').run(agent.id);
+  }
   db.prepare('DELETE FROM cards WHERE project_id = ?').run(projet.id);
   db.prepare('DELETE FROM projects WHERE id = ?').run(projet.id);
   projets += 1;
