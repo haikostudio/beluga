@@ -13,17 +13,38 @@ import { cn } from './utils';
  * ligne par ligne se retrouvait fondue en un seul pavé.
  */
 
-const SECTION_ICONS: { test: RegExp; icon: string }[] = [
-  { test: /analyse/i, icon: '🔍' },
-  { test: /ce qui est fait|actions faites|tâches publiées|ce qui a été publié/i, icon: '✅' },
-  { test: /conséquences|ce qui change|approche retenue|déroulé|ce qui est en ligne/i, icon: '🔁' },
-  { test: /impact|vérification|résultat/i, icon: '🎯' },
-  { test: /évolutions possibles|suites éventuelles|état final/i, icon: '🌱' },
-  { test: /coûts|activation|facturation|temps et coût|estimation développeur/i, icon: '💳' },
+/**
+ * Chaque section est classée par sa NATURE — comprendre, agir, en tirer les
+ * conséquences, ou conclure — et rendue dans un cadre de la couleur d'état
+ * correspondante (§17 : seules les couleurs d'état existent dans la palette,
+ * jamais une teinte décorative). L'icône reste, mais ne suffit plus seule :
+ * le cadre se voit avant même de lire le titre.
+ */
+type Tone = 'info' | 'success' | 'warning' | 'neutral';
+
+const SECTION_ICONS: { test: RegExp; icon: string; tone: Tone }[] = [
+  { test: /analyse|faisabilité/i, icon: '🔍', tone: 'info' },
+  { test: /ce qui est fait|actions faites|tâches publiées|ce qui a été publié|chemin à suivre/i, icon: '✅', tone: 'success' },
+  { test: /conséquences|ce qui change|approche retenue|déroulé|ce qui est en ligne/i, icon: '🔁', tone: 'warning' },
+  { test: /impact|vérification|résultat|améliorations apportées/i, icon: '🎯', tone: 'warning' },
+  { test: /évolutions possibles|suites éventuelles|état final/i, icon: '🌱', tone: 'neutral' },
+  { test: /coûts|activation|facturation|temps et coût|estimation développeur/i, icon: '💳', tone: 'neutral' },
 ];
 
+const TONE_CLASSES: Record<Tone, string> = {
+  info: 'border-info/30 bg-info/5',
+  success: 'border-success/30 bg-success/5',
+  warning: 'border-warning/30 bg-warning/5',
+  neutral: 'border-border bg-surface/60',
+};
+
+function styleFor(title: string): { icon: string | null; tone: Tone } {
+  const entry = SECTION_ICONS.find((e) => e.test.test(title));
+  return { icon: entry?.icon ?? null, tone: entry?.tone ?? 'neutral' };
+}
+
 function iconFor(title: string): string | null {
-  return SECTION_ICONS.find((entry) => entry.test.test(title))?.icon ?? null;
+  return styleFor(title).icon;
 }
 
 const CALLOUTS: Record<string, { icon: React.ReactNode; className: string; label: string }> = {
@@ -85,7 +106,6 @@ export function Markdown({
 }: MarkdownProps) {
   const blocks = React.useMemo(() => parse(content), [content]);
   const picked = new Set(pickedEvolutions ?? []);
-  let inEvolutions = false;
 
   const titres = React.useMemo(() => (streaming ? [] : sommaire(blocks, content)), [blocks, content, streaming]);
   const ancres = React.useRef(new Map<number, HTMLHeadingElement>());
@@ -98,6 +118,100 @@ export function Markdown({
     titre.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setCible(index);
     window.setTimeout(() => setCible((actuelle) => (actuelle === index ? null : actuelle)), 1600);
+  };
+
+  /** Un bloc qui n'est pas un titre : liste, encadré, code, tableau ou simple paragraphe. */
+  const renderBlock = (block: Block, index: number, dansEvolutions: boolean): React.ReactNode => {
+    switch (block.kind) {
+      case 'list':
+        return (
+          <ul key={index}>
+            {block.items.map((item, itemIndex) => {
+              const isEvolution = dansEvolutions && !!onToggleEvolution;
+              const active = picked.has(item);
+              if (!isEvolution) {
+                // Le <li> est une boîte flex (tiret + contenu). Sans ce span,
+                // chaque fragment de texte et chaque `code` devient une
+                // colonne à part, écrasée à une lettre de large.
+                return (
+                  <li key={itemIndex}>
+                    <span className="min-w-0 flex-1">{inline(item, `${index}-${itemIndex}`)}</span>
+                  </li>
+                );
+              }
+              return (
+                // Pas de tiret devant une suggestion : la carte à cocher
+                // se suffit à elle-même.
+                <li key={itemIndex} className="!block before:content-none">
+                  <button
+                    type="button"
+                    onClick={() => onToggleEvolution?.(item)}
+                    className={cn(
+                      'group flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors',
+                      active
+                        ? 'border-accent/40 bg-raised text-text'
+                        : 'border-border/60 bg-transparent text-muted hover:border-border hover:bg-raised',
+                    )}
+                  >
+                    <span className="mt-[3px] shrink-0">
+                      {active ? <Check className="h-3 w-3 text-success" /> : <Plus className="h-3 w-3 text-faint" />}
+                    </span>
+                    <span className="text-[14px] leading-snug">{item}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        );
+
+      case 'callout': {
+        const config = CALLOUTS[block.variant] ?? CALLOUTS.NOTE;
+        return (
+          <div key={index} className={cn('my-3 flex gap-2 rounded-md border px-2.5 py-2', config.className)}>
+            <span className="mt-0.5 shrink-0">{config.icon}</span>
+            <div className="text-[14px] leading-relaxed">
+              {block.lines.map((line, lineIndex) => (
+                <p key={lineIndex} className="!my-0 !text-inherit">
+                  {inline(line, `${index}-${lineIndex}`)}
+                </p>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      case 'code':
+        return (
+          <pre key={index}>
+            <code>{block.text}</code>
+          </pre>
+        );
+
+      case 'table':
+        return (
+          <table key={index}>
+            <thead>
+              <tr>
+                {block.head.map((cell, cellIndex) => (
+                  <th key={cellIndex}>{inline(cell, `${index}-h-${cellIndex}`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={cellIndex}>{inline(cell, `${index}-${rowIndex}-${cellIndex}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+
+      default:
+        return <p key={index}>{inline(block.text, String(index))}</p>;
+    }
   };
 
   return (
@@ -124,129 +238,80 @@ export function Markdown({
         </nav>
       ) : null}
 
-      {blocks.map((block, index) => {
-        switch (block.kind) {
-          case 'heading': {
-            inEvolutions = /évolutions possibles/i.test(block.text);
-            const icon = iconFor(block.text);
-            const items = inEvolutions ? nextListItems(blocks, index) : [];
-            const allPicked = items.length > 0 && items.every((item) => picked.has(item));
-            return (
-              <h2
-                key={index}
-                ref={(node) => {
-                  if (node) ancres.current.set(index, node);
-                  else ancres.current.delete(index);
-                }}
-                className={cn(cible === index && 'text-accent')}
-              >
-                {icon ? <span aria-hidden>{icon}</span> : null}
-                <span>{block.text}</span>
-                {inEvolutions && items.length > 1 && onToggleAll ? (
-                  <button
-                    type="button"
-                    onClick={() => onToggleAll(items)}
-                    className="ml-auto rounded border border-border px-1.5 py-0.5 text-[12px] font-normal text-muted hover:bg-raised hover:text-text"
-                  >
-                    {allPicked ? 'Tout retirer' : 'Tout ajouter'}
-                  </button>
-                ) : null}
-              </h2>
-            );
-          }
+      {sections(blocks).map((section) => {
+        const body = section.body.map(({ block, index }) =>
+          renderBlock(block, index, section.heading ? /évolutions possibles/i.test(section.heading.text) : false),
+        );
 
-          case 'list':
-            return (
-              <ul key={index}>
-                {block.items.map((item, itemIndex) => {
-                  const isEvolution = inEvolutions && !!onToggleEvolution;
-                  const active = picked.has(item);
-                  if (!isEvolution) {
-                    // Le <li> est une boîte flex (tiret + contenu). Sans ce span,
-                    // chaque fragment de texte et chaque `code` devient une
-                    // colonne à part, écrasée à une lettre de large.
-                    return (
-                      <li key={itemIndex}>
-                        <span className="min-w-0 flex-1">{inline(item, `${index}-${itemIndex}`)}</span>
-                      </li>
-                    );
-                  }
-                  return (
-                    // Pas de tiret devant une suggestion : la carte à cocher
-                    // se suffit à elle-même.
-                    <li key={itemIndex} className="!block before:content-none">
-                      <button
-                        type="button"
-                        onClick={() => onToggleEvolution?.(item)}
-                        className={cn(
-                          'group flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors',
-                          active
-                            ? 'border-accent/40 bg-raised text-text'
-                            : 'border-border/60 bg-transparent text-muted hover:border-border hover:bg-raised',
-                        )}
-                      >
-                        <span className="mt-[3px] shrink-0">
-                          {active ? <Check className="h-3 w-3 text-success" /> : <Plus className="h-3 w-3 text-faint" />}
-                        </span>
-                        <span className="text-[14px] leading-snug">{item}</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            );
-
-          case 'callout': {
-            const config = CALLOUTS[block.variant] ?? CALLOUTS.NOTE;
-            return (
-              <div key={index} className={cn('my-3 flex gap-2 rounded-md border px-2.5 py-2', config.className)}>
-                <span className="mt-0.5 shrink-0">{config.icon}</span>
-                <div className="text-[14px] leading-relaxed">
-                  {block.lines.map((line, lineIndex) => (
-                    <p key={lineIndex} className="!my-0 !text-inherit">
-                      {inline(line, `${index}-${lineIndex}`)}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            );
-          }
-
-          case 'code':
-            return (
-              <pre key={index}>
-                <code>{block.text}</code>
-              </pre>
-            );
-
-          case 'table':
-            return (
-              <table key={index}>
-                <thead>
-                  <tr>
-                    {block.head.map((cell, cellIndex) => (
-                      <th key={cellIndex}>{inline(cell, `${index}-h-${cellIndex}`)}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {block.rows.map((row, rowIndex) => (
-                    <tr key={rowIndex}>
-                      {row.map((cell, cellIndex) => (
-                        <td key={cellIndex}>{inline(cell, `${index}-${rowIndex}-${cellIndex}`)}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            );
-
-          default:
-            return <p key={index}>{inline(block.text, String(index))}</p>;
+        if (!section.heading) {
+          // Le texte avant le premier titre (ou une réponse sans titre du
+          // tout) reste nu : le cadre de couleur ne sert qu'aux sections
+          // nommées, il n'a pas de nature à annoncer sans titre.
+          return <React.Fragment key={`préambule-${section.index}`}>{body}</React.Fragment>;
         }
+
+        const headingIndex = section.index;
+        const headingText = section.heading.text;
+        const { icon, tone } = styleFor(headingText);
+        const inEvolutions = /évolutions possibles/i.test(headingText);
+        const items = inEvolutions ? nextListItems(blocks, headingIndex) : [];
+        const allPicked = items.length > 0 && items.every((item) => picked.has(item));
+
+        return (
+          <section
+            key={headingIndex}
+            className={cn('my-3 rounded-md border px-3 py-2.5', TONE_CLASSES[tone])}
+          >
+            <h2
+              ref={(node) => {
+                if (node) ancres.current.set(headingIndex, node);
+                else ancres.current.delete(headingIndex);
+              }}
+              /* Le cadre de couleur remplace déjà la ligne de séparation et
+                 l'espace du haut que porte `.prose-hd h2` : sans ce retrait, la
+                 section colorée traînerait un second trait et un grand vide. */
+              className={cn('!mt-0 !mb-3 !border-t-0 !pt-0', cible === headingIndex && 'text-accent')}
+            >
+              {icon ? <span aria-hidden>{icon}</span> : null}
+              <span>{headingText}</span>
+              {inEvolutions && items.length > 1 && onToggleAll ? (
+                <button
+                  type="button"
+                  onClick={() => onToggleAll(items)}
+                  className="ml-auto rounded border border-border px-1.5 py-0.5 text-[12px] font-normal text-muted hover:bg-raised hover:text-text"
+                >
+                  {allPicked ? 'Tout retirer' : 'Tout ajouter'}
+                </button>
+              ) : null}
+            </h2>
+            {body}
+          </section>
+        );
       })}
     </div>
   );
+}
+
+/** Une section = un titre (ou aucun, pour le texte qui précède le premier) et ses blocs, jusqu'au titre suivant. */
+interface Section {
+  index: number;
+  heading: Extract<Block, { kind: 'heading' }> | null;
+  body: { block: Block; index: number }[];
+}
+
+function sections(blocks: Block[]): Section[] {
+  const result: Section[] = [];
+  let current: Section = { index: -1, heading: null, body: [] };
+  blocks.forEach((block, index) => {
+    if (block.kind === 'heading') {
+      if (current.heading || current.body.length) result.push(current);
+      current = { index, heading: block, body: [] };
+    } else {
+      current.body.push({ block, index });
+    }
+  });
+  if (current.heading || current.body.length) result.push(current);
+  return result;
 }
 
 /* ------------------------------------------------------------------ */

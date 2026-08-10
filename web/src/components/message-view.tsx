@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   Loader2,
   Paperclip,
+  Route,
   Square,
   Volume2,
   X,
@@ -161,13 +162,35 @@ export function MessageView({
       <Steps steps={etapes} streaming={message.streaming} />
 
       {message.content ? (
-        <Markdown
-          content={message.content}
-          pickedEvolutions={pickedEvolutions}
-          onToggleEvolution={onToggleEvolution}
-          onToggleAll={onToggleAll}
-          streaming={message.streaming}
-        />
+        message.plan ? (
+          /* Un plan se lit d'un coup d'œil : un cadre gris à lui, distinct
+             d'une réponse de tâche classique — pas seulement un emoji devant
+             le titre. */
+          <div
+            data-mode-plan-reponse
+            className="rounded-lg border-2 border-border bg-surface/80 px-3 py-3"
+          >
+            <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
+              <Route className="h-3.5 w-3.5" />
+              Plan proposé
+            </div>
+            <Markdown
+              content={message.content}
+              pickedEvolutions={pickedEvolutions}
+              onToggleEvolution={onToggleEvolution}
+              onToggleAll={onToggleAll}
+              streaming={message.streaming}
+            />
+          </div>
+        ) : (
+          <Markdown
+            content={message.content}
+            pickedEvolutions={pickedEvolutions}
+            onToggleEvolution={onToggleEvolution}
+            onToggleAll={onToggleAll}
+            streaming={message.streaming}
+          />
+        )
       ) : message.streaming && !etapes.length ? (
         <p className="text-[14px] text-faint">L'agent réfléchit…</p>
       ) : null}
