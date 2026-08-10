@@ -95,6 +95,7 @@ export function MessageView({
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
+  dernier = true,
 }: {
   message: Message;
   /** Pour déplier la mémoire du projet sous l'étape de lecture. */
@@ -104,6 +105,9 @@ export function MessageView({
   pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
+  /** Faux dès qu'un message suit celui-ci dans le fil : un plan alors non lu
+   *  se replie tout seul (`PlanBlock`). */
+  dernier?: boolean;
 }) {
   const isUser = message.role === 'user';
 
@@ -163,25 +167,13 @@ export function MessageView({
 
       {message.content ? (
         message.plan ? (
-          /* Un plan se lit d'un coup d'œil : un cadre gris à lui, distinct
-             d'une réponse de tâche classique — pas seulement un emoji devant
-             le titre. */
-          <div
-            data-mode-plan-reponse
-            className="rounded-lg border-2 border-border bg-surface/80 px-3 py-3"
-          >
-            <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-              <Route className="h-3.5 w-3.5" />
-              Plan proposé
-            </div>
-            <Markdown
-              content={message.content}
-              pickedEvolutions={pickedEvolutions}
-              onToggleEvolution={onToggleEvolution}
-              onToggleAll={onToggleAll}
-              streaming={message.streaming}
-            />
-          </div>
+          <PlanBlock
+            message={message}
+            dernier={dernier}
+            pickedEvolutions={pickedEvolutions}
+            onToggleEvolution={onToggleEvolution}
+            onToggleAll={onToggleAll}
+          />
         ) : (
           <Markdown
             content={message.content}
@@ -261,6 +253,123 @@ export function MessageView({
         texte={message.content}
         cle={message.id}
       />
+    </div>
+  );
+}
+
+/**
+ * Le texte envoyé par « Valider » : le chef le lit comme un accord clair
+ * (`TRI_MODE_PLAN`, `server/src/runtime.ts`) et propose alors la carte, plan
+ * recopié dans son contexte.
+ */
+const TEXTE_VALIDATION_PLAN = 'Vas-y, lance ce plan.';
+/** Le texte envoyé par « Refuser » : le plan reste affiché, rien n'est lancé. */
+const TEXTE_REFUS_PLAN = 'Je refuse ce plan : réfléchis à une autre approche.';
+
+/**
+ * Le cadre d'un plan proposé en mode plan. Un plan qui n'est plus le dernier
+ * message du fil (un message a suivi) se replie tout seul sur un simple
+ * bandeau — il reste dépliable d'un clic, rien n'est perdu.
+ *
+ * Les deux boutons du bas ne créent rien eux-mêmes : ils envoient un message
+ * ordinaire dans la conversation, exactement ce que taperait quelqu'un qui
+ * valide ou refuse à la main (§PLAN mode plan). « Valider » repasse en plus
+ * la conversation en mode direct, seule façon dont le chef sait qu'il peut
+ * proposer la carte.
+ */
+function PlanBlock({
+  message,
+  dernier,
+  pickedEvolutions,
+  onToggleEvolution,
+  onToggleAll,
+}: {
+  message: Message;
+  dernier: boolean;
+  pickedEvolutions: string[];
+  onToggleEvolution: (text: string) => void;
+  onToggleAll: (items: string[]) => void;
+}) {
+  const [replie, setReplie] = React.useState(() => !dernier);
+  const etaitDernier = React.useRef(dernier);
+  React.useEffect(() => {
+    if (etaitDernier.current && !dernier) setReplie(true);
+    etaitDernier.current = dernier;
+  }, [dernier]);
+
+  const [enCours, setEnCours] = React.useState<'valider' | 'refuser' | null>(null);
+
+  const decider = async (cle: 'valider' | 'refuser') => {
+    setEnCours(cle);
+    try {
+      if (cle === 'valider') {
+        await client.call({ type: 'agent.config', agentId: message.agentId, run: { mode: 'direct' } });
+      }
+      await client.call({
+        type: 'agent.prompt',
+        agentId: message.agentId,
+        text: cle === 'valider' ? TEXTE_VALIDATION_PLAN : TEXTE_REFUS_PLAN,
+      });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'envoi impossible');
+    } finally {
+      setEnCours(null);
+    }
+  };
+
+  if (replie) {
+    return (
+      <button
+        type="button"
+        data-mode-plan-reponse="replie"
+        onClick={() => setReplie(false)}
+        className="flex w-full items-center gap-1.5 rounded-lg border border-border bg-surface/60 px-3 py-2 text-left text-[12px] font-medium uppercase tracking-wide text-muted transition-colors hover:bg-surface hover:text-text"
+      >
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+        <Route className="h-3.5 w-3.5 shrink-0" />
+        Plan proposé
+      </button>
+    );
+  }
+
+  return (
+    /* Un plan se lit d'un coup d'œil : un cadre gris à lui, distinct
+       d'une réponse de tâche classique — pas seulement un emoji devant
+       le titre. */
+    <div data-mode-plan-reponse="ouvert" className="rounded-lg border-2 border-border bg-surface/80 px-3 py-3">
+      <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
+        <Route className="h-3.5 w-3.5" />
+        Plan proposé
+      </div>
+      <Markdown
+        content={message.content}
+        pickedEvolutions={pickedEvolutions}
+        onToggleEvolution={onToggleEvolution}
+        onToggleAll={onToggleAll}
+        streaming={message.streaming}
+      />
+      <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
+        <Button
+          variant="default"
+          size="sm"
+          disabled={!!enCours}
+          onClick={() => decider('valider')}
+          className="gap-1.5"
+        >
+          {enCours === 'valider' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          Valider
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={!!enCours}
+          onClick={() => decider('refuser')}
+          className="gap-1.5 text-muted hover:text-danger"
+        >
+          {enCours === 'refuser' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+          Refuser
+        </Button>
+      </div>
     </div>
   );
 }
