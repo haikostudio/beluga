@@ -354,11 +354,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               entière ; à plusieurs, ils se divisent la ligne et passent à la
               suivante en dessous de 150 px, toujours sans laisser de vide. */}
           <div className="grid items-center gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))] [&>*]:w-full">
-            {peut('valider').affiche ? (
-              <Button size="sm" variant="outline" onClick={() => client.validerCarte(card)}>
-                <Check className="h-3 w-3" /> Chiffrer (autorise la dépense)
-              </Button>
-            ) : null}
             {card.column === 'planned' ? (
               <>
                 <Geste decision={peut('lancer')}>
@@ -367,9 +362,17 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                     variant="default"
                     disabled={!peut('lancer').possible}
                     onClick={() =>
-                      client
-                        .call({ type: 'card.start', id: card.id })
-                        .catch((err: any) => client.pushToast('error', err?.message ?? 'lancement refusé', card.id))
+                      Promise.resolve()
+                        .then(() => {
+                          if (peut('valider').affiche) {
+                            return client.validerCarte(card);
+                          }
+                        })
+                        .then(() =>
+                          client
+                            .call({ type: 'card.start', id: card.id })
+                            .catch((err: any) => client.pushToast('error', err?.message ?? 'lancement refusé', card.id))
+                        )
                     }
                   >
                     <Play className="h-3 w-3" /> Lancer maintenant
