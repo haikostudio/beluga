@@ -6,10 +6,11 @@ import {
   Estimate,
   TurnMeasurement,
   OccupantDossier,
-  RAISON_ATTENTE_LANCEMENT,
   RAISON_SANS_DEPOT,
   cheminDossierDeCarte,
   demarrageAutomatiqueAutorise,
+  etatDuDepart,
+  raisonDattente,
   nomDeBranche,
   phraseDepuisReponse,
   porteDuDepot,
@@ -212,7 +213,19 @@ export async function checkGates(card: Card): Promise<Gate> {
 
   const settings = store.getSettings();
   const heavy = (card.estimate?.machineSeconds ?? 0) >= settings.heavyTaskSeconds;
-  if (heavy && !card.scheduling?.asap && !isOffPeak()) {
+  /*
+   * Une HEURE DITE passe cette porte, comme « Dès que possible ». Sans cela, une
+   * tâche lourde programmée pour 14 h attendrait 22 h : la carte promet qu'elle
+   * part à l'heure dite, on ne peut pas la reporter dans son dos. L'heure creuse
+   * ne bouge pas pour autant — elle continue de retenir tout ce qui n'a reçu
+   * aucune consigne explicite.
+   */
+  if (
+    heavy &&
+    !card.scheduling?.asap &&
+    etatDuDepart(card.scheduling, Date.now()) !== 'venu' &&
+    !isOffPeak()
+  ) {
     return {
       ok: false,
       reason: `Tâche lourde : elle attend les heures creuses (à partir de ${settings.offPeakStart} h). Bouton « Dès que possible » pour forcer.`,
@@ -307,11 +320,13 @@ function refus(card: Card, raison: string): { ok: false; error: string } {
 /**
  * VALIDER une carte : le geste qui autorise la dépense.
  *
- * Il n'y a plus de colonne « Validé », et il n'y a plus d'analyse AVANT le
- * lancement : valider monte simplement la carte en « Planifié », où elle
- * attend. Rien ne part au moteur — une carte planifiée ne coûte donc rien. Le
- * chiffrage est rendu par l'agent d'exécution, au lancement, dans le même tour
- * que le travail (voir `startCard`).
+ * Il n'y a plus de colonne à traverser, ni « Validé » ni « À faire » : la carte
+ * NAÎT dans « Planifié » et n'en bouge pas. Et il n'y a plus d'analyse AVANT le
+ * lancement : le geste marque seulement l'autorisation (`analyseDemandee`) et
+ * écrit la raison d'attente. Rien ne part au moteur — une carte planifiée ne
+ * coûte donc rien. Le chiffrage est rendu par l'agent d'exécution, au
+ * lancement, dans le même tour que le travail (voir `startCard`), et une carte
+ * qui porte déjà les chiffres du chef d'orchestre n'est jamais rechiffrée.
  *
  * La carte porte sa raison d'attente : l'ordonnanceur ne la démarre pas sans
  * geste de l'utilisateur (voir `demarrageAutomatiqueAutorise`).
@@ -319,20 +334,22 @@ function refus(card: Card, raison: string): { ok: false; error: string } {
 export function validerCarte(cardId: string): { ok: boolean; error?: string } {
   const card = store.getCard(cardId);
   if (!card) return { ok: false, error: 'carte introuvable' };
-  if (card.column !== 'todo') {
-    return { ok: false, error: 'seule une carte de « À faire » se valide.' };
+  if (card.column !== 'planned') {
+    return { ok: false, error: 'seule une carte de « Planifié » se valide.' };
   }
 
   const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
   const updated = store.saveCard({
     ...card,
-    column: 'planned',
-    position: store.nextPosition(card.projectId, 'planned'),
+    // La trace du geste : c'est elle qui retire le bouton « Valider » d'une
+    // carte déjà autorisée. Elle n'ouvre plus aucun tour de moteur.
+    analyseDemandee: true,
     scheduling: {
       ...scheduling,
       // La raison ne s'affiche que si la carte attend VRAIMENT le geste : une
-      // carte déjà autorisée (« Dès que possible », déjà lancée) partira.
-      waitingReason: demarrageAutomatiqueAutorise(scheduling) ? undefined : RAISON_ATTENTE_LANCEMENT,
+      // carte déjà autorisée (« Dès que possible », date de départ posée, déjà
+      // lancée) partira sans qu'on lui demande rien.
+      waitingReason: raisonDattente(scheduling),
     },
   });
   bus.emit({ type: 'card.upsert', card: updated });
@@ -395,6 +412,10 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
       waitingReason: undefined,
       // Un départ efface la suspension : c'est le geste qu'elle attendait.
       suspendu: false,
+      // Le départ CONSOMME la date : une date, une fois, jamais une récurrence.
+      // Sans cela, une carte relancée plus tard traînerait une heure déjà passée
+      // et repartirait toute seule à la première boucle.
+      departPrevu: undefined,
     },
   });
   bus.emit({ type: 'card.upsert', card: running });
@@ -513,8 +534,10 @@ export async function tick(): Promise<void> {
   try {
     for (const project of store.listProjects()) {
       /*
-       * Rien à balayer du côté de « À faire » : aucune carte n'y attend plus de
-       * chiffrage, et rien ne part au moteur avant le lancement.
+       * Aucun balayage de chiffrage : une carte validée n'attend plus d'analyse,
+       * et rien ne part au moteur avant le lancement. « Planifié » est la
+       * colonne où toute carte naît, et une carte simplement posée sur le
+       * tableau ne coûte rien.
        *
        * Démarrage : les cartes planifiées, dans l'ordre d'ancienneté.
        */
@@ -528,8 +551,12 @@ export async function tick(): Promise<void> {
         if (card.scheduling?.suspendu) continue;
         // Une carte validée ne s'exécute pas toute seule : lancer, c'est
         // dépenser. L'ordonnanceur ne reprend d'office qu'une carte déjà
-        // autorisée (« Dès que possible », ou déjà lancée puis interrompue) ;
-        // sinon la bascule Planifié → En cours attend le clic de l'utilisateur.
+        // autorisée (« Dès que possible », HEURE DITE arrivée, ou déjà lancée
+        // puis interrompue) ; sinon la bascule Planifié → En cours attend le
+        // clic de l'utilisateur. La boucle repassant toutes les quinze
+        // secondes, une heure manquée pendant un arrêt du démon est RATTRAPÉE
+        // au retour. Plus rien ne tourne avant ce moment : il n'y a donc plus
+        // de chiffrage en vol dont il faudrait se garder.
         if (!demarrageAutomatiqueAutorise(card.scheduling)) continue;
         const gate = await checkGates(card);
         if (!gate.ok) {

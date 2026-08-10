@@ -11,7 +11,9 @@ import { orchestratorChoice, resolveModel } from './engines/catalog.js';
  *
  * Son modèle est ÉPINGLÉ volontairement sur un modèle rapide et bon marché,
  * PAS hérité du catalogue : sinon il trie des cartes sur le modèle le plus
- * cher (piège Paseo, §30).
+ * cher (piège Paseo, §30). Depuis qu'il ne fait plus que trier — carte courte
+ * et niveau d'exécution, sans lire le projet —, ce modèle est Haiku 4.5 sous
+ * Claude (`orchestratorModel`, `engines/catalog.ts`).
  */
 export async function getOrCreateOrchestrator(projectId: string): Promise<Agent> {
   const engines = await listEngines();
@@ -64,7 +66,7 @@ export async function getOrCreateOrchestrator(projectId: string): Promise<Agent>
     agentId: agent.id,
     role: 'assistant',
     content:
-      "Bonjour ! Je suis le chef d'orchestre de ce projet.\n\nPosez-moi une question, je réponds. Demandez une action, je crée la carte correspondante dans « À faire ». Dans un cas ambigu, je vous propose la tâche et vous décidez d'un clic.",
+      "Bonjour ! Je suis le chef d'orchestre de ce projet.\n\nPosez-moi une question, je réponds. Demandez une action, je vous propose une carte courte — la demande reformulée, et le niveau de l'agent qui l'exécutera : léger, standard ou approfondi. Elle n'entre dans « Planifié » qu'après votre clic, et c'est là seulement que le projet est étudié.",
     steps: [],
     todos: [],
     proposals: [],

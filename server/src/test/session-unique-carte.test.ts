@@ -55,5 +55,9 @@ test('valider une carte n’envoie rien au moteur', () => {
   const valider = corps('function validerCarte');
   assert.doesNotMatch(valider, /sendPrompt\(/);
   assert.doesNotMatch(valider, /createAgent\(/);
-  assert.match(valider, /column: 'planned'/);
+  // La carte NAÎT dans « Planifié » : valider ne la déplace pas, il autorise la
+  // dépense et écrit la raison de l'attente.
+  assert.match(valider, /card\.column !== 'planned'/);
+  assert.doesNotMatch(valider, /column: '/);
+  assert.match(valider, /waitingReason: raisonDattente\(scheduling\)/);
 });

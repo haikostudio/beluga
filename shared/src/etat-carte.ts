@@ -84,6 +84,13 @@ export interface ContexteGeste {
   etat: EtatVisuelCarte;
   /** Un agent a-t-il déjà travaillé sur cette carte ? */
   agentLance?: boolean;
+  /**
+   * La carte a-t-elle DÉJÀ son chiffrage, ou l'a-t-elle déjà demandé ? C'est ce
+   * qui décide de l'existence du bouton « Valider (autorise la dépense) » :
+   * autoriser deux fois la même dépense n'aurait pas de sens, et une analyse
+   * refaite passe par le geste rare « Relancer l'analyse ».
+   */
+  chiffree?: boolean;
 }
 
 export interface DecisionGeste {
@@ -100,8 +107,14 @@ const ABSENT: DecisionGeste = { affiche: false, possible: false };
 export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste {
   switch (geste) {
     case 'valider':
-      // Autoriser la dépense se fait depuis « À faire », et de nulle part ailleurs.
-      return ctx.colonne === 'todo' ? { affiche: true, possible: true } : ABSENT;
+      /*
+       * Autoriser la dépense se fait depuis « Planifié », la colonne où la carte
+       * naît, et de nulle part ailleurs. Le geste ne déplace rien : il lance le
+       * chiffrage SUR PLACE. Une carte déjà chiffrée — ou dont le chiffrage est
+       * en route — n'affiche plus le bouton : il n'y a plus rien à autoriser.
+       */
+      if (ctx.colonne !== 'planned') return ABSENT;
+      return ctx.chiffree ? ABSENT : { affiche: true, possible: true };
 
     case 'lancer':
       if (ctx.colonne !== 'planned') return ABSENT;

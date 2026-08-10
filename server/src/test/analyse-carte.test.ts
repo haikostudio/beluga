@@ -10,9 +10,10 @@ const base = { aEstimation: false, estimationEchouee: false, analyseEnCours: fal
 
 test('une carte validée qui attend son lancement n’annonce aucune analyse', () => {
   // Rien ne part au moteur avant le lancement : une carte « Planifié » sans
-  // chiffres n'a rien à montrer, et elle n'a rien coûté.
+  // chiffres n'a rien à montrer, et elle n'a rien coûté. Il n'y a plus de
+  // colonne « Validé » ni de colonne « À faire » : la carte naît là et y reste.
   assert.equal(phaseAnalyse({ ...base, column: 'planned' }), 'aucune');
-  assert.equal(phaseAnalyse({ ...base, column: 'todo' }), 'aucune');
+  assert.equal(phaseAnalyse({ ...base, column: 'notes' }), 'aucune');
 });
 
 test("un agent qui tourne l'emporte sur la colonne", () => {
@@ -29,7 +30,7 @@ test('un chiffrage rendu se dit prêt, un chiffrage sans chiffres se dit échou�
 });
 
 test("une carte jamais lancée n'annonce aucune analyse", () => {
-  assert.equal(phaseAnalyse({ ...base, column: 'todo' }), 'aucune');
+  assert.equal(phaseAnalyse({ ...base, column: 'planned' }), 'aucune');
   assert.equal(phaseAnalyse({ ...base, column: 'notes' }), 'aucune');
 });
 

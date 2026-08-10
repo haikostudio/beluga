@@ -54,12 +54,19 @@ function projetDEssai() {
   } as any);
 }
 
-test('les outils du chef exigent le chiffrage et le relais dans la proposition', () => {
+/*
+ * Le chef d'orchestre ne chiffre PLUS : il trie, et l'étude appartient à la
+ * carte. Le champ reste offert — un agent qui vient réellement d'analyser y
+ * transmet son relais — mais il n'est plus exigé ; ce qui l'est, c'est le
+ * NIVEAU de l'agent qui exécutera.
+ */
+test('les outils du chef exigent le niveau, et offrent encore le relais d’analyse', () => {
   for (const nom of ['board_create_card', 'propose_task']) {
     const outil = TOOL_DEFS.find((item) => item.name === nom)!;
     const schema = outil.inputSchema as any;
-    assert.ok(schema.required.includes('analysis'), `${nom} doit demander l’analyse`);
-    assert.ok(schema.properties.analysis.properties.context, `${nom} doit demander le relais`);
+    assert.ok(schema.required.includes('niveau'), `${nom} doit demander le niveau`);
+    assert.ok(!schema.required.includes('analysis'), `${nom} ne doit plus exiger l’analyse`);
+    assert.ok(schema.properties.analysis.properties.context, `${nom} doit offrir le relais`);
   }
 });
 
@@ -107,9 +114,8 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
     origin: 'agent',
     ...heritage,
   });
-  // Plus de colonne « Validé » : la carte reste dans « À faire » et c'est le
-  // geste de validation qui la fait monter — ici, directement en « Planifié »,
-  // son chiffrage venant du chef.
+  // La carte NAÎT dans « Planifié », déjà chiffrée par le chef : il n'y a plus
+  // de colonne à traverser, seulement une raison d'attente à écrire.
   const validee = store.getCard(card.id)!;
 
   assert.equal(validee.estimate?.analysisMeasurement?.totalTokens, 1_120);
@@ -154,9 +160,13 @@ test('une édition du sujet ou une carte ordinaire garde le chiffrage habituel',
   // « Planifié » et y attend son lancement, sans chiffres et sans rien envoyer
   // au moteur — c'est l'agent d'exécution qui chiffrera.
   const ordinaire = createCard(projet.id, { title: 'Carte ordinaire', description: DESCRIPTION });
+  // Avant la validation, rien ne l'annonce en attente de lancement : elle
+  // attend d'abord qu'on autorise sa dépense.
+  assert.equal(store.getCard(ordinaire.id)?.scheduling?.waitingReason, undefined);
   assert.equal(validerCarte(ordinaire.id).ok, true);
   const validee = store.getCard(ordinaire.id)!;
   assert.equal(validee.column, 'planned');
+  assert.equal(validee.scheduling?.waitingReason, RAISON_ATTENTE_LANCEMENT);
   assert.equal(validee.estimate, undefined, 'aucun chiffrage n’est fabriqué avant le lancement');
   assert.equal(store.getLastAgentByCard(ordinaire.id), null, 'aucun agent ne naît à la validation');
 });

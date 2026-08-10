@@ -46,6 +46,14 @@ test('une carte déjà lancée puis interrompue se reprend sans nouveau clic', (
 
 /* -------- Seule l'exécution déplace la carte -------- */
 
+test("un tour d'analyse ne fait entrer aucune carte en « En cours »", () => {
+  // Le rôle « analysis » ne déplace jamais une carte, quelle que soit sa colonne.
+  assert.equal(colonneAuDemarrage('planned', 'analysis'), null);
+  assert.equal(colonneAuDemarrage('notes', 'analysis'), null);
+  // …et il ne la clôt pas non plus, même s'il avait modifié le dépôt.
+  assert.equal(colonneEnFinDeTour('running', true, 'analysis', true), null);
+});
+
 test("seul l'agent d'EXÉCUTION fait basculer la carte en « En cours »", () => {
   assert.equal(colonneAuDemarrage('planned', 'task'), 'running');
   // Les autres rôles la regardent sans y toucher, où qu'elle soit.
@@ -63,13 +71,15 @@ test("l'ordonnanceur gate son démarrage sur la règle de pause", () => {
   assert.match(scheduler, /if \(!demarrageAutomatiqueAutorise\(card\.scheduling\)\) continue;/);
 });
 
-test('valider promeut la carte en « Planifié », jamais en « En cours »', () => {
+test('valider laisse la carte en « Planifié », jamais en « En cours »', () => {
   const scheduler = lire('scheduler.ts');
   const corps = scheduler.split('export function validerCarte(')[1].split('\nexport ')[0];
+  // La carte NAÎT dans « Planifié » : valider n'écrit plus aucune colonne, donc
+  // encore moins « En cours ».
   assert.doesNotMatch(corps, /column: 'running'/);
-  assert.match(corps, /column: 'planned'/);
+  assert.doesNotMatch(corps, /\bcolumn:/);
   // Et la carte porte la raison de son attente tant que rien ne l'autorise.
-  assert.match(corps, /RAISON_ATTENTE_LANCEMENT/);
+  assert.match(corps, /waitingReason: raisonDattente\(scheduling\)/);
 });
 
 test('une carte qui dort en « Planifié » ne coûte rien : aucun tour ne part', () => {
@@ -79,4 +89,6 @@ test('une carte qui dort en « Planifié » ne coûte rien : aucun tour ne part'
   assert.equal(envois.length, 1, 'un seul envoi au moteur dans l’ordonnanceur : le lancement');
   const start = scheduler.split('export async function startCard(')[1].split('\nexport ')[0];
   assert.match(start, /await sendPrompt\(/, 'et il est bien dans startCard');
+  // Et plus aucun agent d'analyse ne naît avant ce lancement.
+  assert.doesNotMatch(scheduler, /role: 'analysis'/);
 });

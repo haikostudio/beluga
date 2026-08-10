@@ -27,6 +27,19 @@ test('la définition de « programmation » est donnée en toutes lettres', () =
   }
 });
 
+test('des demandes complémentaires sont regroupées dans une seule carte ordonnée', () => {
+  assert.match(chef, /MÊME résultat/);
+  assert.match(chef, /MÊME chantier/);
+  assert.match(chef, /ordre logique/);
+  assert.match(chef, /UNE SEULE carte/);
+  assert.match(chef, /étapes successives/);
+});
+
+test('des objectifs sans rapport restent dans des cartes indépendantes', () => {
+  assert.match(chef, /objectifs réellement indépendants/);
+  assert.match(chef, /menés et validés séparément/);
+});
+
 test('une question se répond dans la conversation, sans carte', () => {
   assert.match(chef, /RÉPONDS DANS LA CONVERSATION, aucune carte/);
 });

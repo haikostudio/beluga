@@ -108,7 +108,6 @@ export function templateForColumn(column: ColumnKey | undefined, deployed = fals
     case 'in_production':
       return 'in_run';
     case 'notes':
-    case 'todo':
     case 'archived':
     case undefined:
       return 'free';

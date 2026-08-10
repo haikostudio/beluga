@@ -211,8 +211,8 @@ async function main() {
     .map((e) => e.card);
   const unique = new Map(created.map((c) => [c.id, c]));
   record(
-    'Chef d\'orchestre : une demande d\'action crée une carte dans « À faire »',
-    unique.size === 1 && [...unique.values()][0].column === 'todo',
+    'Chef d\'orchestre : une demande d\'action crée une carte dans « Planifié »',
+    unique.size === 1 && [...unique.values()][0].column === 'planned',
     [...unique.values()].map((c) => c.title).join(' | '),
   );
   record(

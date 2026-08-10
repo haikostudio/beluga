@@ -334,14 +334,34 @@ async function fetchCodexQuota(account: AccountRecord): Promise<AccountQuota> {
 /** Prochaine tentative autorisée par compte : le service limite la fréquence. */
 const nextTry = new Map<string, number>();
 
-export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
+/** Le planificateur d'échéance respecte la même pause que les lectures manuelles. */
+export function prochaineTentativeQuota(accountId: string): number | undefined {
+  return nextTry.get(accountId);
+}
+
+let actualisationEnCours: Promise<AccountQuota[]> | null = null;
+
+export function refreshQuotas(force = false, seulement?: readonly string[]): Promise<AccountQuota[]> {
+  // Une lecture périodique, manuelle et planifiée peuvent tomber dans la même
+  // seconde. Elles partagent alors LA lecture déjà en cours au lieu d'envoyer
+  // plusieurs fois la même requête au fournisseur.
+  if (actualisationEnCours) return actualisationEnCours;
+  actualisationEnCours = executerActualisationQuotas(force, seulement).finally(() => {
+    actualisationEnCours = null;
+  });
+  return actualisationEnCours;
+}
+
+async function executerActualisationQuotas(force = false, seulement?: readonly string[]): Promise<AccountQuota[]> {
   loadCache();
   if (!force && Date.now() - lastFetch < CACHE_MS && quotaCache.size) {
     return [...quotaCache.values()];
   }
   lastFetch = Date.now();
-  const accounts = listAccountRecords();
-  const results: AccountQuota[] = [];
+  const demandes = seulement ? new Set(seulement) : null;
+  const comptesActifs = listAccountRecords();
+  const accounts = comptesActifs.filter((account) => !demandes || demandes.has(account.id));
+  let lecturesLancees = 0;
   for (const [index, account] of accounts.entries()) {
     // Un compte qui vient d'être refusé attend son tour : insister ne fait que
     // prolonger le refus, et le dernier relevé connu reste affiché.
@@ -351,13 +371,14 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
       // Le relevé mémorisé est repoussé tel quel, mais son NOM peut avoir changé
       // depuis (renommage) : on réapplique toujours celui du compte, jamais
       // celui figé dans le relevé.
-      results.push({ ...connu, label: account.label });
+      quotaCache.set(account.id, { ...connu, label: account.label });
       continue;
     }
 
     // Les comptes sont interrogés l'un après l'autre, avec un souffle entre
     // deux : deux lectures collées déclenchent un refus pour excès d'appels.
-    if (index > 0) await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (index > 0 && lecturesLancees > 0) await new Promise((resolve) => setTimeout(resolve, 1500));
+    lecturesLancees += 1;
     const quota = account.engine === 'claude' ? await fetchClaudeQuota(account) : await fetchCodexQuota(account);
 
     if (quota.error?.includes('429')) {
@@ -401,8 +422,13 @@ export async function refreshQuotas(force = false): Promise<AccountQuota[]> {
     if (!quota.error) {
       recordQuotaSample(account.id, quota.session?.usedPct, quota.weekly?.usedPct);
     }
-    results.push(quota);
   }
+  // Une tournée ciblée rend aussi les autres comptes depuis le cache, mais
+  // seulement ceux qui existent encore et sont actifs. Les comptes coupés sont
+  // ajoutés juste dessous avec leur vrai drapeau `disabled`.
+  const results = comptesActifs
+    .map((account) => quotaCache.get(account.id))
+    .filter((quota): quota is AccountQuota => !!quota);
   ajouterComptesDesactives(results);
   markActive(results);
   persistCache();
@@ -840,12 +866,22 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
 /** Les statuts qui signifient vraiment « ce compte ne répond plus ». */
 const STATUTS_BLOQUANTS = new Set(['rejected', 'exceeded', 'blocked', 'exhausted', 'limit_reached']);
 
+/**
+ * Cet événement de limite BLOQUE-T-IL le compte ? Un avertissement
+ * (« allowed_warning ») dit qu'on approche, pas qu'on y est. Exporté parce que
+ * le tour lui-même a besoin de le savoir : c'est la preuve la plus sûre qu'un
+ * arrêt vient du quota, et non d'une panne.
+ */
+export function limiteBloquante(statut: string | undefined): boolean {
+  return !!statut && STATUTS_BLOQUANTS.has(statut.toLowerCase());
+}
+
 export function noteAccountUse(accountId: string, rateLimit: { status: string; resetsAt?: number; type?: string }): void {
   const quota = quotaCache.get(accountId);
   if (!quota) return;
   // Un avertissement (« allowed_warning ») dit qu'on approche de la limite,
   // pas qu'on l'a atteinte : le compte reste utilisable.
-  if (rateLimit.status && STATUTS_BLOQUANTS.has(rateLimit.status.toLowerCase())) {
+  if (limiteBloquante(rateLimit.status)) {
     quota.available = false;
     if (rateLimit.type === 'seven_day' || rateLimit.type === 'weekly') {
       quota.weekly = { ...(quota.weekly ?? {}), resetsAt: rateLimit.resetsAt };

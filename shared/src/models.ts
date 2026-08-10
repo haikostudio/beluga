@@ -62,6 +62,13 @@ export const RunConfig = z.object({
   model: z.string().optional(),
   thinking: ThinkingLevel.default('none'),
   mode: z.enum(['direct', 'plan']).default('direct'),
+  /**
+   * Le PALIER choisi par le chef d'orchestre (`shared/src/niveau-agent.ts`) :
+   * léger, standard ou approfondi. Le modèle et la réflexion ci-dessus en
+   * découlent, mais restent modifiables à la main — c'est pourquoi le palier est
+   * retenu à part, comme une intention, jamais comme un réglage de plus.
+   */
+  niveau: z.enum(['leger', 'standard', 'approfondi']).optional(),
 });
 export type RunConfig = z.infer<typeof RunConfig>;
 
@@ -267,6 +274,13 @@ export const SchedulingState = z.object({
    * efface la marque.
    */
   suspendu: z.boolean().optional(),
+  /**
+   * La DATE de départ souhaitée, en millisecondes. Tant qu'elle n'est pas
+   * venue, la carte attend dans « Planifié » ; à l'heure dite, l'ordonnanceur
+   * la lance par le même chemin que le bouton. Le départ EFFACE la date : une
+   * date, une fois, jamais une récurrence (`shared/src/depart-programme.ts`).
+   */
+  departPrevu: z.number().optional(),
   lastError: z.string().optional(),
 });
 export type SchedulingState = z.infer<typeof SchedulingState>;
@@ -288,6 +302,16 @@ export const Card = z.object({
   attachments: z.array(z.string()).default([]),
   run: RunConfig,
   estimate: Estimate.optional(),
+  /**
+   * L'utilisateur a VALIDÉ la carte : la dépense est autorisée. La carte ne
+   * bouge pas — elle naît et reste dans « Planifié » (il n'y a plus de colonne
+   * « Validé » ni de colonne « À faire ») et porte ce drapeau. Il ne déclenche
+   * plus aucun tour de moteur : le chiffrage est rendu par l'agent d'exécution,
+   * au lancement. Le drapeau garde la trace du geste — c'est lui qui retire le
+   * bouton « Valider » d'une carte déjà autorisée — et il est une VRAIE colonne
+   * SQL (`analyse_demandee`).
+   */
+  analyseDemandee: z.boolean().default(false),
   /**
    * Relais court préparé par le chef d'orchestre pendant la proposition.
    * L'agent d'exécution le reçoit à son premier tour : il repart des constats
@@ -449,6 +473,12 @@ export const TaskProposal = z.object({
   attachments: z.array(z.string()).default([]),
   /** Chiffrage futur préparé pendant le tour qui propose la carte. */
   estimate: Estimate.optional(),
+  /**
+   * La date de départ souhaitée, en millisecondes, quand le chef en propose une
+   * (« cette carte partira mardi à 6 h »). Recopiée sur la carte à la
+   * validation ; sans elle, la carte attend le geste de lancement, comme avant.
+   */
+  departPrevu: z.number().optional(),
   /** Faits, choix et contrôles déjà établis, transmis à l'agent d'exécution. */
   analysisContext: z.string().optional(),
   /**
@@ -457,8 +487,16 @@ export const TaskProposal = z.object({
    * jamais de moteur en silence.
    */
   avertissement: z.string().optional(),
-  /** Décision mémorisée : une proposition refusée ne revient jamais (PLAN §30). */
-  decision: z.enum(['pending', 'accepted', 'refused']).default('pending'),
+  /**
+   * Décision mémorisée. « merged » distingue une proposition réunie dans une
+   * autre d'un refus : elle reste dans l'historique, mais ne réclame plus de
+   * clic et n'a créé aucune carte.
+   */
+  decision: z.enum(['pending', 'accepted', 'refused', 'merged']).default('pending'),
+  /** Proposition nouvelle dans laquelle cette source a été réunie. */
+  mergedInto: z.string().optional(),
+  /** Sources directes d'une proposition composée, pour garder toute la trace. */
+  sourceProposalIds: z.array(z.string()).default([]),
   cardId: z.string().optional(),
   decidedAt: z.number().optional(),
 });
@@ -481,6 +519,35 @@ export const AgentQuestion = z.object({
   answeredAt: z.number().optional(),
 });
 export type AgentQuestion = z.infer<typeof AgentQuestion>;
+
+/**
+ * UN TOUR COUPÉ PAR LA LIMITE D'UN COMPTE. Le travail n'est pas cassé : il lui
+ * manque du quota. Le message porte alors cette décision — « Avec quel compte
+ * poursuivre ? » — au lieu d'un échec ordinaire, et le travail reprend au clic,
+ * avec le même agent, le même fil et la même branche.
+ *
+ * Les comptes proposés ne sont PAS recopiés ici : l'interface les lit dans le
+ * relevé de quota qu'elle reçoit déjà, si bien que la liste se rafraîchit toute
+ * seule quand un compte se libère. Ne vit ici que ce qui ne peut pas se
+ * recalculer : ce qui est tombé, et ce qui a été choisi.
+ */
+export const RepriseDeCompte = z.object({
+  /** Le moteur du tour arrêté : on ne propose jamais les comptes d'un autre. */
+  engine: EngineId,
+  /** Le compte qui a atteint sa limite. */
+  compteEpuise: z.string(),
+  compteEpuiseLabel: z.string(),
+  /** Quand ce compte se remet à zéro, quand on le sait. */
+  resetsAt: z.number().optional(),
+  /** Comment l'arrêt a été reconnu : événement du moteur, ou texte de limite. */
+  motif: z.enum(['limite-structuree', 'texte-de-limite']),
+  /** Le compte retenu au clic. Posé une fois, il ferme la décision pour de bon. */
+  choisi: z.string().optional(),
+  choisiLabel: z.string().optional(),
+  choisiA: z.number().optional(),
+  at: z.number(),
+});
+export type RepriseDeCompte = z.infer<typeof RepriseDeCompte>;
 
 export const DownloadOffer = z.object({
   id: z.string(),
@@ -538,6 +605,8 @@ export const Message = z.object({
   todos: z.array(TodoItem).default([]),
   proposals: z.array(TaskProposal).default([]),
   questions: z.array(AgentQuestion).default([]),
+  /** Ce tour a été coupé par la limite d'un compte : sur lequel poursuivre ? */
+  repriseCompte: RepriseDeCompte.optional(),
   downloads: z.array(DownloadOffer).default([]),
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */

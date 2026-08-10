@@ -1,12 +1,13 @@
 import { COLUMN_LABELS, ColumnKey } from './columns.js';
+import { etatDuDepart } from './depart-programme.js';
 import type { AgentRole } from './models.js';
 
 /**
  * La carte suit les ÉTAPES RÉELLES du travail.
  *
- * Parcours attendu : « À faire » → (clic de validation : l'analyse part, la
- * carte reste sur place le temps du chiffrage) → « Planifié » → (clic de
- * lancement) → « En cours » → (exécution rendue) → « Terminé ».
+ * Parcours attendu : « Planifié » (où la carte NAÎT ; un clic de validation y
+ * lance son chiffrage sur place, sans la déplacer) → (clic de lancement) →
+ * « En cours » → (exécution rendue) → « Terminé ».
  *
  * Le piège : l'analyse, l'orchestration et la publication portent elles aussi
  * le numéro de carte. Appliquées à tout agent, les deux règles ci-dessous
@@ -17,9 +18,8 @@ import type { AgentRole } from './models.js';
  * D'où la règle unique : seul l'agent d'EXÉCUTION (rôle « task ») déplace une
  * carte. Il la met en « En cours » quand son tour démarre, en « Terminé »
  * quand son tour réussit. Les autres rôles la laissent exactement où elle est.
- * Le passage de « À faire » à « Planifié » (analyse rendue) puis à « En cours »
- * (lancement) reste le travail de l'ordonnanceur : ces règles ne le doublent
- * pas.
+ * Le passage de « Planifié » à « En cours » (lancement) reste le travail de
+ * l'ordonnanceur : ces règles ne le doublent pas.
  *
  * Second piège, le plus coûteux : un tour d'exécution qui RÉPOND sans rien
  * changer posait quand même la carte en « Terminé ». Une analyse écrite, une
@@ -81,8 +81,9 @@ export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): Deci
 /**
  * Où retombe une carte qu'on sort d'une fin de parcours, d'un seul geste.
  *
- *   - « Archivé » → « À faire » : elle repassera par la validation, donc
- *     personne ne rouvre une dépense sans le savoir ;
+ *   - « Archivé » → « Planifié » : la colonne où toute carte naît, celle d'où
+ *     part le geste de lancement — personne ne rouvre une dépense sans le
+ *     savoir, puisque rien n'y démarre tout seul ;
  *   - « À déployer » → « Terminé » : elle sort du lot à publier et revient à
  *     l'étape juste avant, celle d'où l'on décide de publier ;
  *   - « En production » → « À déployer » : le travail est en ligne quelque
@@ -94,7 +95,7 @@ export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): Deci
  * Rend `null` pour toute autre colonne : il n'y a rien à reprendre.
  */
 export function colonneDeReprise(colonne: ColumnKey): ColumnKey | null {
-  if (colonne === 'archived') return 'todo';
+  if (colonne === 'archived') return 'planned';
   if (colonne === 'in_production') return 'to_deploy';
   if (colonne === 'to_deploy') return 'done';
   return null;
@@ -167,24 +168,72 @@ export const RAISON_ATTENTE_LANCEMENT =
  * carte fraîchement analysée — jamais lancée, pas marquée « dès que possible » —
  * reste donc en attente : la bascule Planifié → En cours reste un clic.
  *
- * L'ordonnanceur ne reprend AUTOMATIQUEMENT que deux sortes de cartes :
+ * L'ordonnanceur ne reprend AUTOMATIQUEMENT que trois sortes de cartes :
+ *   - celle dont l'HEURE DITE est arrivée (`departPrevu`, posé à la création ou
+ *     à la main) — la date EST le geste de lancement, donné à l'avance ;
  *   - celle que l'utilisateur a poussée avec « Dès que possible » (`asap`) —
  *     c'est LÀ son geste de lancement ;
  *   - celle qui a DÉJÀ été lancée puis interrompue (un tour coupé, une reprise
  *     après redémarrage du serveur : `attempts`/`restarts` l'attestent) — on ne
  *     lui redemande pas un clic pour reprendre un travail déjà autorisé.
  *
+ * Deux refus passent devant tout le reste : une carte SUSPENDUE à la main ne
+ * repart jamais seule, et une date ENCORE À VENIR retient la carte même si elle
+ * est marquée « dès que possible » — poser une date, c'est demander à ce que
+ * rien ne parte avant.
+ *
  * Le geste direct (« Lancer maintenant », dépôt dans « En cours », « Tout
  * lancer ») ne passe pas par ici : il appelle le démarrage sans détour.
  */
-export function demarrageAutomatiqueAutorise(scheduling?: {
-  asap?: boolean;
-  attempts?: number;
-  restarts?: number;
-}): boolean {
+export function demarrageAutomatiqueAutorise(
+  scheduling?: {
+    asap?: boolean;
+    attempts?: number;
+    restarts?: number;
+    departPrevu?: number;
+    suspendu?: boolean;
+  },
+  maintenant: number = Date.now(),
+): boolean {
   if (!scheduling) return false;
+  // La main l'emporte toujours : suspendre puis voir repartir ne serait pas
+  // suspendre. La boucle du démon le vérifie aussi de son côté.
+  if (scheduling.suspendu) return false;
+
+  const depart = etatDuDepart(scheduling, maintenant);
+  // L'heure est passée : la carte part, et le reste autorisée aussi longtemps
+  // qu'il faudra — c'est ce qui rattrape une heure manquée pendant un arrêt du
+  // démon, au lieu de l'oublier.
+  if (depart === 'venu') return true;
+  if (depart === 'attend') return false;
+
   if (scheduling.asap) return true;
   return (scheduling.attempts ?? 0) > 0 || (scheduling.restarts ?? 0) > 0;
+}
+
+/**
+ * Ce que porte une carte de « Planifié » qui ne partira pas toute seule tout de
+ * suite. Une seule phrase à la fois, dans cet ordre : la suspension d'abord (le
+ * geste le plus fort), puis la date (elle dit déjà tout ce qu'il y a à savoir),
+ * puis l'attente du clic. Rend `undefined` quand la carte est prête à partir :
+ * il n'y a alors rien à expliquer.
+ */
+export function raisonDattente(
+  scheduling?: {
+    asap?: boolean;
+    attempts?: number;
+    restarts?: number;
+    departPrevu?: number;
+    suspendu?: boolean;
+  },
+  maintenant: number = Date.now(),
+): string | undefined {
+  if (scheduling?.suspendu) return RAISON_SUSPENDU;
+  const depart = etatDuDepart(scheduling, maintenant);
+  // Une date affichée en clair se recalcule à chaque affichage
+  // (`mentionDepartProgramme`) : on ne fige pas « demain » dans la base.
+  if (depart !== 'aucun') return undefined;
+  return demarrageAutomatiqueAutorise(scheduling, maintenant) ? undefined : RAISON_ATTENTE_LANCEMENT;
 }
 
 /**

@@ -324,11 +324,16 @@ export function resolveModel(models: ModelInfo[], wanted: string | undefined): s
  * Le modèle du chef d'orchestre dépend de son moteur. On cherche d'abord la
  * version précise voulue dans le catalogue réel, puis on se replie par famille
  * sur un modèle qui existe vraiment.
+ *
+ * Sous Claude, ce modèle est ÉCONOME (Haiku 4.5) : le chef ne fait plus qu'un
+ * tri — rédiger une carte courte, choisir le niveau de l'agent qui l'exécutera.
+ * Il n'ouvre plus le projet, ne chiffre plus : payer un modèle de raisonnement
+ * pour ce geste-là revenait à payer une analyse à chaque message.
  */
 export function orchestratorModel(engine: EngineId, models: ModelInfo[]): string | undefined {
   if (!models.length) return undefined;
 
-  const wanted = engine === 'codex' ? 'gpt-5.4' : 'sonnet-5';
+  const wanted = engine === 'codex' ? 'gpt-5.4' : 'haiku-4.5';
   const cible = wanted.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   const preferred = models.find((model) => {
     const id = model.id.toLowerCase().replace(/[^a-z0-9]+/g, '-');
