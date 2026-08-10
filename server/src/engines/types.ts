@@ -59,6 +59,12 @@ export interface EngineRunOptions {
   mcpBridgePath?: string;
   /** Accès complet : agents de tâche. Le chef d'orchestre, lui, reste bridé. */
   fullAccess: boolean;
+  /**
+   * Mode plan : l'agent réfléchit et propose SANS modifier un fichier ni lancer
+   * de commande d'écriture, quel que soit `fullAccess`. Priorité absolue sur le
+   * bac à sable habituel — voir `buildClaudeArgs` / `buildCodexArgs`.
+   */
+  mode?: 'direct' | 'plan';
   allowedTools?: string[];
   disallowedTools?: string[];
   /**

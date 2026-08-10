@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, X } from 'lucide-react';
+import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, X } from 'lucide-react';
 import {
   Attachment,
   COLUMN_KEYS,
@@ -1174,6 +1174,12 @@ export function CardTile({
   const agentAuTravail = Object.values(state.agents).some(
     (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
   );
+  // Mode plan : l'agent au travail sur cette carte prépare sans écrire — un
+  // repère distinct, tant qu'il travaille encore (le réglage seul ne suffit
+  // pas à le dire, une fois le tour rendu).
+  const agentPlanActif = Object.values(state.agents).some(
+    (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting') && a.run?.mode === 'plan',
+  );
 
   /*
    * L'avancement de la liste de tâches de l'agent d'exécution, tel qu'il voyage
@@ -1318,13 +1324,22 @@ export function CardTile({
          * propre ligne AU-DESSUS du titre, au lieu de se perdre au milieu des
          * repères techniques du pied.
          */}
-        {card.deployedAt ? (
-          <div className="mb-1 flex">
-            <Tooltip label={`En ligne depuis le ${new Date(card.deployedAt).toLocaleString('fr-CH')}`}>
-              <Badge tone="success">
-                <Rocket className="h-2.5 w-2.5" /> en ligne
-              </Badge>
-            </Tooltip>
+        {card.deployedAt || agentPlanActif ? (
+          <div className="mb-1 flex gap-1">
+            {card.deployedAt ? (
+              <Tooltip label={`En ligne depuis le ${new Date(card.deployedAt).toLocaleString('fr-CH')}`}>
+                <Badge tone="success">
+                  <Rocket className="h-2.5 w-2.5" /> en ligne
+                </Badge>
+              </Tooltip>
+            ) : null}
+            {agentPlanActif ? (
+              <Tooltip label="L'agent prépare un plan : il ne modifie rien tant que ce mode est actif">
+                <Badge tone="strong" data-mode-plan-actif={card.id}>
+                  <Route className="h-2.5 w-2.5" /> plan
+                </Badge>
+              </Tooltip>
+            ) : null}
           </div>
         ) : null}
 

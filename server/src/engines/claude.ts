@@ -45,8 +45,12 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
   }
 
   // Accès complet pour les agents de tâche : le consentement a été donné en
-  // validant la carte, pas dans une succession de fenêtres (PLAN §6).
-  args.push('--permission-mode', options.fullAccess ? 'bypassPermissions' : 'manual');
+  // validant la carte, pas dans une succession de fenêtres (PLAN §6). Le mode
+  // plan l'emporte sur cet accès : l'agent prépare sans jamais écrire.
+  args.push(
+    '--permission-mode',
+    options.mode === 'plan' ? 'plan' : options.fullAccess ? 'bypassPermissions' : 'manual',
+  );
 
   // `--append-system-prompt` est réappliqué à CHAQUE tour : on renvoyait donc la
   // consigne de rôle ENTIÈRE (~1 050 jetons pour une tâche, ~1 930 pour le chef)

@@ -206,7 +206,13 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
    * travaux de fond éteints) — voir `shared/src/bridage-chef.ts`.
    */
   const bride = chefBride(options);
-  if (options.fullAccess && !bride) {
+  const plan = options.mode === 'plan';
+  if (plan && !bride) {
+    // Mode plan : le bac à sable reste en lecture seule même pour un agent en
+    // accès complet — aucune commande d'écriture ne doit passer.
+    if (resuming) args.push('-c', 'sandbox_mode="read-only"');
+    else args.push('-s', 'read-only');
+  } else if (options.fullAccess && !bride) {
     args.push('--dangerously-bypass-approvals-and-sandbox');
   } else if (!bride) {
     // `codex exec resume` n'accepte ni `-C` ni `-s`. Le processus est déjà
