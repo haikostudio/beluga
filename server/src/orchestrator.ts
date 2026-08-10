@@ -66,7 +66,7 @@ export async function getOrCreateOrchestrator(projectId: string): Promise<Agent>
     agentId: agent.id,
     role: 'assistant',
     content:
-      "Bonjour ! Je suis le chef d'orchestre de ce projet.\n\nPosez-moi une question, je réponds. Demandez une action, je vous propose une carte courte — la demande reformulée, et le niveau de l'agent qui l'exécutera : léger, standard ou approfondi. Elle n'entre dans « À faire » qu'après votre clic, et c'est là seulement que le projet est étudié.",
+      "Bonjour ! Je suis le chef d'orchestre de ce projet.\n\nPosez-moi une question, je réponds. Demandez une action, je vous propose une carte courte — la demande reformulée, et le niveau de l'agent qui l'exécutera : léger, standard ou approfondi. Elle n'entre dans « Planifié » qu'après votre clic, et c'est là seulement que le projet est étudié.",
     steps: [],
     todos: [],
     proposals: [],

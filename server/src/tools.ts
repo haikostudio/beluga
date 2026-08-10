@@ -18,8 +18,12 @@ import {
   reglagesDeLaProposition,
   composerDescription,
   jugerDescription,
+  lireDateDeDepart,
+  momentDeDepart,
   MAX_SIGNES_DESCRIPTION,
+  MIN_SIGNES_DESCRIPTION,
   MIN_SIGNES_CARTE_COURTE,
+  RAISON_ATTENTE_LANCEMENT,
   type ExigenceDescription,
   DEFINITIONS_NIVEAU,
   NIVEAUX_AGENT,
@@ -103,6 +107,15 @@ const CHAMP_NIVEAU = {
 };
 
 /**
+ * La date de départ, facultative. Elle ne remplace aucun geste : elle donne le
+ * geste à l'AVANCE. Sans elle, la carte attend le lancement comme aujourd'hui.
+ */
+const CHAMP_DEPART =
+  "Facultatif. Date et heure de départ souhaitées, au format ISO (« 2026-08-12T06:00 »). La carte attend alors dans " +
+  "« Planifié » et part TOUTE SEULE à l'heure dite, sans clic. À ne mettre que si l'utilisateur a demandé un moment " +
+  'précis. Sans ce champ, rien ne change : la carte attend son geste de lancement.';
+
+/**
  * Le relais d'une analyse RÉELLEMENT menée. Le chef d'orchestre ne le remplit
  * plus — il ne lit plus le projet avant de proposer —, mais le champ reste :
  * un agent qui vient de chiffrer une carte y transmet ses constats.
@@ -174,6 +187,23 @@ function exigenceDuRole(role: ToolContext['role']): ExigenceDescription {
 }
 
 /**
+ * La date de départ demandée par le chef, s'il y en a une. Ce qui n'est pas une
+ * date est ignoré en silence : une proposition ne doit pas être refusée parce
+ * qu'un moteur a écrit « mardi prochain » dans un champ facultatif — la carte
+ * repart alors simplement sur le geste de lancement habituel.
+ */
+function departDeProposition(args: any): Pick<TaskProposal, 'departPrevu'> | Record<string, never> {
+  const date = lireDateDeDepart(args?.depart);
+  return date ? { departPrevu: date } : {};
+}
+
+/** Ce que l'outil répond au chef quand une date a été retenue. */
+function resumeDepart(depart: Pick<TaskProposal, 'departPrevu'> | Record<string, never>): string {
+  if (!('departPrevu' in depart) || !depart.departPrevu) return '';
+  return ` Départ programmé ${momentDeDepart(depart.departPrevu, Date.now())} : la carte partira toute seule à l'heure dite.`;
+}
+
+/**
  * Fabrique la description d'une proposition, à partir des quatre champs
  * séparés OU du texte libre, puis la juge. Une description qui ne tient pas
  * debout ne devient PAS une proposition : elle est rendue au moteur avec le
@@ -222,7 +252,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'board_create_card',
     description:
-      "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « À faire » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation.",
+      "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « Planifié » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation.",
     inputSchema: {
       type: 'object',
       required: ['title', 'niveau'],
@@ -235,6 +265,7 @@ export const TOOL_DEFS: ToolDef[] = [
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
         niveau: CHAMP_NIVEAU,
         labels: { type: 'array', items: { type: 'string' } },
+        depart: { type: 'string', description: CHAMP_DEPART },
         analysis: CHAMP_ANALYSE,
       },
     },
@@ -256,13 +287,13 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'board_move_card',
     description:
-      "Déplace une carte. Seules les colonnes « notes » et « todo » sont acceptées : toute autre cible est refusée par l'outil.",
+      "Déplace une carte. Seules les colonnes « notes » et « planned » sont acceptées : toute autre cible est refusée par l'outil.",
     inputSchema: {
       type: 'object',
       required: ['cardId', 'column'],
       properties: {
         cardId: { type: 'string' },
-        column: { type: 'string', enum: ['notes', 'todo'] },
+        column: { type: 'string', enum: ['notes', 'planned'] },
       },
     },
   },
@@ -287,6 +318,7 @@ export const TOOL_DEFS: ToolDef[] = [
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
         niveau: CHAMP_NIVEAU,
         labels: { type: 'array', items: { type: 'string' } },
+        depart: { type: 'string', description: CHAMP_DEPART },
         analysis: CHAMP_ANALYSE,
       },
     },
@@ -515,8 +547,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * Rien n'entre sur le tableau sans un clic de l'utilisateur. L'outil
        * n'écrit donc AUCUNE carte : il affiche une proposition dans la
        * conversation, avec ses boutons valider / refuser. C'est la validation
-       * qui fait naître la carte dans « À faire », d'où part ensuite le
-       * parcours habituel (analyse, chiffrage, exécution, lot à publier).
+       * qui fait naître la carte dans « Planifié », d'où part ensuite le
+       * parcours habituel (chiffrage, lancement, exécution, lot à publier).
        *
        * La règle « toute demande de programmation passe par une carte » reste
        * entière : c'est le mode de création qui change, pas l'obligation.
@@ -529,6 +561,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
       const reglages = await reglagesProposes(ctx.run, niveauDemande(args.niveau));
       const analyse = analyseDeProposition(args);
+      const depart = departDeProposition(args);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
@@ -537,7 +570,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         // Les images jointes au message qui a fait naître la proposition
         // suivent la carte jusqu'à l'agent d'exécution.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
+        sourceProposalIds: [],
         ...analyse,
+        ...depart,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
@@ -546,8 +581,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ok: true,
         text:
           `Carte « ${proposal.title} » proposée dans la conversation. ` +
-          `Elle n'entrera dans « À faire » qu'après la validation de l'utilisateur.` +
-          resumeReglages(reglages),
+          `Elle n'entrera dans « Planifié » qu'après la validation de l'utilisateur.` +
+          resumeReglages(reglages) +
+          resumeDepart(depart),
         proposal,
       };
     }
@@ -611,6 +647,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
       const reglages = await reglagesProposes(ctx.run, niveauDemande(args.niveau));
       const analyse = analyseDeProposition(args);
+      const depart = departDeProposition(args);
       const proposal: TaskProposal = {
         id: store.newId(),
         title: String(args.title),
@@ -618,7 +655,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
         // Mêmes images que board_create_card : celles du message déclencheur.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
+        sourceProposalIds: [],
         ...analyse,
+        ...depart,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
         decision: 'pending',
@@ -627,7 +666,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ok: true,
         text:
           `Proposition affichée à l'utilisateur : « ${proposal.title} ». Rien n'est créé tant qu'il n'a pas validé.` +
-          resumeReglages(reglages),
+          resumeReglages(reglages) +
+          resumeDepart(depart),
         proposal,
       };
     }
@@ -761,6 +801,8 @@ export function createCard(
     estimate?: Card['estimate'];
     /** Relais factuel qui évite à l'exécution de recommencer l'étude. */
     analysisContext?: string;
+    /** Heure de départ souhaitée : la carte partira toute seule ce moment venu. */
+    departPrevu?: number;
   },
 ): Card {
   const project = store.getProject(projectId);
@@ -773,9 +815,11 @@ export function createCard(
     attachments: input.attachments ?? [],
     estimate: input.estimate,
     analysisContext: input.analysisContext,
-    // Le champ « colonne » est ignoré à la création : invariant 1.
-    column: 'todo' as ColumnKey,
-    position: store.nextPosition(projectId, 'todo'),
+    // Le champ « colonne » est ignoré à la création : invariant 1. Une carte
+    // naît dans « Planifié » — il n'y a plus de colonne d'attente avant elle.
+    // Naître là ne fait rien démarrer : le lancement reste un geste humain.
+    column: 'planned' as ColumnKey,
+    position: store.nextPosition(projectId, 'planned'),
     origin: input.origin ?? 'user',
     run: {
       engine: input.run?.engine ?? project?.defaultEngine ?? 'claude',
@@ -783,7 +827,19 @@ export function createCard(
       thinking: input.run?.thinking ?? 'none',
       mode: input.run?.mode ?? 'direct',
     },
-    scheduling: { asap: false, attempts: 0, restarts: 0 },
+    scheduling: {
+      asap: false,
+      attempts: 0,
+      restarts: 0,
+      departPrevu: input.departPrevu,
+      /*
+       * Une carte qui naît DÉJÀ chiffrée (l'analyse du chef d'orchestre voyage
+       * avec sa proposition) attend son lancement, et le DIT — exactement comme
+       * une carte qui sort de son analyse. Sans chiffrage, rien à annoncer : la
+       * carte vient d'être posée.
+       */
+      ...(input.estimate && !input.estimate.failed ? { waitingReason: RAISON_ATTENTE_LANCEMENT } : {}),
+    },
     excludedFromDeploy: false,
     createdAt: store.now(),
     updatedAt: store.now(),

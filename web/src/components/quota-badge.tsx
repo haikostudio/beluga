@@ -4,6 +4,7 @@ import {
   AccountQuota,
   EngineId,
   compteDeSecours,
+  fraicheurDuReleve,
   heureDeRemiseAZero,
   historiquePourProfil,
   niveauQuota,
@@ -313,7 +314,9 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
 
                 <DerniereAmorce amorce={quota.derniereAmorce} />
 
-                {quota.error ? <p className="mt-1 text-[11.5px] text-warning">{quota.error}</p> : null}
+                {quota.error ? (
+                  <ReleveAncien erreur={quota.error} fetchedAt={quota.fetchedAt} />
+                ) : null}
               </div>
             ))}
           </div>
@@ -324,6 +327,21 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
         <JournalDesAmorces ouvertMenu={open} />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function ReleveAncien({ erreur, fetchedAt }: { erreur: string; fetchedAt?: number }) {
+  const [, battre] = React.useReducer((valeur: number) => valeur + 1, 0);
+  React.useEffect(() => {
+    const timer = window.setInterval(battre, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const fraicheur = fraicheurDuReleve(fetchedAt);
+  return (
+    <div className="mt-1 text-[11.5px] text-warning">
+      <p>{erreur}</p>
+      {fraicheur ? <p>Chiffres anciens — {fraicheur}</p> : null}
+    </div>
   );
 }
 

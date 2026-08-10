@@ -24,8 +24,9 @@ export interface EtatAnalyse {
   analyseEnCours: boolean;
   /**
    * La carte a été validée et attend son chiffrage. C'est le drapeau de la
-   * carte (`analyseDemandee`) qui le dit, plus une colonne : « Validé » n'existe
-   * plus, la carte reste dans « À faire » le temps de l'analyse.
+   * carte (`analyseDemandee`) qui le dit, plus une colonne : « Validé » comme
+   * « À faire » n'existent plus, la carte reste dans « Planifié » le temps de
+   * l'analyse.
    */
   analyseDemandee?: boolean;
 }
@@ -65,7 +66,7 @@ export function motAnalyse(phase: PhaseAnalyse): { titre: string; indice: string
     default:
       return {
         titre: 'Aucun échange pour le moment',
-        indice: 'Validez la carte pour lancer son analyse, ou posez une question.',
+        indice: 'Validez la carte pour lancer son chiffrage, lancez-la, ou posez une question.',
       };
   }
 }

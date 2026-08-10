@@ -135,6 +135,10 @@ le nom, là-bas le texte).
 - **Toute demande de PROGRAMMATION ou d'EXÉCUTION passe par une carte**, quelle que soit sa taille :
   le chef PROPOSE (`board_create_card` / `propose_task`), la validation de l'utilisateur seule crée la
   carte. Une simple question se répond sans carte. Verrouillé par `server/src/test/tri-du-chef.test.ts`.
+- **Les étapes complémentaires d'un même objectif forment UNE proposition** : le chef regroupe par
+  résultat, chantier et ordre logique ; le bandeau permet aussi de fusionner plusieurs propositions
+  encore en attente, sans créer de carte. Les sources restent marquées « fusionnées » et la
+  proposition réunie reste éditable avant son unique validation.
 - **Le CHEF D'ORCHESTRE NE FAIT QUE DEUX CHOSES : une carte COURTE et le NIVEAU de son agent.** Il
   n'ouvre plus le projet, ne chiffre plus, ne prépare plus de relais — l'étude appartient à la carte,
   après validation. Accueil ramené au palier `tri` (`niveauDAccueil`, `shared/src/accueil-agent.ts` :
@@ -154,13 +158,25 @@ le nom, là-bas le texte).
   Une carte du chef, elle, n'emporte aucun chiffrage : sa validation lance l'analyse sur place.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
-- **Il n'y a PAS de colonne « Validé »** (`validerCarte`, `server/src/scheduler.ts`) : valider une
-  carte de « À faire » lance son chiffrage SUR PLACE (drapeau `card.analyseDemandee`) ; elle monte en
-  « Planifié » une fois l'analyse rendue, et le lancement reste un geste humain.
+- **Une carte NAÎT dans « Planifié »** (`createCard`, `server/src/tools.ts`) : ni « Validé » ni « À
+  faire » n'existent, le tableau compte SEPT colonnes (`COLUMN_KEYS`, `shared/src/columns.ts`).
+  Valider une carte lance son chiffrage SUR PLACE (drapeau `card.analyseDemandee`) sans la déplacer,
+  et le lancement reste un geste humain — garanti par la règle de pause, pas par une colonne
+  d'attente.
+- **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
+  elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
+  `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
+  heure manquée est rattrapée, la suspension à la main l'emporte, et le départ CONSOMME la date.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
   carte, jamais le fait que le moteur ait répondu.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN.** Un projet
   qu'on retire est MIS DE CÔTÉ (`project.archive`, `archived = 1`), jamais supprimé.
+- **Les champs d'une carte sont de VRAIES colonnes** (`shared/src/carte-sql.ts`, migration 17 de
+  `server/src/db.ts`) : description, origine, agent, drapeaux, dates et réglages d'exécution ont leur
+  colonne SQL ; les étiquettes et les pièces jointes ont leur table fille (`card_labels`,
+  `card_attachments`). Le bloc `data` ne garde que le vraiment libre. Une carte se lit et s'écrit par
+  `carteDepuisLigne` / `colonnesDeLaCarte`, jamais par `JSON.parse(data)` — les scripts passent par
+  `scripts/carte-en-base.mjs`.
 
 ### Branches et dossiers
 
@@ -245,6 +261,18 @@ le nom, là-bas le texte).
 - **Chaque hausse mesurée sur un compte n'est attribuée qu'une fois** (`cumulerPartsQuota`,
   `shared/src/quota.ts`) : les tours simultanés cumulent leur part depuis un repère commun, mis à
   jour après chaque fin de tour. Deux fins décalées ne repartent jamais du même ancien relevé.
+- **Un tour COUPÉ PAR LA LIMITE D'UN COMPTE n'est pas un échec** (`motifDArretQuota`,
+  `shared/src/reprise-compte.ts`) : la conversation propose « Avec quel compte poursuivre ? » avec
+  les autres comptes du MÊME moteur, jamais le compte tombé ni un compte coupé. Reconnu sur
+  l'événement structuré du moteur ou sa bannière de texte, jamais sur un à-peu-près — arrêt manuel,
+  tour réussi et citation d'un agent sont écartés. Le clic revérifie le compte sur un relevé frais,
+  retient le choix AVANT de lancer (double clic sans effet) et relance le MÊME agent avec sa
+  session, sa branche et ses étapes restantes. Aucun compte libre : le choix reste ouvert et
+  s'actualise tout seul avec les quotas.
+- **Chaque échéance de quota connue déclenche une lecture ciblée après 15 s**
+  (`server/src/quota-echeances.ts`) : échéances proches groupées, lecture en cours partagée,
+  temporisation du fournisseur respectée, nouvel essai jusqu'à un relevé frais puis réveil immédiat
+  de l'ordonnanceur. La boucle de dix minutes reste le filet de sécurité.
 
 ### Coûts
 

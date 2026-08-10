@@ -6,7 +6,7 @@
  *   1. la RÈGLE (`reglagesDeLaCarte`) : une carte à faire se laisse régler, une
  *      carte qui a tourné rend ce qui a RÉELLEMENT servi ;
  *   2. l'ÉCRAN, dans un vrai navigateur, sur ordinateur PUIS sur téléphone :
- *      une carte « À faire » ouvre ses menus, une carte « Terminé » affiche
+ *      une carte « Planifié » ouvre ses menus, une carte « Terminé » affiche
  *      moteur, modèle, réflexion et compte, figés, sur une ligne qui se replie.
  *
  * Une carte d'essai est posée en base le temps du relevé, puis retirée ; le
@@ -18,6 +18,7 @@ import { chromium } from 'playwright';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { reglagesDeLaCarte } from '../shared/dist/reglages-carte.js';
+import { carteDeLaLigne, lireCarteParId } from './carte-en-base.mjs';
 
 /* On vise le serveur de DÉVELOPPEMENT : HAIKODEV_URL, posée pour les agents,
    pointe l'application déjà publiée — on y verrait l'ancienne version. */
@@ -49,19 +50,19 @@ function poserSession(db) {
 function carteTerminee(db) {
   const lignes = db
     .prepare(
-      `SELECT c.id, c.title, c.project_id AS projectId, c.data, p.name AS projet
+      `SELECT c.*, p.name AS projet
          FROM cards c JOIN projects p ON p.id = c.project_id
         WHERE c.column_key IN ('done','to_deploy') AND p.archived = 0
         ORDER BY c.updated_at DESC LIMIT 12`,
     )
     .all();
   for (const ligne of lignes) {
-    const carte = JSON.parse(ligne.data);
+    const carte = carteDeLaLigne(db, ligne);
     const agent = carte.agentId
       ? db.prepare('SELECT data FROM agents WHERE id = ?').get(carte.agentId)
       : null;
     if (!agent) continue;
-    return { ...ligne, carte, agent: JSON.parse(agent.data) };
+    return { ...ligne, projectId: ligne.project_id, carte, agent: JSON.parse(agent.data) };
   }
   return null;
 }
@@ -77,7 +78,7 @@ function poserCarteEssai(db, projectId) {
     description:
       "Carte posée par un script de vérification. Elle disparaît toute seule à la fin du relevé.",
     labels: ['préparée'],
-    column: 'todo',
+    column: 'planned',
     position: -1,
     origin: 'agent',
     attachments: ['image-de-la-demande'],
@@ -90,7 +91,7 @@ function poserCarteEssai(db, projectId) {
   };
   db.prepare(
     'INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(id, projectId, 'todo', -1, TITRE_ESSAI, JSON.stringify(carte), maintenant, maintenant);
+  ).run(id, projectId, 'planned', -1, TITRE_ESSAI, JSON.stringify(carte), maintenant, maintenant);
   return id;
 }
 
@@ -167,7 +168,7 @@ async function main() {
   /* ---------------- 1. La règle, jouée seule ---------------- */
 
   const prevu = { engine: 'claude', model: 'claude-opus-5', thinking: 'medium' };
-  const aFaire = reglagesDeLaCarte({ colonne: 'todo', carte: prevu });
+  const aFaire = reglagesDeLaCarte({ colonne: 'planned', carte: prevu });
   noter('une carte à faire se laisse régler', aFaire.modifiable && aFaire.source === 'prevu');
   noter('avant le départ, aucun compte n’est annoncé', aFaire.compte === undefined);
 
@@ -236,7 +237,7 @@ async function main() {
         { name: 'haikodev_session', value: session.cookie, url: new URL(BASE).origin, httpOnly: true, sameSite: 'Lax' },
       ]);
 
-      /* ---------- Une carte « À faire » : réglages modifiables ---------- */
+      /* ---------- Une carte « Planifié » : réglages modifiables ---------- */
       {
         const { page, tiroir, erreurs } = await ouvrirDetails(context, TITRE_ESSAI, finie.projet, ecran.mobile);
         const bloc = blocReglages(tiroir);
@@ -267,10 +268,10 @@ async function main() {
             if (!texte.startsWith(moteurAffiche)) autre = entrees.nth(index);
           }
           if (autre) {
-            const avant = JSON.parse(db.prepare('SELECT data FROM cards WHERE id = ?').get(carteId).data).run;
+            const avant = lireCarteParId(db, carteId).run;
             await autre.click({ force: true });
             await page.waitForTimeout(1800);
-            const apres = JSON.parse(db.prepare('SELECT data FROM cards WHERE id = ?').get(carteId).data).run;
+            const apres = lireCarteParId(db, carteId).run;
             noter(
               `${ecran.nom} — un changement de moteur est enregistré sur la carte`,
               apres.engine !== avant.engine && !!apres.model,

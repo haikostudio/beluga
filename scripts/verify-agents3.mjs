@@ -181,7 +181,7 @@ async function main() {
     proposalId: proposal.id,
     accept: true,
   });
-  record('Proposition : la valider crée la carte dans « À faire »', !!decided?.cardId);
+  record('Proposition : la valider crée la carte dans « Planifié »', !!decided?.cardId);
 
   // Cliquer deux fois ne crée pas deux cartes.
   const second = await session.call({

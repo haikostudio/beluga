@@ -38,7 +38,6 @@ const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..
 test('« En production » s’intercale entre « À déployer » et « Archivé »', () => {
   assert.deepEqual(COLUMN_KEYS, [
     'notes',
-    'todo',
     'planned',
     'running',
     'done',
@@ -52,7 +51,7 @@ test('« En production » s’intercale entre « À déployer » et « Archivé 
 test('aucune clé existante n’est renommée ni supprimée', () => {
   // Règle gravée : on change l'étiquette, jamais la clé. Une carte enregistrée
   // hier dans « À déployer » doit encore s'y retrouver aujourd'hui.
-  for (const cle of ['notes', 'todo', 'planned', 'running', 'done', 'to_deploy', 'archived'] as const) {
+  for (const cle of ['notes', 'planned', 'running', 'done', 'to_deploy', 'archived'] as const) {
     assert.ok(COLUMN_KEYS.includes(cle), `la clé « ${cle} » a disparu`);
   }
   assert.equal(COLUMN_LABELS.to_deploy, 'À déployer');
@@ -62,7 +61,7 @@ test('aucune clé existante n’est renommée ni supprimée', () => {
 test('« En production » n’est atteignable que par l’utilisateur', () => {
   assert.ok(USER_ONLY_TARGETS.includes('in_production'));
   assert.equal(canMove('user', 'to_deploy', 'in_production').allowed, true);
-  assert.equal(canMove('agent', 'todo', 'in_production').allowed, false);
+  assert.equal(canMove('agent', 'planned', 'in_production').allowed, false);
   assert.equal(canMove('machine', 'running', 'in_production').allowed, false);
 });
 
@@ -83,7 +82,7 @@ test('reprendre une carte « En production » la ramène à l’étape juste ava
   assert.equal(colonneDeReprise('in_production'), 'to_deploy');
   // Les deux autres reprises ne changent pas d'un pouce.
   assert.equal(colonneDeReprise('to_deploy'), 'done');
-  assert.equal(colonneDeReprise('archived'), 'todo');
+  assert.equal(colonneDeReprise('archived'), 'planned');
   assert.equal(colonneDeReprise('running'), null);
 });
 
@@ -139,7 +138,7 @@ test('chaque colonne de mise en ligne porte SON étape, les autres n’en ont au
   assert.equal(etapeDeLaColonne('to_deploy')?.cible, 'dev');
   assert.equal(etapeDeLaColonne('in_production')?.cible, 'production');
   // Aucune autre colonne ne publie : là, pas de bloc du tout.
-  for (const colonne of ['todo', 'running', 'done', 'archived'] as const) {
+  for (const colonne of ['notes', 'running', 'done', 'archived'] as const) {
     assert.equal(etapeDeLaColonne(colonne), null);
   }
 });

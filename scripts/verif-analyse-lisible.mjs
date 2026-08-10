@@ -51,7 +51,7 @@ function choisirCarte(db) {
   const jamaisLancee = db
     .prepare(
       `SELECT c.id, c.title, c.project_id, c.data, c.column_key FROM cards c
-       WHERE c.column_key IN ('planned', 'todo')
+       WHERE c.column_key = 'planned'
          AND EXISTS (SELECT 1 FROM agents a WHERE a.card_id = c.id AND a.role = 'analysis')
          AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.card_id = c.id AND a.role = 'task')
        ORDER BY c.updated_at DESC LIMIT 1`,
@@ -163,7 +163,7 @@ async function main() {
     // Sur une carte jamais lancée, l'analyse est l'unique interlocuteur et son
     // repère doit être présent. Le repli documenté de `choisirCarte` peut rendre
     // une carte déjà exécutée : son interlocuteur courant est alors la tâche.
-    const analyseSeule = ['planned', 'todo'].includes(carte.column_key);
+    const analyseSeule = carte.column_key === 'planned';
     record(
       'Le repère « Analyse de la carte » annonce qui parle',
       !analyseSeule || /analyse de la carte/i.test(texte),

@@ -142,24 +142,24 @@ async function main() {
   });
   record('Projet : inscription d\'un dossier du serveur', !!project?.id, project?.name);
 
-  /* ---------- Invariant : une carte naît dans « À faire » ---------- */
+  /* ---------- Invariant : une carte naît dans « Planifié » ---------- */
   const { card: carteManuelle } = await session.call({
     type: 'card.create',
     projectId: project.id,
     title: 'Corriger la fonction somme qui soustrait au lieu d\'additionner',
     description: 'Le fichier calcul.js contient une fonction somme qui fait une soustraction. Corrige-la.',
   });
-  record('Carte : elle naît toujours dans « À faire »', carteManuelle.column === 'todo', `colonne ${carteManuelle.column}`);
+  record('Carte : elle naît toujours dans « Planifié »', carteManuelle.column === 'planned', `colonne ${carteManuelle.column}`);
 
   /* ---------- Refus des colonnes interdites aux agents ---------- */
   let refused = false;
   try {
-    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'planned' });
+    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'done' });
   } catch {
     refused = true;
   }
   record('Règle : l\'utilisateur peut déplacer librement (aucun blocage abusif)', !refused);
-  await session.call({ type: 'card.move', id: carteManuelle.id, column: 'todo' });
+  await session.call({ type: 'card.move', id: carteManuelle.id, column: 'planned' });
   await session.call({ type: 'card.delete', id: carteManuelle.id });
 
   /* ---------- Chef d'orchestre : le tri en familles ---------- */

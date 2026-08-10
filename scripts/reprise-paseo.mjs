@@ -4,7 +4,7 @@
  *
  * Ne lit QUE les fichiers de Paseo — jamais ne les écrit. Les tâches des trois
  * colonnes d'avant l'exécution (notes, à faire, à valider) sont recopiées en
- * cartes HaikoDev, toutes posées dans « À faire » : ce sont des tâches non
+ * cartes HaikoDev, toutes posées dans « Planifié » : ce sont des tâches non
  * commencées, et seule la validation de l'utilisateur autorise la dépense.
  *
  * Relançable sans dégât : le rapprochement se fait sur le titre normalisé, à
@@ -154,7 +154,7 @@ for (const [nomPaseo, taches] of lirePaseo()) {
   // Paseo doit donc porter la plus haute, et passer devant l'existant.
   const plafond = base
     .prepare('SELECT MAX(position) AS m FROM cards WHERE project_id = ? AND column_key = ?')
-    .get(cible.id, 'todo');
+    .get(cible.id, 'planned');
   const depart = Math.max(plafond?.m ?? 0, Date.now()) + aCreer.length;
 
   aCreer.forEach((tache, index) => {
@@ -165,7 +165,7 @@ for (const [nomPaseo, taches] of lirePaseo()) {
       title: String(tache.title ?? '').slice(0, 200),
       description: String(tache.description ?? ''),
       labels: etiquettes(tache),
-      column: 'todo',
+      column: 'planned',
       position: depart - index,
       origin: 'user',
       run: { engine: cible.moteur, ...(cible.modele ? { model: cible.modele } : {}), thinking: 'none', mode: 'direct' },

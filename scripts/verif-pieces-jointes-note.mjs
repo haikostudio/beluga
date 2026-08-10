@@ -19,6 +19,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lireCarteOu } from './carte-en-base.mjs';
 
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-pieces-note-'));
@@ -119,9 +120,9 @@ function fabriqueImage() {
 
 function lireCarte() {
   const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
-  const ligne = db.prepare('SELECT data FROM cards WHERE project_id = ? AND title = ?').get(PROJET_ID, TITRE);
+  const carte = lireCarteOu(db, 'project_id = ? AND title = ?', PROJET_ID, TITRE);
   db.close();
-  return ligne ? JSON.parse(ligne.data) : null;
+  return carte;
 }
 
 async function attendreCarteDansNotes(limiteMs = 20000) {

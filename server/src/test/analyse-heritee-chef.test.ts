@@ -114,9 +114,8 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
     origin: 'agent',
     ...heritage,
   });
-  // Plus de colonne « Validé » : la carte reste dans « À faire » et c'est le
-  // geste de validation qui la fait monter — ici, directement en « Planifié »,
-  // son chiffrage venant du chef.
+  // La carte NAÎT dans « Planifié », déjà chiffrée par le chef : il n'y a plus
+  // de colonne à traverser, seulement une raison d'attente à écrire.
   const validee = store.getCard(card.id)!;
 
   assert.equal(validee.estimate?.analysisMeasurement?.totalTokens, 1_120);
@@ -159,5 +158,8 @@ test('une édition du sujet ou une carte ordinaire garde le chiffrage habituel',
 
   const ordinaire = createCard(projet.id, { title: 'Carte ordinaire', description: DESCRIPTION });
   assert.equal(reprendreAnalyseDuChef(ordinaire.id), false);
-  assert.equal(store.getCard(ordinaire.id)?.column, 'todo');
+  assert.equal(store.getCard(ordinaire.id)?.column, 'planned');
+  // Une carte ordinaire naît sans chiffrage : rien ne l'annonce en attente de
+  // lancement, elle attend d'abord qu'on autorise sa dépense.
+  assert.equal(store.getCard(ordinaire.id)?.scheduling?.waitingReason, undefined);
 });
