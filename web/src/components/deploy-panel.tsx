@@ -419,14 +419,10 @@ export function DeployPanel({
                 Publié ({libelleEtape(run.cible)}) : {run.cardIds.length} tâche(s)
               </div>
             ) : (
-              <>
-                <ProcessusEtapes run={mienne ? run : undefined} />
-                {(publicationEnCours || rapport) && run ? (
-                  <div className="mt-1.5 rounded-md border border-border bg-raised p-2 shadow-lg">
-                    <DeployControls run={run} />
-                  </div>
-                ) : null}
-              </>
+              <ProcessusEtapes
+                run={mienne ? run : undefined}
+                controls={(publicationEnCours || rapport) && run ? <DeployControls run={run} /> : null}
+              />
             )}
           </div>
         ) : null}
@@ -571,8 +567,13 @@ export function BoutonInfosPublication({
  * c'est l'aperçu du déroulé complet, aucune étape n'étant encore décidée.
  * Chaque libellé cache une courte description, révélée par le « ? » (au survol
  * à la souris, au clic partout ailleurs).
+ *
+ * `controls` (le texte d'état — « En cours depuis… », adresse, « Arrêter » /
+ * « Relancer ») vit DANS le même cadre que les sept étapes, sous la liste :
+ * un seul bloc visuel pour tout le suivi du déploiement, jamais deux cadres
+ * empilés.
  */
-function ProcessusEtapes({ run }: { run?: DeployRun }) {
+function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.ReactNode }) {
   const [montre, setMontre] = React.useState<DeployStepKey | null>(null);
 
   // Une étape sautée ne s'affiche pas : la liste ne montre que ce qui va
@@ -644,6 +645,7 @@ function ProcessusEtapes({ run }: { run?: DeployRun }) {
           );
         })}
       </ul>
+      {controls}
     </div>
   );
 }
