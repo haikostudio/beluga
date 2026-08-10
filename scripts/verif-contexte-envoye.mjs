@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
  * Le contexte réellement envoyé reste-t-il consultable sous la demande ?
+ * Le tiroir montre deux parties, en tokens : ce qui vient de la mémoire du
+ * projet, et ce qui a été réellement envoyé au moteur. Plus d'historique des
+ * tours passés, plus de pavé « estimé / réellement mesuré » par couche.
  * Démon et base d'essai à soi, aucun moteur appelé, téléphone + ordinateur.
  */
 import { chromium } from 'playwright';
@@ -78,16 +81,21 @@ const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const jeton = crypto.randomBytes(32).toString('hex');
 const PROJET_ID = 'p-contexte-envoye';
 const AGENT_ID = 'a-contexte-envoye';
-/* Une carte RÉELLEMENT passée par une analyse du chef puis exécutée : c'est le
-   seul cas où le tiroir montre les DEUX couches (réflexion, puis exécution) et
-   les tokens estimés avant le travail. */
+/* Une carte dont l'agent de tâche a reçu l'index de mémoire ENTIER au premier
+   tour : c'est le seul cas où le bloc « mémoire » pèse lourd, et où le tiroir
+   nested (dans le panneau de carte) doit rendre les mêmes deux parties. */
 const CARTE_ID = 'c-contexte-envoye';
 const AGENT_TACHE = 'a-contexte-tache';
-const TITRE_CARTE = 'Essai — tokens par couche';
+const TITRE_CARTE = 'Essai — mémoire et envoi';
 const PROMPT = [
   'DEMANDE : vérifier le contexte exact.',
   ...Array.from({ length: 90 }, (_, i) => `Bloc de contexte ${i + 1} — contenu assez long pour imposer le défilement du tiroir.`),
 ].join('\n');
+
+/* 3 200 signes de mémoire ≈ 800 tokens (estimation maison, 4 signes/jeton). */
+const MEMOIRE_SUIVI = 'x'.repeat(3_200);
+/* 8 000 signes de briefing + index complet ≈ 2 000 tokens. */
+const MEMOIRE_OUVERTURE = 'y'.repeat(8_000);
 
 function poserDecor() {
   const db = new Database(path.join(DATA, 'haikodev.db'));
@@ -160,6 +168,7 @@ function poserDecor() {
         },
         blocks: [
           { kind: 'request', label: 'Demande utilisateur', characters: 42 },
+          { kind: 'memory', label: 'Nouveaux faits de la mémoire', characters: MEMOIRE_SUIVI.length },
           { kind: 'card', label: 'Carte en cours', characters: 820 },
           { kind: 'format', label: 'Gabarit et séparateurs HaikoDev', characters: 372 },
           { kind: 'system', label: 'Rappel de méthode', characters: 46 },
@@ -173,30 +182,6 @@ function poserDecor() {
   );
   message('m-file', { content: 'Cette demande est encore en file.' }, t + 1000);
 
-  /*
-   * TROIS TOURS DÉJÀ MESURÉS pour cet agent : deux sur un modèle dont le tarif
-   * est connu, un sur un modèle inconnu (son coût doit se dire « indisponible »).
-   * Ils sont écrits dans le DÉSORDRE : la liste doit les remettre dans l'ordre
-   * du temps.
-   */
-  const tour = (quand, model, entree, cache, sortie) =>
-    db
-      .prepare(
-        `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens,
-                            input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
-         VALUES (?, ?, NULL, ?, 'compte', 'claude', ?, ?, ?, ?, ?, 0, 0, 0, 10, ?)`,
-      )
-      .run(PROJET_ID, 'Essai contexte envoyé', AGENT_ID, model, entree + cache + sortie, entree, cache, sortie, quand);
-
-  tour(t + 2000, 'claude-sonnet-5', 20_000, 5_000, 2_000);
-  tour(t - 20_000, 'claude-sonnet-5', 10_000, 1_000, 900);
-  tour(t + 1000, 'gpt-5.4', 7_000, 0, 500);
-
-  /*
-   * LA CARTE ANALYSÉE PUIS EXÉCUTÉE : son chiffrage porte la mesure de
-   * l'analyse du chef (couche « réflexion ») et une projection ; son agent
-   * d'exécution porte ses propres tours (couche « exécution »).
-   */
   const carte = {
     id: CARTE_ID,
     projectId: PROJET_ID,
@@ -208,25 +193,6 @@ function poserDecor() {
     origin: 'agent',
     attachments: [],
     run: { engine: 'claude', model: 'claude-sonnet-5', thinking: 'medium', mode: 'direct' },
-    estimate: {
-      failed: false,
-      machineSeconds: 600,
-      seniorHours: 2,
-      projection: { tokens: 100_000, quotaShare: 0.04, formula: '4 tours × 25 000', assumptions: [] },
-      analysisMeasurement: {
-        inputTokens: 30_000,
-        cachedInputTokens: 12_000,
-        outputTokens: 3_000,
-        totalTokens: 45_000,
-        breakdown: {
-          haikoDevInstructions: { status: 'measured', characters: 4_000, note: '' },
-          cardDescription: { status: 'measured', characters: 900, note: '' },
-          memoryAndInstructions: { status: 'measured', characters: 6_000, note: '' },
-          agentReads: { status: 'unavailable', note: 'part non isolable' },
-        },
-        measuredAt: t,
-      },
-    },
     agentId: AGENT_TACHE,
     excludedFromDeploy: false,
     horsTache: false,
@@ -272,7 +238,11 @@ function poserDecor() {
         session: 'new',
         prompt: PROMPT,
         systemInstruction: { kind: 'full', content: 'MÉTHODE : lire, constater, vérifier.', transport: 'separate' },
-        blocks: [{ kind: 'request', label: 'Demande utilisateur', characters: 42 }],
+        blocks: [
+          { kind: 'request', label: 'Demande utilisateur', characters: 42 },
+          { kind: 'briefing', label: 'Briefing du projet', characters: 500 },
+          { kind: 'memory', label: 'Index de la mémoire du projet', characters: MEMOIRE_OUVERTURE.length },
+        ],
         history: 'none',
         usage: { inputTokens: 4_000, cachedInputTokens: 1_000 },
         sentAt: t,
@@ -280,28 +250,6 @@ function poserDecor() {
     }),
     t,
   );
-
-  const tourTache = (quand, model, entree, cache, sortie) =>
-    db
-      .prepare(
-        `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens,
-                            input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
-         VALUES (?, ?, ?, ?, 'compte', 'claude', ?, ?, ?, ?, ?, 0, 0, 0, 10, ?)`,
-      )
-      .run(
-        PROJET_ID,
-        'Essai contexte envoyé',
-        CARTE_ID,
-        AGENT_TACHE,
-        model,
-        entree + cache + sortie,
-        entree,
-        cache,
-        sortie,
-        quand,
-      );
-  tourTache(t + 100, 'claude-sonnet-5', 40_000, 10_000, 4_000);
-  tourTache(t + 200, 'claude-sonnet-5', 25_000, 8_000, 3_000);
   db.close();
 }
 
@@ -354,7 +302,6 @@ try {
     try {
       const boutons = page.locator('[data-contexte-envoye]:visible');
       noter(`${cas.nom} : seule la demande partie porte le bouton`, (await boutons.count()) === 1);
-      // Le mot affiché est « tokens » depuis le renommage : le contrôle le suit.
       noter(`${cas.nom} : la mesure moteur est affichée`, /1\D?234 tokens/.test(await boutons.first().innerText()));
       const suitReperes = await boutons.first().evaluate((el) => (el.previousElementSibling?.textContent ?? '').includes('Copier'));
       noter(`${cas.nom} : le bouton suit les repères du message`, suitReperes);
@@ -363,26 +310,38 @@ try {
       const tiroir = page.getByRole('dialog');
       await tiroir.waitFor({ state: 'visible' });
       noter(`${cas.nom} : le tiroir distingue la reprise`, (await tiroir.innerText()).includes('Reprise de session'));
-      noter(`${cas.nom} : l’historique opaque est nommé`, (await tiroir.innerText()).includes('déjà porté par la session'));
 
       /*
        * LE DÉTAIL BRUT EST REPLIÉ : composition, consigne système et prompt
-       * entier ne s'ouvrent que sur demande. Sans carte analysée, aucune
-       * section « estimé » — on n'affiche pas un chiffrage qui n'existe pas.
+       * entier ne s'ouvrent que sur demande.
        */
       noter(
         `${cas.nom} : le détail brut est replié par défaut`,
         (await tiroir.locator('[data-detail-brut]').count()) === 0 &&
           (await tiroir.locator('[data-prompt-envoye]').count()) === 0,
       );
+
+      /*
+       * DEUX PARTIES, EN TOKENS : la mémoire (800 tokens, 3 200 signes / 4)
+       * contre l'envoi réel (1 234 tokens, mesurés par le moteur).
+       */
+      const bloc = tiroir.locator('[data-memoire-vs-envoi]');
+      noter(`${cas.nom} : le bloc mémoire / envoi est présent`, (await bloc.count()) === 1);
+      const texteBloc = await bloc.innerText();
+      noter(`${cas.nom} : la mémoire récupérée est en tokens`, /800 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
+      noter(`${cas.nom} : l’envoi réel est en tokens`, /1\D?234 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
+      noter(`${cas.nom} : la part de la mémoire dans l’envoi est dite`, /65 %/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
+
       noter(
-        `${cas.nom} : sans chiffrage, aucune section « estimé »`,
+        `${cas.nom} : plus de pavé « estimé / réellement mesuré » par couche`,
         (await tiroir.locator('[data-tokens-estimes]').count()) === 0 &&
-          (await tiroir.locator('[data-tokens-reels]').count()) === 1,
+          (await tiroir.locator('[data-tokens-reels]').count()) === 0 &&
+          (await tiroir.locator('[data-couche-tokens]').count()) === 0,
       );
       noter(
-        `${cas.nom} : la couche réellement mesurée est nommée`,
-        (await tiroir.locator('[data-couche-tokens="execution"]').count()) === 1,
+        `${cas.nom} : plus d’historique des tours passés`,
+        (await tiroir.locator('[data-historique-tours]').count()) === 0 &&
+          !(await tiroir.innerText()).includes('Tours de cet agent'),
       );
 
       await tiroir.locator('[data-voir-detail-brut]').click();
@@ -406,30 +365,6 @@ try {
         return zone.scrollHeight > zone.clientHeight && zone.scrollTop > avant;
       });
       noter(`${cas.nom} : le contenu du tiroir défile`, defile);
-
-      /*
-       * L'HISTORIQUE DES TOURS : trois tours écrits dans le désordre doivent
-       * ressortir un par ligne, du plus ancien au plus récent, avec un coût
-       * seulement là où le tarif du modèle est connu.
-       */
-      const lignes = tiroir.locator('[data-historique-tours] li');
-      await lignes.first().waitFor({ state: 'visible', timeout: 10_000 });
-      noter(`${cas.nom} : un tour par ligne`, (await lignes.count()) === 3);
-      const tours = await lignes.allInnerTexts();
-      noter(
-        `${cas.nom} : les tours sont dans l’ordre du temps`,
-        /11\D?000 envoyés/.test(tours[0]) && /7\D?000 envoyés/.test(tours[1]) && /25\D?000 envoyés/.test(tours[2]),
-        tours.join(' | '),
-      );
-      noter(`${cas.nom} : ce qui est reçu est dit`, /900 reçus/.test(tours[0]));
-      noter(`${cas.nom} : un tarif connu donne un coût en francs`, /CHF/.test(tours[0]) && /CHF/.test(tours[2]));
-      noter(`${cas.nom} : un modèle sans tarif se dit indisponible`, /indisponible/.test(tours[1]));
-      const defileTours = await tiroir.locator('[data-historique-tours]').evaluate((zone) => {
-        // La liste peut être longue : elle doit défiler seule, sans étirer le tiroir.
-        const style = getComputedStyle(zone);
-        return style.overflowY === 'auto' || style.overflowY === 'scroll';
-      });
-      noter(`${cas.nom} : la liste des tours défile seule`, defileTours);
       noter(`${cas.nom} : aucune erreur de page`, erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, `contexte-envoye-${cas.telephone ? 'telephone' : 'ordinateur'}.png`) });
     } finally {
@@ -438,9 +373,9 @@ try {
   }
 
   /*
-   * UNE CARTE ANALYSÉE PUIS EXÉCUTÉE : c'est là que le tiroir montre l'ordre
-   * complet — d'abord les tokens ESTIMÉS par le chiffrage, ensuite les tokens
-   * RÉELS, séparés en deux couches nommées (réflexion du chef, puis exécution).
+   * DANS LE TIROIR D'UNE CARTE : la session neuve a reçu l'index de mémoire
+   * ENTIER au premier tour (2 000 tokens, 8 000 signes / 4) — le même bloc
+   * mémoire / envoi doit s'y afficher, imbriqué dans le panneau de carte.
    */
   choisirTheme('dark');
   {
@@ -456,54 +391,13 @@ try {
 
       await panneau.locator('[data-contexte-envoye]').first().click();
       const tiroir = page.getByRole('dialog').last();
-      await tiroir.locator('[data-tokens-reels]').waitFor({ state: 'visible', timeout: 10_000 });
+      const bloc = tiroir.locator('[data-memoire-vs-envoi]');
+      await bloc.waitFor({ state: 'visible', timeout: 10_000 });
 
-      const rang = async (repere) =>
-        tiroir.locator(repere).first().evaluate((el) => {
-          const tous = Array.from(document.querySelectorAll('[data-tokens-estimes],[data-tokens-reels],[data-couche-tokens],[data-voir-detail-brut]'));
-          return tous.indexOf(el);
-        });
-      const estime = await rang('[data-tokens-estimes]');
-      const reel = await rang('[data-tokens-reels]');
-      const analyse = await rang('[data-couche-tokens="analyse"]');
-      const execution = await rang('[data-couche-tokens="execution"]');
-      const detail = await rang('[data-voir-detail-brut]');
-
-      noter('carte : l’estimé paraît avant le réel', estime >= 0 && reel > estime, `${estime} → ${reel}`);
-      noter(
-        'carte : la réflexion du chef paraît avant l’exécution',
-        analyse > reel && execution > analyse,
-        `${analyse} → ${execution}`,
-      );
-      noter('carte : le détail brut ferme la marche', detail > execution);
-      noter(
-        'carte : le détail brut reste replié',
-        (await tiroir.locator('[data-detail-brut]').count()) === 0,
-      );
-
-      const texteEstime = await tiroir.locator('[data-tokens-estimes]').innerText();
-      noter('carte : les tokens projetés sont dits', /100\D?000/.test(texteEstime), texteEstime.replace(/\n/g, ' '));
-      const texteAnalyse = await tiroir.locator('[data-couche-tokens="analyse"]').innerText();
-      noter(
-        'carte : la couche d’analyse rend entrée, cache et sortie',
-        /30\D?000/.test(texteAnalyse) && /12\D?000/.test(texteAnalyse) && /3\D?000/.test(texteAnalyse),
-        texteAnalyse.replace(/\n/g, ' '),
-      );
-      noter(
-        'carte : sans modèle connu, le coût de l’analyse se dit indisponible',
-        /indisponible/.test(texteAnalyse),
-      );
-      const texteExecution = await tiroir.locator('[data-couche-tokens="execution"]').innerText();
-      noter(
-        'carte : la couche d’exécution somme les tours mesurés',
-        /65\D?000/.test(texteExecution) && /18\D?000/.test(texteExecution) && /2 tours mesurés/.test(texteExecution),
-        texteExecution.replace(/\n/g, ' '),
-      );
-      noter('carte : un tarif connu chiffre la couche', /CHF/.test(texteExecution));
-      noter(
-        'carte : l’écart au projeté est dit',
-        (await tiroir.locator('[data-ecart-projection]').count()) === 1,
-      );
+      const texteBloc = await bloc.innerText();
+      noter('carte : la session neuve porte l’index entier de mémoire', /2\D?000 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
+      noter('carte : l’envoi réel de ce tour est dit', /5\D?000 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
+      noter('carte : la part de la mémoire dans l’envoi est dite', /40 %/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
       noter('carte : aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte.png') });
     } finally {

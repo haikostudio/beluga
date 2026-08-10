@@ -1233,11 +1233,6 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'card.quota':
       return store.usageQuotaByCard(cmd.cardId);
 
-    // Les tours d'un agent, tels qu'ils ont été mesurés : rien n'est recalculé
-    // ici, l'écran ne fait que les lire.
-    case 'agent.usage':
-      return { turns: store.usageByAgent(cmd.agentId, cmd.limit ?? 200) };
-
     case 'card.tokens':
       return { agents: store.usageTokensByCardAndAgent(cmd.cardId) };
 

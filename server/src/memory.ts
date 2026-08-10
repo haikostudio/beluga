@@ -701,7 +701,13 @@ export function blocMemoire(projectPath: string): string {
  * `avecMemoire` est faux pour les tours SUIVANTS d'une même session : l'agent a
  * déjà l'index sous les yeux, on ne lui renvoie que les faits nouveaux.
  */
-export function briefing(
+/** Le briefing coupé en deux : la part sans mémoire, et la part mémoire à part — quand elle existe. */
+export interface BriefingSepare {
+  sansMemoire: string;
+  memoire?: string;
+}
+
+export function briefingSepare(
   projectPath: string,
   projectName: string,
   avecMemoire = true,
@@ -719,7 +725,7 @@ export function briefing(
    * de la mémoire ni de la liste des compétences (`shared/src/accueil-agent.ts`).
    */
   niveau: NiveauDAccueil = 'complet',
-): string {
+): BriefingSepare {
   const emporte = partsDAccueil(niveau);
   migrerJournal(projectPath);
   // Le découpage par sujet se fait au premier briefing venu : un projet monté
@@ -756,14 +762,27 @@ export function briefing(
   const competences = emporte.competences ? texteDesCompetences(listerCompetences()) : '';
   if (competences) parts.push(competences);
 
-  if (!avecMemoire || !emporte.memoire) return parts.join('\n\n');
+  const sansMemoire = parts.join('\n\n');
+  if (!avecMemoire || !emporte.memoire) return { sansMemoire };
 
-  parts.push(blocMemoire(projectPath));
-
-  parts.push(
+  const memoire = [
+    blocMemoire(projectPath),
     `FICHIER D'INSTRUCTIONS DU MOTEUR : si ta tâche change une règle durable, une architecture ou une commande, mets ${quiFaitFoi} à jour avant de finir (crée-le s'il n'existe pas). ` +
       `Court et factuel : comment lancer, comment vérifier, où vivent les choses, les règles à ne pas enfreindre. Aucun journal dedans, aucune trace de tâche.`,
-  );
+  ].join('\n\n');
 
-  return parts.join('\n\n');
+  return { sansMemoire, memoire };
+}
+
+/** Le briefing complet, tel qu'envoyé au moteur : la part sans mémoire, puis la mémoire. */
+export function briefing(
+  projectPath: string,
+  projectName: string,
+  avecMemoire = true,
+  engine?: string,
+  dossierDeTravail?: string,
+  niveau: NiveauDAccueil = 'complet',
+): string {
+  const { sansMemoire, memoire } = briefingSepare(projectPath, projectName, avecMemoire, engine, dossierDeTravail, niveau);
+  return memoire ? `${sansMemoire}\n\n${memoire}` : sansMemoire;
 }

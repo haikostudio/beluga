@@ -362,11 +362,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),
-  /**
-   * L'HISTORIQUE des tours d'un agent : une ligne par tour réellement parti,
-   * du plus ancien au plus récent, telle qu'elle a été mesurée à la fin du tour.
-   */
-  z.object({ type: z.literal('agent.usage'), agentId: z.string(), limit: z.number().int().positive().optional() }),
   /** Les totaux ENVOYÉS / REÇUS cumulés, par agent, sur toute la vie d'une carte. */
   z.object({ type: z.literal('card.tokens'), cardId: z.string() }),
   /**
