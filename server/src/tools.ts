@@ -123,7 +123,7 @@ const CHAMP_DEPART =
 const CHAMP_ANALYSE = {
   type: 'object',
   description:
-    "FACULTATIF, et le chef d'orchestre ne le remplit plus : il ne chiffre plus, l'étude appartient à la carte. Réservé à un agent qui vient RÉELLEMENT de mener l'analyse.",
+    "FACULTATIF, et le chef d'orchestre ne le remplit plus en tri normal : il ne chiffre plus, l'étude appartient à la carte. Réservé à un agent qui vient RÉELLEMENT de mener l'analyse — ET au chef qui vient de faire valider un PLAN (mode plan) : `context` reprend alors le plan entier, pour qu'il voyage jusqu'à l'agent d'exécution.",
   properties: {
     machineSeconds: { type: 'number', description: "Durée machine prévue pour l'exécution, en secondes" },
     seniorHours: { type: 'number', description: "Temps d'un développeur senior à la main, en heures" },
@@ -235,6 +235,16 @@ function descriptionDeProposition(
   if (!verdict.ok) return { refus: verdict.message };
   return { description };
 }
+
+/**
+ * Refus posé au niveau de l'outil (pas seulement dans la consigne) quand la
+ * conversation tourne en mode plan (PLAN §2 principe 3) : `board_create_card`
+ * et `propose_task` créeraient la proposition avec ses boutons valider /
+ * refuser — exactement le geste du mode direct que le mode plan doit éviter.
+ * Le mode plan attend un PLAN écrit dans la conversation, pas une carte.
+ */
+const REFUS_MODE_PLAN =
+  "Refusé : la conversation est en MODE PLAN. N'appelle pas cet outil ici — réponds directement dans la conversation avec un plan complet et structuré (faisabilité, chemin à suivre, conséquences, améliorations possibles), sans carte ni bouton. Ce n'est qu'une fois ce plan validé par l'utilisateur, et le mode repassé en « direct », que tu proposeras la carte — en recopiant alors le plan entier dans le champ `analysis.context` pour qu'il suive l'agent d'exécution.";
 
 /**
  * Les outils du démon, exposés aux agents. Les interdits sont posés ICI, au
@@ -455,6 +465,13 @@ export interface ToolContext {
    * discuter avec Codex et se voir proposer du Claude n'a aucun sens.
    */
   run?: SouhaitReglages;
+  /**
+   * Le mode de la conversation (`RunConfig.mode`). En mode « plan », le chef
+   * doit rendre un plan en texte, jamais une carte : les deux outils de
+   * proposition sont refusés ICI, au niveau de l'outil (PLAN §2 principe 3),
+   * pas seulement dans la consigne.
+   */
+  mode?: 'direct' | 'plan';
 }
 
 /**
@@ -542,6 +559,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     case 'board_create_card': {
+      if (ctx.mode === 'plan') return { ok: false, text: REFUS_MODE_PLAN };
       if (!args.title || typeof args.title !== 'string') return { ok: false, text: 'Un titre est obligatoire.' };
       /*
        * Rien n'entre sur le tableau sans un clic de l'utilisateur. L'outil
@@ -639,6 +657,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     case 'propose_task': {
+      if (ctx.mode === 'plan') return { ok: false, text: REFUS_MODE_PLAN };
       if (!args.title) return { ok: false, text: 'Un titre est obligatoire.' };
       // Même exigence que board_create_card : une proposition sans description
       // solide n'est pas affichée, elle est rendue à réécrire.

@@ -833,7 +833,7 @@ async function startTurn(
    * « pre_run » interdit d'écrire au passé.
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId ? 'task' : agent.role;
-  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine, niveau);
+  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine, niveau, agent.run.mode);
   composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
@@ -1842,6 +1842,22 @@ export const TRI_DU_CHEF = `TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS
 NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche déjà, entière, dans la conversation. Une phrase courte suffit.`;
 
 /**
+ * LE TRI EN MODE PLAN — remplace les cas 2, 3 et 4 de `TRI_DU_CHEF` tant que le
+ * bouton « Plan » du composeur est activé (`RunConfig.mode`). Le but n'est plus
+ * de proposer une carte mais de rendre un PLAN COMPLET, lisible par un lecteur
+ * non technique, qui reste dans la conversation jusqu'à sa validation.
+ *
+ * `board_create_card` et `propose_task` sont déjà refusés au niveau de l'outil
+ * (`tools.ts`, PLAN §2 principe 3) : cette consigne évite au modèle de buter
+ * dessus en silence, et lui dit quoi faire à la place.
+ */
+export const TRI_MODE_PLAN = `TU ES EN MODE PLAN (bouton « Plan » activé) : pour toute demande de programmation ou d'exécution (cas 2 et 3 ci-dessus), tu NE PROPOSES AUCUNE carte — board_create_card et propose_task sont refusés par l'outil. Le tableau reste intact.
+À LA PLACE, tu réponds DANS LA CONVERSATION avec un plan complet, en quatre parties claires : FAISABILITÉ (est-ce possible, avec quelles réserves), CHEMIN À SUIVRE (les grandes étapes, dans l'ordre), CONSÉQUENCES (ce que ça change concrètement dans le produit) et AMÉLIORATIONS APPORTÉES (ce que l'utilisateur y gagne). Reste concis et concret, sans jargon.
+Une question restée ouverte se pose avec l'outil « ask_user », jamais en fin de plan.
+CE PLAN N'EST PAS UNE PROPOSITION DE CARTE : rien à valider par un clic, c'est un texte à lire. Le tableau n'en sait rien tant que l'utilisateur ne l'a pas dit.
+UNE FOIS QUE L'UTILISATEUR VALIDE CE PLAN dans un message qui suit (« vas-y », « lance-le », un accord clair) — et une fois le mode repassé sur « direct » —, tu proposes la carte comme d'habitude (cas 2 ou 3 du tri), MAIS tu recopies alors le plan entier, tel que tu l'as écrit, dans le champ \`analysis.context\` de board_create_card/propose_task : c'est ainsi qu'il voyage jusqu'à l'agent qui exécutera la carte, qui le suit pendant le travail.`;
+
+/**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
  * demande de programmation passe par une carte » se perdrait à la première
  * réécriture du texte si rien ne la retenait.
@@ -1857,6 +1873,14 @@ export function rolePrompt(
    * l'agent n'a plus sous la main et ce dont sa panne n'a que faire.
    */
   niveau: NiveauDAccueil = 'complet',
+  /**
+   * Le mode de la conversation (`RunConfig.mode`). En « plan », le chef doit
+   * rendre un plan écrit dans la conversation — jamais une carte : les outils
+   * `board_create_card`/`propose_task` sont déjà refusés au niveau de l'outil
+   * (`tools.ts`, PLAN §2 principe 3), cette consigne dit au modèle ce qu'il
+   * doit faire à la place plutôt que de le laisser buter sur un refus muet.
+   */
+  mode: 'direct' | 'plan' = 'direct',
 ): string {
   if (niveau === 'minimal') return CONSIGNE_DEPANNAGE;
 
@@ -1882,7 +1906,7 @@ export function rolePrompt(
     const base = `${COMMUN_DU_CHEF}
 
 ${TRI_DU_CHEF}
-
+${mode === 'plan' ? `\n${TRI_MODE_PLAN}\n` : ''}
 ${CONSIGNE_CARTE_COURTE}
 
 ${CONSIGNE_NIVEAU_AGENT}
