@@ -621,6 +621,8 @@ export const Message = z.object({
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */
   streaming: z.boolean().default(false),
+  /** Vrai quand ce message a été écrit en mode plan (RunConfig.mode) : l'interface le montre dans un cadre dédié. */
+  plan: z.boolean().default(false),
   /** Jetons associés au message : entrée moteur sur la demande, total du tour sur la réponse. */
   tokens: z.number().optional(),
   /** Ce que HaikoDev a réellement transmis pour cette demande utilisateur. */

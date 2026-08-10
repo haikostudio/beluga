@@ -767,6 +767,7 @@ async function startTurn(
     content: '',
     steps: memoryStep ? [memoryStep] : [],
     streaming: true,
+    plan: agent.run.mode === 'plan',
     createdAt: store.now(),
   });
   store.saveMessage(assistantMessage);
@@ -1853,6 +1854,7 @@ NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche d
  */
 export const TRI_MODE_PLAN = `TU ES EN MODE PLAN (bouton « Plan » activé) : pour toute demande de programmation ou d'exécution (cas 2 et 3 ci-dessus), tu NE PROPOSES AUCUNE carte — board_create_card et propose_task sont refusés par l'outil. Le tableau reste intact.
 À LA PLACE, tu réponds DANS LA CONVERSATION avec un plan complet, en quatre parties claires : FAISABILITÉ (est-ce possible, avec quelles réserves), CHEMIN À SUIVRE (les grandes étapes, dans l'ordre), CONSÉQUENCES (ce que ça change concrètement dans le produit) et AMÉLIORATIONS APPORTÉES (ce que l'utilisateur y gagne). Reste concis et concret, sans jargon.
+SI UN PLAN A DÉJÀ ÉTÉ ÉCRIT PLUS HAUT DANS CETTE CONVERSATION et que le nouveau message en demande un ajustement, REPARS DE CE DERNIER PLAN : reprends-le entier et améliore-le selon la nouvelle demande, dans les mêmes quatre parties. Ne rédige jamais un second plan indépendant à côté du premier — un seul plan vit dans la conversation, à jour.
 Une question restée ouverte se pose avec l'outil « ask_user », jamais en fin de plan.
 CE PLAN N'EST PAS UNE PROPOSITION DE CARTE : rien à valider par un clic, c'est un texte à lire. Le tableau n'en sait rien tant que l'utilisateur ne l'a pas dit.
 UNE FOIS QUE L'UTILISATEUR VALIDE CE PLAN dans un message qui suit (« vas-y », « lance-le », un accord clair) — et une fois le mode repassé sur « direct » —, tu proposes la carte comme d'habitude (cas 2 ou 3 du tri), MAIS tu recopies alors le plan entier, tel que tu l'as écrit, dans le champ \`analysis.context\` de board_create_card/propose_task : c'est ainsi qu'il voyage jusqu'à l'agent qui exécutera la carte, qui le suit pendant le travail.`;
