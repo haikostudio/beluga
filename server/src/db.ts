@@ -518,6 +518,46 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       DROP TABLE reprise_a_faire;
     `,
   },
+  {
+    id: 19,
+    name: 'passages-de-documentation',
+    // L'INDEX DE RECHERCHE de la documentation d'un projet : un passage par
+    // section (ou par règle), avec son EMPREINTE sémantique calculée sur le
+    // serveur — aucune clé facturée à l'appel.
+    //
+    // Deux tables, pour que la réindexation reste INCRÉMENTALE : `doc_fichiers`
+    // retient l'empreinte du contenu de chaque fichier déjà lu, `doc_passages`
+    // porte les morceaux. Un fichier inchangé n'est ni relu ni recalculé ; un
+    // fichier modifié voit SES passages remplacés, jamais ceux des autres.
+    //
+    // Rien d'irremplaçable ici : l'index se reconstruit entièrement depuis le
+    // dépôt. Il peut donc être vidé sans perte, et l'est à chaque changement de
+    // version du découpage.
+    sql: `
+      CREATE TABLE doc_fichiers (
+        project_id TEXT NOT NULL,
+        chemin TEXT NOT NULL,
+        empreinte TEXT NOT NULL,
+        indexe_at INTEGER NOT NULL,
+        PRIMARY KEY (project_id, chemin)
+      );
+
+      CREATE TABLE doc_passages (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        titre TEXT NOT NULL,
+        sujet TEXT NOT NULL,
+        priorite INTEGER NOT NULL DEFAULT 0,
+        texte TEXT NOT NULL,
+        empreinte TEXT NOT NULL,
+        signes INTEGER NOT NULL,
+        maj_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_doc_passages_projet ON doc_passages(project_id);
+      CREATE INDEX idx_doc_passages_source ON doc_passages(project_id, source);
+    `,
+  },
 ];
 
 export function openDb(): DB {

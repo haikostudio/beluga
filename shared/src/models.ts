@@ -576,6 +576,21 @@ export const SentContextBlock = z.object({
 export type SentContextBlock = z.infer<typeof SentContextBlock>;
 
 /**
+ * Un passage de documentation remonté par la recherche (`passages-doc.ts`) :
+ * son fichier, son titre, sa pertinence et son coût en jetons. C'est ce qui
+ * rend le RETROUVÉ visible — dans le tiroir du contexte envoyé comme dans le
+ * détail de la carte.
+ */
+export const PassageRetrouve = z.object({
+  source: z.string(),
+  titre: z.string().default(''),
+  /** Le score mixte (sens + mots exacts), entre 0 et 1 environ. */
+  score: z.number(),
+  tokens: z.number().int().nonnegative(),
+});
+export type PassageRetrouve = z.infer<typeof PassageRetrouve>;
+
+/**
  * Photographie du SEUL contenu transmis pendant ce tour. L'historique d'une
  * session reprise reste chez le moteur : on le nomme, sans le recopier ni
  * prétendre pouvoir le relire.
@@ -591,6 +606,13 @@ export const SentContextSnapshot = z.object({
     transport: z.enum(['separate', 'prefixed']),
   }),
   blocks: z.array(SentContextBlock),
+  /**
+   * Les PASSAGES de documentation retrouvés par recherche pour ce tour, quand
+   * ils ont remplacé l'index de la mémoire. Chacun dit d'où il vient, à quel
+   * point il répondait à la demande, et ce qu'il a coûté — un contexte remonté
+   * automatiquement doit rester vérifiable. Vide quand l'index a servi tel quel.
+   */
+  passages: z.array(PassageRetrouve).default([]),
   history: z.enum(['none', 'retained_by_engine']),
   usage: z
     .object({

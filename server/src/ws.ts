@@ -1253,6 +1253,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         createdAt: agent.createdAt,
         tours: store.usageByAgent(agent.id),
         sujetsMemoire: store.sujetsMemoireDemandes(agent.id),
+        passages: store.passagesRetrouves(agent.id),
         accueil: partsDAccueil(niveauDAccueil({ role: agent.role })),
       }));
 

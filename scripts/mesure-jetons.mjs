@@ -14,10 +14,21 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/*
+ * Ce relevé pèse aussi l'index de RECHERCHE des passages, qui vit en base. La
+ * base se pose donc dans un dossier JETABLE, AVANT tout import du serveur (la
+ * configuration est lue au chargement) : mesurer ne doit jamais écrire dans la
+ * base du démon.
+ */
+const BASE_JETABLE = fs.mkdtempSync(path.join(os.tmpdir(), 'mesure-jetons-'));
+process.env.HAIKODEV_DATA = BASE_JETABLE;
+process.on('exit', () => fs.rmSync(BASE_JETABLE, { recursive: true, force: true }));
 const REFERENCE = process.argv[2] ?? 'tache/economiser-le-quota-reponses-plus-courte-02fac6';
 
 /** Estimation maison, la même que le démon : environ quatre signes par jeton. */
@@ -310,6 +321,74 @@ console.log(
     "L'avant ne compte que les RÈGLES (les contrôles partaient en plus) : le gain réel est un peu plus grand.\n" +
     'Un sujet demandé par son NOM rend toujours tout — la nuance est voulue, elle appartient à l’agent.',
 );
+
+/* ------------------------------------------------------------------ */
+/* LA RECHERCHE DE PASSAGES : GARDE-FOU                                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Au lancement d'une carte, la demande sert de QUESTION et la recherche remonte
+ * quelques PASSAGES de la documentation à la place de l'INDEX de la mémoire
+ * (`shared/src/passages-doc.ts`, `server/src/passages.ts`). C'est le poste le
+ * plus visible de l'accueil : on le pèse ici, sur des demandes réelles.
+ *
+ * Et c'est un GARDE-FOU, pas un simple relevé : si la recherche pesait plus
+ * lourd que l'index qu'elle remplace, ce script SORT EN ERREUR. Le démon, lui,
+ * se replie de lui-même sur l'index dans ce cas (`rechercheRentable`) — le
+ * contrôle vérifie que ce repli n'est pas devenu la règle par accident.
+ */
+const passages = await import(path.join(RACINE, 'server/dist/passages.js'));
+
+const TACHES = [
+  'Recherche sémantique sur la mémoire et la documentation du projet',
+  "Changer le mot de réveil de l'écoute vocale",
+  'Reprendre un déploiement interrompu par un conflit de fusion',
+  'Ajouter une colonne au tableau des cartes',
+  'Ajouter un outil au démon pour les agents',
+];
+
+const INDEX = { texte: memory.blocMemoire(RACINE), faits: memory.memoryFacts(RACINE).length };
+const jetonsIndex = jetons(INDEX.texte);
+
+console.log("\nL'ACCUEIL D'UNE CARTE — index de la mémoire contre passages retrouvés\n");
+const largeurTache = Math.max(...TACHES.map((t) => Math.min(t.length, 52)));
+console.log(`${pad('Tâche', largeurTache)}  ${num('index', 7)}  ${num('après', 7)}  ${num('gain', 7)}   passages`);
+console.log('-'.repeat(largeurTache + 42));
+
+let rechercheAvant = 0;
+let rechercheApres = 0;
+let replis = 0;
+let depassements = [];
+for (const tache of TACHES) {
+  const trouve = passages.rechercherPourLaTache('mesure-jetons', RACINE, tache, INDEX);
+  const apresJetons = trouve ? trouve.jetons : jetonsIndex;
+  if (!trouve) replis++;
+  else if (trouve.jetons >= jetonsIndex) depassements.push(tache);
+  rechercheAvant += jetonsIndex;
+  rechercheApres += apresJetons;
+  console.log(
+    `${pad(tache.slice(0, largeurTache), largeurTache)}  ${num(jetonsIndex, 7)}  ${num(apresJetons, 7)}  ` +
+      `${num(jetonsIndex - apresJetons, 7)}   ${trouve ? trouve.passages.length : 'repli sur l’index'}`,
+  );
+}
+console.log('-'.repeat(largeurTache + 42));
+console.log(
+  `${pad('TOTAL', largeurTache)}  ${num(rechercheAvant, 7)}  ${num(rechercheApres, 7)}  ${num(rechercheAvant - rechercheApres, 7)}`,
+);
+console.log(
+  `\nGain à CHAQUE lancement de carte : ${Math.round((1 - rechercheApres / rechercheAvant) * 100)} %.\n` +
+    `${replis} tâche(s) sur ${TACHES.length} sont retombées sur l'index — c'est prévu : sans passage assez\n` +
+    "pertinent, ou sur un projet dont la mémoire tient en quelques lignes, l'index reste le moins cher.",
+);
+
+if (depassements.length) {
+  console.error(
+    `\n✗ ÉCHEC : la recherche coûte PLUS que l'index qu'elle remplace sur ${depassements.length} tâche(s) :\n` +
+      depassements.map((t) => `  — ${t}`).join('\n') +
+      "\nLe plafond (PLAFOND_PASSAGES_JETONS / PART_MAX_DE_L_INDEX, shared/src/passages-doc.ts) doit être resserré.",
+  );
+  process.exit(1);
+}
 
 /* ------------------------------------------------------------------ */
 /* Ce qui sort                                                         */

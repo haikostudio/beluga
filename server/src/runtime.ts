@@ -17,6 +17,7 @@ import {
   Message,
   Project,
   RunStep,
+  PassageRetrouve,
   SentContextBlock,
   SentContextSnapshot,
   decisionRepriseCoupure,
@@ -42,6 +43,7 @@ import {
   type MotifDAppel,
   type NiveauDAccueil,
   niveauDAccueil,
+  partsDAccueil,
   nomDeBranche,
   observerContexte,
   poidsDeTour,
@@ -62,7 +64,16 @@ import { CONFIG, PATHS } from './config.js';
 import { adapterFor, contextWindowFor, EngineEvent, EngineHandle } from './engines/index.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
-import { briefingSepare, empreintesDesFaits, faitsDuSujet, memorySummary, newFactsSince } from './memory.js';
+import {
+  blocMemoire,
+  briefingSepare,
+  empreintesDesFaits,
+  faitsDuSujet,
+  memoryFacts,
+  memorySummary,
+  newFactsSince,
+} from './memory.js';
+import { rechercherPourLaTache } from './passages.js';
 import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
@@ -267,6 +278,8 @@ export interface PromptOptions {
 interface ContexteUtilisateurDuTour {
   messageId: string;
   blocks: SentContextBlock[];
+  /** Les passages retrouvés par recherche pour CE tour, quand il y en a. */
+  passages?: PassageRetrouve[];
 }
 
 /** Fabrique la photographie persistée sur la demande, sans lire l'ancien fil. */
@@ -277,6 +290,7 @@ export function instantaneContexteEnvoye(input: {
   prompt: string;
   systemPrompt: string;
   blocks: SentContextBlock[];
+  passages?: PassageRetrouve[];
   sentAt?: number;
 }): SentContextSnapshot {
   return SentContextSnapshot.parse({
@@ -299,6 +313,7 @@ export function instantaneContexteEnvoye(input: {
         characters: input.systemPrompt.length,
       },
     ],
+    passages: input.passages ?? [],
     history: input.nouvelleSession ? 'none' : 'retained_by_engine',
     sentAt: input.sentAt ?? Date.now(),
   });
@@ -474,6 +489,26 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
   const contextParts: { label: string; kind: SentContextBlock['kind']; content: string }[] = [];
   let memoryAndInstructionsCharacters = 0;
 
+  /*
+   * LA RECHERCHE DANS LA DOCUMENTATION (`server/src/passages.ts`). Au lancement
+   * d'une session, la demande de la carte — titre, description, texte du tour —
+   * sert de QUESTION : on remonte les quelques passages qui y répondent, sous
+   * plafond strict de jetons, au lieu de l'index de toute la mémoire. L'index
+   * reste le REPLI, et il repart tel quel dès que la recherche ne trouve rien
+   * ou coûterait plus cher que lui.
+   *
+   * Le chef d'orchestre n'est pas concerné : son accueil `tri` n'emporte aucune
+   * mémoire, la recherche n'a donc rien à remplacer chez lui.
+   */
+  const recherche = nouvelleSession && partsDAccueil(niveau).memoire
+    ? rechercherPourLaTache(
+        project.id,
+        project.path,
+        [card?.title, card?.description, text].filter(Boolean).join('\n'),
+        { texte: blocMemoire(project.path), faits: memoryFacts(project.path).length },
+      )
+    : undefined;
+
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, compétences)
     // n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte. L'index
@@ -486,6 +521,7 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
       agent.run.engine,
       agent.workdir,
       niveau,
+      recherche?.texte,
     );
     contextParts.push({
       label:
@@ -499,8 +535,28 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
     });
     memoryAndInstructionsCharacters += sansMemoire.length;
     if (memoire) {
-      contextParts.push({ label: 'Index de la mémoire du projet', kind: 'memory', content: memoire });
+      contextParts.push({
+        label: recherche
+          ? `Passages retrouvés dans la documentation (${recherche.passages.length})`
+          : 'Index de la mémoire du projet',
+        kind: 'memory',
+        content: memoire,
+      });
       memoryAndInstructionsCharacters += memoire.length;
+    }
+    // Ce que la recherche est allée chercher se retient : le tiroir « Contexte
+    // envoyé » et le parcours de la carte le montrent, source et pertinence
+    // comprises. Trace durable, comme les sujets de mémoire demandés.
+    if (recherche) {
+      store.marquerPassagesRetrouves(
+        agent.id,
+        recherche.passages.map((passage) => ({
+          source: passage.source,
+          titre: passage.titre,
+          score: Math.round(passage.score * 1000) / 1000,
+          tokens: passage.jetons,
+        })),
+      );
     }
     // Le chef bridé a tous les droits SAUF modifier le code du projet : on lui
     // dit où il peut écrire (son dossier de travail) et que le projet est en
@@ -593,7 +649,18 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
       cardDescriptionCharacters: description.length * occurrencesDescription,
       memoryAndInstructionsCharacters,
     },
-    userMessageId ? { messageId: userMessageId, blocks } : undefined,
+    userMessageId
+      ? {
+          messageId: userMessageId,
+          blocks,
+          passages: recherche?.passages.map((passage) => ({
+            source: passage.source,
+            titre: passage.titre,
+            score: Math.round(passage.score * 1000) / 1000,
+            tokens: passage.jetons,
+          })),
+        }
+      : undefined,
     niveau,
     options.compteImpose,
   );
@@ -861,6 +928,7 @@ async function startTurn(
         prompt,
         systemPrompt: sessionId ? systemPromptRappel : systemPrompt,
         blocks: contexteUtilisateur.blocks,
+        passages: contexteUtilisateur.passages,
       })
     : undefined;
 

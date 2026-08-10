@@ -555,6 +555,46 @@ function ContexteEnvoye({ contexte }: { contexte: SentContextSnapshot }) {
               </p>
             </section>
 
+            {/* LES PASSAGES RETROUVÉS. Quand la recherche a remplacé l'index de
+                la mémoire, on montre CE QU'ELLE A REMONTÉ : le fichier, le
+                titre, la pertinence et le coût. Un contexte choisi par la
+                machine doit rester vérifiable à l'œil. */}
+            {contexte.passages.length ? (
+              <section data-passages-retrouves>
+                <h3 className="mb-1.5 text-[13px] font-medium text-text">
+                  Passages retrouvés dans la documentation
+                </h3>
+                <ul className="divide-y divide-border rounded-md bg-surface px-2.5">
+                  {contexte.passages.map((passage, index) => (
+                    <li key={`${passage.source}-${index}`} className="py-1.5">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="min-w-0 flex-1 break-words text-[13px] text-text">
+                          {passage.source}
+                        </span>
+                        <span className="shrink-0 text-[12px] tabular-nums text-faint">
+                          {nombre(passage.tokens)} tokens
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-3 text-[12px] text-faint">
+                        <span className="min-w-0 flex-1 break-words">{passage.titre || '—'}</span>
+                        <span className="shrink-0 tabular-nums">
+                          pertinence {(passage.score * 100).toLocaleString('fr-CH', {
+                            maximumFractionDigits: 0,
+                          })}{' '}
+                          %
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[12px] text-faint">
+                  Ces passages ont remplacé l’index complet de la mémoire pour ce tour : ils pèsent{' '}
+                  {nombre(contexte.passages.reduce((total, p) => total + p.tokens, 0))} tokens. Le
+                  reste de la mémoire reste à un appel de « project_memory ».
+                </p>
+              </section>
+            ) : null}
+
             {/* 3. LE DÉTAIL BRUT, REPLIÉ. Composition, consigne et prompt entier
                 ne servent qu'à comprendre un chiffre surprenant : les afficher
                 d'office noyait les deux sections qui précèdent. */}
