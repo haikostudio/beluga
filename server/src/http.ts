@@ -212,6 +212,9 @@ export function createHttpServer(): http.Server {
               // Les réglages visibles dans la barre d'écriture au moment du
               // clic : une carte proposée en hérite.
               run: { engine: agent.run.engine, model: agent.run.model, thinking: agent.run.thinking },
+              // Le mode de la conversation : en « plan », board_create_card et
+              // propose_task se refusent au niveau de l'outil (voir tools.ts).
+              mode: agent.run.mode,
             },
             body.name,
             body.args ?? {},
