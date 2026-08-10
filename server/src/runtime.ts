@@ -1307,6 +1307,14 @@ async function startTurn(
         ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin."
         : undefined,
     repriseCompte: reprise,
+    // Le drapeau `plan` a été posé au LANCEMENT du tour, avant de savoir s'il
+    // irait au bout : un tour TOMBÉ (quota ou toute autre panne) ne laisse au
+    // mieux qu'une bannière du moteur, jamais un plan rédigé — donc jamais un
+    // cadre « Plan proposé » avec son sélecteur de niveau et ses boutons de
+    // décision. La clé n'est posée QUE dans ce cas — l'inclure toujours
+    // écraserait `plan: true` des tours de mode plan qui réussissent,
+    // `pushMessage` fusionnant par spread.
+    ...(failed ? { plan: false } : {}),
   });
 
   /*
