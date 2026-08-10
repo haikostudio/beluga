@@ -26,6 +26,7 @@ import {
   ampleurDeSuivi,
   ampleurParDefaut,
   checkTemplate,
+  motifDArretQuota,
   cleDeSession,
   colonneAuDemarrage,
   colonneEnFinDeTour,
@@ -65,9 +66,12 @@ import {
   pickAccount,
   noteAccountUse,
   applyAccountEnv,
+  limiteBloquante,
+  listAccountRecords,
   partsQuotaEnCache,
   relireQuotaDuCompte,
 } from './accounts.js';
+import { poserDecisionDeReprise, repriseDeCompte } from './reprise-compte.js';
 import { notify } from './notify.js';
 import { cartesDuTravailHorsTache, depotModifieDepuis, repereAvant } from './hors-tache.js';
 import { oublierLePont, passageDuPont } from './pont.js';
@@ -90,6 +94,11 @@ export interface LiveRun {
   quotaSemaine: number;
   /** Le tour reste occupé pendant la compression, mais ne pèse plus dans le quota partagé. */
   quotaTermine?: boolean;
+  /**
+   * Le moteur a annoncé une limite BLOQUANTE par un événement structuré pendant
+   * ce tour : c'est la preuve la plus sûre qu'un arrêt vient du quota.
+   */
+  limiteSignalee?: boolean;
   stopping?: boolean;
 }
 
@@ -209,6 +218,14 @@ export interface PromptOptions {
    * (`shared/src/accueil-agent.ts`).
    */
   motif?: MotifDAppel;
+  /**
+   * LE COMPTE IMPOSÉ À CE TOUR. Sert à la reprise après épuisement : le compte
+   * a été CHOISI par l'utilisateur et revérifié à l'instant du clic, on ne
+   * repasse donc pas par le choix automatique — qui rendrait le compte à sec.
+   * Un compte introuvable est ignoré : le tour repart sur le choix habituel
+   * plutôt que d'être perdu.
+   */
+  compteImpose?: string;
   attachments?: string[];
   /** Appelé quand le tour est fini, avec le texte et les mesures indépendantes du moteur. */
   onComplete?: (text: string, ok: boolean, measurement: TurnMeasurement) => void | Promise<void>;
@@ -511,6 +528,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     },
     userMessageId ? { messageId: userMessageId, blocks } : undefined,
     niveau,
+    options.compteImpose,
   );
 }
 
@@ -578,6 +596,8 @@ async function startTurn(
   contexteUtilisateur?: ContexteUtilisateurDuTour,
   /** L'accueil que mérite cet agent : « minimal » pour un dépannage de publication. */
   niveau: NiveauDAccueil = 'complet',
+  /** Le compte choisi à la main pour ce tour (reprise après épuisement). */
+  compteImpose?: string,
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -606,9 +626,18 @@ async function startTurn(
    */
   replacerCarteAuDemarrage(agent);
 
-  // Choix du compte (x20 d'abord, Pro en relève) — décidé AU LANCEMENT,
-  // jamais en plein vol (PLAN §13).
-  const account = await pickAccount(agent.run.engine);
+  /*
+   * Choix du compte (x20 d'abord, Pro en relève) — décidé AU LANCEMENT, jamais
+   * en plein vol (PLAN §13).
+   *
+   * Un compte IMPOSÉ passe devant : il vient d'un choix humain, revérifié à
+   * l'instant du clic (reprise après épuisement). Le choix automatique
+   * retomberait sur le compte à sec, puisqu'il classe par priorité.
+   */
+  const compteChoisi = compteImpose
+    ? listAccountRecords().find((a) => a.id === compteImpose && a.engine === agent.run.engine)
+    : undefined;
+  const account = compteChoisi ?? (await pickAccount(agent.run.engine));
   if (!account) {
     const message = store.saveMessage(
       Message.parse({
@@ -895,7 +924,13 @@ async function startTurn(
           }
           break;
         case 'ratelimit':
-          if (event.rateLimit) noteAccountUse(account.id, event.rateLimit);
+          if (event.rateLimit) {
+            // Le compte est mis de côté, ET le tour retient qu'il a été coupé
+            // par une limite : sans cette marque, l'arrêt qui suit ne se
+            // distinguerait plus d'une panne ordinaire.
+            if (limiteBloquante(event.rateLimit.status)) runState.limiteSignalee = true;
+            noteAccountUse(account.id, event.rateLimit);
+          }
           break;
         case 'error':
           sawError = event.error;
@@ -1043,6 +1078,30 @@ async function startTurn(
   }
 
   const failed = !result.ok || !!sawError;
+
+  /*
+   * CET ARRÊT VIENT-IL DU QUOTA ? La question ne se pose que sur un tour tombé.
+   * Deux preuves possibles : l'événement structuré du moteur (retenu pendant le
+   * tour) ou son texte d'annonce (« You've hit your session limit »). La règle
+   * vit dans `shared` — elle écarte l'arrêt manuel et refuse les à-peu-près.
+   *
+   * Reconnu, le tour n'est plus un échec : le travail n'a rien de cassé, il lui
+   * manque du quota. Le message porte alors la décision « Avec quel compte
+   * poursuivre ? » au lieu du bandeau rouge, et l'agent se met en pause.
+   */
+  const motifQuota = failed
+    ? motifDArretQuota({
+        ok: false,
+        arretDemande: runState.stopping,
+        limiteSignalee: runState.limiteSignalee,
+        erreur: sawError ?? result.error,
+        texte: runState.text,
+      })
+    : null;
+  const reprise = motifQuota
+    ? repriseDeCompte({ engine: agent.run.engine, compte: account, motif: motifQuota })
+    : undefined;
+
   if (!failed && agent.role === 'orchestrator') {
     finaliserPropositionsDuChef(runState.messageId, agent.projectId, measurement);
   }
@@ -1073,7 +1132,14 @@ async function startTurn(
     tokens: tokens || undefined,
     durationMs: Math.round(elapsedSeconds * 1000),
     account: account.label,
-    error: failed ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin." : undefined,
+    // Un arrêt dû au quota n'affiche pas de panne : le bloc de reprise dit ce
+    // qui s'est passé et propose la suite, ce que « code 1 » ne faisait pas.
+    error: reprise
+      ? undefined
+      : failed
+        ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin."
+        : undefined,
+    repriseCompte: reprise,
   });
 
   /*
@@ -1111,7 +1177,9 @@ async function startTurn(
   }
 
   const finalAgent = store.getAgent(agent.id)!;
-  setStatus(finalAgent, failed ? 'failed' : 'done', { endedAt: Date.now() });
+  // « stopped » et non « failed » : l'agent n'a pas échoué, il attend de savoir
+  // sur quel compte poursuivre. La carte reste au repos, sans voyant d'échec.
+  setStatus(finalAgent, reprise ? 'stopped' : failed ? 'failed' : 'done', { endedAt: Date.now() });
 
   /*
    * LE CONSTAT, avant tout déplacement de carte : le dépôt a-t-il bougé ? On le
@@ -1213,7 +1281,20 @@ async function startTurn(
     }
   }
 
-  if (failed) {
+  /*
+   * LA DÉCISION EST POSÉE ICI, une fois la carte et la consommation à jour :
+   * elle allume le triangle orange et prévient, exactement comme une question.
+   * Un tour repris ne prévient donc JAMAIS d'un échec — ce n'en est pas un.
+   */
+  if (reprise) {
+    poserDecisionDeReprise({
+      messageId: runState.messageId,
+      agent: finalAgent,
+      reprise,
+    });
+  }
+
+  if (failed && !reprise) {
     notify({
       motif: 'tache-echec',
       title: 'Tâche en échec',
