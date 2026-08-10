@@ -1344,6 +1344,20 @@ export function CardTile({
           onMenuChange
             ? (event) => {
                 event.preventDefault();
+                /*
+                 * Le clic droit qui ouvre ce menu se RELÂCHE juste après ce
+                 * geste (mouseup / pointerup, bouton droit) : le menu vient
+                 * d'apparaître pile sous le curseur, et cet unique
+                 * relâchement atterrit alors sur l'entrée qui s'y trouve.
+                 * Radix le lit comme le clic qui la choisit — l'action part
+                 * sans second clic volontaire. On avale ce SEUL événement,
+                 * avant qu'il n'atteigne le menu, sans toucher aux clics qui
+                 * suivent : un vrai second clic, plus tard, reste intact.
+                 */
+                const avalerRelachement = (relache: PointerEvent) => {
+                  if (relache.button === 2) relache.stopPropagation();
+                };
+                document.addEventListener('pointerup', avalerRelachement, { capture: true, once: true });
                 onMenuChange(true);
               }
             : undefined
