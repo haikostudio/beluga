@@ -1,25 +1,21 @@
 import * as React from 'react';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { EngineInfo, RunConfig, messageDeRepli } from '@haikodev/shared';
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui';
+import { Button, DialogTitle, Drawer } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 /**
  * Les trois réglages d'un agent — moteur, modèle, niveau de réflexion — dans
  * UN SEUL point d'entrée : un bouton qui résume la configuration actuelle et
- * ouvre, au clic, une liste verticale à une seule colonne. Choisir « Moteur »,
- * « Modèle » ou « Réflexion » y creuse vers la liste de CE seul réglage, elle
- * aussi verticale — jamais deux colonnes, jamais de texte tronqué à quelques
- * lettres. La barre d'écriture affiche ce point d'entrée pour l'agent en
- * cours, la carte à valider pour l'agent qui l'exécutera plus tard : même
- * composant, même comportement.
+ * ouvre, au clic, un tiroir d'aperçu à trois lignes, alignées à gauche (le nom
+ * du réglage au-dessus, sa valeur juste en dessous). Choisir une ligne ouvre
+ * un SECOND tiroir, empilé par-dessus le premier — jamais un remplacement de
+ * son contenu — avec la liste verticale de CE seul réglage. Aucun bouton
+ * retour : le tiroir du dessus se referme comme n'importe quel tiroir (voile,
+ * geste, échappement) et retrouve l'aperçu resté ouvert en dessous. La barre
+ * d'écriture affiche ce point d'entrée pour l'agent en cours, la carte à
+ * valider pour l'agent qui l'exécutera plus tard : même composant, même
+ * comportement.
  */
 
 export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' | 'mode'>>;
@@ -53,7 +49,7 @@ export function resoudreRun(engines: EngineInfo[], choix: RunChoix | undefined) 
   return { installed, engine, models, model, thinkingOptions, thinking };
 }
 
-type Vue = 'apercu' | 'moteur' | 'modele' | 'reflexion';
+type SousVue = 'moteur' | 'modele' | 'reflexion' | null;
 
 export function RunSelectors({
   engines,
@@ -70,195 +66,200 @@ export function RunSelectors({
 }) {
   const { installed, engine, models, model, thinkingOptions, thinking } = resoudreRun(engines, choix);
   const [ouvert, setOuvert] = React.useState(false);
-  const [vue, setVue] = React.useState<Vue>('apercu');
+  const [sousVue, setSousVue] = React.useState<SousVue>(null);
   const avertissementModele = messageDeRepli(engine);
 
   const resume = [nomCourtMoteur(engine), model?.label, thinkingOptions.length > 1 ? thinking?.label : null]
     .filter(Boolean)
     .join(' · ');
 
-  const choisir = (patch: RunChoix) => {
-    onSelect(patch);
+  const fermerTout = () => {
     setOuvert(false);
+    setSousVue(null);
   };
 
+  const choisir = (patch: RunChoix) => {
+    onSelect(patch);
+    fermerTout();
+  };
+
+  const titreSousVue =
+    sousVue === 'moteur'
+      ? 'Moteur'
+      : sousVue === 'modele'
+        ? engine?.live
+          ? 'Modèle (liste du moteur)'
+          : 'Modèle'
+        : sousVue === 'reflexion'
+          ? 'Niveau de réflexion'
+          : '';
+
   return (
-    <DropdownMenu
-      open={ouvert}
-      onOpenChange={(valeur) => {
-        setOuvert(valeur);
-        if (!valeur) setVue('apercu');
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(
-            'min-w-0 gap-1 text-[13px] text-faint hover:text-text',
-            pleineLargeur ? 'w-full justify-between px-1.5' : 'px-1.5',
-          )}
-          data-selecteur="config"
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOuvert(true)}
+        className={cn(
+          'min-w-0 gap-1 text-[13px] text-faint hover:text-text',
+          pleineLargeur ? 'w-full justify-between px-1.5' : 'px-1.5',
+        )}
+        data-selecteur="config"
+      >
+        <SlidersHorizontal className="h-3 w-3 shrink-0" />
+        <span className={cn('truncate', pleineLargeur ? '' : 'max-w-[130px] sm:max-w-[220px]')}>
+          {resume || 'Réglages'}
+        </span>
+        <ChevronDown className="h-2.5 w-2.5 shrink-0" />
+      </Button>
+
+      {/* Le tiroir d'aperçu : trois lignes, chacune alignée à gauche. */}
+      <Drawer open={ouvert} onClose={fermerTout}>
+        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+          <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <DialogTitle className="min-w-0 flex-1 truncate">Réglages de l'agent</DialogTitle>
+        </header>
+        <div
+          role="menu"
+          aria-label="Réglages de l'agent"
+          // Masqué de l'arbre d'accessibilité pendant qu'un détail est
+          // ouvert par-dessus : les scripts qui comptent les entrées de la
+          // liste du dessus ne doivent pas retomber sur ces trois lignes.
+          aria-hidden={sousVue !== null || undefined}
+          className="flex flex-col gap-1 px-2 pb-3"
         >
-          <SlidersHorizontal className="h-3 w-3 shrink-0" />
-          <span className={cn('truncate', pleineLargeur ? '' : 'max-w-[130px] sm:max-w-[220px]')}>
-            {resume || 'Réglages'}
-          </span>
-          <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[240px] sm:max-h-[360px]">
-        {vue === 'apercu' ? (
-          <>
-            <DropdownMenuLabel>Réglages de l'agent</DropdownMenuLabel>
+          <LigneApercu
+            titre="Moteur"
+            valeur={nomCourtMoteur(engine)}
+            repere="moteur"
+            menuitem={sousVue === null}
+            onClick={() => setSousVue('moteur')}
+          />
+          <LigneApercu
+            titre="Modèle"
+            valeur={model?.label ?? '—'}
+            repere="modele"
+            alerte={!!avertissementModele}
+            menuitem={sousVue === null}
+            onClick={() => setSousVue('modele')}
+          />
+          {thinkingOptions.length > 1 ? (
             <LigneApercu
-              titre="Moteur"
-              valeur={nomCourtMoteur(engine)}
-              repere="moteur"
-              onClick={() => setVue('moteur')}
+              titre="Réflexion"
+              valeur={thinking?.label ?? '—'}
+              repere="reflexion"
+              menuitem={sousVue === null}
+              onClick={() => setSousVue('reflexion')}
             />
-            <LigneApercu
-              titre="Modèle"
-              valeur={model?.label ?? '—'}
-              repere="modele"
-              alerte={!!avertissementModele}
-              onClick={() => setVue('modele')}
-            />
-            {thinkingOptions.length > 1 ? (
-              <LigneApercu
-                titre="Réflexion"
-                valeur={thinking?.label ?? '—'}
-                repere="reflexion"
-                onClick={() => setVue('reflexion')}
-              />
-            ) : null}
-          </>
-        ) : null}
+          ) : null}
+        </div>
+      </Drawer>
 
-        {vue === 'moteur' ? (
-          <Detail titre="Moteur" onRetour={() => setVue('apercu')}>
-            {installed.map((e) => (
-              <ItemListe
-                key={e.id}
-                actif={e.id === engine?.id}
-                onSelect={() => choisir({ engine: e.id as RunConfig['engine'] })}
-              >
-                <span className="min-w-0 flex-1 truncate">{nomCourtMoteur(e)}</span>
-                {e.version ? (
-                  <span className="shrink-0 text-[11px] text-faint">{e.version.replace(/[^\d.]/g, '').slice(0, 8)}</span>
-                ) : null}
-              </ItemListe>
-            ))}
-          </Detail>
+      {/* Le tiroir de détail : empilé par-dessus l'aperçu, sans bouton retour —
+          le refermer (voile, geste, échappement) retrouve l'aperçu resté ouvert. */}
+      <Drawer open={sousVue !== null} onClose={() => setSousVue(null)}>
+        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+          <DialogTitle className="min-w-0 flex-1 truncate">{titreSousVue}</DialogTitle>
+        </header>
+        {sousVue === 'modele' && avertissementModele ? (
+          <p data-repli="liste-de-secours" className="px-3 pb-1.5 text-[12px] leading-snug text-warning" role="note">
+            {avertissementModele}
+          </p>
         ) : null}
-
-        {vue === 'modele' ? (
-          <Detail
-            titre={engine?.live ? 'Modèle (liste du moteur)' : 'Modèle'}
-            onRetour={() => setVue('apercu')}
-            avertissement={avertissementModele}
-          >
-            {models.map((m) => {
-              const note =
-                m.note ??
-                (m.releasedAt
-                  ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
-                  : undefined);
-              return (
-                <ItemListe key={m.id} actif={m.id === model?.id} onSelect={() => choisir({ model: m.id })}>
-                  {m.appetite ? <Appetite level={m.appetite} /> : null}
-                  <span className="min-w-0 flex-1 truncate">{m.label}</span>
-                  {note ? <span className="shrink-0 text-[11px] text-faint">{note}</span> : null}
+        <div role="menu" aria-label={titreSousVue} className="flex flex-col gap-1 overflow-y-auto px-2 pb-3">
+          {sousVue === 'moteur'
+            ? installed.map((e) => (
+                <ItemListe
+                  key={e.id}
+                  actif={e.id === engine?.id}
+                  onSelect={() => choisir({ engine: e.id as RunConfig['engine'] })}
+                >
+                  <span className="min-w-0 flex-1 truncate">{nomCourtMoteur(e)}</span>
+                  {e.version ? (
+                    <span className="shrink-0 text-[11px] text-faint">
+                      {e.version.replace(/[^\d.]/g, '').slice(0, 8)}
+                    </span>
+                  ) : null}
                 </ItemListe>
-              );
-            })}
-          </Detail>
-        ) : null}
+              ))
+            : null}
 
-        {vue === 'reflexion' ? (
-          <Detail titre="Niveau de réflexion" onRetour={() => setVue('apercu')}>
-            {thinkingOptions.map((niveau) => (
-              <ItemListe key={niveau.id} actif={niveau.id === thinking?.id} onSelect={() => choisir({ thinking: niveau.id })}>
-                <span className="min-w-0 flex-1 truncate">{niveau.label}</span>
-              </ItemListe>
-            ))}
-          </Detail>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          {sousVue === 'modele'
+            ? models.map((m) => {
+                const note =
+                  m.note ??
+                  (m.releasedAt
+                    ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
+                    : undefined);
+                return (
+                  <ItemListe key={m.id} actif={m.id === model?.id} onSelect={() => choisir({ model: m.id })}>
+                    {m.appetite ? <Appetite level={m.appetite} /> : null}
+                    <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                    {note ? <span className="shrink-0 text-[11px] text-faint">{note}</span> : null}
+                  </ItemListe>
+                );
+              })
+            : null}
+
+          {sousVue === 'reflexion'
+            ? thinkingOptions.map((niveau) => (
+                <ItemListe
+                  key={niveau.id}
+                  actif={niveau.id === thinking?.id}
+                  onSelect={() => choisir({ thinking: niveau.id })}
+                >
+                  <span className="min-w-0 flex-1 truncate">{niveau.label}</span>
+                </ItemListe>
+              ))
+            : null}
+        </div>
+      </Drawer>
+    </>
   );
 }
 
 /**
- * Une ligne de l'aperçu : le nom du réglage, sa valeur actuelle, une flèche
- * vers sa liste. `data-valeur` porte la valeur SEULE, sans le nom du réglage
- * ni la flèche — c'est ce que les scripts de vérification lisent, plutôt que
- * de reconstituer le texte affiché.
+ * Une ligne de l'aperçu, alignée à gauche : le nom du réglage au-dessus, sa
+ * valeur actuelle juste en dessous, une flèche vers sa liste. `data-valeur`
+ * porte la valeur SEULE, sans le nom du réglage ni la flèche — c'est ce que
+ * les scripts de vérification lisent, plutôt que de reconstituer le texte
+ * affiché.
  */
 function LigneApercu({
   titre,
   valeur,
   repere,
   alerte,
+  menuitem,
   onClick,
 }: {
   titre: string;
   valeur: string;
   repere: string;
   alerte?: boolean;
+  /** Faux tant qu'un détail est ouvert par-dessus : la ligne sort alors de la
+   * liste des « menuitem », pour ne pas se mêler à celles du tiroir du dessus. */
+  menuitem: boolean;
   onClick: () => void;
 }) {
   return (
-    <DropdownMenuItem
+    <button
+      type="button"
+      role={menuitem ? 'menuitem' : undefined}
       data-selecteur={repere}
       data-valeur={valeur}
-      onSelect={(event) => {
-        event.preventDefault();
-        onClick();
-      }}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px]"
+      onClick={onClick}
+      className="flex items-center justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-raised"
     >
-      <span className="text-[11.5px] uppercase tracking-wide text-faint">{titre}</span>
-      <span className="ml-auto flex min-w-0 items-center gap-1 text-text">
-        <span className="max-w-[130px] truncate">{valeur}</span>
-        {alerte ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title="Liste de secours" /> : null}
-        <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
+      <span className="flex min-w-0 flex-col items-start gap-0.5">
+        <span className="text-[11px] uppercase tracking-wide text-faint">{titre}</span>
+        <span className="max-w-[220px] truncate text-[14px] text-text">{valeur}</span>
       </span>
-    </DropdownMenuItem>
-  );
-}
-
-/** La liste verticale d'UN SEUL réglage, avec son chemin de retour vers l'aperçu. */
-function Detail({
-  titre,
-  onRetour,
-  avertissement,
-  children,
-}: {
-  titre: string;
-  onRetour: () => void;
-  avertissement?: string | null;
-  children: React.ReactNode;
-}) {
-  return (
-    <>
-      {/* Un bouton ordinaire, pas un item de menu : il ne doit ni fermer le
-          menu ni compter comme un choix dans les listes qui suivent. */}
-      <button
-        type="button"
-        onClick={onRetour}
-        className="mb-1 flex w-full items-center gap-1 rounded-md px-2 py-1 text-[12px] text-faint hover:text-text"
-      >
-        <ChevronLeft className="h-3 w-3 shrink-0" />
-        {titre}
-      </button>
-      {avertissement ? (
-        <p data-repli="liste-de-secours" className="px-2 pb-1.5 text-[12px] leading-snug text-warning" role="note">
-          {avertissement}
-        </p>
-      ) : null}
-      <div className="flex flex-col gap-1 p-1">{children}</div>
-    </>
+      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {alerte ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title="Liste de secours" /> : null}
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
+      </span>
+    </button>
   );
 }
 
@@ -272,16 +273,24 @@ function ItemListe({
   children: React.ReactNode;
 }) {
   return (
-    <DropdownMenuItem
-      onSelect={onSelect}
+    <div
+      role="menuitem"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
       className={cn(
-        'flex items-center gap-2 rounded-md border px-2 py-1.5 text-[13px]',
-        actif ? 'border-accent/60 bg-accent/10 text-text' : 'border-border text-muted',
+        'flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[13px] outline-none',
+        actif ? 'border-accent/60 bg-accent/10 text-text' : 'border-border text-muted hover:bg-raised',
       )}
     >
       {children}
       {actif ? <Check className="ml-auto h-3 w-3 shrink-0 text-success" /> : null}
-    </DropdownMenuItem>
+    </div>
   );
 }
 
