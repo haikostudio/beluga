@@ -148,6 +148,12 @@ le nom, là-bas le texte).
   carte, jamais le fait que le moteur ait répondu.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN.** Un projet
   qu'on retire est MIS DE CÔTÉ (`project.archive`, `archived = 1`), jamais supprimé.
+- **Les champs d'une carte sont de VRAIES colonnes** (`shared/src/carte-sql.ts`, migration 17 de
+  `server/src/db.ts`) : description, origine, agent, drapeaux, dates et réglages d'exécution ont leur
+  colonne SQL ; les étiquettes et les pièces jointes ont leur table fille (`card_labels`,
+  `card_attachments`). Le bloc `data` ne garde que le vraiment libre. Une carte se lit et s'écrit par
+  `carteDepuisLigne` / `colonnesDeLaCarte`, jamais par `JSON.parse(data)` — les scripts passent par
+  `scripts/carte-en-base.mjs`.
 
 ### Branches et dossiers
 

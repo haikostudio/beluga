@@ -180,7 +180,10 @@ function colonnesEnBase() {
  */
 function validationsEnBase() {
   const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
-  const lignes = db.prepare("SELECT title, json_extract(data, '$.analyseDemandee') AS marque FROM cards").all();
+  // Le drapeau est une VRAIE colonne : on l'interroge, sans décoder de JSON.
+  const lignes = db
+    .prepare("SELECT title, COALESCE(analyse_demandee, json_extract(data, '$.analyseDemandee')) AS marque FROM cards")
+    .all();
   db.close();
   return Object.fromEntries(lignes.map((l) => [l.title, !!l.marque]));
 }

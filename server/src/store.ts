@@ -5,6 +5,9 @@ import {
   Card,
   CarteRendue,
   carteNonLue,
+  carteDepuisLigne,
+  colonnesDeLaCarte,
+  type LigneCarte,
   ColumnKey,
   DecisionAttendue,
   DicteeEnAttente,
@@ -489,11 +492,43 @@ export function nextGroupRank(): number {
 /* Cartes                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Les listes filles d'une carte — étiquettes, pièces jointes — vivent chacune
+ * dans sa table, une ligne par valeur, rangées par `position`. On les relit
+ * pour TOUT un projet en une seule requête : une par carte referait, en pire,
+ * ce que le JSON faisait.
+ */
+function listesDeCartes(table: string, colonne: string, projectId?: string): Map<string, string[]> {
+  const sql = `SELECT l.card_id AS cardId, l.${colonne} AS valeur
+                 FROM ${table} l${projectId ? ' JOIN cards c ON c.id = l.card_id WHERE c.project_id = ?' : ''}
+                ORDER BY l.card_id, l.position`;
+  const requete = getDb().prepare(sql);
+  const rows = (projectId ? requete.all(projectId) : requete.all()) as { cardId: string; valeur: string }[];
+  const par = new Map<string, string[]>();
+  for (const row of rows) {
+    const liste = par.get(row.cardId);
+    if (liste) liste.push(row.valeur);
+    else par.set(row.cardId, [row.valeur]);
+  }
+  return par;
+}
+
+function listeDUneCarte(table: string, colonne: string, cardId: string): string[] {
+  const rows = getDb()
+    .prepare(`SELECT ${colonne} AS valeur FROM ${table} WHERE card_id = ? ORDER BY position`)
+    .all(cardId) as { valeur: string }[];
+  return rows.map((r) => r.valeur);
+}
+
 export function listCards(projectId: string): Card[] {
   const rows = getDb()
-    .prepare('SELECT data FROM cards WHERE project_id = ? ORDER BY position DESC')
-    .all(projectId) as { data: string }[];
-  return rows.map((r) => Card.parse(JSON.parse(r.data)));
+    .prepare('SELECT * FROM cards WHERE project_id = ? ORDER BY position DESC')
+    .all(projectId) as LigneCarte[];
+  const labels = listesDeCartes('card_labels', 'label', projectId);
+  const attachments = listesDeCartes('card_attachments', 'path', projectId);
+  return rows.map((row) =>
+    carteDepuisLigne(row, { labels: labels.get(row.id), attachments: attachments.get(row.id) }),
+  );
 }
 
 export function listCardsInColumn(projectId: string, column: ColumnKey): Card[] {
@@ -501,32 +536,51 @@ export function listCardsInColumn(projectId: string, column: ColumnKey): Card[] 
 }
 
 export function getCard(id: string): Card | null {
-  const row = getDb().prepare('SELECT data FROM cards WHERE id = ?').get(id) as { data: string } | undefined;
-  return row ? Card.parse(JSON.parse(row.data)) : null;
+  const row = getDb().prepare('SELECT * FROM cards WHERE id = ?').get(id) as LigneCarte | undefined;
+  if (!row) return null;
+  return carteDepuisLigne(row, {
+    labels: listeDUneCarte('card_labels', 'label', id),
+    attachments: listeDUneCarte('card_attachments', 'path', id),
+  });
 }
 
 export function saveCard(card: Card): Card {
   const value = Card.parse({ ...card, updatedAt: now() });
-  getDb()
-    .prepare(
-      `INSERT INTO cards (id, project_id, column_key, position, title, data, deployed_at, created_at, updated_at)
-       VALUES (@id, @projectId, @column, @position, @title, @data, @deployedAt, @createdAt, @updatedAt)
+  const db = getDb();
+  const colonnes = colonnesDeLaCarte(value);
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO cards (id, project_id, column_key, position, title, data, deployed_at, created_at, updated_at,
+                          description, origin, agent_id, conversation_agent_id, analyse_demandee,
+                          code_deja_enregistre, hors_tache, excluded_from_deploy, done_at, archived_at,
+                          last_read_at, run_engine, run_model, run_thinking, run_mode)
+       VALUES (@id, @project_id, @column_key, @position, @title, @data, @deployed_at, @created_at, @updated_at,
+               @description, @origin, @agent_id, @conversation_agent_id, @analyse_demandee,
+               @code_deja_enregistre, @hors_tache, @excluded_from_deploy, @done_at, @archived_at,
+               @last_read_at, @run_engine, @run_model, @run_thinking, @run_mode)
        ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, column_key = excluded.column_key,
          position = excluded.position, title = excluded.title, data = excluded.data,
-         deployed_at = excluded.deployed_at, updated_at = excluded.updated_at`,
-    )
-    .run({
-      id: value.id,
-      projectId: value.projectId,
-      column: value.column,
-      position: value.position,
-      title: value.title,
-      data: JSON.stringify(value),
-      deployedAt: value.deployedAt ?? null,
-      createdAt: value.createdAt,
-      updatedAt: value.updatedAt,
-    });
+         deployed_at = excluded.deployed_at, updated_at = excluded.updated_at,
+         description = excluded.description, origin = excluded.origin, agent_id = excluded.agent_id,
+         conversation_agent_id = excluded.conversation_agent_id, analyse_demandee = excluded.analyse_demandee,
+         code_deja_enregistre = excluded.code_deja_enregistre, hors_tache = excluded.hors_tache,
+         excluded_from_deploy = excluded.excluded_from_deploy, done_at = excluded.done_at,
+         archived_at = excluded.archived_at, last_read_at = excluded.last_read_at,
+         run_engine = excluded.run_engine, run_model = excluded.run_model,
+         run_thinking = excluded.run_thinking, run_mode = excluded.run_mode`,
+    ).run(colonnes);
+    ecrireListe('card_labels', 'label', value.id, value.labels);
+    ecrireListe('card_attachments', 'path', value.id, value.attachments);
+  })();
   return value;
+}
+
+/** Une liste fille se réécrit en entier : on efface, puis on repose dans l'ordre. */
+function ecrireListe(table: string, colonne: string, cardId: string, valeurs: string[]): void {
+  const db = getDb();
+  db.prepare(`DELETE FROM ${table} WHERE card_id = ?`).run(cardId);
+  const insert = db.prepare(`INSERT INTO ${table} (card_id, position, ${colonne}) VALUES (?, ?, ?)`);
+  valeurs.forEach((valeur, index) => insert.run(cardId, index, valeur));
 }
 
 export function deleteCard(id: string): void {
@@ -1005,7 +1059,14 @@ export function unreadCards(projectId: string): string[] {
 
 /** Chaque carte rapprochée de son dernier agent, prête pour la règle partagée. */
 function etatDesCartesRendues(projectId?: string): CarteRendue[] {
-  const sql = `SELECT c.id AS cardId, c.project_id AS projectId, c.column_key AS colonne, c.data AS carte,
+  /*
+   * Le repère de lecture et l'agent de conversation sont désormais de VRAIES
+   * colonnes : plus besoin de décoder la carte entière pour les lire. On garde
+   * le bloc libre en repli, pour une ligne posée par un outil extérieur qui
+   * n'aurait renseigné que lui.
+   */
+  const sql = `SELECT c.id AS cardId, c.project_id AS projectId, c.column_key AS colonne,
+              c.last_read_at AS luA, c.conversation_agent_id AS agentConversation, c.data AS reste,
               (SELECT a.data FROM agents a
                 WHERE a.card_id = c.id ORDER BY a.created_at DESC LIMIT 1) AS agent
          FROM cards c
@@ -1015,19 +1076,22 @@ function etatDesCartesRendues(projectId?: string): CarteRendue[] {
     cardId: string;
     projectId: string;
     colonne: string;
-    carte: string;
+    luA: number | null;
+    agentConversation: string | null;
+    reste: string;
     agent: string | null;
   }[];
 
   const entrees: CarteRendue[] = [];
   for (const row of rows) {
     try {
-      const carte = Card.parse(JSON.parse(row.carte));
+      const reste = JSON.parse(row.reste) as { lastReadAt?: number; conversationAgentId?: string };
       /*
        * Une carte fabriquée pour du travail hors tâche n'a pas d'agent à elle :
        * sa conversation est celle de l'agent qui a codé.
        */
-      const brut = row.agent ?? (carte.conversationAgentId ? rawAgent(carte.conversationAgentId) : null);
+      const conversation = row.agentConversation ?? reste.conversationAgentId;
+      const brut = row.agent ?? (conversation ? rawAgent(conversation) : null);
       const agent = brut ? Agent.parse(JSON.parse(brut)) : null;
       entrees.push({
         cardId: row.cardId,
@@ -1035,7 +1099,7 @@ function etatDesCartesRendues(projectId?: string): CarteRendue[] {
         colonne: row.colonne,
         agentStatut: agent?.status,
         agentFiniA: agent?.endedAt,
-        luA: carte.lastReadAt,
+        luA: row.luA ?? reste.lastReadAt,
       });
     } catch {
       /* carte illisible : elle n'apprend rien de plus */

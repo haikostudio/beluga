@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lireCarteParId } from './carte-en-base.mjs';
 
 // Le dépôt d'où PART ce script — jamais un chemin écrit en dur : lancé depuis
 // une copie de travail, il jugerait sinon le code du dossier principal.
@@ -225,9 +226,9 @@ function poserLeDecor() {
 
 const lireCarte = (id) => {
   const db = base(true);
-  const ligne = db.prepare('SELECT data FROM cards WHERE id = ?').get(id);
+  const carte = lireCarteParId(db, id);
   db.close();
-  return ligne ? JSON.parse(ligne.data) : null;
+  return carte;
 };
 
 const lireAgent = (id) => {
