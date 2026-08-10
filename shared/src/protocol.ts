@@ -126,6 +126,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.finish'), id: z.string() }),
   z.object({ type: z.literal('card.reanalyze'), id: z.string() }),
   z.object({ type: z.literal('card.asap'), id: z.string(), value: z.boolean() }),
+  /**
+   * Programme le départ d'une carte à une date (millisecondes), ou retire la
+   * date avec `null`. La carte attend dans « Planifié » et part à l'heure dite.
+   */
+  z.object({ type: z.literal('card.schedule'), id: z.string(), at: z.number().nullable() }),
 
   // Agents & conversations
   /** `tout` rouvre aussi les échanges d'avant le dernier nouveau départ. */
@@ -173,6 +178,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     /** Les images jointes à la réponse : l'agent les reçoit comme celles du fil. */
     attachments: z.array(z.string()).default([]),
   }),
+  /**
+   * POURSUIVRE UN TRAVAIL COUPÉ PAR LA LIMITE D'UN COMPTE, sur le compte
+   * choisi. Le serveur revérifie la disponibilité au moment du clic : un compte
+   * tombé entre-temps ne lance rien et rafraîchit les choix.
+   */
+  z.object({
+    type: z.literal('reprise.compte'),
+    messageId: z.string(),
+    accountId: z.string(),
+  }),
   z.object({
     type: z.literal('proposal.decide'),
     messageId: z.string(),
@@ -189,6 +204,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
      * réglages par défaut du projet.
      */
     run: RunConfig.partial().optional(),
+  }),
+  /**
+   * Réunir plusieurs propositions en attente. L'opération ne crée aucune
+   * carte : elle remplace les sources par une nouvelle proposition éditable.
+   */
+  z.object({
+    type: z.literal('proposal.merge'),
+    items: z
+      .array(z.object({ messageId: z.string(), proposalId: z.string() }))
+      .min(2),
   }),
 
   // Publication

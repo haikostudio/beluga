@@ -24,6 +24,7 @@ import {
   comptePrecedents,
   messagesDepuis,
   peutRepartir,
+  raisonDattente,
   reglagesDeLaProposition,
 } from '@haikodev/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
@@ -35,6 +36,7 @@ import { listEngines } from './engines/index.js';
 import { normaliseThinking } from './engines/catalog.js';
 import { cachedQuotas, refreshQuotas, renameAccount, setAccountDisabled } from './accounts.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
+import { reprendreSurCompte } from './reprise-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
@@ -529,6 +531,27 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { card: updated };
     }
 
+    /*
+     * L'HEURE DITE, posée ou retirée à la main. La date ne lance rien elle-même :
+     * elle autorise le départ, et c'est la boucle de l'ordonnanceur qui lancera
+     * la carte par `startCard` — mêmes portes dures, même branche, même agent que
+     * le bouton. On rappelle la boucle tout de suite : une date déjà passée ne
+     * doit pas attendre quinze secondes de plus.
+     */
+    case 'card.schedule': {
+      const card = store.getCard(cmd.id);
+      if (!card) throw new Error('carte introuvable');
+      const scheduling = { ...(card.scheduling ?? { attempts: 0, restarts: 0, asap: false }) };
+      scheduling.departPrevu = cmd.at ?? undefined;
+      // La phrase d'attente suit ce qui retient VRAIMENT la carte : sans date,
+      // elle attend de nouveau un clic ; avec une date, elle n'attend personne.
+      scheduling.waitingReason = raisonDattente(scheduling);
+      const updated = store.saveCard({ ...card, scheduling });
+      bus.emit({ type: 'card.upsert', card: updated });
+      void tick();
+      return { card: updated };
+    }
+
     /* -------- Agents -------- */
 
     case 'agent.open': {
@@ -823,6 +846,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { ok: true };
     }
 
+    /*
+     * POURSUIVRE APRÈS ÉPUISEMENT. Tout se joue dans `reprendreSurCompte` :
+     * relevé frais du compte visé, décision fermée AVANT le lancement (donc un
+     * double clic ne lance rien), puis reprise du même agent. Un refus rend son
+     * motif en français, sans rien lancer.
+     */
+    case 'reprise.compte': {
+      const resultat = await reprendreSurCompte(cmd.messageId, cmd.accountId);
+      if (!resultat.ok) throw new Error(resultat.error ?? 'reprise impossible');
+      return { ok: true };
+    }
+
     case 'proposal.decide': {
       const message = store.getMessage(cmd.messageId);
       if (!message) throw new Error('message introuvable');
@@ -875,6 +910,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           ...retenu,
           origin: 'agent',
           attachments: proposal.attachments,
+          // L'heure dite voyage avec la proposition : elle ne s'édite pas au
+          // dernier clic, elle se retire ensuite dans l'onglet « Détails ».
+          departPrevu: proposal.departPrevu,
           ...heritage,
         });
         cardId = card.id;
@@ -904,6 +942,16 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // Tranchée, la proposition ne réclame plus rien : le signal s'éteint.
       bus.emit({ type: 'attention', ...store.signalAttention() });
       return { cardId };
+    }
+
+    case 'proposal.merge': {
+      const resultat = store.mergePendingProposals(cmd.items);
+      // Les messages qui portaient les sources sont tous rafraîchis. La
+      // proposition réunie vit dans le premier : elle apparaît aussitôt dans
+      // le bandeau, sans nouveau tour d'IA et sans carte créée.
+      for (const message of resultat.messages) bus.emit({ type: 'message.upsert', message });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+      return { proposalId: resultat.proposal.id, already: resultat.already ?? false };
     }
 
     /* -------- Publication -------- */

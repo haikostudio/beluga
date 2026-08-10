@@ -30,6 +30,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { lireCarteParId } from './carte-en-base.mjs';
 
 const RACINE = '/root/haikodev';
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7188);
@@ -204,9 +205,9 @@ function poserAgentEnTravail() {
 
 function lireCarte() {
   const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
-  const ligne = db.prepare('SELECT data FROM cards WHERE id = ?').get(CARTE_ID);
+  const carte = lireCarteParId(db, CARTE_ID);
   db.close();
-  return ligne ? JSON.parse(ligne.data) : null;
+  return carte;
 }
 
 /* ------------------------------------------------------------------ */

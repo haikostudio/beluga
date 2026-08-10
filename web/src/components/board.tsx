@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, X } from 'lucide-react';
+import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, X } from 'lucide-react';
 import {
   Attachment,
   COLUMN_KEYS,
@@ -15,6 +15,7 @@ import {
   etapeDeLaColonne,
   etatVisuelCarte,
   mentionArchivage,
+  mentionDepartProgramme,
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
@@ -1073,6 +1074,12 @@ export function CardTile({
   };
   const agent = card.agentId ? state.agents[card.agentId] : null;
   const waiting = card.scheduling?.waitingReason;
+  /* Une horloge UNIQUE pour toutes les cartes : vingt cartes ne font pas vingt
+     minuteries. Elle sert à l'heure de départ comme au tour resté sans suite. */
+  const maintenant = useMinute();
+  /* « Cette carte partira demain à 6 h. » Recalculée à chaque minute plutôt que
+     lue en base : une phrase figée dirait encore « demain » trois jours après. */
+  const depart = mentionDepartProgramme(card, maintenant);
   const estimateFailed = card.estimate?.failed;
   // Entre la validation et le chiffrage, la carte doit montrer qu'il se passe
   // quelque chose — sinon on croit que rien ne démarre. La carte n'a pas changé
@@ -1106,6 +1113,15 @@ export function CardTile({
     analysing || analyseEnCours
       ? // Le sujet suffit : la roue qui tourne dit déjà que c'est en cours.
         { icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, texte: 'Chiffrage du travail…', ton: 'text-muted' }
+      : depart
+        ? // L'heure dite passe avant la raison d'attente : elle dit mieux ce
+          // qui retient la carte, et surtout qu'elle repartira sans nous.
+          {
+            icon: <CalendarClock className="h-2.5 w-2.5 shrink-0" />,
+            texte: depart,
+            ton: 'text-muted',
+            marqueur: 'depart-programme' as const,
+          }
       : waiting
         ? { icon: <Clock className="h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
         : estimateFailed
@@ -1140,9 +1156,9 @@ export function CardTile({
    * existe un troisième état que rien n'affichait : le tour s'est achevé,
    * aucun agent ne travaille, personne n'a repris. On regarde TOUS les agents
    * de la carte — pas seulement le dernier retenu — pour savoir si l'un
-   * travaille encore et quand le plus récent a rendu la main.
+   * travaille encore et quand le plus récent a rendu la main. L'horloge
+   * partagée est celle déclarée plus haut : une seule pour toute la carte.
    */
-  const maintenant = useMinute();
   const agentsDeLaCarte = Object.values(state.agents).filter((a) => a.cardId === card.id);
   const sansSuite = mentionSansSuite(
     {
@@ -1371,6 +1387,7 @@ export function CardTile({
             <span
               className="min-w-0 flex-1 truncate"
               data-progression-taches={'marqueur' in statut && statut.marqueur === 'progression-taches' ? card.id : undefined}
+              data-depart-programme={'marqueur' in statut && statut.marqueur === 'depart-programme' ? card.id : undefined}
             >
               {statut.texte}
             </span>

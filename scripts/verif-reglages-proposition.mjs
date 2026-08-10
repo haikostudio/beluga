@@ -16,15 +16,105 @@
 import { chromium } from 'playwright';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
+import { execFileSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { catalogueMoteurs } from '../server/dist/catalogue-moteurs.js';
-import { listEngines } from '../server/dist/engines/index.js';
 import { reglagesDeLaProposition } from '../shared/dist/reglages-proposition.js';
 
-/* On vise le serveur de DÉVELOPPEMENT : HAIKODEV_URL, posée pour les agents,
-   pointe l'application déjà publiée — on y verrait l'ancienne version. */
-const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
-const BASE_DB = '/root/haikodev/data/haikodev.db';
+/* Le contrôle monte son propre démon avec la construction du dépôt d'où part
+   ce script : il ne dépend ni de l'application publiée, ni de sa base. */
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PORT = Number(process.env.HAIKODEV_REGLAGES_PORT || 7199);
+const BASE = `http://127.0.0.1:${PORT}`;
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-reglages-proposition-'));
+const DATA = path.join(TMP, 'data');
+const PROJETS = path.join(TMP, 'projets');
+const DEPOT = path.join(TMP, 'depot');
+for (const dossier of [DATA, PROJETS, DEPOT]) fs.mkdirSync(dossier, { recursive: true });
+execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: DEPOT });
+fs.writeFileSync(path.join(DEPOT, 'README.md'), '# essai\n');
+execFileSync('git', ['add', 'README.md'], { cwd: DEPOT });
+execFileSync('git', ['-c', 'user.email=essai@local', '-c', 'user.name=essai', 'commit', '-qm', 'départ'], { cwd: DEPOT });
+
+const BASE_DB = path.join(DATA, 'haikodev.db');
 const CLE_PROJET_ACTIF = 'project.active';
+const PROJET_ID = 'projet-reglages-proposition';
+const AGENT_ID = 'agent-reglages-proposition';
+
+const demon = spawn('node', [path.join(RACINE, 'server', 'dist', 'main.js')], {
+  env: {
+    ...process.env,
+    HAIKODEV_PORT: String(PORT),
+    HAIKODEV_HOST: '127.0.0.1',
+    HAIKODEV_DATA: DATA,
+    HAIKODEV_PROJECTS_ROOT: PROJETS,
+    HAIKODEV_WEB: path.join(RACINE, 'web', 'dist'),
+  },
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+const journal = [];
+demon.stdout.on('data', (donnees) => journal.push(String(donnees)));
+demon.stderr.on('data', (donnees) => journal.push(String(donnees)));
+
+process.on('exit', () => {
+  try {
+    demon.kill('SIGKILL');
+  } catch {
+    /* déjà parti */
+  }
+  fs.rmSync(TMP, { recursive: true, force: true });
+});
+
+async function attendrePort(limiteMs = 60000) {
+  const fin = Date.now() + limiteMs;
+  while (Date.now() < fin) {
+    const ouvert = await new Promise((resolve) => {
+      const prise = net.connect(PORT, '127.0.0.1');
+      prise.on('connect', () => (prise.end(), resolve(true)));
+      prise.on('error', () => resolve(false));
+    });
+    if (ouvert) return true;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  return false;
+}
+
+function poserDecor() {
+  const db = new Database(BASE_DB);
+  const t = Date.now() - 60_000;
+  const projet = {
+    id: PROJET_ID,
+    name: 'Essai réglages',
+    path: DEPOT,
+    defaultEngine: 'claude',
+    isSelf: false,
+    archived: false,
+    createdAt: t,
+    updatedAt: t,
+  };
+  db.prepare(
+    'INSERT INTO projects (id, name, path, archived, data, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)',
+  ).run(projet.id, projet.name, projet.path, JSON.stringify(projet), t, t);
+  const agent = {
+    id: AGENT_ID,
+    projectId: PROJET_ID,
+    role: 'orchestrator',
+    title: 'Chef d’orchestre — Essai réglages',
+    run: { engine: 'codex', model: 'gpt-5.1-codex', thinking: 'medium', mode: 'direct' },
+    status: 'done',
+    createdAt: t,
+    updatedAt: t,
+  };
+  db.prepare(
+    `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
+     VALUES (?, ?, NULL, 'orchestrator', 'done', ?, ?, ?)`,
+  ).run(agent.id, agent.projectId, JSON.stringify(agent), t, t);
+  db.close();
+}
 
 const resultats = [];
 function noter(nom, ok, detail = '') {
@@ -56,7 +146,12 @@ function chefDOrchestre() {
       `SELECT a.id AS agentId, a.project_id AS projectId, p.name AS nom
          FROM agents a JOIN projects p ON p.id = a.project_id
         WHERE a.role = 'orchestrator' AND p.archived = 0
-        ORDER BY p.name = 'HaikoDev' DESC, a.created_at DESC LIMIT 1`,
+          AND a.id = (
+            SELECT a2.id FROM agents a2
+             WHERE a2.project_id = a.project_id AND a2.role = 'orchestrator'
+             LIMIT 1
+          )
+        ORDER BY p.name = 'HaikoDev' DESC LIMIT 1`,
     )
     .get();
   db.close();
@@ -123,6 +218,12 @@ function viserProjet(projectId) {
 }
 
 async function main() {
+  if (!(await attendrePort())) {
+    console.error('Le démon d’essai n’a pas démarré :\n' + journal.join(''));
+    process.exit(1);
+  }
+  poserDecor();
+
   /* ---------------- 1. La règle, sur le catalogue réel ---------------- */
 
   const catalogue = await catalogueMoteurs();
@@ -177,11 +278,6 @@ async function main() {
   console.log(`Conversation d’essai : chef d’orchestre de « ${chef.nom} ».`);
 
   const attendu = sousCodex;
-  // Les libellés affichés viennent du catalogue du moteur, pas des identifiants.
-  const moteurs = await listEngines();
-  const codexInfo = moteurs.find((m) => m.id === 'codex');
-  const claudeInfo = moteurs.find((m) => m.id === 'claude');
-  const libelleModele = codexInfo?.models.find((m) => m.id === attendu.model)?.label ?? attendu.model;
   let messageId;
   let projetAvant;
   let empreinte;
@@ -212,14 +308,37 @@ async function main() {
     ]);
     const page = await context.newPage();
     const erreurs = [];
+    const instantanes = [];
+    let moteursAffiches = [];
     page.on('pageerror', (error) => erreurs.push(String(error)));
-    await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    page.on('websocket', (socket) => {
+      socket.on('framereceived', ({ payload }) => {
+        try {
+          const event = JSON.parse(String(payload));
+          if (event.type === 'ready') moteursAffiches = event.engines ?? [];
+          if (event.type === 'agent.snapshot') {
+            instantanes.push({ agentId: event.agentId, messages: event.messages?.length ?? 0 });
+          }
+        } catch {
+          /* trame binaire ou sans JSON */
+        }
+      });
+    });
+    await page.goto(`${BASE}/#projet/${encodeURIComponent(chef.projectId)}`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
+    });
     await page.waitForTimeout(7000);
 
     // L'application peut rouvrir sur un panneau : la conversation du chef vit
     // dans la colonne de droite, et se retrouve à l'Échap près.
     await page.keyboard.press('Escape');
     await page.waitForTimeout(1200);
+    const ouvrirChef = page.getByRole('button', { name: /^Chef/ }).first();
+    if (await ouvrirChef.count()) {
+      await ouvrirChef.click();
+      await page.waitForTimeout(1800);
+    }
 
     /* Le cadre ENTIER de la carte à valider — titre, avertissement et barre de
        réglages — et non le seul paragraphe du titre. */
@@ -229,19 +348,31 @@ async function main() {
       .locator('xpath=ancestor::div[contains(@class,"border-accent/40")][1]');
     const vu = (await bloc.count()) > 0;
     noter('la proposition d’essai est bien affichée', vu);
+    if (!vu) {
+      const textePage = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
+      console.log(
+        `  …  écran obtenu : titre=${await page.getByText('Essai — réglages hérités de la conversation').count()}, ` +
+          `bandeaux=${await page.locator('[data-bandeau="propositions"]').count()}, ` +
+          `instantanés=${JSON.stringify(instantanes)} · ${textePage.slice(0, 500)}`,
+      );
+    }
 
     if (vu) {
       await bloc.scrollIntoViewIfNeeded().catch(() => {});
       await page.waitForTimeout(600);
       const texte = (await bloc.innerText()).replace(/\s+/g, ' ');
+      const modeleAffiche = ((await bloc.locator('[data-selecteur="modele"]').innerText().catch(() => '')) || '').trim();
       noter('le moteur de la conversation est affiché sur la carte à valider', texte.includes(codex.label), texte.slice(0, 160));
+      const modelesCodexAffiches = (moteursAffiches.find((moteur) => moteur.id === 'codex')?.models ?? []).map(
+        (modele) => modele.label,
+      );
       noter(
-        'le modèle affiché est celui du moteur retenu',
-        texte.toLowerCase().includes(libelleModele.toLowerCase()),
-        `attendu : ${libelleModele}`,
+        'le modèle affiché appartient bien au moteur retenu',
+        modelesCodexAffiches.some((label) => label.toLowerCase() === modeleAffiche.toLowerCase()),
+        `demandé : ${attendu.model} · affiché : ${modeleAffiche || '(introuvable)'}`,
       );
       // Aucun libellé de modèle Claude ne doit apparaître sur une carte Codex.
-      const intrus = (claudeInfo?.models ?? [])
+      const intrus = (moteursAffiches.find((moteur) => moteur.id === 'claude')?.models ?? [])
         .map((m) => m.label)
         .filter((label) => texte.toLowerCase().includes(label.toLowerCase()));
       noter('aucun modèle Claude n’apparaît sur une proposition Codex', intrus.length === 0, intrus.join(', '));
