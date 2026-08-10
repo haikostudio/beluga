@@ -126,6 +126,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.finish'), id: z.string() }),
   z.object({ type: z.literal('card.reanalyze'), id: z.string() }),
   z.object({ type: z.literal('card.asap'), id: z.string(), value: z.boolean() }),
+  /**
+   * Programme le départ d'une carte à une date (millisecondes), ou retire la
+   * date avec `null`. La carte attend dans « Planifié » et part à l'heure dite.
+   */
+  z.object({ type: z.literal('card.schedule'), id: z.string(), at: z.number().nullable() }),
 
   // Agents & conversations
   /** `tout` rouvre aussi les échanges d'avant le dernier nouveau départ. */

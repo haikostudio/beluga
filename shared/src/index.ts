@@ -26,6 +26,7 @@ export * from './mise-en-production.js';
 export * from './couleur-intensite.js';
 export * from './decision-attendue.js';
 export * from './demon.js';
+export * from './depart-programme.js';
 export * from './description-carte.js';
 export * from './dossier-de-carte.js';
 export * from './echec-construction.js';

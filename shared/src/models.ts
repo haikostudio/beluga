@@ -267,6 +267,13 @@ export const SchedulingState = z.object({
    * efface la marque.
    */
   suspendu: z.boolean().optional(),
+  /**
+   * La DATE de départ souhaitée, en millisecondes. Tant qu'elle n'est pas
+   * venue, la carte attend dans « Planifié » ; à l'heure dite, l'ordonnanceur
+   * la lance par le même chemin que le bouton. Le départ EFFACE la date : une
+   * date, une fois, jamais une récurrence (`shared/src/depart-programme.ts`).
+   */
+  departPrevu: z.number().optional(),
   lastError: z.string().optional(),
 });
 export type SchedulingState = z.infer<typeof SchedulingState>;
@@ -459,6 +466,12 @@ export const TaskProposal = z.object({
   attachments: z.array(z.string()).default([]),
   /** Chiffrage futur préparé pendant le tour qui propose la carte. */
   estimate: Estimate.optional(),
+  /**
+   * La date de départ souhaitée, en millisecondes, quand le chef en propose une
+   * (« cette carte partira mardi à 6 h »). Recopiée sur la carte à la
+   * validation ; sans elle, la carte attend le geste de lancement, comme avant.
+   */
+  departPrevu: z.number().optional(),
   /** Faits, choix et contrôles déjà établis, transmis à l'agent d'exécution. */
   analysisContext: z.string().optional(),
   /**

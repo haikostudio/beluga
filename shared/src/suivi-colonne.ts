@@ -1,4 +1,5 @@
 import { COLUMN_LABELS, ColumnKey } from './columns.js';
+import { etatDuDepart } from './depart-programme.js';
 import type { AgentRole } from './models.js';
 
 /**
@@ -167,24 +168,72 @@ export const RAISON_ATTENTE_LANCEMENT =
  * carte fraîchement analysée — jamais lancée, pas marquée « dès que possible » —
  * reste donc en attente : la bascule Planifié → En cours reste un clic.
  *
- * L'ordonnanceur ne reprend AUTOMATIQUEMENT que deux sortes de cartes :
+ * L'ordonnanceur ne reprend AUTOMATIQUEMENT que trois sortes de cartes :
+ *   - celle dont l'HEURE DITE est arrivée (`departPrevu`, posé à la création ou
+ *     à la main) — la date EST le geste de lancement, donné à l'avance ;
  *   - celle que l'utilisateur a poussée avec « Dès que possible » (`asap`) —
  *     c'est LÀ son geste de lancement ;
  *   - celle qui a DÉJÀ été lancée puis interrompue (un tour coupé, une reprise
  *     après redémarrage du serveur : `attempts`/`restarts` l'attestent) — on ne
  *     lui redemande pas un clic pour reprendre un travail déjà autorisé.
  *
+ * Deux refus passent devant tout le reste : une carte SUSPENDUE à la main ne
+ * repart jamais seule, et une date ENCORE À VENIR retient la carte même si elle
+ * est marquée « dès que possible » — poser une date, c'est demander à ce que
+ * rien ne parte avant.
+ *
  * Le geste direct (« Lancer maintenant », dépôt dans « En cours », « Tout
  * lancer ») ne passe pas par ici : il appelle le démarrage sans détour.
  */
-export function demarrageAutomatiqueAutorise(scheduling?: {
-  asap?: boolean;
-  attempts?: number;
-  restarts?: number;
-}): boolean {
+export function demarrageAutomatiqueAutorise(
+  scheduling?: {
+    asap?: boolean;
+    attempts?: number;
+    restarts?: number;
+    departPrevu?: number;
+    suspendu?: boolean;
+  },
+  maintenant: number = Date.now(),
+): boolean {
   if (!scheduling) return false;
+  // La main l'emporte toujours : suspendre puis voir repartir ne serait pas
+  // suspendre. La boucle du démon le vérifie aussi de son côté.
+  if (scheduling.suspendu) return false;
+
+  const depart = etatDuDepart(scheduling, maintenant);
+  // L'heure est passée : la carte part, et le reste autorisée aussi longtemps
+  // qu'il faudra — c'est ce qui rattrape une heure manquée pendant un arrêt du
+  // démon, au lieu de l'oublier.
+  if (depart === 'venu') return true;
+  if (depart === 'attend') return false;
+
   if (scheduling.asap) return true;
   return (scheduling.attempts ?? 0) > 0 || (scheduling.restarts ?? 0) > 0;
+}
+
+/**
+ * Ce que porte une carte de « Planifié » qui ne partira pas toute seule tout de
+ * suite. Une seule phrase à la fois, dans cet ordre : la suspension d'abord (le
+ * geste le plus fort), puis la date (elle dit déjà tout ce qu'il y a à savoir),
+ * puis l'attente du clic. Rend `undefined` quand la carte est prête à partir :
+ * il n'y a alors rien à expliquer.
+ */
+export function raisonDattente(
+  scheduling?: {
+    asap?: boolean;
+    attempts?: number;
+    restarts?: number;
+    departPrevu?: number;
+    suspendu?: boolean;
+  },
+  maintenant: number = Date.now(),
+): string | undefined {
+  if (scheduling?.suspendu) return RAISON_SUSPENDU;
+  const depart = etatDuDepart(scheduling, maintenant);
+  // Une date affichée en clair se recalcule à chaque affichage
+  // (`mentionDepartProgramme`) : on ne fige pas « demain » dans la base.
+  if (depart !== 'aucun') return undefined;
+  return demarrageAutomatiqueAutorise(scheduling, maintenant) ? undefined : RAISON_ATTENTE_LANCEMENT;
 }
 
 /**
