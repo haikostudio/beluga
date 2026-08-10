@@ -4,11 +4,11 @@ import { log } from './logger.js';
 import { ensureCredentials } from './auth.js';
 import { createHttpServer } from './http.js';
 import { attachWebSocket } from './ws.js';
-import { bootstrapAccounts, refreshQuotas } from './accounts.js';
+import { bootstrapAccounts, prochaineTentativeQuota, refreshQuotas } from './accounts.js';
 import { relierCompetencesAuxCoffres } from './competences.js';
 import { bus } from './bus.js';
 import { sampleCapacity } from './capacity.js';
-import { startScheduler } from './scheduler.js';
+import { startScheduler, tick } from './scheduler.js';
 import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
 import { startDeploy } from './deploy.js';
 import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projects.js';
@@ -21,6 +21,7 @@ import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
 import { envoyerAuCerveau } from './cerveau.js';
 import { diffuserEtatDemon } from './demon.js';
+import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -69,6 +70,23 @@ async function main(): Promise<void> {
 
   // Boucles de fond
   const scheduler = startScheduler();
+  const quotaEcheances = new PlanificateurEcheancesQuotas({
+    lire: (comptes) => refreshQuotas(true, comptes),
+    diffuser: (quotas) => bus.emit({ type: 'quotas', quotas }),
+    prochaineTentative: prochaineTentativeQuota,
+    signalerErreur: (erreur) => log.warn('actualisation du quota à son échéance impossible', erreur),
+    apresLectureFraiche: async () => {
+      // Le relevé frais libère immédiatement les cartes qui attendaient ce
+      // quota ; elles n'ont pas à patienter jusqu'au prochain tour de 15 s.
+      await tick();
+      void amorcerFenetres();
+    },
+  });
+  // Toute lecture de quota (échéance, bouton, connexion ou boucle de sécurité)
+  // redonne ses nouvelles échéances au même planificateur central.
+  const suivreEcheances = bus.subscribe((evenement) => {
+    if (evenement.type === 'quotas') quotaEcheances.actualiser(evenement.quotas);
+  });
   const capacityTimer = setInterval(() => {
     sampleCapacity();
     // Le même rythme sert à dire si le démon tourne encore sur du code périmé :
@@ -114,6 +132,8 @@ async function main(): Promise<void> {
     clearInterval(scheduler);
     clearInterval(capacityTimer);
     clearInterval(quotaTimer);
+    quotaEcheances.arreter();
+    suivreEcheances();
     clearInterval(backupTimer);
     clearInterval(digestTimer);
     clearInterval(janitorTimer);

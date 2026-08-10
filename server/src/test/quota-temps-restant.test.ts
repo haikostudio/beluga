@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { doitAlerterFinDeFenetre, heureDeRemiseAZero, tempsRestant } from '@haikodev/shared';
+import { doitAlerterFinDeFenetre, fraicheurDuReleve, heureDeRemiseAZero, tempsRestant } from '@haikodev/shared';
 
 const MAINTENANT = new Date('2026-08-03T08:59:00+02:00').getTime();
 const min = (n: number) => n * 60_000;
@@ -31,7 +31,14 @@ test('au-delà d’un jour, on dit les jours', () => {
 });
 
 test('une échéance dépassée ne montre pas un nombre négatif', () => {
-  assert.equal(tempsRestant(MAINTENANT - min(3), MAINTENANT), 'remise à zéro imminente');
+  assert.equal(tempsRestant(MAINTENANT - 20_000, MAINTENANT), 'remise à zéro imminente');
+  assert.equal(tempsRestant(MAINTENANT - min(3), MAINTENANT), 'échéance dépassée — vérification en cours');
+});
+
+test('un relevé gardé après un échec annonce clairement son âge', () => {
+  assert.equal(fraicheurDuReleve(MAINTENANT - 20_000, MAINTENANT), 'dernier relevé il y a moins d’une minute');
+  assert.equal(fraicheurDuReleve(MAINTENANT - min(17), MAINTENANT), 'dernier relevé il y a 17 min');
+  assert.equal(fraicheurDuReleve(MAINTENANT - min(60 * 26), MAINTENANT), 'dernier relevé il y a 1 jour');
 });
 
 test('l’heure exacte reste disponible pour l’infobulle', () => {
