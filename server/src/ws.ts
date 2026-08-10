@@ -1289,7 +1289,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
             }
           : undefined,
       });
-      return { etapes, total: totalDuParcours(etapes) };
+      return {
+        etapes,
+        total: totalDuParcours(etapes),
+        // La part de quota RÉELLEMENT consommée par la carte entière — même
+        // source que `card.quota` (`usageQuotaByCard`), affichée ici À CÔTÉ du
+        // parcours pour remplacer la projection retirée, jamais mêlée aux
+        // jetons mesurés étape par étape.
+        quota: store.usageQuotaByCard(cmd.cardId),
+      };
     }
 
     case 'stats.dashboard': {

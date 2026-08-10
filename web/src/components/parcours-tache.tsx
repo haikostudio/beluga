@@ -34,9 +34,23 @@ interface TotalParcours {
   etapesSansMesure: number;
 }
 
+interface QuotaParcours {
+  quota5h: number;
+  quotaSemaine: number;
+}
+
 /** Un nombre de jetons, lisible : « 12 400 ». */
 function jetons(valeur: number): string {
   return valeur.toLocaleString('fr-CH');
+}
+
+/**
+ * Une part de quota, en clair : « 2,4 % ». Sous un dixième de pour-cent, on ne
+ * prétend pas à la décimale — « moins de 0,1 % » dit le vrai.
+ */
+function partQuota(part: number): string {
+  if (part > 0 && part < 0.1) return 'moins de 0,1 %';
+  return `${part.toLocaleString('fr-CH', { maximumFractionDigits: 1 })} %`;
 }
 
 /** La date d'une étape, courte : « 10 août, 14:05 ». */
@@ -53,23 +67,28 @@ function quandEnClair(instant?: number): string | null {
 export function ParcoursTache({ cardId }: { cardId: string }) {
   const [etapes, setEtapes] = React.useState<EtapeParcours[] | null>(null);
   const [total, setTotal] = React.useState<TotalParcours | null>(null);
+  const [quota, setQuota] = React.useState<QuotaParcours | null>(null);
 
   React.useEffect(() => {
     let vivant = true;
     setEtapes(null);
     setTotal(null);
+    setQuota(null);
     client
       .call({ type: 'card.parcours', cardId })
       .then((data) => {
         if (!vivant) return;
         setEtapes(data.etapes ?? []);
         setTotal(data.total ?? null);
+        setQuota(data.quota ?? null);
       })
       .catch(() => {});
     return () => {
       vivant = false;
     };
   }, [cardId]);
+  // Rien à zéro : une carte sans relevé n'affiche pas deux zéros trompeurs.
+  const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
 
   if (!etapes || !etapes.length) return null;
 
@@ -101,6 +120,25 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
             : `${total.etapesSansMesure} étapes n’ont pas de mesure rattachée : chacune le dit sur sa ligne.`}{' '}
           Le total ci-dessus ne les compte donc pas.
         </p>
+      ) : null}
+
+      {/* La part de quota RÉELLEMENT consommée par cette carte — jamais une
+          projection : ce sont les mêmes relevés que la fenêtre des quotas,
+          additionnés sur les tours de cette carte. Bloc à part, sous le
+          parcours, pour ne jamais se lire comme une des étapes ci-dessus. */}
+      {quotaVu ? (
+        <div
+          className="rounded-lg border border-border bg-surface px-3 py-2"
+          data-quota-reel-parcours
+        >
+          <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
+            Part de quota réellement consommée
+          </p>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+            <Part nom="Fenêtre de 5 h" valeur={partQuota(quotaVu.quota5h)} />
+            <Part nom="Fenêtre de la semaine" valeur={partQuota(quotaVu.quotaSemaine)} />
+          </div>
+        </div>
       ) : null}
     </section>
   );

@@ -108,16 +108,21 @@ verifier(
   parcours.includes('data-detail-etape') && parcours.includes('aria-expanded'),
 );
 
-for (const libelle of ['Ce qui était prévu', 'Durée machine prévue', 'Heures développeur senior', 'Formule']) {
+for (const libelle of ['Ce qui était prévu', 'Durée machine prévue', 'Heures développeur senior']) {
   verifier(`le bloc de prévision affiche « ${libelle} »`, panneau.includes(libelle));
 }
-verifier(
-  'le prévu et le mesuré ont deux repères distincts',
-  panneau.includes('data-ce-qui-etait-prevu') && panneau.includes('data-projection-execution'),
-);
+verifier('le bloc de prévision a son repère testable', panneau.includes('data-ce-qui-etait-prevu'));
 verifier(
   'la prévision se dit prévision, jamais mesure',
-  panneau.includes('Ce ne sont pas des mesures') && panneau.includes('estimation future'),
+  panneau.includes('Ce ne sont pas des mesures'),
+);
+verifier(
+  'la projection de jetons — non fiable — a disparu du détail d’une carte',
+  !panneau.includes('data-projection-execution') && !panneau.includes('Jetons projetés — estimation future'),
+);
+verifier(
+  'la part de quota RÉELLE remplace la projection, dans le parcours',
+  parcours.includes('data-quota-reel-parcours') && parcours.includes('Part de quota réellement consommée'),
 );
 verifier(
   'le parcours paraît AVANT le bloc de prévision',
