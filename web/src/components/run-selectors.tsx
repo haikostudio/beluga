@@ -157,7 +157,7 @@ export function RunSelectors({
 
       {/* Le tiroir de détail : empilé par-dessus l'aperçu, sans bouton retour —
           le refermer (voile, geste, échappement) retrouve l'aperçu resté ouvert. */}
-      <Drawer open={sousVue !== null} onClose={() => setSousVue(null)}>
+      <Drawer open={sousVue !== null} onClose={() => setSousVue(null)} empile>
         <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
           <DialogTitle className="min-w-0 flex-1 truncate">{titreSousVue}</DialogTitle>
         </header>
