@@ -33,8 +33,17 @@ import {
   DOSSIER_PLANS,
   EXTENSIONS_DOCUMENT,
   cheminDuDocumentDuChef,
+  GESTES_GROUPE,
+  GESTES_PROJET,
+  lireGesteGroupe,
+  lireGesteProjet,
+  rangsApresDeplacement,
+  resumeColonneDeGauche,
+  retrouverParNom,
+  type ProjetDeLaColonne,
 } from '@haikodev/shared';
 import * as store from './store.js';
+import { createProjectFolder } from './projects.js';
 import { bus } from './bus.js';
 import { PATHS } from './config.js';
 import { mintDownload } from './auth.js';
@@ -356,6 +365,73 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'project_manage',
+    description:
+      "LA COLONNE DE GAUCHE : liste, monte, renomme, range ou met de côté un PROJET. Ouvert à tout agent, chef " +
+      "d'orchestre compris — c'est son seul moyen d'agir sur les projets, puisqu'il ne peut pas écrire dans le " +
+      "projet. Commence TOUJOURS par « lister » : les projets se désignent par leur NOM, jamais par un identifiant " +
+      "deviné. « creer » MONTE le projet en entier (dossier, dépôt git, GitHub, fichiers de départ, adresse " +
+      "publique) et exige le sous-domaine et le port, demandés à l'utilisateur avec « ask_user » AVANT l'appel. " +
+      "Un projet ne se SUPPRIME jamais : « retirer » le met de côté sans rien perdre, « remettre » le fait revenir. " +
+      "Chaque geste se voit aussitôt dans la colonne de gauche.",
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: {
+          type: 'string',
+          enum: GESTES_PROJET,
+          description:
+            'lister = la colonne de gauche telle qu’elle est ; creer = monter un projet neuf ; renommer ; ' +
+            'deplacer = changer de groupe et/ou de position ; retirer = mettre de côté ; remettre = remettre en service',
+        },
+        projet: { type: 'string', description: 'Le projet visé, par son NOM (renommer, deplacer, retirer, remettre)' },
+        nom: { type: 'string', description: 'Le nom voulu (creer, renommer)' },
+        dossier: { type: 'string', description: 'Nom du dossier sur le serveur (creer, facultatif : déduit du nom)' },
+        description: { type: 'string', description: 'À quoi sert ce projet, en une phrase (creer, facultatif)' },
+        sousDomaine: { type: 'string', description: "Le nom court de l'adresse publique (creer)" },
+        port: { type: 'number', description: 'Le port sur lequel le projet écoutera sur le serveur (creer)' },
+        sansAdresse: {
+          type: 'boolean',
+          description: "À mettre à vrai UNIQUEMENT si l'utilisateur a dit ne pas vouloir d'adresse publique (creer)",
+        },
+        github: { type: 'boolean', description: 'Créer le dépôt GitHub privé (creer, vrai par défaut)' },
+        groupe: {
+          type: 'string',
+          description: "Le groupe d'arrivée, par son nom — « aucun » pour sortir le projet de son groupe (deplacer)",
+        },
+        position: { type: 'number', description: 'Rang voulu dans la colonne, 1 = tout en haut (deplacer)' },
+      },
+    },
+  },
+  {
+    name: 'group_manage',
+    description:
+      "LES GROUPES DE LA COLONNE DE GAUCHE : liste, crée, renomme et règle un groupe (couleur, replié ou déplié, " +
+      "position). Les groupes se désignent par leur NOM. Retirer un groupe n'est PAS possible : cela déplacerait " +
+      "d'un coup tous ses projets, et ce geste reste à l'utilisateur. Pour ranger un projet dans un groupe, " +
+      "utilise « project_manage » avec l'action « deplacer ».",
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: {
+          type: 'string',
+          enum: GESTES_GROUPE,
+          description: 'lister ; creer ; renommer ; regler = couleur, repli et position',
+        },
+        groupe: { type: 'string', description: 'Le groupe visé, par son NOM (renommer, regler)' },
+        nom: { type: 'string', description: 'Le nom voulu (creer, renommer)' },
+        couleur: {
+          type: 'string',
+          description: 'Une couleur nommée (« bleu », « vert »…), un code « #3b82f6 », ou « aucune » pour la retirer',
+        },
+        replie: { type: 'boolean', description: 'Vrai = groupe replié dans la colonne, faux = déplié (regler)' },
+        position: { type: 'number', description: 'Rang voulu dans la colonne, 1 = tout en haut (creer, regler)' },
+      },
+    },
+  },
+  {
     name: 'make_archive',
     description:
       "Prépare une archive téléchargeable des fichiers demandés et affiche un bouton de téléchargement dans la conversation.",
@@ -550,6 +626,61 @@ export interface ToolResult {
   download?: { id: string; label: string; size: number; expiresAt: number };
 }
 
+/**
+ * LA COLONNE DE GAUCHE, ÉCRITE POUR UN AGENT qui ne voit pas l'écran. Rendue
+ * après chaque geste : c'est ainsi qu'il constate ce qu'il vient de changer, au
+ * lieu de l'affirmer.
+ */
+function colonneDeGauche(): string {
+  return resumeColonneDeGauche(store.listProjects(true) as ProjetDeLaColonne[], store.listGroups());
+}
+
+/**
+ * RANGER À UNE POSITION, comme la souris le ferait.
+ *
+ * Deux familles de voisins, exactement celles de la colonne : les projets d'un
+ * MÊME groupe entre eux ; et, à la racine, les groupes ET les projets hors
+ * groupe mêlés — un projet peut passer au-dessus d'un groupe, et l'inverse
+ * (`sidebar.reorder`). On renumérote tout le voisinage, jamais la seule ligne
+ * déplacée : deux rangs égaux laisseraient l'ordre au hasard.
+ */
+function rangerLaColonne(
+  id: string,
+  groupeId: string | undefined,
+  position: number,
+  estUnGroupe = false,
+): ReturnType<typeof store.listProjects> {
+  const projets = store.listProjects();
+  const groupes = store.listGroups();
+  const parRang = (a: { rank?: number }, b: { rank?: number }) => (a.rank ?? 1000) - (b.rank ?? 1000);
+
+  if (!estUnGroupe && groupeId) {
+    const freres = projets.filter((p) => p.groupId === groupeId).sort(parRang);
+    const ordre = rangsApresDeplacement(freres, id, position);
+    return ordre.map((ligne) => {
+      const projet = projets.find((p) => p.id === ligne.id)!;
+      return store.saveProject({ ...projet, rank: ligne.rank });
+    });
+  }
+
+  const racine = [
+    ...groupes.map((g) => ({ id: g.id, rank: g.rank, groupe: true })),
+    ...projets.filter((p) => !p.groupId).map((p) => ({ id: p.id, rank: p.rank, groupe: false })),
+  ].sort(parRang);
+  const ordre = rangsApresDeplacement(racine, id, position);
+  const bouges: ReturnType<typeof store.listProjects> = [];
+  for (const ligne of ordre) {
+    const groupe = groupes.find((g) => g.id === ligne.id);
+    if (groupe) {
+      store.saveGroup({ ...groupe, rank: ligne.rank });
+      continue;
+    }
+    const projet = projets.find((p) => p.id === ligne.id);
+    if (projet) bouges.push(store.saveProject({ ...projet, rank: ligne.rank }));
+  }
+  return bouges;
+}
+
 export async function callTool(ctx: ToolContext, name: string, args: Record<string, any>): Promise<ToolResult> {
   const project = store.getProject(ctx.projectId);
   if (!project) return { ok: false, text: "Projet introuvable." };
@@ -731,6 +862,157 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           ? ` Il sera relu par la recherche au lancement d'une carte sur le même sujet ; pour le modifier, relis-le et réécris « ${rel} ».`
           : '';
       return { ok: true, text: `${geste} : ${rel}.${rappel}` };
+    }
+
+    case 'project_manage': {
+      const lu = lireGesteProjet(args);
+      if (!lu.ok) return { ok: false, text: lu.raison };
+      const demande = lu.demande;
+
+      if (demande.geste === 'lister') return { ok: true, text: colonneDeGauche() };
+
+      if (demande.geste === 'creer') {
+        try {
+          const monte = await createProjectFolder({
+            name: demande.nom,
+            folder: demande.dossier,
+            description: demande.description,
+            git: true,
+            github: demande.github,
+            sousDomaine: demande.sousDomaine,
+            port: demande.port,
+          });
+          bus.emit({ type: 'project.upsert', project: monte.project });
+          const rates = monte.etapes.filter((e) => !e.fait);
+          // Une étape ratée se dit : le projet existe quand même, mais il lui
+          // manque quelque chose, et le taire ferait croire que tout est en place.
+          bus.toast(
+            rates.length ? 'warning' : 'success',
+            rates.length
+              ? `Projet « ${monte.project.name} » créé, ${rates.length} étape(s) en échec`
+              : `Projet « ${monte.project.name} » monté sur le serveur`,
+          );
+          const deroule = monte.etapes
+            .map((e) => `${e.fait ? '✓' : '✗'} ${e.titre}${e.detail ? ` — ${e.detail}` : ''}`)
+            .join('\n');
+          return {
+            ok: true,
+            text: `Projet « ${monte.project.name} » monté (${monte.project.path}), inscrit dans la colonne de gauche.\n${deroule}`,
+          };
+        } catch (err: any) {
+          return { ok: false, text: `Montage impossible : ${err?.message ?? err}` };
+        }
+      }
+
+      const trouve = retrouverParNom(demande.cible, store.listProjects(true), 'projet');
+      if (!trouve.ok) return { ok: false, text: trouve.raison };
+      const vise = trouve.demande;
+
+      if (demande.geste === 'renommer') {
+        const ancien = vise.name;
+        const change = store.saveProject({ ...vise, name: demande.nom });
+        bus.emit({ type: 'project.upsert', project: change });
+        bus.toast('info', `« ${ancien} » renommé en « ${change.name} »`);
+        return { ok: true, text: `Projet renommé : « ${ancien} » devient « ${change.name} ».` };
+      }
+
+      if (demande.geste === 'deplacer') {
+        let groupeId = vise.groupId;
+        let ou = '';
+        if (demande.horsGroupe) {
+          groupeId = undefined;
+          ou = 'sorti de son groupe';
+        } else if (demande.groupe) {
+          const groupe = retrouverParNom(demande.groupe, store.listGroups(), 'groupe');
+          if (!groupe.ok) return { ok: false, text: groupe.raison };
+          groupeId = groupe.demande.id;
+          ou = `rangé dans « ${groupe.demande.name} »`;
+        }
+        const change = store.saveProject({ ...vise, groupId: groupeId });
+        const range = demande.position === undefined ? [] : rangerLaColonne(change.id, groupeId, demande.position);
+        for (const projet of [change, ...range]) bus.emit({ type: 'project.upsert', project: projet });
+        bus.emit({ type: 'groups', groups: store.listGroups() });
+        const place = demande.position === undefined ? '' : `${ou ? ', ' : ''}placé en position ${demande.position}`;
+        bus.toast('info', `« ${change.name} » ${ou || 'déplacé'}`);
+        return { ok: true, text: `Projet « ${change.name} » ${ou}${place}.\n\n${colonneDeGauche()}` };
+      }
+
+      if (demande.geste === 'retirer') {
+        if (vise.archived) return { ok: true, text: `« ${vise.name} » est déjà mis de côté.` };
+        // Rien ne disparaît de la vue sans avoir été dit : les cartes encore
+        // vivantes du projet sont NOMMÉES avant qu'il quitte la colonne.
+        const vivantes = store.listCards(vise.id).filter((c) => c.column !== 'archived');
+        const change = store.saveProject({ ...vise, archived: true });
+        bus.emit({ type: 'project.upsert', project: change });
+        bus.toast('info', `« ${change.name} » mis de côté`);
+        const dites = vivantes.length
+          ? `Ses ${vivantes.length} carte(s) hors archive partent de la vue avec lui : ` +
+            `${vivantes.slice(0, 12).map((c) => `« ${c.title} » (${COLUMN_LABELS[c.column]})`).join(', ')}` +
+            `${vivantes.length > 12 ? '…' : ''}. Rien n'est perdu.`
+          : "Il n'avait aucune carte hors archive.";
+        return {
+          ok: true,
+          text: `Projet « ${change.name} » mis de côté : il quitte la colonne de gauche, rien n'est supprimé. ${dites} « Remettre en service » le fait revenir.`,
+        };
+      }
+
+      if (vise.archived === false) return { ok: true, text: `« ${vise.name} » est déjà en service.` };
+      const rendu = store.saveProject({ ...vise, archived: false });
+      bus.emit({ type: 'project.upsert', project: rendu });
+      bus.toast('info', `« ${rendu.name} » remis en service`);
+      return { ok: true, text: `Projet « ${rendu.name} » remis en service : il revient dans la colonne de gauche.` };
+    }
+
+    case 'group_manage': {
+      const lu = lireGesteGroupe(args);
+      if (!lu.ok) return { ok: false, text: lu.raison };
+      const demande = lu.demande;
+
+      if (demande.geste === 'lister') return { ok: true, text: colonneDeGauche() };
+
+      if (demande.geste === 'creer') {
+        const groupe = store.saveGroup({
+          id: store.newId(),
+          name: demande.nom,
+          rank: store.nextGroupRank(),
+          collapsed: false,
+          color: demande.couleur,
+        });
+        bus.emit({ type: 'groups', groups: store.listGroups() });
+        bus.toast('info', `Groupe « ${groupe.name} » créé`);
+        return {
+          ok: true,
+          text: `Groupe « ${groupe.name} » créé dans la colonne de gauche. Pour y ranger un projet : « project_manage » action « deplacer ».`,
+        };
+      }
+
+      const trouve = retrouverParNom(demande.cible, store.listGroups(), 'groupe');
+      if (!trouve.ok) return { ok: false, text: trouve.raison };
+      const vise = trouve.demande;
+
+      if (demande.geste === 'renommer') {
+        const ancien = vise.name;
+        const change = store.saveGroup({ ...vise, name: demande.nom });
+        bus.emit({ type: 'groups', groups: store.listGroups() });
+        bus.toast('info', `Groupe « ${ancien} » renommé en « ${change.name} »`);
+        return { ok: true, text: `Groupe renommé : « ${ancien} » devient « ${change.name} ».` };
+      }
+
+      const dits: string[] = [];
+      const change = store.saveGroup({
+        ...vise,
+        color: demande.retirerCouleur ? undefined : (demande.couleur ?? vise.color),
+        collapsed: demande.replie ?? vise.collapsed,
+      });
+      if (demande.retirerCouleur) dits.push('pastille retirée');
+      else if (demande.couleur) dits.push(`couleur ${demande.couleur}`);
+      if (demande.replie !== undefined) dits.push(demande.replie ? 'replié' : 'déplié');
+      const bouges = demande.position === undefined ? [] : rangerLaColonne(change.id, undefined, demande.position, true);
+      if (demande.position !== undefined) dits.push(`position ${demande.position}`);
+      for (const projet of bouges) bus.emit({ type: 'project.upsert', project: projet });
+      bus.emit({ type: 'groups', groups: store.listGroups() });
+      bus.toast('info', `Groupe « ${change.name} » réglé`);
+      return { ok: true, text: `Groupe « ${change.name} » réglé : ${dits.join(', ')}.\n\n${colonneDeGauche()}` };
     }
 
     case 'make_archive': {

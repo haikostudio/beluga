@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  COULEURS_DE_GROUPE,
   Project,
   ProjectGroup,
   type SignalProjet,
@@ -785,13 +786,13 @@ function BoutonRedemarrage() {
   );
 }
 
-/** La palette des groupes : seize teintes franches, plus « aucune ». */
-const COULEURS = [
-  '#ef4444', '#f97316', '#f59e0b', '#eab308',
-  '#84cc16', '#22c55e', '#10b981', '#14b8a6',
-  '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6',
-  '#a855f7', '#d946ef', '#ec4899', '#f43f5e',
-];
+/**
+ * La palette des groupes : seize teintes franches, plus « aucune ». Elle vit
+ * dans `shared/src/gestion-projets.ts` — un agent qui règle un groupe par outil
+ * choisit dans la MÊME palette que ce sélecteur, sinon la pastille posée par le
+ * chef ne serait dans aucune case du nuancier.
+ */
+const COULEURS = COULEURS_DE_GROUPE;
 
 function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string) => void }) {
   const [open, setOpen] = React.useState(false);

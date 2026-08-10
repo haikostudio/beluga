@@ -45,6 +45,7 @@ export * from './lecture-message.js';
 export * from './lot-colonne.js';
 export * from './memoire.js';
 export * from './documents-du-chef.js';
+export * from './gestion-projets.js';
 export * from './parcours-carte.js';
 export * from './passages-doc.js';
 export * from './mise-en-ligne.js';
