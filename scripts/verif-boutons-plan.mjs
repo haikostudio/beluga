@@ -131,7 +131,24 @@ const cadre = page.locator('[data-mode-plan-reponse="ouvert"]');
 noter('le plan affiche son cadre dédié, déplié d’emblée', (await cadre.count()) === 1);
 noter('le bouton Valider est visible', await cadre.getByRole('button', { name: 'Valider' }).isVisible());
 noter('le bouton Refuser est visible', await cadre.getByRole('button', { name: 'Refuser' }).isVisible());
+noter('la toute première version porte le repère « version 1 »', (await cadre.locator('text=version 1').count()) >= 1);
+noter(
+  'aucune liste de versions précédentes pour la toute première version',
+  (await cadre.locator('[data-versions-plan]').count()) === 0,
+);
+noter(
+  'le sélecteur de niveau propose les trois paliers, Standard retenu par défaut',
+  (await cadre.locator('[data-niveau-plan="standard"][aria-pressed="true"]').count()) === 1,
+);
 await page.screenshot({ path: `${SHOTS}/boutons-plan-ouvert.png` });
+
+// Choisir « Léger » avant de valider : le niveau retenu doit voyager dans le
+// message envoyé au chef, pour que la carte proposée en hérite.
+await cadre.locator('[data-niveau-plan="leger"]').click();
+noter(
+  'le clic sur « Léger » le rend actif à la place de Standard',
+  (await cadre.locator('[data-niveau-plan="leger"][aria-pressed="true"]').count()) === 1,
+);
 
 /* ---------- 2. « Valider » bascule en direct et enchaîne, sans rien taper ---------- */
 
@@ -148,6 +165,10 @@ noter(
   '« Valider » enchaîne tout seul : un message est parti sans rien taper',
   messagesApres > messagesAvant,
   `${messagesAvant} → ${messagesApres}`,
+);
+noter(
+  'le niveau choisi (« Léger ») voyage dans le message envoyé',
+  (await page.locator('[data-fil="conversation"] >> text=Niveau retenu pour la carte : « Léger »').count()) >= 1,
 );
 
 const modeApres = await page.locator('[data-mode-plan]').first().getAttribute('data-mode-plan');
@@ -178,22 +199,35 @@ noter(
 
 await replieApresValidation.first().click();
 await page.waitForTimeout(300);
+const rouvert = page.locator('[data-mode-plan-reponse="ouvert"]').first();
 const rouvertOk = (await page.locator('[data-mode-plan-reponse="ouvert"]').count()) >= 1;
 noter('un clic sur le bandeau replié rouvre le plan, contenu intact', rouvertOk);
 const contenuIntact = await page.locator('text=Un export de plus').count();
 noter('le contenu rouvert est bien celui d’origine, inchangé', contenuIntact >= 1);
 
-// Une version périmée se relit, elle ne se décide plus : aucun bouton dedans.
+// Une version périmée se relit, elle ne se décide plus : aucun bouton d'action dedans.
 const ancienOuvert = page.locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="ancien"]');
 noter('le plan rouvert est bien marqué « ancien »', (await ancienOuvert.count()) === 1);
 noter(
-  'un plan précédent rouvert ne porte plus aucun bouton d’action',
+  'un plan précédent rouvert ne porte plus de bouton Valider / Refuser',
   (await ancienOuvert.getByRole('button', { name: 'Valider' }).count()) === 0 &&
     (await ancienOuvert.getByRole('button', { name: 'Refuser' }).count()) === 0,
 );
+noter(
+  'la version rouverte, non courante, porte son numéro',
+  (await rouvert.locator('text=version 1').count()) >= 1,
+);
+noter(
+  'elle propose « Repartir de cette version » à la place',
+  await rouvert.getByRole('button', { name: 'Repartir de cette version' }).isVisible(),
+);
+noter(
+  'sans version suivante encore écrite, aucune différence ne s’affiche',
+  (await rouvert.locator('text=Différences avec la version suivante').count()) === 0,
+);
 await page.screenshot({ path: `${SHOTS}/boutons-plan-rouvert.png` });
 
-/* ---------- 4. Un second plan, plus récent : « Refuser » ---------- */
+/* ---------- 4. Un second plan, plus récent : versions, différences, « Refuser » ---------- */
 
 // Un second plan « dernier » : le premier, déjà suivi d'un message, doit
 // rester replié pendant que ce nouveau-là s'affiche déplié.
@@ -211,6 +245,25 @@ noter(
 );
 await page.screenshot({ path: `${SHOTS}/boutons-plan-iterations.png` });
 
+noter('il porte le repère « version 2 »', (await dernierCadre.locator('text=version 2').count()) >= 1);
+
+noter(
+  '« Repartir de cette version » reste offert sur la première version',
+  await rouvert.getByRole('button', { name: 'Repartir de cette version' }).isVisible(),
+);
+noter(
+  'la première version, rouverte, affiche maintenant ses différences avec la version 2',
+  (await rouvert.locator('text=Différences avec la version suivante').count()) === 1,
+);
+
+await dernierCadre.locator('[data-versions-plan]').click();
+await page.waitForTimeout(200);
+noter(
+  'le plan courant liste sa version précédente en dépliant « 1 version précédente »',
+  (await dernierCadre.locator('[data-liste-versions-plan] >> text=Version 1').count()) === 1,
+);
+await page.screenshot({ path: `${SHOTS}/boutons-plan-versions.png` });
+
 const messagesRefusAvant = await page.locator('text=Je refuse ce plan').count();
 await dernierCadre.getByRole('button', { name: 'Refuser' }).click();
 await page.waitForSelector('text=Je refuse ce plan', { timeout: 15000 }).catch(() => {});
@@ -224,6 +277,38 @@ noter(
 
 const arretRefus = page.getByRole('button', { name: "Arrêter l'action en cours" });
 if (await arretRefus.count()) await arretRefus.click();
+
+/* ---------- 5. « Repartir de cette version » relance le mode plan ---------- */
+
+await page.waitForTimeout(300);
+const messagesRepriseAvant = await page
+  .locator('[data-fil="conversation"] >> text=Abandonne les versions écrites après la version 1')
+  .count();
+await rouvert.getByRole('button', { name: 'Repartir de cette version' }).click();
+await page
+  .waitForSelector('text=Abandonne les versions écrites après la version 1', { timeout: 15000 })
+  .catch(() => {});
+await page.waitForTimeout(500);
+const messagesRepriseApres = await page
+  .locator('[data-fil="conversation"] >> text=Abandonne les versions écrites après la version 1')
+  .count();
+noter(
+  '« Repartir de cette version » envoie un message citant la version choisie',
+  messagesRepriseApres > messagesRepriseAvant,
+  `${messagesRepriseAvant} → ${messagesRepriseApres}`,
+);
+const modeApresReprise = await page.locator('[data-mode-plan]').first().getAttribute('data-mode-plan');
+noter(
+  '« Repartir de cette version » relance le mode plan',
+  modeApresReprise === 'actif',
+  modeApresReprise ?? 'introuvable',
+);
+
+const arretReprise = page.getByRole('button', { name: "Arrêter l'action en cours" });
+if (await arretReprise.count()) {
+  await arretReprise.click();
+  await page.waitForTimeout(300);
+}
 
 noter('aucune erreur dans la page', erreurs.length === 0, erreurs[0] ?? '');
 

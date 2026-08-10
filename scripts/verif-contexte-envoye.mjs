@@ -247,8 +247,20 @@ function poserDecor() {
            pertinence et coût. C'est ce qui rend le contexte remonté par la
            machine vérifiable à l'œil. */
         passages: [
-          { source: 'docs/regles/cartes.md', titre: 'Cartes › Une carte NAÎT dans « Planifié »', score: 0.61, tokens: 320 },
-          { source: 'docs/mecaniques/ajouter-une-colonne.md', titre: 'Ajouter une colonne', score: 0.44, tokens: 180 },
+          {
+            source: 'docs/regles/cartes.md',
+            titre: 'Cartes › Une carte NAÎT dans « Planifié »',
+            score: 0.61,
+            tokens: 320,
+            texte: 'Une carte NAÎT dans « Planifié » : ni « Validé » ni « À faire » n’existent, le tableau compte sept colonnes.',
+          },
+          {
+            source: 'docs/mecaniques/ajouter-une-colonne.md',
+            titre: 'Ajouter une colonne',
+            score: 0.44,
+            tokens: 180,
+            texte: 'Mode d’emploi pour ajouter une colonne au tableau : où la déclarer, où la brancher.',
+          },
         ],
         history: 'none',
         usage: { inputTokens: 4_000, cachedInputTokens: 1_000 },
@@ -417,6 +429,13 @@ try {
       noter('carte : chaque passage dit son fichier', /docs\/regles\/cartes\.md/.test(textePassages) && /ajouter-une-colonne\.md/.test(textePassages), textePassages.replace(/\n/g, ' '));
       noter('carte : chaque passage dit sa pertinence', /61 %/.test(textePassages) && /44 %/.test(textePassages), textePassages.replace(/\n/g, ' '));
       noter('carte : chaque passage dit son coût en tokens', /320 tokens/.test(textePassages) && /180 tokens/.test(textePassages), textePassages.replace(/\n/g, ' '));
+      noter(
+        'carte : le texte de chaque passage est affiché en clair, sans repli',
+        /Une carte NAÎT dans « Planifié »/.test(textePassages) && /Mode d’emploi pour ajouter une colonne/.test(textePassages),
+        textePassages.replace(/\n/g, ' '),
+      );
+      const pliages = await tiroir.locator('[data-passage-retrouve] button, [data-passage-retrouve] [aria-expanded]').count();
+      noter('carte : aucun repli à déplier sur un passage', pliages === 0);
       noter('carte : aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte.png') });
     } finally {

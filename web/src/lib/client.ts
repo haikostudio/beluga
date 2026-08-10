@@ -18,6 +18,8 @@ import {
   Settings,
   SystemProcess,
   CLE_PROJET_ACTIF,
+  RAISON_SANS_REPONSE,
+  alerteServeurInjoignable,
   choisirProjetAOuvrir,
 } from '@haikodev/shared';
 
@@ -118,6 +120,14 @@ class Client {
   private retry = 0;
   private reconnectTimer: number | null = null;
   private notifyHandlers = new Set<(event: Extract<ServerEvent, { type: 'notify' }>) => void>();
+  /*
+   * L'état du LIEN avec le serveur, tel que la règle `alerteServeurInjoignable`
+   * le demande : depuis quand le canal est coupé, et combien de requêtes
+   * d'affilée sont restées sans réponse. Deux compteurs, pas un état affiché :
+   * ils ne servent qu'à décider si l'alerte rouge a le droit de paraître.
+   */
+  private coupeDepuis: number | null = null;
+  private echecsReseau = 0;
   private openCardHandlers = new Set<(cardId: string) => void>();
   private openConversationHandlers = new Set<(lieu: { projectId: string; agentId: string }) => void>();
 
@@ -175,11 +185,16 @@ class Client {
 
     socket.onopen = () => {
       this.retry = 0;
+      this.coupeDepuis = null;
+      this.echecsReseau = 0;
       this.set({ connected: true, connecting: false });
       this.send({ type: 'hello', protocol: 1 });
     };
 
     socket.onclose = () => {
+      // L'HEURE de la coupure, posée une seule fois : c'est sa DURÉE qui
+      // distingue une reconnexion ordinaire d'une vraie panne.
+      if (this.coupeDepuis == null) this.coupeDepuis = Date.now();
       this.set({ connected: false, connecting: true });
       // Reconnexion automatique : fermer l'onglet n'arrête aucun agent, et le
       // réseau qui tombe ne doit pas casser la session.
@@ -245,6 +260,9 @@ class Client {
         const entry = this.pending.get(event.id);
         if (entry) {
           this.pending.delete(event.id);
+          // Le serveur a répondu : la série d'échecs repart de zéro, qu'il ait
+          // dit oui ou non. Un refus MÉTIER n'est pas une panne de serveur.
+          this.echecsReseau = 0;
           if (event.ok) entry.resolve(event.data);
           else entry.reject(new Error(event.error ?? 'commande refusée'));
         }
@@ -478,10 +496,40 @@ class Client {
       window.setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
-          reject(new Error('le serveur ne répond pas'));
+          // Une requête qui expire compte, mais ne conclut rien à elle seule :
+          // un lancement de carte ne répond qu'À LA FIN du tour. C'est
+          // `alerteServeurInjoignable` qui dira si cela vaut une alerte.
+          this.echecsReseau += 1;
+          reject(new Error(RAISON_SANS_REPONSE));
         }
       }, timeoutMs);
     });
+  }
+
+  /**
+   * Le serveur est-il réellement injoignable, ou est-ce une requête isolée qui
+   * n'a pas abouti ? La règle vit dans `shared` et se teste seule ; ici on ne
+   * fait que lui passer l'état du lien.
+   */
+  serveurInjoignable(): boolean {
+    return alerteServeurInjoignable(
+      {
+        connecte: this.state.connected,
+        coupeDepuis: this.coupeDepuis ?? undefined,
+        echecsConsecutifs: this.echecsReseau,
+      },
+      Date.now(),
+    );
+  }
+
+  /**
+   * Le message court d'un geste refusé — mais JAMAIS l'alerte « le serveur ne
+   * répond pas » sur un simple délai dépassé, canal ouvert. La raison reste
+   * rendue à l'appelant : un lot la compte dans son bilan, une carte la porte.
+   */
+  signalerRefus(raison: string, cardId?: string): void {
+    if (raison === RAISON_SANS_REPONSE && !this.serveurInjoignable()) return;
+    this.pushToast('error', raison, cardId);
   }
 
   /**
@@ -554,7 +602,7 @@ class Client {
       return { ok: true };
     } catch (err: any) {
       const raison = err?.message ?? 'validation refusée';
-      if (!options.silencieux) this.pushToast('error', raison, card.id);
+      if (!options.silencieux) this.signalerRefus(raison, card.id);
       return { ok: false, error: raison };
     }
   }
@@ -583,7 +631,7 @@ class Client {
         if (fraiche.column !== column) return {};
         return { cards: { ...state.cards, [card.id]: { ...fraiche, column: colonneDeDepart } } };
       });
-      if (!options.silencieux) this.pushToast('error', raison, card.id);
+      if (!options.silencieux) this.signalerRefus(raison, card.id);
       return { ok: false, error: raison };
     }
   }
@@ -604,6 +652,10 @@ export const client = new Client();
 if (import.meta.env.MODE !== 'production') {
   (window as unknown as { haikodevEssai?: unknown }).haikodevEssai = {
     message: (level: Toast['level'], text: string) => client.pushToast(level, text),
+    // Un geste refusé, tel que le rend une commande : c'est ce qui permet de
+    // juger POUR DE VRAI qu'une requête isolée restée sans réponse n'allume
+    // aucune alerte, alors qu'un vrai refus, lui, se dit toujours.
+    refus: (raison: string, cardId?: string) => client.signalerRefus(raison, cardId),
     // Une annonce vocale, comme le démon en émet à la fin d'une tâche : c'est
     // ce qui permet de juger le module de voix sans attendre un vrai agent.
     annonce: (texte: string) =>

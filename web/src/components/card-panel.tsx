@@ -328,7 +328,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         </ZoneDefilement>
         </div>
 
-        <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
+        <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
           <Chat agent={agent} projectId={card.projectId} cardId={card.id} vide={motAnalyse(phase)} />
         </TabsContent>
 
@@ -371,7 +371,10 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                         .then(() =>
                           client
                             .call({ type: 'card.start', id: card.id })
-                            .catch((err: any) => client.pushToast('error', err?.message ?? 'lancement refusé', card.id))
+                            // Un lancement ne répond qu'à la FIN du tour : le
+                            // délai dépassé n'est pas un refus, et n'allume
+                            // donc pas l'alerte de serveur injoignable.
+                            .catch((err: any) => client.signalerRefus(err?.message ?? 'lancement refusé', card.id))
                         )
                     }
                   >

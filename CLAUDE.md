@@ -18,7 +18,7 @@ nommé (`shared/src/extrait-regles.ts`).
 | `web/` | L'interface : tableau, conversations, réglages, application installable |
 | `shared/` | Les règles pures, sans base ni disque — donc testables seules |
 | `scripts/` | Service système, identifiants, scripts de vérification |
-| `docs/` | La documentation : les règles PAR SUJET (`regles/`), les faits PAR SUJET (`memoire/`), les MÉCANIQUES réutilisables (`mecaniques/`), la liste des contrôles (`verifications.md`), les audits |
+| `docs/` | La documentation : les règles PAR SUJET (`regles/`), les faits PAR SUJET (`memoire/`), les MÉCANIQUES réutilisables (`mecaniques/`), les PLANS du chef (`plans/`), la liste des contrôles (`verifications.md`), les audits |
 | `outils/` | Les outils tiers dont le démon dépend, versionnés ici (`outils/compta/` : facturation) |
 | `data/live` | **Ce qui est réellement servi** : écrit uniquement par la publication |
 | `data/competences` | Les **compétences partagées** : un dossier par compétence, chacun avec son `SKILL.md` |
@@ -190,6 +190,15 @@ le nom, là-bas le texte).
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
   heure manquée est rattrapée, la suspension à la main l'emporte, et le départ CONSOMME la date.
+- **Une carte dont un agent TRAVAILLE ne s'affiche jamais ailleurs qu'en « En cours »**
+  (`colonneAffichee`, `shared/src/colonne-affichee.ts`, branché sur `byColumn` dans `board.tsx`) :
+  quand un agent tourne, l'agent fait foi, pas la colonne enregistrée — qu'on ne touche pas. Correction
+  d'AFFICHAGE seulement, DITE sur la carte, et uniquement depuis « Notes » / « Planifié » : une carte
+  rendue dont on relance l'agent ne bouge pas.
+- **L'alerte « le serveur ne répond pas » ne paraît que sur une indisponibilité RÉELLE et DURABLE**
+  (`alerteServeurInjoignable`, `shared/src/panne-serveur.ts` ; `Client.signalerRefus`) : canal coupé
+  depuis plus de 15 s, ou deux requêtes d'affilée sans réponse. Une requête isolée qui expire est
+  rendue à l'appelant, jamais affichée en bulle rouge — un lancement ne répond qu'à la FIN du tour.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
   carte, jamais le fait que le moteur ait répondu.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN.** Un projet
@@ -222,6 +231,13 @@ le nom, là-bas le texte).
   eux, toute commande d'un chef bridé échoue avec « bwrap: … Permission denied ». Les outils d'ÉDITION
   (`Edit`, `Write`, `NotebookEdit`) lui restent interdits. Verrouillé par
   `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
+- **Le chef écrit ses documents et ses plans dans `docs/plans/`, et NULLE PART AILLEURS**
+  (`shared/src/documents-du-chef.ts`) : `write_document` y ramène la demande, nettoie le nom,
+  n'accepte que `.md`/`.txt` et refuse tout autre dossier — plus de `.md` écrit par-dessus
+  `docs/regles/`. Le bac à sable ne bouge pas : le projet reste en lecture seule. Le dossier est
+  INDEXÉ par la recherche de passages, en priorité haute : le plan écrit avant la carte remonte tout
+  seul au lancement de l'agent qui l'exécute. Verrouillé par
+  `server/src/test/documents-du-chef.test.ts` et `scripts/verif-plans-du-chef.mjs`.
 
 ### Projets
 
@@ -233,6 +249,12 @@ le nom, là-bas le texte).
   chaque déploiement.
 - **Un projet se déclare sur son DÉPÔT DE TRAVAIL, jamais sur son dossier publié** : un dossier servi
   n'est pas un dépôt git, l'agent n'y prouve rien.
+- **La COLONNE DE GAUCHE se pilote par outil** (`project_manage`, `group_manage`,
+  `shared/src/gestion-projets.ts`) : lister, monter, renommer, ranger, remonter, mettre de côté un
+  projet ; créer, renommer, régler un groupe. On désigne par le NOM, chaque geste est réémis à
+  l'interface, et trois refus sont posés DANS l'outil — pas de suppression de projet (« retirer » le
+  met de côté, ses cartes vivantes nommées), pas de montage sans adresse, pas de retrait de groupe
+  par un agent.
 
 ### Méthode et silence
 
