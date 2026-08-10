@@ -725,6 +725,15 @@ export function briefingSepare(
    * de la mémoire ni de la liste des compétences (`shared/src/accueil-agent.ts`).
    */
   niveau: NiveauDAccueil = 'complet',
+  /**
+   * CE QUI REMPLACE L'INDEX de la mémoire, quand une recherche a trouvé mieux.
+   * L'index part au lancement pour que l'agent SACHE quels sujets existent ;
+   * mais quand la demande de la carte permet de retrouver les PASSAGES qui y
+   * répondent (`server/src/passages.ts`), ils valent mieux qu'une table des
+   * matières — et l'index reste à un appel de `project_memory`. Le calcul se
+   * fait chez l'appelant : ce module ne connaît ni base ni index de recherche.
+   */
+  memoireRemplacee?: string,
 ): BriefingSepare {
   const emporte = partsDAccueil(niveau);
   migrerJournal(projectPath);
@@ -766,7 +775,7 @@ export function briefingSepare(
   if (!avecMemoire || !emporte.memoire) return { sansMemoire };
 
   const memoire = [
-    blocMemoire(projectPath),
+    memoireRemplacee?.trim() || blocMemoire(projectPath),
     `FICHIER D'INSTRUCTIONS DU MOTEUR : si ta tâche change une règle durable, une architecture ou une commande, mets ${quiFaitFoi} à jour avant de finir (crée-le s'il n'existe pas). ` +
       `Court et factuel : comment lancer, comment vérifier, où vivent les choses, les règles à ne pas enfreindre. Aucun journal dedans, aucune trace de tâche.`,
   ].join('\n\n');

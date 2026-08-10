@@ -18,7 +18,7 @@ nommé (`shared/src/extrait-regles.ts`).
 | `web/` | L'interface : tableau, conversations, réglages, application installable |
 | `shared/` | Les règles pures, sans base ni disque — donc testables seules |
 | `scripts/` | Service système, identifiants, scripts de vérification |
-| `docs/` | La documentation : les règles PAR SUJET (`regles/`), les faits PAR SUJET (`memoire/`), la liste des contrôles (`verifications.md`), les audits |
+| `docs/` | La documentation : les règles PAR SUJET (`regles/`), les faits PAR SUJET (`memoire/`), les MÉCANIQUES réutilisables (`mecaniques/`), la liste des contrôles (`verifications.md`), les audits |
 | `outils/` | Les outils tiers dont le démon dépend, versionnés ici (`outils/compta/` : facturation) |
 | `data/live` | **Ce qui est réellement servi** : écrit uniquement par la publication |
 | `data/competences` | Les **compétences partagées** : un dossier par compétence, chacun avec son `SKILL.md` |
@@ -63,6 +63,7 @@ npm test                            # tous les tests du démon (compilés dans s
 node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
+node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
@@ -86,6 +87,17 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   sujet se demande avec l'outil `project_memory`. **Le même outil sert aussi les RÈGLES
   (`docs/regles/`) et les CONTRÔLES (`docs/verifications.md`)** : un sujet demandé rend les faits, les
   règles ET les contrôles qui le concernent, jamais le reste.
+- **Au LANCEMENT d'une carte, la demande sert de QUESTION** (`shared/src/passages-doc.ts`,
+  `server/src/passages.ts`) : le démon cherche dans la documentation (`docs/regles/`, `docs/memoire/`,
+  `docs/verifications.md`, `docs/mecaniques/`, compétences) et envoie les quelques PASSAGES qui
+  répondent, à la place de l'index. Découpage par section ou par règle, empreinte calculée SUR LE
+  SERVEUR (aucune clé facturée), score MIXTE (sens + mots exacts, sinon les noms exacts se perdent),
+  index de recherche INCRÉMENTAL (migration 19). L'INDEX reste le REPLI : ce qui part tient sous
+  plafond et ne doit JAMAIS peser plus que l'index remplacé, sinon la recherche est refusée. Les
+  passages retrouvés sont visibles dans le tiroir « Contexte envoyé » et dans l'onglet « Détails ».
+- **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
+  qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
+  priorité haute par la recherche.
 - **Un sujet servi une fois ne l'est pas deux dans la même session** : redemandé, il rend une ligne
   de rappel — sauf s'il a CHANGÉ depuis. Et une **reprise après compression** ne recharge que les
   sujets utiles à la carte (trois au plus), les autres étant seulement nommés. Même règle pour le

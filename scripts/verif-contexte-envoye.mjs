@@ -241,7 +241,14 @@ function poserDecor() {
         blocks: [
           { kind: 'request', label: 'Demande utilisateur', characters: 42 },
           { kind: 'briefing', label: 'Briefing du projet', characters: 500 },
-          { kind: 'memory', label: 'Index de la mémoire du projet', characters: MEMOIRE_OUVERTURE.length },
+          { kind: 'memory', label: 'Passages retrouvés dans la documentation (2)', characters: MEMOIRE_OUVERTURE.length },
+        ],
+        /* Ce que la RECHERCHE est allée chercher toute seule : source, titre,
+           pertinence et coût. C'est ce qui rend le contexte remonté par la
+           machine vérifiable à l'œil. */
+        passages: [
+          { source: 'docs/regles/cartes.md', titre: 'Cartes › Une carte NAÎT dans « Planifié »', score: 0.61, tokens: 320 },
+          { source: 'docs/mecaniques/ajouter-une-colonne.md', titre: 'Ajouter une colonne', score: 0.44, tokens: 180 },
         ],
         history: 'none',
         usage: { inputTokens: 4_000, cachedInputTokens: 1_000 },
@@ -398,6 +405,18 @@ try {
       noter('carte : la session neuve porte l’index entier de mémoire', /2\D?000 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
       noter('carte : l’envoi réel de ce tour est dit', /5\D?000 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
       noter('carte : la part de la mémoire dans l’envoi est dite', /40 %/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
+
+      /*
+       * LES PASSAGES RETROUVÉS : source, titre, pertinence et coût. Un contexte
+       * choisi par la machine doit rester lisible, sinon personne ne peut dire
+       * pourquoi l'agent a lu ceci plutôt que cela.
+       */
+      const listePassages = tiroir.locator('[data-passages-retrouves]');
+      noter('carte : le tiroir liste les passages retrouvés', (await listePassages.count()) === 1);
+      const textePassages = (await listePassages.count()) ? await listePassages.innerText() : '';
+      noter('carte : chaque passage dit son fichier', /docs\/regles\/cartes\.md/.test(textePassages) && /ajouter-une-colonne\.md/.test(textePassages), textePassages.replace(/\n/g, ' '));
+      noter('carte : chaque passage dit sa pertinence', /61 %/.test(textePassages) && /44 %/.test(textePassages), textePassages.replace(/\n/g, ' '));
+      noter('carte : chaque passage dit son coût en tokens', /320 tokens/.test(textePassages) && /180 tokens/.test(textePassages), textePassages.replace(/\n/g, ' '));
       noter('carte : aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte.png') });
     } finally {

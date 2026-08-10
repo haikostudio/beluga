@@ -16,6 +16,7 @@ import {
   DeployRun,
   fusionnerPropositions,
   Message,
+  PassageRetrouve,
   Project,
   ProjectGroup,
   QueuedPrompt,
@@ -823,6 +824,34 @@ export function marquerSujetsMemoireServis(agentId: string, cles: string[]): voi
 /** Les SUJETS que cet agent est allé chercher, sur toute sa vie. */
 export function sujetsMemoireDemandes(agentId: string): string[] {
   return listeMeta(`memoire.demandes.${agentId}`);
+}
+
+/**
+ * LES PASSAGES DE DOCUMENTATION remontés à cet agent par la recherche
+ * (`server/src/passages.ts`). Comme les sujets demandés, c'est une trace
+ * DURABLE : le parcours d'une carte doit pouvoir dire, des mois plus tard, ce
+ * que l'agent est allé chercher et ce que ça a coûté. Une session neuve ne
+ * l'efface donc pas.
+ */
+export function passagesRetrouves(agentId: string): PassageRetrouve[] {
+  const brut = getMeta(`memoire.passages.${agentId}`);
+  if (!brut) return [];
+  try {
+    const liste = JSON.parse(brut);
+    return Array.isArray(liste) ? liste.map((p) => PassageRetrouve.parse(p)) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function marquerPassagesRetrouves(agentId: string, passages: PassageRetrouve[]): void {
+  if (!passages.length) return;
+  // Un agent peut ouvrir plusieurs sessions : on empile, sans doublon, et on
+  // plafonne — le parcours montre ce qui a été cherché, pas un journal.
+  const deja = passagesRetrouves(agentId);
+  const vus = new Set(deja.map((p) => `${p.source}#${p.titre}`));
+  const tout = [...deja, ...passages.filter((p) => !vus.has(`${p.source}#${p.titre}`))];
+  setMeta(`memoire.passages.${agentId}`, JSON.stringify(tout.slice(-30)));
 }
 
 /** Une session neuve repart d'un contexte vide : plus rien n'est « déjà servi ». */

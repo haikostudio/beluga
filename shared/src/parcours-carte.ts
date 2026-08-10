@@ -88,6 +88,12 @@ export interface AgentDuParcours {
   tours: TourMesureAgent[];
   /** Les sujets de mémoire que cet agent est allé demander, par leur nom. */
   sujetsMemoire: string[];
+  /**
+   * Les PASSAGES de documentation remontés à cet agent par la recherche
+   * (`passages-doc.ts`) : ce que la machine est allée chercher toute seule.
+   * Absent sur un agent qui a reçu l'index de la mémoire tel quel.
+   */
+  passages?: { source: string; titre: string; score: number; tokens: number }[];
   /** Ce que son accueil emportait : instructions, compétences, index de mémoire. */
   accueil: { instructions: boolean; competences: boolean; memoire: boolean };
 }
@@ -168,10 +174,12 @@ export function nomDuRole(role: string): string {
 }
 
 /** Ce qu'un accueil a emporté, en clair — c'est du contexte réellement envoyé. */
-function lignesDAccueil(accueil: AgentDuParcours['accueil']): string[] {
+function lignesDAccueil(accueil: AgentDuParcours['accueil'], recherche = false): string[] {
   const lignes: string[] = [];
-  if (accueil.memoire) lignes.push("l'index de la mémoire du projet");
-  else lignes.push("aucun index de mémoire — accueil allégé");
+  // La recherche REMPLACE l'index : dire les deux ferait compter deux fois un
+  // contexte qui n'est parti qu'une seule fois.
+  if (accueil.memoire && !recherche) lignes.push("l'index de la mémoire du projet");
+  else if (!accueil.memoire) lignes.push('aucun index de mémoire — accueil allégé');
   if (accueil.instructions) lignes.push('la liste des fichiers d’instructions');
   if (accueil.competences) lignes.push('la liste des compétences partagées');
   return lignes;
@@ -181,6 +189,24 @@ function lignesDAccueil(accueil: AgentDuParcours['accueil']): string[] {
 function ligneSujets(sujets: string[]): string[] {
   if (!sujets.length) return [];
   return [`la mémoire des sujets ${sujets.map((s) => `« ${s} »`).join(', ')}`];
+}
+
+/**
+ * Les PASSAGES retrouvés par la recherche, en clair : combien, d'où, et ce
+ * qu'ils ont coûté. Une ligne par passage — c'est ce que l'agent a vraiment eu
+ * sous les yeux à la place de l'index de la mémoire.
+ */
+function lignesPassages(passages: AgentDuParcours['passages']): string[] {
+  if (!passages?.length) return [];
+  const jetons = passages.reduce((total, p) => total + p.tokens, 0);
+  return [
+    `${passages.length} passages retrouvés dans la documentation, ${jetons.toLocaleString('fr-CH')} tokens en tout`,
+    ...passages.map(
+      (passage) =>
+        `${passage.source}${passage.titre ? ` — ${passage.titre}` : ''} ` +
+        `(pertinence ${Math.round(passage.score * 100)} %, ${passage.tokens.toLocaleString('fr-CH')} tokens)`,
+    ),
+  ];
 }
 
 /** La ventilation mesurée du contexte, en caractères réellement partis. */
@@ -258,7 +284,8 @@ export function construireParcours(source: SourceParcours): EtapeParcours[] {
         : `Un tour de plus sur la même carte (${nomDuRole(agent.role)}).`,
       quand: agent.createdAt,
       cherche: [
-        ...lignesDAccueil(agent.accueil),
+        ...lignesDAccueil(agent.accueil, !!agent.passages?.length),
+        ...lignesPassages(agent.passages),
         ...ligneSujets(agent.sujetsMemoire),
         ...(premier ? lignesVentilation(source.ventilation) : []),
       ],
