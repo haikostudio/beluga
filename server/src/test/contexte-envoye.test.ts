@@ -51,6 +51,33 @@ test('reprise : seul le nouveau prompt et le rappel sont montrés', () => {
   assert.doesNotMatch(JSON.stringify(instantane), /ancien message opaque/);
 });
 
+test('sans passage retrouvé, l’instantané porte la raison — jamais silencieux', () => {
+  const instantane = instantaneContexteEnvoye({
+    engine: 'claude',
+    nouvelleSession: false,
+    prompt: PROMPT,
+    systemPrompt: 'RAPPEL COURT',
+    blocks: BLOCS,
+    passagesRaison: 'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil.',
+  });
+  assert.deepEqual(instantane.passages, []);
+  assert.equal(instantane.passagesRaison, 'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil.');
+});
+
+test('des passages retrouvés effacent la raison — les deux ne coexistent jamais', () => {
+  const instantane = instantaneContexteEnvoye({
+    engine: 'claude',
+    nouvelleSession: true,
+    prompt: PROMPT,
+    systemPrompt: 'CONSIGNE COMPLÈTE',
+    blocks: BLOCS,
+    passages: [{ source: 'docs/regles/cartes.md', titre: 'Cartes', score: 0.6, tokens: 100, texte: 'texte' }],
+    passagesRaison: 'ne devrait jamais apparaître',
+  });
+  assert.equal(instantane.passages.length, 1);
+  assert.equal(instantane.passagesRaison, undefined);
+});
+
 test('la mesure affichée vient de l’usage moteur et sépare le cache', () => {
   assert.deepEqual(mesureEntreeMoteur({ inputTokens: 700, cachedTokens: 300, outputTokens: 120 }), {
     inputTokens: 700,

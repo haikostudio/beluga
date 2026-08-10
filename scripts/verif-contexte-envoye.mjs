@@ -173,6 +173,9 @@ function poserDecor() {
           { kind: 'format', label: 'Gabarit et séparateurs HaikoDev', characters: 372 },
           { kind: 'system', label: 'Rappel de méthode', characters: 46 },
         ],
+        passages: [],
+        passagesRaison:
+          'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil, seuls les faits ajoutés depuis sont renvoyés.',
         history: 'retained_by_engine',
         usage: { inputTokens: 1_000, cachedInputTokens: 234 },
         sentAt: t,
@@ -331,13 +334,27 @@ try {
       noter(`${cas.nom} : le tiroir distingue la reprise`, (await tiroir.innerText()).includes('Reprise de session'));
 
       /*
-       * LE DÉTAIL BRUT EST REPLIÉ : composition, consigne système et prompt
-       * entier ne s'ouvrent que sur demande.
+       * TOUT EST AFFICHÉ D'EMBLÉE : composition, consigne système et prompt
+       * entier sont visibles sans rien à déplier.
        */
       noter(
-        `${cas.nom} : le détail brut est replié par défaut`,
-        (await tiroir.locator('[data-detail-brut]').count()) === 0 &&
-          (await tiroir.locator('[data-prompt-envoye]').count()) === 0,
+        `${cas.nom} : le détail brut est affiché d’emblée, sans repli`,
+        (await tiroir.locator('[data-detail-brut]').count()) === 1 &&
+          (await tiroir.locator('[data-prompt-envoye]').count()) === 1 &&
+          (await tiroir.locator('[data-voir-detail-brut]').count()) === 0,
+      );
+
+      /*
+       * AUCUN PASSAGE POUR CE TOUR (reprise de session) : le tiroir DIT
+       * pourquoi, au lieu de laisser une case à zéro sans explication.
+       */
+      const raisonAbsence = tiroir.locator('[data-passages-retrouves-absents]');
+      noter(`${cas.nom} : l’absence de passages est expliquée`, (await raisonAbsence.count()) === 1);
+      const texteRaison = (await raisonAbsence.count()) ? await raisonAbsence.innerText() : '';
+      noter(
+        `${cas.nom} : la raison nomme la reprise de session`,
+        /Reprise de session/.test(texteRaison),
+        texteRaison.replace(/\n/g, ' '),
       );
 
       /*
@@ -363,9 +380,7 @@ try {
           !(await tiroir.innerText()).includes('Tours de cet agent'),
       );
 
-      await tiroir.locator('[data-voir-detail-brut]').click();
-      await page.waitForTimeout(300);
-      noter(`${cas.nom} : le prompt exact est visible une fois déplié`, (await tiroir.locator('[data-prompt-envoye]').innerText()) === PROMPT);
+      noter(`${cas.nom} : le prompt exact est visible directement`, (await tiroir.locator('[data-prompt-envoye]').innerText()) === PROMPT);
 
       await page.evaluate(() => {
         window.__contexteCopie = '';
