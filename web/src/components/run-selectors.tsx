@@ -18,7 +18,19 @@ import { cn } from '@/lib/utils';
  * menus, même comportement, une seule définition.
  */
 
-export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking'>>;
+export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' | 'mode'>>;
+
+/**
+ * Le nom court du moteur, celui que tout le monde utilise à l'oral : « Claude »
+ * ou « GPT » (Codex tourne sur des modèles GPT). Le libellé complet reste
+ * dans le catalogue pour les infobulles ; ici on ne garde que l'essentiel.
+ */
+export function nomCourtMoteur(engine: Pick<EngineInfo, 'id' | 'label'> | undefined): string {
+  if (!engine) return 'moteur';
+  if (engine.id === 'codex') return 'GPT';
+  if (engine.id === 'claude') return 'Claude';
+  return engine.label;
+}
 
 /**
  * Ce qui est réellement affiché à partir d'un choix : un modèle enregistré
@@ -54,10 +66,10 @@ export function RunSelectors({
   return (
     <>
       <Selector
-        label={engine?.label ?? 'moteur'}
+        label={nomCourtMoteur(engine)}
         items={installed.map((e) => ({
           id: e.id,
-          label: e.label,
+          label: nomCourtMoteur(e),
           note: e.version?.replace(/[^\d.]/g, '').slice(0, 8),
         }))}
         value={engine?.id}
@@ -71,7 +83,6 @@ export function RunSelectors({
         items={models.map((m) => ({
           id: m.id,
           label: m.label,
-          description: m.description,
           appetite: m.appetite,
           // Le repère de droite : la date de sortie quand le moteur la donne,
           // sinon l'identifiant quand deux modèles portent le même nom.
@@ -91,11 +102,7 @@ export function RunSelectors({
       {thinkingOptions.length > 1 ? (
         <Selector
           label={thinking?.label ?? 'réflexion'}
-          items={thinkingOptions.map((level) => ({
-            id: level.id,
-            label: level.label,
-            description: level.description,
-          }))}
+          items={thinkingOptions.map((level) => ({ id: level.id, label: level.label }))}
           value={thinking?.id}
           onSelect={(id) => onSelect({ thinking: id })}
           title="Niveau de réflexion"
@@ -117,7 +124,7 @@ export function Selector({
   pleineLargeur,
 }: {
   label: string;
-  items: { id: string; label: string; note?: string; description?: string; appetite?: 'light' | 'medium' | 'heavy' }[];
+  items: { id: string; label: string; note?: string; appetite?: 'light' | 'medium' | 'heavy' }[];
   value?: string;
   onSelect: (id: string) => void;
   title: string;
@@ -148,7 +155,9 @@ export function Selector({
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="sm:max-h-[320px] sm:w-[268px]">
+      {/* Colonnes compactes : juste le nom et son repère, sans texte
+          d'explication en dessous — la liste se parcourt d'un coup d'œil. */}
+      <DropdownMenuContent align="start" className="sm:max-h-[320px] sm:w-[220px]">
         <DropdownMenuLabel>{title}</DropdownMenuLabel>
         {avertissement ? (
           <p
@@ -159,21 +168,25 @@ export function Selector({
             {avertissement}
           </p>
         ) : null}
-        {items.map((item) => (
-          <DropdownMenuItem key={item.id} onSelect={() => onSelect(item.id)} className="items-start">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
+        <div className="grid grid-cols-2 gap-1 p-1">
+          {items.map((item) => (
+            <DropdownMenuItem
+              key={item.id}
+              onSelect={() => onSelect(item.id)}
+              className={cn(
+                'flex-col items-start gap-0.5 rounded-md border px-2 py-1.5 text-[12.5px]',
+                value === item.id ? 'border-accent/60 bg-accent/10 text-text' : 'border-border',
+              )}
+            >
+              <span className="flex w-full min-w-0 items-center gap-1">
                 {item.appetite ? <Appetite level={item.appetite} /> : null}
                 <span className="truncate text-text">{item.label}</span>
-                {item.note ? <span className="ml-auto shrink-0 text-[11.5px] text-faint">{item.note}</span> : null}
-              </div>
-              {item.description ? (
-                <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-faint">{item.description}</p>
-              ) : null}
-            </div>
-            {value === item.id ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" /> : null}
-          </DropdownMenuItem>
-        ))}
+                {value === item.id ? <Check className="ml-auto h-2.5 w-2.5 shrink-0 text-success" /> : null}
+              </span>
+              {item.note ? <span className="truncate text-[10.5px] text-faint">{item.note}</span> : null}
+            </DropdownMenuItem>
+          ))}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowUp, Check, GripVertical, Loader2, Paperclip, Pencil, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Check, GripVertical, Loader2, Paperclip, Pencil, Route, Square, Trash2, X } from 'lucide-react';
 import {
   Agent,
   Attachment,
@@ -185,6 +185,8 @@ export function Composer({
     node.style.height = 'auto';
     node.style.height = `${Math.min(node.scrollHeight, 180)}px`;
   }, [text]);
+
+  const modePlan = agent?.run?.mode === 'plan';
 
   // Le serveur tranche : il réinitialise les choix d'après et vérifie que la
   // combinaison existe vraiment (PLAN §14).
@@ -497,6 +499,28 @@ export function Composer({
               disabled={uploading}
             >
               {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+            </Button>
+          </Tooltip>
+
+          <div className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" />
+
+          {/* Bascule direct / plan : l'agent réfléchit sans agir tant qu'elle
+              est allumée. Placée à gauche du choix de moteur, elle reste un
+              réglage à part — pas un quatrième maillon de la cascade. */}
+          <Tooltip label={modePlan ? 'Mode plan activé : repasser en exécution directe' : "Passer en mode plan : l'agent prépare sans exécuter"}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'shrink-0 gap-1 px-1.5 text-[12.5px]',
+                modePlan ? 'border border-accent/60 bg-accent/10 text-text' : 'text-faint hover:text-text',
+              )}
+              onClick={() => updateRun({ mode: modePlan ? 'direct' : 'plan' })}
+              disabled={!agent}
+              data-mode-plan={modePlan ? 'actif' : 'inactif'}
+            >
+              <Route className="h-3 w-3 shrink-0" />
+              Plan
             </Button>
           </Tooltip>
 
