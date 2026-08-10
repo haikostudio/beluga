@@ -290,6 +290,31 @@ export function colonneEnFinDeTour(
   return 'done';
 }
 
+/**
+ * Le moteur n'a RIEN dit avant que le tour ne tombe : ni texte, ni étape —
+ * signe que le LANCEMENT lui-même n'a pas pu joindre le moteur (binaire
+ * injoignable, réseau coupé au démarrage du process), pas que la tâche a
+ * échoué en cours de route. Une carte dans ce cas ne doit pas rester figée en
+ * « En cours » comme le ferait un échec ordinaire (`colonneEnFinDeTour`,
+ * inchangée) : elle retombe en « Planifié », prête à repartir toute seule —
+ * `demarrageAutomatiqueAutorise` la reprend dès que `restarts` dépasse zéro,
+ * et la boucle de l'ordonnanceur (15 s) s'en charge sans geste humain.
+ */
+export function colonneApresMoteurMuet(colonne: ColumnKey, role: AgentRole, moteurMuet: boolean): ColumnKey | null {
+  if (!moteurMuet) return null;
+  if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
+  if (colonne !== 'running') return null;
+  return 'planned';
+}
+
+/**
+ * La phrase portée par une carte que le moteur n'a pas pu joindre au
+ * lancement. Elle dit les deux choses qu'on veut savoir en la relisant : ce
+ * n'est pas un échec du travail, et une nouvelle tentative partira seule.
+ */
+export const RAISON_MOTEUR_INJOIGNABLE =
+  'Le moteur n’a pas répondu au lancement : la carte repart en « Planifié », nouvelle tentative automatique.';
+
 /* ------------------------------------------------------------------ */
 /* Ce que vaut un DÉPÔT de carte à la main                              */
 /* ------------------------------------------------------------------ */
