@@ -30,6 +30,9 @@ import {
   NIVEAU_PAR_DEFAUT,
   niveauDemande,
   type NiveauAgent,
+  DOSSIER_PLANS,
+  EXTENSIONS_DOCUMENT,
+  cheminDuDocumentDuChef,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -336,12 +339,18 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'write_document',
     description:
-      'Écrit un document Markdown dans le projet (documentation, compte-rendu). Seul outil d\'écriture autorisé au chef d\'orchestre.',
+      `Écrit ou réécrit un document Markdown (plan, note, compte-rendu) dans « ${DOSSIER_PLANS}/ ». ` +
+      "Seul outil d'écriture du chef d'orchestre : ce dossier est le seul endroit du projet où il écrit, " +
+      "et ce qu'il y range est relu par la recherche au lancement d'une carte sur le même sujet. " +
+      'Pour MODIFIER un document, relis-le puis réécris-le entier sous le même nom.',
     inputSchema: {
       type: 'object',
       required: ['relativePath', 'content'],
       properties: {
-        relativePath: { type: 'string', description: 'Chemin relatif dans le projet, ex. docs/note.md' },
+        relativePath: {
+          type: 'string',
+          description: `Nom du fichier, ex. « refonte-accueil.md » (rangé d'office dans ${DOSSIER_PLANS}/)`,
+        },
         content: { type: 'string' },
       },
     },
@@ -692,15 +701,36 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     case 'write_document': {
-      const rel = String(args.relativePath ?? '');
-      if (!rel.endsWith('.md') && !rel.endsWith('.txt')) {
-        return { ok: false, text: 'Seuls les documents .md ou .txt sont autorisés par cet outil.' };
+      /*
+       * LE CHEF N'ÉCRIT QUE DANS SON DOSSIER DE PLANS. C'est son SEUL geste
+       * d'écriture dans le projet — le bac à sable garde tout le reste en
+       * lecture seule — et il est ramené ici à `docs/plans/`
+       * (`shared/src/documents-du-chef.ts`) : sans cela, un `.md` pouvait
+       * s'écrire par-dessus les règles du moteur. Les autres rôles, qui ont de
+       * toute façon les outils d'édition, gardent le dossier entier.
+       */
+      const demande = String(args.relativePath ?? '');
+      let rel = demande;
+      if (ctx.role === 'orchestrator') {
+        const choix = cheminDuDocumentDuChef(demande);
+        if (!choix.ok) return { ok: false, text: choix.raison };
+        rel = choix.chemin;
+      } else if (!EXTENSIONS_DOCUMENT.some((fin) => rel.endsWith(fin))) {
+        return { ok: false, text: `Seuls les documents ${EXTENSIONS_DOCUMENT.join(' ou ')} sont autorisés par cet outil.` };
       }
       const full = safeJoin(project.path, rel);
       if (!full) return { ok: false, text: 'Chemin refusé : on ne sort jamais du dossier du projet.' };
+      const existait = fs.existsSync(full);
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, String(args.content ?? ''), 'utf8');
-      return { ok: true, text: `Document écrit : ${rel}.` };
+      // Le chef doit savoir s'il a CRÉÉ ou REMPLACÉ : un plan qu'on croit
+      // ajuster et qu'on écrase sous un autre nom se perd en silence.
+      const geste = existait ? 'Document mis à jour' : 'Document créé';
+      const rappel =
+        ctx.role === 'orchestrator'
+          ? ` Il sera relu par la recherche au lancement d'une carte sur le même sujet ; pour le modifier, relis-le et réécris « ${rel} ».`
+          : '';
+      return { ok: true, text: `${geste} : ${rel}.${rappel}` };
     }
 
     case 'make_archive': {
