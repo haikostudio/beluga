@@ -448,17 +448,24 @@ export function Drawer({
             // pose au centre, plafonné à 960 px : au-delà, les lignes de texte
             // deviennent trop longues pour être lues confortablement.
             'fixed inset-x-0 z-50 mx-auto flex w-full max-w-[960px] flex-col overflow-hidden border-border bg-bg shadow-2xl',
-            'rounded-t-xl border-t sm:rounded-t-2xl sm:border-x',
+            'rounded-t-xl sm:rounded-t-2xl sm:border-x',
             // Une feuille qui MONTE : le décalage de 6 px des fenêtres se
             // voyait à peine sur un panneau de cette taille.
             'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
-            empile && 'border-t-2 border-t-accent/50 shadow-[0_-14px_38px_-10px_rgba(0,0,0,0.7)]',
+            // Le voile derrière suffit à séparer le tiroir du reste de l'écran : un
+            // liseré clair juste sous la poignée faisait une ligne parasite. Le tiroir
+            // empilé, lui, en a besoin pour se distinguer de celui qu'il recouvre.
+            empile
+              ? 'border-t-2 border-t-accent/50 shadow-[0_-14px_38px_-10px_rgba(0,0,0,0.7)]'
+              : 'border-t border-t-transparent',
             className,
           )}
           style={{
-            // Collé au bas de la fenêtre, et remonté quand le clavier s'ouvre.
-            top: '8%',
+            // La hauteur suit le contenu — plafonnée pour ne pas dépasser l'écran —
+            // au lieu d'occuper toujours 92 % de la hauteur, vide en bas quand le
+            // contenu est court.
             bottom: 'var(--clavier, 0px)',
+            maxHeight: 'calc(92dvh - var(--clavier, 0px))',
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: decalage ? `translateY(${decalage}px)` : undefined,
             transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
