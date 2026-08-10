@@ -891,6 +891,7 @@ async function startTurn(
     mcpConfigPath,
     mcpBridgePath: bridgePath,
     fullAccess,
+    mode: agent.run.mode,
     allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
     disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
     env,
