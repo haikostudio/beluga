@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { ZodError } from 'zod';
 import {
   Card,
   CiblePublication,
@@ -346,6 +347,21 @@ export async function conflitsPrevus(projectId: string, source: ColumnKey = 'to_
 }
 
 /**
+ * Le récit d'un échec d'agent de dépannage, JAMAIS le dump brut d'une erreur
+ * Zod. `sendPrompt` peut faire remonter n'importe quelle exception : côté
+ * publication, on ne veut jamais afficher un tableau `issues` illisible dans
+ * le journal d'une carte — seulement ce qui a raté, en une phrase.
+ */
+function raisonEchecAgent(err: unknown): string {
+  if (err instanceof ZodError) {
+    const champs = err.issues.map((i) => i.path.join('.') || '(racine)').join(', ') || 'champs inconnus';
+    return `réponse interne invalide (${champs})`;
+  }
+  const message = (err as { message?: unknown } | undefined)?.message;
+  return typeof message === 'string' && message ? message : 'raison inconnue';
+}
+
+/**
  * Un conflit se résout DANS la publication, pas dans une nouvelle tâche.
  *
  * Avant, une branche en conflit produisait une carte « Résoudre le conflit de
@@ -354,6 +370,13 @@ export async function conflitsPrevus(projectId: string, source: ColumnKey = 'to_
  * publieur appelle maintenant un agent sur-le-champ, attend qu'il ait fini, et
  * retente la fusion. En cas d'échec, la carte est simplement écartée du lot et
  * reste dans « À déployer », comme avant.
+ *
+ * L'agent de résolution ne porte PAS le `cardId` de la carte en conflit : ce
+ * n'est pas SON agent d'exécution, seulement un geste de plomberie ponctuel.
+ * Le lui donner faisait de lui « le dernier agent de cette carte »
+ * (`getLastAgentByCard`, sans filtre de rôle) — au risque de faire reprendre
+ * SA session, au lieu de celle du travail réel, par `startCard` ou par
+ * l'onglet Conversation de la carte.
  *
  * Rend vrai si la branche a fini par se fusionner.
  */
@@ -370,7 +393,6 @@ async function resoudreConflit(
     projectId,
     role: 'deploy',
     title: `Conflit de fusion — ${card.title}`,
-    cardId: card.id,
     run: card.run,
   });
 
@@ -394,8 +416,8 @@ async function resoudreConflit(
 
   try {
     await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'conflit' });
-  } catch (err: any) {
-    return { fusionnee: false, recit: `agent de résolution en échec (${err?.message ?? 'raison inconnue'})` };
+  } catch (err) {
+    return { fusionnee: false, recit: `agent de résolution en échec (${raisonEchecAgent(err)})` };
   }
 
   /*
@@ -488,8 +510,8 @@ async function reparerLesControles(
 
   try {
     await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'controles' });
-  } catch (err: any) {
-    return { tente: false, recit: `agent de réparation en échec (${err?.message ?? 'raison inconnue'})` };
+  } catch (err) {
+    return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(err)})` };
   }
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
@@ -529,8 +551,8 @@ async function reparerLaConstruction(
 
   try {
     await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'construction' });
-  } catch (err: any) {
-    return { tente: false, recit: `agent de réparation en échec (${err?.message ?? 'raison inconnue'})` };
+  } catch (err) {
+    return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(err)})` };
   }
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
