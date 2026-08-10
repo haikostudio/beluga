@@ -7,11 +7,11 @@ import { z } from 'zod';
  */
 export const COLUMN_KEYS = [
   'notes',
+  // « Validé » puis « Planifié » ont disparu : TOUT ce qui précède le travail se
+  // joue dans « À faire ». Valider y lance le chiffrage SUR PLACE, la carte y
+  // reste avec ses chiffres, et elle part en « En cours » au clic ou à l'heure
+  // dite. Deux étapes d'attente en moins sur le tableau.
   'todo',
-  // « Validé » a disparu : valider une carte de « À faire » lance son analyse
-  // SUR PLACE, et la carte n'apparaît en « Planifié » qu'une fois le chiffrage
-  // rendu. Une étape d'attente en moins sur le tableau.
-  'planned',
   'running',
   'done',
   'to_deploy',
@@ -25,7 +25,6 @@ export type ColumnKey = z.infer<typeof ColumnKey>;
 export const COLUMN_LABELS: Record<ColumnKey, string> = {
   notes: 'Notes',
   todo: 'À faire',
-  planned: 'Planifié',
   running: 'En cours',
   done: 'Terminé',
   to_deploy: 'À déployer',
@@ -47,7 +46,7 @@ export const USER_ONLY_TARGETS: ColumnKey[] = ['to_deploy', 'in_production'];
  * depuis que la carte suit l'état de son agent : elle y va d'elle-même quand
  * le travail est rendu (voir `suivi-colonne.ts`).
  */
-export const MACHINE_ONLY_TARGETS: ColumnKey[] = ['planned', 'running', 'done'];
+export const MACHINE_ONLY_TARGETS: ColumnKey[] = ['running', 'done'];
 
 export type Actor = 'user' | 'agent' | 'machine';
 
@@ -83,15 +82,15 @@ export function canMove(actor: Actor, from: ColumnKey, to: ColumnKey): MoveDecis
     if (!MACHINE_ONLY_TARGETS.includes(to) && to !== 'archived' && to !== 'todo') {
       return {
         allowed: false,
-        reason: `L'ordonnanceur ne promeut que vers « ${COLUMN_LABELS.planned} » ou « ${COLUMN_LABELS.running} ».`,
+        reason: `L'ordonnanceur ne promeut que vers « ${COLUMN_LABELS.running} » ou « ${COLUMN_LABELS.done} ».`,
       };
     }
-    if (from === 'todo') {
-      return {
-        allowed: false,
-        reason: "L'ordonnanceur ne touche jamais une carte de « À faire » : la validation humaine manque.",
-      };
-    }
+    /*
+     * « À faire » est désormais la SEULE colonne d'avant-travail : c'est de là
+     * que l'ordonnanceur lance une carte déjà autorisée (heure dite, « dès que
+     * possible », tour interrompu). Ce n'est donc plus une sortie interdite —
+     * l'autorisation, elle, se juge dans `demarrageAutomatiqueAutorise`, pas ici.
+     */
     return { allowed: true };
   }
 

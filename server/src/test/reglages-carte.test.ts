@@ -18,7 +18,7 @@ test('une carte à faire montre ce qui est prévu, et se laisse modifier', () =>
 });
 
 test('une carte à faire ou planifiée se laisse encore modifier', () => {
-  for (const colonne of ['todo', 'planned'] as const) {
+  for (const colonne of ['todo'] as const) {
     const vu = reglagesDeLaCarte({ colonne, carte: PREVU });
     assert.equal(vu.modifiable, true, colonne);
     assert.equal(vu.compte, undefined, colonne);

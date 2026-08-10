@@ -338,16 +338,19 @@ export function digestText(projectId?: string): string {
           }
           break;
         }
-        case 'planned':
-          if (card.scheduling?.waitingReason) {
-            etat.bloquees.push({ ...dite, detail: raisonParlee(card.scheduling.waitingReason) });
-          }
-          break;
         case 'to_deploy':
           if (!card.deployedAt) etat.aPublier.push(dite);
           break;
         case 'todo':
-          etat.aValider.push(dite);
+          // « À faire » porte désormais TOUT l'avant-travail (« Planifié » a
+          // disparu) : une raison d'attente écrite dessus veut dire que la carte
+          // est déjà partie plus loin que la validation et que quelque chose la
+          // retient ; sans raison, elle attend simplement son geste.
+          if (card.scheduling?.waitingReason) {
+            etat.bloquees.push({ ...dite, detail: raisonParlee(card.scheduling.waitingReason) });
+          } else {
+            etat.aValider.push(dite);
+          }
           break;
         default:
           break;

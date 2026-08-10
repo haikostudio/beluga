@@ -14,8 +14,10 @@ import {
   decisionsParCarte,
   etapeDeLaColonne,
   etatVisuelCarte,
+  lireDateDeDepart,
   mentionArchivage,
   mentionDepartProgramme,
+  phraseDepartProgramme,
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
@@ -83,39 +85,51 @@ type ActionDeLot = {
   parallele?: boolean;
 };
 
-const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
-  // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
-  // carte : autoriser la dépense, donc lancer le chiffrage. Les cartes restent
-  // dans « À faire » le temps de l'analyse et montent en « Planifié » une fois
-  // chiffrées. Rien n'est exécuté — le lancement reste un geste.
-  todo: { libelle: 'Tout valider', icone: Check, verbe: 'Valider', participe: 'validée' },
-  // Déposer une carte dans « En cours » VAUT le clic sur « Lancer maintenant » :
-  // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
-  // carte et le serveur passe par `startCard` — portes dures comprises. Une
-  // carte refusée revient à sa colonne avec sa raison, et le lot continue.
-  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running', participe: 'lancée', parallele: true },
+/**
+ * Une colonne peut porter PLUSIEURS gestes de lot depuis que « Planifié » a
+ * disparu : « À faire » valide (chiffrage) ET lance (exécution), les deux
+ * étapes s'y jouant l'une après l'autre. Le mécanisme ne change pas — cases à
+ * cocher, confirmation, compte rendu —, seul le bouton du repos se dédouble.
+ */
+const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot[]>> = {
+  todo: [
+    // Valider en lot fait EXACTEMENT ce que fait le bouton du tiroir, carte par
+    // carte : autoriser la dépense, donc lancer le chiffrage. Les cartes ne
+    // bougent pas — elles restent dans « À faire » avec leurs chiffres. Rien
+    // n'est exécuté : le lancement reste un geste à part.
+    { libelle: 'Tout valider', icone: Check, verbe: 'Valider', participe: 'validée' },
+    // Déposer une carte dans « En cours » VAUT le clic sur « Lancer maintenant » :
+    // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
+    // carte et le serveur passe par `startCard` — portes dures comprises. Une
+    // carte refusée revient à sa colonne avec sa raison, et le lot continue.
+    { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running', participe: 'lancée', parallele: true },
+  ],
   // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
-  done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy', participe: 'déployée' },
+  done: [{ libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy', participe: 'déployée' }],
   // La mise en ligne compte désormais DEUX étapes : « À déployer » pousse vers
   // « En production », et c'est de là seulement qu'on archive. Un pied suit le
   // parcours de la carte — on n'archive jamais par-dessus une étape.
-  to_deploy: {
-    libelle: 'Tout mettre en production',
-    icone: Globe,
-    verbe: 'Mettre en production',
-    cible: 'in_production',
-    participe: 'mise en production',
-  },
+  to_deploy: [
+    {
+      libelle: 'Tout mettre en production',
+      icone: Globe,
+      verbe: 'Mettre en production',
+      cible: 'in_production',
+      participe: 'mise en production',
+    },
+  ],
   // Dernière colonne du parcours, où le ménage se fait en lot.
-  in_production: {
-    libelle: 'Tout archiver',
-    icone: Archive,
-    verbe: 'Archiver',
-    cible: 'archived',
-    participe: 'archivée',
-  },
+  in_production: [
+    {
+      libelle: 'Tout archiver',
+      icone: Archive,
+      verbe: 'Archiver',
+      cible: 'archived',
+      participe: 'archivée',
+    },
+  ],
 };
 
 /**
@@ -353,7 +367,7 @@ export function Board({
     /*
      * Le glisser-déposer obéit aux mêmes règles que les boutons du tiroir :
      * emporter une carte hors de « En cours » pendant que son agent écrit,
-     * c'est perdre le fil de son travail. Seul le retour en « Planifié » est
+     * c'est perdre le fil de son travail. Seul le retour en « À faire » est
      * permis pendant ce temps-là : c'est la demande de SUSPENDRE, et le serveur
      * arrête alors le tour proprement.
      */
@@ -381,6 +395,12 @@ export function Board({
    * compteur des boutons illisible.
    */
   const [colonneEnLot, setColonneEnLot] = React.useState<ColumnKey | null>(null);
+  /*
+   * L'action choisie au moment d'ouvrir le lot. Une colonne pouvant en porter
+   * deux (« À faire » valide ou lance), le bouton de confirmation doit savoir
+   * LEQUEL des deux gestes il rejoue.
+   */
+  const [actionEnLot, setActionEnLot] = React.useState<ActionDeLot | null>(null);
   const [selection, setSelection] = React.useState<string[]>([]);
   const [lotEnCours, setLotEnCours] = React.useState(false);
   /*
@@ -398,6 +418,7 @@ export function Board({
   // rien à cocher, et le pied resterait sur des boutons sans effet.
   React.useEffect(() => {
     setColonneEnLot(null);
+    setActionEnLot(null);
     setSelection([]);
     ancreSelection.current = null;
     // Les infos de publication appartiennent au projet quitté : on repart net,
@@ -405,16 +426,21 @@ export function Board({
     setInfosPublication({});
   }, [projectId]);
   React.useEffect(() => {
-    if (colonneEnLot && !cartesEnSelection.length) setColonneEnLot(null);
+    if (colonneEnLot && !cartesEnSelection.length) {
+      setColonneEnLot(null);
+      setActionEnLot(null);
+    }
   }, [colonneEnLot, cartesEnSelection.length]);
 
-  const ouvrirLot = (column: ColumnKey) => {
+  const ouvrirLot = (column: ColumnKey, action: ActionDeLot) => {
     setSelection(byColumn(column).map((card) => card.id));
     setColonneEnLot(column);
+    setActionEnLot(action);
   };
 
   const fermerLot = () => {
     setColonneEnLot(null);
+    setActionEnLot(null);
     setSelection([]);
     ancreSelection.current = null;
   };
@@ -447,6 +473,9 @@ export function Board({
     // VIDE sur cette colonne : le clavier sert à choisir, pas à tout prendre.
     if (colonneEnLot !== column) {
       setColonneEnLot(column);
+      // Une sélection au clavier part sur le PREMIER geste de la colonne — le
+      // plus courant. Le pied reste libre de le changer en refermant le lot.
+      setActionEnLot(ACTIONS_DE_LOT[column]?.[0] ?? null);
       setSelection([card.id]);
       ancreSelection.current = card.id;
       return;
@@ -702,7 +731,7 @@ export function Board({
       >
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
-        const action = ACTIONS_DE_LOT[column];
+        const actions = ACTIONS_DE_LOT[column] ?? [];
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
         return (
           <div
@@ -812,17 +841,15 @@ export function Board({
                     ? 'Idées en vrac.'
                     : column === 'todo'
                       ? 'Rien à faire pour l’instant.'
-                        : column === 'running'
+                      : column === 'running'
                         ? 'Glissez ici pour lancer le travail.'
-                        : column === 'planned'
-                          ? 'Glissez une carte hors de « En cours » pour suspendre son agent.'
-                          : column === 'done'
-                            ? 'Aucun travail terminé pour l’instant.'
-                            : column === 'to_deploy'
-                              ? 'Rien à mettre en ligne pour l’instant.'
-                              : column === 'in_production'
-                                ? 'Aucune carte en attente de mise en production.'
-                                : 'Aucune carte rangée ici pour l’instant.'}
+                        : column === 'done'
+                          ? 'Aucun travail terminé pour l’instant.'
+                          : column === 'to_deploy'
+                            ? 'Rien à mettre en ligne pour l’instant.'
+                            : column === 'in_production'
+                              ? 'Aucune carte en attente de mise en production.'
+                              : 'Aucune carte rangée ici pour l’instant.'}
                 </p>
               ) : null}
               </div>
@@ -834,12 +861,24 @@ export function Board({
               cases sorties. Annuler ne touche à rien, confirmer déplace ce qui
               est resté coché. Colonne vide, pas de pied : il n'agirait sur rien.
             */}
-            {action && columnCards.length ? (
+            {actions.length && columnCards.length ? (
               <div className="shrink-0 border-t border-border/50 p-1.5">
-                {colonneEnLot !== column ? (
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => ouvrirLot(column)}>
-                    <action.icone className="h-3 w-3" /> {action.libelle}
-                  </Button>
+                {colonneEnLot !== column || !actionEnLot ? (
+                  // Au repos : un bouton par geste de la colonne. « À faire » en
+                  // porte deux depuis la fusion — valider, puis lancer.
+                  <div className="flex flex-col gap-1.5">
+                    {actions.map((action) => (
+                      <Button
+                        key={action.libelle}
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => ouvrirLot(column, action)}
+                      >
+                        <action.icone className="h-3 w-3" /> {action.libelle}
+                      </Button>
+                    ))}
+                  </div>
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <Button
@@ -856,10 +895,10 @@ export function Board({
                       size="sm"
                       className="flex-1"
                       disabled={!selection.length || lotEnCours}
-                      onClick={() => appliquerLot(action)}
+                      onClick={() => appliquerLot(actionEnLot)}
                     >
                       {lotEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                      {action.verbe} ({selection.length})
+                      {actionEnLot.verbe} ({selection.length})
                     </Button>
                   </div>
                 )}
@@ -887,10 +926,39 @@ export function Board({
   );
 }
 
+/**
+ * L'instant présent, écrit comme l'attend un champ « datetime-local » : date
+ * LOCALE, sans secondes ni fuseau. Passer par `toISOString` afficherait l'heure
+ * de Greenwich — 6 h posées le soir d'été deviendraient 4 h.
+ */
+function maintenantEnChamp(): string {
+  const date = new Date();
+  const deux = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${deux(date.getMonth() + 1)}-${deux(date.getDate())}T${deux(date.getHours())}:${deux(
+    date.getMinutes(),
+  )}`;
+}
+
 function ComposerInline({ projectId, column }: { projectId: string; column: ColumnKey }) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
+  /*
+   * L'HEURE DE DÉPART, réglable dès la création. Le champ part de MAINTENANT :
+   * on n'a plus qu'à pousser l'heure ou le jour, sans tout retaper.
+   *
+   * Seule une heure À VENIR programme quelque chose. Une heure déjà passée —
+   * dont celle affichée par défaut, si on n'y touche pas — ne pose AUCUNE date :
+   * la carte attend son lancement, comme aujourd'hui. C'est ce qui garde la
+   * règle du moteur intacte (rien ne part sans un geste) tout en laissant la
+   * date à portée de main.
+   */
+  const [depart, setDepart] = React.useState(maintenantEnChamp);
+  const minute = useMinute();
+  const departPrevu = React.useMemo(() => {
+    const lu = lireDateDeDepart(depart);
+    return lu && lu > minute ? lu : null;
+  }, [depart, minute]);
   const [attachments, setAttachments] = React.useState<Attachment[]>([]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [uploading, setUploading] = React.useState(false);
@@ -944,8 +1012,17 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
       if (column === 'notes' && data?.card) {
         await client.call({ type: 'card.move', id: data.card.id, column: 'notes' });
       }
+      /*
+       * L'heure dite est posée par la MÊME commande que le champ du tiroir
+       * (`card.schedule`) : un seul chemin, une seule règle d'attente écrite sur
+       * la carte. Elle ne part que si elle est encore à venir.
+       */
+      if (column !== 'notes' && departPrevu && data?.card) {
+        await client.call({ type: 'card.schedule', id: data.card.id, at: departPrevu });
+      }
       setTitle('');
       setDescription('');
+      setDepart(maintenantEnChamp());
       setAttachments([]);
       setApercu(null);
       setOpen(false);
@@ -964,7 +1041,12 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
           size="icon-sm"
           className="ml-auto"
           aria-label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            // Le champ repart de l'heure qu'il est, pas de celle d'il y a
+            // trois heures quand le formulaire avait été ouvert la dernière fois.
+            setDepart(maintenantEnChamp());
+            setOpen(true);
+          }}
         >
           <Plus className="h-3 w-3" />
         </Button>
@@ -995,6 +1077,29 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
           if (event.key === 'Escape') setOpen(false);
         }}
       />
+      {/* L'HEURE DE DÉPART, réglable dès la création : la carte n'a plus à être
+          ouverte après coup pour être programmée. Une note ne s'exécute jamais,
+          elle n'a donc rien à programmer. */}
+      {column !== 'notes' ? (
+        <div className="mt-1.5" data-depart-nouvelle-carte>
+          <label className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
+            <CalendarClock className="h-3 w-3" />
+            Départ
+          </label>
+          <Input
+            type="datetime-local"
+            aria-label="Date et heure de départ"
+            value={depart}
+            onChange={(event) => setDepart(event.target.value)}
+            className="mt-1 w-full text-[13.5px]"
+          />
+          <p className="mt-1 text-[12.5px] text-faint">
+            {departPrevu
+              ? phraseDepartProgramme(departPrevu, minute)
+              : 'Heure déjà passée : la carte attendra votre lancement. Poussez la date pour programmer un départ.'}
+          </p>
+        </div>
+      ) : null}
       {column === 'notes' && attachments.length ? (
         <div className="mt-1.5 flex flex-wrap gap-1.5" data-note-attachments>
           {attachments.map((item) => (

@@ -83,7 +83,7 @@ test('le nom de branche est propre, sans accent ni espace', () => {
     id: 'abcdef123456',
     projectId: 'p1',
     title: 'Créer l\'écran « Réglages » (été 2026)',
-    column: 'planned',
+    column: 'todo',
     position: 1,
     run: { engine: 'claude', thinking: 'none', mode: 'direct' },
     createdAt: 1,

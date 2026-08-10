@@ -261,7 +261,7 @@ export const SchedulingState = z.object({
   restarts: z.number().default(0),
   /**
    * La carte a été SUSPENDUE à la main (sortie de « En cours » vers
-   * « Planifié »). Elle reste en file et visible, mais l'ordonnanceur ne la
+   * « À faire »). Elle reste en file et visible, mais l'ordonnanceur ne la
    * reprend pas tout seul : suspendre puis voir repartir quinze secondes plus
    * tard ne serait pas suspendre. Le prochain départ est un geste, et ce geste
    * efface la marque.
@@ -269,7 +269,7 @@ export const SchedulingState = z.object({
   suspendu: z.boolean().optional(),
   /**
    * La DATE de départ souhaitée, en millisecondes. Tant qu'elle n'est pas
-   * venue, la carte attend dans « Planifié » ; à l'heure dite, l'ordonnanceur
+   * venue, la carte attend dans « À faire » ; à l'heure dite, l'ordonnanceur
    * la lance par le même chemin que le bouton. Le départ EFFACE la date : une
    * date, une fois, jamais une récurrence (`shared/src/depart-programme.ts`).
    */
@@ -297,11 +297,12 @@ export const Card = z.object({
   estimate: Estimate.optional(),
   /**
    * L'utilisateur a VALIDÉ la carte : la dépense est autorisée, l'analyse est
-   * demandée. La carte reste dans « À faire » le temps du chiffrage (il n'y a
-   * plus de colonne « Validé ») et porte ce drapeau, qui allume le signal
+   * demandée. La carte reste dans « À faire » du début à la fin de
+   * l'avant-travail (« Validé » et « Planifié » ont disparu) et porte ce
+   * drapeau, qui allume le signal
    * « Chiffrage du travail… » et permet à l'ordonnanceur de reprendre une
    * analyse coupée par un redémarrage. Il s'efface dès que l'analyse a rendu —
-   * avec ses chiffres (la carte part en « Planifié ») ou sans (l'échec se lit
+   * avec ses chiffres (la carte les garde sur place) ou sans (l'échec se lit
    * sur l'estimation).
    */
   analyseDemandee: z.boolean().default(false),

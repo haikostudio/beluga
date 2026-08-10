@@ -351,12 +351,13 @@ async function main() {
 
   const apres = colonnesEnBase();
   const validees = validationsEnBase();
-  // Valider ne DÉPLACE plus : la carte reste dans « À faire » pendant son
-  // chiffrage et ne montera en « Planifié » qu'une fois l'analyse rendue. Les
-  // deux états valent donc « validée » — on n'attend pas un vrai tour de moteur.
+  // Valider ne DÉPLACE plus rien : la carte reste dans « À faire » pendant son
+  // chiffrage, et elle y reste ensuite avec ses chiffres — « Planifié » a
+  // disparu. Le drapeau de validation est le seul signe attendu ici : on ne
+  // joue pas un vrai tour de moteur.
   noter(
     'les deux cartes cochées sont validées : chiffrage lancé sur place',
-    TITRES.filter((t) => t !== gardee).every((t) => validees[t] || apres[t] === 'planned'),
+    TITRES.filter((t) => t !== gardee).every((t) => validees[t] || apres[t] === 'todo'),
     `${JSON.stringify(apres)} · ${JSON.stringify(validees)}`,
   );
   noter(

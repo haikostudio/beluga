@@ -46,7 +46,7 @@ function choisirCarte(db) {
        FROM cards c
        JOIN agents a ON a.card_id = c.id AND a.role != 'analysis'
        JOIN messages m ON m.agent_id = a.id
-       WHERE c.column_key IN ('running', 'to_deploy', 'planned')
+       WHERE c.column_key IN ('running', 'to_deploy', 'todo')
        GROUP BY c.id HAVING n >= 2
        ORDER BY n DESC, c.updated_at DESC LIMIT 1`,
     )

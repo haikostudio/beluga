@@ -32,7 +32,7 @@ test('une carte terminée sur laquelle on relance une exécution repasse en cour
 });
 
 test('une carte en amont du parcours part en cours quand l’exécution démarre', () => {
-  for (const depart of ['notes', 'todo', 'planned'] as const) {
+  for (const depart of ['notes', 'todo'] as const) {
     assert.equal(colonneAuDemarrage(depart, 'task'), 'running', `depuis « ${depart} »`);
   }
 });
@@ -57,7 +57,7 @@ test('un tour d’exécution réussi pose la carte en terminé', () => {
 
 test('un tour d’exécution en échec ne déplace rien : le travail n’est pas fait', () => {
   assert.equal(colonneEnFinDeTour('running', false, 'task', true), null);
-  for (const depart of ['todo', 'planned', 'done'] as const) {
+  for (const depart of ['todo', 'done'] as const) {
     assert.equal(colonneEnFinDeTour(depart, false, 'task', true), null, `depuis « ${depart} »`);
   }
 });
@@ -152,11 +152,11 @@ test('la liste des rôles qui déplacent se réduit à l’exécution', () => {
 test('validé, analyse, exécution : la carte ne bouge qu’au bon moment', () => {
   // 1. L'analyse démarre sur une carte validée : elle reste dans « À faire ».
   assert.equal(colonneAuDemarrage('todo', 'analysis'), null);
-  // 2. L'analyse rend son chiffrage : ces règles ne la déplacent toujours pas
-  //    (c'est l'ordonnanceur qui la promeut en « Planifié »).
+  // 2. L'analyse rend son chiffrage : la carte ne bouge pas d'un pouce — il n'y
+  //    a plus de colonne « Planifié » où la promouvoir.
   assert.equal(colonneEnFinDeTour('todo', true, 'analysis', true), null);
-  // 3. L'ordonnanceur lance l'exécution : la carte passe en cours.
-  assert.equal(colonneAuDemarrage('planned', 'task'), 'running');
+  // 3. Le lancement part de « À faire » : la carte passe en cours.
+  assert.equal(colonneAuDemarrage('todo', 'task'), 'running');
   // 4. L'exécution rend son rapport : terminé.
   assert.equal(colonneEnFinDeTour('running', true, 'task', true), 'done');
 });
@@ -177,8 +177,10 @@ test('la machine a le droit de poser une carte en terminé', () => {
   assert.equal(canMove('machine', 'running', 'done').allowed, true);
 });
 
-test('l’ordonnanceur ne touche toujours pas à « À faire » : la validation manque', () => {
-  assert.equal(canMove('machine', 'todo', 'running').allowed, false);
+test('l’ordonnanceur lance depuis « À faire », devenue la seule file d’attente', () => {
+  // L'autorisation, elle, ne se juge pas ici mais dans `demarrageAutomatiqueAutorise` :
+  // une carte simplement posée là ne part toujours pas toute seule.
+  assert.equal(canMove('machine', 'todo', 'running').allowed, true);
 });
 
 /* ------------------------------------------------------------------ */
@@ -186,19 +188,19 @@ test('l’ordonnanceur ne touche toujours pas à « À faire » : la validation 
 /* ------------------------------------------------------------------ */
 
 test('déposer une carte dans « En cours » vaut un lancement, d’où qu’elle vienne', () => {
-  for (const depart of ['notes', 'todo', 'planned', 'done'] as const) {
+  for (const depart of ['notes', 'todo', 'done'] as const) {
     assert.equal(effetDuDepot(depart, 'running'), 'lancer', `depuis « ${depart} »`);
   }
 });
 
-test('sortir une carte de « En cours » vers « Planifié » suspend son agent', () => {
-  assert.equal(effetDuDepot('running', 'planned'), 'suspendre');
+test('sortir une carte de « En cours » vers « À faire » suspend son agent', () => {
+  assert.equal(effetDuDepot('running', 'todo'), 'suspendre');
 });
 
 test('les autres sorties de « En cours » restent de simples rangements', () => {
   // Elles sont refusées EN AMONT quand l'agent travaille (`sortieAutorisee`) ;
   // quand il ne travaille plus, ranger la carte ne doit rien déclencher.
-  for (const arrivee of ['todo', 'done', 'to_deploy', 'archived'] as const) {
+  for (const arrivee of ['notes', 'done', 'to_deploy', 'archived'] as const) {
     assert.equal(effetDuDepot('running', arrivee), 'ranger', `vers « ${arrivee} »`);
   }
 });
@@ -212,8 +214,8 @@ test('reposer une carte dans sa propre colonne ne déclenche rien', () => {
 test('un rangement ordinaire n’est ni un lancement ni une suspension', () => {
   assert.equal(effetDuDepot('todo', 'notes'), 'ranger');
   assert.equal(effetDuDepot('done', 'to_deploy'), 'ranger');
-  // « Planifié » n'est une suspension QUE depuis « En cours ».
-  assert.equal(effetDuDepot('todo', 'planned'), 'ranger');
+  // « À faire » n'est une suspension QUE depuis « En cours ».
+  assert.equal(effetDuDepot('notes', 'todo'), 'ranger');
 });
 
 /* -------- Ce que le glissement a le droit de faire pendant le travail -------- */
@@ -221,11 +223,11 @@ test('un rangement ordinaire n’est ni un lancement ni une suspension', () => {
 const enTravail = { colonne: 'running', etat: etatVisuelCarte({ agentStatut: 'running' }), agentLance: true };
 
 test('la suspension passe même pendant que l’agent écrit : c’est sa raison d’être', () => {
-  assert.equal(sortieAutorisee(enTravail, 'planned').possible, true);
+  assert.equal(sortieAutorisee(enTravail, 'todo').possible, true);
 });
 
 test('toute autre sortie reste refusée tant que l’agent écrit', () => {
-  for (const arrivee of ['todo', 'notes', 'done', 'to_deploy', 'archived'] as const) {
+  for (const arrivee of ['notes', 'done', 'to_deploy', 'archived'] as const) {
     const decision = sortieAutorisee(enTravail, arrivee);
     assert.equal(decision.possible, false, `vers « ${arrivee} »`);
     assert.ok(decision.raison, 'un refus se dit en toutes lettres');

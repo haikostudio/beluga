@@ -36,14 +36,15 @@ test('un agent ne peut pas sortir une carte du pipeline', () => {
   assert.equal(decision.allowed, false);
 });
 
-test('la validation reste un geste humain : la machine ne touche pas « à faire »', () => {
-  assert.equal(canMove('machine', 'todo', 'planned').allowed, false);
-  assert.equal(canMove('machine', 'planned', 'running').allowed, true);
+test('la machine lance une carte d’« À faire », qui est la seule file d’attente', () => {
+  // « Planifié » a disparu : c'est de « À faire » que part une carte déjà
+  // autorisée (heure dite, « dès que possible », tour interrompu).
+  assert.equal(canMove('machine', 'todo', 'running').allowed, true);
 });
 
 test('la machine ne peut pas promouvoir vers le lot à publier', () => {
   for (const target of ['to_deploy', 'in_production'] as ColumnKey[]) {
-    assert.equal(canMove('machine', 'planned', target).allowed, false);
+    assert.equal(canMove('machine', 'todo', target).allowed, false);
   }
 });
 
@@ -69,11 +70,12 @@ test("l'utilisateur peut tout déplacer", () => {
 /* ------------------------------------------------------------------ */
 
 test('le gabarit dépend de la colonne', () => {
-  assert.equal(templateForColumn('planned'), 'pre_run');
+  // « À faire » est la colonne d'AVANT le travail : c'est là qu'on chiffre.
+  assert.equal(templateForColumn('todo'), 'pre_run');
   assert.equal(templateForColumn('running'), 'in_run');
   assert.equal(templateForColumn('done'), 'in_run');
   assert.equal(templateForColumn('to_deploy'), 'in_run');
-  assert.equal(templateForColumn('todo'), 'free');
+  assert.equal(templateForColumn('notes'), 'free');
   assert.equal(templateForColumn(undefined), 'free');
   assert.equal(templateForColumn('running', true), 'deploy');
 });

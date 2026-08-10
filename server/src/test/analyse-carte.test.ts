@@ -16,16 +16,16 @@ test("une carte validée sans chiffres est en cours d'analyse, même avant que s
 });
 
 test("un agent d'analyse qui tourne l'emporte sur la colonne", () => {
-  assert.equal(phaseAnalyse({ ...base, column: 'planned', analyseEnCours: true }), 'en_cours');
+  assert.equal(phaseAnalyse({ ...base, column: 'todo', analyseEnCours: true }), 'en_cours');
   assert.equal(
-    phaseAnalyse({ ...base, column: 'planned', aEstimation: true, analyseEnCours: true }),
+    phaseAnalyse({ ...base, column: 'todo', aEstimation: true, analyseEnCours: true }),
     'en_cours',
   );
 });
 
 test('une analyse finie se dit prête, une analyse sans chiffres se dit échouée', () => {
-  assert.equal(phaseAnalyse({ ...base, column: 'planned', aEstimation: true }), 'prete');
-  assert.equal(phaseAnalyse({ ...base, column: 'planned', estimationEchouee: true }), 'echouee');
+  assert.equal(phaseAnalyse({ ...base, column: 'todo', aEstimation: true }), 'prete');
+  assert.equal(phaseAnalyse({ ...base, column: 'todo', estimationEchouee: true }), 'echouee');
 });
 
 test("une carte jamais validée n'annonce aucune analyse", () => {

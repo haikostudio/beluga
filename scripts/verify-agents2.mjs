@@ -254,7 +254,7 @@ async function main() {
   });
   await session.call({ type: 'card.validate', id: card.id });
   await session.waitFor(
-    (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'planned',
+    (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'todo',
     600000,
     'analyse puis planification',
   );

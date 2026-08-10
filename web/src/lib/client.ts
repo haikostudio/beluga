@@ -528,8 +528,8 @@ class Client {
   /**
    * Valider une carte de « À faire » : le geste qui autorise la dépense et
    * lance l'analyse. La carte ne change pas de colonne — elle reste sur place,
-   * marquée « chiffrage en cours », et le serveur la promeut en « Planifié »
-   * quand les chiffres sont là. Même forme de réponse que `moveCard` : le pied
+   * marquée « chiffrage en cours », et le serveur y pose les chiffres
+   * quand ils sont là. Même forme de réponse que `moveCard` : le pied
    * de lot s'en sert exactement pareil.
    */
   async validerCarte(card: Card, options: { silencieux?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {

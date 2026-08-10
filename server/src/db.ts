@@ -468,6 +468,24 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX idx_cards_lecture ON cards(project_id, last_read_at);
     `,
   },
+  {
+    id: 18,
+    name: 'retrait-de-la-colonne-planifie',
+    // « Planifié » n'existe plus : tout ce qui précède le travail se joue dans
+    // « À faire ». Les cartes qui y dormaient doivent être reprises AVANT toute
+    // lecture — leur clé de colonne n'est plus reconnue et la carte ne se
+    // relirait pas.
+    //
+    // Un SEUL sort, et rien à recalculer : la carte change de colonne, elle
+    // garde tout le reste — chiffrage, date de départ, « dès que possible »,
+    // suspension, raison d'attente. Sa `position` est un instant (voir
+    // `nextPosition`) posé au moment de la promotion : elle est donc plus
+    // récente que celle des cartes jamais validées, et les cartes déjà chiffrées
+    // se retrouvent naturellement EN TÊTE d'« À faire », là où on les attend.
+    sql: `
+      UPDATE cards SET column_key = 'todo' WHERE column_key = 'planned';
+    `,
+  },
 ];
 
 export function openDb(): DB {

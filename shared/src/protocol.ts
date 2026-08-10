@@ -117,9 +117,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.delete'), id: z.string() }),
   /**
    * Valider une carte de « À faire » : c'est le geste qui AUTORISE la dépense
-   * et lance l'analyse. La carte ne change pas de colonne tout de suite — elle
-   * reste sur place, marquée « chiffrage en cours », et part en « Planifié »
-   * quand l'analyse a rendu.
+   * et lance l'analyse. La carte ne change JAMAIS de colonne : elle reste sur
+   * place, marquée « chiffrage en cours », et garde ses chiffres dans « À
+   * faire » quand l'analyse a rendu.
    */
   z.object({ type: z.literal('card.validate'), id: z.string() }),
   z.object({ type: z.literal('card.start'), id: z.string() }),
@@ -128,7 +128,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.asap'), id: z.string(), value: z.boolean() }),
   /**
    * Programme le départ d'une carte à une date (millisecondes), ou retire la
-   * date avec `null`. La carte attend dans « Planifié » et part à l'heure dite.
+   * date avec `null`. La carte attend dans « À faire » et part à l'heure dite.
    */
   z.object({ type: z.literal('card.schedule'), id: z.string(), at: z.number().nullable() }),
 

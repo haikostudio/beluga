@@ -120,6 +120,10 @@ le nom, là-bas le texte).
 - **Ne JAMAIS redémarrer le serveur pendant une publication** (`shared/src/demon.ts`) : le démon
   porte toutes les publications, le couper en tranche une en plein vol. Un redémarrage demandé est
   retenu et rejoué tout seul dès la dernière publication finie.
+- **Un agent qui DÉMARRE compte déjà comme occupé** (`agentsActifs`, `server/src/runtime.ts`) :
+  entre la décision de lancer et le premier mot du moteur, il se passe plusieurs secondes (copie de
+  travail, choix du compte, contexte). Le bouton de redémarrage et la fin de publication comptent
+  donc `live` ET les tours en train de partir, sinon un agent tout juste lancé se fait couper.
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
   `shared/src/accueil-agent.ts`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
@@ -137,17 +141,20 @@ le nom, là-bas le texte).
   de l'utilisateur seule crée la carte. Une simple question se répond sans carte. Verrouillé par
   `server/src/test/tri-du-chef.test.ts`.
 - **L'analyse faite par le chef voyage avec sa proposition** : chiffrage futur, mesure réelle ajoutée
-  par le démon et relais factuel sont recopiés sur la carte ; sa validation va directement en
-  « Planifié », sans second chiffrage, mais l'exécution attend toujours un geste humain.
+  par le démon et relais factuel sont recopiés sur la carte ; sa validation la met directement en
+  attente de lancement, sans second chiffrage, mais l'exécution attend toujours un geste humain.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
-- **Il n'y a PAS de colonne « Validé »** (`validerCarte`, `server/src/scheduler.ts`) : valider une
-  carte de « À faire » lance son chiffrage SUR PLACE (drapeau `card.analyseDemandee`) ; elle monte en
-  « Planifié » une fois l'analyse rendue, et le lancement reste un geste humain.
+- **TOUT L'AVANT-TRAVAIL SE JOUE DANS « À faire »** : ni « Validé » ni « Planifié » n'existent
+  (`COLUMN_KEYS`, `shared/src/columns.ts` ; migration 18 de `server/src/db.ts`). Valider une carte y
+  lance son chiffrage SUR PLACE (drapeau `card.analyseDemandee`), elle y garde ses chiffres sans
+  bouger, et elle part en « En cours » au clic ou à l'heure dite. Le tableau compte SEPT colonnes.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
-  elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
+  elle attend dans « À faire », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
-  heure manquée est rattrapée, la suspension à la main l'emporte, et le départ CONSOMME la date.
+  heure manquée est rattrapée, la suspension à la main l'emporte, et le départ CONSOMME la date. Le
+  formulaire de création porte le champ, pré-rempli à MAINTENANT : seule une heure encore À VENIR
+  programme un départ — une heure passée ne pose aucune date, la carte attend le geste.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
   carte, jamais le fait que le moteur ait répondu.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN.** Un projet

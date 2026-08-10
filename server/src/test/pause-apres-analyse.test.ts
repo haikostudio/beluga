@@ -66,13 +66,13 @@ test('une carte déjà lancée puis interrompue se reprend sans nouveau clic', (
 test("un tour d'analyse ne fait entrer aucune carte en « En cours »", () => {
   // Le rôle « analysis » ne déplace jamais une carte, quelle que soit sa colonne.
   assert.equal(colonneAuDemarrage('todo', 'analysis'), null);
-  assert.equal(colonneAuDemarrage('planned', 'analysis'), null);
+  assert.equal(colonneAuDemarrage('notes', 'analysis'), null);
   // …et il ne la clôt pas non plus, même s'il avait modifié le dépôt.
   assert.equal(colonneEnFinDeTour('running', true, 'analysis', true), null);
 });
 
 test("seul l'agent d'EXÉCUTION fait basculer la carte en « En cours »", () => {
-  assert.equal(colonneAuDemarrage('planned', 'task'), 'running');
+  assert.equal(colonneAuDemarrage('todo', 'task'), 'running');
 });
 
 /* -------- À la validation, l'exécution reprend le MÊME contexte -------- */
@@ -90,10 +90,11 @@ test("l'ordonnanceur gate son démarrage sur la règle de pause", () => {
   assert.match(scheduler, /if \(!demarrageAutomatiqueAutorise\(card\.scheduling\)\) continue;/);
 });
 
-test("l'analyse promeut la carte en « Planifié », jamais en « En cours »", () => {
+test("l'analyse laisse la carte SUR PLACE, et ne la met jamais en « En cours »", () => {
   const scheduler = lire('scheduler.ts');
-  // Le corps d'analyseCard : on n'y écrit jamais column: 'running'.
+  // Le corps d'analyseCard : il n'écrit AUCUNE colonne. « Planifié » ayant
+  // disparu, la carte chiffrée reste exactement où elle est — dans « À faire ».
   const corps = scheduler.split('export async function analyseCard(')[1].split('\nexport ')[0];
   assert.doesNotMatch(corps, /column: 'running'/);
-  assert.match(corps, /column: fresh\.column === 'todo' \? 'planned' : fresh\.column/);
+  assert.doesNotMatch(corps, /column:/);
 });

@@ -242,7 +242,7 @@ export function Chat({
       {/* La barre d'écriture reste disponible FACE À UNE ANALYSE : on peut
           corriger une hypothèse fausse ou ajouter une précision avant de lancer
           la tâche. Un message relance alors un tour de l'agent d'analyse dans le
-          même fil (la carte reste en « Planifié », l'analyse ne déplace jamais
+          même fil (la carte reste en « À faire », l'analyse ne déplace jamais
           une carte), qui reprend son constat et son chiffrage. */}
       {/* L'agent attend une réponse écrite en toutes lettres : on le dit juste
           au-dessus de la barre, là où la réponse s'écrit. */}

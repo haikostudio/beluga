@@ -39,7 +39,6 @@ test('« En production » s’intercale entre « À déployer » et « Archivé 
   assert.deepEqual(COLUMN_KEYS, [
     'notes',
     'todo',
-    'planned',
     'running',
     'done',
     'to_deploy',
@@ -52,7 +51,7 @@ test('« En production » s’intercale entre « À déployer » et « Archivé 
 test('aucune clé existante n’est renommée ni supprimée', () => {
   // Règle gravée : on change l'étiquette, jamais la clé. Une carte enregistrée
   // hier dans « À déployer » doit encore s'y retrouver aujourd'hui.
-  for (const cle of ['notes', 'todo', 'planned', 'running', 'done', 'to_deploy', 'archived'] as const) {
+  for (const cle of ['notes', 'todo', 'running', 'done', 'to_deploy', 'archived'] as const) {
     assert.ok(COLUMN_KEYS.includes(cle), `la clé « ${cle} » a disparu`);
   }
   assert.equal(COLUMN_LABELS.to_deploy, 'À déployer');
@@ -182,8 +181,10 @@ test('le pied de « À déployer » pousse en production, celui d’« En produc
   // étape de mise en ligne. Les entrées vivent dans une seule table du tableau.
   const source = fs.readFileSync(path.join(RACINE, 'web/src/components/board.tsx'), 'utf8');
   const table = source.slice(source.indexOf('const ACTIONS_DE_LOT'), source.indexOf('/**', source.indexOf('const ACTIONS_DE_LOT')));
-  assert.match(table, /to_deploy:\s*\{[^}]*cible:\s*'in_production'/s);
-  assert.match(table, /in_production:\s*\{[^}]*cible:\s*'archived'/s);
+  // Une colonne porte une LISTE de gestes depuis que « À faire » en compte deux
+  // (valider, puis lancer) : la forme change, les cibles ne bougent pas.
+  assert.match(table, /to_deploy:\s*\[[^\]]*cible:\s*'in_production'/s);
+  assert.match(table, /in_production:\s*\[[^\]]*cible:\s*'archived'/s);
   // « Terminé » ne change pas de cible : il pousse toujours dans le lot.
-  assert.match(table, /done:\s*\{[^}]*cible:\s*'to_deploy'/s);
+  assert.match(table, /done:\s*\[[^\]]*cible:\s*'to_deploy'/s);
 });

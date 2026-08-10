@@ -406,7 +406,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       }
 
       /*
-       * Sortir une carte de « En cours » vers « Planifié », c'est SUSPENDRE :
+       * Sortir une carte de « En cours » vers « À faire », c'est SUSPENDRE :
        * le tour est arrêté proprement, la carte reste en file avec la raison
        * écrite dessus, et l'ordonnanceur ne la reprend pas de lui-même.
        */
@@ -414,8 +414,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
         const suspendue = store.saveCard({
           ...card,
-          column: 'planned',
-          position: store.nextPosition(card.projectId, 'planned'),
+          column: 'todo',
+          position: store.nextPosition(card.projectId, 'todo'),
           scheduling: {
             ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
             suspendu: true,

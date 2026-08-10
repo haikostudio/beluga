@@ -154,7 +154,7 @@ async function main() {
   /* ---------- Refus des colonnes interdites aux agents ---------- */
   let refused = false;
   try {
-    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'planned' });
+    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'todo' });
   } catch {
     refused = true;
   }
@@ -249,12 +249,12 @@ async function main() {
   );
 
   const planned = await session.waitFor(
-    (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'planned',
+    (e) => e.type === 'card.upsert' && e.card.id === card.id && e.card.column === 'todo',
     120000,
     'promotion en planifié',
   );
   card = planned.card;
-  record('Ordonnancement : la carte déjà analysée va directement en « Planifié »', card.column === 'planned');
+  record('Ordonnancement : la carte déjà analysée attend son lancement dans « À faire »', card.column === 'todo');
   await new Promise((r) => setTimeout(r, 1500));
   const analysesRedondantes = session.events.filter(
     (e) => e.type === 'agent.upsert' && e.agent.cardId === card.id && e.agent.role === 'analysis',

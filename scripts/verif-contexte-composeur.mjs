@@ -163,7 +163,7 @@ async function main() {
           type: 'card.upsert',
           card: {
             id: cardId, projectId, title: 'Essai contexte du composeur', description: '', labels: [],
-            column: 'planned', position: maintenant, origin: 'user', run: { engine: 'codex', mode: 'direct' },
+            column: 'todo', position: maintenant, origin: 'user', run: { engine: 'codex', mode: 'direct' },
             excludedFromDeploy: false, horsTache: false, agentId, createdAt: maintenant, updatedAt: maintenant,
           },
         });

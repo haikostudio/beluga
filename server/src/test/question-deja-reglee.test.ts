@@ -115,7 +115,7 @@ test('les trois colonnes rangées sont écartées, les autres non', () => {
     assert.equal(carteRangee(colonne), true, colonne);
     assert.equal(decisionEnTexteLibre({ statut: 'done', dernierMessage: message(), colonne }), null);
   }
-  for (const colonne of ['todo', 'planned', 'running']) {
+  for (const colonne of ['todo', 'running']) {
     assert.equal(carteRangee(colonne), false, colonne);
     assert.ok(decisionEnTexteLibre({ statut: 'done', dernierMessage: message(), colonne }));
   }

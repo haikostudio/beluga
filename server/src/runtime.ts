@@ -126,6 +126,30 @@ export function runningAgentIds(): string[] {
   return [...live.keys()];
 }
 
+/**
+ * Les agents dont le tour est PARTI mais dont le processus n'est pas encore né.
+ *
+ * Entre le moment où l'on décide de lancer une carte et celui où le moteur
+ * tourne vraiment, il se passe plusieurs secondes : copie de travail à ouvrir
+ * (`git worktree`), compte à choisir, contexte à composer. Pendant toute cette
+ * fenêtre, `live` est encore vide — un redémarrage automatique de fin de
+ * publication ne voyait donc personne travailler et coupait un agent qui venait
+ * juste de partir. On tient donc à part la liste de ceux qui démarrent.
+ */
+const demarrant = new Set<string>();
+
+/**
+ * Tous les agents qu'un redémarrage COUPERAIT : ceux dont le moteur écrit, et
+ * ceux dont le tour est en train de partir. C'est cette liste-là que doivent
+ * regarder le bouton de redémarrage et la fin d'une publication — jamais le
+ * seul compte des processus déjà nés.
+ */
+export function agentsActifs(): string[] {
+  // `live` d'abord (le moteur écrit), puis ceux qui démarrent : un même agent
+  // peut être dans les deux, on ne le compte qu'une fois.
+  return [...new Set([...live.keys(), ...demarrant])];
+}
+
 export function liveRun(agentId: string): LiveRun | undefined {
   return live.get(agentId);
 }
@@ -362,6 +386,21 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     return;
   }
 
+  /*
+   * À partir d'ici, le tour est PARTI, même si aucun processus n'existe encore :
+   * l'agent compte comme occupé jusqu'au bout, pour qu'un redémarrage
+   * automatique ne le coupe pas dans la fenêtre de préparation.
+   */
+  demarrant.add(agentId);
+  try {
+    await preparerLeTour(agent, text, options);
+  } finally {
+    demarrant.delete(agentId);
+  }
+}
+
+async function preparerLeTour(agent: Agent, text: string, options: PromptOptions): Promise<void> {
+  const agentId = agent.id;
   const project = store.getProject(agent.projectId);
   if (!project) throw new Error('projet introuvable');
 
@@ -1750,7 +1789,9 @@ export function recoverAfterRestart(
         const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
         const updatedCard = store.saveCard({
           ...card,
-          column: 'planned',
+          // La file d'avant-travail, c'est « À faire » : « Planifié » n'existe
+          // plus. Viser l'ancienne colonne rendrait la carte illisible.
+          column: 'todo',
           scheduling: {
             ...scheduling,
             restarts: (scheduling.restarts ?? 0) + 1,

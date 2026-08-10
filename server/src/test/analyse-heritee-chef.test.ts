@@ -107,9 +107,9 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
     origin: 'agent',
     ...heritage,
   });
-  // Plus de colonne « Validé » : la carte reste dans « À faire » et c'est le
-  // geste de validation qui la fait monter — ici, directement en « Planifié »,
-  // son chiffrage venant du chef.
+  // Plus de colonne « Validé » ni de colonne « Planifié » : la carte reste dans
+  // « À faire » de bout en bout. La validation d'une carte du chef n'a donc
+  // qu'à poser l'attente de lancement — son chiffrage est déjà là.
   const validee = store.getCard(card.id)!;
 
   assert.equal(validee.estimate?.analysisMeasurement?.totalTokens, 1_120);
@@ -117,9 +117,10 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
   assert.match(contexteHeritePourExecution(validee) ?? '', /ne recommence pas/);
   assert.equal(reprendreAnalyseDuChef(validee.id), true);
 
-  const planifiee = store.getCard(validee.id)!;
-  assert.equal(planifiee.column, 'planned');
-  assert.equal(planifiee.scheduling?.waitingReason, RAISON_ATTENTE_LANCEMENT);
+  const prete = store.getCard(validee.id)!;
+  assert.equal(prete.column, 'todo', 'la carte ne quitte pas « À faire »');
+  assert.equal(prete.analyseDemandee, false, 'aucun chiffrage ne reste demandé');
+  assert.equal(prete.scheduling?.waitingReason, RAISON_ATTENTE_LANCEMENT);
   assert.equal(store.getLastAgentByCard(validee.id), null, 'aucun second agent d’analyse ne doit naître');
 });
 

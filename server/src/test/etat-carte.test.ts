@@ -92,15 +92,30 @@ test('un agent en échec ou arrêté laisse clôturer : il n’y a plus rien à 
 });
 
 test('le geste ne s’affiche pas hors de sa colonne', () => {
-  assert.equal(gesteCarte('terminer', { colonne: 'planned', etat: 'termine', agentLance: true }).affiche, false);
+  assert.equal(gesteCarte('terminer', { colonne: 'todo', etat: 'termine', agentLance: true }).affiche, false);
   assert.equal(gesteCarte('valider', { colonne: 'running', etat: 'repos' }).affiche, false);
   assert.equal(gesteCarte('publier', { colonne: 'running', etat: 'termine' }).affiche, false);
-  assert.equal(gesteCarte('lancer', { colonne: 'todo', etat: 'repos' }).affiche, false);
+  assert.equal(gesteCarte('lancer', { colonne: 'done', etat: 'repos' }).affiche, false);
 });
 
 test('« Lancer maintenant » s’éteint si un agent tourne déjà', () => {
-  assert.equal(gesteCarte('lancer', { colonne: 'planned', etat: 'travaille' }).possible, false);
-  assert.equal(gesteCarte('lancer', { colonne: 'planned', etat: 'repos' }).possible, true);
+  assert.equal(gesteCarte('lancer', { colonne: 'todo', etat: 'travaille' }).possible, false);
+  assert.equal(gesteCarte('lancer', { colonne: 'todo', etat: 'repos' }).possible, true);
+});
+
+test('valider et lancer cohabitent dans « À faire », mais jamais en double', () => {
+  // Une carte fraîche s'autorise (le chiffrage), et se lance directement si on
+  // le veut. Une fois le chiffrage engagé, « Valider » n'a plus rien à autoriser.
+  assert.equal(gesteCarte('valider', { colonne: 'todo', etat: 'repos' }).affiche, true);
+  assert.equal(gesteCarte('lancer', { colonne: 'todo', etat: 'repos' }).affiche, true);
+  assert.equal(
+    gesteCarte('valider', { colonne: 'todo', etat: 'repos', chiffrageEngage: true }).affiche,
+    false,
+  );
+  assert.equal(
+    gesteCarte('lancer', { colonne: 'todo', etat: 'repos', chiffrageEngage: true }).possible,
+    true,
+  );
 });
 
 test('les gestes de début et de publication restent simples', () => {
@@ -124,6 +139,6 @@ test('rester dans sa colonne n’est jamais refusé', () => {
 });
 
 test('les autres colonnes ne sont pas verrouillées', () => {
-  assert.equal(sortieAutorisee({ colonne: 'planned', etat: 'travaille' }, 'todo').possible, true);
+  assert.equal(sortieAutorisee({ colonne: 'notes', etat: 'travaille' }, 'todo').possible, true);
   assert.equal(sortieAutorisee({ colonne: 'done', etat: 'repos' }, 'to_deploy').possible, true);
 });

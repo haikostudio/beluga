@@ -144,7 +144,15 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     estimationEchouee: !!card.estimate?.failed,
     enLigne: !!card.deployedAt,
   });
-  const contexteGeste = { colonne: card.column, etat, agentLance: !!agent };
+  const contexteGeste = {
+    colonne: card.column,
+    etat,
+    agentLance: !!agent,
+    // La dépense est engagée dès que le chiffrage est demandé ou rendu : c'est
+    // ce qui retire « Valider » d'une carte d'« À faire » déjà analysée, sans
+    // toucher au bouton de lancement, qui vit désormais dans la même colonne.
+    chiffrageEngage: !!card.analyseDemandee || !!card.estimate,
+  };
   const peut = (geste: GesteCarte) => gesteCarte(geste, contexteGeste);
 
   /*
@@ -155,7 +163,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    */
   const aDecision =
     peut('valider').affiche ||
-    card.column === 'planned' ||
+    peut('lancer').affiche ||
     peut('terminer').affiche ||
     peut('publier').affiche ||
     peut('reprendre').affiche ||
@@ -355,7 +363,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                 <Check className="h-3 w-3" /> Valider (autorise la dépense)
               </Button>
             ) : null}
-            {card.column === 'planned' ? (
+            {peut('lancer').affiche ? (
               <>
                 <Geste decision={peut('lancer')}>
                   <Button
@@ -730,7 +738,7 @@ function libelleRoleAgent(role?: string): string {
 }
 
 /**
- * L'HEURE DITE : la carte attend dans « Planifié » et part toute seule au
+ * L'HEURE DITE : la carte attend dans « À faire » et part toute seule au
  * moment choisi, sans qu'on ait à cliquer. Le champ ne s'affiche que là où la
  * date a encore un sens — avant le départ du travail ; une fois la carte
  * lancée, l'heure est passée et il n'y a plus rien à programmer.
@@ -740,7 +748,7 @@ function libelleRoleAgent(role?: string): string {
  */
 function DepartProgramme({ card }: { card: Card }) {
   const maintenant = useMinute();
-  if (card.column !== 'todo' && card.column !== 'planned') return null;
+  if (card.column !== 'todo') return null;
 
   const depart = card.scheduling?.departPrevu;
   const mention = mentionDepartProgramme(card, maintenant);

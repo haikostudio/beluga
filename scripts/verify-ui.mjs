@@ -106,8 +106,9 @@ async function main() {
     Array.from(document.querySelectorAll('h2')).map((h) => h.textContent?.trim()),
   );
   // « Validé » a disparu : valider une carte lance son chiffrage sur place,
-  // dans « À faire », et la carte n'apparaît en « Planifié » qu'une fois chiffrée.
-  const expected = ['Notes', 'À faire', 'Planifié', 'En cours', 'Terminé', 'À déployer', 'Archivé'];
+  // dans « À faire », et elle y reste ensuite avec ses chiffres : « Planifié »
+  // a disparu à son tour.
+  const expected = ['Notes', 'À faire', 'En cours', 'Terminé', 'À déployer', 'Archivé'];
   const allColumns = expected.every((label) => columns.includes(label));
   record('Tableau : les colonnes attendues sont présentes', allColumns, columns.filter(Boolean).join(' · '));
 

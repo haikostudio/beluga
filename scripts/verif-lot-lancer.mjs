@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 /**
- * Le pied de la colonne « Planifié » porte un bouton « Tout lancer ». Le
+ * Le pied de la colonne « À faire » porte un bouton « Tout lancer », à côté de
+ * « Tout valider » : depuis le retrait de « À faire », les deux étapes de
+ * l'avant-travail se jouent dans la même colonne. Le
  * mécanisme est celui des autres pieds, sans exception : premier clic, une case
  * sort au coin haut-gauche de chaque carte, TOUTES cochées, et le pied devient
  * « Annuler » / « Lancer (n) ». Annuler ne touche à rien ; confirmer déplace les
  * cartes cochées vers « En cours » une par une, par le MÊME appel que le bouton
  * du tiroir — donc par `startCard`, portes dures comprises.
  *
- *   node scripts/verif-lot-planifie.mjs
+ *   node scripts/verif-lot-lancer.mjs
  *
  * Le script monte son PROPRE démon, sur un port libre, avec une base neuve et un
  * dossier de projets vide : le démon de production n'est pas touché.
  *
  * Le plafond d'agents est mis à ZÉRO : aucun quota n'est dépensé, et c'est
- * justement le REFUS qu'on veut voir — chaque carte revient à « Planifié » avec
+ * justement le REFUS qu'on veut voir — chaque carte revient à « À faire » avec
  * sa raison, le lot continue avec les suivantes JUSQU'À LA DERNIÈRE, et un
  * compte rendu dit combien sont parties, combien attendent et pourquoi. Le
  * lancement RÉUSSI n'est
@@ -41,7 +43,7 @@ const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const Database = createRequire(import.meta.url)('better-sqlite3');
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7194);
 const BASE = `http://127.0.0.1:${PORT}`;
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-lot-planifie-'));
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-lot-lancer-'));
 
 const resultats = [];
 const noter = (nom, ok, detail = '') => {
@@ -104,7 +106,7 @@ async function attendrePort(limiteMs = 60000) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Le décor : un projet, trois cartes « Planifié », une session         */
+/* Le décor : un projet, trois cartes « À faire », une session         */
 /* ------------------------------------------------------------------ */
 
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
@@ -152,7 +154,7 @@ function poserLeDecor() {
       title: titre,
       description: 'Carte fabriquée par le script de vérification.',
       labels: [],
-      column: 'planned',
+      column: 'todo',
       position: index + 1,
       origin: 'user',
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
@@ -165,7 +167,7 @@ function poserLeDecor() {
     db.prepare(
       `INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(carte.id, PROJET_ID, 'planned', carte.position, titre, JSON.stringify(carte), maintenant, maintenant);
+    ).run(carte.id, PROJET_ID, 'todo', carte.position, titre, JSON.stringify(carte), maintenant, maintenant);
   });
   db.close();
 }
@@ -237,7 +239,7 @@ async function colonnesAffichees(page) {
 }
 
 /** Les cases à cocher d'une colonne, dans l'ordre des cartes. */
-async function cases(page, colonne = 'planned') {
+async function cases(page, colonne = 'todo') {
   return page.evaluate((colonne) => {
     const col = document.querySelector(`[data-column="${colonne}"]`);
     if (!col) return [];
@@ -256,7 +258,7 @@ async function cases(page, colonne = 'planned') {
 }
 
 /** Le texte des boutons du pied d'une colonne. */
-async function pied(page, colonne = 'planned') {
+async function pied(page, colonne = 'todo') {
   return page.evaluate((colonne) => {
     const col = document.querySelector(`[data-column="${colonne}"]`);
     const bas = col?.lastElementChild;
@@ -265,7 +267,7 @@ async function pied(page, colonne = 'planned') {
   }, colonne);
 }
 
-const cliquerPied = (page, motif, colonne = 'planned') =>
+const cliquerPied = (page, motif, colonne = 'todo') =>
   page.evaluate(
     ({ motif, colonne }) => {
       const col = document.querySelector(`[data-column="${colonne}"]`);
@@ -299,7 +301,7 @@ async function ouvrirLeTableau(navigateur) {
     await onglet.first().click();
     await page.waitForTimeout(2000);
   }
-  await page.locator('[data-column="planned"]').scrollIntoViewIfNeeded();
+  await page.locator('[data-column="todo"]').scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
   return { page, erreurs };
 }
@@ -320,13 +322,15 @@ async function main() {
 
   const depart = await colonnesAffichees(page);
   noter(
-    'les trois cartes d’essai sont dans « Planifié »',
-    TITRES.every((t) => depart[t] === 'planned'),
+    'les trois cartes d’essai sont dans « À faire »',
+    TITRES.every((t) => depart[t] === 'todo'),
     JSON.stringify(depart),
   );
 
   const auRepos = (await pied(page)).join(' | ');
   noter('au repos, le pied propose « Tout lancer »', auRepos.includes('Tout lancer'), auRepos);
+  // La même colonne porte les DEUX gestes de l'avant-travail depuis la fusion.
+  noter('au repos, le pied propose aussi « Tout valider »', auRepos.includes('Tout valider'), auRepos);
   noter('au repos, aucune case à cocher n’est affichée', (await cases(page)).length === 0);
 
   await cliquerPied(page, 'Tout lancer');
@@ -348,7 +352,7 @@ async function main() {
   /* -------- Décocher une carte, puis ANNULER : rien ne bouge -------- */
 
   await page.evaluate(() => {
-    document.querySelector('[data-column="planned"]')?.querySelectorAll('button[aria-pressed]')[0]?.click();
+    document.querySelector('[data-column="todo"]')?.querySelectorAll('button[aria-pressed]')[0]?.click();
   });
   await page.waitForTimeout(500);
   noter(
@@ -362,7 +366,7 @@ async function main() {
   noter('« Annuler » referme les cases', (await cases(page)).length === 0);
   noter(
     '« Annuler » ne déplace AUCUNE carte',
-    TITRES.every((t) => colonnesEnBase()[t] === 'planned'),
+    TITRES.every((t) => colonnesEnBase()[t] === 'todo'),
     JSON.stringify(colonnesEnBase()),
   );
   noter('« Annuler » n’a lancé aucun agent', agentsDeCarte() === 0, `${agentsDeCarte()} agent(s) de carte`);
@@ -375,7 +379,7 @@ async function main() {
   // carte C. C'est elle qu'on décoche — elle ne doit même pas être tentée.
   const gardee = (await cases(page))[0]?.titre ?? '';
   await page.evaluate(() => {
-    document.querySelector('[data-column="planned"]')?.querySelectorAll('button[aria-pressed]')[0]?.click();
+    document.querySelector('[data-column="todo"]')?.querySelectorAll('button[aria-pressed]')[0]?.click();
   });
   await page.waitForTimeout(400);
   await cliquerPied(page, 'Lancer');
@@ -388,8 +392,8 @@ async function main() {
    */
   const apres = colonnesEnBase();
   noter(
-    'un lancement refusé laisse chaque carte dans « Planifié »',
-    TITRES.every((t) => apres[t] === 'planned'),
+    'un lancement refusé laisse chaque carte dans « À faire »',
+    TITRES.every((t) => apres[t] === 'todo'),
     JSON.stringify(apres),
   );
   noter('aucun agent n’a été créé malgré le lot', agentsDeCarte() === 0, `${agentsDeCarte()} agent(s) de carte`);
@@ -400,7 +404,7 @@ async function main() {
     TITRES.every((t) => ecran[t] === apres[t]),
     JSON.stringify(ecran),
   );
-  noter(`la carte décochée (« ${gardee} ») n’a pas bougé non plus`, ecran[gardee] === 'planned', ecran[gardee]);
+  noter(`la carte décochée (« ${gardee} ») n’a pas bougé non plus`, ecran[gardee] === 'todo', ecran[gardee]);
 
   const texte = await page.locator('body').innerText();
   noter(
@@ -446,8 +450,8 @@ async function main() {
 
   const finales = colonnesEnBase();
   noter(
-    'les trois cartes sont restées dans « Planifié »',
-    TITRES.every((t) => finales[t] === 'planned'),
+    'les trois cartes sont restées dans « À faire »',
+    TITRES.every((t) => finales[t] === 'todo'),
     JSON.stringify(finales),
   );
   noter('toujours aucun agent créé', agentsDeCarte() === 0, `${agentsDeCarte()} agent(s) de carte`);

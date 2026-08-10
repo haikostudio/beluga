@@ -94,7 +94,7 @@ const CHAMP_DESCRIPTION =
  */
 const CHAMP_DEPART =
   "Facultatif. Date et heure de départ souhaitées, au format ISO (« 2026-08-12T06:00 »). La carte attend alors dans " +
-  "« Planifié » et part TOUTE SEULE à l'heure dite, sans clic. À ne mettre que si l'utilisateur a demandé un moment " +
+  "« À faire » et part TOUTE SEULE à l'heure dite, sans clic. À ne mettre que si l'utilisateur a demandé un moment " +
   'précis. Sans ce champ, rien ne change : la carte attend son geste de lancement.';
 
 /**

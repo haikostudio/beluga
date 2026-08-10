@@ -100,7 +100,9 @@ export const TEMPLATES: Record<TemplateKind, ResponseTemplate> = {
 export function templateForColumn(column: ColumnKey | undefined, deployed = false): TemplateKind {
   if (deployed) return 'deploy';
   switch (column) {
-    case 'planned':
+    // « À faire » est la colonne d'AVANT le travail depuis que « Planifié » a
+    // disparu : c'est là que se fait le chiffrage, et là qu'on en discute.
+    case 'todo':
       return 'pre_run';
     case 'running':
     case 'done':
@@ -108,7 +110,6 @@ export function templateForColumn(column: ColumnKey | undefined, deployed = fals
     case 'in_production':
       return 'in_run';
     case 'notes':
-    case 'todo':
     case 'archived':
     case undefined:
       return 'free';

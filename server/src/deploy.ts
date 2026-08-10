@@ -39,7 +39,7 @@ import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
-import { createAgent, sendPrompt, runningAgentIds } from './runtime.js';
+import { createAgent, sendPrompt, agentsActifs } from './runtime.js';
 import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from './demon.js';
 
 const execFileAsync = promisify(execFile);
@@ -1295,7 +1295,11 @@ export async function startDeploy(
          * travail, tous projets confondus, car le démon les porte tous.
          */
         const etat = etatDemon();
-        const autres = runningAgentIds().length;
+        // Les agents dont le MOTEUR écrit, ET ceux dont le tour vient de partir :
+        // ouvrir une copie de travail et choisir un compte prend plusieurs
+        // secondes, pendant lesquelles un agent tout juste lancé n'existait pour
+        // personne — et se faisait couper par ce redémarrage.
+        const autres = agentsActifs().length;
         // Les AUTRES publications en cours (jamais celle-ci, encore « running »
         // en base à cet instant) : les couper laisserait leur lot à moitié parti.
         const autresPublications = store

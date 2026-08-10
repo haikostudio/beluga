@@ -115,14 +115,11 @@ ${card.description || '(pas de description)'}${
           return;
         }
 
-        // Promotion automatique en « Planifié » dès l'analyse réussie — mais
-        // PAS en « En cours » : l'agent d'analyse s'arrête là. La carte porte sa
-        // raison d'attente, l'ordonnanceur ne la démarre pas sans le geste de
-        // l'utilisateur (voir `demarrageAutomatiqueAutorise`).
-        //
-        // La carte validée attendait son chiffrage DANS « À faire » : c'est de
-        // là qu'elle monte en « Planifié ». Une carte déjà ailleurs (analyse
-        // relancée depuis « Planifié ») ne bouge pas.
+        // L'analyse rendue ne DÉPLACE plus rien : « Planifié » a disparu, la
+        // carte se chiffre sur place et attend son lancement dans « À faire »,
+        // à l'endroit exact où on l'a laissée. Elle porte sa raison d'attente,
+        // et l'ordonnanceur ne la démarre pas sans le geste de l'utilisateur
+        // (voir `demarrageAutomatiqueAutorise`).
         const scheduling = fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
         const updated = store.saveCard({
           ...fresh,
@@ -132,8 +129,6 @@ ${card.description || '(pas de description)'}${
             summary: estimate.summary ?? text.slice(0, 2000),
             producedAt: Date.now(),
           },
-          column: fresh.column === 'todo' ? 'planned' : fresh.column,
-          position: store.nextPosition(fresh.projectId, 'planned'),
           scheduling: {
             ...scheduling,
             // La raison ne s'affiche que si la carte attend VRAIMENT le geste : une
@@ -203,7 +198,7 @@ export function parseEstimate(text: string): Estimate | null {
  *
  * Quand on écrit à l'agent d'analyse d'une carte pour corriger une hypothèse ou
  * ajouter une précision, il rejoue son analyse (même gabarit « pre_run », car la
- * carte est en « Planifié ») et rend souvent un nouveau chiffrage. On le relit
+ * carte est en « À faire ») et rend souvent un nouveau chiffrage. On le relit
  * pour que la carte reflète la version corrigée.
  *
  * Deux différences AVEC l'analyse d'origine, voulues :
@@ -211,7 +206,7 @@ export function parseEstimate(text: string): Estimate | null {
  *     frais (l'agent a seulement répondu à une question) laisse le chiffrage
  *     précédent intact — discuter ne doit pas casser une estimation déjà bonne ;
  *   - on ne touche PAS à la colonne. L'analyse ne déplace jamais une carte : elle
- *     reste en « Planifié », le lancement reste un geste de l'utilisateur.
+ *     reste en « À faire », le lancement reste un geste de l'utilisateur.
  */
 export function appliquerChiffrageDiscute(
   cardId: string,
@@ -449,9 +444,10 @@ export function reprendPourExecution(prealable: Agent | null, enCours: boolean):
 
 /**
  * Une carte proposée par le chef arrive avec son chiffrage et son relais. Le
- * geste « Valider » la place donc directement en attente de lancement, sans
- * créer un deuxième tour d'analyse. Les cartes ordinaires gardent exactement
- * l'ancien parcours — analyse d'abord, promotion ensuite.
+ * geste « Valider » la met donc directement en attente de lancement, sans créer
+ * un deuxième tour d'analyse ni la déplacer — « Planifié » a disparu, elle
+ * attend son départ dans « À faire », chiffrage compris. Les cartes ordinaires
+ * gardent exactement l'ancien parcours : analyse d'abord, attente ensuite.
  */
 export function reprendreAnalyseDuChef(cardId: string): boolean {
   const card = store.getCard(cardId);
@@ -459,9 +455,7 @@ export function reprendreAnalyseDuChef(cardId: string): boolean {
   const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
   const updated = store.saveCard({
     ...card,
-    column: 'planned',
     analyseDemandee: false,
-    position: store.nextPosition(card.projectId, 'planned'),
     scheduling: {
       ...scheduling,
       waitingReason: raisonDattente(scheduling),
@@ -475,11 +469,12 @@ export function reprendreAnalyseDuChef(cardId: string): boolean {
 /**
  * VALIDER une carte : le geste qui autorise la dépense.
  *
- * Il n'y a plus de colonne « Validé » à traverser. La carte reste dans « À
- * faire », marquée `analyseDemandee`, et son analyse part tout de suite ; elle
- * n'apparaîtra en « Planifié » qu'une fois le chiffrage rendu. Une carte déjà
- * analysée par le chef d'orchestre saute l'étape, comme avant : son chiffrage
- * est réutilisé tel quel, sans second tour.
+ * Il n'y a plus de colonne « Validé » ni de colonne « Planifié » à traverser :
+ * la carte reste dans « À faire » du début à la fin de l'avant-travail. Elle y
+ * est marquée `analyseDemandee`, son analyse part tout de suite, et elle garde
+ * sa place une fois les chiffres rendus. Une carte déjà analysée par le chef
+ * d'orchestre saute l'étape : son chiffrage est réutilisé tel quel, sans
+ * second tour.
  *
  * Le drapeau est ce qui rend le geste RATTRAPABLE : un démon redémarré pendant
  * le chiffrage retrouve la carte dans « À faire » et relance son analyse.
@@ -655,11 +650,15 @@ export async function tick(): Promise<void> {
   try {
     for (const project of store.listProjects()) {
       /*
-       * Analyse : les cartes validées, qui attendent leur chiffrage SUR PLACE
-       * dans « À faire ». Le drapeau `analyseDemandee` est la trace du geste —
-       * une carte simplement posée dans « À faire » ne coûte rien. Ce balayage
-       * est le filet : il rattrape une analyse coupée par un redémarrage du
-       * démon, la validation elle-même partant sans attendre le tour de boucle.
+       * TOUT L'AVANT-TRAVAIL SE JOUE DANS « À faire » : le chiffrage y part et y
+       * revient, le départ en sort. Une seule et même colonne est donc balayée
+       * deux fois, pour deux gestes différents.
+       *
+       * Analyse : les cartes validées, qui attendent leur chiffrage SUR PLACE.
+       * Le drapeau `analyseDemandee` est la trace du geste — une carte
+       * simplement posée dans « À faire » ne coûte rien. Ce balayage est le
+       * filet : il rattrape une analyse coupée par un redémarrage du démon, la
+       * validation elle-même partant sans attendre le tour de boucle.
        */
       for (const card of store.listCardsInColumn(project.id, 'todo')) {
         if (!card.analyseDemandee) continue;
@@ -669,19 +668,30 @@ export async function tick(): Promise<void> {
         }
       }
 
-      // Démarrage : les cartes planifiées, dans l'ordre d'ancienneté.
-      const planned = store
-        .listCardsInColumn(project.id, 'planned')
+      // Démarrage : les cartes déjà AUTORISÉES d'« À faire », dans l'ordre
+      // d'ancienneté. Une carte simplement posée là n'a rien qui l'autorise :
+      // elle ne bouge pas, comme avant.
+      const enFile = store
+        .listCardsInColumn(project.id, 'todo')
         .sort((a, b) => (b.scheduling?.asap ? 1 : 0) - (a.scheduling?.asap ? 1 : 0) || a.createdAt - b.createdAt);
 
-      for (const card of planned) {
+      for (const card of enFile) {
         if (card.agentId && isRunning(card.agentId)) continue;
+        /*
+         * Le chiffrage est ENGAGÉ : on ne lance rien par-dessus. Les deux
+         * balayages visant désormais la même colonne, une carte marquée « dès
+         * que possible » ET validée pouvait partir pendant que son analyse
+         * écrivait encore — deux agents sur une même carte, et son dossier de
+         * travail refusé au second. On attend que l'analyse ait rendu ; le tour
+         * de boucle suivant lancera la carte.
+         */
+        if (card.analyseDemandee || analysing.has(card.id)) continue;
         // Suspendue à la main : elle reste en file, mais elle attend un geste.
         if (card.scheduling?.suspendu) continue;
         // Session fusionnée : une carte fraîchement analysée ne s'exécute pas
         // toute seule. L'ordonnanceur ne reprend d'office qu'une carte déjà
         // autorisée (« Dès que possible », HEURE DITE arrivée, ou déjà lancée
-        // puis interrompue) ; sinon la bascule Validé → En cours attend le clic
+        // puis interrompue) ; sinon la bascule À faire → En cours attend le clic
         // de l'utilisateur. La boucle repassant toutes les quinze secondes, une
         // heure manquée pendant un arrêt du démon est RATTRAPÉE au retour.
         if (!demarrageAutomatiqueAutorise(card.scheduling)) continue;

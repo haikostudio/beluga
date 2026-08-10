@@ -86,6 +86,14 @@ export interface ContexteGeste {
   etat: EtatVisuelCarte;
   /** Un agent a-t-il déjà travaillé sur cette carte ? */
   agentLance?: boolean;
+  /**
+   * La dépense a-t-elle DÉJÀ été autorisée ? Vrai dès que le chiffrage est
+   * demandé, en cours ou rendu. « À faire » étant devenue la seule colonne
+   * d'avant-travail, « Valider » et « Lancer maintenant » y cohabitent : sans ce
+   * repère, le bouton de validation resterait affiché sur une carte déjà
+   * chiffrée, où il n'aurait plus rien à autoriser.
+   */
+  chiffrageEngage?: boolean;
 }
 
 export interface DecisionGeste {
@@ -102,11 +110,17 @@ const ABSENT: DecisionGeste = { affiche: false, possible: false };
 export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste {
   switch (geste) {
     case 'valider':
-      // Autoriser la dépense se fait depuis « À faire », et de nulle part ailleurs.
-      return ctx.colonne === 'todo' ? { affiche: true, possible: true } : ABSENT;
+      // Autoriser la dépense se fait depuis « À faire », et de nulle part
+      // ailleurs — et une seule fois : un chiffrage déjà demandé ou rendu a
+      // consommé le geste, le bouton s'efface au profit du lancement.
+      return ctx.colonne === 'todo' && !ctx.chiffrageEngage
+        ? { affiche: true, possible: true }
+        : ABSENT;
 
     case 'lancer':
-      if (ctx.colonne !== 'planned') return ABSENT;
+      // Le lancement part lui aussi d'« À faire » : il n'y a plus de colonne
+      // « Planifié » à traverser entre le chiffrage et le travail.
+      if (ctx.colonne !== 'todo') return ABSENT;
       return ctx.etat === 'travaille'
         ? { affiche: true, possible: false, raison: 'Un agent travaille déjà sur cette carte.' }
         : { affiche: true, possible: true };
@@ -159,11 +173,11 @@ export function sortieAutorisee(ctx: ContexteGeste, vers: string): DecisionGeste
   if (ctx.colonne === vers) return { affiche: true, possible: true };
   /*
    * Une seule sortie est permise pendant que l'agent écrit : le retour en
-   * « Planifié ». Ce n'est pas un déplacement de rangement, c'est la demande
+   * « À faire ». Ce n'est pas un déplacement de rangement, c'est la demande
    * de SUSPENDRE — le tour est arrêté proprement, la carte reste en file.
    * Toutes les autres destinations perdraient le fil du travail en cours.
    */
-  if (ctx.colonne === 'running' && vers === 'planned') return { affiche: true, possible: true };
+  if (ctx.colonne === 'running' && vers === 'todo') return { affiche: true, possible: true };
   if (ctx.colonne === 'running' && ctx.etat === 'travaille') {
     return {
       affiche: true,

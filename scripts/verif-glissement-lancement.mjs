@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Glisser une carte dans « En cours » la LANCE ; la sortir vers « Planifié »
+ * Glisser une carte dans « En cours » la LANCE ; la sortir vers « À faire »
  * SUSPEND son agent. Contrôle dans un vrai navigateur, à la souris et au doigt.
  *
  *   node scripts/verif-glissement-lancement.mjs
@@ -13,7 +13,7 @@
  * Ce qui est vérifié :
  *   1. déposer dans « En cours » quand le lancement est IMPOSSIBLE : la carte
  *      revient à sa colonne d'origine et le refus se lit en toutes lettres ;
- *   2. déposer une carte en travail vers « Planifié » : l'agent est arrêté, la
+ *   2. déposer une carte en travail vers « À faire » : l'agent est arrêté, la
  *      carte reste en file et porte la raison ;
  *   3. le geste se comporte pareil à la souris (1) et au doigt (2).
  *
@@ -23,16 +23,23 @@
  * par `server/src/test/suivi-colonne.test.ts`.
  */
 import { chromium } from 'playwright';
-import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
+import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { lireCarteParId } from './carte-en-base.mjs';
 
-const RACINE = '/root/haikodev';
+/* La racine se déduit du script LUI-MÊME : lancé depuis une copie de travail
+   (`.worktrees/…`), il doit juger le code de CETTE copie, jamais celui du
+   dossier principal — sinon il déclare bon un changement jamais exécuté. */
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/* La résolution ordinaire de Node remonte les dossiers parents : elle trouve le
+   `node_modules` de la copie de travail, et à défaut celui du dépôt principal. */
+const Database = createRequire(import.meta.url)('better-sqlite3');
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7188);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-glissement-'));
@@ -147,7 +154,7 @@ function poserLeDecor() {
     'INSERT INTO projects (id, name, path, archived, data, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)',
   ).run(projet.id, projet.name, projet.path, JSON.stringify(projet), maintenant, maintenant);
 
-  ecrireCarte(db, 'planned', undefined);
+  ecrireCarte(db, 'todo', undefined);
   db.close();
 }
 
@@ -222,7 +229,24 @@ function lireCarte() {
 async function glisser(page, versColonne, pointerType) {
   const carte = page.locator(`article:has-text(${JSON.stringify(TITRE)})`).first();
   const colonne = page.locator(`[data-column="${versColonne}"]`);
-  await colonne.scrollIntoViewIfNeeded();
+  /*
+   * Amener À L'ÉCRAN la colonne de DÉPART **et** celle d'arrivée : elles sont
+   * voisines et deux colonnes tiennent dans la largeur d'essai. Ne faire venir
+   * que la cible poussait la carte hors de l'écran — le geste partait alors
+   * dans le vide, et le contrôle échouait sans que rien ne soit cassé.
+   */
+  await page.evaluate(
+    ({ versColonne, titre }) => {
+      const colonnes = [...document.querySelectorAll('[data-column]')];
+      const source = colonnes.find((c) => c.textContent?.includes(titre));
+      const cible = colonnes.find((c) => c.getAttribute('data-column') === versColonne);
+      const rail = cible?.parentElement;
+      if (!rail || !cible || !source) return;
+      rail.scrollLeft = Math.max(0, Math.min(source.offsetLeft, cible.offsetLeft) - 12);
+    },
+    { versColonne, titre: TITRE },
+  );
+  await page.waitForTimeout(500);
   const depart = await carte.boundingBox();
   const arrivee = await colonne.boundingBox();
   if (!depart || !arrivee) throw new Error('carte ou colonne introuvable à l’écran');
@@ -293,13 +317,13 @@ async function main() {
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(6000);
 
-  noter('la carte d’essai est visible sur le tableau', (await colonneAffichee(page)) === 'planned');
+  noter('la carte d’essai est visible sur le tableau', (await colonneAffichee(page)) === 'todo');
 
   await glisser(page, 'running', 'mouse');
 
   const apresRefus = await colonneAffichee(page);
-  noter('à la souris, la carte revient à « Planifié » : rien n’a été lancé', apresRefus === 'planned', String(apresRefus));
-  noter('en base, la carte n’a pas changé de colonne', lireCarte()?.column === 'planned', lireCarte()?.column);
+  noter('à la souris, la carte revient à « À faire » : rien n’a été lancé', apresRefus === 'todo', String(apresRefus));
+  noter('en base, la carte n’a pas changé de colonne', lireCarte()?.column === 'todo', lireCarte()?.column);
 
   const texte = await page.locator('body').innerText();
   noter(
@@ -309,7 +333,7 @@ async function main() {
   );
   await page.screenshot({ path: path.join(TMP, 'refus.png') });
 
-  /* -------- 2. AU DOIGT : sortir vers « Planifié » suspend l'agent -------- */
+  /* -------- 2. AU DOIGT : sortir vers « À faire » suspend l'agent -------- */
 
   poserAgentEnTravail();
 
@@ -338,13 +362,13 @@ async function main() {
 
   noter('au doigt, la carte est bien en « En cours » au départ', (await colonneAffichee(mobile)) === 'running');
 
-  await glisser(mobile, 'planned', 'touch');
+  await glisser(mobile, 'todo', 'touch');
 
   const apresSuspension = await colonneAffichee(mobile);
-  noter('au doigt, la carte redescend en « Planifié »', apresSuspension === 'planned', String(apresSuspension));
+  noter('au doigt, la carte redescend en « À faire »', apresSuspension === 'todo', String(apresSuspension));
 
   const carte = lireCarte();
-  noter('en base, la carte est en file et marquée suspendue', carte?.column === 'planned' && carte?.scheduling?.suspendu === true, `colonne ${carte?.column}, suspendu ${carte?.scheduling?.suspendu}`);
+  noter('en base, la carte est en file et marquée suspendue', carte?.column === 'todo' && carte?.scheduling?.suspendu === true, `colonne ${carte?.column}, suspendu ${carte?.scheduling?.suspendu}`);
   noter('la raison est écrite sur la carte', /suspendu/i.test(carte?.scheduling?.waitingReason ?? ''), carte?.scheduling?.waitingReason ?? '(aucune)');
 
   const texteMobile = await mobile.locator('body').innerText();

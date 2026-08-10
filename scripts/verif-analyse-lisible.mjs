@@ -7,7 +7,7 @@
  * Se lance contre le serveur de développement (vite) :
  *   HAIKODEV_URL=http://127.0.0.1:7099 node scripts/verif-analyse-lisible.mjs
  *
- * La carte est choisie dans la base : une carte « Planifié » avec une analyse
+ * La carte est choisie dans la base : une carte « À faire » avec une analyse
  * et sans agent de tâche. On peut aussi la nommer avec HAIKODEV_CARTE.
  */
 import { chromium } from 'playwright';
@@ -51,7 +51,7 @@ function choisirCarte(db) {
   const jamaisLancee = db
     .prepare(
       `SELECT c.id, c.title, c.project_id, c.data, c.column_key FROM cards c
-       WHERE c.column_key IN ('planned', 'todo')
+       WHERE c.column_key = 'todo'
          AND EXISTS (SELECT 1 FROM agents a WHERE a.card_id = c.id AND a.role = 'analysis')
          AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.card_id = c.id AND a.role = 'task')
        ORDER BY c.updated_at DESC LIMIT 1`,
@@ -138,7 +138,7 @@ async function main() {
         await ligneProjet.click();
         await page.waitForTimeout(2500);
       }
-      const colonne = page.locator(`[data-column="${carte.column_key || 'planned'}"]`);
+      const colonne = page.locator(`[data-column="${carte.column_key || 'todo'}"]`);
       await colonne.first().scrollIntoViewIfNeeded();
       await page.waitForTimeout(600);
 
@@ -163,7 +163,7 @@ async function main() {
     // Sur une carte jamais lancée, l'analyse est l'unique interlocuteur et son
     // repère doit être présent. Le repli documenté de `choisirCarte` peut rendre
     // une carte déjà exécutée : son interlocuteur courant est alors la tâche.
-    const analyseSeule = ['planned', 'todo'].includes(carte.column_key);
+    const analyseSeule = carte.column_key === 'todo';
     record(
       'Le repère « Analyse de la carte » annonce qui parle',
       !analyseSeule || /analyse de la carte/i.test(texte),

@@ -6,8 +6,9 @@ import type { AgentRole } from './models.js';
  * La carte suit les ÉTAPES RÉELLES du travail.
  *
  * Parcours attendu : « À faire » → (clic de validation : l'analyse part, la
- * carte reste sur place le temps du chiffrage) → « Planifié » → (clic de
- * lancement) → « En cours » → (exécution rendue) → « Terminé ».
+ * carte reste sur place le temps du chiffrage, puis garde ses chiffres SANS
+ * changer de colonne) → (clic de lancement, ou heure dite) → « En cours » →
+ * (exécution rendue) → « Terminé ».
  *
  * Le piège : l'analyse, l'orchestration et la publication portent elles aussi
  * le numéro de carte. Appliquées à tout agent, les deux règles ci-dessous
@@ -18,9 +19,8 @@ import type { AgentRole } from './models.js';
  * D'où la règle unique : seul l'agent d'EXÉCUTION (rôle « task ») déplace une
  * carte. Il la met en « En cours » quand son tour démarre, en « Terminé »
  * quand son tour réussit. Les autres rôles la laissent exactement où elle est.
- * Le passage de « À faire » à « Planifié » (analyse rendue) puis à « En cours »
- * (lancement) reste le travail de l'ordonnanceur : ces règles ne le doublent
- * pas.
+ * Le passage de « À faire » à « En cours » (lancement) reste le travail de
+ * l'ordonnanceur : ces règles ne le doublent pas.
  *
  * Second piège, le plus coûteux : un tour d'exécution qui RÉPOND sans rien
  * changer posait quand même la carte en « Terminé ». Une analyse écrite, une
@@ -166,7 +166,7 @@ export const RAISON_ATTENTE_LANCEMENT =
  * partagent un même agent et un même contexte (on économise le quota), mais
  * l'agent d'analyse ne doit JAMAIS enchaîner tout seul sur l'exécution. Une
  * carte fraîchement analysée — jamais lancée, pas marquée « dès que possible » —
- * reste donc en attente : la bascule Planifié → En cours reste un clic.
+ * reste donc en attente : la bascule À faire → En cours reste un clic.
  *
  * L'ordonnanceur ne reprend AUTOMATIQUEMENT que trois sortes de cartes :
  *   - celle dont l'HEURE DITE est arrivée (`departPrevu`, posé à la création ou
@@ -212,7 +212,7 @@ export function demarrageAutomatiqueAutorise(
 }
 
 /**
- * Ce que porte une carte de « Planifié » qui ne partira pas toute seule tout de
+ * Ce que porte une carte d'« À faire » qui ne partira pas toute seule tout de
  * suite. Une seule phrase à la fois, dans cet ordre : la suspension d'abord (le
  * geste le plus fort), puis la date (elle dit déjà tout ce qu'il y a à savoir),
  * puis l'attente du clic. Rend `undefined` quand la carte est prête à partir :
@@ -302,7 +302,7 @@ export function colonneEnFinDeTour(
  * Désormais le dépôt VAUT le geste que la colonne d'arrivée désigne :
  *   - déposer dans « En cours » = cliquer sur « Lancer maintenant » (le même
  *     chemin de lancement, pas un raccourci parallèle) ;
- *   - sortir de « En cours » vers « Planifié » = suspendre l'agent en travail,
+ *   - sortir de « En cours » vers « À faire » = suspendre l'agent en travail,
  *     la carte restant en file ;
  *   - tout le reste = un simple rangement.
  */
@@ -311,7 +311,7 @@ export type EffetDuDepot = 'lancer' | 'suspendre' | 'ranger';
 export function effetDuDepot(depart: ColumnKey, arrivee: ColumnKey): EffetDuDepot {
   if (depart === arrivee) return 'ranger';
   if (arrivee === 'running') return 'lancer';
-  if (depart === 'running' && arrivee === 'planned') return 'suspendre';
+  if (depart === 'running' && arrivee === 'todo') return 'suspendre';
   return 'ranger';
 }
 
