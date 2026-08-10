@@ -576,6 +576,11 @@ class Client {
       this.set((state) => {
         const fraiche = state.cards[card.id];
         if (!fraiche) return {};
+        // Entre l'envoi et ce refus, le serveur a pu diffuser sa propre vérité
+        // (`card.upsert`) — un lancement réellement parti, juste plus lent que
+        // le délai d'attente local. Ne pas l'écraser : on ne revient à la
+        // colonne de départ QUE si rien de plus frais n'est arrivé entre-temps.
+        if (fraiche.column !== column) return {};
         return { cards: { ...state.cards, [card.id]: { ...fraiche, column: colonneDeDepart } } };
       });
       if (!options.silencieux) this.pushToast('error', raison, card.id);

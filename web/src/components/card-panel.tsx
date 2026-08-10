@@ -366,7 +366,11 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                     size="sm"
                     variant="default"
                     disabled={!peut('lancer').possible}
-                    onClick={() => client.call({ type: 'card.start', id: card.id })}
+                    onClick={() =>
+                      client
+                        .call({ type: 'card.start', id: card.id })
+                        .catch((err: any) => client.pushToast('error', err?.message ?? 'lancement refusé', card.id))
+                    }
                   >
                     <Play className="h-3 w-3" /> Lancer maintenant
                   </Button>

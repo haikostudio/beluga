@@ -29,6 +29,7 @@ import {
   checkTemplate,
   motifDArretQuota,
   cleDeSession,
+  colonneApresMoteurMuet,
   colonneAuDemarrage,
   colonneEnFinDeTour,
   cumulerPartsQuota,
@@ -45,6 +46,7 @@ import {
   observerContexte,
   poidsDeTour,
   raisonSansModification,
+  RAISON_MOTEUR_INJOIGNABLE,
   resumeContinuite,
   ROLES_QUI_DEPLACENT,
   SUJETS_MEMOIRE,
@@ -1308,7 +1310,14 @@ async function startTurn(
        * pendant que quelqu'un écrit encore.
        */
       const leSien = tourDeLaCarte(card, agent.id);
-      const cible = leSien ? colonneEnFinDeTour(card.column, !failed, agent.role, depotModifie) : null;
+      // Le moteur n'a jamais parlé : le LANCEMENT n'a pas pu le joindre, ce
+      // n'est pas la tâche qui a échoué. La carte ne reste pas figée en
+      // « En cours » comme un échec ordinaire : elle repart en « Planifié »,
+      // prête à être retentée toute seule par l'ordonnanceur.
+      const relanceMoteurMuet = leSien ? colonneApresMoteurMuet(card.column, agent.role, moteurMuet) : null;
+      const cible = leSien
+        ? (relanceMoteurMuet ?? colonneEnFinDeTour(card.column, !failed, agent.role, depotModifie))
+        : null;
       // Ce tour vient-il de produire du code ? Alors la carte l'a « déjà
       // enregistré » pour de bon — le drapeau ne s'effacera plus.
       const aProduit =
@@ -1320,7 +1329,20 @@ async function startTurn(
       const updated = store.saveCard({
         ...card,
         ...(cible
-          ? { column: cible, position: store.nextPosition(card.projectId, cible), doneAt: Date.now() }
+          ? {
+              column: cible,
+              position: store.nextPosition(card.projectId, cible),
+              ...(cible === 'done' ? { doneAt: Date.now() } : {}),
+            }
+          : {}),
+        ...(relanceMoteurMuet
+          ? {
+              scheduling: {
+                ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+                restarts: (card.scheduling?.restarts ?? 0) + 1,
+                waitingReason: RAISON_MOTEUR_INJOIGNABLE,
+              },
+            }
           : {}),
         codeDejaEnregistre: dejaEnregistre,
         // La phrase « rien n'a changé » n'appartient qu'à l'agent de la carte :

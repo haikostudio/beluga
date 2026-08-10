@@ -7,15 +7,18 @@ import {
   ROLES_QUI_CLOTURENT,
   ROLES_QUI_DEPLACENT,
   canMove,
+  colonneApresMoteurMuet,
   colonneAuDemarrage,
   colonneDeReprise,
   colonneEnFinDeTour,
+  demarrageAutomatiqueAutorise,
   effetDuDepot,
   etatVisuelCarte,
   gesteCarte,
   mentionArchivage,
   repriseAutorisee,
   sortieAutorisee,
+  RAISON_MOTEUR_INJOIGNABLE,
   RAISON_SANS_MODIFICATION,
   RAISON_SUSPENDU,
   raisonSansModification,
@@ -314,4 +317,35 @@ test('rien à dire tant que la carte est encore dans « Archivé » : la colonne
 
 test('une carte jamais archivée ne porte aucune mention', () => {
   assert.equal(mentionArchivage({ column: 'done' }), null);
+});
+
+/* -------- Le moteur muet au lancement n'est pas un échec ordinaire -------- */
+
+test('un moteur muet remet la carte en « Planifié », jamais en « Terminé »', () => {
+  assert.equal(colonneApresMoteurMuet('running', 'task', true), 'planned');
+});
+
+test('sans moteur muet, la règle ne dit rien : le tour ordinaire tranche seul', () => {
+  assert.equal(colonneApresMoteurMuet('running', 'task', false), null);
+});
+
+test('un moteur muet hors « En cours » ne fait rien bouger', () => {
+  for (const depart of COLUMN_KEYS.filter((c) => c !== 'running')) {
+    assert.equal(colonneApresMoteurMuet(depart, 'task', true), null, `depuis « ${depart} »`);
+  }
+});
+
+test('un moteur muet sur un rôle qui ne déplace pas (analysis, orchestrator, deploy) ne fait rien bouger', () => {
+  for (const role of ['analysis', 'orchestrator', 'deploy'] as const) {
+    assert.equal(colonneApresMoteurMuet('running', role, true), null, `rôle « ${role} »`);
+  }
+});
+
+test('la carte remise en « Planifié » avec des reprises repart toute seule', () => {
+  assert.equal(demarrageAutomatiqueAutorise({ asap: false, attempts: 1, restarts: 1 }), true);
+});
+
+test('la raison du moteur injoignable est écrite en toutes lettres', () => {
+  assert.match(RAISON_MOTEUR_INJOIGNABLE, /moteur/i);
+  assert.match(RAISON_MOTEUR_INJOIGNABLE, /Planifié/);
 });
