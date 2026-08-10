@@ -182,10 +182,18 @@ if (await chef.count()) {
   await page.waitForTimeout(2000);
 }
 
-/* Le menu du modèle : le deuxième réglage de la barre d'écriture. */
+/* Le point d'entrée unique des réglages, puis la ligne « Modèle » de son
+   aperçu : elle creuse vers la liste verticale des modèles. */
+const entree = page.locator('[data-selecteur="config"]');
+const entreeOuverte = await entree.count();
+noter('le point d’entrée des réglages est à l’écran', entreeOuverte > 0, `${entreeOuverte} bouton(s)`);
+if (entreeOuverte) {
+  await entree.first().click();
+  await page.waitForTimeout(600);
+}
 const menu = page.locator('[data-selecteur="modele"]');
 const ouvert = await menu.count();
-noter('le menu de choix du modèle est à l’écran', ouvert > 0, `${ouvert} bouton(s)`);
+noter('la ligne « Modèle » de l’aperçu est à l’écran', ouvert > 0, `${ouvert} ligne(s)`);
 if (ouvert) {
   await menu.first().click();
   await page.waitForTimeout(1200);

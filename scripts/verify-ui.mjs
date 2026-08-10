@@ -385,19 +385,15 @@ async function main() {
   );
   record('Panneau : l\'onglet s\'appelle « Chef »', onglets.includes('Chef'), onglets.filter(Boolean).join(' · '));
 
-  const cibleModele = await page.evaluate(() => {
-    const boutons = Array.from(document.querySelectorAll('button'));
-    const index = boutons.findIndex((b) => {
-      const t = b.textContent?.trim() ?? '';
-      return /^(Claude|GPT-)/.test(t) && t !== 'Claude Code';
-    });
-    if (index < 0) return null;
-    const r = boutons[index].getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  });
-  const modeles = !!cibleModele;
-  if (cibleModele) {
-    await page.mouse.click(cibleModele.x, cibleModele.y);
+  // Le point d'entrée unique des réglages, puis sa ligne « Modèle » : elle
+  // creuse vers la liste verticale des modèles.
+  const entreeReglages = page.locator('[data-selecteur="config"]').first();
+  const modeles = (await entreeReglages.count()) > 0;
+  if (modeles) {
+    await entreeReglages.click();
+    await page.waitForTimeout(700);
+    const ligneModele = page.locator('[data-selecteur="modele"]').first();
+    await ligneModele.click();
     await page.waitForTimeout(1200);
   }
   const appetit = await page.evaluate(() => {

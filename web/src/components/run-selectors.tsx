@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { EngineInfo, RunConfig, messageDeRepli } from '@haikodev/shared';
 import {
   Button,
@@ -13,9 +13,13 @@ import { cn } from '@/lib/utils';
 
 /**
  * Les trois réglages d'un agent — moteur, modèle, niveau de réflexion — dans
- * un seul endroit : la barre d'écriture les affiche pour l'agent en cours, la
- * carte à valider les affiche pour l'agent qui l'exécutera plus tard. Mêmes
- * menus, même comportement, une seule définition.
+ * UN SEUL point d'entrée : un bouton qui résume la configuration actuelle et
+ * ouvre, au clic, une liste verticale à une seule colonne. Choisir « Moteur »,
+ * « Modèle » ou « Réflexion » y creuse vers la liste de CE seul réglage, elle
+ * aussi verticale — jamais deux colonnes, jamais de texte tronqué à quelques
+ * lettres. La barre d'écriture affiche ce point d'entrée pour l'agent en
+ * cours, la carte à valider pour l'agent qui l'exécutera plus tard : même
+ * composant, même comportement.
  */
 
 export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' | 'mode'>>;
@@ -49,6 +53,8 @@ export function resoudreRun(engines: EngineInfo[], choix: RunChoix | undefined) 
   return { installed, engine, models, model, thinkingOptions, thinking };
 }
 
+type Vue = 'apercu' | 'moteur' | 'modele' | 'reflexion';
+
 export function RunSelectors({
   engines,
   choix,
@@ -59,136 +65,223 @@ export function RunSelectors({
   choix: RunChoix | undefined;
   /** Un seul réglage change à la fois ; celui qui appelle décide de la suite. */
   onSelect: (patch: RunChoix) => void;
-  /** Chaque menu prend toute la largeur, sans troncature — pour un pied empilé en lignes. */
+  /** Le bouton d'entrée prend toute la largeur — pour un pied de carte empilé. */
   pleineLargeur?: boolean;
 }) {
   const { installed, engine, models, model, thinkingOptions, thinking } = resoudreRun(engines, choix);
-  return (
-    <>
-      <Selector
-        label={nomCourtMoteur(engine)}
-        items={installed.map((e) => ({
-          id: e.id,
-          label: nomCourtMoteur(e),
-          note: e.version?.replace(/[^\d.]/g, '').slice(0, 8),
-        }))}
-        value={engine?.id}
-        // La liste ne contient QUE des moteurs connus : l'identifiant en vient.
-        onSelect={(id) => onSelect({ engine: id as RunConfig['engine'] })}
-        title="Moteur"
-        pleineLargeur={pleineLargeur}
-      />
-      <Selector
-        label={model?.label ?? 'modèle'}
-        items={models.map((m) => ({
-          id: m.id,
-          label: m.label,
-          appetite: m.appetite,
-          // Le repère de droite : la date de sortie quand le moteur la donne,
-          // sinon l'identifiant quand deux modèles portent le même nom.
-          note:
-            m.note ??
-            (m.releasedAt
-              ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
-              : undefined),
-        }))}
-        value={model?.id}
-        onSelect={(id) => onSelect({ model: id })}
-        title={engine?.live ? 'Modèle (liste du moteur)' : 'Modèle'}
-        avertissement={messageDeRepli(engine)}
-        repere="modele"
-        pleineLargeur={pleineLargeur}
-      />
-      {thinkingOptions.length > 1 ? (
-        <Selector
-          label={thinking?.label ?? 'réflexion'}
-          items={thinkingOptions.map((level) => ({ id: level.id, label: level.label }))}
-          value={thinking?.id}
-          onSelect={(id) => onSelect({ thinking: id })}
-          title="Niveau de réflexion"
-          pleineLargeur={pleineLargeur}
-        />
-      ) : null}
-    </>
-  );
-}
+  const [ouvert, setOuvert] = React.useState(false);
+  const [vue, setVue] = React.useState<Vue>('apercu');
+  const avertissementModele = messageDeRepli(engine);
 
-export function Selector({
-  label,
-  items,
-  value,
-  onSelect,
-  title,
-  avertissement,
-  repere,
-  pleineLargeur,
-}: {
-  label: string;
-  items: { id: string; label: string; note?: string; appetite?: 'light' | 'medium' | 'heavy' }[];
-  value?: string;
-  onSelect: (id: string) => void;
-  title: string;
-  /** Ce qu'il faut savoir sur la liste elle-même — par exemple qu'elle est de secours. */
-  avertissement?: string | null;
-  /** Repère stable pour les scripts de vérification, jamais lu par l'interface. */
-  repere?: string;
-  /** Le menu prend toute la largeur, libellé entier à gauche, chevron à droite. */
-  pleineLargeur?: boolean;
-}) {
-  if (!items.length) return null;
+  const resume = [nomCourtMoteur(engine), model?.label, thinkingOptions.length > 1 ? thinking?.label : null]
+    .filter(Boolean)
+    .join(' · ');
+
+  const choisir = (patch: RunChoix) => {
+    onSelect(patch);
+    setOuvert(false);
+  };
+
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      open={ouvert}
+      onOpenChange={(valeur) => {
+        setOuvert(valeur);
+        if (!valeur) setVue('apercu');
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
           size="sm"
           className={cn(
-            'text-[13px] text-faint hover:text-text',
-            pleineLargeur
-              ? 'w-full justify-between px-1.5'
-              : 'min-w-0 shrink gap-0.5 px-1 sm:gap-1 sm:px-1.5',
+            'min-w-0 gap-1 text-[13px] text-faint hover:text-text',
+            pleineLargeur ? 'w-full justify-between px-1.5' : 'px-1.5',
           )}
-          title={avertissement ?? undefined}
-          data-selecteur={repere}
+          data-selecteur="config"
         >
-          <span className={pleineLargeur ? 'truncate' : 'max-w-[56px] truncate sm:max-w-[110px]'}>{label}</span>
+          <SlidersHorizontal className="h-3 w-3 shrink-0" />
+          <span className={cn('truncate', pleineLargeur ? '' : 'max-w-[130px] sm:max-w-[220px]')}>
+            {resume || 'Réglages'}
+          </span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
         </Button>
       </DropdownMenuTrigger>
-      {/* Colonnes compactes : juste le nom et son repère, sans texte
-          d'explication en dessous — la liste se parcourt d'un coup d'œil. */}
-      <DropdownMenuContent align="start" className="sm:max-h-[320px] sm:w-[220px]">
-        <DropdownMenuLabel>{title}</DropdownMenuLabel>
-        {avertissement ? (
-          <p
-            data-repli="liste-de-secours"
-            className="px-2 pb-1.5 text-[12px] leading-snug text-warning"
-            role="note"
-          >
-            {avertissement}
-          </p>
+      <DropdownMenuContent align="start" className="w-[240px] sm:max-h-[360px]">
+        {vue === 'apercu' ? (
+          <>
+            <DropdownMenuLabel>Réglages de l'agent</DropdownMenuLabel>
+            <LigneApercu
+              titre="Moteur"
+              valeur={nomCourtMoteur(engine)}
+              repere="moteur"
+              onClick={() => setVue('moteur')}
+            />
+            <LigneApercu
+              titre="Modèle"
+              valeur={model?.label ?? '—'}
+              repere="modele"
+              alerte={!!avertissementModele}
+              onClick={() => setVue('modele')}
+            />
+            {thinkingOptions.length > 1 ? (
+              <LigneApercu
+                titre="Réflexion"
+                valeur={thinking?.label ?? '—'}
+                repere="reflexion"
+                onClick={() => setVue('reflexion')}
+              />
+            ) : null}
+          </>
         ) : null}
-        <div className="grid grid-cols-2 gap-1 p-1">
-          {items.map((item) => (
-            <DropdownMenuItem
-              key={item.id}
-              onSelect={() => onSelect(item.id)}
-              className={cn(
-                'flex-col items-start gap-0.5 rounded-md border px-2 py-1.5 text-[12.5px]',
-                value === item.id ? 'border-accent/60 bg-accent/10 text-text' : 'border-border',
-              )}
-            >
-              <span className="flex w-full min-w-0 items-center gap-1">
-                {item.appetite ? <Appetite level={item.appetite} /> : null}
-                <span className="truncate text-text">{item.label}</span>
-                {value === item.id ? <Check className="ml-auto h-2.5 w-2.5 shrink-0 text-success" /> : null}
-              </span>
-              {item.note ? <span className="truncate text-[10.5px] text-faint">{item.note}</span> : null}
-            </DropdownMenuItem>
-          ))}
-        </div>
+
+        {vue === 'moteur' ? (
+          <Detail titre="Moteur" onRetour={() => setVue('apercu')}>
+            {installed.map((e) => (
+              <ItemListe
+                key={e.id}
+                actif={e.id === engine?.id}
+                onSelect={() => choisir({ engine: e.id as RunConfig['engine'] })}
+              >
+                <span className="min-w-0 flex-1 truncate">{nomCourtMoteur(e)}</span>
+                {e.version ? (
+                  <span className="shrink-0 text-[11px] text-faint">{e.version.replace(/[^\d.]/g, '').slice(0, 8)}</span>
+                ) : null}
+              </ItemListe>
+            ))}
+          </Detail>
+        ) : null}
+
+        {vue === 'modele' ? (
+          <Detail
+            titre={engine?.live ? 'Modèle (liste du moteur)' : 'Modèle'}
+            onRetour={() => setVue('apercu')}
+            avertissement={avertissementModele}
+          >
+            {models.map((m) => {
+              const note =
+                m.note ??
+                (m.releasedAt
+                  ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
+                  : undefined);
+              return (
+                <ItemListe key={m.id} actif={m.id === model?.id} onSelect={() => choisir({ model: m.id })}>
+                  {m.appetite ? <Appetite level={m.appetite} /> : null}
+                  <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                  {note ? <span className="shrink-0 text-[11px] text-faint">{note}</span> : null}
+                </ItemListe>
+              );
+            })}
+          </Detail>
+        ) : null}
+
+        {vue === 'reflexion' ? (
+          <Detail titre="Niveau de réflexion" onRetour={() => setVue('apercu')}>
+            {thinkingOptions.map((niveau) => (
+              <ItemListe key={niveau.id} actif={niveau.id === thinking?.id} onSelect={() => choisir({ thinking: niveau.id })}>
+                <span className="min-w-0 flex-1 truncate">{niveau.label}</span>
+              </ItemListe>
+            ))}
+          </Detail>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * Une ligne de l'aperçu : le nom du réglage, sa valeur actuelle, une flèche
+ * vers sa liste. `data-valeur` porte la valeur SEULE, sans le nom du réglage
+ * ni la flèche — c'est ce que les scripts de vérification lisent, plutôt que
+ * de reconstituer le texte affiché.
+ */
+function LigneApercu({
+  titre,
+  valeur,
+  repere,
+  alerte,
+  onClick,
+}: {
+  titre: string;
+  valeur: string;
+  repere: string;
+  alerte?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <DropdownMenuItem
+      data-selecteur={repere}
+      data-valeur={valeur}
+      onSelect={(event) => {
+        event.preventDefault();
+        onClick();
+      }}
+      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px]"
+    >
+      <span className="text-[11.5px] uppercase tracking-wide text-faint">{titre}</span>
+      <span className="ml-auto flex min-w-0 items-center gap-1 text-text">
+        <span className="max-w-[130px] truncate">{valeur}</span>
+        {alerte ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title="Liste de secours" /> : null}
+        <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
+      </span>
+    </DropdownMenuItem>
+  );
+}
+
+/** La liste verticale d'UN SEUL réglage, avec son chemin de retour vers l'aperçu. */
+function Detail({
+  titre,
+  onRetour,
+  avertissement,
+  children,
+}: {
+  titre: string;
+  onRetour: () => void;
+  avertissement?: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      {/* Un bouton ordinaire, pas un item de menu : il ne doit ni fermer le
+          menu ni compter comme un choix dans les listes qui suivent. */}
+      <button
+        type="button"
+        onClick={onRetour}
+        className="mb-1 flex w-full items-center gap-1 rounded-md px-2 py-1 text-[12px] text-faint hover:text-text"
+      >
+        <ChevronLeft className="h-3 w-3 shrink-0" />
+        {titre}
+      </button>
+      {avertissement ? (
+        <p data-repli="liste-de-secours" className="px-2 pb-1.5 text-[12px] leading-snug text-warning" role="note">
+          {avertissement}
+        </p>
+      ) : null}
+      <div className="flex flex-col gap-1 p-1">{children}</div>
+    </>
+  );
+}
+
+function ItemListe({
+  actif,
+  onSelect,
+  children,
+}: {
+  actif: boolean;
+  onSelect: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <DropdownMenuItem
+      onSelect={onSelect}
+      className={cn(
+        'flex items-center gap-2 rounded-md border px-2 py-1.5 text-[13px]',
+        actif ? 'border-accent/60 bg-accent/10 text-text' : 'border-border text-muted',
+      )}
+    >
+      {children}
+      {actif ? <Check className="ml-auto h-3 w-3 shrink-0 text-success" /> : null}
+    </DropdownMenuItem>
   );
 }
 
