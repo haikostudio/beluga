@@ -87,5 +87,6 @@ export * from './suivi-colonne.js';
 export * from './templates.js';
 export * from './travail-hors-tache.js';
 export * from './travail-rendu.js';
+export * from './versions-plan.js';
 export * from './voix-annonce.js';
 export * from './voix-vitesse.js';

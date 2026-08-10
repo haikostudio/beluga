@@ -10,9 +10,11 @@ import {
   Download,
   GitMerge,
   HelpCircle,
+  History,
   LayoutGrid,
   Loader2,
   Paperclip,
+  RotateCcw,
   Route,
   Square,
   Volume2,
@@ -20,12 +22,18 @@ import {
 } from 'lucide-react';
 import {
   Attachment,
+  DEFINITIONS_NIVEAU,
   MEMORY_STEP_ID,
   Message,
+  NIVEAUX_AGENT,
+  NIVEAU_PAR_DEFAUT,
+  NiveauAgent,
   SentContextSnapshot,
   choixPossible,
   comptesDeReprise,
+  differencesDeTexte,
   heureExacte,
+  numeroDeVersion,
   propositionsDuFil,
   repartitionMemoireEnvoi,
   reponsePrete,
@@ -33,6 +41,8 @@ import {
   tempsRestant,
   texteDeReponse,
   triImages,
+  versionSuivante,
+  versionsPrecedentes,
 } from '@haikodev/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
@@ -90,6 +100,7 @@ function LigneReperes({
 
 export function MessageView({
   message,
+  allMessages,
   projectId,
   montrerHeure = true,
   pickedEvolutions,
@@ -98,6 +109,8 @@ export function MessageView({
   dernier = true,
 }: {
   message: Message;
+  /** La conversation entière : sert au cadre du plan à numéroter ses versions. */
+  allMessages: Message[];
   /** Pour déplier la mémoire du projet sous l'étape de lecture. */
   projectId?: string;
   /** Faux quand le message suivant a été écrit dans la même minute : une heure suffit pour le groupe. */
@@ -169,6 +182,7 @@ export function MessageView({
         message.plan ? (
           <PlanBlock
             message={message}
+            allMessages={allMessages}
             dernier={dernier}
             pickedEvolutions={pickedEvolutions}
             onToggleEvolution={onToggleEvolution}
@@ -260,31 +274,43 @@ export function MessageView({
 /**
  * Le texte envoyé par « Valider » : le chef le lit comme un accord clair
  * (`TRI_MODE_PLAN`, `server/src/runtime.ts`) et propose alors la carte, plan
- * recopié dans son contexte.
+ * recopié dans son contexte. Le niveau choisi voyage dans le même message :
+ * le chef le reprend dans le champ « niveau » de la carte qu'il propose.
  */
 const TEXTE_VALIDATION_PLAN = 'Vas-y, lance ce plan.';
+function texteValidationPlan(niveau: NiveauAgent): string {
+  return `${TEXTE_VALIDATION_PLAN} Niveau retenu pour la carte : « ${DEFINITIONS_NIVEAU[niveau].label} ».`;
+}
 /** Le texte envoyé par « Refuser » : le plan reste affiché, rien n'est lancé. */
 const TEXTE_REFUS_PLAN = 'Je refuse ce plan : réfléchis à une autre approche.';
+/** Le texte envoyé par « Repartir de cette version » : cite la version choisie en entier, pour ne rien perdre même si le fil a été résumé depuis. */
+function texteRepriseVersion(numero: number, contenu: string): string {
+  return `Abandonne les versions écrites après la version ${numero} de ce plan et repars de celle-ci, telle qu'elle était ci-dessous. Réponds avec un nouveau plan complet qui la reprend et l'affine.\n\n---\n\n${contenu}`;
+}
 
 /**
  * Le cadre d'un plan proposé en mode plan. Un plan qui n'est plus le dernier
  * message du fil (un message a suivi) se replie tout seul sur un simple
  * bandeau — il reste dépliable d'un clic, rien n'est perdu.
  *
- * Les deux boutons du bas ne créent rien eux-mêmes : ils envoient un message
- * ordinaire dans la conversation, exactement ce que taperait quelqu'un qui
- * valide ou refuse à la main (§PLAN mode plan). « Valider » repasse en plus
- * la conversation en mode direct, seule façon dont le chef sait qu'il peut
- * proposer la carte.
+ * Le plan courant porte son numéro de version et, s'il en existe, une liste
+ * dépliable de ses versions précédentes. Les boutons du bas ne créent rien
+ * eux-mêmes : ils envoient un message ordinaire dans la conversation,
+ * exactement ce que taperait quelqu'un qui valide, refuse ou reprend une
+ * version à la main (§PLAN mode plan). « Valider » repasse en plus la
+ * conversation en mode direct, avec le niveau choisi ; « Repartir de cette
+ * version » la repasse en mode plan, à partir du texte cité.
  */
 function PlanBlock({
   message,
+  allMessages,
   dernier,
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
 }: {
   message: Message;
+  allMessages: Message[];
   dernier: boolean;
   pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
@@ -297,7 +323,14 @@ function PlanBlock({
     etaitDernier.current = dernier;
   }, [dernier]);
 
-  const [enCours, setEnCours] = React.useState<'valider' | 'refuser' | null>(null);
+  const [enCours, setEnCours] = React.useState<'valider' | 'refuser' | 'repartir' | null>(null);
+  const [niveau, setNiveau] = React.useState<NiveauAgent>(NIVEAU_PAR_DEFAUT);
+  const [versionsOuvertes, setVersionsOuvertes] = React.useState(false);
+
+  const numero = numeroDeVersion(allMessages, message.id);
+  const precedentes = versionsPrecedentes(allMessages, message.id);
+  const suivante = versionSuivante(allMessages, message.id);
+  const diff = suivante ? differencesDeTexte(message.content, suivante.content) : null;
 
   const decider = async (cle: 'valider' | 'refuser') => {
     setEnCours(cle);
@@ -308,7 +341,23 @@ function PlanBlock({
       await client.call({
         type: 'agent.prompt',
         agentId: message.agentId,
-        text: cle === 'valider' ? TEXTE_VALIDATION_PLAN : TEXTE_REFUS_PLAN,
+        text: cle === 'valider' ? texteValidationPlan(niveau) : TEXTE_REFUS_PLAN,
+      });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'envoi impossible');
+    } finally {
+      setEnCours(null);
+    }
+  };
+
+  const repartir = async () => {
+    setEnCours('repartir');
+    try {
+      await client.call({ type: 'agent.config', agentId: message.agentId, run: { mode: 'plan' } });
+      await client.call({
+        type: 'agent.prompt',
+        agentId: message.agentId,
+        text: texteRepriseVersion(numero, message.content),
       });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'envoi impossible');
@@ -327,7 +376,8 @@ function PlanBlock({
       >
         <ChevronRight className="h-3.5 w-3.5 shrink-0" />
         <Route className="h-3.5 w-3.5 shrink-0" />
-        Plan proposé
+        {dernier ? 'Plan proposé' : 'Version précédente du plan'}
+        {numero ? <span className="text-faint">— version {numero}</span> : null}
       </button>
     );
   }
@@ -337,10 +387,40 @@ function PlanBlock({
        d'une réponse de tâche classique — pas seulement un emoji devant
        le titre. */
     <div data-mode-plan-reponse="ouvert" className="rounded-lg border-2 border-border bg-surface/80 px-3 py-3">
-      <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-        <Route className="h-3.5 w-3.5" />
-        Plan proposé
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
+          <Route className="h-3.5 w-3.5" />
+          {dernier ? 'Plan proposé' : 'Version précédente du plan'}
+          {numero ? <span className="text-faint">— version {numero}</span> : null}
+        </div>
+        {dernier && precedentes.length ? (
+          <button
+            type="button"
+            data-versions-plan
+            onClick={() => setVersionsOuvertes((v) => !v)}
+            className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-faint transition-colors hover:bg-surface hover:text-text"
+          >
+            <History className="h-3 w-3" />
+            {precedentes.length} version{precedentes.length > 1 ? 's' : ''} précédente
+            {precedentes.length > 1 ? 's' : ''}
+            <ChevronRight className={cn('h-3 w-3 transition-transform', versionsOuvertes && 'rotate-90')} />
+          </button>
+        ) : null}
       </div>
+
+      {dernier && versionsOuvertes ? (
+        <ul data-liste-versions-plan className="mb-3 space-y-1 rounded-md border border-border bg-raised px-2 py-1.5">
+          {precedentes.map((v) => (
+            <li key={v.id} className="flex items-center justify-between gap-2 text-[12.5px] text-muted">
+              <span>Version {numeroDeVersion(allMessages, v.id)}</span>
+              <span className="text-faint" title={heureExacte(v.createdAt)}>
+                {relativeTime(v.createdAt)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <Markdown
         content={message.content}
         pickedEvolutions={pickedEvolutions}
@@ -348,28 +428,112 @@ function PlanBlock({
         onToggleAll={onToggleAll}
         streaming={message.streaming}
       />
-      <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
-        <Button
-          variant="default"
-          size="sm"
-          disabled={!!enCours}
-          onClick={() => decider('valider')}
-          className="gap-1.5"
-        >
-          {enCours === 'valider' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          Valider
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!!enCours}
-          onClick={() => decider('refuser')}
-          className="gap-1.5 text-muted hover:text-danger"
-        >
-          {enCours === 'refuser' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
-          Refuser
-        </Button>
+
+      {!dernier && diff ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
+            Différences avec la version suivante
+          </p>
+          <DiffPlan lignes={diff} />
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        {dernier ? (
+          <>
+            <div className="flex items-center gap-1.5 text-[12.5px] text-muted">
+              Niveau de la carte :
+              <div className="flex gap-1">
+                {NIVEAUX_AGENT.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    data-niveau-plan={id}
+                    aria-pressed={niveau === id}
+                    title={DEFINITIONS_NIVEAU[id].quand}
+                    onClick={() => setNiveau(id)}
+                    className={cn(
+                      'rounded-md border px-2 py-0.5 transition-colors',
+                      niveau === id
+                        ? 'border-accent/50 bg-raised text-text'
+                        : 'border-border text-muted hover:bg-raised',
+                    )}
+                  >
+                    {DEFINITIONS_NIVEAU[id].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex w-full items-center gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                disabled={!!enCours}
+                onClick={() => decider('valider')}
+                className="gap-1.5"
+              >
+                {enCours === 'valider' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Check className="h-3.5 w-3.5" />
+                )}
+                Valider
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!!enCours}
+                onClick={() => decider('refuser')}
+                className="gap-1.5 text-muted hover:text-danger"
+              >
+                {enCours === 'refuser' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
+                Refuser
+              </Button>
+            </div>
+          </>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!!enCours}
+            onClick={repartir}
+            className="gap-1.5"
+          >
+            {enCours === 'repartir' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="h-3.5 w-3.5" />
+            )}
+            Repartir de cette version
+          </Button>
+        )}
       </div>
+    </div>
+  );
+}
+
+/** Le texte qui a changé d'une version de plan à l'autre, ligne à ligne. */
+function DiffPlan({ lignes }: { lignes: ReturnType<typeof differencesDeTexte> }) {
+  return (
+    <div className="space-y-0.5 rounded-md bg-raised px-2.5 py-2 font-mono text-[12px] leading-relaxed">
+      {lignes.map((ligne, index) => (
+        <div
+          key={index}
+          className={cn(
+            'whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
+            ligne.type === 'ajoute' && 'bg-success/10 text-success',
+            ligne.type === 'retire' && 'text-danger line-through',
+            ligne.type === 'egal' && 'text-faint',
+          )}
+        >
+          {ligne.type === 'ajoute' ? '+ ' : ligne.type === 'retire' ? '- ' : '  '}
+          {ligne.texte || ' '}
+        </div>
+      ))}
     </div>
   );
 }
