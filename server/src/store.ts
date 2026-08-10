@@ -809,12 +809,28 @@ export function marquerSujetsMemoireServis(agentId: string, cles: string[]): voi
   if (!cles.length) return;
   const deja = sujetsMemoireServis(agentId);
   setMeta(`memoire.sujets.${agentId}`, JSON.stringify([...new Set([...deja, ...cles])].slice(-40)));
+  // La trace DURABLE, à part : la liste ci-dessus s'efface à chaque session
+  // neuve (sinon une reprise serait privée d'une mémoire qu'elle n'a plus).
+  // Le parcours d'une tâche, lui, doit pouvoir dire des mois plus tard ce que
+  // l'agent est allé chercher : on garde donc les NOMS de sujets, sans leur
+  // empreinte, dans une clé que rien n'efface.
+  const noms = cles.map((cle) => cle.split(':')[1]).filter(Boolean);
+  if (!noms.length) return;
+  const vus = listeMeta(`memoire.demandes.${agentId}`);
+  setMeta(`memoire.demandes.${agentId}`, JSON.stringify([...new Set([...vus, ...noms])].slice(-20)));
+}
+
+/** Les SUJETS que cet agent est allé chercher, sur toute sa vie. */
+export function sujetsMemoireDemandes(agentId: string): string[] {
+  return listeMeta(`memoire.demandes.${agentId}`);
 }
 
 /** Une session neuve repart d'un contexte vide : plus rien n'est « déjà servi ». */
 export function oublierMemoireServie(agentId: string): void {
   setMeta(`memoire.vue.${agentId}`, '[]');
   setMeta(`memoire.sujets.${agentId}`, '[]');
+  // `memoire.demandes.<agent>` n'est PAS touché : c'est la trace de ce qui a
+  // été lu, pas de ce que l'agent a encore sous les yeux.
 }
 
 /**
@@ -1623,6 +1639,48 @@ export function usageByAgent(agentId: string, limit = 200): UsageTurnRow[] {
       seconds: ligne.seconds ?? 0,
     }))
     .reverse();
+}
+
+/**
+ * LE TOUR D'UN AGENT QUI COUVRE UN INSTANT DONNÉ.
+ *
+ * Le tour du chef d'orchestre qui a produit une carte n'a pas de `cardId` : il
+ * vit dans sa conversation. On le retrouve par son agent et par l'heure de la
+ * proposition — la ligne d'usage est écrite à la FIN du tour, donc le bon tour
+ * est le PREMIER dont l'écriture suit la proposition. Rien de trouvé rend un
+ * tableau vide : le parcours dira alors que la mesure n'est pas rattachée,
+ * plutôt que d'en inventer une.
+ */
+export function usageTourCouvrant(agentId: string, instant: number): UsageTurnRow[] {
+  const ligne = getDb()
+    .prepare(
+      `SELECT created_at AS at, engine, model, tokens, input_tokens AS inputTokens,
+              cached_tokens AS cachedTokens, output_tokens AS outputTokens, seconds
+       FROM usage WHERE agent_id = ? AND created_at >= ?
+       ORDER BY created_at ASC, id ASC LIMIT 1`,
+    )
+    .get(agentId, instant) as any;
+  if (!ligne) return [];
+  return [
+    {
+      at: ligne.at,
+      engine: ligne.engine ?? undefined,
+      model: ligne.model ?? undefined,
+      inputTokens: ligne.inputTokens ?? 0,
+      cachedTokens: ligne.cachedTokens ?? 0,
+      outputTokens: ligne.outputTokens ?? 0,
+      tokens: ligne.tokens ?? 0,
+      seconds: ligne.seconds ?? 0,
+    },
+  ];
+}
+
+/** Tous les agents d'une carte, du plus ancien au plus récent. */
+export function agentsDeLaCarte(cardId: string): Agent[] {
+  return getDb()
+    .prepare('SELECT data FROM agents WHERE card_id = ? ORDER BY created_at ASC')
+    .all(cardId)
+    .map((r: any) => Agent.parse(JSON.parse(r.data)));
 }
 
 /**

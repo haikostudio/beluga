@@ -803,6 +803,14 @@ export function createCard(
     analysisContext?: string;
     /** Heure de départ souhaitée : la carte partira toute seule ce moment venu. */
     departPrevu?: number;
+    /**
+     * L'agent qui a proposé cette carte, et le moment de sa proposition. C'est
+     * ce lien — et lui seul — qui permet au parcours de la tâche de porter la
+     * mesure RÉELLE du tri : le tour du chef vit dans sa conversation, sans
+     * `cardId`, donc rien ne le rattachait à la carte qu'il a produite.
+     */
+    origineAgentId?: string;
+    origineAt?: number;
   },
 ): Card {
   const project = store.getProject(projectId);
@@ -815,6 +823,8 @@ export function createCard(
     attachments: input.attachments ?? [],
     estimate: input.estimate,
     analysisContext: input.analysisContext,
+    origineAgentId: input.origineAgentId,
+    origineAt: input.origineAt,
     // Le champ « colonne » est ignoré à la création : invariant 1. Une carte
     // naît dans « Planifié » — il n'y a plus de colonne d'attente avant elle.
     // Naître là ne fait rien démarrer : le lancement reste un geste humain.

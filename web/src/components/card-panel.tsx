@@ -38,7 +38,6 @@ import {
   phaseAnalyse,
   projectionDeLExecution,
   reglagesDeLaCarte,
-  totalMesureEnClair,
   valeurMesuree,
 } from '@haikodev/shared';
 import {
@@ -60,6 +59,7 @@ import {
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
+import { ParcoursTache } from '@/components/parcours-tache';
 import { RepereAttention } from '@/components/repere-attention';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
@@ -669,68 +669,6 @@ function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
 }
 
 /**
- * Pour chaque agent qui a touché la carte (analyse, exécution, publication),
- * ses deux totaux cumulés sur toute la vie de la carte — venus d'une vraie
- * mesure moteur, jamais d'une estimation. Une carte sans aucun tour mesuré
- * (lignes anciennes, sans séparation) ne montre rien : pas de zéro trompeur.
- */
-function TokensParAgent({ card }: { card: Card }) {
-  const state = useApp();
-  const [totaux, setTotaux] = React.useState<{ agentId: string; tokensIn: number; tokensOut: number }[] | null>(
-    null,
-  );
-  React.useEffect(() => {
-    let vivant = true;
-    setTotaux(null);
-    client
-      .call({ type: 'card.tokens', cardId: card.id })
-      .then((data) => {
-        if (vivant) setTotaux(data.agents ?? []);
-      })
-      .catch(() => {});
-    return () => {
-      vivant = false;
-    };
-  }, [card.id]);
-
-  if (!totaux || !totaux.length) return null;
-
-  const lignes = totaux
-    .map((ligne) => ({ ...ligne, agent: state.agents[ligne.agentId] }))
-    .sort((a, b) => (a.agent?.createdAt ?? 0) - (b.agent?.createdAt ?? 0));
-
-  return (
-    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
-      <div className="text-[11.5px] uppercase tracking-wide text-faint">Jetons envoyés / reçus, par agent</div>
-      <div className="mt-1 space-y-1">
-        {lignes.map((ligne) => (
-          <div key={ligne.agentId} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13.5px]">
-            <span className="min-w-[110px] shrink-0 text-faint">{libelleRoleAgent(ligne.agent?.role)}</span>
-            <Etiquette nom="Envoyés" valeur={ligne.tokensIn.toLocaleString('fr-CH')} />
-            <Etiquette nom="Reçus" valeur={ligne.tokensOut.toLocaleString('fr-CH')} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function libelleRoleAgent(role?: string): string {
-  switch (role) {
-    case 'analysis':
-      return 'Analyse';
-    case 'task':
-      return 'Exécution';
-    case 'deploy':
-      return 'Publication';
-    case 'orchestrator':
-      return "Chef d'orchestre";
-    default:
-      return 'Agent';
-  }
-}
-
-/**
  * L'HEURE DITE : la carte attend dans « Planifié » et part toute seule au
  * moment choisi, sans qu'on ait à cliquer. Le champ ne s'affiche que là où la
  * date a encore un sens — avant le départ du travail ; une fois la carte
@@ -826,7 +764,12 @@ function CardSummary({ card }: { card: Card }) {
           départ, au même endroit et de la même façon. */}
       <DepartProgramme card={card} />
       <PreparationChef card={card} />
-      <TokensParAgent card={card} />
+
+      {/* LE CŒUR DE L'ONGLET : ce qui s'est passé, dans l'ordre, avec la mesure
+          réelle de chaque étape. Il remplace les quatre encadrés qui empilaient
+          « Analyse initiale », « Exécution réelle », la ventilation et les
+          jetons par agent — chacun vrai, aucun lisible ensemble. */}
+      <ParcoursTache cardId={card.id} />
 
       <div>
         <Label htmlFor="carte-description">Description</Label>
@@ -852,174 +795,75 @@ function CardSummary({ card }: { card: Card }) {
         </p>
       ) : null}
 
-      <MomentDetail
-        numero="1"
-        titre="Analyse initiale"
-        description="Ce que l’agent a mesuré et prévu au début de son tour, avant de toucher au code."
-        moment="analyse-initiale"
-      >
-        <div className="grid grid-cols-2 gap-2">
-          <Metric
-            label="Durée machine prévue"
-            value={duration(card.estimate?.machineSeconds)}
-            hint="Sert à l'ordonnanceur, jamais à la facture"
-          />
-          {/* Retiré du pied des cartes : c'est ici qu'on vient le chercher. */}
-          <Metric
-            label="Heures développeur senior"
-            value={card.estimate?.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
-            hint="Base de la facture, jamais la durée machine"
-          />
-        </div>
-
-        {card.estimate ? <DetailCoutAnalyse card={card} /> : null}
-
-        {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
-            forme, dès qu'il est terminé. En recopier ici un extrait tronqué
-            faisait lire deux fois la même chose, et moins bien. */}
-        {card.estimate?.summary ? (
-          <p className="text-[13px] text-faint">
-            Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
-          </p>
-        ) : null}
-      </MomentDetail>
-
-      <MomentDetail
-        numero="2"
-        titre="Exécution réelle"
-        description="Ce que le travail a réellement consommé après son lancement."
-        moment="execution-reelle"
-      >
-        <div className="grid grid-cols-2 gap-2">
-          <Metric
-            label="Durée réelle"
-            value={duration(card.consumption?.machineSeconds)}
-            tone={
-              card.estimate?.machineSeconds && card.consumption?.machineSeconds
-                ? card.consumption.machineSeconds > card.estimate.machineSeconds * 1.3
-                  ? 'warning'
-                  : 'neutral'
-                : 'neutral'
-            }
-          />
-          {/* Le compte utilisé n'est plus ici : il vit avec les réglages de
-              l'agent, en haut, là où il explique le quota consommé. */}
-          <Metric label="Tokens consommés" value={card.consumption?.tokens?.toLocaleString('fr-CH') ?? '—'} />
-        </div>
-        {!card.consumption ? (
-          <p className="text-[13px] text-faint">L’exécution n’a pas encore produit de mesure.</p>
-        ) : null}
-      </MomentDetail>
+      <CeQuiEtaitPrevu card={card} />
     </div>
   );
 }
 
-/** Une étape bien délimitée du parcours de la carte : analyse, puis exécution. */
-function MomentDetail({
-  numero,
-  titre,
-  description,
-  moment,
-  children,
-}: {
-  numero: string;
-  titre: string;
-  description: string;
-  moment: 'analyse-initiale' | 'execution-reelle';
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="overflow-hidden rounded-lg border border-border bg-surface" data-moment-detail={moment}>
-      <div className="flex items-start gap-2.5 border-b border-border bg-raised px-3 py-2.5">
-        <span
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-info/15 text-[12px] font-semibold text-info"
-          aria-hidden="true"
-        >
-          {numero}
-        </span>
-        <div>
-          <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
-          <p className="mt-0.5 text-[12.5px] leading-relaxed text-faint">{description}</p>
-        </div>
-      </div>
-      <div className="space-y-3 px-3 py-3">{children}</div>
-    </section>
-  );
-}
-
-/** Mesure passée et projection future restent deux blocs visuellement séparés. */
-function DetailCoutAnalyse({ card }: { card: Card }) {
-  const mesure = card.estimate?.analysisMeasurement;
+/**
+ * CE QUI ÉTAIT PRÉVU, à part et clairement nommé prévision.
+ *
+ * Les chiffres du parcours sont MESURÉS ; ceux-ci sont ANNONCÉS, avant le
+ * travail. Les mêler dans la même ligne de temps ferait lire une projection
+ * comme un relevé — c'est exactement ce que cet onglet doit empêcher. D'où un
+ * bloc séparé, SOUS le parcours, qui ne dit que le futur et le nomme.
+ *
+ * Le réel n'y est repris qu'une fois : l'ÉCART entre le prévu et le mesuré,
+ * c'est-à-dire la seule chose que la prévision apprenne encore une fois le
+ * travail fait.
+ */
+function CeQuiEtaitPrevu({ card }: { card: Card }) {
   /* La même lecture que le tiroir « Contexte envoyé » : une seule règle, dans
      `shared`, pour retrouver la projection d'un chiffrage ancien ou récent. */
   const projection = projectionDeLExecution(card.estimate);
+  if (!card.estimate) return null;
 
-  const parties = mesure
-    ? [
-        ['Consignes HaikoDev', mesure.breakdown.haikoDevInstructions],
-        ['Description de la carte', mesure.breakdown.cardDescription],
-        ['Mémoire et instructions', mesure.breakdown.memoryAndInstructions],
-        ["Lectures faites par l’agent", mesure.breakdown.agentReads],
-      ] as const
-    : [];
+  const prevue = card.estimate.machineSeconds;
+  const reelle = card.consumption?.machineSeconds;
+  const debordement = prevue && reelle ? reelle > prevue * 1.3 : false;
 
   return (
-    <div className="space-y-3 rounded-md border border-border bg-surface px-3 py-3" data-detail-cout-analyse>
+    <section className="space-y-2 rounded-lg border border-border bg-surface px-3 py-3" data-ce-qui-etait-prevu>
       <div>
-        <p className="text-[13.5px] font-semibold text-text">Analyse mesurée — déjà consommée</p>
-        <p className="mt-0.5 text-[12.5px] text-faint">Ces chiffres viennent de l’événement d’usage du moteur.</p>
+        <h3 className="text-[14px] font-semibold text-text">Ce qui était prévu</h3>
+        <p className="mt-0.5 text-[12.5px] text-faint">
+          Annoncé avant le travail. Ce ne sont pas des mesures : les chiffres réels sont dans le parcours,
+          au-dessus.
+        </p>
       </div>
 
-      {mesure ? (
-        <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-total-analyse={mesure.totalTokens ?? ''}>
-            <Metric label="Entrée hors cache" value={valeurMesuree(mesure.inputTokens)} />
-            <Metric label="Déjà en cache" value={valeurMesuree(mesure.cachedInputTokens)} />
-            <Metric label="Sortie" value={valeurMesuree(mesure.outputTokens)} />
-            <Metric label="Total exact" value={totalMesureEnClair(mesure)} />
-          </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Metric
+          label="Durée machine prévue"
+          value={duration(prevue)}
+          hint="Sert à l'ordonnanceur, jamais à la facture"
+        />
+        <Metric
+          label="Heures développeur senior"
+          value={card.estimate.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
+          hint="Base de la facture, jamais la durée machine"
+        />
+      </div>
 
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
-            <Etiquette
-              nom="Quota 5 h mesuré"
-              valeur={mesure.quota5h === undefined ? 'indisponible' : partQuota(mesure.quota5h)}
-            />
-            <Etiquette
-              nom="Quota semaine mesuré"
-              valeur={mesure.quotaWeekly === undefined ? 'indisponible' : partQuota(mesure.quotaWeekly)}
-            />
-          </div>
+      {/* L'ÉCART : la seule chose que la prévision apprenne encore, une fois le
+          travail fait. Rien à dire tant que l'un des deux manque. */}
+      {prevue && reelle ? (
+        <p className={cn('text-[13px]', debordement ? 'text-warning' : 'text-faint')}>
+          Durée réelle {duration(reelle)} — {debordement ? 'nettement au-delà' : 'dans l’ordre'} de la prévision.
+        </p>
+      ) : null}
 
-          <div className="space-y-1.5 border-t border-border pt-2" data-ventilation-analyse>
-            <p className="text-[12px] font-medium uppercase tracking-wide text-faint">Ventilation mesurable</p>
-            {parties.map(([label, part]) => (
-              <div key={label} className="flex items-start justify-between gap-3 text-[13px]">
-                <span className="text-faint">{label}</span>
-                <span className="text-right text-text" title={part.note}>
-                  {part.status === 'measured' && part.characters !== undefined
-                    ? `${part.characters.toLocaleString('fr-CH')} caractères`
-                    : `indisponible — ${part.note}`}
-                </span>
-              </div>
-            ))}
-          </div>
-        </>
-      ) : (
-        <p className="text-[13px] text-faint">Mesure détaillée indisponible pour cette analyse.</p>
-      )}
-
-      <div className="space-y-2 border-t border-border pt-2" data-projection-execution>
-        <div>
-          <p className="text-[13.5px] font-semibold text-text">Exécution projetée — estimation future</p>
-          <p className="mt-0.5 text-[12.5px] text-faint">Ces valeurs ne sont pas une mesure de travail déjà effectué.</p>
-        </div>
+      <div className="space-y-1.5 border-t border-border pt-2" data-projection-execution>
+        <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
+          Jetons projetés — estimation future
+        </p>
         {projection ? (
           <>
-            <div className="grid grid-cols-2 gap-2">
-              <Metric label="Tokens projetés" value={valeurMesuree(projection.tokens)} />
-              <Metric
-                label="Part de quota projetée"
-                value={projection.quotaShare === undefined ? 'indisponible' : partQuota(projection.quotaShare * 100)}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+              <Etiquette nom="Jetons projetés" valeur={valeurMesuree(projection.tokens)} />
+              <Etiquette
+                nom="Part de quota projetée"
+                valeur={projection.quotaShare === undefined ? 'indisponible' : partQuota(projection.quotaShare * 100)}
               />
             </div>
             <p className="text-[13px] text-text">
@@ -1030,15 +874,22 @@ function DetailCoutAnalyse({ card }: { card: Card }) {
               <ul className="list-disc space-y-1 pl-5 text-[13px] text-faint">
                 {projection.assumptions.map((hypothese) => <li key={hypothese}>{hypothese}</li>)}
               </ul>
-            ) : (
-              <p className="text-[13px] text-faint">Hypothèses indisponibles.</p>
-            )}
+            ) : null}
           </>
         ) : (
           <p className="text-[13px] text-faint">Projection indisponible.</p>
         )}
       </div>
-    </div>
+
+      {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
+          forme. En recopier ici un extrait tronqué faisait lire deux fois la
+          même chose, et moins bien. */}
+      {card.estimate.summary ? (
+        <p className="text-[13px] text-faint">
+          Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
+        </p>
+      ) : null}
+    </section>
   );
 }
 

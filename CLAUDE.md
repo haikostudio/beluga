@@ -6,7 +6,9 @@ vivent les choses, ce qu'on n'enfreint pas. Aucun journal ici — les livraisons
 ne garde donc que le CONTRAT essentiel. Le TEXTE ENTIER des règles vit PAR SUJET dans `docs/regles/`,
 la liste des contrôles dans `docs/verifications.md`, le texte des faits PAR SUJET dans `docs/memoire/`
 — tout se demande à la carte avec l'outil `project_memory`, qui ne rend que le sujet touché par la
-tâche, et une seule fois par session.
+tâche, et une seule fois par session. Un sujet NOMMÉ (« publication ») rend son fichier entier ; des
+MOTS-CLÉS ne rendent qu'un EXTRAIT — les règles qui parlent de ces mots, plafonnées, le reste étant
+nommé (`shared/src/extrait-regles.ts`).
 
 ## Où vivent les choses
 
@@ -246,6 +248,14 @@ le nom, là-bas le texte).
 - **Le même tiroir se lit dans UN SEUL ordre : l'ESTIMÉ, puis le RÉEL couche par couche**
   (`shared/src/couches-tokens.ts`) — réflexion du chef d'orchestre, puis exécution ; composition,
   consigne système et prompt entier sont repliés derrière « Voir le détail ».
+- **L'onglet « Détails » d'une carte est une LIGNE DE TEMPS** (`shared/src/parcours-carte.ts`,
+  commande `card.parcours`) : une étape par moment réel — tri du chef, autorisation, travail,
+  déploiement, mise en production —, chacune avec ce qu'elle est allée CHERCHER et ce qu'elle a
+  RÉELLEMENT consommé. Jamais d'estimation dans le parcours : une étape sans mesure porte la RAISON
+  de son absence, et une étape qui n'appelle jamais le moteur (`attendMesure` faux) n'est pas comptée
+  comme un trou. Jamais un jeton deux fois : une étape = des agents, un tour appartient à un seul.
+  Le PRÉVU vit dans un bloc séparé, sous le parcours, nommé prévision. Vérifié par
+  `scripts/verif-detail-analyse.mjs` et `scripts/verif-parcours-tache.mjs`.
 - **Le détail d'une carte issue du chef montre ce qui était préparé avant l'exécution** : réglages
   repris, contenu transmis, chiffrage disponible et continuité du fil. Vérifié par
   `scripts/verif-reglages-carte.mjs`.
