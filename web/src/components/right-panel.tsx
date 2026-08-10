@@ -70,7 +70,7 @@ export function RightPanel({ projectId }: { projectId: string }) {
           </TabsList>
         </div>
 
-        <TabsContent value="chat" className="min-h-0 flex-1 data-[state=inactive]:hidden">
+        <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
           {orchestrator ? (
             /* La barre de navigation du téléphone vient juste en dessous et
                réserve déjà le creux de l'écran : la barre d'écriture ne doit
@@ -83,11 +83,11 @@ export function RightPanel({ projectId }: { projectId: string }) {
           )}
         </TabsContent>
 
-        <TabsContent value="files" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
+        <TabsContent value="files" className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden">
           <FilesTab projectId={projectId} />
         </TabsContent>
 
-        <TabsContent value="attachments" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
+        <TabsContent value="attachments" className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden">
           <AttachmentsTab projectId={projectId} />
         </TabsContent>
       </Tabs>
