@@ -208,6 +208,7 @@ export function Chat({
                 ) : null}
                 <MessageView
                   message={message}
+                  allMessages={messages}
                   projectId={projectId}
                   montrerHeure={afficherHeure(messages, index)}
                   pickedEvolutions={picked}
