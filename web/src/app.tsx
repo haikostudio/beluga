@@ -561,13 +561,13 @@ export function App() {
           // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
-          <div className="grid grid-cols-3 items-center gap-1 rounded-2xl border border-border bg-surface p-1 shadow-lg">
+          <div className="grid grid-cols-[1fr_44px_1fr] items-center gap-1 rounded-2xl border border-border bg-surface p-1 shadow-lg">
             <Button
               variant="ghost"
               size="sm"
               className={cn(
-                'w-full gap-1 rounded-xl px-1 text-xs',
-                mobileView === 'board' && !dashboardOpen && 'bg-raised text-text',
+                'w-full justify-center gap-1 rounded-xl px-1 text-xs',
+                mobileView === 'board' && !dashboardOpen && 'bg-[hsl(16_88%_54%)] text-white hover:bg-[hsl(16_88%_54%)] hover:text-white',
               )}
               onClick={() => {
                 setDashboardOpen(false);
@@ -576,18 +576,18 @@ export function App() {
             >
               <Columns3 className="h-3.5 w-3.5 shrink-0" /> Tableau
             </Button>
-            {/* La colonne du milieu est laissée VIDE : le module de voix (fixe,
-                par-dessus) vient s'y poser et déborde un peu en haut et en bas,
-                comme un bouton d'action. L'intercalaire garde simplement la
-                place de cette colonne pour que Tableau et Chef ne se
-                rapprochent pas. */}
+            {/* La colonne du milieu est laissée VIDE, juste assez large pour le
+                rond du module de voix (fixe, par-dessus) qui vient s'y poser et
+                déborde un peu en haut et en bas, comme un bouton d'action. Les
+                deux autres colonnes se partagent tout le reste (`1fr`), pour que
+                Tableau et Chef s'étendent chacun jusqu'au rond, sans vide. */}
             <div aria-hidden data-place-voix />
             <Button
               variant="ghost"
               size="sm"
               className={cn(
-                'w-full gap-1 rounded-xl px-1 text-xs',
-                mobileView === 'chat' && !dashboardOpen && 'bg-raised text-text',
+                'w-full justify-center gap-1 rounded-xl px-1 text-xs',
+                mobileView === 'chat' && !dashboardOpen && 'bg-[hsl(16_88%_54%)] text-white hover:bg-[hsl(16_88%_54%)] hover:text-white',
               )}
               onClick={() => {
                 setDashboardOpen(false);
