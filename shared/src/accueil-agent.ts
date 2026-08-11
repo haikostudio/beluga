@@ -58,6 +58,12 @@ export interface PartsDAccueil {
   competences: boolean;
   /** L'index de la mémoire du projet, et l'invitation à demander un sujet. */
   memoire: boolean;
+  /**
+   * L'annonce de l'accès GitHub direct (`shared/src/acces-github.ts`) : l'outil
+   * `gh` est identifié dans l'environnement de TOUT agent, mais celui qui
+   * l'ignore propose une carte au lieu de lancer la commande.
+   */
+  github: boolean;
 }
 
 /**
@@ -81,10 +87,14 @@ export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }):
  * part : ils restent TOUJOURS dits — un agent doit savoir où il travaille.
  */
 export function partsDAccueil(niveau: NiveauDAccueil): PartsDAccueil {
-  if (niveau === 'minimal') return { instructions: false, competences: false, memoire: false };
+  // Un dépannage de publication répare une chose NOMMÉE : ni mémoire, ni
+  // compétences, ni GitHub — la demande dit déjà les commandes à lancer.
+  if (niveau === 'minimal') return { instructions: false, competences: false, memoire: false, github: false };
   // Le chef trie : ni instructions du projet, ni index de la mémoire. Les
   // compétences partagées restent, elles seules lui disent ce que HaikoDev sait
   // déjà faire (facturation…), et il n'a pas le droit d'aller les chercher.
-  if (niveau === 'tri') return { instructions: false, competences: true, memoire: false };
-  return { instructions: true, competences: true, memoire: true };
+  // L'accès GitHub reste lui aussi : consulter un dépôt ou lire une demande de
+  // fusion pour répondre à une question n'est pas modifier le code du projet.
+  if (niveau === 'tri') return { instructions: false, competences: true, memoire: false, github: true };
+  return { instructions: true, competences: true, memoire: true, github: true };
 }

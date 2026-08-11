@@ -98,6 +98,7 @@ import {
 import { poserDecisionDeReprise, repriseDeCompte } from './reprise-compte.js';
 import { notify } from './notify.js';
 import { cartesDuTravailHorsTache, depotModifieDepuis, repereAvant } from './hors-tache.js';
+import { envGithub } from './github.js';
 import { oublierLePont, passageDuPont } from './pont.js';
 import { ouvrirDossierDeCarte, refermerDossierDeCarte } from './dossier-de-carte.js';
 
@@ -954,6 +955,12 @@ async function startTurn(
     HAIKODEV_TOKEN: token,
     HAIKODEV_URL: url,
     HAIKODEV_AGENT: agent.id,
+    // GITHUB POUR TOUS, PARTOUT : le jeton du serveur voyage dans
+    // l'environnement (`shared/src/acces-github.ts`), donc `gh` marche dans une
+    // copie de travail comme dans le bac à sable du chef, sans lire le dossier
+    // personnel du serveur ni rien configurer projet par projet. Serveur non
+    // identifié : aucune variable posée, `gh` le dira lui-même.
+    ...(await envGithub()),
     ...applyAccountEnv(account),
   };
 

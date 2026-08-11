@@ -323,6 +323,11 @@ le nom, là-bas le texte).
   `/root/haikodev` en dur — sinon, lancé depuis une copie de travail, il jugerait le dossier principal.
 - **Une compétence partagée vit dans `data/competences/`** (un dossier avec son `SKILL.md`) : le démon
   la pose dans le coffre de chaque compte Claude et le briefing l'annonce à tout agent.
+- **GITHUB est ouvert à TOUT agent, sur TOUS les projets, sans carte ni réglage**
+  (`shared/src/acces-github.ts`, `server/src/github.ts`) : le jeton du serveur (`gh auth token`) part
+  dans l'environnement de chaque agent, donc `gh` marche en copie de travail comme dans le bac à sable
+  du chef ; l'accueil ANNONCE les gestes, sauf au palier minimal d'un dépannage. Publier et mettre en
+  ligne restent des gestes de l'utilisateur, GitHub compris. Vérifié par `scripts/verif-acces-github.mjs`.
 
 ### Quotas
 

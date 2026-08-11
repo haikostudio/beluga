@@ -58,8 +58,20 @@ test('le chef d’orchestre reçoit l’accueil de TRI : il ne lit plus le proje
 });
 
 test('l’accueil minimal n’emporte ni mémoire, ni compétences, ni instructions', () => {
-  assert.deepEqual(partsDAccueil('minimal'), { instructions: false, competences: false, memoire: false });
-  assert.deepEqual(partsDAccueil('complet'), { instructions: true, competences: true, memoire: true });
+  // `github` : l'annonce de l'accès GitHub direct, elle non plus (une panne de
+  // publication nommée n'a rien à consulter sur GitHub).
+  assert.deepEqual(partsDAccueil('minimal'), {
+    instructions: false,
+    competences: false,
+    memoire: false,
+    github: false,
+  });
+  assert.deepEqual(partsDAccueil('complet'), {
+    instructions: true,
+    competences: true,
+    memoire: true,
+    github: true,
+  });
 });
 
 /*
@@ -69,7 +81,14 @@ test('l’accueil minimal n’emporte ni mémoire, ni compétences, ni instructi
  * fichiers d'instructions, eux, ne lui servent plus à rien.
  */
 test('l’accueil de tri garde les compétences, mais laisse mémoire et instructions', () => {
-  assert.deepEqual(partsDAccueil('tri'), { instructions: false, competences: true, memoire: false });
+  // GitHub reste : consulter un dépôt ou lire une demande de fusion pour
+  // répondre n'est pas modifier le code du projet.
+  assert.deepEqual(partsDAccueil('tri'), {
+    instructions: false,
+    competences: true,
+    memoire: false,
+    github: true,
+  });
 });
 
 /* ------------------------------------------------------------------ */
