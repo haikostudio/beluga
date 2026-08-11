@@ -12,10 +12,11 @@ import { cn } from '@/lib/utils';
  * un SECOND tiroir, empilé par-dessus le premier — jamais un remplacement de
  * son contenu — avec la liste verticale de CE seul réglage. Aucun bouton
  * retour : le tiroir du dessus se referme comme n'importe quel tiroir (voile,
- * geste, échappement) et retrouve l'aperçu resté ouvert en dessous. La barre
- * d'écriture affiche ce point d'entrée pour l'agent en cours, la carte à
- * valider pour l'agent qui l'exécutera plus tard : même composant, même
- * comportement.
+ * geste, échappement) et retrouve l'aperçu resté ouvert en dessous — que ce
+ * retour vienne d'un choix retenu ou d'un renoncement, l'aperçu, lui, ne se
+ * ferme JAMAIS tout seul. La barre d'écriture affiche ce point d'entrée pour
+ * l'agent en cours, la carte à valider pour l'agent qui l'exécutera plus
+ * tard : même composant, même comportement.
  */
 
 export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' | 'mode'>>;
@@ -80,7 +81,7 @@ export function RunSelectors({
 
   const choisir = (patch: RunChoix) => {
     onSelect(patch);
-    fermerTout();
+    setSousVue(null);
   };
 
   const titreSousVue =
