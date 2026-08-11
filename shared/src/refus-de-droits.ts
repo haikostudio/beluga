@@ -99,7 +99,10 @@ export function expliquerRefus(nature: NatureDuRefus, projet?: string): string {
  * sauf modifier lui-même du code. Elle nomme les gestes qu'il croyait interdits
  * — construire, installer, déployer, redémarrer, administrer la machine — parce
  * qu'un chef qui s'en croit privé s'arrête avant d'essayer, et rapporte un refus
- * qui n'existe pas.
+ * qui n'existe pas. Elle nomme de même les gestes qui SORTENT de la machine —
+ * requête réseau, GitHub, connexion SSH — et le fait qu'ils se font DANS LE TOUR,
+ * sans carte : un chef qui ouvre une carte pour un `gh pr list` fait attendre
+ * l'utilisateur une validation pour dix secondes de travail.
  *
  * Elle lui interdit aussi le vocabulaire des droits : ce mot a fait lire à
  * l'utilisateur, qui avait tout accordé, une autorisation manquante (11/08/2026).
@@ -110,6 +113,10 @@ export function consigneEspaceDuChef(dossierDeTravail: string, projet: string): 
     `veux — sondages, études, construction, installation de dépendances, script de déploiement, ` +
     `redémarrage d'un service, commandes d'administration — et tu écris où tu veux sur le disque. ` +
     `Le projet (${projet}) t'est ouvert en entier ; ${dossierDeTravail} reste ton dossier à brouillons.\n` +
+    `LA MACHINE ET LE DEHORS AUSSI, DANS LE TOUR EN COURS, SANS CARTE : requêtes réseau (curl, ` +
+    `appels d'API), gestes GitHub (gh : dépôts, demandes de fusion, tickets), connexion SSH vers ` +
+    `une autre machine, et création ou modification de cartes avec tes outils. Ces gestes-là se ` +
+    `font TOUT DE SUITE : n'ouvre pas une carte pour ce que tu peux faire en dix secondes.\n` +
     `TA SEULE FRONTIÈRE : tu ne modifies pas TOI-MÊME le code. Les outils d'édition de fichiers ne ` +
     `te sont pas servis, et une modification de programme s'ouvre en carte confiée à un agent de ` +
     `tâche. Tout le reste t'est permis : n'annonce jamais qu'un geste t'est fermé sans l'avoir ` +

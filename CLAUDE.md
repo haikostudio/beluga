@@ -233,7 +233,9 @@ le nom, là-bas le texte).
 - **Un agent de tâche travaille en accès complet. Le chef d'orchestre AUSSI, SAUF qu'il ne modifie
   pas lui-même le code** (`shared/src/bridage-chef.ts`) : il lance ce qu'il veut — commandes,
   construction, installation, script de déploiement, redémarrage de service, administration de la
-  machine — et écrit où il veut, le projet compris. AUCUN bac à sable (`sandbox_mode=
+  machine — et écrit où il veut, le projet compris. Le DEHORS lui est ouvert de même, DANS LE TOUR et
+  sans carte : requêtes réseau, gestes GitHub (`gh`, jeton du serveur posé dans son environnement),
+  connexion SSH sortante, création et modification de cartes. AUCUN bac à sable (`sandbox_mode=
   "danger-full-access"` sous Codex, `sandbox.enabled:false` sous Claude) : il enfermait justement les
   gestes qu'on veut ouvrir, puisque construire ÉCRIT dans le projet et qu'administrer exige
   l'élévation de privilèges qu'aucun bac à sable ne laisse passer. La frontière du CODE tient sur les
