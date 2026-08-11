@@ -116,6 +116,12 @@ test('la consigne du chef annonce l’accès complet et sa seule frontière', ()
   for (const geste of [/construction/i, /installation/i, /déploiement/i, /redémarrage/i, /administration/i]) {
     assert.match(consigne, geste);
   }
+  // Les gestes qui SORTENT de la machine, nommés eux aussi, avec le fait qu'ils
+  // se jouent dans le tour : sinon le chef ouvre une carte pour un `gh pr list`.
+  for (const geste of [/requêtes réseau/i, /GitHub/, /SSH/, /cartes/i]) {
+    assert.match(consigne, geste);
+  }
+  assert.match(consigne, /DANS LE TOUR EN COURS, SANS CARTE/);
   assert.match(consigne, /TA SEULE FRONTIÈRE/);
   assert.match(consigne, /tu ne modifies pas TOI-MÊME le code/);
   assert.match(consigne, /NE DIS JAMAIS « je n'ai pas les droits »/);

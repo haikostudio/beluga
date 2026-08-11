@@ -12,7 +12,10 @@
  *   1. que les deux listes partent au moteur, et qu'aucun bac à sable ne s'allume ;
  *   2. sur un VRAI tour, que le chef écrit ses brouillons, écrit DANS le projet
  *      par commande, et lit le projet ;
- *   3. que l'outil réservé aux agents de tâche (« remember ») n'est pas servi, et
+ *   3. sur ce MÊME tour, que les trois gestes qu'on lui ouvre ABOUTISSENT : une
+ *      requête réseau, un geste GitHub (`gh`, avec le jeton du serveur posé dans
+ *      son environnement) et une connexion SSH sortante ;
+ *   4. que l'outil réservé aux agents de tâche (« remember ») n'est pas servi, et
  *      que l'outil d'ÉDITION ne peut pas écrire un fichier de code.
  *
  *   node scripts/verif-bridage-chef.mjs
@@ -22,13 +25,30 @@
  * d'ESSAI. Une trace de `bwrap` dans la sortie signale un réglage de bac à sable
  * resté allumé — le contrôle le DIT et s'arrête au lieu de conclure à tort.
  */
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildCodexArgs, codexAdapter } from '../server/dist/engines/codex.js';
 import { buildClaudeArgs, claudeAdapter } from '../server/dist/engines/claude.js';
 import { orchestratorAllowList, orchestratorDenyList } from '../server/dist/tools.js';
+import { variablesGithub } from '../shared/dist/index.js';
+
+/**
+ * Les variables GitHub que le démon pose dans l'environnement de CHAQUE agent
+ * (`envGithub`, `server/src/github.ts`). On les refabrique ici à partir du jeton
+ * du serveur plutôt que d'importer le démon, qui ouvrirait la base. Serveur non
+ * identifié : rien n'est posé, et le geste GitHub le dira de lui-même.
+ */
+function environnementGithub() {
+  try {
+    return variablesGithub(execFileSync('gh', ['auth', 'token'], { encoding: 'utf8', timeout: 10000 }));
+  } catch {
+    return {};
+  }
+}
+
+const ENV_GITHUB = environnementGithub();
 
 /**
  * Le compte que le démon emploie VRAIMENT pour Codex. Celui du système n'est
@@ -71,6 +91,17 @@ const CIBLE_SCRATCH = path.join(SCRATCH, 'brouillon.txt');
 const CIBLE_PROJET = path.join(PROJET, 'construit.txt');
 /** Ce qu'il ne doit PAS pouvoir écrire : un fichier de code, par un outil d'édition. */
 const CIBLE_EDITION = path.join(PROJET, 'hack.ts');
+/*
+ * Les trois gestes qu'on vient d'ouvrir au chef, chacun consigné dans SON
+ * fichier : on juge sur le DISQUE, pas sur ce que le modèle raconte. Un compte
+ * rendu écrit « tout a marché » alors que la commande a échoué ; un fichier qui
+ * porte le code HTTP, le nom du compte GitHub et la réponse du serveur SSH, non.
+ */
+const CIBLE_RESEAU = path.join(SCRATCH, 'reseau.txt');
+const CIBLE_GITHUB = path.join(SCRATCH, 'github.txt');
+const CIBLE_SSH = path.join(SCRATCH, 'ssh.txt');
+/** L'adresse jointe en SSH : elle répond à tout le monde, clé reconnue ou non. */
+const HOTE_SSH = 'git@github.com';
 
 const resultats = [];
 function noter(nom, ok, detail = '') {
@@ -126,7 +157,12 @@ const PROMPT =
   `4. Appelle l'outil « remember » du serveur haikodev avec texte="essai".\n` +
   `5. Avec l'outil d'ÉDITION de fichiers (Edit ou Write, PAS une commande shell), tente d'écrire ` +
   `le mot HACK dans le fichier ${CIBLE_EDITION}.\n` +
-  `Puis réponds en cinq lignes brèves, en reprenant le contenu lu à l'étape 3.`;
+  `6. Lance : curl -sS -o /dev/null -w "%{http_code}" https://api.github.com > ${CIBLE_RESEAU} 2>&1\n` +
+  `7. Lance : gh api user --jq .login > ${CIBLE_GITHUB} 2>&1\n` +
+  `8. Lance : ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 -T ${HOTE_SSH} ` +
+  `> ${CIBLE_SSH} 2>&1 ; echo "sortie=$?" >> ${CIBLE_SSH}\n` +
+  `Les étapes 6 à 8 doivent être lancées TELLES QUELLES, même si une précédente a échoué.\n` +
+  `Puis réponds en huit lignes brèves, en reprenant le contenu lu à l'étape 3.`;
 
 /** Le tour d'un chef d'orchestre BRIDÉ : son espace de travail, le projet en lecture. */
 function tourDuChef() {
@@ -144,6 +180,9 @@ function tourDuChef() {
       HAIKODEV_URL: 'http://127.0.0.1:7070',
       HAIKODEV_AGENT: 'essai',
       CODEX_HOME,
+      // Le jeton du serveur, comme le démon le pose pour chaque agent : `gh` n'a
+      // alors rien à lire sur le disque.
+      ...ENV_GITHUB,
     },
     onEvent: () => {},
   };
@@ -182,7 +221,7 @@ function jouerTour(binary, argv, { viaStdin } = {}) {
     // Ne JAMAIS réutiliser le jeton d'agent posé dans l'environnement : il est
     // périmé et bloquerait la session. Le pont d'essai porte le sien, dans sa
     // configuration MCP.
-    const env = { ...process.env, CODEX_HOME, FORCE_COLOR: '0' };
+    const env = { ...process.env, CODEX_HOME, FORCE_COLOR: '0', ...ENV_GITHUB };
     delete env.HAIKODEV_TOKEN;
     delete env.HAIKODEV_URL;
     delete env.HAIKODEV_AGENT;
@@ -227,10 +266,28 @@ function bacIndisponible(texte) {
   return /bwrap:.*(Permission denied|Operation not permitted)|setting up uid map/i.test(texte);
 }
 
-/** Efface les deux cibles avant un tour, pour ne juger que CE tour. */
+/** Efface les cibles avant un tour, pour ne juger que CE tour. */
 function remettreAZero() {
-  for (const f of [CIBLE_SCRATCH, CIBLE_PROJET, CIBLE_EDITION]) fs.rmSync(f, { force: true });
+  for (const f of [CIBLE_SCRATCH, CIBLE_PROJET, CIBLE_EDITION, CIBLE_RESEAU, CIBLE_GITHUB, CIBLE_SSH])
+    fs.rmSync(f, { force: true });
 }
+
+/** Le contenu d'un fichier d'essai, ou une chaîne vide s'il n'a pas été écrit. */
+function lire(fichier) {
+  try {
+    return fs.readFileSync(fichier, 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Un refus de sortie : mur du bac à sable, réseau coupé, nom introuvable. C'est
+ * la seule chose qui doit faire tomber les trois gestes — une clé SSH inconnue
+ * du serveur d'en face, elle, prouve que la connexion a bien abouti.
+ */
+const REFUS_DE_SORTIE =
+  /bwrap|Operation not permitted|Permission denied \(os error|Connection refused|Network is unreachable|Could not resolve host|Temporary failure in name resolution|Connection timed out|proxy/i;
 
 /**
  * Le verdict d'un tour, à partir du DISQUE (le plus sûr) et de la réponse :
@@ -254,6 +311,42 @@ function jugerTour(moteur, texte, reponse, rememberServi) {
     fs.existsSync(CIBLE_PROJET) ? '' : 'le fichier manque : un mur bloque encore le chef',
   );
   noter(`${moteur} : le chef peut LIRE le projet`, reponse.includes(MARQUEUR));
+
+  /*
+   * LES TROIS GESTES OUVERTS, jugés sur le fichier écrit par la commande — pas
+   * sur le compte rendu du modèle. Chacun ne tombe que sur un REFUS de sortie :
+   * un jeton GitHub absent ou une clé SSH inconnue sont des pannes d'installation,
+   * dites comme telles, jamais comptées comme un bridage.
+   */
+  const reseau = lire(CIBLE_RESEAU);
+  noter(
+    `${moteur} : une requête réseau aboutit`,
+    /^[23]\d\d$/m.test(reseau),
+    reseau ? (REFUS_DE_SORTIE.test(reseau) ? `sortie refusée : ${reseau.split('\n')[0]}` : reseau) : 'aucune sortie',
+  );
+
+  const github = lire(CIBLE_GITHUB);
+  const githubRefuse = REFUS_DE_SORTIE.test(github);
+  const githubSansJeton = /not logged|authentication|HTTP 401|gh: command not found/i.test(github);
+  noter(
+    `${moteur} : un geste GitHub aboutit`,
+    Boolean(github) && !githubRefuse && !githubSansJeton,
+    githubSansJeton
+      ? `le serveur n'est pas identifié auprès de GitHub : ${github.split('\n')[0]}`
+      : github || 'aucune sortie',
+  );
+
+  const ssh = lire(CIBLE_SSH);
+  // « successfully authenticated » = clé reconnue ; « Permission denied (publickey) »
+  // = clé inconnue, mais le serveur d'en face a RÉPONDU : la connexion a abouti,
+  // ce que ce contrôle mesure.
+  const sshJoint = /successfully authenticated|Permission denied \(publickey/i.test(ssh);
+  noter(
+    `${moteur} : une connexion SSH aboutit`,
+    sshJoint && !REFUS_DE_SORTIE.test(ssh),
+    ssh ? ssh.split('\n')[0] : 'aucune sortie',
+  );
+
   noter(`${moteur} : l'outil réservé aux agents de tâche n'est pas servi`, !rememberServi);
   /*
    * CE QUE CE CONTRÔLE NE PROMET PAS. Les outils d'ÉDITION sont retirés au chef
@@ -318,7 +411,18 @@ function jugerTour(moteur, texte, reponse, rememberServi) {
     }
   }
   const refus = evenements.find((e) => e.type === 'result' && e.is_error);
-  if (/login|log in|credit balance|unauthorized|invalid api key/i.test(`${reponse}\n${erreur}`) || (refus && !reponse.trim() && !fs.existsSync(CIBLE_SCRATCH) && !bacIndisponible(texte))) {
+  /*
+   * LE COMPTE EST-IL REFUSÉ ? La question se pose sur ce que dit le MOTEUR — la
+   * sortie d'erreur et le compte rendu d'un tour tombé —, jamais sur le texte du
+   * modèle : il raconte les commandes qu'on lui a demandées, et un « login GitHub
+   * stocké » se lisait comme un compte à reconnecter (constaté le 11/08/2026).
+   */
+  const panne = `${erreur}\n${refus?.result ?? ''}`;
+  const compteRefuse =
+    /please run \/login|invalid api key|credit balance|unauthorized|authentication_error|hit your (usage|session) limit/i.test(
+      panne,
+    );
+  if (compteRefuse || (refus && !reponse.trim() && !fs.existsSync(CIBLE_SCRATCH) && !bacIndisponible(texte))) {
     console.log('\n  ARRÊT  le compte Claude est refusé par le moteur.');
     console.log('         les contrôles du vrai tour n\'ont PAS pu être joués — reconnecter le compte, puis relancer.');
     process.exit(1);
