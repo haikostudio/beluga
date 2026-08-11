@@ -1140,9 +1140,13 @@ function LigneEspaceDev({
         data-espace-dev-attention={attention || undefined}
         data-espace-dev-rendus={rendus || undefined}
         className={cn(
-          'group relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px]',
-          'transition-[background-color,color] duration-150 motion-reduce:transition-none',
-          active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
+          'group relative flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-[13.5px]',
+          'transition-[background-color,border-color,color] duration-150 motion-reduce:transition-none',
+          running
+            ? 'border-info/70 bg-info/25 text-text hover:bg-info/30'
+            : active
+              ? 'border-transparent bg-raised text-text'
+              : 'border-transparent text-muted hover:bg-surface hover:text-text',
           secoue && 'animate-secousse',
         )}
       >
@@ -1233,11 +1237,15 @@ function ProjectRow({
       data-projet-attention={attention || undefined}
       data-projet-rendus={rendus || undefined}
       className={cn(
-        'group relative mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1.5 text-[13.5px]',
+        'group relative mb-0.5 flex w-full items-center gap-1 rounded-md border px-1.5 py-1.5 text-[13.5px]',
         // Le décalage suit la même durée que les autres transitions ; le réglage
         // « réduire les animations » du système le rend immédiat.
-        'transition-[transform,background-color,color] duration-150 motion-reduce:transition-none',
-        active ? 'bg-raised text-text' : 'text-text hover:bg-surface',
+        'transition-[transform,background-color,border-color,color] duration-150 motion-reduce:transition-none',
+        running
+          ? 'border-info/70 bg-info/25 text-text hover:bg-info/30'
+          : active
+            ? 'border-transparent bg-raised text-text'
+            : 'border-transparent text-text hover:bg-surface',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
       )}
