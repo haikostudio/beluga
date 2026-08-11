@@ -106,6 +106,18 @@ export const Project = z.object({
    */
   devUrl: z.string().optional(),
   /**
+   * LES BRANCHES DE MISE EN LIGNE de ce projet, une par étape : celle où le
+   * DÉPLOIEMENT vers l'instance de dev fusionne son lot, celle où la MISE EN
+   * PRODUCTION fusionne le sien. Les règles vivent dans
+   * `branche-de-publication.ts`. Clé absente = rien de réglé : le déploiement
+   * retombe sur la branche « dev » du dépôt quand elle existe, sinon sur la
+   * branche principale constatée — et la mise en production sur la principale,
+   * exactement comme avant ce réglage.
+   */
+  branchesDePublication: z
+    .object({ dev: z.string().optional(), production: z.string().optional() })
+    .default({}),
+  /**
    * LA MISE EN PRODUCTION de ce projet, réglée dans ses paramètres : la BASE
    * écrite à la main par l'utilisateur (le concept dans ses mots) et le PROMPT
    * que l'agent de mise en production reçoit. Les règles vivent dans

@@ -217,6 +217,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { project: updated };
     }
 
+    case 'project.branches': {
+      /*
+       * Les branches proposées dans les réglages viennent du DÉPÔT du projet,
+       * lues chez GitHub — jamais d'une liste écrite à la main. Un projet sans
+       * dépôt joignable rend une liste vide et la raison : le champ reste
+       * saisissable, il ne ment pas sur ce qu'il sait.
+       */
+      const project = store.getProject(cmd.id);
+      if (!project) throw new Error('projet introuvable');
+      return github.branchesDuDepot(project.path);
+    }
+
     case 'project.delete': {
       store.deleteProject(cmd.id);
       bus.emit({ type: 'project.delete', id: cmd.id });
@@ -1001,7 +1013,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           etape?.source === 'to_deploy' ? await commitsEnAttente(cmd.projectId) : { nombre: 0, titres: [] },
         // COMMENT cette étape se fera. Le dire AVANT le clic vaut mieux que de
         // le découvrir dans le déroulé.
-        miseEnLigne: moyenDeMiseEnLigne(cmd.projectId, etape?.cible),
+        miseEnLigne: await moyenDeMiseEnLigne(cmd.projectId, etape?.cible),
         // Une MISE EN PRODUCTION sans prompt réglé ne part pas : on le dit ici,
         // pour que le bloc éteigne « Tout publier » et explique pourquoi.
         productionBloquee: blocageMiseEnProduction(cmd.projectId, etape?.cible),

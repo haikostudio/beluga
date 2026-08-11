@@ -138,11 +138,17 @@ le nom, là-bas le texte).
   `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
   une consigne ciblée. La mise en production confiée, elle, garde l'accueil complet.
-- **Déployer, c'est fusionner le lot « À déployer » dans la principale, enregistrer, pousser, puis
-  rafraîchir l'instance de dev** (`planDeMiseEnLigne`, `shared/src/mise-en-ligne.ts`) — toujours
-  disponible, sans réglage. La MISE EN PRODUCTION, elle, ne suit QUE le prompt réglé du projet :
-  sans prompt, elle est refusée, jamais menée à vide. La mise en ligne compte donc DEUX étapes, que
-  la colonne « En production » sépare.
+- **Déployer, c'est fusionner le lot « À déployer », enregistrer, pousser, puis rafraîchir
+  l'instance de dev** (`planDeMiseEnLigne`, `shared/src/mise-en-ligne.ts`) — toujours disponible,
+  sans réglage. La MISE EN PRODUCTION, elle, ne suit QUE le prompt réglé du projet : sans prompt,
+  elle est refusée, jamais menée à vide. La mise en ligne compte donc DEUX étapes, que la colonne
+  « En production » sépare.
+- **La BRANCHE de chaque étape se choisit dans les réglages du projet**
+  (`brancheDePublication`, `shared/src/branche-de-publication.ts` ; `Project.branchesDePublication`) :
+  une pour le déploiement, une pour la mise en production, prises dans la liste des branches du
+  dépôt GITHUB (`project.branches`, `branchesDuDepot`). Rien de réglé : le déploiement va sur
+  « dev » quand le dépôt en a une, sinon sur la branche principale constatée ; la mise en production
+  reste sur la principale — le comportement d'avant, intact.
 
 ### Cartes
 

@@ -15,6 +15,7 @@ import {
   TITRE_MISE_EN_PRODUCTION,
   baseDeMiseEnProduction,
   ecrireMiseEnProduction,
+  mentionBrancheParDefaut,
   mentionMiseEnProduction,
   promptDeMiseEnProduction,
   rappelDeMiseEnProduction,
@@ -43,6 +44,59 @@ interface ClientEntry {
 }
 
 /**
+ * LE CHOIX D'UNE BRANCHE DE MISE EN LIGNE, une par étape.
+ *
+ * La liste vient du dépôt GitHub du projet : on ne tape pas un nom de branche,
+ * on prend celui qui existe. Rien de choisi reste la première option, et la
+ * phrase en dessous dit ce qui s'appliquera alors. Une branche déjà réglée mais
+ * absente de la liste (branche effacée, dépôt injoignable) reste proposée : on
+ * ne fait jamais disparaître un réglage en silence.
+ */
+function ChoixDeBranche({
+  repere,
+  titre,
+  valeur,
+  onChange,
+  branches,
+  enCours,
+  raison,
+  mention,
+}: {
+  repere: string;
+  titre: string;
+  valeur: string;
+  onChange: (valeur: string) => void;
+  branches: string[];
+  enCours: boolean;
+  raison: string;
+  mention: string;
+}) {
+  const proposees = valeur && !branches.includes(valeur) ? [valeur, ...branches] : branches;
+  return (
+    <div {...{ [repere]: '' }}>
+      <Label>{titre}</Label>
+      <select
+        value={valeur}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={enCours}
+        className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
+      >
+        <option value="">{enCours ? 'Lecture des branches du dépôt…' : 'Branche par défaut'}</option>
+        {proposees.map((branche) => (
+          <option key={branche} value={branche}>
+            {branche}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 text-[11.5px] leading-snug text-faint">
+        {valeur ? `Le lot sera fusionné, enregistré et poussé sur « ${valeur} ».` : mention}
+        {raison ? ` ${raison}` : ''}
+      </p>
+    </div>
+  );
+}
+
+/**
  * Réglages d'un projet, dont le LIEN VERS SON CLIENT (PLAN §7) : une fois posé,
  * les lignes de facture partent en un clic depuis chaque carte.
  */
@@ -67,6 +121,17 @@ export function ProjectSettings({
      l'instance de dev, contrôlée à la fin de chaque déploiement. */
   const [devUrl, setDevUrl] = React.useState('');
   /*
+   * LES DEUX BRANCHES DE MISE EN LIGNE : où le déploiement fusionne, où la mise
+   * en production fusionne. Vide = rien de choisi, et le comportement d'avant
+   * s'applique (`shared/src/branche-de-publication.ts`). La liste proposée est
+   * lue sur le DÉPÔT GITHUB du projet, jamais écrite à la main.
+   */
+  const [brancheDev, setBrancheDev] = React.useState('');
+  const [brancheProduction, setBrancheProduction] = React.useState('');
+  const [branches, setBranches] = React.useState<string[]>([]);
+  const [branchesEnCours, setBranchesEnCours] = React.useState(false);
+  const [branchesRaison, setBranchesRaison] = React.useState('');
+  /*
    * LA MISE EN PRODUCTION, en deux textes conservés côte à côte : le concept
    * écrit à la main (`baseProduction`) et le PROMPT que l'agent de mise en
    * production recevra. Un bouton fabrique le second à partir du premier ; il
@@ -86,6 +151,8 @@ export function ProjectSettings({
     if (!project) return;
     setName(project.name);
     setDevUrl(project.devUrl ?? '');
+    setBrancheDev(project.branchesDePublication?.dev ?? '');
+    setBrancheProduction(project.branchesDePublication?.production ?? '');
     setBaseProduction(baseDeMiseEnProduction(project));
     setPromptProduction(promptDeMiseEnProduction(project));
     setEngine(project.defaultEngine ?? 'claude');
@@ -113,6 +180,32 @@ export function ProjectSettings({
   }, [open]);
 
   /*
+   * LES BRANCHES DU DÉPÔT, à l'ouverture des réglages. Elles viennent de
+   * GitHub par le serveur ; injoignable, on retombe sur les branches locales et
+   * on le dit. Une liste vide ne bloque pas : le champ reste saisissable.
+   */
+  React.useEffect(() => {
+    if (!open || !project) return;
+    setBranchesEnCours(true);
+    setBranchesRaison('');
+    client
+      .call<{ branches: string[]; source: string; raison?: string }>(
+        { type: 'project.branches', id: project.id },
+        60000,
+      )
+      .then((data) => {
+        setBranches(data.branches ?? []);
+        if (data.source === 'local') setBranchesRaison('Branches lues sur le serveur : GitHub n’a rien rendu.');
+        if (data.source === 'aucune') setBranchesRaison('Aucune branche lisible : ce projet n’a pas de dépôt joignable.');
+      })
+      .catch(() => {
+        setBranches([]);
+        setBranchesRaison('Lecture des branches impossible.');
+      })
+      .finally(() => setBranchesEnCours(false));
+  }, [open, project?.id]);
+
+  /*
    * TOUS les réglages internes sont posés PLUS HAUT, avant cette sortie : ils
    * doivent être déclarés dans le même ordre à chaque passage. Quand la fenêtre
    * était fermée (aucun projet) puis ouverte, les déclarer plus bas en ajoutait
@@ -132,6 +225,12 @@ export function ProjectSettings({
           name: name.trim() || project.name,
           defaultEngine: engine,
           devUrl: devUrl.trim() || undefined,
+          /* Les deux branches partent ensemble ; vides, elles ne sont pas
+             enregistrées et le comportement par défaut reprend la main. */
+          branchesDePublication: {
+            dev: brancheDev.trim() || undefined,
+            production: brancheProduction.trim() || undefined,
+          },
           /* Base et prompt partent ENSEMBLE, par le même `project.update` :
              c'est ici seulement qu'un prompt généré devient le prompt retenu. */
           miseEnProduction: ecrireMiseEnProduction(project.miseEnProduction, {
@@ -270,6 +369,19 @@ export function ProjectSettings({
               </p>
             </div>
 
+            <div className="mt-2">
+              <ChoixDeBranche
+                repere="data-branche-dev"
+                titre="Branche du déploiement"
+                valeur={brancheDev}
+                onChange={setBrancheDev}
+                branches={branches}
+                enCours={branchesEnCours}
+                raison={branchesRaison}
+                mention={mentionBrancheParDefaut('dev', branches)}
+              />
+            </div>
+
           </div>
 
           {/* ---------- Mise en production ---------- */}
@@ -296,6 +408,19 @@ export function ProjectSettings({
               <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{rappelDeMiseEnProduction({ ...project, devUrl: devUrl.trim() || undefined })}</span>
             </p>
+
+            <div className="mt-2">
+              <ChoixDeBranche
+                repere="data-branche-production"
+                titre="Branche de la mise en production"
+                valeur={brancheProduction}
+                onChange={setBrancheProduction}
+                branches={branches}
+                enCours={branchesEnCours}
+                raison={branchesRaison}
+                mention={mentionBrancheParDefaut('production', branches)}
+              />
+            </div>
 
             <div className="mt-2">
               <Label>Ce que vous attendez, dans vos mots</Label>

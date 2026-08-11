@@ -139,15 +139,21 @@ export function planDeMiseEnLigne(moyens: MoyensDeMiseEnLigne): PlanDeMiseEnLign
  * prompt, qui dit lui-même quoi contrôler. Informe, ne bloque rien : le
  * déploiement reste possible que l'adresse soit là ou non.
  *
- * @param plan   le plan déjà calculé par `planDeMiseEnLigne`.
- * @param devUrl l'adresse réglée du projet, quand elle existe.
+ * La BRANCHE de l'étape s'y ajoute quand on la connaît : elle se règle
+ * désormais par projet (`branche-de-publication.ts`), et savoir où le lot va
+ * atterrir vaut mieux que de le lire après coup dans le déroulé.
+ *
+ * @param plan    le plan déjà calculé par `planDeMiseEnLigne`.
+ * @param devUrl  l'adresse réglée du projet, quand elle existe.
+ * @param branche la phrase de la branche retenue, quand elle est connue.
  */
-export function annonceDeDeploiement(plan: PlanDeMiseEnLigne, devUrl?: string): string {
+export function annonceDeDeploiement(plan: PlanDeMiseEnLigne, devUrl?: string, branche?: string): string {
   const url = devUrl?.trim();
   const adresse = url
     ? `À la fin, l’adresse ${url} sera vérifiée.`
     : 'Aucune adresse à contrôler n’est réglée pour ce projet : la fin du déploiement ne vérifiera rien. Réglez-la dans « Adresse à contrôler » des paramètres du projet.';
-  return `${plan.raison} ${adresse}`;
+  const ou = branche?.trim() ? ` ${branche.trim()}` : '';
+  return `${plan.raison}${ou} ${adresse}`;
 }
 
 /** L'état d'une étape de publication, tel que le tableau de bord l'affiche. */
