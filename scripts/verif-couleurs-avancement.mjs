@@ -11,8 +11,11 @@
  *  - la colonne « Terminé » porte un cadre bleu ;
  *  - la carte d'un travail en cours porte une roue ORANGE, celle d'un travail
  *    rendu une coche BLEUE, celle d'un travail rendu non lu un point BLEU ;
- *  - les autres états ne bougent pas : le point d'une publication en cours
- *    reste JAUNE, le triangle d'une décision reste orange d'alerte ;
+ *  - les autres états ne bougent pas : le triangle d'une décision reste orange
+ *    d'alerte ; le jeton d'une publication en cours est VIOLET, distinct de
+ *    l'orange du travail ordinaire ;
+ *  - une ligne de projet EN PUBLICATION porte un cadre VIOLET (jamais orange)
+ *    et une icône réseau/envoi violette à la place du robot ;
  *  - tout cela tient en thème SOMBRE comme en thème CLAIR.
  *
  * Tout est SIMULÉ : cartes et agents sont injectés dans le canal temps réel,
@@ -97,12 +100,12 @@ function estBleu(couleur) {
   return b > r + 30;
 }
 
-/** Une teinte JAUNE : rouge ET vert hauts, bleu bas — la publication. */
-function estJaune(couleur) {
+/** Une teinte VIOLETTE : rouge et bleu hauts, franchement plus que le vert — la publication. */
+function estViolet(couleur) {
   const c = canaux(couleur);
   if (!c) return false;
   const [r, v, b] = c;
-  return r > b + 30 && v > b + 30 && Math.abs(r - v) < 60;
+  return r > v + 20 && b > v + 20;
 }
 
 async function main() {
@@ -382,14 +385,71 @@ async function main() {
         termine: sonde('--termine'),
       };
     });
-    record(t('la publication en cours garde son JAUNE'), estJaune(jetons.publie), jetons.publie);
+    record(t('la publication en cours est VIOLETTE'), estViolet(jetons.publie), jetons.publie);
     record(t('l’avertissement garde sa teinte propre'), estOrange(jetons.warning), jetons.warning);
     record(t('l’erreur reste ROUGE'), !estOrange(jetons.danger) && !estBleu(jetons.danger), jetons.danger);
     record(t('le jeton « en cours » est bien ORANGE'), estOrange(jetons.enCours), jetons.enCours);
     record(t('le jeton « terminé » est bien BLEU'), estBleu(jetons.termine), jetons.termine);
   };
 
+  /*
+   * Une PUBLICATION en cours sur le projet de la ligne : le robot orange doit
+   * s'effacer derrière le signe violet du déploiement, sur CETTE ligne — sans
+   * quoi une publication ressemble encore à un travail ordinaire.
+   */
+  const controleDeploiement = async (theme) => {
+    if (!ligneId) return;
+    const t = (nom) => `${nom} (${theme})`;
+    await page.evaluate((id) => {
+      window.__injecter({
+        type: 'deploy.upsert',
+        run: {
+          id: 'essai-couleurs-deploy',
+          projectId: id,
+          state: 'running',
+          steps: [],
+          cardIds: [],
+          reprises: 0,
+          repriseApresCoupure: false,
+          queued: false,
+          startedAt: Date.now(),
+        },
+      });
+    }, ligneId);
+    await page.waitForTimeout(400);
+
+    const cadre = await style(`[data-drag-kind="project"][data-drag-id="${ligneId}"]`, 'borderTopColor');
+    record(t('la ligne d’un projet EN PUBLICATION a un cadre VIOLET'), estViolet(cadre), cadre ?? 'aucun');
+    record(t('ce cadre n’est plus ORANGE'), !estOrange(cadre), cadre ?? 'aucun');
+
+    const icone = await style(
+      `[data-drag-kind="project"][data-drag-id="${ligneId}"] [data-repere-robot] svg`,
+      'color',
+    );
+    record(t('l’icône de la ligne en publication est VIOLETTE'), estViolet(icone), icone ?? 'absente');
+
+    await page.evaluate((id) => {
+      window.__injecter({
+        type: 'deploy.upsert',
+        run: {
+          id: 'essai-couleurs-deploy',
+          projectId: id,
+          state: 'success',
+          steps: [],
+          cardIds: [],
+          reprises: 0,
+          repriseApresCoupure: false,
+          queued: false,
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+        },
+      });
+    }, ligneId);
+    await page.waitForTimeout(200);
+  };
+
   await controles('sombre');
+  await controleDeploiement('sombre');
   const captureSombre = path.join(CAPTURES, 'couleurs-avancement-sombre.png');
   await page.screenshot({ path: captureSombre });
   console.log(`  capture : ${captureSombre}`);
@@ -400,6 +460,7 @@ async function main() {
   await page.waitForTimeout(400);
   await poserTout();
   await controles('clair');
+  await controleDeploiement('clair');
   const captureClair = path.join(CAPTURES, 'couleurs-avancement-clair.png');
   await page.screenshot({ path: captureClair });
   console.log(`  capture : ${captureClair}`);

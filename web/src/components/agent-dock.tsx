@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AlertCircle, Bot, Check, ChevronUp, GripVertical, Info, TriangleAlert, X } from 'lucide-react';
+import { AlertCircle, Bot, Check, ChevronUp, GripVertical, Info, TriangleAlert, UploadCloud, X } from 'lucide-react';
 import { heureEtDate } from '@haikodev/shared';
 import { Dot } from '@/components/ui';
 import { Pile, type ElementDePile } from '@/components/pile';
@@ -141,7 +141,19 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
       classe: 'flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5 shadow-lg',
       contenu: (
         <>
-          <Bot className={cn('h-3 w-3 shrink-0', running ? 'text-en-cours' : 'text-faint')} />
+          {/* Un agent de PUBLICATION porte l'icône réseau/envoi, violette et
+              clignotante tant qu'il tourne — le même signe que la ligne de
+              projet, jamais confondu avec un travail ordinaire. */}
+          {agent.role === 'deploy' ? (
+            <UploadCloud
+              className={cn(
+                'h-3 w-3 shrink-0',
+                running ? 'text-publie animate-pulse-soft motion-reduce:animate-none' : 'text-faint',
+              )}
+            />
+          ) : (
+            <Bot className={cn('h-3 w-3 shrink-0', running ? 'text-en-cours' : 'text-faint')} />
+          )}
           <button
             onClick={(event) => {
               event.stopPropagation();
