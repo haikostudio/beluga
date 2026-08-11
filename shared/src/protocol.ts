@@ -230,6 +230,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
     type: z.literal('deploy.start'),
     projectId: z.string(),
     cible: z.enum(['dev', 'production']).optional(),
+    /**
+     * LES TÂCHES RETENUES par l'écran de sélection, à la première étape
+     * seulement (« À déployer ») : absent, tout le lot connu part, comme
+     * avant cet écran. Présent, seules ces cartes sont fusionnées et
+     * envoyées ; les autres restent dans « À déployer ».
+     */
+    selectedCardIds: z.array(z.string()).optional(),
   }),
   z.object({ type: z.literal('deploy.stop'), runId: z.string() }),
   z.object({ type: z.literal('deploy.retry'), runId: z.string() }),
@@ -245,6 +252,17 @@ export const ClientCommand = z.discriminatedUnion('type', [
     type: z.literal('deploy.check'),
     projectId: z.string(),
     source: ColumnKey.optional(),
+  }),
+  /**
+   * Ce qui coincerait avec CETTE sélection de tâches : une carte retenue qui
+   * touche les mêmes fichiers qu'une carte laissée de côté. Interrogé par
+   * l'écran de sélection à chaque case cochée ou décochée, sans rien publier.
+   */
+  z.object({
+    type: z.literal('deploy.selection'),
+    projectId: z.string(),
+    source: ColumnKey.optional(),
+    selectedCardIds: z.array(z.string()),
   }),
 
   // Fichiers

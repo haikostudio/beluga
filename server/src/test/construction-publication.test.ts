@@ -124,9 +124,9 @@ test('la publication passe toujours par l’agent, jamais par la réparation d�
   assert.match(SOURCE, /reparer = reparerLaConstruction/, 'la réparation par défaut est le vrai agent');
 });
 
-test('les DEUX endroits qui construisent passent par la réparation', () => {
+test('les TROIS endroits qui construisent passent par la réparation', () => {
   const appels = SOURCE.match(/await construireAvecReparation\(/g) ?? [];
-  assert.equal(appels.length, 2, 'HaikoDev lui-même ET un projet ordinaire');
+  assert.equal(appels.length, 3, 'HaikoDev lui-même, un projet ordinaire, ET une cible SSH/FTP de mise en production');
   assert.equal(
     (SOURCE.match(/runCommand\(cwd, 'npm run build'/g) ?? []).length,
     0,
@@ -135,7 +135,7 @@ test('les DEUX endroits qui construisent passent par la réparation', () => {
 });
 
 test('le refus final ne s’assouplit pas : il nomme la cause et arrête tout', () => {
-  assert.equal((SOURCE.match(/if \(!build\.ok\) throw new Error\(build\.phrase\);/g) ?? []).length, 2);
+  assert.equal((SOURCE.match(/if \(!build\.ok\) throw new Error\(build\.phrase\);/g) ?? []).length, 3);
   assert.match(SOURCE, /detailDEchecConstruction\(build\.out\)/);
 });
 

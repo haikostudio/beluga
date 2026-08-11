@@ -34,7 +34,11 @@ import {
   annonceDeDeploiement,
   brancheDePublication,
   etapeDeLaColonne,
-  refusSansPromptDeProduction,
+  typeCibleReglee,
+  refusCibleMiseEnProduction,
+  raisonCibleMiseEnProduction,
+  avertissementsSelection,
+  type AvertissementSelection,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -44,6 +48,7 @@ import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
 import { createAgent, sendPrompt, agentsActifs } from './runtime.js';
 import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from './demon.js';
+import { executerCibleMiseEnProduction } from './cible-mise-en-production.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -187,7 +192,7 @@ export function blocageMiseEnProduction(projectId: string, cible?: CiblePublicat
   if (cible !== 'production') return null;
   const project = store.getProject(projectId);
   if (!project) return null;
-  return promptDeMiseEnProduction(project) ? null : refusSansPromptDeProduction();
+  return refusCibleMiseEnProduction(project.miseEnProduction);
 }
 
 /**
@@ -201,11 +206,29 @@ export async function moyenDeMiseEnLigne(
 ): Promise<PlanDeMiseEnLigne | null> {
   const project = store.getProject(projectId);
   if (!project) return null;
+  // La branche où le lot atterrira, dite AVANT le clic — pour les deux étapes.
+  const branche = await brancheDeLEtape(project, cible ?? 'dev');
+
+  /*
+   * Une MISE EN PRODUCTION dont le type est SSH, FTP ou Aucune ne suit plus le
+   * chemin constaté (prompt / HaikoDev / service / dossier servi) : elle a sa
+   * propre annonce, dite par la règle pure du type de cible.
+   */
+  if (cible === 'production') {
+    const typeCible = typeCibleReglee(project.miseEnProduction);
+    if (typeCible !== 'consigne') {
+      return {
+        construction: typeCible === 'aucune' ? 'aucune' : 'npm',
+        installation: 'agent',
+        redemarrage: 'aucun',
+        raison: `${raisonCibleMiseEnProduction(project.miseEnProduction)} ${branche.raison}`,
+      };
+    }
+  }
+
   const plan = planDeMiseEnLigne(
     moyensDuProjet(project.path, project.isSelf, promptDeLEtape(project, cible)),
   );
-  // La branche où le lot atterrira, dite AVANT le clic — pour les deux étapes.
-  const branche = await brancheDeLEtape(project, cible ?? 'dev');
   /*
    * Pour un DÉPLOIEMENT (cible dev), on complète la raison par ce qui sera
    * contrôlé à la fin : l'adresse réglée du projet, ou son absence — sinon le
@@ -265,22 +288,33 @@ function installerApplication(): string {
  * déployer », une mise en production prend celles qui sont déjà « En
  * production ». Sans étape précisée, c'est « À déployer ».
  */
-export function deployableCards(projectId: string, source: ColumnKey = 'to_deploy'): Card[] {
-  return (
-    store
-      .listCardsInColumn(projectId, source)
-      .filter((card) => !card.excludedFromDeploy)
-      /*
-       * Une carte déjà mise en ligne ne repart pas dans le même lot. Le
-       * garde-fou ne vaut QUE pour la première étape : une carte posée « En
-       * production » porte forcément une date de mise en ligne — celle du
-       * déploiement —, et c'est justement elle qu'on veut passer en
-       * production. Sa présence dans la colonne prouve qu'elle n'a pas encore
-       * franchi CETTE étape-là.
-       */
-      .filter((card) => source !== 'to_deploy' || !card.deployedAt)
-      .sort((a, b) => a.createdAt - b.createdAt)
-  );
+export function deployableCards(
+  projectId: string,
+  source: ColumnKey = 'to_deploy',
+  selectedCardIds?: string[],
+): Card[] {
+  const cards = store
+    .listCardsInColumn(projectId, source)
+    .filter((card) => !card.excludedFromDeploy)
+    /*
+     * Une carte déjà mise en ligne ne repart pas dans le même lot. Le
+     * garde-fou ne vaut QUE pour la première étape : une carte posée « En
+     * production » porte forcément une date de mise en ligne — celle du
+     * déploiement —, et c'est justement elle qu'on veut passer en
+     * production. Sa présence dans la colonne prouve qu'elle n'a pas encore
+     * franchi CETTE étape-là.
+     */
+    .filter((card) => source !== 'to_deploy' || !card.deployedAt)
+    .sort((a, b) => a.createdAt - b.createdAt);
+  /*
+   * L'ÉCRAN DE SÉLECTION laisse choisir les tâches à embarquer, à la première
+   * étape (« À déployer ») : sans sélection, tout le lot part comme avant ;
+   * avec une sélection, seules les cartes retenues partent — les autres
+   * restent dans la colonne, disponibles pour la fois suivante.
+   */
+  if (!selectedCardIds) return cards;
+  const retenues = new Set(selectedCardIds);
+  return cards.filter((card) => retenues.has(card.id));
 }
 
 /* ------------------------------------------------------------------ */
@@ -354,6 +388,42 @@ export async function conflitsPrevus(projectId: string, source: ColumnKey = 'to_
     prevus.push({ cardId: card.id, title: card.title, branch, files });
   }
   return prevus;
+}
+
+/**
+ * LES AVERTISSEMENTS DE L'ÉCRAN DE SÉLECTION : une carte retenue qui touche
+ * les mêmes fichiers qu'une carte laissée de côté.
+ *
+ * Lit les fichiers changés par chaque branche contre la branche du dépôt
+ * (`git diff --name-only`), puis rejoue la règle pure. Rendu vide si le
+ * projet n'est pas un dépôt git, ou si la sélection embarque tout le lot.
+ */
+export async function avertissementsDeLaSelection(
+  projectId: string,
+  source: ColumnKey,
+  selectedCardIds: string[],
+): Promise<AvertissementSelection[]> {
+  const project = store.getProject(projectId);
+  if (!project) return [];
+  const cwd = project.path;
+  if (!(await runCommand(cwd, 'git rev-parse --git-dir', 20000)).ok) return [];
+
+  const cible = etapeDeLaColonne(source)?.cible ?? 'dev';
+  const mainBranch = (await brancheDeLEtape(project, cible)).branche;
+  const toutes = deployableCards(projectId, source);
+
+  const avecFichiers = await Promise.all(
+    toutes.map(async (card) => {
+      const branch = card.github?.branch;
+      if (!branch) return { id: card.id, title: card.title, files: [] as string[] };
+      const exists = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
+      if (!exists.ok || !exists.out.trim()) return { id: card.id, title: card.title, files: [] as string[] };
+      const diff = await runCommand(cwd, `git diff --name-only ${mainBranch}...${branch}`, 30000);
+      return { id: card.id, title: card.title, files: diff.out.split('\n').map((l) => l.trim()).filter(Boolean) };
+    }),
+  );
+
+  return avertissementsSelection(avecFichiers, new Set(selectedCardIds));
 }
 
 /**
@@ -1019,7 +1089,7 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
 
 export async function startDeploy(
   projectId: string,
-  options: { cible?: CiblePublication; reprises?: number } = {},
+  options: { cible?: CiblePublication; reprises?: number; selectedCardIds?: string[] } = {},
 ): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
@@ -1037,15 +1107,20 @@ export async function startDeploy(
    * production —, sinon ce qu'on constate sur la machine pour le déploiement.
    */
   const promptProduction = promptDeLEtape(project, etape.cible);
+  // Le TYPE de cible réglé pour la mise en production : SSH, FTP, Aucune ou
+  // Consigne (le prompt, ci-dessus). Sans réglage, c'est « consigne » — le
+  // fonctionnement d'avant ce réglage, intact.
+  const typeCible = typeCibleReglee(project.miseEnProduction);
 
   /*
-   * La MISE EN PRODUCTION ne suit QUE le prompt réglé : sans prompt, rien ne
-   * part. On refuse AVANT tout — avant même la file d'attente —, en renvoyant au
-   * bloc « Mise en production ». Le déploiement sur l'instance de dev, lui, ne
-   * lit jamais le prompt et n'est jamais bloqué ici.
+   * Une MISE EN PRODUCTION refusée se refuse AVANT tout — avant même la file
+   * d'attente. Le motif dépend du TYPE de cible réglé : sans prompt pour
+   * « consigne », ou des champs d'accès manquants pour SSH/FTP. Le
+   * déploiement sur l'instance de dev, lui, n'est jamais bloqué ici.
    */
-  if (etape.cible === 'production' && !promptProduction) {
-    return { ok: false, error: refusSansPromptDeProduction() };
+  if (etape.cible === 'production') {
+    const refus = refusCibleMiseEnProduction(project.miseEnProduction);
+    if (refus) return { ok: false, error: refus };
   }
 
   // Une deuxième demande n'ouvre pas un run parallèle : elle attend son tour.
@@ -1081,7 +1156,7 @@ export async function startDeploy(
     moyensDuProjet(project.path, project.isSelf, promptProduction),
   );
 
-  let cards = deployableCards(projectId, etape.source);
+  let cards = deployableCards(projectId, etape.source, options.selectedCardIds);
   // Cartes dont la branche est en conflit : écartées du lot, jamais perdues.
   const ecartees = new Set<string>();
 
@@ -1101,7 +1176,7 @@ export async function startDeploy(
     repriseApresCoupure: (options.reprises ?? 0) > 0,
     // L'adresse de dev n'est l'adresse contrôlée que d'un DÉPLOIEMENT : une mise
     // en production suit son prompt, qui dit lui-même quoi contrôler.
-    url: etape.cible === 'dev' ? project.devUrl : undefined,
+    url: etape.cible === 'dev' ? project.devUrl : typeCible !== 'consigne' ? project.miseEnProduction?.prodUrl : undefined,
     startedAt: Date.now(),
     queued: false,
   });
@@ -1286,7 +1361,55 @@ export async function startDeploy(
        * est alors le même pour tous les projets.
        */
       const prompt = promptProduction;
-      if (prompt) {
+      if (etape.cible === 'production' && typeCible !== 'consigne') {
+        /*
+         * UN TYPE DE CIBLE EST RÉGLÉ (Aucune, SSH ou FTP) : plus besoin d'un
+         * prompt, HaikoDev exécute lui-même le transfert. La construction se
+         * fait normalement quand le projet en a une ; « Aucune » n'a rien à
+         * construire ni à transférer.
+         */
+        current = setStep(
+          current,
+          'verify',
+          'skipped',
+          `Cible « ${typeCible} » : aucune vérification propre à ce type de mise en production.`,
+        );
+
+        if (typeCible !== 'aucune' && scriptExiste(cwd, 'build')) {
+          current = setStep(current, 'build', 'running');
+          current = progresserEtape(current, 'build', 'Construction du projet (npm run build)…');
+          const pose = await poserLesOutilsDeConstruction(cwd);
+          const build = await construireAvecReparation(project.id, cwd, 'npm run build', pose);
+          current = setStep(current, 'build', build.ok ? 'done' : 'failed', build.detail);
+          if (!build.ok) throw new Error(build.phrase);
+        } else {
+          current = setStep(
+            current,
+            'build',
+            'skipped',
+            typeCible === 'aucune' ? 'Type « Aucune » : rien à construire ni à transférer.' : 'Ce projet n’a pas de script de construction : transfert du dossier tel quel.',
+          );
+        }
+
+        current = setStep(current, 'publish', 'running');
+        current = progresserEtape(
+          current,
+          'publish',
+          typeCible === 'ssh' ? 'Transfert vers le serveur SSH…' : typeCible === 'ftp' ? 'Transfert vers le serveur FTP…' : 'Rien à transférer…',
+        );
+        const resultat = await executerCibleMiseEnProduction(project, cwd);
+        current = setStep(current, 'publish', resultat.ok ? 'done' : 'failed', resultat.recit);
+        if (!resultat.ok) throw new Error(resultat.recit);
+
+        current = setStep(
+          current,
+          'restart',
+          'skipped',
+          typeCible === 'ssh' && project.miseEnProduction?.ssh?.commandeFin?.trim()
+            ? 'Commande de fin exécutée pendant le transfert.'
+            : 'Rien à relancer pour ce type de cible.',
+        );
+      } else if (prompt) {
         /*
          * UN PROMPT DE MISE EN PRODUCTION EST RÉGLÉ : c'est un agent qui mène
          * la mise en ligne.
@@ -1522,6 +1645,17 @@ export async function startDeploy(
         current = setStep(current, 'publish', online.ok ? 'done' : 'failed', verdict);
         // Une adresse muette n'est pas un déploiement réussi : autrefois
         // l'étape passait au rouge et le run se déclarait quand même « réussi ».
+        if (!online.ok) throw new Error(verdict);
+      } else if (etape.cible === 'production' && typeCible !== 'consigne' && project.miseEnProduction?.prodUrl) {
+        /*
+         * Même contrôle, pour une mise en production SSH ou FTP : l'adresse
+         * réglée pour ce projet en production, vérifiée après le transfert —
+         * exactement comme le déploiement le fait pour l'instance de dev.
+         */
+        const url = project.miseEnProduction.prodUrl;
+        const online = await checkOnline(url);
+        const verdict = online.ok ? `Adresse ${url} joignable (${online.status}).` : `Adresse ${url} injoignable (${online.status}).`;
+        current = setStep(current, 'publish', online.ok ? 'done' : 'failed', verdict);
         if (!online.ok) throw new Error(verdict);
       }
 

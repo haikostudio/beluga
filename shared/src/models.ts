@@ -125,7 +125,40 @@ export const Project = z.object({
    * publication retombe alors sur les moyens que HaikoDev sait deviner.
    */
   miseEnProduction: z
-    .object({ base: z.string().optional(), prompt: z.string().optional() })
+    .object({
+      base: z.string().optional(),
+      prompt: z.string().optional(),
+      /**
+       * LE TYPE DE CIBLE de la mise en production (`cible-mise-en-production.ts`) :
+       * absent = `consigne`, le fonctionnement d'avant ce réglage, intact.
+       */
+      type: z.enum(['aucune', 'ssh', 'ftp', 'consigne']).optional(),
+      ssh: z
+        .object({
+          hote: z.string().optional(),
+          port: z.number().optional(),
+          utilisateur: z.string().optional(),
+          motDePasse: z.string().optional(),
+          cle: z.string().optional(),
+          dossierDistant: z.string().optional(),
+          dossierConstruit: z.string().optional(),
+          commandeFin: z.string().optional(),
+        })
+        .optional(),
+      ftp: z
+        .object({
+          hote: z.string().optional(),
+          port: z.number().optional(),
+          utilisateur: z.string().optional(),
+          motDePasse: z.string().optional(),
+          dossierDistant: z.string().optional(),
+          dossierConstruit: z.string().optional(),
+          securise: z.boolean().optional(),
+        })
+        .optional(),
+      /** L'adresse publique à contrôler après un transfert SSH ou FTP. */
+      prodUrl: z.string().optional(),
+    })
     .default({}),
   billing: BillingLink.optional(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */

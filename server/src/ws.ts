@@ -59,6 +59,7 @@ import {
   commitsEnAttente,
   moyenDeMiseEnLigne,
   blocageMiseEnProduction,
+  avertissementsDeLaSelection,
 } from './deploy.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
@@ -980,7 +981,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'deploy.start': {
       // La commande porte l'ÉTAPE du parcours ; il n'y a plus d'endroit à
       // choisir, le déploiement rafraîchit l'instance de dev de ce serveur.
-      const result = await startDeploy(cmd.projectId, { cible: cmd.cible });
+      // `selectedCardIds` porte la sélection de l'écran de sélection : absent,
+      // tout le lot connu part, comme avant cet écran.
+      const result = await startDeploy(cmd.projectId, { cible: cmd.cible, selectedCardIds: cmd.selectedCardIds });
       if (!result.ok) throw new Error(result.error ?? 'publication impossible');
       return result;
     }
@@ -1018,6 +1021,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // pour que le bloc éteigne « Tout publier » et explique pourquoi.
         productionBloquee: blocageMiseEnProduction(cmd.projectId, etape?.cible),
       };
+    }
+
+    case 'deploy.selection': {
+      return { avertissements: await avertissementsDeLaSelection(cmd.projectId, cmd.source ?? 'to_deploy', cmd.selectedCardIds) };
     }
 
     /* -------- Fichiers -------- */

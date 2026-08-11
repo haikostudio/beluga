@@ -17,8 +17,13 @@ import {
   ecrireMiseEnProduction,
   mentionBrancheParDefaut,
   mentionMiseEnProduction,
+  mentionCibleMiseEnProduction,
   promptDeMiseEnProduction,
   rappelDeMiseEnProduction,
+  typeCibleReglee,
+  type TypeCibleMiseEnProduction,
+  type AccesSSH,
+  type AccesFTP,
 } from '@haikodev/shared';
 import {
   Button,
@@ -96,6 +101,113 @@ function ChoixDeBranche({
   );
 }
 
+/** Le formulaire d'accès pour une cible SSH : serveur, identifiant, clé ou mot de passe, dossier. */
+function FormulaireAccesSSH({
+  acces,
+  onChange,
+  disabled,
+}: {
+  acces: AccesSSH;
+  onChange: (acces: AccesSSH) => void;
+  disabled: boolean;
+}) {
+  const champ = (cle: keyof AccesSSH) => (valeur: string) =>
+    onChange({ ...acces, [cle]: cle === 'port' ? Number(valeur) || undefined : valeur || undefined });
+  return (
+    <div className="mt-2 space-y-2" data-acces-ssh>
+      <div className="grid grid-cols-[1fr,90px] gap-2">
+        <div>
+          <Label>Adresse du serveur</Label>
+          <Input value={acces.hote ?? ''} onChange={(e) => champ('hote')(e.target.value)} disabled={disabled} className="mt-1" data-hote-ssh placeholder="serveur.exemple.com" />
+        </div>
+        <div>
+          <Label>Port</Label>
+          <Input value={acces.port ?? ''} onChange={(e) => champ('port')(e.target.value)} disabled={disabled} className="mt-1" data-port-ssh placeholder="22" />
+        </div>
+      </div>
+      <div>
+        <Label>Identifiant</Label>
+        <Input value={acces.utilisateur ?? ''} onChange={(e) => champ('utilisateur')(e.target.value)} disabled={disabled} className="mt-1" data-utilisateur-ssh />
+      </div>
+      <div>
+        <Label>Mot de passe</Label>
+        <Input type="password" value={acces.motDePasse ?? ''} onChange={(e) => champ('motDePasse')(e.target.value)} disabled={disabled} className="mt-1" data-motdepasse-ssh />
+      </div>
+      <div>
+        <Label>Ou clé privée (laisser le mot de passe vide)</Label>
+        <Textarea value={acces.cle ?? ''} onChange={(e) => champ('cle')(e.target.value)} disabled={disabled} className="mt-1 min-h-[70px] font-mono text-[12px]" data-cle-ssh />
+      </div>
+      <div>
+        <Label>Dossier de destination</Label>
+        <Input value={acces.dossierDistant ?? ''} onChange={(e) => champ('dossierDistant')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-distant-ssh placeholder="/var/www/mon-projet" />
+      </div>
+      <div>
+        <Label>Dossier construit à transférer (facultatif)</Label>
+        <Input value={acces.dossierConstruit ?? ''} onChange={(e) => champ('dossierConstruit')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-construit-ssh placeholder="dist (deviné si laissé vide)" />
+      </div>
+      <div>
+        <Label>Commande de fin, sur le serveur (facultatif)</Label>
+        <Input value={acces.commandeFin ?? ''} onChange={(e) => champ('commandeFin')(e.target.value)} disabled={disabled} className="mt-1" data-commande-fin-ssh placeholder="systemctl restart mon-service" />
+      </div>
+    </div>
+  );
+}
+
+/** Le formulaire d'accès pour une cible FTP : serveur, identifiant, mot de passe, dossier, FTPS. */
+function FormulaireAccesFTP({
+  acces,
+  onChange,
+  disabled,
+}: {
+  acces: AccesFTP;
+  onChange: (acces: AccesFTP) => void;
+  disabled: boolean;
+}) {
+  const champ = (cle: keyof AccesFTP) => (valeur: string) =>
+    onChange({ ...acces, [cle]: cle === 'port' ? Number(valeur) || undefined : valeur || undefined });
+  return (
+    <div className="mt-2 space-y-2" data-acces-ftp>
+      <div className="grid grid-cols-[1fr,90px] gap-2">
+        <div>
+          <Label>Adresse du serveur</Label>
+          <Input value={acces.hote ?? ''} onChange={(e) => champ('hote')(e.target.value)} disabled={disabled} className="mt-1" data-hote-ftp placeholder="ftp.exemple.com" />
+        </div>
+        <div>
+          <Label>Port</Label>
+          <Input value={acces.port ?? ''} onChange={(e) => champ('port')(e.target.value)} disabled={disabled} className="mt-1" data-port-ftp placeholder="21" />
+        </div>
+      </div>
+      <div>
+        <Label>Identifiant</Label>
+        <Input value={acces.utilisateur ?? ''} onChange={(e) => champ('utilisateur')(e.target.value)} disabled={disabled} className="mt-1" data-utilisateur-ftp />
+      </div>
+      <div>
+        <Label>Mot de passe</Label>
+        <Input type="password" value={acces.motDePasse ?? ''} onChange={(e) => champ('motDePasse')(e.target.value)} disabled={disabled} className="mt-1" data-motdepasse-ftp />
+      </div>
+      <div>
+        <Label>Dossier de destination</Label>
+        <Input value={acces.dossierDistant ?? ''} onChange={(e) => champ('dossierDistant')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-distant-ftp placeholder="/www/mon-projet" />
+      </div>
+      <div>
+        <Label>Dossier construit à transférer (facultatif)</Label>
+        <Input value={acces.dossierConstruit ?? ''} onChange={(e) => champ('dossierConstruit')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-construit-ftp placeholder="dist (deviné si laissé vide)" />
+      </div>
+      <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
+        <input
+          type="checkbox"
+          checked={!!acces.securise}
+          onChange={(e) => onChange({ ...acces, securise: e.target.checked })}
+          disabled={disabled}
+          className="mt-0.5 h-3.5 w-3.5 shrink-0"
+          data-securise-ftp
+        />
+        <span>FTPS (chiffré) plutôt que le FTP en clair — à cocher quand le serveur l'accepte.</span>
+      </label>
+    </div>
+  );
+}
+
 /**
  * Réglages d'un projet, dont le LIEN VERS SON CLIENT (PLAN §7) : une fois posé,
  * les lignes de facture partent en un clic depuis chaque carte.
@@ -140,6 +252,15 @@ export function ProjectSettings({
   const [baseProduction, setBaseProduction] = React.useState('');
   const [promptProduction, setPromptProduction] = React.useState('');
   const [generation, setGeneration] = React.useState(false);
+  /*
+   * LE TYPE DE CIBLE de la mise en production (`cible-mise-en-production.ts`) :
+   * « consigne » garde le fonctionnement d'avant ce réglage (base + prompt,
+   * ci-dessus) ; les trois autres ont leur propre formulaire d'accès.
+   */
+  const [typeCible, setTypeCible] = React.useState<TypeCibleMiseEnProduction>('consigne');
+  const [accesSSH, setAccesSSH] = React.useState<AccesSSH>({});
+  const [accesFTP, setAccesFTP] = React.useState<AccesFTP>({});
+  const [prodUrl, setProdUrl] = React.useState('');
   const [engine, setEngine] = React.useState<string>('claude');
   const [clientId, setClientId] = React.useState('');
   const [rate, setRate] = React.useState('130');
@@ -155,6 +276,10 @@ export function ProjectSettings({
     setBrancheProduction(project.branchesDePublication?.production ?? '');
     setBaseProduction(baseDeMiseEnProduction(project));
     setPromptProduction(promptDeMiseEnProduction(project));
+    setTypeCible(typeCibleReglee(project.miseEnProduction));
+    setAccesSSH(project.miseEnProduction?.ssh ?? {});
+    setAccesFTP(project.miseEnProduction?.ftp ?? {});
+    setProdUrl(project.miseEnProduction?.prodUrl ?? '');
     setEngine(project.defaultEngine ?? 'claude');
     setClientId(project.billing?.clientId ?? '');
     setRate(String(project.billing?.hourlyRate ?? 130));
@@ -233,10 +358,16 @@ export function ProjectSettings({
           },
           /* Base et prompt partent ENSEMBLE, par le même `project.update` :
              c'est ici seulement qu'un prompt généré devient le prompt retenu. */
-          miseEnProduction: ecrireMiseEnProduction(project.miseEnProduction, {
-            base: baseProduction,
-            prompt: promptProduction,
-          }),
+          miseEnProduction: {
+            ...ecrireMiseEnProduction(project.miseEnProduction, {
+              base: baseProduction,
+              prompt: promptProduction,
+            }),
+            type: typeCible,
+            ssh: typeCible === 'ssh' ? accesSSH : undefined,
+            ftp: typeCible === 'ftp' ? accesFTP : undefined,
+            prodUrl: prodUrl.trim() || undefined,
+          },
           billing: clientId
             ? {
                 clientId,
@@ -396,9 +527,37 @@ export function ProjectSettings({
               <Rocket className="h-3.5 w-3.5 text-faint" /> {TITRE_MISE_EN_PRODUCTION}
             </h3>
             <p className="mb-2 text-[12.5px] leading-snug text-faint">
-              Expliquez comment ce projet se met en production : quel serveur, par quel chemin le code y
-              arrive, ce qu'il faut contrôler. Le bouton de mise en production confiera ce texte à un
-              agent, qui le suivra.
+              Choisissez comment le code part chez le client : un projet local n'a nulle part où
+              l'envoyer, la plupart des hébergements se déposent par SSH ou par FTP, et « Consigne
+              libre » confie le travail à un agent qui suit un texte écrit à la main.
+            </p>
+
+            <div className="mb-2 grid grid-cols-2 gap-1.5" data-type-cible-production>
+              {(
+                [
+                  ['aucune', 'Aucune (projet local)'],
+                  ['ssh', 'Serveur SSH'],
+                  ['ftp', 'Serveur FTP'],
+                  ['consigne', 'Consigne libre'],
+                ] as [TypeCibleMiseEnProduction, string][]
+              ).map(([valeur, libelle]) => (
+                <button
+                  key={valeur}
+                  type="button"
+                  data-type-cible={valeur}
+                  onClick={() => setTypeCible(valeur)}
+                  className={`rounded-md border px-2.5 py-1.5 text-left text-[13px] transition-colors ${
+                    typeCible === valeur
+                      ? 'border-[hsl(var(--en-cours))] bg-[hsl(var(--en-cours)/0.1)] text-text'
+                      : 'border-border bg-surface text-muted hover:text-text'
+                  }`}
+                >
+                  {libelle}
+                </button>
+              ))}
+            </div>
+            <p className="mb-2 text-[12px] leading-snug text-faint" data-mention-cible-production>
+              {mentionCibleMiseEnProduction({ type: typeCible, ssh: accesSSH, ftp: accesFTP })}
             </p>
 
             <p
@@ -422,59 +581,96 @@ export function ProjectSettings({
               />
             </div>
 
-            <div className="mt-2">
-              <Label>Ce que vous attendez, dans vos mots</Label>
-              <Textarea
-                data-base-production
-                value={baseProduction}
-                maxLength={PROMPT_PRODUCTION_MAX}
-                disabled={generation || saving}
-                onChange={(event) => setBaseProduction(event.target.value)}
-                placeholder={
-                  'Sans soigner la formulation : où le site tourne, comment le code y arrive, ce qu’il faut relancer, à quoi on voit que c’est en ligne.\n' +
-                  'Dites aussi ce qu’il ne faut PAS faire.'
-                }
-                className="mt-1 min-h-[120px]"
-              />
-              <div className="mt-1.5 flex items-center justify-between gap-2">
-                <p className="text-[12.5px] leading-snug text-faint">
-                  Générer confie ce texte à un agent qui rédige le prompt final. C’est un tour d’agent :
-                  cela consomme du quota, mais ne déploie rien.
-                </p>
-                <Button
-                  data-generer-production
-                  variant="subtle"
-                  onClick={genererPrompt}
-                  disabled={generation || saving || !baseProduction.trim()}
-                  className="shrink-0 gap-1.5"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {generation ? 'Génération…' : 'Générer'}
-                </Button>
-              </div>
-            </div>
-
-            <div className="mt-2">
-              <Label>Prompt donné à l’agent de mise en production</Label>
-              <Textarea
-                data-prompt-production
-                value={promptProduction}
-                maxLength={PROMPT_PRODUCTION_MAX}
-                disabled={generation || saving}
-                onChange={(event) => setPromptProduction(event.target.value)}
-                placeholder={
-                  generation
-                    ? 'Rédaction en cours…'
-                    : 'Le prompt rédigé apparaîtra ici. Vous pouvez aussi l’écrire ou le corriger à la main.'
-                }
-                className="mt-1 min-h-[150px]"
-              />
-              <p className="mt-1 text-[12.5px] leading-snug text-faint" data-mention-production>
-                {mentionMiseEnProduction(promptProduction)} Laissé vide, aucune mise en production ne part :
-                le bouton « Tout publier » de la colonne « En production » reste éteint et renvoie ici. Le
-                déploiement sur l’instance de dev, lui, n’a jamais besoin de ce prompt.
+            {typeCible === 'aucune' ? (
+              <p className="mt-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[12.5px] leading-snug text-faint" data-cible-aucune>
+                Projet local : la mise en production fusionne, enregistre et envoie le lot sur le dépôt,
+                mais rien n'est transféré ailleurs. Le bouton « Tout publier » n'est jamais bloqué par ce
+                type.
               </p>
-            </div>
+            ) : null}
+
+            {typeCible === 'ssh' ? (
+              <FormulaireAccesSSH acces={accesSSH} onChange={setAccesSSH} disabled={saving} />
+            ) : null}
+
+            {typeCible === 'ftp' ? (
+              <FormulaireAccesFTP acces={accesFTP} onChange={setAccesFTP} disabled={saving} />
+            ) : null}
+
+            {typeCible === 'ssh' || typeCible === 'ftp' ? (
+              <div className="mt-2">
+                <Label>Adresse à contrôler après le transfert</Label>
+                <Input
+                  value={prodUrl}
+                  onChange={(event) => setProdUrl(event.target.value)}
+                  className="mt-1"
+                  data-url-prod
+                  placeholder="https://mon-projet.exemple.com"
+                />
+                <p className="mt-1 text-[11.5px] text-faint">
+                  Ouverte à la fin du transfert, comme l'adresse de dev en fin de déploiement. Laissée
+                  vide, aucune adresse n'est contrôlée.
+                </p>
+              </div>
+            ) : null}
+
+            {typeCible === 'consigne' ? (
+              <>
+                <div className="mt-2">
+                  <Label>Ce que vous attendez, dans vos mots</Label>
+                  <Textarea
+                    data-base-production
+                    value={baseProduction}
+                    maxLength={PROMPT_PRODUCTION_MAX}
+                    disabled={generation || saving}
+                    onChange={(event) => setBaseProduction(event.target.value)}
+                    placeholder={
+                      'Sans soigner la formulation : où le site tourne, comment le code y arrive, ce qu’il faut relancer, à quoi on voit que c’est en ligne.\n' +
+                      'Dites aussi ce qu’il ne faut PAS faire.'
+                    }
+                    className="mt-1 min-h-[120px]"
+                  />
+                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                    <p className="text-[12.5px] leading-snug text-faint">
+                      Générer confie ce texte à un agent qui rédige le prompt final. C’est un tour d’agent :
+                      cela consomme du quota, mais ne déploie rien.
+                    </p>
+                    <Button
+                      data-generer-production
+                      variant="subtle"
+                      onClick={genererPrompt}
+                      disabled={generation || saving || !baseProduction.trim()}
+                      className="shrink-0 gap-1.5"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {generation ? 'Génération…' : 'Générer'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-2">
+                  <Label>Prompt donné à l’agent de mise en production</Label>
+                  <Textarea
+                    data-prompt-production
+                    value={promptProduction}
+                    maxLength={PROMPT_PRODUCTION_MAX}
+                    disabled={generation || saving}
+                    onChange={(event) => setPromptProduction(event.target.value)}
+                    placeholder={
+                      generation
+                        ? 'Rédaction en cours…'
+                        : 'Le prompt rédigé apparaîtra ici. Vous pouvez aussi l’écrire ou le corriger à la main.'
+                    }
+                    className="mt-1 min-h-[150px]"
+                  />
+                  <p className="mt-1 text-[12.5px] leading-snug text-faint" data-mention-production>
+                    {mentionMiseEnProduction(promptProduction)} Laissé vide, aucune mise en production ne part :
+                    le bouton « Tout publier » de la colonne « En production » reste éteint et renvoie ici. Le
+                    déploiement sur l’instance de dev, lui, n’a jamais besoin de ce prompt.
+                  </p>
+                </div>
+              </>
+            ) : null}
           </div>
 
           {/* ---------- Client ---------- */}

@@ -227,14 +227,14 @@ test('le refus sans prompt dit pourquoi et renvoie au bloc « Mise en production
   assert.match(phrase, /rien n’est mis en production/i);
 });
 
-test('startDeploy refuse une mise en production sans prompt, AVANT la file d’attente', () => {
-  const refus = SOURCE_DEPLOY.indexOf("if (etape.cible === 'production' && !promptProduction)");
+test('startDeploy refuse une mise en production bloquée par sa cible, AVANT la file d’attente', () => {
+  const refus = SOURCE_DEPLOY.indexOf("if (etape.cible === 'production') {");
   const file = SOURCE_DEPLOY.indexOf('if (active.has(projectId))');
   assert.notEqual(refus, -1, 'le refus doit être écrit noir sur blanc');
   assert.ok(refus < file, 'on refuse avant même de mettre en file');
   assert.match(
-    SOURCE_DEPLOY.slice(refus, refus + 160),
-    /return \{ ok: false, error: refusSansPromptDeProduction\(\) \}/,
+    SOURCE_DEPLOY.slice(refus, refus + 220),
+    /refusCibleMiseEnProduction\(project\.miseEnProduction\)/,
   );
 });
 
@@ -243,12 +243,12 @@ test('le bloc peut demander pourquoi une mise en production est bloquée', () =>
   assert.notEqual(debut, -1, 'la règle interrogée par le bloc doit exister');
   const corps = SOURCE_DEPLOY.slice(debut, SOURCE_DEPLOY.indexOf('\n}\n', debut));
   assert.match(corps, /cible !== 'production'/, 'le déploiement n’est jamais bloqué');
-  assert.match(corps, /refusSansPromptDeProduction\(\)/);
+  assert.match(corps, /refusCibleMiseEnProduction\(project\.miseEnProduction\)/);
 });
 
 test('l’adresse de dev n’est présentée comme contrôlée que pour un DÉPLOIEMENT', () => {
   // Le run ne retient l'adresse de dev que pour dev, et le contrôle final aussi.
-  assert.match(SOURCE_DEPLOY, /url: etape\.cible === 'dev' \? project\.devUrl : undefined/);
+  assert.match(SOURCE_DEPLOY, /url: etape\.cible === 'dev' \? project\.devUrl : /);
   assert.match(SOURCE_DEPLOY, /if \(etape\.cible === 'dev' && project\.devUrl\) \{/);
   // L'agent de mise en production ne reçoit pas l'adresse de dev : c'est le
   // prompt qui dit quoi contrôler.

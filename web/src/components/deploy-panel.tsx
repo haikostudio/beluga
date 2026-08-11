@@ -27,6 +27,10 @@ import {
 import {
   Button,
   ConfirmDialog,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
@@ -165,6 +169,12 @@ export function DeployPanel({
      archive : ce geste demande une confirmation. Le déploiement sur l'instance
      de dev, lui, part toujours d'un seul clic. */
   const [confirmation, setConfirmation] = React.useState(false);
+  /* L'ÉCRAN DE SÉLECTION des tâches à déployer : ouvert par le clic sur « Tout
+     déployer », uniquement à la première étape (« À déployer »). Les cartes
+     sont toutes cochées d'avance ; décocher en laisse dans la colonne. */
+  const [selectionOuverte, setSelectionOuverte] = React.useState(false);
+  const [selection, setSelection] = React.useState<Set<string>>(new Set());
+  const [avertissements, setAvertissements] = React.useState<{ cardId: string; message: string }[]>([]);
   /* Le déroulé des sept étapes, replié par défaut : le chevron l'ouvre. */
   const [processOuvert, setProcessOuvert] = React.useState(false);
   /* La TÊTE (bouton + chevron + déroulé en superposition) : un clic hors d'elle
@@ -260,12 +270,12 @@ export function DeployPanel({
     return () => document.removeEventListener('mousedown', surClic);
   }, [processOuvert]);
 
-  const start = async () => {
+  const start = async (selectedCardIds?: string[]) => {
     setBusy(true);
     try {
       // L'étape part AVEC la demande : le serveur ne doit pas retomber sur la
       // première quand c'est la mise en production qu'on a cliquée.
-      await client.call({ type: 'deploy.start', projectId, cible: etape?.cible });
+      await client.call({ type: 'deploy.start', projectId, cible: etape?.cible, selectedCardIds });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'publication impossible');
     } finally {
@@ -276,15 +286,19 @@ export function DeployPanel({
   /*
    * Le clic sur le bouton d'action. Pour la MISE EN PRODUCTION, il n'envoie
    * plus rien tout de suite : il ouvre la modale de confirmation, et
-   * `deploy.start` n'est appelé qu'après « Publier ». Le déploiement sur
-   * l'instance de dev garde son départ au premier clic.
+   * `deploy.start` n'est appelé qu'après « Publier ». Pour le DÉPLOIEMENT
+   * (« À déployer »), il ouvre d'abord l'écran de sélection des tâches —
+   * toutes cochées d'avance — et `deploy.start` n'est appelé qu'après avoir
+   * confirmé la sélection.
    */
   const demarrer = () => {
     if (etape?.cible === 'production') {
       setConfirmation(true);
       return;
     }
-    void start();
+    setSelection(new Set(embarked.map((card) => card.id)));
+    setAvertissements([]);
+    setSelectionOuverte(true);
   };
 
   const aPublier = embarked.length + enAttente.nombre;
@@ -483,7 +497,142 @@ export function DeployPanel({
         onConfirm={() => void start()}
         onClose={() => setConfirmation(false)}
       />
+
+      {/* L'ÉCRAN DE SÉLECTION des tâches à déployer, ouvert par « Tout
+          déployer » : la liste du lot de « À déployer », cochée d'avance.
+          Décocher une carte la laisse dans la colonne, pour le prochain coup. */}
+      <SelectionDeploiementDialog
+        open={selectionOuverte}
+        projectId={projectId}
+        cards={embarked}
+        enAttente={enAttente}
+        selection={selection}
+        onChangeSelection={setSelection}
+        avertissements={avertissements}
+        onChangeAvertissements={setAvertissements}
+        busy={busy}
+        onClose={() => setSelectionOuverte(false)}
+        onConfirm={() => {
+          setSelectionOuverte(false);
+          void start(Array.from(selection));
+        }}
+      />
     </div>
+  );
+}
+
+/**
+ * L'ÉCRAN DE SÉLECTION des tâches à déployer.
+ *
+ * Une case par carte, toutes cochées d'avance ; décocher en laisse dans « À
+ * déployer ». Le serveur est interrogé à chaque case cochée ou décochée pour
+ * dire ce qui coincerait avec CETTE sélection (fichiers communs avec une
+ * carte laissée de côté) — un signal, pas un refus : on peut publier quand
+ * même.
+ */
+function SelectionDeploiementDialog({
+  open,
+  projectId,
+  cards,
+  enAttente,
+  selection,
+  onChangeSelection,
+  avertissements,
+  onChangeAvertissements,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  projectId: string;
+  cards: Card[];
+  enAttente: { nombre: number; titres: string[] };
+  selection: Set<string>;
+  onChangeSelection: (selection: Set<string>) => void;
+  avertissements: { cardId: string; message: string }[];
+  onChangeAvertissements: (avertissements: { cardId: string; message: string }[]) => void;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  React.useEffect(() => {
+    if (!open) return;
+    let vivant = true;
+    client
+      .call({ type: 'deploy.selection', projectId, source: 'to_deploy', selectedCardIds: Array.from(selection) })
+      .then((res: any) => {
+        if (vivant) onChangeAvertissements(res?.avertissements ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      vivant = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, projectId, Array.from(selection).sort().join(',')]);
+
+  const basculer = (cardId: string) => {
+    const suite = new Set(selection);
+    if (suite.has(cardId)) suite.delete(cardId);
+    else suite.add(cardId);
+    onChangeSelection(suite);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent data-selection-deploiement>
+        <DialogTitle>Tâches à déployer</DialogTitle>
+        <DialogDescription>
+          Décochez les tâches à laisser de côté : elles resteront dans « À déployer » pour la prochaine fois.
+        </DialogDescription>
+
+        <ul className="mt-3 space-y-1.5">
+          {cards.map((card) => {
+            const alertes = avertissements.filter((a) => a.cardId === card.id);
+            return (
+              <li key={card.id} data-carte-selection={card.id}>
+                <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
+                  <input
+                    type="checkbox"
+                    checked={selection.has(card.id)}
+                    onChange={() => basculer(card.id)}
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    data-case-selection={card.id}
+                  />
+                  <span className="flex-1 truncate text-text">{card.title}</span>
+                </label>
+                {alertes.length ? (
+                  <ul className="mt-1 space-y-1 pl-2">
+                    {alertes.map((alerte, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-[12px] text-warning" data-avertissement-selection>
+                        <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+                        <span>{alerte.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+
+        {enAttente.nombre ? (
+          <p className="mt-2 text-[12px] text-faint">
+            + {enAttente.nombre} changement{enAttente.nombre > 1 ? 's' : ''} enregistré
+            {enAttente.nombre > 1 ? 's' : ''} sans carte, toujours embarqué{enAttente.nombre > 1 ? 's' : ''}.
+          </p>
+        ) : null}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button size="sm" disabled={selection.size === 0 || busy} onClick={onConfirm} data-bouton-deployer-selection>
+            {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
+            Déployer ({selection.size + enAttente.nombre})
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
