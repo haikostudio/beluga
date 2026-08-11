@@ -1,3 +1,4 @@
+export * from './acces-github.js';
 export * from './acces-vps.js';
 export * from './accueil-agent.js';
 export * from './amorce.js';

@@ -27,6 +27,7 @@ import {
   sujetNomme,
   sujetsPourRequete,
   texteIndex,
+  texteAccesGithub,
   texteDesCompetences,
   type InstructionsDuProjet,
   type NiveauDAccueil,
@@ -770,6 +771,15 @@ export function briefingSepare(
    */
   const competences = emporte.competences ? texteDesCompetences(listerCompetences()) : '';
   if (competences) parts.push(competences);
+
+  /*
+   * L'accès GitHub est ANNONCÉ, jamais supposé deviné. Le jeton est posé dans
+   * l'environnement de tout agent (`server/src/github.ts`), mais un agent qui
+   * l'ignore continue de proposer une carte pour un `gh pr view` de dix
+   * secondes. Une ligne, valable sur tous les projets, sans réglage
+   * (`shared/src/acces-github.ts`).
+   */
+  if (emporte.github) parts.push(texteAccesGithub());
 
   const sansMemoire = parts.join('\n\n');
   if (!avecMemoire || !emporte.memoire) return { sansMemoire };

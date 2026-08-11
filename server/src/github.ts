@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { GithubTracking } from '@haikodev/shared';
+import { GithubTracking, variablesGithub } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
@@ -20,6 +20,49 @@ async function gh(args: string[], cwd: string): Promise<{ ok: boolean; out: stri
   } catch (err: any) {
     return { ok: false, out: (err?.stderr ?? err?.message ?? '').toString() };
   }
+}
+
+/*
+ * LE JETON GITHUB DE L'ENVIRONNEMENT DES AGENTS.
+ *
+ * L'outil `gh` est identifié sur le serveur : son jeton dort dans le dossier
+ * personnel du compte qui porte le démon. Un agent, lui, travaille dans une copie
+ * de travail ou dans un bac à sable, où ce dossier n'est pas forcément lisible :
+ * on lui passe donc le jeton par l'ENVIRONNEMENT (`variablesGithub`), ce qui rend
+ * `gh` utilisable partout sans rien lire sur le disque.
+ *
+ * Le jeton est demandé À `gh` lui-même (`gh auth token`) : aucune clé à saisir
+ * dans l'interface, aucun chemin en dur, et un changement d'identification est
+ * repris tout seul. La réponse est gardée une heure — le relever à chaque tour
+ * ajouterait un lancement de processus pour une valeur qui ne bouge pas.
+ */
+const DUREE_CACHE_JETON_MS = 60 * 60 * 1000;
+let jetonEnCache: { valeur?: string; at: number } | undefined;
+
+/** Le jeton GitHub du serveur, ou rien si l'outil n'est pas identifié. */
+export async function jetonGithub(): Promise<string | undefined> {
+  const depuisEnv = (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim();
+  if (depuisEnv) return depuisEnv;
+  if (jetonEnCache && Date.now() - jetonEnCache.at < DUREE_CACHE_JETON_MS) return jetonEnCache.valeur;
+  try {
+    const { stdout } = await execFileAsync('gh', ['auth', 'token'], { timeout: 10000 });
+    const valeur = stdout.trim() || undefined;
+    jetonEnCache = { valeur, at: Date.now() };
+    if (!valeur) log.warn("gh est présent mais ne rend aucun jeton : les agents n'auront pas GitHub");
+    return valeur;
+  } catch (err: any) {
+    jetonEnCache = { valeur: undefined, at: Date.now() };
+    log.warn(`jeton GitHub indisponible pour les agents : ${(err?.stderr ?? err?.message ?? '').toString().trim()}`);
+    return undefined;
+  }
+}
+
+/**
+ * Les variables GitHub à poser dans l'environnement d'un agent. Vide quand le
+ * serveur n'est pas identifié : on ne pose jamais de variable creuse.
+ */
+export async function envGithub(): Promise<Record<string, string>> {
+  return variablesGithub(await jetonGithub());
 }
 
 async function git(args: string[], cwd: string): Promise<string> {
