@@ -1,25 +1,25 @@
 #!/usr/bin/env node
 /**
- * LE REFUS DU BAC À SABLE SE DIT-IL EN CLAIR, SANS PARLER DE « DROITS » ?
+ * LE CHEF D'ORCHESTRE A-T-IL VRAIMENT L'ACCÈS COMPLET ?
  *
- * Le chef d'orchestre travaille derrière une frontière posée au niveau du
- * système : son dossier de travail est écrivable, le projet est monté en
- * LECTURE SEULE, l'élévation de privilèges est coupée. Rien ne lui manque —
- * c'est voulu. Il rapportait pourtant ses échecs en disant « je n'ai pas les
- * droits », et un utilisateur qui a tout accordé y lisait une autorisation
- * refusée.
+ * Sa seule frontière est de ne pas modifier lui-même du code, et elle tient sur
+ * les outils d'édition — pas sur le disque. Le bac à sable qui l'enfermait a été
+ * retiré le 11/08/2026 : il bloquait les gestes mêmes qu'on veut lui ouvrir
+ * (construire écrit dans le projet, administrer exige une élévation de
+ * privilèges qu'aucun bac à sable ne laisse passer), et le chef annonçait alors
+ * « je n'ai pas les droits » alors que rien ne lui manquait.
  *
- * Ce script ne fait confiance à aucune citation : il PROVOQUE les trois refus
- * dans un vrai bac à sable `bwrap`, puis vérifie que le démon les traduit.
+ * Ce script ne fait confiance à aucune citation :
  *
- *   1. une écriture dans un dossier monté en lecture seule ;
- *   2. une écriture Node dans ce même dossier (code `EROFS`) ;
- *   3. une commande qui réclame l'administration de la machine (`sudo`) ;
- *   pour chacun : la nature reconnue, une explication SANS le mot « droits »,
- *   et la sortie d'origine gardée sous l'explication.
- *
- * On contrôle enfin que la consigne envoyée au chef nomme d'avance ce qui
- * échouera, et que le démon la prend bien du module partagé.
+ *   1. les réglages envoyés aux DEUX moteurs n'enferment plus rien ;
+ *   2. la CONSIGNE du chef annonce l'accès complet, nomme les gestes ouverts et
+ *      lui interdit le vocabulaire des droits ;
+ *   3. un refus RÉEL de la machine (bac à sable resté allumé, fichier d'un autre
+ *      compte, administration à configurer) est traduit en cause + réparation,
+ *      l'explication posée AU-DESSUS de la sortie d'origine ;
+ *   4. le fait qu'un bac à sable enfermerait encore le chef est PROUVÉ à
+ *      l'envers : on en monte un pour de vrai et on vérifie qu'il bloque bien ce
+ *      qu'on vient d'ouvrir — c'est ce refus-là qu'on a supprimé.
  *
  *   node scripts/verif-refus-de-droits.mjs
  *
@@ -52,116 +52,121 @@ async function sortieDe(commande, args) {
   }
 }
 
-const { consigneEspaceDuChef, detailDuRefus, natureDuRefus } = await import(
-  path.join(RACINE, 'shared/dist/index.js')
+const {
+  consigneEspaceDuChef,
+  detailDuRefus,
+  natureDuRefus,
+  reglagesClaudeDuChef,
+  surchargesCodexDuChef,
+} = await import(path.join(RACINE, 'shared/dist/index.js'));
+
+const LISTES = {
+  allowedTools: ['Bash', 'mcp__haikodev__board_create_card'],
+  disallowedTools: ['Edit', 'Write', 'NotebookEdit', 'mcp__haikodev__make_archive'],
+};
+
+console.log('\nCE QUI PART AUX MOTEURS\n');
+
+const codex = surchargesCodexDuChef(LISTES);
+dire(codex.includes('sandbox_mode="danger-full-access"'), 'Codex : accès complet, aucun bac à sable');
+dire(
+  !codex.some((s) => s.startsWith('sandbox_workspace_write')),
+  'Codex : plus aucune limite d’écriture à un espace de travail',
+);
+dire(codex.includes('approval_policy="never"'), 'Codex : les commandes partent sans attendre un accord');
+dire(
+  codex.some((s) => s.includes('disabled_tools=["make_archive"]')),
+  'Codex : les outils réservés aux agents de tâche restent fermés',
 );
 
+const claude = reglagesClaudeDuChef(LISTES, '/root/projet');
+dire(claude?.sandbox?.enabled === false, 'Claude : bac à sable éteint');
+dire(!JSON.stringify(claude).includes('denyWrite'), 'Claude : plus aucun dossier fermé en écriture');
+dire(
+  LISTES.disallowedTools.includes('Edit') &&
+    LISTES.disallowedTools.includes('Write') &&
+    LISTES.disallowedTools.includes('NotebookEdit'),
+  'les outils d’ÉDITION restent la seule frontière — modifier du code passe par une carte',
+);
+
+console.log('\nLA CONSIGNE ENVOYÉE AU CHEF\n');
+
+const consigne = consigneEspaceDuChef('/root/travail/chef', '/root/projet');
+for (const [quoi, motif] of [
+  ['l’accès complet est annoncé', /ACCÈS COMPLET/],
+  ['construire est ouvert', /construction/i],
+  ['installer des dépendances est ouvert', /installation/i],
+  ['déployer est ouvert', /déploiement/i],
+  ['redémarrer un service est ouvert', /redémarrage/i],
+  ['administrer la machine est ouvert', /administration/i],
+  ['le projet lui est ouvert en entier', /\/root\/projet/],
+  ['la seule frontière est nommée', /TA SEULE FRONTIÈRE/],
+  ['modifier le code lui-même reste fermé', /tu ne modifies pas TOI-MÊME le code/],
+  ['le mot « droits » lui est interdit', /NE DIS JAMAIS « je n'ai pas les droits »/],
+]) {
+  dire(motif.test(consigne), quoi);
+}
+dire(
+  !/lecture seule|bac à sable les refuse|SEUL dossier où tu as le droit/i.test(consigne),
+  'la consigne ne lui annonce plus aucun mur qui n’existe plus',
+);
+
+console.log('\nUN REFUS RÉEL DE LA MACHINE, PROVOQUÉ ET TRADUIT\n');
+
 const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-refus-'));
-const lectureSeule = path.join(bac, 'projet');
-const travail = path.join(bac, 'travail');
-fs.mkdirSync(lectureSeule);
-fs.mkdirSync(travail);
-fs.writeFileSync(path.join(lectureSeule, 'lisible.txt'), 'le projet se lit\n');
-
-/** Une commande lancée derrière la MÊME frontière que le chef : projet en lecture seule. */
-const sousBwrap = (script) => [
-  '--dev-bind', '/', '/',
-  '--ro-bind', lectureSeule, lectureSeule,
-  '--bind', travail, travail,
-  '/bin/sh', '-c', script,
-];
-
 try {
-  console.log('\nREFUS PROVOQUÉS DANS UN VRAI BAC À SABLE\n');
+  const ferme = path.join(bac, 'projet');
+  fs.mkdirSync(ferme);
 
   const disponible = await sortieDe('bwrap', ['--version']);
-  if (!/bubblewrap|\d+\.\d+/.test(disponible)) {
-    console.log(
-      "  bwrap est absent ou refusé sur cette machine : la frontière du chef ne peut pas être\n" +
-        "  provoquée ici. C'est en soi une PANNE à signaler.\n",
+  if (/bubblewrap|\d+\.\d+/.test(disponible)) {
+    // On MONTE un bac à sable exprès pour prouver ce qu'il bloquait : c'est
+    // exactement ce que le chef ne doit plus subir.
+    const bloque = await sortieDe('bwrap', [
+      '--dev-bind', '/', '/',
+      '--ro-bind', ferme, ferme,
+      '/bin/sh', '-c', `echo x > ${ferme}/interdit.txt`,
+    ]);
+    dire(
+      natureDuRefus(bloque) === 'bac-a-sable-residuel',
+      `un bac à sable resté allumé est reconnu — ${bloque.trim().split('\n')[0] || '(vide)'}`,
     );
-    process.exit(1);
+    const detail = detailDuRefus(bloque);
+    dire(/À RÉPARER SUR LE SERVEUR/.test(detail ?? ''), 'il est signalé comme un réglage à éteindre');
+    dire((detail ?? '').includes(bloque.trim()), 'la sortie du système reste lisible dessous');
+    dire(
+      !/(pas les droits|droits manquants|permission manquante)/i.test(detail ?? ''),
+      'l’explication ne parle JAMAIS de droits manquants',
+    );
+  } else {
+    console.log('  …  bwrap absent : le contrôle du bac à sable résiduel est sauté.');
   }
 
-  // 1. Le chef lit le projet — cela, il le peut, et ce n'est pas un refus.
-  const lecture = await sortieDe('bwrap', sousBwrap(`cat ${lectureSeule}/lisible.txt`));
-  dire(/le projet se lit/.test(lecture), 'le projet reste LISIBLE derrière la frontière');
-  dire(natureDuRefus(lecture) === null, 'une sortie ordinaire n’est pas prise pour un refus');
-
-  // 2. Une écriture shell dans le projet : « Read-only file system ».
-  const ecriture = await sortieDe('bwrap', sousBwrap(`echo x > ${lectureSeule}/interdit.txt`));
-  dire(
-    natureDuRefus(ecriture) === 'projet-en-lecture-seule',
-    `écriture refusée reconnue — ${ecriture.trim().split('\n')[0] || '(vide)'}`,
-  );
-  const detail = detailDuRefus(ecriture, lectureSeule);
-  dire(Boolean(detail), 'le détail de l’étape est réécrit');
-  dire(/LECTURE SEULE/.test(detail ?? ''), 'l’explication nomme la cause réelle');
-  dire(/agent de tâche/.test(detail ?? ''), 'l’explication donne la route à prendre');
-  dire((detail ?? '').includes(ecriture.trim()), 'la sortie du système reste lisible dessous');
-  dire(
-    !/(pas les droits|droits manquants|permission manquante)/i.test(detail ?? ''),
-    'l’explication ne parle JAMAIS de droits manquants',
-  );
-
-  // 3. La même écriture depuis Node : code « EROFS ».
-  const erofs = await sortieDe(
-    'bwrap',
-    sousBwrap(
-      `node -e "try{require('fs').writeFileSync('${lectureSeule}/x','x')}catch(e){console.log(e.message)}"`,
-    ),
-  );
-  dire(/EROFS/.test(erofs), `le code EROFS est bien produit — ${erofs.trim()}`);
-  dire(natureDuRefus(erofs) === 'projet-en-lecture-seule', 'le code EROFS est reconnu');
-
-  // 4. L'administration de la machine, coupée dans le bac à sable.
-  const admin = await sortieDe('bwrap', [
-    '--dev-bind', '/', '/',
-    '--ro-bind', lectureSeule, lectureSeule,
-    '--unshare-user', '--new-session',
-    '/bin/sh', '-c', 'sudo -n true',
+  // Un fichier d'un AUTRE compte : le refus qui reste possible, accès complet ou non.
+  const dAutrui = await sortieDe('node', [
+    '-e',
+    "try{require('fs').writeFileSync('/etc/shadow','x')}catch(e){console.log(e.message)}",
   ]);
   dire(
-    natureDuRefus(admin) === 'administration-refusee',
-    `refus d’administration reconnu — ${admin.trim().split('\n')[0] || '(vide)'}`,
-  );
-  dire(
-    /administration de la machine/.test(detailDuRefus(admin) ?? ''),
-    'l’explication distingue l’administration d’une écriture refusée',
+    natureDuRefus(dAutrui) === 'fichier-d-un-autre-compte' || process.getuid?.() === 0,
+    `un fichier d’un autre compte est reconnu — ${dAutrui.trim() || '(le démon tourne en root)'}`,
   );
 
-  // 5. Un bac à sable qui ne démarre pas est une VRAIE panne, jamais une écriture refusée.
   dire(
-    natureDuRefus('bwrap: setting up uid map: Permission denied') === 'bac-a-sable-absent',
-    'un bac à sable qui ne démarre pas est signalé comme une panne du serveur',
+    natureDuRefus('sudo: a password is required') === 'administration-a-configurer',
+    'une administration qui réclame un mot de passe dit la règle à poser',
   );
-
-  console.log('\nLA CONSIGNE ENVOYÉE AU CHEF\n');
-  const consigne = consigneEspaceDuChef('/root/travail/chef', '/root/projet');
-  for (const [quoi, motif] of [
-    ['le dossier où il PEUT écrire', /\/root\/travail\/chef/],
-    ['le projet, en lecture seule', /\/root\/projet/],
-    ['construire est annoncé comme voué à l’échec', /construire/i],
-    ['déployer est annoncé comme voué à l’échec', /déploiement/i],
-    ['la consigne de publication du serveur est écartée', /ne s'applique PAS à toi/],
-    ['le mot « droits » lui est interdit', /NE DIS JAMAIS « je n'ai pas les droits »/],
-    ['la phrase de remplacement lui est donnée', /agent de tâche/],
-  ]) {
-    dire(motif.test(consigne), quoi);
-  }
-
-  const runtime = fs.readFileSync(path.join(RACINE, 'server/src/runtime.ts'), 'utf8');
-  dire(
-    /consigneEspaceDuChef\(/.test(runtime),
-    'le démon prend sa consigne du module partagé, pas d’un texte recopié',
-  );
-  dire(
-    /detailDuRefus\(/.test(runtime),
-    'le démon traduit le détail des étapes d’un chef bridé',
-  );
+  dire(natureDuRefus('Construction terminée en 12 s') === null, 'une sortie ordinaire n’est pas un refus');
 } finally {
   fs.rmSync(bac, { recursive: true, force: true });
 }
+
+const runtime = fs.readFileSync(path.join(RACINE, 'server/src/runtime.ts'), 'utf8');
+dire(
+  /consigneEspaceDuChef\(/.test(runtime),
+  'le démon prend sa consigne du module partagé, pas d’un texte recopié',
+);
+dire(/detailDuRefus\(/.test(runtime), 'le démon traduit le détail des étapes d’un chef');
 
 console.log(echecs ? `\n${echecs} contrôle(s) en échec.\n` : '\nTout est en place.\n');
 process.exit(echecs ? 1 : 0);

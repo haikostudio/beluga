@@ -50,36 +50,36 @@ test('les deux listes partent au moteur, pour Claude COMME pour Codex', () => {
   }
 });
 
-test('sous Codex, le chef écrit dans son espace mais jamais le projet, ni ne lance un travail de fond', () => {
+test('sous Codex, le chef lance tout ce qu’il veut, sans travail de fond', () => {
   for (const reprise of [undefined, 'fil-1']) {
     const codex = buildCodexArgs(tourDuChef({ sessionId: reprise })).join(' ');
-    // Écriture PERMISE dans l'espace de travail (le cwd), projet en lecture seule.
-    assert.ok(codex.includes('sandbox_mode="workspace-write"'), 'le bac à sable ouvre l\'espace de travail');
-    assert.ok(!codex.includes('sandbox_mode="read-only"'), 'le chef n\'est plus muré en lecture seule');
+    // ACCÈS COMPLET : construire, installer, déployer, redémarrer, administrer.
+    // Un bac à sable bloquait ces gestes-là, jamais le code (voir bridage-chef.ts).
+    assert.ok(codex.includes('sandbox_mode="danger-full-access"'), 'le chef a l\'accès complet');
+    assert.ok(!codex.includes('sandbox_mode="read-only"'), 'le chef n\'est pas muré en lecture seule');
     assert.ok(
-      codex.includes('sandbox_workspace_write.network_access=true'),
-      'le chef a le droit au réseau pour ses recherches',
+      !codex.includes('sandbox_mode="workspace-write"'),
+      'plus rien ne limite l\'écriture à un espace de travail',
     );
-    assert.ok(
-      !codex.includes('--dangerously-bypass-approvals-and-sandbox'),
-      'le bridage ne doit jamais ouvrir le bac à sable en grand',
-    );
-    assert.ok(codex.includes('approval_policy="never"'), 'une écriture refusée doit échouer, pas attendre');
+    assert.ok(codex.includes('approval_policy="never"'), 'une commande part sans attendre un accord');
     for (const nom of FONCTIONNALITES_DE_FOND) {
       assert.ok(codex.includes(`features.${nom}=false`), `« ${nom} » doit être éteint`);
     }
   }
 });
 
-test('sous Claude, le bac à sable s\'allume pour le chef et le projet est monté en lecture', () => {
+test('sous Claude, le chef a l’accès complet et le projet lui est ouvert', () => {
   const claude = buildClaudeArgs(tourDuChef({ projectRoot: '/root/projet' }));
   const ligne = claude.join(' ');
-  assert.ok(ligne.includes('--settings'), 'Claude reçoit des réglages de bac à sable');
+  assert.ok(ligne.includes('--settings'), 'Claude reçoit ses réglages');
   const i = claude.indexOf('--settings');
   const reglages = JSON.parse(claude[i + 1]);
-  assert.equal(reglages.sandbox.enabled, true, 'le bac à sable est allumé');
-  assert.equal(reglages.sandbox.allowUnsandboxedCommands, false, 'aucun repli hors bac à sable');
-  assert.ok(ligne.includes('--add-dir /root/projet'), 'le projet est monté en lecture');
+  assert.equal(reglages.sandbox.enabled, false, 'le bac à sable est éteint');
+  assert.ok(
+    !JSON.stringify(reglages).includes('denyWrite'),
+    'plus aucun dossier n\'est fermé en écriture au chef',
+  );
+  assert.ok(ligne.includes('--add-dir /root/projet'), 'le projet lui est ouvert');
 });
 
 test('sous Codex, les outils du projet sont énumérés un par un', () => {

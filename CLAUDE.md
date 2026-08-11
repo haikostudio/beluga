@@ -230,25 +230,24 @@ le nom, là-bas le texte).
   fonctionnalité = une branche = un enregistrement, nommé.
 - **Dossier partagé (chef, analyse, publication) : `git add` NOMMÉ un par un, jamais `git add -A`**
   — sinon on emporte le travail d'un autre agent dans son propre enregistrement.
-- **Un agent de tâche travaille en accès complet. Le chef d'orchestre a TOUS LES DROITS SAUF modifier
-  le code du projet** (sauf sur HaikoDev lui-même) : il lance des commandes (`Bash`), cherche sur le
-  web, écrit ses brouillons dans un DOSSIER DE TRAVAIL à part (son `cwd`, le seul écrivable) ; le
-  PROJET est monté en LECTURE SEULE par le bac à sable — une écriture y échoue, une modification du
-  code s'ouvre en carte. Frontière identique sous les deux moteurs (`shared/src/bridage-chef.ts`),
-  posée au niveau système (`bwrap`) — elle EXIGE les espaces de noms utilisateur non privilégiés
-  (`kernel.apparmor_restrict_unprivileged_userns=0`, `/etc/sysctl.d/99-haikodev-userns.conf`) : sans
-  eux, toute commande d'un chef bridé échoue avec « bwrap: … Permission denied ». Les outils d'ÉDITION
-  (`Edit`, `Write`, `NotebookEdit`) lui restent interdits — il écrit ses DOCUMENTS par
-  `write_document`, servi par le démon (règle suivante). Verrouillé par
-  `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
-- **La frontière du chef se DIT en clair, jamais en « je n'ai pas les droits »**
-  (`shared/src/refus-de-droits.ts`) : sa consigne d'espace nomme d'AVANCE ce qui échouera
-  (construire, installer, déployer, redémarrer, écrire dans le projet), écarte une consigne générale
-  du serveur qui dirait de publier, et lui interdit le vocabulaire des droits ; en aval, le détail
-  des étapes terminées est traduit en cause réelle + route à prendre, POSÉE AU-DESSUS de la sortie
-  d'origine. Quatre natures : projet en lecture seule, écriture hors du dossier de travail,
-  administration refusée, et bac à sable ABSENT — la seule VRAIE panne. Verrouillé par
-  `server/src/test/refus-de-droits.test.ts` et `scripts/verif-refus-de-droits.mjs`.
+- **Un agent de tâche travaille en accès complet. Le chef d'orchestre AUSSI, SAUF qu'il ne modifie
+  pas lui-même le code** (`shared/src/bridage-chef.ts`) : il lance ce qu'il veut — commandes,
+  construction, installation, script de déploiement, redémarrage de service, administration de la
+  machine — et écrit où il veut, le projet compris. AUCUN bac à sable (`sandbox_mode=
+  "danger-full-access"` sous Codex, `sandbox.enabled:false` sous Claude) : il enfermait justement les
+  gestes qu'on veut ouvrir, puisque construire ÉCRIT dans le projet et qu'administrer exige
+  l'élévation de privilèges qu'aucun bac à sable ne laisse passer. La frontière du CODE tient sur les
+  OUTILS : `Edit`, `Write`, `NotebookEdit` ne lui sont pas servis, `write_document` refuse les
+  extensions de code, et modifier un programme s'ouvre en carte. Elle n'est donc plus un mur système —
+  une commande shell PEUT écrire un fichier de code, c'est le prix assumé de l'ouverture. Verrouillé
+  par `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
+- **Aucun refus ne se dit « je n'ai pas les droits »** (`shared/src/refus-de-droits.ts`) : la consigne
+  d'espace du chef ANNONCE l'accès complet, nomme les gestes ouverts (un chef qui s'en croit privé
+  s'arrête avant d'essayer) et lui interdit ce vocabulaire ; en aval, le détail des étapes terminées
+  est traduit en cause réelle + réparation, POSÉE AU-DESSUS de la sortie d'origine. Trois natures :
+  bac à sable RÉSIDUEL (un réglage resté allumé, à éteindre), fichier d'un AUTRE compte, et
+  administration à configurer (`sudoers`). Verrouillé par `server/src/test/refus-de-droits.test.ts`
+  et `scripts/verif-refus-de-droits.mjs`.
 - **Le chef écrit les DOCUMENTS partout dans le projet, et le CODE nulle part**
   (`shared/src/documents-du-chef.ts`) : `write_document` crée, remplace et SUPPRIME tout fichier de
   texte (`.md`, `.txt`, `.doc`…) où qu'il soit ; le code est refusé par la liste des extensions, et
