@@ -32,6 +32,7 @@ import {
   avertissementRedemarrage,
   raisonPublications,
   doitSecouerLigne,
+  placeDuRepereDePlan,
   premiereDecision,
   repereVisible,
   signalDuGroupe,
@@ -962,7 +963,16 @@ function EnteteGroupe({
  * confondre avec un travail ordinaire. Elle remplace alors le loader, elle
  * ne s'y ajoute pas.
  */
-function RepereRobot({ running, publie }: { running: number; publie?: boolean }) {
+function RepereRobot({
+  running,
+  publie,
+  planEnAttente,
+}: {
+  running: number;
+  publie?: boolean;
+  /** Un plan attend une décision : il prend la place du dossier, si elle est libre. */
+  planEnAttente?: boolean;
+}) {
   if (publie) {
     return (
       <Tooltip label="Publication en cours">
@@ -972,7 +982,9 @@ function RepereRobot({ running, publie }: { running: number; publie?: boolean })
       </Tooltip>
     );
   }
-  if (!running) return <Folder className="h-3 w-3 shrink-0 text-faint" />;
+  // Rien ne travaille : le dossier ne dit que « c'est un projet ». Un plan qui
+  // attend une décision prend donc sa place (`placeDuRepereDePlan`).
+  if (!running) return planEnAttente ? <RepereDePlan /> : <Folder className="h-3 w-3 shrink-0 text-faint" />;
   const libelle = running > 1 ? `${running} agents au travail` : 'Un agent au travail';
   return (
     <Tooltip label={libelle}>
@@ -1188,6 +1200,8 @@ function LigneEspaceDev({
   onQuitterTableauDeBord?: () => void;
 }) {
   const secoue = useSecousse({ attention, rendus }, active);
+  // À gauche à la place de l'outil si l'emplacement est libre, à droite sinon.
+  const placePlan = placeDuRepereDePlan({ planEnAttente, running, publie });
   const ouvrir = () => {
     client.setActiveProject(project.id);
     onQuitterTableauDeBord?.();
@@ -1242,6 +1256,8 @@ function LigneEspaceDev({
               la ligne. */}
           {running || publie ? (
             <RepereRobot running={running} publie={publie} />
+          ) : placePlan === 'gauche' ? (
+            <RepereDePlan />
           ) : (
             <Wrench className="h-3.5 w-3.5 shrink-0" />
           )}
@@ -1250,7 +1266,7 @@ function LigneEspaceDev({
               l'application » y finissait en points de suspension. */}
           <span className="min-w-0 flex-1 truncate">Développement</span>
         </button>
-        {planEnAttente ? <RepereDePlan /> : null}
+        {placePlan === 'droite' ? <RepereDePlan /> : null}
         {/* Hors du bouton : un repère porte son propre geste, et un bouton n'en
             contient pas un autre. */}
         <RepereLigne
@@ -1315,6 +1331,8 @@ function ProjectRow({
   // Le projet qu'on regarde déjà ne bouge pas : le signal sert à ce qu'on ne
   // voit pas.
   const secoue = useSecousse({ attention, rendus }, active);
+  // À gauche à la place du dossier si l'emplacement est libre, à droite sinon.
+  const placePlan = placeDuRepereDePlan({ planEnAttente, running, publie });
   return (
     <div
       {...rowProps}
@@ -1380,8 +1398,9 @@ function ProjectRow({
         {/* Le loader prend la place du dossier tant qu'un agent écrit ; une
             publication en cours prend la MÊME place, avec son propre signe
             (voir `RepereRobot`) — c'est le MÊME emplacement, donc rien ne
-            s'ajoute à la ligne. */}
-        <RepereRobot running={running} publie={publie} />
+            s'ajoute à la ligne. Un plan qui attend une décision s'y pose aussi,
+            quand elle est libre (`placeDuRepereDePlan`). */}
+        <RepereRobot running={running} publie={publie} planEnAttente={placePlan === 'gauche'} />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
@@ -1393,7 +1412,7 @@ function ProjectRow({
           </Tooltip>
         ) : null}
       </button>
-      {planEnAttente ? <RepereDePlan /> : null}
+      {placePlan === 'droite' ? <RepereDePlan /> : null}
       {/* Le repère vit HORS du bouton du nom : il porte son propre geste, et un
           bouton n'en contient pas un autre. */}
       <RepereLigne
