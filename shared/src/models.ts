@@ -193,6 +193,8 @@ export const Estimate = z.object({
   seniorHours: z.number().optional(),
   billingTitle: z.string().optional(),
   billingDescription: z.string().optional(),
+  /** Texte simple et ludique pour le CLIENT, sans jargon ni nom de fichier. Voyage jusqu'au devis/facture. */
+  clientExplanation: z.string().optional(),
   failed: z.boolean().default(false),
   failureReason: z.string().optional(),
   producedAt: z.number().optional(),
@@ -233,6 +235,7 @@ export const BillingLine = z.object({
   documentId: z.string(),
   documentNumber: z.string().optional(),
   title: z.string().optional(),
+  clientExplanation: z.string().optional(),
   hours: z.number().optional(),
   amount: z.number().optional(),
   addedAt: z.number(),

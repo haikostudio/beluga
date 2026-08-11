@@ -923,6 +923,9 @@ function Metric({
 function BillingTab({ card, rate, project }: { card: Card; rate: number; project?: { billing?: any; name?: string } }) {
   const [title, setTitle] = React.useState(card.billing?.title ?? card.estimate?.billingTitle ?? card.title);
   const [description, setDescription] = React.useState(card.estimate?.billingDescription ?? card.description);
+  const [clientExplanation, setClientExplanation] = React.useState(
+    card.billing?.clientExplanation ?? card.estimate?.clientExplanation ?? '',
+  );
   const [hours, setHours] = React.useState(String(card.billing?.hours ?? card.estimate?.seniorHours ?? ''));
   const [documents, setDocuments] = React.useState<any[]>([]);
   const defaut = project?.billing?.defaultDocumentId as string | undefined;
@@ -963,6 +966,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
         documentId: documentId || undefined,
         title,
         description,
+        clientExplanation,
         hours: Number(hours),
       });
     } catch (err: any) {
@@ -988,6 +992,17 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
 
       <Champ label="Description">
         <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} />
+      </Champ>
+
+      <Champ
+        label="Explication client"
+        aide="Ce que le client lira sur son devis ou sa facture — simple et ludique, sans jargon ni nom de fichier."
+      >
+        <Textarea
+          value={clientExplanation}
+          onChange={(event) => setClientExplanation(event.target.value)}
+          rows={3}
+        />
       </Champ>
 
       <Champ

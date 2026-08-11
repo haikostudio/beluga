@@ -35,6 +35,15 @@ export function billingAvailable(): boolean {
   return scriptPath() !== null;
 }
 
+/** Le champ `description` du document compta est du HTML : on y échappe le texte du client. */
+function versHtml(texte: string): string {
+  const echappe = texte
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return `<p>${echappe}</p>`;
+}
+
 async function compta(args: string[]): Promise<any> {
   const script = scriptPath();
   if (!script) throw new Error("l'outil de facturation n'est pas installé sur ce serveur");
@@ -108,6 +117,8 @@ export async function pushLine(input: {
   documentId?: string;
   title: string;
   description?: string;
+  /** Le texte simple destiné au CLIENT : c'est lui qui apparaît sur le devis ou la facture. */
+  clientExplanation?: string;
   hours: number;
 }): Promise<{ ok: boolean; error?: string; documentNumber?: string }> {
   const card = store.getCard(input.cardId);
@@ -120,6 +131,10 @@ export async function pushLine(input: {
 
   const rate = link.hourlyRate ?? 130;
   const kind = input.documentType === 'offer' ? 'quote' : 'invoice';
+  // Le client lit le devis/la facture : c'est son explication, simple et sans jargon,
+  // qui y figure — la description technique reste interne à la carte.
+  const clientExplanation = input.clientExplanation?.trim();
+  const documentDescription = clientExplanation ? versHtml(clientExplanation) : (input.description ?? '');
 
   try {
     let documentId = input.documentId ?? link.defaultDocumentId;
@@ -139,7 +154,7 @@ export async function pushLine(input: {
       }));
       const items = [
         ...existing,
-        { title: input.title, description: input.description ?? '', quantity: input.hours, unit: 'heure', unit_price: rate },
+        { title: input.title, description: documentDescription, quantity: input.hours, unit: 'heure', unit_price: rate },
       ];
       await compta(['set-items', kind, documentId, JSON.stringify({ items })]);
       documentNumber = current?.number ?? current?.reference;
@@ -152,7 +167,7 @@ export async function pushLine(input: {
         items: [
           {
             title: input.title,
-            description: input.description ?? '',
+            description: documentDescription,
             quantity: input.hours,
             unit: 'heure',
             unit_price: rate,
@@ -171,6 +186,7 @@ export async function pushLine(input: {
         documentId: documentId ?? '',
         documentNumber,
         title: input.title,
+        clientExplanation,
         hours: input.hours,
         amount: input.hours * rate,
         addedAt: Date.now(),

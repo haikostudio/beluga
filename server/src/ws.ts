@@ -1042,6 +1042,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         documentId: cmd.documentId,
         title: cmd.title,
         description: cmd.description,
+        clientExplanation: cmd.clientExplanation,
         hours: cmd.hours,
       });
       if (!result.ok) throw new Error(result.error ?? 'ajout impossible');
