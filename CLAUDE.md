@@ -312,8 +312,12 @@ le nom, là-bas le texte).
 - **Un plan proposé qui attend une décision pose sa PROPRE bordure sur la ligne de son projet, en
   plus de la couleur d'état déjà là** (`plans`, `shared/src/protocol.ts` ; `store.signalPlans`,
   `server/src/store.ts` ; `RepereDePlan`, `web/src/components/sidebar.tsx`) : bordure blanche
-  additive et badge de l'icône du plan, jamais à la place de l'orange/bleu/violet existant. Éteint
-  dès que le plan est validé, refusé ou dépassé par une version plus récente
+  additive, jamais à la place de l'orange/bleu/violet existant. L'icône du plan, elle, prend
+  l'emplacement de GAUCHE (celui du dossier ou de l'outil), comme le fait déjà le loader « au
+  travail » ou l'icône « en publication » (`RepereRobot`) — un seul signe à la fois, rien à droite
+  du nom ; priorité publication > travail en cours > plan. Seul le badge de l'en-tête d'un groupe
+  replié reste à droite de son nom, faute d'emplacement de gauche à lui. Éteint dès que le plan est
+  validé, refusé ou dépassé par une version plus récente
   (`planEnAttente`, `shared/src/plan-conversation.ts`). Vérifié par
   `server/src/test/plan-en-attente-projet.test.ts` et `scripts/verif-repere-plan.mjs`.
 - **Le composeur montre le contexte de CHAQUE agent, jamais son quota** (`Agent.contextUsage`,
