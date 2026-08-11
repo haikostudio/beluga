@@ -25,6 +25,7 @@ import {
   RAISON_SUSPENDU,
   RAISON_ARRETE_A_LA_MAIN,
   arretDeCarteAutorise,
+  agentApresNouveauDepart,
   comptePrecedents,
   messagesDepuis,
   peutRepartir,
@@ -611,6 +612,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
      * session du moteur — plus aucun historique renvoyé — et le compteur de la
      * mémoire du projet, pour qu'elle reparte une fois, comme au premier
      * message. Le brouillon en cours n'est pas touché.
+     *
+     * L'AGENT LUI-MÊME OUBLIE SON CONTEXTE (`agentApresNouveauDepart`) : sa
+     * mesure, son état de remplissage et son résumé de continuité. Sans cela,
+     * le composeur gardait un pourcentage au-dessus d'une conversation vide, et
+     * le premier tour suivant renvoyait au moteur un résumé du fil coupé. La
+     * mesure part `indisponible` (un tiret) plutôt qu'un faux 0 % : seul le
+     * moteur en donne une vraie, au premier tour.
      */
     case 'agent.reset': {
       const agent = store.getAgent(cmd.agentId);
@@ -626,6 +634,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       store.clearSessions(agent.id);
       store.oublierMemoireServie(agent.id);
       store.setCarteVue(agent.id, '');
+      const neuf = store.saveAgent(agentApresNouveauDepart(agent));
+      bus.emit({ type: 'agent.upsert', agent: neuf });
       envoyerConversation(agent.id);
       bus.toast('success', 'Nouvelle conversation. Les échanges précédents restent consultables.');
       return { ok: true };

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  agentApresNouveauDepart,
   cleNouveauDepart,
   comptePrecedents,
   libellePrecedents,
@@ -75,6 +76,47 @@ test('un repère farfelu ne fait jamais disparaître une conversation', () => {
 test('rien n’est supprimé : ce qui sort de la vue est compté', () => {
   assert.equal(comptePrecedents(fil, 300), 2);
   assert.equal(comptePrecedents(fil, 0), 0);
+});
+
+/* -------- Ce que l'agent oublie -------- */
+
+const agentCharge = {
+  id: 'a1',
+  run: { engine: 'claude', model: 'opus' },
+  account: 'perso',
+  contextUsage: { usedTokens: 18_000, capacityTokens: 200_000, percentage: 9, measuredAt: 1 },
+  context: { tokens: 18_000, window: 200_000, ratio: 0.09, armed: true, pending: false, continuitySummary: 'le fil d’avant' },
+  todos: { done: 3, total: 3 },
+};
+
+test('repartir de zéro efface la mesure de contexte : plus de pourcentage sur un fil vide', () => {
+  assert.equal(agentApresNouveauDepart(agentCharge).contextUsage, undefined);
+});
+
+test("repartir de zéro efface l'état de remplissage ET son résumé de continuité", () => {
+  // Sans cela, le premier tour de la conversation neuve renverrait au moteur
+  // un résumé du fil que l'utilisateur venait de couper.
+  assert.equal(agentApresNouveauDepart(agentCharge).context, undefined);
+});
+
+test("l'avancement d'une liste de tâches ne survit pas au départ à zéro", () => {
+  assert.equal(agentApresNouveauDepart(agentCharge).todos, undefined);
+});
+
+test('le reste de l’agent ne bouge pas : on remet à zéro une conversation, pas un agent', () => {
+  const neuf = agentApresNouveauDepart(agentCharge);
+  assert.equal(neuf.id, 'a1');
+  assert.equal(neuf.account, 'perso');
+  assert.deepEqual(neuf.run, { engine: 'claude', model: 'opus' });
+});
+
+test("un agent qui n'a jamais parlé traverse la remise à zéro sans dommage", () => {
+  const nu = { contextUsage: undefined, titre: 'Chef' };
+  const neuf = agentApresNouveauDepart(nu);
+  assert.equal(neuf.titre, 'Chef');
+  assert.equal(neuf.contextUsage, undefined);
+  // L'original n'est jamais modifié sur place : une copie, toujours.
+  assert.notEqual(neuf, nu);
 });
 
 /* -------- Ce que dit le lien -------- */

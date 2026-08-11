@@ -61,6 +61,31 @@ export function messagesDepuis<T extends MessageDatable>(messages: T[], depuis: 
   return messages.filter((m) => m.createdAt >= repere);
 }
 
+/**
+ * Ce qu'un agent doit OUBLIER quand son fil est coupé.
+ *
+ * Couper le fil ne suffisait pas : la session du moteur partait bien, mais
+ * l'agent gardait la MESURE de son contexte (le composeur affichait encore
+ * « 9 % » au-dessus d'une conversation vide), son état de remplissage — armé,
+ * compressions comptées — et surtout son RÉSUMÉ DE CONTINUITÉ, que le tour
+ * suivant renvoyait au moteur. Un départ à zéro qui réexpédie un résumé du fil
+ * d'avant n'est pas un départ à zéro.
+ *
+ * Ces trois-là s'effacent donc ensemble, avec l'avancement d'une liste de
+ * tâches qui ne décrit plus rien. Le reste de l'agent — réglages, compte,
+ * carte, identité — ne bouge pas : on remet à zéro une conversation, pas un
+ * agent.
+ */
+export interface AgentAOublier {
+  contextUsage?: unknown;
+  context?: unknown;
+  todos?: unknown;
+}
+
+export function agentApresNouveauDepart<T extends AgentAOublier>(agent: T): T {
+  return { ...agent, contextUsage: undefined, context: undefined, todos: undefined };
+}
+
 /** Combien d'échanges sont mis de côté par le repère. */
 export function comptePrecedents(messages: MessageDatable[], depuis: unknown): number {
   return messages.length - messagesDepuis(messages, depuis).length;
