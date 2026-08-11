@@ -58,6 +58,8 @@ import {
   poidsDeTour,
   raisonAbsenceDePassages,
   raisonSansModification,
+  consigneEspaceDuChef,
+  detailDuRefus,
   RAISON_MOTEUR_INJOIGNABLE,
   resumeContinuite,
   ROLES_QUI_DEPLACENT,
@@ -587,12 +589,7 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
     // lecture seule — une écriture y échoue, une modification s'ouvre en carte.
     if (agent.role === 'orchestrator' && !project.isSelf) {
       const scratch = path.join(PATHS.chefScratch, project.id);
-      const espace =
-        `TON ESPACE DE TRAVAIL : tu peux lancer des commandes (sondages, études, analyses) et ` +
-        `écrire tes brouillons dans ${scratch} — c'est le SEUL dossier où tu as le droit d'écrire. ` +
-        `Le projet (${project.path}) est monté en LECTURE SEULE : lis-y tout ce qu'il te faut, mais ` +
-        `toute écriture y échoue. Modifier le code du projet n'est pas ton rôle : tu l'ouvres en carte ` +
-        `confiée à un agent de tâche.`;
+      const espace = consigneEspaceDuChef(scratch, project.path);
       contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', content: espace });
     }
     // Session neuve : l'agent repart d'un contexte vide — plus rien de ce qui
@@ -1038,11 +1035,24 @@ async function startTurn(
         case 'step':
           if (event.step) {
             const existing = runState.steps.get(event.step.key);
+            /*
+             * UN REFUS DU BAC À SABLE SE DIT EN FRANÇAIS. Le projet est monté en
+             * lecture seule pour un chef bridé et l'élévation de privilèges y
+             * est coupée : une commande qui l'oublie rendait « EROFS », « sudo:
+             * no new privileges » ou « Read-only file system », que le chef
+             * reprenait en « je n'ai pas les droits » — alors que rien ne manque.
+             * On ajoute la cause réelle et la route à prendre AU-DESSUS de la
+             * sortie d'origine, qui reste lisible. Étape en cours exclue : son
+             * détail est la commande, pas encore son résultat.
+             */
+            const brut = event.step.detail ?? existing?.detail;
+            const explique =
+              bride && event.step.state !== 'running' ? detailDuRefus(brut, project.path) : null;
             const step: RunStep = {
               id: event.step.key,
               label: event.step.label,
               state: event.step.state,
-              detail: event.step.detail ?? existing?.detail,
+              detail: explique ?? brut,
               startedAt: existing?.startedAt ?? Date.now(),
               endedAt: event.step.state === 'running' ? undefined : Date.now(),
             };

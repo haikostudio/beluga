@@ -241,6 +241,14 @@ le nom, là-bas le texte).
   (`Edit`, `Write`, `NotebookEdit`) lui restent interdits — il écrit ses DOCUMENTS par
   `write_document`, servi par le démon (règle suivante). Verrouillé par
   `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
+- **La frontière du chef se DIT en clair, jamais en « je n'ai pas les droits »**
+  (`shared/src/refus-de-droits.ts`) : sa consigne d'espace nomme d'AVANCE ce qui échouera
+  (construire, installer, déployer, redémarrer, écrire dans le projet), écarte une consigne générale
+  du serveur qui dirait de publier, et lui interdit le vocabulaire des droits ; en aval, le détail
+  des étapes terminées est traduit en cause réelle + route à prendre, POSÉE AU-DESSUS de la sortie
+  d'origine. Quatre natures : projet en lecture seule, écriture hors du dossier de travail,
+  administration refusée, et bac à sable ABSENT — la seule VRAIE panne. Verrouillé par
+  `server/src/test/refus-de-droits.test.ts` et `scripts/verif-refus-de-droits.mjs`.
 - **Le chef écrit les DOCUMENTS partout dans le projet, et le CODE nulle part**
   (`shared/src/documents-du-chef.ts`) : `write_document` crée, remplace et SUPPRIME tout fichier de
   texte (`.md`, `.txt`, `.doc`…) où qu'il soit ; le code est refusé par la liste des extensions, et

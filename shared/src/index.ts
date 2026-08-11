@@ -77,6 +77,7 @@ export * from './question-en-texte.js';
 export * from './quota.js';
 export * from './raccourci-clavier.js';
 export * from './quota-resume.js';
+export * from './refus-de-droits.js';
 export * from './reglages-carte.js';
 export * from './niveau-agent.js';
 export * from './reglages-proposition.js';
