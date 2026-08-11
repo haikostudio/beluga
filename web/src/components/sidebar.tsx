@@ -961,8 +961,25 @@ function EnteteGroupe({
  * loader orange — un déploiement doit se voir d'un coup d'œil, sans se
  * confondre avec un travail ordinaire. Elle remplace alors le loader, elle
  * ne s'y ajoute pas.
+ *
+ * Un PLAN qui attend une décision prend la même place, à défaut des deux
+ * précédents : l'icône du plan (`RepereDePlan`), au lieu de l'icône par
+ * défaut (le dossier, ou l'outil de l'espace de développement) — jamais
+ * ajoutée à droite du nom.
  */
-function RepereRobot({ running, publie }: { running: number; publie?: boolean }) {
+function RepereRobot({
+  running,
+  publie,
+  planEnAttente,
+  fallback,
+}: {
+  running: number;
+  publie?: boolean;
+  /** Un plan proposé attend encore une décision sur ce projet. */
+  planEnAttente?: boolean;
+  /** L'icône par défaut, quand rien de tout ça n'est vrai. */
+  fallback?: React.ReactNode;
+}) {
   if (publie) {
     return (
       <Tooltip label="Publication en cours">
@@ -972,16 +989,19 @@ function RepereRobot({ running, publie }: { running: number; publie?: boolean })
       </Tooltip>
     );
   }
-  if (!running) return <Folder className="h-3 w-3 shrink-0 text-faint" />;
-  const libelle = running > 1 ? `${running} agents au travail` : 'Un agent au travail';
-  return (
-    <Tooltip label={libelle}>
-      <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours motion-reduce:animate-none" />
-        {running > 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
-      </span>
-    </Tooltip>
-  );
+  if (running) {
+    const libelle = running > 1 ? `${running} agents au travail` : 'Un agent au travail';
+    return (
+      <Tooltip label={libelle}>
+        <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours motion-reduce:animate-none" />
+          {running > 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
+        </span>
+      </Tooltip>
+    );
+  }
+  if (planEnAttente) return <RepereDePlan />;
+  return fallback ?? <Folder className="h-3 w-3 shrink-0 text-faint" />;
 }
 
 /**
@@ -1237,11 +1257,11 @@ function LigneEspaceDev({
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           {/* Le loader prend la place de l'outil tant qu'un agent écrit ; une
-              publication en cours prend la MÊME place, avec son propre signe
-              (voir `RepereRobot`) — même emplacement, donc rien ne s'ajoute à
-              la ligne. */}
-          {running || publie ? (
-            <RepereRobot running={running} publie={publie} />
+              publication en cours prend la MÊME place, avec son propre signe,
+              et un plan qui attend une décision de même (voir `RepereRobot`)
+              — même emplacement, donc rien ne s'ajoute à la ligne. */}
+          {running || publie || planEnAttente ? (
+            <RepereRobot running={running} publie={publie} planEnAttente={planEnAttente} />
           ) : (
             <Wrench className="h-3.5 w-3.5 shrink-0" />
           )}
@@ -1250,7 +1270,6 @@ function LigneEspaceDev({
               l'application » y finissait en points de suspension. */}
           <span className="min-w-0 flex-1 truncate">Développement</span>
         </button>
-        {planEnAttente ? <RepereDePlan /> : null}
         {/* Hors du bouton : un repère porte son propre geste, et un bouton n'en
             contient pas un autre. */}
         <RepereLigne
@@ -1378,10 +1397,10 @@ function ProjectRow({
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
         {/* Le loader prend la place du dossier tant qu'un agent écrit ; une
-            publication en cours prend la MÊME place, avec son propre signe
-            (voir `RepereRobot`) — c'est le MÊME emplacement, donc rien ne
-            s'ajoute à la ligne. */}
-        <RepereRobot running={running} publie={publie} />
+            publication en cours prend la MÊME place, avec son propre signe,
+            et un plan qui attend une décision de même (voir `RepereRobot`) —
+            c'est le MÊME emplacement, donc rien ne s'ajoute à la ligne. */}
+        <RepereRobot running={running} publie={publie} planEnAttente={planEnAttente} />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
@@ -1393,9 +1412,8 @@ function ProjectRow({
           </Tooltip>
         ) : null}
       </button>
-      {planEnAttente ? <RepereDePlan /> : null}
-      {/* Le repère vit HORS du bouton du nom : il porte son propre geste, et un
-          bouton n'en contient pas un autre. */}
+      {/* Le repère de décision (attention / rendu) vit HORS du bouton du nom :
+          il porte son propre geste, et un bouton n'en contient pas un autre. */}
       <RepereLigne
         signal={{ attention, rendus }}
         onLu={() => client.call({ type: 'project.read', projectId: project.id })}
