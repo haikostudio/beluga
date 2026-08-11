@@ -12,6 +12,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   consigneEspaceDuChef,
   detailDuRefus,
@@ -125,4 +128,24 @@ test('la consigne du chef annonce l’accès complet et sa seule frontière', ()
   assert.match(consigne, /TA SEULE FRONTIÈRE/);
   assert.match(consigne, /tu ne modifies pas TOI-MÊME le code/);
   assert.match(consigne, /NE DIS JAMAIS « je n'ai pas les droits »/);
+  // Publier reste un choix de l'utilisateur — jamais expliqué par une lecture
+  // seule qui n'existe plus (constaté sur un vrai chef, 11/08/2026).
+  assert.match(consigne, /PUBLIER RESTE UN CHOIX DE L'UTILISATEUR, PAS UN DROIT QUI TE MANQUE/);
+  assert.match(consigne, /N'invoque JAMAIS une lecture seule/);
+});
+
+test('la consigne d’espace du chef part à CHAQUE tour, pas au seul premier', () => {
+  // Posée dans le bloc « session neuve », elle n'atteignait jamais une
+  // conversation ouverte depuis des jours : le chef gardait les croyances de son
+  // premier tour, celles du temps du bac à sable (constaté le 11/08/2026).
+  const ici = path.dirname(fileURLToPath(import.meta.url));
+  const source = fs.readFileSync(path.resolve(ici, '../../src/runtime.ts'), 'utf8');
+  const appel = source.indexOf('consigneEspaceDuChef(scratch');
+  assert.ok(appel > 0, 'le démon pose bien la consigne d’espace du chef');
+  const blocSessionNeuve = source.indexOf('if (nouvelleSession) {');
+  const finDuBloc = source.indexOf('\n  }\n', source.indexOf('} else {', blocSessionNeuve));
+  assert.ok(
+    appel > finDuBloc,
+    'la consigne d’espace est posée APRÈS le bloc « session neuve », donc à chaque tour',
+  );
 });

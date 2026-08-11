@@ -245,7 +245,9 @@ le nom, là-bas le texte).
   par `server/src/test/bridage-chef.test.ts` et `scripts/verif-bridage-chef.mjs`.
 - **Aucun refus ne se dit « je n'ai pas les droits »** (`shared/src/refus-de-droits.ts`) : la consigne
   d'espace du chef ANNONCE l'accès complet, nomme les gestes ouverts (un chef qui s'en croit privé
-  s'arrête avant d'essayer) et lui interdit ce vocabulaire ; en aval, le détail des étapes terminées
+  s'arrête avant d'essayer), dit que PUBLIER est une décision de l'utilisateur et non un droit
+  manquant, et lui interdit ce vocabulaire. Elle part à CHAQUE TOUR, jamais au seul premier — sinon
+  une conversation ouverte depuis des jours garde les croyances de son premier tour ; en aval, le détail des étapes terminées
   est traduit en cause réelle + réparation, POSÉE AU-DESSUS de la sortie d'origine. Trois natures :
   bac à sable RÉSIDUEL (un réglage resté allumé, à éteindre), fichier d'un AUTRE compte, et
   administration à configurer (`sudoers`). Verrouillé par `server/src/test/refus-de-droits.test.ts`

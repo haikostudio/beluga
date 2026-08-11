@@ -108,11 +108,20 @@ for (const [quoi, motif] of [
   ['la seule frontière est nommée', /TA SEULE FRONTIÈRE/],
   ['modifier le code lui-même reste fermé', /tu ne modifies pas TOI-MÊME le code/],
   ['le mot « droits » lui est interdit', /NE DIS JAMAIS « je n'ai pas les droits »/],
+  ['publier est un choix de l’utilisateur, pas un droit manquant', /PAS UN DROIT QUI TE MANQUE/],
+  ['la lecture seule ne sert plus d’excuse à la publication', /N'invoque JAMAIS une lecture seule/],
 ]) {
   dire(motif.test(consigne), quoi);
 }
+/*
+ * Aucun mur ANNONCÉ — mais le mot « lecture seule » reste permis dans la phrase
+ * qui l'INTERDIT au chef (« n'invoque jamais une lecture seule »). On cherche
+ * donc un mur affirmé, pas un mot.
+ */
 dire(
-  !/lecture seule|bac à sable les refuse|SEUL dossier où tu as le droit/i.test(consigne),
+  !/(projet|dossier|il)[^.]*est en lecture seule|bac à sable les refuse|SEUL dossier où tu as le droit/i.test(
+    consigne,
+  ),
   'la consigne ne lui annonce plus aucun mur qui n’existe plus',
 );
 
@@ -172,6 +181,21 @@ dire(
   'le démon prend sa consigne du module partagé, pas d’un texte recopié',
 );
 dire(/detailDuRefus\(/.test(runtime), 'le démon traduit le détail des étapes d’un chef');
+/*
+ * La consigne doit partir à CHAQUE tour : posée dans le bloc « session neuve »,
+ * elle n'atteignait jamais une conversation vieille de plusieurs jours, qui
+ * gardait donc les croyances de son premier tour (constaté le 11/08/2026 sur le
+ * chef de HaikoCompta, ouvert le 02/08 : « le projet et le dossier servi sont en
+ * lecture seule pour moi », neuf jours après que ce mur a été retiré).
+ */
+{
+  const appel = runtime.indexOf('consigneEspaceDuChef(scratch');
+  const finSessionNeuve = runtime.indexOf('\n  }\n', runtime.indexOf('} else {', runtime.indexOf('if (nouvelleSession) {')));
+  dire(
+    appel > finSessionNeuve && appel > 0,
+    'la consigne d’espace part à CHAQUE tour du chef, pas au seul premier',
+  );
+}
 
 console.log(echecs ? `\n${echecs} contrôle(s) en échec.\n` : '\nTout est en place.\n');
 process.exit(echecs ? 1 : 0);

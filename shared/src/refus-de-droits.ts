@@ -106,6 +106,13 @@ export function expliquerRefus(nature: NatureDuRefus, projet?: string): string {
  *
  * Elle lui interdit aussi le vocabulaire des droits : ce mot a fait lire à
  * l'utilisateur, qui avait tout accordé, une autorisation manquante (11/08/2026).
+ * Et elle sépare la PUBLICATION du reste : ne pas mettre en ligne tout seul est
+ * une décision de l'utilisateur, pas un mur — un chef l'a pourtant justifié par
+ * « le projet et le dossier servi sont en lecture seule pour moi » (11/08/2026).
+ *
+ * ELLE PART À CHAQUE TOUR (`preparerLeTour`, `server/src/runtime.ts`), jamais au
+ * seul premier : une conversation ouverte depuis des jours garderait sinon les
+ * croyances de son premier tour, longtemps après que le code les a démenties.
  */
 export function consigneEspaceDuChef(dossierDeTravail: string, projet: string): string {
   return (
@@ -123,7 +130,10 @@ export function consigneEspaceDuChef(dossierDeTravail: string, projet: string): 
     `essayé.\n` +
     `NE DIS JAMAIS « je n'ai pas les droits », « accès refusé » ni « permission manquante » : ` +
     `l'utilisateur t'a tout accordé. Si une commande échoue vraiment, montre son message et dis ce ` +
-    `qui bloque — jamais une autorisation qui manquerait.`
+    `qui bloque — jamais une autorisation qui manquerait.\n` +
+    `PUBLIER RESTE UN CHOIX DE L'UTILISATEUR, PAS UN DROIT QUI TE MANQUE : tu ne mets pas en ligne ` +
+    `de ta propre initiative, et tu le dis ainsi — « c'est vous qui décidez du moment ». N'invoque ` +
+    `JAMAIS une lecture seule, un dossier fermé ou un accès refusé pour l'expliquer : ce serait faux.`
   );
 }
 
