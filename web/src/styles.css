@@ -30,9 +30,11 @@
     /* Du neuf à lire : le travail rendu qu'on n'a pas encore ouvert. Ni une
        alerte (orange), ni une réussite acquise (vert) — une nouvelle. */
     --info: 205 90% 60%;
-    /* Une publication en cours : un jaune franc, distinct de l'orange d'alerte
-       (warning) — c'est un état, pas une décision à prendre. */
-    --publie: 50 95% 58%;
+    /* Une publication en cours : un violet franc, distinct de l'orange du
+       travail ordinaire (en-cours) et de l'orange d'alerte (warning) — c'est
+       un état, pas une décision à prendre, et il doit se voir d'un coup d'œil
+       comme n'étant PAS du travail ordinaire. */
+    --publie: 268 85% 68%;
     /* LA CONVENTION D'AVANCEMENT, valable dans TOUTE l'application :
        ORANGE = un travail EN COURS, BLEU = un travail TERMINÉ.
        Deux jetons À PART, et non les états voisins qu'ils reprennent : la
@@ -69,8 +71,8 @@
     --record: 213 85% 45%;
     --record-fg: 0 0% 100%;
     --info: 205 90% 38%;
-    /* Sur fond clair, le jaune doit rester lisible : on l'assombrit. */
-    --publie: 46 92% 40%;
+    /* Sur fond clair, le violet doit rester lisible : on l'assombrit. */
+    --publie: 268 70% 48%;
     /* Même convention, assombrie pour rester lisible sur fond blanc. */
     --en-cours: 32 90% 36%;
     --termine: 205 90% 38%;

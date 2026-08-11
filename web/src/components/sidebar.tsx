@@ -18,6 +18,7 @@ import {
   Search,
   Settings2,
   TriangleAlert,
+  UploadCloud,
   Wrench,
   X,
 } from 'lucide-react';
@@ -628,7 +629,13 @@ export function Sidebar({
               onClick={() => onOpenAgent(agent.id)}
               className="mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-muted hover:bg-surface hover:text-text"
             >
-              <Bot className="h-3 w-3 shrink-0 text-en-cours" />
+              {/* Un agent de PUBLICATION porte le même signe que la ligne de
+                  projet qu'il fait clignoter : icône réseau/envoi, violette. */}
+              {agent.role === 'deploy' ? (
+                <UploadCloud className="h-3 w-3 shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
+              ) : (
+                <Bot className="h-3 w-3 shrink-0 text-en-cours" />
+              )}
               <span className="min-w-0 flex-1 truncate">{agent.title}</span>
               <span className="text-[11.5px] text-faint">{elapsed(agent.startedAt)}</span>
             </button>
@@ -938,8 +945,23 @@ function EnteteGroupe({
  * fait. Le nombre ne s'écrit que s'il y a VRAIMENT plusieurs agents : « 1 » ne
  * dit rien de plus que le robot lui-même. Rien qui tourne : sur une colonne de
  * dix lignes, dix roues qui tournent font une colonne qui grouille.
+ *
+ * Une PUBLICATION en cours prend la même place, mais change de signe : une
+ * icône réseau / envoi, violette et clignotante (jeton `publie`), au lieu du
+ * robot orange — un déploiement doit se voir d'un coup d'œil, sans se
+ * confondre avec un travail ordinaire. Elle remplace alors le robot, elle ne
+ * s'y ajoute pas.
  */
-function RepereRobot({ running }: { running: number }) {
+function RepereRobot({ running, publie }: { running: number; publie?: boolean }) {
+  if (publie) {
+    return (
+      <Tooltip label="Publication en cours">
+        <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label="Publication en cours">
+          <UploadCloud className="h-3 w-3 shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
+        </span>
+      </Tooltip>
+    );
+  }
   if (!running) return <Folder className="h-3 w-3 shrink-0 text-faint" />;
   const libelle = running > 1 ? `${running} agents au travail` : 'Un agent au travail';
   return (
@@ -1145,12 +1167,16 @@ function LigneEspaceDev({
           'transition-[background-color,border-color,color] duration-150 motion-reduce:transition-none',
           // La convention : un travail EN COURS se dit en ORANGE, exactement la
           // teinte de la colonne « En cours » du tableau. Le fond reste LÉGER,
-          // le cadre porte le signal.
-          running
-            ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
-            : active
-              ? 'border-transparent bg-raised text-text'
-              : 'border-transparent text-muted hover:bg-surface hover:text-text',
+          // le cadre porte le signal. Une PUBLICATION en cours l'emporte sur ce
+          // signal ordinaire : violette et clignotante, pour se distinguer d'un
+          // coup d'œil du travail courant.
+          publie
+            ? 'border-publie/70 bg-publie/15 text-text hover:bg-publie/20 animate-pulse-soft motion-reduce:animate-none'
+            : running
+              ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
+              : active
+                ? 'border-transparent bg-raised text-text'
+                : 'border-transparent text-muted hover:bg-surface hover:text-text',
           secoue && 'animate-secousse',
         )}
       >
@@ -1160,14 +1186,15 @@ function LigneEspaceDev({
           title={`${project.name} — l’espace où l’application elle-même est développée`}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
-          {/* Le robot prend la place de l'outil tant qu'un agent écrit : même
-              emplacement, donc rien ne s'ajoute à la ligne. */}
-          {running ? (
-            <RepereRobot running={running} />
+          {/* Le robot prend la place de l'outil tant qu'un agent écrit ; une
+              publication en cours prend la MÊME place, avec son propre signe
+              (voir `RepereRobot`) — même emplacement, donc rien ne s'ajoute à
+              la ligne. */}
+          {running || publie ? (
+            <RepereRobot running={running} publie={publie} />
           ) : (
             <Wrench className="h-3.5 w-3.5 shrink-0" />
           )}
-          <RepereePublication publie={!!publie} />
           {/* Un libellé COURT : la colonne fait moins de 200 px, et la ligne
               porte déjà l'outil, un repère et l'engrenage. « Développement de
               l'application » y finissait en points de suspension. */}
@@ -1246,12 +1273,15 @@ function ProjectRow({
         // « réduire les animations » du système le rend immédiat.
         'transition-[transform,background-color,border-color,color] duration-150 motion-reduce:transition-none',
         // Même convention que la ligne « Développement » : orange pour ce qui
-        // travaille, cadre franc et fond léger.
-        running
-          ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
-          : active
-            ? 'border-transparent bg-raised text-text'
-            : 'border-transparent text-text hover:bg-surface',
+        // travaille, cadre franc et fond léger — et violet clignotant, en
+        // priorité, quand une publication est en cours.
+        publie
+          ? 'border-publie/70 bg-publie/15 text-text hover:bg-publie/20 animate-pulse-soft motion-reduce:animate-none'
+          : running
+            ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
+            : active
+              ? 'border-transparent bg-raised text-text'
+              : 'border-transparent text-text hover:bg-surface',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
       )}
@@ -1281,10 +1311,11 @@ function ProjectRow({
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        {/* Le robot prend la place du dossier tant qu'un agent écrit : c'est le
-            MÊME emplacement, donc rien ne s'ajoute à la ligne. */}
-        <RepereRobot running={running} />
-        <RepereePublication publie={!!publie} />
+        {/* Le robot prend la place du dossier tant qu'un agent écrit ; une
+            publication en cours prend la MÊME place, avec son propre signe
+            (voir `RepereRobot`) — c'est le MÊME emplacement, donc rien ne
+            s'ajoute à la ligne. */}
+        <RepereRobot running={running} publie={publie} />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
