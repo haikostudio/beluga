@@ -309,6 +309,13 @@ le nom, là-bas le texte).
   deux jetons. Les AUTRES états ne bougent pas — erreur (`danger`), avertissement et attente
   (`warning`), publication en cours (`publie`), réussite acquise (`success`). Vérifié par
   `scripts/verif-couleurs-avancement.mjs`.
+- **Un plan proposé qui attend une décision pose sa PROPRE bordure sur la ligne de son projet, en
+  plus de la couleur d'état déjà là** (`plans`, `shared/src/protocol.ts` ; `store.signalPlans`,
+  `server/src/store.ts` ; `RepereDePlan`, `web/src/components/sidebar.tsx`) : bordure blanche
+  additive et badge de l'icône du plan, jamais à la place de l'orange/bleu/violet existant. Éteint
+  dès que le plan est validé, refusé ou dépassé par une version plus récente
+  (`planEnAttente`, `shared/src/plan-conversation.ts`). Vérifié par
+  `server/src/test/plan-en-attente-projet.test.ts` et `scripts/verif-repere-plan.mjs`.
 - **Le composeur montre le contexte de CHAQUE agent, jamais son quota** (`Agent.contextUsage`,
   `shared/src/contexte-agent.ts`) : mesure absente = tiret, vrai zéro = `0 %`, mise à jour à chaque
   usage du moteur et après compression. Vérifié par `server/src/test/contexte-agent.test.ts` et

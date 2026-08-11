@@ -442,6 +442,12 @@ export const ServerEvent = z.discriminatedUnion('type', [
   }),
   /** Projets dont un agent a rendu son travail sans qu'on l'ait encore lu. */
   z.object({ type: z.literal('rendus'), byProject: z.record(z.number()) }),
+  /**
+   * Projets où un PLAN attend encore une décision (mode plan) : la colonne de
+   * gauche y pose une bordure blanche et l'icône du plan, en plus des autres
+   * repères — jamais à leur place.
+   */
+  z.object({ type: z.literal('plans'), byProject: z.record(z.boolean()) }),
   z.object({
     type: z.literal('project.snapshot'),
     projectId: z.string(),

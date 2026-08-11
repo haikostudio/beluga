@@ -49,6 +49,8 @@ export interface AppState {
   decisions: DecisionAttendue[];
   /** Projets dont un agent a rendu son travail sans qu'on l'ait encore lu. */
   rendus: Record<string, number>;
+  /** Projets où un plan proposé (mode plan) attend encore une décision. */
+  plans: Record<string, boolean>;
   engines: EngineInfo[];
   quotas: AccountQuota[];
   /** Les connexions de comptes en cours ou tout juste finies. */
@@ -91,6 +93,7 @@ const initialState: AppState = {
   attention: {},
   decisions: [],
   rendus: {},
+  plans: {},
   engines: [],
   quotas: [],
   connexions: [],
@@ -281,6 +284,10 @@ class Client {
 
       case 'rendus':
         this.set({ rendus: event.byProject });
+        break;
+
+      case 'plans':
+        this.set({ plans: event.byProject });
         break;
 
       case 'project.upsert':

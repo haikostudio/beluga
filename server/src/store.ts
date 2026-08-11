@@ -32,6 +32,7 @@ import {
   RESUME_RETENTION_JOURS,
   jourLocal,
   resumerReleves,
+  planEnAttente,
 } from '@haikodev/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 
@@ -1153,6 +1154,51 @@ export function projectsNeedingAttention(): Record<string, number> {
 export function signalAttention(): { byProject: Record<string, number>; decisions: DecisionAttendue[] } {
   const decisions = decisionsEnAttente();
   return { byProject: attentionParProjet(decisions), decisions };
+}
+
+/**
+ * Les projets où un PLAN attend encore une décision — un fil de mode plan dont
+ * le dernier message rédigé porte `plan: true`. On ne regarde que les agents
+ * qui ont écrit au moins un plan un jour (`LIKE '%"plan":true%'`, filtre bon
+ * marché), puis on rejoue `planEnAttente` sur leurs messages : lui seul sait
+ * si ce plan est encore le DERNIER mot du fil, ou déjà dépassé.
+ */
+export function projetsAvecPlanEnAttente(): Record<string, boolean> {
+  const agentsAvecPlan = getDb()
+    .prepare(
+      `SELECT DISTINCT a.id AS agentId, a.project_id AS projectId
+       FROM agents a
+       JOIN messages m ON m.agent_id = a.id
+       WHERE m.data LIKE '%"plan":true%'`,
+    )
+    .all() as { agentId: string; projectId: string }[];
+
+  const parProjet: Record<string, boolean> = {};
+  for (const { agentId, projectId } of agentsAvecPlan) {
+    if (parProjet[projectId]) continue;
+    const messages = messagesPourPlan(agentId);
+    if (planEnAttente(messages)) parProjet[projectId] = true;
+  }
+  return parProjet;
+}
+
+/** L'événement complet, prêt à diffuser : `{ type: 'plans', ...signalPlans() }`. */
+export function signalPlans(): { byProject: Record<string, boolean> } {
+  return { byProject: projetsAvecPlanEnAttente() };
+}
+
+function messagesPourPlan(agentId: string): { plan?: boolean; content?: string }[] {
+  const rows = getDb()
+    .prepare(`SELECT data FROM messages WHERE agent_id = ? ORDER BY created_at ASC, rowid ASC`)
+    .all(agentId) as { data: string }[];
+  return rows.map((row) => {
+    try {
+      const message = Message.parse(JSON.parse(row.data));
+      return { plan: message.plan, content: message.content };
+    } catch {
+      return { plan: false, content: '' };
+    }
+  });
 }
 
 /**

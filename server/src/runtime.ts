@@ -1436,6 +1436,15 @@ async function startTurn(
     // sur les quatre parties, jamais sur un fragment.
     ...(failed || (agent.run.mode === 'plan' && !planRendu) ? { plan: false } : {}),
   });
+  /*
+   * Le message qui vient de se figer peut avoir posé un plan, ou en avoir
+   * refusé un d'office (tout message rédigé qui suit un plan le remplace,
+   * `indexDuPlanCourant`). Dans les deux cas, la colonne de gauche doit le
+   * savoir : c'est ici, à la fin RÉELLE du tour, qu'on recalcule — jamais à
+   * chaque bribe de texte qui s'écrit (`pushMessage` plus haut est appelé en
+   * continu pendant le streaming).
+   */
+  bus.emit({ type: 'plans', ...store.signalPlans() });
 
   /*
    * FRONTIÈRE SÛRE : la réponse visible est finie, mais l'agent reste dans
