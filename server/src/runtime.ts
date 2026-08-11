@@ -584,14 +584,6 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
         })),
       );
     }
-    // Le chef bridé a tous les droits SAUF modifier le code du projet : on lui
-    // dit où il peut écrire (son dossier de travail) et que le projet est en
-    // lecture seule — une écriture y échoue, une modification s'ouvre en carte.
-    if (agent.role === 'orchestrator' && !project.isSelf) {
-      const scratch = path.join(PATHS.chefScratch, project.id);
-      const espace = consigneEspaceDuChef(scratch, project.path);
-      contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', content: espace });
-    }
     // Session neuve : l'agent repart d'un contexte vide — plus rien de ce qui
     // lui a été servi avant n'y est. On oublie les sujets déjà donnés, sinon
     // une reprise se retrouverait privée de la mémoire qu'elle n'a plus.
@@ -612,6 +604,26 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
       memoryAndInstructionsCharacters += ajout.length;
       store.setMemorySeen(agent.id, empreintesDesFaits(project.path));
     }
+  }
+
+  /*
+   * LA CONSIGNE D'ESPACE DU CHEF PART À CHAQUE TOUR, JAMAIS AU SEUL PREMIER.
+   *
+   * Elle était posée dans le bloc « session neuve » : une conversation ouverte
+   * il y a des jours ne l'avait donc JAMAIS reçue, et gardait les croyances de
+   * son premier tour — celles du temps du bac à sable. Constaté le 11/08/2026 :
+   * un chef d'une session vieille de neuf jours expliquait à l'utilisateur que
+   * « le projet et le dossier servi sont en lecture seule pour moi », alors que
+   * l'accès complet était en place depuis le matin. Le code d'un moteur change,
+   * pas le souvenir d'une session : ce qui dit à l'agent ce qu'il PEUT faire
+   * doit donc repartir à chaque tour. Elle tient en 1 570 signes, moins de 400
+   * jetons — le prix d'un chef qui refuse un geste qu'on lui a ouvert est plus
+   * élevé.
+   */
+  if (agent.role === 'orchestrator' && !project.isSelf) {
+    const scratch = path.join(PATHS.chefScratch, project.id);
+    const espace = consigneEspaceDuChef(scratch, project.path);
+    contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', content: espace });
   }
 
   /*
