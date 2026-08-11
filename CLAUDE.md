@@ -285,6 +285,13 @@ le nom, là-bas le texte).
 
 ### Interface et code
 
+- **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
+  (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
+  `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de
+  tâches, étapes, points d'état : aucun de ces repères ne recopie une couleur, tous passent par ces
+  deux jetons. Les AUTRES états ne bougent pas — erreur (`danger`), avertissement et attente
+  (`warning`), publication en cours (`publie`), réussite acquise (`success`). Vérifié par
+  `scripts/verif-couleurs-avancement.mjs`.
 - **Le composeur montre le contexte de CHAQUE agent, jamais son quota** (`Agent.contextUsage`,
   `shared/src/contexte-agent.ts`) : mesure absente = tiret, vrai zéro = `0 %`, mise à jour à chaque
   usage du moteur et après compression. Vérifié par `server/src/test/contexte-agent.test.ts` et

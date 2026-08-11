@@ -33,6 +33,16 @@
     /* Une publication en cours : un jaune franc, distinct de l'orange d'alerte
        (warning) — c'est un état, pas une décision à prendre. */
     --publie: 50 95% 58%;
+    /* LA CONVENTION D'AVANCEMENT, valable dans TOUTE l'application :
+       ORANGE = un travail EN COURS, BLEU = un travail TERMINÉ.
+       Deux jetons À PART, et non les états voisins qu'ils reprennent : la
+       teinte d'un travail qui avance ne doit pas bouger le jour où l'on
+       retouche l'orange d'AVERTISSEMENT (`warning`) ou le bleu du NEUF à lire
+       (`info`). Les valeurs de départ sont exactement celles de la colonne
+       « En cours » et de la colonne « Terminé » du tableau, pour que rien ne
+       change là où la convention était déjà tenue. */
+    --en-cours: 38 90% 62%;
+    --termine: 205 90% 60%;
     /* Intensité de consommation (tableau de bord) : du jour calme au jour
        chargé. Aucune teinte neuve — on REPREND les jetons d'état existants,
        pour que les deux thèmes suivent d'eux-mêmes. Le haut du dégradé est
@@ -61,6 +71,9 @@
     --info: 205 90% 38%;
     /* Sur fond clair, le jaune doit rester lisible : on l'assombrit. */
     --publie: 46 92% 40%;
+    /* Même convention, assombrie pour rester lisible sur fond blanc. */
+    --en-cours: 32 90% 36%;
+    --termine: 205 90% 38%;
     color-scheme: light;
   }
 

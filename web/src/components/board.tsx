@@ -697,9 +697,9 @@ export function Board({
                           }
                           className="inline-flex shrink-0 items-center gap-0.5"
                         >
-                          <Bot className="h-3 w-3 shrink-0 text-success" />
+                          <Bot className="h-3 w-3 shrink-0 text-en-cours" />
                           {signal.travaille > 1 ? (
-                            <span className="text-[10.5px] leading-none text-success">
+                            <span className="text-[10.5px] leading-none text-en-cours">
                               {signal.travaille}
                             </span>
                           ) : null}
@@ -713,7 +713,7 @@ export function Board({
                         <span
                           data-onglet-non-lu={cle}
                           aria-label="Travail rendu, pas encore lu"
-                          className="h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none"
+                          className="h-2 w-2 shrink-0 rounded-full bg-termine animate-pulse-soft motion-reduce:animate-none"
                         />
                       </Tooltip>
                     ) : null}
@@ -744,9 +744,9 @@ export function Board({
               over === column && allowed
                 ? 'border-muted bg-surface'
                 : column === 'running'
-                  ? 'border-warning/70'
+                  ? 'border-en-cours/70'
                   : column === 'done'
-                    ? 'border-info/70'
+                    ? 'border-termine/70'
                     : 'border-border/60',
               carteTiree && !allowed && 'opacity-40',
             )}
@@ -760,7 +760,7 @@ export function Board({
                   aria-hidden
                   className={cn(
                     '-z-10 pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-transparent',
-                    column === 'running' ? 'via-warning/15' : 'via-info/15',
+                    column === 'running' ? 'via-en-cours/15' : 'via-termine/15',
                   )}
                 />
               ) : null}
@@ -1417,22 +1417,22 @@ export function CardTile({
           <RepereAttention compte={decisions} className="mt-[2px]" data-attention-carte={card.id} />
           {/* Le voyant est à DROITE, au bout de la ligne du titre. */}
           {etat === 'travaille' ? (
-            <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-success" />
+            <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-en-cours" />
           ) : etat === 'termine-non-lu' ? (
             // Le point bleu : le travail est rendu mais sa conversation n'a pas
             // encore été ouverte. Même sens et même couleur que sur la ligne du
-            // projet ; l'ouvrir laisse place à la coche verte.
+            // projet ; l'ouvrir laisse place à la coche bleue.
             <Tooltip label="Travail rendu, pas encore lu">
               <span
                 data-carte-non-lue={card.id}
-                className="mt-[3px] h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none"
+                className="mt-[3px] h-2 w-2 shrink-0 rounded-full bg-termine animate-pulse-soft motion-reduce:animate-none"
               />
             </Tooltip>
           ) : etat === 'termine' ? (
-            // La coche verte : l'agent a rendu son travail, la carte attend
-            // votre clôture. Une relance la remplace aussitôt par la roue.
+            // La coche BLEUE : l'agent a rendu son travail, la carte attend
+            // votre clôture. Une relance la remplace aussitôt par la roue orange.
             <Tooltip label="Travail rendu — la carte attend votre clôture">
-              <span className="mt-[2px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
+              <span className="mt-[2px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-termine/15 text-termine">
                 <Check className="h-2.5 w-2.5" strokeWidth={3} />
               </span>
             </Tooltip>

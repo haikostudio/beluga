@@ -41,11 +41,11 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
       >
         {streaming ? (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted" />
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
         ) : failed ? (
           <X className="h-3 w-3 shrink-0 text-danger" />
         ) : (
-          <Check className="h-3 w-3 shrink-0 text-success" />
+          <Check className="h-3 w-3 shrink-0 text-termine" />
         )}
         <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">{summary}</span>
         {/* Le compte des étapes reste visible même repliée. */}
@@ -78,9 +78,9 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
                 >
                   <span className="mt-[3px] shrink-0">
                     {step.state === 'running' ? (
-                      <Loader2 className="h-3 w-3 animate-spin text-muted" />
+                      <Loader2 className="h-3 w-3 animate-spin text-en-cours" />
                     ) : step.state === 'done' ? (
-                      <Check className="h-3 w-3 text-success" />
+                      <Check className="h-3 w-3 text-termine" />
                     ) : step.state === 'failed' ? (
                       <X className="h-3 w-3 text-danger" />
                     ) : step.state === 'skipped' ? (

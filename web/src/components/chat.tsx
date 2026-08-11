@@ -416,7 +416,7 @@ function TravailEnCours({
 
   return (
     <div className="flex shrink-0 items-center gap-2 bg-surface/60 px-3 py-1.5">
-      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-success" />
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
       {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
       {arret.possible ? (

@@ -262,14 +262,14 @@ function Pastille({ etat }: { etat: EtapeParcours['etat'] }) {
   const commun = 'absolute -left-[26px] top-3 flex h-[19px] w-[19px] items-center justify-center rounded-full';
   if (etat === 'faite') {
     return (
-      <span className={cn(commun, 'bg-success/20 text-success')} aria-label="étape terminée">
+      <span className={cn(commun, 'bg-termine/20 text-termine')} aria-label="étape terminée">
         <Check className="h-3 w-3" />
       </span>
     );
   }
   if (etat === 'en-cours') {
     return (
-      <span className={cn(commun, 'bg-info/20 text-info')} aria-label="étape en cours">
+      <span className={cn(commun, 'bg-en-cours/20 text-en-cours')} aria-label="étape en cours">
         <Loader2 className="h-3 w-3 animate-spin" />
       </span>
     );

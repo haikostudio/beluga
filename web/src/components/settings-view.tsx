@@ -259,7 +259,8 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
               <span
                 className={cn(
                   'h-1.5 w-1.5 shrink-0 rounded-full',
-                  process.running ? (process.kind === 'agent' ? 'bg-success' : 'bg-muted') : 'bg-faint',
+                  // Un agent qui tourne suit la convention : ORANGE.
+                  process.running ? (process.kind === 'agent' ? 'bg-en-cours' : 'bg-muted') : 'bg-faint',
                 )}
               />
               <div className="min-w-0 flex-1">

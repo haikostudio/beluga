@@ -874,17 +874,21 @@ export function Gauge({
   );
 }
 
-/** Voyant d'état : la couleur ne sert qu'à DIRE quelque chose. */
+/**
+ * Voyant d'état : la couleur ne sert qu'à DIRE quelque chose.
+ * Elle suit la convention de l'application — ORANGE pour ce qui travaille,
+ * BLEU pour ce qui est terminé. L'échec et l'attente ne bougent pas.
+ */
 export function Dot({ tone, pulse }: { tone: 'idle' | 'running' | 'done' | 'failed' | 'waiting'; pulse?: boolean }) {
   const color =
     tone === 'running'
-      ? 'bg-success'
+      ? 'bg-en-cours'
       : tone === 'failed'
         ? 'bg-danger'
         : tone === 'waiting'
           ? 'bg-warning'
           : tone === 'done'
-            ? 'bg-muted'
+            ? 'bg-termine'
             : 'bg-faint';
   return <span className={cn('inline-block h-1.5 w-1.5 shrink-0 rounded-full', color, pulse && 'animate-pulse-soft')} />;
 }

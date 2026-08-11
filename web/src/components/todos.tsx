@@ -122,9 +122,9 @@ export function VoletTaches({
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-raised"
       >
         {tout ? (
-          <Check className="h-3 w-3 shrink-0 text-success" />
+          <Check className="h-3 w-3 shrink-0 text-termine" />
         ) : streaming ? (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted" />
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
         ) : (
           <CircleDot className="h-3 w-3 shrink-0 text-faint" />
         )}
@@ -157,19 +157,19 @@ export function VoletTaches({
                 className={cn(
                   'mt-[2px] flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border',
                   todo.state === 'done'
-                    ? 'border-success bg-success/15'
+                    ? 'border-termine bg-termine/15'
                     : todo.state === 'running'
-                      ? 'border-accent'
+                      ? 'border-en-cours'
                       : 'border-border',
                 )}
               >
                 {todo.state === 'done' ? (
-                  <Check className="h-2.5 w-2.5 text-success" />
+                  <Check className="h-2.5 w-2.5 text-termine" />
                 ) : todo.state === 'running' ? (
                   streaming ? (
-                    <Loader2 className="h-2.5 w-2.5 animate-spin text-accent" />
+                    <Loader2 className="h-2.5 w-2.5 animate-spin text-en-cours" />
                   ) : (
-                    <CircleDot className="h-2.5 w-2.5 text-accent" />
+                    <CircleDot className="h-2.5 w-2.5 text-en-cours" />
                   )
                 ) : null}
               </span>

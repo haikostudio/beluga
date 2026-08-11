@@ -23,6 +23,10 @@ export default {
         publie: 'hsl(var(--publie))',
         record: 'hsl(var(--record))',
         'record-fg': 'hsl(var(--record-fg))',
+        // La convention d'avancement : orange = en cours, bleu = terminé.
+        // Une seule source pour toute l'application (styles.css).
+        'en-cours': 'hsl(var(--en-cours))',
+        termine: 'hsl(var(--termine))',
       },
       borderRadius: {
         lg: '10px',

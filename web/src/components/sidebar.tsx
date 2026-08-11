@@ -628,7 +628,7 @@ export function Sidebar({
               onClick={() => onOpenAgent(agent.id)}
               className="mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-muted hover:bg-surface hover:text-text"
             >
-              <Bot className="h-3 w-3 shrink-0 text-success" />
+              <Bot className="h-3 w-3 shrink-0 text-en-cours" />
               <span className="min-w-0 flex-1 truncate">{agent.title}</span>
               <span className="text-[11.5px] text-faint">{elapsed(agent.startedAt)}</span>
             </button>
@@ -945,8 +945,8 @@ function RepereRobot({ running }: { running: number }) {
   return (
     <Tooltip label={libelle}>
       <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
-        <Bot className="h-3 w-3 shrink-0 text-success" />
-        {running > 1 ? <span className="text-[10.5px] leading-none text-success">{running}</span> : null}
+        <Bot className="h-3 w-3 shrink-0 text-en-cours" />
+        {running > 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
       </span>
     </Tooltip>
   );
@@ -1067,7 +1067,8 @@ function RepereLigne({
         aria-label={libelle}
         data-signal-termine
         className={cn(
-          'h-2 w-2 shrink-0 rounded-full bg-info animate-pulse-soft motion-reduce:animate-none',
+          // Un travail TERMINÉ, pas encore lu : bleu, par convention.
+          'h-2 w-2 shrink-0 rounded-full bg-termine animate-pulse-soft motion-reduce:animate-none',
           className,
         )}
       />
@@ -1142,8 +1143,11 @@ function LigneEspaceDev({
         className={cn(
           'group relative flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-[13.5px]',
           'transition-[background-color,border-color,color] duration-150 motion-reduce:transition-none',
+          // La convention : un travail EN COURS se dit en ORANGE, exactement la
+          // teinte de la colonne « En cours » du tableau. Le fond reste LÉGER,
+          // le cadre porte le signal.
           running
-            ? 'border-info/70 bg-info/25 text-text hover:bg-info/30'
+            ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
             : active
               ? 'border-transparent bg-raised text-text'
               : 'border-transparent text-muted hover:bg-surface hover:text-text',
@@ -1241,8 +1245,10 @@ function ProjectRow({
         // Le décalage suit la même durée que les autres transitions ; le réglage
         // « réduire les animations » du système le rend immédiat.
         'transition-[transform,background-color,border-color,color] duration-150 motion-reduce:transition-none',
+        // Même convention que la ligne « Développement » : orange pour ce qui
+        // travaille, cadre franc et fond léger.
         running
-          ? 'border-info/70 bg-info/25 text-text hover:bg-info/30'
+          ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
           : active
             ? 'border-transparent bg-raised text-text'
             : 'border-transparent text-text hover:bg-surface',
