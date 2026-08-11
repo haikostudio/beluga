@@ -741,11 +741,29 @@ export function Board({
             data-column={column}
             className={cn(
               'flex h-full min-h-0 w-[268px] shrink-0 flex-col overflow-hidden rounded-lg border bg-surface/70 transition-colors',
-              over === column && allowed ? 'border-muted bg-surface' : 'border-border/60',
+              over === column && allowed
+                ? 'border-muted bg-surface'
+                : column === 'running'
+                  ? 'border-warning/70'
+                  : column === 'done'
+                    ? 'border-info/70'
+                    : 'border-border/60',
               carteTiree && !allowed && 'opacity-40',
             )}
           >
             <div className="relative flex shrink-0 items-center gap-1.5 px-2 py-1.5">
+              {/* Repère de colonne (« En cours » / « Terminé ») : un voile discret,
+                  DERRIÈRE le libellé, en dégradé vertical qui s'efface aux deux
+                  bords — jamais un aplat ni un trait qui coupe l'entête. */}
+              {column === 'running' || column === 'done' ? (
+                <div
+                  aria-hidden
+                  className={cn(
+                    '-z-10 pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-transparent',
+                    column === 'running' ? 'via-warning/15' : 'via-info/15',
+                  )}
+                />
+              ) : null}
               {/* Une publication de CETTE colonne tourne : un indicateur qui
                   tourne, posé à GAUCHE du libellé, le signale sans aucun texte.
                   Le déroulé (« En cours depuis… », adresse) vit dans le menu du
