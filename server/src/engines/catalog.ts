@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { dedoublonnerModeles, EngineId, ModelInfo, ThinkingOption } from '@haikodev/shared';
+import { dedoublonnerModeles, limiterAuxPlusRecents, EngineId, ModelInfo, ThinkingOption } from '@haikodev/shared';
 import { listAccountRecords } from '../accounts.js';
 import { log } from '../logger.js';
 
@@ -188,7 +188,9 @@ async function claudeCatalogAvec(token: string): Promise<Catalogue> {
 
     // Le plus RÉCENT en haut, le plus ancien en bas — jamais l'ordre alphabétique.
     models.sort(byRecency);
-    return { models, live: true };
+    // Le catalogue affiché s'arrête aux modèles les plus récents : un modèle
+    // ancien, plus cher et moins capable, ne doit plus se choisir par habitude.
+    return { models: limiterAuxPlusRecents(models), live: true };
   }
 }
 
@@ -272,7 +274,8 @@ export async function codexCatalogAvec(version: string, token: string): Promise<
     // Un modèle est unique par son IDENTIFIANT : deux modèles réellement
     // différents peuvent porter le même nom affiché, et dédoublonner sur le nom
     // en escamotait un (règle et test dans shared/src/catalogue-modeles.ts).
-    return { models: dedoublonnerModeles(models), live: true };
+    // Le catalogue affiché s'arrête ensuite aux modèles les plus récents.
+    return { models: limiterAuxPlusRecents(dedoublonnerModeles(models)), live: true };
   }
 }
 

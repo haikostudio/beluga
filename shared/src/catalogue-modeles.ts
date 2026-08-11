@@ -14,7 +14,22 @@ import { EngineInfo, ModelInfo } from './models.js';
  * 2. Une liste de SECOURS se dit. Quand le catalogue n'a pas pu être lu, ce qui
  *    s'affiche n'est plus la liste du moteur : le menu doit l'annoncer au lieu
  *    de laisser croire à une liste complète.
+ * 3. Le catalogue affiché se LIMITE aux modèles les plus récents. Un vieux
+ *    modèle qui traîne dans le menu se choisit par habitude — plus cher à
+ *    l'usage, moins capable que la version actuelle — sans que personne ne
+ *    l'ait vraiment voulu.
  */
+
+/** Combien de modèles, du plus récent au plus ancien, restent proposés par moteur. */
+export const NOMBRE_MODELES_RETENUS = 3;
+
+/**
+ * Ne garde que les N premiers modèles d'une liste déjà triée du plus récent au
+ * plus ancien (le tri lui-même vient d'ailleurs — cette fonction ne trie pas).
+ */
+export function limiterAuxPlusRecents(models: ModelInfo[], nombre = NOMBRE_MODELES_RETENUS): ModelInfo[] {
+  return models.slice(0, nombre);
+}
 
 /**
  * Garde un seul modèle par identifiant (le premier rencontré, donc l'ordre de
