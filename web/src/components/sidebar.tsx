@@ -940,17 +940,17 @@ function EnteteGroupe({
 /**
  * « Un agent travaille ici. »
  *
- * Un robot, et rien d'autre : il remplace à lui seul l'anneau qui tournait
- * devant le nom ET le compteur vert qui le suivait — deux repères pour un même
- * fait. Le nombre ne s'écrit que s'il y a VRAIMENT plusieurs agents : « 1 » ne
- * dit rien de plus que le robot lui-même. Rien qui tourne : sur une colonne de
- * dix lignes, dix roues qui tournent font une colonne qui grouille.
+ * Un loader qui tourne, et rien d'autre : il remplace à lui seul l'icône de
+ * dossier tant qu'un agent écrit, pour que l'activité se lise d'un coup
+ * d'œil — un robot immobile ne le disait pas. Le nombre ne s'écrit que s'il y
+ * a VRAIMENT plusieurs agents : « 1 » ne dit rien de plus que le loader
+ * lui-même.
  *
  * Une PUBLICATION en cours prend la même place, mais change de signe : une
  * icône réseau / envoi, violette et clignotante (jeton `publie`), au lieu du
- * robot orange — un déploiement doit se voir d'un coup d'œil, sans se
- * confondre avec un travail ordinaire. Elle remplace alors le robot, elle ne
- * s'y ajoute pas.
+ * loader orange — un déploiement doit se voir d'un coup d'œil, sans se
+ * confondre avec un travail ordinaire. Elle remplace alors le loader, elle
+ * ne s'y ajoute pas.
  */
 function RepereRobot({ running, publie }: { running: number; publie?: boolean }) {
   if (publie) {
@@ -967,7 +967,7 @@ function RepereRobot({ running, publie }: { running: number; publie?: boolean })
   return (
     <Tooltip label={libelle}>
       <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
-        <Bot className="h-3 w-3 shrink-0 text-en-cours" />
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours motion-reduce:animate-none" />
         {running > 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
       </span>
     </Tooltip>
@@ -1193,7 +1193,7 @@ function LigneEspaceDev({
           title={`${project.name} — l’espace où l’application elle-même est développée`}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
-          {/* Le robot prend la place de l'outil tant qu'un agent écrit ; une
+          {/* Le loader prend la place de l'outil tant qu'un agent écrit ; une
               publication en cours prend la MÊME place, avec son propre signe
               (voir `RepereRobot`) — même emplacement, donc rien ne s'ajoute à
               la ligne. */}
@@ -1325,7 +1325,7 @@ function ProjectRow({
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        {/* Le robot prend la place du dossier tant qu'un agent écrit ; une
+        {/* Le loader prend la place du dossier tant qu'un agent écrit ; une
             publication en cours prend la MÊME place, avec son propre signe
             (voir `RepereRobot`) — c'est le MÊME emplacement, donc rien ne
             s'ajoute à la ligne. */}
