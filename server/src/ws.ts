@@ -4,6 +4,8 @@ import {
   COLONNES_HORS_REPRISE,
   COLUMN_LABELS,
   ERREURS_MONTREES_REGLAGES,
+  JOURS_DE_CACHE,
+  partRelueAuCache,
   Card,
   ClientEnvelope,
   ColumnKey,
@@ -1254,12 +1256,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'production.generer':
       return genererPromptDeProduction(cmd.projectId, cmd.base);
 
-    case 'stats.usage':
+    /*
+     * Le relevé de consommation, plus la PART DE L'ENTRÉE RELUE AU CACHE sur
+     * sept jours : c'est elle qui dit si le début des sessions reste stable.
+     * Elle tombe dès qu'un préfixe se met à bouger (`shared/src/prefixe-cache.ts`).
+     */
+    case 'stats.usage': {
+      const parMoteur = store.entreesParMoteur(JOURS_DE_CACHE);
       return {
         byProject: store.usageByProject(),
         byMonth: store.usageByMonth(),
+        cache: { jours: JOURS_DE_CACHE, total: partRelueAuCache(parMoteur), parMoteur },
         deployable: cmd.projectId ? deployableCards(cmd.projectId).length : undefined,
       };
+    }
 
     case 'card.quota':
       return store.usageQuotaByCard(cmd.cardId);

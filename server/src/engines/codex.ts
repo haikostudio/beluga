@@ -3,7 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { chefBride, modePlanFermeLEcriture, serveursTiers, surchargesCodexDuChef } from '@haikodev/shared';
+import {
+  chefBride,
+  enteteDuTour,
+  modePlanFermeLEcriture,
+  serveursTiers,
+  surchargesCodexDuChef,
+} from '@haikodev/shared';
 import {
   EngineAdapter,
   EngineEvent,
@@ -268,8 +274,15 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
   // demande, donc elle ENTRE dans l'historique du fil. La recoller à chaque
   // reprise la stockerait autant de fois qu'il y a de messages, pour rien.
   // En reprise, seul le RAPPEL court repart : sans lui, le déroulé imposé
-  // s'effaçait au fil du fil, alors que Claude le reçoit à chaque tour.
-  const entete = resuming ? options.systemPromptRappel : options.systemPrompt;
+  // s'effaçait au fil du fil. C'est l'exception que porte `enteteDuTour` : la
+  // consigne de Codex n'étant pas un PRÉFIXE, la raccourcir n'invalide aucun
+  // cache — sous Claude, où elle en est un, l'entête ne bouge plus.
+  const entete = enteteDuTour({
+    engine: 'codex',
+    reprise: resuming,
+    systemPrompt: options.systemPrompt,
+    systemPromptRappel: options.systemPromptRappel,
+  });
   const prompt = entete ? `${entete}\n\n---\n\n${options.prompt}` : options.prompt;
   args.push(prompt);
   return args;

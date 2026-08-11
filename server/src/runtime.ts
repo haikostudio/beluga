@@ -40,6 +40,7 @@ import {
   cumulerPartsQuota,
   contexteApresCompression,
   decisionEnTexteLibre,
+  enteteDuTour,
   etatDuPont,
   finaliserAnalyseDeProposition,
   libelleSujet,
@@ -304,18 +305,26 @@ export function instantaneContexteEnvoye(input: {
   nouvelleSession: boolean;
   prompt: string;
   systemPrompt: string;
+  /**
+   * Vrai quand le texte ci-dessus est la consigne ENTIÈRE. Une reprise ne veut
+   * plus dire « rappel court » : sous Claude, la consigne entière repart à
+   * chaque tour pour que le préfixe de la session ne bouge pas (`enteteDuTour`,
+   * `shared/src/prefixe-cache.ts`). Absent, on retombe sur le rang du tour.
+   */
+  enteteEntier?: boolean;
   blocks: SentContextBlock[];
   passages?: PassageRetrouve[];
   passagesRaison?: string;
   sentAt?: number;
 }): SentContextSnapshot {
+  const entier = input.enteteEntier ?? input.nouvelleSession;
   return SentContextSnapshot.parse({
     engine: input.engine,
     model: input.model,
     session: input.nouvelleSession ? 'new' : 'resumed',
     prompt: input.prompt,
     systemInstruction: {
-      kind: input.nouvelleSession ? 'full' : 'reminder',
+      kind: entier ? 'full' : 'reminder',
       content: input.systemPrompt,
       // Claude porte cette consigne dans une option séparée ; Codex la place
       // devant le prompt. Le tiroir peut ainsi décrire le transport exact.
@@ -325,7 +334,7 @@ export function instantaneContexteEnvoye(input: {
       ...input.blocks,
       {
         kind: 'system',
-        label: input.nouvelleSession ? 'Consigne système complète' : 'Rappel de méthode',
+        label: entier ? 'Consigne système complète' : 'Rappel de méthode',
         characters: input.systemPrompt.length,
       },
     ],
@@ -982,13 +991,28 @@ async function startTurn(
   const cleSession = cleDeSession(agent.run.engine, agent.run.model);
   const sessionId = store.getSessionId(agent.id, cleSession);
   const systemPromptRappel = rappelDeMethode(agent.run.engine);
+  /*
+   * L'ENTÊTE RÉELLEMENT ENVOYÉ CE TOUR-CI, décidé par la même règle que les
+   * adaptateurs (`enteteDuTour`) : sous Claude la consigne entière repart à
+   * chaque tour — elle est le PRÉFIXE de la session, et un préfixe qui bouge
+   * fait réécrire la conversation entière dans le cache. Le tiroir « Contexte
+   * envoyé » doit montrer ce texte-là, pas celui qu'on aurait envoyé avant.
+   */
+  const enteteEnvoye =
+    enteteDuTour({
+      engine: agent.run.engine,
+      reprise: Boolean(sessionId),
+      systemPrompt,
+      systemPromptRappel,
+    }) ?? systemPrompt;
   const instantane = contexteUtilisateur
     ? instantaneContexteEnvoye({
         engine: agent.run.engine,
         model: agent.run.model ?? adapter.defaultModel,
         nouvelleSession: !sessionId,
         prompt,
-        systemPrompt: sessionId ? systemPromptRappel : systemPrompt,
+        systemPrompt: enteteEnvoye,
+        enteteEntier: enteteEnvoye === systemPrompt,
         blocks: contexteUtilisateur.blocks,
         passages: contexteUtilisateur.passages,
         passagesRaison: contexteUtilisateur.passagesRaison,
