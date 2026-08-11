@@ -84,10 +84,14 @@ test('sans prompt, la publication garde ses sept étapes, dans le même ordre', 
     'merge,commit,push,verify,build,publish,restart',
     'aucune étape renommée, supprimée ni déplacée',
   );
-  // Le chemin d'avant est toujours là, juste derrière le prompt.
-  const prompt = SOURCE.indexOf('      if (prompt) {');
+  // Le chemin d'avant est toujours là, juste derrière la cible et le prompt.
+  const cible = SOURCE.indexOf("if (etape.cible === 'production' && typeCible !== 'consigne') {");
+  const prompt = SOURCE.indexOf('} else if (prompt) {');
   const soi = SOURCE.indexOf('} else if (project.isSelf) {');
-  assert.ok(prompt !== -1 && soi !== -1 && prompt < soi, 'prompt, puis HaikoDev, puis projet ordinaire');
+  assert.ok(
+    cible !== -1 && prompt !== -1 && soi !== -1 && cible < prompt && prompt < soi,
+    'cible SSH/FTP/Aucune, puis prompt, puis HaikoDev, puis projet ordinaire',
+  );
 });
 
 /* --- Cas 2 : un prompt de mise en production est réglé ---------------- */
@@ -242,7 +246,7 @@ test('le prompt est jugé AVANT le déroulé constaté', () => {
 });
 
 test('les quatre étapes sont posées, et l’échec de l’agent arrête tout', () => {
-  const debut = SOURCE.indexOf('      if (prompt) {');
+  const debut = SOURCE.indexOf('} else if (prompt) {');
   const corps = SOURCE.slice(debut, SOURCE.indexOf('} else if (project.isSelf) {', debut));
   for (const etape of ETAPES_CONFIEES) {
     assert.match(corps, new RegExp(`setStep\\(current, '${etape}'`), `l’étape ${etape} doit être posée`);
