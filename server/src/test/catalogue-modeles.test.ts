@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dedoublonnerModeles, messageDeRepli, ModelInfo } from '@haikodev/shared';
+import { dedoublonnerModeles, limiterAuxPlusRecents, messageDeRepli, ModelInfo } from '@haikodev/shared';
 
 function modele(id: string, label: string): ModelInfo {
   return ModelInfo.parse({ id, label, thinking: [{ id: 'medium', label: 'Réflexion moyenne' }] });
@@ -60,4 +60,23 @@ test('une liste de secours le DIT, avec la cause quand le moteur la donne', () =
 test('un moteur non installé n’a pas de liste, donc rien à avertir', () => {
   assert.equal(messageDeRepli({ installed: false, live: false, catalogError: 'réponse 401' }), null);
   assert.equal(messageDeRepli(undefined), null);
+});
+
+test('seuls les 3 modèles les plus récents survivent, dans l’ordre reçu', () => {
+  const rendu = limiterAuxPlusRecents([
+    modele('m1', 'Modèle 1'),
+    modele('m2', 'Modèle 2'),
+    modele('m3', 'Modèle 3'),
+    modele('m4', 'Modèle 4'),
+    modele('m5', 'Modèle 5'),
+  ]);
+  assert.deepEqual(
+    rendu.map((m) => m.id),
+    ['m1', 'm2', 'm3'],
+  );
+});
+
+test('une liste de 3 modèles ou moins ne perd rien', () => {
+  const rendu = limiterAuxPlusRecents([modele('m1', 'Modèle 1'), modele('m2', 'Modèle 2')]);
+  assert.equal(rendu.length, 2);
 });
