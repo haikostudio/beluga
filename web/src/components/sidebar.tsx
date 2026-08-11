@@ -1169,14 +1169,21 @@ function LigneEspaceDev({
           // teinte de la colonne « En cours » du tableau. Le fond reste LÉGER,
           // le cadre porte le signal. Une PUBLICATION en cours l'emporte sur ce
           // signal ordinaire : violette et clignotante, pour se distinguer d'un
-          // coup d'œil du travail courant.
+          // coup d'œil du travail courant. Une décision attendue clignote en
+          // orange (même teinte, `warning`) et l'emporte sur le fond « ouvert » ;
+          // un travail rendu pas encore lu clignote en bleu, mais s'éteint dès
+          // qu'on ouvre le projet — le point bleu de `RepereLigne`, lui, reste.
           publie
             ? 'border-publie/70 bg-publie/15 text-text hover:bg-publie/20 animate-pulse-soft motion-reduce:animate-none'
             : running
               ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
-              : active
-                ? 'border-transparent bg-raised text-text'
-                : 'border-transparent text-muted hover:bg-surface hover:text-text',
+              : attention
+                ? 'border-warning/70 bg-warning/15 text-text hover:bg-warning/20 animate-pulse-soft motion-reduce:animate-none'
+                : rendus && !active
+                  ? 'border-termine/70 bg-termine/15 text-text hover:bg-termine/20 animate-pulse-soft motion-reduce:animate-none'
+                  : active
+                    ? 'border-transparent bg-raised text-text'
+                    : 'border-transparent text-muted hover:bg-surface hover:text-text',
           secoue && 'animate-secousse',
         )}
       >
@@ -1274,14 +1281,21 @@ function ProjectRow({
         'transition-[transform,background-color,border-color,color] duration-150 motion-reduce:transition-none',
         // Même convention que la ligne « Développement » : orange pour ce qui
         // travaille, cadre franc et fond léger — et violet clignotant, en
-        // priorité, quand une publication est en cours.
+        // priorité, quand une publication est en cours. Une décision attendue
+        // clignote en orange, même hors publication ni travail en cours ; un
+        // travail rendu pas encore lu clignote en bleu, et s'éteint dès qu'on
+        // ouvre le projet — le point bleu de `RepereLigne` reste, lui, tel quel.
         publie
           ? 'border-publie/70 bg-publie/15 text-text hover:bg-publie/20 animate-pulse-soft motion-reduce:animate-none'
           : running
             ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
-            : active
-              ? 'border-transparent bg-raised text-text'
-              : 'border-transparent text-text hover:bg-surface',
+            : attention
+              ? 'border-warning/70 bg-warning/15 text-text hover:bg-warning/20 animate-pulse-soft motion-reduce:animate-none'
+              : rendus && !active
+                ? 'border-termine/70 bg-termine/15 text-text hover:bg-termine/20 animate-pulse-soft motion-reduce:animate-none'
+                : active
+                  ? 'border-transparent bg-raised text-text'
+                  : 'border-transparent text-text hover:bg-surface',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
       )}
