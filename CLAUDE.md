@@ -294,6 +294,14 @@ le nom, là-bas le texte).
 - **Le CONTEXTE du modèle se compresse à 50 % entre deux tours**, pour tous les rôles
   (`shared/src/contexte-agent.ts`, `server/src/runtime.ts`) : fonction native de Claude, sinon résumé
   contrôlé et session neuve ; messages visibles, carte, décisions, tâches, modèle et compte restent.
+- **La CONSIGNE SYSTÈME ne change pas d'un tour à l'autre dans une même session**
+  (`enteteDuTour`, `shared/src/prefixe-cache.ts`) : sous Claude elle est le PRÉFIXE de la conversation
+  (`--append-system-prompt`, reposé devant à chaque tour), et un préfixe qui bouge fait RÉÉCRIRE tout
+  ce qui suit — mesuré à 32 667 jetons réécrits contre 771 (`scripts/mesure-cache-prefixe.mjs`). La
+  consigne entière repart donc à chaque tour. Codex, qui colle la sienne derrière l'historique, garde
+  le rappel court. La part de l'entrée RELUE au cache sur sept jours s'affiche dans les réglages,
+  onglet « Consommation » (`partRelueAuCache`) — témoin d'un préfixe stable, sans mesure = jamais
+  « 0 % ». Vérifié par `scripts/verif-part-cache.mjs`.
 - **Aucun agent ne commente le stockage des identifiants** : mots de passe, clés, jetons gardés dans
   le projet sont un choix ASSUMÉ de l'utilisateur. On n'en parle pas — mais une PANNE (identifiant
   absent, expiré, refusé qui bloque le travail) se dit toujours.

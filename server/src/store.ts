@@ -1842,6 +1842,29 @@ export function usageByProject(): {
     .all() as any;
 }
 
+/**
+ * CE QUE LE CACHE DES MOTEURS A ÉPARGNÉ SUR LES DERNIERS JOURS, moteur par
+ * moteur. Rien n'est calculé ici : on rend les deux sommes déjà écrites à la fin
+ * de chaque tour — l'entrée facturée plein tarif (`input_tokens`, qui porte le
+ * neuf ET ce qui a été écrit dans le cache) et l'entrée RELUE au cache. La part
+ * elle-même est une règle pure (`partRelueAuCache`), pour être lisible sans base.
+ */
+export function entreesParMoteur(jours = 7): { engine?: string; frais: number; relu: number; tours: number }[] {
+  const depuis = now() - Math.max(1, Math.round(jours)) * 24 * 60 * 60 * 1000;
+  return getDb()
+    .prepare(
+      `SELECT engine, SUM(input_tokens) AS frais, SUM(cached_tokens) AS relu, COUNT(*) AS tours
+       FROM usage WHERE created_at >= ? GROUP BY engine ORDER BY SUM(cached_tokens) DESC`,
+    )
+    .all(depuis)
+    .map((ligne: any) => ({
+      engine: ligne.engine ?? undefined,
+      frais: ligne.frais ?? 0,
+      relu: ligne.relu ?? 0,
+      tours: ligne.tours ?? 0,
+    }));
+}
+
 export function usageByMonth(): { month: string; tokens: number; seconds: number }[] {
   return getDb()
     .prepare(

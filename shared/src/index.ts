@@ -54,6 +54,7 @@ export * from './gestion-projets.js';
 export * from './parcours-carte.js';
 export * from './panne-serveur.js';
 export * from './passages-doc.js';
+export * from './prefixe-cache.js';
 export * from './mise-en-ligne.js';
 export * from './regles.js';
 export * from './etapes-publication.js';
