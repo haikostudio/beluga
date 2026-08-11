@@ -753,9 +753,11 @@ export function Board({
           >
             <div className="relative isolate flex shrink-0 items-center gap-1.5 px-2 py-1.5">
               {/* Repère de colonne (« En cours » / « Terminé ») : un voile,
-                  DERRIÈRE le libellé, en dégradé vertical qui s'efface aux deux
-                  bords — jamais un aplat ni un trait qui coupe l'entête.
-                  `isolate` sur l'entête lui donne son propre contexte
+                  DERRIÈRE le libellé, en dégradé vertical qui part de la
+                  couleur EN HAUT et s'efface jusqu'à zéro tout EN BAS — jamais
+                  un aplat, jamais un trait qui coupe l'entête, jamais une
+                  bande centrale (un `via-*` reforme une bande : on ne l'utilise
+                  pas ici). `isolate` sur l'entête lui donne son propre contexte
                   d'empilement : sans lui, un `z-index` négatif se comparait au
                   fond de la COLONNE entière (posé plus tôt dans la page) et le
                   voile disparaissait derrière — le laisser en premier dans le
@@ -765,8 +767,8 @@ export function Board({
                 <div
                   aria-hidden
                   className={cn(
-                    'pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-transparent',
-                    column === 'running' ? 'via-en-cours/40' : 'via-termine/40',
+                    'pointer-events-none absolute inset-0 bg-gradient-to-b to-transparent',
+                    column === 'running' ? 'from-en-cours/40' : 'from-termine/40',
                   )}
                 />
               ) : null}
