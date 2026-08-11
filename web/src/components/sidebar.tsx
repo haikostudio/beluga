@@ -15,6 +15,7 @@ import {
   Pencil,
   Plus,
   Power,
+  Route,
   Search,
   Settings2,
   TriangleAlert,
@@ -321,6 +322,9 @@ export function Sidebar({
   // qu'il se termine, quel qu'en soit le sort (réussite, échec, arrêt).
   const publieOf = (projectId: string) => state.deploys[projectId]?.state === 'running';
 
+  // Un plan proposé (mode plan) attend-il encore une décision sur ce projet ?
+  const planEnAttenteOf = (projectId: string) => !!state.plans[projectId];
+
   React.useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
@@ -393,6 +397,7 @@ export function Sidebar({
           publie={publieOf(espaceDev.id)}
           attention={state.attention[espaceDev.id]}
           rendus={state.rendus[espaceDev.id]}
+          planEnAttente={planEnAttenteOf(espaceDev.id)}
           onSettings={() => setSettingsFor(espaceDev.id)}
           onChoose={onChoose}
           onQuitterTableauDeBord={onCloseDashboard}
@@ -425,6 +430,7 @@ export function Sidebar({
                 publie={publieOf(entry.id)}
                 attention={state.attention[entry.id]}
                 rendus={state.rendus[entry.id]}
+                planEnAttente={planEnAttenteOf(entry.id)}
                 dimmed={dragging?.id === entry.id}
                 style={glisse(decales.racine.has(entry.id))}
                 marqueur={marqueurDe(entry.id)}
@@ -521,6 +527,9 @@ export function Sidebar({
                 {replie && entry.members.some((p) => publieOf(p.id)) ? (
                   <RepereePublication publie />
                 ) : null}
+                {/* Même règle pour le plan : replié, le groupe porte le repère de
+                    son premier membre qui en attend un. */}
+                {replie && entry.members.some((p) => planEnAttenteOf(p.id)) ? <RepereDePlan /> : null}
                 {replie ? (
                   <RepereLigne
                     signal={signal}
@@ -567,6 +576,7 @@ export function Sidebar({
                         publie={publieOf(project.id)}
                         attention={state.attention[project.id]}
                         rendus={state.rendus[project.id]}
+                        planEnAttente={planEnAttenteOf(project.id)}
                         dimmed={dragging?.id === project.id}
                         style={glisse(decales.membres.has(project.id))}
                         marqueur={marqueurDe(project.id)}
@@ -997,6 +1007,30 @@ function RepereePublication({ publie }: { publie: boolean }) {
 }
 
 /**
+ * « Un plan attend une décision, ici. »
+ *
+ * Posée comme le point jaune de publication (`RepereePublication`) : la même
+ * icône que le cadre « Plan proposé » de la conversation (`Route`), dans un
+ * petit badge blanc — jamais à la place d'un autre repère, toujours à côté. Le
+ * cadre de la ligne porte en plus une bordure blanche (voir son `className`) ;
+ * les deux s'éteignent ensemble dès que le plan est validé, refusé ou dépassé
+ * par une version plus récente (`planEnAttente`, `shared/src/plan-conversation.ts`).
+ */
+function RepereDePlan() {
+  return (
+    <Tooltip label="Un plan attend votre décision">
+      <span
+        aria-label="Un plan attend votre décision"
+        data-repere-plan
+        className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-white bg-bg text-white"
+      >
+        <Route className="h-2 w-2" />
+      </span>
+    </Tooltip>
+  );
+}
+
+/**
  * Le SEUL repère d'attente de la ligne, à droite du nom.
  *
  * Ils étaient trois à se disputer trois centimètres : triangle orange, pastille
@@ -1135,6 +1169,7 @@ function LigneEspaceDev({
   publie,
   attention,
   rendus,
+  planEnAttente,
   onSettings,
   onChoose,
   onQuitterTableauDeBord,
@@ -1145,6 +1180,8 @@ function LigneEspaceDev({
   publie?: boolean;
   attention?: number;
   rendus?: number;
+  /** Un plan proposé attend encore une décision sur ce projet. */
+  planEnAttente?: boolean;
   onSettings: () => void;
   onChoose?: () => void;
   /** Le tableau de bord occupe la place : un clic ici doit le refermer. */
@@ -1162,9 +1199,10 @@ function LigneEspaceDev({
         data-espace-dev={project.id}
         data-espace-dev-attention={attention || undefined}
         data-espace-dev-rendus={rendus || undefined}
+        data-espace-dev-plan={planEnAttente || undefined}
         className={cn(
           'group relative flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-[13.5px]',
-          'transition-[background-color,border-color,color] duration-150 motion-reduce:transition-none',
+          'transition-[background-color,border-color,color,box-shadow] duration-150 motion-reduce:transition-none',
           // La convention : un travail EN COURS se dit en ORANGE, exactement la
           // teinte de la colonne « En cours » du tableau. Le fond reste LÉGER,
           // le cadre porte le signal. Une PUBLICATION en cours l'emporte sur ce
@@ -1185,6 +1223,11 @@ function LigneEspaceDev({
                     ? 'border-transparent bg-raised text-text'
                     : 'border-transparent text-muted hover:bg-surface hover:text-text',
           secoue && 'animate-secousse',
+          // Un plan proposé qui attend une décision s'AJOUTE, il ne remplace
+          // rien : une bordure blanche, posée par-dessus la couleur d'état
+          // ci-dessus (orange, bleue, violette ou neutre), sans jamais la
+          // masquer.
+          planEnAttente && 'ring-2 ring-white/90 ring-offset-1 ring-offset-bg',
         )}
       >
         <button
@@ -1207,6 +1250,7 @@ function LigneEspaceDev({
               l'application » y finissait en points de suspension. */}
           <span className="min-w-0 flex-1 truncate">Développement</span>
         </button>
+        {planEnAttente ? <RepereDePlan /> : null}
         {/* Hors du bouton : un repère porte son propre geste, et un bouton n'en
             contient pas un autre. */}
         <RepereLigne
@@ -1238,6 +1282,7 @@ function ProjectRow({
   publie,
   attention,
   rendus,
+  planEnAttente,
   dimmed,
   style,
   marqueur,
@@ -1254,6 +1299,8 @@ function ProjectRow({
   attention?: number;
   /** Réponses rendues et pas encore lues sur ce projet. */
   rendus?: number;
+  /** Un plan proposé attend encore une décision sur ce projet. */
+  planEnAttente?: boolean;
   dimmed?: boolean;
   /** Le décalage vers le bas quand un élément vise une place au-dessus. */
   style?: React.CSSProperties;
@@ -1274,11 +1321,12 @@ function ProjectRow({
       style={style}
       data-projet-attention={attention || undefined}
       data-projet-rendus={rendus || undefined}
+      data-projet-plan={planEnAttente || undefined}
       className={cn(
         'group relative mb-0.5 flex w-full items-center gap-1 rounded-md border px-1.5 py-1.5 text-[13.5px]',
         // Le décalage suit la même durée que les autres transitions ; le réglage
         // « réduire les animations » du système le rend immédiat.
-        'transition-[transform,background-color,border-color,color] duration-150 motion-reduce:transition-none',
+        'transition-[transform,background-color,border-color,color,box-shadow] duration-150 motion-reduce:transition-none',
         // Même convention que la ligne « Développement » : orange pour ce qui
         // travaille, cadre franc et fond léger — et violet clignotant, en
         // priorité, quand une publication est en cours. Une décision attendue
@@ -1298,6 +1346,10 @@ function ProjectRow({
                   : 'border-transparent text-text hover:bg-surface',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
+        // Un plan proposé qui attend une décision s'AJOUTE à la couleur d'état
+        // ci-dessus, il ne la remplace jamais : une bordure blanche, posée
+        // par-dessus.
+        planEnAttente && 'ring-2 ring-white/90 ring-offset-1 ring-offset-bg',
       )}
     >
       <Trait ou={marqueur} />
@@ -1341,6 +1393,7 @@ function ProjectRow({
           </Tooltip>
         ) : null}
       </button>
+      {planEnAttente ? <RepereDePlan /> : null}
       {/* Le repère vit HORS du bouton du nom : il porte son propre geste, et un
           bouton n'en contient pas un autre. */}
       <RepereLigne

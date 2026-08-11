@@ -106,6 +106,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     void (async () => {
       send({ type: 'attention', ...store.signalAttention() });
       send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+      send({ type: 'plans', ...store.signalPlans() });
       send({
         type: 'ready',
         protocol: PROTOCOL_VERSION,
