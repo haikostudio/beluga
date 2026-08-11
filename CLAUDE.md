@@ -301,7 +301,7 @@ le nom, là-bas le texte).
   RÉSUMÉ DE CONTINUITÉ effacés ensemble, agent diffusé aussitôt — sinon le composeur garde un
   pourcentage sur une conversation vide et le tour suivant renvoie un résumé du fil coupé. Rien
   n'est supprimé : les anciens messages restent derrière leur lien. Vérifié par
-  `scripts/verif-nouveau-depart.mjs`.
+  `scripts/verif-depart-a-zero.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
 - **Une demande réellement partie garde son contexte envoyé et sa mesure moteur** ; en reprise,
