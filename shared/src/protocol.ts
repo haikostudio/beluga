@@ -50,6 +50,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('project.open'), id: z.string() }),
+  /**
+   * Les branches du dépôt GitHub de ce projet, pour les proposer au choix dans
+   * ses réglages. Lecture seule : rien n'est créé ni changé sur le dépôt.
+   */
+  z.object({ type: z.literal('project.branches'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),

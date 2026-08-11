@@ -32,6 +32,8 @@ import {
   phraseDEchec,
   planDeMiseEnLigne,
   annonceDeDeploiement,
+  brancheDePublication,
+  etapeDeLaColonne,
   refusSansPromptDeProduction,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -193,25 +195,27 @@ export function blocageMiseEnProduction(projectId: string, cible?: CiblePublicat
  * que le bloc de publication le dise avant le clic : l'instance de dev se
  * rafraîchit par ce qu'on constate, la mise en production suit le prompt réglé.
  */
-export function moyenDeMiseEnLigne(
+export async function moyenDeMiseEnLigne(
   projectId: string,
   cible?: CiblePublication,
-): PlanDeMiseEnLigne | null {
+): Promise<PlanDeMiseEnLigne | null> {
   const project = store.getProject(projectId);
   if (!project) return null;
   const plan = planDeMiseEnLigne(
     moyensDuProjet(project.path, project.isSelf, promptDeLEtape(project, cible)),
   );
+  // La branche où le lot atterrira, dite AVANT le clic — pour les deux étapes.
+  const branche = await brancheDeLEtape(project, cible ?? 'dev');
   /*
    * Pour un DÉPLOIEMENT (cible dev), on complète la raison par ce qui sera
    * contrôlé à la fin : l'adresse réglée du projet, ou son absence — sinon le
    * contrôle final est sauté sans un mot. La mise en production, elle, suit son
-   * prompt, qui dit lui-même quoi contrôler : on la laisse intacte.
+   * prompt, qui dit lui-même quoi contrôler : on ne lui ajoute que la branche.
    */
   if (cible !== 'production') {
-    return { ...plan, raison: annonceDeDeploiement(plan, project.devUrl) };
+    return { ...plan, raison: annonceDeDeploiement(plan, project.devUrl, branche.raison) };
   }
-  return plan;
+  return { ...plan, raison: `${plan.raison} ${branche.raison}` };
 }
 
 /** Le projet a-t-il ce script dans son package.json ? */
@@ -326,7 +330,13 @@ export async function conflitsPrevus(projectId: string, source: ColumnKey = 'to_
   const cwd = project.path;
   if (!(await runCommand(cwd, 'git rev-parse --git-dir', 20000)).ok) return [];
 
-  const mainBranch = await mainBranchOf(cwd);
+  /*
+   * Le conflit se prévoit contre la branche où CETTE étape fusionnera, pas
+   * contre la principale : un projet qui déploie sur « dev » annonçait sinon
+   * des conflits contre une branche où rien ne partait.
+   */
+  const cible = etapeDeLaColonne(source)?.cible ?? 'dev';
+  const mainBranch = (await brancheDeLEtape(project, cible)).branche;
   const prevus: ConflitPrevu[] = [];
   for (const card of deployableCards(projectId, source)) {
     const branch = card.github?.branch;
@@ -738,6 +748,66 @@ async function mainBranchOf(cwd: string): Promise<string> {
 }
 
 /**
+ * Les branches que ce dépôt connaît, locales ET distantes, sans le préfixe du
+ * dépôt distant. Sert uniquement à savoir si une branche « dev » existe : la
+ * liste PROPOSÉE dans les réglages, elle, est lue chez GitHub
+ * (`branchesDuDepot`). Ici on reste sur git, sans réseau — une publication ne
+ * doit pas dépendre de la joignabilité de GitHub pour choisir sa branche.
+ */
+async function branchesConnues(cwd: string): Promise<string[]> {
+  const sortie = await runCommand(
+    cwd,
+    "git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin",
+    20000,
+  );
+  return sortie.out
+    .split('\n')
+    .map((ligne) => ligne.trim().replace(/^'|'$/g, ''))
+    .filter((nom) => nom && nom !== 'origin/HEAD')
+    .map((nom) => (nom.startsWith('origin/') ? nom.slice('origin/'.length) : nom));
+}
+
+/**
+ * LA BRANCHE OÙ CETTE ÉTAPE POSE SON LOT.
+ *
+ * La branche réglée sur le projet l'emporte ; sans réglage, on retombe sur
+ * « dev » pour un déploiement quand le dépôt en a une, sinon sur la branche
+ * principale constatée — c'est-à-dire, pour tout projet existant, exactement le
+ * comportement d'avant. La règle elle-même est pure
+ * (`shared/src/branche-de-publication.ts`) ; ici on ne fait que lui apporter ce
+ * qu'on lit sur le dépôt.
+ */
+async function brancheDeLEtape(project: Project, cible: CiblePublication) {
+  const cwd = project.path;
+  return brancheDePublication({
+    cible,
+    reglees: project.branchesDePublication,
+    principale: await mainBranchOf(cwd),
+    branchesConnues: await branchesConnues(cwd),
+  });
+}
+
+/**
+ * Se poser SUR la branche de l'étape, quitte à la créer d'après le dépôt
+ * distant : une branche réglée peut n'exister que chez GitHub (un « dev » créé
+ * depuis le site, jamais rapatrié ici). Sans ce rattrapage, la publication
+ * s'arrêtait sur « pathspec did not match ».
+ */
+async function seposerSurLaBranche(cwd: string, branche: string): Promise<{ ok: boolean; out: string }> {
+  const direct = await runCommand(cwd, `git checkout ${branche}`);
+  if (direct.ok) return direct;
+
+  await runCommand(cwd, `git fetch origin ${branche}`, 60000);
+  const distante = await runCommand(cwd, `git rev-parse --verify --quiet origin/${branche}`, 20000);
+  if (distante.out.trim()) {
+    const depuisDistante = await runCommand(cwd, `git checkout -B ${branche} origin/${branche}`);
+    if (depuisDistante.ok) return depuisDistante;
+    return { ok: false, out: `${direct.out}\n${depuisDistante.out}` };
+  }
+  return direct;
+}
+
+/**
  * `signesGardes` : combien de signes de sortie on retient.
  *
  * Trois mille suffisent à une commande qui parle peu. Les contrôles du projet,
@@ -918,7 +988,9 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
   if (!depuis) return vide;
   if (!(await runCommand(cwd, `git rev-parse --verify --quiet ${depuis}`, 20000)).out.trim()) return vide;
 
-  const principale = await mainBranchOf(cwd);
+  // Le travail « déjà enregistré, pas encore en ligne » se lit sur la branche
+  // où le DÉPLOIEMENT fusionne — celle réglée sur le projet, le cas échéant.
+  const principale = (await brancheDeLEtape(project, 'dev')).branche;
   const journal = await runCommand(cwd, `git log --format=%H%x1f%s ${depuis}..${principale}`, 30000);
   if (!journal.ok) return vide;
 
@@ -1046,6 +1118,14 @@ export async function startDeploy(
     try {
       const cwd = project.path;
       const isGit = (await runCommand(cwd, 'git rev-parse --git-dir')).ok;
+      /*
+       * LA BRANCHE DE CETTE ÉTAPE, décidée une fois pour tout le run : celle
+       * réglée dans les paramètres du projet, sinon « dev » quand le dépôt en a
+       * une (déploiement seulement), sinon la branche principale constatée —
+       * comme avant ce réglage.
+       */
+      const cibleBranche = await brancheDeLEtape(project, etape.cible);
+      const brancheDuLot = cibleBranche.branche;
 
       // 1. Fusion des branches des cartes du lot
       current = setStep(current, 'merge', 'running');
@@ -1073,14 +1153,10 @@ export async function startDeploy(
           await runCommand(cwd, `git push -u origin ${branche}`, 60000).catch(() => undefined);
         }
 
-        /*
-         * Toutes les branches du lot vont sur la branche PRINCIPALE, et il n'y
-         * a plus d'autre choix : une branche installée par environnement se
-         * réglait, et un réglage de plus est un endroit de plus où le tableau
-         * peut mentir.
-         */
-        const mainBranch = await mainBranchOf(cwd);
-        const checkout = await runCommand(cwd, `git checkout ${mainBranch}`);
+        // Toutes les branches du lot vont sur la branche DE CETTE ÉTAPE.
+        const mainBranch = brancheDuLot;
+        mergeLog += `\n${cibleBranche.raison}`;
+        const checkout = await seposerSurLaBranche(cwd, mainBranch);
         if (!checkout.ok) {
           throw new Error(
             `Impossible de revenir sur la branche à installer (${mainBranch}) : ${checkout.out.slice(-200)}`,
@@ -1228,7 +1304,7 @@ export async function startDeploy(
         const menee = await confierLaMiseEnLigne(project.id, {
           projet: project.name,
           dossier: cwd,
-          branche: await mainBranchOf(cwd),
+          branche: brancheDuLot,
           // Pas d'adresse imposée : l'adresse de dev n'est pas celle d'une mise
           // en production, et c'est le prompt qui dit quoi contrôler.
           url: undefined,

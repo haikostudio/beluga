@@ -10,6 +10,7 @@ export * from './reprise-publication.js';
 export * from './attention.js';
 export * from './bloc-cerveau.js';
 export * from './branche-de-carte.js';
+export * from './branche-de-publication.js';
 export * from './bridage-chef.js';
 export * from './adresse-navigateur.js';
 export * from './ancres.js';

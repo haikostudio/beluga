@@ -74,6 +74,80 @@ async function git(args: string[], cwd: string): Promise<string> {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Les branches du dépôt                                               */
+/* ------------------------------------------------------------------ */
+
+/** D'où vient la liste de branches rendue. */
+export type SourceDesBranches = 'github' | 'local' | 'aucune';
+
+export interface BranchesDuDepot {
+  /** Les noms de branches, rangés : les branches de carte en dernier. */
+  branches: string[];
+  source: SourceDesBranches;
+  /** Ce qui a empêché de lire GitHub, quand c'est le cas. */
+  raison?: string;
+}
+
+/**
+ * Les branches du dépôt GITHUB de ce projet, pour les proposer au choix.
+ *
+ * La liste est RELATIVE au projet : `gh` résout `{owner}/{repo}` depuis le
+ * dossier du dépôt, il n'y a donc aucun nom de dépôt à saisir nulle part. Le
+ * jeton est celui du serveur, déjà identifié.
+ *
+ * GitHub injoignable (pas de dépôt distant, réseau coupé, jeton refusé) n'est
+ * pas une panne : on retombe sur les branches connues LOCALEMENT et on le DIT,
+ * plutôt que de rendre une liste vide sans explication.
+ *
+ * L'ORDRE compte : un vieux dépôt en compte des centaines, et l'utilisateur
+ * cherche « main » ou « dev », pas la branche d'une carte de l'an dernier. On
+ * range donc en trois paquets — les branches de mise en ligne connues d'abord,
+ * les branches ordinaires ensuite, les éphémères (branches de carte, branches
+ * archivées) en dernier. Rien n'est coupé : la liste reste entière.
+ */
+const BRANCHES_EN_TETE = [
+  'main',
+  'master',
+  'dev',
+  'develop',
+  'staging',
+  'preprod',
+  'production',
+  'prod',
+  'release',
+  'livraison',
+];
+
+export async function branchesDuDepot(cwd: string): Promise<BranchesDuDepot> {
+  const ranger = (noms: string[]): string[] => {
+    const propres = [...new Set(noms.map((nom) => nom.trim()).filter(Boolean))];
+    const ephemere = (nom: string) => nom.includes('tache/') || nom.startsWith('archive/');
+    const rang = (nom: string) => {
+      const enTete = BRANCHES_EN_TETE.indexOf(nom);
+      if (enTete >= 0) return enTete;
+      return ephemere(nom) ? 2000 : 1000;
+    };
+    return propres.sort((a, b) => rang(a) - rang(b) || a.localeCompare(b));
+  };
+
+  const distant = await gh(
+    ['api', '--paginate', 'repos/{owner}/{repo}/branches?per_page=100', '--jq', '.[].name'],
+    cwd,
+  );
+  if (distant.ok) {
+    const branches = ranger(distant.out.split('\n'));
+    if (branches.length) return { branches, source: 'github' };
+  }
+
+  // Repli LOCAL : le dépôt existe, mais GitHub n'a rien rendu.
+  const local = await git(['branch', '--format=%(refname:short)'], cwd);
+  const branches = ranger(local.split('\n'));
+  const raison = distant.out.trim().split('\n').pop()?.slice(0, 200);
+  if (branches.length) return { branches, source: 'local', raison };
+  return { branches: [], source: 'aucune', raison };
+}
+
 export async function refreshCard(cardId: string): Promise<GithubTracking | null> {
   const card = store.getCard(cardId);
   if (!card) return null;
