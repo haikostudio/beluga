@@ -176,6 +176,7 @@ export function estimationFusionnee(propositions: TaskProposal[]): Estimate | un
     summary: uniques(connues.map((estimation) => estimation.summary ?? '')).join(' '),
     billingTitle: `Travail réuni — ${propositions.map((proposal) => proposal.title).join(' / ')}`,
     billingDescription: uniques(connues.map((estimation) => estimation.billingDescription ?? '')).join(' '),
+    clientExplanation: uniques(connues.map((estimation) => estimation.clientExplanation ?? '')).join(' '),
     failed: false,
     producedAt: Math.max(...connues.map((estimation) => estimation.producedAt ?? 0)) || undefined,
   };

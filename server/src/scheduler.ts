@@ -70,6 +70,7 @@ export function parseEstimate(text: string): Estimate | null {
         seniorHours,
         billingTitle: typeof raw.billingTitle === 'string' ? raw.billingTitle : undefined,
         billingDescription: typeof raw.billingDescription === 'string' ? raw.billingDescription : undefined,
+        clientExplanation: typeof raw.clientExplanation === 'string' ? raw.clientExplanation : undefined,
         failed: false,
       });
     } catch {

@@ -152,6 +152,11 @@ const CHAMP_ANALYSE = {
     summary: { type: 'string', description: 'Résumé court du travail prévu' },
     billingTitle: { type: 'string' },
     billingDescription: { type: 'string' },
+    clientExplanation: {
+      type: 'string',
+      description:
+        "Ce que le CLIENT lira sur son devis ou sa facture : deux ou trois phrases simples et ludiques, sans jargon technique ni nom de fichier.",
+    },
     context: {
       type: 'string',
       description:
@@ -181,6 +186,7 @@ function analyseDeProposition(args: any): Pick<TaskProposal, 'estimate' | 'analy
     seniorHours: raw.seniorHours,
     billingTitle: raw.billingTitle,
     billingDescription: raw.billingDescription,
+    clientExplanation: raw.clientExplanation,
     failed: false,
   });
   if (!estimate.success || (estimate.data.machineSeconds === undefined && estimate.data.seniorHours === undefined)) {

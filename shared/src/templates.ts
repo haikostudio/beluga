@@ -210,9 +210,9 @@ export interface OptionsEnveloppe {
 export const CONSIGNE_CHIFFRAGE = `
 LE CHIFFRAGE EST LU PAR L'APPLICATION. Termine ta réponse par un bloc json (et rien après) :
 \`\`\`json
-{"machineSeconds": 600, "projection": {"tokens": 40000, "quotaShare": 0.03, "formula": "jetons de l’étude × facteur lié à l’ampleur", "assumptions": ["3 fichiers à modifier", "construction et tests complets"]}, "confidence": "medium", "summary": "…", "seniorHours": 2.5, "billingTitle": "…", "billingDescription": "…"}
+{"machineSeconds": 600, "projection": {"tokens": 40000, "quotaShare": 0.03, "formula": "jetons de l’étude × facteur lié à l’ampleur", "assumptions": ["3 fichiers à modifier", "construction et tests complets"]}, "confidence": "medium", "summary": "…", "seniorHours": 2.5, "billingTitle": "…", "billingDescription": "…", "clientExplanation": "…"}
 \`\`\`
-machineSeconds = la durée d'exécution prévue en secondes ; seniorHours = le temps d'un développeur senior à la main. Ne confonds JAMAIS les deux. projection décrit le FUTUR : donne sa formule et ses hypothèses, sans la présenter comme une mesure. Les jetons et le quota RÉELLEMENT consommés seront ajoutés par HaikoDev depuis l'événement d'usage du moteur — ne les invente pas.
+machineSeconds = la durée d'exécution prévue en secondes ; seniorHours = le temps d'un développeur senior à la main. Ne confonds JAMAIS les deux. projection décrit le FUTUR : donne sa formule et ses hypothèses, sans la présenter comme une mesure. Les jetons et le quota RÉELLEMENT consommés seront ajoutés par HaikoDev depuis l'événement d'usage du moteur — ne les invente pas. clientExplanation = ce que le CLIENT lira sur son devis ou sa facture : deux ou trois phrases simples et ludiques, qui disent ce qui a été fait SANS jargon technique ni nom de fichier — un lecteur non informaticien doit comprendre d'un coup.
 `;
 
 /** Le rappel de forme des tours suivants : quelques mots au lieu du bloc entier. */

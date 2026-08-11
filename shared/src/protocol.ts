@@ -262,6 +262,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
     documentId: z.string().optional(),
     title: z.string(),
     description: z.string().optional(),
+    clientExplanation: z.string().optional(),
     hours: z.number(),
   }),
   z.object({ type: z.literal('billing.summary') }),
