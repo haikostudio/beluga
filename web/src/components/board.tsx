@@ -751,16 +751,22 @@ export function Board({
               carteTiree && !allowed && 'opacity-40',
             )}
           >
-            <div className="relative flex shrink-0 items-center gap-1.5 px-2 py-1.5">
-              {/* Repère de colonne (« En cours » / « Terminé ») : un voile discret,
+            <div className="relative isolate flex shrink-0 items-center gap-1.5 px-2 py-1.5">
+              {/* Repère de colonne (« En cours » / « Terminé ») : un voile,
                   DERRIÈRE le libellé, en dégradé vertical qui s'efface aux deux
-                  bords — jamais un aplat ni un trait qui coupe l'entête. */}
+                  bords — jamais un aplat ni un trait qui coupe l'entête.
+                  `isolate` sur l'entête lui donne son propre contexte
+                  d'empilement : sans lui, un `z-index` négatif se comparait au
+                  fond de la COLONNE entière (posé plus tôt dans la page) et le
+                  voile disparaissait derrière — le laisser en premier dans le
+                  DOM (avant le libellé) suffit à le garder dessous, sans z-index
+                  négatif. */}
               {column === 'running' || column === 'done' ? (
                 <div
                   aria-hidden
                   className={cn(
-                    '-z-10 pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-transparent',
-                    column === 'running' ? 'via-warning/15' : 'via-info/15',
+                    'pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-transparent',
+                    column === 'running' ? 'via-warning/40' : 'via-info/40',
                   )}
                 />
               ) : null}
