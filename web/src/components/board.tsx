@@ -768,7 +768,7 @@ export function Board({
                   aria-hidden
                   className={cn(
                     'pointer-events-none absolute inset-0 bg-gradient-to-b to-transparent',
-                    column === 'running' ? 'from-en-cours/40' : 'from-termine/40',
+                    column === 'running' ? 'from-en-cours/20' : 'from-termine/20',
                   )}
                 />
               ) : null}
