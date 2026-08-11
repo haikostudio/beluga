@@ -1,18 +1,17 @@
 /**
- * TRADUIRE UN REFUS DU BAC À SABLE EN PHRASE CLAIRE.
+ * TRADUIRE UN REFUS SYSTÈME EN PHRASE CLAIRE.
  *
- * Le chef d'orchestre travaille dans un bac à sable (`bwrap`) : son dossier de
- * travail est écrivable, le PROJET est monté en lecture seule, et l'élévation
- * de privilèges y est coupée. C'est la frontière voulue
- * (`shared/src/bridage-chef.ts`), pas un droit oublié.
+ * Le chef d'orchestre a l'ACCÈS COMPLET à la machine : il construit, installe,
+ * déploie, redémarre, administre. Sa seule frontière est de ne pas modifier
+ * lui-même du code, et elle tient sur les outils d'édition, pas sur le disque
+ * (`shared/src/bridage-chef.ts`). Le bac à sable qui l'enfermait a été retiré le
+ * 11/08/2026 : il bloquait justement les gestes qu'on veut lui ouvrir.
  *
- * Le problème n'était donc pas la frontière, mais ce que l'utilisateur en
- * LISAIT. Une commande qui tentait d'écrire dans le projet rendait un message
- * système brut — « EROFS: read-only file system », « Read-only file system »,
- * « sudo: … no new privileges » — que le chef reprenait à son compte en
- * annonçant « je n'ai pas les droits ». Un utilisateur qui a tout accordé lit
- * alors un refus d'autorisation là où il n'y en a aucune, et ne sait pas quoi
- * faire ensuite (11/08/2026).
+ * Restent les refus RÉELS, ceux de la machine elle-même : un fichier appartenant
+ * à un autre compte, un `sudo` qui réclame un mot de passe, un reste de bac à
+ * sable mal éteint. Le chef les rapportait en disant « je n'ai pas les droits » —
+ * un utilisateur qui a tout accordé y lisait une autorisation refusée, alors que
+ * la cause est ailleurs et se répare.
  *
  * Ces règles sont PURES : elles reconnaissent la nature d'un refus dans la
  * sortie d'une commande et rendent la phrase à afficher, avec la ROUTE à
@@ -21,34 +20,30 @@
 
 /** Ce qui a réellement bloqué, quand quelque chose a bloqué. */
 export type NatureDuRefus =
-  /** Une écriture dans le projet, monté en lecture seule pour le chef. */
-  | 'projet-en-lecture-seule'
-  /** Une écriture AILLEURS que dans le dossier de travail (dossier système…). */
-  | 'ecriture-hors-espace'
-  /** Une commande qui réclame l'administration de la machine (`sudo`). */
-  | 'administration-refusee'
-  /** Le bac à sable lui-même n'a pas pu démarrer : VRAIE panne du serveur. */
-  | 'bac-a-sable-absent';
+  /** Un bac à sable resté allumé alors que le chef doit avoir l'accès complet. */
+  | 'bac-a-sable-residuel'
+  /** Un fichier qui appartient à un autre compte de la machine. */
+  | 'fichier-d-un-autre-compte'
+  /** L'administration de la machine, qui réclame un mot de passe ou un terminal. */
+  | 'administration-a-configurer';
 
 /**
  * Les empreintes d'un refus, du plus précis au plus général. L'ordre compte :
- * un bac à sable qui ne démarre pas se plaint AUSSI de permissions, et serait
- * sinon confondu avec une écriture refusée.
+ * un reste de bac à sable se plaint AUSSI de permissions, et serait sinon
+ * confondu avec un simple fichier mal possédé.
  */
 const EMPREINTES: Array<{ nature: NatureDuRefus; motif: RegExp }> = [
-  // `bwrap` qui échoue : aucune commande du chef ne peut tourner.
-  { nature: 'bac-a-sable-absent', motif: /^\s*bwrap:.*(permission denied|not permitted|no permissions)/im },
-  { nature: 'bac-a-sable-absent', motif: /(clone|unshare)\s*\(.*\)\s*failed.*(permission|not permitted)/i },
-  // L'élévation de privilèges, coupée dans le bac à sable.
-  { nature: 'administration-refusee', motif: /^\s*sudo:.*(no new privileges|sudo\.conf is owned|must be owned by uid|no tty|askpass|a password is required|not allowed)/im },
-  { nature: 'administration-refusee', motif: /interactive authentication required/i },
-  // Une écriture refusée dans un dossier monté en lecture seule.
-  { nature: 'projet-en-lecture-seule', motif: /\bEROFS\b/ },
-  { nature: 'projet-en-lecture-seule', motif: /:\s*read-only file system\b/i },
-  // Une écriture refusée AILLEURS : le montage n'est pas en cause, c'est le
-  // dossier visé qui n'appartient pas à l'espace écrivable du chef.
-  { nature: 'ecriture-hors-espace', motif: /\bEACCES:\s*permission denied\b/i },
-  { nature: 'ecriture-hors-espace', motif: /\bEPERM:\s*operation not permitted\b/i },
+  // Un bac à sable qui n'aurait pas dû être là : le chef a l'accès complet.
+  { nature: 'bac-a-sable-residuel', motif: /^\s*bwrap:/im },
+  { nature: 'bac-a-sable-residuel', motif: /\bEROFS\b/ },
+  { nature: 'bac-a-sable-residuel', motif: /:\s*read-only file system\b/i },
+  { nature: 'bac-a-sable-residuel', motif: /no new privileges/i },
+  // L'administration : mot de passe, terminal ou règle `sudoers` à poser.
+  { nature: 'administration-a-configurer', motif: /^\s*sudo:.*(no tty|askpass|a password is required|not allowed|sudo\.conf is owned|must be owned by uid)/im },
+  { nature: 'administration-a-configurer', motif: /interactive authentication required/i },
+  // Un fichier d'un autre compte : ni le montage ni le bridage, la possession.
+  { nature: 'fichier-d-un-autre-compte', motif: /\bEACCES:\s*permission denied\b/i },
+  { nature: 'fichier-d-un-autre-compte', motif: /\bEPERM:\s*operation not permitted\b/i },
 ];
 
 /**
@@ -75,64 +70,53 @@ export function natureDuRefus(sortie: string): NatureDuRefus | null {
 export function expliquerRefus(nature: NatureDuRefus, projet?: string): string {
   const ou = projet ? ` (${projet})` : '';
   switch (nature) {
-    case 'projet-en-lecture-seule':
+    case 'bac-a-sable-residuel':
       return (
-        `Ce n'est pas une autorisation qui manque : le projet${ou} est monté en LECTURE SEULE pour le ` +
-        `chef d'orchestre, et cette commande a voulu y écrire. Construire, installer, publier ou ` +
-        `modifier ce projet passe par une carte : son agent de tâche, lui, travaille en accès complet.`
+        `À RÉPARER SUR LE SERVEUR : cette commande a tourné dans un bac à sable, alors que le chef ` +
+        `d'orchestre doit avoir l'accès complet${ou}. Un réglage de bac à sable est resté allumé ` +
+        `quelque part (réglages du moteur, service système) : c'est lui qu'il faut éteindre, aucune ` +
+        `autorisation ne manque.`
       );
-    case 'ecriture-hors-espace':
+    case 'fichier-d-un-autre-compte':
       return (
-        `Ce n'est pas une autorisation qui manque : le chef d'orchestre n'écrit que dans SON dossier ` +
-        `de travail, et cette commande a voulu écrire ailleurs sur la machine. Le geste est possible, ` +
-        `mais il revient à un agent de tâche, ouvert par une carte.`
+        `Ce n'est pas une autorisation qui manque : ce fichier appartient à un AUTRE compte de la ` +
+        `machine, et le compte qui porte le démon ne peut pas le modifier. Il faut corriger sa ` +
+        `possession, ou lancer la commande avec l'administration.`
       );
-    case 'administration-refusee':
+    case 'administration-a-configurer':
       return (
-        `Ce n'est pas une autorisation qui manque : cette commande réclame l'administration de la ` +
-        `machine, que le bac à sable du chef d'orchestre coupe. Une carte confiée à un agent de ` +
-        `tâche la lancera à sa place.`
-      );
-    case 'bac-a-sable-absent':
-      return (
-        `PANNE DU SERVEUR : le bac à sable du chef d'orchestre n'a pas pu démarrer, donc aucune de ses ` +
-        `commandes ne peut tourner. Le réglage système « kernel.apparmor_restrict_unprivileged_userns=0 » ` +
-        `(/etc/sysctl.d/99-haikodev-userns.conf) est à remettre en place.`
+        `Ce n'est pas une autorisation qui manque : la commande d'administration réclame un mot de ` +
+        `passe ou un terminal, qu'un tour automatique n'a pas. Le compte du démon a besoin d'une ` +
+        `règle « sudoers » sans mot de passe pour ce geste précis.`
       );
   }
 }
 
 /**
- * LA CONSIGNE D'ESPACE DU CHEF BRIDÉ, envoyée à chacun de ses tours.
+ * LA CONSIGNE D'ESPACE DU CHEF, envoyée à chacun de ses tours.
  *
- * Elle fait DEUX choses que le seul bac à sable ne peut pas faire :
- *   1. elle nomme d'AVANCE ce qui échouera (construire, installer, déployer,
- *      redémarrer, écrire dans le projet), pour que le chef ne l'essaie pas —
- *      c'est en essayant qu'il rapportait un refus ;
- *   2. elle lui INTERDIT le mot « droits » pour décrire sa frontière, et lui
- *      donne la phrase de remplacement. L'utilisateur qui a tout accordé lisait
- *      « je n'ai pas les droits » comme une autorisation manquante.
+ * Elle dit sa frontière RÉELLE, qui tient en une phrase : tout lui est ouvert
+ * sauf modifier lui-même du code. Elle nomme les gestes qu'il croyait interdits
+ * — construire, installer, déployer, redémarrer, administrer la machine — parce
+ * qu'un chef qui s'en croit privé s'arrête avant d'essayer, et rapporte un refus
+ * qui n'existe pas.
  *
- * Une consigne générale du serveur qui dirait de lancer un script de
- * publication ne s'applique pas au chef : elle est écartée NOMMÉMENT ici.
+ * Elle lui interdit aussi le vocabulaire des droits : ce mot a fait lire à
+ * l'utilisateur, qui avait tout accordé, une autorisation manquante (11/08/2026).
  */
 export function consigneEspaceDuChef(dossierDeTravail: string, projet: string): string {
   return (
-    `TON ESPACE DE TRAVAIL : tu peux lancer des commandes (sondages, études, analyses) et ` +
-    `écrire tes brouillons dans ${dossierDeTravail} — c'est le SEUL dossier où tu as le droit ` +
-    `d'écrire. Le projet (${projet}) est monté en LECTURE SEULE : lis-y tout ce qu'il te faut, mais ` +
-    `toute écriture y échoue. Modifier le code du projet n'est pas ton rôle : tu l'ouvres en carte ` +
-    `confiée à un agent de tâche.\n` +
-    `CE QUI ÉCHOUERA, DONC CE QUE TU N'ESSAIES PAS : construire, installer des dépendances, ` +
-    `lancer un script de déploiement ou de publication, redémarrer un service, écrire un fichier ` +
-    `du projet. Toutes ces commandes écrivent hors de ton dossier de travail ou réclament ` +
-    `l'administration de la machine, et ton bac à sable les refuse (« Read-only file system », ` +
-    `« EROFS », « EACCES », « sudo »). Si une consigne générale du serveur te dit de lancer un ` +
-    `script de publication, elle ne s'applique PAS à toi : tu proposes une carte, et c'est son ` +
-    `agent qui lance.\n` +
-    `NE DIS JAMAIS « je n'ai pas les droits », « accès refusé » ni « permission manquante » : rien ` +
-    `ne te manque, c'est ta frontière, et l'utilisateur t'a bien tout accordé. Dis « ce geste revient ` +
-    `à un agent de tâche », nomme en une phrase ce qu'il faut lancer, et propose la carte.`
+    `TON ESPACE DE TRAVAIL : tu as l'ACCÈS COMPLET à cette machine. Tu lances les commandes que tu ` +
+    `veux — sondages, études, construction, installation de dépendances, script de déploiement, ` +
+    `redémarrage d'un service, commandes d'administration — et tu écris où tu veux sur le disque. ` +
+    `Le projet (${projet}) t'est ouvert en entier ; ${dossierDeTravail} reste ton dossier à brouillons.\n` +
+    `TA SEULE FRONTIÈRE : tu ne modifies pas TOI-MÊME le code. Les outils d'édition de fichiers ne ` +
+    `te sont pas servis, et une modification de programme s'ouvre en carte confiée à un agent de ` +
+    `tâche. Tout le reste t'est permis : n'annonce jamais qu'un geste t'est fermé sans l'avoir ` +
+    `essayé.\n` +
+    `NE DIS JAMAIS « je n'ai pas les droits », « accès refusé » ni « permission manquante » : ` +
+    `l'utilisateur t'a tout accordé. Si une commande échoue vraiment, montre son message et dis ce ` +
+    `qui bloque — jamais une autorisation qui manquerait.`
   );
 }
 

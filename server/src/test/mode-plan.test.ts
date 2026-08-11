@@ -104,9 +104,10 @@ test('Codex : le chef d’orchestre n’est pas mis en lecture seule par le mode
     mcpBridgePath: '/opt/haikodev/server/mcp-bridge.mjs',
     onEvent: () => {},
   } as any);
-  // Bridé : c'est `workspace-write` qui s'applique, jamais `read-only`.
+  // Bridé : c'est l'accès complet qui s'applique, jamais `read-only`. Le mode
+  // plan ne referme rien au chef — sa frontière est la liste d'outils.
   assert.ok(!args.includes('sandbox_mode="read-only"'));
-  assert.ok(args.includes('sandbox_mode="workspace-write"'));
+  assert.ok(args.includes('sandbox_mode="danger-full-access"'));
 });
 
 test('Claude : sans mode plan, l’accès complet garde bypassPermissions', () => {

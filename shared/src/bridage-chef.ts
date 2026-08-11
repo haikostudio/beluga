@@ -2,33 +2,33 @@
  * LE BRIDAGE DU CHEF D'ORCHESTRE, LE MÊME QUEL QUE SOIT LE MOTEUR.
  *
  * Hors de HaikoDev lui-même, le chef a TOUS LES DROITS SAUF UN : modifier le
- * code du projet. Il lit, il cherche, il propose une carte, il tient sa liste
- * de tâches — et il peut lancer des commandes (sondages, études, analyses) et
- * écrire ses brouillons dans un DOSSIER DE TRAVAIL à part. La seule chose qui
- * lui reste fermée : toucher aux fichiers du projet, qui restent en LECTURE
- * SEULE ; une modification du code s'ouvre en carte confiée à un agent de tâche.
+ * CODE du projet. Une seule chose lui est fermée, et c'est bien une seule :
+ * écrire lui-même dans un fichier de programme. Tout le reste lui est OUVERT —
+ * lancer des commandes, construire, installer des dépendances, lancer un script
+ * de déploiement, redémarrer un service, administrer la machine, écrire où il
+ * veut sur le disque.
  *
- * La frontière est la MÊME sous les deux moteurs, et posée au niveau du système
- * (bac à sable `bwrap`), jamais au seul bon vouloir du modèle :
- *   - le chef travaille dans un DOSSIER DE TRAVAIL séparé (son `cwd`), le seul
- *     où l'écriture est permise ;
- *   - le PROJET est monté en lecture seule : on le lit, jamais on n'y écrit —
- *     même une commande shell qui tente d'y écrire échoue (« Read-only file
- *     system ») ;
- *   - les travaux de fond (agents lancés par le moteur) restent éteints ;
- *     la publication reste un geste de l'utilisateur.
+ * POURQUOI PLUS DE BAC À SABLE (11/08/2026). La frontière était posée au niveau
+ * du système : projet monté en lecture seule, écriture limitée à un dossier de
+ * travail, élévation de privilèges coupée. Deux constats l'ont condamnée :
+ *   - CONSTRUIRE ÉCRIT DANS LE PROJET (`node_modules`, `dist`, fichiers
+ *     temporaires). « Projet en lecture seule » et « le chef peut construire »
+ *     ne peuvent pas être vrais en même temps ;
+ *   - `bwrap` pose `no_new_privs` sans échappatoire : sous bac à sable, `sudo`
+ *     est impossible, donc aucune commande d'administration ne passe.
+ * Un bac à sable qui bloque tout SAUF ce qu'il devait bloquer coûtait plus qu'il
+ * ne protégeait : le chef se heurtait à des refus à chaque geste utile.
  *
- * Ce que chaque moteur sait faire de cette frontière :
- *   1. les outils du projet sont énumérés serveur par serveur pour Codex
- *      (`mcp_servers.haikodev.enabled_tools` / `disabled_tools`) ; Claude prend
- *      les deux listes telles quelles (`--allowedTools` / `--disallowedTools`) ;
- *   2. Codex passe son bac à sable en « écriture dans l'espace de travail »
- *      (`workspace-write`) : le `cwd` est écrivable, le reste — dont le projet —
- *      en lecture seule. Claude allume son bac à sable `bwrap` sur le même
- *      principe (`sandbox.enabled`), le projet ajouté en lecture par `--add-dir` ;
- *   3. les outils d'ÉDITION de fichiers (« Edit », « Write », « NotebookEdit »)
- *      restent interdits au chef — la ceinture par-dessus le bac à sable ;
+ * LA FRONTIÈRE TIENT DONC SUR LES OUTILS, là où elle porte vraiment :
+ *   1. les outils d'ÉDITION de fichiers (« Edit », « Write », « NotebookEdit »)
+ *      restent INTERDITS au chef — c'est là que se modifie du code ;
+ *   2. `write_document` n'accepte que des extensions de TEXTE : un fichier de
+ *      programme est refusé par la liste (`shared/src/documents-du-chef.ts`) ;
+ *   3. les outils du projet réservés aux agents de tâche restent hors de sa
+ *      portée (`mcp_servers.haikodev.enabled_tools` / `disabled_tools` pour
+ *      Codex ; `--allowedTools` / `--disallowedTools` pour Claude) ;
  *   4. les travaux de fond sont éteints par leurs interrupteurs de fonctionnalité.
+ * Modifier le code reste donc un geste de carte, confié à un agent de tâche.
  *
  * Rien ici ne touche à la base ni au disque : la règle se lit et se rejoue
  * seule.
@@ -81,50 +81,43 @@ export function surchargesCodexDuChef(listes: ListesDuChef): string[] {
   const interdits = outilsDuProjet(listes.disallowedTools);
   if (permis.length) surcharges.push(`mcp_servers.haikodev.enabled_tools=${JSON.stringify(permis)}`);
   if (interdits.length) surcharges.push(`mcp_servers.haikodev.disabled_tools=${JSON.stringify(interdits)}`);
-  // La frontière du chef : il ÉCRIT dans son dossier de travail (le `cwd` passé
-  // au moteur), le reste — dont le projet — reste en LECTURE SEULE. C'est le bac
-  // à sable qui la tient, pas le bon vouloir du modèle : une commande shell qui
-  // tente d'écrire dans le projet échoue (« Read-only file system »). Le mode
-  // `workspace-write` n'ouvre à l'écriture QUE l'espace de travail ; le dossier
-  // du projet, lui, est ailleurs, donc intouchable.
-  surcharges.push('sandbox_mode="workspace-write"');
-  // Sondages, études, recherches : le chef a le droit au réseau depuis son bac
-  // à sable. Ce qui reste fermé, c'est l'écriture du projet, pas Internet.
-  surcharges.push('sandbox_workspace_write.network_access=true');
-  // Une écriture refusée doit ÉCHOUER tout de suite. En attente d'approbation,
-  // personne ne répond et le tour se fige.
+  // ACCÈS COMPLET AUX COMMANDES. Le chef construit, installe, déploie,
+  // redémarre, administre la machine : aucun de ces gestes ne tient sous un bac
+  // à sable — construire écrit dans le projet, administrer exige l'élévation de
+  // privilèges que `no_new_privs` interdit. Ce qui reste fermé au chef, ce sont
+  // les outils d'ÉDITION (listés plus haut) : c'est là que se modifie du code.
+  surcharges.push('sandbox_mode="danger-full-access"');
+  // Une commande doit partir tout de suite : en attente d'approbation, personne
+  // ne répond dans un tour non interactif et le tour se fige.
   surcharges.push('approval_policy="never"');
   for (const nom of FONCTIONNALITES_DE_FOND) surcharges.push(`features.${nom}=false`);
   return surcharges;
 }
 
 /**
- * Les réglages du bac à sable de Claude Code pour un chef bridé, à passer à
- * `--settings`. Absent (null) quand le chef n'est pas bridé — un agent de tâche
- * garde son accès complet. C'est le PENDANT du `workspace-write` de Codex : le
- * bac à sable `bwrap` est allumé, le `cwd` (dossier de travail) reste écrivable,
- * le projet — ajouté en lecture par `--add-dir` côté ligne de commande — n'y est
- * pas, donc reste en lecture seule. `allowUnsandboxedCommands: false` interdit le
- * repli hors bac à sable : si le bac ne peut pas démarrer, la commande ÉCHOUE au
- * lieu de s'exécuter à nu et d'écrire le projet. `autoAllowBashIfSandboxed` fait
- * tourner les commandes sans quémander d'approbation, personne ne répondant à un
- * tour non interactif.
+ * Les réglages de Claude Code pour un chef bridé, à passer à `--settings`.
+ * Absent (null) quand le chef n'est pas bridé — un agent de tâche a toujours eu
+ * son accès complet. C'est le PENDANT du `danger-full-access` de Codex : le bac
+ * à sable est ÉTEINT, les commandes partent sans approbation, et le projet est
+ * ajouté par `--add-dir` côté ligne de commande pour que le chef l'ouvre.
+ *
+ * Le bac à sable a été retiré le 11/08/2026 : il rendait impossibles les gestes
+ * mêmes qu'on veut ouvrir au chef (construire écrit dans le projet, administrer
+ * exige l'élévation de privilèges), et ne protégeait le code que par ricochet.
+ * La frontière du CODE tient maintenant sur les outils d'édition, interdits au
+ * chef par `orchestratorDenyList` — voir l'entête de ce fichier.
  */
 export function reglagesClaudeDuChef(
   listes: ListesDuChef,
-  /** La racine du projet, à garder en lecture seule même une fois montée. */
+  /** La racine du projet, ouverte au chef pour qu'il la lise et y travaille. */
   projectRoot?: string,
 ): Record<string, unknown> | null {
   if (!chefBride(listes)) return null;
-  const sandbox: Record<string, unknown> = {
-    enabled: true,
-    autoAllowBashIfSandboxed: true,
-    allowUnsandboxedCommands: false,
-    network: { allowedDomains: ['*'] },
+  void projectRoot;
+  return {
+    sandbox: { enabled: false },
+    // Sans approbation possible dans un tour non interactif, une commande qui
+    // attend un accord fige le tour : on les laisse partir.
+    permissions: { defaultMode: 'bypassPermissions' },
   };
-  // Le projet est monté en LECTURE (`--add-dir`) pour que le chef le parcoure —
-  // mais `--add-dir` ouvrirait aussi l'écriture. On la referme explicitement :
-  // `denyWrite` l'emporte, une commande shell qui tente d'y écrire échoue.
-  if (projectRoot) sandbox.filesystem = { denyWrite: [projectRoot] };
-  return { sandbox };
 }

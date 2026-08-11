@@ -70,11 +70,11 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
   if (options.allowedTools?.length) args.push('--allowedTools', options.allowedTools.join(','));
   if (options.disallowedTools?.length) args.push('--disallowedTools', options.disallowedTools.join(','));
 
-  // LA FRONTIÈRE DU CHEF BRIDÉ, côté Claude. Le bac à sable `bwrap` est allumé :
-  // le dossier de travail (`cwd`) reste écrivable, le PROJET est monté en lecture
-  // par `--add-dir` — on l'y lit, jamais on n'y écrit, même par une commande
-  // shell. C'est le pendant exact du `workspace-write` de Codex. Absent pour un
-  // agent de tâche, qui garde son accès complet.
+  // LA FRONTIÈRE DU CHEF BRIDÉ, côté Claude. Le bac à sable est ÉTEINT : le chef
+  // lance ce qu'il veut (construire, installer, déployer, redémarrer, administrer
+  // la machine), et le PROJET lui est ouvert par `--add-dir`. Ce qui reste fermé,
+  // ce sont les outils d'ÉDITION, retirés par `--disallowedTools` juste au-dessus :
+  // modifier du code passe par une carte. Absent pour un agent de tâche.
   const reglages = reglagesClaudeDuChef(options, options.projectRoot);
   if (reglages) {
     args.push('--settings', JSON.stringify(reglages));
