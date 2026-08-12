@@ -17,7 +17,6 @@ import {
   Paperclip,
   RotateCcw,
   Route,
-  Sparkles,
   Square,
   Volume2,
   X,
@@ -43,7 +42,7 @@ import {
   propositionsDuFil,
   recapitulatifEnvoi,
   reponsePrete,
-  suggestionsPourLePlan,
+  estTitreDesSuggestions,
   texteAEcouter,
   tempsRestant,
   texteDeReponse,
@@ -326,12 +325,16 @@ function texteRepriseVersion(numero: number, contenu: string): string {
  * conversation en mode direct, avec le niveau choisi ; « Repartir de cette
  * version » repasse en mode plan à partir du texte cité.
  *
- * « REFUSER » ET LES SUGGESTIONS, EUX, N'ENVOIENT RIEN : ils écrivent dans la
- * barre d'écriture et s'arrêtent là. Un plan se refuse rarement sans avoir
- * quelque chose à dire, et relancer le chef à l'aveugle coûtait un tour entier
- * pour rien. Les suggestions d'optimisation servent le même mouvement : elles
- * donnent de quoi rebondir quand on ne sait pas quoi demander
- * (`suggestionsPourLePlan`, `shared/src/suggestions-de-plan.ts`).
+ * « REFUSER », LUI, N'ENVOIE RIEN : il écrit dans la barre d'écriture et
+ * s'arrête là. Un plan se refuse rarement sans avoir quelque chose à dire, et
+ * relancer le chef à l'aveugle coûtait un tour entier pour rien.
+ *
+ * LES SUGGESTIONS VIENNENT DU PLAN, pas d'un catalogue : sa partie
+ * « Améliorations apportées » s'affiche cliquable (`estTitreDesSuggestions`,
+ * `shared/src/suggestions-de-plan.ts`), et un clic retient l'idée dans la
+ * barre d'écriture. Les pastilles d'axes de réflexion posées sous le cadre ont
+ * été retirées : elles proposaient des angles écrits d'avance que personne ne
+ * comprenait.
  */
 function PlanBlock({
   message,
@@ -368,10 +371,6 @@ function PlanBlock({
   const precedentes = versionsPrecedentes(allMessages, message.id);
   const suivante = versionSuivante(allMessages, message.id);
   const diff = suivante ? differencesDeTexte(message.content, suivante.content) : null;
-  /* Le plan encore en jeu propose de quoi rebondir : les relances auxquelles il
-     ne répond pas déjà. Une version périmée n'en propose aucune — on ne
-     relance pas depuis un texte que personne ne va plus lire. */
-  const suggestions = courant && !message.streaming ? suggestionsPourLePlan(message.content) : [];
 
   const valider = async () => {
     setEnCours('valider');
@@ -419,7 +418,7 @@ function PlanBlock({
         data-mode-plan-reponse="replie"
         data-mode-plan-etat={etat}
         onClick={() => setReplie(false)}
-        className="flex w-full flex-nowrap items-center gap-1.5 overflow-hidden rounded-lg border border-border bg-surface/60 px-3 py-2 text-left text-[12px] font-medium uppercase tracking-wide text-muted transition-colors hover:bg-surface hover:text-text"
+        className="flex w-full flex-nowrap items-center gap-1.5 overflow-hidden rounded-lg border border-border bg-fond-plan px-3 py-2 text-left text-[12px] font-medium uppercase tracking-wide text-muted transition-colors hover:text-text"
       >
         <ChevronRight className="h-3.5 w-3.5 shrink-0" />
         <Route className="h-3.5 w-3.5 shrink-0" />
@@ -432,15 +431,18 @@ function PlanBlock({
   }
 
   return (
-    /* Un plan se lit d'un coup d'œil : un cadre gris à lui, distinct
-       d'une réponse de tâche classique — pas seulement un emoji devant
-       le titre. */
+    /* UN PLAN POSE SON PROPRE FOND GRIS. C'est le seul bloc du fil sur lequel
+       il y a une décision à prendre : il doit se repérer avant même d'être lu,
+       sans emprunter une couleur d'état. Le gris vient d'un jeton à lui
+       (`--fond-plan`, `web/src/styles.css`), décliné pour les deux thèmes —
+       une opacité posée sur `surface` aurait donné un gris différent selon ce
+       qu'il y a derrière, et presque rien en thème clair. */
     <div
       data-mode-plan-reponse="ouvert"
       data-mode-plan-etat={etat}
       className={cn(
-        'rounded-lg border-2 px-3 py-3',
-        courant ? 'border-border bg-surface/80' : 'border-border/60 bg-surface/40',
+        'rounded-lg border-2 bg-fond-plan px-3 py-3',
+        courant ? 'border-border' : 'border-border/60',
       )}
     >
       {/* L'ENTÊTE TIENT SUR UNE SEULE LIGNE, même sur un téléphone : le titre,
@@ -497,11 +499,17 @@ function PlanBlock({
         </ul>
       ) : null}
 
+      {/* « AMÉLIORATIONS APPORTÉES » EST UNE LISTE CLIQUABLE, comme les
+          « Évolutions possibles » d'une réponse d'agent : un clic dépose
+          l'idée dans la barre d'écriture, où elle se complète. Rien ne part
+          tant que l'utilisateur n'envoie pas. Une version périmée, elle, se
+          relit sans rien à cocher. */}
       <Markdown
         content={message.content}
         pickedEvolutions={pickedEvolutions}
-        onToggleEvolution={onToggleEvolution}
-        onToggleAll={onToggleAll}
+        onToggleEvolution={courant ? onToggleEvolution : undefined}
+        onToggleAll={courant ? onToggleAll : undefined}
+        autreTitreCliquable={estTitreDesSuggestions}
         streaming={message.streaming}
       />
 
@@ -516,32 +524,12 @@ function PlanBlock({
         </div>
       ) : null}
 
-      {/* DE QUOI REBONDIR SANS ÉCRIRE. Un clic dépose la relance dans la barre
-          d'écriture — il n'envoie rien : c'est l'utilisateur qui décide de
-          partir pour un tour de plus. Les pastilles passent à la ligne toutes
-          seules et occupent toute la largeur sur un téléphone. */}
-      {suggestions.length && onEcrireDansLeChamp ? (
-        <div data-suggestions-plan className="mt-3 border-t border-border pt-3">
-          <p className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-            Pour aller plus loin
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {suggestions.map((suggestion) => (
-              <button
-                key={suggestion.id}
-                type="button"
-                data-suggestion-plan={suggestion.id}
-                title={suggestion.texte}
-                onClick={() => onEcrireDansLeChamp(suggestion.texte)}
-                className="flex items-center gap-1 rounded-full border border-border/70 px-2.5 py-1 text-[12.5px] text-muted transition-colors hover:border-border hover:bg-raised hover:text-text"
-              >
-                <Sparkles className="h-3 w-3 shrink-0 text-faint" />
-                {suggestion.libelle}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {/* PLUS DE PASTILLES « POUR ALLER PLUS LOIN » SOUS LE PLAN. Elles
+          proposaient des axes de réflexion écrits d'avance (« Plus simple »,
+          « Une autre approche »…), sans rapport avec ce qu'on venait de lire :
+          personne ne les comprenait. Les suggestions viennent désormais du
+          PLAN lui-même, dans sa partie « Améliorations apportées » — et qui
+          veut un autre angle le dit dans son message. */}
 
       {/* SUR UN TÉLÉPHONE, LE PIED DU PLAN S'EMPILE. Le choix du niveau et les
           deux boutons tenaient sur une ligne : « Approfondi » et « Refuser »

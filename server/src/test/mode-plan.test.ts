@@ -7,10 +7,13 @@ import { buildClaudeArgs } from '../engines/claude.js';
 import { buildCodexArgs } from '../engines/codex.js';
 import {
   consigneDePlanEntier,
+  consigneDePlanPlusFouille,
   consigneDeRepriseDuPlan,
+  corpsDesParties,
   dernierPlanRedige,
   etatDuPlan,
   indexDuPlanCourant,
+  jugerLeFond,
   jugerLePlan,
   planEnAttente,
 } from '@haikodev/shared';
@@ -406,6 +409,116 @@ test('la consigne du chef dit qu’une question se répond DANS le plan, et que 
   assert.match(consigne, /UNE QUESTION DE L'UTILISATEUR SE RÉPOND DANS LE PLAN/);
   assert.match(consigne, /dites-moi laquelle intégrer au plan/i);
   assert.match(consigne, /LE DÉMON VÉRIFIE/);
+});
+
+/* ------------------------------------------------------------------ */
+/* LE FOND : quatre titres remplis d'une phrase chacun ne font pas un   */
+/* plan réfléchi. On compte la matière, sans jamais retirer le cadre.   */
+/* ------------------------------------------------------------------ */
+
+test('la consigne exige une analyse fouillée, hiérarchisée, et jamais un pavé', () => {
+  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  assert.match(consigne, /la VRAIE ANALYSE/);
+  assert.match(consigne, /ce que le projet fait AUJOURD'HUI/);
+  assert.match(consigne, /étapes NUMÉROTÉES/);
+  assert.match(consigne, /titre court en gras/);
+  assert.match(consigne, /FOUILLÉ, JAMAIS ILLISIBLE/);
+  assert.match(consigne, /Jamais un pavé/);
+  assert.match(consigne, /TU OUVRES LE PROJET/);
+});
+
+test('la consigne dit que la partie « Améliorations apportées » est une liste cliquable', () => {
+  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  assert.match(consigne, /AMÉLIORATIONS APPORTÉES : une LISTE À PUCES/);
+  assert.match(consigne, /idées à AJOUTER au plan/);
+  assert.match(consigne, /Ce ne sont pas les bénéfices/);
+});
+
+test('la consigne annonce la SECONDE vérification, celle du fond', () => {
+  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  assert.match(consigne, /LE DÉMON VÉRIFIE, DEUX FOIS/);
+  assert.match(consigne, /Le FOND est vérifié ensuite/);
+});
+
+/** Un plan qui a vraiment été réfléchi : analyse constatée, étapes, liste. */
+const PLAN_FOUILLE = [
+  '## Faisabilité',
+  '',
+  "**Ce qui existe aujourd'hui.** Le cadre du plan pose déjà son entête, ses versions",
+  'précédentes et ses deux boutons de décision, et le démon juge le texte rendu sur la',
+  'présence de ses quatre titres. Rien ne regarde en revanche ce qu’il y a dessous.',
+  '',
+  '**Ce que la demande veut.** Une analyse qui constate au lieu d’affirmer, des parties',
+  'découpées et un fond gris qui distingue le cadre dans le fil de la conversation.',
+  '',
+  "**L'écart.** Il manque une règle qui compte la matière du plan, un jeton de couleur",
+  'pour son fond, et le passage des améliorations en liste cliquable.',
+  '',
+  '**Ce dont je ne suis pas sûr.** Le seuil exact au-delà duquel un paragraphe devient',
+  'un pavé reste un choix, pas une mesure.',
+  '',
+  '## Chemin à suivre',
+  '',
+  '1. **Compter la matière.** Une règle partagée juge le fond du plan.',
+  '2. **Poser le fond gris.** Un jeton de couleur décliné pour les deux thèmes.',
+  '3. **Rendre les améliorations cliquables.** La même mécanique que les évolutions.',
+  '',
+  '## Conséquences',
+  '',
+  'Le chef est relancé une fois quand son plan est trop mince, et le cadre se repère',
+  'dans le fil sans le lire.',
+  '',
+  '## Améliorations apportées',
+  '',
+  '- Ajoute un aperçu du plan dans la colonne de gauche.',
+  '- Chiffre chaque étape du chemin en minutes.',
+  '- Dis ce qui peut casser et comment revenir en arrière.',
+].join('\n');
+
+test('un plan vraiment fouillé passe la seconde vérification', () => {
+  assert.equal(jugerLePlan(PLAN_FOUILLE).complet, true);
+  const fond = jugerLeFond(PLAN_FOUILLE);
+  assert.deepEqual(fond.reproches.map((r) => r.id), []);
+  assert.equal(fond.assezFouille, true);
+});
+
+test('quatre titres et une phrase chacun ne suffisent plus', () => {
+  const fond = jugerLeFond(PLAN_ENTIER);
+  assert.equal(fond.assezFouille, false);
+  const ids = fond.reproches.map((r) => r.id);
+  assert.ok(ids.includes('analyse-mince'), 'une analyse d’une phrase est signalée');
+  assert.ok(ids.includes('chemin-sans-etapes'), 'un chemin sans étapes numérotées est signalé');
+  assert.ok(ids.includes('sans-hierarchie'), 'un plan sans sous-titre est signalé');
+  assert.ok(ids.includes('ameliorations-non-listees'), 'des améliorations qui ne sont pas une liste');
+});
+
+test('chaque partie est jugée sur SON corps, jamais sur celui de la voisine', () => {
+  const corps = corpsDesParties(PLAN_FOUILLE);
+  assert.ok((corps.get('Faisabilité') ?? '').includes("Ce qui existe aujourd'hui"));
+  assert.ok(!(corps.get('Faisabilité') ?? '').includes('Poser le fond gris'));
+  assert.ok((corps.get('Chemin à suivre') ?? '').includes('Compter la matière'));
+  assert.ok((corps.get('Améliorations apportées') ?? '').includes('aperçu du plan'));
+});
+
+test('le pavé est refusé autant que la maigreur', () => {
+  const pave = PLAN_FOUILLE.replace(
+    'Le chef est relancé une fois quand son plan est trop mince, et le cadre se repère\ndans le fil sans le lire.',
+    'Le chef est relancé. '.repeat(120),
+  );
+  assert.ok(jugerLeFond(pave).reproches.some((r) => r.id === 'pave'));
+
+  const fleuve = `${PLAN_FOUILLE}\n\n${'Encore une phrase de plus, sans rien apporter.\n\n'.repeat(400)}`;
+  assert.ok(jugerLeFond(fleuve).reproches.some((r) => r.id === 'plan-fleuve'));
+});
+
+test('la relance de fond nomme la version attendue et ce qui manque', () => {
+  const texte = consigneDePlanPlusFouille(4, jugerLeFond(PLAN_ENTIER).reproches);
+  assert.match(texte, /VERSION 4/);
+  assert.match(texte, /PAS SA MATIÈRE/);
+  assert.match(texte, /l'ANALYSE est trop mince/);
+  assert.match(texte, /jamais un pavé/);
+  // La relance n'a plus d'outil : elle ne doit pas promettre d'aller lire.
+  assert.match(texte, /tu n'as plus d'outil ici/);
 });
 
 test('la consigne de reprise dit qu’une question ne remplace pas le plan', () => {

@@ -91,6 +91,14 @@ export interface MarkdownProps {
   pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
+  /**
+   * UNE SECONDE SECTION CLIQUABLE, en plus des « Évolutions possibles ». Le
+   * cadre d'un plan s'en sert pour ses « Améliorations apportées », devenues
+   * une liste d'idées à retenir d'un clic (`estTitreDesSuggestions`,
+   * `shared/src/suggestions-de-plan.ts`). Absent = seules les évolutions le
+   * sont, comme dans une réponse d'agent ordinaire.
+   */
+  autreTitreCliquable?: (titre: string) => boolean;
   /** Réponse encore en train d'arriver : pas de sommaire tant qu'elle bouge. */
   streaming?: boolean;
   className?: string;
@@ -101,11 +109,16 @@ export function Markdown({
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
+  autreTitreCliquable,
   streaming,
   className,
 }: MarkdownProps) {
   const blocks = React.useMemo(() => parse(content), [content]);
   const picked = new Set(pickedEvolutions ?? []);
+
+  /** Les listes de CETTE section se cochent-elles ? */
+  const sectionCliquable = (titre: string) =>
+    /évolutions possibles/i.test(titre) || !!autreTitreCliquable?.(titre);
 
   const titres = React.useMemo(() => (streaming ? [] : sommaire(blocks, content)), [blocks, content, streaming]);
   const ancres = React.useRef(new Map<number, HTMLHeadingElement>());
@@ -145,6 +158,8 @@ export function Markdown({
                 <li key={itemIndex} className="!block before:content-none">
                   <button
                     type="button"
+                    data-suggestion-cliquable
+                    aria-pressed={active}
                     onClick={() => onToggleEvolution?.(item)}
                     className={cn(
                       'group flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors',
@@ -240,7 +255,7 @@ export function Markdown({
 
       {sections(blocks).map((section) => {
         const body = section.body.map(({ block, index }) =>
-          renderBlock(block, index, section.heading ? /évolutions possibles/i.test(section.heading.text) : false),
+          renderBlock(block, index, section.heading ? sectionCliquable(section.heading.text) : false),
         );
 
         if (!section.heading) {
@@ -253,7 +268,7 @@ export function Markdown({
         const headingIndex = section.index;
         const headingText = section.heading.text;
         const { icon, tone } = styleFor(headingText);
-        const inEvolutions = /évolutions possibles/i.test(headingText);
+        const inEvolutions = sectionCliquable(headingText);
         const items = inEvolutions ? nextListItems(blocks, headingIndex) : [];
         const allPicked = items.length > 0 && items.every((item) => picked.has(item));
 

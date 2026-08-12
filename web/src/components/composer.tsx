@@ -414,6 +414,7 @@ export function Composer({
             <button
               key={item}
               type="button"
+              data-composeur-retenu
               onClick={() => onRemovePicked(item)}
               className="group inline-flex max-w-[300px] items-center gap-1 rounded-md border border-border bg-raised px-1.5 py-1 text-[13px] text-muted hover:border-danger/40 hover:text-text"
             >

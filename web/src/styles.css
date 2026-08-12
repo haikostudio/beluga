@@ -52,6 +52,11 @@
        est un fait à voir, pas une panne à réparer. */
     --intensite-calme: var(--success);
     --intensite-chargee: var(--warning);
+    /* LE FOND D'UN PLAN. Un plan est le seul bloc du fil sur lequel il y a une
+       décision à prendre : il pose donc son propre gris, un cran au-dessus des
+       surfaces ordinaires, pour se repérer sans lire. Un gris NEUTRE, pas une
+       couleur d'état — un plan n'est ni en cours, ni terminé, ni en alerte. */
+    --fond-plan: 0 0% 14%;
     color-scheme: dark;
   }
 
@@ -76,6 +81,9 @@
     /* Même convention, assombrie pour rester lisible sur fond blanc. */
     --en-cours: 32 90% 36%;
     --termine: 205 90% 38%;
+    /* Sur fond blanc, le même repère : un gris clair LÉGER, assez marqué pour
+       délimiter le cadre, assez pâle pour que le texte noir reste net. */
+    --fond-plan: 0 0% 92%;
     color-scheme: light;
   }
 

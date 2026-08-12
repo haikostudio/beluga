@@ -190,11 +190,20 @@ le nom, là-bas le texte).
   (`modePlanFermeLEcriture`, `shared/src/droits-mode-plan.ts`) : il garde `write_document` et
   `ask_user`, et une décision qui ne lui appartient pas se demande AVANT le plan, jamais tranchée
   « par défaut ». L'entête du cadre tient sur UNE ligne ; son PIED s'empile sous 640 px.
-- **« Refuser » et les SUGGESTIONS d'optimisation d'un plan ÉCRIVENT dans la barre d'écriture, sans
-  rien envoyer** (`shared/src/suggestions-de-plan.ts` ; canal `onEcrireDansLeChamp` de `chat.tsx`
-  vers `PlanBlock`, reçu par `Composer` en `aEcrire`) : aucun tour ne part sans un geste de
-  l'utilisateur — seul « Valider » enchaîne tout seul. Les suggestions ne paraissent que sous le
-  plan COURANT, écartent ce que le plan traite DÉJÀ et s'ajoutent au champ sans jamais l'écraser.
+- **Le FOND du plan est vérifié aussi : quatre titres ne font pas un plan réfléchi** (`jugerLeFond`,
+  `EXIGENCES_DE_FOND`, `consigneDePlanPlusFouille`, `shared/src/plan-complet.ts`) : une analyse
+  CONSTATÉE sous FAISABILITÉ, des étapes numérotées, des sous-titres, des améliorations en liste — et
+  jamais un pavé. Le chef est relancé UNE FOIS de plus, sans exiger de plan précédent. **Cette
+  exigence ne retire JAMAIS le drapeau `plan`** : un plan mince mais entier reste décidable.
+- **Le cadre du plan pose son PROPRE FOND GRIS** (`--fond-plan`, `web/src/styles.css` ; couleur
+  `fond-plan` de Tailwind) : un jeton neutre décliné pour les deux thèmes, jamais une couleur d'état
+  ni une opacité posée sur `surface`.
+- **« Refuser » ÉCRIT dans la barre d'écriture, sans rien envoyer**, et les SUGGESTIONS d'un plan
+  viennent du plan lui-même (`estTitreDesSuggestions`, `shared/src/suggestions-de-plan.ts` ;
+  `autreTitreCliquable` de `Markdown`) : sa partie « Améliorations apportées » est une LISTE d'idées
+  à AJOUTER, cliquable comme les « Évolutions possibles » d'un agent — un clic la retient dans la
+  barre, un second la retire. Les pastilles d'axes de réflexion sous le cadre sont RETIRÉES. Aucun
+  tour ne part sans un geste de l'utilisateur ; seul « Valider » enchaîne tout seul.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
 - **Une carte NAÎT dans « Planifié »** (`createCard`, `server/src/tools.ts`) : ni « Validé » ni « À

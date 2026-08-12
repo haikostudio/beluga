@@ -13,6 +13,11 @@
  *   — le BRANCHEMENT : le démon juge le texte rendu, relance le chef une fois,
  *     et refuse le drapeau `plan` à ce qui reste incomplet.
  *
+ * ET LE FOND, depuis : quatre titres remplis d'une phrase chacun ne font pas un
+ * plan réfléchi. La matière se compte (analyse, étapes, sous-titres, liste
+ * d'améliorations), le pavé aussi, et le chef est relancé une fois de plus —
+ * sans jamais perdre le cadre d'un plan par ailleurs entier.
+ *
  * Lecture de code et règles pures : aucun navigateur, aucun moteur appelé.
  */
 import fs from 'node:fs';
@@ -20,6 +25,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   consigneDePlanEntier,
+  consigneDePlanPlusFouille,
+  corpsDesParties,
+  jugerLeFond,
   jugerLePlan,
   PARTIES_DU_PLAN,
 } from '../shared/dist/plan-complet.js';
@@ -148,6 +156,93 @@ verifier(
   runtime.includes("...(failed || (agent.run.mode === 'plan' && !planRendu) ? { plan: false } : {})"),
 );
 verifier('le rattrapage laisse une étape visible dans la conversation', runtime.includes('ETAPE_PLAN_ID'));
+
+/* ------------------------------------------------------------------ */
+/* LE FOND : la matière du plan, comptée                               */
+/* ------------------------------------------------------------------ */
+
+const PLAN_FOUILLE = [
+  '## Faisabilité',
+  '',
+  "**Ce qui existe aujourd'hui.** Le cadre du plan pose son entête, ses versions précédentes",
+  'et ses deux boutons ; le démon ne juge que la présence des quatre titres, jamais ce',
+  'qu’il y a dessous. Une phrase par partie suffisait donc à passer.',
+  '',
+  '**Ce que la demande veut.** Une analyse constatée, des parties découpées et hiérarchisées,',
+  'et un fond gris clair qui distingue le cadre dans le fil de la conversation.',
+  '',
+  "**L'écart.** Il manque une règle qui compte la matière et un jeton de couleur à part.",
+  '',
+  '**Ce dont je ne suis pas sûr.** Le seuil du pavé reste un choix, pas une mesure.',
+  '',
+  '## Chemin à suivre',
+  '',
+  '1. **Compter la matière.** Une règle partagée juge le fond du plan.',
+  '2. **Poser le fond gris.** Un jeton décliné pour les deux thèmes.',
+  '3. **Rendre les améliorations cliquables.** La mécanique des évolutions, réemployée.',
+  '',
+  '## Conséquences',
+  '',
+  'Le chef est relancé une fois quand son plan est mince, et le cadre se repère sans être lu.',
+  '',
+  '## Améliorations apportées',
+  '',
+  '- Ajoute un aperçu du plan dans la colonne de gauche.',
+  '- Chiffre chaque étape du chemin en minutes.',
+  '- Dis ce qui peut casser et comment revenir en arrière.',
+].join('\n');
+
+verifier('un plan vraiment fouillé passe la seconde vérification', jugerLeFond(PLAN_FOUILLE).assezFouille === true);
+
+const fondMaigre = jugerLeFond(PLAN_ENTIER);
+const idsMaigres = fondMaigre.reproches.map((r) => r.id);
+verifier('quatre titres et une phrase chacun ne suffisent plus', fondMaigre.assezFouille === false);
+verifier('l’analyse trop mince est nommée', idsMaigres.includes('analyse-mince'));
+verifier('le chemin sans étapes numérotées est nommé', idsMaigres.includes('chemin-sans-etapes'));
+verifier('le plan sans aucun sous-titre est nommé', idsMaigres.includes('sans-hierarchie'));
+verifier(
+  'des améliorations qui ne sont pas une liste sont nommées',
+  idsMaigres.includes('ameliorations-non-listees'),
+);
+verifier(
+  'le pavé est refusé autant que la maigreur',
+  jugerLeFond(`${PLAN_FOUILLE}\n\n${'Une phrase de trop. '.repeat(120)}`).reproches.some((r) => r.id === 'pave'),
+);
+
+/* Le découpage doit tenir : une étape nommée « Rendre les améliorations
+   cliquables » ne doit PAS ouvrir la quatrième partie au milieu du chemin. */
+const parties = corpsDesParties(PLAN_FOUILLE);
+verifier(
+  'chaque partie est découpée sur son propre titre, pas sur un mot du texte',
+  (parties.get('Chemin à suivre') ?? '').includes('Rendre les améliorations cliquables') &&
+    !(parties.get('Améliorations apportées') ?? '').includes('Compter la matière'),
+);
+
+const relanceFond = consigneDePlanPlusFouille(4, fondMaigre.reproches);
+verifier('la relance de fond nomme la version attendue', /VERSION 4/.test(relanceFond));
+verifier('la relance de fond dit ce qui manque', /PAS SA MATIÈRE/.test(relanceFond));
+verifier('la relance de fond interdit le pavé', /jamais un pavé/.test(relanceFond));
+
+verifier(
+  'la consigne du chef exige une analyse constatée et des étapes numérotées',
+  runtime.includes('la VRAIE ANALYSE') &&
+    runtime.includes("ce que le projet fait AUJOURD'HUI") &&
+    runtime.includes('étapes NUMÉROTÉES'),
+);
+verifier(
+  'la consigne du chef fait des « Améliorations apportées » une liste cliquable',
+  runtime.includes('AMÉLIORATIONS APPORTÉES : une LISTE À PUCES') && runtime.includes('idées à AJOUTER au plan'),
+);
+verifier('la consigne du chef annonce la seconde vérification', runtime.includes('LE DÉMON VÉRIFIE, DEUX FOIS'));
+verifier(
+  'le démon juge le fond et relance le chef une fois de plus',
+  runtime.includes('jugerLeFond(finalText)') && runtime.includes('consigneDePlanPlusFouille('),
+);
+verifier(
+  'un plan mince mais entier garde son cadre : le fond ne retire jamais le drapeau',
+  !/fond\.assezFouille[\s\S]{0,400}planRendu = false/.test(runtime),
+);
+verifier('la reprise en profondeur laisse une étape visible', runtime.includes('ETAPE_FOND_ID'));
 
 const echecs = resultats.filter((ok) => !ok).length;
 console.log(`\n${resultats.length - echecs}/${resultats.length} contrôles au vert`);
