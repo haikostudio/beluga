@@ -1,74 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  REFUS_A_COMPLETER,
-  SUGGESTIONS_DE_PLAN,
-  SUGGESTIONS_MONTREES,
-  suggestionsPourLePlan,
-  texteApresInsertion,
-} from '@haikodev/shared';
+import { REFUS_A_COMPLETER, estTitreDesSuggestions, texteApresInsertion } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
-/* Les suggestions d'optimisation posées sous un plan.                  */
+/* Les suggestions d'un plan viennent du PLAN, plus d'un catalogue :    */
+/* sa partie « Améliorations apportées » s'affiche cliquable.           */
 /* ------------------------------------------------------------------ */
 
-const PLAN_NU = [
-  '## Faisabilité',
-  "C'est faisable.",
-  '## Chemin à suivre',
-  'On commence par le tableau.',
-  '## Conséquences',
-  'Le tableau change de forme.',
-  '## Améliorations apportées',
-  'On lit plus vite.',
-].join('\n');
-
-test('un plan quelconque reçoit des suggestions, plafonnées', () => {
-  const vues = suggestionsPourLePlan(PLAN_NU);
-  assert.ok(vues.length > 0, 'un plan sans angle mort doit quand même pouvoir rebondir');
-  assert.ok(vues.length <= SUGGESTIONS_MONTREES);
-  // Les deux premières du catalogue valent pour n'importe quel plan.
-  assert.equal(vues[0].id, 'simplifier');
-  assert.equal(vues[1].id, 'autre-approche');
+test('la partie « Améliorations apportées » est la section cliquable', () => {
+  assert.equal(estTitreDesSuggestions('Améliorations apportées'), true);
+  assert.equal(estTitreDesSuggestions('AMÉLIORATIONS APPORTÉES'), true);
+  // Le titre voyage numéroté et orné d'une icône : ni l'un ni l'autre ne compte.
+  assert.equal(estTitreDesSuggestions('## 4. 🎯 Améliorations apportées'), true);
+  assert.equal(estTitreDesSuggestions('4) Ameliorations apportees'), true);
+  // La forme courte qu'un moteur emploie parfois.
+  assert.equal(estTitreDesSuggestions('Améliorations'), true);
 });
 
-test('un plan encore vide ne propose rien', () => {
-  assert.deepEqual(suggestionsPourLePlan(''), []);
-  assert.deepEqual(suggestionsPourLePlan('   \n  '), []);
-});
-
-test('ce que le plan traite déjà ne lui est pas proposé', () => {
-  const avecChiffres = `${PLAN_NU}\nPremière étape : 30 min. Seconde étape : 2 heures.`;
-  assert.ok(!suggestionsPourLePlan(avecChiffres).some((s) => s.id === 'effort'));
-
-  const avecRisques = `${PLAN_NU}\nRisques : la migration ne se défait pas.`;
-  assert.ok(!suggestionsPourLePlan(avecRisques).some((s) => s.id === 'risques'));
-
-  const avecTelephone = `${PLAN_NU}\nSur téléphone, les boutons s'empilent.`;
-  assert.ok(!suggestionsPourLePlan(avecTelephone).some((s) => s.id === 'telephone'));
-});
-
-test("un plan qui couvre tout laisse quand même de quoi relancer", () => {
-  const complet = [
-    PLAN_NU,
-    'Première étape : 30 min, vérifiée dans le navigateur.',
-    'Risques : rien de définitif, on revient en arrière.',
-    'Sur téléphone, la mise en colonne suffit.',
-  ].join('\n');
-  const vues = suggestionsPourLePlan(complet);
-  assert.deepEqual(
-    vues.map((s) => s.id),
-    ['simplifier', 'autre-approche'],
-  );
-});
-
-test('chaque suggestion porte un identifiant unique et un texte utile', () => {
-  const ids = new Set(SUGGESTIONS_DE_PLAN.map((s) => s.id));
-  assert.equal(ids.size, SUGGESTIONS_DE_PLAN.length);
-  for (const suggestion of SUGGESTIONS_DE_PLAN) {
-    assert.ok(suggestion.libelle.trim().length > 0, suggestion.id);
-    assert.ok(suggestion.texte.trim().length > 20, suggestion.id);
+test('les autres parties du plan ne se cochent pas', () => {
+  for (const titre of ['Faisabilité', 'Chemin à suivre', 'Conséquences', '## 3. 🔁 Conséquences']) {
+    assert.equal(estTitreDesSuggestions(titre), false, titre);
   }
+});
+
+test("un titre vide ou absent ne rend jamais une section cliquable", () => {
+  assert.equal(estTitreDesSuggestions(''), false);
+  assert.equal(estTitreDesSuggestions(undefined as unknown as string), false);
 });
 
 test("un clic n'écrase jamais ce qui est déjà écrit", () => {

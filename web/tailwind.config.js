@@ -27,6 +27,9 @@ export default {
         // Une seule source pour toute l'application (styles.css).
         'en-cours': 'hsl(var(--en-cours))',
         termine: 'hsl(var(--termine))',
+        // Le gris propre au cadre d'un plan : il se repère dans le fil sans
+        // emprunter une couleur d'état (styles.css).
+        'fond-plan': 'hsl(var(--fond-plan))',
       },
       borderRadius: {
         lg: '10px',

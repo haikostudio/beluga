@@ -15,9 +15,15 @@
  * arrêté juste après l'envoi : on n'attend pas sa réponse, seul le DÉPART du
  * message compte ici.
  *
- * « REFUSER » ET LES SUGGESTIONS D'OPTIMISATION, EUX, N'ENVOIENT RIEN : ils
- * écrivent dans la barre d'écriture et s'arrêtent là — c'est justement ce que
- * ce script vérifie, avec la mise en colonne des boutons sur écran étroit.
+ * « REFUSER », LUI, N'ENVOIE RIEN : il écrit dans la barre d'écriture et
+ * s'arrête là — c'est justement ce que ce script vérifie, avec la mise en
+ * colonne des boutons sur écran étroit.
+ *
+ * ON Y VÉRIFIE AUSSI, DEPUIS : le FOND GRIS du cadre (il doit se distinguer de
+ * la page derrière lui, dans les deux thèmes), la partie « Améliorations
+ * apportées » devenue une LISTE CLIQUABLE — un clic retient l'idée dans la
+ * barre d'écriture, sans rien envoyer —, et la DISPARITION des pastilles
+ * d'axes de réflexion qui étaient posées sous le cadre.
  *
  *   HAIKO_PLAN_URL=http://localhost:7099 node scripts/verif-boutons-plan.mjs
  *
@@ -193,8 +199,31 @@ if (!agentId) {
   process.exit(1);
 }
 
-const PLAN_1 =
-  '## 🎯 Faisabilité\n\nPossible sans réserve particulière.\n\n## 🛤️ Chemin à suivre\n\n1. Ajouter le bouton.\n2. Le relier à l’export.\n\n## 📈 Conséquences\n\nUn export de plus, rien d’autre ne change.\n\n## 🎯 Améliorations apportées\n\n— Un export en un clic.';
+/*
+ * Les plans d'essai portent leurs « Améliorations apportées » EN LISTE : c'est
+ * cette partie-là qui s'affiche cliquable, comme les « Évolutions possibles »
+ * d'une réponse d'agent.
+ */
+const PLAN_1 = [
+  '## 🎯 Faisabilité',
+  '',
+  'Possible sans réserve particulière.',
+  '',
+  '## 🛤️ Chemin à suivre',
+  '',
+  '1. Ajouter le bouton.',
+  '2. Le relier à l’export.',
+  '',
+  '## 📈 Conséquences',
+  '',
+  'Un export de plus, rien d’autre ne change.',
+  '',
+  '## 🎯 Améliorations apportées',
+  '',
+  '- Ajoute un export au format tableur.',
+  '- Retiens le dernier dossier choisi.',
+  '- Préviens quand l’export est prêt.',
+].join('\n');
 
 /* ---------- 1. Le cadre et ses deux boutons ---------- */
 
@@ -311,8 +340,25 @@ await page.screenshot({ path: `${SHOTS}/boutons-plan-rouvert.png` });
 
 // Un second plan « dernier » : le premier, déjà suivi d'un message, doit
 // rester replié pendant que ce nouveau-là s'affiche déplié.
-const PLAN_2 =
-  '## 🎯 Faisabilité\n\nAutre demande, faisable aussi.\n\n## 🛤️ Chemin à suivre\n\n1. Étape unique.\n\n## 📈 Conséquences\n\nAucune.\n\n## 🎯 Améliorations apportées\n\n— Rien de neuf.';
+const PLAN_2 = [
+  '## 🎯 Faisabilité',
+  '',
+  'Autre demande, faisable aussi.',
+  '',
+  '## 🛤️ Chemin à suivre',
+  '',
+  '1. Étape unique.',
+  '',
+  '## 📈 Conséquences',
+  '',
+  'Aucune.',
+  '',
+  '## 🎯 Améliorations apportées',
+  '',
+  '- Ajoute un raccourci au clavier.',
+  '- Garde une trace des exports passés.',
+  '- Propose un envoi par courriel.',
+].join('\n');
 await page.evaluate(([id, texte]) => window.haikodevEssai.plan(id, texte), [agentId, PLAN_2]);
 await page.waitForTimeout(400);
 
@@ -370,59 +416,130 @@ noter(
 );
 await page.screenshot({ path: `${SHOTS}/boutons-plan-versions.png` });
 
-/* ---------- 4 bis. LES SUGGESTIONS D'OPTIMISATION ÉCRIVENT DANS LE CHAMP ---------- */
+/* ---------- 4 bis. « AMÉLIORATIONS APPORTÉES » EST LA LISTE CLIQUABLE ---------- */
 
 /*
- * Le mode plan est un brainstorming : sous le plan courant, quelques relances
- * toutes prêtes (`suggestionsPourLePlan`, `shared/src/suggestions-de-plan.ts`).
- * Un clic les DÉPOSE dans la barre d'écriture — il n'envoie RIEN : c'est
- * l'envoi qui lance un tour, et il appartient à l'utilisateur.
+ * Les pastilles d'axes de réflexion posées sous le cadre (« Plus simple »,
+ * « Une autre approche »…) ont été RETIRÉES : elles proposaient des angles
+ * écrits d'avance que personne ne comprenait. Les suggestions viennent
+ * désormais du PLAN lui-même — sa quatrième partie s'affiche cliquable, comme
+ * les « Évolutions possibles » d'une réponse d'agent. Un clic RETIENT l'idée
+ * dans la barre d'écriture ; rien ne part sans un envoi.
  */
 const barre = page.locator('textarea[placeholder="Écrivez votre demande…"]:visible').first();
 await barre.fill('');
 await page.waitForTimeout(200);
 
-const suggestions = dernierCadre.locator('[data-suggestion-plan]');
-await suggestions.first().waitFor({ state: 'visible', timeout: 20000 });
 noter(
-  'le plan courant propose des suggestions d’optimisation',
-  (await suggestions.count()) >= 2,
-  `${await suggestions.count()} suggestion(s)`,
-);
-noter(
-  'une version précédente, elle, n’en propose aucune',
-  (await rouvert.locator('[data-suggestion-plan]').count()) === 0,
+  'plus aucune pastille d’axes de réflexion sous le cadre',
+  (await page.locator('[data-suggestion-plan], [data-suggestions-plan]').count()) === 0 &&
+    (await page.locator('[data-fil="conversation"]:visible >> text=Pour aller plus loin').count()) === 0,
 );
 
-const messagesAvantSuggestion = await page.locator('[data-fil="conversation"]:visible >> text=Reprends ce plan').count();
-await suggestions.first().click();
+const cliquables = dernierCadre.locator('[data-suggestion-cliquable]');
+await cliquables.first().waitFor({ state: 'visible', timeout: 20000 });
+noter(
+  'les « Améliorations apportées » du plan courant sont cliquables',
+  (await cliquables.count()) === 3,
+  `${await cliquables.count()} idée(s)`,
+);
+noter(
+  'une version précédente, elle, ne propose rien à cocher',
+  (await rouvert.locator('[data-suggestion-cliquable]').count()) === 0,
+);
+
+const messagesAvantSuggestion = await page
+  .locator('[data-fil="conversation"]:visible >> text=Ajoute un raccourci au clavier')
+  .count();
+const libelle = (await cliquables.first().innerText()).trim();
+await cliquables.first().click();
 await page.waitForTimeout(400);
-const champApresSuggestion = await barre.inputValue();
 noter(
-  'un clic sur une suggestion l’écrit dans le champ de saisie',
-  champApresSuggestion.trim().length > 20,
-  champApresSuggestion.slice(0, 60),
+  'un clic retient l’idée dans la barre d’écriture',
+  (await page.locator('[data-composeur-retenu]:visible').count()) === 1,
+  libelle.slice(0, 50),
 );
 noter(
-  '…et n’envoie rien : aucun message n’est parti',
-  (await page.locator('[data-fil="conversation"]:visible >> text=Reprends ce plan').count()) === messagesAvantSuggestion,
+  '…et la marque comme retenue dans le plan',
+  (await dernierCadre.locator('[data-suggestion-cliquable][aria-pressed="true"]').count()) === 1,
+);
+noter(
+  '…sans rien envoyer : aucun message n’est parti',
+  (await page.locator('[data-fil="conversation"]:visible >> text=Ajoute un raccourci au clavier').count()) ===
+    messagesAvantSuggestion,
 );
 
-// Une seconde suggestion s'AJOUTE : on ne perd pas la première.
-await suggestions.nth(1).waitFor({ state: 'visible', timeout: 20000 });
-await suggestions.nth(1).click();
+// Une seconde idée S'AJOUTE : on ne perd pas la première.
+await cliquables.nth(1).click();
 await page.waitForTimeout(300);
-const champDeuxSuggestions = await barre.inputValue();
 noter(
-  'une seconde suggestion s’ajoute sous la première, sans l’écraser',
-  champDeuxSuggestions.includes(champApresSuggestion.trim()) &&
-    champDeuxSuggestions.trim().length > champApresSuggestion.trim().length,
+  'une seconde idée s’ajoute à la première, sans l’écraser',
+  (await page.locator('[data-composeur-retenu]:visible').count()) === 2,
+);
+// …et un second clic la retire : la liste se coche et se décoche.
+await cliquables.nth(1).click();
+await page.waitForTimeout(300);
+noter(
+  'recliquer une idée la retire',
+  (await page.locator('[data-composeur-retenu]:visible').count()) === 1,
 );
 await page.screenshot({ path: `${SHOTS}/boutons-plan-suggestions.png` });
+await cliquables.first().click();
+await page.waitForTimeout(300);
 await barre.fill('');
 await page.waitForTimeout(200);
 
-/* ---------- 4 ter. « REFUSER » NE RELANCE PLUS RIEN TOUT SEUL ---------- */
+/* ---------- 4 ter. LE CADRE POSE SON PROPRE FOND GRIS ---------- */
+
+/*
+ * Un plan doit se repérer dans le fil AVANT d'être lu. Son fond vient d'un
+ * jeton à lui (`--fond-plan`, `web/src/styles.css`) : on vérifie donc qu'il
+ * DIFFÈRE réellement du fond de la page, et qu'il tient dans les deux thèmes —
+ * un gris posé en opacité aurait disparu sur fond blanc.
+ */
+const luminance = (couleur) => {
+  const [r, v, b] = (couleur.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+  return 0.2126 * r + 0.7152 * v + 0.0722 * b;
+};
+const fonds = async () =>
+  page.evaluate(() => {
+    const cadres = Array.from(
+      document.querySelectorAll('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="courant"]'),
+    );
+    const vu = cadres.find((n) => n.getBoundingClientRect().height > 0);
+    return {
+      cadre: vu ? getComputedStyle(vu).backgroundColor : null,
+      page: getComputedStyle(document.body).backgroundColor,
+      sombre: document.documentElement.classList.contains('dark'),
+    };
+  });
+
+const fondSombre = await fonds();
+noter(
+  'le cadre du plan pose un fond gris, distinct de la page',
+  !!fondSombre.cadre &&
+    !/rgba\(0, 0, 0, 0\)|transparent/.test(fondSombre.cadre) &&
+    Math.abs(luminance(fondSombre.cadre) - luminance(fondSombre.page)) >= 8,
+  `cadre ${fondSombre.cadre} / page ${fondSombre.page}`,
+);
+await page.screenshot({ path: `${SHOTS}/boutons-plan-fond.png` });
+
+// Le même repère doit tenir dans l'AUTRE thème.
+await page.evaluate(() => document.documentElement.classList.toggle('dark'));
+await page.waitForTimeout(300);
+const fondClair = await fonds();
+noter(
+  'le fond gris tient aussi dans l’autre thème',
+  !!fondClair.cadre &&
+    !/rgba\(0, 0, 0, 0\)|transparent/.test(fondClair.cadre) &&
+    Math.abs(luminance(fondClair.cadre) - luminance(fondClair.page)) >= 8,
+  `cadre ${fondClair.cadre} / page ${fondClair.page}`,
+);
+await page.screenshot({ path: `${SHOTS}/boutons-plan-fond-autre-theme.png` });
+await page.evaluate(() => document.documentElement.classList.toggle('dark'));
+await page.waitForTimeout(300);
+
+/* ---------- 4 quater. « REFUSER » NE RELANCE PLUS RIEN TOUT SEUL ---------- */
 
 const messagesRefusAvant = await page.locator('[data-fil="conversation"]:visible >> text=Je refuse ce plan').count();
 await dernierCadre.getByRole('button', { name: 'Refuser' }).click();
@@ -451,7 +568,7 @@ await page.screenshot({ path: `${SHOTS}/boutons-plan-refus-prepare.png` });
 await barre.fill('');
 await page.waitForTimeout(200);
 
-/* ---------- 4 quater. SUR TÉLÉPHONE, LES BOUTONS S'EMPILENT ---------- */
+/* ---------- 4 quinquies. SUR TÉLÉPHONE, LES BOUTONS S'EMPILENT ---------- */
 
 const surGrandEcran = await cadreCourantVisible(page);
 noter(

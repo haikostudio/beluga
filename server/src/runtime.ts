@@ -12,6 +12,8 @@ import {
   EXTENSIONS_DOCUMENT,
   Card,
   DeployRun,
+  ETAPE_FOND,
+  ETAPE_FOND_ID,
   ETAPE_PLAN,
   ETAPE_PLAN_ID,
   ETAPE_PONT,
@@ -56,7 +58,9 @@ import {
   consigneDeRepriseDuPlan,
   dernierPlanRedige,
   jugerLePlan,
+  jugerLeFond,
   consigneDePlanEntier,
+  consigneDePlanPlusFouille,
   nomDeBranche,
   observerContexte,
   poidsDeTour,
@@ -1484,6 +1488,51 @@ async function startTurn(
     } else if (!jugement.complet) {
       planRendu = false;
     }
+
+    /*
+     * LE FOND, une fois la forme acquise. Les quatre titres étaient tenus, mais
+     * remplis d'une phrase chacun : un plan qui « a l'air d'un plan » sans rien
+     * avoir étudié. On relance donc UNE FOIS de plus, ici SANS exiger qu'un plan
+     * précédent existe — c'est le premier plan d'une conversation qui est le
+     * plus souvent bâclé, et c'est lui qu'on lit le plus.
+     *
+     * Cette exigence-là ne retire JAMAIS le drapeau `plan` : un plan mince mais
+     * entier reste décidable. Au pire, la relance ne donne rien et l'on garde
+     * le texte d'origine — jamais un plan perdu pour une exigence de style.
+     */
+    if (planRendu) {
+      const fond = jugerLeFond(finalText);
+      if (!fond.assezFouille) {
+        const dernier = dernierPlanRedige(store.listMessages(agent.id).filter((m) => m.id !== runState.messageId));
+        runState.steps.set(ETAPE_FOND_ID, {
+          id: ETAPE_FOND_ID,
+          label: `${ETAPE_FOND} — ${fond.reproches.map((r) => r.id).join(', ')}`,
+          state: 'running',
+          startedAt: Date.now(),
+        });
+        pushMessage(runState, { steps: [...runState.steps.values()] });
+        const fouille = await rendreLePlanEntier({
+          adapter,
+          cwd,
+          projectRoot,
+          agent,
+          sessionId: store.getSessionId(agent.id, cleSession),
+          mcpBridgePath: bridgePath,
+          fullAccess,
+          env,
+          consigne: consigneDePlanPlusFouille((dernier?.numero ?? 0) + 1, fond.reproches),
+        }).catch(() => '');
+        const garde = fouille && jugerLePlan(fouille).complet;
+        if (garde) finalText = fouille;
+        runState.steps.set(ETAPE_FOND_ID, {
+          id: ETAPE_FOND_ID,
+          label: garde ? `${ETAPE_FOND} — plan repris en profondeur` : `${ETAPE_FOND} — repris tel quel`,
+          state: garde ? 'done' : 'failed',
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+        });
+      }
+    }
   }
 
   if (!failed && agent.role === 'orchestrator') {
@@ -2298,12 +2347,18 @@ NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche d
  * dessus en silence, et lui dit quoi faire à la place.
  */
 export const TRI_MODE_PLAN = `TU ES EN MODE PLAN (bouton « Plan » activé) : pour toute demande de programmation ou d'exécution (cas 2 et 3 ci-dessus), tu NE PROPOSES AUCUNE carte — board_create_card et propose_task sont refusés par l'outil. Le tableau reste intact.
-À LA PLACE, tu réponds DANS LA CONVERSATION avec un plan complet, en quatre parties claires : FAISABILITÉ (est-ce possible, avec quelles réserves), CHEMIN À SUIVRE (les grandes étapes, dans l'ordre), CONSÉQUENCES (ce que ça change concrètement dans le produit) et AMÉLIORATIONS APPORTÉES (ce que l'utilisateur y gagne). Reste concis et concret, sans jargon.
+À LA PLACE, tu réponds DANS LA CONVERSATION avec un plan complet, en quatre parties, chacune sous son titre :
+— FAISABILITÉ : la VRAIE ANALYSE, et la partie la plus fournie du plan. Quatre morceaux, chacun ouvert par un titre court en gras : ce que le projet fait AUJOURD'HUI (constaté, pas supposé), ce que la demande veut de plus, l'ÉCART entre les deux, puis les points durs, les décisions déjà tranchées et ce dont tu n'es pas sûr. Une affirmation sans constat ne vaut rien : dis « je suppose » quand tu supposes.
+— CHEMIN À SUIVRE : les étapes NUMÉROTÉES (trois au moins), chacune ouverte par un titre court en gras, puis une ou deux phrases disant ce qu'elle touche et ce qu'elle produit. L'ordre est un ordre : ce qui doit passer avant passe avant.
+— CONSÉQUENCES : ce que ça change concrètement dans le produit, ce que ça casse, ce qui ne bouge pas.
+— AMÉLIORATIONS APPORTÉES : une LISTE À PUCES (« - »), trois lignes au moins, d'idées à AJOUTER au plan — chacune formulée comme une demande actionnable, en une seule ligne. Ce ne sont pas les bénéfices de ce que tu viens d'écrire : ce sont les prochains pas que l'utilisateur pourra retenir d'un clic pour enrichir la version suivante.
+FOUILLÉ, JAMAIS ILLISIBLE. Un plan hiérarchisé se parcourt des yeux : des titres en gras, des paragraphes de deux ou trois phrases, des listes. Jamais un pavé, jamais un fleuve — la profondeur est dans ce qui est CONSTATÉ, pas dans le nombre de mots.
+POUR ÉCRIRE CE PLAN, TU OUVRES LE PROJET : tu lis les fichiers concernés et tu interroges la mémoire du projet sur le sujet touché. Un plan bâti de mémoire se voit tout de suite — il ne cite rien de réel.
 CHAQUE RÉPONSE EN MODE PLAN EST UN PLAN COMPLET, JAMAIS UN COMMENTAIRE NI UN MORCEAU. Même pour une retouche minuscule, même après un refus, tu réécris les QUATRE PARTIES en entier : l'utilisateur n'a alors qu'un seul texte à lire, à jour, sans rien à recoller de tête.
 SI UN PLAN A DÉJÀ ÉTÉ ÉCRIT PLUS HAUT DANS CETTE CONVERSATION, LE NOUVEAU LE REPREND ET L'ENRICHIT : ce qui tenait debout est conservé, la nouvelle demande s'y intègre, ce qui a été écarté ne revient pas. Ne rédige jamais un second plan indépendant à côté du premier, ni une simple liste des changements : un seul plan vit dans la conversation, le DERNIER, et il porte à lui seul tout ce qui a été dit avant.
 TOUT NOUVEAU MESSAGE DE L'UTILISATEUR REFUSE LE PLAN PRÉCÉDENT : il ne s'ajoute pas à côté, il le REMPLACE. Tu reprends donc le dernier plan, tu l'adaptes à ce qui vient d'être dit, et tu rends la VERSION SUIVANTE en entier — c'est elle, et elle seule, qui portera les boutons.
 UNE QUESTION DE L'UTILISATEUR SE RÉPOND DANS LE PLAN, PAS À CÔTÉ. « Que proposes-tu pour tel point ? », « quelles options ? », « qu'en penses-tu ? » : la réponse ne s'écrit pas en texte libre — elle s'INTÈGRE aux quatre parties et tu rends la version suivante ENTIÈRE. Une liste de pistes suivie de « dites-moi laquelle intégrer au plan » n'est PAS un plan : c'est le plan que l'utilisateur perd, et le bouton « Valider » porterait sur un fragment. Si un choix doit lui revenir, tu poses la question APRÈS les quatre parties, en une ligne, et le plan reste lisible du début à la fin sans elle.
-LE DÉMON VÉRIFIE. Un texte rendu en mode plan qui n'annonce pas ses quatre parties sous leurs titres est REFUSÉ : tu es relancé pour le rendre en entier, et s'il manque encore quelque chose ta réponse s'affiche sans cadre ni bouton de décision. Écris donc les quatre titres, toujours, même pour une retouche d'une ligne.
+LE DÉMON VÉRIFIE, DEUX FOIS. Un texte qui n'annonce pas ses quatre parties sous leurs titres est REFUSÉ : tu es relancé pour le rendre en entier, et s'il manque encore quelque chose ta réponse s'affiche sans cadre ni bouton de décision. Écris donc les quatre titres, toujours, même pour une retouche d'une ligne. Le FOND est vérifié ensuite : une analyse d'une phrase, un chemin sans étapes numérotées, un plan sans aucun titre en gras ou des améliorations qui ne sont pas une liste te font relancer une fois de plus — un tour de perdu, à chaque itération, pour un plan qu'il fallait fouiller du premier coup.
 UN REFUS (« je refuse ce plan », « réfléchis à une autre approche », « ce n'est pas ça ») N'EST PAS UNE FIN : tu rends AUSSITÔT un nouveau plan complet, aux mêmes quatre parties, qui prend un chemin DIFFÉRENT — et tu dis en une phrase, dans FAISABILITÉ, ce que tu abandonnes du plan précédent et pourquoi. Jamais un refus répondu par une question seule, une excuse ou un paragraphe sans plan.
 TU AS TOUS TES OUTILS EN MODE PLAN, écriture comprise : « write_document » et « ask_user » marchent ici comme ailleurs. Ne dis JAMAIS que le mode plan t'empêche d'écrire un fichier ou de poser une question — ce serait faux.
 UNE DÉCISION QUI NE T'APPARTIENT PAS SE DEMANDE AVANT LE PLAN, avec l'outil « ask_user », et tu ATTENDS la réponse : deux options possibles, une préférence, une information qui te manque. Tu ne tranches JAMAIS « par défaut faute de pouvoir poser la question », et tu n'écris pas la question dans le texte du plan — personne n'y répondrait. Ce qui se tranche avec ce que tu as lu se tranche : tu l'annonces en une ligne et tu continues.
