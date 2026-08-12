@@ -9,11 +9,15 @@
  *
  * Le plan lui-même est INJECTÉ par le point d'essai de la page
  * (`window.haikodevEssai.plan`, `web/src/lib/client.ts`) : on n'attend pas
- * qu'un vrai tour d'écriture en produise un. Les DEUX BOUTONS, eux, envoient
- * un vrai message au vrai chef d'orchestre du projet d'essai — c'est ce
- * chemin-là qu'on juge, exactement celui qu'emprunterait un clic humain.
- * L'agent est arrêté juste après chaque envoi : on n'attend pas sa réponse,
- * seul le DÉPART du message compte ici.
+ * qu'un vrai tour d'écriture en produise un. « VALIDER », lui, envoie un vrai
+ * message au vrai chef d'orchestre du projet d'essai — c'est ce chemin-là
+ * qu'on juge, exactement celui qu'emprunterait un clic humain. L'agent est
+ * arrêté juste après l'envoi : on n'attend pas sa réponse, seul le DÉPART du
+ * message compte ici.
+ *
+ * « REFUSER » ET LES SUGGESTIONS D'OPTIMISATION, EUX, N'ENVOIENT RIEN : ils
+ * écrivent dans la barre d'écriture et s'arrêtent là — c'est justement ce que
+ * ce script vérifie, avec la mise en colonne des boutons sur écran étroit.
  *
  *   HAIKO_PLAN_URL=http://localhost:7099 node scripts/verif-boutons-plan.mjs
  *
@@ -85,6 +89,76 @@ const nettoyer = () => {
   fs.rmSync(dossier, { recursive: true, force: true });
 };
 process.on('exit', nettoyer);
+
+/*
+ * PASSER EN TÉLÉPHONE. Sous 640 px, la conversation vit derrière le bouton
+ * « Chef » de la barre du bas, et l'application RETIENT la dernière vue
+ * ouverte : un essai peut donc arriver sur le tableau et n'y trouver aucun
+ * plan. On force la vue, puis on attend que le cadre du plan soit RÉELLEMENT
+ * mesurable.
+ *
+ * L'application monte DEUX conversations — celle du grand écran et celle du
+ * téléphone —, dont une seule occupe des pixels. Les mesures passent donc par
+ * la hauteur réelle de chaque élément, jamais par un sélecteur descendant :
+ * l'arbre invisible porte les mêmes repères, et l'on mesurerait le mauvais.
+ */
+async function cadreCourantVisible(page) {
+  return page.evaluate(() => {
+    const cadres = Array.from(document.querySelectorAll('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="courant"]'));
+    const vu = cadres.find((n) => n.getBoundingClientRect().height > 0);
+    if (!vu) return null;
+    const boite = (selecteur) => {
+      const cible = vu.querySelector(selecteur);
+      if (!cible) return null;
+      const r = cible.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    };
+    const bouton = (libelle) => {
+      const cible = Array.from(vu.querySelectorAll('[data-boutons-plan] button')).find((b) =>
+        (b.textContent ?? '').trim().startsWith(libelle),
+      );
+      if (!cible) return null;
+      const r = cible.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    };
+    const r = vu.getBoundingClientRect();
+    return {
+      cadre: { x: r.x, y: r.y, width: r.width, height: r.height },
+      entete: boite('[data-entete-plan]'),
+      valider: bouton('Valider'),
+      refuser: bouton('Refuser'),
+    };
+  });
+}
+
+async function attendreLeCadreCourant(page) {
+  await page.waitForFunction(
+    () =>
+      Array.from(document.querySelectorAll('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="courant"]')).some(
+        (n) => n.getBoundingClientRect().height > 0 && n.querySelector('[data-entete-plan]'),
+      ),
+    null,
+    { timeout: 20000 },
+  );
+}
+
+async function passerEnTelephone(page) {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  const chef = page.locator('[data-menu-bas]').getByRole('button', { name: 'Chef' });
+  if (await chef.count()) {
+    await chef.first().click();
+    await page.waitForTimeout(400);
+  }
+  await attendreLeCadreCourant(page);
+}
+
+/** …et revenir au grand écran, une fois la mesure prise. */
+async function revenirAuGrandEcran(page) {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(300);
+  await attendreLeCadreCourant(page);
+}
 
 const navigateur = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const contexte = await navigateur.newContext({ viewport: { width: 1440, height: 900 } });
@@ -265,16 +339,11 @@ noter(
   entete ? `${Math.round(entete.height)} px de haut` : 'entête introuvable',
 );
 const enteteEtroit = await (async () => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(300);
-  const boite = await page
-    .locator('[data-mode-plan-reponse="ouvert"][data-mode-plan-etat="courant"]:visible [data-entete-plan]')
-    .first()
-    .boundingBox();
+  await passerEnTelephone(page);
+  const mesures = await cadreCourantVisible(page);
   await page.screenshot({ path: `${SHOTS}/boutons-plan-entete-telephone.png` });
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.waitForTimeout(300);
-  return boite;
+  await revenirAuGrandEcran(page);
+  return mesures?.entete ?? null;
 })();
 noter(
   'sur un téléphone aussi, l’entête reste sur une ligne',
@@ -301,19 +370,120 @@ noter(
 );
 await page.screenshot({ path: `${SHOTS}/boutons-plan-versions.png` });
 
-const messagesRefusAvant = await page.locator('text=Je refuse ce plan').count();
-await dernierCadre.getByRole('button', { name: 'Refuser' }).click();
-await page.waitForSelector('text=Je refuse ce plan', { timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(500);
-const messagesRefusApres = await page.locator('text=Je refuse ce plan').count();
+/* ---------- 4 bis. LES SUGGESTIONS D'OPTIMISATION ÉCRIVENT DANS LE CHAMP ---------- */
+
+/*
+ * Le mode plan est un brainstorming : sous le plan courant, quelques relances
+ * toutes prêtes (`suggestionsPourLePlan`, `shared/src/suggestions-de-plan.ts`).
+ * Un clic les DÉPOSE dans la barre d'écriture — il n'envoie RIEN : c'est
+ * l'envoi qui lance un tour, et il appartient à l'utilisateur.
+ */
+const barre = page.locator('textarea[placeholder="Écrivez votre demande…"]:visible').first();
+await barre.fill('');
+await page.waitForTimeout(200);
+
+const suggestions = dernierCadre.locator('[data-suggestion-plan]');
+await suggestions.first().waitFor({ state: 'visible', timeout: 20000 });
 noter(
-  '« Refuser » envoie aussi son message, sans rien taper',
-  messagesRefusApres > messagesRefusAvant,
-  `${messagesRefusAvant} → ${messagesRefusApres}`,
+  'le plan courant propose des suggestions d’optimisation',
+  (await suggestions.count()) >= 2,
+  `${await suggestions.count()} suggestion(s)`,
+);
+noter(
+  'une version précédente, elle, n’en propose aucune',
+  (await rouvert.locator('[data-suggestion-plan]').count()) === 0,
 );
 
-const arretRefus = page.getByRole('button', { name: "Arrêter l'action en cours" });
-if (await arretRefus.count()) await arretRefus.click();
+const messagesAvantSuggestion = await page.locator('[data-fil="conversation"]:visible >> text=Reprends ce plan').count();
+await suggestions.first().click();
+await page.waitForTimeout(400);
+const champApresSuggestion = await barre.inputValue();
+noter(
+  'un clic sur une suggestion l’écrit dans le champ de saisie',
+  champApresSuggestion.trim().length > 20,
+  champApresSuggestion.slice(0, 60),
+);
+noter(
+  '…et n’envoie rien : aucun message n’est parti',
+  (await page.locator('[data-fil="conversation"]:visible >> text=Reprends ce plan').count()) === messagesAvantSuggestion,
+);
+
+// Une seconde suggestion s'AJOUTE : on ne perd pas la première.
+await suggestions.nth(1).waitFor({ state: 'visible', timeout: 20000 });
+await suggestions.nth(1).click();
+await page.waitForTimeout(300);
+const champDeuxSuggestions = await barre.inputValue();
+noter(
+  'une seconde suggestion s’ajoute sous la première, sans l’écraser',
+  champDeuxSuggestions.includes(champApresSuggestion.trim()) &&
+    champDeuxSuggestions.trim().length > champApresSuggestion.trim().length,
+);
+await page.screenshot({ path: `${SHOTS}/boutons-plan-suggestions.png` });
+await barre.fill('');
+await page.waitForTimeout(200);
+
+/* ---------- 4 ter. « REFUSER » NE RELANCE PLUS RIEN TOUT SEUL ---------- */
+
+const messagesRefusAvant = await page.locator('[data-fil="conversation"]:visible >> text=Je refuse ce plan').count();
+await dernierCadre.getByRole('button', { name: 'Refuser' }).click();
+await page.waitForTimeout(800);
+const messagesRefusApres = await page.locator('[data-fil="conversation"]:visible >> text=Je refuse ce plan').count();
+noter(
+  '« Refuser » ne lance AUCUN tour : rien n’est parti dans le fil',
+  messagesRefusApres === messagesRefusAvant,
+  `${messagesRefusAvant} → ${messagesRefusApres}`,
+);
+const champApresRefus = await barre.inputValue();
+noter(
+  '…le refus est écrit dans la barre, prêt à être complété',
+  champApresRefus.includes('Je refuse ce plan'),
+  champApresRefus.slice(0, 60),
+);
+noter(
+  '…et le cadre le dit, pour qu’on ne reclique pas dans le vide',
+  (await dernierCadre.locator('[data-refus-prepare]').count()) === 1,
+);
+noter(
+  'le plan refusé garde ses boutons tant que rien n’est envoyé',
+  await dernierCadre.getByRole('button', { name: 'Valider' }).isVisible(),
+);
+await page.screenshot({ path: `${SHOTS}/boutons-plan-refus-prepare.png` });
+await barre.fill('');
+await page.waitForTimeout(200);
+
+/* ---------- 4 quater. SUR TÉLÉPHONE, LES BOUTONS S'EMPILENT ---------- */
+
+const surGrandEcran = await cadreCourantVisible(page);
+noter(
+  'sur grand écran, Valider et Refuser restent côte à côte',
+  !!surGrandEcran?.valider &&
+    !!surGrandEcran?.refuser &&
+    Math.abs(surGrandEcran.valider.y - surGrandEcran.refuser.y) < 4,
+  surGrandEcran?.valider && surGrandEcran?.refuser
+    ? `Valider y=${Math.round(surGrandEcran.valider.y)}, Refuser y=${Math.round(surGrandEcran.refuser.y)}`
+    : 'boutons introuvables',
+);
+
+await passerEnTelephone(page);
+const surTelephone = await cadreCourantVisible(page);
+noter(
+  'sur téléphone, Refuser passe SOUS Valider',
+  !!surTelephone?.valider &&
+    !!surTelephone?.refuser &&
+    surTelephone.refuser.y >= surTelephone.valider.y + surTelephone.valider.height - 2,
+  surTelephone?.valider && surTelephone?.refuser
+    ? `Valider y=${Math.round(surTelephone.valider.y)}, Refuser y=${Math.round(surTelephone.refuser.y)}`
+    : 'boutons introuvables',
+);
+noter(
+  '…et les boutons restent DANS le cadre, sans déborder',
+  !!surTelephone?.cadre &&
+    !!surTelephone?.refuser &&
+    surTelephone.refuser.x >= surTelephone.cadre.x - 1 &&
+    surTelephone.refuser.x + surTelephone.refuser.width <= surTelephone.cadre.x + surTelephone.cadre.width + 1,
+);
+await page.screenshot({ path: `${SHOTS}/boutons-plan-telephone.png` });
+await revenirAuGrandEcran(page);
 
 /* ---------- 5. « Repartir de cette version » relance le mode plan ---------- */
 

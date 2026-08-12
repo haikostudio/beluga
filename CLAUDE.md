@@ -189,7 +189,12 @@ le nom, là-bas le texte).
   un choix à soumettre se pose APRÈS les quatre parties. **Le mode plan ne retire PAS ses outils au chef**
   (`modePlanFermeLEcriture`, `shared/src/droits-mode-plan.ts`) : il garde `write_document` et
   `ask_user`, et une décision qui ne lui appartient pas se demande AVANT le plan, jamais tranchée
-  « par défaut ». L'entête du cadre tient sur UNE ligne.
+  « par défaut ». L'entête du cadre tient sur UNE ligne ; son PIED s'empile sous 640 px.
+- **« Refuser » et les SUGGESTIONS d'optimisation d'un plan ÉCRIVENT dans la barre d'écriture, sans
+  rien envoyer** (`shared/src/suggestions-de-plan.ts` ; canal `onEcrireDansLeChamp` de `chat.tsx`
+  vers `PlanBlock`, reçu par `Composer` en `aEcrire`) : aucun tour ne part sans un geste de
+  l'utilisateur — seul « Valider » enchaîne tout seul. Les suggestions ne paraissent que sous le
+  plan COURANT, écartent ce que le plan traite DÉJÀ et s'ajoutent au champ sans jamais l'écraser.
 - **La carte suit les ÉTAPES RÉELLES du travail** (`shared/src/suivi-colonne.ts`) : seul un agent de
   rôle « task » la déplace ; « analysis », « orchestrator » et « deploy » ne la déplacent jamais.
 - **Une carte NAÎT dans « Planifié »** (`createCard`, `server/src/tools.ts`) : ni « Validé » ni « À

@@ -10,6 +10,7 @@ import {
   insereAncre,
   jointesApresFrappe,
   retireAncre,
+  texteApresInsertion,
 } from '@haikodev/shared';
 import { useArretAgent } from '@/components/arret-agent';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
@@ -29,6 +30,13 @@ export interface ComposerProps {
   picked: string[];
   onRemovePicked: (text: string) => void;
   onClearPicked: () => void;
+  /**
+   * UN TEXTE DÉPOSÉ DEPUIS LE FIL, jamais envoyé : le refus d'un plan et ses
+   * suggestions d'optimisation (`shared/src/suggestions-de-plan.ts`). Il
+   * s'ajoute à ce qui est déjà écrit, il ne l'écrase pas. Le `nonce` distingue
+   * deux clics sur la MÊME pastille — sans lui, le second ne ferait rien.
+   */
+  aEcrire?: { texte: string; nonce: number } | null;
   projectId: string;
   /** Depuis une carte, l'envoi peut devenir une proposition de tâche (§15). */
   onProposeTask?: (text: string) => void;
@@ -47,6 +55,7 @@ export function Composer({
   picked,
   onRemovePicked,
   onClearPicked,
+  aEcrire,
   projectId,
   onProposeTask,
   dansTiroir,
@@ -114,6 +123,27 @@ export function Composer({
 
   // La dictée dépose son texte à la suite de ce qui est déjà écrit.
   const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
+
+  /*
+   * UN TEXTE DÉPOSÉ DEPUIS LE FIL (refus d'un plan, suggestion d'optimisation)
+   * s'écrit ICI et s'arrête là : aucun envoi, aucun tour lancé. Il s'AJOUTE à
+   * ce qui était en train d'être écrit — on ne perd pas une phrase en cours
+   * pour un clic — et le champ prend le curseur, à la fin du texte, pour que la
+   * frappe reprenne au bon endroit.
+   */
+  const dernierDepot = React.useRef<number>(0);
+  React.useEffect(() => {
+    if (!aEcrire || aEcrire.nonce === dernierDepot.current) return;
+    dernierDepot.current = aEcrire.nonce;
+    setText((avant) => texteApresInsertion(avant, aEcrire.texte));
+    const zone = textareaRef.current;
+    if (!zone) return;
+    window.requestAnimationFrame(() => {
+      zone.focus();
+      zone.setSelectionRange(zone.value.length, zone.value.length);
+      zone.scrollTop = zone.scrollHeight;
+    });
+  }, [aEcrire]);
 
   /*
    * Brouillon conservé par conversation, côté serveur : on le retrouve depuis
