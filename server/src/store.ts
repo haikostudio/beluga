@@ -1395,6 +1395,42 @@ export function saveMessage(message: Message): Message {
   return value;
 }
 
+/**
+ * BORNE LE DISQUE : le texte entier de chaque tour (consigne système,
+ * compétences, mémoire, passages, message courant) vit dans `sentContext` —
+ * précieux pour le lecteur de prompts, mais lourd sur des milliers de tours.
+ * Au-delà des `TOURS_CONTEXTE_CONSERVES` derniers tours d'un agent, le texte
+ * est retiré et seuls les compteurs (`characters`) restent : le lecteur
+ * affiche alors « texte non conservé » plutôt que du contenu inventé.
+ */
+export const TOURS_CONTEXTE_CONSERVES = 20;
+
+export function purgerContexteEnvoyeAncien(agentId: string): void {
+  const rows = getDb()
+    .prepare(`SELECT id, data FROM messages WHERE agent_id = ? ORDER BY created_at DESC`)
+    .all(agentId) as { id: string; data: string }[];
+  let gardes = 0;
+  for (const row of rows) {
+    const parsed = JSON.parse(row.data) as Message;
+    if (!parsed.sentContext) continue;
+    gardes += 1;
+    if (gardes <= TOURS_CONTEXTE_CONSERVES) continue;
+    const sc = parsed.sentContext;
+    const allege: Message = {
+      ...parsed,
+      sentContext: {
+        ...sc,
+        prompt: '',
+        systemInstruction: { ...sc.systemInstruction, content: '' },
+        blocks: sc.blocks.map((b) => ({ ...b, text: undefined })),
+        passages: sc.passages.map((p) => ({ ...p, texte: '' })),
+      },
+    };
+    if (JSON.stringify(allege) === row.data) continue;
+    getDb().prepare('UPDATE messages SET data = ? WHERE id = ?').run(JSON.stringify(allege), row.id);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* File de demandes (PLAN §14)                                         */
 /* ------------------------------------------------------------------ */

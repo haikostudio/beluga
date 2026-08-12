@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Activity, ArrowLeft, Clock, Gauge, ListChecks, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Clock, Gauge, ListChecks, TrendingUp } from 'lucide-react';
 import { couleurIntensite } from '@haikodev/shared';
 import { Button, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -76,23 +76,24 @@ function Tuile({ icone, titre, valeur, dessous }: { icone: React.ReactNode; titr
 }
 
 /**
- * Histogramme des tokens dépensés jour par jour, tous moteurs confondus. Une
- * barre par jour, du plus ancien au plus récent. À la souris, une infobulle
- * donne le détail au survol ; au toucher (téléphone, sans survol), un appui sur
- * une barre affiche ses chiffres sous le graphique et la met en évidence — un
- * second appui, ou un appui ailleurs, referme. Pur SVG : aucune bibliothèque de
+ * Histogramme du TEMPS DE TRAVAIL dépensé jour par jour, tous moteurs
+ * confondus — plus aucun compteur de jetons. Une barre par jour, du plus
+ * ancien au plus récent. À la souris, une infobulle donne le détail au
+ * survol ; au toucher (téléphone, sans survol), un appui sur une barre
+ * affiche son détail sous le graphique et la met en évidence — un second
+ * appui, ou un appui ailleurs, referme. Pur SVG : aucune bibliothèque de
  * graphiques dans le projet.
  */
 function CourbeParJour({ jours }: { jours: DonneesTableau['byDay'] }) {
   const [actif, setActif] = React.useState<string | null>(null);
   if (!jours.length) return <p className="text-[13px] text-faint">Aucune consommation relevée pour l'instant.</p>;
-  const max = Math.max(1, ...jours.map((j) => j.tokens));
+  const max = Math.max(1, ...jours.map((j) => j.seconds));
   const jourActif = jours.find((j) => j.day === actif) ?? null;
   return (
     <div>
       <div className="flex items-end gap-1" style={{ height: 140 }}>
         {jours.map((jour) => {
-          const hauteur = Math.max(2, Math.round((jour.tokens / max) * 120));
+          const hauteur = Math.max(2, Math.round((jour.seconds / max) * 120));
           const estActif = jour.day === actif;
           return (
             <button
@@ -101,8 +102,8 @@ function CourbeParJour({ jours }: { jours: DonneesTableau['byDay'] }) {
               onClick={() => setActif((prec) => (prec === jour.day ? null : jour.day))}
               className="flex min-w-0 flex-1 flex-col items-center gap-1"
               aria-pressed={estActif}
-              aria-label={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} tokens · ${dureeEnClair(jour.seconds)}`}
-              title={`${jourEnClair(jour.day)} · ${jour.tokens.toLocaleString('fr-CH')} tokens · ${dureeEnClair(jour.seconds)}`}
+              aria-label={`${jourEnClair(jour.day)} · ${dureeEnClair(jour.seconds)}`}
+              title={`${jourEnClair(jour.day)} · ${dureeEnClair(jour.seconds)}`}
             >
               <div className="flex w-full flex-1 items-end">
                 {/* La COULEUR dit l'intensité du jour (calme → chargé) ; la barre
@@ -110,7 +111,7 @@ function CourbeParJour({ jours }: { jours: DonneesTableau['byDay'] }) {
                     toutes les autres quelle que soit sa teinte. */}
                 <div
                   className={`w-full rounded-t ${estActif ? 'ring-2 ring-accent ring-offset-1 ring-offset-surface' : ''}`}
-                  style={{ height: hauteur, backgroundColor: couleurIntensite(jour.tokens, max) }}
+                  style={{ height: hauteur, backgroundColor: couleurIntensite(jour.seconds, max) }}
                   data-barre-jour={jour.day}
                 />
               </div>
@@ -126,7 +127,7 @@ function CourbeParJour({ jours }: { jours: DonneesTableau['byDay'] }) {
         {jourActif ? (
           <>
             <span className="font-semibold text-text">{jourEnClair(jourActif.day)}</span>
-            {` · ${jourActif.tokens.toLocaleString('fr-CH')} tokens · ${dureeEnClair(jourActif.seconds)}`}
+            {` · ${dureeEnClair(jourActif.seconds)}`}
           </>
         ) : (
           'Touchez une barre pour voir le détail du jour.'
@@ -159,7 +160,6 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
   const byProject = donnees?.byProject ?? [];
   const tempsTotal = byProject.reduce((total, p) => total + (p.seconds ?? 0), 0);
   const tachesTotal = byProject.reduce((total, p) => total + (p.tasks ?? 0), 0);
-  const tokensTotal = byProject.reduce((total, p) => total + (p.tokens ?? 0), 0);
   // Le classement suit le TEMPS de travail (ce que la ligne affiche), le plus long en tête,
   // et la barre mesure la même grandeur : elle décroît donc du haut vers le bas.
   const projetsParTemps = [...byProject].sort((a, b) => (b.seconds ?? 0) - (a.seconds ?? 0));
@@ -196,8 +196,8 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
             <p className="text-[13px] text-faint">Les statistiques n'ont pas pu être chargées. Réessayez dans un instant.</p>
           ) : null}
 
-          {/* 1. Chiffres de tête : temps de travail, tâches, tokens. */}
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {/* 1. Chiffres de tête : temps de travail, tâches. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Tuile
               icone={<Clock className="h-3.5 w-3.5" />}
               titre="Temps de travail total"
@@ -210,21 +210,15 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
               valeur={tachesTotal.toLocaleString('fr-CH')}
               dessous={`${byProject.length} projet${byProject.length > 1 ? 's' : ''} concerné${byProject.length > 1 ? 's' : ''}`}
             />
-            <Tuile
-              icone={<Activity className="h-3.5 w-3.5" />}
-              titre="Tokens consommés"
-              valeur={tokensTotal.toLocaleString('fr-CH')}
-              dessous="Tous moteurs confondus"
-            />
           </div>
 
-          {/* 2. La consommation au fil des jours. */}
+          {/* 2. Le temps de travail au fil des jours. */}
           <section className="rounded-lg border border-border bg-surface px-3 py-3">
             <h2 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-              <TrendingUp className="h-3.5 w-3.5 text-faint" /> Consommation au fil des jours
+              <TrendingUp className="h-3.5 w-3.5 text-faint" /> Activité au fil des jours
             </h2>
             <p className="mb-3 mt-0.5 text-[12.5px] text-faint">
-              Les tokens dépensés chaque jour, tous moteurs confondus, sur le dernier mois.
+              Le temps de travail des agents chaque jour, tous moteurs confondus, sur le dernier mois.
             </p>
             <CourbeParJour jours={jours} />
           </section>

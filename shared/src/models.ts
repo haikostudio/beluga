@@ -620,6 +620,19 @@ export const SentContextBlock = z.object({
   kind: z.enum(['request', 'briefing', 'memory', 'card', 'attachment', 'extra', 'format', 'system']),
   label: z.string(),
   characters: z.number().int().nonnegative(),
+  /**
+   * Le texte réel de ce bloc, tel qu'envoyé au moteur — c'est ce que lit le
+   * lecteur de prompts. Absent quand un texte purgé pour borner le disque
+   * (`purgerContexteEnvoyeAncien`), ou quand le bloc n'est pas isolable en
+   * clair (gabarit HaikoDev réparti dans le prompt).
+   */
+  text: z.string().optional(),
+  /**
+   * Vrai quand ce bloc est repris IDENTIQUE du tour précédent — le préfixe
+   * stable du moteur (`enteteDuTour`), relu au cache plutôt que renvoyé neuf.
+   * Faux par défaut : un bloc de contenu propre à ce tour n'est jamais en cache.
+   */
+  cached: z.boolean().optional(),
 });
 export type SentContextBlock = z.infer<typeof SentContextBlock>;
 

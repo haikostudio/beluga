@@ -340,6 +340,12 @@ export function instantaneContexteEnvoye(input: {
         kind: 'system',
         label: entier ? 'Consigne système complète' : 'Rappel de méthode',
         characters: input.systemPrompt.length,
+        text: input.systemPrompt,
+        // Sous Claude, la consigne entière est le PRÉFIXE de la session : à
+        // partir du deuxième tour, c'est le même texte relu au cache — pas
+        // renvoyé neuf. Codex, qui la colle derrière l'historique, n'a pas ce
+        // repère de cache moteur (`enteteDuTour`, shared/src/prefixe-cache.ts).
+        cached: input.engine === 'claude' && !input.nouvelleSession,
       },
     ],
     passages: input.passages ?? [],
@@ -758,12 +764,19 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
   const description = card?.description ?? '';
   const occurrencesDescription = description ? prompt.split(description).length - 1 : 0;
   const blocks: SentContextBlock[] = [
-    { kind: 'request', label: 'Demande utilisateur', characters: text.length },
-    ...contextParts.map((part) => ({ kind: part.kind, label: part.label, characters: part.content.length })),
+    { kind: 'request', label: 'Demande utilisateur', characters: text.length, text, cached: false },
+    ...contextParts.map((part) => ({
+      kind: part.kind,
+      label: part.label,
+      characters: part.content.length,
+      text: part.content,
+      cached: false,
+    })),
     {
       kind: 'format',
       label: 'Gabarit et séparateurs HaikoDev',
       characters: Math.max(0, prompt.length - text.length - contexteAssemble.length),
+      cached: false,
     },
   ];
   await startTurn(
@@ -1265,6 +1278,7 @@ async function startTurn(
     if (message) {
       const updated = store.saveMessage({ ...message, sentContext: instantane });
       bus.emit({ type: 'message.upsert', message: updated });
+      store.purgerContexteEnvoyeAncien(agent.id);
       // Un adaptateur d'essai peut rendre l'usage dès son appel ; dans ce cas
       // on applique aussitôt la mesure qui serait sinon arrivée trop tôt.
       if (runState.usage) mesurerContexteUtilisateur(contexteUtilisateur.messageId, runState.usage);

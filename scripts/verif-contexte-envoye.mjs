@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Le contexte réellement envoyé reste-t-il consultable sous la demande ? Le
- * tiroir montre une CHRONOLOGIE VERTICALE : un bloc par tour réellement parti
- * dans la conversation (numéroté, daté), les deux parties en tokens
- * (mémoire récupérée / envoi réel), les passages retrouvés — et un
- * récapitulatif en tête pour comparer les tours entre eux. Plus de pavé
- * « estimé / réellement mesuré » par couche. Démon et base d'essai à soi,
- * aucun moteur appelé, téléphone + ordinateur.
+ * LE LECTEUR DE PROMPTS reste-t-il consultable sous la demande ? Le tiroir
+ * « Contexte envoyé » du chef montre une CHRONOLOGIE VERTICALE : un tour par
+ * demande réellement partie (numéroté, daté), chacun dépliable en BLOCS
+ * NOMMÉS qui rendent le TEXTE réellement envoyé — pas un chiffre. Un bloc
+ * relu au cache porte un repère visuel dédié. La recherche filtre les blocs
+ * par leur texte, et la copie recopie le texte réel. Démon et base d'essai à
+ * soi, aucun moteur appelé, téléphone + ordinateur.
  */
 import { chromium } from 'playwright';
 import Database from 'better-sqlite3';
@@ -171,11 +171,11 @@ function poserDecor() {
           transport: 'prefixed',
         },
         blocks: [
-          { kind: 'request', label: 'Demande utilisateur', characters: 42 },
-          { kind: 'memory', label: 'Nouveaux faits de la mémoire', characters: MEMOIRE_SUIVI.length },
-          { kind: 'card', label: 'Carte en cours', characters: 820 },
+          { kind: 'request', label: 'Demande utilisateur', characters: 42, text: 'Montre-moi le contexte réellement envoyé.', cached: false },
+          { kind: 'memory', label: 'Nouveaux faits de la mémoire', characters: MEMOIRE_SUIVI.length, text: MEMOIRE_SUIVI, cached: false },
+          { kind: 'card', label: 'Carte en cours', characters: 820, text: 'CARTE EN COURS : « Essai — mémoire et envoi »', cached: false },
           { kind: 'format', label: 'Gabarit et séparateurs HaikoDev', characters: 372 },
-          { kind: 'system', label: 'Rappel de méthode', characters: 46 },
+          { kind: 'system', label: 'Rappel de méthode', characters: 46, text: 'RAPPEL DE MÉTHODE : lis, constate et vérifie.', cached: true },
         ],
         passages: [],
         passagesRaison:
@@ -207,8 +207,8 @@ function poserDecor() {
           transport: 'prefixed',
         },
         blocks: [
-          { kind: 'request', label: 'Demande utilisateur', characters: 40 },
-          { kind: 'memory', label: 'Nouveaux faits de la mémoire', characters: MEMOIRE_DEUXIEME_TOUR.length },
+          { kind: 'request', label: 'Demande utilisateur', characters: 40, text: 'Et maintenant, montre-moi le tour suivant.', cached: false },
+          { kind: 'memory', label: 'Nouveaux faits de la mémoire', characters: MEMOIRE_DEUXIEME_TOUR.length, text: MEMOIRE_DEUXIEME_TOUR, cached: false },
         ],
         passages: [
           {
@@ -284,9 +284,9 @@ function poserDecor() {
         prompt: PROMPT,
         systemInstruction: { kind: 'full', content: 'MÉTHODE : lire, constater, vérifier.', transport: 'separate' },
         blocks: [
-          { kind: 'request', label: 'Demande utilisateur', characters: 42 },
-          { kind: 'briefing', label: 'Briefing du projet', characters: 500 },
-          { kind: 'memory', label: 'Passages retrouvés dans la documentation (2)', characters: MEMOIRE_OUVERTURE.length },
+          { kind: 'request', label: 'Demande utilisateur', characters: 42, text: 'Réalise cette tâche.', cached: false },
+          { kind: 'briefing', label: 'Briefing du projet', characters: 500, text: 'BRIEFING DU PROJET — Essai contexte envoyé.', cached: false },
+          { kind: 'memory', label: 'Passages retrouvés dans la documentation (2)', characters: MEMOIRE_OUVERTURE.length, text: MEMOIRE_OUVERTURE, cached: false },
         ],
         /* Ce que la RECHERCHE est allée chercher toute seule : source, titre,
            pertinence et coût. C'est ce qui rend le contexte remonté par la
@@ -366,8 +366,8 @@ try {
     try {
       const boutons = page.locator('[data-contexte-envoye]:visible');
       noter(`${cas.nom} : seuls les deux tours réellement partis portent un bouton`, (await boutons.count()) === 2);
-      noter(`${cas.nom} : le premier bouton affiche la mesure de SON tour`, /1\D?234 tokens/.test(await boutons.first().innerText()));
-      noter(`${cas.nom} : le second bouton affiche la mesure de SON tour`, /2\D?000 tokens/.test(await boutons.last().innerText()));
+      const texteBoutonPremier = await boutons.first().innerText();
+      noter(`${cas.nom} : le bouton n’affiche plus aucun chiffre de jetons`, !/\d[\s ]*tokens?/i.test(texteBoutonPremier));
       const suitReperes = await boutons.first().evaluate((el) => (el.previousElementSibling?.textContent ?? '').includes('Copier'));
       noter(`${cas.nom} : le bouton suit les repères du message`, suitReperes);
 
@@ -376,20 +376,9 @@ try {
       await tiroir.waitFor({ state: 'visible' });
 
       /*
-       * LE RÉCAPITULATIF, EN TÊTE : de quoi comparer les deux tours entre eux
-       * d'un coup d'œil — 2 tours, 1 100 tokens de mémoire (800 + 300),
-       * 3 234 tokens envoyés au total (1 234 + 2 000).
-       */
-      const recap = tiroir.locator('[data-recap-envoi]');
-      noter(`${cas.nom} : le récapitulatif est présent`, (await recap.count()) === 1);
-      const texteRecap = await recap.innerText();
-      noter(`${cas.nom} : le récapitulatif compte les deux tours`, /2 tours envoyés/i.test(texteRecap), texteRecap.replace(/\n/g, ' '));
-      noter(`${cas.nom} : le récapitulatif additionne la mémoire des deux tours`, /1\D?100 tokens/.test(texteRecap), texteRecap.replace(/\n/g, ' '));
-      noter(`${cas.nom} : le récapitulatif additionne l’envoi des deux tours`, /3\D?234 tokens/.test(texteRecap), texteRecap.replace(/\n/g, ' '));
-
-      /*
-       * LA PILE VERTICALE : un bloc par tour, numéroté et daté, dans l'ordre
-       * où il est réellement parti.
+       * LA PILE VERTICALE : un tour par demande, numéroté et daté, dans
+       * l'ordre où il est réellement parti — servie par le lecteur de
+       * prompts partagé.
        */
       const tours = tiroir.locator('[data-tour-envoye]');
       noter(`${cas.nom} : la chronologie montre les deux tours`, (await tours.count()) === 2);
@@ -400,39 +389,55 @@ try {
 
       // Le tour d'où le tiroir a été ouvert (le premier) est déplié en entrant.
       noter(`${cas.nom} : le tour d’origine distingue la reprise`, (await tours.nth(0).innerText()).includes('Reprise de session'));
-      const raisonAbsence = tours.nth(0).locator('[data-passages-retrouves-absents]');
-      noter(`${cas.nom} : l’absence de passages du premier tour est expliquée`, (await raisonAbsence.count()) === 1);
-      const texteRaison = (await raisonAbsence.count()) ? await raisonAbsence.innerText() : '';
+
+      /*
+       * LE TEXTE RÉEL D'UN BLOC : déplié, il rend le texte exact envoyé au
+       * moteur — pas un chiffre. C'est le cœur du lecteur de prompts.
+       */
+      const blocMemoire = tours.nth(0).locator('[data-bloc-prompt]', { hasText: 'Nouveaux faits de la mémoire' });
+      await blocMemoire.click();
       noter(
-        `${cas.nom} : la raison nomme la reprise de session`,
-        /Reprise de session/.test(texteRaison),
-        texteRaison.replace(/\n/g, ' '),
+        `${cas.nom} : le bloc « Nouveaux faits de la mémoire » rend le texte réel envoyé`,
+        (await blocMemoire.locator('pre').innerText()) === MEMOIRE_SUIVI,
+      );
+
+      // Le bloc système du premier tour est marqué RELU AU CACHE, visuellement.
+      const blocSysteme = tours.nth(0).locator('[data-bloc-prompt][data-cache="relu"]');
+      noter(`${cas.nom} : le bloc système du premier tour porte le repère « relu au cache »`, (await blocSysteme.count()) === 1);
+      noter(
+        `${cas.nom} : le repère se lit « relu au cache », sans chiffre`,
+        /relu au cache/.test(await blocSysteme.first().innerText()),
+      );
+
+      // Le second tour, replié par défaut, se déplie au clic et montre son propre passage retrouvé.
+      noter(`${cas.nom} : le second tour est replié par défaut`, (await tours.nth(1).locator('pre').count()) === 0);
+      await tours.nth(1).getByRole('button').first().click();
+      const texteSecondTour = await tours.nth(1).innerText();
+      noter(
+        `${cas.nom} : déplié, le second tour nomme le passage retrouvé`,
+        /docs\/regles\/quotas\.md/.test(texteSecondTour),
+      );
+      const blocDemandeSecondTour = tours.nth(1).locator('[data-bloc-prompt]', { hasText: 'Demande utilisateur' });
+      await blocDemandeSecondTour.click();
+      noter(
+        `${cas.nom} : le bloc « Demande utilisateur » du second tour rend son texte exact`,
+        (await blocDemandeSecondTour.locator('pre').innerText()) === 'Et maintenant, montre-moi le tour suivant.',
       );
 
       /*
-       * DEUX PARTIES, EN TOKENS, POUR LE PREMIER TOUR : la mémoire
-       * (800 tokens, 3 200 signes / 4) contre l'envoi réel (1 234 tokens).
+       * LA RECHERCHE : taper un mot du deuxième tour ne laisse que les blocs
+       * qui le contiennent — le premier tour, sans ce mot, disparaît.
        */
-      const bloc = tours.nth(0).locator('[data-memoire-vs-envoi]');
-      noter(`${cas.nom} : le bloc mémoire / envoi du premier tour est présent`, (await bloc.count()) === 1);
-      const texteBloc = await bloc.innerText();
-      noter(`${cas.nom} : la mémoire récupérée est en tokens`, /800 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
-      noter(`${cas.nom} : l’envoi réel est en tokens`, /1\D?234 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
-      noter(`${cas.nom} : la part de la mémoire dans l’envoi est dite`, /65 %/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
-
-      noter(`${cas.nom} : le prompt exact du premier tour est visible dès qu’il est déplié`, (await tours.nth(0).locator('[data-prompt-envoye]').innerText()) === PROMPT);
-
-      // Le second tour, replié par défaut, se déplie au clic et montre son propre passage retrouvé.
-      noter(`${cas.nom} : le second tour est replié par défaut`, (await tours.nth(1).locator('[data-passages-retrouves]').count()) === 0);
-      await tours.nth(1).getByRole('button').first().click();
-      const passagesSecondTour = tours.nth(1).locator('[data-passages-retrouves]');
-      noter(`${cas.nom} : déplié, le second tour montre son passage retrouvé`, (await passagesSecondTour.count()) === 1);
+      const recherche = tiroir.locator('[data-recherche-prompt]');
+      await recherche.fill('tour suivant');
+      await page.waitForTimeout(150);
       noter(
-        `${cas.nom} : le passage du second tour nomme sa source`,
-        /docs\/regles\/quotas\.md/.test(await passagesSecondTour.innerText()),
+        `${cas.nom} : la recherche filtre sur le texte des blocs`,
+        (await tours.count()) === 1 && (await tours.first().getAttribute('data-numero')) === '2',
       );
-      const pliages = await tours.nth(1).locator('[data-passage-retrouve] button, [data-passage-retrouve] [aria-expanded]').count();
-      noter(`${cas.nom} : aucun repli à déplier sur un passage`, pliages === 0);
+      await recherche.fill('');
+      await page.waitForTimeout(150);
+      noter(`${cas.nom} : vider la recherche rend les deux tours`, (await tours.count()) === 2);
 
       await page.evaluate(() => {
         window.__contexteCopie = '';
@@ -443,14 +448,15 @@ try {
       });
       await tiroir.getByRole('button', { name: /Tout copier/ }).click();
       const copie = await page.evaluate(() => window.__contexteCopie);
-      noter(`${cas.nom} : la copie contient les deux tours`, copie.includes(PROMPT) && copie.includes('Tour 2'));
+      noter(`${cas.nom} : la copie contient le texte réel des deux tours`, copie.includes(MEMOIRE_SUIVI) && copie.includes('Tour 2'));
 
-      const defile = await tiroir.locator('[data-contexte-envoye-contenu]').evaluate((zone) => {
-        const avant = zone.scrollTop;
-        zone.scrollTop = zone.scrollHeight;
-        return zone.scrollHeight > zone.clientHeight && zone.scrollTop > avant;
+      // Replié par défaut, le lecteur de prompts tient souvent sans défiler ;
+      // la zone doit simplement rester PRÊTE à le faire dès que le contenu
+      // déborde (aucun `overflow: hidden` posé en dur).
+      const zonePrete = await tiroir.locator('[data-contexte-envoye-contenu]').evaluate((zone) => {
+        return getComputedStyle(zone).overflowY !== 'hidden' && getComputedStyle(zone).overflowY !== 'visible';
       });
-      noter(`${cas.nom} : le contenu du tiroir défile`, defile);
+      noter(`${cas.nom} : la zone du tiroir est prête à défiler`, zonePrete);
       noter(`${cas.nom} : aucune erreur de page`, erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, `contexte-envoye-${cas.telephone ? 'telephone' : 'ordinateur'}.png`) });
     } finally {
@@ -460,8 +466,8 @@ try {
 
   /*
    * DANS LE TIROIR D'UNE CARTE : la session neuve a reçu l'index de mémoire
-   * ENTIER au premier tour (2 000 tokens, 8 000 signes / 4) — le même bloc
-   * mémoire / envoi doit s'y afficher, imbriqué dans le panneau de carte.
+   * ENTIER au premier tour — le même lecteur de prompts doit s'y afficher,
+   * imbriqué dans le panneau de carte, avec le texte réel des passages.
    */
   choisirTheme('dark');
   {
@@ -477,32 +483,33 @@ try {
 
       await panneau.locator('[data-contexte-envoye]').first().click();
       const tiroir = page.getByRole('dialog').last();
-      const bloc = tiroir.locator('[data-memoire-vs-envoi]');
-      await bloc.waitFor({ state: 'visible', timeout: 10_000 });
-
-      const texteBloc = await bloc.innerText();
-      noter('carte : la session neuve porte l’index entier de mémoire', /2\D?000 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
-      noter('carte : l’envoi réel de ce tour est dit', /5\D?000 tokens/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
-      noter('carte : la part de la mémoire dans l’envoi est dite', /40 %/.test(texteBloc), texteBloc.replace(/\n/g, ' '));
+      const tour = tiroir.locator('[data-tour-envoye]').first();
+      await tour.waitFor({ state: 'visible', timeout: 10_000 });
 
       /*
-       * LES PASSAGES RETROUVÉS : source, titre, pertinence et coût. Un contexte
-       * choisi par la machine doit rester lisible, sinon personne ne peut dire
-       * pourquoi l'agent a lu ceci plutôt que cela.
+       * LES PASSAGES RETROUVÉS : source, titre — et leur texte réel, pas un
+       * coût en tokens. Un contexte choisi par la machine doit rester lisible,
+       * sinon personne ne peut dire pourquoi l'agent a lu ceci plutôt que cela.
        */
-      const listePassages = tiroir.locator('[data-passages-retrouves]');
-      noter('carte : le tiroir liste les passages retrouvés', (await listePassages.count()) === 1);
-      const textePassages = (await listePassages.count()) ? await listePassages.innerText() : '';
-      noter('carte : chaque passage dit son fichier', /docs\/regles\/cartes\.md/.test(textePassages) && /ajouter-une-colonne\.md/.test(textePassages), textePassages.replace(/\n/g, ' '));
-      noter('carte : chaque passage dit sa pertinence', /61 %/.test(textePassages) && /44 %/.test(textePassages), textePassages.replace(/\n/g, ' '));
-      noter('carte : chaque passage dit son coût en tokens', /320 tokens/.test(textePassages) && /180 tokens/.test(textePassages), textePassages.replace(/\n/g, ' '));
+      const texteTour = await tour.innerText();
       noter(
-        'carte : le texte de chaque passage est affiché en clair, sans repli',
-        /Une carte NAÎT dans « Planifié »/.test(textePassages) && /Mode d’emploi pour ajouter une colonne/.test(textePassages),
-        textePassages.replace(/\n/g, ' '),
+        'carte : le tour nomme les deux passages retrouvés',
+        /docs\/regles\/cartes\.md/.test(texteTour) && /ajouter-une-colonne\.md/.test(texteTour),
+        texteTour.replace(/\n/g, ' '),
       );
-      const pliages = await tiroir.locator('[data-passage-retrouve] button, [data-passage-retrouve] [aria-expanded]').count();
-      noter('carte : aucun repli à déplier sur un passage', pliages === 0);
+      const blocPassage = tour.locator('[data-bloc-prompt]', { hasText: 'cartes.md' });
+      await blocPassage.click();
+      noter(
+        'carte : le texte du premier passage est affiché en clair',
+        /Une carte NAÎT dans « Planifié »/.test(await blocPassage.locator('pre').innerText()),
+      );
+      const blocBriefing = tour.locator('[data-bloc-prompt]', { hasText: 'Briefing du projet' });
+      await blocBriefing.click();
+      noter(
+        'carte : le bloc « Briefing du projet » rend son texte réel',
+        (await blocBriefing.locator('pre').innerText()) === 'BRIEFING DU PROJET — Essai contexte envoyé.',
+      );
+      noter('carte : aucun compteur de jetons dans le tour', !/\d[\s ]*tokens?\b/i.test(texteTour));
       noter('carte : aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte.png') });
     } finally {
