@@ -33,7 +33,10 @@ import {
   ampleurParDefaut,
   checkTemplate,
   motifDArretQuota,
+  MotifDeContinuite,
+  tachesAPoursuivre,
   cleDeSession,
+  partMoteurDeLaCle,
   colonneApresMoteurMuet,
   colonneAuDemarrage,
   colonneEnFinDeTour,
@@ -90,6 +93,7 @@ import { rechercherPourLaTache } from './passages.js';
 import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
+  AccountRecord,
   pickAccount,
   noteAccountUse,
   applyAccountEnv,
@@ -491,6 +495,42 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
   // contexte qui suit doit annoncer à l'agent la colonne où il repart.
   replacerCarteAuDemarrage(agent);
 
+  /*
+   * LE COMPTE SE CHOISIT AVANT LE CONTEXTE, PLUS APRÈS.
+   *
+   * Le fil du moteur vit dans le COFFRE du compte : changer de compte, c'est
+   * repartir d'une conversation vide, que ce soit sur bascule automatique ou
+   * après une reprise pour limite atteinte. Or c'est ICI que se décide ce qu'on
+   * envoie — briefing entier ou simple message de suite. Choisir le compte plus
+   * bas, comme avant, revenait à préparer un message de suite pour un fil qui
+   * n'existait pas : le moteur refusait le `--resume`, et le travail en cours
+   * était perdu au lieu d'être poursuivi.
+   *
+   * Un compte IMPOSÉ passe devant : il vient d'un choix humain, revérifié à
+   * l'instant du clic. Le choix automatique retomberait sur le compte à sec,
+   * puisqu'il classe par priorité.
+   */
+  const compteImpose = options.compteImpose
+    ? listAccountRecords().find((a) => a.id === options.compteImpose && a.engine === agent.run.engine)
+    : undefined;
+  const account = compteImpose ?? (await pickAccount(agent.run.engine));
+  if (!account) {
+    const message = store.saveMessage(
+      Message.parse({
+        id: store.newId(),
+        agentId,
+        role: 'assistant',
+        content:
+          "Aucun compte n'a de quota disponible pour le moment. La demande attend : elle repartira dès la remise à zéro.",
+        error: 'quota',
+        createdAt: store.now(),
+      }),
+    );
+    bus.emit({ type: 'message.upsert', message });
+    setStatus(agent, 'idle');
+    return;
+  }
+
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
   const template: TemplateKind =
     options.template ??
@@ -505,7 +545,17 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
    * lui apprend rien et coûte des jetons à chaque tour. Sur les tours suivants,
    * on n'envoie donc que les faits AJOUTÉS depuis.
    */
-  const nouvelleSession = !store.getSessionId(agent.id, cleDeSession(agent.run.engine, agent.run.model));
+  const cleSession = cleDeSession(agent.run.engine, agent.run.model, account.id);
+  const nouvelleSession = !store.getSessionId(agent.id, cleSession);
+  /*
+   * FIL NEUF PARCE QU'ON A CHANGÉ DE COMPTE. Il existait bien une conversation
+   * pour ce moteur et ce modèle : elle appartient simplement au coffre d'un
+   * autre compte, donc elle n'est pas reprenable. Ce n'est pas un premier tour,
+   * c'est la SUITE d'un travail — l'agent doit repartir avec ce qu'il savait.
+   */
+  const filDuCompteDavant = nouvelleSession
+    ? store.filSurUnAutreCompte(agent.id, partMoteurDeLaCle(agent.run.engine, agent.run.model), cleSession)
+    : null;
   /*
    * Le NIVEAU d'accueil ne dit pas QUAND on accueille (ça, c'est
    * `nouvelleSession`), mais AVEC QUOI. Un dépannage de publication n'emporte
@@ -604,6 +654,23 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
         kind: 'extra',
         content: agent.context.continuitySummary,
       });
+    } else if (filDuCompteDavant) {
+      /*
+       * LE TRAVAIL NE SE REDÉCOUVRE PAS. Le fil précédent est resté dans le
+       * coffre de l'autre compte : on ne peut pas le reprendre, mais on peut le
+       * RÉSUMER — carte, décisions déjà prises, liste de tâches là où elle en
+       * était, échanges récents, sujets de mémoire utiles. L'agent poursuit donc
+       * au lieu de tout rouvrir et de reposer des questions déjà tranchées.
+       */
+      const resume = resumePourAgent(agent, 'changement-de-compte');
+      contextParts.push({
+        label: 'Résumé de continuité — reprise sur un autre compte',
+        kind: 'extra',
+        content: resume,
+      });
+      log.info(
+        `agent ${agent.id} : fil neuf sur le compte ${account.label} (le précédent appartient à un autre coffre) — résumé de continuité de ${resume.length} signes`,
+      );
     }
   } else {
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
@@ -727,7 +794,15 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
         }
       : undefined,
     niveau,
-    options.compteImpose,
+    {
+      account,
+      cleSession,
+      // POURSUITE : ce tour ne commence rien, il reprend un travail coupé. Le
+      // compte imposé ne vient que de là (le clic « Avec quel compte
+      // poursuivre ? »), et c'est ce qui autorise le tour à garder l'avancement
+      // et la liste de tâches du tour d'avant.
+      poursuite: Boolean(compteImpose),
+    },
   );
 }
 
@@ -782,7 +857,7 @@ async function startTurn(
   agentBefore: Agent,
   prompt: string,
   template: TemplateKind,
-  onComplete?: PromptOptions['onComplete'],
+  onComplete: PromptOptions['onComplete'] | undefined,
   /** Vrai au tout premier tour d'une session : c'est là qu'on lit la mémoire. */
   nouvelleSession = true,
   ampleur: Ampleur = 'complete',
@@ -792,11 +867,15 @@ async function startTurn(
     cardDescriptionCharacters: 0,
     memoryAndInstructionsCharacters: 0,
   },
-  contexteUtilisateur?: ContexteUtilisateurDuTour,
+  contexteUtilisateur: ContexteUtilisateurDuTour | undefined,
   /** L'accueil que mérite cet agent : « minimal » pour un dépannage de publication. */
-  niveau: NiveauDAccueil = 'complet',
-  /** Le compte choisi à la main pour ce tour (reprise après épuisement). */
-  compteImpose?: string,
+  niveau: NiveauDAccueil,
+  /**
+   * Ce que `preparerLeTour` a déjà tranché et que ce tour ne redécide pas : le
+   * COMPTE porteur (le contexte a été bâti pour lui) et la clé sous laquelle son
+   * fil est rangé. `poursuite` dit que ce tour reprend un travail coupé.
+   */
+  tour: { account: AccountRecord; cleSession: string; poursuite: boolean },
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -826,33 +905,13 @@ async function startTurn(
   replacerCarteAuDemarrage(agent);
 
   /*
-   * Choix du compte (x20 d'abord, Pro en relève) — décidé AU LANCEMENT, jamais
-   * en plein vol (PLAN §13).
-   *
-   * Un compte IMPOSÉ passe devant : il vient d'un choix humain, revérifié à
-   * l'instant du clic (reprise après épuisement). Le choix automatique
-   * retomberait sur le compte à sec, puisqu'il classe par priorité.
+   * Le compte (x20 d'abord, Pro en relève) est décidé AU LANCEMENT, jamais en
+   * plein vol (PLAN §13) — et depuis `preparerLeTour`, AVANT le contexte : le
+   * fil du moteur vit dans le coffre du compte, donc le compte décide de ce
+   * qu'on envoie. On ne le rechoisit pas ici, sinon deux tours de la même
+   * demande pourraient partir sur deux comptes différents.
    */
-  const compteChoisi = compteImpose
-    ? listAccountRecords().find((a) => a.id === compteImpose && a.engine === agent.run.engine)
-    : undefined;
-  const account = compteChoisi ?? (await pickAccount(agent.run.engine));
-  if (!account) {
-    const message = store.saveMessage(
-      Message.parse({
-        id: store.newId(),
-        agentId: agent.id,
-        role: 'assistant',
-        content:
-          "Aucun compte n'a de quota disponible pour le moment. La demande attend : elle repartira dès la remise à zéro.",
-        error: 'quota',
-        createdAt: store.now(),
-      }),
-    );
-    bus.emit({ type: 'message.upsert', message });
-    setStatus(agent, 'idle');
-    return;
-  }
+  const account = tour.account;
 
   /*
    * PREMIER REPÈRE DE LA CONVERSATION : la mémoire du projet est relue avant
@@ -892,12 +951,23 @@ async function startTurn(
       // la relit pas et on n'affiche donc pas l'étape.
       null;
 
+  /*
+   * LA LISTE DE TÂCHES TRAVERSE LA COUPURE. Elle vit sur le MESSAGE du tour :
+   * un tour coupé par une limite de compte l'emportait donc avec lui, et la
+   * reprise repartait avec une liste vide — plus rien à l'écran, plus rien dans
+   * le décroché de la carte. On recopie ici celle du dernier tour qui en avait
+   * une (`tachesAPoursuivre`) : elle est visible dès la première seconde, et la
+   * liste que l'agent renverra viendra s'y rapprocher ligne par ligne.
+   */
+  const todosRepris = tour.poursuite ? tachesReprises(agent.id) : [];
+
   const assistantMessage = Message.parse({
     id: store.newId(),
     agentId: agent.id,
     role: 'assistant',
     content: '',
     steps: memoryStep ? [memoryStep] : [],
+    todos: todosRepris,
     streaming: true,
     plan: agent.run.mode === 'plan',
     createdAt: store.now(),
@@ -911,7 +981,7 @@ async function startTurn(
     messageId: assistantMessage.id,
     startedAt: Date.now(),
     steps: new Map(memoryStep ? [[memoryStep.id, memoryStep]] : []),
-    todos: [],
+    todos: todosRepris,
     text: '',
     account: account.id,
     quota5h: 0,
@@ -983,12 +1053,14 @@ async function startTurn(
   };
 
   /*
-   * Le fil à reprendre appartient au moteur ET, sous Codex, au modèle qui l'a
-   * ouvert : `codex exec resume` refuse un fil enregistré avec un autre modèle
-   * (voir `cleDeSession`). Un changement de réglage ouvre donc un fil neuf au
-   * lieu d'afficher une erreur.
+   * Le fil à reprendre appartient au moteur, au COMPTE dont le coffre le porte
+   * et, sous Codex, au modèle qui l'a ouvert : `codex exec resume` refuse un fil
+   * enregistré avec un autre modèle, et aucun moteur ne retrouve dans un coffre
+   * un fil ouvert dans un autre (voir `cleDeSession`). Un changement de réglage
+   * ou de compte ouvre donc un fil neuf au lieu d'afficher une erreur — la clé
+   * est celle calculée en amont, avec le compte de ce tour.
    */
-  const cleSession = cleDeSession(agent.run.engine, agent.run.model);
+  const cleSession = tour.cleSession;
   const sessionId = store.getSessionId(agent.id, cleSession);
   const systemPromptRappel = rappelDeMethode(agent.run.engine);
   /*
@@ -1024,10 +1096,15 @@ async function startTurn(
 
   // L'avancement d'un tour précédent ne vaut rien pour celui-ci : on repart
   // sans liste, sinon le décroché de la carte montrerait un vieux « 3/3 ».
+  // SAUF une POURSUITE : là, l'avancement d'avant est justement celui du travail
+  // qui reprend — l'effacer ferait clignoter la carte à « aucune étape » alors
+  // que sept sur dix sont faites.
   setStatus(agent, 'running', {
     startedAt: Date.now(),
     account: account.id,
-    todos: undefined,
+    todos: todosRepris.length
+      ? { done: todosRepris.filter((todo) => todo.state === 'done').length, total: todosRepris.length }
+      : undefined,
     // Un fil neuf ne réutilise jamais la mesure du fil précédent. Tant que le
     // moteur ne parle pas, l'interface montre explicitement « indisponible ».
     contextUsage: nouvelleSession ? undefined : agent.contextUsage,
@@ -1719,7 +1796,19 @@ interface OptionsCompression {
   cleSession: string;
 }
 
-function resumePourAgent(agent: Agent): string {
+/**
+ * La liste de tâches à reprendre : celle du DERNIER tour qui en portait une.
+ * Un tour coupé n'en a pas toujours écrit — le moteur peut être tombé avant —,
+ * on remonte donc le fil jusqu'à la dernière liste connue plutôt que de rendre
+ * un vide qui ferait croire à un travail sans étapes.
+ */
+function tachesReprises(agentId: string): TodoItem[] {
+  const dernier = [...store.listMessages(agentId)].reverse().find((message) => message.todos.length);
+  if (!dernier) return [];
+  return tachesAPoursuivre(dernier.todos).map((todo) => TodoItem.parse(todo));
+}
+
+function resumePourAgent(agent: Agent, motif: MotifDeContinuite = 'compression'): string {
   const project = store.getProject(agent.projectId)!;
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
   const messages = store.listMessages(agent.id);
@@ -1751,6 +1840,7 @@ function resumePourAgent(agent: Agent): string {
     todos: dernierAvecTaches?.todos.map((todo) => `${todo.state} : ${todo.label}`),
     attachments,
     memoire: memoireDeReprise(project.path, agent, card),
+    motif,
   });
 }
 

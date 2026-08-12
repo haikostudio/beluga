@@ -394,8 +394,15 @@ le nom, là-bas le texte).
   l'événement structuré du moteur ou sa bannière de texte, jamais sur un à-peu-près — arrêt manuel,
   tour réussi et citation d'un agent sont écartés. Le clic revérifie le compte sur un relevé frais,
   retient le choix AVANT de lancer (double clic sans effet) et relance le MÊME agent avec sa
-  session, sa branche et ses étapes restantes. Aucun compte libre : le choix reste ouvert et
+  branche et ses étapes restantes. Aucun compte libre : le choix reste ouvert et
   s'actualise tout seul avec les quotas.
+- **Le fil du moteur appartient au COMPTE qui l'a ouvert** (`cleDeSession`,
+  `shared/src/reprise-moteur.ts`) : la conversation vit dans le COFFRE du compte
+  (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), donc changer de compte ouvre un fil NEUF — jamais un
+  `--resume` que l'autre coffre refuserait. Le compte se choisit donc AVANT le contexte
+  (`preparerLeTour`, `server/src/runtime.ts`), et le fil neuf repart AVEC un résumé de continuité
+  (`resumeContinuite`, motif `changement-de-compte`) et la liste de tâches recopiée entière
+  (`tachesAPoursuivre`) : on poursuit, on ne redécouvre pas.
 - **Chaque échéance de quota connue déclenche une lecture ciblée après 15 s**
   (`server/src/quota-echeances.ts`) : échéances proches groupées, lecture en cours partagée,
   temporisation du fournisseur respectée, nouvel essai jusqu'à un relevé frais puis réveil immédiat

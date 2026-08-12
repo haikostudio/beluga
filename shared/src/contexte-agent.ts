@@ -144,6 +144,27 @@ export interface MemoireDeReprise {
   autres?: string[];
 }
 
+/**
+ * POURQUOI le fil du moteur repart à neuf. Les deux causes ne se disent pas de
+ * la même façon : après une compression, l'agent a « oublié » un contexte trop
+ * lourd ; après un changement de compte, il n'a rien oublié du tout — son fil
+ * est simplement resté dans le coffre de l'autre compte, et le travail, lui,
+ * n'a pas bougé d'un pouce.
+ */
+export type MotifDeContinuite = 'compression' | 'changement-de-compte';
+
+const TITRE_DE_CONTINUITE: Record<MotifDeContinuite, string> = {
+  compression: 'RÉSUMÉ DE CONTINUITÉ APRÈS COMPRESSION',
+  'changement-de-compte': 'RÉSUMÉ DE CONTINUITÉ — TU REPARS SUR UN AUTRE COMPTE',
+};
+
+const CLOTURE_DE_CONTINUITE: Record<MotifDeContinuite, string> = {
+  compression:
+    "Poursuis depuis cet état. La conversation visible reste intacte dans HaikoDev ; ce résumé remplace seulement l'ancien contexte interne du moteur.",
+  'changement-de-compte':
+    "POURSUIS EXACTEMENT OÙ TU T'ES ARRÊTÉ. Le compte précédent avait atteint sa limite : seul le fil interne du moteur repart à neuf, car il appartenait au coffre de ce compte. Ton travail, lui, n'a pas bougé — même branche, mêmes fichiers, mêmes étapes. Reprends la liste de tâches ci-dessus là où elle en était, ne recommence rien de ce qui est déjà fait, ne relis pas ce que tu as déjà lu et ne repose pas une question déjà tranchée.",
+};
+
 export interface EntreeResumeContinuite {
   project: string;
   workdir: string;
@@ -155,6 +176,8 @@ export interface EntreeResumeContinuite {
   todos?: string[];
   attachments?: string[];
   memoire?: MemoireDeReprise;
+  /** Pourquoi ce résumé existe ; « compression » par défaut. */
+  motif?: MotifDeContinuite;
 }
 
 const LIMITE_ECHANGES = 12_000;
@@ -173,8 +196,9 @@ function couper(texte: string, limite: number): string {
  * réellement plus petit que l'ancien.
  */
 export function resumeContinuite(entree: EntreeResumeContinuite): string {
+  const motif = entree.motif ?? 'compression';
   const lignes = [
-    'RÉSUMÉ DE CONTINUITÉ APRÈS COMPRESSION',
+    TITRE_DE_CONTINUITE[motif],
     `Projet : ${entree.project}`,
     `Dossier de travail : ${entree.workdir}`,
     `Agent : ${entree.role} — ${entree.title}`,
@@ -229,8 +253,6 @@ export function resumeContinuite(entree: EntreeResumeContinuite): string {
     taille += ligne.length;
   }
   lignes.push(...(retenus.length ? retenus : ['(aucun échange textuel)']));
-  lignes.push(
-    "Poursuis depuis cet état. La conversation visible reste intacte dans HaikoDev ; ce résumé remplace seulement l'ancien contexte interne du moteur.",
-  );
+  lignes.push(CLOTURE_DE_CONTINUITE[motif]);
   return lignes.join('\n');
 }
