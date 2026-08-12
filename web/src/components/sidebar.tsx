@@ -1157,6 +1157,39 @@ function RepereLigne({
  * toutes les bordures de l'application. Il est posé PAR-DESSUS la liste (jamais
  * inséré dedans) — c'est ce qui empêche les lignes du dessous de sauter.
  */
+/**
+ * Le demi-rond plaqué contre le bord gauche de la carte d'un projet.
+ *
+ * Reprend les MÊMES couleurs d'état que la bordure de la ligne (publication,
+ * en cours, décision attendue, rendu non lu) — jamais une couleur inventée —
+ * et ne paraît que si l'un de ces états est vrai : une ligne au repos n'en
+ * porte pas. Positionné en absolu à « -left-[7px] » (les 6 px de retrait de
+ * la ligne, plus son 1 px de bordure), il vient toucher le bord gauche de la
+ * carte sans y laisser d'espace, arrondi seulement du côté droit pour
+ * sembler en sortir.
+ */
+function RepereDemiRond({ signal }: { signal?: 'publie' | 'running' | 'attention' | 'rendus' }) {
+  if (!signal) return null;
+  const couleur =
+    signal === 'publie'
+      ? 'bg-publie'
+      : signal === 'running'
+        ? 'bg-en-cours'
+        : signal === 'attention'
+          ? 'bg-warning'
+          : 'bg-termine';
+  return (
+    <span
+      aria-hidden
+      data-repere-demi-rond={signal}
+      className={cn(
+        'pointer-events-none absolute -left-[7px] top-1/2 h-4 w-2 -translate-y-1/2 rounded-r-full',
+        couleur,
+      )}
+    />
+  );
+}
+
 function Trait({ ou }: { ou?: 'before' | 'after' }) {
   if (!ou) return null;
   return (
@@ -1334,6 +1367,17 @@ function ProjectRow({
   // Le projet qu'on regarde déjà ne bouge pas : le signal sert à ce qu'on ne
   // voit pas.
   const secoue = useSecousse({ attention, rendus }, active);
+  // Même priorité que la couleur de bordure ci-dessous : le demi-rond ne dit
+  // jamais autre chose que ce que la ligne affiche déjà.
+  const signalEtat = publie
+    ? 'publie'
+    : running
+      ? 'running'
+      : attention
+        ? 'attention'
+        : rendus && !active
+          ? 'rendus'
+          : undefined;
   return (
     <div
       {...rowProps}
@@ -1372,6 +1416,7 @@ function ProjectRow({
       )}
     >
       <Trait ou={marqueur} />
+      <RepereDemiRond signal={signalEtat} />
       <span
         {...poigneeProps}
         title="Glisser pour ranger"
