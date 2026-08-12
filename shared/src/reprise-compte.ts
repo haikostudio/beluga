@@ -263,6 +263,39 @@ export function messageDeRefus(refus: RefusDeReprise): string {
 /* 4. Le texte de la reprise                                           */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* 5. La liste de tâches qui traverse la coupure                       */
+/* ------------------------------------------------------------------ */
+
+/** Une ligne de la liste de tâches, réduite à ce dont la règle a besoin. */
+export interface TacheEnCours {
+  label: string;
+  state: 'todo' | 'running' | 'done';
+  startedAt?: number;
+  endedAt?: number;
+}
+
+/**
+ * CE QUI RESTE À FAIRE, TEL QUE LA COUPURE L'A LAISSÉ.
+ *
+ * La liste de tâches d'un agent vit sur le MESSAGE du tour : un tour coupé par
+ * la limite d'un compte emportait donc sa liste avec lui, et le tour de reprise
+ * repartait avec une liste vide — plus rien à l'écran, plus rien dans le
+ * décroché de la carte, jusqu'à ce que l'agent veuille bien en réécrire une.
+ *
+ * On la recopie donc ENTIÈRE sur le tour qui reprend : les lignes cochées
+ * restent cochées avec leur durée, celles qui restaient à faire restent à
+ * faire, et celle qui tournait au moment de la coupure repart sans fin — plus
+ * personne ne travaillait dessus, son chronomètre n'a plus à courir. Quand
+ * l'agent renverra sa propre liste, `mergeTodos` la rapprochera de celle-ci
+ * ligne par ligne, par son libellé : rien ne se perd et rien ne se double.
+ */
+export function tachesAPoursuivre(todos: readonly TacheEnCours[]): TacheEnCours[] {
+  return todos.map((todo) =>
+    todo.state === 'running' ? { label: todo.label, state: 'running', startedAt: todo.startedAt } : { ...todo },
+  );
+}
+
 /**
  * La demande envoyée à l'agent quand il repart. Elle ne redit PAS le travail :
  * l'agent garde son fil, sa branche, ses fichiers et sa liste de tâches. Elle

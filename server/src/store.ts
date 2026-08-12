@@ -23,6 +23,7 @@ import {
   Settings,
   TaskProposal,
   cleDeSession,
+  memeFilAutreCompte,
   cleNouveauDepart,
   decisionEnTexteLibre,
   type StatutAgent,
@@ -710,10 +711,14 @@ export function saveAgent(agent: Agent): Agent {
 }
 
 /**
- * Chaque moteur a SA propre conversation : reprendre une session Claude avec
- * Codex n'a aucun sens. La colonne garde un petit dictionnaire dont la clé est
- * calculée par `cleDeSession` (moteur, et sous Codex le modèle qui a ouvert le
- * fil), tout en acceptant l'ancien format (une simple chaîne).
+ * Chaque moteur a SA propre conversation, et chaque COMPTE son propre coffre :
+ * reprendre une session Claude avec Codex n'a aucun sens, et reprendre sur un
+ * autre compte un fil ouvert sur le premier n'en a pas davantage — le moteur
+ * cherche la conversation dans le coffre du compte qui tourne, et ne l'y trouve
+ * pas. La colonne garde donc un petit dictionnaire dont la clé est calculée par
+ * `cleDeSession` (moteur, compte, et sous Codex le modèle qui a ouvert le fil),
+ * tout en acceptant les DEUX formats d'avant : une simple chaîne, et un
+ * dictionnaire dont les clés ne portaient pas encore le compte.
  */
 function rawSessions(agentId: string): string | null {
   const row = getDb().prepare('SELECT session_id FROM agents WHERE id = ?').get(agentId) as
@@ -722,36 +727,68 @@ function rawSessions(agentId: string): string | null {
   return row?.session_id ?? null;
 }
 
+/**
+ * Les fils d'avant portaient une clé SANS compte. On la complète avec le compte
+ * qui a réellement porté le dernier tour de l'agent (`Agent.account`) : c'est
+ * lui qui détient le fil dans son coffre. Compte inconnu, la clé reste telle
+ * quelle — donc jamais lue, donc jamais reprise à tort dans le mauvais coffre.
+ */
+function cleAvecCompte(cle: string, compte: string | undefined): string {
+  if (cle.includes('#') || !compte) return cle;
+  return `${cle}#${compte}`;
+}
+
 function readSessions(agentId: string): Record<string, string> {
   const row = getDb().prepare('SELECT session_id, role, data FROM agents WHERE id = ?').get(agentId) as
     | { session_id: string | null; data: string }
     | undefined;
   if (!row?.session_id) return {};
   const raw = row.session_id.trim();
+  let compte: string | undefined;
+  let run: { engine?: string; model?: string } = {};
+  try {
+    const data = JSON.parse(row.data) ?? {};
+    compte = typeof data.account === 'string' ? data.account : undefined;
+    run = data.run ?? {};
+  } catch {
+    /* agent illisible : on s'en tiendra aux clés telles quelles */
+  }
+
   if (raw.startsWith('{')) {
     try {
-      return JSON.parse(raw);
+      const sessions = JSON.parse(raw) as Record<string, string>;
+      const avecCompte: Record<string, string> = {};
+      for (const [cle, valeur] of Object.entries(sessions)) avecCompte[cleAvecCompte(cle, compte)] = valeur;
+      return avecCompte;
     } catch {
       return {};
     }
   }
   // Ancien format : la session appartenait au moteur de l'agent. On la range
-  // sous la clé d'aujourd'hui, réglages actuels compris.
-  try {
-    const run = JSON.parse(row.data)?.run ?? {};
-    return { [cleDeSession(run.engine, run.model)]: raw };
-  } catch {
-    return { claude: raw };
-  }
+  // sous la clé d'aujourd'hui, réglages actuels et compte porteur compris.
+  return { [cleDeSession(run.engine, run.model, compte)]: raw };
 }
 
-export function setSessionId(agentId: string, sessionId: string, cle = 'claude'): void {
+export function setSessionId(agentId: string, sessionId: string, cle: string): void {
   const sessions = { ...readSessions(agentId), [cle]: sessionId };
   getDb().prepare('UPDATE agents SET session_id = ? WHERE id = ?').run(JSON.stringify(sessions), agentId);
 }
 
-export function getSessionId(agentId: string, cle = 'claude'): string | null {
+export function getSessionId(agentId: string, cle: string): string | null {
   return readSessions(agentId)[cle] ?? null;
+}
+
+/**
+ * Le fil ouvert sur un AUTRE compte, pour ce même moteur et ce même modèle.
+ * Il n'est pas reprenable — le coffre qui le porte n'est pas celui qui tourne —,
+ * mais son existence prouve qu'il y a un travail en cours à résumer, et non une
+ * conversation à ouvrir de zéro.
+ */
+export function filSurUnAutreCompte(agentId: string, partMoteur: string, cleCourante: string): string | null {
+  for (const [cle, valeur] of Object.entries(readSessions(agentId))) {
+    if (cle !== cleCourante && memeFilAutreCompte(cle, partMoteur)) return valeur;
+  }
+  return null;
 }
 
 /**
@@ -763,8 +800,8 @@ export function clearSessions(agentId: string): void {
   getDb().prepare('UPDATE agents SET session_id = NULL WHERE id = ?').run(agentId);
 }
 
-/** Oublie seulement le fil visé : les autres moteurs et modèles restent intacts. */
-export function clearSession(agentId: string, cle = 'claude'): void {
+/** Oublie seulement le fil visé : les autres moteurs, modèles et comptes restent intacts. */
+export function clearSession(agentId: string, cle: string): void {
   const sessions = readSessions(agentId);
   if (!(cle in sessions)) return;
   delete sessions[cle];
