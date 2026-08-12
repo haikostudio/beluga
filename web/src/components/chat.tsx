@@ -50,6 +50,19 @@ export function Chat({
   const [picked, setPicked] = React.useState<string[]>([]);
   const bottomRef = React.useRef<HTMLDivElement>(null);
 
+  /*
+   * CE QU'UN BLOC DU FIL DÉPOSE DANS LA BARRE D'ÉCRITURE, sans rien envoyer :
+   * le refus d'un plan et ses suggestions d'optimisation
+   * (`shared/src/suggestions-de-plan.ts`). Le compteur fait la différence entre
+   * deux clics sur la MÊME pastille : sans lui, le second ne changerait rien et
+   * la barre resterait muette.
+   */
+  const [aEcrire, setAEcrire] = React.useState<{ texte: string; nonce: number } | null>(null);
+  const ecrireDansLeChamp = React.useCallback(
+    (texte: string) => setAEcrire((avant) => ({ texte, nonce: (avant?.nonce ?? 0) + 1 })),
+    [],
+  );
+
   const conversation = cardId ? state.cardMessages[cardId] : undefined;
   const messages = cardId
     ? (conversation?.messages ?? [])
@@ -216,6 +229,7 @@ export function Chat({
                   onToggleEvolution={toggleEvolution}
                   onToggleAll={toggleAll}
                   etatPlan={etatDuPlan(messages, index) ?? 'courant'}
+                  onEcrireDansLeChamp={ecrireDansLeChamp}
                 />
               </React.Fragment>
             ))
@@ -259,6 +273,7 @@ export function Chat({
         picked={picked}
         onRemovePicked={(text) => setPicked((current) => current.filter((item) => item !== text))}
         onClearPicked={() => setPicked([])}
+        aEcrire={aEcrire}
         projectId={projectId}
         onProposeTask={onProposeTask}
         dansTiroir={!!cardId || !!creuxReserveAilleurs}

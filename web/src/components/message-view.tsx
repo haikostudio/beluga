@@ -17,6 +17,7 @@ import {
   Paperclip,
   RotateCcw,
   Route,
+  Sparkles,
   Square,
   Volume2,
   X,
@@ -29,6 +30,7 @@ import {
   NIVEAUX_AGENT,
   NIVEAU_PAR_DEFAUT,
   NiveauAgent,
+  REFUS_A_COMPLETER,
   SentContextSnapshot,
   TourEnvoye,
   choixPossible,
@@ -41,6 +43,7 @@ import {
   propositionsDuFil,
   recapitulatifEnvoi,
   reponsePrete,
+  suggestionsPourLePlan,
   texteAEcouter,
   tempsRestant,
   texteDeReponse,
@@ -111,6 +114,7 @@ export function MessageView({
   onToggleEvolution,
   onToggleAll,
   etatPlan = 'courant',
+  onEcrireDansLeChamp,
 }: {
   message: Message;
   /** La conversation entière : sert au cadre du plan à numéroter ses versions. */
@@ -126,6 +130,10 @@ export function MessageView({
    *  itération passée ? Une itération passée se replie et perd ses boutons
    *  (`indexDuPlanCourant`, `shared/src/plan-conversation.ts`). */
   etatPlan?: EtatDuPlan;
+  /** Déposer un texte dans la barre d'écriture, SANS rien envoyer : c'est ainsi
+   *  qu'un refus et une suggestion d'optimisation reviennent à l'utilisateur,
+   *  qui les complète puis décide d'envoyer (`shared/src/suggestions-de-plan.ts`). */
+  onEcrireDansLeChamp?: (texte: string) => void;
 }) {
   const isUser = message.role === 'user';
 
@@ -192,6 +200,7 @@ export function MessageView({
             pickedEvolutions={pickedEvolutions}
             onToggleEvolution={onToggleEvolution}
             onToggleAll={onToggleAll}
+            onEcrireDansLeChamp={onEcrireDansLeChamp}
           />
         ) : (
           <Markdown
@@ -286,8 +295,17 @@ const TEXTE_VALIDATION_PLAN = 'Vas-y, lance ce plan.';
 function texteValidationPlan(niveau: NiveauAgent): string {
   return `${TEXTE_VALIDATION_PLAN} Niveau retenu pour la carte : « ${DEFINITIONS_NIVEAU[niveau].label} ».`;
 }
-/** Le texte envoyé par « Refuser » : le plan reste affiché, rien n'est lancé. */
-const TEXTE_REFUS_PLAN = 'Je refuse ce plan : réfléchis à une autre approche.';
+/**
+ * « REFUSER » NE LANCE RIEN. Il DÉPOSE ce refus dans la barre d'écriture, où il
+ * se complète (« …, je préfère qu'on garde l'existant ») avant d'être envoyé.
+ *
+ * Le bouton envoyait ce texte tout seul : le chef repartait aussitôt pour un
+ * tour entier, à deviner ce qui n'allait pas dans un plan qu'on venait à peine
+ * de refuser — de la dépense sur un malentendu. Le refus reste donc une phrase
+ * à relire, et le geste qui lance appartient à l'utilisateur
+ * (`REFUS_A_COMPLETER`, `shared/src/suggestions-de-plan.ts`).
+ */
+const TEXTE_REFUS_PLAN = REFUS_A_COMPLETER;
 /** Le texte envoyé par « Repartir de cette version » : cite la version choisie en entier, pour ne rien perdre même si le fil a été résumé depuis. */
 function texteRepriseVersion(numero: number, contenu: string): string {
   return `Abandonne les versions écrites après la version ${numero} de ce plan et repars de celle-ci, telle qu'elle était ci-dessous. Réponds avec un nouveau plan complet qui la reprend et l'affine.\n\n---\n\n${contenu}`;
@@ -305,9 +323,15 @@ function texteRepriseVersion(numero: number, contenu: string): string {
  * eux-mêmes : ils envoient un message ordinaire dans la conversation,
  * exactement ce que taperait quelqu'un qui valide, refuse ou reprend une
  * version à la main (§PLAN mode plan). « Valider » repasse en plus la
- * conversation en mode direct, avec le niveau choisi ; « Refuser » reste en
- * mode plan, et le chef rend alors un nouveau plan complet ; « Repartir de
- * cette version » repasse en mode plan à partir du texte cité.
+ * conversation en mode direct, avec le niveau choisi ; « Repartir de cette
+ * version » repasse en mode plan à partir du texte cité.
+ *
+ * « REFUSER » ET LES SUGGESTIONS, EUX, N'ENVOIENT RIEN : ils écrivent dans la
+ * barre d'écriture et s'arrêtent là. Un plan se refuse rarement sans avoir
+ * quelque chose à dire, et relancer le chef à l'aveugle coûtait un tour entier
+ * pour rien. Les suggestions d'optimisation servent le même mouvement : elles
+ * donnent de quoi rebondir quand on ne sait pas quoi demander
+ * (`suggestionsPourLePlan`, `shared/src/suggestions-de-plan.ts`).
  */
 function PlanBlock({
   message,
@@ -316,6 +340,7 @@ function PlanBlock({
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
+  onEcrireDansLeChamp,
 }: {
   message: Message;
   allMessages: Message[];
@@ -323,6 +348,7 @@ function PlanBlock({
   pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
+  onEcrireDansLeChamp?: (texte: string) => void;
 }) {
   const courant = etat === 'courant';
   const [replie, setReplie] = React.useState(() => !courant);
@@ -332,31 +358,42 @@ function PlanBlock({
     etaitCourant.current = courant;
   }, [courant]);
 
-  const [enCours, setEnCours] = React.useState<'valider' | 'refuser' | 'repartir' | null>(null);
+  const [enCours, setEnCours] = React.useState<'valider' | 'repartir' | null>(null);
   const [niveau, setNiveau] = React.useState<NiveauAgent>(NIVEAU_PAR_DEFAUT);
   const [versionsOuvertes, setVersionsOuvertes] = React.useState(false);
+  /** Le refus vient d'être déposé dans le champ : on le dit, sans rien lancer. */
+  const [refusPrepare, setRefusPrepare] = React.useState(false);
 
   const numero = numeroDeVersion(allMessages, message.id);
   const precedentes = versionsPrecedentes(allMessages, message.id);
   const suivante = versionSuivante(allMessages, message.id);
   const diff = suivante ? differencesDeTexte(message.content, suivante.content) : null;
+  /* Le plan encore en jeu propose de quoi rebondir : les relances auxquelles il
+     ne répond pas déjà. Une version périmée n'en propose aucune — on ne
+     relance pas depuis un texte que personne ne va plus lire. */
+  const suggestions = courant && !message.streaming ? suggestionsPourLePlan(message.content) : [];
 
-  const decider = async (cle: 'valider' | 'refuser') => {
-    setEnCours(cle);
+  const valider = async () => {
+    setEnCours('valider');
     try {
-      if (cle === 'valider') {
-        await client.call({ type: 'agent.config', agentId: message.agentId, run: { mode: 'direct' } });
-      }
+      await client.call({ type: 'agent.config', agentId: message.agentId, run: { mode: 'direct' } });
       await client.call({
         type: 'agent.prompt',
         agentId: message.agentId,
-        text: cle === 'valider' ? texteValidationPlan(niveau) : TEXTE_REFUS_PLAN,
+        text: texteValidationPlan(niveau),
       });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'envoi impossible');
     } finally {
       setEnCours(null);
     }
+  };
+
+  /* REFUSER N'ENVOIE RIEN : la phrase de refus part dans la barre d'écriture,
+     où elle se complète. Le tour ne démarre qu'à l'envoi. */
+  const refuser = () => {
+    setRefusPrepare(true);
+    onEcrireDansLeChamp?.(TEXTE_REFUS_PLAN);
   };
 
   const repartir = async () => {
@@ -479,12 +516,46 @@ function PlanBlock({
         </div>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+      {/* DE QUOI REBONDIR SANS ÉCRIRE. Un clic dépose la relance dans la barre
+          d'écriture — il n'envoie rien : c'est l'utilisateur qui décide de
+          partir pour un tour de plus. Les pastilles passent à la ligne toutes
+          seules et occupent toute la largeur sur un téléphone. */}
+      {suggestions.length && onEcrireDansLeChamp ? (
+        <div data-suggestions-plan className="mt-3 border-t border-border pt-3">
+          <p className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
+            Pour aller plus loin
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                data-suggestion-plan={suggestion.id}
+                title={suggestion.texte}
+                onClick={() => onEcrireDansLeChamp(suggestion.texte)}
+                className="flex items-center gap-1 rounded-full border border-border/70 px-2.5 py-1 text-[12.5px] text-muted transition-colors hover:border-border hover:bg-raised hover:text-text"
+              >
+                <Sparkles className="h-3 w-3 shrink-0 text-faint" />
+                {suggestion.libelle}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* SUR UN TÉLÉPHONE, LE PIED DU PLAN S'EMPILE. Le choix du niveau et les
+          deux boutons tenaient sur une ligne : « Approfondi » et « Refuser »
+          sortaient du cadre ou s'écrasaient à quelques pixels. En dessous de
+          640 px, chaque bloc prend donc toute la largeur, l'un sous l'autre. */}
+      <div
+        data-pied-plan
+        className="mt-3 flex flex-col items-stretch gap-2 border-t border-border pt-3 sm:flex-row sm:flex-wrap sm:items-center"
+      >
         {courant ? (
           <>
-            <div className="flex items-center gap-1.5 text-[12.5px] text-muted">
+            <div className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted">
               Niveau de la carte :
-              <div className="flex gap-1">
+              <div className="flex flex-1 gap-1">
                 {NIVEAUX_AGENT.map((id) => (
                   <button
                     key={id}
@@ -505,13 +576,16 @@ function PlanBlock({
                 ))}
               </div>
             </div>
-            <div className="flex w-full items-center gap-2">
+            <div
+              data-boutons-plan
+              className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center"
+            >
               <Button
                 variant="default"
                 size="sm"
                 disabled={!!enCours}
-                onClick={() => decider('valider')}
-                className="gap-1.5"
+                onClick={valider}
+                className="w-full justify-center gap-1.5 sm:w-auto"
               >
                 {enCours === 'valider' ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -524,16 +598,19 @@ function PlanBlock({
                 variant="ghost"
                 size="sm"
                 disabled={!!enCours}
-                onClick={() => decider('refuser')}
-                className="gap-1.5 text-muted hover:text-danger"
+                onClick={refuser}
+                className="w-full justify-center gap-1.5 text-muted hover:text-danger sm:w-auto"
               >
-                {enCours === 'refuser' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <X className="h-3.5 w-3.5" />
-                )}
+                <X className="h-3.5 w-3.5" />
                 Refuser
               </Button>
+              {/* Le refus est ÉCRIT, pas parti : on le dit là où l'on vient de
+                  cliquer, sinon rien ne se passe à l'écran et l'on reclique. */}
+              {refusPrepare ? (
+                <span data-refus-prepare className="text-[12.5px] text-warning sm:ml-1">
+                  Refus écrit dans la barre — complétez-le, puis envoyez.
+                </span>
+              ) : null}
             </div>
           </>
         ) : (
