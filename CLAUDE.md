@@ -313,9 +313,9 @@ le nom, là-bas le texte).
   (`--append-system-prompt`, reposé devant à chaque tour), et un préfixe qui bouge fait RÉÉCRIRE tout
   ce qui suit — mesuré à 32 667 jetons réécrits contre 771 (`scripts/mesure-cache-prefixe.mjs`). La
   consigne entière repart donc à chaque tour. Codex, qui colle la sienne derrière l'historique, garde
-  le rappel court. La part de l'entrée RELUE au cache sur sept jours s'affiche dans les réglages,
-  onglet « Consommation » (`partRelueAuCache`) — témoin d'un préfixe stable, sans mesure = jamais
-  « 0 % ». Vérifié par `scripts/verif-part-cache.mjs`.
+  le rappel court. Ce qui est relu au cache se voit désormais dans le LECTEUR DE PROMPTS (repère
+  visuel « relu au cache » sur le bloc système d'un tour, `SentContextBlock.cached`,
+  `web/src/components/lecteur-prompt.tsx`) — jamais un pourcentage.
 - **Aucun agent ne commente le stockage des identifiants** : mots de passe, clés, jetons gardés dans
   le projet sont un choix ASSUMÉ de l'utilisateur. On n'en parle pas — mais une PANNE (identifiant
   absent, expiré, refusé qui bloque le travail) se dit toujours.
@@ -342,10 +342,22 @@ le nom, là-bas le texte).
   validé, refusé ou dépassé par une version plus récente
   (`planEnAttente`, `shared/src/plan-conversation.ts`). Vérifié par
   `server/src/test/plan-en-attente-projet.test.ts` et `scripts/verif-repere-plan.mjs`.
-- **Le composeur montre le contexte de CHAQUE agent, jamais son quota** (`Agent.contextUsage`,
-  `shared/src/contexte-agent.ts`) : mesure absente = tiret, vrai zéro = `0 %`, mise à jour à chaque
-  usage du moteur et après compression. Vérifié par `server/src/test/contexte-agent.test.ts` et
-  `scripts/verif-contexte-composeur.mjs`.
+- **PLUS AUCUN COMPTEUR DE JETONS VISIBLE NULLE PART** (`docs/plans/refonte-visualisation-prompts.md`,
+  plan validé) : à la place, VOIR le texte réellement envoyé au moteur. Le tiroir « Contexte envoyé »
+  du chef et l'onglet « Détails » d'une carte lisent tous deux le même LECTEUR DE PROMPTS
+  (`LecteurPrompt`, `web/src/components/lecteur-prompt.tsx`) — une liste de tours, chacun dépliable en
+  blocs nommés (`SentContextBlock.text`), avec recherche et copie, et un repère VISUEL (`cached`)
+  pour ce qui est relu au cache plutôt qu'un chiffre. Le texte de chaque tour est conservé dans
+  `Message.sentContext` (`server/src/store.ts`, `purgerContexteEnvoyeAncien` — les
+  `TOURS_CONTEXTE_CONSERVES` derniers tours d'un agent gardent leur texte, les plus vieux ne gardent
+  que les compteurs). Le composeur ne montre plus le pourcentage de contexte de l'agent, l'onglet
+  « Consommation » des réglages ne montre plus de tokens ni de part relue au cache, le tableau de bord
+  montre le TEMPS de travail plutôt que des tokens, et le chiffrage d'une carte reste en heures et en
+  francs — jamais en jetons. Les mesures continuent d'exister côté serveur, elles ne s'affichent
+  simplement plus. Vérifié par `scripts/verif-contexte-envoye.mjs` (le tiroir du chef, en navigateur —
+  un tour déplié y rend le texte réellement envoyé), `scripts/verif-parcours-tache.mjs` (le volet
+  Détails), `scripts/verif-detail-analyse.mjs` et `scripts/verif-aucun-compteur-jetons.mjs` (repère
+  statique : aucun texte « X tokens »/« X jetons » dans l'interface).
 - **« Repartir de zéro » vide le CONTEXTE de l'agent, pas seulement le fil**
   (`agentApresNouveauDepart`, `shared/src/nouveau-depart.ts`) : mesure, état de remplissage et
   RÉSUMÉ DE CONTINUITÉ effacés ensemble, agent diffusé aussitôt — sinon le composeur garde un

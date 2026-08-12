@@ -1,8 +1,11 @@
 import * as React from 'react';
 import { Check, ChevronDown, Loader2, Circle } from 'lucide-react';
 import type { EtapeParcours } from '@haikodev/shared';
+import { chronologieContexteEnvoye } from '@haikodev/shared';
 import { client } from '@/lib/client';
+import { useApp } from '@/lib/use-app';
 import { cn, duration, money } from '@/lib/utils';
+import { LecteurPrompt } from '@/components/lecteur-prompt';
 
 /**
  * LE PARCOURS D'UNE TÂCHE, EN LIGNE DE TEMPS.
@@ -18,7 +21,13 @@ import { cn, duration, money } from '@/lib/utils';
  * production. Une pastille par étape (faite, en cours, à venir), et pour
  * chacune :
  *   — CE QU'ELLE EST ALLÉE CHERCHER, en français, une ligne par source ;
- *   — CE QU'ELLE A RÉELLEMENT CONSOMMÉ, pris dans la mesure du moteur.
+ *   — CE QU'ELLE A RÉELLEMENT CONSOMMÉ, en durée et en francs — jamais un
+ *     compteur de jetons.
+ *
+ * Sous la ligne de temps, le LECTEUR DE PROMPTS (le même que le tiroir
+ * « Contexte envoyé » du chef) montre le texte réellement envoyé, tour par
+ * tour, pour tous les agents de la carte — c'est la seule façon de lire un
+ * prompt dans toute l'application.
  *
  * Ce composant ne CALCULE rien : les étapes viennent de `card.parcours`, dont
  * la règle vit dans `shared/src/parcours-carte.ts`. Une étape sans mesure
@@ -37,11 +46,6 @@ interface TotalParcours {
 interface QuotaParcours {
   quota5h: number;
   quotaSemaine: number;
-}
-
-/** Un nombre de jetons, lisible : « 12 400 ». */
-function jetons(valeur: number): string {
-  return valeur.toLocaleString('fr-CH');
 }
 
 /**
@@ -68,6 +72,7 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
   const [etapes, setEtapes] = React.useState<EtapeParcours[] | null>(null);
   const [total, setTotal] = React.useState<TotalParcours | null>(null);
   const [quota, setQuota] = React.useState<QuotaParcours | null>(null);
+  const state = useApp();
 
   React.useEffect(() => {
     let vivant = true;
@@ -87,6 +92,16 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
       vivant = false;
     };
   }, [cardId]);
+
+  // Le lecteur de prompts a besoin des messages de TOUS les agents de la
+  // carte : la même requête que l'onglet « Conversation », rejouée ici pour
+  // que le volet « Détails » se lise seul, sans dépendre d'un autre onglet.
+  React.useEffect(() => {
+    client.send({ type: 'card.conversation', cardId });
+  }, [cardId]);
+  const messagesDeLaCarte = state.cardMessages[cardId]?.messages ?? [];
+  const tours = React.useMemo(() => chronologieContexteEnvoye(messagesDeLaCarte), [messagesDeLaCarte]);
+
   // Rien à zéro : une carte sans relevé n'affiche pas deux zéros trompeurs.
   const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
 
@@ -98,9 +113,9 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
         <h3 className="text-[14px] font-semibold text-text">Le parcours de cette tâche</h3>
         {total ? (
           <p className="text-[12.5px] text-faint">
-            <span className="font-medium text-text">{jetons(total.total)} jetons</span> réellement mesurés
-            {total.cout !== undefined ? <> · {money(total.cout)}</> : null} · {total.tours}{' '}
-            {total.tours === 1 ? 'tour' : 'tours'} de moteur
+            {total.cout !== undefined ? <span className="font-medium text-text">{money(total.cout)}</span> : null}
+            {total.cout !== undefined ? ' · ' : null}
+            {total.tours} {total.tours === 1 ? 'tour' : 'tours'} de moteur réellement mesurés
           </p>
         ) : null}
       </div>
@@ -140,19 +155,29 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
           </div>
         </div>
       ) : null}
+
+      {/* LE LECTEUR DE PROMPTS : le texte réellement envoyé, tour par tour,
+          pour tous les agents de la carte — la même lecture que le tiroir
+          « Contexte envoyé » du chef d'orchestre. */}
+      {tours.length ? (
+        <div data-prompts-de-la-carte>
+          <h3 className="mb-1.5 text-[14px] font-semibold text-text">Prompts envoyés</h3>
+          <LecteurPrompt tours={tours} />
+        </div>
+      ) : null}
     </section>
   );
 }
 
 /**
  * Une étape : sa pastille, son titre, sa mesure sur la même ligne. Le détail —
- * ce qu'elle est allée chercher, le découpage des jetons — se déplie, replié par
- * défaut : c'est ce qui rend la ligne de temps lisible d'un coup d'œil.
+ * ce qu'elle est allée chercher — se déplie, replié par défaut : c'est ce qui
+ * rend la ligne de temps lisible d'un coup d'œil.
  */
 function Etape({ etape }: { etape: EtapeParcours }) {
   const [ouvert, setOuvert] = React.useState(false);
   const quand = quandEnClair(etape.quand);
-  const aDuDetail = etape.cherche.length > 0 || !!etape.mesure || !!etape.sansMesure;
+  const aDuDetail = etape.cherche.length > 0;
 
   return (
     <li className="relative" data-etape={etape.cle} data-etat={etape.etat}>
@@ -183,15 +208,17 @@ function Etape({ etape }: { etape: EtapeParcours }) {
               {quand ? <span className="text-[12px] text-faint">{quand}</span> : null}
             </div>
 
-            {/* La mesure sur la LIGNE : c'est le chiffre qu'on vient chercher,
-                il ne doit pas se mériter par un clic. */}
+            {/* La mesure sur la LIGNE, en durée et en francs — jamais un
+                compteur de jetons : c'est le repère utile sans se mériter par
+                un clic. */}
             <div className="mt-0.5 text-[12.5px]">
               {etape.mesure ? (
                 <span className="text-text">
-                  <span className="font-medium">{jetons(etape.mesure.total ?? 0)} jetons</span>
                   {etape.mesure.cout !== undefined ? (
-                    <span className="text-faint"> · {money(etape.mesure.cout)}</span>
-                  ) : null}
+                    <span className="font-medium">{money(etape.mesure.cout)}</span>
+                  ) : (
+                    <span className="text-faint">coût en francs indisponible</span>
+                  )}
                   <span className="text-faint">
                     {' '}
                     · {etape.mesure.tours} {etape.mesure.tours === 1 ? 'tour' : 'tours'}
@@ -229,25 +256,6 @@ function Etape({ etape }: { etape: EtapeParcours }) {
                     </li>
                   ))}
                 </ul>
-              </div>
-            ) : null}
-
-            {etape.mesure ? (
-              <div>
-                <p className="text-[11.5px] uppercase tracking-wide text-faint">Jetons réellement mesurés</p>
-                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12.5px]">
-                  <Part nom="Entrée hors cache" valeur={jetons(etape.mesure.entree)} />
-                  <Part
-                    nom="Relu du cache"
-                    valeur={etape.mesure.cache === undefined ? 'non communiqué' : jetons(etape.mesure.cache)}
-                  />
-                  <Part nom="Sortie" valeur={jetons(etape.mesure.sortie)} />
-                </div>
-                {etape.mesure.cout === undefined ? (
-                  <p className="mt-1 text-[12px] text-faint">
-                    Coût en francs indisponible : le tarif d’un des modèles employés n’est pas connu.
-                  </p>
-                ) : null}
               </div>
             ) : null}
           </div>

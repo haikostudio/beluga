@@ -387,7 +387,7 @@ function DerniereAmorce({ amorce }: { amorce?: AccountQuota['derniereAmorce'] })
 function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
   const [ouvert, setOuvert] = React.useState(false);
   const [entrees, setEntrees] = React.useState<
-    { account: string; at: number; ok: boolean; model?: string; tokens?: number; error?: string }[]
+    { account: string; at: number; ok: boolean; model?: string; error?: string }[]
   >([]);
 
   React.useEffect(() => {
@@ -419,7 +419,7 @@ function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
                 <span className="shrink-0 text-faint">{heureCourte(entree.at)}</span>
                 <span className="min-w-0 flex-1 truncate text-muted">{nom(entree.account)}</span>
                 <span className={cn('shrink-0', entree.ok ? 'text-faint' : 'text-warning')}>
-                  {entree.ok ? `${entree.tokens ?? 0} tokens` : (entree.error ?? 'refus')}
+                  {entree.ok ? 'ok' : (entree.error ?? 'refus')}
                 </span>
               </li>
             ))}

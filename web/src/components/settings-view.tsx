@@ -1604,12 +1604,9 @@ function UsageSection({ open }: { open: boolean }) {
         <Activity className="h-3.5 w-3.5 text-faint" /> Ce qui a été consommé
       </h3>
       <p className="mb-2 mt-0.5 text-[12.5px] leading-relaxed text-faint">
-        Le total de ce que les agents ont dépensé depuis le début, projet par projet : nombre de tâches, temps de travail
-        des agents et tokens consommés chez les moteurs. C'est une mesure d'usage, pas une facture — rien ici n'est
-        facturé à personne.
+        Le total de ce que les agents ont dépensé depuis le début, projet par projet : nombre de tâches et temps de
+        travail des agents. C'est une mesure d'usage, pas une facture — rien ici n'est facturé à personne.
       </p>
-
-      <PartDeCacheBloc cache={usage?.cache} />
 
       {usage?.byProject?.length ? (
         <div className="space-y-0.5">
@@ -1617,8 +1614,7 @@ function UsageSection({ open }: { open: boolean }) {
             <div key={row.projectId ?? 'hors-projet'} className="rounded-md border border-border bg-surface px-2 py-1.5">
               <p className="truncate text-[13.5px] text-text">{nomDuProjet(row)}</p>
               <p className="mt-0.5 text-[11.5px] text-faint">
-                {row.tasks} tâche{row.tasks > 1 ? 's' : ''} · {Math.round(row.seconds / 60)} min ·{' '}
-                {(row.tokens ?? 0).toLocaleString('fr-CH')} tokens
+                {row.tasks} tâche{row.tasks > 1 ? 's' : ''} · {Math.round(row.seconds / 60)} min
               </p>
             </div>
           ))}
@@ -1665,67 +1661,6 @@ function UsageSection({ open }: { open: boolean }) {
         </div>
       ) : null}
     </section>
-  );
-}
-
-/**
- * CE QUE LE CACHE DES MOTEURS A ÉPARGNÉ, SUR SEPT JOURS.
- *
- * Un moteur facture trois entrées : le neuf, ce qu'il ÉCRIT dans son cache (plus
- * cher que le neuf) et ce qu'il y RELIT (dix fois moins cher). Relire ne marche
- * que si le DÉBUT de l'envoi ne bouge pas d'un tour à l'autre : cette part est
- * donc le témoin d'un préfixe stable, et elle chute dès qu'un réglage se remet à
- * changer en cours de session. Aucune mesure sur la fenêtre : on le dit, on
- * n'affiche pas « 0 % ».
- */
-function PartDeCacheBloc({
-  cache,
-}: {
-  cache?: {
-    jours: number;
-    total: { frais: number; relu: number; entree: number; part?: number; tours: number };
-    parMoteur: { engine?: string; frais: number; relu: number; tours: number }[];
-  };
-}) {
-  if (!cache) return null;
-  const pourcent = (part?: number) => (part === undefined ? '—' : `${Math.round(part * 100)} %`);
-  const millions = (n: number) =>
-    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} M` : n.toLocaleString('fr-CH');
-
-  return (
-    <div data-bloc="part-cache" className="mb-3 rounded-md border border-border bg-surface px-2 py-2">
-      <p className="text-[12px] uppercase tracking-wide text-faint">
-        Relu au cache · {cache.jours} derniers jours
-      </p>
-      <p className="mt-0.5 text-[19px] font-medium text-text">{pourcent(cache.total.part)}</p>
-      <p className="mt-0.5 text-[12.5px] leading-relaxed text-faint">
-        {cache.total.part === undefined ? (
-          <>Aucun tour mesuré sur la fenêtre : la part relue n'est pas connue.</>
-        ) : (
-          <>
-            Sur {millions(cache.total.entree)} tokens envoyés aux moteurs en {cache.total.tours} tours,{' '}
-            {millions(cache.total.relu)} ont été RELUS au lieu d'être renvoyés — dix fois moins chers. Cette part
-            tombe dès que le début d'une conversation change d'un tour à l'autre.
-          </>
-        )}
-      </p>
-      {cache.parMoteur.length > 1 ? (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {cache.parMoteur.map((ligne) => {
-            const entree = ligne.frais + ligne.relu;
-            return (
-              <span
-                key={ligne.engine ?? 'inconnu'}
-                className="rounded border border-border px-1.5 py-0.5 text-[12px] text-muted"
-              >
-                {ligne.engine ?? 'moteur inconnu'} ·{' '}
-                {pourcent(entree > 0 ? ligne.relu / entree : undefined)}
-              </span>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
   );
 }
 

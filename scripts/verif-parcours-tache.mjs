@@ -294,32 +294,36 @@ async function relever(navigateur, telephone) {
   for (let i = 0; i < nombre; i++) cles.push(await etapes.nth(i).getAttribute('data-etape'));
   noter(`${ou} — les étapes se suivent dans l’ordre du travail`, cles.join(',') === 'tri,autorisation,execution', cles.join(', '));
 
-  /* Chaque étape porte un état lisible et DIT quelque chose : une mesure, ou la
-     raison de son absence. Un zéro nu serait le pire des deux mondes. */
+  /* Chaque étape porte un état lisible et DIT quelque chose : une durée ou un
+     coût en francs — jamais un compteur de jetons —, ou la raison de son
+     absence. Un zéro nu serait le pire des deux mondes. */
   let toutesLisibles = true;
+  let aucunJeton = true;
   for (let i = 0; i < nombre; i++) {
     const etape = etapes.nth(i);
     const etat = await etape.getAttribute('data-etat');
     if (!['faite', 'en-cours', 'a-venir'].includes(etat ?? '')) toutesLisibles = false;
     const texte = (await etape.innerText()) ?? '';
-    const aMesure = /jetons/.test(texte);
+    if (/\bjetons?\b/i.test(texte) || /\btokens?\b/i.test(texte)) aucunJeton = false;
+    const aMesure = /CHF|\btour\b|\btours\b/.test(texte);
     const aRaison = /[Aa]ucun|pas rattaché|pas encore|indisponible|rien rendu|ne consomme rien/.test(texte);
     if (!aMesure && !aRaison) toutesLisibles = false;
   }
   noter(`${ou} — chaque étape dit son état et sa mesure, ou pourquoi elle manque`, toutesLisibles);
+  noter(`${ou} — plus aucun compteur de jetons dans les étapes`, aucunJeton);
 
   const texteTri = await etapes.nth(0).innerText();
-  noter(`${ou} — le tri du chef porte SA mesure réelle`, /4[\s ']400\s*jetons/.test(texteTri), texteTri.replace(/\n/g, ' '));
+  noter(`${ou} — le tri du chef porte SON nombre de tours réel`, /\b1 tour\b/.test(texteTri), texteTri.replace(/\n/g, ' '));
 
   const texteExecution = await etapes.nth(2).innerText();
   noter(
     `${ou} — le travail porte la somme de SES tours, sans recouvrement`,
-    /90[\s ']000\s*jetons/.test(texteExecution),
+    /\b2 tours\b/.test(texteExecution),
     texteExecution.replace(/\n/g, ' '),
   );
 
   const entete = await parcours.locator('p').first().innerText();
-  noter(`${ou} — le total réunit les étapes mesurées`, /94[\s ']400\s*jetons/.test(entete), entete.replace(/\n/g, ' '));
+  noter(`${ou} — le total réunit les étapes mesurées, en tours`, /\b3 tours\b/.test(entete), entete.replace(/\n/g, ' '));
 
   /* Le détail se DÉPLIE : replié par défaut, c'est ce qui rend la ligne de temps
      lisible d'un coup d'œil. */
@@ -333,7 +337,7 @@ async function relever(navigateur, telephone) {
     const texte = (await detail.innerText()).replace(/\n/g, ' ');
     noter(`${ou} — le détail nomme ce que l’étape est allée chercher`, /allée chercher/i.test(texte));
     noter(`${ou} — les sujets de mémoire demandés sont nommés`, /cartes/.test(texte) && /interface/.test(texte), texte);
-    noter(`${ou} — le découpage des jetons est celui du moteur`, /Entrée hors cache/.test(texte) && /Relu du cache/.test(texte));
+    noter(`${ou} — le détail déplié ne montre aucun compteur de jetons`, !/\bjetons?\b/i.test(texte) && !/\btokens?\b/i.test(texte));
   }
 
   /* La part de quota RÉELLEMENT consommée remplace l'ancienne projection,
@@ -354,6 +358,14 @@ async function relever(navigateur, telephone) {
     noter(`${ou} — la prévision se dit prévision, jamais mesure`, /ne sont pas des mesures/i.test(texte));
     noter(`${ou} — l’écart au prévu est dit`, /Durée réelle/.test(texte), texte);
   }
+
+  /* Aucun tour ici n'a de `sentContext` (le décor n'écrit que la table
+     `usage`, jamais `messages`) : le lecteur de prompts doit rester ABSENT,
+     jamais une section vide affichée quand même. */
+  noter(
+    `${ou} — sans tour envoyé enregistré, le lecteur de prompts ne s’affiche pas à vide`,
+    (await parcours.locator('[data-prompts-de-la-carte]').count()) === 0,
+  );
 
   noter(`${ou} — aucune erreur de page`, erreurs.length === 0, erreurs.join(' | '));
   await contexte.close();

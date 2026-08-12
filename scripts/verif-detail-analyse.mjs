@@ -91,13 +91,7 @@ verifier(
 /* Ce que la page affiche                                              */
 /* ------------------------------------------------------------------ */
 
-for (const libelle of [
-  'Le parcours de cette tâche',
-  'Ce qu’elle est allée chercher',
-  'Jetons réellement mesurés',
-  'Entrée hors cache',
-  'Relu du cache',
-]) {
+for (const libelle of ['Le parcours de cette tâche', 'Ce qu’elle est allée chercher', 'Prompts envoyés']) {
   verifier(`le parcours affiche « ${libelle} »`, parcours.includes(libelle));
 }
 
@@ -106,6 +100,14 @@ verifier('chaque étape porte sa clé et son état', parcours.includes('data-eta
 verifier(
   'le détail d’une étape se replie, il ne s’empile pas',
   parcours.includes('data-detail-etape') && parcours.includes('aria-expanded'),
+);
+verifier(
+  'plus aucun compteur de jetons dans le parcours — durée et francs seulement',
+  !parcours.includes('jetons(') && !/\btokens\b/.test(parcours) && !parcours.includes('Entrée hors cache'),
+);
+verifier(
+  'le lecteur de prompts partagé équipe le volet Détails',
+  parcours.includes("from '@/components/lecteur-prompt'") && parcours.includes('<LecteurPrompt'),
 );
 
 for (const libelle of ['Ce qui était prévu', 'Durée machine prévue', 'Heures développeur senior']) {
