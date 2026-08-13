@@ -372,6 +372,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Poser la clé du cerveau depuis les réglages : elle vaut aussitôt. */
   z.object({ type: z.literal('cerveau.cle'), cle: z.string() }),
   /**
+   * LES CLÉS D'API des services extérieurs (`shared/src/cles-api.ts`). Lister
+   * ne rend jamais le secret : il n'existe qu'une fois, dans la réponse à
+   * `cleApi.creer`. Révoquer date la clé sans effacer la ligne ; oublier ne
+   * vaut que pour une clé DÉJÀ révoquée.
+   */
+  z.object({ type: z.literal('cleApi.lister') }),
+  z.object({ type: z.literal('cleApi.creer'), nom: z.string() }),
+  z.object({ type: z.literal('cleApi.revoquer'), id: z.string() }),
+  z.object({ type: z.literal('cleApi.oublier'), id: z.string() }),
+  /**
    * Les dernières erreurs remontées par l'interface, pour le bloc des réglages.
    * Elles arrivent par `POST /api/erreur` et vivent dans un fichier de journal.
    */

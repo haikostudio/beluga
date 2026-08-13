@@ -254,6 +254,16 @@ le nom, là-bas le texte).
   `carteDepuisLigne` / `colonnesDeLaCarte`, jamais par `JSON.parse(data)` — les scripts passent par
   `scripts/carte-en-base.mjs`.
 
+- **UN SERVICE EXTÉRIEUR PEUT POSER UNE CARTE, par une porte gardée par des CLÉS NOMMÉES**
+  (`shared/src/cles-api.ts`, `server/src/cles-api.ts` ; `POST /api/externe/carte`,
+  `ROUTE_CARTE_EXTERNE` ; migration 21). La porte s'ouvre AVANT le mur d'accès et n'ouvre QUE cela :
+  créer une carte. Elle passe par `createCard`, donc la carte naît en « Planifié », sans agent —
+  **rien ne part au moteur**, le lancement reste un geste humain. Une clé par service, nommée, datée
+  et révocable dans l'onglet « Accès API » des réglages ; le SECRET n'est gardé nulle part (empreinte
+  SHA-256 + aperçu), montré une seule fois. Révoquer DATE la clé sans effacer son histoire. Le projet
+  se désigne par son NOM ou son identifiant (`trouverLeProjetVise`), et tout refus se dit en clair.
+  Verrouillé par `server/src/test/cles-api.test.ts` et `scripts/verif-cles-api.mjs`.
+
 - **Chaque NUIT VERS 3 H, un agent d'analyse cherche ce qui peut être amélioré, et il ne fait que
   PROPOSER** (`shared/src/auto-amelioration.ts`, `server/src/auto-amelioration.ts`, veille lancée par
   `planifierAutoAmelioration` dans `main.ts`) : performance, code jamais appelé, doublons, fichiers et

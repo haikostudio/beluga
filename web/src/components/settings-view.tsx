@@ -3,17 +3,21 @@ import {
   Activity,
   Brain,
   Bug,
+  Copy,
   Database,
+  KeyRound,
   Loader2,
   LogIn,
   Pencil,
   Play,
+  Plus,
   Power,
   RefreshCw,
   Save,
   Send,
   Server,
   ShieldCheck,
+  ShieldOff,
   Wifi,
   Trash2,
   Volume2,
@@ -21,7 +25,12 @@ import {
 import {
   AccountQuota,
   CRANS_DE_VITESSE,
+  CleApiPublique,
+  NOM_CLE_MAX,
+  PREFIXE_CLE_API,
+  ROUTE_CARTE_EXTERNE,
   ConnexionCompte,
+  jugerNomDeCle,
   formeDepuisEvenement,
   libelleDeRaccourci,
   raisonRaccourciRefuse,
@@ -84,6 +93,7 @@ const ONGLETS = [
   { cle: 'voix', titre: 'Voix' },
   { cle: 'consommation', titre: 'Consommation' },
   { cle: 'sauvegardes', titre: 'Sauvegardes' },
+  { cle: 'acces-api', titre: 'Accès API' },
 ] as const;
 
 function SettingsBody({ open }: { open: boolean }) {
@@ -154,6 +164,12 @@ function SettingsBody({ open }: { open: boolean }) {
         <TabsContent value="sauvegardes" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
           <SectionSauvegardes open={open && onglet === 'sauvegardes'} />
+        </ZoneDefilement>
+        </TabsContent>
+
+        <TabsContent value="acces-api" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
+          <SectionClesApi open={open && onglet === 'acces-api'} />
         </ZoneDefilement>
         </TabsContent>
       </Tabs>
@@ -1686,5 +1702,216 @@ function Sparkline({ points }: { points: { at: number; loadPct: number }[] }) {
         <path d={path} fill="none" stroke="hsl(var(--muted))" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
       </svg>
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Accès API : les clés des services extérieurs                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE GÉNÉRATEUR DE CLÉS.
+ *
+ * Une clé par service extérieur : la boîte mail qui pose une carte à l'arrivée
+ * d'un message de client, un formulaire, un automate. Chaque clé porte son nom,
+ * sa date de création et se révoque d'un clic.
+ *
+ * Le SECRET n'est montré qu'UNE FOIS, à sa fabrication : le serveur n'en garde
+ * qu'une empreinte. Perdue, une clé ne se retrouve pas — on en fabrique une
+ * autre et on révoque l'ancienne.
+ */
+/** L'appel à recopier, avec l'adresse RÉELLE de cette application — jamais un exemple abstrait. */
+function exempleDAppel(): string {
+  const racine = typeof window === 'undefined' ? '' : window.location.origin;
+  const corps = JSON.stringify({
+    projet: 'Nom du projet',
+    titre: 'Mail de M. Dupont',
+    description: 'Ce qu’il demande, tel quel.',
+  });
+  return [
+    `curl -X POST ${racine}${ROUTE_CARTE_EXTERNE} \\`,
+    `  -H "x-haikodev-cle: ${PREFIXE_CLE_API}…" \\`,
+    '  -H "content-type: application/json" \\',
+    `  -d '${corps}'`,
+  ].join('\n');
+}
+
+function SectionClesApi({ open }: { open: boolean }) {
+  const [cles, setCles] = React.useState<CleApiPublique[]>([]);
+  const [nom, setNom] = React.useState('');
+  const [enCours, setEnCours] = React.useState(false);
+  const [secret, setSecret] = React.useState<{ nom: string; valeur: string } | null>(null);
+  const [aRevoquer, setARevoquer] = React.useState<CleApiPublique | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    client.call<{ cles: CleApiPublique[] }>({ type: 'cleApi.lister' }).then((data) => setCles(data.cles ?? []));
+  }, [open]);
+
+  const creer = async () => {
+    const juge = jugerNomDeCle(nom);
+    if (!juge.ok) {
+      client.pushToast('error', juge.raison);
+      return;
+    }
+    setEnCours(true);
+    try {
+      const data = await client.call<{ secret: string; cles: CleApiPublique[] }>({
+        type: 'cleApi.creer',
+        nom: juge.nom,
+      });
+      setCles(data.cles ?? []);
+      setSecret({ nom: juge.nom, valeur: data.secret });
+      setNom('');
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'clé non créée');
+    } finally {
+      setEnCours(false);
+    }
+  };
+
+  const revoquer = async (cle: CleApiPublique) => {
+    const data = await client.call<{ cles: CleApiPublique[] }>({ type: 'cleApi.revoquer', id: cle.id });
+    setCles(data.cles ?? []);
+    client.pushToast('success', `Clé « ${cle.nom} » révoquée : les appels suivants sont refusés.`);
+  };
+
+  const oublier = async (cle: CleApiPublique) => {
+    try {
+      const data = await client.call<{ cles: CleApiPublique[] }>({ type: 'cleApi.oublier', id: cle.id });
+      setCles(data.cles ?? []);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'clé non retirée');
+    }
+  };
+
+  const vivantes = cles.filter((c) => !c.revoqueeLe);
+
+  return (
+    <section>
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <KeyRound className="h-3.5 w-3.5 text-faint" /> Clés des services extérieurs
+      </h3>
+
+      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
+        Une clé permet à un service du dehors — une boîte mail, un formulaire, un automate — de poser une carte
+        dans un projet, sans ouvrir cette application. La carte arrive dans « Planifié » et attend son lancement,
+        comme n'importe quelle autre.
+      </p>
+
+      {/* Fabriquer une clé */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Input
+          value={nom}
+          onChange={(e) => setNom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void creer();
+          }}
+          placeholder="Nom du service (« boîte mail »…)"
+          className="h-7 w-56 text-[12.5px]"
+          maxLength={NOM_CLE_MAX}
+          autoComplete="off"
+        />
+        <Button variant="secondary" size="sm" onClick={creer} disabled={enCours || !nom.trim()}>
+          {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+          Générer une clé
+        </Button>
+      </div>
+
+      {/* La clé en clair : une seule fois, ici et jamais plus */}
+      {secret ? (
+        <div className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2">
+          <p className="text-[12.5px] font-medium text-warning">
+            Clé de « {secret.nom} » — copiez-la maintenant, elle ne sera plus jamais affichée.
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <code className="min-w-0 flex-1 break-all rounded bg-raised px-2 py-1 text-[12px] text-text">
+              {secret.valeur}
+            </code>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                void navigator.clipboard?.writeText(secret.valeur);
+                client.pushToast('success', 'Clé copiée');
+              }}
+            >
+              <Copy className="h-3 w-3" /> Copier
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSecret(null)}>
+              J'ai noté
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* La liste */}
+      <div className="mt-3 space-y-1">
+        {cles.length === 0 ? (
+          <p className="text-[12.5px] text-faint">Aucune clé pour l'instant.</p>
+        ) : (
+          cles.map((cle) => (
+            <div
+              key={cle.id}
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-surface px-2.5 py-2"
+            >
+              <span className="text-[13px] text-text">{cle.nom}</span>
+              <code className="rounded bg-raised px-1.5 py-0.5 text-[11.5px] text-faint">{cle.apercu}…</code>
+              {cle.revoqueeLe ? (
+                <Badge tone="danger">révoquée {relativeTime(cle.revoqueeLe)}</Badge>
+              ) : (
+                <Badge tone="success">active</Badge>
+              )}
+              <span className="text-[12px] text-faint">créée {relativeTime(cle.creeeLe)}</span>
+              <span className="text-[12px] text-faint">
+                {cle.cartesCreees
+                  ? `${cle.cartesCreees} carte(s) · dernier appel ${relativeTime(cle.dernierUsageLe ?? cle.creeeLe)}`
+                  : 'jamais utilisée'}
+              </span>
+              <div className="ml-auto flex items-center gap-1">
+                {cle.revoqueeLe ? (
+                  <Button variant="ghost" size="sm" onClick={() => oublier(cle)}>
+                    <Trash2 className="h-3 w-3" /> Retirer
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="sm" onClick={() => setARevoquer(cle)}>
+                    <ShieldOff className="h-3 w-3" /> Révoquer
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Le mode d'emploi, avec l'adresse réelle de cette application */}
+      <div className="mt-4 rounded-md border border-border bg-surface px-2.5 py-2">
+        <p className="text-[12.5px] font-medium text-text">Comment s'en servir</p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-faint">
+          Le service envoie un POST à l'adresse ci-dessous, avec sa clé dans l'en-tête et, dans le corps, le projet
+          visé (son nom suffit), un titre et une description.
+        </p>
+        <pre className="mt-1.5 overflow-x-auto rounded bg-raised px-2 py-1.5 text-[11.5px] leading-relaxed text-muted">
+          {exempleDAppel()}
+        </pre>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
+          {vivantes.length
+            ? `${vivantes.length} clé(s) active(s). Une clé révoquée fait refuser l'appel aussitôt.`
+            : 'Aucune clé active : tout appel extérieur est refusé.'}
+        </p>
+      </div>
+
+      <ConfirmDialog
+        open={!!aRevoquer}
+        title={`Révoquer « ${aRevoquer?.nom} » ?`}
+        description="Le service qui s’en sert ne pourra plus créer de carte. Les cartes déjà créées restent en place."
+        confirmLabel="Révoquer"
+        danger
+        onConfirm={async () => {
+          if (aRevoquer) await revoquer(aRevoquer);
+        }}
+        onClose={() => setARevoquer(null)}
+      />
+    </section>
   );
 }
