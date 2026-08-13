@@ -16,6 +16,7 @@ export * from './bridage-chef.js';
 export * from './adresse-navigateur.js';
 export * from './ancres.js';
 export * from './capacite.js';
+export * from './carte-interrompue.js';
 export * from './carte-sans-suite.js';
 export * from './carte-sql.js';
 export * from './catalogue-modeles.js';

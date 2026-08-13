@@ -24,6 +24,7 @@ import {
   groupesHorsTache,
   nomBrancheHorsTache,
   titreHorsTache,
+  TraceDuTravail,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -102,19 +103,22 @@ export async function commitsDuTour(projectPath: string, avant: RepereDepot | nu
  * modifiés dans le dossier. C'est ce constat — le MÊME repère que le travail
  * hors tâche, pas un second — qui autorise une carte à passer en « Terminé ».
  *
- * Sans repère (projet hors git) ou sans réponse de git, on rend `true` : on ne
- * retient pas une carte sur une observation qu'on n'a pas pu faire.
+ * Trois réponses, pas deux (`TraceDuTravail`). Sans repère, le projet n'est pas
+ * un dépôt git : il n'y a RIEN à observer, on rend « oui » plutôt que de retenir
+ * une carte sur une observation impossible par nature. Mais un dépôt git qui ne
+ * RÉPOND PAS rend « inconnue » : c'est un trou, pas une trace, et une carte ne
+ * se clôt pas sur un trou.
  */
-export async function depotModifieDepuis(
+export async function traceDuTravailDepuis(
   projectPath: string,
   avant: RepereDepot | null,
-): Promise<boolean> {
-  if (!avant) return true;
+): Promise<TraceDuTravail> {
+  if (!avant) return 'oui';
   const commits = await commitsDuTour(projectPath, avant);
-  if (commits.length) return true;
+  if (commits.length) return 'oui';
   const enCours = await git(projectPath, ['status', '--porcelain']);
-  if (enCours === null) return true;
-  return enCours.trim().length > 0;
+  if (enCours === null) return 'inconnue';
+  return enCours.trim().length > 0 ? 'oui' : 'non';
 }
 
 /** Une fonctionnalité posée sur sa branche. */

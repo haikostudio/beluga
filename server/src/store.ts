@@ -539,6 +539,29 @@ export function listCardsInColumn(projectId: string, column: ColumnKey): Card[] 
   return listCards(projectId).filter((c) => c.column === column);
 }
 
+/**
+ * LES CARTES QU'UN TOUR D'EXÉCUTION TENAIT ENCORE, tous projets confondus.
+ *
+ * La marque (`scheduling.tourEnVolDepuis`) vit dans le JSON résiduel de la
+ * carte : on présélectionne en SQL sur son nom, puis on relit vraiment — le
+ * `LIKE` dégrossit, il ne juge pas. Lue une seule fois, au démarrage du démon,
+ * pour rendre honnêtes les tâches coupées en vol
+ * (`shared/src/carte-interrompue.ts`).
+ */
+export function cartesEnVol(): Card[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM cards WHERE data LIKE '%tourEnVolDepuis%'")
+    .all() as LigneCarte[];
+  return rows
+    .map((row) =>
+      carteDepuisLigne(row, {
+        labels: listeDUneCarte('card_labels', 'label', row.id),
+        attachments: listeDUneCarte('card_attachments', 'path', row.id),
+      }),
+    )
+    .filter((carte) => !!carte.scheduling?.tourEnVolDepuis);
+}
+
 export function getCard(id: string): Card | null {
   const row = getDb().prepare('SELECT * FROM cards WHERE id = ?').get(id) as LigneCarte | undefined;
   if (!row) return null;
