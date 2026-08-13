@@ -733,87 +733,89 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
       </button>
 
       {open ? (
-        <div
-          data-panneau-agents
-          className="absolute bottom-full left-1.5 right-1.5 z-40 mb-1 flex max-h-[70vh] flex-col gap-1 overflow-auto rounded-md border border-border bg-surface p-1.5 shadow-lg"
-        >
-          {agents.slice(0, 6).map((agent) => {
-            const project = state.projects.find((p) => p.id === agent.projectId);
-            const runningAgent = agent.status === 'running';
-            return (
-              <div
-                key={agent.id}
-                data-vignette-agent-colonne
-                className="flex items-center gap-1.5 rounded-md border border-border bg-bg px-2 py-1.5"
-              >
-                {/* Un agent de PUBLICATION porte l'icône réseau/envoi, violette et
-                    clignotante tant qu'il tourne. */}
-                {agent.role === 'deploy' ? (
-                  <UploadCloud
-                    className={cn(
-                      'h-3 w-3 shrink-0',
-                      runningAgent ? 'text-publie animate-pulse-soft motion-reduce:animate-none' : 'text-faint',
-                    )}
-                  />
-                ) : (
-                  <Bot className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')} />
-                )}
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onOpenAgent(agent.id);
-                  }}
-                  className="min-w-0 flex-1 text-left"
+        // Le bloc REPOSE sur le bouton, `pb-1` compris : un `mb-1` externe
+        // aurait laissé un pixel de rien entre les deux, où passer la souris
+        // sortait de la zone survolée et refermait tout avant d'atteindre les
+        // vignettes. Le padding, LUI, reste DANS l'élément survolé.
+        <div data-panneau-agents className="absolute inset-x-1.5 bottom-full z-40 pb-1">
+          <div className="flex max-h-[70vh] flex-col gap-1 overflow-auto rounded-md border border-border bg-surface p-1.5 shadow-lg">
+            {agents.slice(0, 6).map((agent, index) => {
+              const project = state.projects.find((p) => p.id === agent.projectId);
+              const runningAgent = agent.status === 'running';
+              return (
+                <div
+                  key={agent.id}
+                  data-vignette-agent-colonne
+                  // La cascade : chaque vignette monte à son tour, la plus
+                  // récente en tête déjà en place.
+                  style={{ animationDelay: `${index * 30}ms` }}
+                  className="flex animate-slide-up items-center gap-1.5 rounded-md border border-border bg-bg px-2 py-1.5"
                 >
-                  <p className="truncate text-[13px] text-text">{agent.title}</p>
-                  <p className="truncate text-[11.5px] text-faint">
-                    {project?.name} · {agent.run.engine} ·{' '}
-                    {runningAgent ? elapsed(agent.startedAt) : agent.status === 'failed' ? 'échec' : 'terminé'}
-                  </p>
-                </button>
-                {runningAgent ? <Dot tone="running" pulse /> : null}
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setDismissed((current) => {
-                      const next = new Set(current);
-                      next.add(agent.id);
-                      return next;
-                    });
-                  }}
-                  className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] text-faint hover:text-text"
-                  title="Retirer la vignette (l'agent continue)"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </div>
-            );
-          })}
+                  {/* Un agent de PUBLICATION porte l'icône réseau/envoi, violette et
+                      clignotante tant qu'il tourne. */}
+                  {agent.role === 'deploy' ? (
+                    <UploadCloud
+                      className={cn(
+                        'h-3 w-3 shrink-0',
+                        runningAgent ? 'text-publie animate-pulse-soft motion-reduce:animate-none' : 'text-faint',
+                      )}
+                    />
+                  ) : (
+                    <Bot className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')} />
+                  )}
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenAgent(agent.id);
+                    }}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <p className="truncate text-[13px] text-text">{agent.title}</p>
+                    <p className="truncate text-[11.5px] text-faint">
+                      {project?.name} · {agent.run.engine} ·{' '}
+                      {runningAgent ? elapsed(agent.startedAt) : agent.status === 'failed' ? 'échec' : 'terminé'}
+                    </p>
+                  </button>
+                  {runningAgent ? <Dot tone="running" pulse /> : null}
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDismissed((current) => {
+                        const next = new Set(current);
+                        next.add(agent.id);
+                        return next;
+                      });
+                    }}
+                    className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] text-faint hover:text-text"
+                    title="Retirer la vignette (l'agent continue)"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              );
+            })}
 
-          <div className="flex items-center justify-end gap-1 pt-0.5" data-commandes="pile-agents-colonne">
-            {undo ? (
+            <div className="flex flex-col items-stretch gap-1 pt-0.5" data-commandes="pile-agents-colonne">
+              {undo ? (
+                <button
+                  onClick={() => {
+                    setDismissed(undo);
+                    setUndo(null);
+                  }}
+                  className="self-end rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-text"
+                >
+                  Annuler
+                </button>
+              ) : null}
+              {/* Un seul bouton, sur toute la largeur : plus de « Replier »,
+                  le repli se fait tout seul quand le pointeur s'en va. */}
               <button
-                onClick={() => {
-                  setDismissed(undo);
-                  setUndo(null);
-                }}
-                className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-text"
+                onClick={clearAll}
+                className="w-full rounded border border-border bg-bg px-1.5 py-1 text-[11.5px] text-faint hover:text-text"
               >
-                Annuler
+                Tout effacer
               </button>
-            ) : null}
-            <button
-              onClick={() => setOpen(false)}
-              className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
-            >
-              Replier
-            </button>
-            <button
-              onClick={clearAll}
-              className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
-            >
-              Tout effacer
-            </button>
+            </div>
           </div>
         </div>
       ) : null}
