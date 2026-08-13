@@ -42,6 +42,11 @@ import {
   colonneApresMoteurMuet,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  etatApresCoupure,
+  raisonDeNonCloture,
+  traceAcquise,
+  TraceDuTravail,
+  RAISON_COUPE_EN_VOL,
   cumulerPartsQuota,
   contexteApresCompression,
   decisionEnTexteLibre,
@@ -112,7 +117,7 @@ import {
 } from './accounts.js';
 import { poserDecisionDeReprise, repriseDeCompte } from './reprise-compte.js';
 import { notify } from './notify.js';
-import { cartesDuTravailHorsTache, depotModifieDepuis, repereAvant } from './hors-tache.js';
+import { cartesDuTravailHorsTache, traceDuTravailDepuis, repereAvant } from './hors-tache.js';
 import { envGithub } from './github.js';
 import { oublierLePont, passageDuPont } from './pont.js';
 import { ouvrirDossierDeCarte, refermerDossierDeCarte } from './dossier-de-carte.js';
@@ -424,7 +429,30 @@ export function replacerCarteAuDemarrage(agent: Agent): void {
   const carte = store.getCard(agent.cardId);
   if (!carte) return;
   const cible = colonneAuDemarrage(carte.column, agent.role);
-  if (!cible) return;
+  /*
+   * LA MARQUE DE VOL, posée AVANT tout le reste et même quand il n'y a aucune
+   * colonne à changer : c'est elle qui, après un arrêt du serveur, distingue une
+   * carte coupée en plein travail d'une carte simplement rendue et laissée
+   * ouverte. Sans elle, on ne pouvait rattraper que les agents encore marqués
+   * « au travail » — ceux dont le rangement de fin de tour avait déjà commencé
+   * passaient au travers (`shared/src/carte-interrompue.ts`).
+   */
+  const enVol = ROLES_QUI_DEPLACENT.includes(agent.role);
+  if (!cible) {
+    // Rien à déplacer : on pose seulement la marque, sans toucher au reste de
+    // la carte — une carte rangée dans une fin de parcours n'a pas à voir sa
+    // date de clôture ni sa suspension effacées par un simple tour de suite.
+    if (!enVol || carte.scheduling?.tourEnVolDepuis) return;
+    const marquee = store.saveCard({
+      ...carte,
+      scheduling: {
+        ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+        tourEnVolDepuis: Date.now(),
+      },
+    });
+    bus.emit({ type: 'card.upsert', card: marquee });
+    return;
+  }
   const relancee = store.saveCard({
     ...carte,
     column: cible,
@@ -451,9 +479,12 @@ export function replacerCarteAuDemarrage(agent: Agent): void {
      * relancé, et rien ne suivait. `startCard` efface déjà la marque de son
      * côté ; les deux seuls départs possibles la traitent donc pareil.
      */
-    scheduling: carte.scheduling
-      ? { ...carte.scheduling, suspendu: false, waitingReason: undefined }
-      : carte.scheduling,
+    scheduling: {
+      ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+      suspendu: false,
+      waitingReason: undefined,
+      ...(enVol ? { tourEnVolDepuis: carte.scheduling?.tourEnVolDepuis ?? Date.now() } : {}),
+    },
   });
   bus.emit({ type: 'card.upsert', card: relancee });
 }
@@ -1705,7 +1736,16 @@ async function startTurn(
    * le découpage du travail hors tâche, juste après, remet la branche de départ
    * en arrière et effacerait la trace.
    */
-  const depotModifie = failed ? false : await depotModifieDepuis(dossier, repere).catch(() => true);
+  /*
+   * Trois réponses possibles, pas deux : le dépôt a bougé, il n'a pas bougé, ou
+   * il n'a pas pu être consulté. Le dernier cas rendait `true` — une carte
+   * passait donc en « Terminé » sur une observation qu'on n'avait pas pu faire.
+   * Il vaut désormais « inconnue » : la carte reste ouverte et le DIT.
+   */
+  const trace: TraceDuTravail = failed
+    ? 'non'
+    : await traceDuTravailDepuis(dossier, repere).catch(() => 'inconnue' as const);
+  const depotModifie = traceAcquise(trace);
 
   /*
    * LE DOSSIER DE LA CARTE SE REFERME ICI, une fois le constat pris : la branche
@@ -1775,8 +1815,31 @@ async function startTurn(
         leSien && !failed && ROLES_QUI_DEPLACENT.includes(agent.role) && depotModifie;
       const dejaEnregistre = card.codeDejaEnregistre || aProduit;
       const raison = leSien
-        ? raisonSansModification(card.column, !failed, agent.role, depotModifie, dejaEnregistre)
+        ? raisonDeNonCloture(
+            raisonSansModification(card.column, !failed, agent.role, depotModifie, dejaEnregistre),
+            trace,
+          )
         : null;
+      /*
+       * LA MARQUE DE VOL S'ÉTEINT ICI, et nulle part avant : ce tour a fini de
+       * tout ranger (dépôt constaté, branche fusionnée, colonne posée). Un tour
+       * ÉTRANGER, lui, n'y touche pas — la marque appartient alors à l'agent qui
+       * a repris la carte. Coupé plus tôt, le démon retrouvera la marque au
+       * démarrage et rendra la carte comme interrompue.
+       */
+      const planification =
+        leSien || relanceMoteurMuet
+          ? {
+              ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+              ...(leSien ? { tourEnVolDepuis: undefined } : {}),
+              ...(relanceMoteurMuet
+                ? {
+                    restarts: (card.scheduling?.restarts ?? 0) + 1,
+                    waitingReason: RAISON_MOTEUR_INJOIGNABLE,
+                  }
+                : {}),
+            }
+          : card.scheduling;
       const updated = store.saveCard({
         ...card,
         ...(cible
@@ -1786,15 +1849,7 @@ async function startTurn(
               ...(cible === 'done' ? { doneAt: Date.now() } : {}),
             }
           : {}),
-        ...(relanceMoteurMuet
-          ? {
-              scheduling: {
-                ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
-                restarts: (card.scheduling?.restarts ?? 0) + 1,
-                waitingReason: RAISON_MOTEUR_INJOIGNABLE,
-              },
-            }
-          : {}),
+        scheduling: planification,
         codeDejaEnregistre: dejaEnregistre,
         // La phrase « rien n'a changé » n'appartient qu'à l'agent de la carte :
         // un tour étranger la laisse telle quelle plutôt que de l'effacer.
@@ -2721,26 +2776,25 @@ export function recoverAfterRestart(
       bus.emit({ type: 'message.upsert', message: fixed });
     }
 
-    if (agent.cardId) {
-      const card = store.getCard(agent.cardId);
-      if (card && card.column === 'running') {
-        const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
-        const updatedCard = store.saveCard({
-          ...card,
-          // La file d'avant-travail, c'est « Planifié » : « À faire » n'existe
-          // plus. Viser l'ancienne colonne rendrait la carte illisible.
-          column: 'planned',
-          scheduling: {
-            ...scheduling,
-            restarts: (scheduling.restarts ?? 0) + 1,
-            waitingReason: 'Reprise après redémarrage du serveur',
-          },
-        });
-        bus.emit({ type: 'card.upsert', card: updatedCard });
-        log.info(`carte « ${card.title} » remise en file après redémarrage`);
-      }
-    }
+    if (agent.cardId) rendreLaCarteInterrompue(agent.cardId);
   }
+
+  /*
+   * … ET TOUTES LES AUTRES CARTES COUPÉES EN VOL. La boucle ci-dessus ne voit
+   * que les agents encore marqués « au travail ». Or un tour se range en
+   * plusieurs temps : l'agent passe en « terminé », puis le dépôt est constaté,
+   * puis la branche est fusionnée, puis seulement la carte bouge. Coupé dans
+   * cette fenêtre — qui contient la compression du fil, donc peut durer —,
+   * l'agent était déjà « terminé » : personne ne le rattrapait, et la carte
+   * restée en « En cours » affichait la coche verte du travail rendu, alors que
+   * le code dormait sur une branche jamais fusionnée.
+   *
+   * La MARQUE portée par la carte tranche sans se fier au statut de l'agent :
+   * aucun moteur ne survit à un arrêt du serveur, donc toute marque encore là
+   * désigne un tour coupé. Une carte simplement rendue et laissée ouverte, elle,
+   * n'en porte pas : on ne la touche pas.
+   */
+  for (const carte of store.cartesEnVol()) rendreLaCarteInterrompue(carte.id);
 
   /*
    * Une publication « running » a été coupée en plein vol par le redémarrage :
@@ -2782,6 +2836,50 @@ export function recoverAfterRestart(
       });
     }
   }
+}
+
+/**
+ * Le repli pour les cartes d'AVANT la marque : une carte trouvée en « En cours »
+ * alors que son agent était encore au travail est coupée en vol, marque ou pas.
+ */
+const ETAT_COUPURE_SANS_MARQUE = { colonne: 'planned' as const, raison: RAISON_COUPE_EN_VOL };
+
+/**
+ * Rendre une carte coupée en vol dans un état HONNÊTE : jamais « Terminé »,
+ * jamais silencieuse. Elle retombe dans « Planifié » avec la raison écrite
+ * dessus, et repart d'elle-même — le compteur de reprises l'y autorise
+ * (`demarrageAutomatiqueAutorise`) sans redemander de geste à l'utilisateur.
+ * Le compteur d'ESSAIS, lui, ne bouge pas : un arrêt du serveur n'est pas un
+ * essai raté.
+ */
+function rendreLaCarteInterrompue(cardId: string): void {
+  const card = store.getCard(cardId);
+  if (!card) return;
+  const etat = etatApresCoupure(card) ?? (card.column === 'running' ? ETAT_COUPURE_SANS_MARQUE : null);
+  if (!etat) return;
+  const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
+  const updatedCard = store.saveCard({
+    ...card,
+    // La file d'avant-travail, c'est « Planifié » : « À faire » n'existe plus.
+    // Viser l'ancienne colonne rendrait la carte illisible.
+    ...(etat.colonne
+      ? {
+          column: etat.colonne,
+          position: store.nextPosition(card.projectId, etat.colonne),
+          // Une carte interrompue n'est pas une carte close : la date de
+          // clôture d'un tour précédent ne doit pas la faire passer pour finie.
+          doneAt: undefined,
+        }
+      : {}),
+    scheduling: {
+      ...scheduling,
+      restarts: (scheduling.restarts ?? 0) + 1,
+      waitingReason: etat.raison,
+      tourEnVolDepuis: undefined,
+    },
+  });
+  bus.emit({ type: 'card.upsert', card: updatedCard });
+  log.info(`carte « ${card.title} » rendue interrompue après redémarrage`);
 }
 
 /** Nettoyage des configurations d'outils temporaires. */

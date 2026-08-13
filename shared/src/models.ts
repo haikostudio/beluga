@@ -329,6 +329,14 @@ export const SchedulingState = z.object({
    * date, une fois, jamais une récurrence (`shared/src/depart-programme.ts`).
    */
   departPrevu: z.number().optional(),
+  /**
+   * L'instant où un tour d'EXÉCUTION a pris cette carte en main, retiré quand
+   * ce tour a fini de tout ranger (dépôt constaté, branche fusionnée, colonne
+   * posée). Une marque encore là au démarrage du démon désigne une tâche coupée
+   * en vol : aucun moteur ne survit à un arrêt du serveur
+   * (`shared/src/carte-interrompue.ts`).
+   */
+  tourEnVolDepuis: z.number().optional(),
   lastError: z.string().optional(),
 });
 export type SchedulingState = z.infer<typeof SchedulingState>;

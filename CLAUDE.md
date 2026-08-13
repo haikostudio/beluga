@@ -229,7 +229,17 @@ le nom, là-bas le texte).
   depuis plus de 15 s, ou deux requêtes d'affilée sans réponse. Une requête isolée qui expire est
   rendue à l'appelant, jamais affichée en bulle rouge — un lancement ne répond qu'à la FIN du tour.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
-  carte, jamais le fait que le moteur ait répondu.
+  carte, jamais le fait que le moteur ait répondu. Le constat rend TROIS réponses
+  (`TraceDuTravail`, `shared/src/carte-interrompue.ts`) : oui, non, et « je n'ai pas pu regarder » —
+  seul « oui » ferme la carte, un dépôt muet ne vaut plus une preuve de travail.
+- **Une tâche COUPÉE PAR UNE PANNE ne passe jamais pour terminée** (`shared/src/carte-interrompue.ts`)
+  : tant qu'un tour d'exécution tient une carte, elle porte une MARQUE (`scheduling.tourEnVolDepuis`),
+  retirée seulement une fois la carte rangée. Aucun moteur ne survivant à un arrêt du serveur, toute
+  marque encore là au démarrage désigne un tour coupé : le démon les balaie TOUTES
+  (`store.cartesEnVol`, `rendreLaCarteInterrompue`) sans se fier au statut de l'agent — retour en
+  « Planifié », date de clôture effacée, raison écrite dessus, reprise toute seule, et le compteur
+  d'essais intact. Verrouillé par `server/src/test/carte-interrompue.test.ts` et
+  `scripts/verif-carte-interrompue.mjs`.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN.** Un projet
   qu'on retire est MIS DE CÔTÉ (`project.archive`, `archived = 1`), jamais supprimé.
 - **Les champs d'une carte sont de VRAIES colonnes** (`shared/src/carte-sql.ts`, migration 17 de
