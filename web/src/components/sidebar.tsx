@@ -1085,22 +1085,22 @@ function EnteteGroupe({
  * ne s'y ajoute pas.
  *
  * Un PLAN qui attend une décision prend la même place, à défaut des deux
- * précédents : l'icône du plan (`RepereDePlan`), au lieu de l'icône par
- * défaut (le dossier, ou l'outil de l'espace de développement) — jamais
- * ajoutée à droite du nom.
+ * précédents : l'icône du plan (`RepereDePlan`).
+ *
+ * Rien de tout ça n'est vrai : le repère ne s'affiche pas (`null`), pour
+ * laisser sa place au repère de repos de l'appelant (favicon du projet,
+ * outil de l'espace de développement…) — sur une ligne de projet, il vient
+ * s'AJOUTER entre ce repère de repos et le nom, jamais le remplacer.
  */
 function RepereRobot({
   running,
   publie,
   planEnAttente,
-  fallback,
 }: {
   running: number;
   publie?: boolean;
   /** Un plan proposé attend encore une décision sur ce projet. */
   planEnAttente?: boolean;
-  /** L'icône par défaut, quand rien de tout ça n'est vrai. */
-  fallback?: React.ReactNode;
 }) {
   if (publie) {
     return (
@@ -1123,7 +1123,7 @@ function RepereRobot({
     );
   }
   if (planEnAttente) return <RepereDePlan />;
-  return fallback ?? <Folder className="h-[15px] w-[15px] shrink-0 text-faint" />;
+  return null;
 }
 
 /**
@@ -1569,18 +1569,16 @@ function ProjectRow({
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        {/* Le loader prend la place de l'icône tant qu'un agent écrit ; une
-            publication en cours prend la MÊME place, avec son propre signe,
-            et un plan qui attend une décision de même (voir `RepereRobot`) —
-            c'est le MÊME emplacement, donc rien ne s'ajoute à la ligne. Au
-            repos, c'est le favicon du site du projet (ou ses initiales, à
-            défaut d'adresse) qui tient la place du dossier. */}
-        <RepereRobot
-          running={running}
-          publie={publie}
-          planEnAttente={planEnAttente}
-          fallback={<PastilleSite project={project} />}
-        />
+        {/* Le favicon du site du projet (ou ses initiales, à défaut d'adresse)
+            reste TOUJOURS en premier, tout à gauche : on ne le perd plus
+            quand il se passe quelque chose. L'icône d'état (loader d'agent,
+            publication, plan en attente — voir `RepereRobot`) vient s'AJOUTER
+            juste après, entre le favicon et le nom, et seulement quand elle a
+            quelque chose à dire. */}
+        <PastilleSite project={project} />
+        {running || publie || planEnAttente ? (
+          <RepereRobot running={running} publie={publie} planEnAttente={planEnAttente} />
+        ) : null}
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
