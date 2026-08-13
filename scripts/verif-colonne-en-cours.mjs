@@ -10,6 +10,9 @@
  *  - une carte en « Planifié » SANS agent au travail ne bouge pas ;
  *  - une carte « Terminé » dont un agent tourne (chiffrage discuté) ne bouge
  *    pas non plus : un tour de discussion ne déplace pas une carte ;
+ *  - une carte DÉJÀ enregistrée en « En cours » dont un agent travaille ne
+ *    porte AUCUNE mention : la colonne réellement enregistrée est déjà celle
+ *    qu'on voit, l'anomalie n'aurait rien à apprendre ;
  *  - une requête isolée restée sans réponse n'affiche AUCUNE alerte, alors
  *    qu'un vrai refus métier s'affiche toujours.
  *
@@ -216,6 +219,12 @@ async function main() {
     statutAgent: 'running',
     position: maintenant + 0.3,
   });
+  const dejaEnCours = await poser('deja-en-cours', {
+    column: 'running',
+    titre: 'Essai — déjà en cours, agent au travail',
+    statutAgent: 'running',
+    position: maintenant + 0.4,
+  });
   await page.waitForTimeout(1000);
 
   record(
@@ -245,6 +254,19 @@ async function main() {
     'une carte « Terminé » dont l’agent tourne ne bouge pas',
     (await colonneDe(discutee.cardId)) === 'done',
     (await colonneDe(discutee.cardId)) ?? 'introuvable',
+  );
+  record(
+    'une carte déjà en « En cours » reste sur place',
+    (await colonneDe(dejaEnCours.cardId)) === 'running',
+    (await colonneDe(dejaEnCours.cardId)) ?? 'introuvable',
+  );
+  record(
+    'une carte déjà en « En cours » ne porte AUCUNE mention : rien à corriger',
+    !(await page
+      .locator(`[data-colonne-corrigee="${dejaEnCours.cardId}"]`)
+      .first()
+      .textContent()
+      .catch(() => null)),
   );
 
   // Les têtes de colonne comptent sur la MÊME liste que les colonnes : la carte
