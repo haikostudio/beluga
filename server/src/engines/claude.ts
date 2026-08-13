@@ -12,6 +12,7 @@ import {
   normalizeTodos,
   sommeContexte,
 } from './types.js';
+import { finDuProcessus } from './fin-de-processus.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -152,21 +153,20 @@ export const claudeAdapter: EngineAdapter = {
       if (stderr.length > 8000) stderr = stderr.slice(-4000);
     });
 
-    const finished = new Promise<{ ok: boolean; error?: string }>((resolve) => {
-      child.on('error', (err) => {
-        options.onEvent({ kind: 'error', error: err.message });
-        resolve({ ok: false, error: err.message });
-      });
-      child.on('close', (code) => {
+    const finished = finDuProcessus(child, {
+      moteur: 'claude',
+      plafondMs: options.plafondMs,
+      surErreur: (message) => options.onEvent({ kind: 'error', error: message }),
+      cloturer: (code, depassement) => {
         if (buffer.trim()) handleLine(buffer);
-        const ok = code === 0;
-        if (!ok) {
-          const message = stderr.trim().split('\n').slice(-4).join('\n') || `Le moteur s'est arrêté (code ${code}).`;
-          options.onEvent({ kind: 'error', error: message });
-        }
+        const ok = code === 0 && !depassement;
+        const message = depassement
+          ? "Le moteur ne rendait pas la main : il a été arrêté pour ne pas bloquer l'agent."
+          : stderr.trim().split('\n').slice(-4).join('\n') || `Le moteur s'est arrêté (code ${code}).`;
+        if (!ok) options.onEvent({ kind: 'error', error: message });
         options.onEvent({ kind: 'done', exitCode: code ?? -1 });
-        resolve({ ok, error: ok ? undefined : stderr.trim().slice(-500) });
-      });
+        return { ok, error: ok ? undefined : depassement ? message : stderr.trim().slice(-500) };
+      },
     });
 
     return {

@@ -84,6 +84,14 @@ export interface EngineRunOptions {
    */
   projectRoot?: string;
   env?: Record<string, string>;
+  /**
+   * PLAFOND DE DURÉE, en millisecondes. Réservé aux appels de SERVICE passés
+   * autour d'un tour — compression du fil, mesure de la session, relance d'un
+   * plan incomplet : aucun d'eux ne doit retenir la barre d'écriture, et l'un
+   * d'eux resté pendu laissait l'agent « au travail » pour des heures. Le tour
+   * lui-même n'en porte JAMAIS : un agent a le droit de réfléchir longtemps.
+   */
+  plafondMs?: number;
   onEvent: (event: EngineEvent) => void;
 }
 

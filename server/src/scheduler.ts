@@ -21,7 +21,14 @@ import {
 import { menageDesDossiers, ouvrirDossierDeCarte } from './dossier-de-carte.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
-import { createAgent, isRunning, sendPrompt, runningCount, runningAgentIds } from './runtime.js';
+import {
+  createAgent,
+  isRunning,
+  sendPrompt,
+  runningCount,
+  runningAgentIds,
+  veilleDesToursBloques,
+} from './runtime.js';
 import { canStartAgent, snapshot } from './capacity.js';
 import { refreshQuotas } from './accounts.js';
 import { notify } from './notify.js';
@@ -533,6 +540,14 @@ export async function tick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
+    /*
+     * LE FILET, AVANT TOUT LE RESTE : un agent resté « au travail » alors que
+     * plus rien ne l'attend est refermé ici. Il fait tourner un compteur dans le
+     * vide, retient la barre d'écriture, et occupe une place d'agent qui
+     * manquerait au démarrage d'une carte juste en dessous.
+     */
+    veilleDesToursBloques();
+
     for (const project of store.listProjects()) {
       /*
        * Aucun balayage de chiffrage : une carte validée n'attend plus d'analyse,
