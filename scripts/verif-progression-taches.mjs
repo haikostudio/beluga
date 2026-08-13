@@ -7,8 +7,9 @@
  *  - le compteur change quand une étape passe à « faite » (l'agent renvoie
  *    3/3) ;
  *  - une carte sans liste de tâches ne montre rien ;
- *  - une carte d'une AUTRE colonne (Terminé) ne montre rien, même avec une
- *    liste : le décroché ne parle que pour « En cours » ;
+ *  - une carte d'une AUTRE colonne (Terminé), elle, MONTRE aussi son
+ *    avancement : le décroché n'est plus réservé à « En cours », il vaut sur
+ *    TOUTES les cartes qui ont un décompte ;
  *  - la TÊTE de la colonne « En cours » affiche le pourcentage global, égal à
  *    la somme des « n/N faites » réellement affichés, dans l'ORANGE des
  *    travaux en cours.
@@ -235,9 +236,11 @@ async function main() {
     'une carte sans liste de tâches ne montre rien',
     !(await texteProgression(sansListe.cardId)),
   );
+  const tTerminee = await texteProgression(terminee.cardId);
   record(
-    'une carte « Terminé » ne montre rien, même avec une liste',
-    !(await texteProgression(terminee.cardId)),
+    'une carte « Terminé » avec une liste montre aussi son avancement',
+    /3\/3/.test(tTerminee ?? ''),
+    tTerminee ?? 'absent',
   );
 
   /*
@@ -260,15 +263,18 @@ async function main() {
   /*
    * L'avancement GLOBAL, en tête de la colonne « En cours ». On ne suppose rien
    * du contenu réel du tableau : on additionne les « n/N faites » RÉELLEMENT
-   * affichés (ils n'existent que dans cette colonne) et on compare au
-   * pourcentage de l'entête. Sa couleur doit être celle du jeton « en cours »,
-   * jamais une teinte neuve : on la mesure contre un témoin `text-en-cours`.
+   * affichés dans CETTE colonne (le décroché existe désormais sur toutes les
+   * cartes, il faut donc se limiter à « En cours » pour comparer au bon total)
+   * et on compare au pourcentage de l'entête. Sa couleur doit être celle du
+   * jeton « en cours », jamais une teinte neuve : on la mesure contre un
+   * témoin `text-en-cours`.
    */
   const mesure = await page.evaluate(() => {
     const entete = document.querySelector('[data-avancement-colonne="running"]');
     let done = 0;
     let total = 0;
-    for (const decroche of document.querySelectorAll('[data-progression-taches]')) {
+    const colonneEnCours = document.querySelector('[data-column="running"]');
+    for (const decroche of colonneEnCours?.querySelectorAll('[data-progression-taches]') ?? []) {
       const trouve = /(\d+)\s*\/\s*(\d+)/.exec(decroche.textContent ?? '');
       if (!trouve) continue;
       done += Number(trouve[1]);

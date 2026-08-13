@@ -35,6 +35,13 @@ import {
   ampleurParDefaut,
   checkTemplate,
   motifDArretQuota,
+  arretDuAuQuota,
+  ETAPE_PANNE_ID,
+  causeEnClair,
+  demandeDeRepriseApresPanne,
+  libelleDeLEtape,
+  libelleDeLaReprise,
+  messageDePanneDefinitive,
   MotifDeContinuite,
   tachesAPoursuivre,
   cleDeSession,
@@ -42,6 +49,11 @@ import {
   colonneApresMoteurMuet,
   colonneAuDemarrage,
   colonneEnFinDeTour,
+  etatApresCoupure,
+  raisonDeNonCloture,
+  traceAcquise,
+  TraceDuTravail,
+  RAISON_COUPE_EN_VOL,
   cumulerPartsQuota,
   contexteApresCompression,
   decisionEnTexteLibre,
@@ -112,10 +124,11 @@ import {
 } from './accounts.js';
 import { poserDecisionDeReprise, repriseDeCompte } from './reprise-compte.js';
 import { notify } from './notify.js';
-import { cartesDuTravailHorsTache, depotModifieDepuis, repereAvant } from './hors-tache.js';
+import { cartesDuTravailHorsTache, traceDuTravailDepuis, repereAvant } from './hors-tache.js';
 import { envGithub } from './github.js';
 import { oublierLePont, passageDuPont } from './pont.js';
 import { ouvrirDossierDeCarte, refermerDossierDeCarte } from './dossier-de-carte.js';
+import { lancerAvecRelances } from './relance-moteur.js';
 
 export interface LiveRun {
   agentId: string;
@@ -424,7 +437,30 @@ export function replacerCarteAuDemarrage(agent: Agent): void {
   const carte = store.getCard(agent.cardId);
   if (!carte) return;
   const cible = colonneAuDemarrage(carte.column, agent.role);
-  if (!cible) return;
+  /*
+   * LA MARQUE DE VOL, posée AVANT tout le reste et même quand il n'y a aucune
+   * colonne à changer : c'est elle qui, après un arrêt du serveur, distingue une
+   * carte coupée en plein travail d'une carte simplement rendue et laissée
+   * ouverte. Sans elle, on ne pouvait rattraper que les agents encore marqués
+   * « au travail » — ceux dont le rangement de fin de tour avait déjà commencé
+   * passaient au travers (`shared/src/carte-interrompue.ts`).
+   */
+  const enVol = ROLES_QUI_DEPLACENT.includes(agent.role);
+  if (!cible) {
+    // Rien à déplacer : on pose seulement la marque, sans toucher au reste de
+    // la carte — une carte rangée dans une fin de parcours n'a pas à voir sa
+    // date de clôture ni sa suspension effacées par un simple tour de suite.
+    if (!enVol || carte.scheduling?.tourEnVolDepuis) return;
+    const marquee = store.saveCard({
+      ...carte,
+      scheduling: {
+        ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+        tourEnVolDepuis: Date.now(),
+      },
+    });
+    bus.emit({ type: 'card.upsert', card: marquee });
+    return;
+  }
   const relancee = store.saveCard({
     ...carte,
     column: cible,
@@ -451,9 +487,12 @@ export function replacerCarteAuDemarrage(agent: Agent): void {
      * relancé, et rien ne suivait. `startCard` efface déjà la marque de son
      * côté ; les deux seuls départs possibles la traitent donc pareil.
      */
-    scheduling: carte.scheduling
-      ? { ...carte.scheduling, suspendu: false, waitingReason: undefined }
-      : carte.scheduling,
+    scheduling: {
+      ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+      suspendu: false,
+      waitingReason: undefined,
+      ...(enVol ? { tourEnVolDepuis: carte.scheduling?.tourEnVolDepuis ?? Date.now() } : {}),
+    },
   });
   bus.emit({ type: 'card.upsert', card: relancee });
 }
@@ -890,6 +929,32 @@ async function dossierDuTour(agent: Agent, project: Project): Promise<string> {
   return ouvert.dossier;
 }
 
+/**
+ * L'usage de DEUX essais d'un même tour, additionné. Un tour relancé après une
+ * panne du fournisseur a coûté la somme de ses essais : garder le dernier seul
+ * effacerait de la facture tout ce qui avait été consommé avant la coupure.
+ * Les mesures de CONTEXTE (taille de la fenêtre, remplissage) ne s'additionnent
+ * pas : c'est la dernière qui décrit la session vivante.
+ */
+function additionnerUsage(
+  avant: EngineEvent['usage'] | undefined,
+  dernier: EngineEvent['usage'] | undefined,
+): EngineEvent['usage'] | undefined {
+  if (!avant) return dernier;
+  if (!dernier) return avant;
+  const somme = (a?: number, b?: number) =>
+    a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
+  return {
+    ...dernier,
+    inputTokens: (avant.inputTokens ?? 0) + (dernier.inputTokens ?? 0),
+    outputTokens: (avant.outputTokens ?? 0) + (dernier.outputTokens ?? 0),
+    cachedTokens: somme(avant.cachedTokens, dernier.cachedTokens),
+    costUsd: somme(avant.costUsd, dernier.costUsd),
+    durationMs: somme(avant.durationMs, dernier.durationMs),
+    turns: somme(avant.turns, dernier.turns),
+  };
+}
+
 async function startTurn(
   agentBefore: Agent,
   prompt: string,
@@ -1148,152 +1213,164 @@ async function startTurn(
   });
 
   let sawError: string | undefined;
+  /*
+   * L'USAGE DES ESSAIS PRÉCÉDENTS. Un tour coupé par une panne du fournisseur
+   * est relancé (plus bas) : chaque essai rend son propre événement d'usage, et
+   * le dernier écraserait les précédents. On garde donc ce qui a déjà été
+   * consommé et on l'additionne — la facture d'un tour, c'est TOUT ce qu'il a
+   * coûté, essais compris.
+   */
+  let usageDesEssaisPrecedents: EngineEvent['usage'] | undefined;
 
-  const handle = adapter.run({
-    cwd,
-    projectRoot,
-    prompt,
-    model: agent.run.model ?? undefined,
-    thinking: agent.run.thinking,
-    sessionId,
-    systemPrompt,
-    systemPromptRappel,
-    mcpConfigPath,
-    mcpBridgePath: bridgePath,
-    fullAccess,
-    mode: agent.run.mode,
-    // Le RÔLE décide de l'effet du mode plan : un agent de tâche prépare sans
-    // écrire, le chef garde ses outils (`modePlanFermeLEcriture`).
-    role: agent.role,
-    allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
-    disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
-    env,
-    onEvent: (event) => {
-      agentLog(PATHS.logs, agent.id, JSON.stringify(event));
-      switch (event.kind) {
-        case 'session':
-          if (event.sessionId) {
-            store.setSessionId(agent.id, event.sessionId, cleSession);
-          }
-          break;
-        case 'text':
-          if (event.text) {
-            runState.text += (runState.text ? '\n\n' : '') + event.text;
-            pushMessage(runState, { content: runState.text, streaming: true });
-          }
-          break;
-        case 'step':
-          if (event.step) {
-            const existing = runState.steps.get(event.step.key);
-            /*
-             * UN REFUS DU BAC À SABLE SE DIT EN FRANÇAIS. Le projet est monté en
-             * lecture seule pour un chef bridé et l'élévation de privilèges y
-             * est coupée : une commande qui l'oublie rendait « EROFS », « sudo:
-             * no new privileges » ou « Read-only file system », que le chef
-             * reprenait en « je n'ai pas les droits » — alors que rien ne manque.
-             * On ajoute la cause réelle et la route à prendre AU-DESSUS de la
-             * sortie d'origine, qui reste lisible. Étape en cours exclue : son
-             * détail est la commande, pas encore son résultat.
-             */
-            const brut = event.step.detail ?? existing?.detail;
-            const explique =
-              bride && event.step.state !== 'running' ? detailDuRefus(brut, project.path) : null;
-            const step: RunStep = {
-              id: event.step.key,
-              label: event.step.label,
-              state: event.step.state,
-              detail: explique ?? brut,
-              startedAt: existing?.startedAt ?? Date.now(),
-              endedAt: event.step.state === 'running' ? undefined : Date.now(),
-            };
-            runState.steps.set(event.step.key, step);
-            pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
-          }
-          break;
-        case 'todo':
-          // Le moteur renvoie sa liste ENTIÈRE à chaque mise à jour, sans
-          // aucune heure : on la rapproche de la précédente pour retenir le
-          // temps passé sur chaque ligne.
-          if (event.todos?.length) {
-            const avant = runState.todos;
-            runState.todos = mergeTodos(avant, event.todos, runState.startedAt);
-            pushMessage(runState, { todos: runState.todos, streaming: true });
+  const lancerLeMoteur = (promptDuTour: string, sessionDuTour: string | null) =>
+    adapter.run({
+      cwd,
+      projectRoot,
+      prompt: promptDuTour,
+      model: agent.run.model ?? undefined,
+      thinking: agent.run.thinking,
+      sessionId: sessionDuTour,
+      systemPrompt,
+      systemPromptRappel,
+      mcpConfigPath,
+      mcpBridgePath: bridgePath,
+      fullAccess,
+      mode: agent.run.mode,
+      // Le RÔLE décide de l'effet du mode plan : un agent de tâche prépare sans
+      // écrire, le chef garde ses outils (`modePlanFermeLEcriture`).
+      role: agent.role,
+      allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
+      disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+      env,
+      onEvent: (event) => {
+        agentLog(PATHS.logs, agent.id, JSON.stringify(event));
+        switch (event.kind) {
+          case 'session':
+            if (event.sessionId) {
+              store.setSessionId(agent.id, event.sessionId, cleSession);
+            }
+            break;
+          case 'text':
+            if (event.text) {
+              runState.text += (runState.text ? '\n\n' : '') + event.text;
+              pushMessage(runState, { content: runState.text, streaming: true });
+            }
+            break;
+          case 'step':
+            if (event.step) {
+              const existing = runState.steps.get(event.step.key);
+              /*
+               * UN REFUS DU BAC À SABLE SE DIT EN FRANÇAIS. Le projet est monté en
+               * lecture seule pour un chef bridé et l'élévation de privilèges y
+               * est coupée : une commande qui l'oublie rendait « EROFS », « sudo:
+               * no new privileges » ou « Read-only file system », que le chef
+               * reprenait en « je n'ai pas les droits » — alors que rien ne manque.
+               * On ajoute la cause réelle et la route à prendre AU-DESSUS de la
+               * sortie d'origine, qui reste lisible. Étape en cours exclue : son
+               * détail est la commande, pas encore son résultat.
+               */
+              const brut = event.step.detail ?? existing?.detail;
+              const explique =
+                bride && event.step.state !== 'running' ? detailDuRefus(brut, project.path) : null;
+              const step: RunStep = {
+                id: event.step.key,
+                label: event.step.label,
+                state: event.step.state,
+                detail: explique ?? brut,
+                startedAt: existing?.startedAt ?? Date.now(),
+                endedAt: event.step.state === 'running' ? undefined : Date.now(),
+              };
+              runState.steps.set(event.step.key, step);
+              pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
+            }
+            break;
+          case 'todo':
+            // Le moteur renvoie sa liste ENTIÈRE à chaque mise à jour, sans
+            // aucune heure : on la rapproche de la précédente pour retenir le
+            // temps passé sur chaque ligne.
+            if (event.todos?.length) {
+              const avant = runState.todos;
+              runState.todos = mergeTodos(avant, event.todos, runState.startedAt);
+              pushMessage(runState, { todos: runState.todos, streaming: true });
 
-            /*
-             * L'avancement voyage AUSSI avec l'agent : les étapes vivent sur les
-             * messages (chargés seulement à l'ouverture d'une carte), mais le
-             * décroché du tableau doit montrer « n/N faites » sans ouvrir la
-             * carte. On pose donc le décompte sur l'agent lui-même, en relisant
-             * son état frais pour ne pas écraser un statut posé ailleurs.
-             */
-            const progression = {
-              done: runState.todos.filter((t) => t.state === 'done').length,
-              total: runState.todos.length,
-            };
-            const frais = store.getAgent(agent.id);
-            if (frais && (frais.todos?.done !== progression.done || frais.todos?.total !== progression.total)) {
-              const maj = store.saveAgent({ ...frais, todos: progression });
-              bus.emit({ type: 'agent.upsert', agent: maj });
-            }
+              /*
+               * L'avancement voyage AUSSI avec l'agent : les étapes vivent sur les
+               * messages (chargés seulement à l'ouverture d'une carte), mais le
+               * décroché du tableau doit montrer « n/N faites » sans ouvrir la
+               * carte. On pose donc le décompte sur l'agent lui-même, en relisant
+               * son état frais pour ne pas écraser un statut posé ailleurs.
+               */
+              const progression = {
+                done: runState.todos.filter((t) => t.state === 'done').length,
+                total: runState.todos.length,
+              };
+              const frais = store.getAgent(agent.id);
+              if (frais && (frais.todos?.done !== progression.done || frais.todos?.total !== progression.total)) {
+                const maj = store.saveAgent({ ...frais, todos: progression });
+                bus.emit({ type: 'agent.upsert', agent: maj });
+              }
 
-            /*
-             * Liste entièrement cochée : cela se voit dans l'application, mais
-             * n'interrompt plus personne. Une liste cochée n'est PAS une tâche
-             * finie — le travail se clôt sur le constat du dépôt, et c'est
-             * cette clôture-là qui prévient. Les deux annonçaient le même
-             * événement : c'était le doublon d'origine.
-             */
-            if (!runState.todosNotified && allDone(runState.todos) && !allDone(avant)) {
-              runState.todosNotified = true;
-              notify({
-                motif: 'liste-taches',
-                title: 'Liste de tâches terminée',
-                body: `${agent.title} — ${runState.todos.length} tâche${runState.todos.length > 1 ? 's' : ''} cochée${runState.todos.length > 1 ? 's' : ''}`,
-                reference: agent.cardId ?? agent.id,
-                projectId: agent.projectId,
-                cardId: agent.cardId,
-              });
+              /*
+               * Liste entièrement cochée : cela se voit dans l'application, mais
+               * n'interrompt plus personne. Une liste cochée n'est PAS une tâche
+               * finie — le travail se clôt sur le constat du dépôt, et c'est
+               * cette clôture-là qui prévient. Les deux annonçaient le même
+               * événement : c'était le doublon d'origine.
+               */
+              if (!runState.todosNotified && allDone(runState.todos) && !allDone(avant)) {
+                runState.todosNotified = true;
+                notify({
+                  motif: 'liste-taches',
+                  title: 'Liste de tâches terminée',
+                  body: `${agent.title} — ${runState.todos.length} tâche${runState.todos.length > 1 ? 's' : ''} cochée${runState.todos.length > 1 ? 's' : ''}`,
+                  reference: agent.cardId ?? agent.id,
+                  projectId: agent.projectId,
+                  cardId: agent.cardId,
+                });
+              }
             }
-          }
-          break;
-        case 'usage':
-          runState.usage = event.usage;
-          if (contexteUtilisateur && event.usage) {
-            mesurerContexteUtilisateur(contexteUtilisateur.messageId, event.usage);
-          }
-          break;
-        case 'context':
-          if (event.context) {
-            const window = event.context.window ?? catalogContextWindow;
-            runState.context = {
-              tokens: event.context.tokens,
-              window,
-            };
-            const contextUsage = mesurerContexte(event.context.tokens, window);
-            const frais = store.getAgent(agent.id);
-            if (frais && contextUsage) {
-              const maj = store.saveAgent({ ...frais, contextUsage });
-              bus.emit({ type: 'agent.upsert', agent: maj });
+            break;
+          case 'usage':
+            // Cumulé avec les essais précédents : un tour relancé après une panne
+            // du fournisseur a coûté la somme de ses essais, pas seulement le
+            // dernier.
+            runState.usage = additionnerUsage(usageDesEssaisPrecedents, event.usage);
+            if (contexteUtilisateur && runState.usage) {
+              mesurerContexteUtilisateur(contexteUtilisateur.messageId, runState.usage);
             }
-          }
-          break;
-        case 'ratelimit':
-          if (event.rateLimit) {
-            // Le compte est mis de côté, ET le tour retient qu'il a été coupé
-            // par une limite : sans cette marque, l'arrêt qui suit ne se
-            // distinguerait plus d'une panne ordinaire.
-            if (limiteBloquante(event.rateLimit.status)) runState.limiteSignalee = true;
-            noteAccountUse(account.id, event.rateLimit);
-          }
-          break;
-        case 'error':
-          sawError = event.error;
-          break;
-        default:
-          break;
-      }
-    },
-  });
+            break;
+          case 'context':
+            if (event.context) {
+              const window = event.context.window ?? catalogContextWindow;
+              runState.context = {
+                tokens: event.context.tokens,
+                window,
+              };
+              const contextUsage = mesurerContexte(event.context.tokens, window);
+              const frais = store.getAgent(agent.id);
+              if (frais && contextUsage) {
+                const maj = store.saveAgent({ ...frais, contextUsage });
+                bus.emit({ type: 'agent.upsert', agent: maj });
+              }
+            }
+            break;
+          case 'ratelimit':
+            if (event.rateLimit) {
+              // Le compte est mis de côté, ET le tour retient qu'il a été coupé
+              // par une limite : sans cette marque, l'arrêt qui suit ne se
+              // distinguerait plus d'une panne ordinaire.
+              if (limiteBloquante(event.rateLimit.status)) runState.limiteSignalee = true;
+              noteAccountUse(account.id, event.rateLimit);
+            }
+            break;
+          case 'error':
+            sawError = event.error;
+            break;
+          default:
+            break;
+        }
+      },
+    });
 
   /*
    * LE TOUR EST SUIVI DÈS QUE LE MOTEUR TOURNE — avant tout autre travail.
@@ -1307,6 +1384,8 @@ async function startTurn(
    * continuait, sans personne pour l'arrêter ni pour ranger sa fin de tour.
    * Suivi d'abord : une panne survenue ensuite arrête vraiment le moteur.
    */
+  const handle = lancerLeMoteur(prompt, sessionId);
+
   runState.handle = handle;
   live.set(agent.id, runState);
 
@@ -1336,7 +1415,77 @@ async function startTurn(
 
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
-  const result = await handle.finished;
+  /*
+   * LA PANNE DU FOURNISSEUR NE TUE PLUS LA TÂCHE.
+   *
+   * « API Error: 500 Internal server error », « Server error mid-response » : le
+   * moteur s'arrête en code 1 au milieu du travail, après plusieurs dizaines
+   * d'étapes réussies. Ces pannes viennent du FOURNISSEUR et sont passagères —
+   * l'agent retente donc tout seul, avec une attente croissante et un nombre
+   * d'essais borné (`shared/src/panne-passagere.ts`), sur le MÊME fil : il
+   * reprend là où il s'était arrêté au lieu de repartir de zéro.
+   *
+   * Le fil se retrouve par l'identifiant de session relu à l'instant du nouvel
+   * essai — le moteur l'a annoncé au premier. S'il manque (moteur coupé avant
+   * d'avoir parlé), le nouvel essai repart sur un fil neuf, avec la consigne de
+   * reprise : moins bien qu'une reprise de fil, infiniment mieux qu'un abandon.
+   */
+  const relance = await lancerAvecRelances({
+    lancer: (essai, motif) => {
+      if (essai === 0 || !motif) return handle;
+      // Ce que les essais précédents ont coûté est mis de côté AVANT que le
+      // nouvel essai ne rende son propre usage : le tour les additionne.
+      usageDesEssaisPrecedents = runState.usage;
+      sawError = undefined;
+      const suivant = lancerLeMoteur(
+        demandeDeRepriseApresPanne(motif, essai),
+        store.getSessionId(agent.id, cleSession),
+      );
+      // L'arrêt manuel doit porter sur le moteur qui tourne VRAIMENT.
+      runState.handle = suivant;
+      return suivant;
+    },
+    etat: () => ({
+      erreur: sawError,
+      texte: runState.text,
+      arretDemande: runState.stopping,
+      // Un arrêt de quota garde sa propre route : « avec quel compte poursuivre ? ».
+      limiteQuota: arretDuAuQuota({
+        ok: false,
+        arretDemande: runState.stopping,
+        limiteSignalee: runState.limiteSignalee,
+        erreur: sawError,
+        texte: runState.text,
+      }),
+    }),
+    avantNouvelEssai: ({ essai, motif, attenteMs }) => {
+      runState.steps.set(ETAPE_PANNE_ID, {
+        id: ETAPE_PANNE_ID,
+        label: libelleDeLEtape(motif, essai, attenteMs),
+        state: 'running',
+        startedAt: Date.now(),
+      });
+      pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
+      log.warn(`panne passagère du moteur (${motif}) sur l'agent ${agent.id} : nouvel essai ${essai} dans ${attenteMs} ms`);
+    },
+    apresNouvelEssai: ({ essai, ok }) => {
+      runState.steps.set(ETAPE_PANNE_ID, {
+        id: ETAPE_PANNE_ID,
+        label: libelleDeLaReprise(essai),
+        state: ok ? 'done' : 'running',
+        startedAt: runState.steps.get(ETAPE_PANNE_ID)?.startedAt ?? Date.now(),
+        endedAt: ok ? Date.now() : undefined,
+      });
+      pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
+    },
+  });
+  const result = relance.result;
+  /*
+   * Tous les essais ont échoué : la tâche est INTERROMPUE par le fournisseur,
+   * elle n'a pas raté. La cause réelle est dite en clair, l'agent se met au
+   * repos plutôt qu'en échec, et le travail déjà fait reste sur sa branche.
+   */
+  const panneDefinitive = relance.panne;
   const elapsedSeconds = (Date.now() - runState.startedAt) / 1000;
   const tokens =
     (runState.usage?.inputTokens ?? 0) +
@@ -1624,11 +1773,15 @@ async function startTurn(
     account: account.label,
     // Un arrêt dû au quota n'affiche pas de panne : le bloc de reprise dit ce
     // qui s'est passé et propose la suite, ce que « code 1 » ne faisait pas.
+    // Une panne du fournisseur, elle, s'affiche en rouge SEULEMENT quand tous
+    // les essais ont échoué — et avec sa cause réelle, jamais un « code 1 ».
     error: reprise
       ? undefined
-      : failed
-        ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin."
-        : undefined,
+      : panneDefinitive
+        ? messageDePanneDefinitive(panneDefinitive, relance.essais)
+        : failed
+          ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin."
+          : undefined,
     repriseCompte: reprise,
     // Le drapeau `plan` a été posé au LANCEMENT du tour, avant de savoir s'il
     // irait au bout : un tour TOMBÉ (quota ou toute autre panne) ne laisse au
@@ -1697,7 +1850,11 @@ async function startTurn(
   const finalAgent = store.getAgent(agent.id)!;
   // « stopped » et non « failed » : l'agent n'a pas échoué, il attend de savoir
   // sur quel compte poursuivre. La carte reste au repos, sans voyant d'échec.
-  setStatus(finalAgent, reprise ? 'stopped' : failed ? 'failed' : 'done', { endedAt: Date.now() });
+  // Même verdict pour une panne du fournisseur qui a résisté à tous les essais :
+  // le travail a été INTERROMPU, il n'a pas raté.
+  setStatus(finalAgent, reprise || panneDefinitive ? 'stopped' : failed ? 'failed' : 'done', {
+    endedAt: Date.now(),
+  });
 
   /*
    * LE CONSTAT, avant tout déplacement de carte : le dépôt a-t-il bougé ? On le
@@ -1705,7 +1862,16 @@ async function startTurn(
    * le découpage du travail hors tâche, juste après, remet la branche de départ
    * en arrière et effacerait la trace.
    */
-  const depotModifie = failed ? false : await depotModifieDepuis(dossier, repere).catch(() => true);
+  /*
+   * Trois réponses possibles, pas deux : le dépôt a bougé, il n'a pas bougé, ou
+   * il n'a pas pu être consulté. Le dernier cas rendait `true` — une carte
+   * passait donc en « Terminé » sur une observation qu'on n'avait pas pu faire.
+   * Il vaut désormais « inconnue » : la carte reste ouverte et le DIT.
+   */
+  const trace: TraceDuTravail = failed
+    ? 'non'
+    : await traceDuTravailDepuis(dossier, repere).catch(() => 'inconnue' as const);
+  const depotModifie = traceAcquise(trace);
 
   /*
    * LE DOSSIER DE LA CARTE SE REFERME ICI, une fois le constat pris : la branche
@@ -1775,8 +1941,31 @@ async function startTurn(
         leSien && !failed && ROLES_QUI_DEPLACENT.includes(agent.role) && depotModifie;
       const dejaEnregistre = card.codeDejaEnregistre || aProduit;
       const raison = leSien
-        ? raisonSansModification(card.column, !failed, agent.role, depotModifie, dejaEnregistre)
+        ? raisonDeNonCloture(
+            raisonSansModification(card.column, !failed, agent.role, depotModifie, dejaEnregistre),
+            trace,
+          )
         : null;
+      /*
+       * LA MARQUE DE VOL S'ÉTEINT ICI, et nulle part avant : ce tour a fini de
+       * tout ranger (dépôt constaté, branche fusionnée, colonne posée). Un tour
+       * ÉTRANGER, lui, n'y touche pas — la marque appartient alors à l'agent qui
+       * a repris la carte. Coupé plus tôt, le démon retrouvera la marque au
+       * démarrage et rendra la carte comme interrompue.
+       */
+      const planification =
+        leSien || relanceMoteurMuet
+          ? {
+              ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+              ...(leSien ? { tourEnVolDepuis: undefined } : {}),
+              ...(relanceMoteurMuet
+                ? {
+                    restarts: (card.scheduling?.restarts ?? 0) + 1,
+                    waitingReason: RAISON_MOTEUR_INJOIGNABLE,
+                  }
+                : {}),
+            }
+          : card.scheduling;
       const updated = store.saveCard({
         ...card,
         ...(cible
@@ -1786,15 +1975,7 @@ async function startTurn(
               ...(cible === 'done' ? { doneAt: Date.now() } : {}),
             }
           : {}),
-        ...(relanceMoteurMuet
-          ? {
-              scheduling: {
-                ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
-                restarts: (card.scheduling?.restarts ?? 0) + 1,
-                waitingReason: RAISON_MOTEUR_INJOIGNABLE,
-              },
-            }
-          : {}),
+        scheduling: planification,
         codeDejaEnregistre: dejaEnregistre,
         // La phrase « rien n'a changé » n'appartient qu'à l'agent de la carte :
         // un tour étranger la laisse telle quelle plutôt que de l'effacer.
@@ -1835,8 +2016,10 @@ async function startTurn(
   if (failed && !reprise) {
     notify({
       motif: 'tache-echec',
-      title: 'Tâche en échec',
-      body: agent.title,
+      // Une panne du fournisseur ne se dit pas « en échec » : la tâche a été
+      // interrompue, et l'alerte nomme la cause au lieu de l'imputer à l'agent.
+      title: panneDefinitive ? 'Tâche interrompue par une panne du moteur' : 'Tâche en échec',
+      body: panneDefinitive ? `${agent.title} — ${causeEnClair(panneDefinitive)}` : agent.title,
       // Un tour raté par agent : deux tentatives sur la même carte se disent
       // toutes les deux, mais un seul échec ne se dit jamais deux fois.
       reference: agent.id,
@@ -2721,26 +2904,25 @@ export function recoverAfterRestart(
       bus.emit({ type: 'message.upsert', message: fixed });
     }
 
-    if (agent.cardId) {
-      const card = store.getCard(agent.cardId);
-      if (card && card.column === 'running') {
-        const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
-        const updatedCard = store.saveCard({
-          ...card,
-          // La file d'avant-travail, c'est « Planifié » : « À faire » n'existe
-          // plus. Viser l'ancienne colonne rendrait la carte illisible.
-          column: 'planned',
-          scheduling: {
-            ...scheduling,
-            restarts: (scheduling.restarts ?? 0) + 1,
-            waitingReason: 'Reprise après redémarrage du serveur',
-          },
-        });
-        bus.emit({ type: 'card.upsert', card: updatedCard });
-        log.info(`carte « ${card.title} » remise en file après redémarrage`);
-      }
-    }
+    if (agent.cardId) rendreLaCarteInterrompue(agent.cardId);
   }
+
+  /*
+   * … ET TOUTES LES AUTRES CARTES COUPÉES EN VOL. La boucle ci-dessus ne voit
+   * que les agents encore marqués « au travail ». Or un tour se range en
+   * plusieurs temps : l'agent passe en « terminé », puis le dépôt est constaté,
+   * puis la branche est fusionnée, puis seulement la carte bouge. Coupé dans
+   * cette fenêtre — qui contient la compression du fil, donc peut durer —,
+   * l'agent était déjà « terminé » : personne ne le rattrapait, et la carte
+   * restée en « En cours » affichait la coche verte du travail rendu, alors que
+   * le code dormait sur une branche jamais fusionnée.
+   *
+   * La MARQUE portée par la carte tranche sans se fier au statut de l'agent :
+   * aucun moteur ne survit à un arrêt du serveur, donc toute marque encore là
+   * désigne un tour coupé. Une carte simplement rendue et laissée ouverte, elle,
+   * n'en porte pas : on ne la touche pas.
+   */
+  for (const carte of store.cartesEnVol()) rendreLaCarteInterrompue(carte.id);
 
   /*
    * Une publication « running » a été coupée en plein vol par le redémarrage :
@@ -2782,6 +2964,50 @@ export function recoverAfterRestart(
       });
     }
   }
+}
+
+/**
+ * Le repli pour les cartes d'AVANT la marque : une carte trouvée en « En cours »
+ * alors que son agent était encore au travail est coupée en vol, marque ou pas.
+ */
+const ETAT_COUPURE_SANS_MARQUE = { colonne: 'planned' as const, raison: RAISON_COUPE_EN_VOL };
+
+/**
+ * Rendre une carte coupée en vol dans un état HONNÊTE : jamais « Terminé »,
+ * jamais silencieuse. Elle retombe dans « Planifié » avec la raison écrite
+ * dessus, et repart d'elle-même — le compteur de reprises l'y autorise
+ * (`demarrageAutomatiqueAutorise`) sans redemander de geste à l'utilisateur.
+ * Le compteur d'ESSAIS, lui, ne bouge pas : un arrêt du serveur n'est pas un
+ * essai raté.
+ */
+function rendreLaCarteInterrompue(cardId: string): void {
+  const card = store.getCard(cardId);
+  if (!card) return;
+  const etat = etatApresCoupure(card) ?? (card.column === 'running' ? ETAT_COUPURE_SANS_MARQUE : null);
+  if (!etat) return;
+  const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
+  const updatedCard = store.saveCard({
+    ...card,
+    // La file d'avant-travail, c'est « Planifié » : « À faire » n'existe plus.
+    // Viser l'ancienne colonne rendrait la carte illisible.
+    ...(etat.colonne
+      ? {
+          column: etat.colonne,
+          position: store.nextPosition(card.projectId, etat.colonne),
+          // Une carte interrompue n'est pas une carte close : la date de
+          // clôture d'un tour précédent ne doit pas la faire passer pour finie.
+          doneAt: undefined,
+        }
+      : {}),
+    scheduling: {
+      ...scheduling,
+      restarts: (scheduling.restarts ?? 0) + 1,
+      waitingReason: etat.raison,
+      tourEnVolDepuis: undefined,
+    },
+  });
+  bus.emit({ type: 'card.upsert', card: updatedCard });
+  log.info(`carte « ${card.title} » rendue interrompue après redémarrage`);
 }
 
 /** Nettoyage des configurations d'outils temporaires. */

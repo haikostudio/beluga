@@ -51,6 +51,7 @@ import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
 import { appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
+import { recupererFaviconEnTache } from './favicon.js';
 import {
   deployableCards,
   startDeploy,
@@ -63,6 +64,7 @@ import {
   blocageMiseEnProduction,
   avertissementsDeLaSelection,
 } from './deploy.js';
+import { rangerLaCarte } from './deplacement-carte.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
@@ -217,8 +219,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const current = store.getProject(cmd.id);
       if (!current) throw new Error('projet introuvable');
       const updated = store.saveProject(Project.parse({ ...current, ...cmd.patch, id: current.id }));
+      if (updated.devUrl && updated.devUrl !== current.devUrl) recupererFaviconEnTache(updated);
       bus.emit({ type: 'project.upsert', project: updated });
       return { project: updated };
+    }
+
+    case 'project.faviconRetry': {
+      const project = store.getProject(cmd.id);
+      if (!project) throw new Error('projet introuvable');
+      if (!project.devUrl?.trim()) throw new Error('aucune adresse réglée pour ce projet');
+      recupererFaviconEnTache(project);
+      return { ok: true };
     }
 
     case 'project.branches': {
@@ -459,12 +470,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       const sortDuRangement = COLONNES_HORS_REPRISE.includes(card.column);
 
-      const updated = store.saveCard({
-        ...card,
-        column: target,
-        position: cmd.position ?? store.nextPosition(card.projectId, target),
-        doneAt: target === 'done' ? Date.now() : card.doneAt,
-      });
+      /* Le rangement lui-même vit dans `rangerLaCarte` : c'est là que les dates
+         qui suivent la colonne (« Terminé », « À déployer ») se posent ou se
+         retirent, en un seul endroit rejouable. */
+      const updated = rangerLaCarte(card, target, cmd.position);
       bus.emit({ type: 'card.upsert', card: updated });
       // Archiver une carte retire sa pastille : le compte se rediffuse.
       bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
@@ -614,6 +623,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       for (const carte of touchees) bus.emit({ type: 'card.upsert', card: carte });
       bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
       return { lues: touchees.length };
+    }
+
+    /*
+     * Ouvrir un projet éteint son point bleu, sans marquer une seule carte
+     * comme lue : seule la visite compte, `project.read` reste le geste à
+     * part qui, lui, touche les cartes.
+     */
+    case 'project.visit': {
+      const projet = store.markProjectVisited(cmd.projectId);
+      if (projet) bus.emit({ type: 'project.upsert', project: projet });
+      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+      return { ok: !!projet };
     }
 
     case 'agent.orchestrator': {

@@ -106,6 +106,14 @@ export const Project = z.object({
    */
   devUrl: z.string().optional(),
   /**
+   * L'ICÔNE DE SITE trouvée sur `devUrl`, récupérée par le SERVEUR (le
+   * navigateur n'y arrive pas — trop souvent bloqué). Chemin d'une route
+   * servie par le démon (`/api/favicon?project=<id>`), jamais une adresse
+   * externe : absent = pas encore essayé, ou aucune icône trouvée — l'écran
+   * retombe alors sur les initiales du projet.
+   */
+  favicon: z.string().optional(),
+  /**
    * LES BRANCHES DE MISE EN LIGNE de ce projet, une par étape : celle où le
    * DÉPLOIEMENT vers l'instance de dev fusionne son lot, celle où la MISE EN
    * PRODUCTION fusionne le sien. Les règles vivent dans
@@ -161,6 +169,13 @@ export const Project = z.object({
     })
     .default({}),
   billing: BillingLink.optional(),
+  /**
+   * Dernière fois que ce projet a été OUVERT depuis la colonne de gauche —
+   * sert uniquement à éteindre le point bleu de travail terminé
+   * (`shared/src/signal-projet.ts`) sans toucher au repère de lecture des
+   * cartes, qui reste un geste à part (`project.read`).
+   */
+  lastVisitedAt: z.number().optional(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
   rank: z.number().default(1000),
   /** Groupe de rangement choisi par l'utilisateur (« Clients », « Perso »…). */
@@ -329,6 +344,14 @@ export const SchedulingState = z.object({
    * date, une fois, jamais une récurrence (`shared/src/depart-programme.ts`).
    */
   departPrevu: z.number().optional(),
+  /**
+   * L'instant où un tour d'EXÉCUTION a pris cette carte en main, retiré quand
+   * ce tour a fini de tout ranger (dépôt constaté, branche fusionnée, colonne
+   * posée). Une marque encore là au démarrage du démon désigne une tâche coupée
+   * en vol : aucun moteur ne survit à un arrêt du serveur
+   * (`shared/src/carte-interrompue.ts`).
+   */
+  tourEnVolDepuis: z.number().optional(),
   lastError: z.string().optional(),
 });
 export type SchedulingState = z.infer<typeof SchedulingState>;

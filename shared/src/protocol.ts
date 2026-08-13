@@ -56,6 +56,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('project.branches'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
+  /**
+   * Relance à la main la récupération de l'icône de site (`server/src/favicon.ts`) :
+   * bouton « réessayer » des réglages, pour un site dont le logo a changé ou
+   * qui ne répondait pas encore à la dernière tentative.
+   */
+  z.object({ type: z.literal('project.faviconRetry'), id: z.string() }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
   /** Ranger un projet dans un groupe (ou l'en sortir avec un groupe vide). */
@@ -145,6 +151,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.read'), cardId: z.string() }),
   /** « J'ai tout lu sur ce projet » : le geste se fait depuis la liste. */
   z.object({ type: z.literal('project.read'), projectId: z.string() }),
+  /**
+   * « J'ai ouvert ce projet » : éteint le point bleu de travail terminé, sans
+   * toucher au repère de lecture des cartes (`project.read` le fait déjà, pour
+   * le clic explicite sur le point).
+   */
+  z.object({ type: z.literal('project.visit'), projectId: z.string() }),
   z.object({ type: z.literal('agent.orchestrator'), projectId: z.string(), tout: z.boolean().optional() }),
   /** Repartir de zéro : le fil d'avant est mis de côté, pas supprimé. */
   z.object({ type: z.literal('agent.reset'), agentId: z.string() }),

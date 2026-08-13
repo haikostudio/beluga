@@ -143,6 +143,11 @@ le nom, là-bas le texte).
   sans réglage. La MISE EN PRODUCTION, elle, ne suit QUE le prompt réglé du projet : sans prompt,
   elle est refusée, jamais menée à vide. La mise en ligne compte donc DEUX étapes, que la colonne
   « En production » sépare.
+- **Une carte qui ENTRE dans « À déployer » perd sa date de mise en ligne, et un bouton éteint DIT
+  pourquoi** (`dateDeMiseEnLignePerimee` / `raisonLotBloque`, `shared/src/lot-a-deployer.ts` ;
+  `rangerLaCarte`, `server/src/deplacement-carte.ts` ; migration 20). Sans cela, une carte revenue
+  dans le lot en était écartée à jamais et « Tout déployer (0) » ne partait nulle part, sans un mot.
+  Tant que le bouton refuse de partir, la cause s'écrit sous lui.
 - **La BRANCHE de chaque étape se choisit dans les réglages du projet**
   (`brancheDePublication`, `shared/src/branche-de-publication.ts` ; `Project.branchesDePublication`) :
   une pour le déploiement, une pour la mise en production, prises dans la liste des branches du
@@ -229,7 +234,17 @@ le nom, là-bas le texte).
   depuis plus de 15 s, ou deux requêtes d'affilée sans réponse. Une requête isolée qui expire est
   rendue à l'appelant, jamais affichée en bulle rouge — un lancement ne répond qu'à la FIN du tour.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
-  carte, jamais le fait que le moteur ait répondu.
+  carte, jamais le fait que le moteur ait répondu. Le constat rend TROIS réponses
+  (`TraceDuTravail`, `shared/src/carte-interrompue.ts`) : oui, non, et « je n'ai pas pu regarder » —
+  seul « oui » ferme la carte, un dépôt muet ne vaut plus une preuve de travail.
+- **Une tâche COUPÉE PAR UNE PANNE ne passe jamais pour terminée** (`shared/src/carte-interrompue.ts`)
+  : tant qu'un tour d'exécution tient une carte, elle porte une MARQUE (`scheduling.tourEnVolDepuis`),
+  retirée seulement une fois la carte rangée. Aucun moteur ne survivant à un arrêt du serveur, toute
+  marque encore là au démarrage désigne un tour coupé : le démon les balaie TOUTES
+  (`store.cartesEnVol`, `rendreLaCarteInterrompue`) sans se fier au statut de l'agent — retour en
+  « Planifié », date de clôture effacée, raison écrite dessus, reprise toute seule, et le compteur
+  d'essais intact. Verrouillé par `server/src/test/carte-interrompue.test.ts` et
+  `scripts/verif-carte-interrompue.mjs`.
 - **« Archivé », « En production » et « À déployer » ne se rouvrent que sur GESTE HUMAIN.** Un projet
   qu'on retire est MIS DE CÔTÉ (`project.archive`, `archived = 1`), jamais supprimé.
 - **Les champs d'une carte sont de VRAIES colonnes** (`shared/src/carte-sql.ts`, migration 17 de
@@ -325,6 +340,16 @@ le nom, là-bas le texte).
   APRÈS la réponse — compression, mesure, relance de plan — porte un `plafondMs`, le tour lui-même
   jamais ; `sendPrompt` referme en `finally` ; et l'ordonnanceur referme d'autorité un agent que plus
   rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec.
+- **Une PANNE PASSAGÈRE du fournisseur se retente, elle ne tue pas la tâche**
+  (`shared/src/panne-passagere.ts`, `server/src/relance-moteur.ts`, branchée dans `startTurn`) :
+  erreur 500 (« Internal server error », « Server error mid-response »), moteur surchargé, lien
+  coupé — le tour relance le moteur jusqu'à `ESSAIS_MAX` (3) fois, après une attente CROISSANTE, sur
+  le MÊME fil et avec une consigne qui dit de CONTINUER là où il s'était arrêté. Jamais sur un tour
+  réussi, un arrêt à la main, un arrêt de QUOTA (qui garde sa route) ni une demande refusée (4xx).
+  Les essais s'additionnent dans la mesure du tour. Tous échoués, la tâche est INTERROMPUE et non
+  ratée : agent en « stopped », alerte « Tâche interrompue par une panne du moteur », et le bandeau
+  rouge — seulement là — porte la cause réelle en clair, jamais un « code 1 ». Vérifié par
+  `server/src/test/panne-passagere.test.ts` et `scripts/verif-panne-moteur.mjs`.
 - **Un moteur lancé est SUIVI avant tout autre travail** (`startTurn`, `server/src/runtime.ts`) :
   `live.set` passe devant l'enregistrement du contexte envoyé, sinon une panne survenue dans cette
   fenêtre faisait refermer par `sendPrompt` un tour BIEN VIVANT — bulle rouge « panne interne du

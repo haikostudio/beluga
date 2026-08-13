@@ -15,7 +15,8 @@ import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projec
 import { scheduleNightlyBackup } from './backup.js';
 import { purgeOldArchives } from './files.js';
 import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
-import { getSettings } from './store.js';
+import { getSettings, listProjects } from './store.js';
+import { recupererFaviconEnTache, planifierRevisionFavicons } from './favicon.js';
 import { listEngines } from './engines/index.js';
 import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
@@ -46,6 +47,13 @@ async function main(): Promise<void> {
   await ensureSelfProject();
   await adoptServerProjects();
   await refreshGitInfo();
+
+  // Les projets déjà inscrits, mais dont l'icône n'a jamais été récupérée
+  // (déploiement d'avant cette version) : on la va chercher sans attendre un
+  // prochain changement d'adresse.
+  for (const projet of listProjects(true)) {
+    if (projet.devUrl?.trim() && !projet.favicon) recupererFaviconEnTache(projet);
+  }
 
   // Reprise après redémarrage AVANT d'accepter des connexions : les agents
   // disparus repartent en file sans consommer de tentative, et une publication
@@ -134,6 +142,7 @@ async function main(): Promise<void> {
    * ce qu'on veut précisément éviter.
    */
   const autoAmeliorationTimer = planifierAutoAmelioration();
+  const faviconTimer = planifierRevisionFavicons();
 
   sampleCapacity();
   void refreshQuotas(true).then((quotas) => {
@@ -153,6 +162,7 @@ async function main(): Promise<void> {
     clearInterval(digestTimer);
     clearInterval(janitorTimer);
     clearInterval(autoAmeliorationTimer);
+    clearInterval(faviconTimer);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);
   };

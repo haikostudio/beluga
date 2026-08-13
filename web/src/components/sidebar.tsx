@@ -351,10 +351,6 @@ export function Sidebar({
     },
   });
 
-  const agentsEnCours = Object.values(state.agents).filter(
-    (agent) => agent.projectId === state.activeProjectId && agent.status === 'running',
-  );
-
   return (
     <aside
       // Sur téléphone la liste occupe tout l'écran ; la largeur réglée à la
@@ -632,28 +628,7 @@ export function Sidebar({
         ) : null}
       </ZoneDefilement>
 
-      {agentsEnCours.length ? (
-        <div className="border-t border-border px-1.5 py-2">
-          <p className="px-1 pb-1 text-[12px] uppercase tracking-wide text-faint">Agents en cours</p>
-          {agentsEnCours.map((agent) => (
-            <button
-              key={agent.id}
-              onClick={() => onOpenAgent(agent.id)}
-              className="mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-muted hover:bg-surface hover:text-text"
-            >
-              {/* Un agent de PUBLICATION porte le même signe que la ligne de
-                  projet qu'il fait clignoter : icône réseau/envoi, violette. */}
-              {agent.role === 'deploy' ? (
-                <UploadCloud className="h-3 w-3 shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
-              ) : (
-                <Bot className="h-3 w-3 shrink-0 text-en-cours" />
-              )}
-              <span className="min-w-0 flex-1 truncate">{agent.title}</span>
-              <span className="text-[11.5px] text-faint">{elapsed(agent.startedAt)}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <PileAgentsColonne onOpenAgent={onOpenAgent} />
 
       <BoutonRedemarrage />
 
@@ -698,6 +673,151 @@ export function Sidebar({
         onClose={() => setDeleting(null)}
       />
     </aside>
+  );
+}
+
+/**
+ * La pile des agents, en un bouton au pied de la colonne des projets, juste
+ * au-dessus du redémarrage. Au survol (ou au clic, pour le doigt) elle ouvre
+ * son panneau EN SUPERPOSITION — position absolue, jamais dans le flux —
+ * pour ne jamais décaler ni élargir la colonne. Un seul endroit pour tout ce
+ * qui travaille, tous projets confondus : plus de bloc « Agents en cours »
+ * séparé, plus de pile flottante en bas à droite.
+ */
+function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
+  const state = useApp();
+  const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
+  const [undo, setUndo] = React.useState<Set<string> | null>(null);
+  const [open, setOpen] = React.useState(false);
+  const [, force] = React.useReducer((value: number) => value + 1, 0);
+
+  React.useEffect(() => {
+    const timer = setInterval(force, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const agents = Object.values(state.agents)
+    .filter((agent) => {
+      if (dismissed.has(agent.id)) return false;
+      if (agent.status === 'running') return true;
+      // Un agent qui finit reste un instant avec sa mention « terminé ».
+      return !!agent.endedAt && Date.now() - agent.endedAt < 60000 && agent.role !== 'analysis';
+    })
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+
+  if (!agents.length) return null;
+  const running = agents.filter((agent) => agent.status === 'running').length;
+
+  const clearAll = () => {
+    const ids = agents.map((agent) => agent.id);
+    setUndo(new Set(dismissed));
+    setDismissed((current) => new Set([...current, ...ids]));
+    window.setTimeout(() => setUndo(null), 6000);
+  };
+
+  return (
+    <div
+      data-pile-agents-colonne
+      className="relative border-t border-border px-1.5 py-1.5"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-faint transition-colors hover:bg-surface hover:text-muted"
+        title={running ? `${running} agent${running > 1 ? 's' : ''} au travail` : 'Agents'}
+      >
+        <Bot className={cn('h-3 w-3 shrink-0', running ? 'text-en-cours' : 'text-faint')} />
+        <span className="min-w-0 flex-1 truncate">{agents.length > 1 ? `${agents.length} agents` : 'Un agent'}</span>
+        {running ? <Dot tone="running" pulse /> : null}
+      </button>
+
+      {open ? (
+        <div
+          data-panneau-agents
+          className="absolute bottom-full left-1.5 right-1.5 z-40 mb-1 flex max-h-[70vh] flex-col gap-1 overflow-auto rounded-md border border-border bg-surface p-1.5 shadow-lg"
+        >
+          {agents.slice(0, 6).map((agent) => {
+            const project = state.projects.find((p) => p.id === agent.projectId);
+            const runningAgent = agent.status === 'running';
+            return (
+              <div
+                key={agent.id}
+                data-vignette-agent-colonne
+                className="flex items-center gap-1.5 rounded-md border border-border bg-bg px-2 py-1.5"
+              >
+                {/* Un agent de PUBLICATION porte l'icône réseau/envoi, violette et
+                    clignotante tant qu'il tourne. */}
+                {agent.role === 'deploy' ? (
+                  <UploadCloud
+                    className={cn(
+                      'h-3 w-3 shrink-0',
+                      runningAgent ? 'text-publie animate-pulse-soft motion-reduce:animate-none' : 'text-faint',
+                    )}
+                  />
+                ) : (
+                  <Bot className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')} />
+                )}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenAgent(agent.id);
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <p className="truncate text-[13px] text-text">{agent.title}</p>
+                  <p className="truncate text-[11.5px] text-faint">
+                    {project?.name} · {agent.run.engine} ·{' '}
+                    {runningAgent ? elapsed(agent.startedAt) : agent.status === 'failed' ? 'échec' : 'terminé'}
+                  </p>
+                </button>
+                {runningAgent ? <Dot tone="running" pulse /> : null}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setDismissed((current) => {
+                      const next = new Set(current);
+                      next.add(agent.id);
+                      return next;
+                    });
+                  }}
+                  className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] text-faint hover:text-text"
+                  title="Retirer la vignette (l'agent continue)"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            );
+          })}
+
+          <div className="flex items-center justify-end gap-1 pt-0.5" data-commandes="pile-agents-colonne">
+            {undo ? (
+              <button
+                onClick={() => {
+                  setDismissed(undo);
+                  setUndo(null);
+                }}
+                className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-text"
+              >
+                Annuler
+              </button>
+            ) : null}
+            <button
+              onClick={() => setOpen(false)}
+              className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
+            >
+              Replier
+            </button>
+            <button
+              onClick={clearAll}
+              className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
+            >
+              Tout effacer
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -965,28 +1085,37 @@ function EnteteGroupe({
  * ne s'y ajoute pas.
  *
  * Un PLAN qui attend une décision prend la même place, à défaut des deux
- * précédents : l'icône du plan (`RepereDePlan`), au lieu de l'icône par
- * défaut (le dossier, ou l'outil de l'espace de développement) — jamais
- * ajoutée à droite du nom.
+ * précédents : l'icône du plan (`RepereDePlan`).
+ *
+ * Un TRAVAIL TERMINÉ, pas encore visité, prend la même place en DERNIER
+ * recours : le point bleu qui clignotait jusqu'ici à droite de la ligne
+ * (`RepereLigne`). Il ne paraît donc que lorsque plus rien ne tourne — dès
+ * qu'un agent repart ou qu'une publication démarre, il cède la place comme
+ * les autres.
+ *
+ * Rien de tout ça n'est vrai : le repère ne s'affiche pas (`null`), pour
+ * laisser sa place au repère de repos de l'appelant (favicon du projet,
+ * outil de l'espace de développement…) — sur une ligne de projet, il vient
+ * s'AJOUTER entre ce repère de repos et le nom, jamais le remplacer.
  */
 function RepereRobot({
   running,
   publie,
   planEnAttente,
-  fallback,
+  termine,
 }: {
   running: number;
   publie?: boolean;
   /** Un plan proposé attend encore une décision sur ce projet. */
   planEnAttente?: boolean;
-  /** L'icône par défaut, quand rien de tout ça n'est vrai. */
-  fallback?: React.ReactNode;
+  /** Du travail est rendu et pas encore visité, rien d'autre ne tourne. */
+  termine?: boolean;
 }) {
   if (publie) {
     return (
       <Tooltip label="Publication en cours">
         <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label="Publication en cours">
-          <UploadCloud className="h-3 w-3 shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
+          <UploadCloud className="h-[15px] w-[15px] shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
         </span>
       </Tooltip>
     );
@@ -996,47 +1125,45 @@ function RepereRobot({
     return (
       <Tooltip label={libelle}>
         <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours motion-reduce:animate-none" />
+          <Loader2 className="h-[15px] w-[15px] shrink-0 animate-spin text-en-cours motion-reduce:animate-none" />
           {running > 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
         </span>
       </Tooltip>
     );
   }
   if (planEnAttente) return <RepereDePlan />;
-  return fallback ?? <Folder className="h-3 w-3 shrink-0 text-faint" />;
+  if (termine) {
+    return (
+      <Tooltip label="Travail terminé, pas encore consulté — ouvrez le projet pour l'éteindre">
+        <span
+          data-repere-termine
+          aria-label="Travail terminé, pas encore consulté"
+          className="flex h-[15px] w-[15px] shrink-0 items-center justify-center"
+        >
+          <span className="h-2 w-2 rounded-full bg-termine animate-pulse-soft motion-reduce:animate-none" />
+        </span>
+      </Tooltip>
+    );
+  }
+  return null;
 }
 
 /**
  * L'icône de repos d'une ligne de projet : le favicon de son adresse publique
- * quand elle en expose un, sinon un rond avec ses initiales — jamais le
- * dossier générique, qui ne disait rien du projet.
- *
- * Le favicon est demandé directement au site (`<origine>/favicon.ico`) : pas
- * de service tiers, pas de clé. Une adresse absente, invalide, ou dont le
- * favicon ne charge pas (site éteint, 404…) retombe sur les initiales, sans
- * jamais casser la ligne.
+ * quand le SERVEUR a réussi à le récupérer (`project.favicon`,
+ * `server/src/favicon.ts` — le navigateur, lui, est trop souvent bloqué :
+ * mélange http/https, en-têtes qui refusent l'inclusion croisée), sinon un
+ * rond avec ses initiales — jamais le dossier générique, qui ne disait rien
+ * du projet.
  */
 function PastilleSite({ project }: { project: Project }) {
-  const [enErreur, setEnErreur] = React.useState(false);
-  const origine = React.useMemo(() => {
-    if (!project.devUrl?.trim()) return null;
-    try {
-      return new URL(project.devUrl).origin;
-    } catch {
-      return null;
-    }
-  }, [project.devUrl]);
-
-  React.useEffect(() => setEnErreur(false), [origine]);
-
-  if (origine && !enErreur) {
+  if (project.favicon) {
     return (
       <img
-        src={`${origine}/favicon.ico`}
+        src={project.favicon}
         alt=""
         aria-hidden
-        className="h-3 w-3 shrink-0 rounded-sm object-contain"
-        onError={() => setEnErreur(true)}
+        className="h-[15px] w-[15px] shrink-0 rounded-sm object-contain"
       />
     );
   }
@@ -1054,7 +1181,7 @@ function PastilleSite({ project }: { project: Project }) {
   return (
     <span
       aria-hidden
-      className="flex h-3 w-3 shrink-0 items-center justify-center rounded-full bg-raised text-[7px] font-medium leading-none text-faint"
+      className="flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full bg-raised text-[9px] font-medium leading-none text-faint"
     >
       {initiales}
     </span>
@@ -1305,6 +1432,9 @@ function LigneEspaceDev({
   const secoue = useSecousse({ attention, rendus }, active);
   const ouvrir = () => {
     client.setActiveProject(project.id);
+    // Ouvrir éteint le point bleu, sans toucher au repère de lecture des
+    // cartes (voir le même geste sur `ProjectRow`).
+    if (rendus) client.call({ type: 'project.visit', projectId: project.id });
     onQuitterTableauDeBord?.();
     onChoose?.();
   };
@@ -1336,10 +1466,16 @@ function LigneEspaceDev({
         >
           {/* Le loader prend la place de l'outil tant qu'un agent écrit ; une
               publication en cours prend la MÊME place, avec son propre signe,
-              et un plan qui attend une décision de même (voir `RepereRobot`)
+              un plan qui attend une décision de même, et un travail rendu pas
+              encore visité de même en dernier recours (voir `RepereRobot`)
               — même emplacement, donc rien ne s'ajoute à la ligne. */}
-          {running || publie || planEnAttente ? (
-            <RepereRobot running={running} publie={publie} planEnAttente={planEnAttente} />
+          {running || publie || planEnAttente || rendus ? (
+            <RepereRobot
+              running={running}
+              publie={publie}
+              planEnAttente={planEnAttente}
+              termine={!running && !publie && !planEnAttente && !!rendus}
+            />
           ) : (
             <Wrench className="h-3.5 w-3.5 shrink-0" />
           )}
@@ -1348,10 +1484,11 @@ function LigneEspaceDev({
               l'application » y finissait en points de suspension. */}
           <span className="min-w-0 flex-1 truncate">Développement</span>
         </button>
-        {/* Hors du bouton : un repère porte son propre geste, et un bouton n'en
-            contient pas un autre. */}
+        {/* Hors du bouton : le repère de décision porte son propre geste, et un
+            bouton n'en contient pas un autre. Le travail rendu ne s'y affiche
+            plus — il vit désormais à gauche, dans `RepereRobot`. */}
         <RepereLigne
-          signal={{ attention, rendus }}
+          signal={{ attention }}
           onLu={() => client.call({ type: 'project.read', projectId: project.id })}
           onDecision={() => {
             onQuitterTableauDeBord?.();
@@ -1458,24 +1595,32 @@ function ProjectRow({
       <button
         onClick={() => {
           client.setActiveProject(project.id);
+          // Ouvrir le projet éteint son point bleu — et seulement lui : les
+          // cartes gardent leur repère de lecture propre (`project.read`
+          // reste le geste à part, sur le point lui-même).
+          if (rendus) client.call({ type: 'project.visit', projectId: project.id });
           // Choisir, c'est aussi refermer : même quand c'est déjà le projet
           // affiché, le panneau ne doit pas rester ouvert sur un choix fait.
           onChoose?.();
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        {/* Le loader prend la place de l'icône tant qu'un agent écrit ; une
-            publication en cours prend la MÊME place, avec son propre signe,
-            et un plan qui attend une décision de même (voir `RepereRobot`) —
-            c'est le MÊME emplacement, donc rien ne s'ajoute à la ligne. Au
-            repos, c'est le favicon du site du projet (ou ses initiales, à
-            défaut d'adresse) qui tient la place du dossier. */}
-        <RepereRobot
-          running={running}
-          publie={publie}
-          planEnAttente={planEnAttente}
-          fallback={<PastilleSite project={project} />}
-        />
+        {/* Le favicon du site du projet (ou ses initiales, à défaut d'adresse)
+            reste TOUJOURS en premier, tout à gauche : on ne le perd plus
+            quand il se passe quelque chose. L'icône d'état (loader d'agent,
+            publication, plan en attente, travail rendu pas encore visité en
+            dernier recours — voir `RepereRobot`) vient s'AJOUTER juste après,
+            entre le favicon et le nom, et seulement quand elle a quelque
+            chose à dire. */}
+        <PastilleSite project={project} />
+        {running || publie || planEnAttente || rendus ? (
+          <RepereRobot
+            running={running}
+            publie={publie}
+            planEnAttente={planEnAttente}
+            termine={!running && !publie && !planEnAttente && !!rendus}
+          />
+        ) : null}
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
@@ -1487,10 +1632,11 @@ function ProjectRow({
           </Tooltip>
         ) : null}
       </button>
-      {/* Le repère de décision (attention / rendu) vit HORS du bouton du nom :
-          il porte son propre geste, et un bouton n'en contient pas un autre. */}
+      {/* Le repère de décision vit HORS du bouton du nom : il porte son propre
+          geste, et un bouton n'en contient pas un autre. Le travail rendu ne
+          s'y affiche plus — il vit désormais à gauche, dans `RepereRobot`. */}
       <RepereLigne
-        signal={{ attention, rendus }}
+        signal={{ attention }}
         onLu={() => client.call({ type: 'project.read', projectId: project.id })}
         onDecision={() => allerALaDecision(project.id, onChoose)}
         // Au repos (pointeur qui survole), le repère est poussé à droite, à la

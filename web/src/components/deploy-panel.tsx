@@ -21,6 +21,7 @@ import {
   etapeDePublication,
   etapeDeLaColonne,
   natureDePublication,
+  raisonLotBloque,
   rapportAGarder,
   runDeLEtape,
 } from '@haikodev/shared';
@@ -216,6 +217,10 @@ export function DeployPanel({
   /* Une MISE EN PRODUCTION sans prompt réglé ne part pas : le serveur nous le
      dit, avec la phrase à afficher. Vide pour un déploiement, toujours. */
   const [productionBloquee, setProductionBloquee] = React.useState<string | null>(null);
+  /* Le contrôle d'avant-clic peut lui-même tomber (serveur qui refuse, dépôt
+     illisible) : son échec était avalé, et le bloc affichait alors un état
+     d'avant, muet. On le garde pour le DIRE sous le bouton. */
+  const [erreurControle, setErreurControle] = React.useState<string | null>(null);
   const signature = embarked.map((card) => card.id).join(',');
 
   /*
@@ -239,8 +244,12 @@ export function DeployPanel({
           setEnAttente(res?.enAttente ?? { nombre: 0, titres: [] });
           setMiseEnLigne(res?.miseEnLigne ?? null);
           setProductionBloquee(res?.productionBloquee ?? null);
+          setErreurControle(null);
         })
-        .catch(() => undefined);
+        .catch((err: any) => {
+          if (!vivant) return;
+          setErreurControle(err?.message ?? 'contrôle impossible');
+        });
     void controler();
     const timer = window.setInterval(controler, 20000);
     return () => {
@@ -294,6 +303,12 @@ export function DeployPanel({
   const demarrer = () => {
     if (etape?.cible === 'production') {
       setConfirmation(true);
+      return;
+    }
+    /* Aucune carte à choisir — seul du travail enregistré sans carte attend :
+       un écran de sélection vide ne demanderait rien. On part directement. */
+    if (!embarked.length) {
+      void start();
       return;
     }
     setSelection(new Set(embarked.map((card) => card.id)));
@@ -364,6 +379,28 @@ export function DeployPanel({
      verbe, et le déroulé reflète les états réels. */
   const publicationEnCours = active && mienne;
   const etapeEnCours: DeployStepKey = run?.currentStep ?? 'merge';
+
+  /*
+   * POURQUOI le bouton ne part pas — écrit sous lui, en toutes lettres.
+   *
+   * Le bouton s'éteignait sans un mot : lot vide, agent au travail, publication
+   * ailleurs, mise en production sans prompt. Le cas le plus traître était une
+   * colonne PLEINE dont aucune carte n'entrait dans le lot (une date de mise en
+   * ligne périmée les écartait toutes) : le clic ne partait nulle part et rien
+   * ne le disait. La règle est PURE et vit dans `shared` ; ici on ne fait que
+   * lui passer ce qu'on sait.
+   */
+  const raisonBloquee = publicationEnCours
+    ? null
+    : raisonLotBloque({
+        verbe: etape.verbe,
+        aPublier,
+        cartesDansLaColonne: cards.length,
+        autrePublication: active && !mienne,
+        agentsOccupes: busyAgents.map((agent) => agent.title),
+        productionBloquee: productionBloquee ?? undefined,
+        horsLigne: !state.connected,
+      });
 
   return (
     /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
@@ -449,13 +486,25 @@ export function DeployPanel({
               travail sans carte, autre publication en cours) sont partis derrière
               le bouton « ! » de la tête de colonne, pour que le bouton touche la
               première carte quand il n'y a rien à signaler. */}
-          {busyAgents.length ? (
-            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning">
-              <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
-              <span>
-                Publication en attente : {busyAgents.map((agent) => agent.title).join(', ')} travaille encore dans le
-                dossier.
-              </span>
+          {/* Le bouton est éteint : il DIT pourquoi. Un bouton qui ne fait
+              rien est pire qu'un bouton qui explique. */}
+          {raisonBloquee ? (
+            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning" data-raison-publication>
+              {busyAgents.length ? (
+                <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
+              ) : (
+                <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+              )}
+              <span>{raisonBloquee}</span>
+            </p>
+          ) : null}
+
+          {/* Le contrôle d'avant-clic lui-même est tombé : on le dit plutôt que
+              d'afficher un état d'avant sans prévenir. */}
+          {erreurControle ? (
+            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-danger" data-erreur-controle-publication>
+              <X className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+              <span>Le contrôle d’avant-clic a échoué : {erreurControle}</span>
             </p>
           ) : null}
 
@@ -626,7 +675,20 @@ function SelectionDeploiementDialog({
           <Button variant="outline" size="sm" onClick={onClose}>
             Annuler
           </Button>
-          <Button size="sm" disabled={selection.size === 0 || busy} onClick={onConfirm} data-bouton-deployer-selection>
+          {/* Tout décocher n'est pas forcément une impasse : le travail
+              enregistré sans carte part quand même. Le bouton ne s'éteint donc
+              que si RIEN ne partirait — et il le dit alors juste au-dessus. */}
+          {selection.size === 0 && !enAttente.nombre ? (
+            <p className="flex-1 self-center text-[12px] text-warning" data-raison-selection-vide>
+              Aucune tâche cochée : il n’y aurait rien à déployer.
+            </p>
+          ) : null}
+          <Button
+            size="sm"
+            disabled={selection.size + enAttente.nombre === 0 || busy}
+            onClick={onConfirm}
+            data-bouton-deployer-selection
+          >
             {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
             Déployer ({selection.size + enAttente.nombre})
           </Button>
