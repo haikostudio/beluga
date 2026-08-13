@@ -3,19 +3,19 @@
  * LA CONVENTION D'AVANCEMENT, vérifiée dans un VRAI navigateur :
  * ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ.
  *
- *  - la ligne d'un projet où un agent travaille porte un cadre ORANGE et un
- *    fond ORANGE léger — plus le bleu d'avant ;
+ *  - la ligne d'un projet de la colonne de gauche reste NUE : ni cadre ni fond
+ *    coloré, quel que soit son état (travail en cours, publication…) — c'est
+ *    l'ICÔNE seule qui porte le signal ;
  *  - le robot de cette ligne est orange, comme celui des onglets du tableau ;
- *  - la colonne « En cours » du tableau garde son cadre orange, et la ligne du
- *    projet emploie EXACTEMENT la même teinte (même jeton `--en-cours`) ;
+ *  - la colonne « En cours » du tableau, ELLE, garde son cadre orange ;
  *  - la colonne « Terminé » porte un cadre bleu ;
  *  - la carte d'un travail en cours porte une roue ORANGE, celle d'un travail
  *    rendu une coche BLEUE, celle d'un travail rendu non lu un point BLEU ;
  *  - les autres états ne bougent pas : le triangle d'une décision reste orange
  *    d'alerte ; le jeton d'une publication en cours est VIOLET, distinct de
  *    l'orange du travail ordinaire ;
- *  - une ligne de projet EN PUBLICATION porte un cadre VIOLET (jamais orange)
- *    et une icône réseau/envoi violette à la place du robot ;
+ *  - une ligne de projet EN PUBLICATION reste NUE elle aussi : c'est son icône
+ *    réseau/envoi, violette, qui remplace le robot — jamais un cadre ;
  *  - tout cela tient en thème SOMBRE comme en thème CLAIR.
  *
  * Tout est SIMULÉ : cartes et agents sont injectés dans le canal temps réel,
@@ -106,6 +106,11 @@ function estViolet(couleur) {
   if (!c) return false;
   const [r, v, b] = c;
   return r > v + 20 && b > v + 20;
+}
+
+/** Aucune couleur peinte : cadre ou fond transparent — la ligne reste NUE. */
+function estTransparent(couleur) {
+  return canaux(couleur) === null;
 }
 
 async function main() {
@@ -320,16 +325,15 @@ async function main() {
     const fondLigne = ligneId
       ? await style(`[data-drag-kind="project"][data-drag-id="${ligneId}"]`, 'backgroundColor')
       : null;
-    record(t('la ligne d’un projet au travail a un cadre ORANGE'), estOrange(cadreLigne), cadreLigne ?? 'aucun');
-    record(t('son fond est ORANGE, et léger'), estOrange(fondLigne), fondLigne ?? 'aucun');
+    record(
+      t('la ligne d’un projet au travail n’a plus de cadre coloré'),
+      estTransparent(cadreLigne),
+      cadreLigne ?? 'aucun',
+    );
+    record(t('son fond reste NU, sans couleur'), estTransparent(fondLigne), fondLigne ?? 'aucun');
 
     const cadreColonne = await style('[data-column="running"]', 'borderTopColor');
     record(t('la colonne « En cours » a un cadre ORANGE'), estOrange(cadreColonne), cadreColonne ?? 'aucun');
-    record(
-      t('la ligne du projet emploie EXACTEMENT la teinte de la colonne « En cours »'),
-      !!cadreLigne && cadreLigne === cadreColonne,
-      `${cadreLigne} / ${cadreColonne}`,
-    );
 
     const cadreTermine = await style('[data-column="done"]', 'borderTopColor');
     record(t('la colonne « Terminé » a un cadre BLEU'), estBleu(cadreTermine), cadreTermine ?? 'aucun');
@@ -419,8 +423,7 @@ async function main() {
     await page.waitForTimeout(400);
 
     const cadre = await style(`[data-drag-kind="project"][data-drag-id="${ligneId}"]`, 'borderTopColor');
-    record(t('la ligne d’un projet EN PUBLICATION a un cadre VIOLET'), estViolet(cadre), cadre ?? 'aucun');
-    record(t('ce cadre n’est plus ORANGE'), !estOrange(cadre), cadre ?? 'aucun');
+    record(t('la ligne d’un projet EN PUBLICATION n’a pas de cadre non plus'), estTransparent(cadre), cadre ?? 'aucun');
 
     const icone = await style(
       `[data-drag-kind="project"][data-drag-id="${ligneId}"] [data-repere-robot] svg`,
