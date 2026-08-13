@@ -21,7 +21,8 @@ import { cn, elapsed } from '@/lib/utils';
 
 export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
   const state = useApp();
-  const [collapsed, setCollapsed] = React.useState(false);
+  // Repliée ou dépliée : l'état survit au rechargement (§28).
+  const [collapsed, setCollapsed] = usePref<boolean>('dock-collapsed', false);
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
   const [, force] = React.useReducer((value: number) => value + 1, 0);
   // La pile est déplaçable si elle gêne, et sa position est mémorisée (§28).
