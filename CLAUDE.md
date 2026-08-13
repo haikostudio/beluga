@@ -399,6 +399,14 @@ le nom, là-bas le texte).
   validé, refusé ou dépassé par une version plus récente
   (`planEnAttente`, `shared/src/plan-conversation.ts`). Vérifié par
   `server/src/test/plan-en-attente-projet.test.ts` et `scripts/verif-repere-plan.mjs`.
+- **La ligne d'un projet où un agent travaille porte, à DROITE, le même pourcentage que la tête de
+  la colonne « En cours » du tableau** (`avancementDeLaColonne`, `shared/src/avancement-colonne.ts` ;
+  `RepereAvancementProjet`, `web/src/components/sidebar.tsx`) : additionné sur les cartes de CE
+  projet, à partir des agents de rôle « task » encore au travail dans `state.agents` (connu pour
+  tous les projets, contrairement aux cartes, chargées seulement pour le projet ouvert). Il vit à la
+  MÊME place que le triangle de décision (`RepereLigne`) — une décision qui attend prime toujours —
+  et disparaît dès qu'aucune carte de ce projet n'a plus d'agent actif. Vérifié par
+  `scripts/verif-avancement-colonne-gauche.mjs`.
 - **PLUS AUCUN COMPTEUR DE JETONS VISIBLE NULLE PART** (`docs/plans/refonte-visualisation-prompts.md`,
   plan validé) : à la place, VOIR le texte réellement envoyé au moteur. Le tiroir « Contexte envoyé »
   du chef et l'onglet « Détails » d'une carte lisent tous deux le même LECTEUR DE PROMPTS

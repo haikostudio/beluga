@@ -27,8 +27,10 @@ import {
   COULEURS_DE_GROUPE,
   Project,
   ProjectGroup,
+  type AvancementColonne,
   type SignalProjet,
   ZONE_PROJETS,
+  avancementDeLaColonne,
   avertissementRedemarrage,
   raisonPublications,
   doitSecouerLigne,
@@ -318,6 +320,23 @@ export function Sidebar({
   const runningOf = (projectId: string) =>
     Object.values(state.agents).filter((a) => a.projectId === projectId && a.status === 'running').length;
 
+  /*
+   * Le même pourcentage que celui affiché en tête de la colonne « En cours » du
+   * tableau (`avancementDeLaColonne`, `board.tsx`), additionné pour CE projet.
+   * On part directement des agents de rôle « task » encore au travail — `state
+   * .agents` est connu pour TOUS les projets dès l'ouverture (`runningOf`
+   * ci-dessus fait de même), alors que les cartes ne sont chargées que pour le
+   * projet ouvert : partir d'elles laisserait les autres lignes sans chiffre.
+   */
+  const avancementOf = (projectId: string): AvancementColonne | null =>
+    avancementDeLaColonne(
+      Object.values(state.agents)
+        .filter(
+          (a) => a.projectId === projectId && a.role === 'task' && (a.status === 'running' || a.status === 'starting'),
+        )
+        .map((agent) => ({ agentActif: true, todos: agent.todos })),
+    );
+
   // Une publication est EN COURS tant que son run le dit ; elle s'éteint dès
   // qu'il se termine, quel qu'en soit le sort (réussite, échec, arrêt).
   const publieOf = (projectId: string) => state.deploys[projectId]?.state === 'running';
@@ -394,6 +413,7 @@ export function Sidebar({
           attention={state.attention[espaceDev.id]}
           rendus={state.rendus[espaceDev.id]}
           planEnAttente={planEnAttenteOf(espaceDev.id)}
+          avancement={avancementOf(espaceDev.id)}
           onSettings={() => setSettingsFor(espaceDev.id)}
           onChoose={onChoose}
           onQuitterTableauDeBord={onCloseDashboard}
@@ -427,6 +447,7 @@ export function Sidebar({
                 attention={state.attention[entry.id]}
                 rendus={state.rendus[entry.id]}
                 planEnAttente={planEnAttenteOf(entry.id)}
+                avancement={avancementOf(entry.id)}
                 dimmed={dragging?.id === entry.id}
                 style={glisse(decales.racine.has(entry.id))}
                 marqueur={marqueurDe(entry.id)}
@@ -573,6 +594,7 @@ export function Sidebar({
                         attention={state.attention[project.id]}
                         rendus={state.rendus[project.id]}
                         planEnAttente={planEnAttenteOf(project.id)}
+                        avancement={avancementOf(project.id)}
                         dimmed={dragging?.id === project.id}
                         style={glisse(decales.membres.has(project.id))}
                         marqueur={marqueurDe(project.id)}
@@ -1235,6 +1257,33 @@ function RepereDePlan() {
 }
 
 /**
+ * « Où en est le travail en cours sur ce projet ? » — le même pourcentage que
+ * celui de la tête de la colonne « En cours » du tableau (`avancementDeLaColonne`),
+ * additionné sur les cartes de ce seul projet, posé dans l'espace laissé libre
+ * par le point bleu déplacé à gauche (`RepereRobot`).
+ *
+ * Il cède la place au triangle de décision (`RepereLigne`) : les deux vivent
+ * au même endroit, jamais ensemble — une décision qui attend prime toujours.
+ */
+function RepereAvancementProjet({ avancement }: { avancement: AvancementColonne | null }) {
+  if (!avancement) return null;
+  const { done, total, pourcent, termine } = avancement;
+  return (
+    <Tooltip label={`${done} étape${done > 1 ? 's' : ''} faite${done > 1 ? 's' : ''} sur ${total}`}>
+      <span
+        data-avancement-projet
+        className={cn(
+          'shrink-0 px-0.5 text-[11px] font-medium tabular-nums',
+          termine ? 'text-termine' : 'text-en-cours',
+        )}
+      >
+        {pourcent} %
+      </span>
+    </Tooltip>
+  );
+}
+
+/**
  * Le SEUL repère d'attente de la ligne, à droite du nom.
  *
  * Ils étaient trois à se disputer trois centimètres : triangle orange, pastille
@@ -1412,6 +1461,7 @@ function LigneEspaceDev({
   attention,
   rendus,
   planEnAttente,
+  avancement,
   onSettings,
   onChoose,
   onQuitterTableauDeBord,
@@ -1424,6 +1474,8 @@ function LigneEspaceDev({
   rendus?: number;
   /** Un plan proposé attend encore une décision sur ce projet. */
   planEnAttente?: boolean;
+  /** L'avancement des cartes en cours, pour la même place que le triangle de décision. */
+  avancement?: AvancementColonne | null;
   onSettings: () => void;
   onChoose?: () => void;
   /** Le tableau de bord occupe la place : un clic ici doit le refermer. */
@@ -1486,16 +1538,22 @@ function LigneEspaceDev({
         </button>
         {/* Hors du bouton : le repère de décision porte son propre geste, et un
             bouton n'en contient pas un autre. Le travail rendu ne s'y affiche
-            plus — il vit désormais à gauche, dans `RepereRobot`. */}
-        <RepereLigne
-          signal={{ attention }}
-          onLu={() => client.call({ type: 'project.read', projectId: project.id })}
-          onDecision={() => {
-            onQuitterTableauDeBord?.();
-            allerALaDecision(project.id, onChoose);
-          }}
-          className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
-        />
+            plus — il vit désormais à gauche, dans `RepereRobot`. Une décision
+            qui attend prime toujours sur le pourcentage, qui vit à la même
+            place (`RepereAvancementProjet`). */}
+        {repereVisible({ attention }) ? (
+          <RepereLigne
+            signal={{ attention }}
+            onLu={() => client.call({ type: 'project.read', projectId: project.id })}
+            onDecision={() => {
+              onQuitterTableauDeBord?.();
+              allerALaDecision(project.id, onChoose);
+            }}
+            className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
+          />
+        ) : (
+          <RepereAvancementProjet avancement={avancement ?? null} />
+        )}
         <button
           onClick={onSettings}
           data-reglages-projet={project.id}
@@ -1517,6 +1575,7 @@ function ProjectRow({
   attention,
   rendus,
   planEnAttente,
+  avancement,
   dimmed,
   style,
   marqueur,
@@ -1537,6 +1596,8 @@ function ProjectRow({
   rendus?: number;
   /** Un plan proposé attend encore une décision sur ce projet. */
   planEnAttente?: boolean;
+  /** L'avancement des cartes en cours, pour la même place que le triangle de décision. */
+  avancement?: AvancementColonne | null;
   dimmed?: boolean;
   /** La couleur du groupe qui range ce projet, pour le demi-rond du projet ouvert. */
   groupColor?: string;
@@ -1634,17 +1695,23 @@ function ProjectRow({
       </button>
       {/* Le repère de décision vit HORS du bouton du nom : il porte son propre
           geste, et un bouton n'en contient pas un autre. Le travail rendu ne
-          s'y affiche plus — il vit désormais à gauche, dans `RepereRobot`. */}
-      <RepereLigne
-        signal={{ attention }}
-        onLu={() => client.call({ type: 'project.read', projectId: project.id })}
-        onDecision={() => allerALaDecision(project.id, onChoose)}
-        // Au repos (pointeur qui survole), le repère est poussé à droite, à la
-        // place de l'icône réglages encore invisible ; au survol de la ligne, il
-        // glisse vers la gauche pour lui dégager la place, tout en douceur. Sur
-        // téléphone (pas de survol) il ne bouge pas.
-        className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
-      />
+          s'y affiche plus — il vit désormais à gauche, dans `RepereRobot`. Sa
+          place, libre le reste du temps, sert au pourcentage d'avancement
+          (`RepereAvancementProjet`) — jamais les deux à la fois. */}
+      {repereVisible({ attention }) ? (
+        <RepereLigne
+          signal={{ attention }}
+          onLu={() => client.call({ type: 'project.read', projectId: project.id })}
+          onDecision={() => allerALaDecision(project.id, onChoose)}
+          // Au repos (pointeur qui survole), le repère est poussé à droite, à la
+          // place de l'icône réglages encore invisible ; au survol de la ligne, il
+          // glisse vers la gauche pour lui dégager la place, tout en douceur. Sur
+          // téléphone (pas de survol) il ne bouge pas.
+          className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
+        />
+      ) : (
+        <RepereAvancementProjet avancement={avancement ?? null} />
+      )}
       <button
         onPointerDown={(event) => event.stopPropagation()}
         onClick={onSettings}
