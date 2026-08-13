@@ -14,6 +14,7 @@ import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexte
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils } from './pont.js';
 import { enregistrerErreurInterface } from './erreurs-interface.js';
+import { fichierFavicon } from './favicon.js';
 import { log } from './logger.js';
 
 const COOKIE = 'haikodev_session';
@@ -346,6 +347,13 @@ export function createHttpServer(): http.Server {
             : 'inline',
         });
         return fs.createReadStream(file).pipe(res);
+      }
+
+      if (route === '/api/favicon') {
+        const trouve = fichierFavicon(url.searchParams.get('project') ?? '');
+        if (!trouve) return json(res, 404, { error: 'icône introuvable' });
+        res.writeHead(200, { 'content-type': trouve.mime, 'cache-control': 'private, max-age=3600' });
+        return fs.createReadStream(trouve.file).pipe(res);
       }
 
       if (route === '/api/file') {

@@ -9,6 +9,7 @@ import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { creerFichierInstructions } from './memory.js';
 import { DnsResult, publishSubdomain } from './dns.js';
+import { recupererFaviconEnTache } from './favicon.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -80,7 +81,9 @@ export function registerProject(input: {
     }
   }
 
-  return store.saveProject(project);
+  const saved = store.saveProject(project);
+  recupererFaviconEnTache(saved);
+  return saved;
 }
 
 function nextRank(): number {

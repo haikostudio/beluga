@@ -75,6 +75,12 @@ export const PATHS = {
    */
   competences: env('HAIKODEV_COMPETENCES', path.join(CONFIG.dataDir, 'competences')),
   /**
+   * Les icônes de site des projets, récupérées côté serveur sur leur adresse
+   * de dev (`server/src/favicon.ts`) : un fichier par projet, servi ensuite
+   * par `/api/favicon`.
+   */
+  favicons: path.join(CONFIG.dataDir, 'favicons'),
+  /**
    * Le DOSSIER DE TRAVAIL du chef d'orchestre bridé : un sous-dossier par projet,
    * le seul endroit où il a le droit d'écrire (brouillons, sorties d'analyse). Il
    * vit hors des dépôts des projets — le projet, lui, reste monté en lecture
@@ -95,6 +101,7 @@ export function ensureDirs(): void {
     PATHS.accounts,
     PATHS.competences,
     PATHS.chefScratch,
+    PATHS.favicons,
   ]) {
     fs.mkdirSync(dir, { recursive: true });
   }
