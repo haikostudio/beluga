@@ -1007,6 +1007,61 @@ function RepereRobot({
 }
 
 /**
+ * L'icône de repos d'une ligne de projet : le favicon de son adresse publique
+ * quand elle en expose un, sinon un rond avec ses initiales — jamais le
+ * dossier générique, qui ne disait rien du projet.
+ *
+ * Le favicon est demandé directement au site (`<origine>/favicon.ico`) : pas
+ * de service tiers, pas de clé. Une adresse absente, invalide, ou dont le
+ * favicon ne charge pas (site éteint, 404…) retombe sur les initiales, sans
+ * jamais casser la ligne.
+ */
+function PastilleSite({ project }: { project: Project }) {
+  const [enErreur, setEnErreur] = React.useState(false);
+  const origine = React.useMemo(() => {
+    if (!project.devUrl?.trim()) return null;
+    try {
+      return new URL(project.devUrl).origin;
+    } catch {
+      return null;
+    }
+  }, [project.devUrl]);
+
+  React.useEffect(() => setEnErreur(false), [origine]);
+
+  if (origine && !enErreur) {
+    return (
+      <img
+        src={`${origine}/favicon.ico`}
+        alt=""
+        aria-hidden
+        className="h-3 w-3 shrink-0 rounded-sm object-contain"
+        onError={() => setEnErreur(true)}
+      />
+    );
+  }
+
+  const initiales =
+    project.name
+      .trim()
+      .split(/\s+/)
+      .map((mot) => mot[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || '?';
+
+  return (
+    <span
+      aria-hidden
+      className="flex h-3 w-3 shrink-0 items-center justify-center rounded-full bg-raised text-[7px] font-medium leading-none text-faint"
+    >
+      {initiales}
+    </span>
+  );
+}
+
+/**
  * « Ce projet est en train d'être mis en ligne. »
  *
  * Un point jaune qui respire, du côté du robot : c'est l'ÉTAT du projet, pas une
@@ -1261,33 +1316,13 @@ function LigneEspaceDev({
         data-espace-dev-rendus={rendus || undefined}
         data-espace-dev-plan={planEnAttente || undefined}
         className={cn(
-          'group relative flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-[13.5px]',
-          'transition-[background-color,border-color,color,box-shadow] duration-150 motion-reduce:transition-none',
-          // La convention : un travail EN COURS se dit en ORANGE, exactement la
-          // teinte de la colonne « En cours » du tableau. Le fond reste LÉGER,
-          // le cadre porte le signal. Une PUBLICATION en cours l'emporte sur ce
-          // signal ordinaire : violette et clignotante, pour se distinguer d'un
-          // coup d'œil du travail courant. Une décision attendue clignote en
-          // orange (même teinte, `warning`) et l'emporte sur le fond « ouvert » ;
-          // un travail rendu pas encore lu clignote en bleu, mais s'éteint dès
-          // qu'on ouvre le projet — le point bleu de `RepereLigne`, lui, reste.
-          publie
-            ? 'border-publie/70 bg-publie/15 text-text hover:bg-publie/20 animate-pulse-soft motion-reduce:animate-none'
-            : running
-              ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
-              : attention
-                ? 'border-warning/70 bg-warning/15 text-text hover:bg-warning/20 animate-pulse-soft motion-reduce:animate-none'
-                : rendus && !active
-                  ? 'border-termine/70 bg-termine/15 text-text hover:bg-termine/20 animate-pulse-soft motion-reduce:animate-none'
-                  : active
-                    ? 'border-transparent bg-raised text-text'
-                    : 'border-transparent text-muted hover:bg-surface hover:text-text',
+          'group relative flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-[13.5px]',
+          'transition-[background-color,color] duration-150 motion-reduce:transition-none',
+          // La ligne reste NUE : ni cadre ni fond coloré. L'état (travail en
+          // cours, publication, décision attendue, plan) ne vit plus que sur
+          // l'icône (`RepereRobot`) et le repère de droite (`RepereLigne`).
+          active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
           secoue && 'animate-secousse',
-          // Un plan proposé qui attend une décision s'AJOUTE, il ne remplace
-          // rien : une bordure blanche, posée par-dessus la couleur d'état
-          // ci-dessus (orange, bleue, violette ou neutre), sans jamais la
-          // masquer.
-          planEnAttente && 'ring-2 ring-white/90 ring-offset-1 ring-offset-bg',
         )}
       >
         {/* Même repère que sur une ligne de projet : « Développement » en est un
@@ -1391,33 +1426,16 @@ function ProjectRow({
       data-projet-rendus={rendus || undefined}
       data-projet-plan={planEnAttente || undefined}
       className={cn(
-        'group relative mb-0.5 flex w-full items-center gap-1 rounded-md border px-1.5 py-1.5 text-[13.5px]',
+        'group relative mb-0.5 flex w-full items-center gap-1 rounded-md border border-transparent px-1.5 py-1.5 text-[13.5px]',
         // Le décalage suit la même durée que les autres transitions ; le réglage
         // « réduire les animations » du système le rend immédiat.
-        'transition-[transform,background-color,border-color,color,box-shadow] duration-150 motion-reduce:transition-none',
-        // Même convention que la ligne « Développement » : orange pour ce qui
-        // travaille, cadre franc et fond léger — et violet clignotant, en
-        // priorité, quand une publication est en cours. Une décision attendue
-        // clignote en orange, même hors publication ni travail en cours ; un
-        // travail rendu pas encore lu clignote en bleu, et s'éteint dès qu'on
-        // ouvre le projet — le point bleu de `RepereLigne` reste, lui, tel quel.
-        publie
-          ? 'border-publie/70 bg-publie/15 text-text hover:bg-publie/20 animate-pulse-soft motion-reduce:animate-none'
-          : running
-            ? 'border-en-cours/70 bg-en-cours/15 text-text hover:bg-en-cours/20'
-            : attention
-              ? 'border-warning/70 bg-warning/15 text-text hover:bg-warning/20 animate-pulse-soft motion-reduce:animate-none'
-              : rendus && !active
-                ? 'border-termine/70 bg-termine/15 text-text hover:bg-termine/20 animate-pulse-soft motion-reduce:animate-none'
-                : active
-                  ? 'border-transparent bg-raised text-text'
-                  : 'border-transparent text-text hover:bg-surface',
+        'transition-[transform,background-color,color] duration-150 motion-reduce:transition-none',
+        // La ligne reste NUE : ni cadre ni fond coloré. L'état (travail en
+        // cours, publication, décision attendue, plan) ne vit plus que sur
+        // l'icône (`RepereRobot`) et le repère de droite (`RepereLigne`).
+        active ? 'bg-raised text-text' : 'text-text hover:bg-surface',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
-        // Un plan proposé qui attend une décision s'AJOUTE à la couleur d'état
-        // ci-dessus, il ne la remplace jamais : une bordure blanche, posée
-        // par-dessus.
-        planEnAttente && 'ring-2 ring-white/90 ring-offset-1 ring-offset-bg',
       )}
     >
       <Trait ou={marqueur} />
@@ -1446,11 +1464,18 @@ function ProjectRow({
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        {/* Le loader prend la place du dossier tant qu'un agent écrit ; une
+        {/* Le loader prend la place de l'icône tant qu'un agent écrit ; une
             publication en cours prend la MÊME place, avec son propre signe,
             et un plan qui attend une décision de même (voir `RepereRobot`) —
-            c'est le MÊME emplacement, donc rien ne s'ajoute à la ligne. */}
-        <RepereRobot running={running} publie={publie} planEnAttente={planEnAttente} />
+            c'est le MÊME emplacement, donc rien ne s'ajoute à la ligne. Au
+            repos, c'est le favicon du site du projet (ou ses initiales, à
+            défaut d'adresse) qui tient la place du dossier. */}
+        <RepereRobot
+          running={running}
+          publie={publie}
+          planEnAttente={planEnAttente}
+          fallback={<PastilleSite project={project} />}
+        />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
