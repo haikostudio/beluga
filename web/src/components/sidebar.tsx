@@ -1189,7 +1189,7 @@ function RepereDemiRond({
       aria-hidden
       data-repere-demi-rond
       className={cn(
-        'pointer-events-none absolute top-1/2 h-2 w-1 -translate-y-1/2 rounded-r-full bg-white',
+        'pointer-events-none absolute top-1/2 h-3 w-1.5 -translate-y-1/2 rounded-r-full bg-white',
         emboite ? '-left-[19px]' : '-left-[7px]',
       )}
       style={couleur ? { backgroundColor: couleur } : undefined}
@@ -1290,6 +1290,9 @@ function LigneEspaceDev({
           planEnAttente && 'ring-2 ring-white/90 ring-offset-1 ring-offset-bg',
         )}
       >
+        {/* Même repère que sur une ligne de projet : « Développement » en est un
+            comme les autres, l'unique différence est de vivre hors de la liste. */}
+        <RepereDemiRond active={active} />
         <button
           data-ouvrir-espace-dev
           onClick={ouvrir}
