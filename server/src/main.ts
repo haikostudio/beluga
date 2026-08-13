@@ -16,7 +16,7 @@ import { scheduleNightlyBackup } from './backup.js';
 import { purgeOldArchives } from './files.js';
 import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
 import { getSettings, listProjects } from './store.js';
-import { recupererFaviconEnTache } from './favicon.js';
+import { recupererFaviconEnTache, planifierRevisionFavicons } from './favicon.js';
 import { listEngines } from './engines/index.js';
 import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
@@ -142,6 +142,7 @@ async function main(): Promise<void> {
    * ce qu'on veut précisément éviter.
    */
   const autoAmeliorationTimer = planifierAutoAmelioration();
+  const faviconTimer = planifierRevisionFavicons();
 
   sampleCapacity();
   void refreshQuotas(true).then((quotas) => {
@@ -161,6 +162,7 @@ async function main(): Promise<void> {
     clearInterval(digestTimer);
     clearInterval(janitorTimer);
     clearInterval(autoAmeliorationTimer);
+    clearInterval(faviconTimer);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);
   };

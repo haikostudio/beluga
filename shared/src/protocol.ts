@@ -56,6 +56,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('project.branches'), id: z.string() }),
   z.object({ type: z.literal('project.scan') }),
+  /**
+   * Relance à la main la récupération de l'icône de site (`server/src/favicon.ts`) :
+   * bouton « réessayer » des réglages, pour un site dont le logo a changé ou
+   * qui ne répondait pas encore à la dernière tentative.
+   */
+  z.object({ type: z.literal('project.faviconRetry'), id: z.string() }),
   /** Range les projets dans l'ordre voulu (le plus important en haut). */
   z.object({ type: z.literal('project.reorder'), ids: z.array(z.string()) }),
   /** Ranger un projet dans un groupe (ou l'en sortir avec un groupe vide). */

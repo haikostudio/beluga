@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   Globe,
   Loader2,
+  RefreshCw,
   Rocket,
   Sparkles,
   Trash2,
@@ -267,6 +268,7 @@ export function ProjectSettings({
   const [documentId, setDocumentId] = React.useState('');
   const [documentType, setDocumentType] = React.useState<'offer' | 'invoice'>('invoice');
   const [confirmSuppression, setConfirmSuppression] = React.useState(false);
+  const [faviconEnCours, setFaviconEnCours] = React.useState(false);
 
   React.useEffect(() => {
     if (!project) return;
@@ -486,17 +488,39 @@ export function ProjectSettings({
 
             <div>
               <Label>Adresse à contrôler</Label>
-              <Input
-                value={devUrl}
-                onChange={(event) => setDevUrl(event.target.value)}
-                className="mt-1"
-                data-url-dev
-                placeholder="https://mon-projet.haikostudio.cloud"
-              />
+              <div className="mt-1 flex items-center gap-1.5">
+                <Input
+                  value={devUrl}
+                  onChange={(event) => setDevUrl(event.target.value)}
+                  className="flex-1"
+                  data-url-dev
+                  placeholder="https://mon-projet.haikostudio.cloud"
+                />
+                {project?.devUrl?.trim() ? (
+                  <button
+                    type="button"
+                    data-favicon-retry
+                    disabled={faviconEnCours}
+                    title="Aller rechercher l'icône du site sur cette adresse"
+                    onClick={() => {
+                      setFaviconEnCours(true);
+                      client
+                        .call({ type: 'project.faviconRetry', id: project.id }, 15000)
+                        .catch(() => {})
+                        .finally(() => setFaviconEnCours(false));
+                    }}
+                    className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-surface px-2 py-1.5 text-[12.5px] text-muted hover:text-text disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${faviconEnCours ? 'animate-spin' : ''}`} />
+                    Icône
+                  </button>
+                ) : null}
+              </div>
               <p className="mt-1 text-[11.5px] text-faint">
                 Elle est remplie toute seule à la création du projet, et se corrige ici à la main. Elle est ouverte à la
                 fin de chaque déploiement : si elle ne répond pas, le déploiement est déclaré en échec. Laissée vide,
-                aucune adresse n'est contrôlée.
+                aucune adresse n'est contrôlée. Le bouton « Icône » relance la récupération du favicon de la colonne de
+                gauche, sans attendre la révision automatique du lendemain.
               </p>
             </div>
 
