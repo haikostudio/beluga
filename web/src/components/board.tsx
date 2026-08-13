@@ -15,7 +15,6 @@ import {
   colonneAReprendre,
   colonneAffichee,
   decisionsParCarte,
-  mentionColonneCorrigee,
   etapeDeLaColonne,
   etatVisuelCarte,
   lireDateDeDepart,
@@ -1277,25 +1276,13 @@ export function CardTile({
   );
 
   /*
-   * L'avancement de la liste de tâches de l'agent d'exécution, tel qu'il voyage
-   * avec lui (champ `todos` de l'agent). On prend l'agent de tâche encore au
-   * travail sur cette carte : c'est le sien qui compte, pas celui d'une analyse.
+   * L'avancement de la liste de tâches de l'agent de la carte, tel qu'il
+   * voyage avec lui (champ `todos` de l'agent, `card.agentId`). Le décompte
+   * reste affiché même une fois l'agent arrêté : c'est le dernier connu, sur
+   * TOUTES les cartes qui en ont un — pas seulement celle où ça travaille
+   * encore.
    */
-  const agentTacheActif = Object.values(state.agents).find(
-    (a) => a.cardId === card.id && a.role === 'task' && (a.status === 'running' || a.status === 'starting'),
-  );
-  /*
-   * La colonne où la carte est MONTRÉE, pas celle qu'elle a enregistrée : une
-   * carte replacée dans « En cours » parce qu'un agent y travaille doit dire
-   * son avancement comme n'importe quelle carte de cette colonne.
-   */
-  const colonneMontree = colonneAffichee({ column: card.column, agentAuTravail });
-  const anomalieColonne = mentionColonneCorrigee({ column: card.column, agentAuTravail });
-  const progression = mentionProgressionTaches({
-    column: colonneMontree,
-    agentActif: !!agentTacheActif,
-    todos: agentTacheActif?.todos,
-  });
+  const progression = mentionProgressionTaches({ todos: agent?.todos });
 
   /*
    * L'état en cours ne s'affiche PAS dans le corps de la carte : il sort par le
@@ -1303,16 +1290,7 @@ export function CardTile({
    * L'attente et l'échec gardent la priorité ; l'avancement « n/N faites » ne
    * parle que lorsqu'aucun d'eux ne parle.
    */
-  const statut = anomalieColonne
-    ? // L'anomalie passe AVANT tout le reste : la carte n'est pas à la place
-      // que le serveur lui connaît, et cela doit se lire, jamais se masquer.
-      {
-        icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,
-        texte: anomalieColonne,
-        ton: 'text-warning',
-        marqueur: 'colonne-corrigee' as const,
-      }
-    : depart
+  const statut = depart
     ? // L'heure dite passe avant la raison d'attente : elle dit mieux ce qui
       // retient la carte, et surtout qu'elle repartira sans nous.
       {
@@ -1610,7 +1588,6 @@ export function CardTile({
                 className="min-w-0 flex-1 truncate"
                 data-progression-taches={'marqueur' in statut && statut.marqueur === 'progression-taches' ? card.id : undefined}
                 data-depart-programme={'marqueur' in statut && statut.marqueur === 'depart-programme' ? card.id : undefined}
-                data-colonne-corrigee={'marqueur' in statut && statut.marqueur === 'colonne-corrigee' ? card.id : undefined}
               >
                 {statut.texte}
               </span>

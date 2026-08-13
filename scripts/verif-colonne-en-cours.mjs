@@ -5,14 +5,12 @@
  * paraît plus sur une requête isolée :
  *
  *  - une carte enregistrée en « Planifié » dont un agent TRAVAILLE s'affiche
- *    dans la colonne « En cours », avec sa mention d'anomalie ;
+ *    dans la colonne « En cours », SANS mention d'anomalie (l'encart jaune a
+ *    disparu) ;
  *  - la tête de « Planifié » ne la compte plus, celle de « En cours » la compte ;
  *  - une carte en « Planifié » SANS agent au travail ne bouge pas ;
  *  - une carte « Terminé » dont un agent tourne (chiffrage discuté) ne bouge
  *    pas non plus : un tour de discussion ne déplace pas une carte ;
- *  - une carte DÉJÀ enregistrée en « En cours » dont un agent travaille ne
- *    porte AUCUNE mention : la colonne réellement enregistrée est déjà celle
- *    qu'on voit, l'anomalie n'aurait rien à apprendre ;
  *  - une requête isolée restée sans réponse n'affiche AUCUNE alerte, alors
  *    qu'un vrai refus métier s'affiche toujours.
  *
@@ -233,17 +231,13 @@ async function main() {
     (await colonneDe(auTravail.cardId)) ?? 'introuvable',
   );
   record(
-    'la carte porte sa mention d’anomalie',
-    !!(await page
-      .locator(`[data-colonne-corrigee="${auTravail.cardId}"]`)
+    'la carte ne porte plus AUCUNE mention d’anomalie : l’encart jaune a disparu',
+    !(await page
+      .locator(`[data-carte="${auTravail.cardId}"]`)
+      .locator('text=/replacée dans/')
       .first()
       .textContent()
       .catch(() => null)),
-    (await page
-      .locator(`[data-colonne-corrigee="${auTravail.cardId}"]`)
-      .first()
-      .textContent()
-      .catch(() => '')) ?? '',
   );
   record(
     'une carte planifiée sans agent reste dans « Planifié »',
@@ -260,15 +254,6 @@ async function main() {
     (await colonneDe(dejaEnCours.cardId)) === 'running',
     (await colonneDe(dejaEnCours.cardId)) ?? 'introuvable',
   );
-  record(
-    'une carte déjà en « En cours » ne porte AUCUNE mention : rien à corriger',
-    !(await page
-      .locator(`[data-colonne-corrigee="${dejaEnCours.cardId}"]`)
-      .first()
-      .textContent()
-      .catch(() => null)),
-  );
-
   // Les têtes de colonne comptent sur la MÊME liste que les colonnes : la carte
   // corrigée doit être comptée en « En cours », plus en « Planifié ».
   const compte = (colonne) =>
