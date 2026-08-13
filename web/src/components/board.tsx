@@ -841,16 +841,20 @@ export function Board({
                   ? deployCounts[column]
                   : columnCards.length}
               </span>
-              {column === 'planned' || column === 'notes' ? (
-                <ComposerInline projectId={projectId} column={column} />
-              ) : null}
-              {/* En haut à droite : l'avancement global de « En cours », le
-                  bouton « ! » des colonnes qui publient, PUIS le menu trois
-                  points. Un seul groupe collé à droite (`ml-auto`), pour ne pas
-                  additionner deux marges automatiques. Chacun se tait quand il
-                  n'a rien à dire : pas d'étape comptée, rien à lire, rien de
-                  non-lu. */}
+              {/* En haut à droite : le bouton « + » des colonnes qui créent,
+                  l'avancement global de « En cours », le bouton « ! » des
+                  colonnes qui publient, PUIS le menu trois points. Un SEUL
+                  groupe collé à droite (`ml-auto` posé UNE fois sur le
+                  conteneur, jamais sur un bouton à l'intérieur) : deux marges
+                  automatiques dans la même rangée se partagent l'espace
+                  restant au lieu de coller chaque bouton au bord, ce qui
+                  laissait le « + » flotter au milieu de l'entête. Chacun se
+                  tait quand il n'a rien à dire : pas d'étape comptée, rien à
+                  lire, rien de non-lu. */}
               <div className="ml-auto flex items-center gap-0.5">
+                {column === 'planned' || column === 'notes' ? (
+                  <ComposerInline projectId={projectId} column={column} />
+                ) : null}
                 {column === 'running' ? <RepereAvancement avancement={avancementDeCesCartes(columnCards)} /> : null}
                 {column === 'to_deploy' || column === 'in_production' ? (
                   <BoutonInfosPublication colonne={column} infos={infosPublication[column] ?? null} />
@@ -1107,7 +1111,6 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
         <Button
           variant="ghost"
           size="icon-sm"
-          className="ml-auto"
           aria-label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}
           onClick={() => {
             // Le champ repart de l'heure qu'il est, pas de celle d'il y a
