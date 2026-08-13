@@ -447,17 +447,17 @@ export function Drawer({
             // Sur téléphone il occupe toute la largeur ; sur grand écran il se
             // pose au centre, plafonné à 960 px : au-delà, les lignes de texte
             // deviennent trop longues pour être lues confortablement.
-            'fixed inset-x-0 z-50 mx-auto flex w-full max-w-[960px] flex-col overflow-hidden border-border bg-bg shadow-2xl',
+            'fixed inset-x-0 z-50 mx-auto flex w-full max-w-[960px] flex-col overflow-hidden border-border bg-surface shadow-2xl',
             'rounded-t-xl sm:rounded-t-2xl sm:border-x',
             // Une feuille qui MONTE : le décalage de 6 px des fenêtres se
             // voyait à peine sur un panneau de cette taille.
             'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
-            // Le voile derrière suffit à séparer le tiroir du reste de l'écran : un
-            // liseré clair juste sous la poignée faisait une ligne parasite. Le tiroir
-            // empilé, lui, en a besoin pour se distinguer de celui qu'il recouvre.
+            // Fond gris légèrement plus clair que la page et bordure claire sur le bord
+            // du haut, comme le tiroir des quotas : ce liseré est ce qui distingue le
+            // tiroir du fond, pas une ombre seule. Le tiroir empilé se marque davantage.
             empile
               ? 'border-t-2 border-t-accent/50 shadow-[0_-14px_38px_-10px_rgba(0,0,0,0.7)]'
-              : 'border-t border-t-transparent',
+              : 'border-t border-t-border',
             className,
           )}
           style={{

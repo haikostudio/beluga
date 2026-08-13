@@ -349,7 +349,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           les gestes rares sont partis dans le menu du haut. Sans décision à
           prendre, la barre disparaît au lieu de laisser un bandeau vide. */}
       {aDecision ? (
-        <footer className="shrink-0 bg-bg px-4 py-2.5">
+        <footer className="shrink-0 bg-surface px-4 py-2.5">
           {/* Les boutons se PARTAGENT la largeur : seul, un bouton la prend
               entière ; à plusieurs, ils se divisent la ligne et passent à la
               suivante en dessous de 150 px, toujours sans laisser de vide. */}
