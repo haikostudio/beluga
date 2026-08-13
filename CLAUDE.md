@@ -315,6 +315,14 @@ le nom, là-bas le texte).
   APRÈS la réponse — compression, mesure, relance de plan — porte un `plafondMs`, le tour lui-même
   jamais ; `sendPrompt` referme en `finally` ; et l'ordonnanceur referme d'autorité un agent que plus
   rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec.
+- **Un moteur lancé est SUIVI avant tout autre travail** (`startTurn`, `server/src/runtime.ts`) :
+  `live.set` passe devant l'enregistrement du contexte envoyé, sinon une panne survenue dans cette
+  fenêtre faisait refermer par `sendPrompt` un tour BIEN VIVANT — bulle rouge « panne interne du
+  serveur » sur un travail qui continuait. Ce qui suit le lancement (instantané, purge) est enfermé
+  dans un `try/catch` journalisé : le contexte envoyé ne vaut jamais un tour. Corollaire : **une ligne
+  de base se relit défensivement** (`purgerContexteEnvoyeAncien`, `server/src/store.ts`) — écrite par
+  une version plus ancienne du modèle, elle peut manquer un champ que le schéma remplirait. Vérifié
+  par `server/src/test/purge-contexte-envoye.test.ts`.
 - **Le témoin « réflexion en cours » suit l'AGENT, pas le message** (`temoinDeTravail` /
   `ecritureOrpheline`, `shared/src/travail-en-cours.ts`) : un message resté marqué « en écriture »
   après la fin de son tour est ORPHELIN et n'allume plus rien. `pushMessage` refuse de reposer la

@@ -1295,22 +1295,45 @@ async function startTurn(
     },
   });
 
-  // Seulement après que l'adaptateur a accepté et lancé le tour : une demande
-  // restée en file ou refusée avant ce point n'affiche aucun faux envoi.
+  /*
+   * LE TOUR EST SUIVI DÈS QUE LE MOTEUR TOURNE — avant tout autre travail.
+   *
+   * L'inscription dans `live` venait après l'enregistrement du contexte envoyé :
+   * entre les deux, le moteur écrivait déjà sa réponse alors que le démon ne le
+   * suivait pas encore. La moindre panne dans cette fenêtre (une vieille ligne
+   * de base relue par la purge, par exemple) remontait au filet de `sendPrompt`,
+   * qui refermait un tour BIEN VIVANT : bulle rouge « panne interne du serveur »
+   * posée sur un message vide, agent marqué en échec — pendant que le moteur
+   * continuait, sans personne pour l'arrêter ni pour ranger sa fin de tour.
+   * Suivi d'abord : une panne survenue ensuite arrête vraiment le moteur.
+   */
+  runState.handle = handle;
+  live.set(agent.id, runState);
+
+  /*
+   * Seulement après que l'adaptateur a accepté et lancé le tour : une demande
+   * restée en file ou refusée avant ce point n'affiche aucun faux envoi.
+   *
+   * Et jamais au prix du tour : le contexte envoyé est un CONFORT de lecture,
+   * le tour est parti. Ce qui rate ici se dit dans le journal et le travail
+   * continue.
+   */
   if (contexteUtilisateur && instantane) {
-    const message = store.getMessage(contexteUtilisateur.messageId);
-    if (message) {
-      const updated = store.saveMessage({ ...message, sentContext: instantane });
-      bus.emit({ type: 'message.upsert', message: updated });
-      store.purgerContexteEnvoyeAncien(agent.id);
-      // Un adaptateur d'essai peut rendre l'usage dès son appel ; dans ce cas
-      // on applique aussitôt la mesure qui serait sinon arrivée trop tôt.
-      if (runState.usage) mesurerContexteUtilisateur(contexteUtilisateur.messageId, runState.usage);
+    try {
+      const message = store.getMessage(contexteUtilisateur.messageId);
+      if (message) {
+        const updated = store.saveMessage({ ...message, sentContext: instantane });
+        bus.emit({ type: 'message.upsert', message: updated });
+        store.purgerContexteEnvoyeAncien(agent.id);
+        // Un adaptateur d'essai peut rendre l'usage dès son appel ; dans ce cas
+        // on applique aussitôt la mesure qui serait sinon arrivée trop tôt.
+        if (runState.usage) mesurerContexteUtilisateur(contexteUtilisateur.messageId, runState.usage);
+      }
+    } catch (err) {
+      log.warn(`contexte envoyé non enregistré (agent ${agent.id}) : ${(err as Error).message}`);
     }
   }
 
-  runState.handle = handle;
-  live.set(agent.id, runState);
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
   const result = await handle.finished;
