@@ -871,6 +871,29 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     /*
+     * ANNULER UNE QUESTION SANS Y RÉPONDRE. Utile quand elle a été posée par
+     * erreur (dictée vocale déclenchée par mégarde) : elle cesse simplement
+     * d'attendre, sans relancer l'agent — à la différence de « question.answer ».
+     */
+    case 'question.cancel': {
+      const message = store.getMessage(cmd.messageId);
+      if (!message) throw new Error('message introuvable');
+      const question = message.questions.find((q) => q.id === cmd.questionId);
+      if (!question) throw new Error('question introuvable');
+      if (question.answer || question.cancelled) return { already: true };
+
+      const updated = store.saveMessage({
+        ...message,
+        questions: message.questions.map((q) =>
+          q.id === cmd.questionId ? { ...q, cancelled: true, answeredAt: Date.now() } : q,
+        ),
+      });
+      bus.emit({ type: 'message.upsert', message: updated });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+      return { ok: true };
+    }
+
+    /*
      * POURSUIVRE APRÈS ÉPUISEMENT. Tout se joue dans `reprendreSurCompte` :
      * relevé frais du compte visé, décision fermée AVANT le lancement (donc un
      * double clic ne lance rien), puis reprise du même agent. Un refus rend son

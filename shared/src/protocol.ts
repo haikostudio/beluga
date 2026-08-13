@@ -183,6 +183,15 @@ export const ClientCommand = z.discriminatedUnion('type', [
     attachments: z.array(z.string()).default([]),
   }),
   /**
+   * Fermer une question posée par l'agent SANS y répondre : elle cesse
+   * d'attendre, mais l'agent n'est pas relancé.
+   */
+  z.object({
+    type: z.literal('question.cancel'),
+    messageId: z.string(),
+    questionId: z.string(),
+  }),
+  /**
    * POURSUIVRE UN TRAVAIL COUPÉ PAR LA LIMITE D'UN COMPTE, sur le compte
    * choisi. Le serveur revérifie la disponibilité au moment du clic : un compte
    * tombé entre-temps ne lance rien et rafraîchit les choix.
