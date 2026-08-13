@@ -315,6 +315,13 @@ le nom, là-bas le texte).
   APRÈS la réponse — compression, mesure, relance de plan — porte un `plafondMs`, le tour lui-même
   jamais ; `sendPrompt` referme en `finally` ; et l'ordonnanceur referme d'autorité un agent que plus
   rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec.
+- **Le témoin « réflexion en cours » suit l'AGENT, pas le message** (`temoinDeTravail` /
+  `ecritureOrpheline`, `shared/src/travail-en-cours.ts`) : un message resté marqué « en écriture »
+  après la fin de son tour est ORPHELIN et n'allume plus rien. `pushMessage` refuse de reposer la
+  marque une fois le tour retiré des tours vivants, `recoverAfterRestart` l'éteint sur TOUS les agents
+  au redémarrage, et `veilleDesToursBloques` l'éteint au fil de l'eau — le bandeau s'éteint donc sans
+  recharger la page. Nuance gardée : le message du tour QUI DÉMARRE naît avant le passage « au
+  travail », un message né après la dernière fin de tour compte donc comme vivant.
 - **La CONSIGNE SYSTÈME ne change pas d'un tour à l'autre dans une même session**
   (`enteteDuTour`, `shared/src/prefixe-cache.ts`) : sous Claude elle est le PRÉFIXE de la conversation
   (`--append-system-prompt`, reposé devant à chaque tour), et un préfixe qui bouge fait RÉÉCRIRE tout

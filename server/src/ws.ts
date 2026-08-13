@@ -640,7 +640,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const agent = store.getAgent(cmd.agentId);
       if (!agent) throw new Error('agent introuvable');
       const visibles = messagesDepuis(store.listMessages(agent.id), store.nouveauDepart(agent.id));
-      const verdict = peutRepartir({ status: isRunning(agent.id) ? 'running' : agent.status }, visibles);
+      const verdict = peutRepartir(
+        { status: isRunning(agent.id) ? 'running' : agent.status, endedAt: agent.endedAt },
+        visibles,
+      );
       if (!verdict.ok) {
         bus.toast('warning', verdict.raison);
         return { ok: false };

@@ -80,6 +80,7 @@ import {
   PLAFOND_APPEL_APRES_REPONSE_MS,
   statutDeFermetureForcee,
   tourBloque,
+  ecritureOrpheline,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -2127,8 +2128,49 @@ async function resumeSemantique(agent: Agent, options: OptionsCompression): Prom
 function pushMessage(run: LiveRun, patch: Partial<Message>): void {
   const current = store.getMessage(run.messageId);
   if (!current) return;
-  const updated = store.saveMessage({ ...current, ...patch } as Message);
+  /*
+   * UN TOUR REFERMÉ NE SE RALLUME PLUS. Le corps du tour continue de se dérouler
+   * après une fermeture d'autorité (`refermerLeTour` arrête le moteur, fige le
+   * message et retire le tour des tours vivants) : la dernière bribe de texte
+   * arrivée ensuite reposait `streaming: true` DERRIÈRE la fermeture, et plus
+   * rien ne venait l'éteindre — le témoin « réflexion en cours » tournait alors
+   * dans le vide sur un agent en échec. Le contenu déjà écrit, lui, se garde :
+   * seule la marque d'écriture est refusée.
+   */
+  const refermé = live.get(run.agentId) !== run;
+  const applique = refermé ? { ...patch, streaming: false } : patch;
+  const updated = store.saveMessage({ ...current, ...applique } as Message);
   bus.emit({ type: 'message.upsert', message: updated });
+}
+
+/**
+ * ÉTEINDRE UNE ÉCRITURE ORPHELINE : un message resté marqué « en cours
+ * d'écriture » alors que son agent est au repos depuis. La règle du jugement
+ * vit dans `shared` (`ecritureOrpheline`) ; ici on ne fait que constater et
+ * diffuser. Rendu vrai quand une marque a réellement été éteinte.
+ */
+function eteindreEcritureOrpheline(
+  agent: Agent,
+  options: { suivi: boolean; force?: boolean } = { suivi: false },
+): boolean {
+  if (options.suivi) return false;
+  const messages = store.listMessages(agent.id, 5);
+  const enEcriture = messages.find((message) => message.streaming);
+  if (!enEcriture) return false;
+  if (
+    !options.force &&
+    !ecritureOrpheline({
+      statut: agent.status,
+      finDuTour: agent.endedAt,
+      messageEnEcritureA: enEcriture.createdAt,
+    })
+  ) {
+    return false;
+  }
+  const fige = store.saveMessage({ ...enEcriture, streaming: false });
+  bus.emit({ type: 'message.upsert', message: fige });
+  log.warn(`écriture orpheline éteinte (agent ${agent.id}, message ${enEcriture.id})`);
+  return true;
 }
 
 /** Ajoute une proposition ou un téléchargement au message en cours d'écriture. */
@@ -2314,11 +2356,20 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
  * relit les agents marqués au travail et referme ceux que plus rien n'attend —
  * le jugement lui-même vit dans `shared` (`tourBloque`). Elle ne juge JAMAIS la
  * durée d'un tour en cours : un agent qui réfléchit une heure travaille.
+ *
+ * Elle éteint AUSSI, au passage, les écritures orphelines : un agent au repos
+ * dont un message porte encore la marque « en cours d'écriture ». C'est ce qui
+ * fait disparaître le témoin « réflexion en cours » tout seul, sans recharger la
+ * page — le message corrigé part sur le canal comme n'importe quel autre.
  */
 export function veilleDesToursBloques(maintenant = Date.now()): number {
   let refermes = 0;
   for (const agent of store.listAgents()) {
-    if (agent.status !== 'running' && agent.status !== 'starting') continue;
+    const suivi = live.has(agent.id) || demarrant.has(agent.id);
+    if (agent.status !== 'running' && agent.status !== 'starting') {
+      eteindreEcritureOrpheline(agent, { suivi });
+      continue;
+    }
     const run = live.get(agent.id);
     const pid = run?.handle.pid;
     const verdict = tourBloque({
@@ -2615,7 +2666,21 @@ Si ta tâche a changé une règle durable, une architecture ou une commande, met
 export function recoverAfterRestart(
   reprendrePublication?: (run: DeployRun, reprises: number) => void,
 ): void {
-  const agents = store.listAgents().filter((a) => a.status === 'running' || a.status === 'starting');
+  const tous = store.listAgents();
+  /*
+   * AUCUN MESSAGE NE SURVIT « EN ÉCRITURE » À UN REDÉMARRAGE. Le nettoyage
+   * d'en dessous ne visait que les agents encore marqués au travail : un agent
+   * déjà en échec, dont le tour s'était mal refermé, gardait son message en
+   * écriture pour toujours — et le témoin « réflexion en cours » avec lui. Plus
+   * aucun processus de moteur n'existe à cet instant : une marque d'écriture y
+   * est forcément orpheline, quel que soit le statut de l'agent.
+   */
+  for (const agent of tous) {
+    if (agent.status === 'running' || agent.status === 'starting') continue;
+    eteindreEcritureOrpheline(agent, { suivi: false, force: true });
+  }
+
+  const agents = tous.filter((a) => a.status === 'running' || a.status === 'starting');
   for (const agent of agents) {
     // Le processus a disparu avec le démon : on remet en file SANS consommer
     // une tentative d'exécution (piège coûteux de Paseo).

@@ -4,6 +4,7 @@ import {
   Agent,
   Message,
   afficherHeure,
+  temoinDeTravail,
   carteRangee,
   etatDuPlan,
   libellePrecedents,
@@ -70,7 +71,19 @@ export function Chat({
       ? (state.messages[agent.id] ?? [])
       : [];
   const queue = agent ? (state.queues[agent.id] ?? []) : [];
-  const busy = agent?.status === 'running' || messages.some((m) => m.streaming);
+  /*
+   * LE TÉMOIN DE TRAVAIL SUIT L'AGENT, PAS LE MESSAGE. Un message peut rester
+   * marqué « en cours d'écriture » alors que son tour est refermé depuis
+   * longtemps (fermeture d'autorité, redémarrage du serveur) : le bandeau
+   * « Réflexion en cours… » restait alors allumé indéfiniment sur un agent en
+   * échec. La règle est partagée avec le démon, qui éteint la marque de son
+   * côté (`temoinDeTravail`, `shared/src/travail-en-cours.ts`).
+   */
+  const busy = temoinDeTravail({
+    statut: agent?.status,
+    finDuTour: agent?.endedAt,
+    messageEnEcritureA: messages.find((m) => m.streaming)?.createdAt,
+  });
 
   /*
    * L'agent a fini son tour sur une question posée en TEXTE ORDINAIRE (pas par
