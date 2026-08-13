@@ -580,6 +580,30 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       WHERE column_key = 'to_deploy' AND deployed_at IS NOT NULL;
     `,
   },
+  {
+    id: 21,
+    name: 'cles-api-externes',
+    // LA PORTE D'ENTRÉE DES SERVICES EXTÉRIEURS.
+    //
+    // Une clé par service, nommée et datée, pour poser une carte depuis le
+    // dehors sans ouvrir l'interface. Le SECRET n'est pas rangé ici : seule son
+    // empreinte l'est, avec les premiers signes gardés en clair pour reconnaître
+    // la clé dans la liste. Révoquer, c'est DATER la révocation — la ligne
+    // reste, pour que l'histoire des cartes créées ne s'efface pas avec elle.
+    sql: `
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        nom TEXT NOT NULL,
+        apercu TEXT NOT NULL,
+        empreinte TEXT NOT NULL UNIQUE,
+        creee_le INTEGER NOT NULL,
+        revoquee_le INTEGER,
+        dernier_usage_le INTEGER,
+        cartes_creees INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_api_keys_empreinte ON api_keys(empreinte);
+    `,
+  },
 ];
 
 export function openDb(): DB {

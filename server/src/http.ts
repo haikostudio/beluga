@@ -2,12 +2,21 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { Attachment, jugerRapportErreur } from '@haikodev/shared';
+import {
+  Attachment,
+  ROUTE_CARTE_EXTERNE,
+  cleDesEntetes,
+  jugerDemandeDeCarte,
+  jugerLaCle,
+  jugerRapportErreur,
+  trouverLeProjetVise,
+} from '@haikodev/shared';
 import { CONFIG, PATHS, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
-import { callTool, toolsFor } from './tools.js';
+import { callTool, createCard, toolsFor } from './tools.js';
+import { cleParSecret, noterUsageDeCle } from './cles-api.js';
 import { attachToCurrentMessage } from './runtime.js';
 import { readFilePreview, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
@@ -169,6 +178,68 @@ export function createHttpServer(): http.Server {
         logout(sessionToken(req));
         res.writeHead(302, { 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0`, location: '/' });
         return res.end();
+      }
+
+      /* ---------------- Porte d'entrée des services extérieurs ---------------- */
+
+      /**
+       * UNE CARTE POSÉE DEPUIS LE DEHORS, par un service qui présente sa CLÉ.
+       *
+       * Le cas réel : un mail d'un client arrive, et le service qui le reçoit
+       * pose aussitôt une carte dans le projet de ce client. Aucune session,
+       * aucun cookie : la clé seule ouvre la porte, et elle n'ouvre QUE cette
+       * porte — créer une carte, rien d'autre.
+       *
+       * La carte naît dans « Planifié » comme toutes les autres (`createCard`) :
+       * elle attend un lancement, et RIEN ne part au moteur tout seul.
+       */
+      if (route === ROUTE_CARTE_EXTERNE) {
+        if (req.method !== 'POST') {
+          return json(res, 405, { ok: false, error: 'Cette adresse attend un POST.' });
+        }
+
+        const presentee = cleDesEntetes(req.headers);
+        const verdict = jugerLaCle(presentee, presentee ? cleParSecret(presentee) : undefined);
+        if (!verdict.ok) {
+          log.warn('api externe', `appel refusé (${verdict.motif}) depuis ${clientIp(req)}`);
+          return json(res, verdict.statut, { ok: false, error: verdict.raison });
+        }
+
+        let brut: unknown;
+        try {
+          brut = JSON.parse((await readBody(req, 1024 * 1024)).toString('utf8') || 'null');
+        } catch {
+          return json(res, 400, { ok: false, error: "L'envoi n'est pas du JSON lisible." });
+        }
+
+        const demande = jugerDemandeDeCarte(brut);
+        if (!demande.ok) return json(res, 400, { ok: false, error: demande.raison });
+
+        const projets = store.listProjects(true).map((p) => ({ id: p.id, name: p.name, archive: p.archived }));
+        const vise = trouverLeProjetVise(projets, demande.demande.projet);
+        if (!vise.ok) return json(res, vise.statut, { ok: false, error: vise.raison });
+
+        const card = createCard(vise.projet.id, {
+          title: demande.demande.titre,
+          description: demande.demande.description,
+          labels: demande.demande.etiquettes,
+          origin: 'user',
+        });
+        noterUsageDeCle(verdict.cle.id);
+        bus.emit({ type: 'card.upsert', card });
+        log.info('api externe', `carte « ${card.title} » posée dans ${vise.projet.name} par « ${verdict.cle.nom} »`);
+
+        return json(res, 201, {
+          ok: true,
+          carte: {
+            id: card.id,
+            titre: card.title,
+            description: card.description,
+            colonne: card.column,
+            projet: { id: vise.projet.id, nom: vise.projet.name },
+            creeeLe: card.createdAt,
+          },
+        });
       }
 
       /* ---------------- Pont d'outils des agents ---------------- */

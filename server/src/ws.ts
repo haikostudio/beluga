@@ -69,6 +69,7 @@ import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
 import { enregistrerCleCerveau } from './cle-cerveau.js';
+import { creerCleApi, listerClesApi, oublierCleApi, revoquerCleApi } from './cles-api.js';
 import {
   compterErreursInterface,
   dernieresErreursInterface,
@@ -1243,6 +1244,31 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // La clé vaut aussitôt : pas de redémarrage entre la saisie et l'envoi.
       const pose = enregistrerCleCerveau(cmd.cle);
       return { pose, etat: etatCerveau() };
+    }
+
+    /* -------- Clés d'API des services extérieurs -------- */
+
+    case 'cleApi.lister':
+      return { cles: listerClesApi() };
+
+    case 'cleApi.creer': {
+      // Le SECRET n'est rendu qu'ICI, et une seule fois : il n'est conservé
+      // nulle part, seule son empreinte l'est.
+      const resultat = creerCleApi(cmd.nom);
+      if (!resultat.ok) throw new Error(resultat.raison);
+      return { cle: resultat.cle, secret: resultat.secret, cles: listerClesApi() };
+    }
+
+    case 'cleApi.revoquer': {
+      const cle = revoquerCleApi(cmd.id);
+      if (!cle) throw new Error('clé introuvable');
+      return { cle, cles: listerClesApi() };
+    }
+
+    case 'cleApi.oublier': {
+      const resultat = oublierCleApi(cmd.id);
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'clé introuvable');
+      return { ok: true, cles: listerClesApi() };
     }
 
     case 'erreurs.liste':

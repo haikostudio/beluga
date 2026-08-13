@@ -21,6 +21,7 @@ export * from './carte-sans-suite.js';
 export * from './carte-sql.js';
 export * from './catalogue-modeles.js';
 export * from './cerveau.js';
+export * from './cles-api.js';
 export * from './cible-mise-en-production.js';
 export * from './avancement-colonne.js';
 export * from './colonne-affichee.js';
