@@ -22,6 +22,11 @@ import type { ColumnKey } from './columns.js';
  * du chiffrage doit rester en « Terminé » — c'est la règle, un tour de
  * discussion ne déplace pas une carte.
  *
+ * La correction reste MUETTE : elle ne pose plus de mention sur la carte
+ * (l'encart jaune « un agent travaille : replacée dans En cours » ne disait
+ * rien d'utile et se lisait tronqué). L'avancement de l'agent
+ * (`mentionProgressionTaches`, `progression-taches.ts`) prend cette place.
+ *
  * La règle vit ici, sans base ni réseau : elle se teste seule.
  */
 
@@ -46,19 +51,4 @@ export function colonneAffichee(carte: CartePourAffichage): ColumnKey {
   if (!carte.agentAuTravail) return carte.column;
   if (!COLONNES_AVANT_TRAVAIL.includes(carte.column)) return carte.column;
   return 'running';
-}
-
-/** La colonne montrée diffère-t-elle de la colonne enregistrée ? */
-export function colonneCorrigee(carte: CartePourAffichage): boolean {
-  return colonneAffichee(carte) !== carte.column;
-}
-
-/**
- * La phrase posée sur la carte quand l'affichage a été corrigé, ou `null`
- * quand il n'y a rien à dire. On ne masque pas l'anomalie : on l'écrit, dans
- * le même décroché discret que les autres états de la carte.
- */
-export function mentionColonneCorrigee(carte: CartePourAffichage): string | null {
-  if (!colonneCorrigee(carte)) return null;
-  return 'un agent travaille : replacée dans « En cours »';
 }
