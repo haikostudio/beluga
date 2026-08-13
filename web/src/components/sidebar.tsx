@@ -584,6 +584,8 @@ export function Sidebar({
                         poigneeProps={poigneeProps(project.id, 'project', project.name)}
                         onSettings={() => setSettingsFor(project.id)}
                         onChoose={onChoose}
+                        groupColor={entry.group.color}
+                        emboite
                       />
                     ))
                   ) : (
@@ -1158,34 +1160,39 @@ function RepereLigne({
  * inséré dedans) — c'est ce qui empêche les lignes du dessous de sauter.
  */
 /**
- * Le demi-rond plaqué contre le bord gauche de la carte d'un projet.
+ * Le demi-rond plaqué contre le bord gauche de l'écran, sur la ligne du
+ * projet ACTUELLEMENT OUVERT seul — un seul repère visible à la fois, qui ne
+ * dit qu'une chose : « c'est ici qu'on se trouve ». Couleur du groupe du
+ * projet, ou blanche si le groupe n'en a pas (ou si le projet n'est dans
+ * aucun groupe).
  *
- * Reprend les MÊMES couleurs d'état que la bordure de la ligne (publication,
- * en cours, décision attendue, rendu non lu) — jamais une couleur inventée —
- * et ne paraît que si l'un de ces états est vrai : une ligne au repos n'en
- * porte pas. Positionné en absolu à « -left-[7px] » (les 6 px de retrait de
- * la ligne, plus son 1 px de bordure), il vient toucher le bord gauche de la
- * carte sans y laisser d'espace, arrondi seulement du côté droit pour
- * sembler en sortir.
+ * Positionné en absolu à « -left-[7px] » (les 6 px de retrait « px-1.5 » de
+ * la liste, plus le 1 px de bordure de la ligne) pour toucher le bord gauche
+ * sans y laisser d'espace ; un projet rangé dans un groupe est en plus
+ * décalé de « pl-3 » (12 px), d'où le « -left-[19px] » qui le ramène au même
+ * bord que la ligne colorée du groupe.
  */
-function RepereDemiRond({ signal }: { signal?: 'publie' | 'running' | 'attention' | 'rendus' }) {
-  if (!signal) return null;
-  const couleur =
-    signal === 'publie'
-      ? 'bg-publie'
-      : signal === 'running'
-        ? 'bg-en-cours'
-        : signal === 'attention'
-          ? 'bg-warning'
-          : 'bg-termine';
+function RepereDemiRond({
+  active,
+  couleur,
+  emboite,
+}: {
+  active?: boolean;
+  /** La couleur du groupe du projet, si réglée. */
+  couleur?: string;
+  /** Le projet est rangé dans un groupe : la ligne est décalée de « pl-3 ». */
+  emboite?: boolean;
+}) {
+  if (!active) return null;
   return (
     <span
       aria-hidden
-      data-repere-demi-rond={signal}
+      data-repere-demi-rond
       className={cn(
-        'pointer-events-none absolute -left-[7px] top-1/2 h-4 w-2 -translate-y-1/2 rounded-r-full',
-        couleur,
+        'pointer-events-none absolute top-1/2 h-2 w-1 -translate-y-1/2 rounded-r-full bg-white',
+        emboite ? '-left-[19px]' : '-left-[7px]',
       )}
+      style={couleur ? { backgroundColor: couleur } : undefined}
     />
   );
 }
@@ -1342,6 +1349,8 @@ function ProjectRow({
   poigneeProps,
   onSettings,
   onChoose,
+  groupColor,
+  emboite,
 }: {
   project: Project;
   active: boolean;
@@ -1354,6 +1363,10 @@ function ProjectRow({
   /** Un plan proposé attend encore une décision sur ce projet. */
   planEnAttente?: boolean;
   dimmed?: boolean;
+  /** La couleur du groupe qui range ce projet, pour le demi-rond du projet ouvert. */
+  groupColor?: string;
+  /** Le projet est rangé dans un groupe (décalage « pl-3 » à rattraper). */
+  emboite?: boolean;
   /** Le décalage vers le bas quand un élément vise une place au-dessus. */
   style?: React.CSSProperties;
   /** Le trait de l'emplacement visé, au-dessus ou en dessous de la ligne. */
@@ -1367,17 +1380,6 @@ function ProjectRow({
   // Le projet qu'on regarde déjà ne bouge pas : le signal sert à ce qu'on ne
   // voit pas.
   const secoue = useSecousse({ attention, rendus }, active);
-  // Même priorité que la couleur de bordure ci-dessous : le demi-rond ne dit
-  // jamais autre chose que ce que la ligne affiche déjà.
-  const signalEtat = publie
-    ? 'publie'
-    : running
-      ? 'running'
-      : attention
-        ? 'attention'
-        : rendus && !active
-          ? 'rendus'
-          : undefined;
   return (
     <div
       {...rowProps}
@@ -1416,7 +1418,7 @@ function ProjectRow({
       )}
     >
       <Trait ou={marqueur} />
-      <RepereDemiRond signal={signalEtat} />
+      <RepereDemiRond active={active} couleur={groupColor} emboite={emboite} />
       <span
         {...poigneeProps}
         title="Glisser pour ranger"
