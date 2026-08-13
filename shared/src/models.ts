@@ -575,6 +575,8 @@ export const AgentQuestion = z.object({
   /** Les images jointes à la réponse, affichées à côté d'elle une fois donnée. */
   answerAttachments: z.array(z.string()).default([]),
   answeredAt: z.number().optional(),
+  /** Fermée sans réponse (bouton « Annuler ») : n'attend plus, ne relance pas l'agent. */
+  cancelled: z.boolean().default(false),
 });
 export type AgentQuestion = z.infer<typeof AgentQuestion>;
 
