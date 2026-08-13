@@ -1411,7 +1411,23 @@ export function purgerContexteEnvoyeAncien(agentId: string): void {
     .all(agentId) as { id: string; data: string }[];
   let gardes = 0;
   for (const row of rows) {
-    const parsed = JSON.parse(row.data) as Message;
+    /*
+     * UNE LIGNE DE BASE N'EST PAS UN OBJET DE CONFIANCE. On la relit telle
+     * qu'elle a été écrite, parfois par une version PLUS ANCIENNE du modèle :
+     * `passages` n'existait pas, un champ a pu changer de forme. Le schéma
+     * (`Message.parse`) poserait ses valeurs par défaut, mais il n'est pas
+     * appliqué ici — un simple `as Message` MENT donc sur ce qu'on tient
+     * vraiment. Sans cette prudence, `sc.passages.map` levait une panne sur un
+     * vieux fil (le chef d'orchestre, 400 messages), et la panne remontait
+     * jusqu'au filet de fin de tour qui affichait « panne interne du serveur »
+     * alors que le moteur, lui, tournait toujours.
+     */
+    let parsed: Message;
+    try {
+      parsed = JSON.parse(row.data) as Message;
+    } catch {
+      continue;
+    }
     if (!parsed.sentContext) continue;
     gardes += 1;
     if (gardes <= TOURS_CONTEXTE_CONSERVES) continue;
@@ -1422,8 +1438,8 @@ export function purgerContexteEnvoyeAncien(agentId: string): void {
         ...sc,
         prompt: '',
         systemInstruction: { ...sc.systemInstruction, content: '' },
-        blocks: sc.blocks.map((b) => ({ ...b, text: undefined })),
-        passages: sc.passages.map((p) => ({ ...p, texte: '' })),
+        blocks: (sc.blocks ?? []).map((b) => ({ ...b, text: undefined })),
+        passages: (sc.passages ?? []).map((p) => ({ ...p, texte: '' })),
       },
     };
     if (JSON.stringify(allege) === row.data) continue;

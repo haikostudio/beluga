@@ -107,6 +107,20 @@ test('une demande mise en file ne reçoit aucun instantané avant son vrai dépa
   assert.doesNotMatch(sendPrompt.slice(message, message + 700), /text\.length \/ 4/);
 });
 
+test('un moteur lancé est suivi AVANT tout autre travail — aucune fenêtre aveugle', () => {
+  const ici = path.dirname(fileURLToPath(import.meta.url));
+  const runtime = fs.readFileSync(path.resolve(ici, '../../src/runtime.ts'), 'utf8');
+  const depart = runtime.indexOf('adapter.run({');
+  const suivi = runtime.indexOf('live.set(agent.id, runState)', depart);
+  const rattachement = runtime.indexOf('sentContext: instantane', depart);
+
+  // Entre le lancement du moteur et son inscription dans les tours vivants, une
+  // panne refermerait un tour BIEN VIVANT : bulle rouge sur un travail qui
+  // continue, et moteur laissé seul. Le suivi passe donc devant.
+  assert.ok(suivi > depart, 'le tour entre dans les tours vivants dès que le moteur est lancé');
+  assert.ok(rattachement > suivi, 'le contexte envoyé s’enregistre après, jamais avant le suivi');
+});
+
 function tourEssai(sentAt: number, memoireCaracteres: number, usage?: { inputTokens: number; cachedInputTokens?: number }) {
   return {
     engine: 'claude' as const,
