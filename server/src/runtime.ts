@@ -77,6 +77,9 @@ import {
   tourDeLaCarte,
   wrapPrompt,
   mesurerContexte,
+  PLAFOND_APPEL_APRES_REPONSE_MS,
+  statutDeFermetureForcee,
+  tourBloque,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -136,6 +139,13 @@ export interface LiveRun {
    */
   limiteSignalee?: boolean;
   stopping?: boolean;
+  /**
+   * L'instant où la réponse a été FIGÉE à l'écran. Après lui, plus rien de ce
+   * que fait le tour n'est visible : c'est la fenêtre où un agent pouvait rester
+   * « au travail » des heures pour une compression qui ne rendait pas la main.
+   * La veille des tours bloqués s'appuie sur ce repère.
+   */
+  reponseFigeeA?: number;
 }
 
 const live = new Map<string, LiveRun>();
@@ -477,6 +487,15 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     await preparerLeTour(agent, text, options);
   } finally {
     demarrant.delete(agentId);
+    /*
+     * LE TOUR SE REFERME, QUOI QU'IL ARRIVE. Le chemin normal a déjà tout rangé,
+     * et cet appel ne fait alors rien. Mais une panne interne survenue APRÈS le
+     * lancement du moteur — un fichier disparu, une base qui refuse — sautait
+     * par-dessus la fermeture : l'agent restait marqué « au travail » pour
+     * toujours, compteur en marche et barre d'écriture bloquée, alors que plus
+     * personne ne l'attendait.
+     */
+    refermerLeTour(agentId, "Le tour s'est arrêté sur une panne interne du serveur.");
   }
 }
 
@@ -1601,6 +1620,13 @@ async function startTurn(
     ...(failed || (agent.run.mode === 'plan' && !planRendu) ? { plan: false } : {}),
   });
   /*
+   * LA RÉPONSE EST RENDUE. Tout ce qui suit est du service — compression du fil,
+   * constat du dépôt, dossier de carte refermé — et l'utilisateur, lui, voit
+   * déjà sa réponse. On date ce moment : passé le plafond, la veille des tours
+   * bloqués referme d'autorité plutôt que de laisser tourner un compteur vide.
+   */
+  runState.reponseFigeeA = Date.now();
+  /*
    * Le message qui vient de se figer peut avoir posé un plan, ou en avoir
    * refusé un d'office (tout message rédigé qui suit un plan le remplace,
    * `indexDuPlanCourant`). Dans les deux cas, la colonne de gauche doit le
@@ -1953,6 +1979,9 @@ async function compresserContexte(agent: Agent, options: OptionsCompression): Pr
       allowedTools: options.allowedTools,
       disallowedTools: options.disallowedTools,
       env: options.env,
+      // Un appel de SERVICE, passé après la réponse : il ne retient jamais la
+      // barre d'écriture plus que son plafond.
+      plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
       onEvent: () => {},
     });
     if (native.ok && native.context) {
@@ -2030,6 +2059,9 @@ async function rendreLePlanEntier(options: {
     mcpBridgePath: options.mcpBridgePath,
     disallowedTools: OUTILS_FERMES_POUR_LA_RELANCE,
     env: options.env,
+    // Une relance de forme ne vaut pas qu'on retienne l'agent : au plafond, on
+    // garde le texte d'origine plutôt que d'attendre un moteur muet.
+    plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
     onEvent: (event) => {
       if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
       if (event.kind === 'error') erreur = true;
@@ -2081,6 +2113,8 @@ async function resumeSemantique(agent: Agent, options: OptionsCompression): Prom
     mcpBridgePath: options.mcpBridgePath,
     disallowedTools: outilsInterdits,
     env: options.env,
+    // Repli de compression : lui aussi passe après la réponse, lui aussi borné.
+    plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
     onEvent: (event) => {
       if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
       if (event.kind === 'error') erreur = true;
@@ -2193,6 +2227,111 @@ export function stopAgent(agentId: string): boolean {
   run.stopping = true;
   run.handle.stop();
   return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* Fermeture forcée et veille des tours bloqués                        */
+/* ------------------------------------------------------------------ */
+
+/** Ce numéro de processus répond-il encore ? Le signal 0 ne tue rien, il constate. */
+function processusVivant(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // « EPERM » : le processus existe, il appartient à quelqu'un d'autre.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * REFERMER UN TOUR D'AUTORITÉ. Le geste de dernier recours : le moteur est
+ * arrêté s'il traîne encore, le message resté en écriture est figé, l'agent
+ * revient au repos et la barre d'écriture se libère. Une réponse déjà rendue
+ * n'est PAS un échec — la fermeture a mal tourné, pas le travail.
+ *
+ * Sans effet sur un agent déjà refermé : c'est ce qui permet de l'appeler à la
+ * fin de CHAQUE tour, en filet, sans rien casser du chemin normal.
+ */
+export function refermerLeTour(agentId: string, raison: string): boolean {
+  const agent = store.getAgent(agentId);
+  if (!agent) return false;
+  const run = live.get(agentId);
+  const enCours = agent.status === 'running' || agent.status === 'starting';
+  if (!run && !enCours) return false;
+
+  if (run) {
+    try {
+      run.handle.stop();
+    } catch {
+      /* le processus est déjà parti */
+    }
+  }
+
+  const dernier = run
+    ? store.getMessage(run.messageId)
+    : [...store.listMessages(agentId, 5)].reverse().find((message) => message.role === 'assistant');
+  const reponseRendue = !!dernier && dernier.content.trim().length > 0;
+  if (dernier?.streaming) {
+    const fige = store.saveMessage({
+      ...dernier,
+      streaming: false,
+      // Une réponse écrite se garde telle quelle : y coller un bandeau rouge
+      // ferait passer un travail livré pour une panne. C'est le silence qui se
+      // dit, jamais le texte rendu.
+      error: reponseRendue ? dernier.error : (dernier.error ?? raison),
+    });
+    bus.emit({ type: 'message.upsert', message: fige });
+  }
+
+  live.delete(agentId);
+  const frais = store.getAgent(agentId) ?? agent;
+  setStatus(frais, statutDeFermetureForcee({ reponseRendue }), { endedAt: Date.now() });
+  log.warn(`tour refermé d'autorité (agent ${agentId}) : ${raison}`);
+
+  void import('./capacity.js').then((capacity) =>
+    bus.emit({ type: 'capacity', capacity: capacity.snapshot() }),
+  );
+  bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+
+  // La file reprend son cours : un message écrit pendant le blocage part enfin.
+  const next = store.dequeuePrompt(agentId);
+  bus.emit({ type: 'queue.snapshot', agentId, queue: store.listQueue(agentId) });
+  if (next) {
+    setTimeout(() => {
+      sendPrompt(agentId, next.text, { attachments: next.attachments }).catch((err) =>
+        log.error('enchaînement de file impossible', err),
+      );
+    }, 400);
+  }
+  return true;
+}
+
+/**
+ * LA VEILLE : plus aucun agent ne peut rester « au travail » indéfiniment.
+ *
+ * Passée à chaque tour de l'ordonnanceur (toutes les quinze secondes), elle
+ * relit les agents marqués au travail et referme ceux que plus rien n'attend —
+ * le jugement lui-même vit dans `shared` (`tourBloque`). Elle ne juge JAMAIS la
+ * durée d'un tour en cours : un agent qui réfléchit une heure travaille.
+ */
+export function veilleDesToursBloques(maintenant = Date.now()): number {
+  let refermes = 0;
+  for (const agent of store.listAgents()) {
+    if (agent.status !== 'running' && agent.status !== 'starting') continue;
+    const run = live.get(agent.id);
+    const pid = run?.handle.pid;
+    const verdict = tourBloque({
+      statut: agent.status,
+      suivi: !!run || demarrant.has(agent.id),
+      processusVivant: pid ? processusVivant(pid) : undefined,
+      reponseFigeeDepuisMs: run?.reponseFigeeA ? maintenant - run.reponseFigeeA : undefined,
+      partiDepuisMs: maintenant - (run?.startedAt ?? agent.startedAt ?? agent.updatedAt),
+    });
+    if (!verdict) continue;
+    if (refermerLeTour(agent.id, verdict.raison)) refermes += 1;
+  }
+  return refermes;
 }
 
 /* ------------------------------------------------------------------ */

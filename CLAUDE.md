@@ -308,6 +308,13 @@ le nom, là-bas le texte).
 - **Le CONTEXTE du modèle se compresse à 50 % entre deux tours**, pour tous les rôles
   (`shared/src/contexte-agent.ts`, `server/src/runtime.ts`) : fonction native de Claude, sinon résumé
   contrôlé et session neuve ; messages visibles, carte, décisions, tâches, modèle et compte restent.
+- **Un TOUR dont la réponse est rendue se referme TOUJOURS** (`shared/src/fin-de-tour.ts`,
+  `server/src/engines/fin-de-processus.ts`, `refermerLeTour` / `veilleDesToursBloques` dans
+  `server/src/runtime.ts`) : on rend la main sur `exit` du moteur, plus seulement sur `close` (qu'un
+  petit-fils gardant la sortie ouverte pouvait retenir pour toujours) ; tout appel de SERVICE passé
+  APRÈS la réponse — compression, mesure, relance de plan — porte un `plafondMs`, le tour lui-même
+  jamais ; `sendPrompt` referme en `finally` ; et l'ordonnanceur referme d'autorité un agent que plus
+  rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec.
 - **La CONSIGNE SYSTÈME ne change pas d'un tour à l'autre dans une même session**
   (`enteteDuTour`, `shared/src/prefixe-cache.ts`) : sous Claude elle est le PRÉFIXE de la conversation
   (`--append-system-prompt`, reposé devant à chaque tour), et un préfixe qui bouge fait RÉÉCRIRE tout
