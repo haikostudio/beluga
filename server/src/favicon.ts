@@ -128,6 +128,30 @@ async function recupererFavicon(project: Project): Promise<void> {
   }
 }
 
+/**
+ * REVÉRIFIE l'icône de tous les projets ayant une adresse, une fois par jour,
+ * à heure creuse : un site déjà réussi peut changer de logo sans que rien ne
+ * le signale au démon (pas de changement d'adresse, qui est le seul autre
+ * déclencheur). Même mécanique que `scheduleNightlyBackup`
+ * (`server/src/backup.ts`) : vérifié toutes les cinq minutes, ne part qu'une
+ * fois par jour civil. Un échec sur un projet (site tombé, icône disparue)
+ * laisse son icône précédente intacte — voir `recupererFavicon`.
+ */
+export function planifierRevisionFavicons(heure = 4): NodeJS.Timeout {
+  let dernierJour = -1;
+  return setInterval(
+    () => {
+      const maintenant = new Date();
+      if (maintenant.getHours() !== heure || maintenant.getDate() === dernierJour) return;
+      dernierJour = maintenant.getDate();
+      for (const projet of store.listProjects(true)) {
+        if (projet.devUrl?.trim()) recupererFaviconEnTache(projet);
+      }
+    },
+    5 * 60 * 1000,
+  );
+}
+
 /** Le fichier d'icône stocké pour un projet, s'il en a un. */
 export function fichierFavicon(projectId: string): { file: string; mime: string } | null {
   if (!fs.existsSync(PATHS.favicons)) return null;

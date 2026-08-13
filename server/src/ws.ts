@@ -223,6 +223,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { project: updated };
     }
 
+    case 'project.faviconRetry': {
+      const project = store.getProject(cmd.id);
+      if (!project) throw new Error('projet introuvable');
+      if (!project.devUrl?.trim()) throw new Error('aucune adresse réglée pour ce projet');
+      recupererFaviconEnTache(project);
+      return { ok: true };
+    }
+
     case 'project.branches': {
       /*
        * Les branches proposées dans les réglages viennent du DÉPÔT du projet,
