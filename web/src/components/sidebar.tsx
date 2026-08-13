@@ -351,10 +351,6 @@ export function Sidebar({
     },
   });
 
-  const agentsEnCours = Object.values(state.agents).filter(
-    (agent) => agent.projectId === state.activeProjectId && agent.status === 'running',
-  );
-
   return (
     <aside
       // Sur téléphone la liste occupe tout l'écran ; la largeur réglée à la
@@ -632,28 +628,7 @@ export function Sidebar({
         ) : null}
       </ZoneDefilement>
 
-      {agentsEnCours.length ? (
-        <div className="border-t border-border px-1.5 py-2">
-          <p className="px-1 pb-1 text-[12px] uppercase tracking-wide text-faint">Agents en cours</p>
-          {agentsEnCours.map((agent) => (
-            <button
-              key={agent.id}
-              onClick={() => onOpenAgent(agent.id)}
-              className="mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-muted hover:bg-surface hover:text-text"
-            >
-              {/* Un agent de PUBLICATION porte le même signe que la ligne de
-                  projet qu'il fait clignoter : icône réseau/envoi, violette. */}
-              {agent.role === 'deploy' ? (
-                <UploadCloud className="h-3 w-3 shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
-              ) : (
-                <Bot className="h-3 w-3 shrink-0 text-en-cours" />
-              )}
-              <span className="min-w-0 flex-1 truncate">{agent.title}</span>
-              <span className="text-[11.5px] text-faint">{elapsed(agent.startedAt)}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <PileAgentsColonne onOpenAgent={onOpenAgent} />
 
       <BoutonRedemarrage />
 
@@ -698,6 +673,151 @@ export function Sidebar({
         onClose={() => setDeleting(null)}
       />
     </aside>
+  );
+}
+
+/**
+ * La pile des agents, en un bouton au pied de la colonne des projets, juste
+ * au-dessus du redémarrage. Au survol (ou au clic, pour le doigt) elle ouvre
+ * son panneau EN SUPERPOSITION — position absolue, jamais dans le flux —
+ * pour ne jamais décaler ni élargir la colonne. Un seul endroit pour tout ce
+ * qui travaille, tous projets confondus : plus de bloc « Agents en cours »
+ * séparé, plus de pile flottante en bas à droite.
+ */
+function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
+  const state = useApp();
+  const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
+  const [undo, setUndo] = React.useState<Set<string> | null>(null);
+  const [open, setOpen] = React.useState(false);
+  const [, force] = React.useReducer((value: number) => value + 1, 0);
+
+  React.useEffect(() => {
+    const timer = setInterval(force, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const agents = Object.values(state.agents)
+    .filter((agent) => {
+      if (dismissed.has(agent.id)) return false;
+      if (agent.status === 'running') return true;
+      // Un agent qui finit reste un instant avec sa mention « terminé ».
+      return !!agent.endedAt && Date.now() - agent.endedAt < 60000 && agent.role !== 'analysis';
+    })
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+
+  if (!agents.length) return null;
+  const running = agents.filter((agent) => agent.status === 'running').length;
+
+  const clearAll = () => {
+    const ids = agents.map((agent) => agent.id);
+    setUndo(new Set(dismissed));
+    setDismissed((current) => new Set([...current, ...ids]));
+    window.setTimeout(() => setUndo(null), 6000);
+  };
+
+  return (
+    <div
+      data-pile-agents-colonne
+      className="relative border-t border-border px-1.5 py-1.5"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-faint transition-colors hover:bg-surface hover:text-muted"
+        title={running ? `${running} agent${running > 1 ? 's' : ''} au travail` : 'Agents'}
+      >
+        <Bot className={cn('h-3 w-3 shrink-0', running ? 'text-en-cours' : 'text-faint')} />
+        <span className="min-w-0 flex-1 truncate">{agents.length > 1 ? `${agents.length} agents` : 'Un agent'}</span>
+        {running ? <Dot tone="running" pulse /> : null}
+      </button>
+
+      {open ? (
+        <div
+          data-panneau-agents
+          className="absolute bottom-full left-1.5 right-1.5 z-40 mb-1 flex max-h-[70vh] flex-col gap-1 overflow-auto rounded-md border border-border bg-surface p-1.5 shadow-lg"
+        >
+          {agents.slice(0, 6).map((agent) => {
+            const project = state.projects.find((p) => p.id === agent.projectId);
+            const runningAgent = agent.status === 'running';
+            return (
+              <div
+                key={agent.id}
+                data-vignette-agent-colonne
+                className="flex items-center gap-1.5 rounded-md border border-border bg-bg px-2 py-1.5"
+              >
+                {/* Un agent de PUBLICATION porte l'icône réseau/envoi, violette et
+                    clignotante tant qu'il tourne. */}
+                {agent.role === 'deploy' ? (
+                  <UploadCloud
+                    className={cn(
+                      'h-3 w-3 shrink-0',
+                      runningAgent ? 'text-publie animate-pulse-soft motion-reduce:animate-none' : 'text-faint',
+                    )}
+                  />
+                ) : (
+                  <Bot className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')} />
+                )}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenAgent(agent.id);
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <p className="truncate text-[13px] text-text">{agent.title}</p>
+                  <p className="truncate text-[11.5px] text-faint">
+                    {project?.name} · {agent.run.engine} ·{' '}
+                    {runningAgent ? elapsed(agent.startedAt) : agent.status === 'failed' ? 'échec' : 'terminé'}
+                  </p>
+                </button>
+                {runningAgent ? <Dot tone="running" pulse /> : null}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setDismissed((current) => {
+                      const next = new Set(current);
+                      next.add(agent.id);
+                      return next;
+                    });
+                  }}
+                  className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] text-faint hover:text-text"
+                  title="Retirer la vignette (l'agent continue)"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            );
+          })}
+
+          <div className="flex items-center justify-end gap-1 pt-0.5" data-commandes="pile-agents-colonne">
+            {undo ? (
+              <button
+                onClick={() => {
+                  setDismissed(undo);
+                  setUndo(null);
+                }}
+                className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-text"
+              >
+                Annuler
+              </button>
+            ) : null}
+            <button
+              onClick={() => setOpen(false)}
+              className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
+            >
+              Replier
+            </button>
+            <button
+              onClick={clearAll}
+              className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-faint hover:text-text"
+            >
+              Tout effacer
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
