@@ -6,7 +6,9 @@ import {
   COLUMN_LABELS,
   Card,
   ColumnKey,
+  AvancementColonne,
   RefusDeLot,
+  avancementDeLaColonne,
   bilanDeLot,
   canMove,
   cleColonneTableau,
@@ -157,6 +159,33 @@ function MenuTeteColonne({ colonne, cartesNonLues }: { colonne: ColumnKey; carte
   );
 }
 
+/**
+ * L'avancement global des travaux en cours, en haut à droite de la colonne
+ * « En cours » : un pourcentage, rien d'autre.
+ *
+ * Il ne réinvente aucune couleur — l'ORANGE de ce qui est en cours, le BLEU de
+ * ce qui est terminé, les deux jetons déjà partout dans l'application. Le
+ * calcul, lui, ne vit pas ici : `avancementDeLaColonne` décide aussi quand se
+ * taire, et on rend alors `null`.
+ */
+function RepereAvancement({ avancement }: { avancement: AvancementColonne | null }) {
+  if (!avancement) return null;
+  const { done, total, pourcent, termine } = avancement;
+  return (
+    <Tooltip label={`${done} étape${done > 1 ? 's' : ''} faite${done > 1 ? 's' : ''} sur ${total}`}>
+      <span
+        data-avancement-colonne="running"
+        className={cn(
+          'shrink-0 px-0.5 text-[12.5px] font-medium tabular-nums',
+          termine ? 'text-termine' : 'text-en-cours',
+        )}
+      >
+        {pourcent} %
+      </span>
+    </Tooltip>
+  );
+}
+
 export function Board({
   projectId,
   onOpenCard,
@@ -192,6 +221,27 @@ export function Board({
   const byColumn = (column: ColumnKey) =>
     cards.filter(
       (card) => colonneAffichee({ column: card.column, agentAuTravail: agentAuTravail(card) }) === column,
+    );
+
+  /*
+   * L'avancement GLOBAL de « En cours » : la même matière que le « n/N faites »
+   * de chaque carte (le décompte porté par l'agent d'exécution), additionnée
+   * pour toute la colonne. On lit l'agent de rôle « task » encore au travail,
+   * exactement comme la carte le fait — un avancement figé ou celui d'une
+   * analyse ne compte pas. La règle du calcul et de ses silences vit dans
+   * `avancementDeLaColonne` ; ici on ne fait que rassembler la matière, et elle
+   * se remet à jour toute seule puisque les agents sont diffusés en direct.
+   */
+  const agentTacheActif = (card: Card) =>
+    Object.values(state.agents).find(
+      (a) => a.cardId === card.id && a.role === 'task' && (a.status === 'running' || a.status === 'starting'),
+    );
+  const avancementDeCesCartes = (cartes: Card[]) =>
+    avancementDeLaColonne(
+      cartes.map((card) => {
+        const agent = agentTacheActif(card);
+        return { agentActif: !!agent, todos: agent?.todos };
+      }),
     );
 
   /*
@@ -794,25 +844,22 @@ export function Board({
               {column === 'planned' || column === 'notes' ? (
                 <ComposerInline projectId={projectId} column={column} />
               ) : null}
-              {/* En haut à droite des colonnes qui publient : le bouton « ! » qui
-                  range les textes informatifs, PUIS le menu trois points. Ils
-                  forment un seul groupe collé à droite (`ml-auto`), pour ne pas
-                  additionner deux marges automatiques. Le bouton « ! » ne paraît
-                  que s'il y a de quoi lire ; le menu, que s'il y a du non-lu. */}
-              {column === 'to_deploy' || column === 'in_production' ? (
-                <div className="ml-auto flex items-center gap-0.5">
+              {/* En haut à droite : l'avancement global de « En cours », le
+                  bouton « ! » des colonnes qui publient, PUIS le menu trois
+                  points. Un seul groupe collé à droite (`ml-auto`), pour ne pas
+                  additionner deux marges automatiques. Chacun se tait quand il
+                  n'a rien à dire : pas d'étape comptée, rien à lire, rien de
+                  non-lu. */}
+              <div className="ml-auto flex items-center gap-0.5">
+                {column === 'running' ? <RepereAvancement avancement={avancementDeCesCartes(columnCards)} /> : null}
+                {column === 'to_deploy' || column === 'in_production' ? (
                   <BoutonInfosPublication colonne={column} infos={infosPublication[column] ?? null} />
-                  <MenuTeteColonne
-                    colonne={column}
-                    cartesNonLues={columnCards.filter((card) => etatDeCarte(card) === 'termine-non-lu')}
-                  />
-                </div>
-              ) : (
+                ) : null}
                 <MenuTeteColonne
                   colonne={column}
                   cartesNonLues={columnCards.filter((card) => etatDeCarte(card) === 'termine-non-lu')}
                 />
-              )}
+              </div>
             </div>
 
             {/*
