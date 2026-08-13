@@ -1071,7 +1071,7 @@ export function decisionsEnAttente(): DecisionAttendue[] {
           agentId: row.agentId,
           cardId: row.cardId ?? undefined,
           genre: 'question',
-          reglee: Boolean(question.answer),
+          reglee: Boolean(question.answer) || question.cancelled,
           poseeA: row.createdAt,
         });
       }

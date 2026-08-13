@@ -840,7 +840,20 @@ function QuestionCard({
   const [images, setImages] = React.useState<Attachment[]>([]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [envoiFichier, setEnvoiFichier] = React.useState(false);
+  const [annulation, setAnnulation] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  if (question.cancelled) {
+    return (
+      <div className="rounded-md border border-border bg-surface/60 px-2.5 py-2">
+        <p className="text-[13px] text-faint">{question.question}</p>
+        <p className="mt-1 flex min-w-0 items-start gap-1.5 text-[14px] text-faint">
+          <X className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
+          Question annulée
+        </p>
+      </div>
+    );
+  }
 
   if (question.answer) {
     return (
@@ -917,6 +930,17 @@ function QuestionCard({
       client.pushToast('error', err?.message ?? 'réponse impossible');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const annuler = async () => {
+    setAnnulation(true);
+    try {
+      await client.call({ type: 'question.cancel', messageId, questionId: question.id });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'annulation impossible');
+    } finally {
+      setAnnulation(false);
     }
   };
 
@@ -1056,6 +1080,17 @@ function QuestionCard({
             <Paperclip className="h-3 w-3" />
           )}
           Image
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Fermer la question sans répondre"
+          disabled={annulation}
+          onClick={annuler}
+          className="text-faint hover:text-danger"
+        >
+          {annulation ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+          Annuler
         </Button>
       </div>
     </div>
