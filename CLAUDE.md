@@ -239,6 +239,16 @@ le nom, là-bas le texte).
   `carteDepuisLigne` / `colonnesDeLaCarte`, jamais par `JSON.parse(data)` — les scripts passent par
   `scripts/carte-en-base.mjs`.
 
+- **Chaque NUIT VERS 3 H, un agent d'analyse cherche ce qui peut être amélioré, et il ne fait que
+  PROPOSER** (`shared/src/auto-amelioration.ts`, `server/src/auto-amelioration.ts`, veille lancée par
+  `planifierAutoAmelioration` dans `main.ts`) : performance, code jamais appelé, doublons, fichiers et
+  documentation que rien ne lit, mémoire qui gonfle, contrôles en double (`AXES_D_EXAMEN`). Rôle
+  `analysis` — il ne modifie RIEN —, sortie unique `propose_task`, TROIS propositions au plus
+  (`PROPOSITIONS_MAX`), et le projet examiné est HaikoDev lui-même (`project.isSelf`). Fenêtre 3 h –
+  5 h : un travail en cours REPORTE le rendez-vous, il ne le supprime pas ; aucun rattrapage au
+  démarrage, la réserve du jour ne se dépense pas en pleine journée. Verrouillé par
+  `server/src/test/auto-amelioration.test.ts` et `scripts/verif-auto-amelioration.mjs`.
+
 ### Branches et dossiers
 
 - **Une carte lancée a TOUJOURS sa branche « tache/… » et sa copie de travail à elle**

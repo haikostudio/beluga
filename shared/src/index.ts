@@ -8,6 +8,7 @@ export * from './apercu-fichier.js';
 export * from './arret-carte.js';
 export * from './reprise-publication.js';
 export * from './attention.js';
+export * from './auto-amelioration.js';
 export * from './bloc-cerveau.js';
 export * from './branche-de-carte.js';
 export * from './branche-de-publication.js';

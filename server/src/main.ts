@@ -20,6 +20,7 @@ import { listEngines } from './engines/index.js';
 import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
 import { envoyerAuCerveau } from './cerveau.js';
+import { planifierAutoAmelioration } from './auto-amelioration.js';
 import { diffuserEtatDemon } from './demon.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
@@ -125,6 +126,15 @@ async function main(): Promise<void> {
   // heures — sans attendre la prochaine nuit.
   setTimeout(() => void envoyerAuCerveau({ auDemarrage: true }), 60_000);
 
+  /*
+   * Le rendez-vous d'auto-amélioration : chaque nuit vers 3 h, un agent
+   * d'analyse cherche ce qui peut être amélioré et le PROPOSE, sans rien
+   * modifier. Aucun rattrapage au démarrage, contrairement au cerveau : une
+   * analyse complète lancée en pleine journée mangerait la réserve du jour,
+   * ce qu'on veut précisément éviter.
+   */
+  const autoAmeliorationTimer = planifierAutoAmelioration();
+
   sampleCapacity();
   void refreshQuotas(true).then((quotas) => {
     bus.emit({ type: 'quotas', quotas });
@@ -142,6 +152,7 @@ async function main(): Promise<void> {
     clearInterval(backupTimer);
     clearInterval(digestTimer);
     clearInterval(janitorTimer);
+    clearInterval(autoAmeliorationTimer);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);
   };
