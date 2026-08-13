@@ -1542,29 +1542,31 @@ export function CardTile({
       </article>
 
       {statut ? (
-        <div
-          onClick={ouvrir}
-          className={cn(
-            // Toute la largeur de la carte, sur UNE ligne, sans marge latérale.
-            // Le petit espace en haut laisse voir l'ombre portée, qui donne
-            // l'impression que la carte recouvre la bande.
-            'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-none',
-            'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
-            statut.ton,
-          )}
-        >
-          <span className="flex items-center gap-1">
-            {statut.icon}
-            <span
-              className="min-w-0 flex-1 truncate"
-              data-progression-taches={'marqueur' in statut && statut.marqueur === 'progression-taches' ? card.id : undefined}
-              data-depart-programme={'marqueur' in statut && statut.marqueur === 'depart-programme' ? card.id : undefined}
-              data-colonne-corrigee={'marqueur' in statut && statut.marqueur === 'colonne-corrigee' ? card.id : undefined}
-            >
-              {statut.texte}
+        <Tooltip label={statut.texte}>
+          <div
+            onClick={ouvrir}
+            className={cn(
+              // Toute la largeur de la carte, sur UNE ligne, sans marge latérale.
+              // Le petit espace en haut laisse voir l'ombre portée, qui donne
+              // l'impression que la carte recouvre la bande.
+              'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-none',
+              'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
+              statut.ton,
+            )}
+          >
+            <span className="flex items-center gap-1">
+              {statut.icon}
+              <span
+                className="min-w-0 flex-1 truncate"
+                data-progression-taches={'marqueur' in statut && statut.marqueur === 'progression-taches' ? card.id : undefined}
+                data-depart-programme={'marqueur' in statut && statut.marqueur === 'depart-programme' ? card.id : undefined}
+                data-colonne-corrigee={'marqueur' in statut && statut.marqueur === 'colonne-corrigee' ? card.id : undefined}
+              >
+                {statut.texte}
+              </span>
             </span>
-          </span>
-        </div>
+          </div>
+        </Tooltip>
       ) : null}
     </div>
   );
