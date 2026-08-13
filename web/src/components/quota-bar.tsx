@@ -141,7 +141,10 @@ export function QuotaBar({
 
   return (
     <header
-      className="flex shrink-0 items-center gap-2 border-b border-border bg-bg px-2.5"
+      className={cn(
+        'flex shrink-0 items-center gap-2 bg-bg px-2.5',
+        !telephone && 'border-b border-border',
+      )}
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         height: 'calc(44px + env(safe-area-inset-top))',

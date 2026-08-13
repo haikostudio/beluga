@@ -835,12 +835,19 @@ export function Board({
                   <Loader2 className="h-3 w-3 shrink-0 animate-spin text-publie" data-publication-en-cours={column} />
                 ) : null;
               })()}
-              <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
-              <span className="text-[12.5px] text-faint">
-                {(column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null
-                  ? deployCounts[column]
-                  : columnCards.length}
-              </span>
+              {/* Sur téléphone, l'onglet du haut porte déjà le nom de la
+                  colonne et son compte : les répéter ici ne ferait que
+                  manger de la hauteur d'écran. */}
+              {!telephone ? (
+                <>
+                  <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
+                  <span className="text-[12.5px] text-faint">
+                    {(column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null
+                      ? deployCounts[column]
+                      : columnCards.length}
+                  </span>
+                </>
+              ) : null}
               {/* En haut à droite : le bouton « + » des colonnes qui créent,
                   l'avancement global de « En cours », le bouton « ! » des
                   colonnes qui publient, PUIS le menu trois points. Un SEUL
