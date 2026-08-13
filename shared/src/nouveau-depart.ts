@@ -13,6 +13,8 @@
  * Les décisions vivent ici, sans base ni réseau : elles se testent seules.
  */
 
+import { temoinDeTravail, type StatutDAgentSuivi } from './travail-en-cours.js';
+
 /** Le repère de nouveau départ, retenu agent par agent. */
 export const cleNouveauDepart = (agentId: string): string => `chat.depart.${agentId}`;
 
@@ -25,6 +27,8 @@ export interface MessageDatable {
 /** Le strict minimum dont ces règles ont besoin d'un agent. */
 export interface AgentOccupable {
   status?: string;
+  /** L'instant de la dernière fin de tour : il démasque une écriture orpheline. */
+  endedAt?: number;
 }
 
 export interface Verdict {
@@ -43,7 +47,15 @@ export interface Verdict {
  */
 export function peutRepartir(agent: AgentOccupable | null | undefined, messages: MessageDatable[]): Verdict {
   if (!agent) return { ok: false, raison: "La conversation n'est pas encore ouverte." };
-  if (agent.status === 'running' || messages.some((m) => m.streaming)) {
+  // Un message resté marqué « en écriture » alors que le tour est refermé depuis
+  // ne bloque plus rien : c'est l'AGENT qui fait foi (`temoinDeTravail`).
+  if (
+    temoinDeTravail({
+      statut: agent.status as StatutDAgentSuivi | undefined,
+      finDuTour: agent.endedAt,
+      messageEnEcritureA: messages.find((m) => m.streaming)?.createdAt,
+    })
+  ) {
     return { ok: false, raison: "Le chef d'orchestre travaille : attendez la fin de sa réponse." };
   }
   if (!messages.length) return { ok: false, raison: 'Cette conversation est déjà neuve.' };

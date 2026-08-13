@@ -88,3 +88,35 @@ test('refermer un agent déjà au repos ne fait rien', () => {
 test('un agent inconnu ne fait pas tomber la veille', () => {
   assert.equal(refermerLeTour('agent-qui-n-existe-pas', 'peu importe'), false);
 });
+
+/* ------------------------------------------------------------------ */
+/* L'ÉCRITURE ORPHELINE : un message resté « en cours d'écriture »      */
+/* alors que son agent est au repos depuis. C'est ce qui laissait le    */
+/* bandeau « réflexion en cours » allumé indéfiniment.                  */
+/* ------------------------------------------------------------------ */
+
+test('la veille éteint un message resté en écriture sur un agent en échec', () => {
+  const message = poserAgent('agent-ecriture-orpheline', 'Une réponse à moitié écrite.');
+  // Le tour s'est refermé en échec APRÈS la naissance du message, et une
+  // dernière bribe a rallumé la marque derrière la fermeture.
+  const agent = store.getAgent('agent-ecriture-orpheline')!;
+  store.saveAgent({ ...agent, status: 'failed', endedAt: message.createdAt + 1_000 });
+  store.saveMessage({ ...store.getMessage(message.id)!, streaming: true });
+
+  veilleDesToursBloques();
+
+  assert.equal(store.getMessage(message.id)!.streaming, false, 'la marque d’écriture est éteinte');
+  assert.equal(store.getAgent('agent-ecriture-orpheline')!.status, 'failed', 'le verdict du tour ne change pas');
+});
+
+test('un message du tour qui démarre n’est jamais pris pour un orphelin', () => {
+  const message = poserAgent('agent-qui-demarre', '');
+  // L'agent n'est pas encore passé « au travail » : le message vient de naître,
+  // il est plus récent que la fin du tour précédent.
+  const agent = store.getAgent('agent-qui-demarre')!;
+  store.saveAgent({ ...agent, status: 'idle', endedAt: message.createdAt - 1_000 });
+
+  veilleDesToursBloques();
+
+  assert.equal(store.getMessage(message.id)!.streaming, true, 'le tour qui démarre garde sa marque');
+});
