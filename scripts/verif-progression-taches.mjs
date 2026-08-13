@@ -8,7 +8,10 @@
  *    3/3) ;
  *  - une carte sans liste de tâches ne montre rien ;
  *  - une carte d'une AUTRE colonne (Terminé) ne montre rien, même avec une
- *    liste : le décroché ne parle que pour « En cours ».
+ *    liste : le décroché ne parle que pour « En cours » ;
+ *  - la TÊTE de la colonne « En cours » affiche le pourcentage global, égal à
+ *    la somme des « n/N faites » réellement affichés, dans l'ORANGE des
+ *    travaux en cours.
  *
  * Tout est SIMULÉ : cartes et agents sont injectés dans le canal temps réel,
  * comme le fait `verif-carte-sans-suite.mjs`. Rien n'est écrit dans la base à
@@ -253,6 +256,53 @@ async function main() {
   await page.waitForTimeout(700);
   const t2 = await texteProgression(deuxSurTrois.cardId);
   record('le compteur passe à « 3/3 » quand une étape est cochée', /3\/3/.test(t2 ?? ''), t2 ?? 'absent');
+
+  /*
+   * L'avancement GLOBAL, en tête de la colonne « En cours ». On ne suppose rien
+   * du contenu réel du tableau : on additionne les « n/N faites » RÉELLEMENT
+   * affichés (ils n'existent que dans cette colonne) et on compare au
+   * pourcentage de l'entête. Sa couleur doit être celle du jeton « en cours »,
+   * jamais une teinte neuve : on la mesure contre un témoin `text-en-cours`.
+   */
+  const mesure = await page.evaluate(() => {
+    const entete = document.querySelector('[data-avancement-colonne="running"]');
+    let done = 0;
+    let total = 0;
+    for (const decroche of document.querySelectorAll('[data-progression-taches]')) {
+      const trouve = /(\d+)\s*\/\s*(\d+)/.exec(decroche.textContent ?? '');
+      if (!trouve) continue;
+      done += Number(trouve[1]);
+      total += Number(trouve[2]);
+    }
+    const temoin = document.createElement('span');
+    temoin.className = 'text-en-cours';
+    document.body.appendChild(temoin);
+    const orange = getComputedStyle(temoin).color;
+    temoin.remove();
+    return {
+      texte: entete?.textContent ?? null,
+      couleur: entete ? getComputedStyle(entete).color : null,
+      orange,
+      done,
+      total,
+    };
+  });
+  const attendu = mesure.total > 0 ? Math.round((mesure.done / mesure.total) * 100) : null;
+  record(
+    'la tête de « En cours » affiche un pourcentage',
+    attendu === null ? !mesure.texte : /^\s*\d+\s*%\s*$/.test(mesure.texte ?? ''),
+    `${mesure.texte ?? 'absent'} (${mesure.done}/${mesure.total})`,
+  );
+  record(
+    'ce pourcentage est bien la somme des étapes de toutes les cartes',
+    attendu === null || Number((mesure.texte ?? '').replace(/[^\d]/g, '')) === attendu,
+    attendu === null ? 'aucune étape comptée' : `attendu ${attendu} %`,
+  );
+  record(
+    'il reprend l’ORANGE des travaux en cours, pas une teinte neuve',
+    attendu === null || attendu === 100 || mesure.couleur === mesure.orange,
+    `${mesure.couleur ?? 'absent'} / ${mesure.orange}`,
+  );
 
   record('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 
