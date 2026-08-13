@@ -325,6 +325,16 @@ le nom, là-bas le texte).
   APRÈS la réponse — compression, mesure, relance de plan — porte un `plafondMs`, le tour lui-même
   jamais ; `sendPrompt` referme en `finally` ; et l'ordonnanceur referme d'autorité un agent que plus
   rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec.
+- **Une PANNE PASSAGÈRE du fournisseur se retente, elle ne tue pas la tâche**
+  (`shared/src/panne-passagere.ts`, `server/src/relance-moteur.ts`, branchée dans `startTurn`) :
+  erreur 500 (« Internal server error », « Server error mid-response »), moteur surchargé, lien
+  coupé — le tour relance le moteur jusqu'à `ESSAIS_MAX` (3) fois, après une attente CROISSANTE, sur
+  le MÊME fil et avec une consigne qui dit de CONTINUER là où il s'était arrêté. Jamais sur un tour
+  réussi, un arrêt à la main, un arrêt de QUOTA (qui garde sa route) ni une demande refusée (4xx).
+  Les essais s'additionnent dans la mesure du tour. Tous échoués, la tâche est INTERROMPUE et non
+  ratée : agent en « stopped », alerte « Tâche interrompue par une panne du moteur », et le bandeau
+  rouge — seulement là — porte la cause réelle en clair, jamais un « code 1 ». Vérifié par
+  `server/src/test/panne-passagere.test.ts` et `scripts/verif-panne-moteur.mjs`.
 - **Un moteur lancé est SUIVI avant tout autre travail** (`startTurn`, `server/src/runtime.ts`) :
   `live.set` passe devant l'enregistrement du contexte envoyé, sinon une panne survenue dans cette
   fenêtre faisait refermer par `sendPrompt` un tour BIEN VIVANT — bulle rouge « panne interne du
