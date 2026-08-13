@@ -626,6 +626,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { lues: touchees.length };
     }
 
+    /*
+     * Ouvrir un projet éteint son point bleu, sans marquer une seule carte
+     * comme lue : seule la visite compte, `project.read` reste le geste à
+     * part qui, lui, touche les cartes.
+     */
+    case 'project.visit': {
+      const projet = store.markProjectVisited(cmd.projectId);
+      if (projet) bus.emit({ type: 'project.upsert', project: projet });
+      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+      return { ok: !!projet };
+    }
+
     case 'agent.orchestrator': {
       const agent = await getOrCreateOrchestrator(cmd.projectId);
       envoyerConversation(agent.id, cmd.tout);

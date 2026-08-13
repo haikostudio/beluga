@@ -169,6 +169,13 @@ export const Project = z.object({
     })
     .default({}),
   billing: BillingLink.optional(),
+  /**
+   * Dernière fois que ce projet a été OUVERT depuis la colonne de gauche —
+   * sert uniquement à éteindre le point bleu de travail terminé
+   * (`shared/src/signal-projet.ts`) sans toucher au repère de lecture des
+   * cartes, qui reste un geste à part (`project.read`).
+   */
+  lastVisitedAt: z.number().optional(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
   rank: z.number().default(1000),
   /** Groupe de rangement choisi par l'utilisateur (« Clients », « Perso »…). */

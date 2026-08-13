@@ -1088,17 +1088,26 @@ function EnteteGroupe({
  * précédents : l'icône du plan (`RepereDePlan`), au lieu de l'icône par
  * défaut (le dossier, ou l'outil de l'espace de développement) — jamais
  * ajoutée à droite du nom.
+ *
+ * Un TRAVAIL TERMINÉ, pas encore visité, prend la même place en DERNIER
+ * recours : le point bleu qui clignotait jusqu'ici à droite de la ligne
+ * (`RepereLigne`). Il ne paraît donc que lorsque plus rien ne tourne — dès
+ * qu'un agent repart ou qu'une publication démarre, il cède la place comme
+ * les autres.
  */
 function RepereRobot({
   running,
   publie,
   planEnAttente,
+  termine,
   fallback,
 }: {
   running: number;
   publie?: boolean;
   /** Un plan proposé attend encore une décision sur ce projet. */
   planEnAttente?: boolean;
+  /** Du travail est rendu et pas encore visité, rien d'autre ne tourne. */
+  termine?: boolean;
   /** L'icône par défaut, quand rien de tout ça n'est vrai. */
   fallback?: React.ReactNode;
 }) {
@@ -1123,6 +1132,19 @@ function RepereRobot({
     );
   }
   if (planEnAttente) return <RepereDePlan />;
+  if (termine) {
+    return (
+      <Tooltip label="Travail terminé, pas encore consulté — ouvrez le projet pour l'éteindre">
+        <span
+          data-repere-termine
+          aria-label="Travail terminé, pas encore consulté"
+          className="flex h-[15px] w-[15px] shrink-0 items-center justify-center"
+        >
+          <span className="h-2 w-2 rounded-full bg-termine animate-pulse-soft motion-reduce:animate-none" />
+        </span>
+      </Tooltip>
+    );
+  }
   return fallback ?? <Folder className="h-[15px] w-[15px] shrink-0 text-faint" />;
 }
 
@@ -1410,6 +1432,9 @@ function LigneEspaceDev({
   const secoue = useSecousse({ attention, rendus }, active);
   const ouvrir = () => {
     client.setActiveProject(project.id);
+    // Ouvrir éteint le point bleu, sans toucher au repère de lecture des
+    // cartes (voir le même geste sur `ProjectRow`).
+    if (rendus) client.call({ type: 'project.visit', projectId: project.id });
     onQuitterTableauDeBord?.();
     onChoose?.();
   };
@@ -1441,10 +1466,16 @@ function LigneEspaceDev({
         >
           {/* Le loader prend la place de l'outil tant qu'un agent écrit ; une
               publication en cours prend la MÊME place, avec son propre signe,
-              et un plan qui attend une décision de même (voir `RepereRobot`)
+              un plan qui attend une décision de même, et un travail rendu pas
+              encore visité de même en dernier recours (voir `RepereRobot`)
               — même emplacement, donc rien ne s'ajoute à la ligne. */}
-          {running || publie || planEnAttente ? (
-            <RepereRobot running={running} publie={publie} planEnAttente={planEnAttente} />
+          {running || publie || planEnAttente || rendus ? (
+            <RepereRobot
+              running={running}
+              publie={publie}
+              planEnAttente={planEnAttente}
+              termine={!running && !publie && !planEnAttente && !!rendus}
+            />
           ) : (
             <Wrench className="h-3.5 w-3.5 shrink-0" />
           )}
@@ -1453,10 +1484,11 @@ function LigneEspaceDev({
               l'application » y finissait en points de suspension. */}
           <span className="min-w-0 flex-1 truncate">Développement</span>
         </button>
-        {/* Hors du bouton : un repère porte son propre geste, et un bouton n'en
-            contient pas un autre. */}
+        {/* Hors du bouton : le repère de décision porte son propre geste, et un
+            bouton n'en contient pas un autre. Le travail rendu ne s'y affiche
+            plus — il vit désormais à gauche, dans `RepereRobot`. */}
         <RepereLigne
-          signal={{ attention, rendus }}
+          signal={{ attention }}
           onLu={() => client.call({ type: 'project.read', projectId: project.id })}
           onDecision={() => {
             onQuitterTableauDeBord?.();
@@ -1563,6 +1595,10 @@ function ProjectRow({
       <button
         onClick={() => {
           client.setActiveProject(project.id);
+          // Ouvrir le projet éteint son point bleu — et seulement lui : les
+          // cartes gardent leur repère de lecture propre (`project.read`
+          // reste le geste à part, sur le point lui-même).
+          if (rendus) client.call({ type: 'project.visit', projectId: project.id });
           // Choisir, c'est aussi refermer : même quand c'est déjà le projet
           // affiché, le panneau ne doit pas rester ouvert sur un choix fait.
           onChoose?.();
@@ -1571,7 +1607,8 @@ function ProjectRow({
       >
         {/* Le loader prend la place de l'icône tant qu'un agent écrit ; une
             publication en cours prend la MÊME place, avec son propre signe,
-            et un plan qui attend une décision de même (voir `RepereRobot`) —
+            un plan qui attend une décision de même, et un travail rendu pas
+            encore visité de même en dernier recours (voir `RepereRobot`) —
             c'est le MÊME emplacement, donc rien ne s'ajoute à la ligne. Au
             repos, c'est le favicon du site du projet (ou ses initiales, à
             défaut d'adresse) qui tient la place du dossier. */}
@@ -1579,6 +1616,7 @@ function ProjectRow({
           running={running}
           publie={publie}
           planEnAttente={planEnAttente}
+          termine={!running && !publie && !planEnAttente && !!rendus}
           fallback={<PastilleSite project={project} />}
         />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
@@ -1592,10 +1630,11 @@ function ProjectRow({
           </Tooltip>
         ) : null}
       </button>
-      {/* Le repère de décision (attention / rendu) vit HORS du bouton du nom :
-          il porte son propre geste, et un bouton n'en contient pas un autre. */}
+      {/* Le repère de décision vit HORS du bouton du nom : il porte son propre
+          geste, et un bouton n'en contient pas un autre. Le travail rendu ne
+          s'y affiche plus — il vit désormais à gauche, dans `RepereRobot`. */}
       <RepereLigne
-        signal={{ attention, rendus }}
+        signal={{ attention }}
         onLu={() => client.call({ type: 'project.read', projectId: project.id })}
         onDecision={() => allerALaDecision(project.id, onChoose)}
         // Au repos (pointeur qui survole), le repère est poussé à droite, à la
