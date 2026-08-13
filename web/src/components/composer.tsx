@@ -45,6 +45,10 @@ export interface ComposerProps {
   dansTiroir?: boolean;
   /** Depuis le tiroir d'une carte : l'arrêt ne vaut que pour SA tâche. */
   cardId?: string;
+  /** Seule la conversation permanente du chef d'orchestre vit sur fond noir
+   *  (pas dans un tiroir) ; partout ailleurs (tiroir de carte, pile des
+   *  agents) le fond entourant est gris cendré, la barre doit le reprendre. */
+  fondNoir?: boolean;
 }
 
 export function Composer({
@@ -60,6 +64,7 @@ export function Composer({
   onProposeTask,
   dansTiroir,
   cardId,
+  fondNoir,
 }: ComposerProps) {
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
@@ -359,7 +364,7 @@ export function Composer({
 
   return (
     <div
-      className="bg-bg px-2.5 pt-2"
+      className={cn('px-2.5 pt-2', fondNoir ? 'bg-bg' : 'bg-surface')}
       /*
        * Le creux du téléphone (barre de gestes) n'est réservé QUE si la barre
        * d'écriture touche vraiment le bas de l'écran. Dans le tiroir d'une

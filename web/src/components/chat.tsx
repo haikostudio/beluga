@@ -291,6 +291,7 @@ export function Chat({
         onProposeTask={onProposeTask}
         dansTiroir={!!cardId || !!creuxReserveAilleurs}
         cardId={cardId}
+        fondNoir={!!nouveauDepart}
       />
     </div>
   );
