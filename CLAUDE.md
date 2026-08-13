@@ -143,6 +143,11 @@ le nom, là-bas le texte).
   sans réglage. La MISE EN PRODUCTION, elle, ne suit QUE le prompt réglé du projet : sans prompt,
   elle est refusée, jamais menée à vide. La mise en ligne compte donc DEUX étapes, que la colonne
   « En production » sépare.
+- **Une carte qui ENTRE dans « À déployer » perd sa date de mise en ligne, et un bouton éteint DIT
+  pourquoi** (`dateDeMiseEnLignePerimee` / `raisonLotBloque`, `shared/src/lot-a-deployer.ts` ;
+  `rangerLaCarte`, `server/src/deplacement-carte.ts` ; migration 20). Sans cela, une carte revenue
+  dans le lot en était écartée à jamais et « Tout déployer (0) » ne partait nulle part, sans un mot.
+  Tant que le bouton refuse de partir, la cause s'écrit sous lui.
 - **La BRANCHE de chaque étape se choisit dans les réglages du projet**
   (`brancheDePublication`, `shared/src/branche-de-publication.ts` ; `Project.branchesDePublication`) :
   une pour le déploiement, une pour la mise en production, prises dans la liste des branches du

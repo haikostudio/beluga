@@ -558,6 +558,28 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX idx_doc_passages_source ON doc_passages(project_id, source);
     `,
   },
+  {
+    id: 20,
+    name: 'liberer-les-cartes-bloquees-a-deployer',
+    // LE BOGUE DU « TOUT DÉPLOYER » MUET.
+    //
+    // Le lot de « À déployer » écarte les cartes qui portent déjà une date de
+    // mise en ligne (`deployableCards`). Rien n'effaçait cette date quand une
+    // carte REVENAIT dans la colonne — repassée à la main depuis « En
+    // production », ou retravaillée puis reposée là. Elle était alors écartée
+    // de TOUS les lots suivants : le bouton annonçait « (0) », s'éteignait, et
+    // le clic ne partait nulle part.
+    //
+    // La règle est réparée à la source (`dateDeMiseEnLignePerimee`, branchée
+    // sur les deux chemins de déplacement) ; ici on libère les cartes déjà
+    // prises au piège. Une carte POSÉE dans « À déployer » attend d'être
+    // déployée : sa date d'avant n'a plus cours. Les colonnes « En production »
+    // et « Archivé » gardent la leur, qui est la trace de leur mise en ligne.
+    sql: `
+      UPDATE cards SET deployed_at = NULL
+      WHERE column_key = 'to_deploy' AND deployed_at IS NOT NULL;
+    `,
+  },
 ];
 
 export function openDb(): DB {
