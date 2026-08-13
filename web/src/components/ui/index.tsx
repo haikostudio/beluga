@@ -218,7 +218,12 @@ export const ZoneDefilement = React.forwardRef<
   }
 >(function ZoneDefilement(
   {
-    fond = 'hsl(var(--bg))',
+    // Sans couleur imposée, le fondu suit le fond RÉEL du conteneur qui
+    // l'entoure (`--fond-zone-defilement`, posée par ce conteneur — le
+    // tiroir, par exemple) plutôt qu'un noir fixe : un tiroir gris cendré
+    // n'a plus de tache sombre en haut et en bas de ses zones qui défilent.
+    // Sans conteneur qui la pose, la variable retombe sur le noir de fond.
+    fond = 'var(--fond-zone-defilement, hsl(var(--bg)))',
     // Une bande courte redevient une coupure : il faut de la place pour que
     // le flou ait le temps de grandir.
     hauteur = 44,
@@ -469,6 +474,10 @@ export function Drawer({
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: decalage ? `translateY(${decalage}px)` : undefined,
             transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
+            // Le fond du tiroir est gris cendré (bg-surface) : toute zone qui
+            // défile à l'intérieur, sans couleur de fondu imposée, doit le
+            // savoir pour ne pas garder un fondu noir.
+            ['--fond-zone-defilement' as string]: 'hsl(var(--surface))',
           }}
         >
           {/* La poignée : on la tire vers le bas pour refermer. */}
