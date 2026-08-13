@@ -70,6 +70,10 @@ function monterProjet(nom, colonne = 'to_deploy') {
     isSelf: false,
     rank: 1000,
     archived: false,
+    /* La mise en production ne part plus sans réglage. « Aucune » (projet
+       local) est le seul type qui n'appelle NI agent NI transfert : la
+       plomberie git est jouée en entier, aucun quota n'est dépensé. */
+    miseEnProduction: { type: 'aucune' },
     createdAt: maintenant,
     updatedAt: maintenant,
   });

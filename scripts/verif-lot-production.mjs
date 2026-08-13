@@ -148,6 +148,12 @@ function poserLeDecor() {
     isSelf: false,
     rank: 1,
     archived: false,
+    /* Une mise en production non réglée est refusée : le bouton « Tout publier »
+       s'éteint et le dit. Ce script vérifie la CONFIRMATION, pas ce refus — le
+       projet d'essai est donc déclaré « Aucune » (projet local), le seul type
+       qui n'appelle NI agent NI transfert : rien n'est dépensé, et le bouton
+       est cliquable. */
+    miseEnProduction: { type: 'aucune' },
     createdAt: maintenant,
     updatedAt: maintenant,
   };
@@ -507,20 +513,33 @@ async function main() {
   );
   await page.screenshot({ path: path.join(TMP, 'bouton-tout-publier.png') });
 
-  /* -------- « Tout déployer » part TOUJOURS d'un seul clic -------- */
+  /* -------- « Tout déployer » ouvre l'ÉCRAN DE SÉLECTION, puis part -------- */
 
-  // Le déploiement sur l'instance de dev n'est pas touché : aucune modale, et
-  // la commande deploy.start part dès le premier clic. (Fait en dernier : le
-  // run lancé sur ce dépôt d'essai isolé n'importe plus pour la suite.)
+  // Le déploiement passe désormais par un écran de sélection des tâches
+  // (cases cochées d'avance) : le premier clic l'OUVRE, et c'est le bouton
+  // « Déployer (n) » de cet écran qui envoie `deploy.start`. Ce qui compte —
+  // et qui manquait — c'est que le clic finisse RÉELLEMENT par partir : un
+  // bouton qui n'envoie rien est le bogue qu'on verrouille ici. (Fait en
+  // dernier : le run lancé sur ce dépôt d'essai isolé n'importe plus.)
   cadresDeployStart.length = 0;
   await page.evaluate(() => {
     document.querySelector('[data-bloc-publication="to_deploy"] [data-bouton-publication]')?.click();
   });
   await page.waitForTimeout(900);
-  const modaleDeploy = await page.evaluate(() => !!document.querySelector('[role="dialog"]'));
-  noter('« Tout déployer » n’ouvre AUCUNE modale', !modaleDeploy);
+  const ecranSelection = await page.evaluate(() => !!document.querySelector('[data-selection-deploiement]'));
+  noter('« Tout déployer » ouvre l’écran de sélection des tâches', ecranSelection);
   noter(
-    '« Tout déployer » envoie deploy.start au premier clic',
+    'l’écran de sélection n’a rien envoyé tant qu’on n’a pas confirmé',
+    cadresDeployStart.length === 0,
+    `${cadresDeployStart.length} envoi(s)`,
+  );
+
+  await page.evaluate(() => {
+    document.querySelector('[data-bouton-deployer-selection]')?.click();
+  });
+  await page.waitForTimeout(1200);
+  noter(
+    'le bouton « Déployer » de l’écran envoie RÉELLEMENT deploy.start',
     cadresDeployStart.length >= 1,
     `${cadresDeployStart.length} envoi(s)`,
   );

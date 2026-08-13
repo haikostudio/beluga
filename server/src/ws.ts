@@ -64,6 +64,7 @@ import {
   blocageMiseEnProduction,
   avertissementsDeLaSelection,
 } from './deploy.js';
+import { rangerLaCarte } from './deplacement-carte.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
@@ -469,12 +470,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       const sortDuRangement = COLONNES_HORS_REPRISE.includes(card.column);
 
-      const updated = store.saveCard({
-        ...card,
-        column: target,
-        position: cmd.position ?? store.nextPosition(card.projectId, target),
-        doneAt: target === 'done' ? Date.now() : card.doneAt,
-      });
+      /* Le rangement lui-même vit dans `rangerLaCarte` : c'est là que les dates
+         qui suivent la colonne (« Terminé », « À déployer ») se posent ou se
+         retirent, en un seul endroit rejouable. */
+      const updated = rangerLaCarte(card, target, cmd.position);
       bus.emit({ type: 'card.upsert', card: updated });
       // Archiver une carte retire sa pastille : le compte se rediffuse.
       bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
