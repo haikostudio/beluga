@@ -615,7 +615,7 @@ export function App() {
         <Filet zone="Réglages" onReprendre={() => setSettingsOpen(false)}>
           <SettingsView open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </Filet>
-        <AgentDock onOpenAgent={setOpenAgentId} />
+        <AgentDock />
         {/* Le module de voix ouvre un micro et du son : ce qu'il fait de plus
             fragile ne doit pas emporter le tableau avec lui. Son filet ne
             REND RIEN quand il tombe — un bloc d'erreur flottant en bas de
