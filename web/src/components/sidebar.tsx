@@ -1106,7 +1106,7 @@ function RepereRobot({
     return (
       <Tooltip label="Publication en cours">
         <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label="Publication en cours">
-          <UploadCloud className="h-3 w-3 shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
+          <UploadCloud className="h-[15px] w-[15px] shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
         </span>
       </Tooltip>
     );
@@ -1116,90 +1116,32 @@ function RepereRobot({
     return (
       <Tooltip label={libelle}>
         <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours motion-reduce:animate-none" />
+          <Loader2 className="h-[15px] w-[15px] shrink-0 animate-spin text-en-cours motion-reduce:animate-none" />
           {running > 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
         </span>
       </Tooltip>
     );
   }
   if (planEnAttente) return <RepereDePlan />;
-  return fallback ?? <Folder className="h-3 w-3 shrink-0 text-faint" />;
+  return fallback ?? <Folder className="h-[15px] w-[15px] shrink-0 text-faint" />;
 }
 
 /**
- * Les emplacements d'icône essayés dans l'ordre, jusqu'à ce que l'un réponde.
- * Les deux premiers sont ceux du gabarit posé par HaikoDev à la création d'un
- * projet (`web/index.html`, `server/src/http.ts`) — la plupart des projets
- * du tableau n'ont donc jamais de `favicon.ico`, seulement ces fichiers-là.
- */
-const CANDIDATS_ICONE = ['/icon.svg', '/icon-192.png', '/favicon.ico', '/apple-touch-icon.png'];
-
-/**
- * Ce qui a répondu pour une origine donnée, gardé en mémoire pour tout
- * l'onglet : `undefined` = jamais essayé, une chaîne = l'icône qui a marché,
- * `null` = les {@link CANDIDATS_ICONE} ont tous échoué. Évite de redemander
- * la même série de requêtes à chaque montage de la ligne (repli, filtre…).
- */
-const cacheIconeParOrigine = new Map<string, string | null>();
-
-/**
  * L'icône de repos d'une ligne de projet : le favicon de son adresse publique
- * quand elle en expose un, sinon un rond avec ses initiales — jamais le
- * dossier générique, qui ne disait rien du projet.
- *
- * Plusieurs emplacements sont essayés l'un après l'autre ({@link CANDIDATS_ICONE}) :
- * un site ne déclare pas toujours son icône au même endroit. Le premier qui
- * répond est gardé en mémoire ({@link cacheIconeParOrigine}) pour ne plus être
- * redemandé. Une adresse absente, invalide, ou dont AUCUN candidat ne charge
- * (site éteint, tout en 404…) retombe sur les initiales, sans jamais casser
- * la ligne.
+ * quand le SERVEUR a réussi à le récupérer (`project.favicon`,
+ * `server/src/favicon.ts` — le navigateur, lui, est trop souvent bloqué :
+ * mélange http/https, en-têtes qui refusent l'inclusion croisée), sinon un
+ * rond avec ses initiales — jamais le dossier générique, qui ne disait rien
+ * du projet.
  */
 function PastilleSite({ project }: { project: Project }) {
-  const origine = React.useMemo(() => {
-    if (!project.devUrl?.trim()) return null;
-    try {
-      return new URL(project.devUrl).origin;
-    } catch {
-      return null;
-    }
-  }, [project.devUrl]);
-
-  const etatInitial = React.useCallback((o: string | null) => {
-    if (!o) return { url: null as string | null, index: 0 };
-    if (cacheIconeParOrigine.has(o)) {
-      return { url: cacheIconeParOrigine.get(o) ?? null, index: CANDIDATS_ICONE.length };
-    }
-    return { url: `${o}${CANDIDATS_ICONE[0]}`, index: 0 };
-  }, []);
-
-  const [{ url, index }, setEtat] = React.useState(() => etatInitial(origine));
-
-  React.useEffect(() => setEtat(etatInitial(origine)), [origine, etatInitial]);
-
-  const essayerSuivant = () => {
-    if (!origine) return;
-    const suivant = index + 1;
-    if (suivant < CANDIDATS_ICONE.length) {
-      setEtat({ url: `${origine}${CANDIDATS_ICONE[suivant]}`, index: suivant });
-    } else {
-      cacheIconeParOrigine.set(origine, null);
-      setEtat({ url: null, index: suivant });
-    }
-  };
-
-  const retenirLeSucces = () => {
-    if (origine && url) cacheIconeParOrigine.set(origine, url);
-  };
-
-  if (url) {
+  if (project.favicon) {
     return (
       <img
-        src={url}
+        src={project.favicon}
         alt=""
         aria-hidden
-        className="h-3 w-3 shrink-0 rounded-sm object-contain"
-        onLoad={retenirLeSucces}
-        onError={essayerSuivant}
+        className="h-[15px] w-[15px] shrink-0 rounded-sm object-contain"
       />
     );
   }
@@ -1217,7 +1159,7 @@ function PastilleSite({ project }: { project: Project }) {
   return (
     <span
       aria-hidden
-      className="flex h-3 w-3 shrink-0 items-center justify-center rounded-full bg-raised text-[7px] font-medium leading-none text-faint"
+      className="flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full bg-raised text-[9px] font-medium leading-none text-faint"
     >
       {initiales}
     </span>

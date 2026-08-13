@@ -51,6 +51,7 @@ import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
 import { appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
+import { recupererFaviconEnTache } from './favicon.js';
 import {
   deployableCards,
   startDeploy,
@@ -217,6 +218,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const current = store.getProject(cmd.id);
       if (!current) throw new Error('projet introuvable');
       const updated = store.saveProject(Project.parse({ ...current, ...cmd.patch, id: current.id }));
+      if (updated.devUrl && updated.devUrl !== current.devUrl) recupererFaviconEnTache(updated);
       bus.emit({ type: 'project.upsert', project: updated });
       return { project: updated };
     }

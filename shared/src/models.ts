@@ -106,6 +106,14 @@ export const Project = z.object({
    */
   devUrl: z.string().optional(),
   /**
+   * L'ICÔNE DE SITE trouvée sur `devUrl`, récupérée par le SERVEUR (le
+   * navigateur n'y arrive pas — trop souvent bloqué). Chemin d'une route
+   * servie par le démon (`/api/favicon?project=<id>`), jamais une adresse
+   * externe : absent = pas encore essayé, ou aucune icône trouvée — l'écran
+   * retombe alors sur les initiales du projet.
+   */
+  favicon: z.string().optional(),
+  /**
    * LES BRANCHES DE MISE EN LIGNE de ce projet, une par étape : celle où le
    * DÉPLOIEMENT vers l'instance de dev fusionne son lot, celle où la MISE EN
    * PRODUCTION fusionne le sien. Les règles vivent dans
