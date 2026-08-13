@@ -1085,22 +1085,24 @@ function EnteteGroupe({
  * ne s'y ajoute pas.
  *
  * Un PLAN qui attend une décision prend la même place, à défaut des deux
- * précédents : l'icône du plan (`RepereDePlan`), au lieu de l'icône par
- * défaut (le dossier, ou l'outil de l'espace de développement) — jamais
- * ajoutée à droite du nom.
+ * précédents : l'icône du plan (`RepereDePlan`).
  *
  * Un TRAVAIL TERMINÉ, pas encore visité, prend la même place en DERNIER
  * recours : le point bleu qui clignotait jusqu'ici à droite de la ligne
  * (`RepereLigne`). Il ne paraît donc que lorsque plus rien ne tourne — dès
  * qu'un agent repart ou qu'une publication démarre, il cède la place comme
  * les autres.
+ *
+ * Rien de tout ça n'est vrai : le repère ne s'affiche pas (`null`), pour
+ * laisser sa place au repère de repos de l'appelant (favicon du projet,
+ * outil de l'espace de développement…) — sur une ligne de projet, il vient
+ * s'AJOUTER entre ce repère de repos et le nom, jamais le remplacer.
  */
 function RepereRobot({
   running,
   publie,
   planEnAttente,
   termine,
-  fallback,
 }: {
   running: number;
   publie?: boolean;
@@ -1108,8 +1110,6 @@ function RepereRobot({
   planEnAttente?: boolean;
   /** Du travail est rendu et pas encore visité, rien d'autre ne tourne. */
   termine?: boolean;
-  /** L'icône par défaut, quand rien de tout ça n'est vrai. */
-  fallback?: React.ReactNode;
 }) {
   if (publie) {
     return (
@@ -1145,7 +1145,7 @@ function RepereRobot({
       </Tooltip>
     );
   }
-  return fallback ?? <Folder className="h-[15px] w-[15px] shrink-0 text-faint" />;
+  return null;
 }
 
 /**
@@ -1605,20 +1605,22 @@ function ProjectRow({
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        {/* Le loader prend la place de l'icône tant qu'un agent écrit ; une
-            publication en cours prend la MÊME place, avec son propre signe,
-            un plan qui attend une décision de même, et un travail rendu pas
-            encore visité de même en dernier recours (voir `RepereRobot`) —
-            c'est le MÊME emplacement, donc rien ne s'ajoute à la ligne. Au
-            repos, c'est le favicon du site du projet (ou ses initiales, à
-            défaut d'adresse) qui tient la place du dossier. */}
-        <RepereRobot
-          running={running}
-          publie={publie}
-          planEnAttente={planEnAttente}
-          termine={!running && !publie && !planEnAttente && !!rendus}
-          fallback={<PastilleSite project={project} />}
-        />
+        {/* Le favicon du site du projet (ou ses initiales, à défaut d'adresse)
+            reste TOUJOURS en premier, tout à gauche : on ne le perd plus
+            quand il se passe quelque chose. L'icône d'état (loader d'agent,
+            publication, plan en attente, travail rendu pas encore visité en
+            dernier recours — voir `RepereRobot`) vient s'AJOUTER juste après,
+            entre le favicon et le nom, et seulement quand elle a quelque
+            chose à dire. */}
+        <PastilleSite project={project} />
+        {running || publie || planEnAttente || rendus ? (
+          <RepereRobot
+            running={running}
+            publie={publie}
+            planEnAttente={planEnAttente}
+            termine={!running && !publie && !planEnAttente && !!rendus}
+          />
+        ) : null}
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
           <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
