@@ -1,22 +1,23 @@
 import * as React from 'react';
-import { AlertCircle, Bot, Check, ChevronUp, GripVertical, Info, TriangleAlert, UploadCloud, X } from 'lucide-react';
-import { heureEtDate } from '@haikodev/shared';
+import { Bot, ChevronUp, GripVertical, UploadCloud, X } from 'lucide-react';
 import { Dot } from '@/components/ui';
 import { Pile, type ElementDePile } from '@/components/pile';
 import { usePref } from '@/lib/prefs';
-import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
 
 /**
- * La pile de vignettes en bas à droite (PLAN §28) et, au même endroit, les
- * messages courts. Ils n'interrompent jamais ce que vous êtes en train de faire ;
- * les erreurs, elles, attendent d'être lues.
+ * La pile de vignettes d'agents en bas à droite (PLAN §28). Elle n'interrompt
+ * jamais ce que vous êtes en train de faire.
  *
- * Les deux s'empilent en profondeur, chacun dans SA pile (`Pile`,
- * `web/src/components/pile.tsx`) : le plus récent devant, trois visibles, le
- * reste compté. L'ordre du bloc ne bouge pas — messages, vignettes, puis
- * commandes.
+ * Les messages d'information passagers vivaient ici aussi ; ils sont désormais
+ * en haut au centre (`Toasts`, `web/src/components/toasts.tsx`), en liste
+ * plate avec leur propre compte à rebours — un empilement en profondeur ne
+ * convient qu'aux vignettes, qu'on retrouve une à une en cliquant dessus.
+ *
+ * La pile des vignettes s'empile en profondeur (`Pile`,
+ * `web/src/components/pile.tsx`) : la plus récente devant, trois visibles, le
+ * reste compté.
  */
 
 export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
@@ -34,8 +35,6 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
   const dragRef = React.useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   // « Tout effacer » reste annulable quelques secondes.
   const [undo, setUndo] = React.useState<Set<string> | null>(null);
-  // Le plus récent en tête : c'est lui qui se pose devant.
-  const messages = React.useMemo(() => [...state.toasts].reverse(), [state.toasts]);
 
   React.useEffect(() => {
     const timer = setInterval(force, 5000);
@@ -82,55 +81,6 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
       return !!agent.endedAt && Date.now() - agent.endedAt < 60000 && agent.role !== 'analysis';
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
-
-  const elementsMessages: ElementDePile[] = messages.map((toast) => ({
-    id: toast.id,
-    classe: cn(
-      'flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[13.5px] shadow-lg',
-      toast.level === 'error'
-        ? 'border-danger/40 bg-surface text-danger'
-        : toast.level === 'warning'
-          ? 'border-warning/40 bg-surface text-warning'
-          : toast.level === 'success'
-            ? 'border-success/40 bg-surface text-success'
-            : 'border-border bg-surface text-muted',
-    ),
-    contenu: (
-      <>
-        <span className="mt-0.5 shrink-0">
-          {toast.level === 'error' ? (
-            <AlertCircle className="h-3 w-3" />
-          ) : toast.level === 'warning' ? (
-            <TriangleAlert className="h-3 w-3" />
-          ) : toast.level === 'success' ? (
-            <Check className="h-3 w-3" />
-          ) : (
-            <Info className="h-3 w-3" />
-          )}
-        </span>
-        <span className="min-w-0 flex-1">
-          {/* Un compte rendu de lot nomme ses cartes ligne à ligne : les
-              retours à la ligne doivent tenir. */}
-          <span className="block whitespace-pre-line leading-snug">{toast.text}</span>
-          <span className="mt-0.5 block text-[11.5px] text-faint" data-heure-message>
-            {heureEtDate(toast.at)}
-          </span>
-        </span>
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            client.dismissToast(toast.id);
-          }}
-          title="Retirer ce message"
-          // La croix reste atteignable au doigt : sa cible fait 32 px de côté,
-          // la marge négative rendant au message sa taille.
-          className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] opacity-60 hover:opacity-100"
-        >
-          <X className="h-2.5 w-2.5" />
-        </button>
-      </>
-    ),
-  }));
 
   // La sélection ne change pas : les six agents les plus récents, le plus
   // récent devant — c'est l'AFFICHAGE qui s'empile désormais.
@@ -199,14 +149,11 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
       className="pointer-events-none fixed bottom-14 right-2 z-40 flex w-[248px] flex-col items-end gap-1.5 sm:bottom-3 sm:right-3"
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
-      {/* Messages courts, empilés en profondeur : le plus récent devant, les
-          autres qui dépassent de quelques pixels. La pile se déploie au survol
-          à la souris, à l'appui au doigt — sans ce relais, les messages du
-          dessous resteraient inatteignables sur un écran tactile. */}
-      <Pile nom="messages" mot="message" attributRang="data-message-pile" elements={elementsMessages} />
-
-      {/* Vignettes d'agents : la MÊME pile, séparée de celle des messages. Sans
-          elle, trois agents en cours mangeaient un tiers de la hauteur. */}
+      {/* Vignettes d'agents, empilées en profondeur : la plus récente devant,
+          les autres qui dépassent de quelques pixels. La pile se déploie au
+          survol à la souris, à l'appui au doigt — sans ce relais, les
+          vignettes du dessous resteraient inatteignables sur un écran
+          tactile. */}
       {agents.length ? (
         collapsed ? (
           <button
@@ -228,8 +175,8 @@ export function AgentDock({ onOpenAgent }: { onOpenAgent: (agentId: string) => v
         )
       ) : null}
 
-      {/* Les commandes ferment le bloc, tout en bas : ce qu'on lit — messages
-          puis vignettes — passe devant ce qui sert à ranger. */}
+      {/* Les commandes ferment le bloc, tout en bas : ce qu'on lit — les
+          vignettes — passe devant ce qui sert à ranger. */}
       {agents.length && !collapsed ? (
         <div className="pointer-events-auto flex items-center justify-end gap-1" data-commandes="pile">
           <button

@@ -18,6 +18,7 @@ import {
   Settings,
   SystemProcess,
   CLE_PROJET_ACTIF,
+  DUREE_MESSAGE_MS,
   RAISON_SANS_REPONSE,
   alerteServeurInjoignable,
   choisirProjetAOuvrir,
@@ -470,10 +471,9 @@ class Client {
   pushToast(level: Toast['level'], text: string, cardId?: string): void {
     const toast: Toast = { id: Math.random().toString(36).slice(2), level, text, cardId, at: Date.now() };
     this.set((state) => ({ toasts: [...state.toasts.slice(-5), toast] }));
-    // Les messages courts disparaissent seuls ; les erreurs attendent d'être lues.
-    if (level !== 'error') {
-      window.setTimeout(() => this.dismissToast(toast.id), 4200);
-    }
+    // Chaque message se ferme seul, sa barre de progression le montrant —
+    // une erreur y compris : 15 secondes suffisent à la lire.
+    window.setTimeout(() => this.dismissToast(toast.id), DUREE_MESSAGE_MS);
   }
 
   dismissToast(id: string): void {

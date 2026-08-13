@@ -1,14 +1,19 @@
 /**
- * La pile des messages courts, en bas à droite.
+ * La pile des vignettes d'agents, en bas à droite.
  *
- * Les messages ne se mettent plus les uns SOUS les autres : ils s'empilent les
- * uns SUR les autres, le plus récent devant. Ceux du dessous ne dépassent que
- * de quelques pixels, un peu plus petits et un peu plus pâles — la pile occupe
- * la place d'un seul message, quel qu'en soit le nombre. Au survol, elle
- * s'ouvre en liste complète.
+ * Les vignettes ne se mettent pas les unes SOUS les autres : elles s'empilent
+ * les unes SUR les autres, la plus récente devant. Celles du dessous ne
+ * dépassent que de quelques pixels, un peu plus petites et un peu plus pâles —
+ * la pile occupe la place d'une seule vignette, quel qu'en soit le nombre. Au
+ * survol, elle s'ouvre en liste complète.
  *
  * Tout est calculé ici, sans base ni disque : la géométrie est donc rejouable
  * seule, et l'affichage n'a plus qu'à poser les nombres rendus.
+ *
+ * Les messages d'information passagers (les « toasts »), eux, ne passent plus
+ * par cette pile : ils s'empilent en HAUT AU CENTRE, en liste plate,
+ * `web/src/components/toasts.tsx`. `heureEtDate` et `DUREE_MESSAGE_MS`
+ * ci-dessous restent leur affaire.
  */
 
 /** Combien de messages se voient dans la pile fermée ; le reste est compté. */
@@ -113,3 +118,11 @@ export function heureEtDate(at?: number): string {
   const jour = date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
   return `${heure} · ${jour}`;
 }
+
+/**
+ * Le temps qu'un message d'information passager reste à l'écran avant de se
+ * fermer seul, sa barre de progression comprise — pour TOUS les niveaux, une
+ * erreur y compris : 15 secondes suffisent à la lire, là où les 4,2 secondes
+ * d'avant ne le permettaient qu'aux messages sans conséquence.
+ */
+export const DUREE_MESSAGE_MS = 15000;
