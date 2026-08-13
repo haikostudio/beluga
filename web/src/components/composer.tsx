@@ -15,7 +15,7 @@ import {
 import { useArretAgent } from '@/components/arret-agent';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
-import { MicButton, RecordingBar, useRecorder } from '@/components/recorder';
+import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { RunChoix, RunSelectors } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
@@ -465,6 +465,10 @@ export function Composer({
           onValidate={() => recorder.finish(true)}
           onDiscard={() => recorder.finish(false)}
         />
+      ) : null}
+
+      {recorder.error ? (
+        <RecorderErrorBar message={recorder.error} onRetry={recorder.retry} onDiscard={recorder.discardError} />
       ) : null}
 
       {edition ? (
