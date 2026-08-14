@@ -103,9 +103,19 @@ export function etatApresCoupure(carte: {
  *     nature) ;
  *   - « non » : le dépôt a été consulté, il n'a pas bougé ;
  *   - « inconnue » : le dépôt EST un dépôt git, mais il n'a pas répondu. Ce
- *     n'est pas une trace, c'est un trou.
+ *     n'est pas une trace, c'est un trou ;
+ *   - « ailleurs » : la copie de travail de la carte n'a pas bougé, mais le
+ *     DOSSIER PARTAGÉ du projet, lui, a changé pendant le tour. Du travail a
+ *     donc bien été fait — simplement pas là où la carte peut le récolter.
+ *
+ * LE QUATRIÈME CAS EST CELUI QUI MENTAIT. Le constat ne regardait QUE la copie
+ * de travail de la carte, alors qu'un agent peut sortir de sa copie en cours de
+ * route (`cd` vers le dossier du projet, chemin relatif écrit depuis la racine
+ * du projet). Sa copie restait vierge, le dépôt du projet portait pourtant ses
+ * fichiers modifiés, et la carte s'entendait dire « aucun fichier n'a changé »
+ * — une phrase que l'utilisateur pouvait démentir d'un `git status`.
  */
-export type TraceDuTravail = 'oui' | 'non' | 'inconnue';
+export type TraceDuTravail = 'oui' | 'non' | 'inconnue' | 'ailleurs';
 
 /**
  * La phrase portée par une carte dont la trace n'a pas pu être constatée. Elle
@@ -116,8 +126,20 @@ export const RAISON_TRACE_INCONNUE =
   'Le dépôt n’a pas pu être consulté à la fin du tour : sans trace vérifiable, la carte revient en « Planifié » plutôt que d’être annoncée terminée.';
 
 /**
+ * La phrase portée par une carte dont le travail a été fait AILLEURS que dans sa
+ * copie. Elle ne dit surtout pas « rien n'a changé » : elle dit ce qui a été vu,
+ * et où le chercher.
+ */
+export const RAISON_TRAVAIL_HORS_COPIE =
+  'Des fichiers du projet ont changé pendant ce tour, mais dans le dossier partagé du projet et non dans la copie de travail de cette carte : rien n’a pu être rattaché à sa branche. La carte revient en « Planifié » — le travail est à récupérer dans le dossier du projet.';
+
+/**
  * Le constat qui autorise la clôture. Seul « oui » ferme une carte : c'est la
  * traduction, en un mot, de « pas de trace vérifiable, pas de Terminé ».
+ *
+ * « ailleurs » n'est pas une clôture : le travail existe, mais il n'est ni
+ * enregistré ni sur la branche de la carte, donc rien ne partirait au
+ * déploiement. On ne ferme pas une carte sur du code qu'on ne peut pas livrer.
  */
 export function traceAcquise(trace: TraceDuTravail): boolean {
   return trace === 'oui';

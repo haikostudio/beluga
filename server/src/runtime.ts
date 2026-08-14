@@ -120,7 +120,12 @@ import {
 } from './accounts.js';
 import { poserDecisionDeReprise, repriseDeCompte } from './reprise-compte.js';
 import { notify } from './notify.js';
-import { cartesDuTravailHorsTache, traceDuTravailDepuis, repereAvant } from './hors-tache.js';
+import {
+  cartesDuTravailHorsTache,
+  fichiersRemues,
+  traceDuTravailDuTour,
+  repereAvant,
+} from './hors-tache.js';
 import { carteApresFinDeTour } from './deplacement-carte.js';
 import { envGithub } from './github.js';
 import { oublierLePont, passageDuPont } from './pont.js';
@@ -1032,6 +1037,19 @@ async function startTurn(
   const repere = await repereAvant(dossier).catch(() => null);
 
   /*
+   * SECOND REPÈRE : LE DOSSIER PARTAGÉ DU PROJET. L'agent est censé rester dans
+   * sa copie, mais rien ne l'y oblige — un `cd` vers la racine du projet, un
+   * chemin relatif, et son travail atterrit à côté. Le constat de fin de tour ne
+   * voyait alors RIEN et accusait la carte de n'avoir rien changé. On note donc
+   * ce qui remue déjà dans le dossier partagé AVANT le tour : ce qui s'y ajoute
+   * pendant est du travail, même s'il n'est pas récoltable sur la branche.
+   * Inutile quand la carte travaille à même le dossier du projet : il n'y a
+   * alors qu'un seul dossier, déjà observé.
+   */
+  const remuesAvant =
+    dossier === project.path ? undefined : await fichiersRemues(project.path).catch(() => null);
+
+  /*
    * QUOTA CONSOMMÉ PAR CETTE TÂCHE : on relève sur le compte porteur les deux
    * pourcentages AVANT le tour (dans le dernier relevé, `pickAccount` vient de
    * le rafraîchir), pour les comparer à une lecture FRAÎCHE après le tour. On
@@ -1904,14 +1922,18 @@ async function startTurn(
    * en arrière et effacerait la trace.
    */
   /*
-   * Trois réponses possibles, pas deux : le dépôt a bougé, il n'a pas bougé, ou
-   * il n'a pas pu être consulté. Le dernier cas rendait `true` — une carte
-   * passait donc en « Terminé » sur une observation qu'on n'avait pas pu faire.
-   * Il vaut désormais « inconnue » : la carte n'est pas close et le DIT.
+   * QUATRE réponses possibles, pas deux : le dépôt a bougé, il n'a pas bougé, il
+   * n'a pas pu être consulté, ou il a bougé AILLEURS que dans la copie de la
+   * carte. Le troisième cas rendait `true` — une carte passait donc en
+   * « Terminé » sur une observation qu'on n'avait pas pu faire ; il vaut
+   * « inconnue ». Le quatrième était compté comme « rien n'a changé », alors que
+   * l'agent avait bel et bien travaillé, dans le dossier partagé du projet.
    */
   const trace: TraceDuTravail = failed
     ? 'non'
-    : await traceDuTravailDepuis(dossier, repere).catch(() => 'inconnue' as const);
+    : await traceDuTravailDuTour({ dossier, repere, projet: project.path, remuesAvant }).catch(
+        () => 'inconnue' as const,
+      );
 
   /*
    * LE DOSSIER DE LA CARTE SE REFERME ICI, une fois le constat pris : la branche
