@@ -182,6 +182,19 @@ class Client {
     for (const handler of this.openConversationHandlers) handler(lieu);
   }
 
+  /**
+   * Le geste UNIQUE « emmène-moi où cette décision se prend » : projet, puis
+   * carte si elle en a une, sinon la conversation de l'agent. Partagé par la
+   * cloche des questions en attente, la notification affichée dans l'onglet
+   * ouvert et le clic sur une notification poussée (téléphone, application
+   * fermée) — trois entrées, UNE seule règle de routage.
+   */
+  allerVersDecision(lieu: { projectId?: string; cardId?: string; agentId?: string }): void {
+    if (lieu.projectId) this.setActiveProject(lieu.projectId);
+    if (lieu.cardId) this.openCard(lieu.cardId);
+    else if (lieu.agentId && lieu.projectId) this.openConversation({ projectId: lieu.projectId, agentId: lieu.agentId });
+  }
+
   private set(patch: Partial<AppState> | ((current: AppState) => Partial<AppState>)): void {
     const next = typeof patch === 'function' ? patch(this.state) : patch;
     this.state = { ...this.state, ...next };

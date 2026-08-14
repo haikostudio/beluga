@@ -32,9 +32,7 @@ export function QuestionsEnAttente() {
 
   const aller = (decision: DecisionAttendue) => {
     setOpen(false);
-    client.setActiveProject(decision.projectId);
-    if (decision.cardId) client.openCard(decision.cardId);
-    else if (decision.agentId) client.openConversation({ projectId: decision.projectId, agentId: decision.agentId });
+    client.allerVersDecision(decision);
   };
 
   return (

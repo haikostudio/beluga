@@ -86,21 +86,34 @@ self.addEventListener('push', (event) => {
       // La pastille est minuscule et monochrome : l'icône de l'application y
       // reste plus lisible qu'un dessin de plus.
       badge: '/icon-192.png',
-      data: { cardId: payload.cardId, projectId: payload.projectId },
+      data: { cardId: payload.cardId, projectId: payload.projectId, agentId: payload.agentId },
     }),
   );
 });
 
-// Un appui ouvre directement la carte concernée.
+/**
+ * L'adresse qui retrouve la décision quand AUCUN onglet n'est ouvert
+ * (application fermée) : le même format « #projet/<id>/tache/<id> » que
+ * l'application lit elle-même au démarrage (`lireFragment`,
+ * `shared/src/adresse-navigateur.ts`). Sans carte, on pose le projet seul —
+ * la conversation du chef d'orchestre y est déjà visible par défaut.
+ */
+function cibleDeNotification(data) {
+  if (!data.projectId) return '/';
+  const base = `/#projet/${encodeURIComponent(data.projectId)}`;
+  return data.cardId ? `${base}/tache/${encodeURIComponent(data.cardId)}` : base;
+}
+
+// Un appui emmène directement à la décision concernée.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
-  const target = data.cardId ? `/?carte=${encodeURIComponent(data.cardId)}` : '/';
+  const target = cibleDeNotification(data);
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if ('focus' in client) {
-          client.postMessage({ type: 'OPEN_CARD', cardId: data.cardId, projectId: data.projectId });
+          client.postMessage({ type: 'OPEN_CARD', cardId: data.cardId, projectId: data.projectId, agentId: data.agentId });
           return client.focus();
         }
       }

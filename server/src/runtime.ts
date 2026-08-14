@@ -2058,6 +2058,7 @@ async function startTurn(
         element: question.slice(0, 120),
         cardId: agent.cardId,
         projectId: agent.projectId,
+        agentId: agent.id,
       });
       bus.emit({ type: 'attention', ...store.signalAttention() });
     }
@@ -2414,6 +2415,7 @@ export function attachToCurrentMessage(
       element: patch.proposal.title.slice(0, 120),
       projectId: store.getAgent(agentId)?.projectId,
       cardId: store.getAgent(agentId)?.cardId,
+      agentId,
     });
   }
   if (patch.question) {
@@ -2425,6 +2427,7 @@ export function attachToCurrentMessage(
       element: patch.question.question.slice(0, 120),
       projectId: store.getAgent(agentId)?.projectId,
       cardId: store.getAgent(agentId)?.cardId,
+      agentId,
     });
   }
 }

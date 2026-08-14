@@ -58,6 +58,8 @@ export interface PushPayload {
   motif?: string;
   cardId?: string;
   projectId?: string;
+  /** L'agent où répondre, quand la décision ne tient à aucune carte. */
+  agentId?: string;
   /** Réponses rendues et pas encore lues : le chiffre de l'icône. */
   nonLues?: number;
 }

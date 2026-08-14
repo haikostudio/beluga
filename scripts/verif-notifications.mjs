@@ -246,6 +246,58 @@ try {
       ),
     groupe?.body,
   );
+
+  /*
+   * --- 7 : une question du chef d'orchestre (aucune carte) emporte
+   * l'AGENT — sinon un clic sur sa notification poussée n'a nulle part où
+   * emmener (ni carte ni conversation). Groupée avec une autre, elle perd
+   * son agent précis, comme elle perd déjà sa carte précise.
+   */
+  vider();
+  notify({
+    motif: 'decision-attendue',
+    title: 'Une réponse est attendue',
+    body: 'Faut-il archiver ce projet ?',
+    reference: 'agent-chef:question:1',
+    element: 'Faut-il archiver ce projet ?',
+    projectId: 'projet-essai',
+    agentId: 'agent-chef',
+  });
+  await attendre(ATTENTE_GROUPE_MS);
+  const question = notifications[0];
+  noter(
+    'une question sans carte emporte l’agent où elle se prend',
+    !!question && question.agentId === 'agent-chef' && !question.cardId,
+    JSON.stringify({ agentId: question?.agentId, cardId: question?.cardId }),
+  );
+
+  vider();
+  notify({
+    motif: 'decision-attendue',
+    title: 'Une réponse est attendue',
+    body: 'Faut-il archiver ce projet ?',
+    reference: 'agent-chef:question:2',
+    element: 'Faut-il archiver ce projet ?',
+    projectId: 'projet-essai',
+    agentId: 'agent-chef',
+  });
+  notify({
+    motif: 'decision-attendue',
+    title: 'Une réponse est attendue',
+    body: 'Quelle couleur pour le bouton ?',
+    reference: 'agent-tache:question:1',
+    element: 'Quelle couleur pour le bouton ?',
+    projectId: 'projet-essai',
+    cardId: 'carte-1',
+    agentId: 'agent-tache',
+  });
+  await attendre(ATTENTE_GROUPE_MS);
+  const groupeQuestions = notifications[0];
+  noter(
+    'deux questions groupées ne pointent plus vers un agent précis',
+    !!groupeQuestions && !groupeQuestions.agentId && !groupeQuestions.cardId,
+    JSON.stringify({ agentId: groupeQuestions?.agentId, cardId: groupeQuestions?.cardId }),
+  );
 } finally {
   fs.rmSync(dataDir, { recursive: true, force: true });
 }

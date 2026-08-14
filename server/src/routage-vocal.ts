@@ -121,6 +121,7 @@ async function demander(
     reference: `dictee:${message.id}`,
     element: question.slice(0, 120),
     projectId: chef.projectId,
+    agentId: chef.id,
   });
 
   return { agentId: chef.id, lieu: chef.projectId, question, motif };
