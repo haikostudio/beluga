@@ -3,16 +3,23 @@ import assert from 'node:assert/strict';
 import {
   COUVERTURE_VECTEURS_MIN,
   DIMENSIONS_VECTEUR,
+  FENETRE_VECTORISATION_HEURES,
+  HEURE_VECTORISATION,
   PLAFOND_PASSAGE_SIGNES,
   PRIORITE,
   attenteAvantEssai,
   choisirPassages,
   classerPassages,
   cosinus,
+  decisionDeVectorisation,
   decouperCodeEnPassages,
+  estDocumentMarkdown,
   estFichierDeCode,
+  estFichierDeConfig,
+  heureDeVectorisation,
   modeDeRecherche,
   normaliserLeVecteur,
+  raisonSansVectorisationDite,
   reponseRejouable,
   texteAVectoriser,
   vecteurUtilisable,
@@ -181,6 +188,71 @@ test('un fichier de code se coupe sous le plafond, chaque morceau nommé par sa 
 /* ------------------------------------------------------------------ */
 /* Les pannes du fournisseur                                           */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Le rendez-vous de la nuit                                           */
+/* ------------------------------------------------------------------ */
+
+test('la vectorisation part à l’heure creuse, une fois par nuit', () => {
+  const nuit = new Date('2026-08-16T01:30:00').getTime();
+  assert.equal(decisionDeVectorisation({ clePosee: true, maintenant: nuit, heureCourante: 1 }).lancer, true);
+  assert.equal(decisionDeVectorisation({ clePosee: true, maintenant: nuit, heureCourante: 2 }).lancer, true, 'la fenêtre rattrape');
+  const midi = decisionDeVectorisation({ clePosee: true, maintenant: nuit, heureCourante: 14 });
+  assert.equal(midi.lancer, false);
+  assert.equal(midi.lancer === false && midi.raison, 'pas-l-heure');
+});
+
+test('sans clé, le rendez-vous ne part pas — et il le DIT', () => {
+  const refus = decisionDeVectorisation({ clePosee: false, maintenant: 0, heureCourante: 1 });
+  assert.equal(refus.lancer, false);
+  assert.match(raisonSansVectorisationDite(refus.lancer === false ? refus.raison : 'pas-l-heure'), /aucune clé/);
+});
+
+test('la nuit passée ne se rejoue pas, mais un travail en cours ne la reporte JAMAIS', () => {
+  const maintenant = 10 * 60 * 60 * 1000;
+  const deja = decisionDeVectorisation({
+    clePosee: true,
+    dernierPassage: maintenant - 60 * 1000,
+    maintenant,
+    heureCourante: 1,
+  });
+  assert.equal(deja.lancer, false);
+  assert.equal(deja.lancer === false && deja.raison, 'deja-passe');
+  // Aucune raison « travail-en-cours » n'existe : vectoriser n'appelle aucun
+  // moteur et ne prend la place d'aucun agent.
+  assert.equal(heureDeVectorisation(HEURE_VECTORISATION), true);
+  assert.equal(heureDeVectorisation((HEURE_VECTORISATION + FENETRE_VECTORISATION_HEURES) % 24), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Ce qui entre dans l'index : documents, configuration, code          */
+/* ------------------------------------------------------------------ */
+
+test('un Markdown s’indexe où qu’il soit, sauf dans les dépendances', () => {
+  assert.equal(estDocumentMarkdown('README.md'), true);
+  assert.equal(estDocumentMarkdown('docs/regles/cartes.md'), true);
+  assert.equal(estDocumentMarkdown('scripts/formation-content/module-2/lecon-4.md'), true, 'un cours rangé loin');
+  assert.equal(estDocumentMarkdown('data/documents/un-plan.md'), true, 'un document du chef');
+  assert.equal(estDocumentMarkdown('node_modules/paquet/README.md'), false);
+  assert.equal(estDocumentMarkdown('data/venv/lib/paquet/README.md'), false, 'une dépendance Python');
+  assert.equal(estDocumentMarkdown('.worktrees/carte/README.md'), false);
+});
+
+test('le journal et la mémoire périmée ne s’indexent JAMAIS', () => {
+  assert.equal(estDocumentMarkdown('HISTORIQUE.md'), false);
+  assert.equal(estDocumentMarkdown('MEMOIRE.avant-synthese.md'), false);
+  assert.equal(estDocumentMarkdown('MEMOIRE.md'), true, 'la mémoire en vigueur, elle, entre');
+});
+
+test('les fichiers de montage entrent, les verrous et les secrets non', () => {
+  assert.equal(estFichierDeConfig('package.json'), true);
+  assert.equal(estFichierDeConfig('scripts/haikodev.service'), true);
+  assert.equal(estFichierDeConfig('Dockerfile'), true);
+  assert.equal(estFichierDeConfig('docker-compose.prod.yml'), true);
+  assert.equal(estFichierDeConfig('.env.example'), true, 'l’exemple documente les variables attendues');
+  assert.equal(estFichierDeConfig('package-lock.json'), false, 'un verrou n’apprend rien');
+  assert.equal(estFichierDeConfig('.env.production'), false, 'un réglage réel n’est pas de la documentation');
+});
 
 test('on retente une surcharge, jamais un refus franc', () => {
   assert.equal(reponseRejouable(429), true);

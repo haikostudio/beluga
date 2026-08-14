@@ -2,25 +2,29 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  COUVERTURE_VECTEURS_MIN,
   DIMENSIONS_VECTEUR,
   DOSSIER_MEMOIRE,
   DOSSIER_PLANS,
   FICHIERS_CODE_MAX,
+  FICHIERS_DOC_MAX,
   PASSAGES_CODE_MAX,
   PASSAGES_PAR_PASSE_MAX,
   POIDS_MOTS_VECTEUR,
   POIDS_SENS_VECTEUR,
   PRIORITE,
   SCORE_MINIMUM_VECTEUR,
+  PROFONDEUR_CODE_MAX,
   SIGNES_MAX_PAR_FICHIER,
   DOSSIERS_HORS_INDEX,
+  DOSSIERS_SANS_DOC,
   choisirPassages,
   classerPassages,
   decouperCodeEnPassages,
   decouperEnPassages,
   empreinteSemantique,
+  estDocumentMarkdown,
   estFichierDeCode,
+  estFichierDeConfig,
   jetonsApproches,
   modeDeRecherche,
   plafondDeRecherche,
@@ -70,7 +74,7 @@ import { modeleDesVecteurs, vectoriser, vectoriserLaQuestion } from './vecteurs.
  * incomparable : la version entre dans l'empreinte des fichiers, si bien qu'un
  * changement de règle force une réindexation complète, sans migration à écrire.
  */
-const VERSION_INDEX = 'v2';
+const VERSION_INDEX = 'v3';
 
 /** Un fichier à indexer, avec ce qu'il pèse dans le classement. */
 interface FichierIndexable {
@@ -85,59 +89,91 @@ interface FichierIndexable {
 /** Le dossier des fiches de MÉCANIQUES : les modes d'emploi réutilisables. */
 export const DOSSIER_MECANIQUES = 'docs/mecaniques';
 
-/** Les fichiers `.md` d'un dossier, triés, sans jamais lever d'exception. */
-function fichiersMarkdown(dossier: string): string[] {
-  try {
-    return fs
-      .readdirSync(dossier)
-      .filter((nom) => nom.toLowerCase().endsWith('.md'))
-      .sort();
-  } catch {
-    return [];
-  }
-}
-
 /**
- * LA DOCUMENTATION D'UN PROJET, telle qu'on l'indexe. L'ordre importe peu (le
- * score classe), mais la PRIORITÉ, elle, décide des ex æquo : une fiche de
- * mécanique passe devant une règle, une règle devant une page libre, une page
- * libre devant un fichier de code.
+ * LA PLACE D'UN DOCUMENT DANS LE CLASSEMENT, d'après son chemin. Les dossiers
+ * NOMMÉS de HaikoDev gardent la priorité qu'ils avaient ; tout autre Markdown
+ * entre en priorité normale — une page rangée ailleurs n'est pas moins vraie,
+ * elle est simplement moins souvent la réponse.
  */
-export function fichiersAIndexer(projectPath: string): FichierIndexable[] {
-  const liste: FichierIndexable[] = [];
-  const ajouter = (source: string, sujet: string, priorite: number) => {
-    const chemin = path.join(projectPath, ...source.split('/'));
-    if (fs.existsSync(chemin)) liste.push({ source, chemin, sujet, priorite });
-  };
-
-  // Les fiches de MÉCANIQUES d'abord : écrites pour être resservies.
-  for (const nom of fichiersMarkdown(path.join(projectPath, DOSSIER_MECANIQUES))) {
-    ajouter(`${DOSSIER_MECANIQUES}/${nom}`, nom.replace(/\.md$/i, ''), PRIORITE.mecanique);
-  }
+export function rangDuDocument(source: string): { sujet: string; priorite: number } {
+  const nom = (source.split('/').pop() ?? '').replace(/\.(md|markdown)$/i, '');
+  const sansExtension = source.replace(/\.(md|markdown)$/i, '');
+  if (source.startsWith(`${DOSSIER_MECANIQUES}/`)) return { sujet: nom, priorite: PRIORITE.mecanique };
   /*
    * LES PLANS DU CHEF D'ORCHESTRE. Un plan est écrit AVANT la carte qui le
    * réalise, pour cette carte-là : à score égal il passe donc devant, comme une
-   * mécanique. C'est tout l'intérêt du dossier — ce que le chef a préparé
-   * revient tout seul au lancement, sans que personne ne le recopie.
-   * Le sujet est PRÉFIXÉ (`plan-…`) : deux fichiers du même nom, l'un en règle
-   * l'autre en plan, ne se confondent pas dans `project_memory`.
+   * mécanique. Le sujet est PRÉFIXÉ (`plan-…`) : deux fichiers du même nom,
+   * l'un en règle l'autre en plan, ne se confondent pas dans `project_memory`.
    */
-  for (const nom of fichiersMarkdown(path.join(projectPath, ...DOSSIER_PLANS.split('/')))) {
-    ajouter(`${DOSSIER_PLANS}/${nom}`, `plan-${nom.replace(/\.md$/i, '')}`, PRIORITE.mecanique);
-  }
-  // Les règles, les faits, les contrôles.
-  for (const nom of fichiersMarkdown(path.join(projectPath, 'docs', 'regles'))) {
-    ajouter(`docs/regles/${nom}`, nom.replace(/\.md$/i, ''), PRIORITE.regle);
-  }
-  for (const nom of fichiersMarkdown(path.join(projectPath, ...DOSSIER_MEMOIRE.split('/')))) {
-    ajouter(`${DOSSIER_MEMOIRE}/${nom}`, nom.replace(/\.md$/i, ''), PRIORITE.regle);
-  }
-  ajouter('docs/verifications.md', 'verifications', PRIORITE.regle);
+  if (source.startsWith(`${DOSSIER_PLANS}/`)) return { sujet: `plan-${nom}`, priorite: PRIORITE.mecanique };
+  if (source.startsWith('docs/regles/')) return { sujet: nom, priorite: PRIORITE.regle };
+  if (source.startsWith(`${DOSSIER_MEMOIRE}/`)) return { sujet: nom, priorite: PRIORITE.regle };
+  if (source === 'docs/verifications.md') return { sujet: 'verifications', priorite: PRIORITE.regle };
   // Le reste de `docs/`, à plat : les cartes de sujets, les audits.
-  for (const nom of fichiersMarkdown(path.join(projectPath, 'docs'))) {
-    ajouter(`docs/${nom}`, nom.replace(/\.md$/i, ''), PRIORITE.normale);
-  }
-  ajouter('DOCUMENTATION.md', 'documentation', PRIORITE.normale);
+  if (/^docs\/[^/]+$/.test(source)) return { sujet: nom, priorite: PRIORITE.normale };
+  if (source === 'DOCUMENTATION.md') return { sujet: 'documentation', priorite: PRIORITE.normale };
+  // Partout ailleurs, le CHEMIN fait le sujet : deux « README.md » de deux
+  // dossiers ne se confondent pas.
+  return { sujet: sansExtension.replace(/\//g, '-').toLowerCase(), priorite: PRIORITE.normale };
+}
+
+/**
+ * TOUT CE QU'ON INDEXE D'UN PROJET, en une seule descente.
+ *
+ * Trois familles, dans cet ordre de poids : les DOCUMENTS Markdown (où qu'ils
+ * soient — un cours dans `scripts/`, un document du chef dans `data/documents/`,
+ * un `README.md` au fond d'un dossier : l'information est à tous les niveaux),
+ * les fichiers de CONFIGURATION, puis le CODE. La PRIORITÉ décide des ex æquo :
+ * une fiche de mécanique passe devant une règle, une règle devant une page
+ * libre, une page libre devant un fichier de code.
+ */
+export function fichiersAIndexer(projectPath: string): FichierIndexable[] {
+  const documents: FichierIndexable[] = [];
+  const code: FichierIndexable[] = [];
+
+  const parcourir = (dossier: string, relatif: string, profondeur: number) => {
+    if (documents.length >= FICHIERS_DOC_MAX && code.length >= FICHIERS_CODE_MAX) return;
+    let entrees: fs.Dirent[];
+    try {
+      entrees = fs.readdirSync(dossier, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entree of entrees.sort((a, b) => a.name.localeCompare(b.name))) {
+      const suite = relatif ? `${relatif}/${entree.name}` : entree.name;
+      if (entree.isDirectory()) {
+        if (DOSSIERS_SANS_DOC.has(entree.name)) continue;
+        if (entree.name.startsWith('.') && entree.name !== '.claude') continue;
+        parcourir(path.join(dossier, entree.name), suite, profondeur + 1);
+        continue;
+      }
+      if (!entree.isFile()) continue;
+      const chemin = path.join(dossier, entree.name);
+
+      if (estDocumentMarkdown(suite)) {
+        if (documents.length >= FICHIERS_DOC_MAX) continue;
+        documents.push({ source: suite, chemin, ...rangDuDocument(suite) });
+        continue;
+      }
+      if (code.length >= FICHIERS_CODE_MAX) continue;
+      /*
+       * Le CODE et la CONFIGURATION descendent moins loin et écartent plus de
+       * dossiers que les documents (`data/`, `tmp/`, `logs/`…) : c'est le
+       * volume qui l'impose, un dépôt porte cent fois plus de code que de pages.
+       */
+      if (profondeur > PROFONDEUR_CODE_MAX) continue;
+      if (relatif.split('/').some((part) => DOSSIERS_HORS_INDEX.has(part))) continue;
+      if (estFichierDeConfig(suite) || estFichierDeCode(suite)) {
+        code.push({
+          source: suite,
+          chemin,
+          sujet: `code-${suite.split('/')[0]}`,
+          priorite: PRIORITE.code,
+        });
+      }
+    }
+  };
+  parcourir(projectPath, '', 0);
 
   // Les COMPÉTENCES PARTAGÉES : elles ne vivent pas dans le dépôt du projet
   // (`data/` est hors dépôt) mais elles s'appliquent à tous les projets.
@@ -146,7 +182,7 @@ export function fichiersAIndexer(projectPath: string): FichierIndexable[] {
     for (const nom of fs.readdirSync(competences)) {
       const chemin = path.join(competences, nom, 'SKILL.md');
       if (!fs.existsSync(chemin)) continue;
-      liste.push({
+      documents.push({
         source: `data/competences/${nom}/SKILL.md`,
         chemin,
         sujet: `competence-${nom}`,
@@ -157,46 +193,7 @@ export function fichiersAIndexer(projectPath: string): FichierIndexable[] {
     /* aucune compétence : rien à indexer */
   }
 
-  return [...liste, ...fichiersDeCodeAIndexer(projectPath)];
-}
-
-/**
- * LES FICHIERS DU PROJET. La documentation dit POURQUOI, le code montre COMMENT
- * — et l'agent qui demande « où se décide la couleur d'une colonne » n'a de
- * réponse que dans le second. On descend le dépôt en écartant les dossiers de
- * machine et les copies de travail (`shared/src/passages-code.ts`), et on
- * s'arrête à `FICHIERS_CODE_MAX` : sur un projet quelconque, un dossier oublié
- * peut porter des dizaines de milliers de fichiers.
- */
-export function fichiersDeCodeAIndexer(projectPath: string): FichierIndexable[] {
-  const trouves: FichierIndexable[] = [];
-  const parcourir = (dossier: string, relatif: string) => {
-    if (trouves.length >= FICHIERS_CODE_MAX) return;
-    let entrees: fs.Dirent[];
-    try {
-      entrees = fs.readdirSync(dossier, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entree of entrees.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (trouves.length >= FICHIERS_CODE_MAX) return;
-      if (entree.name.startsWith('.') || DOSSIERS_HORS_INDEX.has(entree.name)) continue;
-      const suite = relatif ? `${relatif}/${entree.name}` : entree.name;
-      if (entree.isDirectory()) {
-        parcourir(path.join(dossier, entree.name), suite);
-        continue;
-      }
-      if (!entree.isFile() || !estFichierDeCode(suite)) continue;
-      trouves.push({
-        source: suite,
-        chemin: path.join(dossier, entree.name),
-        sujet: `code-${suite.split('/')[0]}`,
-        priorite: PRIORITE.code,
-      });
-    }
-  };
-  parcourir(projectPath, '');
-  return trouves;
+  return [...documents, ...code];
 }
 
 function empreinteDuContenu(texte: string): string {
@@ -444,8 +441,16 @@ export async function rechercherPourLaTache(
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
+    /*
+     * ON INDEXE, ON NE VECTORISE PAS. Découper les fichiers modifiés coûte
+     * quelques centaines de millisecondes et doit être fait maintenant, sinon
+     * l'agent travaillerait sur une documentation d'hier. VECTORISER, en
+     * revanche, est un travail de fond : il se fait la nuit, pour tous les
+     * projets d'un coup (`server/src/vecteurs-nocturne.ts`). Le seul appel payé
+     * ici est celui de la QUESTION — un vecteur, quelques dizaines de
+     * millisecondes.
+     */
     indexerDocumentation(projectId, projectPath);
-    await vectoriserLIndex(projectId);
     const indexes = passagesIndexes(projectId);
     if (!indexes.length) return undefined;
 
@@ -499,6 +504,3 @@ export async function rechercherPourLaTache(
     return undefined;
   }
 }
-
-/** Ce que la couverture doit atteindre pour que le sens réel prenne la main. */
-export const COUVERTURE_MINIMALE = COUVERTURE_VECTEURS_MIN;
