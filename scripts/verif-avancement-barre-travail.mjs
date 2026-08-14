@@ -7,7 +7,11 @@
  *    à côté de l'étape en cours et de la durée ;
  *  - il progresse en direct quand l'agent avance (2/5 → 4/5) ;
  *  - une fois le tour terminé, la barre entière disparaît (le compteur avec) ;
- *  - un agent qui travaille SANS liste connue ne montre aucun compteur.
+ *  - un agent SANS liste de tâches mais dont le dernier message porte des
+ *    ÉTAPES d'exécution (`steps`) montre quand même un compteur, calculé sur
+ *    ces étapes — même quand il n'y en a qu'une seule connue ;
+ *  - un agent qui travaille SANS aucune liste connue (ni todos, ni steps) ne
+ *    montre aucun compteur.
  *
  * Démon et base d'ESSAI à soi (aucun compte réel touché, aucun moteur
  * appelé), comme `verif-parcours-tache.mjs`. Le démon servi est celui du
@@ -256,10 +260,36 @@ async function ouvrirCarte(navigateur, telephone) {
       [PROJET_ID, CARTE_ID, TACHE_ID, TITRE_CARTE, patch],
     );
 
+  const injecterMessage = (patch) =>
+    page.evaluate(
+      ([agentId, patch]) => {
+        window.__injecter({
+          type: 'message.upsert',
+          message: {
+            id: 'm-avancement-1',
+            agentId,
+            role: 'assistant',
+            content: '',
+            steps: [],
+            todos: [],
+            proposals: [],
+            questions: [],
+            downloads: [],
+            attachments: [],
+            streaming: true,
+            plan: false,
+            createdAt: Date.now(),
+            ...patch,
+          },
+        });
+      },
+      [TACHE_ID, patch],
+    );
+
   await injecterAgent({ todos: { done: 2, total: 5 } });
   await page.waitForTimeout(1_000);
 
-  return { contexte, page, erreurs, injecterAgent };
+  return { contexte, page, erreurs, injecterAgent, injecterMessage };
 }
 
 async function main() {
@@ -274,7 +304,7 @@ async function main() {
 
   for (const telephone of [false, true]) {
     const cible = telephone ? 'téléphone' : 'ordinateur';
-    const { contexte, page, erreurs, injecterAgent } = await ouvrirCarte(navigateur, telephone);
+    const { contexte, page, erreurs, injecterAgent, injecterMessage } = await ouvrirCarte(navigateur, telephone);
 
     const barre = page.locator('[data-temoin-reflexion]');
     await barre.waitFor({ state: 'visible', timeout: 10_000 });
@@ -304,12 +334,26 @@ async function main() {
     noter(`${cible} — le compteur n’écrase pas le bouton d’arrêt`, chevauchement !== false, String(chevauchement));
 
     if (!telephone) {
-      // Un agent qui travaille SANS liste connue (pas encore de première tâche
-      // annoncée) ne montre aucun compteur — la barre reste simple.
+      // Un agent SANS liste de tâches (todos) mais dont le dernier message
+      // porte une SEULE étape d'exécution encore en cours montre quand même
+      // un compteur — calculé sur ces étapes, à défaut de todos.
       await injecterAgent({ todos: undefined });
+      await injecterMessage({ steps: [{ id: 's1', label: 'Construction du projet', state: 'running' }] });
+      await page.waitForTimeout(1_000);
+      const texteEtape = await compteur.textContent().catch(() => null);
+      noter(
+        `${cible} — une seule étape connue affiche quand même un compteur (0/1)`,
+        /0\s*\/\s*1/.test(texteEtape ?? ''),
+        texteEtape ?? 'absent',
+      );
+
+      // Sans AUCUNE liste connue (ni todos, ni steps), la barre reste simple.
+      await injecterMessage({ steps: [] });
       await page.waitForTimeout(1_000);
       noter(`${cible} — sans liste connue, aucun compteur ne s’affiche`, (await compteur.count()) === 0);
+
       await injecterAgent({ todos: { done: 2, total: 5 } });
+      await injecterMessage({ steps: [{ id: 's1', label: 'Construction du projet', state: 'running' }] });
       await page.waitForTimeout(1_000);
     }
 
@@ -320,8 +364,12 @@ async function main() {
     const texte2 = await compteur.textContent().catch(() => null);
     noter(`${cible} — le compteur avance en direct (4/5)`, /4\s*\/\s*5/.test(texte2 ?? ''), texte2 ?? 'absent');
 
-    // Fin du tour : la barre entière disparaît.
-    await injecterAgent({ status: 'done', todos: { done: 5, total: 5 } });
+    // Fin du tour : la barre entière disparaît. Le message refermé n'est
+    // plus « en écriture » (sinon le témoin, prudent sans fin de tour connue,
+    // resterait allumé) et l'agent porte sa date de fin.
+    const finDuTour = Date.now();
+    await injecterMessage({ streaming: false });
+    await injecterAgent({ status: 'done', endedAt: finDuTour, todos: { done: 5, total: 5 } });
     await page.waitForTimeout(1_200);
     noter(`${cible} — la barre disparaît proprement une fois le tour rendu`, (await barre.count()) === 0 || !(await barre.isVisible().catch(() => false)));
 

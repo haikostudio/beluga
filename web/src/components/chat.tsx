@@ -452,7 +452,18 @@ function TravailEnCours({
   // direct par le démon à chaque étape cochée) : « n/N » sur l'ensemble des
   // étapes prévues, pas seulement l'étape en cours. Silence tant qu'aucune
   // liste n'est encore connue.
-  const avancement = agent?.todos && agent.todos.total > 0 ? agent.todos : null;
+  //
+  // Un agent qui ne s'annonce jamais de liste de tâches (todos) mais AVANCE
+  // par étapes d'exécution (`steps`, visibles repliées au-dessus sous
+  // « Exécution de la tâche ») n'a alors AUCUN chiffre ici, alors que le
+  // même compte est déjà affiché plus haut : on retombe donc sur les étapes
+  // du dernier message quand aucune liste de tâches n'existe.
+  const avancement =
+    agent?.todos && agent.todos.total > 0
+      ? agent.todos
+      : dernier?.steps && dernier.steps.length > 0
+        ? { done: dernier.steps.filter((step) => step.state === 'done').length, total: dernier.steps.length }
+        : null;
 
   return (
     <div
