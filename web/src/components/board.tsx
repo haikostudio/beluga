@@ -824,8 +824,16 @@ export function Board({
                   d'empilement : sans lui, un `z-index` négatif se comparait au
                   fond de la COLONNE entière (posé plus tôt dans la page) et le
                   voile disparaissait derrière — le laisser en premier dans le
-                  DOM (avant le libellé) suffit à le garder dessous, sans z-index
-                  négatif. */}
+                  DOM (avant le libellé) le range dessous EN THÉORIE, mais un
+                  `position: absolute` peint TOUJOURS après un élément statique
+                  dans l'ordre de peinture du navigateur, quel que soit l'ordre
+                  DOM : le voile finissait donc peint PAR-DESSUS le texte,
+                  teinté et terni. Le libellé et son compteur portent
+                  maintenant `relative` (sans z-index, juste assez pour
+                  rejoindre le voile dans la même couche d'empilement) : à
+                  couche égale, c'est de nouveau l'ordre DOM qui tranche, et le
+                  texte — placé après le voile dans le JSX — peint bien
+                  au-dessus. */}
               {column === 'running' || column === 'done' ? (
                 <div
                   aria-hidden
@@ -848,8 +856,8 @@ export function Board({
                   <Loader2 className="h-3 w-3 shrink-0 animate-spin text-publie" data-publication-en-cours={column} />
                 ) : null;
               })()}
-              <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
-              <span className="text-[12.5px] text-faint">
+              <h2 className="relative text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
+              <span className="relative text-[12.5px] text-faint">
                 {(column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null
                   ? deployCounts[column]
                   : columnCards.length}
