@@ -498,15 +498,57 @@ class Client {
     this.set((state) => ({ prefs: { ...state.prefs, [key]: value } }));
   }
 
+  /**
+   * Le compte à rebours de fermeture de chaque message, géré ICI plutôt que
+   * par un simple `setTimeout` fixé au moment de l'affichage : tant qu'un
+   * doigt ou une souris reste posé sur la pile, `pauseToasts` doit pouvoir
+   * geler TOUS les comptes à rebours en cours et `resumeToasts` les reprendre
+   * là où ils en étaient — pas les redémarrer à zéro ni les ignorer.
+   */
+  private toastTimers = new Map<string, { handle: number; restant: number; depuis: number }>();
+  private toastsEnPause = false;
+
   pushToast(level: Toast['level'], text: string, cardId?: string): void {
     const toast: Toast = { id: Math.random().toString(36).slice(2), level, text, cardId, at: Date.now() };
     this.set((state) => ({ toasts: [...state.toasts.slice(-5), toast] }));
-    // Chaque message se ferme seul, sa barre de progression le montrant —
-    // une erreur y compris : 15 secondes suffisent à la lire.
-    window.setTimeout(() => this.dismissToast(toast.id), DUREE_MESSAGE_MS);
+    this.armerToast(toast.id, DUREE_MESSAGE_MS);
+  }
+
+  private armerToast(id: string, restant: number): void {
+    if (this.toastsEnPause) {
+      this.toastTimers.set(id, { handle: 0, restant, depuis: Date.now() });
+      return;
+    }
+    const handle = window.setTimeout(() => this.dismissToast(id), restant);
+    this.toastTimers.set(id, { handle, restant, depuis: Date.now() });
+  }
+
+  /** Gèle le compte à rebours de tous les messages encore affichés, au survol ou au toucher de la pile. */
+  pauseToasts(): void {
+    if (this.toastsEnPause) return;
+    this.toastsEnPause = true;
+    for (const [id, timer] of this.toastTimers) {
+      window.clearTimeout(timer.handle);
+      const restant = Math.max(0, timer.restant - (Date.now() - timer.depuis));
+      this.toastTimers.set(id, { handle: 0, restant, depuis: Date.now() });
+    }
+  }
+
+  /** Reprend le compte à rebours là où il en était, une fois la pile quittée. */
+  resumeToasts(): void {
+    if (!this.toastsEnPause) return;
+    this.toastsEnPause = false;
+    for (const [id, timer] of this.toastTimers) {
+      this.armerToast(id, timer.restant);
+    }
   }
 
   dismissToast(id: string): void {
+    const timer = this.toastTimers.get(id);
+    if (timer) {
+      window.clearTimeout(timer.handle);
+      this.toastTimers.delete(id);
+    }
     this.set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
   }
 
