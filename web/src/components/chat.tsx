@@ -448,6 +448,11 @@ function TravailEnCours({
   const quoi = todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…';
 
   const temps = arret.temps;
+  // Même décompte que le décroché d'une carte (`agent.todos`, mis à jour en
+  // direct par le démon à chaque étape cochée) : « n/N » sur l'ensemble des
+  // étapes prévues, pas seulement l'étape en cours. Silence tant qu'aucune
+  // liste n'est encore connue.
+  const avancement = agent?.todos && agent.todos.total > 0 ? agent.todos : null;
 
   return (
     <div
@@ -472,6 +477,16 @@ function TravailEnCours({
     >
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
+      {avancement ? (
+        <Tooltip label={`${avancement.done} sur ${avancement.total} étapes faites`}>
+          <span
+            data-avancement-travail
+            className="shrink-0 rounded border border-border px-1 text-[11px] tabular-nums text-faint"
+          >
+            {avancement.done}/{avancement.total}
+          </span>
+        </Tooltip>
+      ) : null}
       {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
       {arret.possible ? (
         <Tooltip label="Arrêter l'action en cours">
