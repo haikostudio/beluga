@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { EtatDemon, redemarrageNecessaire, suiteDuRedemarrage } from '@haikodev/shared';
+import {
+  EtatDemon,
+  decisionSurSignalDArret,
+  raisonSignalRetenu,
+  redemarrageNecessaire,
+  suiteDuRedemarrage,
+} from '@haikodev/shared';
 import { ROOT } from './config.js';
 import { bus } from './bus.js';
 import { agentsActifs } from './runtime.js';
@@ -127,6 +133,34 @@ export function demanderRedemarrage(): { ok: boolean; raison?: string; enAttente
 export function appliquerRedemarrageEnAttente(): void {
   if (!redemarrageEnAttente) return;
   evaluerRedemarrage();
+}
+
+/**
+ * UN SIGNAL D'ARRÊT REÇU DU DEHORS (SIGTERM, SIGINT) passe par la même règle
+ * que le bouton. Rend `true` s'il faut vraiment s'arrêter, `false` si l'arrêt
+ * est RETENU parce qu'une publication ou un agent travaille — il repartira
+ * alors tout seul par `appliquerRedemarrageEnAttente()`, dès le dernier travail
+ * fini, exactement comme un redémarrage demandé au bouton.
+ *
+ * Le cas réel : un agent qui fait le ménage de ses processus d'essai avec
+ * `pkill -f "server/dist/main.js"` frappe aussi le démon de production. Le
+ * signal ne disait rien à personne et coupait tout ; il est maintenant refusé
+ * tant qu'il reste du travail en vol.
+ */
+export function arretParSignal(signal: string): boolean {
+  const decision = decisionSurSignalDArret({
+    publications: publicationsEnCours(),
+    agents: agentsActifs().length,
+  });
+  if (decision.arreter) return true;
+  redemarrageEnAttente = true;
+  log.warn(raisonSignalRetenu(signal, decision.raison));
+  bus.toast(
+    'warning',
+    `Un arrêt du serveur a été demandé de l’extérieur : il attend la fin du travail en cours. ${decision.raison ?? ''}`.trim(),
+  );
+  diffuserEtatDemon(true);
+  return false;
 }
 
 /**
