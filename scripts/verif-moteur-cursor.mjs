@@ -365,6 +365,34 @@ async function main() {
     .some((ligne) => /Cursor/i.test(ligne) && /fenêtre \d+ %/.test(ligne));
   noter('aucune jauge de quota inventée sur le compte Cursor', !ligneQuotaCursor);
 
+  /* Une clé de PLUS se déclare depuis cet écran : c'est la seule porte pour qui
+     n'ouvre pas de terminal. Une clé refusée doit le dire et ne rien laisser. */
+  await page.getByRole('button', { name: /Ajouter une clé Cursor/i }).click({ timeout: 20_000 });
+  await page.getByPlaceholder(/Nom du compte/i).fill('Cursor — relève d’essai');
+  await page.getByPlaceholder(/Clé d'accès Cursor|Clé d’accès Cursor/i).fill('crsr_cette_cle_nexiste_pas');
+  await page.getByRole('button', { name: /^Ajouter$/ }).click();
+  const refusDit = await page
+    .locator('text=/refusé la clé/i')
+    .first()
+    .waitFor({ timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  const comptesApresRefus = await page.locator('section', { hasText: 'Comptes et quotas' }).first().innerText();
+  noter(
+    "une clé refusée est dite et ne laisse aucun compte mort",
+    refusDit && !comptesApresRefus.includes('relève d’essai'),
+  );
+
+  await page.getByPlaceholder(/Clé d'accès Cursor|Clé d’accès Cursor/i).fill(CLE);
+  await page.getByRole('button', { name: /^Ajouter$/ }).click();
+  const compteAjoute = await page
+    .locator('text=Cursor — relève d’essai')
+    .first()
+    .waitFor({ timeout: 40_000 })
+    .then(() => true)
+    .catch(() => false);
+  noter("une clé éprouvée ajoute son compte sans toucher au serveur", compteAjoute);
+
   const depotsDits = await page
     .locator('text=/dépôts? ouverts?|aucun dépôt relié|dépôts illisibles/')
     .first()
@@ -373,12 +401,49 @@ async function main() {
   noter('les dépôts que la clé peut ouvrir sont dits', !!depotsDits, depotsDits);
   await page.keyboard.press('Escape');
 
-  /* -------- 5. Une clé refusée se dit en clair -------- */
+  /* -------- 5. La relève prend le relais, puis le refus se dit -------- */
 
+  // Le compte PRINCIPAL perd sa clé (celle de l'environnement). Le compte
+  // ajouté à l'instant, lui, garde la sienne : c'est tout l'intérêt d'un second
+  // compte, et le tour doit passer par lui sans que personne n'intervienne.
   await arreterLeDemon();
   demon = lancerLeDemon('crsr_cette_cle_nexiste_pas');
   if (!(await attendrePort())) {
-    noter('le démon redémarre avec une clé refusée', false);
+    noter('le démon redémarre avec une clé principale refusée', false);
+    return;
+  }
+  // RECHARGEMENT COMPLET, pas un simple changement d'adresse : le démon vient
+  // de redémarrer, donc le canal de la page est mort. Écrire avant qu'il ne
+  // soit rétabli, c'est envoyer dans le vide — sans rien à l'écran.
+  await page.goto(`${BASE}/#projet/${PROJET_ID}`, { waitUntil: 'domcontentloaded' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('textarea[placeholder="Écrivez votre demande…"]', { timeout: 40_000 });
+  await page.waitForTimeout(1500);
+  const composeurReleve = page.locator('textarea[placeholder="Écrivez votre demande…"]:visible').first();
+  await composeurReleve.click();
+  await composeurReleve.fill('Réponds seulement par le mot GENTIANE, en majuscules, sans rien d\'autre.');
+  await page.keyboard.press('Enter');
+  const parLaReleve = await page
+    .locator('text=GENTIANE')
+    .nth(1)
+    .waitFor({ timeout: 300_000 })
+    .then(() => true)
+    .catch(() => false);
+  noter('le second compte prend le relais quand la clé du premier est refusée', parLaReleve);
+
+  /* -------- 6. Plus aucune clé valable : le refus se dit -------- */
+
+  await arreterLeDemon();
+  // On retire le compte de relève : il ne doit plus rester UNE seule clé
+  // valable, sinon c'est la bascule qu'on éprouverait, pas le refus.
+  const baseEcriture = new Database(path.join(DATA, 'haikodev.db'));
+  baseEcriture.prepare("DELETE FROM accounts WHERE engine = 'cursor' AND id != 'cursor-principal'").run();
+  baseEcriture.close();
+  fs.rmSync(path.join(DATA, 'accounts'), { recursive: true, force: true });
+  demon = lancerLeDemon('crsr_cette_cle_nexiste_pas');
+
+  if (!(await attendrePort())) {
+    noter('le démon redémarre sans aucune clé valable', false);
     return;
   }
   await page.goto(`${BASE}/#projet/${PROJET_ID}`, { waitUntil: 'domcontentloaded' });

@@ -391,6 +391,71 @@ export function cleDuCompteCursor(account: AccountRecord): string {
 }
 
 /**
+ * DÉCLARER UNE CLÉ CURSOR DE PLUS, depuis les réglages.
+ *
+ * Claude et Codex se connectent par une page de connexion, dans le coffre du
+ * compte. Cursor n'a qu'une CLÉ : sans cette porte, ajouter un second compte
+ * demandait de créer des fichiers sur le serveur à la main — autant dire que la
+ * possibilité n'existait pas pour qui n'ouvre pas de terminal.
+ *
+ * Deux règles reprises de la connexion des autres moteurs : la clé est
+ * ÉPROUVÉE avant d'entrer dans la liste (une clé refusée ne laisse pas une
+ * ligne morte dans les réglages), et le compte est écrit dans son propre
+ * dossier — jamais deux comptes dans le même.
+ */
+export async function declarerCleCursor(
+  label: string,
+  cle: string,
+): Promise<{ ok: boolean; erreur?: string; account?: AccountRecord }> {
+  const nom = label.trim();
+  const secret = cle.trim();
+  if (!nom) return { ok: false, erreur: 'il faut un nom pour ce compte' };
+  if (!secret) return { ok: false, erreur: "il faut une clé d'accès" };
+
+  // La clé est éprouvée AVANT d'être retenue : le moteur ne doit pas se
+  // retrouver avec un compte qui ne répondra jamais.
+  try {
+    const res = await fetch(`${API_CURSOR}/v1/me`, {
+      headers: { authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      const corps: any = await res.json().catch(() => null);
+      return { ok: false, erreur: raisonDeRefusCursor(res.status, corps?.message ?? corps?.error?.message) };
+    }
+  } catch (err: any) {
+    return { ok: false, erreur: err?.message ?? "la clé n'a pas pu être éprouvée" };
+  }
+
+  const base = `cursor-${nom
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 30) || 'compte'}`;
+  const connus = new Set(listAllAccountRecords().map((a) => a.id));
+  let id = base;
+  for (let suffixe = 2; connus.has(id); suffixe += 1) id = `${base}-${suffixe}`;
+
+  const configDir = path.join(PATHS.accounts, id);
+  try {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'meta.json'),
+      JSON.stringify({ engine: 'cursor', label: nom, priority: 50 }, null, 2),
+    );
+    fs.writeFileSync(path.join(configDir, 'api-key'), `${secret}\n`, { mode: 0o600 });
+  } catch (err: any) {
+    return { ok: false, erreur: err?.message ?? 'le compte n\'a pas pu être écrit sur le serveur' };
+  }
+
+  const account: AccountRecord = { id, engine: 'cursor', label: nom, priority: 50, configDir };
+  saveAccountRecord(account);
+  return { ok: true, account };
+}
+
+/**
  * Cursor ne publie AUCUN quota : sa facturation se lit à la dépense, pas à un
  * pourcentage de fenêtre. On ne montre donc pas de jauge inventée — on dit
  * seulement si la clé RÉPOND, ce qui est la seule chose qui décide qu'un tour
