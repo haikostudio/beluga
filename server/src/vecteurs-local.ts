@@ -83,7 +83,17 @@ async function extracteur() {
       env.cacheDir = path.join(dossier, 'modeles');
       env.allowLocalModels = true;
       const debut = Date.now();
-      const extraire = await pipeline('feature-extraction', MODELE_LOCAL, { dtype: 'q8' });
+      /*
+       * LE NOMBRE DE FILS. Mesuré ici : un processus qui prend les quatre cœurs
+       * rend 1,4 passage/s, trois processus d'UN cœur en rendent 2,4 à eux
+       * trois. La vectorisation en masse gagne donc à se lancer en plusieurs
+       * processus d'un fil (`HAIKODEV_EMBED_THREADS=1`) ; le démon, lui, qui ne
+       * vectorise qu'une question à la fois, garde tous les cœurs.
+       */
+      const fils = Number(process.env.HAIKODEV_EMBED_THREADS || 0);
+      const options: Record<string, unknown> = { dtype: 'q8' };
+      if (fils > 0) options.session_options = { intraOpNumThreads: fils, interOpNumThreads: 1 };
+      const extraire = await pipeline('feature-extraction', MODELE_LOCAL, options);
       log.info(`vectorisation locale prête (${MODELE_LOCAL}) en ${Math.round((Date.now() - debut) / 1000)} s`);
       return extraire;
     } catch (err) {

@@ -10,6 +10,13 @@
  *   node scripts/vectoriser-index.mjs            # tous les projets non archivés
  *   node scripts/vectoriser-index.mjs --etat     # ne vectorise rien, dit juste où on en est
  *   node scripts/vectoriser-index.mjs HaikoDev   # un seul projet, par son nom
+ *   node scripts/vectoriser-index.mjs --part=1/3 # le tiers des projets — pour en lancer trois
+ *
+ * TROIS PROCESSUS D'UN FIL VONT PLUS VITE QU'UN SEUL SUR QUATRE CŒURS : mesuré
+ * ici, 2,4 passages/s à trois contre 1,4 tout seul. D'où `--part` et
+ * `HAIKODEV_EMBED_THREADS=1` :
+ *
+ *   for i in 1 2 3; do HAIKODEV_EMBED_THREADS=1 node scripts/vectoriser-index.mjs --part=$i/3 & done
  *
  * ATTENTION : il écrit dans la BASE DU DÉMON, celle qui tourne. C'est voulu —
  * une vectorisation rangée dans une base jetable ne servirait à personne. Les
@@ -23,6 +30,11 @@ const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const etatSeulement = args.includes('--etat');
 const nomVoulu = args.find((a) => !a.startsWith('--'));
+/* `--part=2/3` : ce processus ne prend qu'un projet sur trois, le deuxième de
+   chaque groupe. Trois processus se partagent ainsi le travail sans se marcher
+   dessus — chacun écrit ses propres lignes, la base sérialise le reste. */
+const decoupe = (args.find((a) => a.startsWith('--part=')) ?? '').slice(7).split('/').map(Number);
+const [maPart, parts] = decoupe.length === 2 && decoupe.every((n) => n > 0) ? decoupe : [1, 1];
 
 const passages = await import(path.join(RACINE, 'server/dist/passages.js'));
 const nocturne = await import(path.join(RACINE, 'server/dist/vecteurs-nocturne.js'));
@@ -43,7 +55,8 @@ console.log(
 const projets = store
   .listProjects()
   .filter((p) => !p.archived)
-  .filter((p) => !nomVoulu || p.name.toLowerCase() === nomVoulu.toLowerCase());
+  .filter((p) => !nomVoulu || p.name.toLowerCase() === nomVoulu.toLowerCase())
+  .filter((p, rang) => rang % parts === maPart - 1);
 
 if (!projets.length) {
   console.error(nomVoulu ? `Aucun projet nommé « ${nomVoulu} ».` : 'Aucun projet à vectoriser.');

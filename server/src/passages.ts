@@ -328,14 +328,29 @@ function empreinteDuPassage(passage: PassageDoc): number[] {
 /* La vectorisation de l'index                                         */
 /* ------------------------------------------------------------------ */
 
-/** Où en est l'index d'un projet : combien de passages, combien vectorisés. */
+/**
+ * OÙ EN EST L'INDEX D'UN PROJET — ET ON NE COMPTE QUE LES DOCUMENTS.
+ *
+ * Le CODE pèse les deux tiers de l'index (35 035 passages sur 62 490) mais joue
+ * un rôle secondaire : il passe derrière la documentation, ne prend jamais plus
+ * de deux places sur sept, et ce qu'on lui demande le plus — retrouver un
+ * fichier qu'on NOMME — marche par les mots exacts, pas par le sens. Attendre
+ * qu'il soit vectorisé pour basculer, c'était retarder la recherche par le sens
+ * de plusieurs jours pour un gain marginal.
+ *
+ * La couverture porte donc sur la DOCUMENTATION (priorité ≥ 0), qui est aussi
+ * ce que la vectorisation traite EN PREMIER (`ORDER BY priorite DESC`). Le code
+ * suit, et l'améliore encore, sans jamais la bloquer.
+ */
 export function couvertureDesVecteurs(projectId: string): { total: number; vectorises: number } {
   const db = getDb();
-  const total = (db.prepare('SELECT COUNT(*) AS n FROM doc_passages WHERE project_id = ?').get(projectId) as {
-    n: number;
-  }).n;
+  const total = (db
+    .prepare('SELECT COUNT(*) AS n FROM doc_passages WHERE project_id = ? AND priorite >= 0')
+    .get(projectId) as { n: number }).n;
   const vectorises = (db
-    .prepare('SELECT COUNT(*) AS n FROM doc_passages WHERE project_id = ? AND modele = ? AND vecteur IS NOT NULL')
+    .prepare(
+      'SELECT COUNT(*) AS n FROM doc_passages WHERE project_id = ? AND priorite >= 0 AND modele = ? AND vecteur IS NOT NULL',
+    )
     .get(projectId, modeleDesVecteurs()) as { n: number }).n;
   return { total, vectorises };
 }
@@ -369,25 +384,40 @@ export async function vectoriserLIndex(projectId: string): Promise<{ faits: numb
   }[];
   if (!aFaire.length) return { faits: 0 };
 
-  const vecteurs = await vectoriser(aFaire.map((p) => texteAVectoriser(p)));
-  if (!vecteurs) return { faits: 0 };
-
   const poser = db.prepare('UPDATE doc_passages SET vecteur = ?, modele = ? WHERE id = ?');
-  const ecrire = db.transaction(() => {
-    aFaire.forEach((passage, rang) => {
-      const vecteur = vecteurs[rang];
-      if (!vecteurUtilisable(vecteur)) return;
-      poser.run(vecteurEnBinaire(vecteur), modele, passage.id);
+  let faits = 0;
+
+  /*
+   * ON ÉCRIT AU FIL DE L'EAU, PAR SOUS-LOTS. Le moteur local met une dizaine de
+   * minutes à traiter une tranche entière : n'enregistrer qu'à la fin, c'était
+   * tout reperdre si le processus était arrêté entre-temps. On range donc ce qui
+   * est fait tous les `ECRITURE_TOUS_LES` passages — le travail acquis reste
+   * acquis, et une reprise ne recommence que le dernier sous-lot.
+   */
+  for (let debut = 0; debut < aFaire.length; debut += ECRITURE_TOUS_LES) {
+    const tranche = aFaire.slice(debut, debut + ECRITURE_TOUS_LES);
+    const vecteurs = await vectoriser(tranche.map((p) => texteAVectoriser(p)));
+    if (!vecteurs) break;
+    const ecrire = db.transaction(() => {
+      tranche.forEach((passage, rang) => {
+        const vecteur = vecteurs[rang];
+        if (!vecteurUtilisable(vecteur)) return;
+        poser.run(vecteurEnBinaire(vecteur), modele, passage.id);
+      });
     });
-  });
-  try {
-    ecrire();
-  } catch (err) {
-    log.warn(`vecteurs non enregistrés : ${(err as Error).message}`);
-    return { faits: 0 };
+    try {
+      ecrire();
+      faits += tranche.length;
+    } catch (err) {
+      log.warn(`vecteurs non enregistrés : ${(err as Error).message}`);
+      break;
+    }
   }
-  return { faits: aFaire.length };
+  return { faits };
 }
+
+/** Tous les combien on range ce qui est vectorisé : assez souvent pour ne rien reperdre. */
+const ECRITURE_TOUS_LES = 96;
 
 /** Tous les passages indexés d'un projet, empreinte de repli et vecteur compris. */
 export function passagesIndexes(projectId: string): PassageIndexe[] {
@@ -465,10 +495,15 @@ export async function rechercherPourLaTache(
      * échelles ferait gagner les passages vectorisés par construction.
      */
     const vecteurQuestion = await vectoriserLaQuestion(question);
+    /*
+     * La couverture se juge sur la DOCUMENTATION seule : le code vient après et
+     * ne doit pas retenir la bascule (`couvertureDesVecteurs`).
+     */
+    const documents = indexes.filter((p) => p.priorite >= 0);
     const mode = modeDeRecherche({
       vecteurQuestion,
-      total: indexes.length,
-      vectorises: indexes.filter((p) => p.vecteur).length,
+      total: documents.length,
+      vectorises: documents.filter((p) => p.vecteur).length,
     });
 
     const jetonsIndex = jetonsApproches(index.texte.length);
