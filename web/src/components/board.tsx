@@ -29,6 +29,7 @@ import {
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
+  natureDeLaMention,
   repereVisible,
   sortieAutorisee,
 } from '@haikodev/shared';
@@ -1617,15 +1618,33 @@ export function CardTile({
         ) : null}
 
         {/*
-         * L'agent a répondu mais rien n'a changé dans le projet : sans cette
-         * phrase, la carte aurait juste l'air oubliée en « En cours ». On l'écrit
-         * en toutes lettres, à l'endroit où on cherche l'état de la carte.
+         * La phrase du dernier tour, à l'endroit où l'on cherche l'état de la
+         * carte. Deux tons, jamais un seul : une carte dont le CODE EST LÀ
+         * (`natureDeLaMention` → « travail ») porte une information bleue, celle
+         * du travail acquis — l'afficher en triangle jaune démentait la coche
+         * verte d'à côté et faisait lire « rien n'a été fait » sur un travail
+         * bel et bien livré. Une carte qui ATTEND, elle, garde son jaune.
          */}
         {card.sansModification ? (
-          <div className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning">
-            <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
-            <span className="min-w-0 truncate">{card.sansModification}</span>
-          </div>
+          natureDeLaMention(card.sansModification) === 'travail' ? (
+            <div
+              data-mention-carte="travail"
+              title={card.sansModification}
+              className="mt-1.5 flex items-start gap-1.5 rounded border border-termine/30 bg-termine/10 px-1.5 py-1 text-[12px] leading-snug text-termine"
+            >
+              <Check className="mt-[2px] h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate">{card.sansModification}</span>
+            </div>
+          ) : (
+            <div
+              data-mention-carte="attente"
+              title={card.sansModification}
+              className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning"
+            >
+              <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate">{card.sansModification}</span>
+            </div>
+          )
         ) : null}
 
         {/*

@@ -288,10 +288,18 @@ async function lireLeTableau(page) {
     const cartes = {};
     for (const id of ids) {
       const noeud = document.querySelector(`[data-carte="${id}"]`);
+      const mention = noeud?.querySelector('[data-mention-carte]');
       cartes[id] = noeud
         ? {
             colonne: noeud.closest('[data-column]')?.getAttribute('data-column') ?? null,
             texte: noeud.textContent ?? '',
+            // La PHRASE seule, et le TON sur lequel elle est dite : le texte de
+            // la carte porte aussi son titre, qui peut contenir les mêmes mots.
+            mention: mention?.textContent?.trim() ?? null,
+            ton: mention?.getAttribute('data-mention-carte') ?? null,
+            // La couleur RÉELLEMENT calculée : le ton annoncé ne vaut rien si
+            // l'encadré reste jaune à l'écran.
+            couleur: mention ? getComputedStyle(mention).color : null,
           }
         : null;
     }
@@ -360,8 +368,35 @@ async function main() {
   );
   noter(
     '…et sa raison est lisible sur la carte',
-    /déjà livré/.test(dejaLivre?.texte ?? ''),
-    (dejaLivre?.texte ?? '').slice(0, 160),
+    /déjà enregistré/.test(dejaLivre?.mention ?? ''),
+    (dejaLivre?.mention ?? '').slice(0, 160),
+  );
+  /*
+   * LE BOGUE RAPPORTÉ : cette phrase commençait par « Rien à changer » et
+   * s'affichait en triangle JAUNE, à côté d'un travail bel et bien enregistré.
+   * L'utilisateur lisait donc l'inverse de ce qui s'était passé. On vérifie les
+   * deux : ce que la phrase DIT, et le TON sur lequel elle le dit.
+   */
+  noter(
+    '…elle ne commence jamais par « Rien à changer »',
+    !/^\s*Rien à changer/.test(dejaLivre?.mention ?? '') && !!dejaLivre?.mention,
+    (dejaLivre?.mention ?? '').slice(0, 60),
+  );
+  noter(
+    '…et elle se dit comme un TRAVAIL acquis, jamais comme une alerte',
+    dejaLivre?.ton === 'travail',
+    `ton=${dejaLivre?.ton}`,
+  );
+  // BLEU pour ce qui est TERMINÉ : la règle des couleurs du projet, appliquée
+  // ici aussi. Le jaune de l'avertissement a une composante bleue faible.
+  const bleu = (couleur) => {
+    const [r, v, b] = String(couleur ?? '').match(/\d+/g)?.map(Number) ?? [];
+    return b > 120 && b > r + 30;
+  };
+  noter(
+    '…et son encadré est BLEU à l’écran, pas jaune',
+    bleu(dejaLivre?.couleur),
+    `couleur=${dejaLivre?.couleur}`,
   );
 
   const neuve = apres.cartes['c-neuve'];
@@ -377,9 +412,11 @@ async function main() {
   );
   noter(
     '…avec sa raison écrite dessus',
-    /aucun fichier/.test(neuve?.texte ?? ''),
-    (neuve?.texte ?? '').slice(0, 160),
+    /aucun fichier/.test(neuve?.mention ?? ''),
+    (neuve?.mention ?? '').slice(0, 160),
   );
+  // Une carte qui ATTEND garde bien son alerte : le ton neuf ne l'a pas éteinte.
+  noter('…dite, elle, comme une ATTENTE', neuve?.ton === 'attente', `ton=${neuve?.ton}`);
 
   noter(
     'la carte dont l’agent travaille encore reste en « En cours »',
@@ -401,8 +438,13 @@ async function main() {
   );
   noter(
     '…et sa raison est lisible sur la carte',
-    /déjà livré/.test(balaye.cartes['c-oubliee-livree']?.texte ?? ''),
-    (balaye.cartes['c-oubliee-livree']?.texte ?? '').slice(0, 160),
+    /déjà enregistré/.test(balaye.cartes['c-oubliee-livree']?.mention ?? ''),
+    (balaye.cartes['c-oubliee-livree']?.mention ?? '').slice(0, 160),
+  );
+  noter(
+    '…dite elle aussi comme un travail acquis',
+    balaye.cartes['c-oubliee-livree']?.ton === 'travail',
+    `ton=${balaye.cartes['c-oubliee-livree']?.ton}`,
   );
   noter(
     'la carte oubliée qui n’avait rien livré redescend en file, avec sa raison',

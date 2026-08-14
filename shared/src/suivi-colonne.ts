@@ -266,9 +266,52 @@ export const RAISON_SANS_MODIFICATION =
  * La phrase affichée sur une carte rangée alors que ce tour n'a rien changé —
  * parce qu'il n'y avait RIEN à changer : le travail avait déjà été livré et
  * enregistré lors d'un tour précédent.
+ *
+ * ELLE COMMENÇAIT PAR « Rien à changer », et c'est ce qui a fait croire à une
+ * carte vide : lue sur un triangle jaune, à côté d'un travail réellement fait,
+ * elle disait exactement le contraire de ce qui s'était passé. La phrase
+ * commence donc désormais par le FAIT — le code est là —, et n'explique
+ * qu'ensuite pourquoi ce tour-ci n'a rien ajouté.
  */
 export const RAISON_DEJA_LIVRE =
-  "Rien à changer : le travail demandé était déjà livré et enregistré. La carte est rangée sans nouveau code.";
+  'Travail déjà enregistré : le code de cette carte est bien sur sa branche, livré lors d’un tour précédent. Ce tour n’avait donc plus rien à changer.';
+
+/**
+ * La phrase affichée sur une carte dont le travail écrit a été RETROUVÉ dans sa
+ * copie de travail après une coupure, puis enregistré d'office sur sa branche
+ * (`enregistrerLeTravailEnCours`).
+ *
+ * Elle est posée par le ménage du démarrage, tout de suite : sans elle, le seul
+ * mot que l'utilisateur voyait sur la carte était celui d'un tour ULTÉRIEUR —
+ * qui, lui, n'avait effectivement plus rien à changer, et laissait donc croire
+ * que rien n'avait jamais été fait.
+ */
+export const RAISON_TRAVAIL_SAUVE =
+  'Travail retrouvé après une interruption et enregistré d’office sur la branche de la carte : rien n’est perdu.';
+
+/**
+ * CE QUE DIT UNE PHRASE DE CARTE : un travail acquis, ou une attente ?
+ *
+ * Toutes les phrases posées sur une carte (`card.sansModification`) étaient
+ * affichées de la même façon : encadré jaune, triangle d'alerte. Or elles ne
+ * disent pas la même chose. « Le code est là, livré lors d'un tour précédent »
+ * est une INFORMATION sur un travail acquis — l'annoncer en alerte, c'est
+ * démentir la coche verte affichée juste à côté. « Rien n'a changé, la carte
+ * revient en file » est bien une attente, elle garde son jaune.
+ *
+ * La règle est PURE et se juge sur la phrase elle-même : l'interface n'a rien à
+ * deviner, et les deux mondes ne peuvent pas se contredire.
+ */
+export type NatureDeLaMention = 'travail' | 'attente';
+
+/** Les phrases qui annoncent un travail ACQUIS, et non une attente. */
+const MENTIONS_DE_TRAVAIL: string[] = [RAISON_DEJA_LIVRE, RAISON_TRAVAIL_SAUVE];
+
+export function natureDeLaMention(raison?: string | null): NatureDeLaMention {
+  const phrase = (raison ?? '').trim();
+  if (!phrase) return 'attente';
+  return MENTIONS_DE_TRAVAIL.includes(phrase) ? 'travail' : 'attente';
+}
 
 /**
  * Où va la carte quand le tour se TERMINE.

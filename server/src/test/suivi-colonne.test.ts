@@ -25,6 +25,10 @@ import {
   RAISON_SUSPENDU,
   RAISON_TOUR_SANS_ISSUE,
   RAISON_TRACE_INCONNUE,
+  RAISON_TRAVAIL_SAUVE,
+  estLaBrancheDeLaCarte,
+  natureDeLaMention,
+  nomDeBranche,
   issueDeFinDeTour,
 } from '@haikodev/shared';
 
@@ -110,7 +114,7 @@ test('rien à changer parce que c’était DÉJÀ livré : la carte se range et 
     raison: RAISON_DEJA_LIVRE,
     retenue: false,
   });
-  assert.match(RAISON_DEJA_LIVRE, /déjà livré/);
+  assert.match(RAISON_DEJA_LIVRE, /livré lors d’un tour précédent/);
 });
 
 test('une carte NEUVE dont rien n’a bougé redescend en file avec sa raison', () => {
@@ -447,4 +451,54 @@ test('la raison du tour sans issue dit où va la carte, sans accuser le travail'
   assert.match(RAISON_TOUR_SANS_ISSUE, /Planifié/);
   assert.match(RAISON_TOUR_SANS_ISSUE, /En cours/);
   assert.notEqual(RAISON_TOUR_SANS_ISSUE, RAISON_SANS_MODIFICATION);
+});
+
+/* ------------------------------------------------------------------ */
+/* « Rien à changer » alors que le travail était bel et bien fait      */
+/* ------------------------------------------------------------------ */
+
+test('la phrase du travail déjà livré commence par le FAIT, jamais par « rien »', () => {
+  // Le bogue rapporté : la carte disait « Rien à changer » à côté d'un travail
+  // enregistré et fusionné. La phrase doit affirmer que le code est là.
+  assert.doesNotMatch(RAISON_DEJA_LIVRE, /^Rien à changer/);
+  assert.match(RAISON_DEJA_LIVRE, /enregistré/);
+  assert.match(RAISON_DEJA_LIVRE, /branche/);
+});
+
+test('la phrase du travail sauvé d’office dit que rien n’est perdu', () => {
+  assert.match(RAISON_TRAVAIL_SAUVE, /d’office/);
+  assert.match(RAISON_TRAVAIL_SAUVE, /rien n’est perdu/);
+  assert.notEqual(RAISON_TRAVAIL_SAUVE, RAISON_DEJA_LIVRE);
+});
+
+test('une phrase de TRAVAIL acquis ne s’affiche pas comme une attente', () => {
+  assert.equal(natureDeLaMention(RAISON_DEJA_LIVRE), 'travail');
+  assert.equal(natureDeLaMention(RAISON_TRAVAIL_SAUVE), 'travail');
+});
+
+test('une phrase d’ATTENTE garde son alerte', () => {
+  for (const phrase of [
+    RAISON_SANS_MODIFICATION,
+    RAISON_TOUR_SANS_ISSUE,
+    RAISON_TRACE_INCONNUE,
+    RAISON_SUSPENDU,
+    RAISON_MOTEUR_INJOIGNABLE,
+  ]) {
+    assert.equal(natureDeLaMention(phrase), 'attente', phrase);
+  }
+  assert.equal(natureDeLaMention(undefined), 'attente');
+  assert.equal(natureDeLaMention(''), 'attente');
+});
+
+test('la branche d’une carte se reconnaît au NUMÉRO, même si le titre a changé', () => {
+  const id = 'c9194151-9caa-49c7-84fc-b730829edb02';
+  const branche = nomDeBranche('Afficher le décompte des étapes sur la carte', id);
+  assert.equal(estLaBrancheDeLaCarte(branche, id), true);
+  // Le titre change entre l'interruption et le redémarrage : la branche, elle,
+  // reste la même — et la carte doit encore s'y reconnaître.
+  assert.notEqual(nomDeBranche('Tout autre titre', id), branche);
+  assert.equal(estLaBrancheDeLaCarte(branche, id), true);
+  assert.equal(estLaBrancheDeLaCarte(branche, 'aaaaaa11-0000-0000-0000-000000000000'), false);
+  assert.equal(estLaBrancheDeLaCarte('main', id), false);
+  assert.equal(estLaBrancheDeLaCarte('hors-tache/quelque-chose-c91941', id), false);
 });

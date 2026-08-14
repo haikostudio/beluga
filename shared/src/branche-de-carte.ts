@@ -53,6 +53,27 @@ export function nomDeBranche(titre: string, cardId: string): string {
   return `tache/${slug || 'sans-titre'}-${cardId.slice(0, 6)}`;
 }
 
+/**
+ * CETTE BRANCHE EST-ELLE CELLE DE CETTE CARTE ?
+ *
+ * Le nom entier ne suffit pas : il porte le TITRE, et un titre peut changer
+ * entre le moment où la branche est créée et celui où on la retrouve — après un
+ * redémarrage, par exemple. La comparaison de nom entier échouait alors, et le
+ * travail retrouvé sur la branche n'était rattaché à aucune carte : celle-ci
+ * repartait sans son drapeau « code déjà enregistré », pour s'entendre dire
+ * ensuite qu'aucun fichier n'avait changé.
+ *
+ * Seul le NUMÉRO ne bouge jamais. Il est posé en fin de branche par
+ * `nomDeBranche` (les six premiers signes de l'identifiant) : c'est lui qu'on
+ * reconnaît, quel que soit le titre du jour.
+ */
+export function estLaBrancheDeLaCarte(branche: string, cardId: string): boolean {
+  const nom = (branche ?? '').trim();
+  const signature = (cardId ?? '').slice(0, 6);
+  if (!nom.startsWith('tache/') || !signature) return false;
+  return nom.endsWith(`-${signature}`);
+}
+
 /** Deux chemins qui désignent le même dossier (barre finale, espaces). */
 export function memeDossier(a: string | undefined | null, b: string | undefined | null): boolean {
   const propre = (v: string | undefined | null) => (v ?? '').trim().replace(/\/+$/, '');

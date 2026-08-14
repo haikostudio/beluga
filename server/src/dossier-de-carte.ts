@@ -181,6 +181,18 @@ export type DossierOuvert =
  * la principale par-dessus un travail déjà enregistré.
  */
 export async function ouvrirDossierDeCarte(racine: string, card: Card): Promise<DossierOuvert> {
+  /*
+   * OUVRIR PASSE PAR LA MÊME FILE QUE REFERMER. Sans cela, une carte pouvait
+   * ouvrir son dossier pendant que le ménage du démarrage était en train de le
+   * refermer : l'agent partait travailler dans une copie que
+   * `refermerDossierDeCarte` retirait sous ses pieds quelques secondes plus
+   * tard — et le travail déjà écrit disparaissait avec elle. Les deux gestes se
+   * suivent donc, un par un, par projet.
+   */
+  return aLaQueue(racine, () => ouvrirVraiment(racine, card));
+}
+
+async function ouvrirVraiment(racine: string, card: Card): Promise<DossierOuvert> {
   const branche = nomDeBranche(card.title, card.id);
   const dossier = cheminDossierDeCarte(racine, card.title, card.id);
 
