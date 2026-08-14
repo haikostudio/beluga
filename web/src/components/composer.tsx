@@ -60,6 +60,8 @@ export interface ComposerProps {
   barreTravail?: React.ReactNode;
 }
 
+const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
+
 export function Composer({
   agent,
   engines,
@@ -83,6 +85,7 @@ export function Composer({
   /** La pièce jointe regardée en grand, avant même l'envoi du message. */
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [scrollTexte, setScrollTexte] = React.useState(0);
   /** L'étiquette en train d'être glissée, pour reposer les autres et l'estomper. */
   const [glissee, setGlissee] = React.useState<number | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -137,6 +140,57 @@ export function Composer({
     setText((avant) => retireAncre(avant, item.name));
     curseur.current = null;
   };
+
+  /** Retirer le drapeau précis qui a été cliqué, sans toucher aux autres mots. */
+  const retirerDrapeau = (nom: string, occurrence: number) => {
+    setText((avant) => {
+      const marque = ancre(nom);
+      let index = -1;
+      let depuis = 0;
+      for (let i = 0; i <= occurrence; i += 1) {
+        index = avant.indexOf(marque, depuis);
+        if (index === -1) return avant;
+        depuis = index + marque.length;
+      }
+      const suite = `${avant.slice(0, index)}${avant.slice(index + marque.length)}`.replace(/ {2,}/g, ' ');
+      setAttachments((liste) => jointesApresFrappe(liste, avant, suite));
+      return suite;
+    });
+    textareaRef.current?.focus();
+    curseur.current = null;
+  };
+
+  const texteAvecDrapeaux = React.useMemo(() => {
+    MARQUE_FICHIER.lastIndex = 0;
+    const morceaux: React.ReactNode[] = [];
+    let fin = 0;
+    let occurrence = 0;
+    let trouve: RegExpExecArray | null;
+    while ((trouve = MARQUE_FICHIER.exec(text))) {
+      if (trouve.index > fin) morceaux.push(<React.Fragment key={`texte-${fin}`}>{text.slice(fin, trouve.index)}</React.Fragment>);
+      const nom = trouve[1]!.trim();
+      const position = occurrence;
+      morceaux.push(
+        <button
+          key={`fichier-${trouve.index}`}
+          type="button"
+          data-prompt-file-flag
+          title="Retirer ce fichier du texte"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => retirerDrapeau(nom, position)}
+          className="pointer-events-auto inline-flex max-w-[220px] translate-y-[-1px] items-center gap-1 rounded border border-accent/40 bg-accent/15 px-1.5 py-0.5 align-baseline text-[13px] text-accent hover:border-accent hover:bg-accent/25"
+        >
+          <Paperclip className="h-3 w-3 shrink-0" />
+          <span className="truncate">{nom}</span>
+          <X className="h-2.5 w-2.5 shrink-0 opacity-70" />
+        </button>,
+      );
+      occurrence += 1;
+      fin = trouve.index + trouve[0].length;
+    }
+    if (fin < text.length) morceaux.push(<React.Fragment key={`texte-${fin}`}>{text.slice(fin)}</React.Fragment>);
+    return morceaux;
+  }, [text]);
 
   // La dictée dépose son texte à la suite de ce qui est déjà écrit.
   const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
@@ -557,6 +611,15 @@ export function Composer({
       {barreTravail}
 
       <div className={cn('relative rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
+        {texteAvecDrapeaux.length ? (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-20 overflow-hidden whitespace-pre-wrap break-words px-3 py-2.5 pr-14 text-[14.5px] leading-normal text-text"
+            style={{ transform: `translateY(${-scrollTexte}px)` }}
+          >
+            {texteAvecDrapeaux}
+          </div>
+        ) : null}
         <Textarea
           ref={textareaRef}
           value={text}
@@ -568,6 +631,7 @@ export function Composer({
           onKeyUp={retientCurseur}
           onClick={retientCurseur}
           onSelect={retientCurseur}
+          onScroll={(event) => setScrollTexte(event.currentTarget.scrollTop)}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.files);
             if (files.length) {
@@ -601,7 +665,10 @@ export function Composer({
                 : 'Écrivez votre demande…'
           }
           rows={1}
-          className="min-h-[38px] border-0 bg-transparent pr-14 focus-visible:ring-0"
+          className={cn(
+            'relative z-10 min-h-[38px] border-0 bg-transparent pr-14 focus-visible:ring-0',
+            texteAvecDrapeaux.length && 'text-transparent caret-text selection:text-transparent',
+          )}
         />
 
         {/* Une seule ligne, même sur téléphone : les réglages rétrécissent,
