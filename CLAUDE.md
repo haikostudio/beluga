@@ -235,6 +235,14 @@ le nom, là-bas le texte).
   en « Planifié » ne coûte rien. Le lancement crée UN SEUL agent, qui étudie le projet, chiffre la
   tâche et l'exécute dans le MÊME tour ; les chiffres rendus (bloc json, `CONSIGNE_CHIFFRAGE`) sont
   écrits sur la carte avec la mesure réelle du moteur.
+- **LA LISTE DE TÂCHES SE REFERME AVEC LE TOUR** (`cloturerLesTaches`,
+  `shared/src/taches-fin-de-tour.ts`) : aucune ligne ne reste « en cours » une fois la réponse rendue.
+  Un tour RENDU coche la ligne qui tournait (marquée `closedByTurnEnd` : c'est le démon qui coche,
+  pas l'agent) ; un tour INTERROMPU — panne, quota, arrêt à la main, redémarrage — ne coche rien. Ce
+  qui n'a pas été mené à bout passe à `unfinished` et le DIT (« non faite »), au lieu d'attendre pour
+  toujours. Branchée sur TOUS les chemins de fermeture (`server/src/runtime.ts`), sans effet sur une
+  liste déjà refermée ; les listes déjà figées en base sont reprises par la migration 23.
+
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une

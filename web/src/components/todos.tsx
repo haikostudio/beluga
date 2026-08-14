@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, CircleDot, Loader2 } from 'lucide-react';
-import { RunStep, TodoItem } from '@haikodev/shared';
+import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, CircleDot, Loader2, X } from 'lucide-react';
+import { RunStep, TodoItem, mentionTachesNonFaites } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { ZoneDefilement } from '@/components/ui';
@@ -112,6 +112,9 @@ export function VoletTaches({
   const faites = todos.filter((t) => t.state === 'done').length;
   const encours = todos.find((t) => t.state === 'running');
   const tout = faites === todos.length;
+  // Ce que le tour a laissé en plan. L'en-tête le dit à la place de la ligne
+  // en cours — il n'y en a plus une seule fois le tour refermé.
+  const nonFaites = mentionTachesNonFaites(todos);
 
   return (
     <div data-volet="taches" className="shrink-0 border-t border-border bg-surface">
@@ -134,7 +137,7 @@ export function VoletTaches({
           <span className="text-text">
             Liste des tâches — {faites}/{todos.length} faite{faites > 1 ? 's' : ''}
           </span>
-          {encours ? ` · ${encours.label}` : ''}
+          {encours ? ` · ${encours.label}` : nonFaites ? ` · ${nonFaites}` : ''}
         </span>
         {/* La flèche pointe vers le HAUT quand le volet est fermé : c'est par
             là qu'il s'ouvre, au-dessus de la ligne. */}
@@ -151,8 +154,19 @@ export function VoletTaches({
         <ZoneDefilement classeEnveloppe="max-h-[min(35vh,260px)] flex-none" className="px-2 py-1.5">
         <ul className="space-y-0.5">
           {todos.map((todo, index) => (
-            <li key={`${index}-${todo.label}`} className="flex items-start gap-2 px-1 py-1">
-              {/* Une vraie case à cocher : vide, en cours, ou cochée. */}
+            <li
+              key={`${index}-${todo.label}`}
+              className="flex items-start gap-2 px-1 py-1"
+              title={
+                todo.closedByTurnEnd
+                  ? "Cochée à la fin du tour : l'agent ne l'a pas marquée lui-même."
+                  : todo.state === 'unfinished'
+                    ? "Le tour s'est terminé sans que cette étape soit menée à bout."
+                    : undefined
+              }
+            >
+              {/* Une vraie case à cocher : vide, en cours, cochée — ou barrée
+                  d'une croix quand le tour s'est fini sans elle. */}
               <span
                 className={cn(
                   'mt-[2px] flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border',
@@ -171,6 +185,8 @@ export function VoletTaches({
                   ) : (
                     <CircleDot className="h-2.5 w-2.5 text-en-cours" />
                   )
+                ) : todo.state === 'unfinished' ? (
+                  <X className="h-2.5 w-2.5 text-faint" />
                 ) : null}
               </span>
               <span
@@ -186,8 +202,13 @@ export function VoletTaches({
                 {todo.label}
               </span>
               {/* Le temps passé sur la ligne, exactement comme pour les étapes.
-                  Une ligne en cours affiche son temps qui court. */}
-              {todo.startedAt ? (
+                  Une ligne en cours affiche son temps qui court. Une ligne que
+                  le tour a laissée en plan le DIT, à la place de son temps. */}
+              {todo.state === 'unfinished' ? (
+                <span data-tache="non-faite" className="mt-[1px] shrink-0 text-[12px] text-faint">
+                  non faite
+                </span>
+              ) : todo.startedAt ? (
                 <span className="mt-[1px] shrink-0 text-[12px] text-faint">
                   {duration(((todo.endedAt ?? maintenant) - todo.startedAt) / 1000)}
                 </span>

@@ -105,6 +105,7 @@ export * from './selection-deploiement.js';
 export * from './signal-projet.js';
 export * from './sous-domaine-projet.js';
 export * from './suivi-colonne.js';
+export * from './taches-fin-de-tour.js';
 export * from './templates.js';
 export * from './travail-en-cours.js';
 export * from './travail-hors-tache.js';
