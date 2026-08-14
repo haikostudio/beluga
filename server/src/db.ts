@@ -794,6 +794,31 @@ const MIGRATIONS: {
       ALTER TABLE quota_samples ADD COLUMN credit_cents INTEGER;
     `,
   },
+  {
+    id: 27,
+    name: 'vecteurs-de-sens-dans-la-recherche',
+    siTable: 'doc_passages',
+    // LA RECHERCHE PASSE DU HACHAGE DE MOTS AU VRAI SENS (façon RAG).
+    //
+    // L'« empreinte » d'origine était calculée sur place, par hachage des
+    // racines des mots : deux textes qui disent la même chose avec d'AUTRES mots
+    // n'avaient rien en commun. On range désormais, à côté d'elle, le VECTEUR
+    // rendu par un modèle de vectorisation — et le NOM de ce modèle, car un
+    // vecteur venu d'un autre modèle n'est pas comparable et sera refait.
+    //
+    // Le vecteur est rangé en BLOB (des flottants 32 bits bout à bout) : trois
+    // fois moins de place qu'en texte, et surtout aucune analyse de JSON à
+    // chaque recherche, où l'on relit des milliers de passages.
+    //
+    // L'empreinte de mots RESTE : c'est le repli quand la clé manque ou que
+    // l'index n'est pas encore vectorisé. Les colonnes sont donc ajoutées,
+    // jamais substituées, et l'index existant continue de servir tel quel.
+    sql: `
+      ALTER TABLE doc_passages ADD COLUMN vecteur BLOB;
+      ALTER TABLE doc_passages ADD COLUMN modele TEXT;
+      CREATE INDEX idx_doc_passages_modele ON doc_passages(project_id, modele);
+    `,
+  },
 ];
 
 export function openDb(): DB {

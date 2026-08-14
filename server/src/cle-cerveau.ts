@@ -25,7 +25,8 @@ export function fichierDeRepli(): string {
 
 const NOM = 'CERVEAU_API_KEY';
 
-function lireDansEnvironnement(chemin: string): string | undefined {
+/** La valeur d'un nom dans un fichier d'environnement, sans jamais lever. */
+function lireDansLeFichier(chemin: string, nom: string): string | undefined {
   let contenu: string;
   try {
     contenu = fs.readFileSync(chemin, 'utf8');
@@ -36,11 +37,27 @@ function lireDansEnvironnement(chemin: string): string | undefined {
     const nette = ligne.trim();
     if (!nette || nette.startsWith('#')) continue;
     const sans = nette.startsWith('export ') ? nette.slice(7).trim() : nette;
-    if (!sans.startsWith(`${NOM}=`)) continue;
-    const valeur = sans.slice(NOM.length + 1).trim().replace(/^["']|["']$/g, '');
+    if (!sans.startsWith(`${nom}=`)) continue;
+    const valeur = sans.slice(nom.length + 1).trim().replace(/^["']|["']$/g, '');
     if (valeur) return valeur;
   }
   return undefined;
+}
+
+function lireDansEnvironnement(chemin: string): string | undefined {
+  return lireDansLeFichier(chemin, NOM);
+}
+
+/**
+ * N'IMPORTE QUELLE VARIABLE DU SERVICE, lue comme la clé du cerveau :
+ * l'environnement du démon d'abord, le fichier du service ensuite. C'est ce dont
+ * la vectorisation a besoin (`server/src/vecteurs.ts`) — un démon lancé à la
+ * main n'a pas forcément chargé `/etc/haikodev.env`.
+ */
+export function lireVariableDEnvironnement(nom: string): string | undefined {
+  const enMemoire = process.env[nom]?.trim();
+  if (enMemoire) return enMemoire;
+  return lireDansLeFichier(fichierEnvironnement(), nom);
 }
 
 /**

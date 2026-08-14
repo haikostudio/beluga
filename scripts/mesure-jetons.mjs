@@ -360,7 +360,7 @@ let rechercheApres = 0;
 let replis = 0;
 let depassements = [];
 for (const tache of TACHES) {
-  const trouve = passages.rechercherPourLaTache('mesure-jetons', RACINE, tache, INDEX);
+  const trouve = await passages.rechercherPourLaTache('mesure-jetons', RACINE, tache, INDEX);
   const apresJetons = trouve ? trouve.jetons : jetonsIndex;
   if (!trouve) replis++;
   else if (trouve.jetons >= jetonsIndex) depassements.push(tache);

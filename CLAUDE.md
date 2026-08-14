@@ -89,12 +89,19 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   règles ET les contrôles qui le concernent, jamais le reste.
 - **Au LANCEMENT d'une carte, la demande sert de QUESTION** (`shared/src/passages-doc.ts`,
   `server/src/passages.ts`) : le démon cherche dans la documentation (`docs/regles/`, `docs/memoire/`,
-  `docs/verifications.md`, `docs/mecaniques/`, compétences) et envoie les quelques PASSAGES qui
-  répondent, à la place de l'index. Découpage par section ou par règle, empreinte calculée SUR LE
-  SERVEUR (aucune clé facturée), score MIXTE (sens + mots exacts, sinon les noms exacts se perdent),
-  index de recherche INCRÉMENTAL (migration 19). L'INDEX reste le REPLI : ce qui part tient sous
-  plafond et ne doit JAMAIS peser plus que l'index remplacé, sinon la recherche est refusée. Les
-  passages retrouvés sont visibles dans le tiroir « Contexte envoyé » et dans l'onglet « Détails ».
+  `docs/verifications.md`, `docs/mecaniques/`, compétences) ET dans les FICHIERS DU PROJET
+  (`shared/src/passages-code.ts`), puis envoie les quelques PASSAGES qui répondent, à la place de
+  l'index. Découpage par section ou par règle, index de recherche INCRÉMENTAL (migration 19).
+  L'INDEX reste le REPLI : ce qui part tient sous plafond et ne doit JAMAIS peser plus que l'index
+  remplacé, sinon la recherche est refusée. Les passages retrouvés sont visibles dans le tiroir
+  « Contexte envoyé » et dans l'onglet « Détails ».
+- **Le SENS vient d'un VRAI modèle de vectorisation, façon RAG** (`shared/src/vecteurs-doc.ts`,
+  `server/src/vecteurs.ts`, migration 27) : `openai/text-embedding-3-small` en 512 dimensions à
+  travers OpenRouter, clé dans `HAIKODEV_EMBED_API_KEY` / `OPENROUTER_API_KEY` (hors dépôt),
+  vectorisation par tranches de 480 passages. L'ancienne empreinte par hachage de MOTS reste le
+  REPLI, entier et sans panne, tant que la clé manque ou que l'index n'est vectorisé qu'à moins de
+  75 %. Le score reste MIXTE (sens + mots exacts), le sens pesant plus lourd quand il est vrai. Le
+  CODE passe derrière la documentation (priorité négative) et n'occupe jamais plus de 2 passages.
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
   priorité haute par la recherche.

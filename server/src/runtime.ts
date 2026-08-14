@@ -647,7 +647,7 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
    * mémoire, la recherche n'a donc rien à remplacer chez lui.
    */
   const recherche = nouvelleSession && partsDAccueil(niveau).memoire
-    ? rechercherPourLaTache(
+    ? await rechercherPourLaTache(
         project.id,
         project.path,
         [card?.title, card?.description, text].filter(Boolean).join('\n'),
