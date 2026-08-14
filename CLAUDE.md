@@ -135,6 +135,16 @@ le nom, là-bas le texte).
   (`shared/src/demon.ts`) : le démon porte toutes les publications et tous les agents, le couper en
   tranche un en plein vol. Un redémarrage demandé est retenu — le bouton affiche « Redémarrage
   requis » — et rejoué tout seul dès le dernier travail fini ; même le clic ne passe jamais outre.
+- **Un SIGNAL d'arrêt venu du dehors suit la MÊME règle que le bouton** (`decisionSurSignalDArret`,
+  `shared/src/demon.ts` ; `arretParSignal`, appelé en tête de `shutdown` dans `server/src/main.ts`) :
+  un `SIGTERM`/`SIGINT` reçu pendant qu'un travail tourne est RETENU, dit, et rejoué seul à la fin —
+  un signal répété compris. Un `systemctl stop` garde le dernier mot (`SIGKILL` après 20 s) et un
+  `kill -9` ne se retient pas : d'où le second verrou, `process.title = 'haikodev-serveur'`, la ligne
+  de commande du démon ne portant plus « server/dist/main.js ». **Ne JAMAIS lancer un `pkill -f` dont
+  le motif peut désigner le démon** (`main.js`, `node`, un chemin du projet) : c'est ce qui a coupé
+  quatre tâches le 14/08/2026. On vise le nom de SON propre script d'essai, jamais un chemin partagé.
+  Le surveillant système, lui, ne relance qu'après TROIS silences d'affilée
+  (`scripts/haikodev-watchdog.sh`, posé en `/usr/local/bin/`).
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
   `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et

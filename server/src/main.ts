@@ -1,3 +1,4 @@
+import { TITRE_DU_PROCESSUS } from '@haikodev/shared';
 import { CONFIG, ensureDirs } from './config.js';
 import { openDb } from './db.js';
 import { log } from './logger.js';
@@ -22,9 +23,21 @@ import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
 import { envoyerAuCerveau } from './cerveau.js';
 import { planifierAutoAmelioration } from './auto-amelioration.js';
-import { diffuserEtatDemon } from './demon.js';
+import { arretParSignal, diffuserEtatDemon } from './demon.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
+
+/*
+ * LE DÉMON NE S'APPELLE PLUS DU NOM DE SON FICHIER CONSTRUIT.
+ *
+ * Un agent qui nettoie ses propres essais avec `pkill -f "server/dist/main.js"`
+ * visait sans le savoir le démon de production, dont la ligne de commande
+ * portait exactement ce chemin. Le processus se donne donc un nom à lui, qui
+ * garde « haikodev » pour rester reconnaissable dans `ps`. Second verrou après
+ * la règle d'arrêt : celui-là tient même face à un `kill -9`, qu'aucun
+ * programme ne peut retenir.
+ */
+process.title = TITRE_DU_PROCESSUS;
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -152,6 +165,14 @@ async function main(): Promise<void> {
   });
 
   const shutdown = (signal: string) => {
+    /*
+     * Un signal venu du dehors ne passe PAS outre la règle : tant qu'une
+     * publication ou un agent travaille, l'arrêt est retenu et rejoué tout seul
+     * à la fin du dernier travail. Sans cela, un simple `pkill -f` visant les
+     * processus d'essai d'un agent coupait le démon de production, et avec lui
+     * toutes les tâches en vol (14/08/2026).
+     */
+    if (!arretParSignal(signal)) return;
     log.info(`arrêt demandé (${signal})`);
     clearInterval(scheduler);
     clearInterval(capacityTimer);

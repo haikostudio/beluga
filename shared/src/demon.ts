@@ -114,6 +114,53 @@ export function raisonAgents(agents: number): string {
     : `${agents} agents travaillent en ce moment : le redémarrage attend pour ne pas couper leur travail.`;
 }
 
+/*
+ * UN SIGNAL D'ARRÊT VENU DU DEHORS SUIT LA MÊME RÈGLE QUE LE BOUTON.
+ *
+ * Le bouton de redémarrage est bien gardé, mais ce n'est pas le seul chemin :
+ * un `pkill -f "server/dist/main.js"` lancé par un agent pour faire le ménage
+ * de ses propres essais frappe AUSSI le démon de production — c'est exactement
+ * ce qui s'est produit le 14/08/2026, trois fois en cinq minutes, coupant
+ * quatre tâches en plein vol. Le signal arrivait droit sur l'arrêt, sans que
+ * personne ne regarde ce qui tournait. Désormais il passe par la MÊME règle :
+ * si une publication ou un agent travaille, l'arrêt est RETENU, dit, et rejoué
+ * tout seul dès le dernier travail fini.
+ */
+
+export interface DecisionSurSignal {
+  /** On laisse le processus s'arrêter maintenant. */
+  arreter: boolean;
+  /** L'arrêt est retenu : il repartira dès le dernier travail terminé. */
+  retenu: boolean;
+  /** Pourquoi il est retenu, à écrire au journal et à montrer. */
+  raison?: string;
+}
+
+/**
+ * Que faire d'un signal d'arrêt (SIGTERM, SIGINT) reçu du dehors ? La même
+ * règle que le bouton, sans exception : rien qui tourne, on s'arrête ; un
+ * travail en vol, on retient.
+ */
+export function decisionSurSignalDArret(monde: { publications: string[]; agents: number }): DecisionSurSignal {
+  const suite = suiteDuRedemarrage(true, monde);
+  if (suite.redemarrer) return { arreter: true, retenu: false };
+  return { arreter: false, retenu: true, raison: suite.raison };
+}
+
+/** La phrase écrite au journal quand un signal d'arrêt est retenu. */
+export function raisonSignalRetenu(signal: string, raison?: string): string {
+  const fin = raison ? ` ${raison}` : '';
+  return `arrêt (${signal}) RETENU : du travail tourne encore, le serveur ne se coupe pas.${fin}`;
+}
+
+/**
+ * Le nom que le processus se donne. Un `pkill -f` visant le chemin du fichier
+ * construit (« server/dist/main.js ») ne doit plus rencontrer le démon : c'est
+ * le second verrou, celui qui tient même face à un signal impossible à retenir
+ * (`kill -9`). Le nom garde « haikodev » pour rester reconnaissable dans `ps`.
+ */
+export const TITRE_DU_PROCESSUS = 'haikodev-serveur';
+
 export interface SuiteRedemarrage {
   /** On lance le redémarrage tout de suite. */
   redemarrer: boolean;
