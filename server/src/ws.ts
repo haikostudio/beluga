@@ -44,6 +44,7 @@ import { normaliseThinking } from './engines/catalog.js';
 import {
   cachedQuotas,
   cleDuCompteCursor,
+  declarerCleCursor,
   listAccountRecords,
   refreshQuotas,
   renameAccount,
@@ -1214,6 +1215,22 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const compte = cmd.accountId ? comptes.find((a) => a.id === cmd.accountId) : comptes[0];
       if (!compte) throw new Error('aucun compte Cursor déclaré');
       return { etat: await etatDuCompteCursor(cleDuCompteCursor(compte)) };
+    }
+
+    /*
+     * UNE CLÉ CURSOR DE PLUS. Le compte n'entre dans la liste qu'une fois la
+     * clé éprouvée ; les moteurs sont ensuite relus, sinon Cursor resterait
+     * « absent » jusqu'au prochain redémarrage sur une installation qui vient
+     * de recevoir sa toute première clé.
+     */
+    case 'cursor.ajouterCle': {
+      const rendu = await declarerCleCursor(cmd.label, cmd.cle);
+      if (rendu.ok) {
+        const quotas = await refreshQuotas(true);
+        bus.emit({ type: 'quotas', quotas });
+        bus.emit({ type: 'engines', engines: await listEngines(true) });
+      }
+      return rendu;
     }
 
     case 'quota.refresh': {

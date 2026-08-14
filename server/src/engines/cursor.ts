@@ -20,6 +20,7 @@ import {
   type ModeleCursor,
 } from '@haikodev/shared';
 import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions } from './types.js';
+import { cleDuCompteCursor, listAccountRecords } from '../accounts.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -44,6 +45,29 @@ const execFileAsync = promisify(execFile);
 /** La clé de ce tour : celle du compte porteur, sinon celle du serveur. */
 function cleDuTour(env?: Record<string, string>): string {
   return (env?.CURSOR_API_KEY || process.env.CURSOR_API_KEY || '').trim();
+}
+
+/**
+ * TOUTES les clés Cursor connues, du compte prioritaire au dernier, celle de
+ * l'environnement en dernier recours.
+ *
+ * Un seul compte ne doit pas décider pour le moteur entier : sa clé peut être
+ * révoquée alors qu'un second compte répond très bien. Sans cette liste, le
+ * moteur se déclarait ABSENT dès que la clé de l'environnement était refusée —
+ * et le compte de relève, pourtant valide, disparaissait avec lui (constaté par
+ * `scripts/verif-moteur-cursor.mjs`).
+ */
+export function clesCursor(): string[] {
+  const cles: string[] = [];
+  for (const compte of listAccountRecords()
+    .filter((a) => a.engine === 'cursor')
+    .sort((a, b) => a.priority - b.priority)) {
+    const cle = cleDuCompteCursor(compte);
+    if (cle && !cles.includes(cle)) cles.push(cle);
+  }
+  const environnement = cleDuTour();
+  if (environnement && !cles.includes(environnement)) cles.push(environnement);
+  return cles;
 }
 
 export class RefusCursor extends Error {
@@ -294,20 +318,28 @@ export const cursorAdapter: EngineAdapter = {
   defaultModel: MODELE_CURSOR_PAR_DEFAUT,
 
   async detect() {
-    const cle = cleDuTour();
-    if (!cle) return { installed: false };
-    try {
-      const moi = await appelCursor('/v1/me', cle, { plafondMs: 15_000 });
-      return { installed: true, version: typeof moi?.apiKeyName === 'string' ? moi.apiKeyName : 'clé acceptée' };
-    } catch (err) {
-      log.warn('clé Cursor refusée', err);
-      return { installed: false };
+    const cles = clesCursor();
+    if (!cles.length) return { installed: false };
+    let dernierRefus: unknown = null;
+    for (const cle of cles) {
+      try {
+        const moi = await appelCursor('/v1/me', cle, { plafondMs: 15_000 });
+        return { installed: true, version: typeof moi?.apiKeyName === 'string' ? moi.apiKeyName : 'clé acceptée' };
+      } catch (err) {
+        dernierRefus = err;
+        // Compte suivant : une clé révoquée ne doit pas emporter le moteur.
+      }
     }
+    log.warn('aucune clé Cursor acceptée', dernierRefus);
+    return { installed: false };
   },
 
   async models() {
-    const cle = cleDuTour();
-    return cle ? modelesCursor(cle).catch(() => []) : [];
+    for (const cle of clesCursor()) {
+      const liste = await modelesCursor(cle).catch(() => null);
+      if (liste?.length) return liste;
+    }
+    return [];
   },
 
   run(options: EngineRunOptions): EngineHandle {

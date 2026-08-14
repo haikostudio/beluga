@@ -392,7 +392,9 @@ le nom, là-bas le texte).
   nulle part. Cursor ne publiant AUCUN quota, sa ligne de compte n'affiche PAS de jauge
   (`moteurSansQuota`) mais l'état de sa clé et les DÉPÔTS qu'elle ouvre (commande `cursor.etat`), et
   la clé de l'environnement n'appartient qu'au compte principal — un compte de relève porte la
-  sienne dans son dossier. Ce que l'agent ÉCRIT revient dans la carte en fin de tour
+  sienne dans son dossier et **s'ajoute depuis les réglages** (`cursor.ajouterCle`, clé éprouvée
+  avant d'entrer dans la liste), le moteur regardant TOUTES les clés déclarées (`clesCursor`) et non
+  la seule clé du serveur. Ce que l'agent ÉCRIT revient dans la carte en fin de tour
   (`rapatrierLeTravail`) : branche « cursor/… » fusionnée, mais seulement dans un dossier de carte
   propre, un conflit étant défait et DIT. Verrouillé par `server/src/test/moteur-cursor.test.ts` et
   `scripts/verif-moteur-cursor.mjs`.

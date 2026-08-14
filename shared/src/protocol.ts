@@ -340,6 +340,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('cursor.etat'), accountId: z.string().optional() }),
   /**
+   * DÉCLARER UNE CLÉ CURSOR DE PLUS, sans toucher au serveur. Cursor ne se
+   * connecte pas par une page de connexion comme Claude et Codex : il n'a
+   * qu'une clé, et il faut bien un endroit pour en poser une seconde.
+   */
+  z.object({ type: z.literal('cursor.ajouterCle'), label: z.string(), cle: z.string() }),
+  /**
    * Connecter ou RECONNECTER un compte de moteur sans ouvrir de terminal.
    * Sans `accountId`, c'est un compte neuf : il n'entre dans la liste qu'une
    * fois la connexion réussie.

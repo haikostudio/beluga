@@ -1299,6 +1299,94 @@ function ConnecterUnCompte() {
           {derniere && connexionTerminee(derniere) ? <BlocConnexion connexion={derniere} /> : null}
         </>
       )}
+      <AjouterCleCursor />
+    </div>
+  );
+}
+
+/**
+ * UNE CLÉ CURSOR DE PLUS. Cursor ne se connecte pas par une page de connexion :
+ * il n'a qu'une clé. Sans ce champ, ajouter un second compte Cursor demandait
+ * de créer des fichiers sur le serveur — une possibilité qui n'existait donc
+ * pas pour qui n'ouvre pas de terminal.
+ *
+ * Le compte n'apparaît qu'une fois la clé ÉPROUVÉE par le serveur : une clé
+ * refusée dit pourquoi et ne laisse aucune ligne morte dans la liste.
+ */
+function AjouterCleCursor() {
+  const [ouvert, setOuvert] = React.useState(false);
+  const [nom, setNom] = React.useState('');
+  const [cle, setCle] = React.useState('');
+  const [envoi, setEnvoi] = React.useState(false);
+  const [erreur, setErreur] = React.useState<string | null>(null);
+
+  const valider = async () => {
+    setEnvoi(true);
+    setErreur(null);
+    try {
+      const rendu = await client.call<{ ok: boolean; erreur?: string }>({
+        type: 'cursor.ajouterCle',
+        label: nom,
+        cle,
+      });
+      if (!rendu.ok) {
+        setErreur(rendu.erreur ?? 'clé refusée');
+        return;
+      }
+      client.pushToast('success', 'compte Cursor ajouté');
+      setOuvert(false);
+      setNom('');
+      setCle('');
+    } catch (err: any) {
+      setErreur(err?.message ?? 'ajout impossible');
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  if (!ouvert) {
+    return (
+      <Button variant="outline" size="sm" className="mt-1.5" onClick={() => setOuvert(true)}>
+        <KeyRound className="h-3 w-3" />
+        Ajouter une clé Cursor
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 rounded-md border border-border bg-surface px-2 py-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Input
+          autoFocus
+          value={nom}
+          placeholder="Nom du compte"
+          disabled={envoi}
+          onChange={(event) => setNom(event.target.value)}
+          className="h-7 w-40 text-[13.5px]"
+        />
+        <Input
+          value={cle}
+          placeholder="Clé d'accès Cursor"
+          disabled={envoi}
+          onChange={(event) => setCle(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') valider();
+          }}
+          className="h-7 min-w-0 flex-1 text-[13.5px]"
+        />
+        <Button size="sm" disabled={envoi || !nom.trim() || !cle.trim()} onClick={valider}>
+          {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+          Ajouter
+        </Button>
+        <Button variant="ghost" size="sm" disabled={envoi} onClick={() => setOuvert(false)}>
+          Annuler
+        </Button>
+      </div>
+      {erreur ? <p className="mt-1 text-[12.5px] text-danger">{erreur}</p> : null}
+      <p className="mt-1 text-[12.5px] leading-relaxed text-faint">
+        La clé se crée sur cursor.com, dans le tableau de bord. Elle est éprouvée avant d'être retenue : un compte
+        n'apparaît que s'il répond vraiment.
+      </p>
     </div>
   );
 }

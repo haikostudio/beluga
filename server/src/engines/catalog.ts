@@ -9,8 +9,8 @@ import {
   ModelInfo,
   ThinkingOption,
 } from '@haikodev/shared';
-import { cleDuCompteCursor, listAccountRecords } from '../accounts.js';
-import { modelesCursor } from './cursor.js';
+import { listAccountRecords } from '../accounts.js';
+import { clesCursor, modelesCursor } from './cursor.js';
 import { log } from '../logger.js';
 
 /**
@@ -307,7 +307,7 @@ function codexFallback(): ModelInfo[] {
  * la main (`shared/src/moteur-cursor.ts`, règles pures et testées).
  */
 export async function cursorCatalog(): Promise<Catalogue> {
-  const cles = cursorTokens();
+  const cles = clesCursor();
   if (!cles.length) return { models: cursorFallback(), live: false, error: SANS_COMPTE };
 
   let dernierEchec = SANS_COMPTE;
@@ -335,18 +335,6 @@ export async function cursorCatalog(): Promise<Catalogue> {
   }
   log.warn('catalogue Cursor indisponible, repli local', dernierEchec);
   return { models: cursorFallback(), live: false, error: dernierEchec };
-}
-
-/** Les clés Cursor, du compte prioritaire au dernier (même règle que les autres). */
-export function cursorTokens(): string[] {
-  const cles: string[] = [];
-  for (const account of listAccountRecords()
-    .filter((a) => a.engine === 'cursor')
-    .sort((a, b) => a.priority - b.priority)) {
-    const cle = cleDuCompteCursor(account);
-    if (cle) cles.push(cle);
-  }
-  return cles;
 }
 
 function cursorFallback(): ModelInfo[] {
