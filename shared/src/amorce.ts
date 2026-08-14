@@ -113,6 +113,24 @@ export function alerterApresEchec(echecsDAffilee: number): boolean {
 }
 
 /**
+ * Un refus 429 dit que le compte a atteint sa limite : une situation normale
+ * et attendue, pas une panne. On le reconnaît sur le code que le fournisseur
+ * renvoie, jamais sur un mot du message — c'est la seule marque fiable.
+ */
+export function estRefusDeSaturation(raison?: string): boolean {
+  return !!raison && raison.includes('429');
+}
+
+/**
+ * Le texte à montrer pour un échec d'amorce : le code technique du refus ne
+ * parle à personne, « limite atteinte » si. Une vraie panne, elle, garde sa
+ * raison telle quelle — c'est elle qu'on doit pouvoir diagnostiquer.
+ */
+export function texteEchecAmorce(raison: string): string {
+  return estRefusDeSaturation(raison) ? 'limite atteinte' : raison;
+}
+
+/**
  * Jusqu'à quand une amorce posée maintenant couvre la fenêtre. L'heure de
  * remise à zéro annoncée fait foi ; sans elle, on compte cinq heures.
  */
