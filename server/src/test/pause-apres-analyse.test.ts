@@ -84,11 +84,13 @@ test('valider laisse la carte en « Planifié », jamais en « En cours »', () 
 
 test('une carte qui dort en « Planifié » ne coûte rien : aucun tour ne part', () => {
   const scheduler = lire('scheduler.ts');
-  // Le seul envoi au moteur de l'ordonnanceur est celui du lancement.
-  const envois = [...scheduler.matchAll(/await sendPrompt\(/g)];
+  // Le seul envoi au moteur de l'ordonnanceur est celui du lancement. Il n'est
+  // plus ATTENDU (le tour dure des minutes, la commande répond tout de suite),
+  // mais il reste unique et à sa place.
+  const envois = [...scheduler.matchAll(/(?:await|void) sendPrompt\(/g)];
   assert.equal(envois.length, 1, 'un seul envoi au moteur dans l’ordonnanceur : le lancement');
   const start = scheduler.split('export async function startCard(')[1].split('\nexport ')[0];
-  assert.match(start, /await sendPrompt\(/, 'et il est bien dans startCard');
+  assert.match(start, /void sendPrompt\(/, 'et il est bien dans startCard');
   // Et plus aucun agent d'analyse ne naît avant ce lancement.
   assert.doesNotMatch(scheduler, /role: 'analysis'/);
 });

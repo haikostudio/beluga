@@ -529,7 +529,23 @@ Tu travailles sur la branche « ${branch} », dans le dossier « ${prepa.dossier
 
 ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (commit + push). Ne publie pas.`;
 
-  await sendPrompt(agent.id, prompt, {
+  /*
+   * LE LANCEMENT RÉPOND DÈS QUE LE TOUR EST PARTI, jamais à sa fin.
+   *
+   * `sendPrompt` ne rend la main qu'une fois le tour TERMINÉ — des minutes,
+   * parfois des heures. En l'attendant ici, `startCard` gardait la réponse de
+   * `card.start` / `card.move` en suspens tout ce temps : le navigateur, qui
+   * abandonne au bout de deux minutes, croyait le geste perdu, éteignait ses
+   * boutons pendant l'attente et annonçait « Aucune carte lancée » alors que
+   * l'agent travaillait déjà.
+   *
+   * Tout ce qui devait être vrai AVANT de répondre l'est : les portes sont
+   * franchies, la branche est prête, l'agent existe et la carte est passée en
+   * « En cours » (`card.upsert` déjà diffusé). La suite se raconte toute seule
+   * par les événements — c'est la même règle que le tiroir des procédures, dont
+   * le tour ne se livre pas non plus par la réponse de sa commande.
+   */
+  void sendPrompt(agent.id, prompt, {
     silent: true,
     context: contexteHeritePourExecution(card),
     // Une carte lancée est une vraie tâche : elle mérite le compte rendu entier.
@@ -602,6 +618,16 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
         bus.toast('error', `Agent en échec : ${fresh.title}`, fresh.id);
       }
     },
+  }).catch((err) => {
+    /*
+     * Plus personne n'attend cette promesse : une panne du lancement lui-même
+     * (moteur introuvable, coffre du compte illisible) doit donc être DITE ici,
+     * sinon elle disparaîtrait en silence. La carte, elle, est déjà rangée par
+     * les chemins de fin de tour.
+     */
+    log.error('lancement de carte', err);
+    const fresh = store.getCard(cardId);
+    bus.toast('error', `Lancement impossible : ${String(err?.message ?? err).slice(0, 200)}`, fresh?.id);
   });
 
   return { ok: true };
