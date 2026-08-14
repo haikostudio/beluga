@@ -1687,8 +1687,12 @@ export function CardTile({
             className={cn(
               // Toute la largeur de la carte, sur UNE ligne, sans marge latérale.
               // Le petit espace en haut laisse voir l'ombre portée, qui donne
-              // l'impression que la carte recouvre la bande.
-              'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-none',
+              // l'impression que la carte recouvre la bande. Padding resserré
+              // (px-1.5, pas le px-2.5 du corps de la carte) : cette bande est
+              // un pied technique, pas le texte principal, et son icône comme
+              // sa pastille doivent coller aux bords pour laisser le texte de
+              // l'étape respirer avant d'être tronqué.
+              'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-border/30 px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
               'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
               statut.ton,
             )}
@@ -1716,7 +1720,10 @@ export function CardTile({
           onClick={ouvrir}
           data-barre-travail={card.id}
           className={cn(
-            'relative -mt-1 flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-b-md bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-none',
+            // Même resserrement que la bande ci-dessus (px-1.5 au lieu de
+            // px-2.5) : l'icône colle au bord gauche, la pastille de temps au
+            // bord droit, et le nom de l'étape gagne la place ainsi rendue.
+            'relative -mt-1 flex cursor-pointer items-center gap-1 overflow-hidden rounded-b-md bg-border/30 px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
             'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
           )}
         >
