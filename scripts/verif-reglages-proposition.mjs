@@ -4,7 +4,8 @@
  *
  * Deux relevés, du plus profond au plus visible :
  *   1. la RÈGLE, jouée sur le catalogue RÉEL de cette machine : une proposition
- *      faite sous Codex ne peut pas ressortir avec un modèle Claude ;
+ *      faite sous Codex ne peut pas ressortir avec un modèle Claude ; un modèle
+ *      choisi à l'écran n'est pas réécrit par le palier du chef ;
  *   2. l'ÉCRAN, dans un vrai navigateur : la carte à valider affiche le moteur
  *      et le modèle de la conversation, et ses trois réglages s'ouvrent encore.
  *
@@ -23,7 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { catalogueMoteurs } from '../server/dist/catalogue-moteurs.js';
-import { reglagesDeLaProposition } from '../shared/dist/reglages-proposition.js';
+import { accorderRunDeProposition, reglagesDeLaProposition } from '../shared/dist/reglages-proposition.js';
 
 /* Le contrôle monte son propre démon avec la construction du dépôt d'où part
    ce script : il ne dépend ni de l'application publiée, ni de sa base. */
@@ -267,6 +268,20 @@ async function main() {
     sansCompte?.engine === 'codex' && /aucun compte/i.test(sansCompte?.avertissement ?? ''),
     sansCompte?.avertissement ?? '(aucun avertissement)',
   );
+
+  const autreModele = (codex.models ?? []).find((m) => m.id !== sousCodex?.model);
+  if (autreModele && sousCodex?.model) {
+    const choisi = accorderRunDeProposition(
+      { engine: 'codex', model: sousCodex.model, thinking: sousCodex.thinking, niveau: 'standard' },
+      { engine: 'codex', model: autreModele.id, thinking: sousCodex.thinking },
+      catalogue,
+    );
+    noter(
+      'un modèle choisi à l’écran n’est pas réécrit par le palier du chef',
+      choisi?.model === autreModele.id,
+      `demandé : ${autreModele.id} · rendu : ${choisi?.model}`,
+    );
+  }
 
   /* ---------------- 2. L'écran, dans un vrai navigateur ---------------- */
 

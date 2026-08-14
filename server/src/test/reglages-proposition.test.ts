@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { IdMoteur, MoteurCatalogue, reglagesDeLaProposition } from '@haikodev/shared';
+import { accorderRunDeProposition, IdMoteur, MoteurCatalogue, reglagesDeLaProposition } from '@haikodev/shared';
 
 /** Un catalogue proche du vrai : deux moteurs, leurs modèles, leurs niveaux. */
 function catalogue(patch: Partial<Record<IdMoteur, Partial<MoteurCatalogue>>> = {}): MoteurCatalogue[] {
@@ -99,4 +99,24 @@ test('sans réglage souhaité, la proposition porte quand même un choix entier'
 test('sans moteur installé, aucun réglage n’est inventé', () => {
   const aucun = catalogue({ claude: { installed: false }, codex: { installed: false } });
   assert.equal(reglagesDeLaProposition({ engine: 'claude' }, aucun), undefined);
+});
+
+/**
+ * Le défaut constaté : on changeait Grok pour GPT (ou l'inverse) sur la carte
+ * à valider, le palier « standard » du chef réécrivait le modèle à la
+ * validation, et la carte partait avec l'autre.
+ */
+test('valider reprend le modèle choisi à l’écran, même si le palier du chef reste posé', () => {
+  const actuel = { engine: 'codex' as const, model: 'gpt-5.1-codex-max', thinking: 'medium', niveau: 'standard' as const };
+  const ecran = { engine: 'codex' as const, model: 'gpt-5.1-codex', thinking: 'medium' };
+  const retenu = accorderRunDeProposition(actuel, ecran, catalogue());
+  assert.equal(retenu?.engine, 'codex');
+  assert.equal(retenu?.model, 'gpt-5.1-codex');
+  assert.equal(retenu?.niveau, 'standard');
+});
+
+test('sans choix à l’écran, le modèle déjà posé sur la proposition reste', () => {
+  const actuel = { engine: 'codex' as const, model: 'gpt-5.1-codex', thinking: 'medium', niveau: 'standard' as const };
+  const retenu = accorderRunDeProposition(actuel, undefined, catalogue());
+  assert.equal(retenu?.model, 'gpt-5.1-codex');
 });

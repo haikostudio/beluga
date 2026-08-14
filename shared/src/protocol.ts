@@ -231,6 +231,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
     run: RunConfig.partial().optional(),
   }),
   /**
+   * Enregistre moteur, modèle et réflexion CHOISIS sur une proposition encore
+   * en attente, avant le clic de validation. Sans cela, le choix ne vivait
+   * que dans l'écran : un rechargement, ou la traduction du palier du chef
+   * au moment de valider, le faisait partir avec un autre modèle.
+   */
+  z.object({
+    type: z.literal('proposal.config'),
+    messageId: z.string(),
+    proposalId: z.string(),
+    run: RunConfig.partial(),
+  }),
+  /**
    * Réunir plusieurs propositions en attente. L'opération ne crée aucune
    * carte : elle remplace les sources par une nouvelle proposition éditable.
    */

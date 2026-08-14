@@ -111,12 +111,19 @@ test('un mot inconnu ne devient pas un palier au hasard', () => {
  */
 
 test('le niveau décide du modèle, pas la conversation du chef', () => {
+  const retenu = reglagesDeLaProposition({ engine: 'claude', niveau: 'approfondi' }, [CLAUDE]);
+  assert.equal(retenu?.model, 'claude-opus-5');
+  assert.equal(retenu?.thinking, 'high');
+  assert.equal(retenu?.niveau, 'approfondi');
+});
+
+test('un modèle déjà choisi n’est pas réécrit par le palier du chef', () => {
   const retenu = reglagesDeLaProposition(
     { engine: 'claude', model: 'claude-haiku-4-5', thinking: 'none', niveau: 'approfondi' },
     [CLAUDE],
   );
-  assert.equal(retenu?.model, 'claude-opus-5');
-  assert.equal(retenu?.thinking, 'high');
+  assert.equal(retenu?.model, 'claude-haiku-4-5');
+  assert.equal(retenu?.thinking, 'none');
   assert.equal(retenu?.niveau, 'approfondi');
 });
 

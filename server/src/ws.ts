@@ -32,7 +32,7 @@ import {
   messagesDepuis,
   peutRepartir,
   raisonDattente,
-  reglagesDeLaProposition,
+  accorderRunDeProposition,
 } from '@haikodev/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
@@ -963,11 +963,11 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // pas celle proposée.
       // Réglages complétés par leurs valeurs par défaut : la carte porte un
       // choix entier, jamais un demi-réglage impossible à relancer.
-      // Ce qui est validé est ce qui partira : le réglage est repassé par la
-      // règle du catalogue, pour qu'aucune carte ne naisse avec un modèle
-      // emprunté à un autre moteur — même envoyé par une page restée ouverte.
+      // Ce qui s'affiche est ce qui part : un modèle choisi à l'écran, s'il
+      // appartient au moteur, n'est plus réécrit par le palier du chef.
+      // Le catalogue écarte seulement un identifiant emprunté à un autre moteur.
       const souhait = cmd.run ? { ...(proposal.run ?? {}), ...cmd.run } : proposal.run;
-      const accorde = souhait ? reglagesDeLaProposition(souhait, await catalogueMoteurs()) : undefined;
+      const accorde = accorderRunDeProposition(proposal.run, cmd.run, await catalogueMoteurs());
       const run = accorde
         ? RunConfig.parse({
             ...(souhait ?? {}),
@@ -1036,6 +1036,40 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // Tranchée, la proposition ne réclame plus rien : le signal s'éteint.
       bus.emit({ type: 'attention', ...store.signalAttention() });
       return { cardId };
+    }
+
+    case 'proposal.config': {
+      const message = store.getMessage(cmd.messageId);
+      if (!message) throw new Error('message introuvable');
+      const proposal = message.proposals.find((p) => p.id === cmd.proposalId);
+      if (!proposal) throw new Error('proposition introuvable');
+      if (proposal.decision !== 'pending') return { already: true };
+
+      const agent = store.getAgent(message.agentId);
+      if (!agent) throw new Error('agent introuvable');
+
+      const souhait = { ...(proposal.run ?? {}), ...cmd.run };
+      const accorde = accorderRunDeProposition(proposal.run, cmd.run, await catalogueMoteurs());
+      const run = accorde
+        ? RunConfig.parse({
+            ...(souhait ?? {}),
+            engine: accorde.engine,
+            model: accorde.model,
+            thinking: accorde.thinking,
+          })
+        : RunConfig.parse(souhait);
+      const updated = TaskProposal.parse({
+        ...proposal,
+        run,
+        ...(accorde?.avertissement ? { avertissement: accorde.avertissement } : {}),
+      });
+      store.saveProposal(message.id, agent.projectId, updated);
+      const updatedMessage = store.saveMessage({
+        ...message,
+        proposals: message.proposals.map((p) => (p.id === cmd.proposalId ? updated : p)),
+      });
+      bus.emit({ type: 'message.upsert', message: updatedMessage });
+      return { ok: true, run };
     }
 
     case 'proposal.merge': {

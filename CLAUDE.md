@@ -208,8 +208,10 @@ le nom, là-bas le texte).
   lui-même ne bouge pas.
 - **Trois NIVEAUX, jamais un modèle nommé** (`shared/src/niveau-agent.ts`) : « leger », « standard »,
   « approfondi », traduits en modèle et réflexion réels par l'appétit du catalogue. Le niveau décide du
-  modèle de la carte, PAS celui du chef — sinon un chef économe ferait exécuter tout le tableau au
-  rabais. Retenu sur `RunConfig.niveau`, modifiable à la main avant lancement.
+  modèle au moment de PROPOSER, PAS celui du chef — sinon un chef économe ferait exécuter tout le
+  tableau au rabais. Un choix fait ensuite à l'écran (moteur, modèle, réflexion) est enregistré
+  (`proposal.config`) et c'est LUI qui part (`accorderRunDeProposition`) : ce qui s'affiche est ce
+  qui s'exécute. Retenu sur `RunConfig.niveau`, modifiable à la main avant lancement.
 - **La description exigée dépend de QUI propose** (`jugerDescription`, `shared/src/description-carte.ts`) :
   quatre parties et un repère concret (320-2400 signes) pour un agent qui a étudié ; la demande
   simplement REFORMULÉE (80-2400 signes) pour le chef, qui n'a rien ouvert et n'a donc rien à citer.
