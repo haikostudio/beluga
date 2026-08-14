@@ -460,8 +460,11 @@ le nom, là-bas le texte).
   projet, à partir des agents de rôle « task » encore au travail dans `state.agents` (connu pour
   tous les projets, contrairement aux cartes, chargées seulement pour le projet ouvert). Il vit à la
   MÊME place que le triangle de décision (`RepereLigne`) — une décision qui attend prime toujours —
-  et disparaît dès qu'aucune carte de ce projet n'a plus d'agent actif. Vérifié par
-  `scripts/verif-avancement-colonne-gauche.mjs`.
+  et disparaît dès qu'aucune carte de ce projet n'a plus d'agent actif. **Il ne bouge JAMAIS d'un
+  pixel** : contrairement au triangle, qui EMPRUNTE au repos la place de l'icône réglages (encore
+  invisible) puis s'en écarte au survol par un glissement, le pourcentage emprunte la même place en
+  PERMANENCE (décalage fixe, jamais retiré) et cède la place à l'icône par une simple bascule
+  d'OPACITÉ — jamais par un déplacement. Vérifié par `scripts/verif-avancement-colonne-gauche.mjs`.
 - **PLUS AUCUN COMPTEUR DE JETONS VISIBLE NULLE PART** (`docs/plans/refonte-visualisation-prompts.md`,
   plan validé) : à la place, VOIR le texte réellement envoyé au moteur. Le tiroir « Contexte envoyé »
   du chef et l'onglet « Détails » d'une carte lisent tous deux le même LECTEUR DE PROMPTS
