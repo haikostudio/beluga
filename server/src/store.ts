@@ -562,6 +562,26 @@ export function cartesEnVol(): Card[] {
     .filter((carte) => !!carte.scheduling?.tourEnVolDepuis);
 }
 
+/**
+ * TOUTES LES CARTES DE « EN COURS », tous projets confondus.
+ *
+ * Le balayage des cartes oubliées (`rangerLesCartesOubliees`) en a besoin sans
+ * connaître les projets un par un : une carte bloquée l'est quel que soit le
+ * projet ouvert à l'écran. La colonne est une VRAIE colonne SQL depuis la
+ * migration 17 : la requête juge, elle ne dégrossit pas.
+ */
+export function cartesEnCours(): Card[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM cards WHERE column_key = 'running'")
+    .all() as LigneCarte[];
+  return rows.map((row) =>
+    carteDepuisLigne(row, {
+      labels: listeDUneCarte('card_labels', 'label', row.id),
+      attachments: listeDUneCarte('card_attachments', 'path', row.id),
+    }),
+  );
+}
+
 export function getCard(id: string): Card | null {
   const row = getDb().prepare('SELECT * FROM cards WHERE id = ?').get(id) as LigneCarte | undefined;
   if (!row) return null;
