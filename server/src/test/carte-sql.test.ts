@@ -68,6 +68,19 @@ avant.exec(`
   );
   CREATE INDEX idx_cards_project ON cards(project_id, column_key, position);
   CREATE TABLE migrations (id INTEGER PRIMARY KEY, name TEXT, applied_at INTEGER);
+  /* La table des PROJETS existe depuis la migration 1 : une base d'avant l'a
+     forcément. Sans elle ici, une migration postérieure qui touche les projets
+     (la 22, qui marque leur procédure de déploiement) tomberait sur une base
+     d'essai plus pauvre que n'importe quelle base réelle. */
+  CREATE TABLE projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    archived INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `);
 for (let id = 1; id <= 16; id += 1) {
   avant.prepare('INSERT INTO migrations (id, name, applied_at) VALUES (?, ?, ?)').run(id, `ancienne-${id}`, 1);

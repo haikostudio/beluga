@@ -49,6 +49,7 @@ import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
+import { tourDeProcedure } from './procedure-publication.js';
 import { appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
 import { iconeManquante, recupererFaviconEnTache } from './favicon.js';
@@ -1339,6 +1340,19 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
      */
     case 'production.generer':
       return genererPromptDeProduction(cmd.projectId, cmd.base);
+
+    /*
+     * LE TIROIR DE PROCÉDURE, un tour à la fois : l'agent pose sa question à
+     * l'ouverture, puis écrit la procédure quand la réponse arrive. C'est lui
+     * qui l'enregistre, sur la cible de la colonne d'où le tiroir a été ouvert.
+     */
+    case 'procedure.tour':
+      return tourDeProcedure({
+        projectId: cmd.projectId,
+        cible: cmd.cible,
+        agentId: cmd.agentId,
+        message: cmd.message,
+      });
 
     /*
      * Le relevé de consommation, plus la PART DE L'ENTRÉE RELUE AU CACHE sur

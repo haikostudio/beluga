@@ -74,6 +74,10 @@ function monterProjet(nom, colonne = 'to_deploy') {
        local) est le seul type qui n'appelle NI agent NI transfert : la
        plomberie git est jouée en entier, aucun quota n'est dépensé. */
     miseEnProduction: { type: 'aucune' },
+    /* Un projet neuf n'a plus de procédure de déploiement : sans elle, rien ne
+       part. « Constaté » est le marqueur des projets d'avant — le déroulé de
+       HaikoDev, du service système ou du dossier servi, inchangé. */
+    deploiement: { constate: true },
     createdAt: maintenant,
     updatedAt: maintenant,
   });
