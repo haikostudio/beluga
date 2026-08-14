@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  DIMENSIONS_VECTEUR,
+  DIMENSIONS_MINIMALES,
   DOSSIER_MEMOIRE,
   DOSSIER_PLANS,
   FICHIERS_CODE_MAX,
@@ -210,9 +210,14 @@ function vecteurEnBinaire(vecteur: number[]): Buffer {
   return Buffer.from(tableau.buffer, tableau.byteOffset, tableau.byteLength);
 }
 
-/** Le chemin inverse. Un binaire de mauvaise taille est traité comme absent. */
+/**
+ * Le chemin inverse. La TAILLE n'est plus fixe — elle dépend du moteur (1 024
+ * pour bge-m3, 512 pour le modèle d'OpenAI) —, on vérifie donc seulement qu'elle
+ * est plausible : un multiple de quatre octets, au moins `DIMENSIONS_MINIMALES`.
+ * C'est le NOM du modèle rangé à côté qui empêche de comparer deux échelles.
+ */
 function vecteurDepuisBinaire(brut: Buffer | Uint8Array | null | undefined): Float32Array | undefined {
-  if (!brut || brut.byteLength !== DIMENSIONS_VECTEUR * 4) return undefined;
+  if (!brut || brut.byteLength % 4 !== 0 || brut.byteLength < DIMENSIONS_MINIMALES * 4) return undefined;
   // Une copie, et non une vue : le tampon de better-sqlite3 peut être réutilisé.
   return new Float32Array(Uint8Array.from(brut).buffer);
 }

@@ -1,4 +1,5 @@
 import {
+  DUREE_MAX_PAR_NUIT_MS,
   PERIODE_VECTORISATION_MS,
   TRANCHES_MAX_PAR_NUIT,
   decisionDeVectorisation,
@@ -8,7 +9,7 @@ import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import * as store from './store.js';
 import { couvertureDesVecteurs, indexerDocumentation, vectoriserLIndex } from './passages.js';
-import { cleDesVecteurs } from './vecteurs.js';
+import { etatDesVecteurs } from './vecteurs.js';
 
 /**
  * LA VECTORISATION DE LA NUIT — l'index de TOUS les projets, d'un coup.
@@ -47,11 +48,12 @@ export async function vectoriserUnProjet(
   projectId: string,
   projectPath: string,
   tranchesRestantes: number,
+  finAu = Number.POSITIVE_INFINITY,
 ): Promise<{ vectorises: number; tranches: number; total: number }> {
   indexerDocumentation(projectId, projectPath);
   let vectorises = 0;
   let tranches = 0;
-  while (tranches < tranchesRestantes) {
+  while (tranches < tranchesRestantes && Date.now() < finAu) {
     const { faits } = await vectoriserLIndex(projectId);
     if (!faits) break;
     vectorises += faits;
@@ -71,7 +73,7 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
   if (!force) {
     const brut = getMeta(CLE_DERNIER_PASSAGE);
     const decision = decisionDeVectorisation({
-      clePosee: !!cleDesVecteurs(),
+      clePosee: etatDesVecteurs().pret,
       dernierPassage: brut ? Number(brut) : undefined,
       maintenant,
       heureCourante: new Date(maintenant).getHours(),
@@ -82,6 +84,13 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
   }
 
   enCours = true;
+  /*
+   * LA BORNE DE TEMPS. Le moteur local fait deux passages par seconde : sans
+   * elle, la première nuit déborderait de neuf heures sur la journée. On
+   * s'arrête à l'heure dite et on reprend demain, là où on en était — l'index
+   * se complète en quelques nuits, aucune ne mord sur le travail.
+   */
+  const finAu = maintenant + DUREE_MAX_PAR_NUIT_MS;
   let projets = 0;
   let passages = 0;
   let vectorises = 0;
@@ -89,12 +98,12 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
   try {
     for (const projet of store.listProjects()) {
       if (projet.archived) continue;
-      if (tranches >= TRANCHES_MAX_PAR_NUIT) {
+      if (tranches >= TRANCHES_MAX_PAR_NUIT || Date.now() >= finAu) {
         log.info(`vectorisation : borne de la nuit atteinte, ${projet.name} et la suite attendront demain`);
         break;
       }
       try {
-        const bilan = await vectoriserUnProjet(projet.id, projet.path, TRANCHES_MAX_PAR_NUIT - tranches);
+        const bilan = await vectoriserUnProjet(projet.id, projet.path, TRANCHES_MAX_PAR_NUIT - tranches, finAu);
         projets += 1;
         passages += bilan.total;
         vectorises += bilan.vectorises;

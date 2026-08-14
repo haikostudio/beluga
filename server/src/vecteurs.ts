@@ -1,30 +1,50 @@
 import {
+  DIMENSIONS_OPENROUTER,
   ESSAIS_VECTEURS,
-  DIMENSIONS_VECTEUR,
   LOT_VECTEURS,
-  MODELE_VECTEURS,
+  MODELE_LOCAL,
+  MODELE_OPENROUTER,
+  MOTEUR_PAR_DEFAUT,
   URL_VECTEURS,
   attenteAvantEssai,
   normaliserLeVecteur,
   reponseRejouable,
+  type MoteurDeVecteurs,
 } from '@haikodev/shared';
 import { lireVariableDEnvironnement } from './cle-cerveau.js';
 import { log } from './logger.js';
+import { vectoriseurLocalInstalle, vectoriserEnLocal } from './vecteurs-local.js';
 
 /**
- * L'APPEL AU MODÈLE DE VECTORISATION — la seule partie qui touche au réseau.
+ * L'AIGUILLAGE DE LA VECTORISATION — et l'appel au moteur EXTERNE, s'il est
+ * demandé.
  *
- * Les décisions (quel modèle, quelle taille, par quels lots, quand on bascule)
- * vivent dans `shared/src/vecteurs-doc.ts` et se testent seules. Ici, on appelle,
- * on retente une panne passagère, et surtout ON NE LÈVE JAMAIS : la recherche de
- * passages ne doit pas pouvoir faire tomber la préparation d'un tour. Sans clé,
- * sans réseau, sans réponse valable, on rend `undefined` et l'ancienne empreinte
- * de mots reprend son travail.
+ * PAR DÉFAUT, LE MOTEUR EST LOCAL : BAAI/bge-m3 tourne sur cette machine
+ * (`vecteurs-local.ts`), donc aucun octet de documentation ne sort et aucun
+ * centime n'est dépensé par appel. Le chemin externe (OpenRouter) reste écrit,
+ * mais il ne sert que si on le demande en toutes lettres —
+ * `HAIKODEV_EMBED_MOTEUR=openrouter`.
  *
- * La clé se lit comme celle du cerveau : l'environnement du démon d'abord, puis
- * `/etc/haikodev.env`. Deux noms sont acceptés, `HAIKODEV_EMBED_API_KEY` pour
- * une clé dédiée, `OPENROUTER_API_KEY` pour celle déjà posée sur la machine.
+ * Les décisions (quels modèles, quelles tailles, par quels lots, quand on
+ * bascule) vivent dans `shared/src/vecteurs-doc.ts` et se testent seules. Ici, on
+ * appelle, on retente une panne passagère du service en ligne, et surtout ON NE
+ * LÈVE JAMAIS : la recherche de passages ne doit pas pouvoir faire tomber la
+ * préparation d'un tour. Sans moteur, on rend `undefined` et l'ancienne
+ * empreinte de mots reprend son travail.
+ *
+ * La clé de l'externe se lit comme celle du cerveau : l'environnement du démon
+ * d'abord, puis `/etc/haikodev.env`. Deux noms sont acceptés,
+ * `HAIKODEV_EMBED_API_KEY` pour une clé dédiée, `OPENROUTER_API_KEY` pour celle
+ * déjà posée sur la machine.
  */
+
+/** Le moteur retenu : local par défaut, externe seulement si on le nomme. */
+export function moteurDesVecteurs(): MoteurDeVecteurs {
+  const voulu = lireVariableDEnvironnement('HAIKODEV_EMBED_MOTEUR')?.toLowerCase();
+  if (voulu === 'openrouter' || voulu === 'externe') return 'openrouter';
+  if (voulu === 'local') return 'local';
+  return MOTEUR_PAR_DEFAUT;
+}
 
 /** Les noms sous lesquels la clé peut être posée, dans l'ordre où on les lit. */
 export const NOMS_DE_CLE = ['HAIKODEV_EMBED_API_KEY', 'OPENROUTER_API_KEY'] as const;
@@ -43,9 +63,15 @@ function urlDesVecteurs(): string {
   return lireVariableDEnvironnement('HAIKODEV_EMBED_URL') || URL_VECTEURS;
 }
 
-/** Le modèle réellement utilisé, réglable de la même façon. */
+/**
+ * LE MODÈLE RÉELLEMENT UTILISÉ. Il est rangé à côté de chaque vecteur en base :
+ * changer de moteur change ce nom, et tous les passages sont donc revectorisés
+ * au lieu d'être comparés à une autre échelle.
+ */
 export function modeleDesVecteurs(): string {
-  return lireVariableDEnvironnement('HAIKODEV_EMBED_MODEL') || MODELE_VECTEURS;
+  const impose = lireVariableDEnvironnement('HAIKODEV_EMBED_MODEL');
+  if (impose) return impose;
+  return moteurDesVecteurs() === 'local' ? MODELE_LOCAL : MODELE_OPENROUTER;
 }
 
 interface ReponseVecteurs {
@@ -71,7 +97,7 @@ async function vectoriserUnLot(textes: string[], cle: string): Promise<number[][
           'HTTP-Referer': 'https://haikodev.haikostudio.cloud',
           'X-Title': 'HaikoDev',
         },
-        body: JSON.stringify({ model: modele, input: textes, dimensions: DIMENSIONS_VECTEUR }),
+        body: JSON.stringify({ model: modele, input: textes, dimensions: DIMENSIONS_OPENROUTER }),
       });
       if (!reponse.ok) {
         const detail = (await reponse.text()).slice(0, 300);
@@ -111,6 +137,8 @@ async function vectoriserUnLot(textes: string[], cle: string): Promise<number[][
  */
 export async function vectoriser(textes: string[]): Promise<number[][] | undefined> {
   if (!textes.length) return [];
+  if (moteurDesVecteurs() === 'local') return vectoriserEnLocal(textes);
+
   const cle = cleDesVecteurs();
   if (!cle) return undefined;
 
@@ -148,7 +176,15 @@ export async function vectoriserLaQuestion(question: string): Promise<number[] |
   return vecteur;
 }
 
-/** Ce que les réglages affichent : la vectorisation est-elle disponible ? */
-export function etatDesVecteurs(): { clePosee: boolean; modele: string } {
-  return { clePosee: !!cleDesVecteurs(), modele: modeleDesVecteurs() };
+/**
+ * Ce que les réglages et les contrôles affichent : quel moteur, quel modèle, et
+ * est-il prêt ? Un moteur local non installé se dit, il ne se devine pas.
+ */
+export function etatDesVecteurs(): { moteur: MoteurDeVecteurs; pret: boolean; modele: string } {
+  const moteur = moteurDesVecteurs();
+  return {
+    moteur,
+    pret: moteur === 'local' ? vectoriseurLocalInstalle() : !!cleDesVecteurs(),
+    modele: modeleDesVecteurs(),
+  };
 }
