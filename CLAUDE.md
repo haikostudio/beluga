@@ -381,6 +381,16 @@ le nom, là-bas le texte).
   ratée : agent en « stopped », alerte « Tâche interrompue par une panne du moteur », et le bandeau
   rouge — seulement là — porte la cause réelle en clair, jamais un « code 1 ». Vérifié par
   `server/src/test/panne-passagere.test.ts` et `scripts/verif-panne-moteur.mjs`.
+- **TROIS MOTEURS, dont un qui n'est PAS un outil en ligne de commande**
+  (`shared/src/moteur-cursor.ts`, `server/src/engines/cursor.ts`) : Claude et Codex sont des
+  exécutables déjà authentifiés sur le serveur, CURSOR est une API distante (agents cloud, clé
+  `CURSOR_API_KEY` posée HORS du dépôt). Même contrat d'adaptateur, cinq différences : le travail se
+  fait chez Cursor sur un dépôt GitHub — proposé seulement s'il est réellement ouvert au compte,
+  sinon l'agent répond SANS dépôt et le dit ; le fil est l'agent cloud (`bc-…`) ; on RELIT le run au
+  lieu de suivre un flux qui se coupe, et un statut inconnu est TERMINAL ; un réglage de réflexion
+  part comme une COMBINAISON entière (`variants`), jamais seul ; sans clé, le moteur n'apparaît
+  nulle part et son compte n'affiche aucune jauge, Cursor ne publiant pas de quota. Verrouillé par
+  `server/src/test/moteur-cursor.test.ts` et `scripts/verif-moteur-cursor.mjs`.
 - **Un moteur lancé est SUIVI avant tout autre travail** (`startTurn`, `server/src/runtime.ts`) :
   `live.set` passe devant l'enregistrement du contexte envoyé, sinon une panne survenue dans cette
   fenêtre faisait refermer par `sendPrompt` un tour BIEN VIVANT — bulle rouge « panne interne du

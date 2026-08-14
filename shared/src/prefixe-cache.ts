@@ -15,6 +15,10 @@
  *  - CODEX la colle DEVANT LA DEMANDE, donc à la FIN de l'historique du fil.
  *    Elle n'est plus un préfixe : la raccourcir n'invalide rien, et le pavé
  *    entier renvoyé à chaque tour s'ajouterait à l'historique.
+ *  - CURSOR est dans le même cas que Codex : son API n'a pas de consigne
+ *    système séparée, le texte part comme un message de plus dans le fil de
+ *    l'agent cloud. Renvoyer la consigne entière à chaque tour la stockerait
+ *    autant de fois qu'il y a de messages.
  *
  * D'où la règle, mesurée et non devinée (`scripts/mesure-cache-prefixe.mjs`,
  * moteur réel, deux sessions de deux tours) : sur une conversation d'environ
@@ -44,7 +48,7 @@ export interface ChoixDEntete {
  * la plus sûre (au pire on renvoie un texte déjà en cache).
  */
 export function consigneEnTeteDeSession(engine?: string): boolean {
-  return engine !== 'codex';
+  return engine !== 'codex' && engine !== 'cursor';
 }
 
 /**

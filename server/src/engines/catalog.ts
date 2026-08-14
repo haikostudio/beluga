@@ -1,7 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { dedoublonnerModeles, limiterAuxPlusRecents, EngineId, ModelInfo, ThinkingOption } from '@haikodev/shared';
-import { listAccountRecords } from '../accounts.js';
+import {
+  dedoublonnerModeles,
+  fenetreDeContexteCursor,
+  limiterAuxPlusRecents,
+  niveauxDeReflexionCursor,
+  EngineId,
+  ModelInfo,
+  ThinkingOption,
+} from '@haikodev/shared';
+import { cleDuCompteCursor, listAccountRecords } from '../accounts.js';
+import { modelesCursor } from './cursor.js';
 import { log } from '../logger.js';
 
 /**
@@ -287,6 +296,67 @@ function codexFallback(): ModelInfo[] {
   ].map((m) => ModelInfo.parse(m));
 }
 
+/* ------------------------------------------------------------------ */
+/* Cursor                                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Le catalogue de Cursor vient de son API (`GET /v1/models`), avec la clé du
+ * compte. Chaque modèle y annonce ses PARAMÈTRES : c'est d'eux que sortent les
+ * niveaux de réflexion et la fenêtre de contexte — jamais d'une liste écrite à
+ * la main (`shared/src/moteur-cursor.ts`, règles pures et testées).
+ */
+export async function cursorCatalog(): Promise<Catalogue> {
+  const cles = cursorTokens();
+  if (!cles.length) return { models: cursorFallback(), live: false, error: SANS_COMPTE };
+
+  let dernierEchec = SANS_COMPTE;
+  for (const cle of cles) {
+    try {
+      const entries = await modelesCursor(cle);
+      if (!entries.length) throw new Error('catalogue vide');
+      const models: ModelInfo[] = entries.map((entry: any) =>
+        ModelInfo.parse({
+          id: entry.id,
+          label: entry.displayName ?? entry.id,
+          thinking: niveauxDeReflexionCursor(entry.parameters).map((id) =>
+            id === 'none' ? NIVEAU_SANS : niveau(id),
+          ),
+          defaultThinking: 'none',
+          contextWindow: fenetreDeContexteCursor(entry.parameters),
+          appetite: appetiteOf(entry.id, entry.displayName ?? ''),
+        }),
+      );
+      models.sort(byRecency);
+      return { models: limiterAuxPlusRecents(dedoublonnerModeles(models)), live: true };
+    } catch (err: any) {
+      dernierEchec = err?.message ?? String(err);
+    }
+  }
+  log.warn('catalogue Cursor indisponible, repli local', dernierEchec);
+  return { models: cursorFallback(), live: false, error: dernierEchec };
+}
+
+/** Les clés Cursor, du compte prioritaire au dernier (même règle que les autres). */
+export function cursorTokens(): string[] {
+  const cles: string[] = [];
+  for (const account of listAccountRecords()
+    .filter((a) => a.engine === 'cursor')
+    .sort((a, b) => a.priority - b.priority)) {
+    const cle = cleDuCompteCursor(account);
+    if (cle) cles.push(cle);
+  }
+  return cles;
+}
+
+function cursorFallback(): ModelInfo[] {
+  const efforts = [NIVEAU_SANS, niveau('low'), niveau('medium'), niveau('high'), niveau('xhigh')];
+  return [
+    { id: 'composer-2.5', label: 'Composer 2.5', thinking: [NIVEAU_SANS], defaultThinking: 'none' },
+    { id: 'claude-sonnet-5', label: 'Sonnet 5', thinking: efforts, defaultThinking: 'none' },
+  ].map((m) => ModelInfo.parse(m));
+}
+
 /** Le niveau retenu doit exister pour le modèle choisi. */
 export function normaliseThinking(models: ModelInfo[], modelId: string | undefined, wanted: string | undefined): string {
   const model = models.find((m) => m.id === modelId) ?? models[0];
@@ -297,7 +367,9 @@ export function normaliseThinking(models: ModelInfo[], modelId: string | undefin
 }
 
 export function engineOf(id: string): EngineId {
-  return id === 'codex' ? 'codex' : 'claude';
+  if (id === 'codex') return 'codex';
+  if (id === 'cursor') return 'cursor';
+  return 'claude';
 }
 
 /**
@@ -336,7 +408,7 @@ export function resolveModel(models: ModelInfo[], wanted: string | undefined): s
 export function orchestratorModel(engine: EngineId, models: ModelInfo[]): string | undefined {
   if (!models.length) return undefined;
 
-  const wanted = engine === 'codex' ? 'gpt-5.4' : 'haiku-4.5';
+  const wanted = engine === 'codex' ? 'gpt-5.4' : engine === 'cursor' ? 'composer-2.5' : 'haiku-4.5';
   const cible = wanted.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   const preferred = models.find((model) => {
     const id = model.id.toLowerCase().replace(/[^a-z0-9]+/g, '-');

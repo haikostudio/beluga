@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {
+  API_CURSOR,
   AccountQuota,
   EngineId,
   type EtatSeuilsSemaine,
   compteDeSecours,
+  raisonDeRefusCursor,
   doitAlerterEmballement,
   doitAlerterEpuisementProche,
   doitAlerterFinDeFenetre,
@@ -140,6 +142,22 @@ export function bootstrapAccounts(): void {
     });
   }
 
+  /*
+   * CURSOR n'a pas de coffre à jetons sur la machine : sa clé vit hors du dépôt
+   * (`CURSOR_API_KEY`, fichier d'environnement du service). Le compte n'est donc
+   * déclaré que si la clé est là — sinon le moteur n'apparaît nulle part, ce qui
+   * est exactement le comportement voulu.
+   */
+  if (!knownIds.has('cursor-principal') && (process.env.CURSOR_API_KEY ?? '').trim()) {
+    saveAccountRecord({
+      id: 'cursor-principal',
+      engine: 'cursor',
+      label: 'Cursor — compte principal',
+      priority: 10,
+      configDir: path.join(PATHS.accounts, 'cursor-principal'),
+    });
+  }
+
   // Les comptes de relève déclarés à la main dans data/accounts/<id>/
   try {
     for (const entry of fs.readdirSync(PATHS.accounts, { withFileTypes: true })) {
@@ -159,7 +177,9 @@ export function bootstrapAccounts(): void {
         id: entry.name,
         engine: meta.engine ?? 'claude',
         label: meta.label ?? entry.name,
-        plan: meta.plan ?? (meta.engine === 'codex' ? undefined : readClaudePlan(configDir)),
+        // Le « plan » ne se lit que sur un coffre Claude : les autres moteurs
+        // n'en ont pas, et aller y chercher un fichier absent n'apprend rien.
+        plan: meta.plan ?? ((meta.engine ?? 'claude') === 'claude' ? readClaudePlan(configDir) : undefined),
         priority: meta.priority ?? 50,
         configDir,
       });
@@ -186,10 +206,18 @@ function readClaudePlan(configDir: string): string | undefined {
   return undefined;
 }
 
-/** Prépare l'environnement d'un lancement : un compte, un dossier. */
+/**
+ * Prépare l'environnement d'un lancement : un compte, un dossier. Cursor n'a
+ * pas de coffre sur la machine — il n'a qu'une CLÉ, qui voyage de la même
+ * façon : le moteur ne lit jamais un compte, il lit son environnement.
+ */
 export function applyAccountEnv(account: AccountRecord): Record<string, string> {
   if (account.engine === 'claude') {
     return { CLAUDE_CONFIG_DIR: account.configDir };
+  }
+  if (account.engine === 'cursor') {
+    const cle = cleDuCompteCursor(account);
+    return cle ? { CURSOR_API_KEY: cle } : {};
   }
   return { CODEX_HOME: account.configDir };
 }
@@ -331,6 +359,75 @@ async function fetchCodexQuota(account: AccountRecord): Promise<AccountQuota> {
   }
 }
 
+/**
+ * LA CLÉ D'ACCÈS D'UN COMPTE CURSOR. Ce moteur n'a pas de coffre à jetons comme
+ * les outils en ligne de commande : il a une CLÉ, posée hors du dépôt dans
+ * `CURSOR_API_KEY` (fichier d'environnement du service), ou déposée dans le
+ * dossier du compte (`api-key`) pour un compte de relève. Rien n'est écrit en
+ * dur ici.
+ */
+export function cleDuCompteCursor(account: AccountRecord): string {
+  const depuisLEnvironnement = (process.env.CURSOR_API_KEY ?? '').trim();
+  try {
+    const fichier = path.join(account.configDir, 'api-key');
+    const contenu = fs.readFileSync(fichier, 'utf8').trim();
+    if (contenu) return contenu;
+  } catch {
+    /* pas de fichier de clé : celle de l'environnement fait foi */
+  }
+  return depuisLEnvironnement;
+}
+
+/**
+ * Cursor ne publie AUCUN quota : sa facturation se lit à la dépense, pas à un
+ * pourcentage de fenêtre. On ne montre donc pas de jauge inventée — on dit
+ * seulement si la clé RÉPOND, ce qui est la seule chose qui décide qu'un tour
+ * peut partir.
+ */
+async function fetchCursorQuota(account: AccountRecord): Promise<AccountQuota> {
+  const base: AccountQuota = {
+    id: account.id,
+    engine: 'cursor',
+    label: account.label,
+    plan: account.plan,
+    priority: account.priority,
+    active: false,
+    available: true,
+    fetchedAt: Date.now(),
+  };
+  const cle = cleDuCompteCursor(account);
+  if (!cle) return { ...base, error: 'aucune clé configurée', available: false };
+  try {
+    const res = await fetch(`${API_CURSOR}/v1/me`, {
+      headers: { authorization: `Bearer ${cle}` },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) {
+      const corps: any = await res.json().catch(() => null);
+      return {
+        ...base,
+        error: raisonDeRefusCursor(res.status, corps?.message ?? corps?.error?.message),
+        available: false,
+      };
+    }
+    const data: any = await res.json();
+    return { ...base, plan: typeof data?.apiKeyName === 'string' ? data.apiKeyName : account.plan };
+  } catch (err: any) {
+    return { ...base, error: err?.message ?? 'lecture impossible' };
+  }
+}
+
+/**
+ * La lecture de quota du moteur de CE compte. Un seul endroit décide : ajouter
+ * un moteur, c'est ajouter une ligne ici, jamais chercher les trois appels
+ * dispersés qui répétaient la même condition.
+ */
+function lireQuotaDuMoteur(account: AccountRecord): Promise<AccountQuota> {
+  if (account.engine === 'claude') return fetchClaudeQuota(account);
+  if (account.engine === 'cursor') return fetchCursorQuota(account);
+  return fetchCodexQuota(account);
+}
+
 /** Prochaine tentative autorisée par compte : le service limite la fréquence. */
 const nextTry = new Map<string, number>();
 
@@ -379,7 +476,7 @@ async function executerActualisationQuotas(force = false, seulement?: readonly s
     // deux : deux lectures collées déclenchent un refus pour excès d'appels.
     if (index > 0 && lecturesLancees > 0) await new Promise((resolve) => setTimeout(resolve, 1500));
     lecturesLancees += 1;
-    const quota = account.engine === 'claude' ? await fetchClaudeQuota(account) : await fetchCodexQuota(account);
+    const quota = await lireQuotaDuMoteur(account);
 
     if (quota.error?.includes('429')) {
       // Refus pour excès d'appels : on double l'attente, jusqu'à trente minutes.
@@ -507,7 +604,7 @@ export async function relireQuotaDuCompte(
 ): Promise<{ session?: number; weekly?: number } | null> {
   const account = listAccountRecords().find((a) => a.id === accountId);
   if (!account) return null;
-  const quota = account.engine === 'claude' ? await fetchClaudeQuota(account) : await fetchCodexQuota(account);
+  const quota = await lireQuotaDuMoteur(account);
   if (quota.error) return null;
   return { session: quota.session?.usedPct, weekly: quota.weekly?.usedPct };
 }
@@ -808,7 +905,7 @@ function attacherEtatConnexion(list: AccountQuota[]): void {
 function markActive(list: AccountQuota[]): void {
   attacherAmorces(list);
   attacherEtatConnexion(list);
-  for (const engine of ['claude', 'codex'] as EngineId[]) {
+  for (const engine of ['claude', 'codex', 'cursor'] as EngineId[]) {
     // Un compte coupé ne peut pas être « celui qui sert » : on l'écarte du choix.
     const candidates = list
       .filter((q) => q.engine === engine && !q.disabled)
