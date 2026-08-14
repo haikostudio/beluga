@@ -822,6 +822,8 @@ export type QueuedPrompt = z.infer<typeof QueuedPrompt>;
 export const QuotaWindow = z.object({
   usedPct: z.number().optional(),
   resetsAt: z.number().optional(),
+  /** Durée annoncée par le moteur, pour éviter d'inventer un libellé. */
+  durationSeconds: z.number().positive().optional(),
 });
 export type QuotaWindow = z.infer<typeof QuotaWindow>;
 

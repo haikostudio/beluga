@@ -1078,9 +1078,11 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
           {!edite && moteurSansQuota(quota.engine) ? <EtatCursor accountId={quota.id} /> : null}
           {!edite && !moteurSansQuota(quota.engine) ? (
             <p className="text-[11.5px] text-faint">
-              fenêtre {Math.round(quota.session?.usedPct ?? 0)} % · semaine{' '}
-              {Math.round(quota.weekly?.usedPct ?? 0)} %
-              {tempsRestant(quota.weekly?.resetsAt) ? ` · semaine : ${tempsRestant(quota.weekly?.resetsAt)}` : ''}
+              {quota.session ? `${libelleFenetreCompte(quota.session, 'session')} ${Math.round(quota.session.usedPct ?? 0)} %` : null}
+              {quota.session && quota.weekly ? ' · ' : null}
+              {quota.weekly ? `${libelleFenetreCompte(quota.weekly, 'weekly')} ${Math.round(quota.weekly.usedPct ?? 0)} %` : null}
+              {!quota.session && !quota.weekly ? 'Aucune fenêtre de quota publiée' : null}
+              {quota.weekly && tempsRestant(quota.weekly.resetsAt) ? ` · remise à zéro : ${tempsRestant(quota.weekly.resetsAt)}` : ''}
             </p>
           ) : null}
         </div>
@@ -1112,6 +1114,24 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
       {connexion ? <BlocConnexion connexion={connexion} /> : null}
     </div>
   );
+}
+
+function libelleFenetreCompte(
+  win: { durationSeconds?: number },
+  type: 'session' | 'weekly',
+): string {
+  const secondes = win.durationSeconds;
+  if (secondes === 5 * 60 * 60) return 'fenêtre 5 h';
+  if (secondes === 7 * 24 * 60 * 60) return 'semaine';
+  if (secondes && secondes < 24 * 60 * 60) {
+    const heures = secondes / 3600;
+    return Number.isInteger(heures) ? `fenêtre ${heures} h` : 'fenêtre courte';
+  }
+  if (secondes) {
+    const jours = secondes / (24 * 3600);
+    return Number.isInteger(jours) ? `fenêtre ${jours} jours` : 'fenêtre longue';
+  }
+  return type === 'weekly' ? 'fenêtre longue' : 'fenêtre courte';
 }
 
 /**
