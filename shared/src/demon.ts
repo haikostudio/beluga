@@ -161,6 +161,55 @@ export function raisonSignalRetenu(signal: string, raison?: string): string {
  */
 export const TITRE_DU_PROCESSUS = 'haikodev-serveur';
 
+/*
+ * UN SERVEUR D'ESSAI NE PORTE PLUS LE NOM DU DÉMON.
+ *
+ * Le nom unique s'est retourné contre lui-même le 14/08/2026 : les scripts de
+ * vérification lancent le VRAI `server/dist/main.js` sur un port et une base à
+ * eux, donc ces serveurs d'essai s'appelaient eux aussi « haikodev-serveur ».
+ * Dans `ps` et `ss`, le noyau tronque à quinze signes : essais et démon
+ * s'affichaient tous « haikodev-serveu », impossibles à distinguer. Un agent
+ * qui faisait le ménage de SES essais a visé ce nom commun avec un `pkill -9`
+ * — et a abattu le démon de production avec onze étapes de travail en vol.
+ *
+ * Le nom dit donc maintenant QUI on est : seul le serveur qui sert la VRAIE
+ * base de données est le démon ; tout autre est un essai, nommé comme tel et
+ * visable sans danger. La troncature à quinze signes garde le mot qui sépare
+ * (« haikodev-essai- »).
+ */
+export const TITRE_DU_SERVEUR_D_ESSAI = 'haikodev-essai';
+
+/** Un chemin comparable : sans espaces autour, sans barre oblique finale. */
+function cheminNormalise(chemin: string): string {
+  const propre = chemin.trim().replace(/\/+$/, '');
+  return propre;
+}
+
+export interface MondeDuTitre {
+  /** Le dossier de données que CE serveur sert réellement. */
+  dossierDeDonnees: string;
+  /** Le dossier de données du démon : `<racine du dépôt>/data`. */
+  dossierDeDonneesDuDemon: string;
+  /** Le port écouté, pour reconnaître un essai parmi d'autres. */
+  port?: number | string;
+  /** Un essai peut aussi se déclarer lui-même, sans rien deviner. */
+  essaiDeclare?: boolean;
+}
+
+/**
+ * Le nom que ce processus doit porter. Le démon sert la base du dépôt ; un
+ * serveur monté pour un contrôle sert une base à lui, et porte alors un nom
+ * d'essai — que ses propres scripts peuvent viser sans risquer le démon.
+ */
+export function titreDuProcessus(monde: MondeDuTitre): string {
+  const sien = cheminNormalise(monde.dossierDeDonnees);
+  const celuiDuDemon = cheminNormalise(monde.dossierDeDonneesDuDemon);
+  const essai = Boolean(monde.essaiDeclare) || sien !== celuiDuDemon;
+  if (!essai) return TITRE_DU_PROCESSUS;
+  const port = String(monde.port ?? '').trim();
+  return port ? `${TITRE_DU_SERVEUR_D_ESSAI}-${port}` : TITRE_DU_SERVEUR_D_ESSAI;
+}
+
 export interface SuiteRedemarrage {
   /** On lance le redémarrage tout de suite. */
   redemarrer: boolean;
