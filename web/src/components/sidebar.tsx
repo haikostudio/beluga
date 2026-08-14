@@ -1274,8 +1274,24 @@ function RepereDePlan() {
  *
  * Il cède la place au triangle de décision (`RepereLigne`) : les deux vivent
  * au même endroit, jamais ensemble — une décision qui attend prime toujours.
+ *
+ * Contrairement à `RepereLigne`, qui EMPRUNTE au repos la place de l'icône
+ * réglages (encore invisible) puis s'en écarte au survol pour la lui rendre,
+ * le pourcentage emprunte la MÊME place mais n'en bouge JAMAIS : le décalage
+ * (`survol:translate-x-4`, un « quart » = la largeur de l'icône réglages plus
+ * son espacement) reste posé qu'on survole ou non — un chiffre qui glisserait
+ * à chaque passage de souris est justement ce que cet écran ne veut plus. Il
+ * s'efface par l'OPACITÉ, jamais par la position, pour laisser voir l'icône
+ * réglages quand elle apparaît par-dessus au survol.
  */
-function RepereAvancementProjet({ avancement }: { avancement: AvancementColonne | null }) {
+function RepereAvancementProjet({
+  avancement,
+  className,
+}: {
+  avancement: AvancementColonne | null;
+  /** Le décalage fixe qui le colle au bord droit, posé par l'appelant. */
+  className?: string;
+}) {
   if (!avancement) return null;
   const { done, total, pourcent, termine } = avancement;
   return (
@@ -1285,6 +1301,7 @@ function RepereAvancementProjet({ avancement }: { avancement: AvancementColonne 
         className={cn(
           'shrink-0 px-0.5 text-[11px] font-medium tabular-nums',
           termine ? 'text-termine' : 'text-en-cours',
+          className,
         )}
       >
         {pourcent} %
@@ -1562,7 +1579,14 @@ function LigneEspaceDev({
             className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
           />
         ) : (
-          <RepereAvancementProjet avancement={avancement ?? null} />
+          <RepereAvancementProjet
+            avancement={avancement ?? null}
+            // Collé au bord droit, à la place de l'icône réglages (encore
+            // invisible) : contrairement au triangle ci-dessus, ce décalage ne
+            // se retire JAMAIS au survol — seule l'opacité cède la place à
+            // l'icône quand elle apparaît.
+            className="survol:translate-x-4 transition-opacity duration-150 motion-reduce:transition-none group-hover:survol:opacity-0"
+          />
         )}
         <button
           onClick={onSettings}
@@ -1720,7 +1744,14 @@ function ProjectRow({
           className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
         />
       ) : (
-        <RepereAvancementProjet avancement={avancement ?? null} />
+        <RepereAvancementProjet
+          avancement={avancement ?? null}
+          // Collé au bord droit, à la place de l'icône réglages (encore
+          // invisible) : contrairement au triangle ci-dessus, ce décalage ne
+          // se retire JAMAIS au survol — seule l'opacité cède la place à
+          // l'icône quand elle apparaît.
+          className="survol:translate-x-4 transition-opacity duration-150 motion-reduce:transition-none group-hover:survol:opacity-0"
+        />
       )}
       <button
         onPointerDown={(event) => event.stopPropagation()}

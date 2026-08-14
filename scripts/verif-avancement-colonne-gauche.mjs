@@ -226,6 +226,64 @@ async function main() {
   noter('il suit le même chiffre que la tête de la colonne « En cours »', enCours.texte === duTableau, `ligne=${enCours.texte} tableau=${duTableau}`);
   await page.screenshot({ path: path.join(TMP, 'avancement-colonne-gauche.png') });
 
+  // Le chiffre doit rester COLLÉ au bord droit, immobile au survol — sur
+  // colonne large comme sur colonne étroite (le clic ci-dessus a laissé le
+  // pointeur SUR la ligne : on l'en écarte avant de mesurer le repos).
+  const positionAvancement = (page) =>
+    page.evaluate((projectId) => {
+      const ligne = document.querySelector(`[data-drag-id="${projectId}"]`);
+      const repere = ligne.querySelector('[data-avancement-projet]');
+      const rLigne = ligne.getBoundingClientRect();
+      const rRepere = repere.getBoundingClientRect();
+      return { right: rRepere.right, ligneRight: rLigne.right };
+    }, PROJET_ID);
+
+  await page.mouse.move(700, 700);
+  await page.waitForTimeout(300);
+  const auReposLarge = await positionAvancement(page);
+  const boiteLarge = await page.locator(`[data-drag-id="${PROJET_ID}"]`).boundingBox();
+  await page.mouse.move(boiteLarge.x + boiteLarge.width / 2, boiteLarge.y + boiteLarge.height / 2);
+  await page.waitForTimeout(400);
+  const auSurvolLarge = await positionAvancement(page);
+  noter(
+    'collé au bord droit (colonne large)',
+    auReposLarge.ligneRight - auReposLarge.right < 12,
+    JSON.stringify(auReposLarge),
+  );
+  noter(
+    'immobile au survol (colonne large)',
+    auSurvolLarge.right === auReposLarge.right,
+    `repos=${auReposLarge.right} survol=${auSurvolLarge.right}`,
+  );
+
+  await page.evaluate(() => {
+    const aside = document.querySelector('aside');
+    aside.style.setProperty('--largeur-projets', '150px');
+    aside.style.width = '150px';
+  });
+  await page.mouse.move(700, 700);
+  await page.waitForTimeout(300);
+  const auReposEtroit = await positionAvancement(page);
+  const boiteEtroite = await page.locator(`[data-drag-id="${PROJET_ID}"]`).boundingBox();
+  await page.mouse.move(boiteEtroite.x + boiteEtroite.width / 2, boiteEtroite.y + boiteEtroite.height / 2);
+  await page.waitForTimeout(400);
+  const auSurvolEtroit = await positionAvancement(page);
+  noter(
+    'collé au bord droit (colonne étroite)',
+    auReposEtroit.ligneRight - auReposEtroit.right < 12,
+    JSON.stringify(auReposEtroit),
+  );
+  noter(
+    'immobile au survol (colonne étroite)',
+    auSurvolEtroit.right === auReposEtroit.right,
+    `repos=${auReposEtroit.right} survol=${auSurvolEtroit.right}`,
+  );
+  await page.evaluate(() => {
+    const aside = document.querySelector('aside');
+    aside.style.removeProperty('--largeur-projets');
+    aside.style.removeProperty('width');
+  });
+
   // Le travail se termine : l'agent n'est plus « running ».
   poserLAgent({ status: 'done', done: 6, total: 6 });
   await page.reload({ waitUntil: 'domcontentloaded' });
