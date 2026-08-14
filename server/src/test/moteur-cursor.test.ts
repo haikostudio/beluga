@@ -2,15 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   attenteAvantRelecture,
+  branchesDuRunCursor,
   consigneEnTeteDeSession,
   coutEnDollars,
   depotGithubPourCursor,
+  depotsDepuisCursor,
   fenetreDeContexteCursor,
   fichierNatif,
   issueDuRunCursor,
   messageDeFinCursor,
+  messageDeRapatriement,
+  moteurSansQuota,
   niveauxDeReflexionCursor,
   paramsDeReflexionCursor,
+  peutRapatrierIci,
   raisonDeRefusCursor,
 } from '@haikodev/shared';
 
@@ -152,6 +157,68 @@ test('le coût se lit en dollars, et une mesure absente le reste', () => {
   assert.ok(Math.abs((coutEnDollars(1.41122) ?? 0) - 0.0141122) < 1e-9);
   assert.equal(coutEnDollars(undefined), undefined);
   assert.equal(coutEnDollars('gratuit'), undefined);
+});
+
+/*
+ * CE QUE LA CLÉ PERMET, tel que les réglages l'affichent. L'API ne documente
+ * pas la forme d'une entrée de `GET /v1/repositories` et l'a déjà changée : on
+ * accepte plusieurs écritures plutôt que d'en supposer une seule.
+ */
+test('les dépôts rendus par Cursor deviennent des noms lisibles', () => {
+  assert.deepEqual(
+    depotsDepuisCursor([
+      { owner: 'haikostudio', name: 'haikodev' },
+      { fullName: 'octocat/Hello-World' },
+      { url: 'https://github.com/haikostudio/paseo.git' },
+      'git@github.com:haikostudio/haikodev.git',
+      { rien: 'du tout' },
+    ]),
+    ['haikostudio/haikodev', 'haikostudio/paseo', 'octocat/Hello-World'],
+  );
+  // Aucun dépôt relié : une liste vide, jamais une entrée inventée.
+  assert.deepEqual(depotsDepuisCursor([]), []);
+  assert.deepEqual(depotsDepuisCursor(undefined), []);
+});
+
+test('un moteur sans quota publié n\'affiche aucune jauge', () => {
+  assert.equal(moteurSansQuota('cursor'), true);
+  assert.equal(moteurSansQuota('claude'), false);
+  assert.equal(moteurSansQuota('codex'), false);
+});
+
+/*
+ * RAPATRIER LE TRAVAIL. L'agent Cursor pousse sur une branche « cursor/… » :
+ * sans ce retour, une carte lancée sur Cursor finissait sans une ligne de code
+ * dans sa copie de travail — donc sans preuve de travail.
+ */
+test('les branches produites par un run sont reconnues, et leur absence est normale', () => {
+  assert.deepEqual(
+    branchesDuRunCursor({
+      git: { branches: [{ repoUrl: 'github.com/haikostudio/haikodev', branch: 'cursor/ajout-a1b2', prUrl: 'https://…/1' }] },
+    }),
+    [{ branche: 'cursor/ajout-a1b2', depot: 'github.com/haikostudio/haikodev', demandeDeFusion: 'https://…/1' }],
+  );
+  // Un agent qui a seulement répondu n'écrit rien : c'est le cas NORMAL.
+  assert.deepEqual(branchesDuRunCursor({ status: 'FINISHED', result: 'Bonjour' }), []);
+  assert.deepEqual(branchesDuRunCursor(undefined), []);
+});
+
+test('on ne rapatrie QUE dans le dossier d\'une carte, et seulement s\'il est propre', () => {
+  assert.equal(peutRapatrierIci('tache/ajouter-cursor-e98039', true), true);
+  // Une conversation ordinaire travaille sur la branche principale : y fusionner
+  // tout seul reviendrait à livrer sans que personne l'ait demandé.
+  assert.equal(peutRapatrierIci('main', true), false);
+  assert.equal(peutRapatrierIci('hors-tache/essai', true), false);
+  // Dossier sale : on ne fusionne jamais par-dessus du travail non enregistré.
+  assert.equal(peutRapatrierIci('tache/ajouter-cursor-e98039', false), false);
+  assert.equal(peutRapatrierIci(undefined, true), false);
+});
+
+test('ce qui est ramené — ou refusé — se dit avec le nom de la branche', () => {
+  assert.match(messageDeRapatriement('cursor/a1b2', 'fusionnee'), /cursor\/a1b2/);
+  assert.match(messageDeRapatriement('cursor/a1b2', 'conflit'), /conflit/);
+  assert.match(messageDeRapatriement('cursor/a1b2', 'hors-carte'), /carte/);
+  assert.match(messageDeRapatriement('cursor/a1b2', 'echec', 'dépôt injoignable'), /dépôt injoignable/);
 });
 
 /*

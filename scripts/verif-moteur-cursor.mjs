@@ -11,9 +11,12 @@
  *      Claude et de GPT, et se choisit à la souris ;
  *   3. un VRAI TOUR part depuis l'interface et rend une réponse complète, avec
  *      sa mesure ;
- *   4. une clé REFUSÉE se dit en clair, le tour se referme, et le témoin
+ *   4. les RÉGLAGES disent ce que la clé permet : son nom, et les dépôts
+ *      GitHub qu'elle peut ouvrir — jamais une jauge de quota inventée, Cursor
+ *      n'en publiant aucune ;
+ *   5. une clé REFUSÉE se dit en clair, le tour se referme, et le témoin
  *      « au travail » s'éteint — jamais un rond qui tourne sans fin ;
- *   5. les moteurs déjà là ne changent pas de comportement.
+ *   6. les moteurs déjà là ne changent pas de comportement.
  *
  *   CURSOR_API_KEY=… node scripts/verif-moteur-cursor.mjs
  *
@@ -341,7 +344,36 @@ async function main() {
     fil.slice(0, 120),
   );
 
-  /* -------- 4. Une clé refusée se dit en clair -------- */
+  /* -------- 4. Ce que la clé permet, dans les réglages -------- */
+
+  await page.evaluate(() => {
+    window.location.hash = 'reglages';
+  });
+  await page.getByRole('tab', { name: 'Comptes' }).click({ timeout: 20_000 });
+  const ligneCursor = page.locator('text=/clé « .* » acceptée/').first();
+  const cleDite = await ligneCursor
+    .waitFor({ timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  noter("les réglages disent que la clé Cursor est acceptée", cleDite, cleDite ? await ligneCursor.innerText() : '');
+
+  // Cursor ne publie AUCUN quota : sa ligne ne doit pas afficher de jauge, même
+  // à zéro — ce serait une mesure inventée.
+  const zoneComptes = await page.locator('section', { hasText: 'Comptes et quotas' }).first().innerText();
+  const ligneQuotaCursor = zoneComptes
+    .split('\n')
+    .some((ligne) => /Cursor/i.test(ligne) && /fenêtre \d+ %/.test(ligne));
+  noter('aucune jauge de quota inventée sur le compte Cursor', !ligneQuotaCursor);
+
+  const depotsDits = await page
+    .locator('text=/dépôts? ouverts?|aucun dépôt relié|dépôts illisibles/')
+    .first()
+    .innerText()
+    .catch(() => '');
+  noter('les dépôts que la clé peut ouvrir sont dits', !!depotsDits, depotsDits);
+  await page.keyboard.press('Escape');
+
+  /* -------- 5. Une clé refusée se dit en clair -------- */
 
   await arreterLeDemon();
   demon = lancerLeDemon('crsr_cette_cle_nexiste_pas');

@@ -239,6 +239,143 @@ export function attenteAvantRelecture(essai: number): number {
   return Math.min(10_000, Math.round(base));
 }
 
+/* ------------------------------------------------------------------ */
+/* Rapatrier ce que l'agent cloud a écrit                              */
+/* ------------------------------------------------------------------ */
+
+/** Une branche produite par un agent Cursor, telle que le run l'annonce. */
+export interface BrancheCursor {
+  /** L'adresse du dépôt où elle a été poussée. */
+  depot?: string;
+  /** Le nom de la branche (« cursor/… »). */
+  branche: string;
+  /** La demande de fusion, si Cursor en a ouvert une. */
+  demandeDeFusion?: string;
+}
+
+/**
+ * LES BRANCHES QU'UN RUN A PRODUITES (`run.git.branches`). Un agent qui a
+ * seulement répondu n'en produit aucune : la liste vide est le cas NORMAL, pas
+ * une anomalie.
+ */
+export function branchesDuRunCursor(run: unknown): BrancheCursor[] {
+  const brutes = (run as any)?.git?.branches;
+  if (!Array.isArray(brutes)) return [];
+  const branches: BrancheCursor[] = [];
+  for (const entree of brutes) {
+    const nom = typeof entree?.branch === 'string' ? entree.branch.trim() : '';
+    if (!nom) continue;
+    branches.push({
+      branche: nom,
+      depot: typeof entree?.repoUrl === 'string' ? entree.repoUrl.trim() : undefined,
+      demandeDeFusion: typeof entree?.prUrl === 'string' ? entree.prUrl.trim() : undefined,
+    });
+  }
+  return branches;
+}
+
+/**
+ * PEUT-ON RAPATRIER CETTE BRANCHE ICI ?
+ *
+ * L'agent Cursor pousse son travail sur une branche « cursor/… » du dépôt. Le
+ * ramener dans la copie de travail n'a de sens QUE dans le dossier d'une carte,
+ * sur sa branche « tache/… » : c'est là que le travail d'une carte vit, et
+ * c'est de là que le démon le fusionne. Une conversation ordinaire, elle,
+ * travaille dans le dossier du projet, souvent sur la branche principale —
+ * y fusionner tout seul reviendrait à livrer sans que personne l'ait demandé.
+ *
+ * Un dossier de travail SALE bloque aussi : on ne fusionne jamais par-dessus
+ * des modifications que personne n'a enregistrées.
+ */
+export function peutRapatrierIci(brancheLocale: string | undefined, dossierPropre: boolean): boolean {
+  return Boolean(brancheLocale?.startsWith('tache/')) && dossierPropre;
+}
+
+/** Ce qui s'affiche une fois le travail de Cursor ramené — ou non. */
+export function messageDeRapatriement(
+  branche: string,
+  issue: 'fusionnee' | 'conflit' | 'hors-carte' | 'echec',
+  detail?: string,
+): string {
+  switch (issue) {
+    case 'fusionnee':
+      return `Travail de Cursor ramené dans la carte (branche « ${branche} »).`;
+    case 'conflit':
+      return `Le travail de Cursor n'a pas pu être fusionné : la branche « ${branche} » entre en conflit avec la carte. Rien n'a été touché — le travail reste sur cette branche.`;
+    case 'hors-carte':
+      return `Cursor a écrit sur la branche « ${branche} ». Rien n'est ramené ici : le rapatriement automatique ne se fait que dans le dossier d'une carte.`;
+    default:
+      return `La branche « ${branche} » de Cursor n'a pas pu être récupérée${detail ? ` : ${detail}` : '.'}`;
+  }
+}
+
+/**
+ * UN MOTEUR SANS QUOTA PUBLIÉ n'affiche AUCUNE jauge. Cursor facture à la
+ * dépense et ne publie ni fenêtre de cinq heures ni plafond hebdomadaire :
+ * afficher « fenêtre 0 % · semaine 0 % » sur sa ligne de compte serait une
+ * mesure inventée, et c'est exactement ce que HaikoDev refuse ailleurs.
+ */
+export function moteurSansQuota(engine: string | undefined): boolean {
+  return engine === 'cursor';
+}
+
+/** L'état d'un compte Cursor tel que les réglages l'affichent. */
+export interface EtatCompteCursor {
+  /** La clé répond-elle ? */
+  cleAcceptee: boolean;
+  /** Le nom que Cursor donne à cette clé, quand elle est acceptée. */
+  nomDeLaCle?: string;
+  /** Pourquoi elle ne répond pas, en français. */
+  erreur?: string;
+  /** Les dépôts que ce compte peut ouvrir, du plus court au plus long nom. */
+  depots: string[];
+  /** Pourquoi la liste des dépôts n'a pas pu être lue. */
+  erreurDepots?: string;
+}
+
+/**
+ * LES DÉPÔTS RENDUS PAR CURSOR, ramenés à des noms « organisation/dépôt ».
+ * L'API ne documente pas la forme exacte de chaque entrée et l'a déjà changée :
+ * on accepte donc plusieurs écritures (nom complet, adresse, propriétaire +
+ * nom) plutôt que d'en supposer une seule, et on écarte ce qui n'est pas
+ * reconnaissable au lieu d'afficher un objet brut.
+ */
+export function depotsDepuisCursor(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
+  const noms = new Set<string>();
+  for (const entree of items) {
+    if (typeof entree === 'string') {
+      const nom = nomDeDepot(entree);
+      if (nom) noms.add(nom);
+      continue;
+    }
+    if (!entree || typeof entree !== 'object') continue;
+    const objet = entree as Record<string, unknown>;
+    const candidats = [objet.fullName, objet.full_name, objet.name, objet.repository, objet.url, objet.repoUrl];
+    let trouve: string | null = null;
+    for (const candidat of candidats) {
+      if (typeof candidat !== 'string') continue;
+      trouve = nomDeDepot(candidat);
+      if (trouve) break;
+    }
+    // « propriétaire » et « nom » séparés : la forme la plus courante après l'adresse.
+    if (!trouve && typeof objet.owner === 'string' && typeof objet.name === 'string') {
+      trouve = `${objet.owner}/${objet.name}`;
+    }
+    if (trouve) noms.add(trouve);
+  }
+  return [...noms].sort((a, b) => a.localeCompare(b));
+}
+
+/** « organisation/dépôt », quelle que soit l'écriture reçue. */
+function nomDeDepot(valeur: string): string | null {
+  const texte = valeur.trim().replace(/\.git$/i, '').replace(/\/+$/, '');
+  if (!texte) return null;
+  const adresse = depotGithubPourCursor(texte);
+  if (adresse) return adresse.replace(/^https:\/\/github\.com\//i, '');
+  return /^[^/\s]+\/[^/\s]+$/.test(texte) ? texte : null;
+}
+
 /**
  * LE COÛT D'UN TOUR, tel que `GET /v1/agents/{id}/usage` le rend : Cursor
  * compte en CENTIMES de dollar, HaikoDev en dollars. Une valeur absente reste

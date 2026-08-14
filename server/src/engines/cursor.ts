@@ -4,13 +4,19 @@ import {
   API_CURSOR,
   MODELE_CURSOR_PAR_DEFAUT,
   attenteAvantRelecture,
+  branchesDuRunCursor,
   coutEnDollars,
   depotGithubPourCursor,
+  depotsDepuisCursor,
   enteteDuTour,
   issueDuRunCursor,
   messageDeFinCursor,
+  messageDeRapatriement,
   paramsDeReflexionCursor,
+  peutRapatrierIci,
   raisonDeRefusCursor,
+  type BrancheCursor,
+  type EtatCompteCursor,
   type ModeleCursor,
 } from '@haikodev/shared';
 import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions } from './types.js';
@@ -129,6 +135,36 @@ export async function depotAccessible(cle: string, url: string): Promise<boolean
 }
 
 /**
+ * L'ÉTAT D'UN COMPTE CURSOR, tel que les réglages l'affichent : la clé
+ * répond-elle, et quels dépôts peut-elle ouvrir ? Les deux appels sont
+ * indépendants — une liste de dépôts illisible ne fait pas passer une clé
+ * valide pour refusée, et l'inverse non plus.
+ */
+export async function etatDuCompteCursor(cle: string): Promise<EtatCompteCursor> {
+  if (!cle) {
+    return { cleAcceptee: false, erreur: "aucune clé d'accès configurée sur le serveur", depots: [] };
+  }
+  let nomDeLaCle: string | undefined;
+  try {
+    const moi = await appelCursor('/v1/me', cle, { plafondMs: 15_000 });
+    nomDeLaCle = typeof moi?.apiKeyName === 'string' ? moi.apiKeyName : undefined;
+  } catch (err: any) {
+    return { cleAcceptee: false, erreur: err?.message ?? 'la clé n\'a pas pu être éprouvée', depots: [] };
+  }
+  try {
+    const data = await appelCursor('/v1/repositories', cle, { plafondMs: 15_000 });
+    return { cleAcceptee: true, nomDeLaCle, depots: depotsDepuisCursor(data?.items) };
+  } catch (err: any) {
+    return {
+      cleAcceptee: true,
+      nomDeLaCle,
+      depots: [],
+      erreurDepots: err?.message ?? 'la liste des dépôts n\'a pas pu être lue',
+    };
+  }
+}
+
+/**
  * LE DÉPÔT SUR LEQUEL L'AGENT CLOUD TRAVAILLE. Il est déduit du dossier du
  * tour : c'est la copie de travail de la carte, donc son `origin` est le dépôt
  * du projet. Rien de trouvé, ou un dépôt qui n'est pas GitHub : l'agent part
@@ -158,6 +194,68 @@ export async function depotDuTour(cwd: string, cle: string): Promise<{ url: stri
     return { url, startingRef };
   } catch {
     return null;
+  }
+}
+
+/**
+ * RAMENER DANS LA CARTE CE QUE L'AGENT CLOUD A ÉCRIT.
+ *
+ * L'agent Cursor ne travaille pas sur la machine : il pousse son travail sur
+ * une branche « cursor/… » du dépôt GitHub. Sans ce rapatriement, une carte
+ * lancée sur Cursor finissait sans une ligne de code dans sa copie de
+ * travail — donc sans preuve de travail, donc jamais « Terminé ».
+ *
+ * Trois portes, toutes DURES (`peutRapatrierIci`) : on n'est que dans le
+ * dossier d'une carte (branche « tache/… »), le dossier est propre, et la
+ * fusion se fait sans conflit. Chaque refus est DIT dans une étape, avec le nom
+ * de la branche — le travail n'est jamais perdu, il reste chez GitHub.
+ */
+export async function rapatrierLeTravail(
+  cwd: string,
+  branches: BrancheCursor[],
+  onEvent: (event: EngineEvent) => void,
+): Promise<void> {
+  if (!branches.length) return;
+  const git = (args: string[], timeout = 60_000) => execFileAsync('git', args, { cwd, timeout });
+
+  let brancheLocale = '';
+  let propre = true;
+  try {
+    brancheLocale = (await git(['branch', '--show-current'], 10_000)).stdout.trim();
+    propre = !(await git(['status', '--porcelain'], 20_000)).stdout.trim();
+  } catch {
+    // Pas un dépôt lisible : rien à ramener, et on le dit plus bas.
+    brancheLocale = '';
+  }
+
+  for (const branche of branches) {
+    const etape = (etat: 'done' | 'failed', message: string) =>
+      onEvent({
+        kind: 'step',
+        step: { key: `cursor-rapatriement-${branche.branche}`, label: message, state: etat, detail: branche.demandeDeFusion },
+      });
+
+    if (!peutRapatrierIci(brancheLocale, propre)) {
+      etape('done', messageDeRapatriement(branche.branche, 'hors-carte'));
+      continue;
+    }
+    try {
+      await git(['fetch', 'origin', branche.branche], 120_000);
+      await git(['merge', '--no-edit', 'FETCH_HEAD'], 120_000);
+      etape('done', messageDeRapatriement(branche.branche, 'fusionnee'));
+    } catch (err: any) {
+      // Une fusion à moitié faite est pire que pas de fusion du tout : on la
+      // défait avant de rendre la main, et la cause s'écrit en clair.
+      await git(['merge', '--abort'], 30_000).catch(() => undefined);
+      const conflit = /conflict/i.test(String(err?.stdout ?? '') + String(err?.stderr ?? ''));
+      log.warn('rapatriement du travail Cursor impossible', err);
+      etape(
+        'failed',
+        conflit
+          ? messageDeRapatriement(branche.branche, 'conflit')
+          : messageDeRapatriement(branche.branche, 'echec', (err?.stderr ?? err?.message ?? '').toString().trim().slice(0, 200)),
+      );
+    }
   }
 }
 
@@ -335,6 +433,11 @@ export const cursorAdapter: EngineAdapter = {
             });
             const usage = await mesureDuRun(cle, agentId, runId);
             if (usage) options.onEvent({ kind: 'usage', usage });
+            // Ce que l'agent a ÉCRIT revient dans la carte avant que le tour ne
+            // se referme : sinon le démon constaterait un dépôt intact.
+            if (issue === 'reussi') {
+              await rapatrierLeTravail(options.cwd, branchesDuRunCursor(run), options.onEvent);
+            }
             if (issue === 'reussi' && resultat) {
               options.onEvent({ kind: 'text', text: resultat });
               return terminer(true);

@@ -334,6 +334,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('engines.list') }),
   z.object({ type: z.literal('quota.refresh') }),
   /**
+   * L'ÉTAT D'UN COMPTE CURSOR : sa clé répond-elle, et quels dépôts GitHub
+   * peut-elle réellement ouvrir ? Cursor ne publiant aucun quota, c'est la
+   * seule chose que sa ligne de compte peut dire d'utile.
+   */
+  z.object({ type: z.literal('cursor.etat'), accountId: z.string().optional() }),
+  /**
    * Connecter ou RECONNECTER un compte de moteur sans ouvrir de terminal.
    * Sans `accountId`, c'est un compte neuf : il n'entre dans la liste qu'une
    * fois la connexion réussie.

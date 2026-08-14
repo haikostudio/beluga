@@ -39,6 +39,8 @@ import {
   EngineId,
   ErreurInterface,
   EtatCerveau,
+  EtatCompteCursor,
+  moteurSansQuota,
   SystemProcess,
   appareilEnClair,
   connexionTerminee,
@@ -1067,7 +1069,11 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
               {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
             </p>
           )}
-          {!edite ? (
+          {/* Un moteur qui ne publie AUCUN quota n'affiche pas de jauge :
+              « fenêtre 0 % · semaine 0 % » serait une mesure inventée
+              (`moteurSansQuota`). À la place, ce que sa clé permet vraiment. */}
+          {!edite && moteurSansQuota(quota.engine) ? <EtatCursor accountId={quota.id} /> : null}
+          {!edite && !moteurSansQuota(quota.engine) ? (
             <p className="text-[11.5px] text-faint">
               fenêtre {Math.round(quota.session?.usedPct ?? 0)} % · semaine{' '}
               {Math.round(quota.weekly?.usedPct ?? 0)} %
@@ -1101,6 +1107,59 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
         ) : null}
       </div>
       {connexion ? <BlocConnexion connexion={connexion} /> : null}
+    </div>
+  );
+}
+
+/**
+ * CE QUE PERMET UNE CLÉ CURSOR, sous la ligne de son compte : le nom que Cursor
+ * donne à la clé, et les dépôts GitHub qu'elle peut réellement ouvrir. Sans
+ * cette liste, rien à l'écran ne disait POURQUOI un agent Cursor répond sans
+ * jamais toucher au code — la réponse est presque toujours « aucun dépôt n'est
+ * relié à ce compte ».
+ *
+ * La lecture appelle Cursor : elle se fait à l'ouverture des réglages, une
+ * fois, et son échec se DIT au lieu de laisser une ligne vide.
+ */
+function EtatCursor({ accountId }: { accountId: string }) {
+  const [etat, setEtat] = React.useState<EtatCompteCursor | null>(null);
+  const [erreur, setErreur] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let vivant = true;
+    client
+      .call<{ etat: EtatCompteCursor }>({ type: 'cursor.etat', accountId })
+      .then((data) => vivant && setEtat(data.etat))
+      .catch((err) => vivant && setErreur(err?.message ?? 'état illisible'));
+    return () => {
+      vivant = false;
+    };
+  }, [accountId]);
+
+  if (erreur) return <p className="text-[11.5px] text-danger">{erreur}</p>;
+  if (!etat) return <p className="text-[11.5px] text-faint">lecture de la clé…</p>;
+  if (!etat.cleAcceptee) {
+    return <p className="text-[11.5px] text-danger">clé refusée — {etat.erreur ?? 'raison inconnue'}</p>;
+  }
+
+  return (
+    <div className="text-[11.5px] text-faint">
+      <p>
+        clé « {etat.nomDeLaCle ?? 'sans nom'} » acceptée · aucun quota publié par Cursor
+      </p>
+      {etat.erreurDepots ? (
+        <p className="text-warning">dépôts illisibles — {etat.erreurDepots}</p>
+      ) : etat.depots.length ? (
+        <p>
+          {etat.depots.length} dépôt{etat.depots.length > 1 ? 's' : ''} ouvert
+          {etat.depots.length > 1 ? 's' : ''} : {etat.depots.slice(0, 6).join(', ')}
+          {etat.depots.length > 6 ? ` … (+${etat.depots.length - 6})` : ''}
+        </p>
+      ) : (
+        <p className="text-warning">
+          aucun dépôt relié : ses agents répondent sans ouvrir le code du projet
+        </p>
+      )}
     </div>
   );
 }

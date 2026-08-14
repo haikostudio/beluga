@@ -389,8 +389,13 @@ le nom, là-bas le texte).
   sinon l'agent répond SANS dépôt et le dit ; le fil est l'agent cloud (`bc-…`) ; on RELIT le run au
   lieu de suivre un flux qui se coupe, et un statut inconnu est TERMINAL ; un réglage de réflexion
   part comme une COMBINAISON entière (`variants`), jamais seul ; sans clé, le moteur n'apparaît
-  nulle part et son compte n'affiche aucune jauge, Cursor ne publiant pas de quota. Verrouillé par
-  `server/src/test/moteur-cursor.test.ts` et `scripts/verif-moteur-cursor.mjs`.
+  nulle part. Cursor ne publiant AUCUN quota, sa ligne de compte n'affiche PAS de jauge
+  (`moteurSansQuota`) mais l'état de sa clé et les DÉPÔTS qu'elle ouvre (commande `cursor.etat`), et
+  la clé de l'environnement n'appartient qu'au compte principal — un compte de relève porte la
+  sienne dans son dossier. Ce que l'agent ÉCRIT revient dans la carte en fin de tour
+  (`rapatrierLeTravail`) : branche « cursor/… » fusionnée, mais seulement dans un dossier de carte
+  propre, un conflit étant défait et DIT. Verrouillé par `server/src/test/moteur-cursor.test.ts` et
+  `scripts/verif-moteur-cursor.mjs`.
 - **Un moteur lancé est SUIVI avant tout autre travail** (`startTurn`, `server/src/runtime.ts`) :
   `live.set` passe devant l'enregistrement du contexte envoyé, sinon une panne survenue dans cette
   fenêtre faisait refermer par `sendPrompt` un tour BIEN VIVANT — bulle rouge « panne interne du
