@@ -30,6 +30,7 @@ import {
   NiveauAgent,
   REFUS_A_COMPLETER,
   SentContextSnapshot,
+  TYPE_JOINTES_COLLABLES,
   choixPossible,
   chronologieContexteEnvoye,
   comptesDeReprise,
@@ -39,7 +40,9 @@ import {
   numeroDeVersion,
   propositionsDuFil,
   reponsePrete,
+  emballerJointes,
   estTitreDesSuggestions,
+  jointesDuMessage,
   texteAEcouter,
   tempsRestant,
   texteDeReponse,
@@ -74,7 +77,7 @@ function LigneReperes({
   texte,
   cle,
   aDroite = false,
-  images = [],
+  jointes = [],
 }: {
   at: number;
   /** Faux pour un message d'une suite écrite dans la même minute (l'heure se pose sous le dernier). */
@@ -84,8 +87,8 @@ function LigneReperes({
   /** L'identifiant du message : sert au bouton d'écoute à savoir si c'est LUI qui parle. */
   cle: string;
   aDroite?: boolean;
-  /** Les images jointes à ce message : la copie les emporte avec le texte. */
-  images?: Attachment[];
+  /** Les fichiers joints à ce message : la copie les emporte avec le texte. */
+  jointes?: Attachment[];
 }) {
   const visibles = complements.filter(Boolean) as string[];
   return (
@@ -100,7 +103,7 @@ function LigneReperes({
         <span key={index}>{item}</span>
       ))}
       <BoutonEcoute texte={texte} cle={cle} />
-      <BoutonCopier texte={texte} images={images} />
+      <BoutonCopier texte={texte} jointes={jointes} />
     </div>
   );
 }
@@ -139,11 +142,11 @@ export function MessageView({
   const state = useApp();
 
   if (isUser) {
-    // Les images jointes voyagent avec la copie du message (BoutonCopier).
+    /* TOUS les fichiers joints voyagent avec la copie du message
+       (`BoutonCopier`), pas seulement les images : coller la demande dans la
+       barre d'écriture repose les mêmes pièces jointes au-dessus du champ. */
     const connues = projectId ? (state.attachments[projectId] ?? []) : [];
-    const images = message.attachments
-      .map((id) => connues.find((item) => item.id === id))
-      .filter((item): item is Attachment => !!item && item.mime.startsWith('image/'));
+    const jointes = jointesDuMessage(message.attachments, connues);
 
     // Vos demandes : à droite, sur une largeur réduite.
     return (
@@ -169,7 +172,7 @@ export function MessageView({
             texte={message.content}
             cle={message.id}
             aDroite
-            images={images}
+            jointes={jointes}
           />
           {message.sentContext ? (
             <ContexteEnvoye contexte={message.sentContext} messageId={message.id} allMessages={allMessages} />
@@ -686,24 +689,77 @@ function BoutonEcoute({ texte, cle }: { texte: string; cle: string }) {
   );
 }
 
+/** Au-delà de ce poids, les images ne sont plus recopiées en clair dans le
+ *  presse-papiers : le collage HORS de l'application perdra l'aperçu, jamais
+ *  les fichiers eux-mêmes (qui voyagent par leur identifiant, sans poids). */
+const POIDS_IMAGES_COPIEES = 4 * 1024 * 1024;
+
+/** Le texte d'un message, échappé pour tenir dans la version HTML de la copie. */
+function echapperHtml(texte: string): string {
+  return texte
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * La version HTML de la copie : le texte, puis les images en clair. Elle ne
+ * sert QU'AU DEHORS (un courriel, un traitement de texte) ; dans HaikoDev, ce
+ * sont les pièces jointes d'origine qui sont recréées. Trop lourde, elle est
+ * abandonnée : le texte et les fichiers, eux, passent toujours.
+ */
+async function htmlDeLaCopie(texte: string, images: Attachment[]): Promise<string | null> {
+  if (!images.length) return null;
+  const poids = images.reduce((total, item) => total + (item.size || 0), 0);
+  if (poids > POIDS_IMAGES_COPIEES) return null;
+  try {
+    const morceaux = await Promise.all(
+      images.map(async (item) => {
+        const reponse = await fetch(`/api/attachment?id=${item.id}`);
+        if (!reponse.ok) return null;
+        const blob = await reponse.blob();
+        if (!blob.type.startsWith('image/')) return null;
+        const donnee = await new Promise<string | null>((resoudre) => {
+          const lecteur = new FileReader();
+          lecteur.onload = () => resoudre(typeof lecteur.result === 'string' ? lecteur.result : null);
+          lecteur.onerror = () => resoudre(null);
+          lecteur.readAsDataURL(blob);
+        });
+        return donnee ? `<img src="${donnee}" alt="${echapperHtml(item.name)}">` : null;
+      }),
+    );
+    const balises = morceaux.filter(Boolean).join('');
+    if (!balises) return null;
+    return `${texte?.trim() ? `<pre>${echapperHtml(texte)}</pre>` : ''}${balises}`;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Copier un message en entier. Le bouton reste discret et confirme d'un mot :
  * sans retour visible, on ne sait pas si le clic a pris.
+ *
+ * LES PIÈCES JOINTES VOYAGENT AVEC LE TEXTE, toutes, images comprises mais pas
+ * seulement (`TYPE_JOINTES_COLLABLES`, `shared/src/presse-papiers-jointes.ts`) :
+ * coller dans la barre d'écriture repose les fichiers D'ORIGINE au-dessus du
+ * champ, comme si on venait de les ajouter. Elles partent par leur identifiant,
+ * pas par leur contenu — rien n'est renvoyé au serveur.
  */
 function BoutonCopier({
   texte,
   libelle = 'Copier',
   titre = 'Copier le message',
-  images = [],
+  jointes = [],
 }: {
   texte: string;
   libelle?: string;
   titre?: string;
-  /** Copiées EN PLUS du texte : coller le message ré-attache ses images. */
-  images?: Attachment[];
+  /** Copiées EN PLUS du texte : coller le message ré-attache ses fichiers. */
+  jointes?: Attachment[];
 }) {
   const [copie, setCopie] = React.useState(false);
-  if (!texte?.trim() && !images.length) return null;
+  if (!texte?.trim() && !jointes.length) return null;
 
   const copierTexteSeul = () => {
     try {
@@ -722,34 +778,48 @@ function BoutonCopier({
     }
   };
 
+  /**
+   * Une copie à PLUSIEURS TYPES : seul l'événement « copy » du navigateur
+   * permet d'y glisser un type à nous. On passe donc par un champ caché
+   * sélectionné, le temps d'un `execCommand` — la même mécanique que la copie
+   * d'un tag « [fichier: …] » depuis la barre d'écriture.
+   */
+  const copierAvecJointes = (html: string | null): boolean => {
+    const poser = (event: ClipboardEvent) => {
+      event.preventDefault();
+      event.clipboardData?.setData('text/plain', texte ?? '');
+      event.clipboardData?.setData(TYPE_JOINTES_COLLABLES, emballerJointes(jointes));
+      if (html) event.clipboardData?.setData('text/html', html);
+    };
+    const zone = document.createElement('textarea');
+    zone.value = texte ?? ' ';
+    zone.style.position = 'fixed';
+    zone.style.opacity = '0';
+    document.body.appendChild(zone);
+    zone.select();
+    document.addEventListener('copy', poser, { once: true, capture: true });
+    let pris = false;
+    try {
+      pris = document.execCommand('copy');
+    } catch {
+      pris = false;
+    }
+    document.removeEventListener('copy', poser, { capture: true } as EventListenerOptions);
+    zone.remove();
+    return pris;
+  };
+
   const copier = async () => {
-    /*
-     * Avec des images, on tente une copie MULTI-TYPES (texte + images) : elle
-     * seule permet un collage qui réinjecte les deux à la fois. Sans ce
-     * support (ou en cas d'échec), on retombe sur le texte seul plutôt que
-     * de ne rien copier.
-     */
-    if (images.length && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
-      try {
-        const blobs = await Promise.all(
-          images.map((item) =>
-            fetch(`/api/attachment?id=${item.id}`).then((r) => (r.ok ? r.blob() : null)),
-          ),
-        );
-        const items: ClipboardItem[] = [];
-        if (texte?.trim()) items.push(new ClipboardItem({ 'text/plain': new Blob([texte], { type: 'text/plain' }) }));
-        for (const blob of blobs) {
-          if (blob && blob.type.startsWith('image/')) items.push(new ClipboardItem({ [blob.type]: blob }));
-        }
-        if (items.length) {
-          await navigator.clipboard.write(items);
-          setCopie(true);
-          window.setTimeout(() => setCopie(false), 1800);
-          return;
-        }
-      } catch {
-        // Le navigateur refuse la copie multi-types : on se rabat sur le texte.
+    if (jointes.length) {
+      const images = jointes.filter((item) => item.mime.startsWith('image/'));
+      const html = await htmlDeLaCopie(texte, images);
+      if (copierAvecJointes(html)) {
+        setCopie(true);
+        window.setTimeout(() => setCopie(false), 1800);
+        return;
       }
+      // Le navigateur refuse la copie à plusieurs types : le texte, au moins,
+      // ne doit pas se perdre.
     }
     copierTexteSeul();
     setCopie(true);

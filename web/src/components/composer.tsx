@@ -6,8 +6,12 @@ import {
   Attachment,
   EngineInfo,
   QueuedPrompt,
+  TYPE_JOINTES_COLLABLES,
+  ajouterJointesCollees,
   ancre,
   accrocheAuMot,
+  emballerJointes,
+  relireJointes,
   boutonsBarreEcriture,
   deplacerAncre,
   deplacerJointe,
@@ -67,13 +71,6 @@ export interface ComposerProps {
 const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
 /** Au doigt, chaque lettre est visée dans un carré plus large qu'à la souris. */
 const MARGE_DOIGT = 24;
-/**
- * Type de presse-papiers propre à HaikoDev : porte les pièces jointes visées
- * par les tags copiés, pour que le collage recrée les fichiers plutôt que
- * de ne rendre que le texte du tag (une simple sélection à la souris n'a,
- * sinon, aucun moyen de savoir à quel fichier « [fichier: …] » se rapporte).
- */
-const TYPE_JOINTES_COLLABLES = 'application/x-haikodev-fichiers';
 
 export function Composer({
   agent,
@@ -790,7 +787,7 @@ export function Composer({
             // connue ici : on l'emporte avec le texte pour la recréer au collage.
             event.preventDefault();
             event.clipboardData.setData('text/plain', selection);
-            event.clipboardData.setData(TYPE_JOINTES_COLLABLES, JSON.stringify(jointes));
+            event.clipboardData.setData(TYPE_JOINTES_COLLABLES, emballerJointes(jointes));
           }}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.files);
@@ -818,18 +815,13 @@ export function Composer({
               return;
             }
 
-            const jointesBrut = event.clipboardData.getData(TYPE_JOINTES_COLLABLES);
-            if (!jointesBrut) return;
-            let jointes: Attachment[] = [];
-            try {
-              jointes = JSON.parse(jointesBrut);
-            } catch {
-              return;
-            }
-            if (!Array.isArray(jointes) || !jointes.length) return;
+            const jointes = relireJointes(event.clipboardData.getData(TYPE_JOINTES_COLLABLES));
+            if (!jointes.length) return;
 
-            // Un tag [fichier: …] copié puis collé recrée sa pièce jointe,
-            // comme si le fichier avait été ajouté normalement.
+            /* Un tag [fichier: …] copié, ou un message historique copié avec
+               son bouton, recrée ses pièces jointes : les fichiers D'ORIGINE
+               reparaissent au-dessus du champ, comme s'ils venaient d'être
+               ajoutés à la main. */
             event.preventDefault();
             const texteColle = event.clipboardData.getData('text/plain');
             const zone = textareaRef.current;
@@ -841,11 +833,7 @@ export function Composer({
               zone?.focus();
               zone?.setSelectionRange(position, position);
             });
-            setAttachments((current) => {
-              const dejaVues = new Set(current.map((a) => a.id));
-              const nouvelles = jointes.filter((j) => j && !dejaVues.has(j.id));
-              return nouvelles.length ? [...current, ...nouvelles] : current;
-            });
+            setAttachments((current) => ajouterJointesCollees(current, jointes));
           }}
           placeholder={
             edition
