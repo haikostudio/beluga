@@ -518,8 +518,19 @@ export const Agent = z.object({
    * elles-mêmes vivent sur les messages (souvent chargés seulement à
    * l'ouverture d'une carte) ; ce résumé, lui, suit l'agent partout et permet
    * d'afficher « n/N faites » dans le décroché d'une carte sans l'ouvrir.
+   *
+   * Refait à la CLÔTURE du tour depuis la liste refermée (`progressionDesTaches`),
+   * et non plus seulement à chaque liste renvoyée par le moteur : sinon la carte
+   * gardait l'avant-dernier décompte à vie. `unfinished` compte les étapes qui
+   * n'ont pas été menées à bout, pour que la carte le dise.
    */
-  todos: z.object({ done: z.number().int(), total: z.number().int() }).optional(),
+  todos: z
+    .object({
+      done: z.number().int(),
+      total: z.number().int(),
+      unfinished: z.number().int().optional(),
+    })
+    .optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */

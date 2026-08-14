@@ -45,6 +45,7 @@ import {
   MotifDeContinuite,
   tachesAPoursuivre,
   cloturerLesTaches,
+  progressionDesTaches,
   cleDeSession,
   partMoteurDeLaCle,
   colonneAuDemarrage,
@@ -1299,15 +1300,7 @@ async function startTurn(
                * carte. On pose donc le décompte sur l'agent lui-même, en relisant
                * son état frais pour ne pas écraser un statut posé ailleurs.
                */
-              const progression = {
-                done: runState.todos.filter((t) => t.state === 'done').length,
-                total: runState.todos.length,
-              };
-              const frais = store.getAgent(agent.id);
-              if (frais && (frais.todos?.done !== progression.done || frais.todos?.total !== progression.total)) {
-                const maj = store.saveAgent({ ...frais, todos: progression });
-                bus.emit({ type: 'agent.upsert', agent: maj });
-              }
+              poserLaProgression(agent.id, runState.todos);
 
               /*
                * Liste entièrement cochée : cela se voit dans l'application, mais
@@ -1769,6 +1762,9 @@ async function startTurn(
     issue: failed || reprise || panneDefinitive ? 'interrompu' : 'reussi',
     maintenant: Date.now(),
   });
+  // Le résumé porté par l'agent — celui que lit le tableau — se refait avec la
+  // liste : sans cela, la conversation dit « 5/5 faites » et la carte « 4/5 ».
+  poserLaProgression(agent.id, runState.todos);
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
@@ -2321,6 +2317,35 @@ function tachesRefermees(message: Message): TodoItem[] {
 }
 
 /**
+ * LE DÉCOMPTE DE L'AGENT SUIT LA LISTE, JUSQU'À LA CLÔTURE COMPRISE.
+ *
+ * Les étapes vivent sur les messages ; le décroché du tableau, lui, lit le
+ * résumé posé sur l'agent (`agent.todos`). Il n'était rafraîchi qu'à l'arrivée
+ * d'une liste du moteur : la clôture du tour cochait donc la dernière ligne
+ * dans la conversation sans jamais toucher ce résumé, et la carte gardait
+ * « 4/5 faites » pour toujours. On repasse ici à CHAQUE mise à jour comme à
+ * chaque fermeture, en relisant l'agent frais pour ne pas écraser un statut
+ * posé ailleurs. Rendu vrai quand le décompte a réellement changé.
+ */
+function poserLaProgression(agentId: string, todos: readonly TodoItem[]): boolean {
+  if (!todos.length) return false;
+  const progression = progressionDesTaches(todos);
+  const frais = store.getAgent(agentId);
+  if (!frais) return false;
+  const avant = frais.todos;
+  if (
+    avant?.done === progression.done &&
+    avant?.total === progression.total &&
+    (avant?.unfinished ?? 0) === progression.unfinished
+  ) {
+    return false;
+  }
+  const maj = store.saveAgent({ ...frais, todos: progression });
+  bus.emit({ type: 'agent.upsert', agent: maj });
+  return true;
+}
+
+/**
  * ÉTEINDRE UNE ÉCRITURE ORPHELINE : un message resté marqué « en cours
  * d'écriture » alors que son agent est au repos depuis. La règle du jugement
  * vit dans `shared` (`ecritureOrpheline`) ; ici on ne fait que constater et
@@ -2346,6 +2371,7 @@ function eteindreEcritureOrpheline(
   }
   const fige = store.saveMessage({ ...enEcriture, streaming: false, todos: tachesRefermees(enEcriture) });
   bus.emit({ type: 'message.upsert', message: fige });
+  poserLaProgression(agent.id, fige.todos);
   log.warn(`écriture orpheline éteinte (agent ${agent.id}, message ${enEcriture.id})`);
   return true;
 }
@@ -2504,6 +2530,7 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
       error: reponseRendue ? dernier.error : (dernier.error ?? raison),
     });
     bus.emit({ type: 'message.upsert', message: fige });
+    poserLaProgression(agentId, fige.todos);
   }
 
   live.delete(agentId);
@@ -2883,6 +2910,7 @@ export function recoverAfterRestart(
         error: 'Interrompu par un redémarrage du serveur. Cette interruption ne compte pas comme un essai raté.',
       });
       bus.emit({ type: 'message.upsert', message: fixed });
+      poserLaProgression(agent.id, fixed.todos);
     }
 
     if (agent.cardId) rendreLaCarteInterrompue(agent.cardId);

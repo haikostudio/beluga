@@ -69,6 +69,29 @@ export function cloturerLesTaches(
   });
 }
 
+/**
+ * LE DÉCOMPTE QUI VOYAGE AVEC L'AGENT, REFAIT DEPUIS LA LISTE REFERMÉE.
+ *
+ * Les lignes elles-mêmes vivent sur les messages — chargés seulement quand on
+ * ouvre une carte. Le décroché du tableau, lui, doit dire « n/N faites » sans
+ * rien ouvrir : le démon pose donc ce décompte sur l'AGENT, mis à jour à chaque
+ * liste renvoyée par le moteur. Il était figé sur l'avant-dernière liste reçue,
+ * jamais refait à la clôture : la conversation affichait « 5/5 faites » et la
+ * carte du tableau « 4/5 faites », pour toujours, sur le même travail.
+ *
+ * Une même lecture des deux côtés, donc — et les lignes NON FAITES sont comptées
+ * à part, pour que la carte les DISE au lieu de les passer sous silence.
+ */
+export function progressionDesTaches(
+  todos: readonly TodoItem[],
+): { done: number; total: number; unfinished: number } {
+  return {
+    done: todos.filter((todo) => todo.state === 'done').length,
+    total: todos.length,
+    unfinished: todos.filter((todo) => todo.state === 'unfinished').length,
+  };
+}
+
 /** Ce que l'en-tête du volet annonce en plus du décompte des lignes cochées. */
 export function mentionTachesNonFaites(todos: readonly TodoItem[]): string | null {
   const nombre = todos.filter((todo) => todo.state === 'unfinished').length;
