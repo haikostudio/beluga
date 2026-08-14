@@ -326,17 +326,23 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           )}
         >
         <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-1.5 py-1">
-          <TabsList className="w-full justify-start">
+          {/* Même présentation en pilule que la barre « Chef / Fichiers /
+              Pièces jointes » : le tiroir porte déjà le même fond
+              (`bg-surface`) que la piste de la pilule, qui se détache donc
+              par un LISERÉ plutôt qu'un fond différent — `bg-bg` aurait
+              collé à `bg-raised` de l'onglet actif en thème clair, où les
+              deux valent blanc pur. */}
+          <TabsList className="w-full border border-border">
             {/* La décision se prend DANS ce fil : l'onglet porte le même
                 triangle que la carte du tableau, sinon le tiroir ouvert
                 n'apprendrait plus rien. */}
-            <TabsTrigger value="chat" className="gap-1">
+            <TabsTrigger value="chat" className="flex-1 gap-1">
               Conversation
               <RepereAttention compte={decisions} data-attention-carte={card.id} />
             </TabsTrigger>
-            <TabsTrigger value="details">Détails</TabsTrigger>
-            <TabsTrigger value="billing">Facturation</TabsTrigger>
-            <TabsTrigger value="github">GitHub</TabsTrigger>
+            <TabsTrigger value="details" className="flex-1">Détails</TabsTrigger>
+            <TabsTrigger value="billing" className="flex-1">Facturation</TabsTrigger>
+            <TabsTrigger value="github" className="flex-1">GitHub</TabsTrigger>
           </TabsList>
         </ZoneDefilement>
         </div>
