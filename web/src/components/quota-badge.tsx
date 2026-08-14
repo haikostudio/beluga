@@ -12,6 +12,7 @@ import {
   profilHoraire,
   tempsRestant,
   trancheLaPlusChargee,
+  moteurSansQuota,
   type AgregatHoraire,
   type PrevisionEpuisement,
   type ReleveQuota,
@@ -49,10 +50,15 @@ function worstOf(quota: AccountQuota): number {
 function Courbe({
   points,
   prevision,
+  showSession,
+  showWeekly,
 }: {
   points: { at: number; weekly: number; session: number }[];
   prevision?: PrevisionEpuisement | null;
+  showSession: boolean;
+  showWeekly: boolean;
 }) {
+  if (!showSession && !showWeekly) return null;
   if (points.length < 2) {
     return <p className="mt-1 text-[11px] text-faint">Pas encore assez de relevés pour tracer la courbe.</p>;
   }
@@ -75,9 +81,25 @@ function Courbe({
   return (
     <div className="mt-1.5">
       <svg viewBox={`0 0 ${largeur} ${hauteur}`} className="h-[30px] w-full" preserveAspectRatio="none">
-        <path d={trace('session')} fill="none" stroke="hsl(var(--faint))" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-        <path d={trace('weekly')} fill="none" stroke="hsl(var(--muted))" strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
-        {prevision ? (
+        {showSession ? (
+          <path
+            d={trace('session')}
+            fill="none"
+            stroke="hsl(var(--faint))"
+            strokeWidth="1"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
+        {showWeekly ? (
+          <path
+            d={trace('weekly')}
+            fill="none"
+            stroke="hsl(var(--muted))"
+            strokeWidth="1.4"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
+        {prevision && showWeekly ? (
           <path
             /* Le pointillé suit la MÊME projection que le texte : quand les
                heures creuses sont mesurées, il s'aplatit la nuit et remonte le
@@ -98,7 +120,9 @@ function Courbe({
         ) : null}
       </svg>
       <p className="mt-0.5 text-[10.5px] text-faint">
-        {jours} jour{jours > 1 ? 's' : ''} · trait épais : la semaine, trait fin : la fenêtre de 5 h
+        {jours} jour{jours > 1 ? 's' : ''}
+        {showWeekly ? ' · trait épais : la semaine' : ''}
+        {showSession ? ' · trait fin : la fenêtre courte' : ''}
         {prevision
           ? prevision.heuresCreuses
             ? ' · pointillé : la suite, heures creuses comprises'
@@ -151,7 +175,9 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
    */
   const previsions = React.useMemo(() => {
     const out: Record<string, PrevisionEpuisement | null> = {};
-    for (const quota of quotas) out[quota.id] = previsionEpuisement(pourProfil(quota.id), quota.weekly);
+    for (const quota of quotas) {
+      out[quota.id] = quota.weekly ? previsionEpuisement(pourProfil(quota.id), quota.weekly) : null;
+    }
     return out;
   }, [quotas, pourProfil]);
 
@@ -289,24 +315,36 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                 </div>
 
                 <div className="mt-1.5 space-y-1.5">
-                  {/* Les deux fenêtres portent leur prévision. Celle de cinq
-                      heures ne parle que si la journée a laissé assez de
-                      relevés ; sinon elle se tait, comme la semaine. */}
-                  <Window
-                    label="Fenêtre 5 h"
-                    window={quota.session}
-                    releves={histoire[quota.id]}
-                    serie="session"
-                  />
-                  <Window
-                    label="Semaine"
-                    window={quota.weekly}
-                    releves={pourProfil(quota.id)}
-                    secours={secoursDe(quota)?.label}
-                  />
+                  {moteurSansQuota(quota.engine) ? (
+                    <p className="text-[11.5px] text-faint">Ce moteur ne publie pas de fenêtre de quota.</p>
+                  ) : (
+                    <>
+                      {quota.session ? (
+                        <Window
+                          label={libelleFenetre(quota.session, 'session')}
+                          window={quota.session}
+                          releves={histoire[quota.id]}
+                          serie="session"
+                        />
+                      ) : null}
+                      {quota.weekly ? (
+                        <Window
+                          label={libelleFenetre(quota.weekly, 'weekly')}
+                          window={quota.weekly}
+                          releves={pourProfil(quota.id)}
+                          secours={secoursDe(quota)?.label}
+                        />
+                      ) : null}
+                    </>
+                  )}
                 </div>
 
-                <Courbe points={histoire[quota.id] ?? []} prevision={previsions[quota.id]} />
+                <Courbe
+                  points={histoire[quota.id] ?? []}
+                  prevision={previsions[quota.id]}
+                  showSession={Boolean(quota.session) && !moteurSansQuota(quota.engine)}
+                  showWeekly={Boolean(quota.weekly) && !moteurSansQuota(quota.engine)}
+                />
 
                 {/* Même source que la prévision : le résumé des semaines
                     passées puis le détail récent, pas le seul détail. */}
@@ -432,6 +470,24 @@ function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
   );
 }
 
+function libelleFenetre(
+  win: { durationSeconds?: number },
+  type: 'session' | 'weekly',
+): string {
+  const secondes = win.durationSeconds;
+  if (secondes === 5 * 60 * 60) return 'Fenêtre 5 h';
+  if (secondes === 7 * 24 * 60 * 60) return 'Semaine';
+  if (secondes && secondes < 24 * 60 * 60) {
+    const heures = secondes / 3600;
+    return Number.isInteger(heures) ? `Fenêtre ${heures} h` : 'Fenêtre courte';
+  }
+  if (secondes) {
+    const jours = secondes / (24 * 3600);
+    return Number.isInteger(jours) ? `Fenêtre ${jours} jours` : 'Fenêtre longue';
+  }
+  return type === 'weekly' ? 'Fenêtre longue' : 'Fenêtre courte';
+}
+
 function Window({
   label,
   window: win,
@@ -440,7 +496,7 @@ function Window({
   secours,
 }: {
   label: string;
-  window?: { usedPct?: number; resetsAt?: number };
+  window?: { usedPct?: number; resetsAt?: number; durationSeconds?: number };
   /** Les relevés du compte, d'où se tire la prévision d'épuisement. */
   releves?: ReleveQuota[];
   /** Laquelle des deux fenêtres ces relevés doivent servir. */

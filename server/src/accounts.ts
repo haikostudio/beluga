@@ -299,11 +299,16 @@ async function fetchClaudeQuota(account: AccountRecord): Promise<AccountQuota> {
         ? {
             usedPct: typeof w.utilization === 'number' ? w.utilization : undefined,
             resetsAt: w.resets_at ? new Date(w.resets_at).getTime() : undefined,
+            durationSeconds: typeof w.duration_seconds === 'number' ? w.duration_seconds : undefined,
           }
         : undefined;
 
-    const session = window(data.five_hour);
-    const weekly = window(data.seven_day);
+    const session = data.five_hour
+      ? { ...window(data.five_hour), durationSeconds: 5 * 60 * 60 }
+      : undefined;
+    const weekly = data.seven_day
+      ? { ...window(data.seven_day), durationSeconds: 7 * 24 * 60 * 60 }
+      : undefined;
     const exhausted = (weekly?.usedPct ?? 0) >= 100 || (session?.usedPct ?? 0) >= 100;
 
     return { ...base, session, weekly, available: !exhausted };
@@ -345,6 +350,7 @@ async function fetchCodexQuota(account: AccountRecord): Promise<AccountQuota> {
                 : w.reset_at
                   ? w.reset_at * 1000
                   : undefined,
+            durationSeconds: typeof w.limit_window_seconds === 'number' ? w.limit_window_seconds : undefined,
           }
         : undefined;
     // Codex ne garantit PAS que la première fenêtre soit la courte : sur un
