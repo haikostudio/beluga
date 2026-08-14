@@ -16,7 +16,7 @@ import { scheduleNightlyBackup } from './backup.js';
 import { purgeOldArchives } from './files.js';
 import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
 import { getSettings, listProjects } from './store.js';
-import { recupererFaviconEnTache, planifierRevisionFavicons } from './favicon.js';
+import { iconeManquante, recupererFaviconEnTache, planifierRevisionFavicons } from './favicon.js';
 import { listEngines } from './engines/index.js';
 import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
@@ -48,11 +48,12 @@ async function main(): Promise<void> {
   await adoptServerProjects();
   await refreshGitInfo();
 
-  // Les projets déjà inscrits, mais dont l'icône n'a jamais été récupérée
-  // (déploiement d'avant cette version) : on la va chercher sans attendre un
-  // prochain changement d'adresse.
+  // Les projets dont l'icône manque encore — jamais récupérée, ou fichier
+  // disparu depuis : on la va chercher sans attendre un prochain changement
+  // d'adresse. Un projet SANS adresse en fait partie : son icône se trouve
+  // alors dans son dépôt (`server/src/favicon.ts`).
   for (const projet of listProjects(true)) {
-    if (projet.devUrl?.trim() && !projet.favicon) recupererFaviconEnTache(projet);
+    if (iconeManquante(projet)) recupererFaviconEnTache(projet);
   }
 
   // Reprise après redémarrage AVANT d'accepter des connexions : les agents

@@ -51,7 +51,7 @@ import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
 import { appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
-import { recupererFaviconEnTache } from './favicon.js';
+import { iconeManquante, recupererFaviconEnTache } from './favicon.js';
 import {
   deployableCards,
   startDeploy,
@@ -220,7 +220,18 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const current = store.getProject(cmd.id);
       if (!current) throw new Error('projet introuvable');
       const updated = store.saveProject(Project.parse({ ...current, ...cmd.patch, id: current.id }));
-      if (updated.devUrl && updated.devUrl !== current.devUrl) recupererFaviconEnTache(updated);
+      /*
+       * L'icône se cherche dès que sa source a bougé — l'adresse OU le dossier
+       * du dépôt — et aussi tant qu'aucune n'a été trouvée : un réglage
+       * enregistré est le moment où l'utilisateur regarde sa colonne de gauche.
+       */
+      if (
+        updated.devUrl !== current.devUrl ||
+        updated.path !== current.path ||
+        iconeManquante(updated)
+      ) {
+        recupererFaviconEnTache(updated);
+      }
       bus.emit({ type: 'project.upsert', project: updated });
       return { project: updated };
     }
@@ -228,7 +239,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'project.faviconRetry': {
       const project = store.getProject(cmd.id);
       if (!project) throw new Error('projet introuvable');
-      if (!project.devUrl?.trim()) throw new Error('aucune adresse réglée pour ce projet');
+      // Sans adresse, l'icône se cherche dans le DÉPÔT : ce n'est plus un refus.
       recupererFaviconEnTache(project);
       return { ok: true };
     }

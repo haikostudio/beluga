@@ -26,6 +26,7 @@ export * from './cible-mise-en-production.js';
 export * from './avancement-colonne.js';
 export * from './colonne-affichee.js';
 export * from './columns.js';
+export * from './icone-de-projet.js';
 export * from './competences.js';
 export * from './connexion-compte.js';
 export * from './contexte-agent.js';

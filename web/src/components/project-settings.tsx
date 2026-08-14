@@ -496,12 +496,12 @@ export function ProjectSettings({
                   data-url-dev
                   placeholder="https://mon-projet.haikostudio.cloud"
                 />
-                {project?.devUrl?.trim() ? (
+                {project ? (
                   <button
                     type="button"
                     data-favicon-retry
                     disabled={faviconEnCours}
-                    title="Aller rechercher l'icône du site sur cette adresse"
+                    title="Aller rechercher l'icône du site : sur cette adresse, ou dans le dépôt du projet"
                     onClick={() => {
                       setFaviconEnCours(true);
                       client
@@ -520,7 +520,8 @@ export function ProjectSettings({
                 Elle est remplie toute seule à la création du projet, et se corrige ici à la main. Elle est ouverte à la
                 fin de chaque déploiement : si elle ne répond pas, le déploiement est déclaré en échec. Laissée vide,
                 aucune adresse n'est contrôlée. Le bouton « Icône » relance la récupération du favicon de la colonne de
-                gauche, sans attendre la révision automatique du lendemain.
+                gauche, sans attendre la révision automatique : sur cette adresse quand elle est remplie, et sinon dans
+                le dépôt du projet (public/favicon.svg, favicon.ico…).
               </p>
             </div>
 

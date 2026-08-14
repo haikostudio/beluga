@@ -1173,20 +1173,27 @@ function RepereRobot({
 }
 
 /**
- * L'icône de repos d'une ligne de projet : le favicon de son adresse publique
- * quand le SERVEUR a réussi à le récupérer (`project.favicon`,
- * `server/src/favicon.ts` — le navigateur, lui, est trop souvent bloqué :
- * mélange http/https, en-têtes qui refusent l'inclusion croisée), sinon un
- * rond avec ses initiales — jamais le dossier générique, qui ne disait rien
- * du projet.
+ * L'icône de repos d'une ligne de projet : le favicon que le SERVEUR a su
+ * récupérer (`project.favicon`, `server/src/favicon.ts` — sur l'adresse
+ * publique du projet, ou dans son DÉPÔT à défaut ; le navigateur, lui, est
+ * trop souvent bloqué : mélange http/https, en-têtes qui refusent l'inclusion
+ * croisée), sinon un rond avec ses initiales — jamais le dossier générique,
+ * qui ne disait rien du projet.
  */
 function PastilleSite({ project }: { project: Project }) {
-  if (project.favicon) {
+  // Une image qui ne se charge pas (fichier retiré, session expirée) laisse
+  // sinon un carré vide : on revient aux initiales, jamais une image cassée.
+  const [cassee, setCassee] = React.useState(false);
+  React.useEffect(() => setCassee(false), [project.favicon]);
+
+  if (project.favicon && !cassee) {
     return (
       <img
         src={project.favicon}
         alt=""
         aria-hidden
+        data-favicon-projet
+        onError={() => setCassee(true)}
         className="h-[15px] w-[15px] shrink-0 rounded-sm object-contain"
       />
     );
@@ -1205,6 +1212,7 @@ function PastilleSite({ project }: { project: Project }) {
   return (
     <span
       aria-hidden
+      data-initiales-projet
       className="flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full bg-raised text-[9px] font-medium leading-none text-faint"
     >
       {initiales}
