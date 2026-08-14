@@ -102,24 +102,6 @@ export function resumerReleves(releves: ReleveQuota[], serie: SerieQuota = 'week
   return [...cases.values()].sort((a, b) => (a.jour === b.jour ? a.heure - b.heure : a.jour < b.jour ? -1 : 1));
 }
 
-/** Additionne deux résumés : c'est ainsi qu'un compactage s'ajoute au précédent. */
-export function fusionnerResumes(...resumes: AgregatHoraire[][]): AgregatHoraire[] {
-  const cases = new Map<string, AgregatHoraire>();
-  for (const resume of resumes) {
-    for (const tranche of resume) {
-      const cle = `${tranche.jour} ${tranche.heure}`;
-      const existant = cases.get(cle);
-      if (existant) {
-        existant.dureeMs += tranche.dureeMs;
-        existant.consommePct += tranche.consommePct;
-      } else {
-        cases.set(cle, { ...tranche });
-      }
-    }
-  }
-  return [...cases.values()].sort((a, b) => (a.jour === b.jour ? a.heure - b.heure : a.jour < b.jour ? -1 : 1));
-}
-
 /**
  * Le résumé rendu à la forme que le calcul du profil sait lire : deux relevés
  * par tranche, écartés du temps observé et séparés par la consommation de la
@@ -182,9 +164,4 @@ export function historiquePourProfil(
   // comptée deux fois dans le profil.
   const premierReel = suite[0]?.at ?? Infinity;
   return [...anciens.filter((point) => point.at < premierReel), ...suite];
-}
-
-/** Ce qui doit sortir du résumé : au-delà de la rétention, un jour ne sert plus. */
-export function resumePerime(jour: string, maintenant: number, retentionJours = RESUME_RETENTION_JOURS): boolean {
-  return debutDuJour(jour) < maintenant - retentionJours * 24 * 3600 * 1000;
 }
