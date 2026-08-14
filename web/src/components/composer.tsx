@@ -255,7 +255,18 @@ export function Composer({
   const gestesDrapeau = React.useRef({ poserDrapeau, suivreDrapeau, lacherDrapeau, annulerDrapeau });
   gestesDrapeau.current = { poserDrapeau, suivreDrapeau, lacherDrapeau, annulerDrapeau };
 
+  /*
+   * L'overlay (drapeaux fichier) ne se pose QUE s'il y a vraiment un tag :
+   * sinon il se posait sur tout texte non vide, rendant le vrai champ
+   * transparent et sa sélection à la souris invisible — noyée sous le calque.
+   */
+  const aDesDrapeaux = React.useMemo(() => {
+    MARQUE_FICHIER.lastIndex = 0;
+    return MARQUE_FICHIER.test(text);
+  }, [text]);
+
   const texteAvecDrapeaux = React.useMemo(() => {
+    if (!aDesDrapeaux) return [];
     MARQUE_FICHIER.lastIndex = 0;
     const morceaux: React.ReactNode[] = [];
     const vus: Record<string, number> = {};
@@ -708,7 +719,7 @@ export function Composer({
       {barreTravail}
 
       <div className={cn('relative rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
-        {texteAvecDrapeaux.length ? (
+        {aDesDrapeaux ? (
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 z-20 overflow-hidden whitespace-pre-wrap break-words px-3 py-2.5 pr-14 text-[14.5px] leading-normal text-text"
@@ -789,7 +800,7 @@ export function Composer({
           rows={1}
           className={cn(
             'relative z-10 min-h-[38px] border-0 bg-transparent pr-14 focus-visible:ring-0',
-            texteAvecDrapeaux.length && 'text-transparent caret-text selection:text-transparent',
+            aDesDrapeaux && 'text-transparent caret-text selection:text-transparent',
           )}
         />
 
