@@ -46,6 +46,7 @@ export * from './dossier-de-carte.js';
 export * from './echec-construction.js';
 export * from './erreur-interface.js';
 export * from './echec-verification.js';
+export * from './module-natif.js';
 export * from './etat-carte.js';
 export * from './extrait-regles.js';
 export * from './conversation-vocale.js';

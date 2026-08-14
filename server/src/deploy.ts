@@ -41,6 +41,10 @@ import {
   procedureEnPlace,
   refusSansProcedure,
   avertissementsSelection,
+  moduleNatifMalCompile,
+  commandeDEssaiDuModuleNatif,
+  commandeDeRecompilation,
+  recitDeRecompilation,
   type AvertissementSelection,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -927,16 +931,39 @@ const OUTILS_DE_CONSTRUCTION = ['tsc', 'vite'];
  * propre détail.
  */
 async function poserLesOutilsDeConstruction(cwd: string): Promise<string> {
+  const natif = await reparerLeModuleNatif(cwd);
   const manquants = OUTILS_DE_CONSTRUCTION.filter((outil) => !fs.existsSync(path.join(cwd, 'node_modules', '.bin', outil)));
-  if (!manquants.length) return '';
+  if (!manquants.length) return natif;
   const pose = await runCommand(
     cwd,
     'NODE_ENV=development npm install --include=dev --no-audit --no-fund',
     10 * 60 * 1000,
   );
-  return pose.ok
+  return natif + (pose.ok
     ? `Outils de construction absents (${manquants.join(', ')}) : installés avant de construire.\n\n`
-    : `Outils de construction absents (${manquants.join(', ')}) et leur installation a échoué :\n${pose.out.slice(-800)}\n\n`;
+    : `Outils de construction absents (${manquants.join(', ')}) et leur installation a échoué :\n${pose.out.slice(-800)}\n\n`);
+}
+
+/**
+ * RECOMPILER UN MODULE NATIF VENU D'UNE AUTRE VERSION DE NODE.
+ *
+ * `better-sqlite3` est une bibliothèque COMPILÉE : un binaire fabriqué pour un
+ * autre Node se glisse dans `node_modules` sans un mot, puis tout ce qui ouvre
+ * la base refuse de démarrer. Les contrôles tombent alors en masse — 87 d'un
+ * coup le 14/08/2026 — et la publication n'en nomme que les cinq premiers, ce
+ * qui envoie chercher la panne dans le code des cartes, où il n'y a rien.
+ *
+ * On n'y touche que si le module refuse VRAIMENT de se charger : l'essai est
+ * instantané, la recompilation ne part donc jamais pour rien. On recompile
+ * depuis les SOURCES, une réinstallation ordinaire reprenant le binaire tout
+ * fait dont on vient de constater qu'il ne marche pas.
+ */
+async function reparerLeModuleNatif(cwd: string): Promise<string> {
+  const essai = await runCommand(cwd, commandeDEssaiDuModuleNatif(), 60 * 1000);
+  if (essai.ok || !moduleNatifMalCompile(essai.out)) return '';
+  const recompile = await runCommand(cwd, commandeDeRecompilation(), 10 * 60 * 1000);
+  const verdict = await runCommand(cwd, commandeDEssaiDuModuleNatif(), 60 * 1000);
+  return recitDeRecompilation(recompile.ok && verdict.ok);
 }
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

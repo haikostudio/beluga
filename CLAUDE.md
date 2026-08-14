@@ -156,6 +156,12 @@ le nom, là-bas le texte).
   n'ont pas ce crochet : la règle ne les couvre pas.
   Le surveillant système, lui, ne relance qu'après TROIS silences d'affilée
   (`scripts/haikodev-watchdog.sh`, posé en `/usr/local/bin/`).
+- **Avant de construire, la publication RECOMPILE un module natif venu d'un autre Node**
+  (`shared/src/module-natif.ts` ; `reparerLeModuleNatif`, `server/src/deploy.ts`) : `better-sqlite3`
+  est une bibliothèque COMPILÉE, un binaire fabriqué pour une autre version de Node fait tomber d'un
+  coup TOUT ce qui ouvre la base — 87 contrôles le 14/08/2026, dont cinq seulement sont nommés, dans
+  du code sans faute. Reconnu au message, réparé par `npm rebuild --build-from-source` (jamais un
+  binaire tout fait), essayé à chaque publication mais recompilé seulement sur un vrai refus.
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
   `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
