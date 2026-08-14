@@ -50,6 +50,22 @@ export function carteBloqueeDansLeLot(carte: { column: ColumnKey; deployedAt?: n
   return carte.column === 'to_deploy' && !!carte.deployedAt;
 }
 
+/**
+ * LE CHIFFRE ENTRE PARENTHÈSES du bouton « Tout déployer/publier » et du
+ * bouton « Déployer » de la fenêtre de sélection.
+ *
+ * Les deux additionnaient en silence les cartes du lot et le travail
+ * enregistré sans carte : le bouton annonçait « (10) » quand la fenêtre ne
+ * listait que cinq cartes à cocher, le reste écrit en petit sous la liste.
+ * Le chiffre est désormais TOUJOURS lisible d'un coup d'œil : seul quand une
+ * des deux parts est nulle, les deux NOMMÉES dès qu'elles coexistent.
+ */
+export function libelleCompteLot(nbCartes: number, nbSansCarte: number): string {
+  if (nbCartes > 0 && nbSansCarte > 0) return `${nbCartes} + ${nbSansCarte} sans carte`;
+  if (nbSansCarte > 0) return `${nbSansCarte} sans carte`;
+  return `${nbCartes}`;
+}
+
 /** Ce que le bloc de publication sait au moment où l'on regarde son bouton. */
 export interface EtatDuLot {
   /** Le verbe de l'étape : « déployer » ou « publier ». */

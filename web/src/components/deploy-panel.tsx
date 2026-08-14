@@ -20,6 +20,7 @@ import {
   PlanDeMiseEnLigne,
   etapeDePublication,
   etapeDeLaColonne,
+  libelleCompteLot,
   natureDePublication,
   procedureEnPlace,
   raisonLotBloque,
@@ -468,9 +469,11 @@ export function DeployPanel({
               {/* Le compteur embarque TOUT : une branche en conflit n'est plus
                   écartée d'avance, l'agent de publication la reprend en route.
                   Le verbe vient de l'ÉTAPE : « Tout déployer » en tête de « À
-                  déployer », « Tout publier » en tête de « En production ». */}
+                  déployer », « Tout publier » en tête de « En production ».
+                  Les deux parts (cartes, travail sans carte) sont NOMMÉES dès
+                  qu'elles coexistent : un chiffre seul ne s'explique pas. */}
               <span className="truncate">
-                Tout {etape.verbe} ({aPublier})
+                Tout {etape.verbe} ({libelleCompteLot(embarked.length, enAttente.nombre)})
               </span>
             </>
           )}
@@ -728,7 +731,7 @@ function SelectionDeploiementDialog({
             data-bouton-deployer-selection
           >
             {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-            Déployer ({selection.size + enAttente.nombre})
+            Déployer ({libelleCompteLot(selection.size, enAttente.nombre)})
           </Button>
         </div>
       </DialogContent>

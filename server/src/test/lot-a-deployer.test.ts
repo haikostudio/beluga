@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { carteBloqueeDansLeLot, dateDeMiseEnLignePerimee, raisonLotBloque } from '@haikodev/shared';
+import {
+  carteBloqueeDansLeLot,
+  dateDeMiseEnLignePerimee,
+  libelleCompteLot,
+  raisonLotBloque,
+} from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
 /* La DATE DE MISE EN LIGNE périmée : le bogue du « Tout déployer » muet */
@@ -99,4 +104,24 @@ test('une colonne vraiment vide le dit simplement', () => {
 test('le verbe suit l’étape', () => {
   const raison = raisonLotBloque({ verbe: 'publier', aPublier: 0, cartesDansLaColonne: 0 });
   assert.match(raison ?? '', /Rien à publier/);
+});
+
+/* ------------------------------------------------------------------ */
+/* Le chiffre du bouton s'explique sans lire la ligne du bas          */
+/* ------------------------------------------------------------------ */
+
+test('cinq cartes cochées et cinq changements sans carte : les deux parts sont nommées', () => {
+  assert.equal(libelleCompteLot(5, 5), '5 + 5 sans carte');
+});
+
+test('aucun changement sans carte : le chiffre seul suffit', () => {
+  assert.equal(libelleCompteLot(3, 0), '3');
+});
+
+test('rien que du travail sans carte : nommé, pas un chiffre nu', () => {
+  assert.equal(libelleCompteLot(0, 2), '2 sans carte');
+});
+
+test('rien du tout : zéro', () => {
+  assert.equal(libelleCompteLot(0, 0), '0');
 });
