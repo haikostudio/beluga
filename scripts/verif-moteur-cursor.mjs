@@ -309,12 +309,36 @@ async function main() {
     !!cursor?.installed,
     cursor?.version ? `clé « ${cursor.version} »` : '',
   );
-  // Le menu s'arrête aux modèles les plus récents (`limiterAuxPlusRecents`,
-  // règle commune à tous les moteurs) : on juge la PROVENANCE, pas le nombre.
+  // Le menu ne garde que la version la plus récente de chaque FAMILLE
+  // (`limiterAuxPlusRecents`, règle commune à tous les moteurs) : aucune
+  // famille ne disparaît, et aucune vieille version ne traîne.
   noter(
     'le catalogue vient de Cursor, pas d\'une liste de secours',
     !!cursor?.live && (cursor?.models?.length ?? 0) > 1,
     `${cursor?.models?.length ?? 0} modèles${cursor?.catalogError ? ` — ${cursor.catalogError}` : ''}`,
+  );
+  /*
+   * LE DÉFAUT RÉPARÉ : couper la liste ENTIÈRE aux trois plus récents ne
+   * retirait pas des vieilleries, il retirait des modèles ENTIERS — le menu ne
+   * proposait plus que les trois variantes de GPT-5.6, sans Composer ni Grok
+   * (constaté le 14/08/2026). Cursor revendant une dizaine de familles à la
+   * fois, on vérifie que les siennes sont bien là.
+   */
+  const noms = (cursor?.models ?? []).map((m) => `${m.id} ${m.label}`.toLowerCase());
+  for (const [famille, motif] of [
+    ['Composer', /composer/],
+    ['Grok', /grok/],
+    ['Opus', /opus/],
+    ['Sonnet', /sonnet/],
+  ]) {
+    noter(`${famille} figure dans le menu des modèles`, noms.some((n) => motif.test(n)));
+  }
+  // …et aucune version périmée d'une famille déjà présente ne reste proposée.
+  const familles = new Set((cursor?.models ?? []).map((m) => m.id.split('-').filter((s) => !/^v?\d+(\.\d+)*$/.test(s)).join('-')));
+  noter(
+    'aucune famille n’apparaît deux fois, en deux versions',
+    familles.size === (cursor?.models?.length ?? 0),
+    `${familles.size} familles pour ${cursor?.models?.length ?? 0} modèles`,
   );
   const avecReflexion = (cursor?.models ?? []).find((m) => (m.thinking ?? []).length > 1);
   noter(
@@ -453,6 +477,28 @@ async function main() {
     .split('\n')
     .some((ligne) => /Cursor/i.test(ligne) && /fenêtre \d+ %/.test(ligne));
   noter('aucune jauge de quota inventée sur le compte Cursor', !ligneQuotaCursor);
+
+  /*
+   * …MAIS CE QUI REMPLACE LA JAUGE DOIT SE LIRE. Cursor facture à la dépense :
+   * l'onglet « Consommation » porte donc son CRÉDIT DÉPENSÉ. Le montant vient
+   * de Cursor (`POST /teams/spend`) et, quand la clé n'a pas le droit de le
+   * lire — une clé personnelle reçoit « Invalid Team API Key » —, la raison
+   * s'écrit en clair : jamais un zéro, qui serait un chiffre inventé.
+   */
+  await page.getByRole('tab', { name: 'Consommation' }).click({ timeout: 20_000 });
+  const blocCredit = page.locator('[data-essai="credit-cursor"]').first();
+  const creditAffiche = await blocCredit
+    .waitFor({ timeout: 40_000 })
+    .then(() => true)
+    .catch(() => false);
+  noter('le crédit dépensé chez Cursor a sa place dans « Consommation »', creditAffiche);
+  const texteCredit = creditAffiche ? await blocCredit.innerText() : '';
+  noter(
+    'un montant se lit, ou la raison de son absence — jamais un zéro muet',
+    /USD/.test(texteCredit) || /clé d’administration|clé d'administration|n’a pas pu être lu/i.test(texteCredit),
+    texteCredit.split('\n').slice(-2).join(' · ').slice(0, 140),
+  );
+  await page.getByRole('tab', { name: 'Comptes' }).click({ timeout: 20_000 });
 
   /* Une clé de PLUS se déclare depuis cet écran : c'est la seule porte pour qui
      n'ouvre pas de terminal. Une clé refusée doit le dire et ne rien laisser. */

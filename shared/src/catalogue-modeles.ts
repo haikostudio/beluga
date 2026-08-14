@@ -14,21 +14,55 @@ import { EngineInfo, ModelInfo } from './models.js';
  * 2. Une liste de SECOURS se dit. Quand le catalogue n'a pas pu être lu, ce qui
  *    s'affiche n'est plus la liste du moteur : le menu doit l'annoncer au lieu
  *    de laisser croire à une liste complète.
- * 3. Le catalogue affiché se LIMITE aux modèles les plus récents. Un vieux
- *    modèle qui traîne dans le menu se choisit par habitude — plus cher à
- *    l'usage, moins capable que la version actuelle — sans que personne ne
- *    l'ait vraiment voulu.
+ * 3. Le catalogue affiché ne garde que la version la plus RÉCENTE de chaque
+ *    FAMILLE. Un vieux modèle qui traîne dans le menu se choisit par habitude —
+ *    plus cher à l'usage, moins capable que la version actuelle — sans que
+ *    personne ne l'ait vraiment voulu. Mais couper la liste ENTIÈRE aux trois
+ *    plus récents, comme on le faisait, ne retirait pas des vieilleries : ça
+ *    retirait des modèles ENTIERS. Sous Cursor, qui revend une dizaine de
+ *    familles à la fois, le menu ne proposait plus que les trois variantes de
+ *    GPT-5.6 — ni Composer, ni Grok, ni Opus, ni Sonnet (constaté le
+ *    14/08/2026). Le tri par famille dit la même chose sans mentir sur l'offre.
  */
 
-/** Combien de modèles, du plus récent au plus ancien, restent proposés par moteur. */
-export const NOMBRE_MODELES_RETENUS = 3;
+/** Combien de versions, de la plus récente à la plus ancienne, restent par famille. */
+export const MODELES_PAR_FAMILLE = 1;
 
 /**
- * Ne garde que les N premiers modèles d'une liste déjà triée du plus récent au
- * plus ancien (le tri lui-même vient d'ailleurs — cette fonction ne trie pas).
+ * LA FAMILLE D'UN MODÈLE : son identifiant débarrassé de ses NUMÉROS.
+ *
+ * « claude-opus-5 », « claude-opus-4-8 » et « claude-4.5-opus » sont trois
+ * versions d'une même famille (`claude-opus`) ; « gpt-5.6-sol » et
+ * « gpt-5.6-luna » sont deux familles distinctes, et pas deux versions l'une de
+ * l'autre. On enlève donc les segments qui ne sont QUE des nombres, et rien
+ * d'autre — un segment comme « k3 » ou « o1 » fait partie du nom, pas de la
+ * version, et l'effacer confondrait des modèles réellement différents.
  */
-export function limiterAuxPlusRecents(models: ModelInfo[], nombre = NOMBRE_MODELES_RETENUS): ModelInfo[] {
-  return models.slice(0, nombre);
+export function familleDeModele(model: Pick<ModelInfo, 'id'>): string {
+  const segments = (model.id ?? '')
+    .toLowerCase()
+    .split('-')
+    .filter((segment) => segment && !/^v?\d+(?:\.\d+)*$/.test(segment));
+  // Tout était numérique : l'identifiant entier fait alors office de famille.
+  return segments.length ? segments.join('-') : (model.id ?? '').toLowerCase();
+}
+
+/**
+ * Ne garde, par FAMILLE, que les N premiers modèles d'une liste déjà triée du
+ * plus récent au plus ancien (le tri lui-même vient d'ailleurs — cette fonction
+ * ne trie pas). L'ordre reçu est préservé.
+ */
+export function limiterAuxPlusRecents(models: ModelInfo[], parFamille = MODELES_PAR_FAMILLE): ModelInfo[] {
+  const vus = new Map<string, number>();
+  const gardes: ModelInfo[] = [];
+  for (const model of models) {
+    const famille = familleDeModele(model);
+    const deja = vus.get(famille) ?? 0;
+    if (deja >= parFamille) continue;
+    vus.set(famille, deja + 1);
+    gardes.push(model);
+  }
+  return gardes;
 }
 
 /**

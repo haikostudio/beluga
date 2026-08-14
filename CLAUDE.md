@@ -475,8 +475,21 @@ le nom, là-bas le texte).
   compte de relève porte la sienne dans son dossier et **s'ajoute depuis les réglages**
   (`cursor.ajouterCle`, clé éprouvée avant d'entrer dans la liste), le moteur regardant TOUTES les
   clés déclarées (`clesCursor`). Un lancement impossible NOMME la pièce qui manque
-  (`manqueDuMoteurCursor`) et referme le tour. Verrouillé par
-  `server/src/test/moteur-cursor.test.ts` et `scripts/verif-moteur-cursor.mjs`.
+  (`manqueDuMoteurCursor`) et referme le tour. **Ce qui remplace la jauge, c'est le CRÉDIT DÉPENSÉ**
+  (`shared/src/credit-cursor.ts`, commande `cursor.credit`, onglet « Consommation ») : Cursor
+  facturant à l'usage, un MONTANT s'y lit — DEMANDÉ à Cursor (`POST /teams/spend`), jamais
+  reconstitué depuis des jetons et un tarif deviné. Cette route n'accepte qu'une clé
+  d'ADMINISTRATION D'ÉQUIPE ; sinon c'est la RAISON qui s'affiche, jamais un zéro. **Et son PLAN
+  n'est pas un message : c'est un appel d'outil** (`texteDuPlanCursor`) — en `--mode plan`, Cursor
+  pose le plan entier dans un `createPlanToolCall` et ne laisse au fil qu'une narration ; on le
+  remet dans la conversation, sans quoi `jugerLePlan` n'y voit aucune des quatre parties et le cadre
+  perd ses boutons. Verrouillé par `server/src/test/moteur-cursor.test.ts`,
+  `scripts/verif-moteur-cursor.mjs` et `scripts/verif-mode-plan-cursor.mjs`.
+- **Le menu des modèles garde la version la plus récente de chaque FAMILLE, jamais les trois plus
+  récents tout court** (`familleDeModele`, `limiterAuxPlusRecents`, `shared/src/catalogue-modeles.ts` ;
+  tri par `versionOf`) : couper la liste entière à trois entrées ne retirait pas des vieilleries mais
+  des modèles ENTIERS — sous Cursor, le menu ne proposait plus que les trois variantes de GPT-5.6, ni
+  Composer ni Grok. La famille est l'identifiant sans ses segments purement numériques.
 - **Un moteur lancé est SUIVI avant tout autre travail** (`startTurn`, `server/src/runtime.ts`) :
   `live.set` passe devant l'enregistrement du contexte envoyé, sinon une panne survenue dans cette
   fenêtre faisait refermer par `sendPrompt` un tour BIEN VIVANT — bulle rouge « panne interne du

@@ -50,7 +50,7 @@ import {
   renameAccount,
   setAccountDisabled,
 } from './accounts.js';
-import { etatDuCompteCursor } from './engines/cursor.js';
+import { creditCursor, etatDuCompteCursor } from './engines/cursor.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
@@ -1223,6 +1223,25 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
      * « absent » jusqu'au prochain redémarrage sur une installation qui vient
      * de recevoir sa toute première clé.
      */
+    /*
+     * LE CRÉDIT DÉPENSÉ, compte par compte. Cursor facture à la dépense : sa
+     * ligne n'a pas de jauge (`moteurSansQuota`), c'est ce montant qui la
+     * remplace. Aucun compte Cursor déclaré : la liste est vide, et l'écran ne
+     * montre rien plutôt qu'un bloc vide.
+     */
+    case 'cursor.credit': {
+      const comptes = listAccountRecords().filter((a) => a.engine === 'cursor');
+      return {
+        comptes: await Promise.all(
+          comptes.map(async (compte) => ({
+            id: compte.id,
+            label: compte.label,
+            credit: await creditCursor(cleDuCompteCursor(compte)),
+          })),
+        ),
+      };
+    }
+
     case 'cursor.ajouterCle': {
       const rendu = await declarerCleCursor(cmd.label, cmd.cle);
       if (rendu.ok) {

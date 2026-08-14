@@ -4,8 +4,12 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   API_CURSOR,
+  CREDIT_HORS_DE_PORTEE,
   MODELE_CURSOR_PAR_DEFAUT,
+  OUTIL_PLAN_CURSOR,
   OUTIL_TACHES_CURSOR,
+  ROUTE_DEPENSE_CURSOR,
+  creditDepuisReponseCursor,
   enteteDuTour,
   idCursorPourNiveau,
   manqueDuMoteurCursor,
@@ -14,6 +18,8 @@ import {
   outilCursor,
   raisonDeLaSortieCursor,
   raisonDeRefusCursor,
+  texteDuPlanCursor,
+  type CreditCursor,
   type EtatCompteCursor,
   type ModeleCursorCli,
 } from '@haikodev/shared';
@@ -96,6 +102,34 @@ export async function eprouverLaCle(cle: string): Promise<{ ok: boolean; nom?: s
     return { ok: true, nom: typeof moi?.apiKeyName === 'string' ? moi.apiKeyName : undefined };
   } catch (err: any) {
     return { ok: false, erreur: err?.message ?? "la clé n'a pas pu être éprouvée" };
+  }
+}
+
+/**
+ * LE CRÉDIT DÉPENSÉ, DEMANDÉ À CURSOR. Cursor facture à la dépense : sa ligne
+ * n'a pas de jauge, c'est un MONTANT qui doit s'y lire. Ce montant ne se
+ * reconstitue pas depuis des jetons et un tarif deviné — on le demande, et
+ * quand la clé n'a pas le droit de le lire (une clé personnelle reçoit
+ * « Invalid Team API Key »), on le DIT (`shared/src/credit-cursor.ts`).
+ */
+export async function creditCursor(cle: string): Promise<CreditCursor> {
+  if (!cle) return { indisponible: "aucune clé d'accès configurée sur le serveur" };
+  try {
+    const res = await fetch(`${API_CURSOR}${ROUTE_DEPENSE_CURSOR}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${cle}`, 'content-type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.status === 401 || res.status === 403) return { indisponible: CREDIT_HORS_DE_PORTEE };
+    if (!res.ok) {
+      const corps: any = await res.json().catch(() => null);
+      const message = typeof corps?.message === 'string' ? corps.message : undefined;
+      return { indisponible: raisonDeRefusCursor(res.status, message) };
+    }
+    return creditDepuisReponseCursor(await res.json().catch(() => null));
+  } catch (err: any) {
+    return { indisponible: err?.message ?? "le montant dépensé n'a pas pu être lu" };
   }
 }
 
@@ -420,6 +454,24 @@ export function emitFromCursor(
       if (traduit.nom === OUTIL_TACHES_CURSOR) {
         const brut = (traduit.entree as any)?.todos ?? (traduit.entree as any)?.items;
         onEvent({ kind: 'todo', todos: normalizeTodos(brut) });
+        return;
+      }
+
+      /*
+       * LE PLAN N'EST PAS UNE ÉTAPE NON PLUS : c'est la RÉPONSE du tour. Cursor
+       * le pose dans un appel d'outil au lieu de l'écrire dans la conversation
+       * (`texteDuPlanCursor`) ; on le remet donc dans le fil, comme le font
+       * Claude et Codex, sinon le cadre du plan et ses boutons de décision ne
+       * paraissent jamais. Seul l'appel TERMINÉ compte : Cursor annonce le même
+       * plan au départ et à l'arrivée, et l'émettre deux fois le doublerait
+       * dans la conversation.
+       */
+      if (traduit.nom === OUTIL_PLAN_CURSOR) {
+        if (event.subtype === 'started') return;
+        const texte = texteDuPlanCursor(traduit.entree);
+        if (texte) onEvent({ kind: 'text', text: texte });
+        const brut = (traduit.entree as any)?.todos;
+        if (Array.isArray(brut) && brut.length) onEvent({ kind: 'todo', todos: normalizeTodos(brut) });
         return;
       }
 
