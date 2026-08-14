@@ -165,7 +165,13 @@ async function main() {
     record('Le fichier joint apparaît comme un drapeau dans le texte', (await drapeau.count()) > 0);
     if ((await drapeau.count()) > 0) {
       const avantGlisse = await zone.inputValue();
-      const boiteDrapeau = await drapeau.boundingBox();
+      /* Le drapeau épouse le texte du tag : quand la phrase le coupe en fin de
+         ligne, il s'étale sur DEUX lignes et le centre de sa boîte englobante
+         tombe dans le vide. On vise donc son PREMIER morceau. */
+      const boiteDrapeau = await drapeau.evaluate((el) => {
+        const r = el.getClientRects()[0] || el.getBoundingClientRect();
+        return { x: r.left, y: r.top, width: r.width, height: r.height };
+      });
       const boiteZone = await zone.boundingBox();
       if (boiteDrapeau && boiteZone) {
         await page.mouse.move(boiteDrapeau.x + boiteDrapeau.width / 2, boiteDrapeau.y + boiteDrapeau.height / 2);
