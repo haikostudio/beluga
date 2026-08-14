@@ -250,17 +250,43 @@ export const ZoneDefilement = React.forwardRef<
     setFin(zone.scrollTop + zone.clientHeight < zone.scrollHeight - 4);
   }, [horizontal]);
 
-  // Le contenu change sans qu'on défile (message qui arrive, onglet qui
-  // s'ouvre) : on remesure à chaque remaniement de la zone.
+  /*
+   * Le contenu change sans qu'on défile (message qui arrive, onglet qui
+   * s'ouvre) : on remesure à chaque remaniement de la zone. L'observateur est
+   * donc reposé à chaque rendu — mais UNIQUEMENT si les éléments à surveiller
+   * ont vraiment changé. Sans ce garde-fou, chaque rendu de l'application
+   * défaisait puis refaisait un observateur sur CHACUN des enfants de CHAQUE
+   * zone qui défile : avec quelques centaines de cartes, c'était des milliers
+   * de gestes inutiles par frappe au clavier.
+   */
+  const observateur = React.useRef<ResizeObserver | null>(null);
+  const surveilles = React.useRef<Element[]>([]);
   React.useEffect(() => {
     const zone = interne.current;
     if (!zone || horizontal) return;
     mesurer();
-    const observateur = new ResizeObserver(mesurer);
-    observateur.observe(zone);
-    for (const enfant of Array.from(zone.children)) observateur.observe(enfant);
-    return () => observateur.disconnect();
+    const aSurveiller = [zone as Element, ...Array.from(zone.children)];
+    const memes =
+      !!observateur.current &&
+      surveilles.current.length === aSurveiller.length &&
+      surveilles.current.every((noeud, i) => noeud === aSurveiller[i]);
+    if (memes) return;
+    observateur.current?.disconnect();
+    const suivi = new ResizeObserver(mesurer);
+    for (const noeud of aSurveiller) suivi.observe(noeud);
+    observateur.current = suivi;
+    surveilles.current = aSurveiller;
   });
+
+  // Le seul démontage qui compte : celui du composant.
+  React.useEffect(
+    () => () => {
+      observateur.current?.disconnect();
+      observateur.current = null;
+      surveilles.current = [];
+    },
+    [],
+  );
 
   const voile = (cote: 'debut' | 'fin', visible: boolean) => {
     if (horizontal) return null;

@@ -9,6 +9,11 @@ import {
   AvancementColonne,
   CiblePublication,
   RefusDeLot,
+  MARGE_DE_CHARGEMENT_PX,
+  cartesDuPaquet,
+  paquetSuivant,
+  paquetsPourVoir,
+  resteDesCartes,
   procedureEnPlace,
   avancementDeLaColonne,
   bilanDeLot,
@@ -210,6 +215,60 @@ function RepereAvancement({ avancement }: { avancement: AvancementColonne | null
   );
 }
 
+/**
+ * LE PALIER DE CHARGEMENT, sous la dernière carte posée d'une colonne.
+ *
+ * Un seul élément observé par colonne : dès qu'il approche de l'écran, le
+ * paquet suivant est demandé. On n'écoute donc rien à chaque pixel de
+ * défilement — c'est le navigateur qui prévient, une fois.
+ *
+ * L'observateur est REFAIT dès que le nombre de cartes posées change : sans
+ * cela, une colonne dont le nouveau paquet tiendrait entièrement dans la marge
+ * de chargement s'arrêterait là, faute d'un nouveau franchissement à observer.
+ * Le refaire redemande aussitôt l'état du palier, et la suite continue d'arriver.
+ */
+function PalierDeChargement({
+  colonne,
+  posees,
+  restant,
+  onCharger,
+}: {
+  colonne: ColumnKey;
+  posees: number;
+  restant: number;
+  onCharger: () => void;
+}) {
+  const ancre = React.useRef<HTMLDivElement>(null);
+  // Le rappel change à chaque rendu du tableau : on le garde dans une référence
+  // pour ne pas refaire l'observateur pour si peu.
+  const rappel = React.useRef(onCharger);
+  rappel.current = onCharger;
+
+  React.useEffect(() => {
+    const noeud = ancre.current;
+    if (!noeud) return;
+    const observateur = new IntersectionObserver(
+      (entrees) => {
+        if (entrees.some((entree) => entree.isIntersecting)) rappel.current();
+      },
+      { rootMargin: `${MARGE_DE_CHARGEMENT_PX}px` },
+    );
+    observateur.observe(noeud);
+    return () => observateur.disconnect();
+  }, [posees]);
+
+  return (
+    <div
+      ref={ancre}
+      data-palier-cartes={colonne}
+      data-cartes-restantes={restant}
+      className="px-1.5 py-2 text-center text-[12px] text-faint"
+    >
+      {restant} carte{restant > 1 ? 's' : ''} de plus…
+    </div>
+  );
+}
+
 export function Board({
   projectId,
   onOpenCard,
@@ -238,14 +297,58 @@ export function Board({
    * Tout le tableau passe par `byColumn` : colonnes, comptes des en-têtes,
    * onglets du téléphone et lots voient donc la MÊME carte au MÊME endroit.
    */
-  const agentAuTravail = (card: Card) =>
-    Object.values(state.agents).some(
-      (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
-    );
-  const byColumn = (column: ColumnKey) =>
-    cards.filter(
-      (card) => colonneAffichee({ column: card.column, agentAuTravail: agentAuTravail(card) }) === column,
-    );
+  /*
+   * LES AGENTS AU TRAVAIL, RANGÉS PAR CARTE — une seule fois par rendu.
+   * Chaque carte allait auparavant relire TOUS les agents pour savoir si l'un
+   * d'eux travaillait sur elle, et `byColumn` était rappelé pour chaque colonne,
+   * chaque onglet et chaque lot : quelques centaines de cartes multipliées par
+   * quelques dizaines d'agents, sept fois par rendu. On construit donc l'index
+   * une fois, et tout le monde le lit.
+   */
+  const travailParCarte = React.useMemo(() => {
+    const index = new Set<string>();
+    for (const agent of Object.values(state.agents)) {
+      if (agent.cardId && (agent.status === 'running' || agent.status === 'starting')) index.add(agent.cardId);
+    }
+    return index;
+  }, [state.agents]);
+
+  /*
+   * Toutes les colonnes rangées d'un coup : `byColumn` n'est plus qu'une
+   * lecture dans cet index, au lieu d'un filtre complet sur toutes les cartes.
+   */
+  const parColonne = React.useMemo(() => {
+    const index = Object.fromEntries(COLUMN_KEYS.map((cle) => [cle, [] as Card[]])) as Record<ColumnKey, Card[]>;
+    for (const card of cards) {
+      index[colonneAffichee({ column: card.column, agentAuTravail: travailParCarte.has(card.id) })].push(card);
+    }
+    return index;
+  }, [cards, travailParCarte]);
+
+  const byColumn = (column: ColumnKey) => parColonne[column];
+
+  /*
+   * COMBIEN DE PAQUETS DE VINGT chaque colonne a déjà posés dans la page.
+   * Une colonne part toujours à un paquet ; le suivant arrive quand le palier
+   * de chargement, posé sous la dernière carte, approche de l'écran. Le
+   * COMPTEUR de la tête de colonne, lui, ne lit jamais ce nombre : il dit le
+   * total réel (`columnCards.length`), sinon il mentirait tant qu'on n'a pas
+   * fait défiler.
+   */
+  const [paquets, setPaquets] = React.useState<Partial<Record<ColumnKey, number>>>({});
+  // Changer de projet, c'est changer de tableau : chaque colonne repart à un paquet.
+  React.useEffect(() => setPaquets({}), [projectId]);
+  const chargerLaSuite = React.useCallback((column: ColumnKey, total: number) => {
+    setPaquets((avant) => {
+      const courant = avant[column] ?? 1;
+      const suivant = paquetSuivant(courant, total);
+      return suivant === courant ? avant : { ...avant, [column]: suivant };
+    });
+  }, []);
+  /** Tout poser d'un coup : une sélection en lot doit voir TOUTE la colonne. */
+  const toutPoser = React.useCallback((column: ColumnKey, total: number) => {
+    setPaquets((avant) => ({ ...avant, [column]: paquetsPourVoir(total - 1) }));
+  }, []);
 
   /*
    * L'avancement GLOBAL de « En cours » : la même matière que le « n/N faites »
@@ -256,10 +359,16 @@ export function Board({
    * `avancementDeLaColonne` ; ici on ne fait que rassembler la matière, et elle
    * se remet à jour toute seule puisque les agents sont diffusés en direct.
    */
-  const agentTacheActif = (card: Card) =>
-    Object.values(state.agents).find(
-      (a) => a.cardId === card.id && a.role === 'task' && (a.status === 'running' || a.status === 'starting'),
-    );
+  const agentsTacheParCarte = React.useMemo(() => {
+    const index = new Map<string, (typeof state.agents)[string]>();
+    for (const agent of Object.values(state.agents)) {
+      if (agent.cardId && agent.role === 'task' && (agent.status === 'running' || agent.status === 'starting')) {
+        if (!index.has(agent.cardId)) index.set(agent.cardId, agent);
+      }
+    }
+    return index;
+  }, [state.agents]);
+  const agentTacheActif = (card: Card) => agentsTacheParCarte.get(card.id);
   const avancementDeCesCartes = (cartes: Card[]) =>
     avancementDeLaColonne(
       cartes.map((card) => {
@@ -310,9 +419,7 @@ export function Board({
     const agentCarte = card.agentId ? state.agents[card.agentId] : null;
     return etatVisuelCarte({
       agentStatut: agentCarte?.status,
-      analyseEnCours: Object.values(state.agents).some(
-        (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
-      ),
+      analyseEnCours: travailParCarte.has(card.id),
       enAttente: !!card.scheduling?.waitingReason,
       estimationEchouee: card.estimate?.failed,
       enLigne: !!card.deployedAt,
@@ -525,7 +632,11 @@ export function Board({
   }, [colonneEnLot, cartesEnSelection.length]);
 
   const ouvrirLot = (column: ColumnKey) => {
-    setSelection(byColumn(column).map((card) => card.id));
+    const cartesDeLaColonne = byColumn(column);
+    // Une sélection porte sur TOUTE la colonne : on pose donc toutes ses cartes
+    // dans la page, sinon on décocherait à l'aveugle ce qu'on ne voit pas.
+    toutPoser(column, cartesDeLaColonne.length);
+    setSelection(cartesDeLaColonne.map((card) => card.id));
     setColonneEnLot(column);
   };
 
@@ -818,6 +929,9 @@ export function Board({
       >
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
+        // Ce qui est RÉELLEMENT posé dans la page : le premier paquet de vingt,
+        // puis un paquet de plus à chaque fois que le bas approche.
+        const cartesPosees = cartesDuPaquet(columnCards, paquets[column] ?? 1);
         const action = actionDeLot(column, columnCards);
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
         return (
@@ -956,7 +1070,7 @@ export function Board({
                   colonneEnLot === column && 'pl-[15px] pt-[15px]',
                 )}
               >
-              {columnCards.map((card) => {
+              {cartesPosees.map((card) => {
                 const cochable = colonneEnLot === column;
                 return (
                   <CardTile
@@ -980,6 +1094,17 @@ export function Board({
                   />
                 );
               })}
+              {/* Le palier de chargement : sous la dernière carte posée, il
+                  demande le paquet suivant dès qu'il approche de l'écran. Il
+                  disparaît quand toute la colonne est là. */}
+              {resteDesCartes(columnCards.length, paquets[column] ?? 1) ? (
+                <PalierDeChargement
+                  colonne={column}
+                  posees={cartesPosees.length}
+                  restant={columnCards.length - cartesPosees.length}
+                  onCharger={() => chargerLaSuite(column, columnCards.length)}
+                />
+              ) : null}
               {!columnCards.length ? (
                 <p className="px-1.5 py-3 text-[13px] text-faint">
                   {column === 'notes'

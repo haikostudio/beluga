@@ -546,6 +546,24 @@ le nom, là-bas le texte).
   `scripts/verif-depart-a-zero.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
+  Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon
+  chaque rendu en reposait un sur chacun de ses enfants.
+- **LE TABLEAU POSE LES CARTES PAR PAQUETS DE VINGT** (`CARTES_PAR_PAQUET`, `cartesDuPaquet`,
+  `paquetSuivant`, `shared/src/paquets-de-cartes.ts` ; `PalierDeChargement`, `board.tsx`) : chaque
+  colonne pose son premier paquet, un PALIER sous la dernière carte demande le suivant quand il
+  approche de l'écran. Le COMPTEUR de la tête de colonne (et l'onglet du téléphone) dit toujours le
+  TOTAL réel, jamais ce qui est posé, et une sélection en lot pose d'abord toute la colonne.
+  Verrouillé par `server/src/test/paquets-de-cartes.test.ts` et `scripts/verif-cartes-par-paquets.mjs`.
+- **LA FRAPPE AU CLAVIER NE TRAVERSE PLUS LE MAGASIN GÉNÉRAL** (`composer.tsx`) : le brouillon était
+  posé dans l'état PARTAGÉ à chaque touche, ce qui refaisait l'affichage de toute l'application —
+  98 ms par touche sur 400 cartes, contre 0,7 ms depuis (`scripts/mesure-fluidite.mjs`, qui MESURE
+  sans juger). La copie locale part dans la même temporisation de 600 ms que l'envoi au serveur, et
+  le tableau range ses cartes par colonne UNE fois par rendu.
+- **LES CARTES D'UN PROJET QU'ON NE CONSULTE PLUS SE DÉCHARGENT — APRÈS QUINZE MINUTES, PAS AVANT**
+  (`DELAI_DECHARGEMENT_MS`, `projetsADecharger`, `shared/src/decharge-projets.ts` ;
+  `dechargerLesProjetsOublies`, `web/src/lib/client.ts`) : le projet AFFICHÉ n'est jamais déchargé, et
+  un projet rouvert redemande ses cartes par le `project.open` déjà envoyé. Verrouillé par
+  `server/src/test/decharge-projets.test.ts`.
 - **Une demande réellement partie garde son contexte envoyé et sa mesure moteur** ; en reprise,
   l'historique opaque est seulement nommé, jamais recopié ni inventé.
 - **Le tiroir « Contexte envoyé » est une CHRONOLOGIE VERTICALE** (`chronologieContexteEnvoye`,
