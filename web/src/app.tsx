@@ -562,9 +562,13 @@ export function App() {
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
           <div className="grid grid-cols-[1fr_44px_1fr] items-center gap-1 rounded-2xl border border-border bg-surface p-1 shadow-lg">
+            {/* L'onglet ACTIF se dit à voix haute (`aria-current`) autant qu'il se
+                colore : une couleur écrite en dur ne se vérifie pas, et un
+                contrôle qui la cherchait a fini par juger une classe disparue. */}
             <Button
               variant="ghost"
               size="sm"
+              aria-current={mobileView === 'board' && !dashboardOpen ? 'page' : undefined}
               className={cn(
                 'w-full justify-center gap-1 rounded-xl px-1 text-xs',
                 mobileView === 'board' && !dashboardOpen && 'bg-[hsl(16_88%_54%)] text-white hover:bg-[hsl(16_88%_54%)] hover:text-white',
@@ -585,6 +589,7 @@ export function App() {
             <Button
               variant="ghost"
               size="sm"
+              aria-current={mobileView === 'chat' && !dashboardOpen ? 'page' : undefined}
               className={cn(
                 'w-full justify-center gap-1 rounded-xl px-1 text-xs',
                 mobileView === 'chat' && !dashboardOpen && 'bg-[hsl(16_88%_54%)] text-white hover:bg-[hsl(16_88%_54%)] hover:text-white',

@@ -1,0 +1,69 @@
+/**
+ * LE MICRO NE S'OUVRE QUE SI ON L'A DEMANDÉ — les règles pures.
+ *
+ * Sur téléphone, le système allume un repère orange dès qu'un micro est ouvert.
+ * Le voir s'allumer alors qu'on n'a rien demandé, c'est croire l'application à
+ * l'écoute en permanence : un problème de confiance avant d'être un problème de
+ * batterie. Deux causes tenaient à des règles, pas au son :
+ *
+ *   1. les interrupteurs d'écoute (mot de réveil, conversation vocale) étaient
+ *      retenus SUR LE SERVEUR : allumés une fois sur un ordinateur, ils
+ *      rouvraient le micro TOUT SEULS au chargement suivant, sur n'importe quel
+ *      appareil, sans le moindre geste ;
+ *   2. rien n'obligeait à tout refermer quand on quitte l'écran.
+ *
+ * Ce fichier ne connaît ni micro, ni navigateur : il ne dit QUE ce qui est
+ * permis. Le micro lui-même vit dans `web/src/lib/micro.ts`, la seule porte de
+ * l'application par où un flux s'ouvre.
+ */
+
+/** Ce qu'on dit quand un micro s'ouvrirait sans qu'on l'ait demandé. */
+export const RAISON_MICRO_NON_DEMANDE =
+  'Le micro ne s’ouvre qu’à la demande : rallumez l’écoute pour l’utiliser.';
+
+/** L'état d'un interrupteur d'écoute, du point de vue de la permission. */
+export interface DemandeDeMicro {
+  /** L'interrupteur est-il sur « allumé » ? */
+  reglage: boolean;
+  /**
+   * Cet interrupteur a-t-il été basculé PAR UN GESTE dans la page ouverte à cet
+   * instant ? Un réglage retrouvé au chargement — retenu ailleurs, ou par une
+   * session précédente — ne compte pas : personne n'a rien demandé ICI.
+   */
+  gesteDeCettePage: boolean;
+}
+
+/**
+ * Le micro peut-il s'ouvrir ? Les DEUX conditions, jamais une seule : le
+ * réglage dit oui, ET un geste de cette page l'a demandé.
+ */
+export function microAutorise(demande: DemandeDeMicro): boolean {
+  return demande.reglage === true && demande.gesteDeCettePage === true;
+}
+
+/** Ce qui peut se passer et qui doit faire refermer les micros ouverts. */
+export interface MomentDeFermeture {
+  /** Le nom de l'événement du navigateur. */
+  evenement: string;
+  /** La page est-elle encore visible ? (`visibilitychange`) */
+  visible?: boolean;
+  /**
+   * Une écoute VOULUE est-elle en cours (mot de réveil, conversation) ? Elle
+   * seule survit à un simple passage en arrière-plan — une dictée, non.
+   */
+  ecouteVoulue?: boolean;
+}
+
+/**
+ * Faut-il tout refermer ? On quitte la page (`pagehide`, `beforeunload`) : oui,
+ * toujours. On passe seulement en arrière-plan : oui aussi, sauf si une écoute
+ * a été VOULUE — sinon un mode d'écoute demandé se couperait au premier coup
+ * d'œil sur une autre application, sans jamais revenir.
+ */
+export function fermetureExigee(moment: MomentDeFermeture): boolean {
+  if (moment.evenement === 'pagehide' || moment.evenement === 'beforeunload') return true;
+  if (moment.evenement === 'visibilitychange' && moment.visible === false) {
+    return moment.ecouteVoulue !== true;
+  }
+  return false;
+}

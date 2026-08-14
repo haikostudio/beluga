@@ -5,6 +5,7 @@ import {
   type EtatConversation,
 } from '@haikodev/shared';
 import { client } from './client';
+import { ouvrirMicro, type PriseMicro } from './micro';
 
 /**
  * LE MODE CONVERSATION VOCALE, côté navigateur — le micro et sa boucle.
@@ -95,8 +96,10 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
     }
 
     let vivant = true;
+    // LA PRISE de micro : ouverte par la porte unique (`lib/micro.ts`), elle
+    // referme le flux ET le contexte audio qui l'écoute, d'un seul geste.
+    let prise: PriseMicro | null = null;
     let flux: MediaStream | null = null;
-    let contexte: AudioContext | null = null;
     let enregistreur: MediaRecorder | null = null;
     let image = 0;
     let morceaux: Blob[] = [];
@@ -115,10 +118,9 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
       analyseurConversation = null;
       donneesConversation = null;
       morceaux = [];
-      flux?.getTracks().forEach((piste) => piste.stop());
+      prise?.fermer();
+      prise = null;
       flux = null;
-      void contexte?.close().catch(() => undefined);
-      contexte = null;
       setEtat('refusee');
       setErreur(message);
       client.pushToast('error', message);
@@ -192,7 +194,8 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
         return;
       }
       try {
-        flux = await navigator.mediaDevices.getUserMedia({ audio: true });
+        prise = await ouvrirMicro('conversation vocale');
+        flux = prise.flux;
       } catch {
         if (!vivant) return;
         setEtat('refusee');
@@ -200,8 +203,11 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
         client.pushToast('error', 'Micro refusé — la conversation vocale ne peut pas écouter.');
         return;
       }
+      // L'interrupteur s'est éteint pendant que le micro s'ouvrait : on le rend.
       if (!vivant) {
-        flux.getTracks().forEach((p) => p.stop());
+        prise.fermer();
+        prise = null;
+        flux = null;
         return;
       }
       setErreur(null);
@@ -214,8 +220,10 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
           window.AudioContext ||
           (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (!Ctx) throw new Error('aucun contexte audio');
-        contexte = new Ctx();
+        const contexte = new Ctx();
         const source = contexte.createMediaStreamSource(flux);
+        // Le contexte est confié à la PRISE : il se fermera avec le micro.
+        prise.brancher(contexte, source);
         analyseur = contexte.createAnalyser();
         analyseur.fftSize = BINS_MICRO * 2;
         analyseur.smoothingTimeConstant = 0.8;
@@ -277,8 +285,10 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
         /* déjà arrêté */
       }
       morceaux = [];
-      flux?.getTracks().forEach((piste) => piste.stop());
-      void contexte?.close().catch(() => undefined);
+      // La prise referme tout : les pistes du flux ET le contexte audio.
+      prise?.fermer();
+      prise = null;
+      flux = null;
     };
   }, [actif]);
 
