@@ -1335,13 +1335,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'daemon.restart': {
       // On répond AVANT de couper : sinon le navigateur ne voit qu'une
-      // déconnexion, sans savoir si sa demande est passée. Une publication en
-      // cours REFUSE le redémarrage et dit quel projet elle sert — mais la
-      // demande est retenue et partira dès la dernière publication finie. Le
-      // clic reste un geste humain : il passe outre l'avertissement sur les
-      // agents (déjà vu dans la fenêtre de confirmation), jamais outre une
-      // publication.
-      return demanderRedemarrage({ ignorerAgents: true });
+      // déconnexion, sans savoir si sa demande est passée. Un agent au travail
+      // ou une publication en cours REFUSENT le redémarrage et disent
+      // pourquoi — la demande est retenue et partira toute seule dès le
+      // dernier travail fini. Même un clic, geste humain, ne passe jamais
+      // outre : un redémarrage en plein travail est exactement ce qu'on veut
+      // empêcher.
+      return demanderRedemarrage();
     }
 
     case 'backup.now': {
