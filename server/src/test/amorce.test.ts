@@ -7,8 +7,10 @@ import {
   comptesAAmorcer,
   dansLesHeuresDeSilence,
   decisionAmorce,
+  estRefusDeSaturation,
   finDeFenetre,
   modeleLePlusLeger,
+  texteEchecAmorce,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
@@ -108,6 +110,22 @@ test("l'heure de remise à zéro annoncée fait foi ; sans elle, cinq heures", (
   assert.equal(finDeFenetre(T, undefined), T + DUREE_FENETRE_MS);
   // Une heure déjà passée ne protège de rien : on repart sur cinq heures.
   assert.equal(finDeFenetre(T, T - 10), T + DUREE_FENETRE_MS);
+});
+
+/* -------- Un compte saturé n'est pas une panne -------- */
+
+test('un refus 429 se reconnaît sur le code, jamais sur un mot du message', () => {
+  assert.equal(estRefusDeSaturation('refus (429)'), true);
+  assert.equal(estRefusDeSaturation('refus (500)'), false);
+  assert.equal(estRefusDeSaturation('envoi impossible'), false);
+  assert.equal(estRefusDeSaturation('compte non connecté'), false);
+  assert.equal(estRefusDeSaturation(undefined), false);
+});
+
+test('une saturation se dit en clair, une vraie panne garde sa raison', () => {
+  assert.equal(texteEchecAmorce('refus (429)'), 'limite atteinte');
+  assert.equal(texteEchecAmorce('refus (500)'), 'refus (500)');
+  assert.equal(texteEchecAmorce('envoi impossible'), 'envoi impossible');
 });
 
 test('le modèle retenu est le moins gourmand du catalogue', () => {

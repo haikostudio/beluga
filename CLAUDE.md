@@ -131,9 +131,10 @@ le nom, là-bas le texte).
 
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur — aux deux étapes (déploiement, puis mise en production).
-- **Ne JAMAIS redémarrer le serveur pendant une publication** (`shared/src/demon.ts`) : le démon
-  porte toutes les publications, le couper en tranche une en plein vol. Un redémarrage demandé est
-  retenu et rejoué tout seul dès la dernière publication finie.
+- **Ne JAMAIS redémarrer le serveur tant qu'une publication OU une tâche tourne**
+  (`shared/src/demon.ts`) : le démon porte toutes les publications et tous les agents, le couper en
+  tranche un en plein vol. Un redémarrage demandé est retenu — le bouton affiche « Redémarrage
+  requis » — et rejoué tout seul dès le dernier travail fini ; même le clic ne passe jamais outre.
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
   `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
@@ -234,6 +235,21 @@ le nom, là-bas le texte).
   en « Planifié » ne coûte rien. Le lancement crée UN SEUL agent, qui étudie le projet, chiffre la
   tâche et l'exécute dans le MÊME tour ; les chiffres rendus (bloc json, `CONSIGNE_CHIFFRAGE`) sont
   écrits sur la carte avec la mesure réelle du moteur.
+- **LA LISTE DE TÂCHES SE REFERME AVEC LE TOUR** (`cloturerLesTaches`,
+  `shared/src/taches-fin-de-tour.ts`) : aucune ligne ne reste « en cours » une fois la réponse rendue.
+  Un tour RENDU coche la ligne qui tournait (marquée `closedByTurnEnd` : c'est le démon qui coche,
+  pas l'agent) ; un tour INTERROMPU — panne, quota, arrêt à la main, redémarrage — ne coche rien. Ce
+  qui n'a pas été mené à bout passe à `unfinished` et le DIT (« non faite »), au lieu d'attendre pour
+  toujours. Branchée sur TOUS les chemins de fermeture (`server/src/runtime.ts`), sans effet sur une
+  liste déjà refermée ; les listes déjà figées en base sont reprises par la migration 23.
+  **Le décompte porté par l'AGENT se referme avec elle** (`progressionDesTaches`,
+  `poserLaProgression`) : le décroché du tableau ne lit pas les étapes mais ce résumé
+  (`agent.todos`), qui restait figé sur l'avant-dernière liste reçue — la conversation disait
+  « 5/5 faites » et la carte « 4/5 », à vie. Un reste non fait s'y DIT désormais
+  (« 3/5 faites · 2 non faites », `mentionProgressionTaches`), et les décomptes déjà figés sont
+  repris par la migration 24 — qui, comme toute migration de RÉPARATION, nomme la table qu'elle
+  attend (`siTable`) et se reporte au lieu d'échouer sur une base d'essai partielle.
+
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
@@ -251,6 +267,23 @@ le nom, là-bas le texte).
   carte, jamais le fait que le moteur ait répondu. Le constat rend TROIS réponses
   (`TraceDuTravail`, `shared/src/carte-interrompue.ts`) : oui, non, et « je n'ai pas pu regarder » —
   seul « oui » ferme la carte, un dépôt muet ne vaut plus une preuve de travail.
+- **Mais RIEN NE RESTE COINCÉ DANS « EN COURS » : chaque fin de tour a une ISSUE**
+  (`issueDeFinDeTour`, `shared/src/suivi-colonne.ts` ; `carteApresFinDeTour`,
+  `server/src/deplacement-carte.ts`). Dépôt qui a bougé → « Terminé ». Rien changé mais code DÉJÀ
+  livré (`card.codeDejaEnregistre`) → « Terminé » avec sa raison : il n'y avait rien à refaire, le
+  travail est constaté sur un tour antérieur. Rien changé et rien jamais enregistré, ou dépôt non
+  consultable → « Planifié », RETENUE (`suspendu` + `waitingReason`, sinon l'ordonnanceur relance le
+  même tour vide toutes les quinze secondes), raison écrite dessus. Un tour en ÉCHEC ne bouge rien :
+  l'incident est déjà dit en rouge, là où on relance. Verrouillé par
+  `server/src/test/suivi-colonne.test.ts` et `scripts/verif-carte-rangee-sans-changement.mjs`.
+- **…et les cartes DÉJÀ coincées sont rattrapées par un BALAYAGE** (`issueDeCarteOubliee`,
+  `shared/src/suivi-colonne.ts` ; `rangerLesCartesOubliees`, `server/src/deplacement-carte.ts`, appelé
+  par `tick`) : une fin de tour ne range que SA carte, et celles bloquées avant cette règle n'attendent
+  plus aucune fin de tour. Toutes les quinze secondes — donc aussi au démarrage —, le démon relit
+  « En cours » (`store.cartesEnCours`) et applique la MÊME issue : code déjà livré → « Terminé »,
+  sinon → « Planifié » RETENUE avec `RAISON_TOUR_SANS_ISSUE`. Trois refus rendent le balayage sûr : un
+  tour qui TIENT encore la carte (marque `tourEnVolDepuis`), un agent au travail, un dernier tour en
+  ÉCHEC ou arrêté à la main.
 - **Une tâche COUPÉE PAR UNE PANNE ne passe jamais pour terminée** (`shared/src/carte-interrompue.ts`)
   : tant qu'un tour d'exécution tient une carte, elle porte une MARQUE (`scheduling.tourEnVolDepuis`),
   retirée seulement une fois la carte rangée. Aucun moteur ne survivant à un arrêt du serveur, toute
@@ -460,8 +493,11 @@ le nom, là-bas le texte).
   projet, à partir des agents de rôle « task » encore au travail dans `state.agents` (connu pour
   tous les projets, contrairement aux cartes, chargées seulement pour le projet ouvert). Il vit à la
   MÊME place que le triangle de décision (`RepereLigne`) — une décision qui attend prime toujours —
-  et disparaît dès qu'aucune carte de ce projet n'a plus d'agent actif. Vérifié par
-  `scripts/verif-avancement-colonne-gauche.mjs`.
+  et disparaît dès qu'aucune carte de ce projet n'a plus d'agent actif. **Il ne bouge JAMAIS d'un
+  pixel** : contrairement au triangle, qui EMPRUNTE au repos la place de l'icône réglages (encore
+  invisible) puis s'en écarte au survol par un glissement, le pourcentage emprunte la même place en
+  PERMANENCE (décalage fixe, jamais retiré) et cède la place à l'icône par une simple bascule
+  d'OPACITÉ — jamais par un déplacement. Vérifié par `scripts/verif-avancement-colonne-gauche.mjs`.
 - **PLUS AUCUN COMPTEUR DE JETONS VISIBLE NULLE PART** (`docs/plans/refonte-visualisation-prompts.md`,
   plan validé) : à la place, VOIR le texte réellement envoyé au moteur. Le tiroir « Contexte envoyé »
   du chef et l'onglet « Détails » d'une carte lisent tous deux le même LECTEUR DE PROMPTS

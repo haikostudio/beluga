@@ -518,8 +518,19 @@ export const Agent = z.object({
    * elles-mêmes vivent sur les messages (souvent chargés seulement à
    * l'ouverture d'une carte) ; ce résumé, lui, suit l'agent partout et permet
    * d'afficher « n/N faites » dans le décroché d'une carte sans l'ouvrir.
+   *
+   * Refait à la CLÔTURE du tour depuis la liste refermée (`progressionDesTaches`),
+   * et non plus seulement à chaque liste renvoyée par le moteur : sinon la carte
+   * gardait l'avant-dernier décompte à vie. `unfinished` compte les étapes qui
+   * n'ont pas été menées à bout, pour que la carte le dise.
    */
-  todos: z.object({ done: z.number().int(), total: z.number().int() }).optional(),
+  todos: z
+    .object({
+      done: z.number().int(),
+      total: z.number().int(),
+      unfinished: z.number().int().optional(),
+    })
+    .optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */
@@ -550,10 +561,24 @@ export type RunStep = z.infer<typeof RunStep>;
  */
 export const TodoItem = z.object({
   label: z.string(),
-  state: z.enum(['todo', 'running', 'done']).default('todo'),
+  /**
+   * QUATRE ÉTATS, dont un qui n'existe qu'À LA FIN D'UN TOUR. Les moteurs n'en
+   * annoncent que trois — à faire, en cours, cochée. Le quatrième, `unfinished`
+   * (« non faite »), n'est jamais posé par un moteur : c'est le démon qui le
+   * pose en refermant le tour, sur les lignes que personne n'a menées à bout
+   * (`cloturerLesTaches`, `taches-fin-de-tour.ts`). Sans lui, une ligne restait
+   * « en cours » pour toujours sur une carte pourtant terminée.
+   */
+  state: z.enum(['todo', 'running', 'done', 'unfinished']).default('todo'),
   /** Début et fin de la ligne : elle affiche son temps, comme une étape. */
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
+  /**
+   * Cochée par le DÉMON en refermant le tour, faute d'un dernier mot du moteur
+   * — et non par le moteur lui-même. L'interface le dit au survol : la ligne
+   * est comptée faite, mais on ne prétend pas que l'agent l'a confirmée.
+   */
+  closedByTurnEnd: z.boolean().optional(),
 });
 export type TodoItem = z.infer<typeof TodoItem>;
 

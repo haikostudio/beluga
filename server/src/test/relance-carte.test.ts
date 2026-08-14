@@ -110,8 +110,10 @@ test('aucun autre fichier du démon ne rejoue la règle dans son coin', () => {
 });
 
 test('la fin de tour demande d’abord si le tour est encore celui de la carte', () => {
-  const runtime = lire('runtime.ts');
-  assert.match(runtime, /tourDeLaCarte\(card, agent\.id\)/);
+  // Le rangement de fin de tour vit dans `deplacement-carte.ts`, appelé par le
+  // démon : c'est là que la question se pose, avant toute écriture.
+  assert.match(lire('deplacement-carte.ts'), /tourDeLaCarte\(card, fin\.agentId\)/);
+  assert.match(lire('runtime.ts'), /carteApresFinDeTour\(card, \{/);
 });
 
 /* -------- Une relance efface la marque de suspension -------- */
@@ -158,13 +160,14 @@ test('relancer une carte aboutie grave le drapeau « code déjà enregistré »'
   assert.match(corps, /carte\.column === 'to_deploy'/);
 });
 
-test('la fin de tour tait la note quand la carte a déjà enregistré du code', () => {
-  const runtime = lire('runtime.ts');
-  // La décision d'afficher la note reçoit l'historique de la carte, pas ce seul
-  // tour : `dejaEnregistre` est passé à `raisonSansModification`.
-  assert.match(runtime, /raisonSansModification\([^)]*dejaEnregistre\)/s);
-  // Un tour qui produit du code grave le drapeau sur la carte.
-  assert.match(runtime, /const dejaEnregistre = card\.codeDejaEnregistre \|\| aProduit/);
+test('la fin de tour tient compte du code DÉJÀ enregistré par la carte', () => {
+  const deplacement = lire('deplacement-carte.ts');
+  // L'issue reçoit l'historique de la carte, pas ce seul tour : c'est lui qui
+  // distingue « rien à changer, tout était déjà là » de « répondre n'est pas
+  // travailler ».
+  assert.match(deplacement, /issueDeFinDeTour\([^)]*dejaEnregistreApres\(card, fin\)\)/s);
+  // Un tour qui produit du code grave le drapeau sur la carte, pour de bon.
+  assert.match(deplacement, /return card\.codeDejaEnregistre \|\| aProduit;/);
 });
 
 /* -------- Une question restée en texte prévient, elle aussi -------- */

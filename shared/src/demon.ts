@@ -35,25 +35,26 @@ export function redemarrageNecessaire(etat: EtatDemon): boolean {
   return etat.construitA > etat.demarreA + MARGE_MS;
 }
 
-/** Ce qu'on dit à l'utilisateur avant de couper. */
+/** Ce qu'on dit à l'utilisateur avant de demander le redémarrage. */
 export function avertissementRedemarrage(etat: EtatDemon): string {
   const base =
     'Le serveur s’arrête et repart tout seul en quelques secondes. L’application se reconnecte d’elle-même.';
   const agents = etat.agentsEnCours ?? 0;
   if (!agents) return base;
   return agents === 1
-    ? `Un agent travaille en ce moment : il sera interrompu. ${base}`
-    : `${agents} agents travaillent en ce moment : ils seront interrompus. ${base}`;
+    ? `Un agent travaille en ce moment : le redémarrage attendra qu’il ait fini, pour ne pas le couper. ${base}`
+    : `${agents} agents travaillent en ce moment : le redémarrage attendra qu’ils aient fini, pour ne pas les couper. ${base}`;
 }
 
 /*
- * NE JAMAIS REDÉMARRER PENDANT UNE PUBLICATION.
+ * NE JAMAIS REDÉMARRER PENDANT QU'UNE TÂCHE TOURNE.
  *
- * Un redémarrage du serveur coupe TOUT ce qui tourne dans le démon — les agents,
- * mais aussi les publications des autres projets, que le démon porte tous. Une
- * publication coupée en plein vol laisse un lot à moitié parti, marqué
- * « Publication interrompue par un redémarrage du serveur ». La règle vit ici,
- * sans réseau ni base : on lui donne l'état du monde et elle tranche.
+ * Un redémarrage du serveur coupe TOUT ce qui tourne dans le démon — les agents
+ * au travail, mais aussi les publications des autres projets, que le démon
+ * porte tous. Une tâche coupée en plein vol repart à zéro, une publication
+ * coupée laisse un lot à moitié parti, marqué « Publication interrompue par un
+ * redémarrage du serveur ». La règle vit ici, sans réseau ni base : on lui
+ * donne l'état du monde et elle tranche — jamais de geste qui passerait outre.
  */
 
 export type ActionRedemarrage = 'redemarrer' | 'attendre' | 'rien';

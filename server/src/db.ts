@@ -10,7 +10,20 @@ let db: DB | null = null;
  * Migrations NUMÉROTÉES, appliquées automatiquement au démarrage (PLAN §3).
  * On n'en réécrit jamais une : on en ajoute une nouvelle.
  */
-const MIGRATIONS: { id: number; name: string; sql: string }[] = [
+const MIGRATIONS: {
+  id: number;
+  name: string;
+  sql: string;
+  /*
+   * UNE MIGRATION QUI RÉPARE DES DONNÉES NE S'APPLIQUE QU'À UNE BASE QUI LES A.
+   * Le schéma vient des migrations d'avant, mais un contrôle peut monter une
+   * base PARTIELLE — juste les tables qu'il juge. Une réparation lancée là-dessus
+   * tombait sur « no such table », et faisait échouer un test qui n'a rien à voir.
+   * Nommer la table attendue REPORTE la migration au lieu de la faire échouer :
+   * non inscrite, elle se rejouera dès que la table sera là.
+   */
+  siTable?: string;
+}[] = [
   {
     id: 1,
     name: 'socle',
@@ -623,6 +636,112 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       WHERE json_extract(data, '$.deploiement') IS NULL;
     `,
   },
+  {
+    id: 23,
+    name: 'refermer-les-listes-de-taches-des-tours-finis',
+    // LES LISTES QUI NE SE TERMINAIENT JAMAIS.
+    //
+    // Une ligne de la liste de tâches restait « en cours » après la fin du
+    // tour : le moteur ne renvoie pas toujours une dernière mise à jour, et le
+    // démon n'arrêtait que son chronomètre, pas son ÉTAT. Des cartes closes
+    // depuis des semaines affichent donc encore « 4/5 faites » avec un rond
+    // orange sur la dernière ligne.
+    //
+    // La règle est réparée à la source (`cloturerLesTaches`, branchée sur tous
+    // les chemins de fin de tour) ; ici on referme ce qui est DÉJÀ figé, avec
+    // exactement la même lecture : un tour qui a rendu une réponse coche la
+    // ligne qui tournait (marquée `closedByTurnEnd` : c'est le démon qui coche,
+    // pas l'agent), un tour muet la dit « non faite », et une ligne jamais
+    // commencée est « non faite » dans les deux cas.
+    //
+    // Seuls les messages DÉJÀ figés sont touchés (`streaming` faux) : un tour
+    // encore en écriture au moment de la migration garde sa liste vivante.
+    sql: `
+      UPDATE messages
+      SET data = json_set(
+        data,
+        '$.todos',
+        (
+          SELECT json_group_array(json(
+            CASE json_extract(t.value, '$.state')
+              WHEN 'running' THEN
+                CASE WHEN length(trim(coalesce(json_extract(messages.data, '$.content'), ''))) > 0
+                  THEN json_set(
+                         json_set(
+                           json_set(t.value, '$.state', 'done'),
+                           '$.endedAt',
+                           coalesce(
+                             json_extract(t.value, '$.endedAt'),
+                             messages.created_at + coalesce(json_extract(messages.data, '$.durationMs'), 0)
+                           )
+                         ),
+                         '$.closedByTurnEnd',
+                         json('true')
+                       )
+                  ELSE json_set(t.value, '$.state', 'unfinished')
+                END
+              WHEN 'todo' THEN json_set(t.value, '$.state', 'unfinished')
+              ELSE t.value
+            END
+          ))
+          FROM json_each(messages.data, '$.todos') AS t
+        )
+      )
+      WHERE coalesce(json_extract(data, '$.streaming'), 0) IN (0, 'false')
+        AND EXISTS (
+          SELECT 1 FROM json_each(messages.data, '$.todos') AS t
+          WHERE json_extract(t.value, '$.state') IN ('running', 'todo')
+        );
+    `,
+  },
+  {
+    id: 24,
+    name: 'refaire-le-decompte-de-taches-porte-par-les-agents',
+    siTable: 'agents',
+    // LE MÊME TRAVAIL, DEUX DÉCOMPTES QUI NE DISENT PAS PAREIL.
+    //
+    // Les étapes vivent sur les messages ; le décroché du TABLEAU, lui, lit un
+    // résumé posé sur l'agent (`agent.todos`), qui n'était rafraîchi qu'à
+    // l'arrivée d'une liste du moteur. La clôture du tour refermait donc la
+    // liste dans la conversation sans jamais toucher ce résumé : la carte
+    // gardait « 4/5 faites » à vie, y compris une fois passée en « À déployer ».
+    //
+    // La règle est réparée à la source (`poserLaProgression`, branchée sur tous
+    // les chemins de fin de tour) ; ici on refait le décompte DÉJÀ figé, depuis
+    // la dernière liste connue de l'agent — celle que la migration 23 vient de
+    // refermer, donc avec exactement la même lecture. Les étapes non menées à
+    // bout sont comptées à part, pour que la carte les dise.
+    //
+    // Seuls les agents AU REPOS sont touchés : celui qui travaille encore verra
+    // son décompte remis à jour par sa prochaine liste, et rien ne doit passer
+    // devant.
+    sql: `
+      UPDATE agents
+      SET data = json_set(
+        json_set(
+          json_set(agents.data, '$.todos.done', (
+            SELECT count(*) FROM json_each(m.data, '$.todos') AS t
+            WHERE json_extract(t.value, '$.state') = 'done'
+          )),
+          '$.todos.total', (SELECT count(*) FROM json_each(m.data, '$.todos') AS t)
+        ),
+        '$.todos.unfinished', (
+          SELECT count(*) FROM json_each(m.data, '$.todos') AS t
+          WHERE json_extract(t.value, '$.state') = 'unfinished'
+        )
+      )
+      FROM (
+        SELECT agent_id, data,
+               row_number() OVER (PARTITION BY agent_id ORDER BY created_at DESC, id DESC) AS rang
+        FROM messages
+        WHERE json_array_length(coalesce(json_extract(data, '$.todos'), '[]')) > 0
+      ) AS m
+      WHERE m.agent_id = agents.id
+        AND m.rang = 1
+        AND agents.status NOT IN ('running', 'starting')
+        AND json_extract(agents.data, '$.todos') IS NOT NULL;
+    `,
+  },
 ];
 
 export function openDb(): DB {
@@ -640,8 +759,15 @@ export function openDb(): DB {
     database.prepare('SELECT id FROM migrations').all().map((r: any) => r.id as number),
   );
 
+  const tableExiste = (nom: string) =>
+    !!database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(nom);
+
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.id)) continue;
+    if (migration.siTable && !tableExiste(migration.siTable)) {
+      log.info(`migration ${migration.id} (${migration.name}) reportée : table ${migration.siTable} absente`);
+      continue;
+    }
     const run = database.transaction(() => {
       database.exec(migration.sql);
       database

@@ -39,14 +39,14 @@ export function QuestionsEnAttente() {
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
+          variant="outline"
           size="icon"
           className="relative"
           aria-label={libelle}
           title={libelle}
           data-repere-questions
         >
-          <MessageCircleQuestion className="h-4 w-4 text-warning" />
+          <MessageCircleQuestion className="h-4 w-4" />
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-medium leading-none text-white">
             {decisions.length}
           </span>

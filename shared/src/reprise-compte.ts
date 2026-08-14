@@ -270,7 +270,7 @@ export function messageDeRefus(refus: RefusDeReprise): string {
 /** Une ligne de la liste de tâches, réduite à ce dont la règle a besoin. */
 export interface TacheEnCours {
   label: string;
-  state: 'todo' | 'running' | 'done';
+  state: 'todo' | 'running' | 'done' | 'unfinished';
   startedAt?: number;
   endedAt?: number;
 }
@@ -289,11 +289,18 @@ export interface TacheEnCours {
  * personne ne travaillait dessus, son chronomètre n'a plus à courir. Quand
  * l'agent renverra sa propre liste, `mergeTodos` la rapprochera de celle-ci
  * ligne par ligne, par son libellé : rien ne se perd et rien ne se double.
+ *
+ * Le tour coupé a été REFERMÉ avant d'être repris (`cloturerLesTaches`) : ses
+ * lignes ouvertes portent donc « non faite ». Sur le tour qui reprend, elles
+ * redeviennent SIMPLEMENT à faire — c'est bien ce qui reste à mener à bout, et
+ * un travail qui repart n'a pas à s'annoncer perdu d'avance.
  */
 export function tachesAPoursuivre(todos: readonly TacheEnCours[]): TacheEnCours[] {
-  return todos.map((todo) =>
-    todo.state === 'running' ? { label: todo.label, state: 'running', startedAt: todo.startedAt } : { ...todo },
-  );
+  return todos.map((todo) => {
+    if (todo.state === 'running') return { label: todo.label, state: 'running', startedAt: todo.startedAt };
+    if (todo.state === 'unfinished') return { label: todo.label, state: 'todo' };
+    return { ...todo };
+  });
 }
 
 /**
