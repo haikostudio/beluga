@@ -152,16 +152,20 @@ verifier(rendue?.scheduling?.restarts === 0, 'aucune reprise ne lui a été comp
 console.log('\n5. Pas de clôture sans trace vérifiable');
 /* ------------------------------------------------------------------ */
 
-const { traceAcquise, colonneEnFinDeTour, raisonDeNonCloture, RAISON_TRACE_INCONNUE } = partage;
+const { traceAcquise, colonneEnFinDeTour, issueDeFinDeTour, RAISON_TRACE_INCONNUE } = partage;
 verifier(traceAcquise('oui') === true, 'un dépôt qui a bougé ferme la carte');
-verifier(traceAcquise('non') === false, 'un dépôt qui n’a pas bougé la laisse ouverte');
+verifier(traceAcquise('non') === false, 'un dépôt qui n’a pas bougé ne la ferme pas');
 verifier(
   traceAcquise('inconnue') === false && colonneEnFinDeTour('running', true, 'task', false) === null,
   'un dépôt qu’on n’a pas pu consulter ne ferme rien',
 );
 verifier(
-  raisonDeNonCloture(null, 'inconnue') === RAISON_TRACE_INCONNUE,
+  issueDeFinDeTour('running', true, 'task', 'inconnue', false).raison === RAISON_TRACE_INCONNUE,
   'et la carte dit que le constat n’a pas pu être fait',
+);
+verifier(
+  issueDeFinDeTour('running', true, 'task', 'inconnue', false).colonne === 'planned',
+  'sans rien fermer, elle ne reste pas non plus coincée en « En cours »',
 );
 
 /* ------------------------------------------------------------------ */

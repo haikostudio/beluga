@@ -492,10 +492,10 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
       if (!fresh) return;
       if (ok) {
         /*
-         * Le passage en « Terminé » est déjà fait : la carte suit l'état de son
-         * agent (`colonneEnFinDeTour`). On ne prévient que si elle y est
+         * Le passage en « Terminé » est déjà fait : la carte suit l'issue de son
+         * tour (`carteApresFinDeTour`). On ne prévient que si elle y est
          * VRAIMENT arrivée : un tour qui répond sans rien modifier au dépôt
-         * laisse la carte où elle est, il n'y a donc rien à annoncer.
+         * renvoie la carte en file, il n'y a donc pas de travail à annoncer.
          */
         if (fresh.column === 'done' || fresh.column === 'to_deploy' || fresh.column === 'in_production') {
           /*

@@ -107,9 +107,13 @@ export function etatApresCoupure(carte: {
  */
 export type TraceDuTravail = 'oui' | 'non' | 'inconnue';
 
-/** La phrase portée par une carte dont la trace n'a pas pu être constatée. */
+/**
+ * La phrase portée par une carte dont la trace n'a pas pu être constatée. Elle
+ * dit les deux choses qu'on veut savoir : la clôture est refusée faute de
+ * preuve, et la carte n'est pas restée coincée en « En cours » pour autant.
+ */
 export const RAISON_TRACE_INCONNUE =
-  'Le dépôt n’a pas pu être consulté à la fin du tour : sans trace vérifiable, la carte reste ouverte plutôt qu’annoncée terminée.';
+  'Le dépôt n’a pas pu être consulté à la fin du tour : sans trace vérifiable, la carte revient en « Planifié » plutôt que d’être annoncée terminée.';
 
 /**
  * Le constat qui autorise la clôture. Seul « oui » ferme une carte : c'est la
@@ -117,15 +121,4 @@ export const RAISON_TRACE_INCONNUE =
  */
 export function traceAcquise(trace: TraceDuTravail): boolean {
   return trace === 'oui';
-}
-
-/**
- * La phrase à écrire sur une carte restée ouverte. `base` est ce que dit déjà
- * la règle ordinaire (« aucun fichier n'a changé ») ; un constat impossible la
- * remplace, parce que les deux ne disent pas la même chose : « rien n'a bougé »
- * est une observation, « je n'ai pas pu regarder » est son absence.
- */
-export function raisonDeNonCloture(base: string | null, trace: TraceDuTravail): string | null {
-  if (trace === 'inconnue') return RAISON_TRACE_INCONNUE;
-  return base;
 }

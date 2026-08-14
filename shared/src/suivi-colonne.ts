@@ -1,3 +1,4 @@
+import { RAISON_TRACE_INCONNUE, traceAcquise, type TraceDuTravail } from './carte-interrompue.js';
 import { COLUMN_LABELS, ColumnKey } from './columns.js';
 import { etatDuDepart } from './depart-programme.js';
 import type { AgentRole } from './models.js';
@@ -255,11 +256,19 @@ export function tourDeLaCarte(carte: { agentId?: string }, agentId: string): boo
 }
 
 /**
- * La phrase affichée sur une carte restée en place faute de code modifié.
- * Elle est écrite pour être lue telle quelle sur le tableau.
+ * La phrase affichée sur une carte sortie de « En cours » faute de code
+ * modifié. Elle est écrite pour être lue telle quelle sur le tableau.
  */
 export const RAISON_SANS_MODIFICATION =
-  "Réponse rendue, mais aucun fichier du projet n'a changé : la carte reste ouverte tant qu'aucun code n'est enregistré.";
+  "Réponse rendue, mais aucun fichier du projet n'a changé : la carte revient en « Planifié » plutôt que d'être annoncée terminée.";
+
+/**
+ * La phrase affichée sur une carte rangée alors que ce tour n'a rien changé —
+ * parce qu'il n'y avait RIEN à changer : le travail avait déjà été livré et
+ * enregistré lors d'un tour précédent.
+ */
+export const RAISON_DEJA_LIVRE =
+  "Rien à changer : le travail demandé était déjà livré et enregistré. La carte est rangée sans nouveau code.";
 
 /**
  * Où va la carte quand le tour se TERMINE.
@@ -349,29 +358,68 @@ export const RAISON_SUSPENDU =
   'Agent suspendu à la main : la carte attend en file, elle ne repartira que sur votre geste.';
 
 /**
- * Pourquoi la carte n'a pas bougé alors que le tour a réussi. Rend `null` quand
- * il n'y a rien à expliquer — carte déplacée, tour en échec (déjà signalé comme
- * tel), rôle qui ne déplace jamais.
+ * L'ISSUE D'UN TOUR : où va la carte, et ce qui s'écrit dessus.
  *
- * Seul le cas « l'agent d'exécution a répondu sans rien changer » mérite une
- * phrase : c'est le seul où l'on pourrait croire le travail fait.
+ * Le trou d'origine : un tour d'exécution qui RÉUSSISSAIT sans rien changer
+ * laissait la carte en « En cours », pour toujours. Aucun agent ne travaillait
+ * plus, rien ne devait la reprendre, et — quand la carte avait déjà produit du
+ * code lors d'un tour précédent (`dejaEnregistre`) — pas même une phrase
+ * n'était écrite : la carte affichait la coche du travail rendu tout en restant
+ * comptée dans « EN COURS ». Elle n'en sortait plus jamais.
  *
- * `dejaEnregistre` regarde l'HISTOIRE de la carte, pas ce seul tour : une carte
- * qui a déjà produit et enregistré du code (elle a atteint « Terminé », ou porte
- * un enregistrement de son travail) ne concerne plus cette note. Un tour de
- * simple suite ou de discussion, donné après coup, ne doit pas rallumer « aucun
- * fichier n'a changé » sur un travail qui a bel et bien atterri.
+ * L'exigence de fond ne bouge pas — une carte n'est close que si le travail est
+ * réellement CONSTATÉ — mais elle ne justifie pas de laisser la carte coincée.
+ * Chaque fin de tour a donc une issue, et une seule :
+ *
+ *   - le dépôt a bougé → « Terminé », rien à expliquer ;
+ *   - le dépôt n'a pas pu être consulté → « Planifié », RETENUE, le trou dit ;
+ *   - rien n'a bougé mais la carte avait DÉJÀ livré son code → « Terminé »,
+ *     avec la raison : il n'y avait rien à refaire. Le travail est bien
+ *     constaté, simplement lors d'un tour antérieur (`codeDejaEnregistre`, posé
+ *     par un tour qui a produit ou par une relance depuis une fin de travail) ;
+ *   - rien n'a bougé et rien n'a jamais été enregistré → « Planifié », RETENUE,
+ *     avec la raison : répondre n'est pas travailler, mais la carte redescend
+ *     dans la file au lieu de rester en travers du tableau.
+ *
+ * RETENUE veut dire : la carte n'est pas reprise toute seule par l'ordonnanceur
+ * (`demarrageAutomatiqueAutorise` la refuse dès qu'elle est suspendue). Sans
+ * cela, une carte renvoyée en « Planifié » repartirait à la boucle suivante,
+ * ne changerait toujours rien, et tournerait en rond en dépensant du quota.
+ *
+ * Trois cas ne bougent rien : un tour en ÉCHEC (l'incident est déjà dit en
+ * rouge, la carte reste là où on la relance), un rôle qui n'exécute pas, une
+ * carte qui n'était pas en « En cours ».
  */
-export function raisonSansModification(
+export interface IssueDeFinDeTour {
+  /** Où poser la carte, ou `null` pour la laisser exactement où elle est. */
+  colonne: ColumnKey | null;
+  /** La phrase écrite sur la carte, ou `null` quand il n'y a rien à dire. */
+  raison: string | null;
+  /** La carte ne repart pas toute seule : elle attend un geste. */
+  retenue: boolean;
+}
+
+/** L'issue « on ne touche à rien », rendue par les trois cas qui s'abstiennent. */
+export const CARTE_INCHANGEE: IssueDeFinDeTour = { colonne: null, raison: null, retenue: false };
+
+export function issueDeFinDeTour(
   colonne: ColumnKey,
   reussi: boolean,
   role: AgentRole,
-  depotModifie: boolean,
+  trace: TraceDuTravail,
   dejaEnregistre: boolean,
-): string | null {
-  if (!reussi || depotModifie) return null;
-  if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
-  if (colonne !== 'running') return null;
-  if (dejaEnregistre) return null;
-  return RAISON_SANS_MODIFICATION;
+): IssueDeFinDeTour {
+  if (!reussi) return CARTE_INCHANGEE;
+  if (!ROLES_QUI_DEPLACENT.includes(role)) return CARTE_INCHANGEE;
+  if (colonne !== 'running') return CARTE_INCHANGEE;
+
+  const cloture = colonneEnFinDeTour(colonne, reussi, role, traceAcquise(trace));
+  if (cloture) return { colonne: cloture, raison: null, retenue: false };
+
+  // « Je n'ai pas pu regarder » n'est pas « rien n'a bougé » : c'est l'absence
+  // d'observation, et elle se dit autrement.
+  if (trace === 'inconnue') return { colonne: 'planned', raison: RAISON_TRACE_INCONNUE, retenue: true };
+
+  if (dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE, retenue: false };
+  return { colonne: 'planned', raison: RAISON_SANS_MODIFICATION, retenue: true };
 }
