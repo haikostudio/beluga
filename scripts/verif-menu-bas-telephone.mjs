@@ -13,7 +13,6 @@
  *  - le rond ne recouvre pas les deux boutons (ils restent cliquables), et un
  *    appui déplie le panneau ;
  *  - le contenu du tableau s'arrête au-dessus du menu (place réservée) ;
- *  - le bloc en bas à droite ne recouvre pas le menu ;
  *  - au-dessus du seuil téléphone, aucun menu du bas, et le module redevient
  *    flottant (déplaçable, poignée présente).
  *
@@ -105,14 +104,6 @@ async function main() {
     const menu = page.locator('nav[data-menu-bas]');
     record('le menu du bas est là sur téléphone', await menu.isVisible());
 
-    // La position mémorisée du bloc en bas à droite est commune à tous les
-    // appareils : on la neutralise pour juger de sa place NATURELLE.
-    await page.addStyleTag({ content: '[data-bloc="dock"] { transform: none !important; }' });
-    // Le bloc en bas à droite est vide au repos : sans message court, sa boîte
-    // est plate et l'on ne prouverait rien sur le recouvrement.
-    await page.evaluate(() => window.haikodevEssai?.message('info', 'Essai — menu du bas'));
-    await page.waitForTimeout(500);
-
     const mesures = await page.evaluate(() => {
       const nav = document.querySelector('nav[data-menu-bas]');
       if (!nav) return null;
@@ -148,7 +139,6 @@ async function main() {
         boutons,
         contenu: cadreDe(document.querySelector('[data-zone="Tableau"], main')),
         voix: cadreDe(document.querySelector('[data-module-voix]')),
-        dock: cadreDe(document.querySelector('[data-bloc="dock"]')),
         ecran: { largeur: window.innerWidth, hauteur: window.innerHeight },
       };
     });
@@ -197,14 +187,6 @@ async function main() {
       'le contenu s’arrête au-dessus du menu',
       mesures.contenu !== null && mesures.contenu.bottom <= mesures.nav.top + 1,
       mesures.contenu ? `contenu ${Math.round(mesures.contenu.bottom)} / menu ${Math.round(mesures.nav.top)}` : 'contenu introuvable',
-    );
-
-    const chevauche = (a, b) =>
-      !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-    record(
-      'le bloc en bas à droite ne recouvre pas le menu',
-      !chevauche(mesures.dock, bloc),
-      mesures.dock ? `dock bas ${Math.round(mesures.dock.bottom)}` : 'dock non repéré',
     );
 
     // LE MODULE DE VOIX AU CENTRE DU MENU. Il se pose sur la barre, centré, et

@@ -7,7 +7,6 @@ import { Board } from '@/components/board';
 import { Dashboard } from '@/components/dashboard';
 import { RightPanel } from '@/components/right-panel';
 import { CardPanel } from '@/components/card-panel';
-import { AgentDock } from '@/components/agent-dock';
 import { Toasts } from '@/components/toasts';
 import { VoixAssistant } from '@/components/voix-assistant';
 import { SettingsView } from '@/components/settings-view';
@@ -616,7 +615,6 @@ export function App() {
         <Filet zone="Réglages" onReprendre={() => setSettingsOpen(false)}>
           <SettingsView open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </Filet>
-        <AgentDock onOpenAgent={setOpenAgentId} />
         <Toasts />
         {/* Le module de voix ouvre un micro et du son : ce qu'il fait de plus
             fragile ne doit pas emporter le tableau avec lui. Son filet ne
