@@ -138,11 +138,19 @@ le nom, là-bas le texte).
   `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
   une consigne ciblée. La mise en production confiée, elle, garde l'accueil complet.
-- **Déployer, c'est fusionner le lot « À déployer », enregistrer, pousser, puis rafraîchir
-  l'instance de dev** (`planDeMiseEnLigne`, `shared/src/mise-en-ligne.ts`) — toujours disponible,
-  sans réglage. La MISE EN PRODUCTION, elle, ne suit QUE le prompt réglé du projet : sans prompt,
-  elle est refusée, jamais menée à vide. La mise en ligne compte donc DEUX étapes, que la colonne
-  « En production » sépare.
+- **Déployer, c'est fusionner le lot « À déployer », enregistrer, pousser, puis mettre en ligne
+  selon la PROCÉDURE définie** (`planDeMiseEnLigne`, `shared/src/mise-en-ligne.ts`). La MISE EN
+  PRODUCTION suit, elle, le prompt réglé du projet. La mise en ligne compte donc DEUX étapes, que la
+  colonne « En production » sépare, et sans procédure, aucune des deux ne part.
+- **Un projet neuf n'a de procédure pour AUCUNE des deux étapes, et la colonne propose de
+  l'INITIER** (`shared/src/procedure-publication.ts` ; `Project.deploiement` ; `procedure.tour`,
+  `server/src/procedure-publication.ts` ; migration 22). Tant que la procédure est vide, la tête de
+  la colonne porte « Initier le déploiement » / « Initier la mise en production » à la place du
+  bouton d'action, et `startDeploy` refuse en renvoyant à ce bouton. Le clic ouvre un TIROIR où un
+  agent lit le projet, DEMANDE comment l'étape doit se passer, puis écrit la procédure — enregistrée
+  sur la cible de la colonne d'où il vient, JAMAIS sur l'autre. Une fois en place, une icône de
+  réglages, en haut à DROITE de la colonne, rouvre le même tiroir. Les projets d'AVANT portent le
+  marqueur `constate` : leur déploiement garde exactement le déroulé constaté.
 - **Une carte qui ENTRE dans « À déployer » perd sa date de mise en ligne, et un bouton éteint DIT
   pourquoi** (`dateDeMiseEnLignePerimee` / `raisonLotBloque`, `shared/src/lot-a-deployer.ts` ;
   `rangerLaCarte`, `server/src/deplacement-carte.ts` ; migration 20). Sans cela, une carte revenue

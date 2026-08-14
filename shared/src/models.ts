@@ -132,6 +132,20 @@ export const Project = z.object({
    * `mise-en-production.ts`. Une clé absente est un état NORMAL : la
    * publication retombe alors sur les moyens que HaikoDev sait deviner.
    */
+  /**
+   * LA PROCÉDURE DE DÉPLOIEMENT de ce projet, définie depuis la tête de la
+   * colonne « À déployer » par un agent (`procedure-publication.ts`). Clé
+   * absente = AUCUNE procédure : le projet est neuf, la colonne propose de
+   * l'initier et rien ne part. `constate: true` est le marqueur des projets
+   * déjà inscrits (migration 22) — ils gardent le déroulé constaté d'avant.
+   */
+  deploiement: z
+    .object({
+      base: z.string().optional(),
+      prompt: z.string().optional(),
+      constate: z.boolean().optional(),
+    })
+    .default({}),
   miseEnProduction: z
     .object({
       base: z.string().optional(),

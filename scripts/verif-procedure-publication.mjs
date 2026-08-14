@@ -1,0 +1,406 @@
+#!/usr/bin/env node
+/**
+ * INITIER LE DÉPLOIEMENT ET LA MISE EN PRODUCTION DEPUIS LES COLONNES.
+ *
+ * Un projet NEUF n'arrive plus avec une procédure toute faite : les deux étapes
+ * sont vides, les deux colonnes proposent de l'INITIER, et rien ne part tant
+ * qu'aucune procédure n'existe. Une fois écrite, le bouton d'action revient et
+ * une icône de réglages, en haut à DROITE de la colonne, rouvre le même tiroir.
+ *
+ * Deux parties :
+ *
+ *  1. SANS NAVIGATEUR, sur une base neuve : un projet neuf n'a de procédure
+ *     pour aucune étape, `startDeploy` refuse les deux en renvoyant au bouton
+ *     qui les initie, et l'écriture d'une procédure ne touche QUE sa cible.
+ *  2. DANS UN VRAI NAVIGATEUR, sur son PROPRE démon (base neuve, port libre) :
+ *     les deux colonnes proposent d'initier, le tiroir s'ouvre, la réponse
+ *     envoyée fait écrire la procédure, puis le bouton d'action et l'icône de
+ *     réglages prennent la place du bouton d'initiation.
+ *
+ * Le tour d'agent est INTERCEPTÉ dans le navigateur : aucun vrai agent n'est
+ * lancé, aucun quota dépensé, aucun projet réel touché.
+ *
+ *   node scripts/verif-procedure-publication.mjs
+ */
+import { chromium } from 'playwright';
+import { createRequire } from 'node:module';
+import { spawn, execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import net from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const Database = createRequire(import.meta.url)('better-sqlite3');
+const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7196);
+const BASE = `http://127.0.0.1:${PORT}`;
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-procedure-'));
+
+const resultats = [];
+const noter = (nom, ok, detail = '') => {
+  resultats.push({ nom, ok });
+  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}${detail ? ` — ${detail}` : ''}`);
+};
+
+/* Le dossier de CE processus (partie 1) et celui du démon (partie 2) sont
+   séparés : ni l'un ni l'autre ne touche la base réelle. */
+const DATA_LOCAL = path.join(TMP, 'local');
+const DATA = path.join(TMP, 'data');
+const PROJETS = path.join(TMP, 'projets');
+const DEPOT = path.join(TMP, 'depot');
+for (const dossier of [DATA_LOCAL, DATA, PROJETS, DEPOT]) fs.mkdirSync(dossier, { recursive: true });
+
+execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: DEPOT });
+fs.writeFileSync(path.join(DEPOT, 'README.md'), '# essai\n');
+execFileSync('git', ['add', 'README.md'], { cwd: DEPOT });
+execFileSync('git', ['-c', 'user.email=essai@local', '-c', 'user.name=essai', 'commit', '-qm', 'départ'], {
+  cwd: DEPOT,
+});
+
+process.on('exit', () => fs.rmSync(TMP, { recursive: true, force: true }));
+
+/* ------------------------------------------------------------------ */
+/* 1. Sans navigateur : la règle, le refus, l'écriture                  */
+/* ------------------------------------------------------------------ */
+
+process.env.HAIKODEV_DATA = DATA_LOCAL;
+const { procedureEnPlace } = await import(path.join(RACINE, 'shared/dist/index.js'));
+const store = await import(path.join(RACINE, 'server/dist/store.js'));
+const { startDeploy } = await import(path.join(RACINE, 'server/dist/deploy.js'));
+const { enregistrerProcedure } = await import(path.join(RACINE, 'server/dist/procedure-publication.js'));
+
+const maintenant = Date.now();
+const neuf = store.saveProject({
+  id: store.newId(),
+  name: 'Projet neuf',
+  path: DEPOT,
+  defaultEngine: 'claude',
+  isSelf: false,
+  rank: 1000,
+  archived: false,
+  createdAt: maintenant,
+  updatedAt: maintenant,
+});
+
+noter(
+  'un projet neuf n’a de procédure ni pour le déploiement ni pour la production',
+  !procedureEnPlace(neuf, 'dev') && !procedureEnPlace(neuf, 'production'),
+);
+
+const refusDev = await startDeploy(neuf.id, { cible: 'dev' });
+noter(
+  'sans procédure, le déploiement est refusé et renvoie au bouton qui l’initie',
+  refusDev.ok === false && /Initier le déploiement/.test(refusDev.error ?? ''),
+  refusDev.error,
+);
+
+const refusProd = await startDeploy(neuf.id, { cible: 'production' });
+noter(
+  'sans procédure, la mise en production est refusée elle aussi',
+  refusProd.ok === false && /mise en production/i.test(refusProd.error ?? ''),
+  refusProd.error,
+);
+
+enregistrerProcedure(neuf.id, 'dev', '1. Construire.\n2. Relancer le service.', 'Comme HaikoDev.');
+const apresDev = store.getProject(neuf.id);
+noter(
+  'écrire la procédure de DÉPLOIEMENT ne touche que le déploiement',
+  procedureEnPlace(apresDev, 'dev') && !procedureEnPlace(apresDev, 'production'),
+  JSON.stringify({ dev: !!apresDev.deploiement?.prompt, prod: !!apresDev.miseEnProduction?.prompt }),
+);
+
+enregistrerProcedure(neuf.id, 'production', 'Déposer chez le client.', 'Par SSH.');
+const apresProd = store.getProject(neuf.id);
+noter(
+  'écrire la procédure de PRODUCTION laisse celle du déploiement intacte',
+  procedureEnPlace(apresProd, 'production') &&
+    apresProd.deploiement?.prompt === '1. Construire.\n2. Relancer le service.',
+  JSON.stringify({ prod: apresProd.miseEnProduction?.prompt, dev: apresProd.deploiement?.prompt }),
+);
+
+noter(
+  'la réponse de l’utilisateur est gardée à côté de la procédure',
+  apresProd.deploiement?.base === 'Comme HaikoDev.' && apresProd.miseEnProduction?.base === 'Par SSH.',
+);
+
+/* ------------------------------------------------------------------ */
+/* 2. Dans un vrai navigateur, sur son propre démon                     */
+/* ------------------------------------------------------------------ */
+
+const demon = spawn('node', [path.join(RACINE, 'server', 'dist', 'main.js')], {
+  env: {
+    ...process.env,
+    HAIKODEV_PORT: String(PORT),
+    HAIKODEV_HOST: '127.0.0.1',
+    HAIKODEV_DATA: DATA,
+    HAIKODEV_PROJECTS_ROOT: PROJETS,
+    HAIKODEV_WEB: path.join(RACINE, 'web', 'dist'),
+  },
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+const journal = [];
+demon.stdout.on('data', (d) => journal.push(String(d)));
+demon.stderr.on('data', (d) => journal.push(String(d)));
+process.on('exit', () => {
+  try {
+    demon.kill('SIGKILL');
+  } catch {
+    /* déjà parti */
+  }
+});
+
+async function attendrePort(limiteMs = 60000) {
+  const fin = Date.now() + limiteMs;
+  while (Date.now() < fin) {
+    const ouvert = await new Promise((resolve) => {
+      const prise = net.connect(PORT, '127.0.0.1');
+      prise.on('connect', () => (prise.end(), resolve(true)));
+      prise.on('error', () => resolve(false));
+    });
+    if (ouvert) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
+const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
+const jeton = crypto.randomBytes(32).toString('hex');
+const PROJET_ID = 'p-neuf';
+
+if (!(await attendrePort())) {
+  noter('le démon d’essai démarre', false, journal.join('').slice(-400));
+  rendre();
+}
+
+{
+  const db = new Database(path.join(DATA, 'haikodev.db'));
+  const t = Date.now();
+  db.prepare('INSERT INTO sessions (token, created_at, expires_at, label) VALUES (?, ?, ?, ?)').run(
+    sha(jeton),
+    t,
+    t + 3600_000,
+    'vérification procédure de publication',
+  );
+  const reglages = JSON.parse(db.prepare("SELECT value FROM meta WHERE key = 'settings'").get()?.value ?? '{}');
+  db.prepare(
+    "INSERT INTO meta (key, value) VALUES ('settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run(JSON.stringify({ ...reglages, maxAgents: 0 }));
+  // Un projet NEUF : aucune clé de procédure, comme au sortir de son montage.
+  const projet = {
+    id: PROJET_ID,
+    name: 'Projet neuf',
+    path: DEPOT,
+    defaultEngine: 'claude',
+    isSelf: false,
+    rank: 1,
+    archived: false,
+    createdAt: t,
+    updatedAt: t,
+  };
+  db.prepare(
+    'INSERT INTO projects (id, name, path, archived, data, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)',
+  ).run(projet.id, projet.name, projet.path, JSON.stringify(projet), t, t);
+  db.close();
+}
+
+const browser = await chromium.launch({
+  channel: 'chrome',
+  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+});
+const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-CH' });
+await context.addCookies([
+  { name: 'haikodev_session', value: jeton, url: BASE, httpOnly: true, sameSite: 'Lax' },
+]);
+const page = await context.newPage();
+const erreurs = [];
+page.on('pageerror', (e) => erreurs.push(String(e)));
+
+/*
+ * Le tour d'agent est INTERCEPTÉ : on répond à sa place — une question au
+ * premier tour, la procédure au second. Le serveur, lui, n'est jamais appelé
+ * pour cette commande : aucun agent, aucun quota. La réponse est suivie du
+ * `project.upsert` que le vrai serveur émettrait, pour que l'écran voie la
+ * procédure apparaître exactement comme en vrai.
+ */
+await page.addInitScript((id) => {
+  window.__idProjet = id;
+  window.__projet = null;
+  window.__ecouteurs = [];
+  const propriete = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'onmessage');
+  Object.defineProperty(WebSocket.prototype, 'onmessage', {
+    configurable: true,
+    get() {
+      return propriete.get.call(this);
+    },
+    set(ecouteur) {
+      window.__ecouteurs.push(ecouteur);
+      /* On CAPTURE au passage le projet tel que le serveur l'envoie : c'est sur
+         LUI qu'on posera la procédure, pour que le projet réémis reste un vrai
+         projet et pas un objet fabriqué de toutes pièces. */
+      const capteur = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          const id = window.__idProjet;
+          if (id && !window.__projet) {
+            if (Array.isArray(msg?.projects)) {
+              const trouve = msg.projects.find((p) => p?.id === id);
+              if (trouve) window.__projet = trouve;
+            }
+            if (msg?.type === 'project.upsert' && msg.project?.id === id) window.__projet = msg.project;
+          }
+        } catch {
+          /* pas du JSON : on laisse filer */
+        }
+        return ecouteur(evt);
+      };
+      return propriete.set.call(this, capteur);
+    },
+  });
+  window.__injecter = (evenement) => {
+    const donnees = JSON.stringify(evenement);
+    for (const ecouteur of window.__ecouteurs) ecouteur({ data: donnees });
+  };
+  window.__tours = [];
+
+  const envoiOriginal = WebSocket.prototype.send;
+  WebSocket.prototype.send = function (donnees) {
+    let enveloppe = null;
+    try {
+      enveloppe = JSON.parse(donnees);
+    } catch {
+      /* pas du JSON */
+    }
+    const cmd = enveloppe?.cmd;
+    if (cmd?.type === 'procedure.tour') {
+      window.__tours.push({ cible: cmd.cible, message: cmd.message ?? null });
+      if (!cmd.message) {
+        setTimeout(() => {
+          window.__injecter({
+            id: enveloppe.id,
+            type: 'ack',
+            ok: true,
+            data: { ok: true, agentId: 'a-essai', question: `Comment se passe cette étape ? (${cmd.cible})` },
+          });
+        }, 200);
+        return;
+      }
+      const procedure = `Procédure ${cmd.cible} :: ${cmd.message}`;
+      const projet = window.__projet ?? { id: window.__idProjet };
+      const suite =
+        cmd.cible === 'dev'
+          ? { ...projet, deploiement: { base: cmd.message, prompt: procedure } }
+          : { ...projet, miseEnProduction: { ...projet.miseEnProduction, base: cmd.message, prompt: procedure } };
+      window.__projet = suite;
+      setTimeout(() => {
+        window.__injecter({ id: enveloppe.id, type: 'ack', ok: true, data: { ok: true, agentId: 'a-essai', procedure } });
+        window.__injecter({ type: 'project.upsert', project: suite });
+      }, 200);
+      return;
+    }
+    return envoiOriginal.call(this, donnees);
+  };
+}, PROJET_ID);
+
+await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+await page.waitForTimeout(4000);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(500);
+page.setDefaultTimeout(8000);
+/* L'identifiant du projet ouvert est posé AVANT le chargement : c'est lui qui
+   permet de capturer le projet réel au passage, puis de le réémettre enrichi. */
+
+const etatColonnes = async () =>
+  page.evaluate(() => ({
+    initierDev: !!document.querySelector('[data-initier-procedure="dev"]'),
+    initierProd: !!document.querySelector('[data-initier-procedure="production"]'),
+    boutonAction: document.querySelectorAll('[data-bouton-publication]').length,
+    reglages: document.querySelectorAll('[data-reglages-procedure]').length,
+  }));
+
+const avant = await etatColonnes();
+noter(
+  'les DEUX colonnes proposent d’initier, et aucun bouton de publication ne paraît',
+  avant.initierDev && avant.initierProd && avant.boutonAction === 0,
+  JSON.stringify(avant),
+);
+noter('aucune icône de réglages tant qu’aucune procédure n’existe', avant.reglages === 0);
+
+/** Ouvre le tiroir, répond à l'agent, et rend l'état des colonnes après coup. */
+async function configurer(cible) {
+  await page.click(`[data-initier-procedure="${cible}"]`);
+  await page.waitForSelector(`[data-tiroir-procedure="${cible}"]`, { timeout: 8000 });
+  await page.waitForTimeout(700);
+  const question = await page.evaluate(
+    (c) => document.querySelector(`[data-tiroir-procedure="${c}"] [data-bulle-procedure="agent"]`)?.textContent ?? '',
+    cible,
+  );
+  noter(`le tiroir « ${cible} » s’ouvre sur la question de l’agent`, question.includes(cible), question.trim());
+
+  await page.fill('[data-reponse-procedure]', `Réponse pour ${cible}`);
+  await page.click('[data-envoyer-procedure]');
+  await page.waitForTimeout(900);
+  const ecrite = await page.evaluate(
+    (c) => document.querySelector(`[data-tiroir-procedure="${c}"] [data-procedure-ecrite]`)?.textContent ?? '',
+    cible,
+  );
+  noter(
+    `la procédure « ${cible} » est écrite et enregistrée`,
+    ecrite.includes(`Procédure ${cible} ::`),
+    ecrite.trim().slice(0, 80),
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(600);
+}
+
+await configurer('dev');
+const apresDevEcran = await etatColonnes();
+noter(
+  'le déploiement configuré fait revenir son bouton et paraître son icône de réglages',
+  !apresDevEcran.initierDev && apresDevEcran.boutonAction === 1 && apresDevEcran.reglages === 1,
+  JSON.stringify(apresDevEcran),
+);
+noter(
+  'la mise en production, elle, propose toujours d’initier : jamais l’une pour l’autre',
+  apresDevEcran.initierProd,
+);
+
+await configurer('production');
+const apresTout = await etatColonnes();
+noter(
+  'les deux étapes configurées : deux boutons d’action, deux icônes de réglages',
+  !apresTout.initierDev && !apresTout.initierProd && apresTout.boutonAction === 2 && apresTout.reglages === 2,
+  JSON.stringify(apresTout),
+);
+
+/* L'icône de réglages rouvre le MÊME tiroir, avec la procédure déjà en place. */
+await page.click('[data-reglages-procedure="dev"]');
+await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
+await page.waitForTimeout(800);
+const relu = await page.evaluate(
+  () => document.querySelector('[data-tiroir-procedure="dev"] [data-procedure-actuelle]')?.textContent ?? '',
+);
+noter(
+  'l’icône de réglages rouvre le tiroir sur la procédure déjà en place',
+  relu.includes('Procédure dev ::'),
+  relu.trim().slice(0, 80),
+);
+
+const cibles = await page.evaluate(() => window.__tours.map((t) => t.cible).join(','));
+noter(
+  'chaque tour porte la cible de la colonne d’où il vient',
+  cibles === 'dev,dev,production,production,dev',
+  cibles,
+);
+
+noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
+
+await browser.close();
+rendre();
+
+function rendre() {
+  const echecs = resultats.filter((r) => !r.ok);
+  console.log(`\n${resultats.length - echecs.length}/${resultats.length} contrôles passés.`);
+  process.exit(echecs.length ? 1 : 0);
+}

@@ -154,6 +154,11 @@ function poserLeDecor() {
        qui n'appelle NI agent NI transfert : rien n'est dépensé, et le bouton
        est cliquable. */
     miseEnProduction: { type: 'aucune' },
+    /* Un projet neuf n'a plus de procédure de déploiement : sans elle, la
+       colonne propose de l'initier au lieu du bouton « Tout déployer ». Ce
+       script juge les boutons de publication, pas cette proposition : le projet
+       d'essai porte donc le marqueur « constaté » des projets d'avant. */
+    deploiement: { constate: true },
     createdAt: maintenant,
     updatedAt: maintenant,
   };

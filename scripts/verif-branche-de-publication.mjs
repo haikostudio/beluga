@@ -80,6 +80,10 @@ function monterProjet(nom, { avecDev = false, branches } = {}) {
     rank: 1000,
     archived: false,
     branchesDePublication: branches ?? {},
+    /* Un projet neuf n'a plus de procédure de déploiement : sans elle, rien
+       ne part. « Constaté » est le marqueur des projets d'avant — le déroulé
+       de HaikoDev, du service système ou du dossier servi, inchangé. */
+    deploiement: { constate: true },
     createdAt: maintenant,
     updatedAt: maintenant,
   });

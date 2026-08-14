@@ -37,6 +37,9 @@ import {
   typeCibleReglee,
   refusCibleMiseEnProduction,
   raisonCibleMiseEnProduction,
+  procedureDeLEtape,
+  procedureEnPlace,
+  refusSansProcedure,
   avertissementsSelection,
   type AvertissementSelection,
 } from '@haikodev/shared';
@@ -168,14 +171,16 @@ export function moyensDuProjet(
 }
 
 /**
- * Le prompt de mise en production, mais SEULEMENT quand l'étape en est une.
+ * La PROCÉDURE de cette étape, et d'elle seule.
  *
- * C'est le seul endroit qui tranche : le déploiement sur l'instance de dev ne
- * le lit pas — il garde exactement le déroulé constaté — et la mise en
- * production, elle, le lit.
+ * C'est le seul endroit qui tranche. Le déploiement lit désormais la procédure
+ * définie depuis la tête de sa colonne (`procedure-publication.ts`) : un projet
+ * marqué « constaté » — tous ceux d'avant cette règle — rend la chaîne vide et
+ * garde donc exactement le déroulé constaté. La mise en production, elle, lit
+ * son prompt réglé, comme avant.
  */
 function promptDeLEtape(project: Project, cible?: CiblePublication): string {
-  return cible === 'dev' ? '' : promptDeMiseEnProduction(project);
+  return cible === 'dev' ? procedureDeLEtape(project, 'dev') : promptDeMiseEnProduction(project);
 }
 
 /**
@@ -1113,10 +1118,23 @@ export async function startDeploy(
   const typeCible = typeCibleReglee(project.miseEnProduction);
 
   /*
-   * Une MISE EN PRODUCTION refusée se refuse AVANT tout — avant même la file
-   * d'attente. Le motif dépend du TYPE de cible réglé : sans prompt pour
-   * « consigne », ou des champs d'accès manquants pour SSH/FTP. Le
-   * déploiement sur l'instance de dev, lui, n'est jamais bloqué ici.
+   * AUCUNE PROCÉDURE DÉFINIE, RIEN NE PART — pour les DEUX étapes, et AVANT
+   * tout le reste : avant le motif de cible, avant même la file d'attente.
+   *
+   * Un projet neuf n'arrive plus avec un déploiement tout fait : tant que la
+   * procédure de cette étape n'a pas été définie depuis la tête de sa colonne,
+   * la publication est refusée et le refus dit où l'initier. Les projets d'avant
+   * portent le marqueur « constaté » (migration 22) : pour eux, rien ne change.
+   */
+  if (!procedureEnPlace(project, etape.cible)) {
+    return { ok: false, error: refusSansProcedure(etape.cible) };
+  }
+
+  /*
+   * Une MISE EN PRODUCTION dont la CIBLE est réglée mais incomplète se refuse
+   * ensuite : des champs d'accès manquants pour SSH/FTP. Le cas « aucun prompt »
+   * est déjà tranché juste au-dessus, par la procédure. Le déploiement sur
+   * l'instance de dev, lui, n'est jamais bloqué ici.
    */
   if (etape.cible === 'production') {
     const refus = refusCibleMiseEnProduction(project.miseEnProduction);

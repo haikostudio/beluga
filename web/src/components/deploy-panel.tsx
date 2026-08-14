@@ -21,10 +21,12 @@ import {
   etapeDePublication,
   etapeDeLaColonne,
   natureDePublication,
+  procedureEnPlace,
   raisonLotBloque,
   rapportAGarder,
   runDeLEtape,
 } from '@haikodev/shared';
+import { BoutonInitierProcedure } from '@/components/procedure-panel';
 import {
   Button,
   ConfirmDialog,
@@ -152,10 +154,14 @@ export function DeployPanel({
   colonne = 'to_deploy',
   onInfos,
   onCount,
+  onInitier,
 }: {
   projectId: string;
   cards: Card[];
   colonne?: ColumnKey;
+  /** Ouvre le tiroir de procédure, tenu par le tableau (l'icône de réglages de
+   *  la tête de colonne ouvre exactement le même). */
+  onInitier?: () => void;
   /** Remonte à la tête de colonne ce qui va derrière le bouton « ! ». */
   onInfos?: (infos: InfosPublication | null) => void;
   /** Remonte à la tête de colonne le compte EXACT du bouton « Tout <verbe> (n) »,
@@ -186,6 +192,18 @@ export function DeployPanel({
    * rejoue lui-même et s'affiche tout de suite, sans attendre le serveur.
    */
   const [etape] = React.useState<EtapeDePublication | null>(() => etapeDeLaColonne(colonne));
+
+  /*
+   * LA PROCÉDURE DE CETTE ÉTAPE EST-ELLE DÉFINIE ?
+   *
+   * Un projet neuf n'arrive plus avec une mise en ligne toute faite : tant que
+   * la procédure est vide, il n'y a pas de bouton d'action à montrer — seulement
+   * de quoi l'INITIER. La réponse se lit sur le projet déjà connu de l'écran :
+   * aucun aller-retour, et elle se met à jour toute seule dès que l'agent du
+   * tiroir a écrit la procédure (`project.upsert`).
+   */
+  const projet = state.projects.find((p) => p.id === projectId);
+  const enPlace = !!etape && procedureEnPlace(projet, etape.cible);
 
   /*
    * Le garde-fou « déjà mise en ligne » ne vaut que pour la première étape :
@@ -232,7 +250,9 @@ export function DeployPanel({
   React.useEffect(() => {
     // Le contrôle tourne MÊME sans carte à embarquer : c'est lui qui découvre
     // le travail enregistré sur la principale, et donc qui rallume le bouton.
-    if (active) return;
+    // Sans procédure définie, en revanche, il n'y a rien à préparer : le bloc
+    // ne montre que le bouton « Initier… », et on n'interroge pas le serveur.
+    if (active || !enPlace) return;
     let vivant = true;
     const controler = () =>
       client
@@ -256,7 +276,7 @@ export function DeployPanel({
       vivant = false;
       window.clearInterval(timer);
     };
-  }, [projectId, signature, active, run?.state, colonne]);
+  }, [projectId, signature, active, run?.state, colonne, enPlace]);
 
   /*
    * Le déroulé reste FERMÉ par défaut, même pendant MA publication : il ne
@@ -374,6 +394,24 @@ export function DeployPanel({
    * Cette colonne ne publie rien : alors AUCUN bloc, pas même un bouton éteint.
    */
   if (!etape) return null;
+
+  /*
+   * AUCUNE PROCÉDURE : rien à déployer d'un clic, mais tout à définir.
+   *
+   * Le bloc garde sa place en tête de colonne, avec un SEUL bouton qui ouvre le
+   * tiroir où un agent demande comment cette étape doit se passer. Ni compteur,
+   * ni chevron, ni déroulé : il n'y a pas encore de déroulé à montrer.
+   */
+  if (!enPlace) {
+    return (
+      <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
+        <BoutonInitierProcedure cible={etape.cible} onOuvrir={() => onInitier?.()} />
+        <p className="mt-1.5 text-[12px] text-faint" data-procedure-absente={colonne}>
+          Aucune procédure n’est définie pour cette étape : rien ne peut partir tant qu’elle n’existe pas.
+        </p>
+      </div>
+    );
+  }
 
   /* Ma publication tourne : le bouton porte alors l'étape en cours au lieu du
      verbe, et le déroulé reflète les états réels. */

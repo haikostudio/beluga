@@ -414,6 +414,22 @@ export const ClientCommand = z.discriminatedUnion('type', [
     projectId: z.string(),
     base: z.string(),
   }),
+  /**
+   * UN TOUR DU TIROIR DE PROCÉDURE (`shared/src/procedure-publication.ts`).
+   *
+   * Sans `message`, c'est l'OUVERTURE : un agent lit le projet et rend la
+   * question à poser. Avec `message`, c'est la RÉPONSE de l'utilisateur : le
+   * même agent écrit alors la procédure, et le serveur l'enregistre sur la
+   * `cible` demandée — celle de la colonne d'où l'on vient, jamais l'autre. Tour
+   * d'agent PAYANT, comme la génération d'un prompt de mise en production.
+   */
+  z.object({
+    type: z.literal('procedure.tour'),
+    projectId: z.string(),
+    cible: z.enum(['dev', 'production']),
+    agentId: z.string().optional(),
+    message: z.string().optional(),
+  }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),

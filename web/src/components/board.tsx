@@ -7,7 +7,9 @@ import {
   Card,
   ColumnKey,
   AvancementColonne,
+  CiblePublication,
   RefusDeLot,
+  procedureEnPlace,
   avancementDeLaColonne,
   bilanDeLot,
   canMove,
@@ -54,6 +56,7 @@ import { useSurvol } from '@/lib/pointeur';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel, BoutonInfosPublication, InfosPublication } from '@/components/deploy-panel';
+import { BoutonReglagesProcedure, TiroirProcedure } from '@/components/procedure-panel';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 
 /**
@@ -260,6 +263,17 @@ export function Board({
    * physiquement posées dans la colonne.
    */
   const [deployCounts, setDeployCounts] = React.useState<Partial<Record<ColumnKey, number>>>({});
+
+  /*
+   * LE TIROIR DE PROCÉDURE, tenu par le tableau parce qu'il s'ouvre de DEUX
+   * endroits : le bouton « Initier… » du bloc de publication, et l'icône de
+   * réglages de la tête de colonne. Un seul tiroir, une seule cible à la fois —
+   * celle de la colonne d'où l'on vient.
+   */
+  const [procedureOuverte, setProcedureOuverte] = React.useState<CiblePublication | null>(null);
+  /* Le projet ouvert, tel que l'écran le connaît déjà : c'est lui qui dit si la
+     procédure d'une colonne est définie, sans rien demander au serveur. */
+  const projetOuvert = state.projects.find((p) => p.id === projectId);
 
   /*
    * Ce qu'un ONGLET du tableau (téléphone) a à signaler, colonne par colonne :
@@ -858,6 +872,20 @@ export function Board({
                 {column === 'to_deploy' || column === 'in_production' ? (
                   <BoutonInfosPublication colonne={column} infos={infosPublication[column] ?? null} />
                 ) : null}
+                {/* Une fois la procédure en place, l'icône de réglages prend la
+                    suite du bouton « Initier… » : elle rouvre le MÊME tiroir,
+                    en haut à droite de la colonne. Sans procédure, rien ici —
+                    c'est le bloc, en tête de colonne, qui propose d'initier. */}
+                {(() => {
+                  const etapeCol = etapeDeLaColonne(column);
+                  if (!etapeCol || !procedureEnPlace(projetOuvert, etapeCol.cible)) return null;
+                  return (
+                    <BoutonReglagesProcedure
+                      cible={etapeCol.cible}
+                      onOuvrir={() => setProcedureOuverte(etapeCol.cible)}
+                    />
+                  );
+                })()}
                 <MenuTeteColonne
                   colonne={column}
                   cartesNonLues={columnCards.filter((card) => etatDeCarte(card) === 'termine-non-lu')}
@@ -886,6 +914,10 @@ export function Board({
                   colonne={column}
                   onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, [column]: infos }))}
                   onCount={(n) => setDeployCounts((prev) => (prev[column] === n ? prev : { ...prev, [column]: n }))}
+                  onInitier={() => {
+                    const etapeCol = etapeDeLaColonne(column);
+                    if (etapeCol) setProcedureOuverte(etapeCol.cible);
+                  }}
                 />
               ) : null}
               <div
@@ -993,6 +1025,16 @@ export function Board({
         </div>
       ) : null}
       </ZoneDefilement>
+
+      {/* Le tiroir de procédure : ouvert par le bouton « Initier… » d'une
+          colonne ou par son icône de réglages, toujours sur la cible de CETTE
+          colonne. Un seul à l'écran, jamais deux. */}
+      <TiroirProcedure
+        projectId={projectId}
+        cible={procedureOuverte}
+        open={!!procedureOuverte}
+        onClose={() => setProcedureOuverte(null)}
+      />
     </div>
   );
 }

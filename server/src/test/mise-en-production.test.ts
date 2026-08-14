@@ -194,11 +194,14 @@ test('les anciens réglages de publication ne sont plus rangés nulle part', () 
 /* Le branchement dans la publication                                   */
 /* ------------------------------------------------------------------ */
 
-test('seule une mise en PRODUCTION lit le prompt : le dev garde ses moyens d’avant', () => {
+test('chaque étape lit SA procédure, jamais celle de l’autre', () => {
+  // Depuis que le déploiement se définit lui aussi (procedure-publication.ts),
+  // les deux étapes ont un texte à lire — mais un SEUL endroit tranche lequel,
+  // et un projet « constaté » rend la chaîne vide, donc le déroulé d'avant.
   const debut = SOURCE_DEPLOY.indexOf('function promptDeLEtape(');
   assert.notEqual(debut, -1, 'un seul endroit doit trancher');
   const corps = SOURCE_DEPLOY.slice(debut, SOURCE_DEPLOY.indexOf('\n}\n', debut));
-  assert.match(corps, /cible === 'dev' \? '' : promptDeMiseEnProduction\(project\)/);
+  assert.match(corps, /cible === 'dev' \? procedureDeLEtape\(project, 'dev'\) : promptDeMiseEnProduction\(project\)/);
 });
 
 test('le plan de publication reçoit le prompt de l’étape, jamais un autre texte', () => {
