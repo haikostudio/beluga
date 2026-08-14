@@ -238,6 +238,19 @@ if (!CLE) {
     faits: 40,
   };
 
+  /* LA VECTORISATION EST UN TRAVAIL DE FOND : elle ne se fait plus au
+     lancement d'une carte, mais la nuit, pour tous les projets d'un coup. On la
+     déclenche donc ici à la main, comme le fait `scripts/vectoriser-index.mjs`. */
+  passages.indexerDocumentation('verif-rag', CORPUS);
+  let tranches = 0;
+  while (tranches < 10 && (await passages.vectoriserLIndex('verif-rag')).faits) tranches++;
+  const couverture = passages.couvertureDesVecteurs('verif-rag');
+  verifier(
+    couverture.vectorises === couverture.total && couverture.total > 0,
+    'tout l’index du corpus est vectorisé',
+    `${couverture.vectorises}/${couverture.total} passages`,
+  );
+
   const parLeSens = await passages.rechercherPourLaTache('verif-rag', CORPUS, REFORMULEE, INDEX_CORPUS);
   verifier(!!parLeSens, 'la recherche répond');
   verifier(

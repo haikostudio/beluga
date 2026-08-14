@@ -176,6 +176,90 @@ export const POIDS_MOTS_VECTEUR = 0.3;
 export const SCORE_MINIMUM_VECTEUR = 0.24;
 
 /* ------------------------------------------------------------------ */
+/* LE RENDEZ-VOUS DE LA NUIT                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * VECTORISER EST UN TRAVAIL DE FOND, PAS UN PÉAGE AU LANCEMENT D'UNE CARTE.
+ *
+ * La première version vectorisait une tranche à chaque lancement : la carte
+ * payait quelques secondes d'attente, et il fallait neuf lancements pour que la
+ * recherche par le sens prenne enfin la main. On sort donc ce travail du chemin
+ * de l'utilisateur — une fois par nuit, TOUS les projets d'un coup, à l'heure où
+ * personne n'attend le serveur. Ce qui reste au lancement d'une carte, c'est le
+ * vecteur de la QUESTION : un seul appel, quelques dizaines de millisecondes.
+ *
+ * 1 h du matin, avant le rendez-vous d'auto-amélioration de 3 h : l'agent de la
+ * nuit trouve ainsi un index déjà à jour.
+ */
+export const HEURE_VECTORISATION = 1;
+
+/** La fenêtre de rattrapage, en heures pleines : 1 h, 2 h. */
+export const FENETRE_VECTORISATION_HEURES = 2;
+
+/** Un passage par nuit, jamais deux. */
+export const PERIODE_VECTORISATION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * COMBIEN DE TRANCHES AU PLUS EN UNE NUIT, tous projets confondus. Une borne,
+ * pas un objectif : elle empêche qu'un dossier inattendu — des milliers de pages
+ * apparues d'un coup — occupe le serveur jusqu'au matin. Ce qui déborde attend
+ * la nuit suivante.
+ */
+export const TRANCHES_MAX_PAR_NUIT = 120;
+
+/** Pourquoi la vectorisation de la nuit ne part pas cette fois-ci. */
+export type RaisonSansVectorisation = 'pas-l-heure' | 'deja-passe' | 'aucune-cle';
+
+/** Le verdict du rendez-vous : partir, ou dire pourquoi non. */
+export type DecisionDeVectorisation =
+  | { lancer: true }
+  | { lancer: false; raison: RaisonSansVectorisation };
+
+/** Cette heure tombe-t-elle dans la fenêtre du rendez-vous ? */
+export function heureDeVectorisation(heure: number): boolean {
+  for (let pas = 0; pas < FENETRE_VECTORISATION_HEURES; pas += 1) {
+    if ((HEURE_VECTORISATION + pas) % 24 === heure) return true;
+  }
+  return false;
+}
+
+/**
+ * LE RENDEZ-VOUS A-T-IL LIEU MAINTENANT ?
+ *
+ * Trois refus seulement, et surtout PAS « un travail est en cours » : à la
+ * différence de l'auto-amélioration, vectoriser n'appelle aucun moteur, ne prend
+ * la place d'aucun agent et n'entame aucune réserve. Reporter la nuit entière
+ * parce qu'une carte tourne laisserait l'index à moitié fait, donc la recherche
+ * en repli sur les mots — exactement ce qu'on cherche à quitter.
+ */
+export function decisionDeVectorisation(input: {
+  clePosee: boolean;
+  dernierPassage?: number;
+  maintenant: number;
+  heureCourante: number;
+}): DecisionDeVectorisation {
+  if (!input.clePosee) return { lancer: false, raison: 'aucune-cle' };
+  if (input.dernierPassage !== undefined && input.maintenant - input.dernierPassage < PERIODE_VECTORISATION_MS) {
+    return { lancer: false, raison: 'deja-passe' };
+  }
+  if (!heureDeVectorisation(input.heureCourante)) return { lancer: false, raison: 'pas-l-heure' };
+  return { lancer: true };
+}
+
+/** La raison, écrite pour le journal du démon. */
+export function raisonSansVectorisationDite(raison: RaisonSansVectorisation): string {
+  switch (raison) {
+    case 'pas-l-heure':
+      return `ce n'est pas l'heure (rendez-vous vers ${HEURE_VECTORISATION} h)`;
+    case 'deja-passe':
+      return 'la vectorisation de cette nuit a déjà eu lieu';
+    case 'aucune-cle':
+      return 'aucune clé de vectorisation posée : la recherche reste sur les mots';
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Les pannes                                                          */
 /* ------------------------------------------------------------------ */
 

@@ -41,7 +41,81 @@ export const DOSSIERS_HORS_INDEX = new Set([
   'data', 'tmp', 'temp', 'logs',
 ]);
 
-/** Combien de niveaux de dossiers on descend au plus. */
+/**
+ * LES DOSSIERS ÉCARTÉS POUR LES DOCUMENTS, plus courts que pour le code : un
+ * Markdown peut vivre N'IMPORTE OÙ dans un projet et porter une information
+ * qu'on ne trouve nulle part ailleurs — le contenu d'un cours dans
+ * `scripts/formation-content/`, un document du chef dans `data/documents/`. On
+ * n'écarte donc que ce qui n'a pas été ÉCRIT ici : les dépendances installées et
+ * les dossiers de machine.
+ */
+export const DOSSIERS_SANS_DOC = new Set([
+  'node_modules', '.git', '.worktrees', 'dist', 'build', 'out', 'coverage',
+  'vendor', '.next', '.nuxt', '.cache', '__pycache__',
+  'venv', '.venv', 'venv-kokoro', 'site-packages', 'env', '.tox',
+]);
+
+/**
+ * DEUX DOCUMENTS NE S'INDEXENT JAMAIS, où qu'ils soient : le JOURNAL des
+ * livraisons (`HISTORIQUE.md`) et la mémoire d'AVANT une synthèse
+ * (`MEMOIRE.avant-synthese.md`). Le premier est une suite de dates dont aucune
+ * ne répond jamais à une question ; le second est une version périmée de la
+ * mémoire, qui contredirait la version en vigueur. Même règle que l'envoi
+ * quotidien au cerveau.
+ */
+export const DOCUMENTS_JAMAIS_INDEXES = new Set(['HISTORIQUE.md', 'MEMOIRE.avant-synthese.md']);
+
+/** Combien de documents Markdown on indexe au plus, sur un projet quelconque. */
+export const FICHIERS_DOC_MAX = 1600;
+
+/**
+ * LES FICHIERS DE CONFIGURATION. Ils ne sont ni de la documentation ni vraiment
+ * du code, mais ils répondent à des questions que rien d'autre ne couvre : quelle
+ * bibliothèque le projet déclare, sur quel port il écoute, comment son service
+ * démarre. On les prend par NOM EXACT ou par extension.
+ *
+ * Les fichiers d'environnement RÉELS (`.env`, `.env.production`) restent dehors :
+ * ils changent à chaque réglage et ne décrivent pas le projet — leur EXEMPLE
+ * (`.env.example`), lui, entre, car c'est lui qui documente les variables
+ * attendues.
+ */
+export const FICHIERS_DE_CONFIG = new Set([
+  'package.json', 'tsconfig.json', 'nuxt.config.ts', 'vite.config.ts', 'next.config.js',
+  'tailwind.config.js', 'docker-compose.yml', 'docker-compose.prod.yml', 'dockerfile',
+  'caddyfile', 'nginx.conf', 'makefile', 'pyproject.toml', 'requirements.txt',
+  'composer.json', 'go.mod', 'cargo.toml', '.env.example', '.env.sample',
+]);
+
+/** Les extensions de configuration prises partout : services système, réglages. */
+export const EXTENSIONS_CONFIG = new Set(['.service', '.timer', '.toml', '.ini', '.conf']);
+
+/** Vrai si ce fichier décrit le montage du projet plutôt que son code. */
+export function estFichierDeConfig(relatif: string): boolean {
+  if (cheminEcarte(relatif)) return false;
+  const nom = (relatif.split('/').pop() ?? '').toLowerCase();
+  if (nom === 'package-lock.json' || nom === 'composer.lock') return false;
+  if (FICHIERS_DE_CONFIG.has(nom)) return true;
+  if (nom.startsWith('dockerfile')) return true;
+  return EXTENSIONS_CONFIG.has(extensionDuFichier(nom));
+}
+
+/**
+ * Vrai si ce Markdown mérite d'entrer dans l'index. Contrairement au code, la
+ * profondeur n'est pas bornée : un document utile peut être rangé loin.
+ */
+export function estDocumentMarkdown(relatif: string): boolean {
+  const parts = relatif.split('/').filter(Boolean);
+  const nom = parts[parts.length - 1] ?? '';
+  if (!/\.(md|markdown)$/i.test(nom)) return false;
+  if (DOCUMENTS_JAMAIS_INDEXES.has(nom)) return false;
+  for (const part of parts.slice(0, -1)) {
+    if (DOSSIERS_SANS_DOC.has(part)) return false;
+    if (part.startsWith('.') && part !== '.claude') return false;
+  }
+  return true;
+}
+
+/** Combien de niveaux de dossiers on descend au plus, pour le CODE. */
 export const PROFONDEUR_CODE_MAX = 6;
 
 /** Un fichier plus gros que cela est un fichier généré, pas un fichier écrit. */

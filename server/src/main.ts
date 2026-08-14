@@ -24,6 +24,7 @@ import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
 import { envoyerAuCerveau } from './cerveau.js';
 import { planifierAutoAmelioration } from './auto-amelioration.js';
+import { planifierVectorisation } from './vecteurs-nocturne.js';
 import { arretParSignal, diffuserEtatDemon } from './demon.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
@@ -169,6 +170,13 @@ async function main(): Promise<void> {
    * ce qu'on veut précisément éviter.
    */
   const autoAmeliorationTimer = planifierAutoAmelioration();
+  /*
+   * La vectorisation de l'index : chaque nuit vers 1 h, TOUS les projets d'un
+   * coup, avant le rendez-vous d'auto-amélioration de 3 h. Elle n'appelle aucun
+   * moteur et ne prend la place d'aucun agent — un travail en cours ne la
+   * reporte donc pas.
+   */
+  const vectorisationTimer = planifierVectorisation();
   const faviconTimer = planifierRevisionFavicons();
 
   sampleCapacity();
@@ -197,6 +205,7 @@ async function main(): Promise<void> {
     clearInterval(digestTimer);
     clearInterval(janitorTimer);
     clearInterval(autoAmeliorationTimer);
+    clearInterval(vectorisationTimer);
     clearInterval(faviconTimer);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);
