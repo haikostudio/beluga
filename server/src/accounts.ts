@@ -46,6 +46,13 @@ export interface AccountRecord {
 const CLAUDE_OAUTH_BETA = 'oauth-2025-04-20';
 
 /**
+ * Le compte Cursor né de la clé du serveur. Les autres comptes Cursor sont des
+ * comptes de RELÈVE : chacun porte SA clé dans son dossier (`api-key`), sans
+ * quoi il n'en a aucune — voir `cleDuCompteCursor`.
+ */
+export const COMPTE_CURSOR_PRINCIPAL = 'cursor-principal';
+
+/**
  * Les comptes RÉELLEMENT utilisables : un compte coupé à la main (`disabled`)
  * est écarté. C'est la liste que voient l'ordonnanceur, l'amorçage des fenêtres,
  * le catalogue des modèles — partout où un compte éteint ne doit plus servir.
@@ -148,13 +155,13 @@ export function bootstrapAccounts(): void {
    * déclaré que si la clé est là — sinon le moteur n'apparaît nulle part, ce qui
    * est exactement le comportement voulu.
    */
-  if (!knownIds.has('cursor-principal') && (process.env.CURSOR_API_KEY ?? '').trim()) {
+  if (!knownIds.has(COMPTE_CURSOR_PRINCIPAL) && (process.env.CURSOR_API_KEY ?? '').trim()) {
     saveAccountRecord({
-      id: 'cursor-principal',
+      id: COMPTE_CURSOR_PRINCIPAL,
       engine: 'cursor',
       label: 'Cursor — compte principal',
       priority: 10,
-      configDir: path.join(PATHS.accounts, 'cursor-principal'),
+      configDir: path.join(PATHS.accounts, COMPTE_CURSOR_PRINCIPAL),
     });
   }
 
@@ -367,15 +374,20 @@ async function fetchCodexQuota(account: AccountRecord): Promise<AccountQuota> {
  * dur ici.
  */
 export function cleDuCompteCursor(account: AccountRecord): string {
-  const depuisLEnvironnement = (process.env.CURSOR_API_KEY ?? '').trim();
   try {
-    const fichier = path.join(account.configDir, 'api-key');
-    const contenu = fs.readFileSync(fichier, 'utf8').trim();
+    const contenu = fs.readFileSync(path.join(account.configDir, 'api-key'), 'utf8').trim();
     if (contenu) return contenu;
   } catch {
-    /* pas de fichier de clé : celle de l'environnement fait foi */
+    /* pas de fichier de clé : voir juste en dessous */
   }
-  return depuisLEnvironnement;
+  /*
+   * LA CLÉ DE L'ENVIRONNEMENT N'APPARTIENT QU'AU COMPTE PRINCIPAL — celui
+   * qu'elle a fait naître. Sans cette limite, un compte de RELÈVE dont le
+   * fichier de clé manque retomberait en SILENCE sur la clé du principal :
+   * deux comptes, une seule clé, et une bascule qui ne bascule rien. Mieux vaut
+   * une clé absente, qui se voit dans les réglages, qu'un doublon invisible.
+   */
+  return account.id === COMPTE_CURSOR_PRINCIPAL ? (process.env.CURSOR_API_KEY ?? '').trim() : '';
 }
 
 /**

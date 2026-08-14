@@ -41,7 +41,15 @@ import { CONFIG } from './config.js';
 import { isAuthenticated } from './http.js';
 import { listEngines } from './engines/index.js';
 import { normaliseThinking } from './engines/catalog.js';
-import { cachedQuotas, refreshQuotas, renameAccount, setAccountDisabled } from './accounts.js';
+import {
+  cachedQuotas,
+  cleDuCompteCursor,
+  listAccountRecords,
+  refreshQuotas,
+  renameAccount,
+  setAccountDisabled,
+} from './accounts.js';
+import { etatDuCompteCursor } from './engines/cursor.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
@@ -1194,6 +1202,19 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'engines.list':
       return { engines: await listEngines(true) };
+
+    /*
+     * L'ÉTAT D'UN COMPTE CURSOR. Ce moteur ne publie aucun quota : sa ligne de
+     * compte ne peut donc pas montrer de jauge. Ce qu'elle peut dire — et ce
+     * qui manquait pour savoir de quoi ce compte est capable —, c'est si la clé
+     * répond et quels dépôts elle ouvre.
+     */
+    case 'cursor.etat': {
+      const comptes = listAccountRecords().filter((a) => a.engine === 'cursor');
+      const compte = cmd.accountId ? comptes.find((a) => a.id === cmd.accountId) : comptes[0];
+      if (!compte) throw new Error('aucun compte Cursor déclaré');
+      return { etat: await etatDuCompteCursor(cleDuCompteCursor(compte)) };
+    }
 
     case 'quota.refresh': {
       const quotas = await refreshQuotas(true);
