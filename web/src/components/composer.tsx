@@ -11,6 +11,7 @@ import {
   boutonsBarreEcriture,
   deplacerAncre,
   deplacerJointe,
+  indexDeLAncre,
   insereAncre,
   jointesApresFrappe,
   retireAncre,
@@ -125,6 +126,30 @@ export function Composer({
    * (collage, dépôt à côté du texte) → l'ancre va à la fin.
    */
   const curseur = React.useRef<number | null>(null);
+  /**
+   * LA POSITION CALCULÉE NE SUFFIT PAS : IL FAUT LA REPOSER SUR LE VRAI CHAMP.
+   * Écrire un tag au milieu du texte allonge la phrase, mais le champ garde le
+   * curseur au même NUMÉRO de caractère — donc plusieurs lettres trop tôt, et
+   * la frappe suivante s'insérait au milieu des mots déjà écrits. Ce repère
+   * porte l'endroit voulu jusqu'après le rendu, où il est appliqué.
+   */
+  const curseurAPoser = React.useRef<number | null>(null);
+
+  /**
+   * Reposer le curseur APRÈS que le nouveau texte est peint : le faire avant
+   * viserait encore l'ancienne phrase. Aucun effet tant que rien n'est demandé
+   * — survoler une vignette ou taper au clavier ne vole jamais le curseur.
+   */
+  React.useLayoutEffect(() => {
+    const vise = curseurAPoser.current;
+    if (vise === null) return;
+    curseurAPoser.current = null;
+    const zone = textareaRef.current;
+    if (!zone) return;
+    const position = Math.max(0, Math.min(vise, zone.value.length));
+    zone.focus();
+    zone.setSelectionRange(position, position);
+  }, [text]);
 
   const retientCurseur = () => {
     const node = textareaRef.current;
@@ -146,6 +171,7 @@ export function Composer({
     setText((avant) => {
       const suite = insereAncre(avant, nom, curseur.current);
       curseur.current = suite.curseur;
+      curseurAPoser.current = suite.curseur;
       return suite.texte;
     });
   };
@@ -175,10 +201,14 @@ export function Composer({
     setText((avant) => {
       const suite = retireOccurrence(avant, nom, occurrence);
       setAttachments((liste) => jointesApresFrappe(liste, avant, suite));
+      // Le tag retiré laisse un trou : le curseur se pose LÀ, jamais plus loin
+      // dans la phrase — sinon la frappe repartait au milieu des mots.
+      const place = indexDeLAncre(avant, nom, occurrence);
+      curseur.current = place === -1 ? null : place;
+      curseurAPoser.current = curseur.current;
       return suite;
     });
     textareaRef.current?.focus();
-    curseur.current = null;
   };
 
   /**
@@ -245,6 +275,7 @@ export function Composer({
     setText((avant) => {
       const suite = deplacerAncre(avant, origine.nom, origine.occurrence, vise);
       curseur.current = suite.curseur;
+      curseurAPoser.current = suite.curseur;
       return suite.texte;
     });
     zone.focus();
@@ -555,6 +586,9 @@ export function Composer({
 
   return (
     <div
+      // Repère pour les contrôles : plusieurs barres d'écriture coexistent
+      // (conversation, tiroir de carte), il faut viser CELLE qu'on voit.
+      data-composer
       className={cn('px-2.5 pt-2', fondNoir ? 'bg-bg' : 'bg-surface')}
       /*
        * Le creux du téléphone (barre de gestes) n'est réservé QUE si la barre
@@ -808,10 +842,8 @@ export function Composer({
                 const fin = zone ? zone.selectionEnd : text.length;
                 setText((avant) => `${avant.slice(0, debut)}${texteColle}${avant.slice(fin)}`);
                 const position = debut + texteColle.length;
-                window.requestAnimationFrame(() => {
-                  zone?.focus();
-                  zone?.setSelectionRange(position, position);
-                });
+                curseur.current = position;
+                curseurAPoser.current = position;
               }
               // Les fichiers, eux, ne visent aucun endroit précis : à la fin.
               void upload(files, true);
@@ -837,10 +869,8 @@ export function Composer({
             const fin = zone ? zone.selectionEnd : text.length;
             setText((avant) => `${avant.slice(0, debut)}${texteColle}${avant.slice(fin)}`);
             const position = debut + texteColle.length;
-            window.requestAnimationFrame(() => {
-              zone?.focus();
-              zone?.setSelectionRange(position, position);
-            });
+            curseur.current = position;
+            curseurAPoser.current = position;
             setAttachments((current) => {
               const dejaVues = new Set(current.map((a) => a.id));
               const nouvelles = jointes.filter((j) => j && !dejaVues.has(j.id));
@@ -868,6 +898,9 @@ export function Composer({
             ref={fileRef}
             type="file"
             multiple
+            // Repère pour les contrôles : d'autres écrans ont aussi un champ
+            // de fichier, viser « le dernier » attrapait celui du tableau.
+            data-composer-file
             className="hidden"
             onChange={(event) => event.target.files && upload(event.target.files)}
           />
