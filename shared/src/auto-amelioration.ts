@@ -40,6 +40,13 @@ export const FENETRE_HEURES = 3;
 export const PERIODE_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * L'étiquette posée sur chaque carte issue du rendez-vous de la nuit. Elle
+ * seule permet de les repérer d'un coup d'œil sur le tableau, au milieu des
+ * cartes nées d'une demande de l'utilisateur.
+ */
+export const LABEL_AUTO_AMELIORATION = 'auto amélioration';
+
+/**
  * QUELQUES POINTS AU PLUS. Un tableau noyé sous vingt propositions ne se lit
  * pas : on n'en garderait aucune. Trois trouvailles réelles valent mieux que
  * vingt remarques, et la consigne le dit à l'agent en toutes lettres.
@@ -154,7 +161,7 @@ ${AXES_D_EXAMEN.map((axe) => `- ${axe}`).join('\n')}
 
 TU NE MODIFIES RIEN. Aucun fichier écrit, aucun fichier effacé, aucun enregistrement, aucune commande qui change quoi que ce soit. Tu lis, tu cherches, tu constates — et tu t'arrêtes là. C'est l'utilisateur qui décidera au réveil, et un agent de tâche qui exécutera.
 
-CHAQUE TROUVAILLE DEVIENT UNE PROPOSITION DE CARTE, avec l'outil « propose_task ». Elle attendra sur le tableau que l'utilisateur la valide ou la refuse. Rien d'autre ne sort de ce tour.
+CHAQUE TROUVAILLE DEVIENT UNE PROPOSITION DE CARTE, avec l'outil « propose_task ». Ce rendez-vous se conclut SEUL : dès ton tour terminé, HaikoDev pose lui-même chaque proposition dans « Planifié », étiquetée « ${LABEL_AUTO_AMELIORATION} », sans attendre de clic. Le LANCEMENT de ces cartes, lui, reste un geste de l'utilisateur — seule leur création n'attend plus personne. Rien d'autre ne sort de ce tour.
 
 TROIS AU PLUS, ET SEULEMENT CE QUI A UN GAIN RÉEL. ${PROPOSITIONS_MAX} propositions est un plafond, pas un objectif : deux bonnes valent mieux que ${PROPOSITIONS_MAX} moyennes, et une nuit sans rien à proposer est une nuit normale — tu le dis alors en une ligne, sans forcer. Un gain réel se mesure : du temps gagné, des lignes retirées, un fichier de moins à tenir à jour. « Ce serait plus propre » n'en est pas un.
 

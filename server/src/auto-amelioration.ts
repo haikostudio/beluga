@@ -4,8 +4,9 @@
  *
  * Chaque nuit vers 3 h, un agent d'ANALYSE relit le mécanisme de HaikoDev et
  * propose au plus trois améliorations réelles. Il ne modifie rien : ses
- * trouvailles deviennent des cartes en attente de validation, que l'utilisateur
- * accepte ou écarte au réveil.
+ * trouvailles deviennent, SANS clic, des cartes posées dans « Planifié » et
+ * étiquetées « auto amélioration » — c'est ce rendez-vous, et lui seul, qui se
+ * conclut tout seul. Leur LANCEMENT reste un geste de l'utilisateur, au réveil.
  *
  * Le projet examiné est HaikoDev LUI-MÊME (`project.isSelf`) : c'est de sa
  * propre progression qu'il s'agit, et lancer une analyse nocturne sur chaque
@@ -19,14 +20,18 @@
 import {
   consigneDAutoAmelioration,
   decisionDuRendezVous,
+  heritageAnalyseDeProposition,
+  LABEL_AUTO_AMELIORATION,
   propositionsEnAttente,
   raisonDite,
   titreDuRendezVous,
 } from '@haikodev/shared';
-import type { Project, RaisonDeSauter } from '@haikodev/shared';
+import type { Project, RaisonDeSauter, TaskProposal } from '@haikodev/shared';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
+import { bus } from './bus.js';
 import { createAgent, runningCount, sendPrompt } from './runtime.js';
+import { createCard } from './tools.js';
 import * as store from './store.js';
 
 /** L'instant du dernier rendez-vous, tenu ou seulement tenté. */
@@ -58,17 +63,63 @@ export function projetDuRendezVous(): Project | undefined {
 }
 
 /**
- * Combien de propositions ce tour a réellement laissées en attente. C'est le
- * seul chiffre qui compte au réveil : le reste est du texte dans un fil.
+ * Fait naître, SANS clic, une carte réelle dans « Planifié » pour chaque
+ * proposition encore en attente du tour de la nuit — étiquetée « auto
+ * amélioration » en plus des étiquettes que l'agent lui a déjà posées.
+ *
+ * Ce rendez-vous n'a personne pour valider au réveil : c'est la SEULE
+ * différence avec le clic de l'utilisateur sur une proposition ordinaire
+ * (`proposal.decide` dans `ws.ts`), dont cette fonction rejoue exactement le
+ * geste — même appel à `createCard`, même mise à jour de la proposition et du
+ * message, pour que le fil de la conversation les montre déjà décidées.
+ *
+ * Rend le nombre de cartes réellement posées : c'est le seul chiffre qui
+ * compte au réveil.
  */
-export function propositionsDuTour(agentId: string): number {
-  return propositionsEnAttente(
-    store.listMessages(agentId).map((message) => ({
-      id: message.id,
-      agentId,
-      proposals: message.proposals,
-    })),
-  ).length;
+export function accepterPropositionsDeLaNuit(agentId: string): number {
+  const messages = store.listMessages(agentId);
+  // Deux propositions PENDING peuvent partager le même message : chaque
+  // acceptation doit repartir du message déjà mis à jour par la précédente,
+  // jamais de l'instantané lu avant la boucle — sinon la seconde écrase la
+  // première en réécrivant son tableau `proposals` d'avant tour.
+  const parMessage = new Map(messages.map((message) => [message.id, message]));
+  const enAttente = propositionsEnAttente(
+    messages.map((message) => ({ id: message.id, agentId, proposals: message.proposals })),
+  );
+  const agent = store.getAgent(agentId)!;
+  let posees = 0;
+  for (const { messageId, proposal } of enAttente) {
+    const message = parMessage.get(messageId);
+    if (!message) continue;
+
+    const labels = [...new Set([...(proposal.labels ?? []), LABEL_AUTO_AMELIORATION])];
+    const heritage = heritageAnalyseDeProposition(proposal, proposal.title, proposal.description);
+    const card = createCard(agent.projectId, {
+      title: proposal.title,
+      description: proposal.description,
+      labels,
+      origin: 'agent',
+      run: proposal.run,
+      attachments: proposal.attachments,
+      departPrevu: proposal.departPrevu,
+      origineAgentId: agentId,
+      origineAt: message.createdAt,
+      ...heritage,
+    });
+    bus.emit({ type: 'card.upsert', card });
+    posees += 1;
+
+    const decided: TaskProposal = { ...proposal, labels, decision: 'accepted', cardId: card.id, decidedAt: Date.now() };
+    store.saveProposal(messageId, card.projectId, decided);
+    const updatedMessage = store.saveMessage({
+      ...message,
+      proposals: message.proposals.map((p) => (p.id === proposal.id ? decided : p)),
+    });
+    parMessage.set(messageId, updatedMessage);
+    bus.emit({ type: 'message.upsert', message: updatedMessage });
+  }
+  if (posees) bus.emit({ type: 'attention', ...store.signalAttention() });
+  return posees;
 }
 
 /**
@@ -132,9 +183,9 @@ export async function rendezVousDAutoAmelioration(): Promise<{
     enCours = false;
   }
 
-  const propositions = propositionsDuTour(agent.id);
+  const propositions = accepterPropositionsDeLaNuit(agent.id);
   log.info(
-    `auto-amélioration : rendez-vous tenu sur ${cible.name}, ${propositions} proposition(s) en attente de validation`,
+    `auto-amélioration : rendez-vous tenu sur ${cible.name}, ${propositions} carte(s) posée(s) dans « Planifié »`,
   );
   return { lance: true, propositions };
 }
