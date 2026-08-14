@@ -204,7 +204,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
-          className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-1.5 py-1 text-[12.5px] text-muted transition-colors hover:text-text"
+          className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text"
           title="Quotas des moteurs"
         >
           <span className="relative flex h-[22px] w-[22px] items-center justify-center">

@@ -229,7 +229,7 @@ export function QuotaBar({
         >
           <button
             onClick={onOpenSettings}
-            className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[12.5px] text-muted hover:bg-raised sm:flex"
+            className="hidden h-7 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text sm:flex"
           >
             <Activity className="h-3 w-3" />
             {capacity.slotsFree} places
@@ -243,7 +243,7 @@ export function QuotaBar({
       {onToggleRight ? (
         <Tooltip label={rightOpen ? 'Replier le chef d’orchestre' : 'Ouvrir le chef d’orchestre'}>
           <Button
-            variant="ghost"
+            variant="outline"
             size="icon"
             className="hidden lg:flex"
             aria-label={rightOpen ? 'Replier le chef d’orchestre' : 'Ouvrir le chef d’orchestre'}
@@ -258,7 +258,7 @@ export function QuotaBar({
           points (menu sur ordinateur, tiroir en bas sur téléphone). */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Menu" title="Menu">
+          <Button variant="outline" size="icon" aria-label="Menu" title="Menu">
             <MoreVertical className="h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
