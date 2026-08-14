@@ -71,17 +71,52 @@ function parametreDEffort(parametres: ParametreCursor[] | undefined): ParametreC
 }
 
 /**
- * LES NIVEAUX DE RÉFLEXION RÉELLEMENT PROPOSÉS PAR CE MODÈLE, dans le
- * vocabulaire de HaikoDev. Trois cas, et aucun autre :
- *
- *  - un paramètre d'effort : ses valeurs, traduites (`extra-high` → `xhigh`) ;
- *  - un simple oui/non (`thinking`) : « sans réflexion » ou « moyenne », car
- *    l'interface ne connaît que des niveaux nommés, pas une case à cocher ;
- *  - rien du tout : « sans réflexion » seulement.
- *
- * `none` est toujours en tête : c'est le choix qui ne coûte rien.
+ * L'ORDRE D'AFFICHAGE des niveaux, du plus léger au plus poussé — indépendant
+ * de l'ordre dans lequel Cursor énumère ses combinaisons.
  */
-export function niveauxDeReflexionCursor(parametres: ParametreCursor[] | undefined): string[] {
+const ORDRE_NIVEAUX = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+function trierNiveaux(niveaux: string[]): string[] {
+  return [...niveaux].sort((a, b) => {
+    const ia = ORDRE_NIVEAUX.indexOf(a);
+    const ib = ORDRE_NIVEAUX.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
+/**
+ * LES NIVEAUX DE RÉFLEXION RÉELLEMENT PROPOSÉS PAR CE MODÈLE, dans le
+ * vocabulaire de HaikoDev.
+ *
+ * La source de vérité est `variants` : ce sont les seules COMBINAISONS que
+ * Cursor accepte (`paramsDeReflexionCursor` s'y appuie déjà pour l'envoi). Un
+ * modèle qui n'a AUCUNE combinaison sans réglage d'effort n'a pas de « sans
+ * réflexion » — l'afficher quand même faisait choisir un niveau que Cursor
+ * refuse en silence (il retombe sur son propre défaut sans le dire). Chaque
+ * variante donne donc un niveau, dédoublonné puis remis dans l'ordre
+ * d'affichage habituel.
+ *
+ * Sans `variants` connus (repli, ou simple liste de paramètres passée pour
+ * compatibilité), on retombe sur une DEVINETTE à partir des paramètres seuls,
+ * avec « sans réflexion » toujours en tête — mieux vaut un niveau en trop
+ * qu'un menu vide quand le catalogue est incomplet.
+ */
+export function niveauxDeReflexionCursor(modele: ModeleCursor | ParametreCursor[] | undefined): string[] {
+  const variantes = Array.isArray(modele) ? [] : (modele?.variants ?? []);
+  if (variantes.length) {
+    const niveaux: string[] = [];
+    for (const variante of variantes) {
+      const effort = effortDeLaVariante(variante);
+      const niveau = effort ?? 'none';
+      if (!niveaux.includes(niveau)) niveaux.push(niveau);
+    }
+    if (niveaux.length) return trierNiveaux(niveaux);
+  }
+
+  const parametres = Array.isArray(modele) ? modele : modele?.parameters;
   const effort = parametreDEffort(parametres);
   if (effort) {
     const niveaux = valeursDe(effort).map(niveauDepuisCursor);
