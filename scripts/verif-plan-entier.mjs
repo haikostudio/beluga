@@ -151,9 +151,20 @@ verifier(
   'la relance ne dispose d’aucun outil',
   runtime.includes('OUTILS_FERMES_POUR_LA_RELANCE') && runtime.includes("disallowedTools: OUTILS_FERMES_POUR_LA_RELANCE"),
 );
+/*
+ * Le drapeau ne se RETIRE plus : il ne se POSE qu'à la fin du tour, et
+ * seulement sur un plan entier. `planRendu` porte les trois conditions —
+ * mode plan, tour allé au bout, texte jugé complet.
+ */
+verifier('le drapeau du plan ne se pose qu’à la fin du tour', runtime.includes('plan: planRendu,'));
 verifier(
-  'un texte encore incomplet perd le drapeau du plan',
-  runtime.includes("...(failed || (agent.run.mode === 'plan' && !planRendu) ? { plan: false } : {})"),
+  'le message naît sans drapeau de plan, avant tout texte',
+  runtime.includes('streaming: true,') && /streaming: true,[\s\S]{0,900}?plan: false,/.test(runtime),
+);
+verifier(
+  'un texte encore incomplet n’obtient pas le drapeau du plan',
+  runtime.includes("let planRendu = agent.run.mode === 'plan' && !failed;") &&
+    runtime.includes('planRendu = false;'),
 );
 verifier('le rattrapage laisse une étape visible dans la conversation', runtime.includes('ETAPE_PLAN_ID'));
 

@@ -807,9 +807,12 @@ if (import.meta.env.MODE !== 'production') {
     // Un plan écrit par un agent, sans attendre un vrai tour d'écriture :
     // permet de juger le cadre et ses deux boutons pour de vrai, sur le
     // fil d'un agent RÉEL (les boutons, eux, envoient un vrai message).
-    plan: (agentId: string, content: string) => {
+    // `enEcriture` rejoue le défaut réparé : un message encore en cours
+    // d'écriture ne doit ouvrir NI cadre NI boutons, si tôt qu'un moteur y ait
+    // déjà posé le drapeau (`cadreDePlanVisible`).
+    plan: (agentId: string, content: string, options?: { enEcriture?: boolean; id?: string }) => {
       const message: Message = {
-        id: `essai-${Math.random().toString(36).slice(2)}`,
+        id: options?.id ?? `essai-${Math.random().toString(36).slice(2)}`,
         agentId,
         role: 'assistant',
         content,
@@ -819,7 +822,7 @@ if (import.meta.env.MODE !== 'production') {
         questions: [],
         downloads: [],
         attachments: [],
-        streaming: false,
+        streaming: !!options?.enEcriture,
         plan: true,
         createdAt: Date.now(),
       };
