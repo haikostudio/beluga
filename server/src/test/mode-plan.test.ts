@@ -6,6 +6,7 @@ import path from 'node:path';
 import { buildClaudeArgs } from '../engines/claude.js';
 import { buildCodexArgs } from '../engines/codex.js';
 import {
+  cadreDePlanVisible,
   consigneDePlanEntier,
   consigneDePlanPlusFouille,
   consigneDeRepriseDuPlan,
@@ -258,6 +259,31 @@ test('le tour qui démarre (message encore vide) ne périme pas le plan affiché
   assert.equal(indexDuPlanCourant(fil), 0);
   assert.equal(etatDuPlan(fil, 0), 'courant');
   assert.equal(etatDuPlan(fil, 1), null, 'un plan sans texte ne s’affiche pas encore');
+});
+
+/* ------------------------------------------------------------------ */
+/* Le CADRE ne s’ouvre que sur une réponse FINIE : un plan en cours     */
+/* d’écriture n’est qu’une phrase d’intention, pas une décision.        */
+/* ------------------------------------------------------------------ */
+
+test('un plan encore en cours d’écriture n’ouvre ni cadre ni boutons', () => {
+  assert.equal(
+    cadreDePlanVisible({ plan: true, content: 'Je vais parcourir le site avant toute analyse.', streaming: true }),
+    false,
+    'le cadre ne doit pas s’ouvrir pendant que l’agent travaille',
+  );
+  assert.equal(
+    cadreDePlanVisible({ plan: true, content: 'Je vais parcourir le site avant toute analyse.' }),
+    true,
+    'le même texte, une fois le tour rendu, garde son cadre',
+  );
+});
+
+test('le cadre du plan reste fermé sur une panne, une reprise de compte ou un message vide', () => {
+  assert.equal(cadreDePlanVisible({ plan: true, content: 'plan', error: 'code 1' }), false);
+  assert.equal(cadreDePlanVisible({ plan: true, content: 'plan', repriseCompte: { comptes: [] } }), false);
+  assert.equal(cadreDePlanVisible({ plan: true, content: '   ' }), false);
+  assert.equal(cadreDePlanVisible({ plan: false, content: 'une réponse ordinaire' }), false);
 });
 
 test('une conversation sans plan n’a pas de plan courant', () => {

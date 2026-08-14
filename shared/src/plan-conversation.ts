@@ -27,6 +27,43 @@ export interface MessageDePlan {
   content?: string;
 }
 
+/**
+ * UN PLAN NE S'AFFICHE PAS TANT QUE L'AGENT ÉCRIT ENCORE.
+ *
+ * Le cadre « Plan proposé » s'ouvrait dès la première bribe de texte : une
+ * phrase d'intention (« Je vais parcourir le site avant toute analyse ») portait
+ * déjà son sélecteur de niveau et ses boutons « Valider » / « Refuser », pendant
+ * qu'en dessous l'agent lançait une nouvelle recherche. On pouvait donc valider
+ * un plan VIDE, et lancer un travail sur une phrase.
+ *
+ * La cause est double, et les deux se réparent :
+ *   1. le démon posait le drapeau `plan` au LANCEMENT du tour, avant de savoir
+ *      ce qui serait écrit — il ne le pose plus qu'à la FIN, une fois le texte
+ *      jugé entier (`jugerLePlan`) ;
+ *   2. rien ne l'empêchait de s'afficher sur un message encore en écriture —
+ *      c'est cette règle, qui vaut aussi pour les messages déjà en base.
+ *
+ * Un cadre ne s'ouvre donc que sur une réponse FINIE, rédigée, qui n'est ni une
+ * panne ni une reprise de compte.
+ */
+export interface MessageDeCadre extends MessageDePlan {
+  /** Vrai tant que le tour écrit encore ce message. */
+  streaming?: boolean;
+  /** La panne du tour, s'il y en a eu une. */
+  error?: string;
+  /** Le bloc « avec quel compte poursuivre ? » d'un tour coupé par un quota. */
+  repriseCompte?: unknown;
+}
+
+/** Ce message doit-il s'afficher dans le cadre d'un plan, boutons compris ? */
+export function cadreDePlanVisible(message: MessageDeCadre): boolean {
+  if (!message.plan || !redige(message)) return false;
+  // Un tour qui écrit encore n'a rien rendu : son texte peut n'être qu'une
+  // phrase d'intention, et la suite l'attend.
+  if (message.streaming) return false;
+  return !message.error && !message.repriseCompte;
+}
+
 /** Un message qui dit quelque chose : l'enveloppe vide d'un tour qui démarre ne compte pas. */
 function redige(message?: MessageDePlan): boolean {
   return !!message?.content?.trim();

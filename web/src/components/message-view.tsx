@@ -35,6 +35,7 @@ import {
   chronologieContexteEnvoye,
   comptesDeReprise,
   EtatDuPlan,
+  cadreDePlanVisible,
   differencesDeTexte,
   heureExacte,
   numeroDeVersion,
@@ -203,7 +204,7 @@ export function MessageView({
       <Steps steps={etapes} streaming={message.streaming} />
 
       {message.content ? (
-        message.plan && !message.repriseCompte && !message.error ? (
+        cadreDePlanVisible(message) ? (
           <PlanBlock
             message={message}
             allMessages={allMessages}

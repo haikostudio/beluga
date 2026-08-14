@@ -1072,7 +1072,18 @@ async function startTurn(
     steps: memoryStep ? [memoryStep] : [],
     todos: todosRepris,
     streaming: true,
-    plan: agent.run.mode === 'plan',
+    /*
+     * LE DRAPEAU `plan` NE SE POSE PLUS AU LANCEMENT DU TOUR. Il l'était, et le
+     * cadre « Plan proposé » s'ouvrait donc sur la première bribe de texte : une
+     * phrase d'intention (« Je vais parcourir le site avant toute analyse »)
+     * portait déjà son sélecteur de niveau et ses boutons « Valider » /
+     * « Refuser », pendant qu'en dessous l'agent lançait une nouvelle recherche.
+     * On pouvait valider un plan VIDE — et lancer un travail sur une phrase.
+     *
+     * Il se pose à la FIN du tour, une fois le texte jugé entier (`planRendu`,
+     * plus bas) : un plan ne se décide que fini.
+     */
+    plan: false,
     createdAt: store.now(),
   });
   store.saveMessage(assistantMessage);
@@ -1811,18 +1822,20 @@ async function startTurn(
           ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin."
           : undefined,
     repriseCompte: reprise,
-    // Le drapeau `plan` a été posé au LANCEMENT du tour, avant de savoir s'il
-    // irait au bout : un tour TOMBÉ (quota ou toute autre panne) ne laisse au
-    // mieux qu'une bannière du moteur, jamais un plan rédigé — donc jamais un
-    // cadre « Plan proposé » avec son sélecteur de niveau et ses boutons de
-    // décision. La clé n'est posée QUE dans ce cas — l'inclure toujours
-    // écraserait `plan: true` des tours de mode plan qui réussissent,
-    // `pushMessage` fusionnant par spread.
-    //
-    // MÊME RAISON pour un texte qui n'est pas un plan ENTIER (`planRendu`,
-    // plus haut) : le cadre « Plan proposé » et ses boutons ne s'ouvrent que
-    // sur les quatre parties, jamais sur un fragment.
-    ...(failed || (agent.run.mode === 'plan' && !planRendu) ? { plan: false } : {}),
+    /*
+     * C'EST ICI, ET NULLE PART AVANT, QUE LE MESSAGE DEVIENT UN PLAN. Le
+     * drapeau était posé au LANCEMENT du tour, avant de savoir ce qui serait
+     * écrit : le cadre s'ouvrait sur la première phrase, et il fallait ensuite
+     * le retirer aux tours tombés. On le pose maintenant à la FIN, et
+     * seulement quand les trois conditions sont réunies :
+     *   — la conversation est bien en mode plan ;
+     *   — le tour est allé au bout (un tour TOMBÉ, quota ou panne, ne laisse au
+     *     mieux qu'une bannière du moteur, jamais un plan rédigé) ;
+     *   — le texte rendu est un plan ENTIER (`planRendu`, plus haut) : le cadre
+     *     et ses boutons ne s'ouvrent que sur les quatre parties.
+     * `planRendu` porte déjà les deux premières.
+     */
+    plan: planRendu,
   });
   /*
    * LA RÉPONSE EST RENDUE. Tout ce qui suit est du service — compression du fil,

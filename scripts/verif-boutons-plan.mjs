@@ -186,13 +186,19 @@ if (!(await page.evaluate(() => Boolean(window.haikodevEssai?.plan)))) {
 // Le chef d'orchestre du projet d'essai se crée à l'ouverture du panneau de
 // droite : on attend sa conversation avant d'y injecter quoi que ce soit.
 await page.waitForSelector('textarea[placeholder="Écrivez votre demande…"]', { timeout: 20000 });
-await page.waitForTimeout(500);
 
-const agentId = await page.evaluate(() => {
-  const zone = document.querySelector('textarea[placeholder="Écrivez votre demande…"]');
-  const capsule = zone?.closest('div.relative')?.querySelector('[data-agent-contexte]');
-  return capsule?.getAttribute('data-agent-contexte') ?? null;
-});
+/*
+ * Son identifiant se lit EN BASE, pas dans la page : l'interface ne le porte
+ * plus nulle part depuis que les compteurs de jetons en ont été retirés — le
+ * repère `data-agent-contexte` qu'on lisait ici n'existe plus.
+ */
+let agentId = null;
+for (let essai = 0; essai < 40 && !agentId; essai += 1) {
+  agentId =
+    db.prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'orchestrator' LIMIT 1").get(projetId)?.id ??
+    null;
+  if (!agentId) await page.waitForTimeout(500);
+}
 noter('le chef d’orchestre du projet d’essai est ouvert', !!agentId, agentId ?? 'introuvable');
 if (!agentId) {
   await navigateur.close();

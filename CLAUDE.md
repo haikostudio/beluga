@@ -246,6 +246,13 @@ le nom, là-bas le texte).
   (`modePlanFermeLEcriture`, `shared/src/droits-mode-plan.ts`) : il garde `write_document` et
   `ask_user`, et une décision qui ne lui appartient pas se demande AVANT le plan, jamais tranchée
   « par défaut ». L'entête du cadre tient sur UNE ligne ; son PIED s'empile sous 640 px.
+- **UN PLAN NE S'AFFICHE QU'UNE FOIS LE TOUR RENDU** (`plan: planRendu` en fin de `startTurn`,
+  `server/src/runtime.ts` ; `cadreDePlanVisible`, `shared/src/plan-conversation.ts`) : le drapeau
+  `plan` était posé au LANCEMENT du tour, donc le cadre s'ouvrait sur la première bribe de texte —
+  une phrase d'intention portait déjà son sélecteur de niveau et ses boutons pendant que l'agent
+  continuait de chercher, et l'on pouvait valider un plan VIDE. Il ne se pose plus qu'à la FIN, une
+  fois le texte jugé entier ; l'affichage refuse en plus le cadre sur tout message encore en
+  écriture. Vérifié par `scripts/verif-plan-en-cours.mjs`.
 - **Le FOND du plan est vérifié aussi : quatre titres ne font pas un plan réfléchi** (`jugerLeFond`,
   `EXIGENCES_DE_FOND`, `consigneDePlanPlusFouille`, `shared/src/plan-complet.ts`) : une analyse
   CONSTATÉE sous FAISABILITÉ, des étapes numérotées, des sous-titres, des améliorations en liste — et
