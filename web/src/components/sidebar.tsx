@@ -874,8 +874,15 @@ function BoutonRedemarrage() {
   const publications = demon?.publications ?? [];
   const publie = publications.length > 0;
   const enAttente = !!demon?.redemarrageEnAttente;
+  // Le lien avec le serveur se coupe pendant qu'il redémarre : le dernier état
+  // connu (par exemple « Publication en cours ») devient alors faux, puisque le
+  // serveur qui l'a émis n'est plus celui qui répondra. Tant que la connexion
+  // n'est pas revenue, on ne se fie plus à cet état — seul le redémarrage
+  // compte, et il s'efface tout seul dès la reconnexion (l'état frais est
+  // redemandé juste au-dessus).
+  const deconnecte = !state.connected;
 
-  const libelle = enCours
+  const libelle = enCours || deconnecte
     ? 'Redémarrage…'
     : publie
       ? 'Publication en cours'
@@ -884,24 +891,26 @@ function BoutonRedemarrage() {
         : attendu
           ? 'Redémarrage attendu'
           : 'Redémarrer le serveur';
-  const titre = publie
-    ? raisonPublications(publications)
-    : enAttente
-      ? 'Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.'
-      : attendu
-        ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
-        : 'Redémarrer le serveur';
+  const titre = enCours || deconnecte
+    ? 'Le serveur redémarre — l’application se reconnectera toute seule.'
+    : publie
+      ? raisonPublications(publications)
+      : enAttente
+        ? 'Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.'
+        : attendu
+          ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
+          : 'Redémarrer le serveur';
 
   return (
     <>
       <div className="border-t border-border px-1.5 py-1.5">
         <button
           onClick={() => setConfirmer(true)}
-          disabled={enCours || publie}
+          disabled={enCours || publie || deconnecte}
           className={cn(
             'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors',
             'disabled:cursor-not-allowed',
-            publie || enAttente
+            publie || enAttente || deconnecte
               ? 'text-muted'
               : attendu
                 ? 'text-warning hover:bg-warning/10'
@@ -909,8 +918,8 @@ function BoutonRedemarrage() {
           )}
           title={titre}
         >
-          {enCours || publie || enAttente ? (
-            <Loader2 className={cn('h-3 w-3 shrink-0', enCours && 'animate-spin')} />
+          {enCours || publie || enAttente || deconnecte ? (
+            <Loader2 className={cn('h-3 w-3 shrink-0', (enCours || deconnecte) && 'animate-spin')} />
           ) : attendu ? (
             <TriangleAlert className="h-3 w-3 shrink-0" />
           ) : (
