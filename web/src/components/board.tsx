@@ -1708,7 +1708,10 @@ export function CardTile({
       ) : travailActuel ? (
         // Mêmes données que la barre du tiroir (`InfoTravail`), dans le même
         // bandeau que les autres mentions ci-dessus — mais sans bouton
-        // d'arrêt : ce geste reste réservé au tiroir de la carte.
+        // d'arrêt : ce geste reste réservé au tiroir de la carte. La pastille
+        // est trop étroite pour porter le compte des étapes ET le
+        // chronomètre ensemble : `alterner` les fait tourner l'un après
+        // l'autre plutôt que de les concaténer.
         <div
           onClick={ouvrir}
           data-barre-travail={card.id}
@@ -1717,7 +1720,12 @@ export function CardTile({
             'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
           )}
         >
-          <InfoTravail quoi={travailActuel.quoi} avancement={travailActuel.avancement} temps={travailActuel.temps} />
+          <InfoTravail
+            quoi={travailActuel.quoi}
+            avancement={travailActuel.avancement}
+            temps={travailActuel.temps}
+            alterner
+          />
         </div>
       ) : null}
     </div>
