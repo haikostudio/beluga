@@ -131,9 +131,10 @@ le nom, là-bas le texte).
 
 - **Ne jamais publier de sa propre initiative.** Enregistrer et pousser, oui ; mettre en ligne est un
   geste de l'utilisateur — aux deux étapes (déploiement, puis mise en production).
-- **Ne JAMAIS redémarrer le serveur pendant une publication** (`shared/src/demon.ts`) : le démon
-  porte toutes les publications, le couper en tranche une en plein vol. Un redémarrage demandé est
-  retenu et rejoué tout seul dès la dernière publication finie.
+- **Ne JAMAIS redémarrer le serveur tant qu'une publication OU une tâche tourne**
+  (`shared/src/demon.ts`) : le démon porte toutes les publications et tous les agents, le couper en
+  tranche un en plein vol. Un redémarrage demandé est retenu — le bouton affiche « Redémarrage
+  requis » — et rejoué tout seul dès le dernier travail fini ; même le clic ne passe jamais outre.
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
   `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
