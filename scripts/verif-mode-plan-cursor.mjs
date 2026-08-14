@@ -66,7 +66,10 @@ const { jugerLePlan } = await import(path.join(RACINE, 'shared', 'dist', 'index.
   const chef = buildCursorArgs({ cwd: '/tmp', prompt: '', mode: 'plan', role: 'orchestrator', fullAccess: true }, 'composer-2.5');
 
   noter('un agent de tâche en mode plan reçoit « --mode plan »', plan.join(' ').includes('--mode plan'));
-  noter("le mode plan l'emporte sur l'accès complet", !plan.includes('--force'));
+  // `--mode plan` suffit à fermer l'écriture ; `--force` reste, sinon les
+  // outils du projet sont refusés faute d'approbation et la question du plan
+  // ne part jamais (voir `scripts/verif-outils-cursor.mjs`).
+  noter("le mode plan ferme l'écriture sans ouvrir le bac à sable", !plan.includes('--sandbox') && plan.includes('--force'));
   noter('hors mode plan, rien ne ferme l’écriture', !direct.join(' ').includes('--mode plan') && direct.includes('--force'));
   // Le chef est déjà tenu par son bac à sable : lui fermer l'écriture le
   // priverait de son plan écrit et de ses questions (`modePlanFermeLEcriture`).

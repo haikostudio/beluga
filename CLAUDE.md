@@ -487,7 +487,13 @@ le nom, là-bas le texte).
   quatre différences : le MODÈLE PORTE SON NIVEAU DANS SON NOM — liste fermée lue dans
   `cursor-agent --list-models`, regroupée par modèle, le niveau redevenant un suffixe au lancement
   (`idCursorPourNiveau`), un nom paramétré étant refusé ; les outils du projet se posent en
-  `.cursor/mcp.json` dans le dossier du tour, écarté du dépôt ; la clé `CURSOR_API_KEY` vit HORS du
+  `.cursor/mcp.json` dans le dossier du tour, écarté du dépôt, **avec `--force` qui part TOUJOURS**
+  (`buildCursorArgs`) — sans lui le CLI reste en « allowlist » et refuse EN SILENCE tout appel
+  d'outil, faute d'une approbation que nul ne peut donner dans un tour `-p` : le pont n'est jamais
+  contacté et le moteur invente « la proposition a été refusée », ce qui bloquait TOUTE création de
+  carte depuis le chef d'un projet autre qu'HaikoDev (`fullAccess` faux, 14/08/2026). `fullAccess` ne
+  décide plus que du bac à sable, et le mode plan garde `--force`, `--mode plan` suffisant à fermer
+  l'écriture (`scripts/verif-outils-cursor.mjs`) ; la clé `CURSOR_API_KEY` vit HORS du
   dépôt et, sans elle, le moteur n'apparaît nulle part ; Cursor ne publiant AUCUN quota, sa ligne de
   compte n'affiche PAS de jauge de pourcentage (`moteurSansQuota`) : à la place, le CRÉDIT DÉPENSÉ
   et l'usage déjà mesuré ici (volet des quotas, commande `cursor.etat` pour la clé et l'outil).

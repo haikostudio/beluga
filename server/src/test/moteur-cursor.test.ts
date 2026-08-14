@@ -141,10 +141,29 @@ test('la commande lance le CLI en accès complet, dans le dossier de la carte', 
   assert.equal(args.some((a) => /repo|github|autoCreatePR/i.test(a)), false);
 });
 
+/*
+ * SANS `--force`, LE CLI DEMANDE UNE APPROBATION QUE PERSONNE NE PEUT DONNER.
+ * Un tour `-p` n'a pas d'écran : l'appel d'outil est refusé en silence, le pont
+ * n'est jamais contacté, et le moteur écrit de lui-même « la proposition a été
+ * refusée ». Toute création de carte depuis le chef d'un projet autre
+ * qu'HaikoDev (`fullAccess` faux) tombait ainsi. L'indicateur ne décide donc
+ * plus que du bac à sable.
+ */
+test('les outils sont approuvés d\'office, même sans accès complet', () => {
+  for (const cas of [options({ fullAccess: false }), options({ fullAccess: false, mode: 'plan', role: 'task' })]) {
+    assert.ok(buildCursorArgs(cas, 'composer-2.5').includes('--force'));
+  }
+  // Le bac à sable, lui, suit toujours l'accès complet.
+  assert.equal(buildCursorArgs(options({ fullAccess: false }), 'composer-2.5').includes('--sandbox'), false);
+});
+
 test('le mode plan ferme l\'écriture, et une reprise garde son fil', () => {
   const plan = buildCursorArgs(options({ mode: 'plan', role: 'task' }), 'composer-2.5');
   assert.deepEqual(plan.slice(plan.indexOf('--mode'), plan.indexOf('--mode') + 2), ['--mode', 'plan']);
-  assert.equal(plan.includes('--force'), false);
+  // Le mode plan n'ouvre aucune écriture, mais il garde ses outils : sans
+  // `--force`, `ask_user` serait refusé et la question ne partirait jamais.
+  assert.ok(plan.includes('--force'));
+  assert.equal(plan.includes('--sandbox'), false);
 
   const reprise = buildCursorArgs(options({ sessionId: '7eb16b33-236c' }), 'composer-2.5');
   assert.deepEqual(reprise.slice(reprise.indexOf('--resume'), reprise.indexOf('--resume') + 2), [
