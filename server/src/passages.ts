@@ -2,55 +2,77 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  COUVERTURE_VECTEURS_MIN,
+  DIMENSIONS_VECTEUR,
   DOSSIER_MEMOIRE,
   DOSSIER_PLANS,
+  FICHIERS_CODE_MAX,
+  PASSAGES_CODE_MAX,
+  PASSAGES_PAR_PASSE_MAX,
+  POIDS_MOTS_VECTEUR,
+  POIDS_SENS_VECTEUR,
   PRIORITE,
+  SCORE_MINIMUM_VECTEUR,
+  SIGNES_MAX_PAR_FICHIER,
+  DOSSIERS_HORS_INDEX,
   choisirPassages,
   classerPassages,
+  decouperCodeEnPassages,
   decouperEnPassages,
   empreinteSemantique,
+  estFichierDeCode,
   jetonsApproches,
+  modeDeRecherche,
   plafondDeRecherche,
   rechercheRentable,
+  texteAVectoriser,
   texteDesPassages,
+  vecteurUtilisable,
+  type ModeDeRecherche,
   type PassageClasse,
   type PassageDoc,
+  type PassageIndexe,
 } from '@haikodev/shared';
 import { getDb } from './db.js';
 import { dossierDesCompetences } from './competences.js';
 import { log } from './logger.js';
+import { modeleDesVecteurs, vectoriser, vectoriserLaQuestion } from './vecteurs.js';
 
 /**
  * LA RECHERCHE DANS LA DOCUMENTATION, CÔTÉ DISQUE ET BASE.
  *
- * Les règles (découpage, empreinte, score mixte, plafond) vivent dans
- * `shared/src/passages-doc.ts` et se testent seules. Ce module-ci fait les trois
- * choses qui demandent une machine :
+ * Les règles (découpage, score mixte, plafond) vivent dans
+ * `shared/src/passages-doc.ts`, celles de la vectorisation dans
+ * `shared/src/vecteurs-doc.ts` : elles se testent seules. Ce module-ci fait les
+ * quatre choses qui demandent une machine :
  *
  *  1. LIRE la documentation du projet — règles, faits, contrôles, mécaniques,
- *     compétences partagées ;
+ *     compétences partagées — ET ses fichiers de code ;
  *  2. TENIR L'INDEX en base, de façon INCRÉMENTALE : un fichier inchangé n'est
  *     ni relu ni recalculé, un fichier modifié voit ses seuls passages remplacés ;
- *  3. RÉPONDRE à une question — la demande de la carte — par quelques passages
+ *  3. VECTORISER ce qui ne l'est pas encore, par tranches, en appelant le modèle
+ *     de sens (`server/src/vecteurs.ts`) ;
+ *  4. RÉPONDRE à une question — la demande de la carte — par quelques passages
  *     sous plafond de jetons.
  *
- * Aucune clé n'est appelée : l'empreinte se calcule ici, sur le serveur. C'est
- * une règle du projet, et c'est aussi ce qui permet de tout réindexer en
- * quelques millisecondes.
+ * Le SENS vient désormais d'un vrai modèle, comme le chat de HaikoFormations :
+ * une demande écrite avec d'autres mots que la règle qu'elle vise la retrouve
+ * quand même. L'ancienne empreinte de mots reste le REPLI — sans clé, sans
+ * réseau, ou tant que l'index n'est pas assez vectorisé, la recherche continue
+ * de fonctionner, simplement moins finement.
  *
  * Rien de ce module ne doit jamais faire échouer un tour : au pire, il rend
  * `undefined` et l'index de la mémoire reprend sa place.
  */
 
 /**
- * LA VERSION DU DÉCOUPAGE. Changer la façon de couper ou de calculer une
- * empreinte rend l'index existant incomparable : la version entre dans
- * l'empreinte des fichiers, si bien qu'un changement de règle force une
- * réindexation complète, sans migration à écrire.
+ * LA VERSION DU DÉCOUPAGE. Changer la façon de couper rend l'index existant
+ * incomparable : la version entre dans l'empreinte des fichiers, si bien qu'un
+ * changement de règle force une réindexation complète, sans migration à écrire.
  */
-const VERSION_INDEX = 'v1';
+const VERSION_INDEX = 'v2';
 
-/** Un fichier de documentation à indexer, avec ce qu'il pèse dans le classement. */
+/** Un fichier à indexer, avec ce qu'il pèse dans le classement. */
 interface FichierIndexable {
   /** Le chemin RELATIF affiché à l'agent — c'est lui qu'il ouvrira. */
   source: string;
@@ -78,7 +100,8 @@ function fichiersMarkdown(dossier: string): string[] {
 /**
  * LA DOCUMENTATION D'UN PROJET, telle qu'on l'indexe. L'ordre importe peu (le
  * score classe), mais la PRIORITÉ, elle, décide des ex æquo : une fiche de
- * mécanique passe devant une règle, une règle devant une page libre.
+ * mécanique passe devant une règle, une règle devant une page libre, une page
+ * libre devant un fichier de code.
  */
 export function fichiersAIndexer(projectPath: string): FichierIndexable[] {
   const liste: FichierIndexable[] = [];
@@ -134,7 +157,46 @@ export function fichiersAIndexer(projectPath: string): FichierIndexable[] {
     /* aucune compétence : rien à indexer */
   }
 
-  return liste;
+  return [...liste, ...fichiersDeCodeAIndexer(projectPath)];
+}
+
+/**
+ * LES FICHIERS DU PROJET. La documentation dit POURQUOI, le code montre COMMENT
+ * — et l'agent qui demande « où se décide la couleur d'une colonne » n'a de
+ * réponse que dans le second. On descend le dépôt en écartant les dossiers de
+ * machine et les copies de travail (`shared/src/passages-code.ts`), et on
+ * s'arrête à `FICHIERS_CODE_MAX` : sur un projet quelconque, un dossier oublié
+ * peut porter des dizaines de milliers de fichiers.
+ */
+export function fichiersDeCodeAIndexer(projectPath: string): FichierIndexable[] {
+  const trouves: FichierIndexable[] = [];
+  const parcourir = (dossier: string, relatif: string) => {
+    if (trouves.length >= FICHIERS_CODE_MAX) return;
+    let entrees: fs.Dirent[];
+    try {
+      entrees = fs.readdirSync(dossier, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entree of entrees.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (trouves.length >= FICHIERS_CODE_MAX) return;
+      if (entree.name.startsWith('.') || DOSSIERS_HORS_INDEX.has(entree.name)) continue;
+      const suite = relatif ? `${relatif}/${entree.name}` : entree.name;
+      if (entree.isDirectory()) {
+        parcourir(path.join(dossier, entree.name), suite);
+        continue;
+      }
+      if (!entree.isFile() || !estFichierDeCode(suite)) continue;
+      trouves.push({
+        source: suite,
+        chemin: path.join(dossier, entree.name),
+        sujet: `code-${suite.split('/')[0]}`,
+        priorite: PRIORITE.code,
+      });
+    }
+  };
+  parcourir(projectPath, '');
+  return trouves;
 }
 
 function empreinteDuContenu(texte: string): string {
@@ -143,6 +205,19 @@ function empreinteDuContenu(texte: string): string {
 
 function idDuPassage(projectId: string, source: string, rang: number): string {
   return crypto.createHash('sha1').update(`${projectId}\n${source}\n${rang}`).digest('hex').slice(0, 20);
+}
+
+/** Un vecteur rangé en base : des flottants 32 bits bout à bout, sans JSON. */
+function vecteurEnBinaire(vecteur: number[]): Buffer {
+  const tableau = Float32Array.from(vecteur);
+  return Buffer.from(tableau.buffer, tableau.byteOffset, tableau.byteLength);
+}
+
+/** Le chemin inverse. Un binaire de mauvaise taille est traité comme absent. */
+function vecteurDepuisBinaire(brut: Buffer | Uint8Array | null | undefined): Float32Array | undefined {
+  if (!brut || brut.byteLength !== DIMENSIONS_VECTEUR * 4) return undefined;
+  // Une copie, et non une vue : le tampon de better-sqlite3 peut être réutilisé.
+  return new Float32Array(Uint8Array.from(brut).buffer);
 }
 
 /**
@@ -193,6 +268,8 @@ export function indexerDocumentation(
     for (const fichier of fichiers) {
       let texte = '';
       try {
+        const taille = fs.statSync(fichier.chemin).size;
+        if (taille > SIGNES_MAX_PAR_FICHIER) continue;
         texte = fs.readFileSync(fichier.chemin, 'utf8');
       } catch {
         continue;
@@ -201,10 +278,13 @@ export function indexerDocumentation(
       if (connus.get(fichier.source) === empreinte) continue;
 
       supprimerPassages.run(projectId, fichier.source);
-      const passages = decouperEnPassages(fichier.source, texte, {
-        sujet: fichier.sujet,
-        priorite: fichier.priorite,
-      });
+      const passages =
+        fichier.priorite === PRIORITE.code
+          ? decouperCodeEnPassages(fichier.source, texte, { sujet: fichier.sujet })
+          : decouperEnPassages(fichier.source, texte, {
+              sujet: fichier.sujet,
+              priorite: fichier.priorite,
+            });
       passages.forEach((passage, rang) => {
         poserPassage.run(
           idDuPassage(projectId, fichier.source, rang),
@@ -237,15 +317,81 @@ export function indexerDocumentation(
   return { fichiers: fichiers.length, modifies, passages: total.n };
 }
 
-/** L'empreinte d'un passage : son titre compte, il porte le sujet en clair. */
+/** L'empreinte de repli d'un passage : son titre compte, il porte le sujet en clair. */
 function empreinteDuPassage(passage: PassageDoc): number[] {
   return empreinteSemantique(`${passage.titre}\n${passage.texte}`);
 }
 
-/** Tous les passages indexés d'un projet, empreinte comprise. */
-export function passagesIndexes(projectId: string): (PassageDoc & { empreinte: number[] })[] {
+/* ------------------------------------------------------------------ */
+/* La vectorisation de l'index                                         */
+/* ------------------------------------------------------------------ */
+
+/** Où en est l'index d'un projet : combien de passages, combien vectorisés. */
+export function couvertureDesVecteurs(projectId: string): { total: number; vectorises: number } {
+  const db = getDb();
+  const total = (db.prepare('SELECT COUNT(*) AS n FROM doc_passages WHERE project_id = ?').get(projectId) as {
+    n: number;
+  }).n;
+  const vectorises = (db
+    .prepare('SELECT COUNT(*) AS n FROM doc_passages WHERE project_id = ? AND modele = ? AND vecteur IS NOT NULL')
+    .get(projectId, modeleDesVecteurs()) as { n: number }).n;
+  return { total, vectorises };
+}
+
+/**
+ * LA VECTORISATION DE CE QUI NE L'EST PAS ENCORE, par tranche. Elle tourne DANS
+ * la préparation d'un tour : sur un gros projet, la première passe a des
+ * milliers de passages à traiter et bloquer le lancement d'une carte plusieurs
+ * minutes serait pire que le mal. On en fait donc `PASSAGES_PAR_PASSE_MAX` au
+ * plus, et le reste au lancement suivant — la recherche fonctionne pendant ce
+ * temps, en repli sur les mots.
+ *
+ * Un passage vectorisé par un AUTRE modèle est repris : deux vecteurs venus de
+ * deux modèles ne se comparent pas.
+ */
+export async function vectoriserLIndex(projectId: string): Promise<{ faits: number }> {
+  const db = getDb();
+  const modele = modeleDesVecteurs();
+  const aFaire = db
+    .prepare(
+      `SELECT id, source, titre, texte FROM doc_passages
+        WHERE project_id = ? AND (vecteur IS NULL OR modele IS NOT ?)
+        ORDER BY priorite DESC, source
+        LIMIT ?`,
+    )
+    .all(projectId, modele, PASSAGES_PAR_PASSE_MAX) as {
+    id: string;
+    source: string;
+    titre: string;
+    texte: string;
+  }[];
+  if (!aFaire.length) return { faits: 0 };
+
+  const vecteurs = await vectoriser(aFaire.map((p) => texteAVectoriser(p)));
+  if (!vecteurs) return { faits: 0 };
+
+  const poser = db.prepare('UPDATE doc_passages SET vecteur = ?, modele = ? WHERE id = ?');
+  const ecrire = db.transaction(() => {
+    aFaire.forEach((passage, rang) => {
+      const vecteur = vecteurs[rang];
+      if (!vecteurUtilisable(vecteur)) return;
+      poser.run(vecteurEnBinaire(vecteur), modele, passage.id);
+    });
+  });
+  try {
+    ecrire();
+  } catch (err) {
+    log.warn(`vecteurs non enregistrés : ${(err as Error).message}`);
+    return { faits: 0 };
+  }
+  return { faits: aFaire.length };
+}
+
+/** Tous les passages indexés d'un projet, empreinte de repli et vecteur compris. */
+export function passagesIndexes(projectId: string): PassageIndexe[] {
+  const modele = modeleDesVecteurs();
   const lignes = getDb()
-    .prepare('SELECT source, titre, sujet, priorite, texte, empreinte FROM doc_passages WHERE project_id = ?')
+    .prepare('SELECT source, titre, sujet, priorite, texte, empreinte, vecteur, modele FROM doc_passages WHERE project_id = ?')
     .all(projectId) as {
     source: string;
     titre: string;
@@ -253,6 +399,8 @@ export function passagesIndexes(projectId: string): (PassageDoc & { empreinte: n
     priorite: number;
     texte: string;
     empreinte: string;
+    vecteur: Buffer | null;
+    modele: string | null;
   }[];
   return lignes.map((ligne) => ({
     source: ligne.source,
@@ -261,6 +409,7 @@ export function passagesIndexes(projectId: string): (PassageDoc & { empreinte: n
     priorite: ligne.priorite,
     texte: ligne.texte,
     empreinte: JSON.parse(ligne.empreinte) as number[],
+    vecteur: ligne.modele === modele ? vecteurDepuisBinaire(ligne.vecteur) : undefined,
   }));
 }
 
@@ -274,6 +423,8 @@ export interface RechercheDePassages {
   jetonsIndex: number;
   /** Combien de passages passaient le seuil sans tenir sous le plafond. */
   ecartes: number;
+  /** Par le SENS RÉEL ou par les mots — et pourquoi, quand c'est par les mots. */
+  mode: ModeDeRecherche;
 }
 
 /**
@@ -285,21 +436,44 @@ export interface RechercheDePassages {
  * dessus du seuil, ou une recherche qui pèserait PLUS LOURD que l'index qu'elle
  * remplace (`rechercheRentable`). Le repli n'est pas une panne : c'est la règle.
  */
-export function rechercherPourLaTache(
+export async function rechercherPourLaTache(
   projectId: string,
   projectPath: string,
   question: string,
   index: { texte: string; faits: number },
-): RechercheDePassages | undefined {
+): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
     indexerDocumentation(projectId, projectPath);
+    await vectoriserLIndex(projectId);
     const indexes = passagesIndexes(projectId);
     if (!indexes.length) return undefined;
 
+    /*
+     * LE MODE se décide AVANT de classer : soit tout le monde est jugé au sens
+     * réel, soit tout le monde l'est à l'empreinte de mots. Mélanger les deux
+     * échelles ferait gagner les passages vectorisés par construction.
+     */
+    const vecteurQuestion = await vectoriserLaQuestion(question);
+    const mode = modeDeRecherche({
+      vecteurQuestion,
+      total: indexes.length,
+      vectorises: indexes.filter((p) => p.vecteur).length,
+    });
+
     const jetonsIndex = jetonsApproches(index.texte.length);
-    const classes = classerPassages(indexes, question);
-    const choix = choisirPassages(classes, { plafond: plafondDeRecherche(jetonsIndex) });
+    const classes = classerPassages(
+      indexes,
+      question,
+      mode.vecteurs
+        ? { vecteurQuestion, poids: { sens: POIDS_SENS_VECTEUR, mots: POIDS_MOTS_VECTEUR } }
+        : {},
+    );
+    const choix = choisirPassages(classes, {
+      plafond: plafondDeRecherche(jetonsIndex),
+      minimum: mode.vecteurs ? SCORE_MINIMUM_VECTEUR : undefined,
+      maxCode: PASSAGES_CODE_MAX,
+    });
     if (!choix.gardes.length) return undefined;
 
     /*
@@ -314,7 +488,7 @@ export function rechercherPourLaTache(
       const texte = texteDesPassages(gardes, index.faits);
       const jetons = jetonsApproches(texte.length);
       if (rechercheRentable(jetons, jetonsIndex)) {
-        return { texte, passages: gardes, jetons, jetonsIndex, ecartes };
+        return { texte, passages: gardes, jetons, jetonsIndex, ecartes, mode };
       }
       gardes = gardes.slice(0, -1);
       ecartes++;
@@ -325,3 +499,6 @@ export function rechercherPourLaTache(
     return undefined;
   }
 }
+
+/** Ce que la couverture doit atteindre pour que le sens réel prenne la main. */
+export const COUVERTURE_MINIMALE = COUVERTURE_VECTEURS_MIN;

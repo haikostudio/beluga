@@ -11,12 +11,15 @@
  *
  *  1. LE DÉCOUPAGE — une section, une règle, une fiche = UN passage. Jamais un
  *     fichier entier : c'est précisément ce qu'on cherche à ne plus envoyer.
- *  2. L'EMPREINTE — un vecteur calculé SUR PLACE, par hachage des mots (aucune
- *     clé facturée à l'appel, règle du projet). Deux textes qui parlent de la
- *     même chose ont des empreintes proches.
+ *  2. L'EMPREINTE DE REPLI — un vecteur calculé SUR PLACE, par hachage des mots.
+ *     Ce n'est plus la façon normale de chercher : le SENS vient désormais d'un
+ *     vrai modèle de vectorisation (`vecteurs-doc.ts`, façon RAG). L'empreinte
+ *     de mots reste le filet quand la clé manque ou que l'index n'est pas encore
+ *     vectorisé — sans elle, un projet sans clé n'aurait plus de recherche.
  *  3. LE SCORE MIXTE — le sens SEUL rate les noms exacts (un nom de colonne, un
  *     nom de fichier, un mot rare). On additionne donc la proximité de sens ET
- *     la présence LITTÉRALE des termes rares de la question.
+ *     la présence LITTÉRALE des termes rares de la question. Les deux poids
+ *     changent selon le mode : le sens pèse plus lourd quand il est vrai.
  *
  * Et un garde-fou : ce qu'on remonte tient sous un PLAFOND de jetons, et ne doit
  * jamais peser plus lourd que l'index qu'il remplace — sinon la recherche est
@@ -37,8 +40,11 @@ import { jetonsApproches } from './couches-tokens.js';
  * l'autre passe devant. Les fiches de mécaniques (« ajouter un outil »,
  * « ajouter une colonne ») sont écrites pour être resservies : elles portent la
  * priorité haute.
+ *
+ * Le CODE, lui, passe DERRIÈRE tout le reste : un fichier montre comment, une
+ * règle dit pourquoi — et c'est le pourquoi qu'on envoie en premier.
  */
-export const PRIORITE = { normale: 0, regle: 1, mecanique: 2 } as const;
+export const PRIORITE = { code: -1, normale: 0, regle: 1, mecanique: 2 } as const;
 
 /** Un morceau de documentation, tel qu'on l'indexe et tel qu'on le rend. */
 export interface PassageDoc {
@@ -369,8 +375,14 @@ export function empreinteSemantique(texte: string, dimensions = DIMENSIONS_EMPRE
   return vecteur.map((v) => v / norme);
 }
 
-/** La proximité de deux empreintes, entre -1 et 1. Rien de commun : 0. */
-export function cosinus(a: number[], b: number[]): number {
+/**
+ * La proximité de deux empreintes, entre -1 et 1. Rien de commun : 0.
+ *
+ * Elle accepte aussi un tableau de flottants 32 bits : les vrais vecteurs sont
+ * rangés en base sous cette forme et se relisent SANS recopie, ce qui compte
+ * quand on en compare des milliers à chaque recherche.
+ */
+export function cosinus(a: ArrayLike<number>, b: ArrayLike<number>): number {
   if (a.length !== b.length) return 0;
   let total = 0;
   for (let i = 0; i < a.length; i++) total += a[i] * b[i];
@@ -427,14 +439,43 @@ export function partDesMotsExacts(texte: string, termes: { terme: string; poids:
   return total ? touche / total : 0;
 }
 
+/** Un passage tel qu'on le classe : son empreinte de repli, et son vrai vecteur s'il en a un. */
+export interface PassageIndexe extends PassageDoc {
+  empreinte: number[];
+  /** Le vecteur de SENS rendu par le modèle de vectorisation, quand il existe. */
+  vecteur?: ArrayLike<number>;
+}
+
+/** Les deux poids d'un classement : ils changent selon qu'on a du vrai sens ou non. */
+export interface PoidsDuScore {
+  sens: number;
+  mots: number;
+}
+
 /** Le score d'un passage pour une question : le sens, les mots, la priorité. */
 export function scoreDuPassage(
-  passage: PassageDoc & { empreinte: number[] },
-  question: { empreinte: number[]; termes: { terme: string; poids: number }[] },
+  passage: PassageIndexe,
+  question: {
+    empreinte: number[];
+    termes: { terme: string; poids: number }[];
+    /** Présent en mode vecteurs : c'est LUI qui sert alors, pas l'empreinte de mots. */
+    vecteur?: ArrayLike<number>;
+    poids?: PoidsDuScore;
+  },
 ): PassageClasse {
-  const sens = Math.max(0, cosinus(question.empreinte, passage.empreinte));
+  const poids = question.poids ?? { sens: POIDS_SENS, mots: POIDS_MOTS };
+  /*
+   * EN MODE VECTEURS, un passage encore sans vecteur n'est pas jugé à
+   * l'empreinte de mots — les deux échelles ne se comparent pas. Il garde ses
+   * mots exacts, et ne perd donc que la moitié de sa chance, jamais toutes.
+   */
+  const sens = question.vecteur
+    ? passage.vecteur
+      ? Math.max(0, cosinus(question.vecteur, passage.vecteur))
+      : 0
+    : Math.max(0, cosinus(question.empreinte, passage.empreinte));
   const mots = partDesMotsExacts(passage.texte + ' ' + passage.titre, question.termes);
-  const score = POIDS_SENS * sens + POIDS_MOTS * mots + BONUS_PRIORITE * passage.priorite;
+  const score = poids.sens * sens + poids.mots * mots + BONUS_PRIORITE * passage.priorite;
   return {
     source: passage.source,
     titre: passage.titre,
@@ -448,15 +489,24 @@ export function scoreDuPassage(
   };
 }
 
-/** Les passages classés du plus pertinent au moins pertinent. */
+/**
+ * Les passages classés du plus pertinent au moins pertinent.
+ *
+ * Sans `vecteurQuestion`, on classe comme avant : empreinte de mots contre
+ * empreinte de mots. Avec, on classe par le SENS RÉEL — et les poids qui vont
+ * avec sont fournis par l'appelant (`vecteurs-doc.ts`), qui seul sait dans quel
+ * mode on est.
+ */
 export function classerPassages(
-  passages: (PassageDoc & { empreinte: number[] })[],
+  passages: PassageIndexe[],
   question: string,
+  options: { vecteurQuestion?: ArrayLike<number>; poids?: PoidsDuScore } = {},
 ): PassageClasse[] {
   const empreinte = empreinteSemantique(question);
   const termes = termesRares(question);
+  const contexte = { empreinte, termes, vecteur: options.vecteurQuestion, poids: options.poids };
   return passages
-    .map((passage) => scoreDuPassage(passage, { empreinte, termes }))
+    .map((passage) => scoreDuPassage(passage, contexte))
     .sort((a, b) => b.score - a.score);
 }
 
@@ -511,24 +561,32 @@ export function choisirPassages(
     max?: number;
     parSource?: number;
     minimum?: number;
+    /** Combien de passages de CODE au plus : le reste de la place va à la doc. */
+    maxCode?: number;
   } = {},
 ): ChoixDePassages {
   const plafond = options.plafond ?? PLAFOND_PASSAGES_JETONS;
   const max = options.max ?? PASSAGES_MAX;
   const parSource = options.parSource ?? PASSAGES_PAR_SOURCE_MAX;
   const minimum = options.minimum ?? SCORE_MINIMUM;
+  const maxCode = options.maxCode ?? Number.POSITIVE_INFINITY;
 
   const gardes: PassageClasse[] = [];
   const vus = new Set<string>();
   const parFichier = new Map<string, number>();
   let jetons = 0;
   let ecartes = 0;
+  let code = 0;
 
   for (const passage of classes) {
     if (passage.score < minimum) continue;
     const cle = `${passage.source}#${passage.titre}#${passage.texte.slice(0, 60)}`;
     if (vus.has(cle)) continue;
     if (gardes.length >= max) {
+      ecartes++;
+      continue;
+    }
+    if (passage.priorite === PRIORITE.code && code >= maxCode) {
       ecartes++;
       continue;
     }
@@ -542,6 +600,7 @@ export function choisirPassages(
     }
     vus.add(cle);
     parFichier.set(passage.source, (parFichier.get(passage.source) ?? 0) + 1);
+    if (passage.priorite === PRIORITE.code) code++;
     gardes.push(passage);
     jetons += passage.jetons;
   }
@@ -572,7 +631,7 @@ export function texteDesPassages(passages: PassageClasse[], faits: number): stri
     .join('\n\n');
   return (
     `MÉMOIRE DU PROJET — ${passages.length} passages retrouvés pour CETTE tâche ` +
-    `(règles, faits, contrôles, mécaniques) :\n\n` +
+    `(règles, faits, contrôles, mécaniques, fichiers du projet) :\n\n` +
     `${corps}\n\n` +
     `Ce sont les mieux placés, sous plafond de jetons — pas toute la mémoire (${faits} faits, ` +
     `plus les règles et les contrôles). Appelle « project_memory » dès que cela ne suffit pas : ` +

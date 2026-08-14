@@ -13,6 +13,18 @@ import path from 'node:path';
 const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'passages-base-'));
 process.env.HAIKODEV_DATA = bacASable;
 
+/*
+ * AUCUN APPEL RÉSEAU DANS UN TEST. La recherche cherche désormais par le SENS,
+ * avec un modèle de vectorisation ; on lui retire sa clé pour éprouver le REPLI
+ * — l'empreinte de mots — qui doit rester exactement aussi bon qu'avant. Le
+ * mode « vecteurs », lui, se juge sur ses règles pures (`vecteurs-doc.test.ts`)
+ * et sur le contrôle `scripts/verif-recherche-passages.mjs`, qui, lui, appelle
+ * vraiment.
+ */
+delete process.env.HAIKODEV_EMBED_API_KEY;
+delete process.env.OPENROUTER_API_KEY;
+process.env.HAIKODEV_ENV_FILE = path.join(bacASable, 'aucun-environnement');
+
 const { indexerDocumentation, passagesIndexes, rechercherPourLaTache } = await import('../passages.js');
 
 const FAIT_VOIX =
@@ -86,9 +98,9 @@ test('l’indexation découpe la documentation et se rejoue sans rien recalculer
   assert.ok(!passagesIndexes('p1').some((p) => p.source.includes('publication')));
 });
 
-test('la recherche remonte le passage qui répond, pas le fichier entier', () => {
+test('la recherche remonte le passage qui répond, pas le fichier entier', async () => {
   const dossier = projetDEssai();
-  const trouve = rechercherPourLaTache('p2', dossier, 'conflit de fusion pendant un déploiement', indexDEssai());
+  const trouve = await rechercherPourLaTache('p2', dossier, 'conflit de fusion pendant un déploiement', indexDEssai());
   assert.ok(trouve, 'la recherche répond');
   assert.match(trouve!.texte, /conflit de FUSION/);
   assert.ok(
@@ -98,32 +110,32 @@ test('la recherche remonte le passage qui répond, pas le fichier entier', () =>
   assert.match(trouve!.texte, /project_memory/, 'le reste de la mémoire reste annoncé');
 });
 
-test('une fiche de mécanique est retrouvée pour la tâche qu’elle décrit', () => {
+test('une fiche de mécanique est retrouvée pour la tâche qu’elle décrit', async () => {
   const dossier = projetDEssai();
-  const trouve = rechercherPourLaTache('p3', dossier, 'ajouter un outil au démon', indexDEssai());
+  const trouve = await rechercherPourLaTache('p3', dossier, 'ajouter un outil au démon', indexDEssai());
   assert.ok(trouve);
   assert.equal(trouve!.passages[0].source, 'docs/mecaniques/ajouter-un-outil.md');
 });
 
-test('la recherche ne coûte JAMAIS plus cher que l’index qu’elle remplace', () => {
+test('la recherche ne coûte JAMAIS plus cher que l’index qu’elle remplace', async () => {
   const dossier = projetDEssai();
   const gros = indexDEssai(60);
-  const trouve = rechercherPourLaTache('p4', dossier, 'le mot de réveil de l’écoute', gros);
+  const trouve = await rechercherPourLaTache('p4', dossier, 'le mot de réveil de l’écoute', gros);
   assert.ok(trouve);
   assert.ok(trouve!.jetons < trouve!.jetonsIndex, 'le bloc envoyé est plus léger que l’index');
 });
 
-test('un index minuscule fait renoncer la recherche : l’index reste le moins cher', () => {
+test('un index minuscule fait renoncer la recherche : l’index reste le moins cher', async () => {
   const dossier = projetDEssai();
   const maigre = { texte: '  1. Un seul fait.', faits: 1 };
-  assert.equal(rechercherPourLaTache('p5', dossier, 'conflit de fusion', maigre), undefined);
+  assert.equal(await rechercherPourLaTache('p5', dossier, 'conflit de fusion', maigre), undefined);
 });
 
-test('sans question, et sans documentation, la recherche se tait', () => {
+test('sans question, et sans documentation, la recherche se tait', async () => {
   const dossier = projetDEssai();
-  assert.equal(rechercherPourLaTache('p6', dossier, '   ', indexDEssai()), undefined);
+  assert.equal(await rechercherPourLaTache('p6', dossier, '   ', indexDEssai()), undefined);
   const vide = fs.mkdtempSync(path.join(os.tmpdir(), 'passages-vide-'));
-  assert.equal(rechercherPourLaTache('p7', vide, 'conflit de fusion', indexDEssai()), undefined);
+  assert.equal(await rechercherPourLaTache('p7', vide, 'conflit de fusion', indexDEssai()), undefined);
 });
 
 test('deux projets ne se mélangent pas', () => {

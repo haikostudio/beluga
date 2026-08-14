@@ -165,7 +165,7 @@ const INDEX = {
   ].join('\n'),
   faits: 40,
 };
-const trouve = passages.rechercherPourLaTache(
+const trouve = await passages.rechercherPourLaTache(
   projet.id,
   PROJET,
   'Ajouter la recherche vocale dans le tableau',

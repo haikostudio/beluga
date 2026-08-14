@@ -6,12 +6,20 @@
  * quelques passages de `docs/` à la place de l'INDEX de la mémoire. Ce contrôle
  * le rejoue sur le dépôt d'où il part, sans moteur et sans démon :
  *
- *  1. l'indexation lit la documentation, la découpe, et se rejoue sans rien
- *     recalculer ;
+ *  1. l'indexation lit la documentation ET les fichiers du projet, les découpe,
+ *     et se rejoue sans rien recalculer ;
  *  2. une demande réelle retrouve le bon fichier — le sens ET les noms exacts ;
  *  3. ce qui part tient sous le plafond et pèse MOINS que l'index remplacé ;
  *  4. une fiche de mécanique passe devant une règle sur la tâche qu'elle décrit ;
- *  5. sans passage assez pertinent, l'index reprend sa place — le repli est dit.
+ *  5. sans passage assez pertinent, l'index reprend sa place — le repli est dit ;
+ *  6. LA RECHERCHE PAR LE SENS (façon RAG) retrouve une règle REFORMULÉE, avec
+ *     d'autres mots que les siens — ce que le repli sur les mots ne sait pas faire.
+ *
+ * Les cinq premières parties tournent SANS CLÉ, sur le repli : c'est l'ancien
+ * comportement, qui doit rester intact. La sixième appelle réellement le modèle
+ * de vectorisation, sur un petit corpus fabriqué pour l'occasion — quelques
+ * textes, quelques centimes de millier, pas les milliers de passages du dépôt.
+ * Sans clé posée, elle le DIT et se passe : un contrôle ne se tait jamais.
  *
  *   node scripts/verif-recherche-passages.mjs
  */
@@ -29,6 +37,25 @@ const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-recherche-'));
 process.env.HAIKODEV_DATA = BASE;
 process.on('exit', () => fs.rmSync(BASE, { recursive: true, force: true }));
+
+/* LES CINQ PREMIÈRES PARTIES TOURNENT SANS RÉSEAU : on met la clé de côté pour
+   éprouver le REPLI, et on la reprend à la sixième. */
+const CLE = process.env.HAIKODEV_EMBED_API_KEY || process.env.OPENROUTER_API_KEY || cleDuService();
+delete process.env.HAIKODEV_EMBED_API_KEY;
+delete process.env.OPENROUTER_API_KEY;
+process.env.HAIKODEV_ENV_FILE = path.join(BASE, 'aucun-environnement');
+
+function cleDuService() {
+  try {
+    for (const ligne of fs.readFileSync('/etc/haikodev.env', 'utf8').split('\n')) {
+      const trouve = ligne.trim().match(/^(?:export\s+)?(?:HAIKODEV_EMBED_API_KEY|OPENROUTER_API_KEY)=(.+)$/);
+      if (trouve) return trouve[1].trim().replace(/^["']|["']$/g, '');
+    }
+  } catch {
+    /* pas de fichier de service : la sixième partie se passera */
+  }
+  return undefined;
+}
 
 const passages = await import(path.join(RACINE, 'server/dist/passages.js'));
 const memory = await import(path.join(RACINE, 'server/dist/memory.js'));
@@ -85,7 +112,7 @@ const DEMANDES = [
 console.log('\n2. Une demande réelle retrouve les passages qui y répondent');
 let total = 0;
 for (const { question, attendu } of DEMANDES) {
-  const trouve = passages.rechercherPourLaTache('verif', RACINE, question, INDEX);
+  const trouve = await passages.rechercherPourLaTache('verif', RACINE, question, INDEX);
   if (!trouve) {
     verifier(false, `« ${question} » — aucun passage retrouvé`);
     continue;
@@ -111,7 +138,7 @@ console.log(
 console.log('\n3. Une fiche de mécanique passe devant sur la tâche qu’elle décrit');
 for (const fiche of fs.readdirSync(path.join(RACINE, 'docs', 'mecaniques'))) {
   const question = fiche.replace(/\.md$/, '').replace(/-/g, ' ');
-  const trouve = passages.rechercherPourLaTache('verif', RACINE, question, INDEX);
+  const trouve = await passages.rechercherPourLaTache('verif', RACINE, question, INDEX);
   verifier(
     !!trouve && trouve.passages.some((p) => p.source === `docs/mecaniques/${fiche}`),
     `« ${question} » retrouve sa fiche`,
@@ -123,18 +150,116 @@ for (const fiche of fs.readdirSync(path.join(RACINE, 'docs', 'mecaniques'))) {
 /* ------------------------------------------------------------------ */
 
 console.log('\n4. Le repli sur l’index, quand la recherche ne vaut pas le coup');
+/* Un dossier VRAIMENT vide : depuis que le code est indexé, `os.tmpdir()` n'en
+   est plus un — il porte les fichiers d'essai de toute la machine. */
+const DOSSIER_VIDE = fs.mkdtempSync(path.join(BASE, 'projet-vide-'));
 verifier(
-  passages.rechercherPourLaTache('verif', RACINE, '   ', INDEX) === undefined,
+  (await passages.rechercherPourLaTache('verif', RACINE, '   ', INDEX)) === undefined,
   'sans question, la recherche se tait',
 );
 verifier(
-  passages.rechercherPourLaTache('verif', RACINE, 'un déploiement', { texte: '  1. Un fait.', faits: 1 }) === undefined,
+  (await passages.rechercherPourLaTache('verif', RACINE, 'un déploiement', { texte: '  1. Un fait.', faits: 1 })) === undefined,
   'sur une mémoire minuscule, l’index reste le moins cher',
 );
 verifier(
-  passages.rechercherPourLaTache('verif', os.tmpdir(), 'un déploiement', INDEX) === undefined,
-  'sur un projet sans documentation, la recherche se tait',
+  (await passages.rechercherPourLaTache('verif', DOSSIER_VIDE, 'un déploiement', INDEX)) === undefined,
+  'sur un projet sans documentation ni code, la recherche se tait',
 );
+
+/* ------------------------------------------------------------------ */
+/* 5. Les fichiers du projet, pas seulement la documentation           */
+/* ------------------------------------------------------------------ */
+
+console.log('\n5. Les fichiers du projet entrent aussi dans l’index');
+const code = indexes.filter((p) => p.priorite === partage.PRIORITE.code);
+verifier(code.length > 0, 'des fichiers de code sont indexés', `${code.length} passages de code`);
+verifier(
+  !code.some((p) => /node_modules|\/dist\/|\.worktrees/.test(p.source)),
+  'les dossiers de machine et les copies de travail restent dehors',
+);
+const surCode = await passages.rechercherPourLaTache(
+  'verif',
+  RACINE,
+  'la fonction rechercherPourLaTache du fichier server/src/passages.ts',
+  INDEX,
+);
+verifier(
+  !!surCode && surCode.passages.some((p) => p.priorite === partage.PRIORITE.code),
+  'une demande qui nomme un fichier remonte ce fichier',
+  surCode ? surCode.passages.map((p) => p.source).join(', ') : 'aucun passage',
+);
+verifier(
+  !surCode || surCode.passages.filter((p) => p.priorite === partage.PRIORITE.code).length <= partage.PASSAGES_CODE_MAX,
+  'le code ne prend jamais toute la place',
+  `${partage.PASSAGES_CODE_MAX} au plus`,
+);
+
+/* ------------------------------------------------------------------ */
+/* 6. La recherche par le SENS : une règle reformulée se retrouve      */
+/* ------------------------------------------------------------------ */
+
+console.log('\n6. La recherche par le sens (façon RAG), sur un petit corpus');
+if (!CLE) {
+  console.log('  … passée : aucune clé de vectorisation posée (HAIKODEV_EMBED_API_KEY / OPENROUTER_API_KEY).');
+} else {
+  process.env.HAIKODEV_EMBED_API_KEY = CLE;
+
+  /* Un corpus MINUSCULE et fabriqué : quelques règles écrites avec un
+     vocabulaire, et une question posée avec un AUTRE. Le repli sur les mots ne
+     peut pas les relier ; le sens, si. */
+  const CORPUS = path.join(BASE, 'corpus');
+  fs.mkdirSync(path.join(CORPUS, 'docs', 'regles'), { recursive: true });
+  const REGLES = {
+    'publication.md':
+      '# Publication\n\n' +
+      "- **La mise en ligne appartient à l'utilisateur** : le démon fusionne le lot, enregistre et " +
+      "pousse la branche, mais il n'envoie jamais rien vers le serveur public de sa propre " +
+      "initiative. Les deux étapes attendent un clic, et la colonne « En production » les sépare.\n",
+    'voix.md':
+      '# Voix\n\n' +
+      "- **Le mot de réveil de l'écoute permanente** se compare sans accent ni ponctuation, et " +
+      "il ne déclenche l'enregistrement qu'après quatre-vingt-treize millisecondes de parole " +
+      'continue, pour ne pas partir sur un raclement de gorge.\n',
+    'quotas.md':
+      '# Quotas\n\n' +
+      "- **Chaque hausse mesurée sur un compte n'est attribuée qu'une fois** : les tours " +
+      'simultanés cumulent leur part depuis un repère commun, remis à jour après chaque fin de ' +
+      'tour, si bien que deux fins décalées ne repartent jamais du même ancien relevé.\n',
+  };
+  for (const [nom, texte] of Object.entries(REGLES)) {
+    fs.writeFileSync(path.join(CORPUS, 'docs', 'regles', nom), texte);
+  }
+
+  /* La question ne partage AUCUN mot porteur avec la règle visée : ni
+     « publication », ni « mise en ligne », ni « déployer ». */
+  const REFORMULEE = 'est-ce que le programme peut décider tout seul d’envoyer le site chez le client ?';
+  const INDEX_CORPUS = {
+    texte: Array.from({ length: 40 }, (_, i) => `  ${i + 1}. Une ligne d’index qui résume un fait durable du projet.`).join('\n'),
+    faits: 40,
+  };
+
+  const parLeSens = await passages.rechercherPourLaTache('verif-rag', CORPUS, REFORMULEE, INDEX_CORPUS);
+  verifier(!!parLeSens, 'la recherche répond');
+  verifier(
+    !!parLeSens && parLeSens.mode.vecteurs,
+    'elle a bien classé par le SENS RÉEL, pas par les mots',
+    parLeSens ? `couverture ${Math.round(parLeSens.mode.couverture * 100)} %${parLeSens.mode.raison ? ` — ${parLeSens.mode.raison}` : ''}` : '',
+  );
+  verifier(
+    !!parLeSens && parLeSens.passages[0]?.source === 'docs/regles/publication.md',
+    'une question REFORMULÉE retrouve quand même sa règle',
+    parLeSens ? parLeSens.passages.map((p) => `${p.source} (${p.score.toFixed(2)})`).join(', ') : '',
+  );
+
+  /* Le même corpus, la même question, mais SANS clé : c'est là que se voit ce
+     que le sens apporte. On ne juge pas le repli — il a le droit de rater —, on
+     AFFICHE la différence. */
+  delete process.env.HAIKODEV_EMBED_API_KEY;
+  const parLesMots = await passages.rechercherPourLaTache('verif-mots', CORPUS, REFORMULEE, INDEX_CORPUS);
+  console.log(
+    `  → par les mots seuls : ${parLesMots ? parLesMots.passages.map((p) => p.source).join(', ') : 'aucun passage retrouvé'}`,
+  );
+}
 
 /* ------------------------------------------------------------------ */
 
