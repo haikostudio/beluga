@@ -1332,13 +1332,26 @@ export function orchestratorDenyList(): string[] {
   return [...ORCHESTRATOR_DENIED_NATIVE, ...[...TASK_ONLY_TOOLS].map((t) => `mcp__haikodev__${t}`)];
 }
 
-export function writeMcpConfig(filePath: string, token: string, url: string, agentId: string, bridgePath: string): void {
+/**
+ * La configuration du pont d'outils d'UN TOUR. Elle porte l'agent ET le tour :
+ * le second est ce qui permet au démon de reconnaître un appel venu d'un
+ * fichier périmé — celui d'un tour terminé, ou celui d'un voisin lu par erreur
+ * (`shared/src/pont-outils.ts`, `shared/src/racine-cursor.ts`).
+ */
+export function writeMcpConfig(
+  filePath: string,
+  token: string,
+  url: string,
+  agentId: string,
+  bridgePath: string,
+  tourId = '',
+): void {
   const config = {
     mcpServers: {
       haikodev: {
         command: process.execPath,
         args: [bridgePath],
-        env: { HAIKODEV_TOKEN: token, HAIKODEV_URL: url, HAIKODEV_AGENT: agentId },
+        env: { HAIKODEV_TOKEN: token, HAIKODEV_URL: url, HAIKODEV_AGENT: agentId, HAIKODEV_TOUR: tourId },
       },
     },
   };

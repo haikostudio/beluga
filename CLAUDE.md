@@ -487,7 +487,9 @@ le nom, là-bas le texte).
   quatre différences : le MODÈLE PORTE SON NIVEAU DANS SON NOM — liste fermée lue dans
   `cursor-agent --list-models`, regroupée par modèle, le niveau redevenant un suffixe au lancement
   (`idCursorPourNiveau`), un nom paramétré étant refusé ; les outils du projet se posent en
-  `.cursor/mcp.json` dans le dossier du tour, écarté du dépôt, **avec `--force` qui part TOUJOURS**
+  `.cursor/mcp.json` dans le dossier du tour, écarté du dépôt — **dossier ISOLÉ d'abord quand il est
+  enterré dans le dépôt d'un autre** (`shared/src/racine-cursor.ts`, voir plus bas) —, **avec
+  `--force` qui part TOUJOURS**
   (`buildCursorArgs`) — sans lui le CLI reste en « allowlist » et refuse EN SILENCE tout appel
   d'outil, faute d'une approbation que nul ne peut donner dans un tour `-p` : le pont n'est jamais
   contacté et le moteur invente « la proposition a été refusée », ce qui bloquait TOUTE création de
@@ -525,6 +527,23 @@ le nom, là-bas le texte).
   cette phrase inventée restait la seule chose lue. Un encadré `[!WARNING]` porte maintenant la vraie
   raison (« le pont d'outils n'a pas démarré… ») directement dans le texte. Verrouillé par
   `server/src/test/moteur-cursor.test.ts` et `server/src/test/pont-outils.test.ts`.
+- **UNE CARTE PROPOSÉE S'AFFICHE DANS LE FIL QUI L'A DEMANDÉE, quel que soit le moteur**
+  (`shared/src/racine-cursor.ts` ; `appelDuPontRecevable`, `shared/src/pont-outils.ts` ;
+  `poserLaConfigurationMcp`, `server/src/engines/cursor.ts` ; garde posée en tête des routes
+  `/internal/` de `server/src/http.ts`). Cursor ne lit PAS `.cursor/mcp.json` dans le dossier du
+  tour : il remonte à la RACINE DU DÉPÔT qui le contient et ne lit QUE celle-là — ni `--workspace`
+  ni `--add-dir` n'y changent rien. Le bac du chef bridé (`chefScratch/<projet>`) étant un
+  sous-dossier du dépôt d'HaikoDev, le CLI y prenait la configuration laissée par le dernier tour
+  lancé à la racine : le pont partait avec l'identifiant d'un AUTRE agent, la carte proposée
+  s'écrivait dans le fil d'un agent d'un autre projet terminé deux heures plus tôt, et le chef
+  s'entendait dire que son pont n'avait pas démarré (15/08/2026). Le dossier du tour est donc ISOLÉ
+  (`git init`) quand il est enterré dans le dépôt d'un autre — on n'écrit JAMAIS chez le voisin — et
+  chaque tour porte un IDENTIFIANT (`LiveRun.tourId`, `HAIKODEV_TOUR`) que le pont renvoie : un
+  appel qui n'est pas celui du tour en cours est REFUSÉ en clair, jamais écrit ailleurs. La
+  proposition est enfin rangée sous le message RÉELLEMENT touché (`attachToCurrentMessage` le rend),
+  au lieu d'un « dernier message » relu à part. Verrouillé par
+  `server/src/test/carte-proposee-dans-le-bon-fil.test.ts` et
+  `scripts/verif-carte-proposee-dans-le-fil.mjs`.
 - **Le menu des modèles garde la version la plus récente de chaque FAMILLE, jamais les trois plus
   récents tout court** (`familleDeModele`, `limiterAuxPlusRecents`, `shared/src/catalogue-modeles.ts` ;
   tri par `versionOf`) : couper la liste entière à trois entrées ne retirait pas des vieilleries mais

@@ -238,6 +238,8 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
       set('mcp_servers.haikodev.env.HAIKODEV_TOKEN', options.env.HAIKODEV_TOKEN);
       set('mcp_servers.haikodev.env.HAIKODEV_URL', options.env.HAIKODEV_URL ?? '');
       set('mcp_servers.haikodev.env.HAIKODEV_AGENT', options.env.HAIKODEV_AGENT ?? '');
+      // Le tour, pour que le démon reconnaisse un appel venu d'ailleurs.
+      set('mcp_servers.haikodev.env.HAIKODEV_TOUR', options.env.HAIKODEV_TOUR ?? '');
     }
     /*
      * LES OUTILS DU PROJET SONT LES SEULS DANS LA PIÈCE. Un autre serveur

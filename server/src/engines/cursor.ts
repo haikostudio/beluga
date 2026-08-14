@@ -1,10 +1,13 @@
-import { spawn, execFile } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   API_CURSOR,
   CREDIT_HORS_DE_PORTEE,
+  DOSSIER_CONFIGURATION,
+  FICHIER_CONFIGURATION,
+  MARQUE_DE_RACINE,
   MODELE_CURSOR_PAR_DEFAUT,
   OUTIL_PLAN_CURSOR,
   OUTIL_TACHES_CURSOR,
@@ -16,6 +19,8 @@ import {
   modePlanFermeLEcriture,
   modelesCursorDepuisListe,
   outilCursor,
+  poseDeConfigurationCursor,
+  racineLueParCursor,
   raisonDeLaSortieCursor,
   raisonDeRefusCursor,
   texteDuPlanCursor,
@@ -196,25 +201,49 @@ export async function etatDuCompteCursor(cle: string): Promise<EtatCompteCursor>
 
 /**
  * BRANCHER LES OUTILS DU PROJET. Le CLI ne prend pas de fichier de
- * configuration en argument : il lit `.cursor/mcp.json` à la racine de l'espace
- * de travail, ou celui du dossier personnel. On recopie donc la configuration
- * de l'agent — déjà écrite par le démon, au MÊME format (`mcpServers`) — dans
- * le dossier du tour, et on l'écarte du dépôt par son fichier d'exclusion
- * LOCAL : un fichier de service n'a rien à faire dans le travail d'une carte.
+ * configuration en argument : il lit `.cursor/mcp.json`. Pas dans le dossier du
+ * tour — À LA RACINE DU DÉPÔT qui le contient, et NULLE PART AILLEURS
+ * (`shared/src/racine-cursor.ts` : constaté sur la machine, ni `--workspace` ni
+ * `--add-dir` n'y changent rien). On recopie donc la configuration de l'agent —
+ * déjà écrite par le démon, au MÊME format (`mcpServers`) — dans le dossier du
+ * tour, et quand ce dossier est ENTERRÉ dans le dépôt d'un autre, on en fait
+ * d'abord une racine à lui : sans quoi Cursor lirait la configuration du
+ * voisin, avec l'identifiant d'un autre agent. L'exclusion du dépôt reste
+ * posée par le fichier LOCAL : un fichier de service n'a rien à faire dans le
+ * travail d'une carte.
  */
 export function poserLaConfigurationMcp(cwd: string, mcpConfigPath: string | undefined): void {
   if (!mcpConfigPath) return;
   try {
     const contenu = fs.readFileSync(mcpConfigPath, 'utf8');
-    const dossier = path.join(cwd, '.cursor');
+    const racine = racineLueParCursor(cwd, (dossier) => fs.existsSync(path.join(dossier, MARQUE_DE_RACINE)));
+    const pose = poseDeConfigurationCursor(cwd, racine);
+    if (pose.isoler) isolerLeDossier(pose.dossier, pose.depotVoisin);
+    const dossier = path.join(pose.dossier, DOSSIER_CONFIGURATION);
     fs.mkdirSync(dossier, { recursive: true });
-    fs.writeFileSync(path.join(dossier, 'mcp.json'), contenu, 'utf8');
-    ecarterDuDepot(cwd, '/.cursor/');
+    fs.writeFileSync(path.join(dossier, FICHIER_CONFIGURATION), contenu, 'utf8');
+    ecarterDuDepot(pose.dossier, `/${DOSSIER_CONFIGURATION}/`);
   } catch (err) {
     // Sans outils, l'agent travaille quand même : il ne peut simplement pas
     // lire la mémoire du projet ni poser de question. On le journalise.
     log.warn('outils du projet non branchés pour Cursor', String(err).slice(0, 200));
   }
+}
+
+/**
+ * FAIRE DU DOSSIER DU TOUR UNE RACINE À LUI. Un `git init` suffit : la remontée
+ * de Cursor s'arrête au premier dépôt rencontré, donc à celui-ci. Le dossier
+ * visé n'est jamais un projet — c'est le bac du chef bridé
+ * (`<données>/chef-scratch/<projet>`), qui se trouvait enterré dans le dépôt
+ * d'HaikoDev. Geste fait UNE fois : un dossier déjà racine n'est pas touché.
+ */
+function isolerLeDossier(cwd: string, depotVoisin: string | undefined): void {
+  if (fs.existsSync(path.join(cwd, MARQUE_DE_RACINE))) return;
+  fs.mkdirSync(cwd, { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd, stdio: 'ignore' });
+  log.info(
+    `dossier de travail isolé pour Cursor : ${cwd} (il aurait lu les outils de ${depotVoisin ?? 'son dépôt parent'})`,
+  );
 }
 
 /**

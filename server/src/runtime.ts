@@ -129,6 +129,13 @@ import { lancerAvecRelances } from './relance-moteur.js';
 
 export interface LiveRun {
   agentId: string;
+  /**
+   * L'identifiant de CE tour. Le pont d'outils le recopie depuis sa
+   * configuration et le renvoie à chaque appel : c'est la preuve que l'appel
+   * vient bien du tour qui tourne, et non d'un fichier resté sur le disque ou
+   * lu dans le dépôt d'un voisin (`shared/src/pont-outils.ts`).
+   */
+  tourId: string;
   handle: EngineHandle;
   messageId: string;
   startedAt: number;
@@ -1078,8 +1085,17 @@ async function startTurn(
   store.saveMessage(assistantMessage);
   bus.emit({ type: 'message.upsert', message: assistantMessage });
 
+  /*
+   * L'IDENTIFIANT DE CE TOUR-CI. Il part dans la configuration d'outils et
+   * revient avec chaque appel du pont : le démon refuse alors ce qui vient
+   * d'une configuration périmée ou lue chez un voisin, au lieu d'écrire dans la
+   * conversation de quelqu'un d'autre (`appelDuPontRecevable`).
+   */
+  const tourId = store.newId();
+
   const runState: LiveRun = {
     agentId: agent.id,
+    tourId,
     handle: null as unknown as EngineHandle,
     messageId: assistantMessage.id,
     startedAt: Date.now(),
@@ -1105,7 +1121,7 @@ async function startTurn(
   const gardePath = path.join(CONFIG.selfPath, 'server', 'garde-demon.mjs');
   const token = getInternalToken();
   const url = `http://127.0.0.1:${CONFIG.port}`;
-  writeMcpConfig(mcpConfigPath, token, url, agent.id, bridgePath);
+  writeMcpConfig(mcpConfigPath, token, url, agent.id, bridgePath, tourId);
 
   const isOrchestrator = agent.role === 'orchestrator';
   // L'exception HaikoDev : sur son propre dépôt, le chef d'orchestre est un
@@ -1151,6 +1167,9 @@ async function startTurn(
     HAIKODEV_TOKEN: token,
     HAIKODEV_URL: url,
     HAIKODEV_AGENT: agent.id,
+    // Le tour, pas seulement l'agent : c'est lui qui rend un appel d'outil
+    // rattachable au travail en cours (`appelDuPontRecevable`).
+    HAIKODEV_TOUR: tourId,
     /*
      * Le numéro du démon voyage avec l'agent : le garde posé devant ses
      * commandes (`shared/src/garde-demon.ts`) doit pouvoir reconnaître un
@@ -2433,7 +2452,13 @@ function eteindreEcritureOrpheline(
   return true;
 }
 
-/** Ajoute une proposition ou un téléchargement au message en cours d'écriture. */
+/**
+ * Ajoute une proposition ou un téléchargement au message en cours d'écriture.
+ * Rend l'identifiant du message touché : c'est LUI que la table des
+ * propositions doit désigner, jamais un « dernier message » relu à part — les
+ * deux pouvaient déjà se contredire quand une demande en file arrivait pendant
+ * le tour.
+ */
 export function attachToCurrentMessage(
   agentId: string,
   patch: {
@@ -2441,12 +2466,12 @@ export function attachToCurrentMessage(
     question?: Message['questions'][number];
     download?: Message['downloads'][number];
   },
-): void {
+): string | undefined {
   const run = live.get(agentId);
   const messageId = run?.messageId ?? store.listMessages(agentId, 1).slice(-1)[0]?.id;
-  if (!messageId) return;
+  if (!messageId) return undefined;
   const current = store.getMessage(messageId);
-  if (!current) return;
+  if (!current) return undefined;
   const updated = store.saveMessage({
     ...current,
     proposals: patch.proposal ? [...current.proposals, patch.proposal] : current.proposals,
@@ -2483,6 +2508,7 @@ export function attachToCurrentMessage(
       agentId,
     });
   }
+  return messageId;
 }
 
 /**
