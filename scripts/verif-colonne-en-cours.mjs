@@ -285,8 +285,17 @@ async function main() {
 
   /* --------- L'alerte « le serveur ne répond pas » --------------------- */
 
+  /*
+   * Les messages courts sont les bulles du HAUT (`data-toast`, `toasts.tsx`).
+   * On lisait ici un `[data-pile="messages"]` qui n'existe plus depuis que la
+   * pile a été refaite : le sélecteur ne trouvait rien, donc le contrôle « un
+   * vrai refus s'affiche toujours » échouait quoi qu'il arrive, et son voisin
+   * passait pour une raison qui n'était pas la bonne.
+   */
   const messages = () =>
-    page.evaluate(() => document.querySelector('[data-pile="messages"]')?.textContent ?? '');
+    page.evaluate(() =>
+      [...document.querySelectorAll('[data-toast]')].map((bulle) => bulle.textContent ?? '').join(' | '),
+    );
 
   const disponible = await page.evaluate(() => typeof window.haikodevEssai?.refus === 'function');
   record('le point d’essai des refus est là', disponible);
