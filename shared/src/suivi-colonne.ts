@@ -1,4 +1,9 @@
-import { RAISON_TRACE_INCONNUE, traceAcquise, type TraceDuTravail } from './carte-interrompue.js';
+import {
+  RAISON_TRACE_INCONNUE,
+  RAISON_TRAVAIL_HORS_COPIE,
+  traceAcquise,
+  type TraceDuTravail,
+} from './carte-interrompue.js';
 import { COLUMN_LABELS, ColumnKey } from './columns.js';
 import { etatDuDepart } from './depart-programme.js';
 import type { AgentRole } from './models.js';
@@ -521,6 +526,18 @@ export function issueDeFinDeTour(
   // d'observation, et elle se dit autrement.
   if (trace === 'inconnue') return { colonne: 'planned', raison: RAISON_TRACE_INCONNUE, retenue: true };
 
+  /*
+   * « J'ai vu changer, mais ailleurs » n'est pas « rien n'a bougé » non plus.
+   * L'agent est sorti de sa copie et a écrit dans le dossier partagé du projet :
+   * sa branche est vide, donc la carte ne se ferme pas — mais lui reprocher de
+   * n'avoir rien fait est FAUX, et c'est précisément ce que l'utilisateur
+   * démentait d'un `git status`. La phrase dit ce qui a été vu et où le
+   * chercher. Elle passe APRÈS `dejaEnregistre` : une carte dont le code est
+   * DÉJÀ sur sa branche reste close, quoi qu'un agent ait touché à côté.
+   */
   if (dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE, retenue: false };
+
+  if (trace === 'ailleurs') return { colonne: 'planned', raison: RAISON_TRAVAIL_HORS_COPIE, retenue: true };
+
   return { colonne: 'planned', raison: RAISON_SANS_MODIFICATION, retenue: true };
 }

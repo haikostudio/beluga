@@ -121,6 +121,77 @@ export async function traceDuTravailDepuis(
   return enCours.trim().length > 0 ? 'oui' : 'non';
 }
 
+/**
+ * LES FICHIERS QUI BOUGENT DANS UN DOSSIER, à un instant donné.
+ *
+ * La liste brute de `git status --porcelain`, rendue comparable : une ligne par
+ * fichier, triée, sans les blancs de bord. On la prend AVANT le tour et APRÈS,
+ * et la différence dit ce que CE tour a remué — le reste appartenait déjà au
+ * dossier avant qu'il ne commence. `null` quand git n'a pas répondu : un trou ne
+ * se compare pas.
+ */
+export async function fichiersRemues(dossier: string): Promise<string[] | null> {
+  const sortie = await git(dossier, ['status', '--porcelain']);
+  if (sortie === null) return null;
+  return sortie
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .sort();
+}
+
+/**
+ * LE CONSTAT COMPLET DE FIN DE TOUR — la copie de la carte, ET le dossier
+ * partagé du projet.
+ *
+ * Le constat ne regardait qu'un seul dossier : la copie de travail de la carte.
+ * Or un agent peut en sortir en cours de route — un `cd` vers la racine du
+ * projet, un chemin relatif écrit depuis cette racine — et c'est arrivé : sa
+ * copie restait vierge pendant que le dossier du projet portait ses fichiers
+ * modifiés. La carte s'entendait alors dire « aucun fichier n'a changé », phrase
+ * que l'utilisateur démentait d'un `git status`, et repartait retenue en
+ * « Planifié ».
+ *
+ * On regarde donc les deux, dans cet ordre :
+ *
+ *  1. la copie de la carte a bougé → « oui », rien d'autre à demander ;
+ *  2. elle n'a pas bougé, mais le dossier PARTAGÉ porte des fichiers remués qui
+ *     n'y étaient pas au début du tour → « ailleurs ». Le travail existe, il
+ *     n'est simplement pas récoltable sur la branche de la carte ;
+ *  3. sinon, le constat d'origine tient mot pour mot.
+ *
+ * Le dossier partagé est aussi celui du chef, de l'analyse et de la publication :
+ * on ne compare donc PAS son état absolu, mais ce qui s'y est ajouté PENDANT ce
+ * tour. Ce qui traînait déjà avant n'est jamais mis au compte de la carte. Et
+ * quand la carte travaille à même le dossier du projet (aucune copie séparée),
+ * il n'y a qu'un dossier : la question ne se pose pas.
+ */
+export async function traceDuTravailDuTour(entree: {
+  /** La copie de travail où l'agent a vécu son tour. */
+  dossier: string;
+  /** Où en était cette copie avant le tour. */
+  repere: RepereDepot | null;
+  /** Le dossier PARTAGÉ du projet, quand il diffère de la copie. */
+  projet?: string;
+  /** Les fichiers déjà remués dans ce dossier partagé avant le tour. */
+  remuesAvant?: string[] | null;
+}): Promise<TraceDuTravail> {
+  const propre = await traceDuTravailDepuis(entree.dossier, entree.repere);
+  if (propre !== 'non') return propre;
+
+  const projet = entree.projet;
+  if (!projet || projet === entree.dossier || entree.remuesAvant === undefined) return 'non';
+  // Un repère qu'on n'a pas pu prendre ne prouve rien : on ne fabrique pas un
+  // constat par soustraction avec du vide.
+  if (entree.remuesAvant === null) return 'non';
+
+  const apres = await fichiersRemues(projet);
+  if (apres === null) return 'non';
+
+  const deja = new Set(entree.remuesAvant);
+  return apres.some((ligne) => !deja.has(ligne)) ? 'ailleurs' : 'non';
+}
+
 /** Une fonctionnalité posée sur sa branche. */
 export interface BrancheIsolee {
   commits: CommitObserve[];

@@ -315,9 +315,23 @@ le nom, là-bas le texte).
   depuis plus de 15 s, ou deux requêtes d'affilée sans réponse. Une requête isolée qui expire est
   rendue à l'appelant, jamais affichée en bulle rouge — un lancement ne répond qu'à la FIN du tour.
 - **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
-  carte, jamais le fait que le moteur ait répondu. Le constat rend TROIS réponses
-  (`TraceDuTravail`, `shared/src/carte-interrompue.ts`) : oui, non, et « je n'ai pas pu regarder » —
-  seul « oui » ferme la carte, un dépôt muet ne vaut plus une preuve de travail.
+  carte, jamais le fait que le moteur ait répondu. Le constat rend QUATRE réponses
+  (`TraceDuTravail`, `shared/src/carte-interrompue.ts`) : oui, non, « je n'ai pas pu regarder », et
+  « ça a bougé AILLEURS » — seul « oui » ferme la carte, un dépôt muet ne vaut plus une preuve de
+  travail.
+- **LE CONSTAT REGARDE LES DEUX DOSSIERS : la copie de la carte ET le dossier PARTAGÉ du projet**
+  (`traceDuTravailDuTour` / `fichiersRemues`, `server/src/hors-tache.ts` ; `RAISON_TRAVAIL_HORS_COPIE`,
+  `shared/src/carte-interrompue.ts`). Un agent est censé rester dans sa copie, rien ne l'y oblige : un
+  `cd` vers la racine du projet ou un chemin relatif écrit depuis cette racine, et son travail atterrit
+  à côté. La copie restait alors vierge, le dossier du projet portait pourtant ses fichiers modifiés,
+  et la carte s'entendait dire « aucun fichier n'a changé » — phrase que l'utilisateur démentait d'un
+  `git status`. On note donc ce qui remue DÉJÀ dans le dossier partagé AVANT le tour, et ce qui s'y
+  ajoute pendant vaut trace `ailleurs` : la carte revient en « Planifié » RETENUE (rien n'est
+  récoltable sur sa branche), mais sa phrase dit ce qui a été vu et où le chercher. Le dossier partagé
+  étant aussi celui du chef, de l'analyse et de la publication, on ne compare JAMAIS son état absolu —
+  seulement le delta du tour ; et une carte qui travaille à même le dossier du projet n'a qu'un
+  dossier, donc rien de plus à demander. Verrouillé par `server/src/test/travail-hors-copie.test.ts`
+  et `scripts/verif-travail-hors-copie.mjs`.
 - **Mais RIEN NE RESTE COINCÉ DANS « EN COURS » : chaque fin de tour a une ISSUE**
   (`issueDeFinDeTour`, `shared/src/suivi-colonne.ts` ; `carteApresFinDeTour`,
   `server/src/deplacement-carte.ts`). Dépôt qui a bougé → « Terminé ». Rien changé mais code DÉJÀ
