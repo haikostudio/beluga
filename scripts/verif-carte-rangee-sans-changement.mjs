@@ -97,25 +97,60 @@ const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const jeton = crypto.randomBytes(32).toString('hex');
 const PROJET_ID = 'p-essai';
 
-/* Les trois cartes du contrôle, chacune avec son histoire. */
+/*
+ * Les cartes du contrôle, chacune avec son histoire.
+ *
+ * Les trois premières vivent un tour qui SE TERMINE sous nos yeux : elles
+ * portent donc la MARQUE DE VOL (`tourEnVolDepuis`), comme toute carte qu'un
+ * tour tient réellement.
+ *
+ * Les trois dernières sont les OUBLIÉES — celles de la capture d'origine : leur
+ * tour est fini depuis longtemps, leur marque a été retirée, leur agent est
+ * rendu, et plus aucune fin de tour ne viendra les ranger. Seul le balayage de
+ * l'ordonnanceur (`rangerLesCartesOubliees`) peut encore les débloquer.
+ */
 const CARTES = [
   {
     id: 'c-deja-livre',
     titre: 'Essai — le travail était déjà livré',
     codeDejaEnregistre: true,
     statutAgent: 'done',
+    enVol: true,
   },
   {
     id: 'c-neuve',
     titre: 'Essai — rien n’a jamais été enregistré',
     codeDejaEnregistre: false,
     statutAgent: 'done',
+    enVol: true,
   },
   {
     id: 'c-au-travail',
     titre: 'Essai — un agent travaille encore',
     codeDejaEnregistre: false,
     statutAgent: 'running',
+    enVol: true,
+  },
+  {
+    id: 'c-oubliee-livree',
+    titre: 'Essai — oubliée en « En cours », travail déjà livré',
+    codeDejaEnregistre: true,
+    statutAgent: 'done',
+    enVol: false,
+  },
+  {
+    id: 'c-oubliee-neuve',
+    titre: 'Essai — oubliée en « En cours », rien jamais livré',
+    codeDejaEnregistre: false,
+    statutAgent: 'done',
+    enVol: false,
+  },
+  {
+    id: 'c-oubliee-echec',
+    titre: 'Essai — oubliée en « En cours », mais son tour a échoué',
+    codeDejaEnregistre: false,
+    statutAgent: 'failed',
+    enVol: false,
   },
 ];
 
@@ -166,7 +201,14 @@ function poserLeProjetEtLesCartes() {
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
       agentId,
       codeDejaEnregistre: essai.codeDejaEnregistre,
-      scheduling: { asap: false, attempts: 1, restarts: 0 },
+      scheduling: {
+        asap: false,
+        attempts: 1,
+        restarts: 0,
+        // La marque de vol : posée au démarrage du tour, retirée quand la carte
+        // est rangée. Une carte OUBLIÉE n'en porte plus.
+        ...(essai.enVol ? { tourEnVolDepuis: maintenant } : {}),
+      },
       createdAt: maintenant,
       updatedAt: maintenant,
     };
@@ -205,7 +247,7 @@ async function terminerLesTours() {
   const store = await import(path.join(RACINE, 'server/dist/store.js'));
   const { carteApresFinDeTour } = await import(path.join(RACINE, 'server/dist/deplacement-carte.js'));
 
-  for (const essai of CARTES.filter((c) => c.statutAgent === 'done')) {
+  for (const essai of CARTES.filter((c) => c.enVol && c.statutAgent === 'done')) {
     const carte = store.getCard(essai.id);
     store.saveCard(
       carteApresFinDeTour(carte, {
@@ -262,6 +304,24 @@ async function lireLeTableau(page) {
   }, CARTES.map((c) => c.id));
 }
 
+/**
+ * On laisse le démon faire son tour de boucle (quinze secondes) et on relit le
+ * tableau jusqu'à ce que les oubliées aient bougé — sans jamais dépasser la
+ * limite, pour qu'un échec soit un échec et non une attente sans fin.
+ */
+async function attendreLeBalayage(page, limiteMs = 90000) {
+  const fin = Date.now() + limiteMs;
+  let vu = await lireLeTableau(page);
+  while (Date.now() < fin) {
+    if (vu.cartes['c-oubliee-livree']?.colonne !== 'running') return vu;
+    await page.waitForTimeout(5000);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(2000);
+    vu = await lireLeTableau(page);
+  }
+  return vu;
+}
+
 async function main() {
   if (!(await attendrePort())) {
     console.error('Le démon d’essai n’a pas démarré :\n' + journal.join(''));
@@ -276,7 +336,11 @@ async function main() {
   const { page, erreurs } = await ouvrirLeTableau(navigateur);
 
   const avant = await lireLeTableau(page);
-  noter('au départ, les trois cartes sont dans « En cours »', avant.enCours === '3', `compteur=${avant.enCours}`);
+  noter(
+    `au départ, les ${CARTES.length} cartes sont dans « En cours »`,
+    avant.enCours === String(CARTES.length),
+    `compteur=${avant.enCours}`,
+  );
   noter(
     'chacune est bien affichée dans la colonne « En cours »',
     CARTES.every((c) => avant.cartes[c.id]?.colonne === 'running'),
@@ -322,8 +386,41 @@ async function main() {
     apres.cartes['c-au-travail']?.colonne === 'running',
     `colonne=${apres.cartes['c-au-travail']?.colonne}`,
   );
-  noter('le compteur de la colonne suit', apres.enCours === '1', `compteur=${apres.enCours}`);
-  noter('la colonne « Terminé » compte la carte rangée', apres.termine === '1', `compteur=${apres.termine}`);
+
+  /*
+   * LES OUBLIÉES, celles de la capture d'origine. Aucune fin de tour ne viendra
+   * les ranger : on laisse tourner la boucle de l'ordonnanceur du démon d'essai
+   * (quinze secondes) et on regarde le tableau. Rien n'est imité — c'est le
+   * démon qui balaie, tout seul.
+   */
+  const balaye = await attendreLeBalayage(page);
+  noter(
+    'sans aucune fin de tour, le démon range la carte oubliée dont le code était livré',
+    balaye.cartes['c-oubliee-livree']?.colonne === 'done',
+    `colonne=${balaye.cartes['c-oubliee-livree']?.colonne}`,
+  );
+  noter(
+    '…et sa raison est lisible sur la carte',
+    /déjà livré/.test(balaye.cartes['c-oubliee-livree']?.texte ?? ''),
+    (balaye.cartes['c-oubliee-livree']?.texte ?? '').slice(0, 160),
+  );
+  noter(
+    'la carte oubliée qui n’avait rien livré redescend en file, avec sa raison',
+    balaye.cartes['c-oubliee-neuve']?.colonne === 'planned' &&
+      /sans ranger la carte/.test(balaye.cartes['c-oubliee-neuve']?.texte ?? ''),
+    `colonne=${balaye.cartes['c-oubliee-neuve']?.colonne} — ${(balaye.cartes['c-oubliee-neuve']?.texte ?? '').slice(0, 120)}`,
+  );
+  noter(
+    'une carte dont le tour a ÉCHOUÉ reste en « En cours », là où on la relance',
+    balaye.cartes['c-oubliee-echec']?.colonne === 'running',
+    `colonne=${balaye.cartes['c-oubliee-echec']?.colonne}`,
+  );
+  noter(
+    'le compteur de la colonne suit',
+    balaye.enCours === '2',
+    `compteur=${balaye.enCours} (attendu 2 : l’agent au travail et le tour en échec)`,
+  );
+  noter('la colonne « Terminé » compte les cartes rangées', balaye.termine === '2', `compteur=${balaye.termine}`);
 
   await page.screenshot({ path: path.join(TMP, 'carte-rangee-sans-changement.png') });
 

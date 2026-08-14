@@ -402,6 +402,64 @@ export interface IssueDeFinDeTour {
 /** L'issue « on ne touche à rien », rendue par les trois cas qui s'abstiennent. */
 export const CARTE_INCHANGEE: IssueDeFinDeTour = { colonne: null, raison: null, retenue: false };
 
+/**
+ * La phrase portée par une carte retrouvée en « En cours » alors que plus rien
+ * ne la tenait : son tour s'est terminé sans jamais la ranger.
+ */
+export const RAISON_TOUR_SANS_ISSUE =
+  'Le tour s’est terminé sans ranger la carte : elle revient en « Planifié » plutôt que de rester bloquée en « En cours ».';
+
+/** Ce qu'il faut savoir d'une carte pour dire si elle est OUBLIÉE. */
+export interface CarteOubliee {
+  colonne: ColumnKey;
+  /** Un tour d'exécution la tient encore (marque `tourEnVolDepuis`). */
+  tourEnVol: boolean;
+  /** Un agent — quel que soit son rôle — travaille en ce moment dessus. */
+  agentAuTravail: boolean;
+  /** Son dernier tour s'est mal terminé : échec, ou arrêt à la main. */
+  dernierTourEnEchec: boolean;
+  /** Elle a déjà produit du code, ce tour-ci ou avant. */
+  dejaEnregistre: boolean;
+}
+
+/**
+ * LA CARTE OUBLIÉE EN « EN COURS » — le rattrapage de celles qui étaient DÉJÀ
+ * coincées.
+ *
+ * `issueDeFinDeTour` donne une issue à tout tour QUI SE TERMINE. Elle ne peut
+ * rien pour les cartes bloquées AVANT elle : leur tour est fini depuis
+ * longtemps, leur marque de vol a été retirée, leur agent est rendu. Plus aucun
+ * tour ne se terminera pour elles, donc plus rien ne les rangera — elles
+ * restaient comptées dans « EN COURS » à jamais, exactement le bogue qu'on
+ * corrige. Le balayage de l'ordonnanceur les retrouve et cette règle dit ce
+ * qu'il faut en faire.
+ *
+ * Quatre situations n'y touchent PAS, et c'est ce qui rend le balayage sûr :
+ *
+ *   - la carte n'est pas en « En cours » : il n'y a rien à débloquer ;
+ *   - un tour la TIENT encore (`tourEnVolDepuis`, posée au démarrage du tour et
+ *     retirée seulement une fois la carte rangée) : le ranger maintenant, ce
+ *     serait la ranger en plein vol ;
+ *   - un agent travaille dessus : l'agent fait foi, pas la colonne ;
+ *   - son dernier tour a ÉCHOUÉ ou a été ARRÊTÉ à la main : la règle est déjà
+ *     écrite, l'incident est dit en rouge et la carte reste là où on la relance.
+ *
+ * Restent les vraies oubliées, et leur issue est la MÊME que celle d'une fin de
+ * tour sans changement : code déjà livré → « Terminé » avec sa raison ; rien
+ * jamais enregistré → « Planifié », RETENUE, avec la sienne. On ne peut plus
+ * constater le dépôt d'un tour terminé il y a des heures : le drapeau
+ * `codeDejaEnregistre` est le seul témoin qui reste, et il suffit.
+ */
+export function issueDeCarteOubliee(etat: CarteOubliee): IssueDeFinDeTour {
+  if (etat.colonne !== 'running') return CARTE_INCHANGEE;
+  if (etat.tourEnVol) return CARTE_INCHANGEE;
+  if (etat.agentAuTravail) return CARTE_INCHANGEE;
+  if (etat.dernierTourEnEchec) return CARTE_INCHANGEE;
+
+  if (etat.dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE, retenue: false };
+  return { colonne: 'planned', raison: RAISON_TOUR_SANS_ISSUE, retenue: true };
+}
+
 export function issueDeFinDeTour(
   colonne: ColumnKey,
   reussi: boolean,

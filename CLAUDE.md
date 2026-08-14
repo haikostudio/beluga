@@ -276,6 +276,14 @@ le nom, là-bas le texte).
   même tour vide toutes les quinze secondes), raison écrite dessus. Un tour en ÉCHEC ne bouge rien :
   l'incident est déjà dit en rouge, là où on relance. Verrouillé par
   `server/src/test/suivi-colonne.test.ts` et `scripts/verif-carte-rangee-sans-changement.mjs`.
+- **…et les cartes DÉJÀ coincées sont rattrapées par un BALAYAGE** (`issueDeCarteOubliee`,
+  `shared/src/suivi-colonne.ts` ; `rangerLesCartesOubliees`, `server/src/deplacement-carte.ts`, appelé
+  par `tick`) : une fin de tour ne range que SA carte, et celles bloquées avant cette règle n'attendent
+  plus aucune fin de tour. Toutes les quinze secondes — donc aussi au démarrage —, le démon relit
+  « En cours » (`store.cartesEnCours`) et applique la MÊME issue : code déjà livré → « Terminé »,
+  sinon → « Planifié » RETENUE avec `RAISON_TOUR_SANS_ISSUE`. Trois refus rendent le balayage sûr : un
+  tour qui TIENT encore la carte (marque `tourEnVolDepuis`), un agent au travail, un dernier tour en
+  ÉCHEC ou arrêté à la main.
 - **Une tâche COUPÉE PAR UNE PANNE ne passe jamais pour terminée** (`shared/src/carte-interrompue.ts`)
   : tant qu'un tour d'exécution tient une carte, elle porte une MARQUE (`scheduling.tourEnVolDepuis`),
   retirée seulement une fois la carte rangée. Aucun moteur ne survivant à un arrêt du serveur, toute

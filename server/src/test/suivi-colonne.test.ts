@@ -12,6 +12,7 @@ import {
   colonneDeReprise,
   colonneEnFinDeTour,
   demarrageAutomatiqueAutorise,
+  issueDeCarteOubliee,
   effetDuDepot,
   etatVisuelCarte,
   gesteCarte,
@@ -22,6 +23,7 @@ import {
   RAISON_MOTEUR_INJOIGNABLE,
   RAISON_SANS_MODIFICATION,
   RAISON_SUSPENDU,
+  RAISON_TOUR_SANS_ISSUE,
   RAISON_TRACE_INCONNUE,
   issueDeFinDeTour,
 } from '@haikodev/shared';
@@ -384,4 +386,65 @@ test('la carte remise en « Planifié » avec des reprises repart toute seule', 
 test('la raison du moteur injoignable est écrite en toutes lettres', () => {
   assert.match(RAISON_MOTEUR_INJOIGNABLE, /moteur/i);
   assert.match(RAISON_MOTEUR_INJOIGNABLE, /Planifié/);
+});
+
+/* -------- Le filet : les cartes OUBLIÉES en « En cours » -------- */
+
+/** Une carte oubliée ordinaire : plus rien ne la tient, rien n'a jamais été livré. */
+const OUBLIEE = {
+  colonne: 'running' as const,
+  tourEnVol: false,
+  agentAuTravail: false,
+  dernierTourEnEchec: false,
+  dejaEnregistre: false,
+};
+
+test('une carte oubliée en « En cours », sans code livré, redescend en file et est retenue', () => {
+  const issue = issueDeCarteOubliee(OUBLIEE);
+  assert.equal(issue.colonne, 'planned');
+  assert.equal(issue.raison, RAISON_TOUR_SANS_ISSUE);
+  assert.equal(issue.retenue, true);
+});
+
+test('une carte oubliée dont le code était DÉJÀ livré est rangée dans « Terminé », avec sa raison', () => {
+  const issue = issueDeCarteOubliee({ ...OUBLIEE, dejaEnregistre: true });
+  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.raison, RAISON_DEJA_LIVRE);
+  assert.equal(issue.retenue, false);
+});
+
+test('un tour qui TIENT encore la carte (marque de vol) interdit de la ranger', () => {
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, tourEnVol: true }).colonne, null);
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, tourEnVol: true, dejaEnregistre: true }).colonne, null);
+});
+
+test('un agent au travail interdit de la ranger : l’agent fait foi, pas la colonne', () => {
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, agentAuTravail: true }).colonne, null);
+});
+
+test('un dernier tour en échec laisse la carte là où on la relance', () => {
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, dernierTourEnEchec: true }).colonne, null);
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, dernierTourEnEchec: true, dejaEnregistre: true }).colonne, null);
+});
+
+test('hors « En cours », le balayage ne touche à rien', () => {
+  for (const colonne of COLUMN_KEYS.filter((c) => c !== 'running')) {
+    assert.equal(issueDeCarteOubliee({ ...OUBLIEE, colonne }).colonne, null, `depuis « ${colonne} »`);
+    assert.equal(
+      issueDeCarteOubliee({ ...OUBLIEE, colonne, dejaEnregistre: true }).colonne,
+      null,
+      `depuis « ${colonne} », code livré`,
+    );
+  }
+});
+
+test('une carte retenue par le balayage ne repart pas toute seule', () => {
+  const issue = issueDeCarteOubliee(OUBLIEE);
+  assert.equal(demarrageAutomatiqueAutorise({ asap: true, attempts: 1, restarts: 1, suspendu: issue.retenue }), false);
+});
+
+test('la raison du tour sans issue dit où va la carte, sans accuser le travail', () => {
+  assert.match(RAISON_TOUR_SANS_ISSUE, /Planifié/);
+  assert.match(RAISON_TOUR_SANS_ISSUE, /En cours/);
+  assert.notEqual(RAISON_TOUR_SANS_ISSUE, RAISON_SANS_MODIFICATION);
 });

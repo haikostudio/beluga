@@ -29,6 +29,7 @@ import {
   runningAgentIds,
   veilleDesToursBloques,
 } from './runtime.js';
+import { rangerLesCartesOubliees } from './deplacement-carte.js';
 import { canStartAgent, snapshot } from './capacity.js';
 import { refreshQuotas } from './accounts.js';
 import { notify } from './notify.js';
@@ -547,6 +548,14 @@ export async function tick(): Promise<void> {
      * manquerait au démarrage d'une carte juste en dessous.
      */
     veilleDesToursBloques();
+
+    /*
+     * LE SECOND FILET : les cartes restées en « En cours » alors que plus rien
+     * ne les tient. Une fin de tour range la sienne ; celles qui étaient DÉJÀ
+     * bloquées avant cette règle n'attendent plus aucune fin de tour, et
+     * seraient restées comptées dans « EN COURS » à jamais.
+     */
+    rangerLesCartesOubliees();
 
     for (const project of store.listProjects()) {
       /*

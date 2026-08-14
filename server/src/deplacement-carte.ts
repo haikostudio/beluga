@@ -4,14 +4,18 @@ import {
   ROLES_QUI_DEPLACENT,
   colonneApresMoteurMuet,
   dateDeMiseEnLignePerimee,
+  issueDeCarteOubliee,
   issueDeFinDeTour,
   traceAcquise,
   tourDeLaCarte,
+  type Agent,
   type AgentRole,
   type Card,
   type ColumnKey,
   type TraceDuTravail,
 } from '@haikodev/shared';
+import { bus } from './bus.js';
+import { log } from './logger.js';
 import * as store from './store.js';
 
 /**
@@ -127,6 +131,75 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
     // la laisse telle quelle plutôt que de l'effacer.
     ...(leSien ? { sansModification: raison ?? undefined } : {}),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Le filet : les cartes OUBLIÉES en « En cours »                       */
+/* ------------------------------------------------------------------ */
+
+/** Les statuts d'agent qui disent « un tour travaille en ce moment ». */
+const STATUTS_AU_TRAVAIL = ['running', 'starting'];
+
+/** Les statuts d'agent qui disent « ce tour s'est mal fini » — on ne range rien. */
+const STATUTS_EN_ECHEC = ['failed', 'stopped'];
+
+/**
+ * LE BALAYAGE DES CARTES OUBLIÉES, passé à chaque tour de l'ordonnanceur.
+ *
+ * `carteApresFinDeTour` donne une issue à tout tour qui SE TERMINE — mais elle
+ * ne peut rien pour les cartes bloquées AVANT elle, dont le tour est fini
+ * depuis longtemps : plus aucune fin de tour ne viendra les ranger. Ce sont
+ * précisément celles que l'utilisateur voit encore comptées dans « EN COURS ».
+ * Le balayage les retrouve et leur applique la même règle
+ * (`issueDeCarteOubliee`).
+ *
+ * Il est joué dans la boucle de quinze secondes, donc AUSSI au démarrage du
+ * démon, juste après la reprise des tours coupés en vol : les deux filets se
+ * complètent sans se marcher dessus — la reprise voit les cartes qui portent
+ * encore leur marque, le balayage celles qui ne portent plus rien.
+ *
+ * Il ne touche jamais une carte qu'un tour tient encore, qu'un agent travaille,
+ * ou dont le dernier tour a échoué : ces trois refus vivent dans la règle pure.
+ */
+export function rangerLesCartesOubliees(): void {
+  const agents = store.listAgents();
+  for (const card of store.cartesEnCours()) {
+    const issue = issueDeCarteOubliee({
+      colonne: card.column,
+      tourEnVol: !!card.scheduling?.tourEnVolDepuis,
+      agentAuTravail: agents.some((a) => a.cardId === card.id && STATUTS_AU_TRAVAIL.includes(a.status)),
+      dernierTourEnEchec: dernierTourEnEchec(card, agents),
+      dejaEnregistre: !!card.codeDejaEnregistre,
+    });
+    if (!issue.colonne) continue;
+
+    const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
+    const rangee = store.saveCard({
+      ...card,
+      column: issue.colonne,
+      position: store.nextPosition(card.projectId, issue.colonne),
+      ...(issue.colonne === 'done' ? { doneAt: card.doneAt ?? Date.now() } : {}),
+      scheduling: {
+        ...scheduling,
+        ...(issue.retenue ? { suspendu: true, waitingReason: issue.raison ?? undefined } : {}),
+      },
+      sansModification: issue.raison ?? undefined,
+    });
+    bus.emit({ type: 'card.upsert', card: rangee });
+    log.info(`carte « ${card.title} » oubliée en « En cours », rangée dans « ${issue.colonne} »`);
+  }
+}
+
+/**
+ * Le dernier tour de cette carte s'est-il mal fini ? On ne regarde QUE l'agent
+ * que la carte reconnaît comme le sien (`card.agentId`) : un vieil agent en
+ * échec, remplacé depuis par un tour qui a abouti, ne doit pas retenir la carte
+ * pour toujours. Sans agent inscrit, il n'y a pas d'échec à respecter.
+ */
+function dernierTourEnEchec(card: Card, agents: Agent[]): boolean {
+  if (!card.agentId) return false;
+  const sien = agents.find((a) => a.id === card.agentId);
+  return !!sien && STATUTS_EN_ECHEC.includes(sien.status);
 }
 
 /**
