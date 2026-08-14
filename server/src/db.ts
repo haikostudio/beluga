@@ -783,6 +783,17 @@ const MIGRATIONS: {
       WHERE json_extract(data, '$.sansModification') = ${litteralSql(ANCIENNE_PHRASE_DEJA_LIVRE)};
     `,
   },
+  {
+    id: 26,
+    name: 'credit-cursor-dans-les-releves',
+    siTable: 'quota_samples',
+    // La courbe du volet ne savait tracer que des POURCENTAGES de fenêtre.
+    // Cursor n'en a pas : sa dépense se lit en centimes. On ajoute la colonne
+    // sans toucher aux relevés existants (NULL = pas de montant ce jour-là).
+    sql: `
+      ALTER TABLE quota_samples ADD COLUMN credit_cents INTEGER;
+    `,
+  },
 ];
 
 export function openDb(): DB {

@@ -131,15 +131,22 @@ export function deleteProject(id: string): void {
 /* ------------------------------------------------------------------ */
 
 /** Un relevé par compte, au plus un par quart d'heure : de quoi tracer une courbe. */
-export function recordQuotaSample(account: string, sessionPct?: number, weeklyPct?: number): void {
+export function recordQuotaSample(
+  account: string,
+  sessionPct?: number,
+  weeklyPct?: number,
+  creditCents?: number,
+): void {
   const recent = getDb()
     .prepare('SELECT at FROM quota_samples WHERE account = ? ORDER BY at DESC LIMIT 1')
     .get(account) as { at: number } | undefined;
   if (recent && now() - recent.at < 15 * 60 * 1000) return;
 
   getDb()
-    .prepare('INSERT INTO quota_samples (account, at, session_pct, weekly_pct) VALUES (?, ?, ?, ?)')
-    .run(account, now(), sessionPct ?? null, weeklyPct ?? null);
+    .prepare(
+      'INSERT INTO quota_samples (account, at, session_pct, weekly_pct, credit_cents) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(account, now(), sessionPct ?? null, weeklyPct ?? null, creditCents ?? null);
 
   // On garde quatorze jours de DÉTAIL : au-delà, la courbe n'apprend plus rien,
   // mais le rythme de chaque heure, lui, est retenu dans le résumé.
@@ -213,17 +220,38 @@ export function quotaResume(): Record<string, AgregatHoraire[]> {
   return out;
 }
 
-export function quotaHistory(days = 7): Record<string, { at: number; session: number; weekly: number }[]> {
+export function quotaHistory(
+  days = 7,
+): Record<string, { at: number; session: number; weekly: number; credit?: number }[]> {
   const rows = getDb()
     .prepare(
-      'SELECT account, at, session_pct AS session, weekly_pct AS weekly FROM quota_samples WHERE at > ? ORDER BY at',
+      'SELECT account, at, session_pct AS session, weekly_pct AS weekly, credit_cents AS credit FROM quota_samples WHERE at > ? ORDER BY at',
     )
-    .all(now() - days * 24 * 3600 * 1000) as { account: string; at: number; session: number; weekly: number }[];
-  const out: Record<string, { at: number; session: number; weekly: number }[]> = {};
+    .all(now() - days * 24 * 3600 * 1000) as {
+    account: string;
+    at: number;
+    session: number;
+    weekly: number;
+    credit: number | null;
+  }[];
+  const out: Record<string, { at: number; session: number; weekly: number; credit?: number }[]> = {};
   for (const row of rows) {
-    (out[row.account] ??= []).push({ at: row.at, session: row.session ?? 0, weekly: row.weekly ?? 0 });
+    (out[row.account] ??= []).push({
+      at: row.at,
+      session: row.session ?? 0,
+      weekly: row.weekly ?? 0,
+      credit: typeof row.credit === 'number' ? row.credit : undefined,
+    });
   }
   return out;
+}
+
+/** Le travail déjà mesuré ICI pour ce compte : durée et nombre de tours. */
+export function usageDuCompte(account: string): { seconds: number; tours: number } {
+  const row = getDb()
+    .prepare('SELECT COALESCE(SUM(seconds), 0) AS seconds, COUNT(*) AS tours FROM usage WHERE account = ?')
+    .get(account) as { seconds: number; tours: number } | undefined;
+  return { seconds: row?.seconds ?? 0, tours: row?.tours ?? 0 };
 }
 
 /* ------------------------------------------------------------------ */

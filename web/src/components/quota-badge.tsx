@@ -13,6 +13,10 @@ import {
   tempsRestant,
   trancheLaPlusChargee,
   moteurSansQuota,
+  chiffreDuBadgeCursor,
+  montantCursorEnClair,
+  periodeDuCreditCursor,
+  usageCursorEnClair,
   type AgregatHoraire,
   type PrevisionEpuisement,
   type ReleveQuota,
@@ -133,11 +137,51 @@ function Courbe({
   );
 }
 
+/**
+ * La dépense Cursor dans le temps : un montant, pas un pourcentage de fenêtre.
+ * L'échelle suit le plus haut relevé connu, jamais un plafond inventé.
+ */
+function CourbeCredit({ points }: { points: { at: number; credit?: number }[] }) {
+  const utilisables = points.filter((point) => typeof point.credit === 'number');
+  if (utilisables.length < 2) return null;
+
+  const largeur = 250;
+  const hauteur = 30;
+  const debut = utilisables[0].at;
+  const dernier = utilisables[utilisables.length - 1];
+  const max = Math.max(...utilisables.map((point) => point.credit ?? 0), 1);
+  const x = (at: number) => ((at - debut) / Math.max(1, dernier.at - debut)) * largeur;
+  const y = (centimes: number) => hauteur - (Math.min(max, centimes) / max) * hauteur;
+  const trace = utilisables
+    .map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.at).toFixed(1)},${y(point.credit ?? 0).toFixed(1)}`)
+    .join(' ');
+  const jours = Math.max(1, Math.round((dernier.at - debut) / (24 * 3600 * 1000)));
+
+  return (
+    <div className="mt-1.5">
+      <svg viewBox={`0 0 ${largeur} ${hauteur}`} className="h-[30px] w-full" preserveAspectRatio="none">
+        <path
+          d={trace}
+          fill="none"
+          stroke="hsl(var(--muted))"
+          strokeWidth="1.4"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <p className="mt-0.5 text-[10.5px] text-faint">
+        {jours} jour{jours > 1 ? 's' : ''} · trait : la dépense relevée
+      </p>
+    </div>
+  );
+}
+
 export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
   const [open, setOpen] = React.useState(false);
   const state = client.getSnapshot();
   const quotas = state.quotas;
-  const [histoire, setHistoire] = React.useState<Record<string, { at: number; session: number; weekly: number }[]>>({});
+  const [histoire, setHistoire] = React.useState<
+    Record<string, { at: number; session: number; weekly: number; credit?: number }[]>
+  >({});
   /* Le résumé des semaines passées : il ne se voit pas, il ne sert qu'au profil
      des heures creuses de la prévision. */
   const [resume, setResume] = React.useState<Record<string, AgregatHoraire[]>>({});
@@ -223,8 +267,10 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
     quotas.find((q) => q.engine === activeEngine && q.active) ??
     quotas.find((q) => q.engine === activeEngine) ??
     quotas[0];
-  const pct = current ? worstOf(current) : 0;
+  const cursorActif = current ? moteurSansQuota(current.engine) : false;
+  const pct = current && !cursorActif ? worstOf(current) : 0;
   const { color, dash } = ring(pct);
+  const chiffre = cursorActif ? chiffreDuBadgeCursor(current?.credit) : String(Math.round(pct));
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -246,7 +292,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                 strokeDasharray={dash}
               />
             </svg>
-            <span className="relative text-[8.5px] font-medium leading-none text-text">{Math.round(pct)}</span>
+            <span className="relative text-[8.5px] font-medium leading-none text-text">{chiffre}</span>
           </span>
           <span className="hidden max-w-[86px] truncate sm:inline">{current?.label ?? 'quotas'}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
@@ -316,7 +362,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
 
                 <div className="mt-1.5 space-y-1.5">
                   {moteurSansQuota(quota.engine) ? (
-                    <p className="text-[11.5px] text-faint">Ce moteur ne publie pas de fenêtre de quota.</p>
+                    <CreditCursorCarte quota={quota} />
                   ) : (
                     <>
                       {quota.session ? (
@@ -339,16 +385,20 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   )}
                 </div>
 
-                <Courbe
-                  points={histoire[quota.id] ?? []}
-                  prevision={previsions[quota.id]}
-                  showSession={Boolean(quota.session) && !moteurSansQuota(quota.engine)}
-                  showWeekly={Boolean(quota.weekly) && !moteurSansQuota(quota.engine)}
-                />
+                {moteurSansQuota(quota.engine) ? (
+                  <CourbeCredit points={histoire[quota.id] ?? []} />
+                ) : (
+                  <Courbe
+                    points={histoire[quota.id] ?? []}
+                    prevision={previsions[quota.id]}
+                    showSession={Boolean(quota.session)}
+                    showWeekly={Boolean(quota.weekly)}
+                  />
+                )}
 
                 {/* Même source que la prévision : le résumé des semaines
                     passées puis le détail récent, pas le seul détail. */}
-                <TrancheDePointe releves={pourProfil(quota.id)} />
+                {!moteurSansQuota(quota.engine) ? <TrancheDePointe releves={pourProfil(quota.id)} /> : null}
 
                 <DerniereAmorce amorce={quota.derniereAmorce} />
 
@@ -365,6 +415,31 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
         <JournalDesAmorces ouvertMenu={open} />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function CreditCursorCarte({ quota }: { quota: AccountQuota }) {
+  const credit = quota.credit;
+  const usage = quota.usageLocal
+    ? usageCursorEnClair(quota.usageLocal.seconds, quota.usageLocal.tours)
+    : null;
+  return (
+    <div data-essai="quota-cursor">
+      {typeof credit?.centimes === 'number' ? (
+        <>
+          <p className="text-[14.5px] font-medium text-text">{montantCursorEnClair(credit.centimes)}</p>
+          <p className="mt-0.5 text-[11px] text-faint">
+            {periodeDuCreditCursor(credit.debutDuCycle)}
+            {credit.membres ? ` · ${credit.membres} membres` : ''}
+          </p>
+        </>
+      ) : (
+        <p className="text-[11.5px] leading-relaxed text-faint">
+          {credit?.indisponible ?? 'Lecture du montant dépensé…'}
+        </p>
+      )}
+      {usage ? <p className="mt-1 text-[11px] text-faint">{usage}</p> : null}
+    </div>
   );
 }
 

@@ -21,7 +21,7 @@ import {
 } from '@haikodev/shared';
 import { PATHS, CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
-import { dernieresAmorces, quotaHistory, quotaResume, recordQuotaSample } from './store.js';
+import { dernieresAmorces, quotaHistory, quotaResume, recordQuotaSample, usageDuCompte } from './store.js';
 import { bus } from './bus.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
@@ -462,12 +462,12 @@ export async function declarerCleCursor(
 }
 
 /**
- * Cursor ne publie AUCUN quota : sa facturation se lit à la dépense, pas à un
- * pourcentage de fenêtre. On ne montre donc pas de jauge inventée — on dit
- * seulement si la clé RÉPOND, ce qui est la seule chose qui décide qu'un tour
- * peut partir.
+ * Cursor ne publie AUCUNE fenêtre de pourcentage : sa facturation se lit à la
+ * dépense. On ne montre donc pas de jauge inventée — on rapporte le MONTANT
+ * demandé à Cursor, l'usage déjà mesuré ici, et si la clé RÉPOND.
  */
 async function fetchCursorQuota(account: AccountRecord): Promise<AccountQuota> {
+  const usageLocal = usageDuCompte(account.id);
   const base: AccountQuota = {
     id: account.id,
     engine: 'cursor',
@@ -477,6 +477,7 @@ async function fetchCursorQuota(account: AccountRecord): Promise<AccountQuota> {
     active: false,
     available: true,
     fetchedAt: Date.now(),
+    usageLocal,
   };
   const cle = cleDuCompteCursor(account);
   if (!cle) return { ...base, error: 'aucune clé configurée', available: false };
@@ -494,7 +495,14 @@ async function fetchCursorQuota(account: AccountRecord): Promise<AccountQuota> {
       };
     }
     const data: any = await res.json();
-    return { ...base, plan: typeof data?.apiKeyName === 'string' ? data.apiKeyName : account.plan };
+    // Import tardif : le module du moteur importe déjà les comptes.
+    const { creditCursor } = await import('./engines/cursor.js');
+    const credit = await creditCursor(cle);
+    return {
+      ...base,
+      plan: typeof data?.apiKeyName === 'string' ? data.apiKeyName : account.plan,
+      credit,
+    };
   } catch (err: any) {
     return { ...base, error: err?.message ?? 'lecture impossible' };
   }
@@ -585,6 +593,7 @@ async function executerActualisationQuotas(force = false, seulement?: readonly s
       quota.weekly = previous.weekly ?? quota.weekly;
       quota.plan = previous.plan ?? quota.plan;
       quota.fetchedAt = previous.fetchedAt ?? quota.fetchedAt;
+      quota.credit = previous.credit ?? quota.credit;
     }
     // Codex recalcule `resetsAt` en relatif à chaque lecture, si bien qu'il
     // dérive de quelques secondes sans que la fenêtre ait changé : les paliers
@@ -600,7 +609,7 @@ async function executerActualisationQuotas(force = false, seulement?: readonly s
     }
     quotaCache.set(account.id, quota);
     if (!quota.error) {
-      recordQuotaSample(account.id, quota.session?.usedPct, quota.weekly?.usedPct);
+      recordQuotaSample(account.id, quota.session?.usedPct, quota.weekly?.usedPct, quota.credit?.centimes);
     }
   }
   // Une tournée ciblée rend aussi les autres comptes depuis le cache, mais

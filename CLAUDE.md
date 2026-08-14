@@ -483,15 +483,15 @@ le nom, là-bas le texte).
   (`idCursorPourNiveau`), un nom paramétré étant refusé ; les outils du projet se posent en
   `.cursor/mcp.json` dans le dossier du tour, écarté du dépôt ; la clé `CURSOR_API_KEY` vit HORS du
   dépôt et, sans elle, le moteur n'apparaît nulle part ; Cursor ne publiant AUCUN quota, sa ligne de
-  compte n'affiche PAS de jauge (`moteurSansQuota`) mais l'état de sa clé ET la présence de l'outil
-  (commande `cursor.etat`). La clé de l'environnement n'appartient qu'au compte principal — un
+  compte n'affiche PAS de jauge de pourcentage (`moteurSansQuota`) : à la place, le CRÉDIT DÉPENSÉ
+  et l'usage déjà mesuré ici (volet des quotas, commande `cursor.etat` pour la clé et l'outil).
+  La clé de l'environnement n'appartient qu'au compte principal — un
   compte de relève porte la sienne dans son dossier et **s'ajoute depuis les réglages**
   (`cursor.ajouterCle`, clé éprouvée avant d'entrer dans la liste), le moteur regardant TOUTES les
   clés déclarées (`clesCursor`). Un lancement impossible NOMME la pièce qui manque
-  (`manqueDuMoteurCursor`) et referme le tour. **Ce qui remplace la jauge, c'est le CRÉDIT DÉPENSÉ**
-  (`shared/src/credit-cursor.ts`, commande `cursor.credit`, onglet « Consommation ») : Cursor
-  facturant à l'usage, un MONTANT s'y lit — DEMANDÉ à Cursor (`POST /teams/spend`), jamais
-  reconstitué depuis des jetons et un tarif deviné. Cette route n'accepte qu'une clé
+  (`manqueDuMoteurCursor`) et referme le tour. **Le montant est DEMANDÉ à Cursor**
+  (`shared/src/credit-cursor.ts`, lu à chaque relevé de quota et par `cursor.credit`) :
+  `POST /teams/spend`, jamais reconstitué depuis des jetons et un tarif deviné. Cette route n'accepte qu'une clé
   d'ADMINISTRATION D'ÉQUIPE ; sinon c'est la RAISON qui s'affiche, jamais un zéro. **Et son PLAN
   n'est pas un message : c'est un appel d'outil** (`texteDuPlanCursor`) — en `--mode plan`, Cursor
   pose le plan entier dans un `createPlanToolCall` et ne laisse au fil qu'une narration ; on le

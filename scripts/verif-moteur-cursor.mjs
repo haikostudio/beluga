@@ -479,8 +479,20 @@ async function main() {
   noter('aucune jauge de quota inventée sur le compte Cursor', !ligneQuotaCursor);
 
   /*
-   * …MAIS CE QUI REMPLACE LA JAUGE DOIT SE LIRE. Cursor facture à la dépense :
-   * l'onglet « Consommation » porte donc son CRÉDIT DÉPENSÉ. Le montant vient
+   * CE QUI REMPLACE LA JAUGE DOIT SE LIRE SUR LA CARTE DU COMPTE, pas seulement
+   * dans un onglet à part. Le montant (ou la raison de son absence) voyage
+   * avec le relevé de quota.
+   */
+  const ligneComptes = await page.locator('section', { hasText: 'Comptes et quotas' }).first().innerText();
+  noter(
+    'la ligne Cursor des comptes dit le montant dépensé, ou pourquoi il manque',
+    /USD/.test(ligneComptes) || /administration d'équipe|administration d’équipe|n’a pas pu être lu|n'a pas pu être lu/i.test(ligneComptes),
+    ligneComptes.split('\n').filter((l) => /USD|équipe|équipe|dépens/i.test(l)).slice(0, 2).join(' · ').slice(0, 160),
+  );
+
+  /*
+   * …ET AUSSI DANS L'ONGLET CONSOMMATION. Cursor facture à la dépense :
+   * l'onglet « Consommation » porte son CRÉDIT DÉPENSÉ. Le montant vient
    * de Cursor (`POST /teams/spend`) et, quand la clé n'a pas le droit de le
    * lire — une clé personnelle reçoit « Invalid Team API Key » —, la raison
    * s'écrit en clair : jamais un zéro, qui serait un chiffre inventé.

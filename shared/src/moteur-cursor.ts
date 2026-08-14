@@ -388,10 +388,11 @@ export function raisonDeLaSortieCursor(sortie: string | undefined, code: number 
 }
 
 /**
- * UN MOTEUR SANS QUOTA PUBLIÉ n'affiche AUCUNE jauge. Cursor facture à la
- * dépense et ne publie ni fenêtre de cinq heures ni plafond hebdomadaire :
- * afficher « fenêtre 0 % · semaine 0 % » sur sa ligne de compte serait une
- * mesure inventée, et c'est exactement ce que HaikoDev refuse ailleurs.
+ * UN MOTEUR SANS FENÊTRE DE QUOTA n'affiche AUCUNE jauge de pourcentage.
+ * Cursor facture à la dépense et ne publie ni fenêtre de cinq heures ni
+ * plafond hebdomadaire : afficher « fenêtre 0 % · semaine 0 % » serait une
+ * mesure inventée. La carte montre à la place le CRÉDIT DÉPENSÉ et l'usage
+ * déjà mesuré ici — jamais un vide.
  */
 export function moteurSansQuota(engine: string | undefined): boolean {
   return engine === 'cursor';

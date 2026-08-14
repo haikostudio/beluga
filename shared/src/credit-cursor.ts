@@ -2,9 +2,10 @@
  * LE CRÉDIT DÉPENSÉ CHEZ CURSOR — les règles pures, sans réseau ni disque.
  *
  * Cursor ne publie ni fenêtre de cinq heures ni plafond hebdomadaire : il
- * FACTURE À LA DÉPENSE. Sa ligne de compte n'a donc pas de jauge
- * (`moteurSansQuota`, `shared/src/moteur-cursor.ts`), et ce qu'il faut lire à la
- * place est un MONTANT.
+ * FACTURE À LA DÉPENSE. Sa ligne de compte n'a donc PAS de jauge de pourcentage
+ * (`moteurSansQuota`, `shared/src/moteur-cursor.ts`) — ce serait une mesure
+ * inventée. Ce qu'il faut lire à la place, SUR LA CARTE DU COMPTE comme dans
+ * les réglages, est un MONTANT.
  *
  * Ce montant ne s'invente pas. Trois sources ont été éprouvées le 14/08/2026,
  * et deux ne donnent rien :
@@ -105,4 +106,29 @@ export function periodeDuCreditCursor(debutDuCycle: number | undefined): string 
   const date = new Date(debutDuCycle);
   if (Number.isNaN(date.getTime())) return 'Dépense du cycle de facturation en cours.';
   return `Dépense depuis le ${date.toLocaleDateString('fr-CH', { day: '2-digit', month: 'long', year: 'numeric' })}.`;
+}
+
+/**
+ * LE CHIFFRE DU BADGE : un montant arrondi en dollars, jamais un 0 % inventé.
+ * Sans montant lisible, un tiret — le vide d'une jauge Claude ferait croire
+ * que rien n'a été consommé.
+ */
+export function chiffreDuBadgeCursor(credit?: CreditCursor): string {
+  if (typeof credit?.centimes !== 'number' || !Number.isFinite(credit.centimes)) return '—';
+  const dollars = credit.centimes / 100;
+  if (dollars > 0 && dollars < 1) return '<1';
+  return String(Math.round(dollars));
+}
+
+/**
+ * CE QUE HAIKODEV A MESURÉ ICI, en minutes et en tours. Distinct du montant
+ * demandé à Cursor : l'un est la facture Cursor, l'autre le travail vu par
+ * l'application. Rien à dire tant qu'aucun tour n'a été enregistré.
+ */
+export function usageCursorEnClair(seconds: number, tours: number): string | null {
+  if (!Number.isFinite(seconds) || !Number.isFinite(tours) || tours <= 0) return null;
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  const duree = minutes >= 60 ? `${Math.round(minutes / 60)} h` : `${minutes} min`;
+  const toursDit = tours === 1 ? '1 tour' : `${tours} tours`;
+  return `Travail enregistré ici : ${duree} · ${toursDit}`;
 }

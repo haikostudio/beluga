@@ -843,6 +843,30 @@ export const AccountQuota = z.object({
   disabled: z.boolean().optional(),
   session: QuotaWindow.optional(),
   weekly: QuotaWindow.optional(),
+  /**
+   * CRÉDIT CURSOR : un montant demandé à Cursor, jamais un pourcentage de
+   * fenêtre. Absent sur Claude et Codex. Sans droit de lecture, `indisponible`
+   * porte la raison — jamais un zéro.
+   */
+  credit: z
+    .object({
+      centimes: z.number().optional(),
+      debutDuCycle: z.number().optional(),
+      membres: z.number().optional(),
+      indisponible: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * USAGE MESURÉ ICI pour ce compte (tours et durée), distinct du montant
+   * Cursor. Sert à dire ce qui a été consommé même quand le crédit d'équipe
+   * n'est pas lisible.
+   */
+  usageLocal: z
+    .object({
+      seconds: z.number(),
+      tours: z.number(),
+    })
+    .optional(),
   error: z.string().optional(),
   fetchedAt: z.number().optional(),
   /**

@@ -1239,10 +1239,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { engines: await listEngines(true) };
 
     /*
-     * L'ÉTAT D'UN COMPTE CURSOR. Ce moteur ne publie aucun quota : sa ligne de
-     * compte ne peut donc pas montrer de jauge. Ce qu'elle peut dire — et ce
-     * qui manquait pour savoir si ce compte peut travailler —, c'est si la clé
-     * répond et si l'outil « cursor-agent » est bien sur le serveur.
+     * L'ÉTAT D'UN COMPTE CURSOR. Ce moteur ne publie aucune fenêtre de
+     * pourcentage : la ligne de compte montre le crédit et l'usage. Ce que
+     * cette commande ajoute — pour savoir si le compte peut travailler —,
+     * c'est si la clé répond et si l'outil « cursor-agent » est sur le serveur.
      */
     case 'cursor.etat': {
       const comptes = listAccountRecords().filter((a) => a.engine === 'cursor');
@@ -1258,10 +1258,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
      * de recevoir sa toute première clé.
      */
     /*
-     * LE CRÉDIT DÉPENSÉ, compte par compte. Cursor facture à la dépense : sa
-     * ligne n'a pas de jauge (`moteurSansQuota`), c'est ce montant qui la
-     * remplace. Aucun compte Cursor déclaré : la liste est vide, et l'écran ne
-     * montre rien plutôt qu'un bloc vide.
+     * LE CRÉDIT DÉPENSÉ, compte par compte. Cursor facture à la dépense : le
+     * montant voyage aussi avec le relevé de quota. Cette commande reste pour
+     * l'onglet « Consommation ». Aucun compte Cursor déclaré : la liste est
+     * vide, et l'écran ne montre rien plutôt qu'un bloc vide.
      */
     case 'cursor.credit': {
       const comptes = listAccountRecords().filter((a) => a.engine === 'cursor');

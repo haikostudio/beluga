@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CREDIT_HORS_DE_PORTEE,
+  chiffreDuBadgeCursor,
   consigneEnTeteDeSession,
   creditDepuisReponseCursor,
   decomposerModeleCursor,
   montantCursorEnClair,
   periodeDuCreditCursor,
+  usageCursorEnClair,
   texteDuPlanCursor,
   fenetreDepuisLibelleCursor,
   fichierNatif,
@@ -312,10 +314,24 @@ test('un refus est dit en français, jamais par un code nu', () => {
   assert.match(raisonDeRefusCursor(418, 'théière'), /418/);
 });
 
-test('un moteur sans quota publié n\'affiche aucune jauge', () => {
+test('un moteur sans fenêtre de quota n\'affiche aucune jauge de pourcentage', () => {
   assert.equal(moteurSansQuota('cursor'), true);
   assert.equal(moteurSansQuota('claude'), false);
   assert.equal(moteurSansQuota('codex'), false);
+});
+
+test('le badge Cursor montre un montant, jamais un zéro de jauge', () => {
+  assert.equal(chiffreDuBadgeCursor({ centimes: 1590 }), '16');
+  assert.equal(chiffreDuBadgeCursor({ centimes: 40 }), '<1');
+  assert.equal(chiffreDuBadgeCursor({ indisponible: 'raison' }), '—');
+  assert.equal(chiffreDuBadgeCursor(undefined), '—');
+});
+
+test('l\'usage mesuré ici se dit en minutes et en tours, ou se tait', () => {
+  assert.match(usageCursorEnClair(3600, 3) ?? '', /1 h/);
+  assert.match(usageCursorEnClair(90, 1) ?? '', /2 min/);
+  assert.match(usageCursorEnClair(90, 1) ?? '', /1 tour/);
+  assert.equal(usageCursorEnClair(0, 0), null);
 });
 
 /*

@@ -46,6 +46,7 @@ import {
   connexionTerminee,
   montantCursorEnClair,
   periodeDuCreditCursor,
+  usageCursorEnClair,
   type CreditCursor,
   erreursUtiles,
   ligneEtatCerveau,
@@ -1072,10 +1073,14 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
               {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
             </p>
           )}
-          {/* Un moteur qui ne publie AUCUN quota n'affiche pas de jauge :
-              « fenêtre 0 % · semaine 0 % » serait une mesure inventée
-              (`moteurSansQuota`). À la place, ce que sa clé permet vraiment. */}
-          {!edite && moteurSansQuota(quota.engine) ? <EtatCursor accountId={quota.id} /> : null}
+          {/* Un moteur sans fenêtre de pourcentage n'affiche pas de jauge
+              5 h / semaine. À la place : état de la clé, montant dépensé. */}
+          {!edite && moteurSansQuota(quota.engine) ? (
+            <>
+              <EtatCursor accountId={quota.id} />
+              <CreditCursorLigne quota={quota} />
+            </>
+          ) : null}
           {!edite && !moteurSansQuota(quota.engine) ? (
             <p className="text-[11.5px] text-faint">
               {quota.session ? `${libelleFenetreCompte(quota.session, 'session')} ${Math.round(quota.session.usedPct ?? 0)} %` : null}
@@ -1165,7 +1170,7 @@ function EtatCursor({ accountId }: { accountId: string }) {
   return (
     <div className="text-[11.5px] text-faint">
       {etat.cleAcceptee ? (
-        <p>clé « {etat.nomDeLaCle ?? 'sans nom'} » acceptée · aucun quota publié par Cursor</p>
+        <p>clé « {etat.nomDeLaCle ?? 'sans nom'} » acceptée</p>
       ) : (
         <p className="text-danger">clé refusée — {etat.erreur ?? 'raison inconnue'}</p>
       )}
@@ -1176,6 +1181,28 @@ function EtatCursor({ accountId }: { accountId: string }) {
           outil « cursor-agent » absent du serveur — {etat.erreurDuCli ?? 'aucun tour ne peut partir'}
         </p>
       )}
+    </div>
+  );
+}
+
+function CreditCursorLigne({ quota }: { quota: AccountQuota }) {
+  const credit = quota.credit;
+  const usage = quota.usageLocal
+    ? usageCursorEnClair(quota.usageLocal.seconds, quota.usageLocal.tours)
+    : null;
+  if (!credit && !usage) return null;
+  return (
+    <div className="mt-0.5 text-[11.5px] text-faint">
+      {typeof credit?.centimes === 'number' ? (
+        <p>
+          {montantCursorEnClair(credit.centimes)}
+          {' · '}
+          {periodeDuCreditCursor(credit.debutDuCycle)}
+        </p>
+      ) : credit?.indisponible ? (
+        <p>{credit.indisponible}</p>
+      ) : null}
+      {usage ? <p>{usage}</p> : null}
     </div>
   );
 }
@@ -1833,8 +1860,8 @@ function UsageSection({ open }: { open: boolean }) {
         <div className="mt-4" data-essai="credit-cursor">
           <p className="text-[12px] uppercase tracking-wide text-faint">Crédit dépensé chez Cursor</p>
           <p className="mb-1.5 mt-0.5 text-[12.5px] leading-relaxed text-faint">
-            Cursor ne publie pas de quota : il facture à la dépense. C'est donc le montant consommé qui se lit ici, à la
-            place de la jauge des autres moteurs.
+            Cursor facture à la dépense. Le même montant se lit aussi sur la carte du compte, dans le volet
+            des quotas. Ici, le détail du cycle.
           </p>
           <div className="space-y-0.5">
             {cursor.map((compte) => (
