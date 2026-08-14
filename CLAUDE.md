@@ -242,6 +242,13 @@ le nom, là-bas le texte).
   qui n'a pas été mené à bout passe à `unfinished` et le DIT (« non faite »), au lieu d'attendre pour
   toujours. Branchée sur TOUS les chemins de fermeture (`server/src/runtime.ts`), sans effet sur une
   liste déjà refermée ; les listes déjà figées en base sont reprises par la migration 23.
+  **Le décompte porté par l'AGENT se referme avec elle** (`progressionDesTaches`,
+  `poserLaProgression`) : le décroché du tableau ne lit pas les étapes mais ce résumé
+  (`agent.todos`), qui restait figé sur l'avant-dernière liste reçue — la conversation disait
+  « 5/5 faites » et la carte « 4/5 », à vie. Un reste non fait s'y DIT désormais
+  (« 3/5 faites · 2 non faites », `mentionProgressionTaches`), et les décomptes déjà figés sont
+  repris par la migration 24 — qui, comme toute migration de RÉPARATION, nomme la table qu'elle
+  attend (`siTable`) et se reporte au lieu d'échouer sur une base d'essai partielle.
 
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même

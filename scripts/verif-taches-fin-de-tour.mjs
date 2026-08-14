@@ -20,8 +20,12 @@
  *      relancé : la ligne qui tournait ne tourne plus, elle dit « non faite » ;
  *   4. LES ANCIENNES CARTES — une liste figée « en cours » en base est
  *      refermée par la migration 23, et l'écran ne montre plus de rond orange.
+ *   5. LE DÉCROCHÉ DU TABLEAU — la carte elle-même, sans l'ouvrir : son
+ *      décompte est refait avec la liste (migration 24) au lieu de garder
+ *      l'avant-dernier reçu, et un reste non fait s'y DIT.
  */
 import { chromium } from 'playwright';
+import { colonnesDeLaCarte } from '../shared/dist/carte-sql.js';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import ws from '/root/haikodev/node_modules/ws/index.js';
 import { spawn, execFileSync } from 'node:child_process';
@@ -201,6 +205,20 @@ const AGENTS = {
   ancien: { id: 'ag-ancien', projet: 'p-ancien', nom: 'Essai ancienne liste', titre: 'Ancienne conversation' },
 };
 
+/*
+ * LE CINQUIÈME CAS N'EST PAS UNE CONVERSATION, C'EST UNE CARTE. Le décroché du
+ * tableau ne lit pas les étapes (elles vivent sur les messages, chargés à
+ * l'ouverture) mais un décompte posé sur l'AGENT. C'est lui qu'on juge ici :
+ * une carte close, deux listes qui ne disaient pas la même chose.
+ */
+const TABLEAU = {
+  projet: 'p-tableau',
+  nom: 'Essai décroché du tableau',
+  agent: 'ag-tableau',
+  carte: 'c-tableau',
+  titre: 'Carte déjà close',
+};
+
 const base = (readonly = false) =>
   new Database(path.join(DATA, 'haikodev.db'), readonly ? { readonly: true } : undefined);
 
@@ -238,6 +256,91 @@ function ecrireAgent(db, id, projectId, titre) {
     `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, projectId, null, 'orchestrator', 'idle', JSON.stringify(agent), maintenant, maintenant);
+}
+
+/*
+ * UNE CARTE DÉJÀ CLOSE, SON AGENT DE TÂCHE, ET LEUR DÉSACCORD. L'agent porte le
+ * décompte de l'avant-dernière liste reçue (2/3) ; son message, lui, garde une
+ * ligne restée « en cours ». C'est exactement l'état constaté sur la capture
+ * d'origine — et ce que les deux migrations doivent remettre d'aplomb.
+ */
+function poserLaCarteClose(db, rang) {
+  const maintenant = Date.now();
+  ecrireProjet(db, TABLEAU.projet, TABLEAU.nom, rang);
+  const agent = {
+    id: TABLEAU.agent,
+    projectId: TABLEAU.projet,
+    cardId: TABLEAU.carte,
+    role: 'task',
+    title: TABLEAU.titre,
+    run: { engine: 'claude', thinking: 'none', mode: 'direct' },
+    status: 'done',
+    todos: { done: 2, total: 3 },
+    createdAt: maintenant - 9000,
+    updatedAt: maintenant - 6000,
+  };
+  db.prepare(
+    `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(agent.id, agent.projectId, agent.cardId, 'task', 'done', JSON.stringify(agent), agent.createdAt, agent.updatedAt);
+
+  const carte = {
+    id: TABLEAU.carte,
+    projectId: TABLEAU.projet,
+    column: 'to_deploy',
+    position: 1,
+    title: TABLEAU.titre,
+    description: 'Une carte rendue, passée en « À déployer ».',
+    origin: 'user',
+    agentId: TABLEAU.agent,
+    labels: [],
+    attachments: [],
+    run: { engine: 'claude', thinking: 'none', mode: 'direct' },
+    createdAt: maintenant - 9000,
+    updatedAt: maintenant - 6000,
+    doneAt: maintenant - 6000,
+  };
+  const colonnes = colonnesDeLaCarte(carte);
+  const noms = Object.keys(colonnes);
+  db.prepare(
+    `INSERT INTO cards (${noms.join(', ')}) VALUES (${noms.map(() => '?').join(', ')})`,
+  ).run(...noms.map((nom) => colonnes[nom]));
+
+  const message = {
+    id: 'm-tableau',
+    agentId: TABLEAU.agent,
+    role: 'assistant',
+    content: 'Travail rendu.',
+    steps: [],
+    todos: [
+      { label: 'Lire le code', state: 'done', startedAt: maintenant - 9000, endedAt: maintenant - 8000 },
+      { label: 'Corriger le bogue', state: 'done', startedAt: maintenant - 8000, endedAt: maintenant - 7000 },
+      { label: 'Enregistrer et pousser', state: 'running', startedAt: maintenant - 7000 },
+    ],
+    proposals: [],
+    questions: [],
+    downloads: [],
+    attachments: [],
+    streaming: false,
+    plan: false,
+    durationMs: 3000,
+    createdAt: maintenant - 7000,
+  };
+  db.prepare('INSERT INTO messages (id, agent_id, role, data, created_at) VALUES (?, ?, ?, ?, ?)').run(
+    message.id,
+    message.agentId,
+    message.role,
+    JSON.stringify(message),
+    message.createdAt,
+  );
+}
+
+/** Le décompte porté par un agent, tel que le tableau le lit. */
+function decompteDeLAgent(agentId) {
+  const db = base(true);
+  const ligne = db.prepare('SELECT data FROM agents WHERE id = ?').get(agentId);
+  db.close();
+  return ligne ? (JSON.parse(ligne.data).todos ?? null) : null;
 }
 
 function poserLeDecor() {
@@ -304,7 +407,8 @@ function poserLeDecor() {
     JSON.stringify(message),
     message.createdAt,
   );
-  db.prepare('DELETE FROM migrations WHERE id = 23').run();
+  poserLaCarteClose(db, rang++);
+  db.prepare('DELETE FROM migrations WHERE id IN (23, 24)').run();
 
   db.close();
 }
@@ -413,6 +517,14 @@ async function main() {
     apresRendu[2]?.state === 'done' && apresRendu[2]?.closedByTurnEnd === true,
     JSON.stringify(apresRendu[2] ?? {}),
   );
+  // Le décompte que lit le TABLEAU suit la liste jusqu'à la clôture : sans
+  // cela, la conversation dit « 3/3 faites » et la carte « 2/3 ».
+  const compteRendu = decompteDeLAgent(AGENTS.rendu.id);
+  noter(
+    'tour rendu : le décompte porté par l’agent vaut 3/3, comme la conversation',
+    compteRendu?.done === 3 && compteRendu?.total === 3,
+    JSON.stringify(compteRendu ?? {}),
+  );
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(5000);
@@ -497,6 +609,27 @@ async function main() {
     voletAncien?.entete ?? '(rien)',
   );
   await page.screenshot({ path: path.join(TMP, 'ancienne-liste.png') });
+
+  /* -------- 5. Le DÉCROCHÉ DU TABLEAU, sans ouvrir la carte -------- */
+
+  const compteCarte = decompteDeLAgent(TABLEAU.agent);
+  noter(
+    'carte close : le décompte de l’agent a été refait avec sa liste (3/3, plus 2/3)',
+    compteCarte?.done === 3 && compteCarte?.total === 3,
+    JSON.stringify(compteCarte ?? {}),
+  );
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(5000);
+  await page.getByText(TABLEAU.nom, { exact: true }).first().click({ timeout: 20000 });
+  await page.waitForTimeout(4000);
+  const texteDuTableau = await page.evaluate(() => document.body.innerText);
+  noter(
+    'carte close : le tableau annonce « 3/3 faites », plus jamais « 2/3 faites »',
+    /3\/3 faites/.test(texteDuTableau) && !/2\/3 faites/.test(texteDuTableau),
+    (texteDuTableau.match(/\d\/\d faites[^\n]*/) ?? ['(rien)'])[0],
+  );
+  await page.screenshot({ path: path.join(TMP, 'decroche-tableau.png'), fullPage: true });
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 

@@ -6,7 +6,9 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import {
   cloturerLesTaches,
+  mentionProgressionTaches,
   mentionTachesNonFaites,
+  progressionDesTaches,
   tachesAPoursuivre,
   type TodoItem,
 } from '@haikodev/shared';
@@ -32,6 +34,27 @@ test('un tour rendu ne laisse AUCUNE ligne en cours', () => {
   assert.equal(ferme[4].endedAt, T + 9000);
   // Le démon a coché, pas l'agent : la ligne le dit.
   assert.equal(ferme[4].closedByTurnEnd, true);
+});
+
+test('le décompte porté par l’agent suit la liste refermée, pas l’avant-dernière reçue', () => {
+  // Ce que le TABLEAU lit tant que la carte n'est pas ouverte : figé sur 4/5, il
+  // affichait « 4/5 faites » pour toujours sur une carte pourtant rendue.
+  assert.deepEqual(progressionDesTaches(LISTE), { done: 4, total: 5, unfinished: 0 });
+  const ferme = cloturerLesTaches(LISTE, { issue: 'reussi', maintenant: T + 9000 });
+  assert.deepEqual(progressionDesTaches(ferme), { done: 5, total: 5, unfinished: 0 });
+});
+
+test('un tour coupé compte ses lignes non faites, et la carte les dit', () => {
+  const coupe = cloturerLesTaches(LISTE, { issue: 'interrompu', maintenant: T + 9000 });
+  assert.deepEqual(progressionDesTaches(coupe), { done: 4, total: 5, unfinished: 1 });
+  assert.equal(mentionProgressionTaches({ todos: progressionDesTaches(coupe) }), '4/5 faites · 1 non faite');
+});
+
+test('sans reste non fait, le décroché de la carte ne dit que les cochées', () => {
+  const rendu = cloturerLesTaches(LISTE, { issue: 'reussi', maintenant: T + 9000 });
+  assert.equal(mentionProgressionTaches({ todos: progressionDesTaches(rendu) }), '5/5 faites');
+  // Une carte d'avant la migration n'a pas le champ : rien ne doit être inventé.
+  assert.equal(mentionProgressionTaches({ todos: { done: 2, total: 3 } }), '2/3 faites');
 });
 
 test('une ligne jamais commencée dit « non faite » plutôt que d’attendre pour toujours', () => {
@@ -105,10 +128,10 @@ test('un tour qui REPART reprend les lignes non faites comme des lignes à faire
 const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'taches-fin-de-tour-'));
 process.env.HAIKODEV_DATA = bacASable;
 
-function messageDAvant(id: string, contenu: string, streaming: boolean, todos: unknown[]) {
+function messageDAvant(id: string, contenu: string, streaming: boolean, todos: unknown[], agentId = 'agent-1') {
   return {
     id,
-    agentId: 'agent-1',
+    agentId,
     role: 'assistant',
     content: contenu,
     steps: [],
@@ -134,6 +157,37 @@ const AVANT = [
   messageDAvant('m-muet', '', false, [{ label: 'Corriger', state: 'running', startedAt: T }]),
   // Un tour ENCORE en écriture : on n'y touche pas.
   messageDAvant('m-vivant', '', true, [{ label: 'Corriger', state: 'running', startedAt: T }]),
+  /*
+   * LES DEUX DÉCOMPTES QUI NE DISAIENT PAS PAREIL (migration 24). Le tableau ne
+   * lit pas les étapes mais un résumé posé sur l'agent, figé sur l'avant-dernière
+   * liste reçue. Une carte close gardait donc « 1/2 faite » à vie.
+   */
+  messageDAvant(
+    'm-clos',
+    'Travail rendu.',
+    false,
+    [
+      { label: 'Corriger', state: 'done', startedAt: T, endedAt: T + 1000 },
+      { label: 'Enregistrer et pousser', state: 'running', startedAt: T + 1000 },
+    ],
+    'agent-clos',
+  ),
+  messageDAvant(
+    'm-au-travail',
+    '',
+    true,
+    [
+      { label: 'Corriger', state: 'done', startedAt: T, endedAt: T + 1000 },
+      { label: 'Enregistrer et pousser', state: 'running', startedAt: T + 1000 },
+    ],
+    'agent-au-travail',
+  ),
+];
+
+/** Les agents d'avant, avec leur décompte figé : un au repos, un au travail. */
+const AGENTS_DAVANT = [
+  { id: 'agent-clos', status: 'done', todos: { done: 1, total: 2 } },
+  { id: 'agent-au-travail', status: 'running', todos: { done: 1, total: 2 } },
 ];
 
 const avant = new Database(path.join(bacASable, 'haikodev.db'));
@@ -146,7 +200,34 @@ avant.exec(`
     data TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE agents (
+    id TEXT PRIMARY KEY,
+    project_id TEXT,
+    card_id TEXT,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `);
+for (const agent of AGENTS_DAVANT) {
+  avant
+    .prepare(
+      `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      agent.id,
+      'projet-1',
+      `carte-${agent.id}`,
+      'task',
+      agent.status,
+      JSON.stringify({ id: agent.id, role: 'task', status: agent.status, todos: agent.todos }),
+      T,
+      T,
+    );
+}
 for (let id = 1; id <= 22; id += 1) {
   avant.prepare('INSERT INTO migrations (id, name, applied_at) VALUES (?, ?, ?)').run(id, `ancienne-${id}`, 1);
 }
@@ -179,4 +260,17 @@ test('migration 23 : un tour muet dit « non faite », il ne coche rien', () => 
 
 test('migration 23 : un tour encore en écriture garde sa liste vivante', () => {
   assert.equal(listeDe('m-vivant')[0].state, 'running');
+});
+
+function decompteDe(id: string): { done: number; total: number; unfinished?: number } {
+  const ligne = getDb().prepare('SELECT data FROM agents WHERE id = ?').get(id) as { data: string };
+  return JSON.parse(ligne.data).todos;
+}
+
+test('migration 24 : le décompte d’une carte close est refait avec sa liste', () => {
+  assert.deepEqual(decompteDe('agent-clos'), { done: 2, total: 2, unfinished: 0 });
+});
+
+test('migration 24 : un agent encore au travail garde son décompte', () => {
+  assert.deepEqual(decompteDe('agent-au-travail'), { done: 1, total: 2 });
 });

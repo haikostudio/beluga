@@ -18,6 +18,8 @@
 export interface ProgressionTaches {
   done: number;
   total: number;
+  /** Les étapes qui n'ont pas été menées à bout, quand le tour s'est refermé. */
+  unfinished?: number;
 }
 
 /** Ce qu'il faut savoir d'une carte pour décider d'afficher son avancement. */
@@ -33,6 +35,12 @@ export interface CartePourProgression {
  * tâches. Le décroché garde ses autres états prioritaires (chiffrage,
  * attente, échec) : cette mention ne s'affiche que lorsqu'aucun d'eux ne
  * parle.
+ *
+ * UN RESTE NON FAIT SE DIT. Un tour coupé — panne, quota, arrêt à la main —
+ * laisse des étapes jamais menées à bout. « 3/5 faites » tout court laissait
+ * croire à un travail encore en route ; on ajoute donc ce qu'il est advenu du
+ * reste (« 3/5 faites · 2 non faites »), la même mention que l'en-tête du volet
+ * des tâches de la conversation.
  */
 export function mentionProgressionTaches(carte: CartePourProgression): string | null {
   const todos = carte.todos;
@@ -41,5 +49,8 @@ export function mentionProgressionTaches(carte: CartePourProgression): string | 
   // Le pluriel suit le volet des tâches de la conversation : « 1/3 faite »,
   // « 2/3 faites ».
   const s = todos.done > 1 ? 's' : '';
-  return `${todos.done}/${todos.total} faite${s}`;
+  const faites = `${todos.done}/${todos.total} faite${s}`;
+  const restees = todos.unfinished ?? 0;
+  if (restees <= 0) return faites;
+  return `${faites} · ${restees} non faite${restees > 1 ? 's' : ''}`;
 }
