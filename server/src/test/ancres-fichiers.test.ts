@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ancre, compteAncres, deplacerJointe, insereAncre, jointesApresFrappe, retireAncre } from '@haikodev/shared';
+import {
+  ancre,
+  compteAncres,
+  deplacerAncre,
+  deplacerJointe,
+  insereAncre,
+  jointesApresFrappe,
+  retireAncre,
+  retireOccurrence,
+} from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
 /* Les ancres de fichiers dans la barre d'écriture                      */
@@ -50,6 +59,12 @@ test('un fichier sans ancre laisse le texte intact', () => {
   assert.equal(retireAncre('Rien à voir', 'a.png'), 'Rien à voir');
 });
 
+test('retirer l’occurrence cliquée ne touche pas l’autre citation du même nom', () => {
+  const texte = '[fichier: a.png] puis [fichier: a.png]';
+  assert.equal(retireOccurrence(texte, 'a.png', 0), ' puis [fichier: a.png]');
+  assert.equal(retireOccurrence(texte, 'a.png', 1), '[fichier: a.png] puis ');
+});
+
 /* -------- Effacer une ancre retire le fichier -------- */
 
 const jointes = [
@@ -91,6 +106,49 @@ test('deux fois le même nom : une ancre effacée n’en retire qu’un', () => 
   const reste = jointesApresFrappe(deux, avant, '[fichier: a.png]');
   assert.deepEqual(
     reste.map((j) => j.id),
+    ['1'],
+  );
+});
+
+/* -------- Glisser une ancre ailleurs dans la phrase -------- */
+
+test('glisser une ancre au début de la phrase', () => {
+  const r = deplacerAncre('Regarde [fichier: a.png] ceci', 'a.png', 0, 0);
+  assert.equal(r.texte, '[fichier: a.png] Regarde ceci');
+});
+
+test('glisser une ancre à la fin de la phrase', () => {
+  const texte = 'Regarde [fichier: a.png] ceci';
+  const r = deplacerAncre(texte, 'a.png', 0, texte.length);
+  assert.equal(r.texte, 'Regarde ceci [fichier: a.png]');
+});
+
+test('lâcher une ancre sur elle-même ne change rien', () => {
+  const texte = 'Avant [fichier: a.png] après';
+  const debut = texte.indexOf('[fichier: a.png]');
+  assert.equal(deplacerAncre(texte, 'a.png', 0, debut + 3).texte, texte);
+});
+
+test('deux fichiers différents : on déplace celui visé, pas l’autre', () => {
+  const texte = 'A [fichier: a.png] B [fichier: b.pdf] C';
+  const r = deplacerAncre(texte, 'b.pdf', 0, 0);
+  assert.equal(r.texte, '[fichier: b.pdf] A [fichier: a.png] B C');
+});
+
+test('deux fois le même nom : on déplace la seconde citation', () => {
+  const texte = '[fichier: a.png] milieu [fichier: a.png]';
+  const r = deplacerAncre(texte, 'a.png', 1, 0);
+  assert.equal(r.texte.startsWith('[fichier: a.png]'), true);
+  assert.equal(compteAncres(r.texte, 'a.png'), 2);
+  assert.equal(r.texte.includes('milieu'), true);
+  assert.notEqual(r.texte, texte);
+});
+
+test('déplacer une ancre ne retire aucune pièce jointe', () => {
+  const avant = 'A [fichier: a.png] B';
+  const apres = deplacerAncre(avant, 'a.png', 0, 0).texte;
+  assert.deepEqual(
+    jointesApresFrappe([{ id: '1', name: 'a.png' }], avant, apres).map((j) => j.id),
     ['1'],
   );
 });
