@@ -12,6 +12,9 @@ import {
   procedureEnPlace,
   avancementDeLaColonne,
   bilanDeLot,
+  bilanEnRoute,
+  PLAFOND_ATTENTE_LOT_MS,
+  partsDuLot,
   canMove,
   cleColonneTableau,
   colonneAReprendre,
@@ -498,7 +501,13 @@ export function Board({
    */
   const [colonneEnLot, setColonneEnLot] = React.useState<ColumnKey | null>(null);
   const [selection, setSelection] = React.useState<string[]>([]);
-  const [lotEnCours, setLotEnCours] = React.useState(false);
+  /*
+   * QUELLE colonne a un geste en vol — pas un simple « oui / non ». Un seul
+   * drapeau pour tout le tableau éteignait les boutons d'une colonne à cause du
+   * geste d'une AUTRE : on ouvrait le pied de « Terminé » pendant qu'un « Tout
+   * lancer » attendait encore, et « Déployer » y naissait déjà bloqué.
+   */
+  const [colonneQuiTravaille, setColonneQuiTravaille] = React.useState<ColumnKey | null>(null);
   /*
    * L'ANCRE d'une plage : la dernière carte cochée au clavier. Maj+clic prend
    * tout ce qui va d'ici à la carte visée, dans la même colonne. Un ref, pas un
@@ -523,13 +532,26 @@ export function Board({
   React.useEffect(() => {
     if (colonneEnLot && !cartesEnSelection.length) setColonneEnLot(null);
   }, [colonneEnLot, cartesEnSelection.length]);
+  // La colonne en lot, lisible depuis un geste déjà parti (qui, lui, ne voit
+  // que l'état du rendu où il a démarré).
+  const colonneEnLotRef = React.useRef<ColumnKey | null>(null);
+  React.useEffect(() => {
+    colonneEnLotRef.current = colonneEnLot;
+  }, [colonneEnLot]);
 
   const ouvrirLot = (column: ColumnKey) => {
     setSelection(byColumn(column).map((card) => card.id));
     setColonneEnLot(column);
   };
 
-  const fermerLot = () => {
+  /*
+   * Refermer le mode sélection. `seulementSi` sert au geste qui se termine :
+   * pendant qu'il partait, l'utilisateur a pu ouvrir le pied d'une AUTRE
+   * colonne — sa sélection ne doit pas être balayée par la fin du geste
+   * précédent.
+   */
+  const fermerLot = (seulementSi?: ColumnKey) => {
+    if (seulementSi && colonneEnLotRef.current !== seulementSi) return;
     setColonneEnLot(null);
     setSelection([]);
     ancreSelection.current = null;
@@ -606,14 +628,39 @@ export function Board({
     }
   };
 
-  const appliquerLot = async (action: ActionDeLot) => {
-    setLotEnCours(true);
+  const appliquerLot = async (action: ActionDeLot, colonne: ColumnKey) => {
+    setColonneQuiTravaille(colonne);
     let faites = 0;
     const refusees: RefusDeLot[] = [];
     const compter = (issue: 'faite' | RefusDeLot | null) => {
       if (issue === 'faite') faites += 1;
       else if (issue) refusees.push(issue);
     };
+    const nomProjet = state.projects.find((p) => p.id === projectId)?.name;
+
+    /*
+     * LE PIED REND LA MAIN, MÊME SI LE SERVEUR PREND SON TEMPS.
+     *
+     * Les commandes sont parties ; les garder en otage n'accélère rien et fige
+     * l'écran — roue qui tourne sur le bouton, « Annuler » éteint, plus rien de
+     * cliquable. Au bout du plafond, on referme la sélection, on rallume les
+     * boutons et on DIT que le geste est en route. Rien n'est annulé : la
+     * colonne se met à jour toute seule par les événements du serveur.
+     */
+    const combien = selection.length;
+    let mainRendue = false;
+    const rendreLaMain = () => {
+      if (mainRendue) return;
+      mainRendue = true;
+      fermerLot(colonne);
+      setColonneQuiTravaille((occupee) => (occupee === colonne ? null : occupee));
+    };
+    const minuterie = window.setTimeout(() => {
+      rendreLaMain();
+      const enRoute = bilanEnRoute(combien - faites - refusees.length, nomProjet);
+      client.pushToast(enRoute.niveau, enRoute.texte);
+    }, PLAFOND_ATTENTE_LOT_MS);
+
     try {
       if (action.parallele) {
         /*
@@ -637,13 +684,19 @@ export function Board({
         }
       }
     } finally {
-      // Le compte rendu part même si quelque chose a cassé en route : un lot
-      // silencieux est exactement ce qu'on corrige ici.
-      const nomProjet = state.projects.find((p) => p.id === projectId)?.name;
+      window.clearTimeout(minuterie);
+      /*
+       * Le compte rendu part même si quelque chose a cassé en route : un lot
+       * silencieux est exactement ce qu'on corrige ici. Une seule exception —
+       * la main a déjà été rendue avec « en route » et rien de neuf n'est
+       * arrivé depuis (aucun VRAI refus) : redire la même chose ferait deux
+       * bulles pour un seul geste.
+       */
       const bilan = bilanDeLot(action.participe, faites, refusees, nomProjet);
-      client.pushToast(bilan.niveau, bilan.texte);
-      fermerLot();
-      setLotEnCours(false);
+      if (!mainRendue || partsDuLot(faites, refusees).refusees.length) {
+        client.pushToast(bilan.niveau, bilan.texte);
+      }
+      rendreLaMain();
     }
   };
 
@@ -1018,8 +1071,8 @@ export function Board({
                       variant="ghost"
                       size="sm"
                       className="flex-1"
-                      disabled={lotEnCours}
-                      onClick={fermerLot}
+                      disabled={colonneQuiTravaille === column}
+                      onClick={() => fermerLot()}
                     >
                       Annuler
                     </Button>
@@ -1027,10 +1080,10 @@ export function Board({
                       variant="default"
                       size="sm"
                       className="flex-1"
-                      disabled={!selection.length || lotEnCours}
-                      onClick={() => appliquerLot(action)}
+                      disabled={!selection.length || colonneQuiTravaille === column}
+                      onClick={() => appliquerLot(action, column)}
                     >
-                      {lotEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      {colonneQuiTravaille === column ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                       {action.verbe} ({selection.length})
                     </Button>
                   </div>
