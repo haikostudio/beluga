@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, X } from 'lucide-react';
+import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, RotateCcw, X } from 'lucide-react';
 import {
   Attachment,
   COLUMN_KEYS,
@@ -19,8 +19,11 @@ import {
   decisionsParCarte,
   etapeDeLaColonne,
   etatVisuelCarte,
+  libelleDuLotDeLancement,
   lireDateDeDepart,
+  MENTION_REPRISE_COURTE,
   mentionArchivage,
+  mentionDeReprise,
   mentionDepartProgramme,
   phraseDepartProgramme,
   runDeLEtape,
@@ -122,6 +125,23 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
     participe: 'archivée',
   },
 };
+
+/**
+ * LE PIED DE COLONNE, ADAPTÉ À CE QU'IL Y A DEDANS.
+ *
+ * Un seul cas le fait changer de mot : « Planifié » où TOUTES les cartes ont
+ * déjà travaillé. Le lot ne lance alors rien de neuf, il REPREND — et le dire
+ * évite de croire qu'on va repayer le travail déjà fait. Une seule carte jamais
+ * lancée dans le tas, et le pied redit « Tout lancer » : on ne promet pas une
+ * reprise à des cartes qui partent de zéro.
+ */
+function actionDeLot(colonne: ColumnKey, cartes: Card[]): ActionDeLot | undefined {
+  const action = ACTIONS_DE_LOT[colonne];
+  if (!action || colonne !== 'planned') return action;
+  const libelle = libelleDuLotDeLancement(cartes);
+  if (libelle !== 'Tout reprendre') return action;
+  return { ...action, libelle, verbe: 'Reprendre', icone: RotateCcw };
+}
 
 /**
  * Le menu à trois points d'une tête de colonne. UNE seule entrée :
@@ -798,7 +818,7 @@ export function Board({
       >
       {COLUMN_KEYS.map((column) => {
         const columnCards = byColumn(column);
-        const action = ACTIONS_DE_LOT[column];
+        const action = actionDeLot(column, columnCards);
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
         return (
           <div
@@ -1605,6 +1625,20 @@ export function CardTile({
           <div className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning">
             <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
             <span className="min-w-0 truncate">{card.sansModification}</span>
+          </div>
+        ) : null}
+
+        {/*
+         * La carte a déjà travaillé : le prochain clic REPREND au lieu de tout
+         * refaire. On le dit là où on lit son état, sous la cause de son
+         * interruption — un seul mot, la phrase entière est dans son tiroir.
+         */}
+        {mentionDeReprise(card) ? (
+          <div className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-faint">
+            <RotateCcw className="mt-[2px] h-3 w-3 shrink-0" />
+            <span className="min-w-0 truncate" data-mention-reprise>
+              {MENTION_REPRISE_COURTE}
+            </span>
           </div>
         ) : null}
 

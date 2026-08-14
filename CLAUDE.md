@@ -294,6 +294,20 @@ le nom, là-bas le texte).
   sinon → « Planifié » RETENUE avec `RAISON_TOUR_SANS_ISSUE`. Trois refus rendent le balayage sûr : un
   tour qui TIENT encore la carte (marque `tourEnVolDepuis`), un agent au travail, un dernier tour en
   ÉCHEC ou arrêté à la main.
+- **Une carte INTERROMPUE se « REPRENDRE », elle ne repart pas de zéro**
+  (`shared/src/reprise-carte.ts`) : une carte de « Planifié » qui a déjà travaillé (`attempts`,
+  `restarts`, `codeDejaEnregistre`) est une REPRISE — `carteSeReprend`, cause reconnue par
+  `origineDeReprise` sur la phrase déjà écrite. Le bouton dit « Reprendre » (`libelleDeLancement`),
+  le pied de colonne « Tout reprendre » quand TOUTES se reprennent (`libelleDuLotDeLancement`), la
+  carte et son tiroir portent le repère. Le départ garde le MÊME agent — donc le fil du moteur, le
+  dossier et la branche — et pose devant la demande une CONSIGNE (`consigneDeReprise`) qui sépare
+  les étapes DÉJÀ FAITES de celles qui RESTENT. Et le travail déjà écrit ne se perd plus :
+  `enregistrerLeTravailEnCours` (`server/src/dossier-de-carte.ts`) le commite d'office sur la
+  branche de la carte avant toute fermeture — un dossier « sale » ne reste plus ouvert, ce travail
+  part au déploiement —, le ménage du démarrage pose `codeDejaEnregistre` sur la carte derrière
+  chaque branche rattrapée, et `travailDejaSurLaBranche` refait le constat au lancement : sans cela,
+  une reprise qui n'avait plus rien à changer s'entendait dire « aucun fichier n'a changé ».
+  Verrouillé par `server/src/test/reprise-carte.test.ts` et `scripts/verif-reprise-carte.mjs`.
 - **Une tâche COUPÉE PAR UNE PANNE ne passe jamais pour terminée** (`shared/src/carte-interrompue.ts`)
   : tant qu'un tour d'exécution tient une carte, elle porte une MARQUE (`scheduling.tourEnVolDepuis`),
   retirée seulement une fois la carte rangée. Aucun moteur ne survivant à un arrêt du serveur, toute

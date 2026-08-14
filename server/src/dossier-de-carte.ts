@@ -138,6 +138,38 @@ function relierLesLourds(racine: string, dossier: string): void {
   }
 }
 
+/**
+ * CETTE CARTE A-T-ELLE DÉJÀ DU CODE SUR SA BRANCHE ?
+ *
+ * La question se pose au moment de REPRENDRE une carte : son tour précédent a
+ * pu enregistrer du travail sans jamais pouvoir ranger la carte (coupure), donc
+ * sans poser le drapeau `codeDejaEnregistre`. La reprise se serait alors
+ * entendu dire « aucun fichier n'a changé » à la fin d'un tour qui n'avait plus
+ * rien à changer.
+ *
+ * Deux constats, l'un ou l'autre suffisant : la branche porte des
+ * enregistrements que la principale n'a pas, ou sa copie de travail contient
+ * des fichiers modifiés. Un dépôt qui ne répond pas rend `false` : on ne
+ * fabrique pas une trace qu'on n'a pas vue.
+ */
+export async function travailDejaSurLaBranche(
+  racine: string,
+  branche: string,
+  dossier?: string,
+): Promise<boolean> {
+  const principale = await branchePrincipale(racine);
+  const existe = await git(racine, ['rev-parse', '--verify', '--quiet', branche], 20000);
+  if (existe.ok && existe.out.trim()) {
+    const compte = await git(racine, ['rev-list', '--count', `${principale}..${branche}`], 60000);
+    if (compte.ok && Number(compte.out.trim()) > 0) return true;
+  }
+  if (dossier && fs.existsSync(dossier)) {
+    const sale = await git(dossier, ['status', '--porcelain'], 60000);
+    if (sale.ok && sale.out.trim()) return true;
+  }
+  return false;
+}
+
 export type DossierOuvert =
   | { kind: 'pret'; dossier: string; branche: string }
   | { kind: 'echec'; raison: string };
@@ -215,6 +247,50 @@ export interface BilanFermeture {
   fusionnee: boolean;
   retire: boolean;
   raison: string;
+  /** Du travail non enregistré a été enregistré d'office avant de refermer. */
+  enregistre?: boolean;
+}
+
+/**
+ * Le message de l'enregistrement d'office. Il dit ce qu'il est — un filet, pas
+ * un travail rendu — pour qui relira l'histoire de la branche.
+ */
+export const MESSAGE_TRAVAIL_SAUVE = 'Travaux en cours enregistrés (tâche interrompue)';
+
+/**
+ * ENREGISTRER D'OFFICE CE QUI TRAÎNE DANS LA COPIE DE TRAVAIL.
+ *
+ * Un tour coupé — serveur arrêté, moteur tombé, quota — laisse souvent des
+ * fichiers modifiés que l'agent n'a pas eu le temps d'enregistrer. Ils restaient
+ * là : la copie « sale » n'était ni fusionnée ni refermée, donc ce travail
+ * n'entrait dans AUCUN déploiement et l'utilisateur s'entendait dire qu'aucun
+ * fichier n'avait changé. On l'enregistre donc sur la branche DE LA CARTE, en un
+ * seul enregistrement nommé : rien n'est perdu, rien n'est publié, et la reprise
+ * repart d'un dossier propre.
+ *
+ * `git add -A` est ici légitime — et seulement ici : la copie appartient à cette
+ * carte et à personne d'autre. Dans un dossier PARTAGÉ (chef, publication), la
+ * règle du projet reste d'ajouter les fichiers un par un.
+ *
+ * Rend `true` s'il y avait quelque chose à sauver et que c'est fait.
+ */
+export async function enregistrerLeTravailEnCours(dossier: string): Promise<boolean> {
+  if (!fs.existsSync(dossier)) return false;
+  const sale = await git(dossier, ['status', '--porcelain'], 60000);
+  if (!sale.ok || !sale.out.trim()) return false;
+
+  const ajout = await git(dossier, ['add', '-A'], 120000);
+  if (!ajout.ok) {
+    log.warn(`travail en cours impossible à préparer (${dossier}) : ${ajout.out.slice(-200)}`);
+    return false;
+  }
+  const commit = await git(dossier, ['commit', '--no-verify', '-m', MESSAGE_TRAVAIL_SAUVE], 120000);
+  if (!commit.ok) {
+    log.warn(`travail en cours impossible à enregistrer (${dossier}) : ${commit.out.slice(-200)}`);
+    return false;
+  }
+  log.info(`travail en cours enregistré d'office dans ${dossier}`);
+  return true;
 }
 
 /*
@@ -232,10 +308,12 @@ function aLaQueue<T>(racine: string, travail: () => Promise<T>): Promise<T> {
 /**
  * Fin de tour : la branche rejoint la principale et le dossier se referme.
  *
- * Trois refus possibles, tous DITS : du travail non enregistré traîne dans la
- * copie (on garde le dossier plutôt que de perdre le travail), le dossier
- * principal n'est pas sur sa branche principale, la fusion entre en conflit — ce
- * dernier cas revient à la publication, qui sait le faire régler par un agent.
+ * Du travail non enregistré traînait-il dans la copie ? On l'ENREGISTRE d'office
+ * sur la branche de la carte au lieu de laisser le dossier ouvert pour toujours
+ * (`enregistrerLeTravailEnCours`) : c'est du travail réel, il doit pouvoir être
+ * déployé comme le reste. Restent deux refus, tous DITS : le dossier principal
+ * n'est pas sur sa branche principale, la fusion entre en conflit — ce dernier
+ * cas revient à la publication, qui sait le faire régler par un agent.
  */
 export async function refermerDossierDeCarte(
   racine: string,
@@ -245,11 +323,14 @@ export async function refermerDossierDeCarte(
   return aLaQueue(racine, async () => {
     if (!fs.existsSync(dossier)) return { fusionnee: false, retire: true, raison: 'dossier déjà refermé' };
 
+    const enregistre = await enregistrerLeTravailEnCours(dossier);
     const sale = await git(dossier, ['status', '--porcelain'], 60000);
     if (sale.out.trim()) {
+      // L'enregistrement d'office a échoué (dépôt en plein conflit, droits) :
+      // on garde le dossier plutôt que de perdre le travail.
       const raison = "du travail non enregistré reste dans le dossier de la carte : il n'est ni fusionné ni refermé";
       log.warn(`fermeture du dossier ${dossier} : ${raison}`);
-      return { fusionnee: false, retire: false, raison };
+      return { fusionnee: false, retire: false, raison, enregistre };
     }
 
     const principale = await branchePrincipale(racine);
@@ -272,30 +353,52 @@ export async function refermerDossierDeCarte(
     const retire = await retirerLeDossier(racine, dossier);
     if (!retire) raison = `${raison} — dossier resté ouvert`;
     log.info(`dossier de carte refermé (${dossier}) : ${raison}`);
-    return { fusionnee, retire, raison };
+    return { fusionnee, retire, raison, enregistre };
   });
+}
+
+/** Ce qu'un dossier de carte refermé au démarrage a laissé derrière lui. */
+export interface DossierRattrape {
+  dossier: string;
+  branche: string;
+  /** Du travail non enregistré a été sauvé sur la branche de la carte. */
+  enregistre: boolean;
+  /** La branche a rejoint la principale. */
+  fusionnee: boolean;
 }
 
 /**
  * Ménage au démarrage : un démon redémarré en plein travail laisse des copies
  * sans personne dedans. On ne touche qu'au rangement des cartes, et seulement aux
  * dossiers qu'aucun agent n'occupe.
+ *
+ * Rend le DÉTAIL de ce qui a été rattrapé, et pas seulement un compte :
+ * l'appelant (`server/src/scheduler.ts`) retrouve la carte derrière chaque
+ * branche et lui pose le drapeau du code déjà enregistré — sans quoi une carte
+ * reprise s'entendrait dire « aucun fichier n'a changé » alors que son travail
+ * est là.
  */
-export async function menageDesDossiers(racine: string, occupes: string[]): Promise<number> {
+export async function menageDesDossiers(racine: string, occupes: string[]): Promise<DossierRattrape[]> {
   const ouverts = await dossiersOuverts(racine);
   const orphelins = dossiersOrphelins(racine, ouverts, occupes);
-  let fermes = 0;
+  const rattrapes: DossierRattrape[] = [];
   for (const dossier of orphelins) {
     // Seule une copie posée sur une branche de CARTE se referme toute seule :
     // un dossier ouvert à la main sur une autre branche ne se fait pas fusionner
     // dans la principale à la faveur d'un redémarrage.
     const branche = await brancheCourante(dossier);
     if (!branche.startsWith('tache/')) continue;
-    // On referme comme en fin de tour : le travail enregistré par l'agent tué
-    // rejoint la principale, et une copie sale est laissée telle quelle.
+    // On referme comme en fin de tour : le travail en cours est enregistré
+    // d'office sur la branche de la carte, puis le tout rejoint la principale.
     const bilan = await refermerDossierDeCarte(racine, dossier, branche);
-    if (bilan.retire) fermes += 1;
+    rattrapes.push({
+      dossier,
+      branche,
+      enregistre: !!bilan.enregistre,
+      fusionnee: bilan.fusionnee,
+    });
   }
+  const fermes = rattrapes.length;
   if (fermes) log.info(`${fermes} dossier(s) de carte laissés ouverts ont été refermés (${racine})`);
-  return fermes;
+  return rattrapes;
 }
