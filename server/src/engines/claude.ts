@@ -12,8 +12,7 @@ import {
   normalizeTodos,
   sommeContexte,
 } from './types.js';
-import { finDuProcessus } from './fin-de-processus.js';
-import { log } from '../logger.js';
+import { arreterProcessus, finDuProcessus } from './fin-de-processus.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -171,16 +170,7 @@ export const claudeAdapter: EngineAdapter = {
 
     return {
       pid: child.pid,
-      stop: () => {
-        try {
-          child.kill('SIGTERM');
-          setTimeout(() => {
-            if (!child.killed) child.kill('SIGKILL');
-          }, 4000);
-        } catch (err) {
-          log.warn('arrêt du moteur claude impossible', err);
-        }
-      },
+      stop: () => arreterProcessus(child, 'claude'),
       finished,
     };
   },

@@ -86,3 +86,41 @@ export function finDuProcessus(
     }
   });
 }
+
+/** Le délai laissé au moteur pour quitter proprement avant d'être achevé. */
+const DELAI_ARRET_FORCE_MS = 4000;
+
+/**
+ * ARRÊTER UN PROCESSUS DE MOTEUR — POUR DE VRAI.
+ *
+ * Le bouton d'arrêt envoyait SIGTERM puis vérifiait `child.killed` avant de
+ * se résoudre à SIGKILL : mais cette propriété devient vraie dès que le
+ * SIGNAL est PARTI, pas quand le processus a réellement quitté (documenté par
+ * Node lui-même). Un moteur qui ignore ou n'a pas encore traité le SIGTERM —
+ * en plein appel d'outil, par exemple — ne recevait donc JAMAIS le coup de
+ * grâce : le clic « Arrêter » semblait n'avoir aucun effet, et l'agent
+ * continuait exactement où il en était. On suit ici la fin RÉELLE du
+ * processus (l'événement « exit », comme `finDuProcessus`), et c'est son
+ * absence après le délai qui déclenche SIGKILL — jamais `child.killed`.
+ */
+export function arreterProcessus(child: ChildProcess, moteur: string, delaiMs = DELAI_ARRET_FORCE_MS): void {
+  let termine = false;
+  child.once('exit', () => {
+    termine = true;
+  });
+  try {
+    child.kill('SIGTERM');
+  } catch (err) {
+    log.warn(`arrêt du moteur ${moteur} impossible`, err);
+    return;
+  }
+  const forcer = setTimeout(() => {
+    if (termine) return;
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      /* déjà parti */
+    }
+  }, delaiMs);
+  forcer.unref?.();
+}
