@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   chefBride,
+  delaiOutilMoteurMs,
   enteteDuTour,
   modePlanFermeLEcriture,
   serveursTiers,
@@ -234,6 +235,14 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
     // sable ouvert, personne ne répond et Codex rend « user cancelled MCP tool
     // call ». Les outils du démon sont les nôtres : ils n'ont rien à demander.
     set('mcp_servers.haikodev.default_tools_approval_mode', 'approve');
+    /*
+     * UN OUTIL A LE DROIT D'ATTENDRE UNE PERSONNE. `ask_user` ne rend la main
+     * qu'une fois la réponse donnée : c'est ce qui arrête le moteur au lieu de
+     * le laisser enchaîner les étapes suivantes de sa liste. Le délai d'un
+     * appel d'outil, très court par défaut chez Codex, doit donc laisser la
+     * place au plafond tenu par le démon (`shared/src/attente-question.ts`).
+     */
+    set('mcp_servers.haikodev.tool_timeout_sec', Math.round(delaiOutilMoteurMs() / 1000));
     if (options.env?.HAIKODEV_TOKEN) {
       set('mcp_servers.haikodev.env.HAIKODEV_TOKEN', options.env.HAIKODEV_TOKEN);
       set('mcp_servers.haikodev.env.HAIKODEV_URL', options.env.HAIKODEV_URL ?? '');

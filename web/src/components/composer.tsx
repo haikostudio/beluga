@@ -21,6 +21,7 @@ import {
   retireAncre,
   retireOccurrence,
   texteApresInsertion,
+  TEXTE_BARRE_EN_ATTENTE,
 } from '@haikodev/shared';
 import { useArretAgent } from '@/components/arret-agent';
 import { AttachmentPreview } from '@/components/attachment-preview';
@@ -908,9 +909,18 @@ export function Composer({
           placeholder={
             edition
               ? 'Modifiez le message en attente…'
-              : busy
-                ? "L'agent travaille — votre message attendra son tour…"
-                : 'Écrivez votre demande…'
+              : /*
+                 * UN AGENT ARRÊTÉ SUR SA QUESTION N'EST PAS « EN TRAIN DE
+                 * TRAVAILLER » : son appel d'outil attend la réponse, et il ne
+                 * fera rien d'autre avant de l'avoir. Dire « votre message
+                 * attendra son tour » à cet instant était le contraire de la
+                 * vérité (`shared/src/attente-question.ts`).
+                 */
+                agent?.attendReponse
+                ? TEXTE_BARRE_EN_ATTENTE
+                : busy
+                  ? "L'agent travaille — votre message attendra son tour…"
+                  : 'Écrivez votre demande…'
           }
           rows={1}
           className={cn(

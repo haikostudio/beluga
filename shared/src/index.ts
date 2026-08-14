@@ -7,6 +7,7 @@ export * from './analyse-cout.js';
 export * from './apercu-fichier.js';
 export * from './arret-carte.js';
 export * from './reprise-publication.js';
+export * from './attente-question.js';
 export * from './attention.js';
 export * from './auto-amelioration.js';
 export * from './bloc-cerveau.js';

@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import {
   AGENT_MOVABLE_COLUMNS,
   AgentQuestion,
+  texteSansAttente,
   COLUMN_LABELS,
   Card,
   ColumnKey,
@@ -1103,9 +1104,17 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         options,
         allowFreeText: true,
       });
+      /*
+       * L'APPEL D'OUTIL NE REND PAS LA MAIN ICI. Le texte ci-dessous n'est
+       * qu'un repli : il ne part au moteur que si l'attente n'a pas pu être
+       * posée. Le chemin normal passe par `/internal/call`, qui garde la
+       * réponse HTTP ouverte tant que l'utilisateur n'a pas répondu — c'est
+       * cela qui ARRÊTE le moteur au lieu de le laisser enchaîner les étapes
+       * suivantes de sa liste (`shared/src/attente-question.ts`).
+       */
       return {
         ok: true,
-        text: "Question posée à l'utilisateur. Attends sa réponse : elle arrivera dans la conversation.",
+        text: texteSansAttente(),
         question,
       };
     }
