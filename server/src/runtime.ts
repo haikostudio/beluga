@@ -2609,6 +2609,9 @@ const OUTIL_LISTE: Record<EngineId, string> = {
   claude:
     "l'outil « TaskCreate » puis « TaskUpdate » (une tâche par appel, mise à jour par son numéro)",
   codex: "l'outil « update_plan » du moteur",
+  // Cursor n'expose aucun outil de liste par son API : l'agent annonce donc son
+  // déroulé dans sa réponse, en clair, plutôt qu'un outil qu'il n'a pas.
+  cursor: 'une liste écrite en tête de ta réponse, une ligne par action prévue',
 };
 
 /**

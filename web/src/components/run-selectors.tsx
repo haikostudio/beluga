@@ -22,14 +22,15 @@ import { cn } from '@/lib/utils';
 export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' | 'mode'>>;
 
 /**
- * Le nom court du moteur, celui que tout le monde utilise à l'oral : « Claude »
- * ou « GPT » (Codex tourne sur des modèles GPT). Le libellé complet reste
- * dans le catalogue pour les infobulles ; ici on ne garde que l'essentiel.
+ * Le nom court du moteur, celui que tout le monde utilise à l'oral : « Claude »,
+ * « GPT » (Codex tourne sur des modèles GPT) ou « Cursor ». Le libellé complet
+ * reste dans le catalogue pour les infobulles ; ici on ne garde que l'essentiel.
  */
 export function nomCourtMoteur(engine: Pick<EngineInfo, 'id' | 'label'> | undefined): string {
   if (!engine) return 'moteur';
   if (engine.id === 'codex') return 'GPT';
   if (engine.id === 'claude') return 'Claude';
+  if (engine.id === 'cursor') return 'Cursor';
   return engine.label;
 }
 

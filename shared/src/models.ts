@@ -7,7 +7,14 @@ import { AgentContextUsage } from './contexte-agent.js';
 /* Moteurs, modèles, niveaux de réflexion                              */
 /* ------------------------------------------------------------------ */
 
-export const EngineId = z.enum(['claude', 'codex']);
+/**
+ * Les moteurs branchés. « claude » et « codex » sont des OUTILS EN LIGNE DE
+ * COMMANDE déjà authentifiés sur le serveur ; « cursor » est une API distante
+ * (agents cloud, clé d'accès) — voir `shared/src/moteur-cursor.ts`. Un moteur
+ * ajouté ici doit l'être partout où cette liste est parcourue : catalogue des
+ * modèles, comptes et quotas, nom court affiché.
+ */
+export const EngineId = z.enum(['claude', 'codex', 'cursor']);
 export type EngineId = z.infer<typeof EngineId>;
 
 /**

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MoteurCatalogue, reglagesDeLaProposition } from '@haikodev/shared';
+import { IdMoteur, MoteurCatalogue, reglagesDeLaProposition } from '@haikodev/shared';
 
 /** Un catalogue proche du vrai : deux moteurs, leurs modèles, leurs niveaux. */
-function catalogue(patch: Partial<Record<'claude' | 'codex', Partial<MoteurCatalogue>>> = {}): MoteurCatalogue[] {
+function catalogue(patch: Partial<Record<IdMoteur, Partial<MoteurCatalogue>>> = {}): MoteurCatalogue[] {
   const base: MoteurCatalogue[] = [
     {
       id: 'claude',

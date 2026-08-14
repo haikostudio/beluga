@@ -70,6 +70,7 @@ export * from './publication-confiee.js';
 export * from './procedure-publication.js';
 export * from './micro-demande.js';
 export * from './models.js';
+export * from './moteur-cursor.js';
 export * from './mur-acces.js';
 export * from './notification.js';
 export * from './notification-tri.js';

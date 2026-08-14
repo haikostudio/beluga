@@ -1221,6 +1221,10 @@ function ConnecterUnCompte() {
       ) : (
         <>
           <div className="flex flex-wrap gap-1.5">
+            {/* Les deux moteurs qui se CONNECTENT : un compte s'y ouvre par une
+                page de connexion, dans le coffre du compte. Cursor n'est pas de
+                ceux-là — il s'authentifie par une CLÉ posée sur le serveur
+                (`CURSOR_API_KEY`), donc aucun bouton n'aurait rien à ouvrir. */}
             {(['claude', 'codex'] as EngineId[]).map((engine) => (
               <Button
                 key={engine}

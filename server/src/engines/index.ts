@@ -2,17 +2,20 @@ import { EngineId, EngineInfo } from '@haikodev/shared';
 import { EngineAdapter } from './types.js';
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
-import { claudeCatalog, codexCatalog, resolveModel } from './catalog.js';
+import { cursorAdapter } from './cursor.js';
+import { claudeCatalog, codexCatalog, cursorCatalog, resolveModel } from './catalog.js';
 
 export * from './types.js';
 
 export const ADAPTERS: Record<EngineId, EngineAdapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
+  cursor: cursorAdapter,
 };
 
 export function adapterFor(engine: EngineId | string | undefined): EngineAdapter {
   if (engine === 'codex') return codexAdapter;
+  if (engine === 'cursor') return cursorAdapter;
   return claudeAdapter;
 }
 
@@ -22,14 +25,18 @@ let cache: { at: number; engines: EngineInfo[] } | null = null;
 export async function listEngines(force = false): Promise<EngineInfo[]> {
   if (!force && cache && Date.now() - cache.at < 5 * 60 * 1000) return cache.engines;
   const engines: EngineInfo[] = [];
-  for (const adapter of [claudeAdapter, codexAdapter]) {
+  for (const adapter of [claudeAdapter, codexAdapter, cursorAdapter]) {
     const detected = await adapter.detect();
     let models: EngineInfo['models'] = [];
     let live = false;
     let catalogError: string | undefined;
     if (detected.installed) {
       const catalogue =
-        adapter.id === 'claude' ? await claudeCatalog() : await codexCatalog(detected.version ?? '');
+        adapter.id === 'claude'
+          ? await claudeCatalog()
+          : adapter.id === 'cursor'
+            ? await cursorCatalog()
+            : await codexCatalog(detected.version ?? '');
       models = catalogue.models;
       live = catalogue.live;
       catalogError = catalogue.error;

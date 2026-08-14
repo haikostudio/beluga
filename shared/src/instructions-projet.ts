@@ -16,9 +16,12 @@
 /** Les deux noms de fichier d'instructions que HaikoDev connaît. */
 export const FICHIERS_INSTRUCTIONS = ['CLAUDE.md', 'AGENTS.md'] as const;
 
-/** Le fichier d'instructions NATIF du moteur, avant toute résolution. */
+/**
+ * Le fichier d'instructions NATIF du moteur, avant toute résolution. Cursor
+ * suit la même convention que Codex (`AGENTS.md`) ; seul Claude lit `CLAUDE.md`.
+ */
 export function fichierNatif(engine?: string): string {
-  return engine === 'codex' ? 'AGENTS.md' : 'CLAUDE.md';
+  return engine === 'codex' || engine === 'cursor' ? 'AGENTS.md' : 'CLAUDE.md';
 }
 
 /** Un corps de 600 signes ou plus porte du vrai contenu, pas un renvoi. */
