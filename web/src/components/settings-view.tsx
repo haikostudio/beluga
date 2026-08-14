@@ -29,6 +29,7 @@ import {
   NOM_CLE_MAX,
   PREFIXE_CLE_API,
   ROUTE_CARTE_EXTERNE,
+  ROUTE_DOC_API,
   ConnexionCompte,
   jugerNomDeCle,
   formeDepuisEvenement,
@@ -1898,6 +1899,18 @@ function SectionClesApi({ open }: { open: boolean }) {
           {vivantes.length
             ? `${vivantes.length} clé(s) active(s). Une clé révoquée fait refuser l'appel aussitôt.`
             : 'Aucune clé active : tout appel extérieur est refusé.'}
+        </p>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
+          Le mode d'emploi complet — champs acceptés, réponses, refus — est publié à l'adresse{' '}
+          <a
+            href={ROUTE_DOC_API}
+            target="_blank"
+            rel="noreferrer"
+            className="text-text underline decoration-border underline-offset-2 hover:decoration-muted"
+          >
+            {ROUTE_DOC_API}
+          </a>
+          , lisible sans compte : c'est la page à donner au service qu'on branche.
         </p>
       </div>
 

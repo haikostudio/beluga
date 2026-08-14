@@ -262,7 +262,11 @@ le nom, là-bas le texte).
   et révocable dans l'onglet « Accès API » des réglages ; le SECRET n'est gardé nulle part (empreinte
   SHA-256 + aperçu), montré une seule fois. Révoquer DATE la clé sans effacer son histoire. Le projet
   se désigne par son NOM ou son identifiant (`trouverLeProjetVise`), et tout refus se dit en clair.
-  Verrouillé par `server/src/test/cles-api.test.ts` et `scripts/verif-cles-api.mjs`.
+  **Le MODE D'EMPLOI est PUBLIC à l'adresse `/api`** (`ROUTE_DOC_API`, `shared/src/doc-api.ts`) :
+  ouvert avant le mur d'accès, en HTML pour un humain et en JSON pour un outil, en lecture seule et
+  sans toucher la base — il naît des constantes de `cles-api.ts`, donc il ne peut pas mentir sur ce
+  que la porte accepte. Verrouillé par `server/src/test/cles-api.test.ts`,
+  `server/src/test/doc-api.test.ts` et `scripts/verif-cles-api.mjs`.
 
 - **Chaque NUIT VERS 3 H, un agent d'analyse cherche ce qui peut être amélioré, et il ne fait que
   PROPOSER** (`shared/src/auto-amelioration.ts`, `server/src/auto-amelioration.ts`, veille lancée par
