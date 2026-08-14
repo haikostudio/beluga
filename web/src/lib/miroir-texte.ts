@@ -7,9 +7,10 @@
  * le champ, avec la même police, la même largeur et les mêmes marges — et on
  * y mesure ce qu'on ne peut pas mesurer directement.
  *
- * Trois usages : savoir où un fichier vient d'être lâché, dessiner le trait
- * d'insertion pendant qu'on glisse un drapeau, et savoir jusqu'où faire
- * défiler pour montrer une ancre.
+ * Quatre usages : savoir où un fichier vient d'être lâché, dessiner le trait
+ * d'insertion pendant qu'on glisse un drapeau, savoir jusqu'où faire défiler
+ * pour montrer une ancre, et CALER le calque des drapeaux exactement sur le
+ * texte du champ (`reglagesDuChamp`).
  */
 
 /** Les réglages qui décident du placement du texte, ni plus ni moins. */
@@ -38,6 +39,35 @@ const REGLAGES = [
 
 /** Au-delà, la mesure caractère par caractère coûterait plus qu'elle ne sert. */
 const TROP_LONG = 8000;
+
+/**
+ * LES MÊMES RÉGLAGES, POUR UN CALQUE POSÉ SUR LE CHAMP.
+ *
+ * Un calque qui redit les styles du champ en classes finit toujours par en
+ * perdre un — une hauteur de ligne, une marge — et le texte affiché ne tombe
+ * alors plus sur le texte réel : une ligne de trop, un curseur ailleurs qu'où
+ * il paraît. On copie donc les réglages RÉELLEMENT calculés du champ, la même
+ * liste que le miroir de mesure, et rien d'autre.
+ *
+ * `barreDeDefilement` est la largeur mangée à droite par l'ascenseur du champ
+ * quand le texte dépasse : sans elle, le calque disposerait ses lignes sur
+ * quelques pixels de plus que le champ, et les retours à la ligne diffèreraient.
+ */
+export function reglagesDuChamp(zone: HTMLTextAreaElement): {
+  style: Record<string, string>;
+  barreDeDefilement: number;
+} {
+  const calcule = window.getComputedStyle(zone);
+  const style: Record<string, string> = {};
+  for (const nom of REGLAGES) {
+    // La largeur du calque vient de son placement (inset), pas du champ.
+    if (nom === 'width' || nom === 'boxSizing') continue;
+    style[nom] = calcule[nom];
+  }
+  const bordures = (Number.parseFloat(calcule.borderLeftWidth) || 0) + (Number.parseFloat(calcule.borderRightWidth) || 0);
+  const barre = Math.max(0, zone.offsetWidth - zone.clientWidth - bordures);
+  return { style, barreDeDefilement: barre };
+}
 
 function avecMiroir<T>(zone: HTMLTextAreaElement, travail: (texte: Text, miroir: HTMLDivElement) => T): T | null {
   if (zone.value.length > TROP_LONG) return null;

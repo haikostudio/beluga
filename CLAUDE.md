@@ -628,6 +628,14 @@ le nom, là-bas le texte).
   approche de l'écran. Le COMPTEUR de la tête de colonne (et l'onglet du téléphone) dit toujours le
   TOTAL réel, jamais ce qui est posé, et une sélection en lot pose d'abord toute la colonne.
   Verrouillé par `server/src/test/paquets-de-cartes.test.ts` et `scripts/verif-cartes-par-paquets.mjs`.
+- **LE CALQUE DES TAGS « [fichier: …] » SE CALE SUR LE CHAMP, IL NE LE REDIT PAS**
+  (`reglagesDuChamp`, `web/src/lib/miroir-texte.ts` ; calque `data-prompt-calque` de
+  `composer.tsx`) : le `textarea` décide seul des retours à la ligne et de l'endroit du curseur, le
+  calque ne fait que colorer. Ses réglages sont RECOPIÉS de ceux du champ (même liste que le miroir
+  de mesure), sa largeur retire l'ascenseur, et un tag est dessiné avec les MÊMES CARACTÈRES que le
+  texte réel — habillage sur marges négatives. Une pastille « trombone + nom » n'a pas la largeur du
+  tag qu'elle recouvre : texte décalé, ligne vide en trop, curseur ailleurs qu'où il paraît. Vérifié
+  par `scripts/verif-tags-mise-en-page.mjs`.
 - **LA FRAPPE AU CLAVIER NE TRAVERSE PLUS LE MAGASIN GÉNÉRAL** (`composer.tsx`) : le brouillon était
   posé dans l'état PARTAGÉ à chaque touche, ce qui refaisait l'affichage de toute l'application —
   98 ms par touche sur 400 cartes, contre 0,7 ms depuis (`scripts/mesure-fluidite.mjs`, qui MESURE

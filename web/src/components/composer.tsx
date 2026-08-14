@@ -27,7 +27,7 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { RunChoix, RunSelectors } from '@/components/run-selectors';
-import { indexAuPoint, montreLeMorceau, pointDeLIndex } from '@/lib/miroir-texte';
+import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
@@ -213,7 +213,7 @@ export function Composer({
    * phrase, sans toucher aux aperçus au-dessus. Le seuil évite qu'un
    * tremblement du doigt soit pris pour un déplacement.
    */
-  const poserDrapeau = (event: React.PointerEvent<HTMLButtonElement>, nom: string, occurrence: number) => {
+  const poserDrapeau = (event: React.PointerEvent<HTMLElement>, nom: string, occurrence: number) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -228,7 +228,7 @@ export function Composer({
     return accrocheAuMot(zone.value, brut);
   };
 
-  const suivreDrapeau = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const suivreDrapeau = (event: React.PointerEvent<HTMLElement>) => {
     const origine = origineDrapeau.current;
     if (!origine) return;
     const dx = event.clientX - origine.x;
@@ -250,7 +250,7 @@ export function Composer({
     });
   };
 
-  const lacherDrapeau = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const lacherDrapeau = (event: React.PointerEvent<HTMLElement>) => {
     if (glisseRaf.current) cancelAnimationFrame(glisseRaf.current);
     glisseRaf.current = 0;
     const origine = origineDrapeau.current;
@@ -300,6 +300,35 @@ export function Composer({
     return MARQUE_FICHIER.test(text);
   }, [text]);
 
+  /*
+   * LE CALQUE SE CALE SUR LE CHAMP, IL NE LE DEVINE PAS. Ses styles sont
+   * RECOPIÉS du champ (police, hauteur de ligne, marges intérieures) au lieu
+   * d'être redits en classes : un seul réglage qui diffère — la hauteur de
+   * ligne, par exemple — et les lignes du calque tombent à côté des vraies,
+   * d'où le texte décalé, la ligne vide en trop et le curseur ailleurs qu'où
+   * il paraît. `right` retire en plus la largeur de l'ascenseur du champ, qui
+   * rétrécit ses lignes dès que le texte dépasse la hauteur du champ.
+   */
+  const [calage, setCalage] = React.useState<{ style: React.CSSProperties; barre: number }>({ style: {}, barre: 0 });
+  React.useLayoutEffect(() => {
+    const zone = textareaRef.current;
+    if (!zone || !aDesDrapeaux) return;
+    const mesurer = () => {
+      const releve = reglagesDuChamp(zone);
+      setCalage((avant) => {
+        const memeBarre = avant.barre === releve.barreDeDefilement;
+        const memeStyle = Object.keys(releve.style).every(
+          (cle) => (avant.style as Record<string, string>)[cle] === releve.style[cle],
+        );
+        return memeBarre && memeStyle ? avant : { style: releve.style as React.CSSProperties, barre: releve.barreDeDefilement };
+      });
+    };
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(zone);
+    return () => observateur.disconnect();
+  }, [aDesDrapeaux, text]);
+
   const texteAvecDrapeaux = React.useMemo(() => {
     if (!aDesDrapeaux) return [];
     MARQUE_FICHIER.lastIndex = 0;
@@ -312,22 +341,30 @@ export function Composer({
       const nom = trouve[1]!.trim();
       const position = vus[nom] ?? 0;
       vus[nom] = position + 1;
+      const brut = trouve[0];
+      const debutNom = brut.indexOf(nom);
       morceaux.push(
-        <button
+        <span
           key={`fichier-${trouve.index}`}
-          type="button"
+          role="button"
           data-prompt-file-flag
           title="Glisser pour déplacer, cliquer pour retirer"
           onPointerDown={(event) => gestesDrapeau.current.poserDrapeau(event, nom, position)}
           onPointerMove={(event) => gestesDrapeau.current.suivreDrapeau(event)}
           onPointerUp={(event) => gestesDrapeau.current.lacherDrapeau(event)}
           onPointerCancel={() => gestesDrapeau.current.annulerDrapeau()}
-          className="pointer-events-auto inline-flex max-w-[220px] translate-y-[-1px] cursor-grab touch-none items-center gap-1 rounded border border-accent/40 bg-accent/15 px-1.5 py-0.5 align-baseline text-[13px] text-accent hover:border-accent hover:bg-accent/25 active:cursor-grabbing"
+          className="pointer-events-auto cursor-grab touch-none rounded-[3px] bg-accent/20 px-[3px] text-accent ring-1 ring-inset ring-accent/40 [box-decoration-break:clone] [-webkit-box-decoration-break:clone] hover:bg-accent/30 active:cursor-grabbing"
+          style={{ marginInline: '-3px' }}
         >
-          <Paperclip className="h-3 w-3 shrink-0" />
-          <span className="truncate">{nom}</span>
-          <X className="h-2.5 w-2.5 shrink-0 opacity-70" />
-        </button>,
+          {/* LES MÊMES CARACTÈRES QUE LE TEXTE RÉEL, jamais un raccourci : une
+              pastille « trombone + nom » n'occupe pas la largeur du tag
+              qu'elle recouvre, et c'est ce décalage qui cassait la mise en
+              page. Seule la couleur change — l'habillage (fond, filet) est
+              posé sur des marges négatives, donc il ne prend aucune place. */}
+          <span className="opacity-50">{brut.slice(0, debutNom)}</span>
+          {nom}
+          <span className="opacity-50">{brut.slice(debutNom + nom.length)}</span>
+        </span>,
       );
       fin = trouve.index + trouve[0].length;
     }
@@ -760,8 +797,9 @@ export function Composer({
         {aDesDrapeaux ? (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 z-20 overflow-hidden whitespace-pre-wrap break-words px-3 py-2.5 pr-14 text-[14.5px] leading-normal text-text"
-            style={{ transform: `translateY(${-scrollTexte}px)` }}
+            data-prompt-calque
+            className="pointer-events-none absolute inset-0 z-20 overflow-hidden whitespace-pre-wrap break-words text-text"
+            style={{ ...calage.style, right: calage.barre, transform: `translateY(${-scrollTexte}px)` }}
           >
             {texteAvecDrapeaux}
           </div>
