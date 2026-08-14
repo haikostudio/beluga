@@ -67,6 +67,7 @@ export * from './paquets-de-cartes.js';
 export * from './parcours-carte.js';
 export * from './panne-serveur.js';
 export * from './passages-doc.js';
+export * from './prompt-envoye.js';
 export * from './passages-code.js';
 export * from './vecteurs-doc.js';
 export * from './prefixe-cache.js';

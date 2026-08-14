@@ -95,7 +95,7 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   l'index. Découpage par section ou par règle, index de recherche INCRÉMENTAL (migration 19).
   L'INDEX reste le REPLI : ce qui part tient sous plafond et ne doit JAMAIS peser plus que l'index
   remplacé, sinon la recherche est refusée. Les passages retrouvés sont visibles dans le tiroir
-  « Contexte envoyé » et dans l'onglet « Détails ».
+  « Prompt envoyé » (le repère à gauche, sous la demande) et dans l'onglet « Détails ».
 - **Le SENS vient d'un VRAI modèle de vectorisation, façon RAG, et il tourne EN LOCAL**
   (`shared/src/vecteurs-doc.ts`, `server/src/vecteurs-local.ts`, `server/src/vecteurs.ts`,
   migration 27) : `BAAI/bge-m3` en 1024 dimensions, exécuté SUR CE SERVEUR — aucun octet de
@@ -642,19 +642,19 @@ le nom, là-bas le texte).
   PERMANENCE (décalage fixe, jamais retiré) et cède la place à l'icône par une simple bascule
   d'OPACITÉ — jamais par un déplacement. Vérifié par `scripts/verif-avancement-colonne-gauche.mjs`.
 - **PLUS AUCUN COMPTEUR DE JETONS VISIBLE NULLE PART** (`docs/plans/refonte-visualisation-prompts.md`,
-  plan validé) : à la place, VOIR le texte réellement envoyé au moteur. Le tiroir « Contexte envoyé »
-  du chef et l'onglet « Détails » d'une carte lisent tous deux le même LECTEUR DE PROMPTS
-  (`LecteurPrompt`, `web/src/components/lecteur-prompt.tsx`) — une liste de tours, chacun dépliable en
-  blocs nommés (`SentContextBlock.text`), avec recherche et copie, et un repère VISUEL (`cached`)
-  pour ce qui est relu au cache plutôt qu'un chiffre. Le texte de chaque tour est conservé dans
+  plan validé) : à la place, VOIR le texte réellement envoyé au moteur. L'onglet « Détails » d'une
+  carte lit le LECTEUR DE PROMPTS (`LecteurPrompt`, `web/src/components/lecteur-prompt.tsx`) — une
+  liste de tours, chacun dépliable en blocs nommés (`SentContextBlock.text`), avec recherche et copie,
+  et un repère VISUEL (`cached`) pour ce qui est relu au cache plutôt qu'un chiffre ; la CONVERSATION,
+  elle, a son repère à gauche et son tiroir à un seul tour (`RepereDuPrompt`). Le texte de chaque tour est conservé dans
   `Message.sentContext` (`server/src/store.ts`, `purgerContexteEnvoyeAncien` — les
   `TOURS_CONTEXTE_CONSERVES` derniers tours d'un agent gardent leur texte, les plus vieux ne gardent
   que les compteurs). Le composeur ne montre plus le pourcentage de contexte de l'agent, l'onglet
   « Consommation » des réglages ne montre plus de tokens ni de part relue au cache, le tableau de bord
   montre le TEMPS de travail plutôt que des tokens, et le chiffrage d'une carte reste en heures et en
   francs — jamais en jetons. Les mesures continuent d'exister côté serveur, elles ne s'affichent
-  simplement plus. Vérifié par `scripts/verif-contexte-envoye.mjs` (le tiroir du chef, en navigateur —
-  un tour déplié y rend le texte réellement envoyé), `scripts/verif-parcours-tache.mjs` (le volet
+  simplement plus. Vérifié par `scripts/verif-contexte-envoye.mjs` (le repère du chat, en navigateur —
+  son tiroir rend le texte réellement envoyé), `scripts/verif-parcours-tache.mjs` (le volet
   Détails), `scripts/verif-detail-analyse.mjs` et `scripts/verif-aucun-compteur-jetons.mjs` (repère
   statique : aucun texte « X tokens »/« X jetons » dans l'interface).
 - **« Repartir de zéro » vide le CONTEXTE de l'agent, pas seulement le fil**
@@ -693,15 +693,20 @@ le nom, là-bas le texte).
   `server/src/test/decharge-projets.test.ts`.
 - **Une demande réellement partie garde son contexte envoyé et sa mesure moteur** ; en reprise,
   l'historique opaque est seulement nommé, jamais recopié ni inventé.
-- **Le tiroir « Contexte envoyé » est une CHRONOLOGIE VERTICALE** (`chronologieContexteEnvoye`,
-  `recapitulatifEnvoi`, `shared/src/couches-tokens.ts`) : un bloc par tour RÉELLEMENT parti dans la
-  conversation, numéroté et daté — pas seulement l'instantané du message sous lequel on a cliqué. Un
-  récapitulatif en tête additionne mémoire et envoi de tous les tours, pour les comparer entre eux ;
-  chaque tour montre ensuite ses DEUX PARTIES en tokens (mémoire du projet contre ce qui a été
-  RÉELLEMENT envoyé au moteur, mesure d'entrée du moteur, cache compris ; la mémoire est estimée depuis
-  ses caractères, environ quatre signes par jeton, `jetonsApproches`) et ses passages retrouvés. Le
-  tour d'où on a ouvert le tiroir est déplié d'emblée, les autres repliés. Vérifié par
-  `scripts/verif-contexte-envoye.mjs`.
+- **SOUS LA DEMANDE, UN REPÈRE À GAUCHE — et son tiroir ne montre QUE ce tour-là**
+  (`RepereDuPrompt`, `web/src/components/prompt-envoye.tsx` ; règles pures
+  `morceauxDuPromptEnvoye`, `mentionDesPassages`, `texteDuPromptEnvoye`, `shared/src/prompt-envoye.ts`).
+  Le bloc « Contexte envoyé » posé à DROITE, qui ouvrait la chronologie de TOUS les tours avec son
+  récapitulatif, sa recherche et ses blocs repliés, est RETIRÉ : il fallait quatre clics pour lire le
+  prompt qu'on avait sous les yeux. À sa place, une pastille « Prompt envoyé » à GAUCHE, posée dès que
+  `message.sentContext` existe — donc dès que le prompt part au moteur. Le tiroir est À PLAT : en-tête
+  (moteur, modèle, date, nombre de passages retrouvés ou RAISON de leur absence), morceaux nommés du
+  prompt avec leur TEXTE affiché d'emblée, puis les PASSAGES rapportés par la recherche, nommés par
+  leur source. Aucun repli, aucune recherche, aucun autre tour, aucun chiffre ; un nom de morceau n'est
+  jamais mis en MAJUSCULES (il porte souvent un chemin de fichier). La CHRONOLOGIE
+  (`chronologieContexteEnvoye`, `recapitulatifEnvoi`, `shared/src/couches-tokens.ts`) reste, mais ne
+  sert plus que le lecteur de l'onglet « Détails ». Vérifié par `server/src/test/prompt-envoye.test.ts`
+  et `scripts/verif-contexte-envoye.mjs`.
 - **L'onglet « Détails » d'une carte est une LIGNE DE TEMPS** (`shared/src/parcours-carte.ts`,
   commande `card.parcours`) : une étape par moment réel — tri du chef, autorisation, travail,
   déploiement, mise en production —, chacune avec ce qu'elle est allée CHERCHER et ce qu'elle a

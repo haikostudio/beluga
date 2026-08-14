@@ -2,7 +2,6 @@ import * as React from 'react';
 import {
   AlertCircle,
   BatteryLow,
-  Braces,
   Check,
   ChevronRight,
   Circle,
@@ -29,10 +28,8 @@ import {
   NIVEAU_PAR_DEFAUT,
   NiveauAgent,
   REFUS_A_COMPLETER,
-  SentContextSnapshot,
   TYPE_JOINTES_COLLABLES,
   choixPossible,
-  chronologieContexteEnvoye,
   comptesDeReprise,
   EtatDuPlan,
   cadreDePlanVisible,
@@ -57,7 +54,7 @@ import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { MemoryNote } from '@/components/todos';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
-import { LecteurPrompt, texteDunTourEnvoye } from '@/components/lecteur-prompt';
+import { RepereDuPrompt } from '@/components/prompt-envoye';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -149,36 +146,40 @@ export function MessageView({
     const connues = projectId ? (state.attachments[projectId] ?? []) : [];
     const jointes = jointesDuMessage(message.attachments, connues);
 
-    // Vos demandes : à droite, sur une largeur réduite.
+    /*
+     * Vos demandes : à droite, sur une largeur réduite — mais le REPÈRE du
+     * prompt envoyé se pose à GAUCHE, sous la bulle, dès que la demande est
+     * réellement partie au moteur (`RepereDuPrompt`).
+     */
     return (
-      <div className="flex justify-end">
-        <div className="w-[min(78%,520px)] min-w-0 max-w-full">
-          <div className="overflow-hidden rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
-            {/*
-             * Une adresse ou un chemin sans espace ne doit JAMAIS élargir la
-             * bulle : elle pousserait la conversation vers la droite, et la
-             * moindre sélection ferait glisser tout le fil de côté.
-             */}
-            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[14.5px] leading-relaxed text-text">
-              {message.content}
-            </p>
-            {message.attachments.length ? (
-              <PiecesJointes ids={message.attachments} projectId={projectId} />
-            ) : null}
+      <div>
+        <div className="flex justify-end">
+          <div className="w-[min(78%,520px)] min-w-0 max-w-full">
+            <div className="overflow-hidden rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
+              {/*
+               * Une adresse ou un chemin sans espace ne doit JAMAIS élargir la
+               * bulle : elle pousserait la conversation vers la droite, et la
+               * moindre sélection ferait glisser tout le fil de côté.
+               */}
+              <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[14.5px] leading-relaxed text-text">
+                {message.content}
+              </p>
+              {message.attachments.length ? (
+                <PiecesJointes ids={message.attachments} projectId={projectId} />
+              ) : null}
+            </div>
+            <LigneReperes
+              at={message.createdAt}
+              montrerHeure={montrerHeure}
+              complements={[]}
+              texte={message.content}
+              cle={message.id}
+              aDroite
+              jointes={jointes}
+            />
           </div>
-          <LigneReperes
-            at={message.createdAt}
-            montrerHeure={montrerHeure}
-            complements={[]}
-            texte={message.content}
-            cle={message.id}
-            aDroite
-            jointes={jointes}
-          />
-          {message.sentContext ? (
-            <ContexteEnvoye contexte={message.sentContext} messageId={message.id} allMessages={allMessages} />
-          ) : null}
         </div>
+        {message.sentContext ? <RepereDuPrompt contexte={message.sentContext} /> : null}
       </div>
     );
   }
@@ -837,65 +838,6 @@ function BoutonCopier({
       {copie ? <Check className="h-2.5 w-2.5 text-success" /> : <Copy className="h-2.5 w-2.5" />}
       {copie ? 'Copié' : libelle}
     </button>
-  );
-}
-
-/**
- * LE TIROIR « CONTEXTE ENVOYÉ », EN CHRONOLOGIE. Chaque tour parti de cette
- * conversation (`message.sentContext`) porte son propre instantané : le
- * tiroir les rassemble en une pile verticale ordonnée dans le temps
- * (`chronologieContexteEnvoye`, `shared/src/couches-tokens.ts`), lue par le
- * lecteur de prompts partagé (`LecteurPrompt`) — la même lecture que le volet
- * « Détail » d'une carte. Le bouton qui ouvre le tiroir reste sous CHAQUE
- * demande réellement partie ; la pile montre tous les tours de la
- * conversation, avec le tour d'origine déplié en entrant.
- */
-function ContexteEnvoye({
-  contexte,
-  messageId,
-  allMessages,
-}: {
-  contexte: SentContextSnapshot;
-  messageId: string;
-  allMessages: Message[];
-}) {
-  const [open, setOpen] = React.useState(false);
-
-  const tours = React.useMemo(() => chronologieContexteEnvoye(allMessages), [allMessages]);
-  const tourInitial = tours.find((tour) => tour.messageId === messageId)?.numero ?? tours.at(-1)?.numero;
-  const texteCopiable = tours.map(texteDunTourEnvoye).join('\n\n===\n\n');
-
-  return (
-    <>
-      <button
-        type="button"
-        data-contexte-envoye
-        onClick={() => setOpen(true)}
-        className="mt-2 flex w-full items-center gap-2 rounded-md border border-border bg-surface/60 px-2.5 py-1.5 text-left transition-colors hover:bg-raised"
-      >
-        <Braces className="h-3 w-3 shrink-0 text-accent" />
-        <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">Contexte envoyé</span>
-        <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
-      </button>
-
-      <Drawer open={open} onClose={() => setOpen(false)}>
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <Braces className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="min-w-0 flex-1 truncate">Contexte envoyé</DialogTitle>
-          <BoutonCopier
-            texte={texteCopiable}
-            libelle="Tout copier"
-            titre="Copier tout le contexte envoyé"
-          />
-        </header>
-
-        <ZoneDefilement data-contexte-envoye-contenu className="px-3 py-3">
-          <div className="text-[13.5px] leading-relaxed text-muted">
-            <LecteurPrompt tours={tours} tourInitial={tourInitial} />
-          </div>
-        </ZoneDefilement>
-      </Drawer>
-    </>
   );
 }
 
