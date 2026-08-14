@@ -604,6 +604,25 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS idx_api_keys_empreinte ON api_keys(empreinte);
     `,
   },
+  {
+    id: 22,
+    name: 'procedure-de-deploiement-des-projets-existants',
+    // LA PROCÉDURE DE DÉPLOIEMENT DEVIENT UNE CHOSE QU'ON DÉFINIT.
+    //
+    // Un projet neuf n'arrive plus avec un déploiement tout fait : tant que sa
+    // procédure est vide, la colonne « À déployer » propose de l'INITIER au
+    // lieu de partir. Les projets DÉJÀ inscrits, eux, ne doivent rien perdre :
+    // on leur pose le marqueur « constaté », qui veut dire « garde le déroulé
+    // d'avant » (HaikoDev, sinon le service système, sinon le dossier servi).
+    //
+    // Seuls les projets qui n'ont rien de rangé là sont touchés : une clé déjà
+    // écrite est la décision de quelqu'un, on ne l'écrase pas.
+    sql: `
+      UPDATE projects
+      SET data = json_set(data, '$.deploiement', json('{"constate":true}'))
+      WHERE json_extract(data, '$.deploiement') IS NULL;
+    `,
+  },
 ];
 
 export function openDb(): DB {

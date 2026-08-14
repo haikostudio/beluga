@@ -66,6 +66,7 @@ export * from './mise-en-ligne.js';
 export * from './regles.js';
 export * from './etapes-publication.js';
 export * from './publication-confiee.js';
+export * from './procedure-publication.js';
 export * from './models.js';
 export * from './mur-acces.js';
 export * from './notification.js';
