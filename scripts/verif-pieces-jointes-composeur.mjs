@@ -105,7 +105,10 @@ async function main() {
       await page.waitForTimeout(2500);
     }
 
-    const zone = page.locator('textarea:visible').last();
+    // PIÈGE : plusieurs barres d'écriture coexistent (conversation, tiroir de
+    // carte). On vise celle qu'on VOIT, champ de fichier compris.
+    const barre = page.locator('[data-composer]').filter({ has: page.locator('textarea:visible') }).last();
+    const zone = barre.locator('textarea').last();
     await zone.waitFor({ state: 'visible', timeout: 20000 });
 
     const hauteurAvant = (await zone.boundingBox())?.height ?? 0;
@@ -118,7 +121,7 @@ async function main() {
     await zone.press('Control+Home');
     await zone.press('End');
 
-    const choix = page.locator('input[type="file"]').last();
+    const choix = barre.locator('input[data-composer-file]');
     await choix.setInputFiles(image);
     await page.waitForTimeout(3500);
 
@@ -127,6 +130,19 @@ async function main() {
     record(
       "L'ancre est posée à l'endroit du curseur, pas à la fin",
       texte.indexOf('[fichier:') < texte.indexOf('Second paragraphe'),
+    );
+
+    /* ---- 3 quater. La frappe reprend JUSTE APRÈS le tag ---- */
+    // Le vrai symptôme : le tag rallonge la phrase, mais le champ gardait le
+    // curseur au même numéro de caractère — la suite s'écrivait donc plusieurs
+    // lettres trop tôt, au milieu des mots déjà là.
+    await page.keyboard.type('SUITE');
+    await page.waitForTimeout(500);
+    const apresFrappe = await zone.inputValue();
+    record(
+      'La frappe reprend juste après le tag, pas au milieu des mots',
+      apresFrappe.includes('capture-verif.png]SUITE'),
+      apresFrappe.replace(/\n/g, ' ').slice(0, 90),
     );
 
     /* ---- 1. Une vignette, pas un nom de fichier ---- */

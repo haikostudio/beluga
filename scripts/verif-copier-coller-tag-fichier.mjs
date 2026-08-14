@@ -43,8 +43,12 @@ function fabriqueImage() {
       'Ywm4mUryJgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADgWQ0YMAAB8W8LqQAAAABJRU5ErkJggg==',
     'base64',
   );
+  // Le serveur DÉDOUBLONNE sur le contenu : une image identique à celle d'un
+  // autre contrôle reviendrait sous SON nom, et le tag attendu ne serait
+  // jamais écrit. Quelques octets propres à cet essai suffisent à l'éviter.
+  const unique = Buffer.concat([png, Buffer.from(`\n${process.pid}-${Date.now()}\n`)]);
   const fichier = path.join(os.tmpdir(), 'capture-copier-coller-verif.png');
-  fs.writeFileSync(fichier, png);
+  fs.writeFileSync(fichier, unique);
   return fichier;
 }
 
@@ -122,15 +126,18 @@ async function main() {
       await page.waitForTimeout(2500);
     }
 
-    const zone = page.locator('textarea:visible').last();
+    // PIÈGE : plusieurs barres d'écriture coexistent (conversation, tiroir de
+    // carte). Le champ de fichier doit être celui de la barre qu'on VOIT,
+    // sinon le fichier arrive dans une barre invisible et aucun tag n'apparaît.
+    const barre = page.locator('[data-composer]').filter({ has: page.locator('textarea:visible') }).last();
+    const zone = barre.locator('textarea').last();
     await zone.waitFor({ state: 'visible', timeout: 20000 });
 
     // Un fichier joint pour obtenir un vrai tag « [fichier: …] » avec sa pièce jointe.
-    await zone.click();
     await zone.fill('Avant le fichier. Après le fichier.');
     await zone.press('Control+Home');
     for (let i = 0; i < 'Avant le fichier. '.length; i += 1) await zone.press('ArrowRight');
-    const choix = page.locator('input[type="file"]').last();
+    const choix = barre.locator('input[data-composer-file]');
     await choix.setInputFiles(image);
     await page.waitForTimeout(3500);
 
@@ -185,8 +192,8 @@ async function main() {
     const pastilleRecreee = page.locator('button[title="capture-copier-coller-verif.png"]');
     record('La pastille du fichier réapparaît dans la barre', (await pastilleRecreee.count()) > 0);
 
-    // On laisse la barre propre.
-    await zone.click();
+    // On laisse la barre propre. Pas de clic : au centre du champ, c'est le
+    // drapeau du fichier qu'on toucherait, et il se retire au clic.
     await zone.fill('');
     await page.waitForTimeout(1000);
 
