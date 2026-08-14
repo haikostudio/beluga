@@ -97,6 +97,7 @@ export * from './reglages-carte.js';
 export * from './niveau-agent.js';
 export * from './reglages-proposition.js';
 export * from './reprise.js';
+export * from './reprise-carte.js';
 export * from './reprise-compte.js';
 export * from './reveil-vocal.js';
 export * from './reprise-moteur.js';

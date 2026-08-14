@@ -16,6 +16,7 @@ import {
   Play,
   RefreshCw,
   Rocket,
+  RotateCcw,
   Sparkles,
   Zap,
 } from 'lucide-react';
@@ -26,13 +27,16 @@ import {
   EngineInfo,
   GesteCarte,
   ReglagesCarte,
+  carteSeReprend,
   colonneDeReprise,
+  libelleDeLancement,
   libelleDeReprise,
   decisionsParCarte,
   etatVisuelCarte,
   gesteCarte,
   lireDateDeDepart,
   mentionArchivage,
+  mentionDeReprise,
   mentionDepartProgramme,
   motAnalyse,
   phaseAnalyse,
@@ -255,6 +259,15 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                   </Badge>
                 </Tooltip>
               ) : null}
+              {/* Une carte qui se reprend le dit là où on lit son état : le
+                  travail déjà fait est gardé, on ne repart pas de zéro. */}
+              {mentionDeReprise(card) ? (
+                <Tooltip label={mentionDeReprise(card)!}>
+                  <Badge tone="warning">
+                    <RotateCcw className="h-2.5 w-2.5" /> reprise
+                  </Badge>
+                </Tooltip>
+              ) : null}
               {card.labels.map((label) => (
                 <Badge key={label}>{label}</Badge>
               ))}
@@ -378,7 +391,17 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                         )
                     }
                   >
-                    <Play className="h-3 w-3" /> Lancer maintenant
+                    {/*
+                     * « Reprendre », et non « Lancer maintenant », dès que la
+                     * carte a déjà travaillé : le geste ne repart pas de zéro,
+                     * il continue là où le tour s'était arrêté.
+                     */}
+                    {carteSeReprend(card) ? (
+                      <RotateCcw className="h-3 w-3" />
+                    ) : (
+                      <Play className="h-3 w-3" />
+                    )}{' '}
+                    {libelleDeLancement(card)}
                   </Button>
                 </Geste>
                 <Button

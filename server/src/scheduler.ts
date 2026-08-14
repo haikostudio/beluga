@@ -3,11 +3,14 @@ import { promisify } from 'node:util';
 import {
   Agent,
   Card,
+  EtapeDeReprise,
   Estimate,
   TurnMeasurement,
   OccupantDossier,
   RAISON_SANS_DEPOT,
   cheminDossierDeCarte,
+  consigneDeReprise,
+  origineDeReprise,
   demarrageAutomatiqueAutorise,
   etatDuDepart,
   raisonDattente,
@@ -18,7 +21,7 @@ import {
   avecMesureAnalyse,
   contexteHeritePourExecution,
 } from '@haikodev/shared';
-import { menageDesDossiers, ouvrirDossierDeCarte } from './dossier-de-carte.js';
+import { menageDesDossiers, ouvrirDossierDeCarte, travailDejaSurLaBranche } from './dossier-de-carte.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import {
@@ -310,6 +313,20 @@ export async function prepareBranch(projectPath: string, card: Card): Promise<Br
 }
 
 /**
+ * LES ÉTAPES DU TOUR COUPÉ, telles qu'elles étaient au moment de l'arrêt.
+ *
+ * Le moteur renvoie sa liste ENTIÈRE à chaque mise à jour : la dernière liste
+ * écrite est donc l'état le plus frais. On remonte le fil jusqu'à elle — un tour
+ * coupé très tôt n'en a pas toujours écrit — plutôt que de rendre un vide qui
+ * ferait croire à un travail sans étapes.
+ */
+function etapesDeLaReprise(agentId: string): EtapeDeReprise[] {
+  const dernier = [...store.listMessages(agentId)].reverse().find((message) => message.todos.length);
+  if (!dernier) return [];
+  return dernier.todos.map((todo) => ({ label: todo.label, etat: todo.state }));
+}
+
+/**
  * Un lancement refusé se VOIT : la raison s'écrit sur la carte, comme le fait
  * déjà l'ordonnanceur quand il patiente. Sans cela, un refus parti du bouton ou
  * d'un dépôt dans « En cours » ne laissait aucune trace.
@@ -392,6 +409,24 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
   const branch = prepa.nom;
 
   /*
+   * REPRISE OU PREMIER DÉPART ? La question se pose AVANT de toucher à la carte :
+   * le lancement efface la phrase d'attente qui dit d'où vient l'interruption.
+   */
+  const origine = origineDeReprise(card);
+  const agentPrecedent = origine && card.agentId ? store.getAgent(card.agentId) : null;
+  /*
+   * UNE REPRISE REPART SUR LE MÊME AGENT — même fil du moteur, même dossier,
+   * même branche, mêmes étapes. C'est ce qui évite de repayer le contexte et de
+   * refaire ce qui était déjà fait ; un agent neuf ne saurait rien de tout cela.
+   * L'agent d'un AUTRE projet ou d'un autre rôle n'est pas repris : on retombe
+   * alors sur un départ ordinaire.
+   */
+  const repris =
+    agentPrecedent && agentPrecedent.role === 'task' && agentPrecedent.projectId === card.projectId
+      ? agentPrecedent
+      : null;
+
+  /*
    * UN SEUL AGENT PAR CARTE, de l'étude à la livraison. Plus rien ne tourne
    * avant ce moment : l'agent créé ici est le premier et le seul de la carte.
    * Il lit le contexte lourd une fois (briefing, CLAUDE.md, index de la
@@ -400,20 +435,43 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
    * tout son tour, et le démon le referme à la fin (fusion dans la principale,
    * puis `git worktree remove`).
    */
-  const agent = createAgent({
-    projectId: card.projectId,
-    role: 'task',
-    title: card.title,
-    cardId: card.id,
-    run: card.run,
-    workdir: prepa.dossier,
-  });
+  const agent = repris
+    ? // Les réglages et le titre suivent la CARTE : entre l'interruption et le
+      // clic, l'utilisateur a pu changer de moteur, de modèle ou de titre.
+      store.saveAgent({
+        ...repris,
+        status: 'idle',
+        title: card.title,
+        run: card.run ?? repris.run,
+        workdir: prepa.dossier,
+        endedAt: undefined,
+      })
+    : createAgent({
+        projectId: card.projectId,
+        role: 'task',
+        title: card.title,
+        cardId: card.id,
+        run: card.run,
+        workdir: prepa.dossier,
+      });
+  if (repris) bus.emit({ type: 'agent.upsert', agent });
+
+  /*
+   * LE TRAVAIL DÉJÀ LÀ SE CONSTATE AVANT DE REPARTIR. Un tour coupé enregistre
+   * parfois du code sans jamais pouvoir ranger sa carte : le drapeau n'est donc
+   * pas posé, et la reprise se verrait reprocher de « n'avoir rien changé »
+   * alors qu'il n'y avait plus rien à changer.
+   */
+  const dejaEnregistre =
+    card.codeDejaEnregistre ||
+    (!!origine && (await travailDejaSurLaBranche(project.path, branch, prepa.dossier).catch(() => false)));
 
   const running = store.saveCard({
     ...card,
     column: 'running',
     position: store.nextPosition(card.projectId, 'running'),
     agentId: agent.id,
+    codeDejaEnregistre: dejaEnregistre,
     github: { ...(card.github ?? { checks: [], commits: [], activity: [] }), branch },
     scheduling: {
       ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
@@ -444,7 +502,23 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
       }\n\n`
     : '';
 
-  const prompt = `Réalise cette tâche.
+  /*
+   * LA REPRISE PASSE DEVANT LA DEMANDE. Elle dit ce qui est déjà fait, ce qui
+   * reste et que le travail écrit est toujours là — sinon l'agent repart de la
+   * description de la carte, donc du début, et refait ce qui était acquis.
+   */
+  const reprise = origine
+    ? `${consigneDeReprise({
+        origine,
+        raison: card.scheduling?.waitingReason,
+        branche: branch,
+        dossier: prepa.dossier,
+        etapes: repris ? etapesDeLaReprise(repris.id) : [],
+        codeDejaEnregistre: dejaEnregistre,
+      })}\n\n`
+    : '';
+
+  const prompt = `${reprise}Réalise cette tâche.
 
 TITRE : ${card.title}
 ${card.description || '(pas de description)'}
@@ -609,17 +683,43 @@ export async function tick(): Promise<void> {
 /**
  * Au démarrage du démon, plus personne ne travaille : les copies de travail de
  * cartes encore ouvertes sont des restes d'un tour tué net. On les referme comme
- * en fin de tour — le travail enregistré rejoint la principale, une copie où
- * traîne du travail non enregistré est laissée telle quelle.
+ * en fin de tour — le travail en cours est ENREGISTRÉ d'office sur la branche de
+ * la carte, puis la branche rejoint la principale.
+ *
+ * Et surtout, on le DIT à la carte : toute carte dont la branche portait du
+ * travail repart avec `codeDejaEnregistre`. Sans ce drapeau, sa reprise
+ * s'entendait dire « réponse rendue, mais aucun fichier n'a changé » et
+ * retombait, retenue, dans « Planifié » — alors que son code était bel et bien
+ * livré, simplement par un tour qui n'avait jamais pu ranger sa carte.
  */
 async function menageDesDossiersDeCarte(): Promise<void> {
   const occupes = occupantsDesDossiers().map((o) => o.dossier);
   for (const project of store.listProjects()) {
     if (!(await estUnDepotGit(project.path))) continue;
-    await menageDesDossiers(project.path, occupes).catch((err) =>
-      log.warn('ménage des dossiers de cartes impossible', String(err).slice(0, 200)),
-    );
+    const rattrapes = await menageDesDossiers(project.path, occupes).catch((err) => {
+      log.warn('ménage des dossiers de cartes impossible', String(err).slice(0, 200));
+      return [];
+    });
+    for (const rattrape of rattrapes) {
+      if (!rattrape.enregistre && !rattrape.fusionnee) continue;
+      marquerCodeDejaEnregistre(project.id, rattrape.branche);
+    }
   }
+}
+
+/**
+ * La carte derrière une branche « tache/… » : le nom de branche naît du titre et
+ * du numéro de la carte (`nomDeBranche`), donc il suffit de le recalculer pour
+ * chaque carte du projet plutôt que d'analyser la chaîne.
+ */
+function marquerCodeDejaEnregistre(projectId: string, branche: string): void {
+  const carte = store
+    .listCards(projectId)
+    .find((c) => nomDeBranche(c.title, c.id) === branche);
+  if (!carte || carte.codeDejaEnregistre) return;
+  const marquee = store.saveCard({ ...carte, codeDejaEnregistre: true });
+  bus.emit({ type: 'card.upsert', card: marquee });
+  log.info(`carte « ${carte.title} » : travail retrouvé sur sa branche, code déjà enregistré`);
 }
 
 export function startScheduler(): NodeJS.Timeout {
