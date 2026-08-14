@@ -5,17 +5,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEBUT_PROCEDURE,
+  DIALOGUE_FRAIS_MS,
   FIN_PROCEDURE,
   baseDeLaProcedure,
+  issueDuTour,
   libelleInitier,
   libelleReglages,
   lireReponseDeProcedure,
   mentionProcedure,
+  phraseDeTravail,
   procedureDeLEtape,
   procedureEnPlace,
   promptOuvertureProcedure,
   promptReponseProcedure,
   refusSansProcedure,
+  repriseDuDialogue,
   titreDeLaProcedure,
 } from '@haikodev/shared';
 
@@ -34,6 +38,11 @@ const SOURCE_TIROIR = fs.readFileSync(path.resolve(ICI, '../../src/procedure-pub
 const SOURCE_BLOC = fs.readFileSync(path.resolve(ICI, '../../../web/src/components/deploy-panel.tsx'), 'utf8');
 const SOURCE_TABLEAU = fs.readFileSync(path.resolve(ICI, '../../../web/src/components/board.tsx'), 'utf8');
 const SOURCE_MIGRATIONS = fs.readFileSync(path.resolve(ICI, '../../src/db.ts'), 'utf8');
+const SOURCE_WS = fs.readFileSync(path.resolve(ICI, '../../src/ws.ts'), 'utf8');
+const SOURCE_PANNEAU = fs.readFileSync(
+  path.resolve(ICI, '../../../web/src/components/procedure-panel.tsx'),
+  'utf8',
+);
 
 /* ------------------------------------------------------------------ */
 /* Une procédure est-elle en place ?                                    */
@@ -162,6 +171,110 @@ test('un bloc VIDE n’est pas une procédure : la réponse reste une question',
   const lue = lireReponseDeProcedure(`${DEBUT_PROCEDURE}\n\n${FIN_PROCEDURE}`);
   assert.equal(lue.procedure, undefined);
   assert.ok(lue.question);
+});
+
+/* ------------------------------------------------------------------ */
+/* LE TOUR NE SE LIVRE PLUS PAR LA RÉPONSE D'UNE REQUÊTE                */
+/*                                                                      */
+/* Un tour dure une à deux minutes. Tant qu'il se livrait par la réponse */
+/* d'une commande, la question — déjà payée — se perdait dès qu'on       */
+/* refermait le tiroir, qu'on rechargeait la page ou que le lien         */
+/* clignait, et l'écran restait sur « L'agent travaille… ».             */
+/* ------------------------------------------------------------------ */
+
+test('l’issue d’un tour est toujours dite : question, procédure, ou raison', () => {
+  assert.deepEqual(issueDuTour({ contenu: 'Où le site est-il servi ?', statut: 'done' }), {
+    question: 'Où le site est-il servi ?',
+  });
+  assert.deepEqual(
+    issueDuTour({ contenu: `${DEBUT_PROCEDURE}\n1. Construire.\n${FIN_PROCEDURE}`, statut: 'done' }),
+    { procedure: '1. Construire.' },
+  );
+});
+
+test('un tour qui ne rend RIEN ne laisse jamais le témoin allumé', () => {
+  const vide = issueDuTour({ contenu: '   ', statut: 'done' });
+  assert.match('raison' in vide ? vide.raison : '', /n’a rien rendu/);
+
+  const arrete = issueDuTour({ contenu: 'à moitié écrit', statut: 'stopped' });
+  assert.match('raison' in arrete ? arrete.raison : '', /« stopped »/);
+
+  const panne = issueDuTour({ erreur: 'quota' });
+  assert.match('raison' in panne ? panne.raison : '', /quota/);
+});
+
+test('rouvrir le tiroir se raccroche au tour qui tourne, il n’en paie pas un second', () => {
+  const enCours = { projectId: 'p', cible: 'dev' as const, enCours: true, echanges: [], depuis: 1000 };
+  assert.equal(repriseDuDialogue(enCours, 5000), 'attendre');
+});
+
+test('une question posée pendant que le tiroir était fermé se RELIT, elle n’est pas perdue', () => {
+  const pose = {
+    projectId: 'p',
+    cible: 'dev' as const,
+    enCours: false,
+    echanges: [{ qui: 'agent' as const, texte: 'Comment cela doit-il se passer ?' }],
+    depuis: 1000,
+  };
+  assert.equal(repriseDuDialogue(pose, 1000 + DIALOGUE_FRAIS_MS - 1), 'reprendre');
+  // Trop vieille : le projet a pu changer, on repose la question.
+  assert.equal(repriseDuDialogue(pose, 1000 + DIALOGUE_FRAIS_MS + 1), 'relancer');
+});
+
+test('un échec ne se rejoue pas tout seul, et une procédure écrite clôt le dialogue', () => {
+  const rate = { projectId: 'p', cible: 'dev' as const, enCours: false, echanges: [], raison: 'quota' };
+  assert.equal(repriseDuDialogue(rate, 0), 'reprendre', 'un tour coûte : c’est le bouton qui relance');
+  const finie = {
+    projectId: 'p',
+    cible: 'dev' as const,
+    enCours: false,
+    echanges: [{ qui: 'agent' as const, texte: 'écrite' }],
+    procedure: '1. Construire.',
+    depuis: 0,
+  };
+  assert.equal(repriseDuDialogue(finie, 0), 'relancer', 'rouvrir, c’est vouloir la modifier');
+  assert.equal(repriseDuDialogue(null, 0), 'relancer');
+});
+
+test('le témoin dit ce que l’agent fait et depuis quand, jamais un mot seul', () => {
+  assert.equal(phraseDeTravail({ depuis: 1000 }, 43000), 'L’agent travaille… 42 s');
+  assert.equal(
+    phraseDeTravail({ depuis: 1000, etape: 'Lecture de scripts/haikodev.service' }, 91000),
+    'L’agent travaille… Lecture de scripts/haikodev.service · 1 min 30 s',
+  );
+});
+
+test('le tour part en FOND et son issue est diffusée, jamais rendue à une requête retenue', () => {
+  // La commande rend l'état tout de suite : rien n'attend le moteur.
+  assert.match(SOURCE_TIROIR, /export function tourDeProcedure/, 'plus une commande qui attend le tour');
+  assert.match(SOURCE_TIROIR, /void mener\(etat, prompt, reponse\)/);
+  assert.match(SOURCE_TIROIR, /bus\.emit\(\{ type: 'procedure', etat \}\)/);
+  // Chaque sortie de `mener` repose un état : aucun chemin ne laisse `enCours`.
+  const debut = SOURCE_TIROIR.indexOf('async function mener');
+  const corps = SOURCE_TIROIR.slice(debut);
+  assert.equal((corps.match(/poser\(\{/g) ?? []).length, 4, 'les quatre issues reposent l’état');
+  assert.match(corps, /enCours: false/);
+});
+
+test('un tour DÉJÀ en cours n’est jamais doublé, et un agent occupé n’est pas repris', () => {
+  assert.match(SOURCE_TIROIR, /if \(courant\?\.enCours\) return courant/);
+  assert.match(SOURCE_TIROIR, /agentsActifs\(\)\.includes\(precedent\.id\)/);
+});
+
+test('l’état se demande SANS lancer de tour : c’est ce qui rattrape un tour perdu', () => {
+  assert.match(SOURCE_WS, /case 'procedure\.etat':/);
+  assert.match(SOURCE_WS, /etat: etatDeProcedure\(cmd\.projectId, cmd\.cible\)/);
+  const debut = SOURCE_TIROIR.indexOf('export function etatDeProcedure');
+  assert.notEqual(debut, -1);
+  assert.doesNotMatch(SOURCE_TIROIR.slice(debut, SOURCE_TIROIR.indexOf('\n}\n', debut)), /sendPrompt/);
+});
+
+test('le témoin du tiroir suit le SEUL champ « enCours », pas une requête en attente', () => {
+  assert.match(SOURCE_PANNEAU, /const enCours = !!etat\?\.enCours/);
+  assert.match(SOURCE_PANNEAU, /\{enCours \? \(/, 'le témoin ne s’allume que là');
+  assert.doesNotMatch(SOURCE_PANNEAU, /setBusy/, 'plus aucun témoin tenu par une promesse');
+  assert.match(SOURCE_PANNEAU, /data-relancer-procedure/, 'un échec se relance à la main');
+  assert.match(SOURCE_PANNEAU, /RAISON_TOUR_PERDU/, 'un tour disparu se dit');
 });
 
 /* ------------------------------------------------------------------ */

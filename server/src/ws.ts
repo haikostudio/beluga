@@ -49,7 +49,7 @@ import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
-import { tourDeProcedure } from './procedure-publication.js';
+import { etatDeProcedure, tourDeProcedure } from './procedure-publication.js';
 import { appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
 import { iconeManquante, recupererFaviconEnTache } from './favicon.js';
@@ -1347,12 +1347,23 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
      * qui l'enregistre, sur la cible de la colonne d'où le tiroir a été ouvert.
      */
     case 'procedure.tour':
-      return tourDeProcedure({
-        projectId: cmd.projectId,
-        cible: cmd.cible,
-        agentId: cmd.agentId,
-        message: cmd.message,
-      });
+      return {
+        etat: tourDeProcedure({
+          projectId: cmd.projectId,
+          cible: cmd.cible,
+          agentId: cmd.agentId,
+          message: cmd.message,
+        }),
+      };
+
+    /*
+     * L'ÉTAT du dialogue, sans lancer aucun tour : le tiroir le demande à son
+     * ouverture (pour se raccrocher à un tour qui tourne déjà, au lieu d'en
+     * payer un second) et pendant l'attente (un état disparu = un tour perdu,
+     * qui se DIT au lieu de faire tourner le témoin sans fin).
+     */
+    case 'procedure.etat':
+      return { etat: etatDeProcedure(cmd.projectId, cmd.cible) };
 
     /*
      * Le relevé de consommation, plus la PART DE L'ENTRÉE RELUE AU CACHE sur
