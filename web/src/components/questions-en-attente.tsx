@@ -39,7 +39,7 @@ export function QuestionsEnAttente() {
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
+          variant="outline"
           size="icon"
           className="relative"
           aria-label={libelle}
