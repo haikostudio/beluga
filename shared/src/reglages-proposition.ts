@@ -14,9 +14,10 @@
  * Depuis que le chef d'orchestre tourne sur un modèle économe, le MODÈLE de la
  * conversation ne se recopie plus tel quel : un chef qui trie sur un petit
  * modèle ferait exécuter toutes les cartes sur ce petit modèle. Le chef annonce
- * donc un NIVEAU (`niveau-agent.ts`), et c'est lui qui décide du modèle et de la
- * réflexion. Le MOTEUR, lui, reste celui de la conversation : discuter avec
- * Codex et se voir proposer du Claude n'a toujours aucun sens.
+ * donc un NIVEAU (`niveau-agent.ts`), qui REMPLIT le modèle s'il manque. Un
+ * modèle déjà choisi à l'écran, et reconnu du moteur, l'emporte : ce qui
+ * s'affiche est ce qui part. Le MOTEUR, lui, reste celui de la conversation :
+ * discuter avec Codex et se voir proposer du Claude n'a toujours aucun sens.
  */
 
 import { reglagesDuNiveau, type NiveauAgent } from './niveau-agent.js';
@@ -90,12 +91,20 @@ function niveauDuModele(moteur: MoteurCatalogue | undefined, modele: string | un
 }
 
 /**
+ * Un modèle déjà posé et reconnu de CE moteur : choix à l'écran, ou traduction
+ * déjà faite au moment de proposer. Le palier du chef ne doit plus l'écraser.
+ */
+function modeleDejaRetenu(moteur: MoteurCatalogue, souhaite: string | undefined): boolean {
+  return !!souhaite && moteur.models.some((m) => m.id === souhaite);
+}
+
+/**
  * Le réglage à poser sur une carte proposée.
  *
  * Quatre principes, dans cet ordre :
  * 1. le MOTEUR suit la conversation tant qu'il est réalisable ;
- * 2. le NIVEAU annoncé par le chef décide du modèle et de la réflexion ; sans
- *    niveau, on retombe sur le souhait de la conversation ;
+ * 2. le NIVEAU du chef REMPLIT le modèle s'il manque ; un modèle déjà choisi
+ *    et reconnu du moteur l'emporte — c'est ce qui s'affiche, donc ce qui part ;
  * 3. le modèle vient TOUJOURS du catalogue du moteur retenu ;
  * 4. un obstacle (moteur absent, aucun compte) se DIT au lieu de se contourner.
  */
@@ -113,10 +122,10 @@ export function reglagesDeLaProposition(
   // Le modèle souhaité ne vaut que s'il vient du moteur retenu : un identifiant
   // recopié d'un autre moteur est jeté, pas traîné.
   const memeMoteur = !absent;
-  const duNiveau = souhait?.niveau ? reglagesDuNiveau(moteur, souhait.niveau) : undefined;
-  const model = duNiveau
-    ? duNiveau.model
-    : modeleDuMoteur(moteur, memeMoteur ? souhait?.model : undefined);
+  const modeleSouhaite = memeMoteur ? souhait?.model : undefined;
+  const dejaChoisi = modeleDejaRetenu(moteur, modeleSouhaite);
+  const duNiveau = souhait?.niveau && !dejaChoisi ? reglagesDuNiveau(moteur, souhait.niveau) : undefined;
+  const model = duNiveau ? duNiveau.model : modeleDuMoteur(moteur, modeleSouhaite);
   const thinking = duNiveau
     ? duNiveau.thinking
     : niveauDuModele(moteur, model, memeMoteur ? souhait?.thinking : undefined);
@@ -137,4 +146,18 @@ export function reglagesDeLaProposition(
     ...(souhait?.niveau ? { niveau: souhait.niveau } : {}),
     ...(avertissements.length ? { avertissement: avertissements.join(' ') } : {}),
   };
+}
+
+/**
+ * Le réglage à retenir quand l'écran envoie un choix (validation ou
+ * enregistrement avant clic) : on fusionne, puis on passe par le catalogue.
+ * Un modèle reconnu du moteur n'est plus réécrit par le palier.
+ */
+export function accorderRunDeProposition(
+  actuel: (SouhaitReglages & SouhaitNiveau) | undefined,
+  overlay: SouhaitReglages | undefined,
+  catalogue: MoteurCatalogue[],
+): ReglagesProposition | undefined {
+  const souhait = overlay ? { ...(actuel ?? {}), ...overlay } : actuel;
+  return reglagesDeLaProposition(souhait, catalogue);
 }

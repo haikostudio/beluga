@@ -211,6 +211,17 @@ test('valider une carte peut porter moteur, modèle et réflexion — et sans eu
   assert.equal(ClientCommand.safeParse({ ...base, run: { engine: 'inconnu' } }).success, false);
 });
 
+test('enregistrer le modèle d’une proposition encore en attente est une commande à part', () => {
+  const ok = ClientCommand.safeParse({
+    type: 'proposal.config',
+    messageId: 'm1',
+    proposalId: 'p1',
+    run: { engine: 'cursor', model: 'grok-4-6', thinking: 'high' },
+  });
+  assert.equal(ok.success, true);
+  assert.equal(ClientCommand.safeParse({ type: 'proposal.config', messageId: 'm1' }).success, false);
+});
+
 test('un réglage partiel devient un réglage complet une fois posé sur la carte', () => {
   const run = RunConfig.parse({ engine: 'claude', model: 'claude-opus-5' });
   assert.equal(run.thinking, 'none');

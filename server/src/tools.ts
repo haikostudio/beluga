@@ -590,7 +590,14 @@ async function reglagesProposes(
   niveau?: NiveauAgent,
 ): Promise<{ run?: RunConfig; avertissement?: string }> {
   try {
-    const retenu = reglagesDeLaProposition({ ...souhait, niveau }, await catalogueMoteurs());
+    // Avec un palier, on ne recopie PAS le modèle de la conversation : c'est le
+    // palier qui le choisit. Un modèle passé ici (héritage du chef économe)
+    // bloquerait cette traduction, puis un second passage à la validation
+    // réécrirait un choix fait à l'écran.
+    const retenu = reglagesDeLaProposition(
+      niveau ? { engine: souhait?.engine, niveau } : souhait,
+      await catalogueMoteurs(),
+    );
     if (!retenu) return {};
     return {
       run: RunConfig.parse({

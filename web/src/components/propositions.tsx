@@ -175,8 +175,21 @@ function VignetteProposition({
 
   // Changer de moteur remet le modèle et la réflexion à zéro : un modèle
   // n'appartient qu'à son moteur, le garder n'aurait aucun sens.
-  const choisir = (patch: RunChoix) =>
-    setChoix((courant) => (patch.engine ? { engine: patch.engine } : { ...(courant ?? {}), ...patch }));
+  const choisir = (patch: RunChoix) => {
+    const suivant = patch.engine ? { engine: patch.engine } : { ...(choix ?? {}), ...patch };
+    setChoix(suivant);
+    const resolu = resoudreRun(state.engines, suivant);
+    void client
+      .call({
+        type: 'proposal.config',
+        messageId,
+        proposalId: proposal.id,
+        run: resolu.engine
+          ? { engine: resolu.engine.id, model: resolu.model?.id, thinking: resolu.thinking?.id }
+          : suivant,
+      })
+      .catch(() => {});
+  };
 
   /*
    * Un moteur sans compte disponible se DIT, il ne se contourne pas : sinon la
