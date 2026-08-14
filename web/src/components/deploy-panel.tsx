@@ -147,6 +147,16 @@ export type InfosPublication = {
   autrePublication?: boolean;
   /** Une mise en production sans prompt réglé : elle ne peut pas partir. */
   productionBloquee?: string;
+  /** Pourquoi le bouton d'action est éteint (lot vide, agents occupés, lien
+   *  coupé…) — la même phrase qu'avant, désormais lue depuis ce bouton plutôt
+   *  qu'affichée en permanence sous la colonne. */
+  raison?: string;
+  /** La raison ci-dessus vient d'agents encore au travail : une roue plutôt
+   *  qu'un triangle. */
+  raisonEnCours?: boolean;
+  /** Des conflits prévus sur le lot, que l'agent de publication résoudra en
+   *  route — informatif, pas une alerte à traiter. */
+  conflicts?: Conflict[];
 };
 
 export function DeployPanel({
@@ -351,6 +361,25 @@ export function DeployPanel({
    * réunit ici et on les remonte à la tête de colonne. Pendant MA publication,
    * le déroulé des étapes dit déjà tout — rien à ranger derrière le bouton.
    */
+  /*
+   * POURQUOI le bouton ne part pas — lu depuis le bouton « ! » plutôt qu'écrit
+   * en permanence sous la colonne. La règle est PURE et vit dans `shared` ;
+   * ici on ne fait que lui passer ce qu'on sait. `publicationEnCours` vaut
+   * `active && mienne` — le déroulé des étapes dit alors déjà tout.
+   */
+  const raisonBloquee =
+    etape && !(active && mienne)
+      ? raisonLotBloque({
+          verbe: etape.verbe,
+          aPublier,
+          cartesDansLaColonne: cards.length,
+          autrePublication: active && !mienne,
+          agentsOccupes: busyAgents.map((agent) => agent.title),
+          productionBloquee: productionBloquee ?? undefined,
+          horsLigne: !state.connected,
+        })
+      : null;
+
   const infosPublication = React.useMemo<InfosPublication | null>(() => {
     if (active && mienne) return null;
     const infos: InfosPublication = {};
@@ -360,10 +389,23 @@ export function DeployPanel({
     // attend et ne peut pas partir. Le déploiement ne connaît jamais ce cas.
     if (productionBloquee && aPublier) infos.productionBloquee = productionBloquee;
     if (enAttente.nombre) infos.enAttente = enAttente;
-    return infos.moyen || infos.enAttente || infos.autrePublication || infos.productionBloquee
+    // La raison du bouton éteint ne se répète pas : quand elle recouvre déjà
+    // une mise en production bloquée ou une autre publication en cours, ces
+    // deux champs dédiés suffisent — le texte serait identique deux fois.
+    if (raisonBloquee && !infos.productionBloquee && !infos.autrePublication) {
+      infos.raison = raisonBloquee;
+      infos.raisonEnCours = busyAgents.length > 0;
+    }
+    if (conflicts.length) infos.conflicts = conflicts;
+    return infos.moyen ||
+      infos.enAttente ||
+      infos.autrePublication ||
+      infos.productionBloquee ||
+      infos.raison ||
+      infos.conflicts
       ? infos
       : null;
-  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente, productionBloquee]);
+  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente, productionBloquee, raisonBloquee, busyAgents, conflicts]);
 
   /* On remonte l'objet SANS en faire une dépendance : on suit sa signature,
      sinon la fonction passée en prop, recréée à chaque rendu, bouclerait. */
@@ -418,28 +460,6 @@ export function DeployPanel({
      verbe, et le déroulé reflète les états réels. */
   const publicationEnCours = active && mienne;
   const etapeEnCours: DeployStepKey = run?.currentStep ?? 'merge';
-
-  /*
-   * POURQUOI le bouton ne part pas — écrit sous lui, en toutes lettres.
-   *
-   * Le bouton s'éteignait sans un mot : lot vide, agent au travail, publication
-   * ailleurs, mise en production sans prompt. Le cas le plus traître était une
-   * colonne PLEINE dont aucune carte n'entrait dans le lot (une date de mise en
-   * ligne périmée les écartait toutes) : le clic ne partait nulle part et rien
-   * ne le disait. La règle est PURE et vit dans `shared` ; ici on ne fait que
-   * lui passer ce qu'on sait.
-   */
-  const raisonBloquee = publicationEnCours
-    ? null
-    : raisonLotBloque({
-        verbe: etape.verbe,
-        aPublier,
-        cartesDansLaColonne: cards.length,
-        autrePublication: active && !mienne,
-        agentsOccupes: busyAgents.map((agent) => agent.title),
-        productionBloquee: productionBloquee ?? undefined,
-        horsLigne: !state.connected,
-      });
 
   return (
     /* Plus d'encadré : un simple trait EN BAS sépare le bloc de publication de
@@ -522,46 +542,17 @@ export function DeployPanel({
 
       {!publicationEnCours ? (
         <>
-          {/* Sous le bouton, un SEUL bandeau étroit : les alertes orange, et rien
-              d'autre. Les textes informatifs (rafraîchissement de l'instance,
-              travail sans carte, autre publication en cours) sont partis derrière
-              le bouton « ! » de la tête de colonne, pour que le bouton touche la
-              première carte quand il n'y a rien à signaler. */}
-          {/* Le bouton est éteint : il DIT pourquoi. Un bouton qui ne fait
-              rien est pire qu'un bouton qui explique. */}
-          {raisonBloquee ? (
-            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning" data-raison-publication>
-              {busyAgents.length ? (
-                <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
-              ) : (
-                <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
-              )}
-              <span>{raisonBloquee}</span>
-            </p>
-          ) : null}
-
-          {/* Le contrôle d'avant-clic lui-même est tombé : on le dit plutôt que
-              d'afficher un état d'avant sans prévenir. */}
+          {/* Plus aucun bandeau jaune en permanence sous le bouton : pourquoi
+              il est éteint (lot vide, agents occupés, conflits prévus…) se lit
+              désormais depuis le bouton « ! » de la tête de colonne
+              (`infosPublication.raison` / `.conflicts`), à la demande. Seul un
+              VRAI échec — le contrôle d'avant-clic lui-même tombé — reste ici,
+              en rouge : ce n'est pas une explication de routine. */}
           {erreurControle ? (
             <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-danger" data-erreur-controle-publication>
               <X className="mt-[3px] h-2.5 w-2.5 shrink-0" />
               <span>Le contrôle d’avant-clic a échoué : {erreurControle}</span>
             </p>
-          ) : null}
-
-          {conflicts.length ? (
-            <ul className="mt-1.5 space-y-1">
-              {conflicts.map((conflict) => (
-                <li key={conflict.cardId} className="flex items-start gap-1.5 text-[12px] text-warning">
-                  <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
-                  <span>
-                    Conflit prévu sur « {conflict.title} »
-                    {conflict.files.length ? ` (${conflict.files.slice(0, 3).join(', ')})` : ''} — l'agent de
-                    publication le résoudra en route. Sans succès, la carte restera ici pour le prochain coup.
-                  </span>
-                </li>
-              ))}
-            </ul>
           ) : null}
         </>
       ) : null}
@@ -786,6 +777,20 @@ export function BoutonInfosPublication({
             </p>
           ) : null}
 
+          {/* Pourquoi le bouton d'action est éteint (lot vide, agents
+              occupés, lien coupé…) — la même phrase qu'avant, lue ici plutôt
+              qu'affichée en permanence sous le bouton. */}
+          {infos.raison ? (
+            <p className="flex items-start gap-1.5 text-warning" data-raison-publication>
+              {infos.raisonEnCours ? (
+                <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
+              ) : (
+                <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+              )}
+              <span>{infos.raison}</span>
+            </p>
+          ) : null}
+
           {infos.moyen ? (
             <p className="text-faint" data-moyen-mise-en-ligne>
               {infos.moyen}
@@ -798,6 +803,21 @@ export function BoutonInfosPublication({
               {infos.enAttente.nombre > 1 ? 's' : ''} sans carte :{' '}
               <span className="text-faint">{infos.enAttente.titres.join(' · ')}</span>
             </p>
+          ) : null}
+
+          {infos.conflicts?.length ? (
+            <ul className="space-y-1.5">
+              {infos.conflicts.map((conflict) => (
+                <li key={conflict.cardId} className="flex items-start gap-1.5 text-warning" data-conflit-publication>
+                  <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+                  <span>
+                    Conflit prévu sur « {conflict.title} »
+                    {conflict.files.length ? ` (${conflict.files.slice(0, 3).join(', ')})` : ''} — l'agent de
+                    publication le résoudra en route. Sans succès, la carte restera ici pour le prochain coup.
+                  </span>
+                </li>
+              ))}
+            </ul>
           ) : null}
         </div>
       </DropdownMenuContent>
