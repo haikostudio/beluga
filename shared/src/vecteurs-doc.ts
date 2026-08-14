@@ -84,11 +84,27 @@ export function lotDuMoteur(moteur: MoteurDeVecteurs): number {
 export const ESSAIS_VECTEURS = 3;
 
 /**
- * Ce qu'on envoie au plus pour UN passage. Les passages tiennent déjà sous
- * `PLAFOND_PASSAGE_SIGNES`, mais le titre et la source s'ajoutent devant : cette
- * borne est la ceinture, pas la bretelle.
+ * CE QU'ON ENVOIE AU PLUS POUR UN PASSAGE — et ce n'est PAS le passage entier.
+ *
+ * Le temps que met un modèle de sens croît avec la longueur du texte, et vite.
+ * Mesuré sur ce serveur, avec de vrais passages (`/tmp`, banc d'essai reproduit
+ * dans `scripts/installer-vectoriseur.mjs`) :
+ *
+ *   1 800 signes → 0,8 passage/seconde
+ *   1 000 signes → 1,6 passage/seconde
+ *     600 signes → 2,3 passages/seconde
+ *
+ * On coupe donc à 1 000 signes. Ce n'est pas une perte : le DÉBUT d'un passage
+ * porte son sujet — le fil des titres, la première phrase d'une règle, la
+ * déclaration qui ouvre un morceau de code —, la suite en est la mécanique. Les
+ * documents, dont le passage moyen fait 578 signes, ne sont pas touchés du tout ;
+ * seul le CODE, à 1 592 signes de moyenne, est raccourci, et c'est lui qui
+ * coûtait quatre cinquièmes du travail.
+ *
+ * Le texte ENVOYÉ À L'AGENT, lui, reste entier : on ne raccourcit que ce qui
+ * sert à MESURER la proximité.
  */
-export const SIGNES_MAX_A_VECTORISER = 6000;
+export const SIGNES_MAX_A_VECTORISER = 1000;
 
 /**
  * COMBIEN DE PASSAGES ON VECTORISE AU PLUS EN UNE PASSE. L'indexation tourne
