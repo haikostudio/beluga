@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  accrocheAuMot,
   ancre,
   compteAncres,
   deplacerAncre,
@@ -142,6 +143,25 @@ test('deux fois le même nom : on déplace la seconde citation', () => {
   assert.equal(compteAncres(r.texte, 'a.png'), 2);
   assert.equal(r.texte.includes('milieu'), true);
   assert.notEqual(r.texte, texte);
+});
+
+test('lâché sur un mot, le drapeau se colle au bord le plus proche', () => {
+  const texte = 'Regarde ceci maintenant';
+  assert.equal(accrocheAuMot(texte, texte.indexOf('eci')), texte.indexOf('ceci'));
+  assert.equal(accrocheAuMot(texte, texte.indexOf('nant')), texte.indexOf('maintenant') + 'maintenant'.length);
+});
+
+test('entre deux mots, l’endroit visé ne bouge pas', () => {
+  const texte = 'Bonjour  monde';
+  assert.equal(accrocheAuMot(texte, 8), 8);
+});
+
+test('un drapeau déjà posé se vise d’un bloc, pas lettre à lettre', () => {
+  const texte = 'Avant [fichier: a.png] après';
+  const debut = texte.indexOf('[fichier:');
+  const fin = debut + '[fichier: a.png]'.length;
+  assert.equal(accrocheAuMot(texte, debut + 4), debut);
+  assert.equal(accrocheAuMot(texte, fin - 2), fin);
 });
 
 test('déplacer une ancre ne retire aucune pièce jointe', () => {

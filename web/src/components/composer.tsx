@@ -7,6 +7,7 @@ import {
   EngineInfo,
   QueuedPrompt,
   ancre,
+  accrocheAuMot,
   boutonsBarreEcriture,
   deplacerAncre,
   deplacerJointe,
@@ -21,7 +22,7 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { RunChoix, RunSelectors } from '@/components/run-selectors';
-import { indexAuPoint, montreLeMorceau } from '@/lib/miroir-texte';
+import { indexAuPoint, montreLeMorceau, pointDeLIndex } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
@@ -64,6 +65,8 @@ export interface ComposerProps {
 }
 
 const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
+/** Au doigt, chaque lettre est visée dans un carré plus large qu'à la souris. */
+const MARGE_DOIGT = 24;
 
 export function Composer({
   agent,
@@ -96,6 +99,7 @@ export function Composer({
     nom: string;
     x: number;
     y: number;
+    trait: { x: number; y: number; hauteur: number } | null;
   } | null>(null);
   const origineDrapeau = React.useRef<{
     nom: string;
@@ -104,6 +108,8 @@ export function Composer({
     y: number;
   } | null>(null);
   const drapeauABouge = React.useRef(false);
+  const viseDrapeau = React.useRef<number | null>(null);
+  const glisseRaf = React.useRef(0);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   /**
@@ -179,6 +185,13 @@ export function Composer({
     event.currentTarget.setPointerCapture(event.pointerId);
     origineDrapeau.current = { nom, occurrence, x: event.clientX, y: event.clientY };
     drapeauABouge.current = false;
+    viseDrapeau.current = null;
+  };
+
+  const viserDrapeau = (zone: HTMLTextAreaElement, x: number, y: number, pointerType: string) => {
+    const brut = indexAuPoint(zone, x, y, pointerType === 'touch' ? MARGE_DOIGT : 0);
+    if (brut === null) return null;
+    return accrocheAuMot(zone.value, brut);
   };
 
   const suivreDrapeau = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -190,10 +203,22 @@ export function Composer({
       if (dx * dx + dy * dy < 36) return;
       drapeauABouge.current = true;
     }
-    setDrapeauGlisse({ nom: origine.nom, x: event.clientX, y: event.clientY });
+    const x = event.clientX;
+    const y = event.clientY;
+    const pointerType = event.pointerType;
+    if (glisseRaf.current) cancelAnimationFrame(glisseRaf.current);
+    glisseRaf.current = requestAnimationFrame(() => {
+      const zone = textareaRef.current;
+      const vise = zone ? viserDrapeau(zone, x, y, pointerType) : null;
+      viseDrapeau.current = vise;
+      const trait = zone && vise !== null ? pointDeLIndex(zone, vise) : null;
+      setDrapeauGlisse({ nom: origine.nom, x, y, trait });
+    });
   };
 
   const lacherDrapeau = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (glisseRaf.current) cancelAnimationFrame(glisseRaf.current);
+    glisseRaf.current = 0;
     const origine = origineDrapeau.current;
     origineDrapeau.current = null;
     const aBouge = drapeauABouge.current;
@@ -201,12 +226,14 @@ export function Composer({
     setDrapeauGlisse(null);
     if (!origine) return;
     if (!aBouge) {
+      viseDrapeau.current = null;
       retirerDrapeau(origine.nom, origine.occurrence);
       return;
     }
     const zone = textareaRef.current;
     if (!zone) return;
-    const vise = indexAuPoint(zone, event.clientX, event.clientY);
+    const vise = viseDrapeau.current ?? viserDrapeau(zone, event.clientX, event.clientY, event.pointerType);
+    viseDrapeau.current = null;
     if (vise === null) return;
     setText((avant) => {
       const suite = deplacerAncre(avant, origine.nom, origine.occurrence, vise);
@@ -217,8 +244,11 @@ export function Composer({
   };
 
   const annulerDrapeau = () => {
+    if (glisseRaf.current) cancelAnimationFrame(glisseRaf.current);
+    glisseRaf.current = 0;
     origineDrapeau.current = null;
     drapeauABouge.current = false;
+    viseDrapeau.current = null;
     setDrapeauGlisse(null);
   };
 
@@ -689,13 +719,26 @@ export function Composer({
         ) : null}
         {drapeauGlisse
           ? createPortal(
-              <div
-                className="pointer-events-none fixed z-[80] inline-flex max-w-[220px] items-center gap-1 rounded border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[13px] text-accent shadow-md"
-                style={{ left: drapeauGlisse.x, top: drapeauGlisse.y, transform: 'translate(-50%, -50%)' }}
-              >
-                <Paperclip className="h-3 w-3 shrink-0" />
-                <span className="truncate">{drapeauGlisse.nom}</span>
-              </div>,
+              <>
+                <div
+                  className="pointer-events-none fixed z-[80] inline-flex max-w-[220px] items-center gap-1 rounded border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[13px] text-accent shadow-md"
+                  style={{ left: drapeauGlisse.x, top: drapeauGlisse.y, transform: 'translate(-50%, -50%)' }}
+                >
+                  <Paperclip className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{drapeauGlisse.nom}</span>
+                </div>
+                {drapeauGlisse.trait ? (
+                  <div
+                    data-prompt-file-caret
+                    className="pointer-events-none fixed z-[81] w-0.5 rounded-full bg-accent"
+                    style={{
+                      left: drapeauGlisse.trait.x,
+                      top: drapeauGlisse.trait.y,
+                      height: drapeauGlisse.trait.hauteur,
+                    }}
+                  />
+                ) : null}
+              </>,
               document.body,
             )
           : null}

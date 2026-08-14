@@ -155,6 +155,11 @@ async function main() {
         await page.mouse.move(boiteDrapeau.x + boiteDrapeau.width / 2, boiteDrapeau.y + boiteDrapeau.height / 2);
         await page.mouse.down();
         await page.mouse.move(boiteZone.x + 8, boiteZone.y + 10, { steps: 8 });
+        await page.waitForTimeout(200);
+        record(
+          "Un trait d'insertion apparaît pendant le glissement",
+          (await page.locator('[data-prompt-file-caret]').count()) > 0,
+        );
         await page.mouse.up();
         await page.waitForTimeout(800);
         const apresGlisse = await zone.inputValue();
@@ -169,10 +174,12 @@ async function main() {
         );
       } else {
         record('Glisser le drapeau le déplace dans la phrase, sans le retirer', false, 'boîte invisible');
+        record("Un trait d'insertion apparaît pendant le glissement", false, 'glissement non lancé');
         record("L'aperçu au-dessus reste après le glissement", false, 'glissement non lancé');
       }
     } else {
       record('Glisser le drapeau le déplace dans la phrase, sans le retirer', false, 'drapeau absent');
+      record("Un trait d'insertion apparaît pendant le glissement", false, 'drapeau absent');
       record("L'aperçu au-dessus reste après le glissement", false, 'drapeau absent');
     }
 

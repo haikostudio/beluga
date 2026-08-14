@@ -7,8 +7,9 @@
  * le champ, avec la même police, la même largeur et les mêmes marges — et on
  * y mesure ce qu'on ne peut pas mesurer directement.
  *
- * Deux usages : savoir où un fichier vient d'être lâché, et savoir jusqu'où
- * faire défiler pour montrer une ancre.
+ * Trois usages : savoir où un fichier vient d'être lâché, dessiner le trait
+ * d'insertion pendant qu'on glisse un drapeau, et savoir jusqu'où faire
+ * défiler pour montrer une ancre.
  */
 
 /** Les réglages qui décident du placement du texte, ni plus ni moins. */
@@ -80,7 +81,7 @@ function avecMiroir<T>(zone: HTMLTextAreaElement, travail: (texte: Text, miroir:
  * la mesure n'est pas possible — l'appelant retombe alors sur la fin du
  * texte, ce qui est toujours un choix valable.
  */
-export function indexAuPoint(zone: HTMLTextAreaElement, x: number, y: number): number | null {
+export function indexAuPoint(zone: HTMLTextAreaElement, x: number, y: number, marge = 0): number | null {
   const cadre = zone.getBoundingClientRect();
   return avecMiroir(zone, (texte, miroir) => {
     const total = zone.value.length;
@@ -94,6 +95,8 @@ export function indexAuPoint(zone: HTMLTextAreaElement, x: number, y: number): n
      * On cherche la ligne la PLUS PROCHE verticalement, pas seulement celle
      * qui contient le point : un fichier lâché un cheveu au-dessus de la
      * première ligne vise évidemment le début du texte, pas la fin.
+     * `marge` élargit chaque lettre (doigt sur téléphone) sans changer la
+     * visée au pixel près à la souris.
      */
     let distanceLigne = Infinity;
     let resultat = total;
@@ -103,7 +106,11 @@ export function indexAuPoint(zone: HTMLTextAreaElement, x: number, y: number): n
       mesure.setStart(texte, i);
       mesure.setEnd(texte, i + 1);
       const boite = mesure.getBoundingClientRect();
-      const ecart = vy < boite.top ? boite.top - vy : vy > boite.bottom ? vy - boite.bottom : 0;
+      const haut = boite.top - marge;
+      const bas = boite.bottom + marge;
+      const gauche = boite.left - marge;
+      const droite = boite.right + marge;
+      const ecart = vy < haut ? haut - vy : vy > bas ? vy - bas : 0;
       if (ecart > distanceLigne) continue;
       if (ecart < distanceLigne) {
         // Une ligne plus proche : on recommence à la lire de gauche à droite.
@@ -112,7 +119,7 @@ export function indexAuPoint(zone: HTMLTextAreaElement, x: number, y: number): n
         arrete = false;
       }
       if (arrete) continue;
-      if (vx < boite.left + boite.width / 2) {
+      if (vx < gauche + (droite - gauche) / 2) {
         resultat = i;
         arrete = true;
       } else {
@@ -120,6 +127,45 @@ export function indexAuPoint(zone: HTMLTextAreaElement, x: number, y: number): n
       }
     }
     return resultat;
+  });
+}
+
+/** Où dessiner le trait d'insertion pour cet index, dans l'écran. */
+export function pointDeLIndex(
+  zone: HTMLTextAreaElement,
+  index: number,
+): { x: number; y: number; hauteur: number } | null {
+  const cadre = zone.getBoundingClientRect();
+  return avecMiroir(zone, (texte, miroir) => {
+    const total = zone.value.length;
+    const vise = Math.max(0, Math.min(index, total));
+    const mesure = document.createRange();
+    const repere = miroir.getBoundingClientRect();
+    if (total === 0) {
+      const style = window.getComputedStyle(zone);
+      const padG = Number.parseFloat(style.paddingLeft) || 0;
+      const padH = Number.parseFloat(style.paddingTop) || 0;
+      const hauteur = Number.parseFloat(style.lineHeight) || 20;
+      return { x: cadre.left + padG, y: cadre.top + padH, hauteur };
+    }
+    if (vise < total) {
+      mesure.setStart(texte, vise);
+      mesure.setEnd(texte, vise + 1);
+    } else {
+      mesure.setStart(texte, total - 1);
+      mesure.setEnd(texte, total);
+    }
+    const boite = mesure.getBoundingClientRect();
+    const xMiroir = vise < total ? boite.left : boite.right;
+    const x = xMiroir - repere.left + cadre.left;
+    const y = boite.top - repere.top + cadre.top - zone.scrollTop;
+    const hauteur = boite.height || 20;
+    if (y + hauteur < cadre.top || y > cadre.bottom) return null;
+    return {
+      x: Math.max(cadre.left, Math.min(x, cadre.right - 2)),
+      y: Math.max(cadre.top, y),
+      hauteur: Math.min(hauteur, cadre.bottom - Math.max(cadre.top, y)),
+    };
   });
 }
 
