@@ -318,6 +318,19 @@ le nom, là-bas le texte).
   repris par la migration 24 — qui, comme toute migration de RÉPARATION, nomme la table qu'elle
   attend (`siTable`) et se reporte au lieu d'échouer sur une base d'essai partielle.
 
+- **UNE QUESTION ARRÊTE L'AGENT JUSQU'À LA RÉPONSE** (`shared/src/attente-question.ts`,
+  `server/src/attente-question.ts` ; route `/internal/attente`, boucle du pont dans
+  `server/mcp-bridge.mjs`) : l'appel d'outil `ask_user` ne rend la main qu'une fois l'utilisateur
+  ayant répondu — le moteur est donc arrêté par la mécanique même du protocole d'outils, au lieu
+  d'enchaîner les étapes suivantes de sa liste pendant que la réponse dormait dans la FILE de
+  l'agent, lue seulement à la fin du travail. Le pont redemande par tranches de 20 s, `question.answer`
+  RÉVEILLE l'attente au lieu d'appeler `sendPrompt` (reprise dans le MÊME tour, rien en file), et
+  quatre issues sont dites au moteur : réponse, question annulée, plafond de 30 minutes (l'agent
+  s'arrête sans deviner ; la réponse tardive relance un tour par le chemin d'avant), attente perdue.
+  Les moteurs reçoivent le délai d'appel qu'il faut (`MCP_TOOL_TIMEOUT`, `tool_timeout_sec`), sans
+  quoi Claude abandonnerait à 5 minutes et Codex à 1. L'agent porte `attendReponse` pendant ce temps :
+  la barre d'écriture dit « l'agent attend votre réponse », jamais « votre message attendra son tour ».
+  Verrouillé par `server/src/test/attente-question.test.ts` et `scripts/verif-attente-question.mjs`.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une

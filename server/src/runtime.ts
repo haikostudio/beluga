@@ -2644,6 +2644,10 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
   }
 
   live.delete(agentId);
+  // Un tour refermé d'autorité peut être arrêté sur une question : son attente
+  // tombe avec lui, sinon le drapeau « attend une réponse » resterait gravé sur
+  // un agent que plus personne ne fait travailler.
+  libererLesAttentes(agentId);
   const frais = store.getAgent(agentId) ?? agent;
   setStatus(frais, statutDeFermetureForcee({ reponseRendue }), { endedAt: Date.now() });
   log.warn(`tour refermé d'autorité (agent ${agentId}) : ${raison}`);
