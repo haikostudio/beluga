@@ -319,7 +319,11 @@ export async function cursorCatalog(): Promise<Catalogue> {
         ModelInfo.parse({
           id: entry.id,
           label: entry.displayName ?? entry.id,
-          thinking: niveauxDeReflexionCursor(entry.parameters).map((id) =>
+          // `entry` porte à la fois `parameters` (les valeurs possibles) et
+          // `variants` (les COMBINAISONS réellement acceptées) : seule cette
+          // seconde liste dit si « sans réflexion » existe vraiment pour ce
+          // modèle — l'inventer faisait choisir un niveau que Cursor refuse.
+          thinking: niveauxDeReflexionCursor(entry).map((id) =>
             id === 'none' ? NIVEAU_SANS : niveau(id),
           ),
           defaultThinking: 'none',

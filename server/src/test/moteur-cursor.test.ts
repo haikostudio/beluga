@@ -59,6 +59,7 @@ const VARIANTES_OUI_NON = [
 ];
 
 test('les niveaux de réflexion sont ceux du modèle, « sans réflexion » en tête', () => {
+  // Sans variantes connues (repli) : devinette à partir des paramètres seuls.
   assert.deepEqual(niveauxDeReflexionCursor(EFFORT), ['none', 'low', 'medium', 'high', 'xhigh']);
   // « extra-high » de Cursor devient le « xhigh » du reste de HaikoDev.
   assert.deepEqual(niveauxDeReflexionCursor(RAISONNEMENT), ['none', 'low', 'medium', 'high', 'xhigh']);
@@ -66,6 +67,21 @@ test('les niveaux de réflexion sont ceux du modèle, « sans réflexion » en t
   assert.deepEqual(niveauxDeReflexionCursor(OUI_NON), ['none', 'medium']);
   assert.deepEqual(niveauxDeReflexionCursor([]), ['none']);
   assert.deepEqual(niveauxDeReflexionCursor(undefined), ['none']);
+});
+
+test('les niveaux affichés viennent des VARIANTES, jamais un « sans réflexion » inventé', () => {
+  // Ce modèle (GPT-5.6 Luna, constaté le 14/08/2026) n'a AUCUNE combinaison
+  // sans effort : il ne doit donc jamais proposer « Sans réflexion ».
+  assert.deepEqual(niveauxDeReflexionCursor({ parameters: EFFORT, variants: VARIANTES_EFFORT }), ['low', 'high']);
+  // Celui-ci en a une : « none » apparaît, en tête.
+  assert.deepEqual(
+    niveauxDeReflexionCursor({ parameters: RAISONNEMENT, variants: VARIANTES_RAISONNEMENT }),
+    ['none', 'xhigh'],
+  );
+  // Oui/non : les deux mots que l'interface connaît, « none » en tête.
+  assert.deepEqual(niveauxDeReflexionCursor({ parameters: OUI_NON, variants: VARIANTES_OUI_NON }), ['none', 'medium']);
+  // Un modèle SANS variantes connues retombe sur la devinette par paramètres.
+  assert.deepEqual(niveauxDeReflexionCursor({ parameters: EFFORT }), ['none', 'low', 'medium', 'high', 'xhigh']);
 });
 
 test('le niveau demandé part comme une COMBINAISON entière, jamais seul', () => {
