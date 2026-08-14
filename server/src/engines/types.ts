@@ -57,6 +57,12 @@ export interface EngineRunOptions {
    * script, jamais le fichier de configuration.
    */
   mcpBridgePath?: string;
+  /**
+   * Chemin du GARDE DU DÉMON (script Node) : posé devant chaque commande d'un
+   * agent, il refuse celles qui pourraient couper le serveur ou un moteur au
+   * travail (`shared/src/garde-demon.ts`).
+   */
+  gardeDuDemonPath?: string;
   /** Accès complet : agents de tâche. Le chef d'orchestre, lui, reste bridé. */
   fullAccess: boolean;
   /**

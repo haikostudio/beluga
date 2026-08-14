@@ -2,7 +2,12 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { TodoItem } from '@haikodev/shared';
-import { enteteDuTour, modePlanFermeLEcriture, reglagesClaudeDuChef } from '@haikodev/shared';
+import {
+  enteteDuTour,
+  hooksDuGardeDuDemon,
+  modePlanFermeLEcriture,
+  reglagesClaudeDuChef,
+} from '@haikodev/shared';
 import {
   EngineAdapter,
   EngineEvent,
@@ -82,11 +87,21 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
   // la machine), et le PROJET lui est ouvert par `--add-dir`. Ce qui reste fermé,
   // ce sont les outils d'ÉDITION, retirés par `--disallowedTools` juste au-dessus :
   // modifier du code passe par une carte. Absent pour un agent de tâche.
-  const reglages = reglagesClaudeDuChef(options, options.projectRoot);
-  if (reglages) {
-    args.push('--settings', JSON.stringify(reglages));
-    if (options.projectRoot) args.push('--add-dir', options.projectRoot);
-  }
+  const reglagesDuChef = reglagesClaudeDuChef(options, options.projectRoot);
+  if (reglagesDuChef && options.projectRoot) args.push('--add-dir', options.projectRoot);
+
+  /*
+   * LE GARDE DU DÉMON EST POSÉ POUR TOUS, pas seulement pour le chef : c'est un
+   * agent de TÂCHE, en accès complet, qui a coupé le serveur le 14/08/2026 avec
+   * un `pkill -9` visant le nom de ses propres essais. Le hook s'exécute avant
+   * chaque commande et refuse celles qui peuvent atteindre le démon ou un moteur
+   * au travail.
+   */
+  const reglages = {
+    ...(reglagesDuChef ?? {}),
+    ...(options.gardeDuDemonPath ? { hooks: hooksDuGardeDuDemon(options.gardeDuDemonPath) } : {}),
+  };
+  if (Object.keys(reglages).length > 0) args.push('--settings', JSON.stringify(reglages));
   return args;
 }
 

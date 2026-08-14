@@ -1097,6 +1097,11 @@ async function startTurn(
   // Outils du démon : le pont MCP, avec la liste d'outils de ce rôle.
   const mcpConfigPath = path.join(PATHS.logs, `mcp-${agent.id}.json`);
   const bridgePath = path.join(CONFIG.selfPath, 'server', 'mcp-bridge.mjs');
+  /*
+   * Le garde posé devant chaque commande de l'agent : il refuse ce qui pourrait
+   * couper le démon ou un moteur au travail (`shared/src/garde-demon.ts`).
+   */
+  const gardePath = path.join(CONFIG.selfPath, 'server', 'garde-demon.mjs');
   const token = getInternalToken();
   const url = `http://127.0.0.1:${CONFIG.port}`;
   writeMcpConfig(mcpConfigPath, token, url, agent.id, bridgePath);
@@ -1145,6 +1150,13 @@ async function startTurn(
     HAIKODEV_TOKEN: token,
     HAIKODEV_URL: url,
     HAIKODEV_AGENT: agent.id,
+    /*
+     * Le numéro du démon voyage avec l'agent : le garde posé devant ses
+     * commandes (`shared/src/garde-demon.ts`) doit pouvoir reconnaître un
+     * « kill -9 <numéro> » qui viserait le serveur lui-même.
+     */
+    HAIKODEV_DEMON_PID: String(process.pid),
+    HAIKODEV_DEMON_RACINE: CONFIG.selfPath,
     // GITHUB POUR TOUS, PARTOUT : le jeton du serveur voyage dans
     // l'environnement (`shared/src/acces-github.ts`), donc `gh` marche dans une
     // copie de travail comme dans le bac à sable du chef, sans lire le dossier
@@ -1234,6 +1246,7 @@ async function startTurn(
       systemPromptRappel,
       mcpConfigPath,
       mcpBridgePath: bridgePath,
+      gardeDuDemonPath: gardePath,
       fullAccess,
       mode: agent.run.mode,
       // Le RÔLE décide de l'effet du mode plan : un agent de tâche prépare sans

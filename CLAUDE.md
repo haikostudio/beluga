@@ -143,6 +143,17 @@ le nom, là-bas le texte).
   de commande du démon ne portant plus « server/dist/main.js ». **Ne JAMAIS lancer un `pkill -f` dont
   le motif peut désigner le démon** (`main.js`, `node`, un chemin du projet) : c'est ce qui a coupé
   quatre tâches le 14/08/2026. On vise le nom de SON propre script d'essai, jamais un chemin partagé.
+- **Un SERVEUR D'ESSAI ne porte plus le nom du démon, et une commande qui pourrait le couper est
+  REFUSÉE AVANT DE PARTIR** (`titreDuProcessus`, `shared/src/demon.ts` ; `commandeMenaceLeDemon`,
+  `shared/src/garde-demon.ts` ; hook `PreToolUse` posé pour TOUS les agents Claude par
+  `server/garde-demon.mjs`). Le nom unique s'était retourné contre lui-même : les scripts de contrôle
+  lancent le vrai `server/dist/main.js`, donc leurs serveurs s'appelaient « haikodev-serveu » eux
+  aussi, et un `pkill -9` visant ce nom a tué le démon (`status=9/KILL`) après onze étapes. Seul le
+  serveur qui sert la base du dépôt s'appelle « haikodev-serveur » ; les autres, « haikodev-essai-
+  <port> ». Le garde refuse `pkill`/`killall` au motif trop large (démon, `node`, `npm`, un moteur,
+  la racine du dépôt), `kill` sur le numéro du démon (`HAIKODEV_DEMON_PID`) ou sur un groupe, et
+  `systemctl restart/stop haikodev` même différé ; il laisse passer au moindre doute. Codex et Cursor
+  n'ont pas ce crochet : la règle ne les couvre pas.
   Le surveillant système, lui, ne relance qu'après TROIS silences d'affilée
   (`scripts/haikodev-watchdog.sh`, posé en `/usr/local/bin/`).
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,

@@ -1,5 +1,6 @@
-import { TITRE_DU_PROCESSUS } from '@haikodev/shared';
-import { CONFIG, ensureDirs } from './config.js';
+import path from 'node:path';
+import { titreDuProcessus } from '@haikodev/shared';
+import { CONFIG, ROOT, ensureDirs } from './config.js';
 import { openDb } from './db.js';
 import { log } from './logger.js';
 import { ensureCredentials } from './auth.js';
@@ -28,7 +29,8 @@ import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
 
 /*
- * LE DÉMON NE S'APPELLE PLUS DU NOM DE SON FICHIER CONSTRUIT.
+ * LE DÉMON NE S'APPELLE PLUS DU NOM DE SON FICHIER CONSTRUIT — ET UN SERVEUR
+ * D'ESSAI NE S'APPELLE PLUS COMME LE DÉMON.
  *
  * Un agent qui nettoie ses propres essais avec `pkill -f "server/dist/main.js"`
  * visait sans le savoir le démon de production, dont la ligne de commande
@@ -36,8 +38,19 @@ import { surveillerRepriseDeCompte } from './reprise-compte.js';
  * garde « haikodev » pour rester reconnaissable dans `ps`. Second verrou après
  * la règle d'arrêt : celui-là tient même face à un `kill -9`, qu'aucun
  * programme ne peut retenir.
+ *
+ * Mais les scripts de contrôle lancent CE MÊME fichier sur une base à eux : ils
+ * portaient donc le même nom, et le 14/08/2026 un `pkill -9 -f "haikodev-serveu"`
+ * lancé pour un essai a coupé le démon. Le nom dépend maintenant de la base
+ * servie : le démon seul s'appelle « haikodev-serveur », un essai s'appelle
+ * « haikodev-essai-<port> ».
  */
-process.title = TITRE_DU_PROCESSUS;
+process.title = titreDuProcessus({
+  dossierDeDonnees: CONFIG.dataDir,
+  dossierDeDonneesDuDemon: path.join(ROOT, 'data'),
+  port: CONFIG.port,
+  essaiDeclare: process.env.HAIKODEV_ESSAI === '1',
+});
 
 async function main(): Promise<void> {
   ensureDirs();
