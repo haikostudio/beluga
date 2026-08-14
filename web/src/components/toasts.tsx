@@ -65,6 +65,7 @@ function ToastItem({ toast, enPause }: { toast: Toast; enPause: boolean }) {
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if ((event.target as HTMLElement).closest('button')) return;
     depart.current = event.clientX;
     setEnGlissement(true);
     event.currentTarget.setPointerCapture(event.pointerId);
