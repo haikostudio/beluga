@@ -280,11 +280,30 @@ function racineDuDepot(cwd: string): string | null {
 export function buildCursorArgs(options: EngineRunOptions, modele: string): string[] {
   const args: string[] = ['-p', '--output-format', 'stream-json', '--model', modele];
 
-  // Le mode plan l'emporte sur l'accès complet : l'agent prépare sans jamais
-  // écrire. Ailleurs, le consentement a été donné en validant la carte, pas
-  // dans une succession de fenêtres — d'où `--force`, qui n'en ouvre aucune.
+  /*
+   * `--force` PART TOUJOURS, ET IL NE SE NÉGOCIE PAS. Sans lui, le CLI reste en
+   * mode « allowlist » : chaque appel d'outil attend une approbation. Dans un
+   * tour `-p`, personne n'est là pour la donner — l'appel est REFUSÉ EN SILENCE,
+   * sans résultat ni message. C'est ce qui faisait échouer TOUTE création de
+   * carte depuis le chef d'un projet autre qu'HaikoDev (`fullAccess` faux) :
+   * `GetMcpTools` et `CallMcpTool` refusés, donc le pont d'outils jamais
+   * contacté, et un moteur qui en concluait de lui-même « la proposition a été
+   * refusée » (constaté sur les tours du 14/08/2026, reproduit par
+   * `scripts/verif-outils-cursor.mjs`).
+   *
+   * Il ne rouvre rien : sous Cursor, la frontière du chef bridé ne tient de
+   * toute façon pas à cet indicateur — le CLI ne prend ni liste d'outils
+   * autorisés ni liste refusée. Ce que `fullAccess` décide encore, c'est le BAC
+   * À SABLE, laissé au réglage du poste quand l'accès n'est pas complet.
+   *
+   * Le mode plan garde son `--mode plan`, qui empêche l'écriture par lui-même :
+   * il a besoin de `--force` comme les autres, sinon `ask_user` et
+   * `write_document` sont refusés eux aussi et le plan se rend sans jamais
+   * pouvoir poser sa question.
+   */
+  args.push('--force');
   if (modePlanFermeLEcriture(options.mode, options.role)) args.push('--mode', 'plan');
-  else if (options.fullAccess) args.push('--force', '--sandbox', 'disabled');
+  else if (options.fullAccess) args.push('--sandbox', 'disabled');
 
   if (options.sessionId) args.push('--resume', options.sessionId);
   // Le projet est celui du démon : rien à approuver à la main, et une question
