@@ -42,6 +42,26 @@ function annoncerLeDemarrage() {
   callDaemon('pont', {}).catch(() => {});
 }
 
+/**
+ * L'ATTENTE D'UNE RÉPONSE, vue du pont. Le démon rend l'issue par TRANCHES
+ * courtes : chaque appel dort au plus une vingtaine de secondes côté serveur
+ * puis répond « attente » — on redemande. Découper ainsi évite qu'une requête
+ * endormie une demi-heure se fasse couper par un délai de client HTTP, ce qui
+ * relancerait le moteur sans réponse. Une coupure du démon (il redémarre, il
+ * meurt) rend la main plutôt que de tourner sans fin.
+ */
+async function attendreLaReponse(attente, texteDeRepli) {
+  for (;;) {
+    let issue;
+    try {
+      issue = await callDaemon('attente', { questionId: attente.questionId });
+    } catch {
+      return String(texteDeRepli ?? '');
+    }
+    if (!issue || issue.etat !== 'attente') return String(issue?.text ?? texteDeRepli ?? '');
+  }
+}
+
 let toolsCache = null;
 
 async function getTools() {
@@ -92,8 +112,14 @@ rl.on('line', async (line) => {
         const name = params?.name;
         const args = params?.arguments ?? {};
         const result = await callDaemon('call', { name, args });
+        // UNE QUESTION ARRÊTE LE MOTEUR : tant que l'utilisateur n'a pas
+        // répondu, cet appel d'outil ne rend pas la main, donc le moteur ne
+        // fait aucune des étapes suivantes de sa liste.
+        const texte = result.attente
+          ? await attendreLaReponse(result.attente, result.text)
+          : String(result.text ?? '');
         reply(id, {
-          content: [{ type: 'text', text: String(result.text ?? '') }],
+          content: [{ type: 'text', text: texte }],
           isError: result.ok === false,
         });
         return;

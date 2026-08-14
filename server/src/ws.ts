@@ -75,6 +75,7 @@ import {
   avertissementsDeLaSelection,
 } from './deploy.js';
 import { rangerLaCarte } from './deplacement-carte.js';
+import { annulerLAttente, repondreALAttente } from './attente-question.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
@@ -899,11 +900,23 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         return { ok: true };
       }
 
-      // L'agent reprend aussitôt, avec la réponse en main — sans faire
-      // patienter le navigateur jusqu'à la fin de son tour. La question n'est
-      // rappelée qu'en tête : c'est lui qui l'a posée, il l'a déjà en contexte.
-      // Les images jointes à la réponse suivent le MÊME chemin que celles du
-      // fil : leurs chemins de fichiers sont annoncés dans la demande.
+      /*
+       * LE CAS NORMAL : UN TOUR EST ARRÊTÉ SUR CETTE QUESTION. Son appel
+       * d'outil `ask_user` n'a pas encore rendu la main — le moteur n'a donc
+       * fait aucune des étapes suivantes de sa liste. La réponse lui est
+       * rendue DANS CET APPEL, et il reprend aussitôt là où il s'était arrêté :
+       * ni nouveau tour, ni message dans la file d'attente.
+       */
+      if (repondreALAttente(cmd.questionId, cmd.answer, cmd.attachments ?? [])) {
+        return { ok: true };
+      }
+
+      // Personne n'attendait plus (tour déjà refermé, question posée en texte,
+      // serveur redémarré) : l'agent repart pour un tour, avec la réponse en
+      // main — sans faire patienter le navigateur jusqu'à la fin de ce tour. La
+      // question n'est rappelée qu'en tête : c'est lui qui l'a posée, il l'a
+      // déjà en contexte. Les images jointes à la réponse suivent le MÊME
+      // chemin que celles du fil : leurs chemins sont annoncés dans la demande.
       const rappel = question.question.length > 80 ? `${question.question.slice(0, 80)}…` : question.question;
       void sendPrompt(message.agentId, `Réponse à ta question « ${rappel} » : ${cmd.answer}`, {
         attachments: cmd.attachments ?? [],
@@ -933,6 +946,12 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       });
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
+      /*
+       * Un tour arrêté sur cette question ne doit pas rester suspendu à une
+       * réponse qui ne viendra jamais : il repart, en sachant que rien n'a été
+       * tranché — donc sans deviner à la place de l'utilisateur.
+       */
+      annulerLAttente(cmd.questionId);
       return { ok: true };
     }
 

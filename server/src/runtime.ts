@@ -86,6 +86,7 @@ import {
   wrapPrompt,
   mesurerContexte,
   PLAFOND_APPEL_APRES_REPONSE_MS,
+  delaiOutilMoteurMs,
   statutDeFermetureForcee,
   tourBloque,
   ecritureOrpheline,
@@ -129,6 +130,7 @@ import {
 import { carteApresFinDeTour } from './deplacement-carte.js';
 import { envGithub } from './github.js';
 import { oublierLePont, passageDuPont } from './pont.js';
+import { libererLesAttentes, oublierToutesLesAttentes } from './attente-question.js';
 import { ouvrirDossierDeCarte, refermerDossierDeCarte } from './dossier-de-carte.js';
 import { lancerAvecRelances } from './relance-moteur.js';
 
@@ -529,6 +531,13 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     await preparerLeTour(agent, text, options);
   } finally {
     demarrant.delete(agentId);
+    /*
+     * PLUS PERSONNE N'ATTEND. Un tour arrêté sur une question (`ask_user`) tient
+     * une attente ouverte : le tour fini — normalement, en panne ou coupé à la
+     * main —, elle doit tomber, sinon le pont d'un moteur déjà mort continuerait
+     * de sonder et l'agent porterait « en attente » pour toujours.
+     */
+    libererLesAttentes(agentId);
     /*
      * LE TOUR SE REFERME, QUOI QU'IL ARRIVE. Le chemin normal a déjà tout rangé,
      * et cet appel ne fait alors rien. Mais une panne interne survenue APRÈS le
@@ -1187,6 +1196,14 @@ async function startTurn(
      */
     HAIKODEV_DEMON_PID: String(process.pid),
     HAIKODEV_DEMON_RACINE: CONFIG.selfPath,
+    /*
+     * UN OUTIL A LE DROIT D'ATTENDRE UNE PERSONNE. Une question posée par
+     * `ask_user` arrête le moteur jusqu'à la réponse : sans ce délai, Claude
+     * abandonnerait l'appel au bout de cinq minutes et repartirait travailler
+     * sans elle. Le plafond réel est tenu par le démon
+     * (`shared/src/attente-question.ts`) ; ici on laisse simplement la place.
+     */
+    MCP_TOOL_TIMEOUT: String(delaiOutilMoteurMs()),
     // GITHUB POUR TOUS, PARTOUT : le jeton du serveur voyage dans
     // l'environnement (`shared/src/acces-github.ts`), donc `gh` marche dans une
     // copie de travail comme dans le bac à sable du chef, sans lire le dossier
@@ -2726,7 +2743,7 @@ const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de HaikoDev, pas de to
 3. NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Ce que tu n'as pas vérifié se dit comme une hypothèse, en toutes lettres.
 4. VÉRIFIER À LA FIN : rejoue les contrôles du projet qui touchent à ce que tu as changé, et donne leur résultat, même en échec. Un échec tu, c'est un travail rendu faux.
 5. ${SILENCE_IDENTIFIANTS}
-6. UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : dès qu'un choix ne t'appartient pas — une option à retenir, une préférence, une information qui te manque —, tu appelles « ask_user » et tu attends la réponse. Une question écrite à la fin de ta réponse ne réveille personne : ton tour se termine, l'utilisateur ne voit aucune alerte, et la carte reste bloquée sans que personne ne sache qu'elle t'attend. Tu ne finis donc JAMAIS un tour sur une question posée en texte. Ce qui peut être tranché par ce que tu as lu se tranche : tu annonces ton choix en une ligne et tu continues.`;
+6. UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : dès qu'un choix ne t'appartient pas — une option à retenir, une préférence, une information qui te manque —, tu appelles « ask_user » et tu attends la réponse. L'ATTENTE SE FAIT TOUTE SEULE : cet outil ne te rend la main qu'une fois l'utilisateur ayant répondu, et sa réponse arrive comme résultat de l'appel — tu n'as donc AUCUNE étape suivante à commencer en attendant, et tu reprends ton travail à partir de cette réponse. Une question écrite à la fin de ta réponse ne réveille personne : ton tour se termine, l'utilisateur ne voit aucune alerte, et la carte reste bloquée sans que personne ne sache qu'elle t'attend. Tu ne finis donc JAMAIS un tour sur une question posée en texte. Ce qui peut être tranché par ce que tu as lu se tranche : tu annonces ton choix en une ligne et tu continues.`;
 
 /** Le rappel envoyé aux tours SUIVANTS, quand le moteur ne recolle pas ses consignes tout seul. */
 export function rappelDeMethode(engine: EngineId = 'claude'): string {
@@ -2970,6 +2987,18 @@ export function recoverAfterRestart(
   reprendrePublication?: (run: DeployRun, reprises: number) => void,
 ): void {
   const tous = store.listAgents();
+  /*
+   * AUCUNE ATTENTE DE RÉPONSE NE SURVIT NON PLUS : le moteur qui l'avait posée
+   * est parti avec le démon. Le registre est vidé, et le drapeau gravé sur les
+   * agents est effacé — sinon une conversation dirait « l'agent attend votre
+   * réponse » alors que plus personne n'attend.
+   */
+  oublierToutesLesAttentes();
+  for (const agent of tous) {
+    if (!agent.attendReponse) continue;
+    const frais = store.saveAgent({ ...agent, attendReponse: undefined });
+    bus.emit({ type: 'agent.upsert', agent: frais });
+  }
   /*
    * AUCUN MESSAGE NE SURVIT « EN ÉCRITURE » À UN REDÉMARRAGE. Le nettoyage
    * d'en dessous ne visait que les agents encore marqués au travail : un agent

@@ -11,6 +11,7 @@ import {
   peutRepartir,
   questionEnTexteLibre,
   titreDeBloc,
+  TEXTE_BARRE_EN_ATTENTE,
 } from '@haikodev/shared';
 import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
@@ -446,7 +447,15 @@ function TravailEnCours({
   const dernier = messages[messages.length - 1];
   const todoEnCours = dernier?.todos?.find((todo) => todo.state === 'running');
   const etapeEnCours = [...(dernier?.steps ?? [])].reverse().find((step) => step.state === 'running');
-  const quoi = todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…';
+  /*
+   * ARRÊTÉ SUR SA QUESTION : l'agent ne réfléchit plus, il attend. Son appel
+   * d'outil `ask_user` ne rendra la main qu'une fois la réponse donnée, donc
+   * aucune étape suivante ne tourne — le témoin doit le dire au lieu
+   * d'afficher l'étape figée d'avant (`shared/src/attente-question.ts`).
+   */
+  const quoi = agent?.attendReponse
+    ? TEXTE_BARRE_EN_ATTENTE
+    : (todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…');
 
   const temps = arret.temps;
   // Même décompte que le décroché d'une carte (`agent.todos`, mis à jour en

@@ -538,6 +538,16 @@ export const Agent = z.object({
    * étape n'est active (tour clos, ou aucune liste encore annoncée).
    */
   etapeEnCours: z.string().optional(),
+  /**
+   * L'agent est ARRÊTÉ SUR UNE QUESTION : son appel d'outil `ask_user` n'a pas
+   * encore répondu, donc le moteur ne fait rien d'autre en attendant
+   * (`shared/src/attente-question.ts`). Le drapeau ne sert qu'à l'affichage —
+   * la barre d'écriture dit « l'agent attend votre réponse » au lieu de
+   * « l'agent travaille — votre message attendra son tour ». Posé et retiré
+   * par le seul registre des attentes, jamais deviné ailleurs ; aucun moteur
+   * ne survivant à un redémarrage, il est effacé au démarrage.
+   */
+  attendReponse: z.boolean().optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */

@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {
   Attachment,
+  TRANCHE_ATTENTE_MS,
   ROUTE_CARTE_EXTERNE,
   ROUTE_DOC_API,
   cleDesEntetes,
@@ -25,6 +26,7 @@ import { readFilePreview, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils } from './pont.js';
+import { attendreUneTranche, poserLAttente } from './attente-question.js';
 import { enregistrerErreurInterface } from './erreurs-interface.js';
 import { fichierFavicon } from './favicon.js';
 import { log } from './logger.js';
@@ -293,6 +295,17 @@ export function createHttpServer(): http.Server {
           pontAServiLesOutils(agentId, tools.length);
           return json(res, 200, { tools });
         }
+        /*
+         * « Alors, cette réponse ? » Le pont redemande par tranches courtes ;
+         * chaque tranche dort côté serveur puis rend soit l'issue, soit
+         * « attente ». Découper évite qu'une requête endormie une demi-heure se
+         * fasse couper par le premier délai venu.
+         */
+        if (route === '/internal/attente') {
+          const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
+          const issue = await attendreUneTranche(String(body.questionId ?? ''));
+          return json(res, 200, issue);
+        }
         if (route === '/internal/call') {
           const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
           const allowed = toolsFor(agent.role).some((tool) => tool.name === body.name);
@@ -326,8 +339,24 @@ export function createHttpServer(): http.Server {
             );
             attachToCurrentMessage(agentId, { proposal: result.proposal });
           }
-          if (result.question) attachToCurrentMessage(agentId, { question: result.question });
           if (result.download) attachToCurrentMessage(agentId, { download: result.download });
+          /*
+           * UNE QUESTION ARRÊTE LE MOTEUR. On enregistre l'attente AVANT de
+           * rendre la main : le pont d'outils va sonder `/internal/attente`
+           * jusqu'à la réponse, donc l'appel d'outil du moteur reste ouvert et
+           * aucune étape suivante ne part. Sans cela, l'agent continuait sa
+           * liste et la réponse de l'utilisateur tombait dans la file, pour
+           * n'être lue qu'une fois tout le travail fini.
+           */
+          if (result.question) {
+            attachToCurrentMessage(agentId, { question: result.question });
+            poserLAttente(result.question.id, agentId);
+            return json(res, 200, {
+              ok: result.ok,
+              text: result.text,
+              attente: { questionId: result.question.id, trancheMs: TRANCHE_ATTENTE_MS },
+            });
+          }
           return json(res, 200, { ok: result.ok, text: result.text });
         }
         return json(res, 404, { error: 'route interne inconnue' });
