@@ -11,7 +11,8 @@ import {
   demarrageAutomatiqueAutorise,
   etatApresCoupure,
   etatVisuelCarte,
-  raisonDeNonCloture,
+  issueDeFinDeTour,
+  RAISON_SANS_MODIFICATION,
   traceAcquise,
 } from '@haikodev/shared';
 
@@ -86,9 +87,18 @@ test('sans trace vérifiable, aucune clôture', () => {
 });
 
 test('un constat impossible se dit autrement que « rien n’a changé »', () => {
-  assert.equal(raisonDeNonCloture('rien n’a changé', 'non'), 'rien n’a changé');
-  assert.equal(raisonDeNonCloture(null, 'inconnue'), RAISON_TRACE_INCONNUE);
+  assert.equal(issueDeFinDeTour('running', true, 'task', 'non', false).raison, RAISON_SANS_MODIFICATION);
+  assert.equal(issueDeFinDeTour('running', true, 'task', 'inconnue', false).raison, RAISON_TRACE_INCONNUE);
   assert.match(RAISON_TRACE_INCONNUE, /trace vérifiable/);
+});
+
+test('sans trace, la carte n’est pas close — et pas coincée en « En cours » non plus', () => {
+  // Une carte laissée en « En cours » sans agent au travail n'en sortait plus.
+  for (const trace of ['non', 'inconnue'] as const) {
+    const issue = issueDeFinDeTour('running', true, 'task', trace, false);
+    assert.notEqual(issue.colonne, 'done', `trace « ${trace} »`);
+    assert.equal(issue.colonne, 'planned', `trace « ${trace} »`);
+  }
 });
 
 /* ------------------------------------------------------------------ */

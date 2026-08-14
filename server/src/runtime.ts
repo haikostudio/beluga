@@ -46,12 +46,8 @@ import {
   tachesAPoursuivre,
   cleDeSession,
   partMoteurDeLaCle,
-  colonneApresMoteurMuet,
   colonneAuDemarrage,
-  colonneEnFinDeTour,
   etatApresCoupure,
-  raisonDeNonCloture,
-  traceAcquise,
   TraceDuTravail,
   RAISON_COUPE_EN_VOL,
   cumulerPartsQuota,
@@ -77,16 +73,13 @@ import {
   observerContexte,
   poidsDeTour,
   raisonAbsenceDePassages,
-  raisonSansModification,
   consigneEspaceDuChef,
   detailDuRefus,
-  RAISON_MOTEUR_INJOIGNABLE,
   resumeContinuite,
   ROLES_QUI_DEPLACENT,
   SUJETS_MEMOIRE,
   sujetsUtiles,
   templateForColumn,
-  tourDeLaCarte,
   wrapPrompt,
   mesurerContexte,
   PLAFOND_APPEL_APRES_REPONSE_MS,
@@ -125,6 +118,7 @@ import {
 import { poserDecisionDeReprise, repriseDeCompte } from './reprise-compte.js';
 import { notify } from './notify.js';
 import { cartesDuTravailHorsTache, traceDuTravailDepuis, repereAvant } from './hors-tache.js';
+import { carteApresFinDeTour } from './deplacement-carte.js';
 import { envGithub } from './github.js';
 import { oublierLePont, passageDuPont } from './pont.js';
 import { ouvrirDossierDeCarte, refermerDossierDeCarte } from './dossier-de-carte.js';
@@ -1870,12 +1864,11 @@ async function startTurn(
    * Trois réponses possibles, pas deux : le dépôt a bougé, il n'a pas bougé, ou
    * il n'a pas pu être consulté. Le dernier cas rendait `true` — une carte
    * passait donc en « Terminé » sur une observation qu'on n'avait pas pu faire.
-   * Il vaut désormais « inconnue » : la carte reste ouverte et le DIT.
+   * Il vaut désormais « inconnue » : la carte n'est pas close et le DIT.
    */
   const trace: TraceDuTravail = failed
     ? 'non'
     : await traceDuTravailDepuis(dossier, repere).catch(() => 'inconnue' as const);
-  const depotModifie = traceAcquise(trace);
 
   /*
    * LE DOSSIER DE LA CARTE SE REFERME ICI, une fois le constat pris : la branche
@@ -1916,74 +1909,20 @@ async function startTurn(
     const card = store.getCard(agent.cardId);
     if (card) {
       /*
-       * L'agent d'exécution a rendu ET le dépôt a changé : la carte passe en
-       * « Terminé » toute seule. Trois freins, chacun suffisant : un tour en
-       * échec (le travail n'est pas fait), un rôle qui n'exécute pas (l'étude ne
-       * clôt rien), un tour qui n'a rien modifié (répondre n'est pas
-       * travailler). Dans ce dernier cas, la carte porte la raison en toutes
-       * lettres — sinon elle aurait l'air simplement oubliée.
+       * OÙ VA LA CARTE — la règle entière vit dans `carteApresFinDeTour`
+       * (`deplacement-carte.ts`), qui rend la carte telle qu'elle doit être
+       * enregistrée : clôture si le dépôt a bougé, retour en file avec la RAISON
+       * écrite si rien n'a changé, rangement si le travail était déjà livré.
+       * Rien ne reste en « En cours » sans agent au travail.
        */
-      /*
-       * … et un quatrième frein, qui n'est pas une règle de colonne mais un
-       * constat : ce tour est-il encore CELUI de la carte ? Un tour arrêté rend
-       * la main à son rythme ; entre-temps un nouvel agent a pu reprendre la
-       * carte. Le laisser écrire « Terminé » afficherait la fin du travail
-       * pendant que quelqu'un écrit encore.
-       */
-      const leSien = tourDeLaCarte(card, agent.id);
-      // Le moteur n'a jamais parlé : le LANCEMENT n'a pas pu le joindre, ce
-      // n'est pas la tâche qui a échoué. La carte ne reste pas figée en
-      // « En cours » comme un échec ordinaire : elle repart en « Planifié »,
-      // prête à être retentée toute seule par l'ordonnanceur.
-      const relanceMoteurMuet = leSien ? colonneApresMoteurMuet(card.column, agent.role, moteurMuet) : null;
-      const cible = leSien
-        ? (relanceMoteurMuet ?? colonneEnFinDeTour(card.column, !failed, agent.role, depotModifie))
-        : null;
-      // Ce tour vient-il de produire du code ? Alors la carte l'a « déjà
-      // enregistré » pour de bon — le drapeau ne s'effacera plus.
-      const aProduit =
-        leSien && !failed && ROLES_QUI_DEPLACENT.includes(agent.role) && depotModifie;
-      const dejaEnregistre = card.codeDejaEnregistre || aProduit;
-      const raison = leSien
-        ? raisonDeNonCloture(
-            raisonSansModification(card.column, !failed, agent.role, depotModifie, dejaEnregistre),
-            trace,
-          )
-        : null;
-      /*
-       * LA MARQUE DE VOL S'ÉTEINT ICI, et nulle part avant : ce tour a fini de
-       * tout ranger (dépôt constaté, branche fusionnée, colonne posée). Un tour
-       * ÉTRANGER, lui, n'y touche pas — la marque appartient alors à l'agent qui
-       * a repris la carte. Coupé plus tôt, le démon retrouvera la marque au
-       * démarrage et rendra la carte comme interrompue.
-       */
-      const planification =
-        leSien || relanceMoteurMuet
-          ? {
-              ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
-              ...(leSien ? { tourEnVolDepuis: undefined } : {}),
-              ...(relanceMoteurMuet
-                ? {
-                    restarts: (card.scheduling?.restarts ?? 0) + 1,
-                    waitingReason: RAISON_MOTEUR_INJOIGNABLE,
-                  }
-                : {}),
-            }
-          : card.scheduling;
       const updated = store.saveCard({
-        ...card,
-        ...(cible
-          ? {
-              column: cible,
-              position: store.nextPosition(card.projectId, cible),
-              ...(cible === 'done' ? { doneAt: Date.now() } : {}),
-            }
-          : {}),
-        scheduling: planification,
-        codeDejaEnregistre: dejaEnregistre,
-        // La phrase « rien n'a changé » n'appartient qu'à l'agent de la carte :
-        // un tour étranger la laisse telle quelle plutôt que de l'effacer.
-        ...(leSien ? { sansModification: raison ?? undefined } : {}),
+        ...carteApresFinDeTour(card, {
+          agentId: agent.id,
+          role: agent.role,
+          reussi: !failed,
+          trace,
+          moteurMuet,
+        }),
         consumption: {
           tokens,
           machineSeconds: elapsedSeconds,

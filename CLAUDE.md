@@ -252,6 +252,15 @@ le nom, là-bas le texte).
   carte, jamais le fait que le moteur ait répondu. Le constat rend TROIS réponses
   (`TraceDuTravail`, `shared/src/carte-interrompue.ts`) : oui, non, et « je n'ai pas pu regarder » —
   seul « oui » ferme la carte, un dépôt muet ne vaut plus une preuve de travail.
+- **Mais RIEN NE RESTE COINCÉ DANS « EN COURS » : chaque fin de tour a une ISSUE**
+  (`issueDeFinDeTour`, `shared/src/suivi-colonne.ts` ; `carteApresFinDeTour`,
+  `server/src/deplacement-carte.ts`). Dépôt qui a bougé → « Terminé ». Rien changé mais code DÉJÀ
+  livré (`card.codeDejaEnregistre`) → « Terminé » avec sa raison : il n'y avait rien à refaire, le
+  travail est constaté sur un tour antérieur. Rien changé et rien jamais enregistré, ou dépôt non
+  consultable → « Planifié », RETENUE (`suspendu` + `waitingReason`, sinon l'ordonnanceur relance le
+  même tour vide toutes les quinze secondes), raison écrite dessus. Un tour en ÉCHEC ne bouge rien :
+  l'incident est déjà dit en rouge, là où on relance. Verrouillé par
+  `server/src/test/suivi-colonne.test.ts` et `scripts/verif-carte-rangee-sans-changement.mjs`.
 - **Une tâche COUPÉE PAR UNE PANNE ne passe jamais pour terminée** (`shared/src/carte-interrompue.ts`)
   : tant qu'un tour d'exécution tient une carte, elle porte une MARQUE (`scheduling.tourEnVolDepuis`),
   retirée seulement une fois la carte rangée. Aucun moteur ne survivant à un arrêt du serveur, toute
