@@ -1,8 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CREDIT_HORS_DE_PORTEE,
   consigneEnTeteDeSession,
+  creditDepuisReponseCursor,
   decomposerModeleCursor,
+  montantCursorEnClair,
+  periodeDuCreditCursor,
+  texteDuPlanCursor,
   fenetreDepuisLibelleCursor,
   fichierNatif,
   idCursorPourNiveau,
@@ -322,4 +327,92 @@ test('Cursor prend sa place dans les règles communes aux moteurs', () => {
   assert.equal(consigneEnTeteDeSession('cursor'), false);
   assert.equal(consigneEnTeteDeSession('claude'), true);
   assert.equal(fichierNatif('cursor'), 'AGENTS.md');
+});
+
+/*
+ * LE MODE PLAN. Cursor ne rend PAS son plan dans la conversation : il n'y laisse
+ * qu'une narration et pose le plan entier dans un appel `createPlanToolCall`
+ * (constaté sur un vrai tour le 14/08/2026, `scripts/verif-mode-plan-cursor.mjs`).
+ * Sans traduction, le cadre du plan et ses boutons de décision ne paraissent
+ * jamais — le démon ne voit aucune des quatre parties.
+ */
+function appelDePlan(subtype: 'started' | 'completed', plan: string, todos?: unknown[]) {
+  return {
+    type: 'tool_call',
+    subtype,
+    call_id: 'plan-1',
+    tool_call: { createPlanToolCall: { args: { plan, overview: 'Résumé', todos } } },
+  };
+}
+
+test('le plan de Cursor revient dans la conversation, pas dans le journal des étapes', () => {
+  const vus: EngineEvent[] = [];
+  const attente = new Map<string, string>();
+  const texte = '## Faisabilité\nOui.\n\n## Chemin à suivre\n1. Faire.\n';
+  emitFromCursor(appelDePlan('completed', texte), (e) => vus.push(e), attente);
+
+  assert.deepEqual(vus.filter((e) => e.kind === 'text').map((e: any) => e.text), [texte.trim()]);
+  // Une étape nommée « createPlan » à la place du plan, c'est le défaut réparé.
+  assert.equal(vus.some((e) => e.kind === 'step'), false);
+});
+
+test('le même plan annoncé deux fois n’arrive qu’une fois dans le fil', () => {
+  const vus: EngineEvent[] = [];
+  const attente = new Map<string, string>();
+  emitFromCursor(appelDePlan('started', 'Le plan'), (e) => vus.push(e), attente);
+  emitFromCursor(appelDePlan('completed', 'Le plan'), (e) => vus.push(e), attente);
+  assert.equal(vus.filter((e) => e.kind === 'text').length, 1);
+});
+
+test('les étapes du plan deviennent une liste de tâches, jamais une étape muette', () => {
+  const vus: EngineEvent[] = [];
+  const attente = new Map<string, string>();
+  emitFromCursor(
+    appelDePlan('completed', 'Le plan', [{ id: 'a', content: 'Faire', status: 'TODO_STATUS_PENDING' }]),
+    (e) => vus.push(e),
+    attente,
+  );
+  const taches = vus.find((e) => e.kind === 'todo') as any;
+  assert.equal(taches?.todos?.length, 1);
+});
+
+test('un plan sans texte se rabat sur son résumé plutôt que de se perdre', () => {
+  assert.equal(texteDuPlanCursor({ plan: '   ', overview: 'Résumé' }), 'Résumé');
+  assert.equal(texteDuPlanCursor({ plan: 'Le plan', overview: 'Résumé' }), 'Le plan');
+  assert.equal(texteDuPlanCursor({}), null);
+  assert.equal(texteDuPlanCursor(null), null);
+});
+
+/*
+ * LE CRÉDIT DÉPENSÉ. Cursor facture à la dépense : là où les autres moteurs
+ * montrent une jauge, c'est un MONTANT qui se lit. Il ne se reconstitue pas
+ * depuis des jetons et un tarif deviné — il se demande, et son absence se DIT.
+ */
+test('la dépense est la somme des lignes, jamais la première', () => {
+  const credit = creditDepuisReponseCursor({
+    teamMemberSpend: [{ spendCents: 1250 }, { spendCents: 340 }],
+    subscriptionCycleStart: 1786000000000,
+  });
+  assert.equal(credit.centimes, 1590);
+  assert.equal(credit.membres, 2);
+  assert.equal(credit.indisponible, undefined);
+});
+
+test('une réponse illisible rend « indisponible », jamais zéro', () => {
+  assert.ok(creditDepuisReponseCursor(null).indisponible);
+  assert.ok(creditDepuisReponseCursor({ teamMemberSpend: [] }).indisponible);
+  assert.ok(creditDepuisReponseCursor({ teamMemberSpend: [{}] }).indisponible);
+  assert.equal(creditDepuisReponseCursor({ teamMemberSpend: [{}] }).centimes, undefined);
+});
+
+test('un montant se lit en dollars, la devise de Cursor, jamais converti', () => {
+  assert.match(montantCursorEnClair(1590), /15[.,]90/);
+  assert.match(montantCursorEnClair(1590), /USD/);
+  assert.match(montantCursorEnClair(0), /0[.,]00/);
+});
+
+test('une clé personnelle ne peut pas lire la dépense, et la phrase le dit', () => {
+  assert.match(CREDIT_HORS_DE_PORTEE, /clé d'administration d'équipe/);
+  assert.match(periodeDuCreditCursor(undefined), /cycle de facturation/);
+  assert.match(periodeDuCreditCursor(1786000000000), /Dépense depuis le/);
 });

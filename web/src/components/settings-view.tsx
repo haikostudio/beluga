@@ -44,6 +44,9 @@ import {
   SystemProcess,
   appareilEnClair,
   connexionTerminee,
+  montantCursorEnClair,
+  periodeDuCreditCursor,
+  type CreditCursor,
   erreursUtiles,
   ligneEtatCerveau,
   origineEnClair,
@@ -1737,6 +1740,9 @@ function UsageSection({ open }: { open: boolean }) {
     };
   } | null>(null);
   const [summary, setSummary] = React.useState<any>(null);
+  const [cursor, setCursor] = React.useState<
+    { id: string; label: string; credit: CreditCursor }[] | null
+  >(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -1745,6 +1751,12 @@ function UsageSection({ open }: { open: boolean }) {
       .call({ type: 'billing.summary' }, 120000)
       .then((data) => setSummary(data?.summary))
       .catch(() => setSummary(null));
+    // Cursor facture à la dépense : là où les autres moteurs ont une jauge de
+    // quota, c'est ce montant qui se lit.
+    client
+      .call({ type: 'cursor.credit' }, 60000)
+      .then((data) => setCursor(Array.isArray(data?.comptes) ? data.comptes : null))
+      .catch(() => setCursor(null));
   }, [open]);
 
   /*
@@ -1792,6 +1804,38 @@ function UsageSection({ open }: { open: boolean }) {
               <span key={row.month} className="rounded border border-border px-1.5 py-0.5 text-[12px] text-muted">
                 {moisEnClair(row.month)} · {Math.round(row.seconds / 60)} min
               </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {cursor?.length ? (
+        <div className="mt-4" data-essai="credit-cursor">
+          <p className="text-[12px] uppercase tracking-wide text-faint">Crédit dépensé chez Cursor</p>
+          <p className="mb-1.5 mt-0.5 text-[12.5px] leading-relaxed text-faint">
+            Cursor ne publie pas de quota : il facture à la dépense. C'est donc le montant consommé qui se lit ici, à la
+            place de la jauge des autres moteurs.
+          </p>
+          <div className="space-y-0.5">
+            {cursor.map((compte) => (
+              <div key={compte.id} className="rounded-md border border-border bg-surface px-2 py-1.5">
+                <p className="truncate text-[13.5px] text-text">{compte.label}</p>
+                {typeof compte.credit?.centimes === 'number' ? (
+                  <>
+                    <p className="mt-0.5 text-[14.5px] font-medium text-text">
+                      {montantCursorEnClair(compte.credit.centimes)}
+                    </p>
+                    <p className="mt-0.5 text-[11.5px] text-faint">
+                      {periodeDuCreditCursor(compte.credit.debutDuCycle)}
+                      {compte.credit.membres ? ` · ${compte.credit.membres} membres` : ''}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-0.5 text-[11.5px] leading-relaxed text-faint">
+                    {compte.credit?.indisponible ?? "Le montant dépensé n'a pas pu être lu."}
+                  </p>
+                )}
+              </div>
             ))}
           </div>
         </div>

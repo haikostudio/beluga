@@ -73,11 +73,15 @@ const DESCRIPTIONS: Record<string, string> = {
 /**
  * Classe les modèles du plus récent au plus ancien : par date de sortie quand
  * le moteur la donne, sinon par numéro de version lu dans le nom.
+ *
+ * La partie mineure est FACULTATIVE. En l'exigeant, « Opus 5 1M » n'avait aucune
+ * version du tout (0) et passait donc derrière « Opus 4.8 1M » (4008) : le menu
+ * de Cursor gardait la vieille version et jetait la nouvelle.
  */
-function versionOf(model: { id: string; label: string }): number {
-  const match = `${model.label} ${model.id}`.match(/(\d+)[.\-_](\d+)/);
+export function versionOf(model: { id: string; label: string }): number {
+  const match = `${model.label} ${model.id}`.match(/(\d+)(?:[.\-_](\d+))?/);
   if (!match) return 0;
-  return Number(match[1]) * 1000 + Number(match[2]);
+  return Number(match[1]) * 1000 + Number(match[2] ?? 0);
 }
 
 function byRecency(a: ModelInfo, b: ModelInfo): number {
@@ -195,8 +199,9 @@ async function claudeCatalogAvec(token: string): Promise<Catalogue> {
 
     // Le plus RÉCENT en haut, le plus ancien en bas — jamais l'ordre alphabétique.
     models.sort(byRecency);
-    // Le catalogue affiché s'arrête aux modèles les plus récents : un modèle
-    // ancien, plus cher et moins capable, ne doit plus se choisir par habitude.
+    // Le catalogue affiché garde la version la plus récente de CHAQUE famille :
+    // un modèle ancien, plus cher et moins capable, ne doit plus se choisir par
+    // habitude — mais aucune famille ne disparaît du menu pour autant.
     return { models: limiterAuxPlusRecents(models), live: true };
   }
 }
@@ -281,7 +286,7 @@ export async function codexCatalogAvec(version: string, token: string): Promise<
     // Un modèle est unique par son IDENTIFIANT : deux modèles réellement
     // différents peuvent porter le même nom affiché, et dédoublonner sur le nom
     // en escamotait un (règle et test dans shared/src/catalogue-modeles.ts).
-    // Le catalogue affiché s'arrête ensuite aux modèles les plus récents.
+    // Ne reste ensuite que la version la plus récente de chaque famille.
     return { models: limiterAuxPlusRecents(dedoublonnerModeles(models)), live: true };
   }
 }

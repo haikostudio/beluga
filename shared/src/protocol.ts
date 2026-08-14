@@ -346,6 +346,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('cursor.ajouterCle'), label: z.string(), cle: z.string() }),
   /**
+   * LE CRÉDIT DÉPENSÉ chez Cursor, compte par compte. Cursor facture à la
+   * dépense : là où les autres moteurs montrent une jauge de quota, c'est un
+   * montant qui doit se lire. Un compte dont la clé n'a pas le droit de lire ce
+   * montant rend la raison, jamais un zéro.
+   */
+  z.object({ type: z.literal('cursor.credit') }),
+  /**
    * Connecter ou RECONNECTER un compte de moteur sans ouvrir de terminal.
    * Sans `accountId`, c'est un compte neuf : il n'entre dans la liste qu'une
    * fois la connexion réussie.

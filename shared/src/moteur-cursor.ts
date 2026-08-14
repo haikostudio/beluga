@@ -63,6 +63,16 @@ const SUFFIXES_DE_NIVEAU = ['extra-high', 'minimal', 'medium', 'xhigh', 'high', 
 /** La variante « rapide » d'un modèle : même modèle, facturé plus cher. */
 const SUFFIXE_RAPIDE = '-fast';
 
+/**
+ * LA FAMILLE « THINKING », que Cursor écrit tantôt avant, tantôt après le
+ * niveau. Ses noms récents la mettent devant (« claude-opus-5-thinking-high »),
+ * ses noms anciens derrière (« claude-4.6-opus-high-thinking ») : sans ce
+ * démêlage, le second passait pour un modèle sans niveau, et sa famille ne
+ * rejoignait jamais celle de la version récente — trois vieilleries Claude 4.6
+ * restaient donc dans le menu.
+ */
+const SUFFIXE_REFLECHI = '-thinking';
+
 /** Un modèle du CLI, décomposé : son nom de base et le niveau qu'il porte. */
 export interface NomDeModeleCursor {
   /** Le modèle, sans son niveau (« claude-opus-5-thinking »). */
@@ -80,6 +90,16 @@ export interface NomDeModeleCursor {
  */
 export function decomposerModeleCursor(id: string): NomDeModeleCursor {
   const nom = (id ?? '').trim();
+
+  // « claude-4.6-opus-high-thinking » : le niveau est au MILIEU. On met la
+  // mention « thinking » de côté, on décompose le reste, et on la rend à la
+  // base — qui rejoint ainsi « claude-opus-5-thinking », sa version récente.
+  if (nom.length > SUFFIXE_REFLECHI.length && nom.endsWith(SUFFIXE_REFLECHI)) {
+    const sansMention = nom.slice(0, -SUFFIXE_REFLECHI.length);
+    const { base, niveau } = decomposerModeleCursor(sansMention);
+    return { base: `${base}${SUFFIXE_REFLECHI}`, niveau };
+  }
+
   for (const suffixe of SUFFIXES_DE_NIVEAU) {
     if (nom.length > suffixe.length + 1 && nom.endsWith(`-${suffixe}`)) {
       return { base: nom.slice(0, -(suffixe.length + 1)), niveau: niveauDepuisCursor(suffixe) };
@@ -289,6 +309,34 @@ export function outilCursor(appel: unknown): { nom: string; entree: Record<strin
 
 /** La clé sous laquelle Cursor annonce sa liste de tâches. */
 export const OUTIL_TACHES_CURSOR = 'updateTodos';
+
+/** La clé sous laquelle Cursor rend son PLAN, en mode plan. */
+export const OUTIL_PLAN_CURSOR = 'createPlan';
+
+/**
+ * LE PLAN DE CURSOR N'EST PAS UN MESSAGE : C'EST UN APPEL D'OUTIL.
+ *
+ * En mode plan (`--mode plan`), Cursor n'écrit PAS son plan dans la
+ * conversation. Il n'y laisse qu'une narration — « Je commence par lire
+ * salut.js pour comprendre sa structure » — et pose le plan entier dans un
+ * appel `createPlanToolCall` (constaté sur un vrai tour le 14/08/2026). Sans
+ * cette traduction, le plan de Cursor n'arrivait jamais dans le fil : il
+ * s'affichait comme une étape opaque nommée « createPlan », `jugerLePlan` ne
+ * voyait aucune des quatre parties, le message perdait son cadre et ses boutons
+ * « Valider » / « Refuser », et la relance partait pour rien. Claude et Codex
+ * écrivent le leur en texte : on ramène donc Cursor au MÊME contrat.
+ *
+ * Le champ `plan` porte le texte entier ; `overview` n'en est que le résumé, et
+ * ne sert que si le premier manque — mieux vaut un plan court qu'un plan perdu.
+ */
+export function texteDuPlanCursor(entree: unknown): string | null {
+  if (!entree || typeof entree !== 'object') return null;
+  const args = entree as Record<string, unknown>;
+  const plan = typeof args.plan === 'string' ? args.plan.trim() : '';
+  if (plan) return plan;
+  const resume = typeof args.overview === 'string' ? args.overview.trim() : '';
+  return resume || null;
+}
 
 /**
  * POURQUOI L'APPEL A ÉTÉ REFUSÉ, en français et pour un lecteur non
