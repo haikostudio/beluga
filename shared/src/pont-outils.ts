@@ -41,6 +41,22 @@ export const ETAPE_PONT = 'Outils du projet indisponibles';
 export const ETAPE_PONT_ID = 'pont-outils';
 
 /**
+ * Ce qui s'ajoute à la RÉPONSE elle-même quand le pont a manqué. L'étape rouge
+ * (`ETAPE_PONT`) se replie dans un tiroir qu'on peut ne jamais ouvrir ; sans ce
+ * bloc dans le texte, un moteur privé d'outils pouvait écrire « la proposition
+ * a été refusée » ou « aucune carte n'a été créée » et cette phrase inventée
+ * restait la seule chose lue — jamais corrigée par le fait réel : aucun outil
+ * n'était disponible, rien n'a été tenté ni refusé.
+ */
+export function noteDePontEnEchec(raison: string): string {
+  return (
+    `\n\n> [!WARNING]\n> ${raison} ` +
+    "Une phrase ci-dessus qui parle d'un refus ou d'un choix n'en est pas un : " +
+    "l'agent n'a rien pu appeler, faute d'outils."
+  );
+}
+
+/**
  * Le tour a-t-il eu ses outils ? On ne juge PAS que le moteur s'en soit servi —
  * c'est son affaire — mais qu'ils aient été à sa portée.
  */

@@ -217,6 +217,26 @@ export function poserLaConfigurationMcp(cwd: string, mcpConfigPath: string | und
   }
 }
 
+/**
+ * UN SEUL TOUR À LA FOIS ÉCRIT LES OUTILS D'UN DOSSIER DONNÉ. Le chef bridé
+ * garde le MÊME dossier de travail d'un tour à l'autre (`chefScratch/<projet>`,
+ * pour y retrouver ses notes) — donc deux tours de Cursor sur le même projet,
+ * lancés en même temps (une conversation ordinaire et l'auto-amélioration de
+ * nuit, par exemple), peuvent y écrire `.cursor/mcp.json` en même temps. Le
+ * second écrase alors la configuration du premier avant que SON `cursor-agent`
+ * ne l'ait lue : le pont annonce le mauvais agent, et le vrai reste sans outil
+ * — sans qu'aucune erreur ne se voie. Un dossier de carte, lui, est propre à
+ * une carte et n'a jamais ce voisin ; le verrou n'y coûte donc rien.
+ */
+const verrousCwd = new Map<string, Promise<unknown>>();
+
+export function avecVerrouCwd<T>(cwd: string, tache: () => Promise<T>): Promise<T> {
+  const attente = (verrousCwd.get(cwd) ?? Promise.resolve()).catch(() => undefined);
+  const suite = attente.then(tache);
+  verrousCwd.set(cwd, suite.catch(() => undefined));
+  return suite;
+}
+
 /** Une ligne d'exclusion posée dans le fichier LOCAL du dépôt, jamais dans son `.gitignore`. */
 function ecarterDuDepot(cwd: string, ligne: string): void {
   try {
@@ -320,8 +340,6 @@ export const cursorAdapter: EngineAdapter = {
     });
     const prompt = entete ? `${entete}\n\n---\n\n${options.prompt}` : options.prompt;
 
-    poserLaConfigurationMcp(options.cwd, options.mcpConfigPath);
-
     let enfant: ReturnType<typeof spawn> | null = null;
     let arrete = false;
     const pendingSteps = new Map<string, string>();
@@ -344,8 +362,15 @@ export const cursorAdapter: EngineAdapter = {
      * LE NOM DU MODÈLE SE RÉSOUT AVANT LE LANCEMENT, et il demande une lecture
      * du catalogue : le tour part donc dans une promesse. Tout ce qui suit —
      * flux, fin, arrêt — reste identique aux deux autres moteurs.
+     *
+     * La pose des outils et le lancement du CLI sont tenus sous LE VERROU du
+     * dossier de travail, jusqu'à la fin du tour : aucun autre tour du même
+     * dossier ne peut écraser `.cursor/mcp.json` pendant que CE `cursor-agent`
+     * le lit encore.
      */
-    const finished = (async (): Promise<{ ok: boolean; error?: string }> => {
+    const finished = avecVerrouCwd(options.cwd, async (): Promise<{ ok: boolean; error?: string }> => {
+      poserLaConfigurationMcp(options.cwd, options.mcpConfigPath);
+
       const modele = idCursorPourNiveau(
         await catalogueDuTour(cle),
         options.model?.trim() || MODELE_CURSOR_PAR_DEFAUT,
@@ -394,7 +419,7 @@ export const cursorAdapter: EngineAdapter = {
           return { ok, error: ok ? undefined : message.slice(0, 500) };
         },
       });
-    })();
+    });
 
     return {
       stop: () => {

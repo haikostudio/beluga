@@ -504,6 +504,21 @@ le nom, là-bas le texte).
   remet dans la conversation, sans quoi `jugerLePlan` n'y voit aucune des quatre parties et le cadre
   perd ses boutons. Verrouillé par `server/src/test/moteur-cursor.test.ts`,
   `scripts/verif-moteur-cursor.mjs` et `scripts/verif-mode-plan-cursor.mjs`.
+- **DEUX TOURS DE CURSOR SUR LE MÊME DOSSIER S'ATTENDENT, jamais un `.cursor/mcp.json` écrasé en plein
+  vol** (`avecVerrouCwd`, `server/src/engines/cursor.ts`) : le chef bridé garde le MÊME dossier
+  (`chefScratch/<projet>`) d'un tour à l'autre, donc deux tours concurrents du même projet (une
+  conversation et l'auto-amélioration de nuit, par exemple) pouvaient y écrire la configuration
+  d'outils en même temps — le second écrasait celle du premier avant que SON `cursor-agent` ne l'ait
+  lue, le pont annonçant alors le mauvais agent : le vrai restait sans outil, sans qu'aucune erreur ne
+  se voie (« le pont d'outils ne démarre pas toujours », 14/08/2026). La pose des outils et le
+  lancement du CLI sont désormais tenus sous ce verrou jusqu'à la fin du tour ; un dossier de carte,
+  propre à une seule carte, n'a jamais ce voisin et n'attend donc jamais rien. **Et quand le pont
+  manque quand même, la RÉPONSE elle-même le dit** (`noteDePontEnEchec`, `shared/src/pont-outils.ts`,
+  branché dans `server/src/runtime.ts`, engine-agnostique) : l'étape rouge repliée ne suffisait pas —
+  un moteur privé d'outils pouvait écrire « la proposition a été refusée » de son propre chef, et
+  cette phrase inventée restait la seule chose lue. Un encadré `[!WARNING]` porte maintenant la vraie
+  raison (« le pont d'outils n'a pas démarré… ») directement dans le texte. Verrouillé par
+  `server/src/test/moteur-cursor.test.ts` et `server/src/test/pont-outils.test.ts`.
 - **Le menu des modèles garde la version la plus récente de chaque FAMILLE, jamais les trois plus
   récents tout court** (`familleDeModele`, `limiterAuxPlusRecents`, `shared/src/catalogue-modeles.ts` ;
   tri par `versionOf`) : couper la liste entière à trois entrées ne retirait pas des vieilleries mais
