@@ -5,10 +5,13 @@ import crypto from 'node:crypto';
 import {
   Attachment,
   ROUTE_CARTE_EXTERNE,
+  ROUTE_DOC_API,
   cleDesEntetes,
+  documentationApi,
   jugerDemandeDeCarte,
   jugerLaCle,
   jugerRapportErreur,
+  pageDocApi,
   trouverLeProjetVise,
 } from '@haikodev/shared';
 import { CONFIG, PATHS, webRoot } from './config.js';
@@ -181,6 +184,30 @@ export function createHttpServer(): http.Server {
       }
 
       /* ---------------- Porte d'entrée des services extérieurs ---------------- */
+
+      /**
+       * LE MODE D'EMPLOI, PUBLIC.
+       *
+       * Un service qu'on branche doit pouvoir trouver la marche à suivre sans
+       * compte : `/api` la donne, avant le mur d'accès. Lecture seule, aucun
+       * accès à la base — la page ne montre que du texte, jamais une clé, un
+       * projet ou une carte. En HTML pour un humain, en JSON pour un outil.
+       */
+      if (route === ROUTE_DOC_API || route === `${ROUTE_DOC_API}/`) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          return json(res, 405, { ok: false, error: 'Cette adresse se lit en GET.' });
+        }
+        // Derrière un proxy, l'adresse publique est en https : la donner fausse
+        // ferait recopier un exemple qui ne marche pas.
+        const proto =
+          String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() || url.protocol.replace(':', '');
+        const racine = `${proto}://${req.headers.host ?? url.host}`;
+        const veutJson =
+          String(req.headers.accept ?? '').includes('application/json') || url.searchParams.get('format') === 'json';
+        if (veutJson) return json(res, 200, documentationApi(racine));
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(req.method === 'HEAD' ? '' : pageDocApi(racine));
+      }
 
       /**
        * UNE CARTE POSÉE DEPUIS LE DEHORS, par un service qui présente sa CLÉ.

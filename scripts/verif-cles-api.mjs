@@ -13,7 +13,9 @@
  *      base — et AUCUN agent n'est né, rien n'est parti au moteur ;
  *   4. la clé est RÉVOQUÉE depuis les réglages, et le même appel est refusé ;
  *   5. les refus ordinaires sont refusés en le DISANT : sans clé, clé inventée,
- *      projet inconnu, envoi sans titre, mauvaise méthode.
+ *      projet inconnu, envoi sans titre, mauvaise méthode ;
+ *   6. le MODE D'EMPLOI est trouvable SANS compte à l'adresse `/api`, en page
+ *      lisible comme en JSON — et il ne montre aucune clé.
  *
  *   node scripts/verif-cles-api.mjs
  *
@@ -37,7 +39,7 @@ const PORT = Number(process.env.HAIKO_CLES_API_PORT || 7196);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-cles-api-'));
 
-const { ROUTE_CARTE_EXTERNE, PREFIXE_CLE_API } = await import(path.join(RACINE, 'shared/dist/index.js'));
+const { ROUTE_CARTE_EXTERNE, ROUTE_DOC_API, PREFIXE_CLE_API } = await import(path.join(RACINE, 'shared/dist/index.js'));
 
 const resultats = [];
 const noter = (nom, ok, detail = '') => {
@@ -280,6 +282,31 @@ try {
 
   const enLecture = await appeler(null, {}, 'GET');
   noter('un GET sur cette adresse est refusé', enLecture.statut === 405);
+
+  /* -------- 6. Le mode d'emploi, trouvable SANS compte -------- */
+
+  const docHtml = await fetch(`${BASE}${ROUTE_DOC_API}`);
+  const pageDoc = await docHtml.text();
+  noter(
+    'la documentation répond à /api sans aucune session',
+    docHtml.status === 200 && (docHtml.headers.get('content-type') ?? '').includes('text/html'),
+    `statut ${docHtml.status}`,
+  );
+  noter(
+    'elle donne l’adresse à appeler et les champs attendus',
+    pageDoc.includes(ROUTE_CARTE_EXTERNE) && pageDoc.includes('projet') && pageDoc.includes('titre'),
+  );
+  noter(
+    'elle n’est PAS la page de connexion, et ne montre aucune clé',
+    !pageDoc.includes('name="password"') && !pageDoc.includes(SECRET),
+  );
+
+  const docJson = await fetch(`${BASE}${ROUTE_DOC_API}`, { headers: { accept: 'application/json' } });
+  const doc = await docJson.json().catch(() => ({}));
+  noter(
+    'le même mode d’emploi est lisible en JSON par un outil',
+    docJson.status === 200 && doc.chemin === ROUTE_CARTE_EXTERNE && Array.isArray(doc.champs) && doc.champs.length >= 3,
+  );
 
   /* -------- 4. La révocation, depuis les réglages -------- */
 
