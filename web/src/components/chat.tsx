@@ -166,12 +166,6 @@ export function Chat({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
-      {/*
-       * La bande « en cours » est posée EN HAUT, juste sous les onglets : au
-       * bas de l'écran elle se perdait au-dessus de la barre d'écriture, alors
-       * qu'elle dit ce que l'agent fait à l'instant.
-       */}
-      <TravailEnCours agent={agent} messages={messages} busy={busy} cardId={cardId} />
 
       {/* Une conversation ne défile que verticalement : ce qui dépasse en
           largeur (code, longue adresse) défile DANS son propre bloc.
@@ -277,6 +271,17 @@ export function Chat({
       {/* L'agent attend une réponse écrite en toutes lettres : on le dit juste
           au-dessus de la barre, là où la réponse s'écrit. */}
       {questionEnTexte ? <RepereReponseTexte /> : null}
+
+      {/* Le témoin « en cours » est un petit décroché posé JUSTE AU-DESSUS de
+          la barre d'écriture, là où le regard reste pendant que l'agent
+          travaille — plutôt qu'en haut du tiroir, hors de vue une fois qu'on a
+          défilé. Sa marge négative le fait glisser sous le padding supérieur
+          de la barre (huit pixels de part et d'autre) : la barre, posée
+          APRÈS lui dans le document, recouvre son bas et donne l'impression
+          qu'il sort de derrière elle — le même principe que le bandeau
+          « en cours » qui dépasse en bas des cartes du tableau, retourné vers
+          le haut. */}
+      <TravailEnCours agent={agent} messages={messages} busy={busy} cardId={cardId} />
 
       <Composer
         agent={agent}
@@ -399,9 +404,9 @@ function SeparateurAgent({ titre }: { titre: string }) {
 }
 
 /**
- * Le témoin de travail, juste au-dessus de la barre d'écriture : on voit d'un
- * coup d'œil si quelque chose tourne, quoi, et depuis combien de temps. Quand
- * rien ne tourne, la ligne disparaît complètement.
+ * Le témoin de travail : un petit décroché, en retrait, collé au-dessus de la
+ * barre d'écriture — on voit d'un coup d'œil si quelque chose tourne, quoi, et
+ * depuis combien de temps. Quand rien ne tourne, il disparaît complètement.
  *
  * C'est aussi d'ici qu'on arrête l'agent : le bouton est posé sur la chose
  * qu'il arrête, plutôt que perdu dans la rangée d'outils de la barre d'écriture.
@@ -444,7 +449,14 @@ function TravailEnCours({
   const temps = arret.temps;
 
   return (
-    <div className="flex shrink-0 items-center gap-2 bg-surface/60 px-3 py-1.5">
+    <div
+      data-temoin-reflexion
+      className={cn(
+        'relative z-0 mx-4 -mb-2 flex shrink-0 items-center gap-2 rounded-t-lg',
+        'border border-b-0 border-border bg-border/30 px-3 py-1.5',
+        'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
+      )}
+    >
       <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
       {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
