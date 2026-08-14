@@ -30,6 +30,8 @@ import {
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
+import { InfoTravail } from '@/components/info-travail';
+import { dureeLisible } from '@/components/arret-agent';
 import {
   Badge,
   Button,
@@ -1315,9 +1317,10 @@ export function CardTile({
   const estimateFailed = card.estimate?.failed;
   // Un agent au travail sur la carte, quel qu'il soit : le voyant doit tourner
   // même quand la carte n'a pas encore retenu son agent.
-  const agentAuTravail = Object.values(state.agents).some(
+  const agentActif = Object.values(state.agents).find(
     (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
   );
+  const agentAuTravail = !!agentActif;
   // Mode plan : l'agent au travail sur cette carte prépare sans écrire — un
   // repère distinct, tant qu'il travaille encore (le réglage seul ne suffit
   // pas à le dire, une fois le tour rendu).
@@ -1326,13 +1329,37 @@ export function CardTile({
   );
 
   /*
+   * LA BARRE DE TRAVAIL, DÈS LE PREMIER INSTANT — pas seulement une fois
+   * qu'une étape est cochée. Mêmes données que la barre au-dessus du
+   * composeur dans le tiroir (`InfoTravail`, réutilisée telle quelle) : le
+   * témoin animé, l'étape en cours (`agent.etapeEnCours`, posé par le démon
+   * en même temps que `todos`) et le temps écoulé, qui avance seconde par
+   * seconde. Sans le bouton d'arrêt — pas de place ici, et un second geste
+   * d'arrêt aurait dérivé de celui du tiroir.
+   */
+  const [, forcerTravail] = React.useState(0);
+  React.useEffect(() => {
+    if (!agentAuTravail) return;
+    const timer = window.setInterval(() => forcerTravail((n) => n + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [agentAuTravail]);
+  const tempsTravail = agentActif?.startedAt
+    ? dureeLisible(Math.round((Date.now() - agentActif.startedAt) / 1000))
+    : null;
+  const avancementTravail = agentActif?.todos && agentActif.todos.total > 0 ? agentActif.todos : null;
+  const travailActuel = agentActif
+    ? { quoi: agentActif.etapeEnCours ?? 'Réflexion en cours…', avancement: avancementTravail, temps: tempsTravail }
+    : null;
+
+  /*
    * L'avancement de la liste de tâches de l'agent de la carte, tel qu'il
    * voyage avec lui (champ `todos` de l'agent, `card.agentId`). Le décompte
    * reste affiché même une fois l'agent arrêté : c'est le dernier connu, sur
    * TOUTES les cartes qui en ont un — pas seulement celle où ça travaille
-   * encore.
+   * encore. Tant que la barre de travail ci-dessus parle, elle dit déjà ce
+   * compte : cette mention-ci ne reprend la parole qu'une fois l'agent arrêté.
    */
-  const progression = mentionProgressionTaches({ todos: agent?.todos });
+  const progression = travailActuel ? null : mentionProgressionTaches({ todos: agent?.todos });
 
   /*
    * L'état en cours ne s'affiche PAS dans le corps de la carte : il sort par le
@@ -1469,7 +1496,7 @@ export function CardTile({
         onClick={ouvrir}
         className={cn(
           'relative z-10 cursor-pointer touch-manipulation select-none rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint',
-          statut && 'rounded-b-none',
+          (statut || travailActuel) && 'rounded-b-none',
         )}
       >
         {/*
@@ -1644,6 +1671,20 @@ export function CardTile({
             </span>
           </div>
         </Tooltip>
+      ) : travailActuel ? (
+        // Mêmes données que la barre du tiroir (`InfoTravail`), dans le même
+        // bandeau que les autres mentions ci-dessus — mais sans bouton
+        // d'arrêt : ce geste reste réservé au tiroir de la carte.
+        <div
+          onClick={ouvrir}
+          data-barre-travail={card.id}
+          className={cn(
+            'relative -mt-1 flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-b-md bg-border/30 px-2.5 pb-1.5 pt-2 text-[12.5px] leading-none',
+            'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
+          )}
+        >
+          <InfoTravail quoi={travailActuel.quoi} avancement={travailActuel.avancement} temps={travailActuel.temps} />
+        </div>
       ) : null}
     </div>
   );

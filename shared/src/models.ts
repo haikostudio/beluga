@@ -531,6 +531,13 @@ export const Agent = z.object({
       unfinished: z.number().int().optional(),
     })
     .optional(),
+  /**
+   * Le libellé de la todo ou de l'étape « en cours » au moment présent, posé
+   * en MÊME TEMPS que `todos` — pour que le tableau puisse afficher « quoi »
+   * sans charger les messages de la conversation. Vide dès que plus aucune
+   * étape n'est active (tour clos, ou aucune liste encore annoncée).
+   */
+  etapeEnCours: z.string().optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */

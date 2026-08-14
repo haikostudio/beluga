@@ -1282,6 +1282,7 @@ async function startTurn(
               };
               runState.steps.set(event.step.key, step);
               pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
+              poserLetapeDesSteps(agent.id, [...runState.steps.values()]);
             }
             break;
           case 'todo':
@@ -1765,9 +1766,16 @@ async function startTurn(
   // Le résumé porté par l'agent — celui que lit le tableau — se refait avec la
   // liste : sans cela, la conversation dit « 5/5 faites » et la carte « 4/5 ».
   poserLaProgression(agent.id, runState.todos);
+  const stepsRefermees = [...runState.steps.values()].map((s) =>
+    s.state === 'running' ? { ...s, state: 'failed' as const } : s,
+  );
+  // Un tour clos sans todos (uniquement des `steps`) doit lui aussi éteindre
+  // le libellé posé sur l'agent : sinon le tableau garde à vie l'étape d'un
+  // tour pourtant terminé.
+  poserLetapeDesSteps(agent.id, stepsRefermees);
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
-    steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
+    steps: stepsRefermees,
     todos: runState.todos,
     streaming: false,
     tokens: tokens || undefined,
@@ -2330,19 +2338,49 @@ function tachesRefermees(message: Message): TodoItem[] {
 function poserLaProgression(agentId: string, todos: readonly TodoItem[]): boolean {
   if (!todos.length) return false;
   const progression = progressionDesTaches(todos);
+  const etape = todos.find((todo) => todo.state === 'running')?.label;
   const frais = store.getAgent(agentId);
   if (!frais) return false;
   const avant = frais.todos;
   if (
     avant?.done === progression.done &&
     avant?.total === progression.total &&
-    (avant?.unfinished ?? 0) === progression.unfinished
+    (avant?.unfinished ?? 0) === progression.unfinished &&
+    frais.etapeEnCours === etape
   ) {
     return false;
   }
-  const maj = store.saveAgent({ ...frais, todos: progression });
+  const maj = store.saveAgent({ ...frais, todos: progression, etapeEnCours: etape });
   bus.emit({ type: 'agent.upsert', agent: maj });
   return true;
+}
+
+/**
+ * REPLI SUR LES ÉTAPES D'EXÉCUTION : un agent qui ne s'annonce jamais de
+ * liste de tâches (`todos`) mais avance par étapes internes (`steps`, visibles
+ * repliées dans la conversation) n'a alors aucun libellé posé par
+ * `poserLaProgression` — le tableau resterait muet. Même geste, même bus,
+ * source différente ; appelé UNIQUEMENT quand aucune todo n'est active.
+ */
+function poserLetapeDesSteps(agentId: string, steps: readonly RunStep[]): void {
+  const etape = [...steps].reverse().find((step) => step.state === 'running')?.label;
+  const frais = store.getAgent(agentId);
+  if (!frais || frais.todos?.total || frais.etapeEnCours === etape) return;
+  const maj = store.saveAgent({ ...frais, etapeEnCours: etape });
+  bus.emit({ type: 'agent.upsert', agent: maj });
+}
+
+/**
+ * UN TOUR QUI SE REFERME ÉTEINT SON ÉTAPE. `poserLaProgression` l'efface déjà
+ * quand des todos existent (plus aucune ne reste `running` après clôture) ;
+ * ce filet couvre le cas d'un agent qui n'a annoncé que des `steps`, jamais de
+ * todos — sans lui, le tableau garderait à vie le libellé du dernier tour.
+ */
+function effacerEtapeEnCours(agentId: string): void {
+  const frais = store.getAgent(agentId);
+  if (!frais || frais.etapeEnCours === undefined) return;
+  const maj = store.saveAgent({ ...frais, etapeEnCours: undefined });
+  bus.emit({ type: 'agent.upsert', agent: maj });
 }
 
 /**
@@ -2372,6 +2410,7 @@ function eteindreEcritureOrpheline(
   const fige = store.saveMessage({ ...enEcriture, streaming: false, todos: tachesRefermees(enEcriture) });
   bus.emit({ type: 'message.upsert', message: fige });
   poserLaProgression(agent.id, fige.todos);
+  effacerEtapeEnCours(agent.id);
   log.warn(`écriture orpheline éteinte (agent ${agent.id}, message ${enEcriture.id})`);
   return true;
 }
@@ -2531,6 +2570,7 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
     });
     bus.emit({ type: 'message.upsert', message: fige });
     poserLaProgression(agentId, fige.todos);
+    effacerEtapeEnCours(agentId);
   }
 
   live.delete(agentId);
@@ -2896,6 +2936,7 @@ export function recoverAfterRestart(
     // une tentative d'exécution (piège coûteux de Paseo).
     const updated = store.saveAgent({ ...agent, status: 'idle', endedAt: Date.now() });
     bus.emit({ type: 'agent.upsert', agent: updated });
+    effacerEtapeEnCours(agent.id);
 
     const messages = store.listMessages(agent.id, 5);
     const dangling = messages.find((m) => m.streaming);

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronUp, CornerDownRight, Loader2, MessageSquare, RotateCcw, Square } from 'lucide-react';
+import { ChevronUp, CornerDownRight, MessageSquare, RotateCcw, Square } from 'lucide-react';
 import {
   Agent,
   Message,
@@ -16,6 +16,7 @@ import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { useArretAgent } from '@/components/arret-agent';
+import { InfoTravail } from '@/components/info-travail';
 import { VoletTaches } from '@/components/todos';
 import { BandeauPropositions } from '@/components/propositions';
 import { client } from '@/lib/client';
@@ -488,19 +489,7 @@ function TravailEnCours({
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}
     >
-      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
-      <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
-      {avancement ? (
-        <Tooltip label={`${avancement.done} sur ${avancement.total} étapes faites`}>
-          <span
-            data-avancement-travail
-            className="shrink-0 rounded border border-border px-1 text-[11px] tabular-nums text-faint"
-          >
-            {avancement.done}/{avancement.total}
-          </span>
-        </Tooltip>
-      ) : null}
-      {temps ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{temps}</span> : null}
+      <InfoTravail quoi={quoi} avancement={avancement} temps={temps} />
       {arret.possible ? (
         <Tooltip label="Arrêter l'action en cours">
           <button
