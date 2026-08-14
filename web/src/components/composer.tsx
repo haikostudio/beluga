@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowUp, Check, GripVertical, Loader2, Paperclip, Pencil, Route, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Check, FileText, GripVertical, Loader2, Paperclip, Pencil, Route, Square, Trash2, X } from 'lucide-react';
 import {
   Agent,
   Attachment,
@@ -7,13 +7,14 @@ import {
   QueuedPrompt,
   ancre,
   boutonsBarreEcriture,
+  deplacerJointe,
   insereAncre,
   jointesApresFrappe,
   retireAncre,
   texteApresInsertion,
 } from '@haikodev/shared';
 import { useArretAgent } from '@/components/arret-agent';
-import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
+import { AttachmentPreview } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { RunChoix, RunSelectors } from '@/components/run-selectors';
@@ -82,6 +83,8 @@ export function Composer({
   /** La pièce jointe regardée en grand, avant même l'envoi du message. */
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [uploading, setUploading] = React.useState(false);
+  /** L'étiquette en train d'être glissée, pour reposer les autres et l'estomper. */
+  const [glissee, setGlissee] = React.useState<number | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   /**
@@ -439,26 +442,68 @@ export function Composer({
         </div>
       ) : null}
 
-      {/* Les fichiers joints en attente : l'image se voit, le reste garde son
-          nom. Un clic ouvre l'aperçu en grand ; la croix retire le fichier
-          ET son ancre du texte. */}
+      {/* Les fichiers joints en attente : chacun est une ÉTIQUETTE qu'on peut
+          glisser pour changer l'ordre d'envoi, avec sa croix à droite pour le
+          retirer (lui ET son ancre du texte). Un clic sur le nom ouvre
+          l'aperçu en grand. */}
       {attachments.length ? (
         <div className="mb-1.5 flex flex-wrap gap-1.5">
-          {attachments.map((file) => (
+          {attachments.map((file, index) => (
             <div
               key={file.id}
-              className="relative"
+              draggable
+              onDragStart={(event) => {
+                setGlissee(index);
+                event.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={(event) => {
+                if (glissee === null) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (glissee === null) return;
+                setAttachments((liste) => deplacerJointe(liste, glissee, index));
+                setGlissee(null);
+              }}
+              onDragEnd={() => setGlissee(null)}
               onMouseEnter={() => montreAncre(file)}
               onFocus={() => montreAncre(file)}
+              className={cn(
+                'flex h-8 max-w-[220px] cursor-grab items-center gap-1.5 rounded-md border border-border bg-surface px-1.5 text-[12.5px] text-muted active:cursor-grabbing',
+                glissee === index && 'opacity-40',
+              )}
             >
-              <AttachmentThumb item={file} compact onOpen={() => setApercu(file)} />
+              <GripVertical className="h-3 w-3 shrink-0 text-faint" />
+              {file.mime.startsWith('image/') ? (
+                <button
+                  type="button"
+                  onClick={() => setApercu(file)}
+                  className="h-5 w-5 shrink-0 overflow-hidden rounded border border-border"
+                >
+                  <img src={`/api/attachment?id=${file.id}`} alt={file.name} className="h-full w-full object-cover" />
+                </button>
+              ) : (
+                <button type="button" onClick={() => setApercu(file)} className="shrink-0 text-faint">
+                  {file.mime === 'application/pdf' ? <FileText className="h-3 w-3" /> : <Paperclip className="h-3 w-3" />}
+                </button>
+              )}
+              <button
+                type="button"
+                title={file.name}
+                onClick={() => setApercu(file)}
+                className="min-w-0 flex-1 truncate text-left hover:text-text"
+              >
+                {file.name}
+              </button>
               <button
                 type="button"
                 title="Retirer ce fichier"
                 onClick={() => retirerJointe(file)}
-                className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-faint hover:border-danger/40 hover:text-danger"
+                className="shrink-0 text-faint hover:text-danger"
               >
-                <X className="h-2.5 w-2.5" />
+                <X className="h-3 w-3" />
               </button>
             </div>
           ))}
@@ -517,7 +562,24 @@ export function Composer({
             const files = Array.from(event.clipboardData.files);
             if (files.length) {
               event.preventDefault();
-              // Un collage de fichier ne vise aucun endroit précis : à la fin.
+              /*
+               * Coller un message copié avec ses images (BoutonCopier) doit
+               * réinjecter le TEXTE en plus des fichiers, sinon seules les
+               * images arrivaient et la phrase copiée disparaissait.
+               */
+              const texteColle = event.clipboardData.getData('text/plain');
+              if (texteColle) {
+                const zone = textareaRef.current;
+                const debut = zone ? zone.selectionStart : text.length;
+                const fin = zone ? zone.selectionEnd : text.length;
+                setText((avant) => `${avant.slice(0, debut)}${texteColle}${avant.slice(fin)}`);
+                const position = debut + texteColle.length;
+                window.requestAnimationFrame(() => {
+                  zone?.focus();
+                  zone?.setSelectionRange(position, position);
+                });
+              }
+              // Les fichiers, eux, ne visent aucun endroit précis : à la fin.
               void upload(files, true);
             }
           }}

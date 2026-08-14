@@ -104,3 +104,24 @@ export function jointesApresFrappe<T extends { name: string }>(
   }
   return garde;
 }
+
+/**
+ * Réordonner la liste des pièces jointes après un glissement : l'ordre choisi
+ * dans la barre d'écriture est celui envoyé avec le message. Les ancres dans
+ * le texte ne bougent pas — seul l'ordre d'ENVOI change.
+ */
+export function deplacerJointe<T>(jointes: readonly T[], depuis: number, vers: number): T[] {
+  if (
+    depuis === vers ||
+    depuis < 0 ||
+    vers < 0 ||
+    depuis >= jointes.length ||
+    vers >= jointes.length
+  ) {
+    return [...jointes];
+  }
+  const copie = [...jointes];
+  const [item] = copie.splice(depuis, 1);
+  copie.splice(vers, 0, item as T);
+  return copie;
+}

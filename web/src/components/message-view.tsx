@@ -74,6 +74,7 @@ function LigneReperes({
   texte,
   cle,
   aDroite = false,
+  images = [],
 }: {
   at: number;
   /** Faux pour un message d'une suite écrite dans la même minute (l'heure se pose sous le dernier). */
@@ -83,6 +84,8 @@ function LigneReperes({
   /** L'identifiant du message : sert au bouton d'écoute à savoir si c'est LUI qui parle. */
   cle: string;
   aDroite?: boolean;
+  /** Les images jointes à ce message : la copie les emporte avec le texte. */
+  images?: Attachment[];
 }) {
   const visibles = complements.filter(Boolean) as string[];
   return (
@@ -97,7 +100,7 @@ function LigneReperes({
         <span key={index}>{item}</span>
       ))}
       <BoutonEcoute texte={texte} cle={cle} />
-      <BoutonCopier texte={texte} />
+      <BoutonCopier texte={texte} images={images} />
     </div>
   );
 }
@@ -133,8 +136,15 @@ export function MessageView({
   onEcrireDansLeChamp?: (texte: string) => void;
 }) {
   const isUser = message.role === 'user';
+  const state = useApp();
 
   if (isUser) {
+    // Les images jointes voyagent avec la copie du message (BoutonCopier).
+    const connues = projectId ? (state.attachments[projectId] ?? []) : [];
+    const images = message.attachments
+      .map((id) => connues.find((item) => item.id === id))
+      .filter((item): item is Attachment => !!item && item.mime.startsWith('image/'));
+
     // Vos demandes : à droite, sur une largeur réduite.
     return (
       <div className="flex justify-end">
@@ -159,6 +169,7 @@ export function MessageView({
             texte={message.content}
             cle={message.id}
             aDroite
+            images={images}
           />
           {message.sentContext ? (
             <ContexteEnvoye contexte={message.sentContext} messageId={message.id} allMessages={allMessages} />
@@ -683,17 +694,20 @@ function BoutonCopier({
   texte,
   libelle = 'Copier',
   titre = 'Copier le message',
+  images = [],
 }: {
   texte: string;
   libelle?: string;
   titre?: string;
+  /** Copiées EN PLUS du texte : coller le message ré-attache ses images. */
+  images?: Attachment[];
 }) {
   const [copie, setCopie] = React.useState(false);
-  if (!texte?.trim()) return null;
+  if (!texte?.trim() && !images.length) return null;
 
-  const copier = async () => {
+  const copierTexteSeul = () => {
     try {
-      await navigator.clipboard.writeText(texte);
+      void navigator.clipboard.writeText(texte);
     } catch {
       // Presse-papiers refusé (page non sécurisée, vieux navigateur) : on passe
       // par un champ caché, la copie reste possible.
@@ -706,6 +720,38 @@ function BoutonCopier({
       document.execCommand('copy');
       zone.remove();
     }
+  };
+
+  const copier = async () => {
+    /*
+     * Avec des images, on tente une copie MULTI-TYPES (texte + images) : elle
+     * seule permet un collage qui réinjecte les deux à la fois. Sans ce
+     * support (ou en cas d'échec), on retombe sur le texte seul plutôt que
+     * de ne rien copier.
+     */
+    if (images.length && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+      try {
+        const blobs = await Promise.all(
+          images.map((item) =>
+            fetch(`/api/attachment?id=${item.id}`).then((r) => (r.ok ? r.blob() : null)),
+          ),
+        );
+        const items: ClipboardItem[] = [];
+        if (texte?.trim()) items.push(new ClipboardItem({ 'text/plain': new Blob([texte], { type: 'text/plain' }) }));
+        for (const blob of blobs) {
+          if (blob && blob.type.startsWith('image/')) items.push(new ClipboardItem({ [blob.type]: blob }));
+        }
+        if (items.length) {
+          await navigator.clipboard.write(items);
+          setCopie(true);
+          window.setTimeout(() => setCopie(false), 1800);
+          return;
+        }
+      } catch {
+        // Le navigateur refuse la copie multi-types : on se rabat sur le texte.
+      }
+    }
+    copierTexteSeul();
     setCopie(true);
     window.setTimeout(() => setCopie(false), 1800);
   };

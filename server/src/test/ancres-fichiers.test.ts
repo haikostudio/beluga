@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ancre, compteAncres, insereAncre, jointesApresFrappe, retireAncre } from '@haikodev/shared';
+import { ancre, compteAncres, deplacerJointe, insereAncre, jointesApresFrappe, retireAncre } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
 /* Les ancres de fichiers dans la barre d'écriture                      */
@@ -93,4 +93,29 @@ test('deux fois le même nom : une ancre effacée n’en retire qu’un', () => 
     reste.map((j) => j.id),
     ['1'],
   );
+});
+
+/* -------- Réordonner les pièces jointes par glissement -------- */
+
+test('glisser une étiquette la déplace à la position visée', () => {
+  const liste = ['a', 'b', 'c'];
+  assert.deepEqual(deplacerJointe(liste, 0, 2), ['b', 'c', 'a']);
+  assert.deepEqual(deplacerJointe(liste, 2, 0), ['c', 'a', 'b']);
+});
+
+test('déplacer sur soi-même ne change rien', () => {
+  const liste = ['a', 'b', 'c'];
+  assert.deepEqual(deplacerJointe(liste, 1, 1), liste);
+});
+
+test('un index hors de la liste ne casse rien : la liste revient intacte', () => {
+  const liste = ['a', 'b'];
+  assert.deepEqual(deplacerJointe(liste, 0, 5), liste);
+  assert.deepEqual(deplacerJointe(liste, -1, 1), liste);
+});
+
+test('la liste d’origine n’est jamais modifiée', () => {
+  const liste = ['a', 'b', 'c'];
+  deplacerJointe(liste, 0, 2);
+  assert.deepEqual(liste, ['a', 'b', 'c']);
 });
