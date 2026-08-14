@@ -58,6 +58,34 @@ export function insereAncre(
 }
 
 /**
+ * Où commence la N-ième ancre de ce nom (0 = la première). -1 si elle
+ * n'existe pas : on ne suppose jamais qu'elle est encore dans le texte.
+ */
+export function indexDeLAncre(texte: string, nom: string, occurrence: number): number {
+  const marque = ancre(nom);
+  if (occurrence < 0) return -1;
+  let index = -1;
+  let depuis = 0;
+  for (let i = 0; i <= occurrence; i += 1) {
+    index = texte.indexOf(marque, depuis);
+    if (index === -1) return -1;
+    depuis = index + marque.length;
+  }
+  return index;
+}
+
+/** Retirer l'ancre à cet index, en ramassant l'espace devenu inutile. */
+function retireAncreA(texte: string, debut: number, longueur: number): { texte: string; coupe: number } {
+  const avant = texte.slice(0, debut);
+  const apres = texte.slice(debut + longueur);
+  if (/\s$/.test(avant) && /^[^\S\n]/.test(apres)) {
+    const espaces = (apres.match(/^[^\S\n]+/) ?? [''])[0].length;
+    return { texte: avant + apres.slice(espaces), coupe: longueur + espaces };
+  }
+  return { texte: avant + apres, coupe: longueur };
+}
+
+/**
  * Retirer UNE occurrence de l'ancre (la dernière), en ramassant l'espace
  * devenu inutile. Les autres ancres du même nom restent : un même fichier
  * peut être cité deux fois.
@@ -66,11 +94,40 @@ export function retireAncre(texte: string, nom: string): string {
   const marque = ancre(nom);
   const trouve = texte.lastIndexOf(marque);
   if (trouve === -1) return texte;
-  const avant = texte.slice(0, trouve);
-  const apres = texte.slice(trouve + marque.length);
-  // Un seul espace subsiste entre les deux morceaux recollés.
-  if (/\s$/.test(avant) && /^[^\S\n]/.test(apres)) return avant + apres.replace(/^[^\S\n]+/, '');
-  return avant + apres;
+  return retireAncreA(texte, trouve, marque.length).texte;
+}
+
+/**
+ * Retirer l'occurrence PRÉCISE d'une ancre (celle du drapeau cliqué), sans
+ * toucher aux autres mots ni aux autres citations du même fichier.
+ */
+export function retireOccurrence(texte: string, nom: string, occurrence: number): string {
+  const marque = ancre(nom);
+  const debut = indexDeLAncre(texte, nom, occurrence);
+  if (debut === -1) return texte;
+  return retireAncreA(texte, debut, marque.length).texte;
+}
+
+/**
+ * Glisser une ancre ailleurs dans la phrase. Lâchée sur elle-même, elle ne
+ * bouge pas. Le compte des ancres ne change pas : les pièces jointes restent.
+ */
+export function deplacerAncre(
+  texte: string,
+  nom: string,
+  occurrence: number,
+  vers: number,
+): { texte: string; curseur: number } {
+  const marque = ancre(nom);
+  const debut = indexDeLAncre(texte, nom, occurrence);
+  if (debut === -1) return { texte, curseur: Math.max(0, Math.min(vers, texte.length)) };
+  const fin = debut + marque.length;
+  const vise = Math.max(0, Math.min(vers, texte.length));
+  if (vise >= debut && vise <= fin) return { texte, curseur: fin };
+
+  const { texte: sans, coupe } = retireAncreA(texte, debut, marque.length);
+  const viseAjuste = vise > debut ? Math.max(0, Math.min(vise - coupe, sans.length)) : vise;
+  return insereAncre(sans, nom, viseAjuste);
 }
 
 /**
