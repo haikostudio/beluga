@@ -456,10 +456,17 @@ function TravailEnCours({
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
         'relative z-0 -mb-2 flex shrink-0 items-center gap-2 rounded-t-lg',
-        // pb-3 (12px) compense le recouvrement de -mb-2 (8px) : il reste 4px
-        // d'air visible sous le texte avant que la zone de saisie ne le
-        // recouvre, au lieu de le coller pile sur le bord.
-        'border border-b-0 border-border bg-border/15 px-3 pb-3 pt-1.5',
+        // pb-5 (20px) compense le recouvrement de -mb-2 (8px) : il reste
+        // 12px d'air visible sous le texte avant que la zone de saisie ne le
+        // recouvre (pb-3 n'en laissait que 4, encore collé au bord).
+        //
+        // bg-surface plutôt qu'un bg-border translucide : ce composeur vit
+        // tantôt sur un fond bg-bg (chef), tantôt sur un fond bg-surface
+        // (tiroir d'une carte) — un fond translucide se mélange donc à ce qui
+        // est DERRIÈRE, avec un résultat différent (et parfois trop clair)
+        // selon l'endroit. Un ton plein, toujours plus sombre que bg-raised
+        // dans les deux thèmes, rend la barre identique partout.
+        'border border-b-0 border-border bg-surface px-3 pb-5 pt-1.5',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}
     >
