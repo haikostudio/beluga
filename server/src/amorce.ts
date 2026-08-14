@@ -7,8 +7,10 @@ import {
   comptesAAmorcer,
   dansLesHeuresDeSilence,
   decisionAmorce,
+  estRefusDeSaturation,
   finDeFenetre,
   modeleLePlusLeger,
+  texteEchecAmorce,
 } from '@haikodev/shared';
 import { AccountRecord, cachedQuotas, listAccountRecords } from './accounts.js';
 import { claudeCatalog } from './engines/catalog.js';
@@ -154,14 +156,23 @@ function silenceMaintenant(): boolean {
 /** Échecs d'affilée par compte : remis à zéro dès qu'une amorce passe. */
 const echecs = new Map<string, number>();
 
+/** Les comptes saturés déjà annoncés : on ne le redit pas à chaque passage. */
+const saturationSignalee = new Set<string>();
+
+/** Prochaine tentative autorisée après une saturation : recul progressif, comme les lectures de quota. */
+const prochaineTentative = new Map<string, number>();
+
 function oublierEchecs(accountId: string): void {
   echecs.delete(accountId);
+  saturationSignalee.delete(accountId);
+  prochaineTentative.delete(accountId);
 }
 
 /**
  * Un refus isolé n'intéresse personne (un jeton en cours de renouvellement en
  * produit). Trois de suite sur le même compte, si : là, le compte ne répond
  * plus et cela se dit sur le téléphone — une seule fois, au franchissement.
+ * Un refus 429 (compte saturé) ne passe JAMAIS par ici : voir `signalerSaturation`.
  */
 function signalerEchec(accountId: string, label: string, raison: string): void {
   const compte = (echecs.get(accountId) ?? 0) + 1;
@@ -178,6 +189,38 @@ function signalerEchec(accountId: string, label: string, raison: string): void {
   });
 }
 
+/**
+ * Un compte SATURÉ (refus 429) n'est pas une panne : la limite est atteinte,
+ * une situation normale et attendue. On le dit une seule fois par saturation
+ * — jamais à chaque tentative —, en clair et avec l'heure de reprise quand
+ * elle est connue, jamais avec le code technique du refus.
+ */
+function signalerSaturation(accountId: string, label: string, resetsAt?: number): void {
+  if (saturationSignalee.has(accountId)) return;
+  saturationSignalee.add(accountId);
+  const heureReprise = resetsAt
+    ? ` — de nouveau disponible vers ${new Date(resetsAt).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`
+    : '';
+  log.info(`amorce : ${label} a atteint sa limite${heureReprise}`);
+  notify({
+    motif: 'compte-sature',
+    title: 'Compte saturé',
+    body: `${label} a atteint sa limite${heureReprise}.`,
+    reference: `${accountId}:sature`,
+  });
+}
+
+/**
+ * Recule la prochaine tentative sur un compte saturé, en doublant l'attente à
+ * chaque refus (deux minutes, quatre, huit… jusqu'à trente minutes) — la même
+ * mécanique que `refreshQuotas` pour les lectures de quota, pour ne jamais
+ * insister tant que la limite tient.
+ */
+function reculerTentative(accountId: string): void {
+  const precedent = Math.max(2 * 60_000, (prochaineTentative.get(accountId) ?? 0) - Date.now());
+  prochaineTentative.set(accountId, Date.now() + Math.min(30 * 60_000, precedent * 2));
+}
+
 /** Une seule amorce à la fois : deux passages ne doivent pas se chevaucher. */
 let enCours = false;
 
@@ -192,7 +235,11 @@ export async function amorcerFenetres(): Promise<number> {
   let amorces = 0;
   try {
     const etats = etatDesComptes();
-    const aFaire = comptesAAmorcer(etats, Date.now(), silenceMaintenant());
+    // Un compte encore en recul après une saturation attend son tour : retenter
+    // tout de suite ne ferait que prolonger le refus.
+    const aFaire = comptesAAmorcer(etats, Date.now(), silenceMaintenant()).filter(
+      (etat) => (prochaineTentative.get(etat.id) ?? 0) <= Date.now(),
+    );
     if (!aFaire.length) return 0;
 
     const model = await modeleDAmorce();
@@ -220,11 +267,22 @@ export async function amorcerFenetres(): Promise<number> {
         oublierEchecs(account.id);
       } else {
         // Un échec ne pose pas de trace d'amorce : la fenêtre n'est pas lancée,
-        // on réessaiera au passage suivant. En revanche il se compte, et
-        // plusieurs de suite finissent par se dire à voix haute.
-        log.warn(`amorce impossible à ${heure} — ${account.label} : ${resultat.error}`);
-        recordAmorce({ account: account.id, at: maintenant, ok: false, model, error: resultat.error });
-        signalerEchec(account.id, account.label, resultat.error ?? 'raison inconnue');
+        // on réessaiera plus tard. Le journal et l'application ne montrent
+        // jamais le code technique du refus : « limite atteinte » pour une
+        // saturation, la raison telle quelle pour une vraie panne.
+        const raison = resultat.error ?? 'raison inconnue';
+        const texte = texteEchecAmorce(raison);
+        log.warn(`amorce impossible à ${heure} — ${account.label} : ${raison}`);
+        recordAmorce({ account: account.id, at: maintenant, ok: false, model, error: texte });
+        if (estRefusDeSaturation(raison)) {
+          // Une limite atteinte est une situation normale et attendue : elle ne
+          // compte pas comme un échec, on espace les prochaines tentatives au
+          // lieu d'insister, et on le dit une seule fois, en clair.
+          reculerTentative(account.id);
+          signalerSaturation(account.id, account.label, etat.resetsAt);
+        } else {
+          signalerEchec(account.id, account.label, raison);
+        }
       }
     }
   } catch (err) {

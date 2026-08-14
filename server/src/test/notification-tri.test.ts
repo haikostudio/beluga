@@ -42,7 +42,13 @@ test('SEPT motifs interrompent, pas un de plus', () => {
 });
 
 test('la charge machine, l’amorçage et la fenêtre de quota ne sortent plus de l’application', () => {
-  for (const motif of ['charge-machine', 'amorcage-impossible', 'fenetre-bientot-finie', 'point-du-jour'] as const) {
+  for (const motif of [
+    'charge-machine',
+    'amorcage-impossible',
+    'compte-sature',
+    'fenetre-bientot-finie',
+    'point-du-jour',
+  ] as const) {
     assert.equal(interrompt(motif), false, motif);
   }
 });

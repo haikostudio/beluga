@@ -45,6 +45,7 @@ export type MotifNotification =
   | 'liste-taches'
   | 'charge-machine'
   | 'amorcage-impossible'
+  | 'compte-sature'
   | 'fenetre-bientot-finie'
   | 'point-du-jour';
 
@@ -104,6 +105,10 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
   'liste-taches': { famille: 'done', interrompt: false, sujet: 'fin-de-travail', icone: 'termine' },
   'charge-machine': { famille: 'capacity', interrompt: false, sujet: 'charge', icone: 'attention' },
   'amorcage-impossible': { famille: 'quota', interrompt: false, sujet: 'amorcage', icone: 'quota' },
+  // Un compte saturé n'est pas une panne : même famille que l'amorçage, mais
+  // sujet à part pour ne jamais se taire l'un l'autre, et jamais l'icône
+  // « attention » d'un vrai échec.
+  'compte-sature': { famille: 'quota', interrompt: false, sujet: 'compte-sature', icone: 'quota' },
   'fenetre-bientot-finie': { famille: 'quota', interrompt: false, sujet: 'quota', icone: 'quota' },
   'point-du-jour': { famille: 'waiting', interrompt: false, sujet: 'point-du-jour', icone: 'attention' },
 };
