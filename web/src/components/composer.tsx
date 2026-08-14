@@ -67,6 +67,13 @@ export interface ComposerProps {
 const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
 /** Au doigt, chaque lettre est visée dans un carré plus large qu'à la souris. */
 const MARGE_DOIGT = 24;
+/**
+ * Type de presse-papiers propre à HaikoDev : porte les pièces jointes visées
+ * par les tags copiés, pour que le collage recrée les fichiers plutôt que
+ * de ne rendre que le texte du tag (une simple sélection à la souris n'a,
+ * sinon, aucun moyen de savoir à quel fichier « [fichier: …] » se rapporte).
+ */
+const TYPE_JOINTES_COLLABLES = 'application/x-haikodev-fichiers';
 
 export function Composer({
   agent,
@@ -765,6 +772,26 @@ export function Composer({
           onClick={retientCurseur}
           onSelect={retientCurseur}
           onScroll={(event) => setScrollTexte(event.currentTarget.scrollTop)}
+          onCopy={(event) => {
+            const zone = textareaRef.current;
+            if (!zone) return;
+            const debut = zone.selectionStart;
+            const fin = zone.selectionEnd;
+            if (debut === fin) return;
+            const selection = text.slice(debut, fin);
+            MARQUE_FICHIER.lastIndex = 0;
+            const noms = new Set<string>();
+            let trouve: RegExpExecArray | null;
+            while ((trouve = MARQUE_FICHIER.exec(selection))) noms.add(trouve[1]!.trim());
+            if (!noms.size) return;
+            const jointes = attachments.filter((a) => noms.has(a.name));
+            if (!jointes.length) return;
+            // La sélection contient un tag [fichier: …] dont la pièce jointe est
+            // connue ici : on l'emporte avec le texte pour la recréer au collage.
+            event.preventDefault();
+            event.clipboardData.setData('text/plain', selection);
+            event.clipboardData.setData(TYPE_JOINTES_COLLABLES, JSON.stringify(jointes));
+          }}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.files);
             if (files.length) {
@@ -788,7 +815,37 @@ export function Composer({
               }
               // Les fichiers, eux, ne visent aucun endroit précis : à la fin.
               void upload(files, true);
+              return;
             }
+
+            const jointesBrut = event.clipboardData.getData(TYPE_JOINTES_COLLABLES);
+            if (!jointesBrut) return;
+            let jointes: Attachment[] = [];
+            try {
+              jointes = JSON.parse(jointesBrut);
+            } catch {
+              return;
+            }
+            if (!Array.isArray(jointes) || !jointes.length) return;
+
+            // Un tag [fichier: …] copié puis collé recrée sa pièce jointe,
+            // comme si le fichier avait été ajouté normalement.
+            event.preventDefault();
+            const texteColle = event.clipboardData.getData('text/plain');
+            const zone = textareaRef.current;
+            const debut = zone ? zone.selectionStart : text.length;
+            const fin = zone ? zone.selectionEnd : text.length;
+            setText((avant) => `${avant.slice(0, debut)}${texteColle}${avant.slice(fin)}`);
+            const position = debut + texteColle.length;
+            window.requestAnimationFrame(() => {
+              zone?.focus();
+              zone?.setSelectionRange(position, position);
+            });
+            setAttachments((current) => {
+              const dejaVues = new Set(current.map((a) => a.id));
+              const nouvelles = jointes.filter((j) => j && !dejaVues.has(j.id));
+              return nouvelles.length ? [...current, ...nouvelles] : current;
+            });
           }}
           placeholder={
             edition
