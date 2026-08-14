@@ -1,47 +1,41 @@
 /**
  * LE MOTEUR CURSOR — les règles PURES, sans réseau ni disque.
  *
- * Claude et Codex sont des OUTILS EN LIGNE DE COMMANDE déjà authentifiés sur le
- * serveur : HaikoDev lance un processus dans la copie de travail de la carte et
- * lit ce qu'il écrit. Cursor n'a pas d'équivalent ici : on parle à ses AGENTS
- * CLOUD par une API HTTP (`https://api.cursor.com`), avec une clé. Trois
- * conséquences, qui expliquent tout ce fichier :
+ * Cursor est désormais un OUTIL EN LIGNE DE COMMANDE comme Claude et Codex :
+ * `cursor-agent`, lancé DANS la copie de travail de la carte, qui lit et
+ * modifie les fichiers sur la machine. Il a remplacé les agents cloud
+ * (`https://api.cursor.com`, `POST /v1/agents`) où le travail se faisait chez
+ * Cursor, sur un dépôt GitHub, et devait ensuite être rapatrié par une branche
+ * « cursor/… ». Plus rien de tout cela n'existe.
  *
- *  1. LE TRAVAIL NE SE FAIT PAS SUR LA MACHINE. L'agent Cursor tourne chez
- *     Cursor. On lui donne un DÉPÔT GitHub quand le compte y a accès, sinon il
- *     répond sans dépôt — il réfléchit et rédige, il ne touche pas au projet.
- *  2. LE FIL EST L'AGENT. Un agent Cursor garde sa conversation : le premier
- *     tour le CRÉE, les suivants lui ajoutent un « run ». Son identifiant est
- *     donc l'identifiant de session de HaikoDev.
- *  3. RIEN N'EST INSTANTANÉ. Un run passe par des états (CREATING, RUNNING,
- *     FINISHED…) : on suit ces états, et un état qui n'est plus « en cours » est
- *     TERMINAL — sinon un état inconnu ferait tourner le témoin pour toujours.
+ * Il reste UNE différence avec les deux autres moteurs, et une seule :
+ *
+ *  1. LE MODÈLE PORTE SON NIVEAU DANS SON NOM. Claude prend `--effort high`,
+ *     Codex une surcharge de configuration ; le CLI de Cursor, lui, n'accepte
+ *     qu'une LISTE FERMÉE de noms où le niveau est un suffixe
+ *     (« claude-opus-5-thinking-high », « gpt-5.4-xhigh »). Un nom paramétré
+ *     entre crochets est refusé (« Cannot use this model », constaté le
+ *     14/08/2026). On regroupe donc ces noms par modèle, et le niveau choisi
+ *     redevient un suffixe au lancement.
+ *  2. AUCUN QUOTA PUBLIÉ. Cursor facture à la dépense : sa ligne de compte
+ *     n'affiche pas de jauge, seulement l'état de sa clé.
  *
  * Tout ce qui suit se calcule sans appeler personne : c'est ce qui le rend
- * rejouable dans un test (`shared/src/test/…`, `server/src/test/moteur-cursor.test.ts`).
+ * rejouable dans un test (`server/src/test/moteur-cursor.test.ts`).
  */
 
-/** L'adresse de l'API des agents cloud. Une seule écriture, partout reprise. */
+/**
+ * L'adresse de l'API de Cursor. Elle ne sert plus qu'à ÉPROUVER UNE CLÉ
+ * (`GET /v1/me`, à sa déclaration dans les réglages) : le CLI, lui, ne sait
+ * pas dire si la clé qu'on lui passe est bonne — sa commande `status` rend le
+ * compte connecté sur la machine, pas celui de la clé fournie (constaté :
+ * une clé inventée rend « Logged in » sans broncher). Aucun agent, aucun run,
+ * aucun dépôt ne passe plus par là.
+ */
 export const API_CURSOR = 'https://api.cursor.com';
 
 /** Le modèle retenu quand rien n'est choisi : le modèle maison de Cursor. */
 export const MODELE_CURSOR_PAR_DEFAUT = 'composer-2.5';
-
-/** Un paramètre de modèle, tel que `GET /v1/models` le décrit. */
-export interface ParametreCursor {
-  id: string;
-  displayName?: string;
-  values?: { value: string; displayName?: string }[];
-}
-
-/**
- * Les deux noms sous lesquels Cursor range l'effort de réflexion : « effort »
- * (Claude, Grok) et « reasoning » (GPT). Un même réglage, deux vocabulaires.
- */
-const PARAMS_DE_REFLEXION = ['effort', 'reasoning'];
-
-/** Le paramètre BOOLÉEN des modèles Claude : réfléchir, ou non. */
-const PARAM_REFLEXION_OUI_NON = 'thinking';
 
 /**
  * Le niveau tel que HaikoDev le nomme partout ailleurs (`low`, `medium`,
@@ -53,28 +47,76 @@ export function niveauDepuisCursor(valeur: string): string {
   return valeur === 'extra-high' ? 'xhigh' : valeur;
 }
 
-function parametre(parametres: ParametreCursor[] | undefined, id: string): ParametreCursor | undefined {
-  return (parametres ?? []).find((p) => p.id === id);
-}
+/**
+ * L'ORDRE D'AFFICHAGE des niveaux, du plus léger au plus poussé — indépendant
+ * de l'ordre dans lequel Cursor énumère ses modèles.
+ */
+const ORDRE_NIVEAUX = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-function valeursDe(parametre: ParametreCursor | undefined): string[] {
-  return (parametre?.values ?? []).map((v) => v.value).filter((v) => typeof v === 'string');
-}
+/**
+ * LES SUFFIXES DE NIVEAU, du plus long au plus court : « extra-high » doit être
+ * reconnu AVANT « high », sinon « gpt-5.5-extra-high » deviendrait le modèle
+ * « gpt-5.5-extra » réglé sur « high », un nom que Cursor ne connaît pas.
+ */
+const SUFFIXES_DE_NIVEAU = ['extra-high', 'minimal', 'medium', 'xhigh', 'high', 'none', 'low', 'max'];
 
-/** Le paramètre qui porte l'effort de réflexion pour ce modèle, s'il en a un. */
-function parametreDEffort(parametres: ParametreCursor[] | undefined): ParametreCursor | undefined {
-  for (const id of PARAMS_DE_REFLEXION) {
-    const trouve = parametre(parametres, id);
-    if (trouve && valeursDe(trouve).length) return trouve;
-  }
-  return undefined;
+/** La variante « rapide » d'un modèle : même modèle, facturé plus cher. */
+const SUFFIXE_RAPIDE = '-fast';
+
+/** Un modèle du CLI, décomposé : son nom de base et le niveau qu'il porte. */
+export interface NomDeModeleCursor {
+  /** Le modèle, sans son niveau (« claude-opus-5-thinking »). */
+  base: string;
+  /** Le niveau, au vocabulaire de HaikoDev, ou null si le nom n'en porte pas. */
+  niveau: string | null;
 }
 
 /**
- * L'ORDRE D'AFFICHAGE des niveaux, du plus léger au plus poussé — indépendant
- * de l'ordre dans lequel Cursor énumère ses combinaisons.
+ * DÉCOMPOSER UN NOM DE MODÈLE DU CLI. « claude-opus-5-thinking-xhigh » donne le
+ * modèle « claude-opus-5-thinking » au niveau « xhigh ». Un nom sans suffixe
+ * connu (« composer-2.5 », « gemini-3.1-pro ») n'a pas de niveau : il part tel
+ * quel. « thinking » n'est PAS un niveau — c'est une famille de modèles à part,
+ * que Cursor propose à côté de la famille ordinaire.
  */
-const ORDRE_NIVEAUX = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+export function decomposerModeleCursor(id: string): NomDeModeleCursor {
+  const nom = (id ?? '').trim();
+  for (const suffixe of SUFFIXES_DE_NIVEAU) {
+    if (nom.length > suffixe.length + 1 && nom.endsWith(`-${suffixe}`)) {
+      return { base: nom.slice(0, -(suffixe.length + 1)), niveau: niveauDepuisCursor(suffixe) };
+    }
+  }
+  return { base: nom, niveau: null };
+}
+
+/** Un modèle tel que HaikoDev le propose : un nom, ses niveaux, leurs ids réels. */
+export interface ModeleCursorCli {
+  /** Le nom de base, celui que la carte retient. */
+  id: string;
+  /** Le libellé de Cursor, sans mention de niveau. */
+  label: string;
+  /** Les niveaux réellement proposés, dans l'ordre d'affichage. */
+  niveaux: string[];
+  /** Le niveau que Cursor donne pour défaut, déduit de ses libellés. */
+  niveauParDefaut: string;
+  /** Le nom COMPLET à passer à `--model`, pour chaque niveau. */
+  ids: Record<string, string>;
+  /** La fenêtre de contexte annoncée dans le libellé (« Opus 5 1M »), en jetons. */
+  fenetre?: number;
+}
+
+/**
+ * LA FENÊTRE DE CONTEXTE, lue dans le libellé du modèle. Cursor l'y écrit
+ * lui-même (« Opus 5 1M », « GPT-5.6 Sol 1M Max ») et ne la donne nulle part
+ * ailleurs en ligne de commande. Un libellé qui n'en porte pas n'en reçoit
+ * aucune : on ne devine pas une capacité.
+ */
+export function fenetreDepuisLibelleCursor(label: string | undefined): number | undefined {
+  const trouve = (label ?? '').match(/\b(\d+(?:[.,]\d+)?)\s*([mk])\b/i);
+  if (!trouve) return undefined;
+  const nombre = Number(trouve[1].replace(',', '.'));
+  if (!Number.isFinite(nombre)) return undefined;
+  return Math.round(nombre * (trouve[2].toLowerCase() === 'm' ? 1_000_000 : 1_000));
+}
 
 function trierNiveaux(niveaux: string[]): string[] {
   return [...niveaux].sort((a, b) => {
@@ -88,134 +130,165 @@ function trierNiveaux(niveaux: string[]): string[] {
 }
 
 /**
- * LES NIVEAUX DE RÉFLEXION RÉELLEMENT PROPOSÉS PAR CE MODÈLE, dans le
- * vocabulaire de HaikoDev.
+ * LE CATALOGUE, LU DANS LA SORTIE DE `cursor-agent --list-models`.
  *
- * La source de vérité est `variants` : ce sont les seules COMBINAISONS que
- * Cursor accepte (`paramsDeReflexionCursor` s'y appuie déjà pour l'envoi). Un
- * modèle qui n'a AUCUNE combinaison sans réglage d'effort n'a pas de « sans
- * réflexion » — l'afficher quand même faisait choisir un niveau que Cursor
- * refuse en silence (il retombe sur son propre défaut sans le dire). Chaque
- * variante donne donc un niveau, dédoublonné puis remis dans l'ordre
- * d'affichage habituel.
+ * Le CLI rend une ligne par nom acceptable (« gpt-5.4-xhigh - GPT-5.4 1M Extra
+ * High »), soit près de deux cents lignes où le même modèle revient à chaque
+ * niveau. On les REGROUPE : un modèle, ses niveaux, et le nom complet à envoyer
+ * pour chacun. Trois décisions, toutes visibles ici :
  *
- * Sans `variants` connus (repli, ou simple liste de paramètres passée pour
- * compatibilité), on retombe sur une DEVINETTE à partir des paramètres seuls,
- * avec « sans réflexion » toujours en tête — mieux vaut un niveau en trop
- * qu'un menu vide quand le catalogue est incomplet.
+ *  - les variantes « … -fast » sont ÉCARTÉES : c'est le même modèle, servi plus
+ *    vite et facturé plus cher, et HaikoDev n'a nulle part où exprimer ce
+ *    choix — les garder doublait la liste sans rien offrir ;
+ *  - un modèle SANS suffixe de niveau (« composer-2.5 ») n'a que le niveau
+ *    « sans réflexion », et son nom part tel quel ;
+ *  - le niveau par DÉFAUT est celui dont le libellé est le plus court, car
+ *    Cursor nomme sans mention de niveau celui qu'il applique par défaut
+ *    (« Opus 5 1M » pour `claude-opus-5-high`).
  */
-export function niveauxDeReflexionCursor(modele: ModeleCursor | ParametreCursor[] | undefined): string[] {
-  const variantes = Array.isArray(modele) ? [] : (modele?.variants ?? []);
-  if (variantes.length) {
-    const niveaux: string[] = [];
-    for (const variante of variantes) {
-      const effort = effortDeLaVariante(variante);
-      const niveau = effort ?? 'none';
-      if (!niveaux.includes(niveau)) niveaux.push(niveau);
-    }
-    if (niveaux.length) return trierNiveaux(niveaux);
-  }
-
-  const parametres = Array.isArray(modele) ? modele : modele?.parameters;
-  const effort = parametreDEffort(parametres);
-  if (effort) {
-    const niveaux = valeursDe(effort).map(niveauDepuisCursor);
-    return niveaux.includes('none') ? ['none', ...niveaux.filter((n) => n !== 'none')] : ['none', ...niveaux];
-  }
-  if (valeursDe(parametre(parametres, PARAM_REFLEXION_OUI_NON)).length) return ['none', 'medium'];
-  return ['none'];
-}
-
-/** Une COMBINAISON de réglages que Cursor accepte, telle qu'il l'énumère. */
-export interface VarianteCursor {
-  params?: { id: string; value: string }[];
-  isDefault?: boolean;
-}
-
-/** Un modèle du catalogue : ses réglages possibles ET les combinaisons valides. */
-export interface ModeleCursor {
-  parameters?: ParametreCursor[];
-  variants?: VarianteCursor[];
-}
-
-/** La valeur d'effort portée par une combinaison, dans le vocabulaire de HaikoDev. */
-function effortDeLaVariante(variante: VarianteCursor): string | null {
-  const params = variante.params ?? [];
-  for (const id of PARAMS_DE_REFLEXION) {
-    const trouve = params.find((p) => p.id === id);
-    if (trouve) return niveauDepuisCursor(trouve.value);
-  }
-  const ouiNon = params.find((p) => p.id === PARAM_REFLEXION_OUI_NON);
-  // Un simple oui/non : « réfléchit » vaut le niveau moyen, « ne réfléchit
-  // pas » vaut « sans réflexion » — les deux seuls mots que l'interface a.
-  if (ouiNon) return ouiNon.value === 'true' ? 'medium' : 'none';
-  return null;
-}
-
-/**
- * LES PARAMÈTRES À ENVOYER pour obtenir ce niveau de réflexion.
- *
- * Cursor n'accepte PAS un réglage isolé : il n'accepte que les COMBINAISONS
- * qu'il énumère lui-même (« Model 'gpt-5.6-luna' does not match a known
- * variant », constaté sur un vrai tour). Envoyer le seul effort voulu faisait
- * donc refuser la demande ENTIÈRE. On repart de ses combinaisons : on garde
- * celles qui portent le niveau demandé, et on retient celle que Cursor donne
- * pour défaut — sinon la première, la plus économe.
- *
- * Rien qui corresponde, ou aucune combinaison connue : on n'envoie AUCUN
- * réglage. Le modèle part avec son défaut, ce qui vaut toujours mieux qu'un
- * tour refusé pour un réglage d'importance secondaire.
- */
-export function paramsDeReflexionCursor(
-  modele: ModeleCursor | ParametreCursor[] | undefined,
-  reflexion: string | undefined,
-): { id: string; value: string }[] {
-  // Tolérance d'appel : on accepte aussi la simple liste de paramètres, mais
-  // seules les combinaisons permettent de composer un envoi valide.
-  const variantes = Array.isArray(modele) ? [] : (modele?.variants ?? []);
-  if (!variantes.length) return [];
-
-  const voulu = (reflexion ?? '').trim() || 'none';
-  const candidates = variantes.filter((v) => {
-    const effort = effortDeLaVariante(v);
-    return effort === null ? voulu === 'none' : effort === voulu;
+export function modelesCursorDepuisListe(sortie: string): ModeleCursorCli[] {
+  const groupes = new Map<string, { labels: Map<string, string>; ids: Record<string, string> }>();
+  const nouveauGroupe = (): { labels: Map<string, string>; ids: Record<string, string> } => ({
+    labels: new Map(),
+    ids: {},
   });
-  const retenue = candidates.find((v) => v.isDefault) ?? candidates[0];
-  return retenue?.params ?? [];
+
+  for (const ligne of (sortie ?? '').split('\n')) {
+    const trouve = ligne.trim().match(/^([A-Za-z0-9][\w.\-]*)\s+-\s+(.+)$/);
+    if (!trouve) continue;
+    const id = trouve[1];
+    if (id.endsWith(SUFFIXE_RAPIDE)) continue;
+    const label = trouve[2].replace(/\s*\((?:current|default)[^)]*\)\s*$/i, '').trim();
+    if (!label) continue;
+
+    const { base, niveau } = decomposerModeleCursor(id);
+    const cle = niveau ?? 'none';
+    const groupe = groupes.get(base) ?? nouveauGroupe();
+    // Premier arrivé, premier servi : Cursor liste ses noms du plus courant au
+    // plus rare, et deux lignes ne visent jamais le même niveau du même modèle.
+    if (!(cle in groupe.ids)) {
+      groupe.ids[cle] = id;
+      groupe.labels.set(cle, label);
+    }
+    groupes.set(base, groupe);
+  }
+
+  const modeles: ModeleCursorCli[] = [];
+  for (const [base, groupe] of groupes) {
+    const niveaux = trierNiveaux(Object.keys(groupe.ids));
+    let parDefaut = niveaux[0] ?? 'none';
+    let plusCourt = Infinity;
+    for (const niveau of niveaux) {
+      const longueur = (groupe.labels.get(niveau) ?? '').length;
+      if (longueur < plusCourt) {
+        plusCourt = longueur;
+        parDefaut = niveau;
+      }
+    }
+    const label = groupe.labels.get(parDefaut) ?? base;
+    modeles.push({
+      id: base,
+      label,
+      niveaux,
+      niveauParDefaut: parDefaut,
+      ids: groupe.ids,
+      fenetre: fenetreDepuisLibelleCursor(label),
+    });
+  }
+  return modeles;
 }
 
 /**
- * La fenêtre de contexte annoncée par le paramètre « context » (« 300k »,
- * « 1m »), en jetons. La PREMIÈRE valeur fait foi : c'est celle que Cursor
- * applique quand on ne demande rien. Aucun paramètre : on ne devine pas.
+ * LE NOM EXACT À PASSER À `--model` pour ce modèle et ce niveau.
+ *
+ * Le CLI n'accepte que les noms de sa liste : un niveau qu'il n'y propose pas
+ * doit retomber sur le défaut du modèle, jamais partir tel quel — un nom
+ * inconnu fait refuser le tour ENTIER avant même qu'il commence. Un modèle
+ * absent du catalogue (liste illisible, réglage plus ancien que la refonte)
+ * part inchangé : c'est le seul repli honnête.
  */
-export function fenetreDeContexteCursor(parametres: ParametreCursor[] | undefined): number | undefined {
-  const premiere = valeursDe(parametre(parametres, 'context'))[0];
-  if (!premiere) return undefined;
-  const match = premiere.trim().toLowerCase().match(/^([\d.]+)\s*([km])?$/);
-  if (!match) return undefined;
-  const nombre = Number(match[1]);
-  if (!Number.isFinite(nombre)) return undefined;
-  const facteur = match[2] === 'm' ? 1_000_000 : match[2] === 'k' ? 1_000 : 1;
-  return Math.round(nombre * facteur);
+export function idCursorPourNiveau(
+  modeles: ModeleCursorCli[],
+  modele: string | undefined,
+  niveau: string | undefined,
+): string {
+  const voulu = (modele ?? '').trim();
+  if (!voulu) return MODELE_CURSOR_PAR_DEFAUT;
+  const groupe = modeles.find((m) => m.id === voulu);
+  // Rien de connu sous ce nom : c'est peut-être un nom COMPLET
+  // (« gpt-5.4-xhigh ») retenu avant la refonte, ou un catalogue illisible. Il
+  // part inchangé — deviner un autre modèle serait pire que le laisser dire non.
+  if (!groupe) return voulu;
+  const demande = (niveau ?? '').trim();
+  return groupe.ids[demande] ?? groupe.ids[groupe.niveauParDefaut] ?? groupe.id;
 }
 
+/* ------------------------------------------------------------------ */
+/* Ce que le CLI raconte pendant qu'il travaille                       */
+/* ------------------------------------------------------------------ */
+
 /**
- * L'adresse GitHub d'un dépôt, telle que Cursor l'attend : une URL `https`,
- * sans `.git` final. Les projets sont déclarés avec l'adresse SSH
- * (`git@github.com:org/depot.git`) — l'envoyer telle quelle fait refuser la
- * demande. Rend `null` pour tout ce qui n'est pas GitHub : Cursor ne sait
- * cloner que de là.
+ * LES OUTILS DU CLI, ramenés au vocabulaire COMMUN des moteurs.
+ *
+ * Cursor annonce chaque appel sous une clé qui le nomme (`readToolCall`,
+ * `editToolCall`, `shellToolCall`…), avec ses propres noms d'arguments. Le
+ * journal d'exécution de HaikoDev, lui, n'en connaît qu'un (`humanStep`) :
+ * on traduit ici, une fois, plutôt que d'écrire un second vocabulaire dans
+ * l'interface. Un outil jamais vu garde son nom nettoyé — mieux vaut une étape
+ * au nom brut qu'une étape muette.
  */
-export function depotGithubPourCursor(remote: string | undefined | null): string | null {
-  const texte = (remote ?? '').trim();
-  if (!texte) return null;
-  const ssh = texte.match(/^(?:ssh:\/\/)?git@github\.com[:/]+([^/]+)\/(.+?)(?:\.git)?\/?$/i);
-  if (ssh) return `https://github.com/${ssh[1]}/${ssh[2]}`;
-  const https = texte.match(/^https?:\/\/(?:[^@]+@)?github\.com\/([^/]+)\/(.+?)(?:\.git)?\/?$/i);
-  if (https) return `https://github.com/${https[1]}/${https[2]}`;
-  return null;
+export function outilCursor(appel: unknown): { nom: string; entree: Record<string, unknown> } | null {
+  if (!appel || typeof appel !== 'object') return null;
+  const cle = Object.keys(appel as Record<string, unknown>).find((k) => k.endsWith('ToolCall'));
+  if (!cle) return null;
+  const contenu = (appel as Record<string, any>)[cle];
+  const args: Record<string, any> = (contenu?.args ?? {}) as Record<string, any>;
+  const nom = cle.slice(0, -'ToolCall'.length);
+  const chemin = typeof args.path === 'string' ? args.path : undefined;
+
+  switch (nom) {
+    case 'read':
+    case 'piRead':
+      return { nom: 'Read', entree: { file_path: chemin } };
+    case 'edit':
+    case 'piEdit':
+    case 'applyAgentDiff':
+      return { nom: 'Edit', entree: { file_path: chemin } };
+    case 'write':
+    case 'piWrite':
+      return { nom: 'Write', entree: { file_path: chemin } };
+    case 'shell':
+    case 'piBash':
+      return { nom: 'Bash', entree: { command: typeof args.command === 'string' ? args.command : '' } };
+    case 'grep':
+    case 'piGrep':
+    case 'semSearch':
+      return { nom: 'Grep', entree: { pattern: args.pattern ?? args.query ?? args.regex } };
+    case 'glob':
+    case 'piFind':
+      return { nom: 'Glob', entree: { pattern: args.globPattern ?? args.pattern } };
+    case 'ls':
+    case 'piLs':
+      return { nom: 'Glob', entree: { pattern: chemin } };
+    case 'webSearch':
+      return { nom: 'WebSearch', entree: { query: args.query } };
+    case 'fetch':
+    case 'webFetch':
+      return { nom: 'WebFetch', entree: { url: args.url } };
+    case 'task':
+    case 'subagent':
+      return { nom: 'Task', entree: { description: args.description ?? args.prompt } };
+    case 'mcp': {
+      const outil = typeof args.toolName === 'string' ? args.toolName : typeof args.tool === 'string' ? args.tool : '';
+      return { nom: outil ? `mcp__haikodev__${outil}` : 'Outil du projet', entree: args };
+    }
+    default:
+      return { nom, entree: args };
+  }
 }
+
+/** La clé sous laquelle Cursor annonce sa liste de tâches. */
+export const OUTIL_TACHES_CURSOR = 'updateTodos';
 
 /**
  * POURQUOI L'APPEL A ÉTÉ REFUSÉ, en français et pour un lecteur non
@@ -233,115 +306,37 @@ export function raisonDeRefusCursor(status: number, message?: string): string {
   return `Cursor a répondu ${status}${suffixe}.`;
 }
 
-/** Ce que Cursor annonce tant que le travail continue. Tout le reste est TERMINAL. */
-const STATUTS_EN_COURS = new Set(['CREATING', 'PENDING', 'QUEUED', 'RUNNING', 'ACTIVE']);
-const STATUTS_REUSSIS = new Set(['FINISHED', 'COMPLETED', 'SUCCEEDED']);
-const STATUTS_ARRETES = new Set(['CANCELLED', 'CANCELED', 'STOPPED']);
-
-export type IssueDuRunCursor = 'en-cours' | 'reussi' | 'arrete' | 'echoue';
-
 /**
- * L'issue d'un run. Un statut INCONNU est traité comme un échec, jamais comme
- * un travail qui continue : mieux vaut dire « le moteur s'est arrêté sans
- * raison connue » que laisser une carte tourner indéfiniment.
- */
-export function issueDuRunCursor(statut: string | undefined | null): IssueDuRunCursor {
-  const mot = (statut ?? '').trim().toUpperCase();
-  if (!mot) return 'en-cours';
-  if (STATUTS_EN_COURS.has(mot)) return 'en-cours';
-  if (STATUTS_REUSSIS.has(mot)) return 'reussi';
-  if (STATUTS_ARRETES.has(mot)) return 'arrete';
-  return 'echoue';
-}
-
-/** Le message affiché quand un run ne s'est pas terminé normalement. */
-export function messageDeFinCursor(statut: string | undefined | null, detail?: string): string {
-  const issue = issueDuRunCursor(statut);
-  const texte = (detail ?? '').trim();
-  const suffixe = texte ? ` : ${texte}` : '.';
-  if (issue === 'arrete') return `Le tour a été arrêté chez Cursor${suffixe}`;
-  if (issue === 'echoue') return `Cursor a interrompu le tour (${statut ?? 'sans statut'})${suffixe}`;
-  return `Cursor n'a pas rendu de réponse${suffixe}`;
-}
-
-/**
- * L'ATTENTE ENTRE DEUX LECTURES d'un run, en millisecondes. Elle s'allonge :
- * un tour de quelques secondes doit se voir tout de suite, un tour de vingt
- * minutes ne doit pas produire mille appels. Plafonnée à dix secondes.
- */
-export function attenteAvantRelecture(essai: number): number {
-  const base = 1500 * Math.pow(1.4, Math.max(0, essai));
-  return Math.min(10_000, Math.round(base));
-}
-
-/* ------------------------------------------------------------------ */
-/* Rapatrier ce que l'agent cloud a écrit                              */
-/* ------------------------------------------------------------------ */
-
-/** Une branche produite par un agent Cursor, telle que le run l'annonce. */
-export interface BrancheCursor {
-  /** L'adresse du dépôt où elle a été poussée. */
-  depot?: string;
-  /** Le nom de la branche (« cursor/… »). */
-  branche: string;
-  /** La demande de fusion, si Cursor en a ouvert une. */
-  demandeDeFusion?: string;
-}
-
-/**
- * LES BRANCHES QU'UN RUN A PRODUITES (`run.git.branches`). Un agent qui a
- * seulement répondu n'en produit aucune : la liste vide est le cas NORMAL, pas
- * une anomalie.
- */
-export function branchesDuRunCursor(run: unknown): BrancheCursor[] {
-  const brutes = (run as any)?.git?.branches;
-  if (!Array.isArray(brutes)) return [];
-  const branches: BrancheCursor[] = [];
-  for (const entree of brutes) {
-    const nom = typeof entree?.branch === 'string' ? entree.branch.trim() : '';
-    if (!nom) continue;
-    branches.push({
-      branche: nom,
-      depot: typeof entree?.repoUrl === 'string' ? entree.repoUrl.trim() : undefined,
-      demandeDeFusion: typeof entree?.prUrl === 'string' ? entree.prUrl.trim() : undefined,
-    });
-  }
-  return branches;
-}
-
-/**
- * PEUT-ON RAPATRIER CETTE BRANCHE ICI ?
+ * CE QUE LE CLI A ÉCRIT EN PARTANT, dit en français.
  *
- * L'agent Cursor pousse son travail sur une branche « cursor/… » du dépôt. Le
- * ramener dans la copie de travail n'a de sens QUE dans le dossier d'une carte,
- * sur sa branche « tache/… » : c'est là que le travail d'une carte vit, et
- * c'est de là que le démon le fusionne. Une conversation ordinaire, elle,
- * travaille dans le dossier du projet, souvent sur la branche principale —
- * y fusionner tout seul reviendrait à livrer sans que personne l'ait demandé.
- *
- * Un dossier de travail SALE bloque aussi : on ne fusionne jamais par-dessus
- * des modifications que personne n'a enregistrées.
+ * Le CLI ne rend pas de code d'erreur parlant : il écrit sa plainte sur la
+ * sortie d'erreur, en anglais, avec des couleurs de terminal — « ⚠ Warning: The
+ * provided API key is invalid. » sur une clé refusée (constaté le 14/08/2026).
+ * Recracher ces lignes telles quelles à l'écran, c'est un « code 1 » déguisé :
+ * une panne se dit toujours, et dans la langue de l'utilisateur. Ce qui n'est
+ * pas reconnu garde sa sortie, nettoyée de ses couleurs — mieux vaut une
+ * phrase brute qu'une bulle muette.
  */
-export function peutRapatrierIci(brancheLocale: string | undefined, dossierPropre: boolean): boolean {
-  return Boolean(brancheLocale?.startsWith('tache/')) && dossierPropre;
-}
-
-/** Ce qui s'affiche une fois le travail de Cursor ramené — ou non. */
-export function messageDeRapatriement(
-  branche: string,
-  issue: 'fusionnee' | 'conflit' | 'hors-carte' | 'echec',
-  detail?: string,
-): string {
-  switch (issue) {
-    case 'fusionnee':
-      return `Travail de Cursor ramené dans la carte (branche « ${branche} »).`;
-    case 'conflit':
-      return `Le travail de Cursor n'a pas pu être fusionné : la branche « ${branche} » entre en conflit avec la carte. Rien n'a été touché — le travail reste sur cette branche.`;
-    case 'hors-carte':
-      return `Cursor a écrit sur la branche « ${branche} ». Rien n'est ramené ici : le rapatriement automatique ne se fait que dans le dossier d'une carte.`;
-    default:
-      return `La branche « ${branche} » de Cursor n'a pas pu être récupérée${detail ? ` : ${detail}` : '.'}`;
+export function raisonDeLaSortieCursor(sortie: string | undefined, code: number | null): string {
+  const propre = (sortie ?? '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/\[[0-9;]*m/g, '')
+    .trim();
+  const bas = propre.toLowerCase();
+  if (/api key is invalid|invalid api key|unauthorized|not authenticated|not logged in/.test(bas)) {
+    return "Cursor a refusé la clé d'accès : le tour n'est pas parti.";
   }
+  if (/cannot use this model|unknown model|model not found/.test(bas)) {
+    return "Cursor a refusé le modèle demandé : le tour n'est pas parti.";
+  }
+  if (/rate limit|too many requests/.test(bas)) {
+    return "Cursor limite les appels pour le moment : la demande n'est pas passée.";
+  }
+  if (/insufficient|payment|billing|quota/.test(bas)) {
+    return 'Cursor a refusé la demande faute de crédit sur le compte.';
+  }
+  const dernieres = propre.split('\n').filter(Boolean).slice(-4).join('\n');
+  return dernieres || `Le moteur s'est arrêté (code ${code ?? -1}).`;
 }
 
 /**
@@ -362,60 +357,24 @@ export interface EtatCompteCursor {
   nomDeLaCle?: string;
   /** Pourquoi elle ne répond pas, en français. */
   erreur?: string;
-  /** Les dépôts que ce compte peut ouvrir, du plus court au plus long nom. */
-  depots: string[];
-  /** Pourquoi la liste des dépôts n'a pas pu être lue. */
-  erreurDepots?: string;
+  /** L'outil en ligne de commande est-il installé sur la machine ? */
+  cliInstalle: boolean;
+  /** Sa version, telle qu'il l'annonce. */
+  versionDuCli?: string;
+  /** Pourquoi il n'a pas répondu. */
+  erreurDuCli?: string;
 }
 
 /**
- * LES DÉPÔTS RENDUS PAR CURSOR, ramenés à des noms « organisation/dépôt ».
- * L'API ne documente pas la forme exacte de chaque entrée et l'a déjà changée :
- * on accepte donc plusieurs écritures (nom complet, adresse, propriétaire +
- * nom) plutôt que d'en supposer une seule, et on écarte ce qui n'est pas
- * reconnaissable au lieu d'afficher un objet brut.
+ * CE QUI MANQUE POUR QU'UN TOUR PARTE, dit en une phrase. Deux pièces sont
+ * nécessaires — l'outil sur la machine et une clé — et un moteur qui ne part
+ * pas doit dire laquelle manque, jamais rester muet.
  */
-export function depotsDepuisCursor(items: unknown): string[] {
-  if (!Array.isArray(items)) return [];
-  const noms = new Set<string>();
-  for (const entree of items) {
-    if (typeof entree === 'string') {
-      const nom = nomDeDepot(entree);
-      if (nom) noms.add(nom);
-      continue;
-    }
-    if (!entree || typeof entree !== 'object') continue;
-    const objet = entree as Record<string, unknown>;
-    const candidats = [objet.fullName, objet.full_name, objet.name, objet.repository, objet.url, objet.repoUrl];
-    let trouve: string | null = null;
-    for (const candidat of candidats) {
-      if (typeof candidat !== 'string') continue;
-      trouve = nomDeDepot(candidat);
-      if (trouve) break;
-    }
-    // « propriétaire » et « nom » séparés : la forme la plus courante après l'adresse.
-    if (!trouve && typeof objet.owner === 'string' && typeof objet.name === 'string') {
-      trouve = `${objet.owner}/${objet.name}`;
-    }
-    if (trouve) noms.add(trouve);
+export function manqueDuMoteurCursor(cliInstalle: boolean, cleConnue: boolean): string | null {
+  if (!cliInstalle && !cleConnue) {
+    return "L'outil « cursor-agent » n'est pas installé sur le serveur et aucune clé d'accès n'est configurée.";
   }
-  return [...noms].sort((a, b) => a.localeCompare(b));
-}
-
-/** « organisation/dépôt », quelle que soit l'écriture reçue. */
-function nomDeDepot(valeur: string): string | null {
-  const texte = valeur.trim().replace(/\.git$/i, '').replace(/\/+$/, '');
-  if (!texte) return null;
-  const adresse = depotGithubPourCursor(texte);
-  if (adresse) return adresse.replace(/^https:\/\/github\.com\//i, '');
-  return /^[^/\s]+\/[^/\s]+$/.test(texte) ? texte : null;
-}
-
-/**
- * LE COÛT D'UN TOUR, tel que `GET /v1/agents/{id}/usage` le rend : Cursor
- * compte en CENTIMES de dollar, HaikoDev en dollars. Une valeur absente reste
- * absente — jamais un zéro qui passerait pour une mesure.
- */
-export function coutEnDollars(centimes: unknown): number | undefined {
-  return typeof centimes === 'number' && Number.isFinite(centimes) ? centimes / 100 : undefined;
+  if (!cliInstalle) return "L'outil « cursor-agent » n'est pas installé sur le serveur : le tour n'est pas parti.";
+  if (!cleConnue) return "Aucune clé d'accès Cursor n'est configurée sur le serveur : le tour n'est pas parti.";
+  return null;
 }

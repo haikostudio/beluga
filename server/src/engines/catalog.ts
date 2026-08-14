@@ -2,9 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   dedoublonnerModeles,
-  fenetreDeContexteCursor,
   limiterAuxPlusRecents,
-  niveauxDeReflexionCursor,
   EngineId,
   ModelInfo,
   ThinkingOption,
@@ -301,10 +299,11 @@ function codexFallback(): ModelInfo[] {
 /* ------------------------------------------------------------------ */
 
 /**
- * Le catalogue de Cursor vient de son API (`GET /v1/models`), avec la clé du
- * compte. Chaque modèle y annonce ses PARAMÈTRES : c'est d'eux que sortent les
- * niveaux de réflexion et la fenêtre de contexte — jamais d'une liste écrite à
- * la main (`shared/src/moteur-cursor.ts`, règles pures et testées).
+ * Le catalogue de Cursor vient de son OUTIL EN LIGNE DE COMMANDE
+ * (`cursor-agent --list-models`), avec la clé du compte. Cet outil n'accepte
+ * qu'une liste FERMÉE de noms où le niveau de réflexion est un suffixe : les
+ * niveaux affichés sortent donc du regroupement de ces noms, jamais d'une liste
+ * écrite à la main (`shared/src/moteur-cursor.ts`, règles pures et testées).
  */
 export async function cursorCatalog(): Promise<Catalogue> {
   const cles = clesCursor();
@@ -315,20 +314,17 @@ export async function cursorCatalog(): Promise<Catalogue> {
     try {
       const entries = await modelesCursor(cle);
       if (!entries.length) throw new Error('catalogue vide');
-      const models: ModelInfo[] = entries.map((entry: any) =>
+      const models: ModelInfo[] = entries.map((entry) =>
         ModelInfo.parse({
           id: entry.id,
-          label: entry.displayName ?? entry.id,
-          // `entry` porte à la fois `parameters` (les valeurs possibles) et
-          // `variants` (les COMBINAISONS réellement acceptées) : seule cette
-          // seconde liste dit si « sans réflexion » existe vraiment pour ce
-          // modèle — l'inventer faisait choisir un niveau que Cursor refuse.
-          thinking: niveauxDeReflexionCursor(entry).map((id) =>
-            id === 'none' ? NIVEAU_SANS : niveau(id),
-          ),
-          defaultThinking: 'none',
-          contextWindow: fenetreDeContexteCursor(entry.parameters),
-          appetite: appetiteOf(entry.id, entry.displayName ?? ''),
+          label: entry.label,
+          // Les niveaux sont ceux que le CLI propose RÉELLEMENT pour ce
+          // modèle : en afficher un de plus ferait refuser le tour entier,
+          // puisque le niveau fait partie du nom envoyé.
+          thinking: entry.niveaux.map((id) => (id === 'none' ? NIVEAU_SANS : niveau(id))),
+          defaultThinking: entry.niveauParDefaut,
+          contextWindow: entry.fenetre,
+          appetite: appetiteOf(entry.id, entry.label),
         }),
       );
       models.sort(byRecency);

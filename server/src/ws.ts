@@ -1207,8 +1207,8 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     /*
      * L'ÉTAT D'UN COMPTE CURSOR. Ce moteur ne publie aucun quota : sa ligne de
      * compte ne peut donc pas montrer de jauge. Ce qu'elle peut dire — et ce
-     * qui manquait pour savoir de quoi ce compte est capable —, c'est si la clé
-     * répond et quels dépôts elle ouvre.
+     * qui manquait pour savoir si ce compte peut travailler —, c'est si la clé
+     * répond et si l'outil « cursor-agent » est bien sur le serveur.
      */
     case 'cursor.etat': {
       const comptes = listAccountRecords().filter((a) => a.engine === 'cursor');

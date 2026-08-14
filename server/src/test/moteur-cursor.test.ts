@@ -1,240 +1,316 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  attenteAvantRelecture,
-  branchesDuRunCursor,
   consigneEnTeteDeSession,
-  coutEnDollars,
-  depotGithubPourCursor,
-  depotsDepuisCursor,
-  fenetreDeContexteCursor,
+  decomposerModeleCursor,
+  fenetreDepuisLibelleCursor,
   fichierNatif,
-  issueDuRunCursor,
-  messageDeFinCursor,
-  messageDeRapatriement,
+  idCursorPourNiveau,
+  manqueDuMoteurCursor,
+  modelesCursorDepuisListe,
   moteurSansQuota,
-  niveauxDeReflexionCursor,
-  paramsDeReflexionCursor,
-  peutRapatrierIci,
+  outilCursor,
+  raisonDeLaSortieCursor,
   raisonDeRefusCursor,
 } from '@haikodev/shared';
+import { buildCursorArgs, emitFromCursor } from '../engines/cursor.js';
+import type { EngineEvent, EngineRunOptions } from '../engines/types.js';
 
 /*
- * LES RÈGLES DU MOTEUR CURSOR, jouées sans réseau. Les paramètres de modèles
- * repris ici sont ceux RÉELLEMENT rendus par `GET /v1/models` le 14/08/2026 :
- * un modèle Cursor (effort), un modèle GPT (reasoning, « extra-high »), un
- * modèle Claude à simple oui/non, et un modèle sans aucun réglage.
+ * LES RÈGLES DU MOTEUR CURSOR, jouées sans réseau ni processus. Cursor est
+ * désormais un OUTIL EN LIGNE DE COMMANDE (`cursor-agent`) lancé dans la copie
+ * de travail de la carte : il lit et modifie les fichiers sur la machine, comme
+ * Claude et Codex. Les extraits repris ici — liste de modèles, flux
+ * d'événements — sont ceux RÉELLEMENT rendus par le CLI le 14/08/2026.
  */
 
-const EFFORT = [
-  { id: 'effort', values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }] },
-  { id: 'fast', values: [{ value: 'false' }, { value: 'true' }] },
-];
-const RAISONNEMENT = [
-  { id: 'context', values: [{ value: '272k' }, { value: '1m' }] },
-  {
-    id: 'reasoning',
-    values: [{ value: 'none' }, { value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'extra-high' }],
-  },
-];
-const OUI_NON = [{ id: 'thinking', values: [{ value: 'false' }, { value: 'true' }] }];
+/** Un extrait fidèle de `cursor-agent --list-models`. */
+const LISTE = `Available models
+
+auto - Auto (current, default)
+composer-2.5 - Composer 2.5
+composer-2.5-fast - Composer 2.5 Fast
+claude-opus-5-low - Opus 5 1M Low
+claude-opus-5-low-fast - Opus 5 1M Low Fast
+claude-opus-5-medium - Opus 5 1M Medium
+claude-opus-5-high - Opus 5 1M
+claude-opus-5-thinking-low - Opus 5 1M Low Thinking
+claude-opus-5-thinking-high - Opus 5 1M Thinking
+claude-opus-5-thinking-max - Opus 5 1M Max Thinking
+gpt-5.5-none - GPT-5.5 1M None
+gpt-5.5-medium - GPT-5.5 1M
+gpt-5.5-extra-high - GPT-5.5 1M Extra High
+gemini-3.1-pro - Gemini 3.1 Pro
+`;
+
+test('un nom de modèle se décompose en modèle et niveau', () => {
+  assert.deepEqual(decomposerModeleCursor('claude-opus-5-thinking-xhigh'), {
+    base: 'claude-opus-5-thinking',
+    niveau: 'xhigh',
+  });
+  // « extra-high » chez Cursor, « xhigh » partout ailleurs dans HaikoDev.
+  assert.deepEqual(decomposerModeleCursor('gpt-5.5-extra-high'), { base: 'gpt-5.5', niveau: 'xhigh' });
+  // Un nom sans suffixe connu n'a pas de niveau : il part tel quel.
+  assert.deepEqual(decomposerModeleCursor('composer-2.5'), { base: 'composer-2.5', niveau: null });
+  assert.deepEqual(decomposerModeleCursor('gemini-3.1-pro'), { base: 'gemini-3.1-pro', niveau: null });
+});
+
+test('la liste du CLI devient des modèles avec leurs vrais niveaux', () => {
+  const modeles = modelesCursorDepuisListe(LISTE);
+  const parId = new Map(modeles.map((m) => [m.id, m]));
+
+  // Un modèle, ses niveaux réels — jamais un niveau inventé.
+  assert.deepEqual(parId.get('claude-opus-5')?.niveaux, ['low', 'medium', 'high']);
+  assert.deepEqual(parId.get('claude-opus-5-thinking')?.niveaux, ['low', 'high', 'max']);
+  assert.deepEqual(parId.get('gpt-5.5')?.niveaux, ['none', 'medium', 'xhigh']);
+  // Sans suffixe : un seul niveau, « sans réflexion ».
+  assert.deepEqual(parId.get('composer-2.5')?.niveaux, ['none']);
+  assert.deepEqual(parId.get('gemini-3.1-pro')?.niveaux, ['none']);
+
+  // Le libellé du modèle ne porte plus de mention de niveau, et la fenêtre de
+  // contexte se lit dedans quand Cursor l'y écrit.
+  assert.equal(parId.get('claude-opus-5')?.label, 'Opus 5 1M');
+  assert.equal(parId.get('claude-opus-5')?.fenetre, 1_000_000);
+  assert.equal(parId.get('composer-2.5')?.fenetre, undefined);
+
+  // Le défaut est celui que Cursor nomme sans mention de niveau.
+  assert.equal(parId.get('claude-opus-5')?.niveauParDefaut, 'high');
+  assert.equal(parId.get('gpt-5.5')?.niveauParDefaut, 'medium');
+});
 
 /*
- * LES COMBINAISONS ACCEPTÉES, telles que Cursor les énumère. C'est le point qui
- * a fait échouer un vrai tour : envoyer le seul effort voulu fait refuser la
- * demande entière (« does not match a known variant »).
+ * LE POINT QUI A FAIT ÉCHOUER UN VRAI TOUR : le CLI n'accepte QUE les noms de
+ * sa liste. « composer-2.5[effort=high] » — le format de l'API cloud — est
+ * refusé (« Cannot use this model »), et un niveau absent doit retomber sur le
+ * défaut du modèle plutôt que de composer un nom qui n'existe pas.
  */
-const VARIANTES_EFFORT = [
-  { params: [{ id: 'effort', value: 'low' }, { id: 'fast', value: 'false' }] },
-  { params: [{ id: 'effort', value: 'high' }, { id: 'fast', value: 'false' }] },
-  { params: [{ id: 'effort', value: 'high' }, { id: 'fast', value: 'true' }], isDefault: true },
-];
-const VARIANTES_RAISONNEMENT = [
-  { params: [{ id: 'context', value: '272k' }, { id: 'reasoning', value: 'none' }, { id: 'fast', value: 'false' }] },
-  { params: [{ id: 'context', value: '272k' }, { id: 'reasoning', value: 'extra-high' }, { id: 'fast', value: 'false' }] },
-];
-const VARIANTES_OUI_NON = [
-  { params: [{ id: 'thinking', value: 'false' }] },
-  { params: [{ id: 'thinking', value: 'true' }], isDefault: true },
-];
-
-test('les niveaux de réflexion sont ceux du modèle, « sans réflexion » en tête', () => {
-  // Sans variantes connues (repli) : devinette à partir des paramètres seuls.
-  assert.deepEqual(niveauxDeReflexionCursor(EFFORT), ['none', 'low', 'medium', 'high', 'xhigh']);
-  // « extra-high » de Cursor devient le « xhigh » du reste de HaikoDev.
-  assert.deepEqual(niveauxDeReflexionCursor(RAISONNEMENT), ['none', 'low', 'medium', 'high', 'xhigh']);
-  // Un simple oui/non ne devient pas cinq niveaux imaginaires.
-  assert.deepEqual(niveauxDeReflexionCursor(OUI_NON), ['none', 'medium']);
-  assert.deepEqual(niveauxDeReflexionCursor([]), ['none']);
-  assert.deepEqual(niveauxDeReflexionCursor(undefined), ['none']);
+test('le niveau choisi redevient un suffixe du nom envoyé au CLI', () => {
+  const modeles = modelesCursorDepuisListe(LISTE);
+  assert.equal(idCursorPourNiveau(modeles, 'claude-opus-5', 'low'), 'claude-opus-5-low');
+  assert.equal(idCursorPourNiveau(modeles, 'gpt-5.5', 'xhigh'), 'gpt-5.5-extra-high');
+  assert.equal(idCursorPourNiveau(modeles, 'composer-2.5', 'none'), 'composer-2.5');
+  // Niveau que ce modèle ne propose pas : son défaut, jamais un nom composé.
+  assert.equal(idCursorPourNiveau(modeles, 'claude-opus-5', 'max'), 'claude-opus-5-high');
+  assert.equal(idCursorPourNiveau(modeles, 'composer-2.5', 'high'), 'composer-2.5');
+  // Catalogue illisible ou nom plus ancien que la refonte : il part inchangé.
+  assert.equal(idCursorPourNiveau([], 'gpt-5.4-xhigh', 'low'), 'gpt-5.4-xhigh');
+  assert.equal(idCursorPourNiveau(modeles, undefined, 'low'), 'composer-2.5');
 });
 
-test('les niveaux affichés viennent des VARIANTES, jamais un « sans réflexion » inventé', () => {
-  // Ce modèle (GPT-5.6 Luna, constaté le 14/08/2026) n'a AUCUNE combinaison
-  // sans effort : il ne doit donc jamais proposer « Sans réflexion ».
-  assert.deepEqual(niveauxDeReflexionCursor({ parameters: EFFORT, variants: VARIANTES_EFFORT }), ['low', 'high']);
-  // Celui-ci en a une : « none » apparaît, en tête.
-  assert.deepEqual(
-    niveauxDeReflexionCursor({ parameters: RAISONNEMENT, variants: VARIANTES_RAISONNEMENT }),
-    ['none', 'xhigh'],
-  );
-  // Oui/non : les deux mots que l'interface connaît, « none » en tête.
-  assert.deepEqual(niveauxDeReflexionCursor({ parameters: OUI_NON, variants: VARIANTES_OUI_NON }), ['none', 'medium']);
-  // Un modèle SANS variantes connues retombe sur la devinette par paramètres.
-  assert.deepEqual(niveauxDeReflexionCursor({ parameters: EFFORT }), ['none', 'low', 'medium', 'high', 'xhigh']);
+test('la variante « rapide » ne double pas la liste', () => {
+  const ids = modelesCursorDepuisListe(LISTE).flatMap((m) => Object.values(m.ids));
+  assert.equal(ids.some((id) => id.endsWith('-fast')), false);
 });
 
-test('le niveau demandé part comme une COMBINAISON entière, jamais seul', () => {
-  // Le niveau voulu, dans la combinaison que Cursor donne pour défaut.
-  assert.deepEqual(paramsDeReflexionCursor({ variants: VARIANTES_EFFORT }, 'high'), [
-    { id: 'effort', value: 'high' },
-    { id: 'fast', value: 'true' },
+test('la fenêtre de contexte se lit dans le libellé, ou reste absente', () => {
+  assert.equal(fenetreDepuisLibelleCursor('GPT-5.6 Sol 1M Max'), 1_000_000);
+  assert.equal(fenetreDepuisLibelleCursor('Un modèle 272k'), 272_000);
+  // Aucune capacité annoncée : on ne devine pas.
+  assert.equal(fenetreDepuisLibelleCursor('Sonnet 4.5'), undefined);
+  assert.equal(fenetreDepuisLibelleCursor(undefined), undefined);
+});
+
+/*
+ * LA LIGNE DE COMMANDE. Le travail se fait DANS le dossier de la carte : ce
+ * sont ces arguments-là qui l'y autorisent, et le mode plan qui l'en empêche.
+ */
+function options(extra: Partial<EngineRunOptions> = {}): EngineRunOptions {
+  return {
+    cwd: '/tmp/carte',
+    prompt: 'fais le travail',
+    fullAccess: true,
+    onEvent: () => undefined,
+    ...extra,
+  };
+}
+
+test('la commande lance le CLI en accès complet, dans le dossier de la carte', () => {
+  const args = buildCursorArgs(options(), 'claude-opus-5-high');
+  assert.deepEqual(args.slice(0, 5), ['-p', '--output-format', 'stream-json', '--model', 'claude-opus-5-high']);
+  // Le consentement a été donné en validant la carte : aucune fenêtre à ouvrir.
+  assert.ok(args.includes('--force'));
+  assert.deepEqual(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 2), ['--sandbox', 'disabled']);
+  // Aucun dépôt, aucune branche distante : plus rien de l'ancien pilotage cloud.
+  assert.equal(args.some((a) => /repo|github|autoCreatePR/i.test(a)), false);
+});
+
+test('le mode plan ferme l\'écriture, et une reprise garde son fil', () => {
+  const plan = buildCursorArgs(options({ mode: 'plan', role: 'task' }), 'composer-2.5');
+  assert.deepEqual(plan.slice(plan.indexOf('--mode'), plan.indexOf('--mode') + 2), ['--mode', 'plan']);
+  assert.equal(plan.includes('--force'), false);
+
+  const reprise = buildCursorArgs(options({ sessionId: '7eb16b33-236c' }), 'composer-2.5');
+  assert.deepEqual(reprise.slice(reprise.indexOf('--resume'), reprise.indexOf('--resume') + 2), [
+    '--resume',
+    '7eb16b33-236c',
   ]);
-  // « xhigh » de HaikoDev retrouve « extra-high » chez Cursor, avec son contexte.
-  assert.deepEqual(paramsDeReflexionCursor({ variants: VARIANTES_RAISONNEMENT }, 'xhigh'), [
-    { id: 'context', value: '272k' },
-    { id: 'reasoning', value: 'extra-high' },
-    { id: 'fast', value: 'false' },
+  // Les outils du projet ne sont approuvés que s'il y en a à brancher.
+  assert.equal(reprise.includes('--approve-mcps'), false);
+  assert.ok(buildCursorArgs(options({ mcpConfigPath: '/tmp/mcp.json' }), 'composer-2.5').includes('--approve-mcps'));
+});
+
+/*
+ * LE FLUX DU CLI, traduit dans les événements communs aux moteurs. Les lignes
+ * reprises ici sont celles d'un vrai tour du 14/08/2026, qui a modifié un
+ * fichier local.
+ */
+function evenements(lignes: any[]): EngineEvent[] {
+  const rendus: EngineEvent[] = [];
+  const attente = new Map<string, string>();
+  for (const ligne of lignes) emitFromCursor(ligne, (e) => rendus.push(e), attente);
+  return rendus;
+}
+
+test('le fil, le texte et la mesure remontent comme pour les autres moteurs', () => {
+  const rendus = evenements([
+    { type: 'system', subtype: 'init', session_id: '7eb16b33' },
+    { type: 'thinking', subtype: 'delta', text: 'je réfléchis' },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Fichier modifié.' }] } },
+    {
+      type: 'result',
+      subtype: 'success',
+      session_id: '7eb16b33',
+      is_error: false,
+      duration_ms: 8757,
+      result: 'Fichier modifié.',
+      usage: { inputTokens: 13631, outputTokens: 127, cacheReadTokens: 29184, cacheWriteTokens: 0 },
+    },
   ]);
-  // Un oui/non : réfléchir vaut le niveau moyen, ne pas réfléchir vaut « none ».
-  assert.deepEqual(paramsDeReflexionCursor({ variants: VARIANTES_OUI_NON }, 'medium'), [
-    { id: 'thinking', value: 'true' },
+
+  assert.deepEqual(rendus.filter((e) => e.kind === 'session').map((e) => e.sessionId), ['7eb16b33', '7eb16b33']);
+  // Le raisonnement n'est pas une étape d'exécution : il ne s'affiche pas.
+  assert.equal(rendus.some((e) => e.kind === 'step'), false);
+  assert.deepEqual(rendus.filter((e) => e.kind === 'text').map((e) => e.text), ['Fichier modifié.']);
+
+  const mesure = rendus.find((e) => e.kind === 'usage')?.usage;
+  // Cursor compte le cache À PART : les deux parts restent disjointes.
+  assert.equal(mesure?.inputTokens, 13631);
+  assert.equal(mesure?.cachedTokens, 29184);
+  assert.equal(mesure?.outputTokens, 127);
+  assert.equal(mesure?.durationMs, 8757);
+});
+
+test('un appel d\'outil devient une étape lisible, ouverte puis refermée', () => {
+  const appel = { editToolCall: { args: { path: '/tmp/carte/note.txt' } } };
+  const rendus = evenements([
+    { type: 'tool_call', subtype: 'started', call_id: 'tool_1', tool_call: appel },
+    {
+      type: 'tool_call',
+      subtype: 'completed',
+      call_id: 'tool_1',
+      tool_call: {
+        editToolCall: {
+          args: { path: '/tmp/carte/note.txt' },
+          result: { success: { message: 'Wrote contents to /tmp/carte/note.txt' } },
+        },
+      },
+    },
   ]);
-  assert.deepEqual(paramsDeReflexionCursor({ variants: VARIANTES_OUI_NON }, 'none'), [
-    { id: 'thinking', value: 'false' },
+  assert.equal(rendus.length, 2);
+  assert.equal(rendus[0].step?.state, 'running');
+  assert.match(rendus[0].step?.label ?? '', /Modification de/);
+  assert.equal(rendus[1].step?.state, 'done');
+  assert.match(rendus[1].step?.detail ?? '', /Wrote contents/);
+});
+
+test('un outil qui échoue le DIT, au lieu d\'une étape verte muette', () => {
+  const rendus = evenements([
+    {
+      type: 'tool_call',
+      subtype: 'completed',
+      call_id: 'tool_2',
+      tool_call: { shellToolCall: { args: { command: 'npm test' }, result: { error: 'command not found' } } },
+    },
+  ]);
+  assert.equal(rendus[0].step?.state, 'failed');
+  assert.match(rendus[0].step?.detail ?? '', /command not found/);
+});
+
+test('les outils de Cursor parlent le vocabulaire commun des moteurs', () => {
+  assert.deepEqual(outilCursor({ readToolCall: { args: { path: '/a/b.ts' } } }), {
+    nom: 'Read',
+    entree: { file_path: '/a/b.ts' },
+  });
+  assert.deepEqual(outilCursor({ shellToolCall: { args: { command: 'ls' } } }), {
+    nom: 'Bash',
+    entree: { command: 'ls' },
+  });
+  assert.equal(outilCursor({ globToolCall: { args: { globPattern: '**/*.ts' } } })?.nom, 'Glob');
+  // Un outil du projet garde son nom, pour que l'étape dise ce qu'il est allé chercher.
+  assert.equal(outilCursor({ mcpToolCall: { args: { toolName: 'project_memory' } } })?.nom, 'mcp__haikodev__project_memory');
+  // Un outil jamais vu garde son nom nettoyé : une étape brute vaut mieux qu'une étape muette.
+  assert.equal(outilCursor({ inconnuToolCall: { args: {} } })?.nom, 'inconnu');
+  assert.equal(outilCursor({ rien: 1 }), null);
+  assert.equal(outilCursor(null), null);
+});
+
+/** La liste de tâches a son propre affichage : elle n'est pas une étape. */
+test('la liste de tâches du moteur s\'affiche à part', () => {
+  const rendus = evenements([
+    {
+      type: 'tool_call',
+      subtype: 'completed',
+      call_id: 'tool_3',
+      tool_call: {
+        updateTodosToolCall: {
+          args: { todos: [{ content: 'Lire le projet', status: 'completed' }, { content: 'Écrire', status: 'in_progress' }] },
+        },
+      },
+    },
+  ]);
+  assert.equal(rendus.length, 1);
+  assert.equal(rendus[0].kind, 'todo');
+  assert.deepEqual(rendus[0].todos, [
+    { label: 'Lire le projet', state: 'done' },
+    { label: 'Écrire', state: 'running' },
   ]);
 });
 
-/** Un réglage que le modèle ne connaît pas ferait refuser la demande ENTIÈRE. */
-test('un niveau inconnu du modèle n\'est pas envoyé', () => {
-  assert.deepEqual(paramsDeReflexionCursor({ variants: VARIANTES_EFFORT }, 'max'), []);
-  // Ce modèle-là n'a pas de « sans réflexion » : on n'en invente pas.
-  assert.deepEqual(paramsDeReflexionCursor({ variants: VARIANTES_EFFORT }, 'none'), []);
-  // Aucune combinaison connue : le modèle part avec son défaut.
-  assert.deepEqual(paramsDeReflexionCursor({ parameters: EFFORT }, 'high'), []);
-  assert.deepEqual(paramsDeReflexionCursor(undefined, 'high'), []);
+/*
+ * UNE PANNE SE DIT TOUJOURS. Un moteur qui ne peut pas partir doit nommer la
+ * pièce qui manque — un témoin qui tourne sur un outil absent est le défaut que
+ * ce moteur ne doit pas introduire.
+ */
+test('ce qui manque pour lancer un tour se dit en toutes lettres', () => {
+  assert.match(manqueDuMoteurCursor(false, true) ?? '', /cursor-agent/);
+  assert.match(manqueDuMoteurCursor(true, false) ?? '', /clé/);
+  assert.match(manqueDuMoteurCursor(false, false) ?? '', /cursor-agent.*clé/s);
+  assert.equal(manqueDuMoteurCursor(true, true), null);
 });
 
-test('la fenêtre de contexte se lit dans le paramètre « context »', () => {
-  assert.equal(fenetreDeContexteCursor(RAISONNEMENT), 272_000);
-  assert.equal(fenetreDeContexteCursor([{ id: 'context', values: [{ value: '1m' }] }]), 1_000_000);
-  // Aucun paramètre : on ne devine pas une capacité.
-  assert.equal(fenetreDeContexteCursor(EFFORT), undefined);
-});
-
-test('l\'adresse du dépôt est ramenée à une URL GitHub que Cursor accepte', () => {
-  assert.equal(depotGithubPourCursor('git@github.com:haikostudio/haikodev.git'), 'https://github.com/haikostudio/haikodev');
-  assert.equal(depotGithubPourCursor('https://github.com/haikostudio/haikodev.git\n'), 'https://github.com/haikostudio/haikodev');
-  // Ni GitHub, ni adresse : aucun dépôt, et surtout aucune adresse inventée.
-  assert.equal(depotGithubPourCursor('git@gitlab.com:org/depot.git'), null);
-  assert.equal(depotGithubPourCursor(''), null);
-  assert.equal(depotGithubPourCursor(undefined), null);
+/*
+ * CE QUE LE CLI ÉCRIT EN PARTANT est en ANGLAIS et coloré pour un terminal :
+ * l'afficher tel quel dans une conversation, c'est un « code 1 » déguisé. Les
+ * lignes reprises ici sont celles d'un vrai lancement à clé invalide.
+ */
+test('la plainte du CLI est traduite avant de paraître à l\'écran', () => {
+  const clePourrie =
+    '[33m⚠ Warning: The provided API key is invalid.[0m\n' +
+    'The API key was loaded from the CURSOR_API_KEY environment variable.\n' +
+    'Please check you have the right key, create a new one, or authenticate without it.';
+  assert.match(raisonDeLaSortieCursor(clePourrie, 1), /refusé la clé d'accès/);
+  assert.match(raisonDeLaSortieCursor('Cannot use this model: composer-2.5[effort=high]', 1), /refusé le modèle/);
+  assert.match(raisonDeLaSortieCursor('Error: rate limit exceeded', 1), /limite les appels/);
+  // Une sortie jamais vue garde ses derniers mots, sans ses couleurs — une
+  // phrase brute vaut mieux qu'une bulle muette.
+  const inconnu = raisonDeLaSortieCursor('[31msomething odd happened[0m', 1);
+  assert.equal(inconnu, 'something odd happened');
+  // Rien du tout : le code, faute de mieux, mais jamais le silence.
+  assert.match(raisonDeLaSortieCursor('', 3), /code 3/);
 });
 
 test('un refus est dit en français, jamais par un code nu', () => {
   assert.match(raisonDeRefusCursor(401, 'Invalid User API Key'), /refusé la clé/);
-  assert.match(raisonDeRefusCursor(401), /refusé la clé/);
   assert.match(raisonDeRefusCursor(503), /indisponible/);
   assert.match(raisonDeRefusCursor(429), /limite les appels/);
   // Un code jamais vu se dit quand même, plutôt que de rester muet.
   assert.match(raisonDeRefusCursor(418, 'théière'), /418/);
 });
 
-/*
- * LE POINT QUI COMPTE : un statut INCONNU est terminal. Le traiter comme « en
- * cours » laisserait le témoin tourner pour toujours sur un tour mort — c'est
- * précisément le défaut que ce moteur ne doit pas introduire.
- */
-test('un statut inconnu termine le tour au lieu de le laisser tourner', () => {
-  assert.equal(issueDuRunCursor('RUNNING'), 'en-cours');
-  assert.equal(issueDuRunCursor('CREATING'), 'en-cours');
-  assert.equal(issueDuRunCursor('FINISHED'), 'reussi');
-  assert.equal(issueDuRunCursor('CANCELLED'), 'arrete');
-  assert.equal(issueDuRunCursor('ERROR'), 'echoue');
-  assert.equal(issueDuRunCursor('CE_QUE_CURSOR_INVENTERA_DEMAIN'), 'echoue');
-  // Pas encore de statut : le suivi commence, il ne conclut pas.
-  assert.equal(issueDuRunCursor(''), 'en-cours');
-  assert.equal(issueDuRunCursor(null), 'en-cours');
-});
-
-test('une fin anormale porte sa cause', () => {
-  assert.match(messageDeFinCursor('CANCELLED'), /arrêté chez Cursor/);
-  assert.match(messageDeFinCursor('ERROR', 'dépôt introuvable'), /dépôt introuvable/);
-});
-
-test('l\'attente entre deux lectures s\'allonge sans dépasser dix secondes', () => {
-  assert.ok(attenteAvantRelecture(0) < attenteAvantRelecture(3));
-  assert.ok(attenteAvantRelecture(50) <= 10_000);
-});
-
-test('le coût se lit en dollars, et une mesure absente le reste', () => {
-  // Comparaison à la virgule près : une division par cent ne tombe pas juste
-  // en binaire, et c'est le chiffre affiché qui compte, pas ses décimales.
-  assert.ok(Math.abs((coutEnDollars(1.41122) ?? 0) - 0.0141122) < 1e-9);
-  assert.equal(coutEnDollars(undefined), undefined);
-  assert.equal(coutEnDollars('gratuit'), undefined);
-});
-
-/*
- * CE QUE LA CLÉ PERMET, tel que les réglages l'affichent. L'API ne documente
- * pas la forme d'une entrée de `GET /v1/repositories` et l'a déjà changée : on
- * accepte plusieurs écritures plutôt que d'en supposer une seule.
- */
-test('les dépôts rendus par Cursor deviennent des noms lisibles', () => {
-  assert.deepEqual(
-    depotsDepuisCursor([
-      { owner: 'haikostudio', name: 'haikodev' },
-      { fullName: 'octocat/Hello-World' },
-      { url: 'https://github.com/haikostudio/paseo.git' },
-      'git@github.com:haikostudio/haikodev.git',
-      { rien: 'du tout' },
-    ]),
-    ['haikostudio/haikodev', 'haikostudio/paseo', 'octocat/Hello-World'],
-  );
-  // Aucun dépôt relié : une liste vide, jamais une entrée inventée.
-  assert.deepEqual(depotsDepuisCursor([]), []);
-  assert.deepEqual(depotsDepuisCursor(undefined), []);
-});
-
 test('un moteur sans quota publié n\'affiche aucune jauge', () => {
   assert.equal(moteurSansQuota('cursor'), true);
   assert.equal(moteurSansQuota('claude'), false);
   assert.equal(moteurSansQuota('codex'), false);
-});
-
-/*
- * RAPATRIER LE TRAVAIL. L'agent Cursor pousse sur une branche « cursor/… » :
- * sans ce retour, une carte lancée sur Cursor finissait sans une ligne de code
- * dans sa copie de travail — donc sans preuve de travail.
- */
-test('les branches produites par un run sont reconnues, et leur absence est normale', () => {
-  assert.deepEqual(
-    branchesDuRunCursor({
-      git: { branches: [{ repoUrl: 'github.com/haikostudio/haikodev', branch: 'cursor/ajout-a1b2', prUrl: 'https://…/1' }] },
-    }),
-    [{ branche: 'cursor/ajout-a1b2', depot: 'github.com/haikostudio/haikodev', demandeDeFusion: 'https://…/1' }],
-  );
-  // Un agent qui a seulement répondu n'écrit rien : c'est le cas NORMAL.
-  assert.deepEqual(branchesDuRunCursor({ status: 'FINISHED', result: 'Bonjour' }), []);
-  assert.deepEqual(branchesDuRunCursor(undefined), []);
-});
-
-test('on ne rapatrie QUE dans le dossier d\'une carte, et seulement s\'il est propre', () => {
-  assert.equal(peutRapatrierIci('tache/ajouter-cursor-e98039', true), true);
-  // Une conversation ordinaire travaille sur la branche principale : y fusionner
-  // tout seul reviendrait à livrer sans que personne l'ait demandé.
-  assert.equal(peutRapatrierIci('main', true), false);
-  assert.equal(peutRapatrierIci('hors-tache/essai', true), false);
-  // Dossier sale : on ne fusionne jamais par-dessus du travail non enregistré.
-  assert.equal(peutRapatrierIci('tache/ajouter-cursor-e98039', false), false);
-  assert.equal(peutRapatrierIci(undefined, true), false);
-});
-
-test('ce qui est ramené — ou refusé — se dit avec le nom de la branche', () => {
-  assert.match(messageDeRapatriement('cursor/a1b2', 'fusionnee'), /cursor\/a1b2/);
-  assert.match(messageDeRapatriement('cursor/a1b2', 'conflit'), /conflit/);
-  assert.match(messageDeRapatriement('cursor/a1b2', 'hors-carte'), /carte/);
-  assert.match(messageDeRapatriement('cursor/a1b2', 'echec', 'dépôt injoignable'), /dépôt injoignable/);
 });
 
 /*

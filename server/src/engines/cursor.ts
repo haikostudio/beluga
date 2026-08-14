@@ -1,43 +1,40 @@
-import { execFile } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   API_CURSOR,
   MODELE_CURSOR_PAR_DEFAUT,
-  attenteAvantRelecture,
-  branchesDuRunCursor,
-  coutEnDollars,
-  depotGithubPourCursor,
-  depotsDepuisCursor,
+  OUTIL_TACHES_CURSOR,
   enteteDuTour,
-  issueDuRunCursor,
-  messageDeFinCursor,
-  messageDeRapatriement,
-  paramsDeReflexionCursor,
-  peutRapatrierIci,
+  idCursorPourNiveau,
+  manqueDuMoteurCursor,
+  modePlanFermeLEcriture,
+  modelesCursorDepuisListe,
+  outilCursor,
+  raisonDeLaSortieCursor,
   raisonDeRefusCursor,
-  type BrancheCursor,
   type EtatCompteCursor,
-  type ModeleCursor,
+  type ModeleCursorCli,
 } from '@haikodev/shared';
-import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions } from './types.js';
+import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
+import { finDuProcessus } from './fin-de-processus.js';
 import { cleDuCompteCursor, listAccountRecords } from '../accounts.js';
 import { log } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
 
 /**
- * L'ADAPTATEUR CURSOR. Les deux autres moteurs lancent un PROCESSUS et lisent
- * sa sortie ; celui-ci parle à une API et suit un travail qui tourne AILLEURS
- * (voir `shared/src/moteur-cursor.ts` pour le pourquoi). Le contrat rendu au
- * démon ne change pas d'un iota : les mêmes événements (`session`, `step`,
- * `text`, `usage`, `error`, `done`), le même `stop()`, la même promesse de fin.
- * C'est ce qui permet à l'ordonnanceur, au suivi de carte et à la mesure de ne
- * rien savoir de Cursor.
+ * L'ADAPTATEUR CURSOR. Comme Claude et Codex, il lance un PROCESSUS dans la
+ * copie de travail de la carte et lit ce qu'il écrit : l'outil `cursor-agent`
+ * lit et modifie les fichiers SUR LA MACHINE. Il a remplacé les agents cloud,
+ * où le travail se faisait chez Cursor sur un dépôt GitHub et devait être
+ * rapatrié par une branche « cursor/… » (voir `shared/src/moteur-cursor.ts`).
  *
  * DEUX RÈGLES QUI NE SE NÉGOCIENT PAS :
- *  - un appel refusé se DIT (`kind: 'error'`) et le tour se REFERME
- *    (`kind: 'done'` avec un code non nul). Un témoin qui tourne sur une clé
- *    refusée est précisément le défaut que ce moteur ne doit pas introduire ;
+ *  - un lancement impossible se DIT (`kind: 'error'`) et le tour se REFERME
+ *    (`kind: 'done'` avec un code non nul). Un témoin qui tourne sur un outil
+ *    absent est précisément le défaut que ce moteur ne doit pas introduire ;
  *  - la clé vient de l'ENVIRONNEMENT du compte porteur (`CURSOR_API_KEY`,
  *    posée par `applyAccountEnv`), jamais d'une constante écrite ici.
  */
@@ -77,431 +74,304 @@ export class RefusCursor extends Error {
 }
 
 /**
- * Un appel à l'API. Toute réponse hors 2xx devient un refus EXPLIQUÉ en
- * français : c'est ce message-là qui remonte jusqu'à la bulle rouge.
+ * ÉPROUVER UNE CLÉ. Le seul appel réseau qui reste : le CLI ne sait pas dire si
+ * la clé qu'on lui passe est bonne — sa commande `status` rend le compte
+ * connecté sur la machine, pas celui de la clé fournie. Sans cette porte, une
+ * clé fausse déclarée dans les réglages ne se serait vue qu'au premier tour.
  */
-export async function appelCursor(
-  chemin: string,
-  cle: string,
-  options: { methode?: string; corps?: unknown; plafondMs?: number; signal?: AbortSignal } = {},
-): Promise<any> {
-  const res = await fetch(`${API_CURSOR}${chemin}`, {
-    method: options.methode ?? 'GET',
-    headers: {
-      authorization: `Bearer ${cle}`,
-      ...(options.corps ? { 'content-type': 'application/json' } : {}),
-    },
-    body: options.corps ? JSON.stringify(options.corps) : undefined,
-    signal: options.signal ?? AbortSignal.timeout(options.plafondMs ?? 120_000),
-  });
-  if (!res.ok) {
-    const corps: any = await res.json().catch(() => null);
-    const message = typeof corps?.error?.message === 'string' ? corps.error.message
-      : typeof corps?.message === 'string' ? corps.message
-      : undefined;
-    throw new RefusCursor(raisonDeRefusCursor(res.status, message), res.status);
-  }
-  return res.json().catch(() => ({}));
-}
-
-/** Le catalogue brut des modèles, tel que Cursor le rend. */
-export async function modelesCursor(cle: string): Promise<any[]> {
-  const data = await appelCursor('/v1/models', cle, { plafondMs: 15_000 });
-  return Array.isArray(data?.items) ? data.items : [];
-}
-
-/**
- * Les paramètres du modèle choisi, lus dans le catalogue et gardés quelques
- * minutes : ils décident de la façon d'envoyer le niveau de réflexion, et le
- * catalogue ne bouge pas d'un tour à l'autre.
- */
-let cacheModeles: { at: number; items: any[] } | null = null;
-
-async function ficheDuModele(cle: string, modele: string): Promise<ModeleCursor | undefined> {
-  if (!cacheModeles || Date.now() - cacheModeles.at > 5 * 60 * 1000) {
-    try {
-      cacheModeles = { at: Date.now(), items: await modelesCursor(cle) };
-    } catch (err) {
-      // Catalogue injoignable : on envoie le modèle sans réglage de réflexion
-      // plutôt que de faire échouer le tour pour un réglage secondaire.
-      log.warn('catalogue Cursor illisible avant un tour', err);
-      return undefined;
-    }
-  }
-  return cacheModeles.items.find(
-    (m) => m?.id === modele || (Array.isArray(m?.aliases) && m.aliases.includes(modele)),
-  );
-}
-
-/**
- * LES DÉPÔTS QUE CE COMPTE PEUT VRAIMENT OUVRIR (`GET /v1/repositories`).
- * Envoyer un dépôt que Cursor ne voit pas fait refuser la demande entière
- * (« Failed to determine repository default branch ») : le tour n'aurait alors
- * jamais lieu, alors qu'un agent SANS dépôt, lui, répond. On demande donc la
- * liste avant de proposer quoi que ce soit.
- */
-export async function depotAccessible(cle: string, url: string): Promise<boolean | 'inconnu'> {
+export async function eprouverLaCle(cle: string): Promise<{ ok: boolean; nom?: string; erreur?: string }> {
   try {
-    const data = await appelCursor('/v1/repositories', cle, { plafondMs: 15_000 });
-    const items: any[] = Array.isArray(data?.items) ? data.items : [];
-    const cible = url.replace(/^https?:\/\/(www\.)?github\.com\//i, '').toLowerCase();
-    return items.some((entree) =>
-      JSON.stringify(entree ?? {})
-        .toLowerCase()
-        .includes(cible),
-    );
+    const res = await fetch(`${API_CURSOR}/v1/me`, {
+      headers: { authorization: `Bearer ${cle}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      const corps: any = await res.json().catch(() => null);
+      const message = typeof corps?.error?.message === 'string' ? corps.error.message
+        : typeof corps?.message === 'string' ? corps.message
+        : undefined;
+      return { ok: false, erreur: raisonDeRefusCursor(res.status, message) };
+    }
+    const moi: any = await res.json().catch(() => ({}));
+    return { ok: true, nom: typeof moi?.apiKeyName === 'string' ? moi.apiKeyName : undefined };
+  } catch (err: any) {
+    return { ok: false, erreur: err?.message ?? "la clé n'a pas pu être éprouvée" };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Le catalogue, lu dans le CLI                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES MODÈLES QUE LE CLI ACCEPTE (`cursor-agent --list-models`), regroupés par
+ * modèle et par niveau. C'est la SEULE source : un nom absent de cette liste
+ * fait refuser le tour entier avant qu'il commence, et le format paramétré de
+ * l'API (« composer-2.5[effort=high] ») y est refusé lui aussi.
+ */
+export async function modelesCursor(cle: string): Promise<ModeleCursorCli[]> {
+  const { stdout } = await execFileAsync(cursorAdapter.binary, ['--list-models'], {
+    timeout: 30_000,
+    env: { ...process.env, ...(cle ? { CURSOR_API_KEY: cle } : {}), FORCE_COLOR: '0' },
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  return modelesCursorDepuisListe(stdout);
+}
+
+/**
+ * Le catalogue gardé quelques minutes : il décide du nom exact envoyé à
+ * `--model`, et il ne bouge pas d'un tour à l'autre.
+ */
+let cacheModeles: { at: number; modeles: ModeleCursorCli[] } | null = null;
+
+async function catalogueDuTour(cle: string): Promise<ModeleCursorCli[]> {
+  if (cacheModeles && Date.now() - cacheModeles.at < 5 * 60 * 1000) return cacheModeles.modeles;
+  try {
+    const modeles = await modelesCursor(cle);
+    if (modeles.length) cacheModeles = { at: Date.now(), modeles };
+    return modeles;
   } catch (err) {
-    // Liste illisible : on ne DÉGRADE pas sur une supposition — le dépôt part
-    // comme demandé, et un refus éventuel se dira en clair.
-    log.warn('liste des dépôts Cursor illisible', err);
-    return 'inconnu';
+    // Catalogue illisible : le modèle part tel qu'il est retenu sur la carte
+    // plutôt que de faire échouer le tour pour une liste indisponible.
+    log.warn('catalogue Cursor illisible avant un tour', err);
+    return [];
   }
 }
 
 /**
- * L'ÉTAT D'UN COMPTE CURSOR, tel que les réglages l'affichent : la clé
- * répond-elle, et quels dépôts peut-elle ouvrir ? Les deux appels sont
- * indépendants — une liste de dépôts illisible ne fait pas passer une clé
- * valide pour refusée, et l'inverse non plus.
+ * L'ÉTAT D'UN COMPTE CURSOR, tel que les réglages l'affichent : l'outil est-il
+ * sur la machine, et la clé répond-elle ? Les deux vérifications sont
+ * indépendantes — un CLI absent ne fait pas passer une clé valide pour
+ * refusée, et l'inverse non plus.
  */
 export async function etatDuCompteCursor(cle: string): Promise<EtatCompteCursor> {
-  if (!cle) {
-    return { cleAcceptee: false, erreur: "aucune clé d'accès configurée sur le serveur", depots: [] };
-  }
-  let nomDeLaCle: string | undefined;
-  try {
-    const moi = await appelCursor('/v1/me', cle, { plafondMs: 15_000 });
-    nomDeLaCle = typeof moi?.apiKeyName === 'string' ? moi.apiKeyName : undefined;
-  } catch (err: any) {
-    return { cleAcceptee: false, erreur: err?.message ?? 'la clé n\'a pas pu être éprouvée', depots: [] };
-  }
-  try {
-    const data = await appelCursor('/v1/repositories', cle, { plafondMs: 15_000 });
-    return { cleAcceptee: true, nomDeLaCle, depots: depotsDepuisCursor(data?.items) };
-  } catch (err: any) {
-    return {
-      cleAcceptee: true,
-      nomDeLaCle,
-      depots: [],
-      erreurDepots: err?.message ?? 'la liste des dépôts n\'a pas pu être lue',
-    };
-  }
+  const cli = await cursorAdapter.detect();
+  const base = {
+    cliInstalle: cli.installed,
+    versionDuCli: cli.version,
+    erreurDuCli: cli.installed ? undefined : "l'outil « cursor-agent » n'a pas répondu sur ce serveur",
+  };
+  if (!cle) return { ...base, cleAcceptee: false, erreur: "aucune clé d'accès configurée sur le serveur" };
+  const epreuve = await eprouverLaCle(cle);
+  return { ...base, cleAcceptee: epreuve.ok, nomDeLaCle: epreuve.nom, erreur: epreuve.erreur };
 }
+
+/* ------------------------------------------------------------------ */
+/* Les outils du démon                                                 */
+/* ------------------------------------------------------------------ */
 
 /**
- * LE DÉPÔT SUR LEQUEL L'AGENT CLOUD TRAVAILLE. Il est déduit du dossier du
- * tour : c'est la copie de travail de la carte, donc son `origin` est le dépôt
- * du projet. Rien de trouvé, ou un dépôt qui n'est pas GitHub : l'agent part
- * SANS dépôt — il répond, il ne modifie rien. On ne devine jamais une adresse.
+ * BRANCHER LES OUTILS DU PROJET. Le CLI ne prend pas de fichier de
+ * configuration en argument : il lit `.cursor/mcp.json` à la racine de l'espace
+ * de travail, ou celui du dossier personnel. On recopie donc la configuration
+ * de l'agent — déjà écrite par le démon, au MÊME format (`mcpServers`) — dans
+ * le dossier du tour, et on l'écarte du dépôt par son fichier d'exclusion
+ * LOCAL : un fichier de service n'a rien à faire dans le travail d'une carte.
  */
-export async function depotDuTour(cwd: string, cle: string): Promise<{ url: string; startingRef?: string } | null> {
+export function poserLaConfigurationMcp(cwd: string, mcpConfigPath: string | undefined): void {
+  if (!mcpConfigPath) return;
   try {
-    const { stdout } = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd, timeout: 10_000 });
-    const url = depotGithubPourCursor(stdout);
-    if (!url) return null;
-    if ((await depotAccessible(cle, url)) === false) return null;
-    let startingRef: string | undefined;
-    try {
-      const branche = (await execFileAsync('git', ['branch', '--show-current'], { cwd, timeout: 10_000 })).stdout.trim();
-      // La branche n'est proposée que si elle existe VRAIMENT chez GitHub :
-      // une branche de carte jamais poussée ferait refuser la demande entière.
-      if (branche) {
-        const distante = await execFileAsync('git', ['ls-remote', '--heads', 'origin', branche], {
-          cwd,
-          timeout: 20_000,
-        });
-        if (distante.stdout.trim()) startingRef = branche;
-      }
-    } catch {
-      /* branche indéterminable : Cursor prendra la branche par défaut */
-    }
-    return { url, startingRef };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * RAMENER DANS LA CARTE CE QUE L'AGENT CLOUD A ÉCRIT.
- *
- * L'agent Cursor ne travaille pas sur la machine : il pousse son travail sur
- * une branche « cursor/… » du dépôt GitHub. Sans ce rapatriement, une carte
- * lancée sur Cursor finissait sans une ligne de code dans sa copie de
- * travail — donc sans preuve de travail, donc jamais « Terminé ».
- *
- * Trois portes, toutes DURES (`peutRapatrierIci`) : on n'est que dans le
- * dossier d'une carte (branche « tache/… »), le dossier est propre, et la
- * fusion se fait sans conflit. Chaque refus est DIT dans une étape, avec le nom
- * de la branche — le travail n'est jamais perdu, il reste chez GitHub.
- */
-export async function rapatrierLeTravail(
-  cwd: string,
-  branches: BrancheCursor[],
-  onEvent: (event: EngineEvent) => void,
-): Promise<void> {
-  if (!branches.length) return;
-  const git = (args: string[], timeout = 60_000) => execFileAsync('git', args, { cwd, timeout });
-
-  let brancheLocale = '';
-  let propre = true;
-  try {
-    brancheLocale = (await git(['branch', '--show-current'], 10_000)).stdout.trim();
-    propre = !(await git(['status', '--porcelain'], 20_000)).stdout.trim();
-  } catch {
-    // Pas un dépôt lisible : rien à ramener, et on le dit plus bas.
-    brancheLocale = '';
-  }
-
-  for (const branche of branches) {
-    const etape = (etat: 'done' | 'failed', message: string) =>
-      onEvent({
-        kind: 'step',
-        step: { key: `cursor-rapatriement-${branche.branche}`, label: message, state: etat, detail: branche.demandeDeFusion },
-      });
-
-    if (!peutRapatrierIci(brancheLocale, propre)) {
-      etape('done', messageDeRapatriement(branche.branche, 'hors-carte'));
-      continue;
-    }
-    try {
-      await git(['fetch', 'origin', branche.branche], 120_000);
-      await git(['merge', '--no-edit', 'FETCH_HEAD'], 120_000);
-      etape('done', messageDeRapatriement(branche.branche, 'fusionnee'));
-    } catch (err: any) {
-      // Une fusion à moitié faite est pire que pas de fusion du tout : on la
-      // défait avant de rendre la main, et la cause s'écrit en clair.
-      await git(['merge', '--abort'], 30_000).catch(() => undefined);
-      const conflit = /conflict/i.test(String(err?.stdout ?? '') + String(err?.stderr ?? ''));
-      log.warn('rapatriement du travail Cursor impossible', err);
-      etape(
-        'failed',
-        conflit
-          ? messageDeRapatriement(branche.branche, 'conflit')
-          : messageDeRapatriement(branche.branche, 'echec', (err?.stderr ?? err?.message ?? '').toString().trim().slice(0, 200)),
-      );
-    }
-  }
-}
-
-/** La mesure du tour, lue sur l'agent une fois le run terminé. */
-async function mesureDuRun(cle: string, agentId: string, runId: string): Promise<EngineEvent['usage'] | undefined> {
-  try {
-    const data = await appelCursor(`/v1/agents/${agentId}/usage`, cle, { plafondMs: 20_000 });
-    const runs: any[] = Array.isArray(data?.runs) ? data.runs : [];
-    const propre = runs.find((r) => r?.id === runId);
-    const usage = propre?.usage ?? data?.totalUsage;
-    if (!usage) return undefined;
-    const cache = Number(usage.cacheReadTokens ?? 0);
-    return {
-      // Cursor compte le cache À PART de `inputTokens` (constaté sur un tour
-      // réel : 2 733 en entrée, 11 072 relus). Les deux parts restent donc
-      // disjointes, comme le contrat interne l'exige.
-      inputTokens: Number(usage.inputTokens ?? 0),
-      outputTokens: Number(usage.outputTokens ?? 0),
-      cachedTokens: Number.isFinite(cache) ? cache : undefined,
-      costUsd: coutEnDollars(propre?.cost?.chargedCents ?? data?.cost?.chargedCents),
-    };
+    const contenu = fs.readFileSync(mcpConfigPath, 'utf8');
+    const dossier = path.join(cwd, '.cursor');
+    fs.mkdirSync(dossier, { recursive: true });
+    fs.writeFileSync(path.join(dossier, 'mcp.json'), contenu, 'utf8');
+    ecarterDuDepot(cwd, '/.cursor/');
   } catch (err) {
-    // La mesure n'est pas le tour : son absence se dit « indisponible », elle
-    // ne fait jamais échouer un travail rendu.
-    log.warn('mesure Cursor illisible', err);
-    return undefined;
+    // Sans outils, l'agent travaille quand même : il ne peut simplement pas
+    // lire la mémoire du projet ni poser de question. On le journalise.
+    log.warn('outils du projet non branchés pour Cursor', String(err).slice(0, 200));
   }
+}
+
+/** Une ligne d'exclusion posée dans le fichier LOCAL du dépôt, jamais dans son `.gitignore`. */
+function ecarterDuDepot(cwd: string, ligne: string): void {
+  try {
+    const racine = racineDuDepot(cwd);
+    if (!racine) return;
+    const info = path.join(racine, 'info');
+    const fichier = path.join(info, 'exclude');
+    const actuel = fs.existsSync(fichier) ? fs.readFileSync(fichier, 'utf8') : '';
+    if (actuel.split('\n').some((l) => l.trim() === ligne)) return;
+    fs.mkdirSync(info, { recursive: true });
+    fs.writeFileSync(fichier, `${actuel}${actuel.endsWith('\n') || !actuel ? '' : '\n'}${ligne}\n`);
+  } catch (err) {
+    log.warn("exclusion du fichier d'outils impossible", String(err).slice(0, 200));
+  }
+}
+
+/**
+ * LE DOSSIER GIT du tour. Dans une copie de travail (`git worktree`), `.git`
+ * est un FICHIER qui désigne le vrai dossier : l'exclusion doit y aller, pas à
+ * côté. Rien de tout cela : ce n'est pas un dépôt, il n'y a rien à écarter.
+ */
+function racineDuDepot(cwd: string): string | null {
+  const marque = path.join(cwd, '.git');
+  if (!fs.existsSync(marque)) return null;
+  if (fs.statSync(marque).isDirectory()) return marque;
+  const pointe = fs.readFileSync(marque, 'utf8').match(/^gitdir:\s*(.+)$/m)?.[1]?.trim();
+  if (!pointe) return null;
+  return path.isAbsolute(pointe) ? pointe : path.resolve(cwd, pointe);
+}
+
+/* ------------------------------------------------------------------ */
+/* Le tour                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La ligne de commande du moteur, à part pour être rejouable dans un test :
+ * c'est ici que se décident le modèle envoyé, la reprise du fil et l'accès
+ * complet — trois choses qu'on ne voit que si on peut LIRE ce que le moteur
+ * reçoit.
+ */
+export function buildCursorArgs(options: EngineRunOptions, modele: string): string[] {
+  const args: string[] = ['-p', '--output-format', 'stream-json', '--model', modele];
+
+  // Le mode plan l'emporte sur l'accès complet : l'agent prépare sans jamais
+  // écrire. Ailleurs, le consentement a été donné en validant la carte, pas
+  // dans une succession de fenêtres — d'où `--force`, qui n'en ouvre aucune.
+  if (modePlanFermeLEcriture(options.mode, options.role)) args.push('--mode', 'plan');
+  else if (options.fullAccess) args.push('--force', '--sandbox', 'disabled');
+
+  if (options.sessionId) args.push('--resume', options.sessionId);
+  // Le projet est celui du démon : rien à approuver à la main, et une question
+  // posée à un agent qui travaille seul n'a personne pour y répondre.
+  args.push('--trust');
+  if (options.mcpConfigPath) args.push('--approve-mcps');
+  if (options.projectRoot) args.push('--add-dir', options.projectRoot);
+  return args;
 }
 
 export const cursorAdapter: EngineAdapter = {
   id: 'cursor',
   label: 'Cursor',
-  // Aucun exécutable : ce moteur vit au bout d'une API. Le champ reste au
-  // contrat commun, vide, plutôt qu'un faux chemin qu'un script irait chercher.
-  binary: '',
+  binary: process.env.HAIKODEV_CURSOR_BIN || '/usr/local/bin/cursor-agent',
   defaultModel: MODELE_CURSOR_PAR_DEFAUT,
 
+  /**
+   * Le moteur n'existe que si l'outil répond ET qu'une clé est connue : sans
+   * clé, aucun tour ne peut partir, et le proposer dans les menus reviendrait
+   * à promettre un moteur qui refusera tout.
+   */
   async detect() {
-    const cles = clesCursor();
-    if (!cles.length) return { installed: false };
-    let dernierRefus: unknown = null;
-    for (const cle of cles) {
-      try {
-        const moi = await appelCursor('/v1/me', cle, { plafondMs: 15_000 });
-        return { installed: true, version: typeof moi?.apiKeyName === 'string' ? moi.apiKeyName : 'clé acceptée' };
-      } catch (err) {
-        dernierRefus = err;
-        // Compte suivant : une clé révoquée ne doit pas emporter le moteur.
-      }
+    if (!clesCursor().length) return { installed: false };
+    try {
+      const { stdout } = await execFileAsync(cursorAdapter.binary, ['--version'], { timeout: 15_000 });
+      return { installed: true, version: stdout.trim().split('\n')[0] };
+    } catch {
+      return { installed: false };
     }
-    log.warn('aucune clé Cursor acceptée', dernierRefus);
-    return { installed: false };
   },
 
   async models() {
-    for (const cle of clesCursor()) {
-      const liste = await modelesCursor(cle).catch(() => null);
-      if (liste?.length) return liste;
-    }
+    // Le catalogue réel est construit par catalog.ts, qui appelle
+    // `modelesCursor` : l'adaptateur ne maintient pas de liste de son côté.
     return [];
   },
 
   run(options: EngineRunOptions): EngineHandle {
-    const abandon = new AbortController();
+    const cle = cleDuTour(options.env);
+    const manque = manqueDuMoteurCursor(fs.existsSync(cursorAdapter.binary), Boolean(cle));
+    if (manque) return tourImpossible(options, manque);
+
+    /*
+     * La consigne système part COLLÉE DEVANT la demande, comme sous Codex : le
+     * CLI n'a pas de consigne séparée. `enteteDuTour` décide de ce qui repart
+     * vraiment (`shared/src/prefixe-cache.ts`).
+     */
+    const entete = enteteDuTour({
+      engine: 'cursor',
+      reprise: Boolean(options.sessionId),
+      systemPrompt: options.systemPrompt,
+      systemPromptRappel: options.systemPromptRappel,
+    });
+    const prompt = entete ? `${entete}\n\n---\n\n${options.prompt}` : options.prompt;
+
+    poserLaConfigurationMcp(options.cwd, options.mcpConfigPath);
+
+    let enfant: ReturnType<typeof spawn> | null = null;
     let arrete = false;
-    /** L'agent cloud porteur du fil : le premier tour le crée, les suivants s'y ajoutent. */
-    let agentId = options.sessionId ?? undefined;
-    let runId: string | undefined;
+    const pendingSteps = new Map<string, string>();
+    let buffer = '';
+    let stderr = '';
 
-    const finished = (async (): Promise<{ ok: boolean; error?: string }> => {
-      const terminer = (ok: boolean, error?: string) => {
-        if (!ok && error) options.onEvent({ kind: 'error', error });
-        options.onEvent({ kind: 'done', exitCode: ok ? 0 : 1 });
-        return { ok, error };
-      };
-
-      const cle = cleDuTour(options.env);
-      if (!cle) {
-        return terminer(
-          false,
-          "Aucune clé d'accès Cursor n'est configurée sur le serveur : le tour n'est pas parti.",
-        );
-      }
-
+    const handleLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('{')) return;
+      let event: any;
       try {
-        const modele = options.model?.trim() || MODELE_CURSOR_PAR_DEFAUT;
-        const params = paramsDeReflexionCursor(await ficheDuModele(cle, modele), options.thinking);
-
-        /*
-         * La consigne système part COLLÉE DEVANT la demande, comme sous Codex :
-         * l'API n'a pas de consigne séparée. `enteteDuTour` décide de ce qui
-         * repart vraiment (`shared/src/prefixe-cache.ts`).
-         */
-        const entete = enteteDuTour({
-          engine: 'cursor',
-          reprise: Boolean(agentId),
-          systemPrompt: options.systemPrompt,
-          systemPromptRappel: options.systemPromptRappel,
-        });
-        const texte = entete ? `${entete}\n\n---\n\n${options.prompt}` : options.prompt;
-
-        if (!agentId) {
-          const depot = await depotDuTour(options.cwd, cle);
-          options.onEvent({
-            kind: 'step',
-            step: {
-              key: 'cursor-depart',
-              label: depot
-                ? `Agent Cursor lancé sur ${depot.url.split('/').slice(-2).join('/')}`
-                : 'Agent Cursor lancé sans dépôt',
-              state: 'running',
-              detail: depot
-                ? `${depot.url}${depot.startingRef ? ` (branche ${depot.startingRef})` : ''}`
-                : "Aucun dépôt GitHub ouvert à ce compte Cursor : l'agent réfléchit et répond, il ne touche pas au projet.",
-            },
-          });
-          const cree = await appelCursor('/v1/agents', cle, {
-            methode: 'POST',
-            corps: {
-              prompt: { text: texte },
-              model: { id: modele, ...(params.length ? { params } : {}) },
-              ...(depot ? { repos: [{ url: depot.url, ...(depot.startingRef ? { startingRef: depot.startingRef } : {}) }] } : {}),
-              // Une demande de fusion est un geste de l'utilisateur, jamais du moteur.
-              autoCreatePR: false,
-            },
-            signal: abandon.signal,
-          });
-          agentId = cree?.agent?.id;
-          runId = cree?.run?.id ?? cree?.agent?.latestRunId;
-          if (!agentId || !runId) throw new RefusCursor("Cursor n'a pas rendu d'agent utilisable.", 0);
-          options.onEvent({ kind: 'session', sessionId: agentId });
-          options.onEvent({
-            kind: 'step',
-            step: { key: 'cursor-depart', label: 'Agent Cursor lancé', state: 'done' },
-          });
-        } else {
-          const suite = await appelCursor(`/v1/agents/${agentId}/runs`, cle, {
-            methode: 'POST',
-            corps: { prompt: { text: texte }, model: { id: modele, ...(params.length ? { params } : {}) } },
-            signal: abandon.signal,
-          });
-          runId = suite?.run?.id;
-          if (!runId) throw new RefusCursor("Cursor n'a pas rendu de tour utilisable.", 0);
-        }
-
-        /*
-         * LE SUIVI. Le flux d'événements de Cursor se coupe sans prévenir
-         * (« Run stream is no longer available », constaté sur un run réel) :
-         * on ne s'y fie pas et on RELIT le run jusqu'à un statut terminal. Un
-         * statut inconnu compte comme terminal — jamais comme un travail qui
-         * continue, sinon le témoin tournerait pour toujours.
-         */
-        let essai = 0;
-        let dernierStatut = '';
-        const debut = Date.now();
-        for (;;) {
-          if (arrete) return terminer(false, 'Tour arrêté à la demande.');
-          if (options.plafondMs && Date.now() - debut > options.plafondMs) {
-            return terminer(false, "Cursor n'a pas rendu la main dans le temps imparti.");
-          }
-          const run = await appelCursor(`/v1/agents/${agentId}/runs/${runId}`, cle, {
-            plafondMs: 30_000,
-            signal: abandon.signal,
-          });
-          const statut = String(run?.status ?? '');
-          if (statut && statut !== dernierStatut) {
-            dernierStatut = statut;
-            options.onEvent({
-              kind: 'step',
-              step: { key: 'cursor-travail', label: `Cursor : ${libelleDeStatut(statut)}`, state: 'running' },
-            });
-          }
-          const issue = issueDuRunCursor(statut);
-          if (issue !== 'en-cours') {
-            const resultat = typeof run?.result === 'string' ? run.result.trim() : '';
-            options.onEvent({
-              kind: 'step',
-              step: {
-                key: 'cursor-travail',
-                label: `Cursor : ${libelleDeStatut(statut)}`,
-                state: issue === 'reussi' ? 'done' : 'failed',
-              },
-            });
-            const usage = await mesureDuRun(cle, agentId, runId);
-            if (usage) options.onEvent({ kind: 'usage', usage });
-            // Ce que l'agent a ÉCRIT revient dans la carte avant que le tour ne
-            // se referme : sinon le démon constaterait un dépôt intact.
-            if (issue === 'reussi') {
-              await rapatrierLeTravail(options.cwd, branchesDuRunCursor(run), options.onEvent);
-            }
-            if (issue === 'reussi' && resultat) {
-              options.onEvent({ kind: 'text', text: resultat });
-              return terminer(true);
-            }
-            return terminer(false, messageDeFinCursor(statut, resultat));
-          }
-          await new Promise((resolve) => setTimeout(resolve, attenteAvantRelecture(essai++)));
-        }
-      } catch (err: any) {
-        if (arrete) return terminer(false, 'Tour arrêté à la demande.');
-        const message =
-          err instanceof RefusCursor
-            ? err.message
-            : err?.name === 'TimeoutError' || err?.name === 'AbortError'
-              ? "Le service Cursor n'a pas répondu dans le temps imparti."
-              : `L'appel à Cursor a échoué : ${err?.message ?? String(err)}`;
-        log.warn('tour Cursor en échec', err);
-        return terminer(false, message);
+        event = JSON.parse(trimmed);
+      } catch {
+        return;
       }
+      emitFromCursor(event, options.onEvent, pendingSteps);
+    };
+
+    /*
+     * LE NOM DU MODÈLE SE RÉSOUT AVANT LE LANCEMENT, et il demande une lecture
+     * du catalogue : le tour part donc dans une promesse. Tout ce qui suit —
+     * flux, fin, arrêt — reste identique aux deux autres moteurs.
+     */
+    const finished = (async (): Promise<{ ok: boolean; error?: string }> => {
+      const modele = idCursorPourNiveau(
+        await catalogueDuTour(cle),
+        options.model?.trim() || MODELE_CURSOR_PAR_DEFAUT,
+        options.thinking,
+      );
+      if (arrete) {
+        options.onEvent({ kind: 'done', exitCode: 1 });
+        return { ok: false, error: 'Tour arrêté à la demande.' };
+      }
+
+      const child = spawn(cursorAdapter.binary, buildCursorArgs(options, modele), {
+        cwd: options.cwd,
+        env: { ...process.env, ...options.env, CURSOR_API_KEY: cle, FORCE_COLOR: '0' },
+        // stdin fermé : la demande part en argument, et une entrée ouverte
+        // ferait attendre le moteur au lieu de lui faire rendre la main.
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      enfant = child;
+      child.stdin?.write(prompt);
+      child.stdin?.end();
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString('utf8');
+        const lignes = buffer.split('\n');
+        buffer = lignes.pop() ?? '';
+        for (const ligne of lignes) handleLine(ligne);
+      });
+
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8');
+        if (stderr.length > 8000) stderr = stderr.slice(-4000);
+      });
+
+      return finDuProcessus(child, {
+        moteur: 'cursor',
+        plafondMs: options.plafondMs,
+        surErreur: (message) => options.onEvent({ kind: 'error', error: message }),
+        cloturer: (code, depassement) => {
+          if (buffer.trim()) handleLine(buffer);
+          const ok = code === 0 && !depassement;
+          const message = depassement
+            ? "Le moteur ne rendait pas la main : il a été arrêté pour ne pas bloquer l'agent."
+            : raisonDeLaSortieCursor(stderr, code);
+          if (!ok) options.onEvent({ kind: 'error', error: message });
+          options.onEvent({ kind: 'done', exitCode: code ?? -1 });
+          return { ok, error: ok ? undefined : message.slice(0, 500) };
+        },
+      });
     })();
 
     return {
       stop: () => {
         arrete = true;
-        abandon.abort();
-        // L'agent tourne CHEZ Cursor : le prévenir est le seul moyen de ne pas
-        // laisser un travail (et une dépense) courir dans le vide.
-        const cle = cleDuTour(options.env);
-        if (cle && agentId && runId) {
-          appelCursor(`/v1/agents/${agentId}/runs/${runId}/cancel`, cle, { methode: 'POST', plafondMs: 15_000 }).catch(
-            (err) => log.warn("arrêt du tour Cursor impossible", err),
-          );
+        try {
+          enfant?.kill('SIGTERM');
+          setTimeout(() => {
+            if (enfant && !enfant.killed) enfant.kill('SIGKILL');
+          }, 4000);
+        } catch (err) {
+          log.warn('arrêt du moteur cursor impossible', err);
         }
       },
       finished,
@@ -509,25 +379,119 @@ export const cursorAdapter: EngineAdapter = {
   },
 };
 
-/** Le statut de Cursor, dit en français dans l'étape affichée. */
-function libelleDeStatut(statut: string): string {
-  switch (statut.toUpperCase()) {
-    case 'CREATING':
-      return 'préparation';
-    case 'PENDING':
-    case 'QUEUED':
-      return 'en attente';
-    case 'RUNNING':
-    case 'ACTIVE':
-      return 'au travail';
-    case 'FINISHED':
-    case 'COMPLETED':
-      return 'terminé';
-    case 'CANCELLED':
-    case 'CANCELED':
-    case 'STOPPED':
-      return 'arrêté';
+/** Un tour qui ne peut pas partir se referme tout de suite, en disant pourquoi. */
+function tourImpossible(options: EngineRunOptions, raison: string): EngineHandle {
+  options.onEvent({ kind: 'error', error: raison });
+  options.onEvent({ kind: 'done', exitCode: 1 });
+  return { stop: () => undefined, finished: Promise.resolve({ ok: false, error: raison }) };
+}
+
+/**
+ * LE FLUX DU CLI, traduit dans les événements communs aux moteurs. Le format
+ * est proche de celui de Claude Code — `system` au départ, `assistant` pour le
+ * texte, `result` à la fin — avec un vocabulaire d'outils à lui
+ * (`outilCursor`). Le RAISONNEMENT (`thinking`) n'est pas une étape
+ * d'exécution : il ne s'affiche pas, comme sous Codex.
+ */
+export function emitFromCursor(
+  event: any,
+  onEvent: (e: EngineEvent) => void,
+  pendingSteps: Map<string, string>,
+): void {
+  switch (event?.type) {
+    case 'system':
+      if (event.session_id) onEvent({ kind: 'session', sessionId: event.session_id });
+      return;
+
+    case 'assistant': {
+      for (const bloc of event.message?.content ?? []) {
+        if (bloc?.type === 'text' && bloc.text) onEvent({ kind: 'text', text: bloc.text });
+      }
+      return;
+    }
+
+    case 'tool_call': {
+      const traduit = outilCursor(event.tool_call);
+      if (!traduit) return;
+      const key = String(event.call_id ?? `${traduit.nom}-${event.timestamp_ms ?? ''}`);
+
+      // La liste de tâches n'est pas une étape : elle a son propre affichage,
+      // coché en direct. La noyer dans le journal reviendrait à la cacher.
+      if (traduit.nom === OUTIL_TACHES_CURSOR) {
+        const brut = (traduit.entree as any)?.todos ?? (traduit.entree as any)?.items;
+        onEvent({ kind: 'todo', todos: normalizeTodos(brut) });
+        return;
+      }
+
+      const step = humanStep(traduit.nom, traduit.entree);
+      if (event.subtype === 'started') {
+        pendingSteps.set(key, step.label);
+        onEvent({ kind: 'step', step: { key, label: step.label, state: 'running', detail: step.detail } });
+        return;
+      }
+      const label = pendingSteps.get(key) ?? step.label;
+      pendingSteps.delete(key);
+      const resultat = resultatDeLOutil(event.tool_call);
+      onEvent({
+        kind: 'step',
+        step: {
+          key,
+          label,
+          state: resultat.echec ? 'failed' : 'done',
+          detail: resultat.detail ?? step.detail,
+        },
+      });
+      return;
+    }
+
+    case 'result': {
+      if (event.session_id) onEvent({ kind: 'session', sessionId: event.session_id });
+      const usage = event.usage ?? {};
+      const cache = Number(usage.cacheReadTokens ?? 0);
+      onEvent({
+        kind: 'usage',
+        usage: {
+          // Cursor compte le cache À PART de `inputTokens` (constaté sur un
+          // tour réel : 13 631 en entrée, 29 184 relus). Les deux parts restent
+          // donc disjointes, comme le contrat interne l'exige.
+          inputTokens: Number(usage.inputTokens ?? 0) + Number(usage.cacheWriteTokens ?? 0),
+          outputTokens: Number(usage.outputTokens ?? 0),
+          cachedTokens: Number.isFinite(cache) ? cache : undefined,
+          durationMs: typeof event.duration_ms === 'number' ? event.duration_ms : undefined,
+        },
+      });
+      if (event.is_error) {
+        onEvent({
+          kind: 'error',
+          error: typeof event.result === 'string' && event.result.trim() ? event.result : 'Le moteur a échoué.',
+        });
+      }
+      // Le texte final est déjà arrivé par les blocs « assistant » : le
+      // réémettre ici le ferait apparaître deux fois dans la conversation.
+      return;
+    }
+
     default:
-      return statut.toLowerCase() || 'sans statut';
+      return;
   }
+}
+
+/** Ce qu'un appel d'outil terminé a donné : son échec éventuel, et de quoi le lire. */
+function resultatDeLOutil(appel: unknown): { echec: boolean; detail?: string } {
+  if (!appel || typeof appel !== 'object') return { echec: false };
+  const cle = Object.keys(appel as Record<string, unknown>).find((k) => k.endsWith('ToolCall'));
+  const resultat = cle ? (appel as Record<string, any>)[cle]?.result : undefined;
+  if (!resultat) return { echec: false };
+  if (resultat.error) {
+    const texte = typeof resultat.error === 'string' ? resultat.error : JSON.stringify(resultat.error);
+    return { echec: true, detail: texte.slice(0, 400) };
+  }
+  const succes = resultat.success ?? resultat;
+  const detail =
+    typeof succes?.message === 'string'
+      ? succes.message
+      : typeof succes?.output === 'string'
+        ? succes.output
+        : undefined;
+  return { echec: false, detail: detail?.slice(0, 400) };
 }

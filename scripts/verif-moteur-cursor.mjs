@@ -2,18 +2,24 @@
 /**
  * CURSOR EST-IL VRAIMENT UN MOTEUR COMME LES AUTRES ?
  *
- * Le contrôle demandé par la carte, joué en entier sur un démon à soi et dans
- * un vrai navigateur :
+ * Cursor n'est plus une API d'agents cloud : c'est l'outil en ligne de commande
+ * `cursor-agent`, lancé DANS le dossier de la carte, qui lit et modifie les
+ * fichiers sur la machine comme Claude et Codex. Le contrôle joue donc d'abord
+ * ce qui fait toute la différence — un fichier LOCAL réellement modifié —, puis
+ * le reste sur un démon à soi et dans un vrai navigateur :
  *
+ *   0. un VRAI TOUR lancé par l'adaptateur, dans un dépôt d'essai, ÉCRIT un
+ *      fichier sur le disque, sans créer ni pousser aucune branche « cursor/… »
+ *      et sans qu'aucune fusion distante n'ait à ramener quoi que ce soit ;
  *   1. la clé est acceptée et le CATALOGUE réel remonte — plusieurs modèles,
- *      annoncés « en direct » et non par une liste de secours ;
+ *      lus dans `cursor-agent --list-models` et non dans une liste de secours ;
  *   2. Cursor apparaît dans le SÉLECTEUR de la barre d'écriture, à côté de
  *      Claude et de GPT, et se choisit à la souris ;
  *   3. un VRAI TOUR part depuis l'interface et rend une réponse complète, avec
  *      sa mesure ;
- *   4. les RÉGLAGES disent ce que la clé permet : son nom, et les dépôts
- *      GitHub qu'elle peut ouvrir — jamais une jauge de quota inventée, Cursor
- *      n'en publiant aucune ;
+ *   4. les RÉGLAGES disent ce qu'il faut pour travailler : le nom de la clé et
+ *      l'outil `cursor-agent` sur le serveur — jamais une jauge de quota
+ *      inventée, Cursor n'en publiant aucune ;
  *   5. une clé REFUSÉE se dit en clair, le tour se referme, et le témoin
  *      « au travail » s'éteint — jamais un rond qui tourne sans fin ;
  *   6. les moteurs déjà là ne changent pas de comportement.
@@ -23,8 +29,8 @@
  * Démon à soi, base jetable, dossier temporaire : aucune donnée réelle n'est
  * touchée. Le script juge le dépôt d'où il PART, jamais le dossier principal,
  * et ne reprend NI `HAIKODEV_URL` (qui désigne l'application publiée) NI
- * `HAIKODEV_TOKEN`. Les tours 3 et 4 appellent réellement Cursor : ils coûtent
- * quelques centimes, rien d'autre.
+ * `HAIKODEV_TOKEN`. Les tours 0, 3 et 5 appellent réellement Cursor : ils
+ * coûtent quelques centimes, rien d'autre.
  */
 import { chromium } from 'playwright';
 import { createRequire } from 'node:module';
@@ -63,7 +69,8 @@ const DATA = path.join(TMP, 'data');
 const DEPOT = path.join(TMP, 'projet');
 for (const dossier of [DATA, DEPOT]) fs.mkdirSync(dossier, { recursive: true });
 // Un vrai dépôt git, sans dépôt distant : c'est le cas le plus courant, et
-// celui où l'agent Cursor doit partir SANS dépôt au lieu d'échouer.
+// l'agent doit y travailler comme sous Claude ou Codex — le travail se fait
+// sur la machine, aucun dépôt GitHub n'entre en jeu.
 execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: DEPOT });
 fs.writeFileSync(path.join(DEPOT, 'CLAUDE.md'), '# Projet d’essai\n');
 
@@ -196,7 +203,88 @@ async function moteursDuServeur() {
 /* Le déroulé                                                          */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* 0. Le tour LOCAL : un fichier réellement écrit sur le disque        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE CONTRÔLE QUI DIT TOUT : l'adaptateur lancé pour de vrai dans un dépôt
+ * d'essai doit y ÉCRIRE un fichier. C'est ce que l'ancien pilotage cloud ne
+ * savait pas faire — l'agent tournait chez Cursor, sur un dépôt GitHub, et son
+ * travail devait être rapatrié par une branche « cursor/… ». On vérifie donc le
+ * disque, puis l'absence de toute branche distante à ramener.
+ */
+async function tourLocal() {
+  process.env.HAIKODEV_DATA = DATA;
+  const { cursorAdapter } = await import(path.join(RACINE, 'server', 'dist', 'engines', 'cursor.js'));
+
+  const ATELIER = path.join(TMP, 'atelier');
+  fs.mkdirSync(ATELIER, { recursive: true });
+  const g = (...args) => execFileSync('git', args, { cwd: ATELIER, encoding: 'utf8' });
+  g('init', '-q', '-b', 'main');
+  g('config', 'user.email', 'essai@haikodev.local');
+  g('config', 'user.name', 'Essai');
+  fs.writeFileSync(path.join(ATELIER, 'note.txt'), 'avant\n');
+  g('add', 'note.txt');
+  g('commit', '-q', '-m', 'Base');
+
+  const vus = [];
+  const handle = cursorAdapter.run({
+    cwd: ATELIER,
+    prompt:
+      'Remplace tout le contenu du fichier note.txt de ce dossier par le seul mot GENÊT, ' +
+      'en majuscules et suivi d’un retour à la ligne. Ne crée aucun autre fichier, ' +
+      'ne lance aucune commande git, puis réponds seulement « fait ».',
+    model: 'composer-2.5',
+    fullAccess: true,
+    plafondMs: 300_000,
+    env: { CURSOR_API_KEY: CLE },
+    onEvent: (e) => vus.push(e),
+  });
+  const fin = await handle.finished;
+
+  noter('le tour local va au bout', fin.ok, fin.error ?? '');
+  const ecrit = fs.readFileSync(path.join(ATELIER, 'note.txt'), 'utf8');
+  noter(
+    'un vrai tour Cursor MODIFIE un fichier du dossier de travail',
+    ecrit.includes('GENÊT'),
+    ecrit.trim().slice(0, 60),
+  );
+
+  // Rien à rapatrier : le travail est déjà là, sur la branche du dossier.
+  const branches = g('branch', '-a');
+  noter(
+    'aucune branche « cursor/… » à ramener : le travail est déjà sur place',
+    !/cursor\//.test(branches) && /\bmain\b/.test(branches),
+    branches.trim().replace(/\n/g, ' | '),
+  );
+  const modifie = g('status', '--porcelain');
+  noter(
+    'la modification est visible dans la copie de travail, sans aucune fusion',
+    /note\.txt/.test(modifie),
+    modifie.trim() || 'aucun changement',
+  );
+
+  // Le contrat commun aux moteurs : un fil, des étapes, une mesure.
+  const fil = vus.find((e) => e.kind === 'session')?.sessionId ?? '';
+  noter('le tour rend un identifiant de fil, pour la reprise', !!fil, fil.slice(0, 60));
+  const etapes = vus.filter((e) => e.kind === 'step');
+  noter(
+    'les gestes de l’agent remontent en étapes lisibles',
+    etapes.some((e) => /Modification|Écriture|Lecture|Commande/i.test(e.step?.label ?? '')),
+    etapes.map((e) => e.step?.label).slice(0, 4).join(' · '),
+  );
+  const mesure = vus.find((e) => e.kind === 'usage')?.usage;
+  noter(
+    'le tour local porte sa mesure',
+    !!mesure && (mesure.inputTokens ?? 0) + (mesure.outputTokens ?? 0) > 0,
+    mesure ? `${mesure.inputTokens} entrée, ${mesure.outputTokens} sortie` : 'aucune mesure',
+  );
+}
+
 async function main() {
+  await tourLocal();
+
   demon = lancerLeDemon(CLE);
   if (!(await attendrePort())) {
     noter('le démon démarre', false, journal.join('').slice(-800));
@@ -337,14 +425,15 @@ async function main() {
 
   // Le fil vit dans la colonne `session_id` de l'agent, rangé par clé de
   // session : sans lui, le tour suivant repartirait d'une conversation vide.
+  // C'est désormais l'identifiant de session du CLI, celui que `--resume` reprend.
   const fil = baseLecture().prepare('SELECT session_id FROM agents WHERE id = ?').get(AGENT)?.session_id ?? '';
   noter(
-    "le fil de l'agent cloud est retenu pour le tour suivant",
-    fil.includes('bc-'),
+    'le fil du CLI est retenu pour le tour suivant',
+    fil.trim().length > 0,
     fil.slice(0, 120),
   );
 
-  /* -------- 4. Ce que la clé permet, dans les réglages -------- */
+  /* -------- 4. Ce qu'il faut pour travailler, dans les réglages -------- */
 
   await page.evaluate(() => {
     window.location.hash = 'reglages';
@@ -393,12 +482,21 @@ async function main() {
     .catch(() => false);
   noter("une clé éprouvée ajoute son compte sans toucher au serveur", compteAjoute);
 
-  const depotsDits = await page
-    .locator('text=/dépôts? ouverts?|aucun dépôt relié|dépôts illisibles/')
+  // L'outil sur la machine est la SECONDE pièce d'un tour : sans lui, une clé
+  // acceptée ne suffit pas, et l'écran doit le dire au lieu de laisser croire
+  // que tout va bien.
+  const outilDit = await page
+    .locator('text=/outil « cursor-agent » (installé|absent)/')
     .first()
     .innerText()
     .catch(() => '');
-  noter('les dépôts que la clé peut ouvrir sont dits', !!depotsDits, depotsDits);
+  noter("les réglages disent si l'outil « cursor-agent » est sur le serveur", !!outilDit, outilDit);
+  noter(
+    "plus aucune promesse de dépôt GitHub sur un compte Cursor",
+    !/dépôts? ouverts?|aucun dépôt relié|dépôts illisibles/.test(
+      await page.locator('section', { hasText: 'Comptes et quotas' }).first().innerText(),
+    ),
+  );
   await page.keyboard.press('Escape');
 
   /* -------- 5. La relève prend le relais, puis le refus se dit -------- */

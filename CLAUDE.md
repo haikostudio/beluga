@@ -381,23 +381,24 @@ le nom, là-bas le texte).
   ratée : agent en « stopped », alerte « Tâche interrompue par une panne du moteur », et le bandeau
   rouge — seulement là — porte la cause réelle en clair, jamais un « code 1 ». Vérifié par
   `server/src/test/panne-passagere.test.ts` et `scripts/verif-panne-moteur.mjs`.
-- **TROIS MOTEURS, dont un qui n'est PAS un outil en ligne de commande**
-  (`shared/src/moteur-cursor.ts`, `server/src/engines/cursor.ts`) : Claude et Codex sont des
-  exécutables déjà authentifiés sur le serveur, CURSOR est une API distante (agents cloud, clé
-  `CURSOR_API_KEY` posée HORS du dépôt). Même contrat d'adaptateur, cinq différences : le travail se
-  fait chez Cursor sur un dépôt GitHub — proposé seulement s'il est réellement ouvert au compte,
-  sinon l'agent répond SANS dépôt et le dit ; le fil est l'agent cloud (`bc-…`) ; on RELIT le run au
-  lieu de suivre un flux qui se coupe, et un statut inconnu est TERMINAL ; un réglage de réflexion
-  part comme une COMBINAISON entière (`variants`), jamais seul ; sans clé, le moteur n'apparaît
-  nulle part. Cursor ne publiant AUCUN quota, sa ligne de compte n'affiche PAS de jauge
-  (`moteurSansQuota`) mais l'état de sa clé et les DÉPÔTS qu'elle ouvre (commande `cursor.etat`), et
-  la clé de l'environnement n'appartient qu'au compte principal — un compte de relève porte la
-  sienne dans son dossier et **s'ajoute depuis les réglages** (`cursor.ajouterCle`, clé éprouvée
-  avant d'entrer dans la liste), le moteur regardant TOUTES les clés déclarées (`clesCursor`) et non
-  la seule clé du serveur. Ce que l'agent ÉCRIT revient dans la carte en fin de tour
-  (`rapatrierLeTravail`) : branche « cursor/… » fusionnée, mais seulement dans un dossier de carte
-  propre, un conflit étant défait et DIT. Verrouillé par `server/src/test/moteur-cursor.test.ts` et
-  `scripts/verif-moteur-cursor.mjs`.
+- **TROIS MOTEURS, TOUS EN LIGNE DE COMMANDE** (`shared/src/moteur-cursor.ts`,
+  `server/src/engines/cursor.ts`) : Claude, Codex et désormais CURSOR (`cursor-agent`) sont des
+  exécutables lancés DANS la copie de travail de la carte, qui lisent et modifient les fichiers sur
+  la machine. Les agents cloud de Cursor (`https://api.cursor.com`, dépôt GitHub, branche
+  « cursor/… » à rapatrier) sont RETIRÉS ; de l'API il ne reste qu'une porte, éprouver une clé
+  (`GET /v1/me`), le CLI ne sachant pas juger celle qu'on lui passe. Même contrat d'adaptateur,
+  quatre différences : le MODÈLE PORTE SON NIVEAU DANS SON NOM — liste fermée lue dans
+  `cursor-agent --list-models`, regroupée par modèle, le niveau redevenant un suffixe au lancement
+  (`idCursorPourNiveau`), un nom paramétré étant refusé ; les outils du projet se posent en
+  `.cursor/mcp.json` dans le dossier du tour, écarté du dépôt ; la clé `CURSOR_API_KEY` vit HORS du
+  dépôt et, sans elle, le moteur n'apparaît nulle part ; Cursor ne publiant AUCUN quota, sa ligne de
+  compte n'affiche PAS de jauge (`moteurSansQuota`) mais l'état de sa clé ET la présence de l'outil
+  (commande `cursor.etat`). La clé de l'environnement n'appartient qu'au compte principal — un
+  compte de relève porte la sienne dans son dossier et **s'ajoute depuis les réglages**
+  (`cursor.ajouterCle`, clé éprouvée avant d'entrer dans la liste), le moteur regardant TOUTES les
+  clés déclarées (`clesCursor`). Un lancement impossible NOMME la pièce qui manque
+  (`manqueDuMoteurCursor`) et referme le tour. Verrouillé par
+  `server/src/test/moteur-cursor.test.ts` et `scripts/verif-moteur-cursor.mjs`.
 - **Un moteur lancé est SUIVI avant tout autre travail** (`startTurn`, `server/src/runtime.ts`) :
   `live.set` passe devant l'enregistrement du contexte envoyé, sinon une panne survenue dans cette
   fenêtre faisait refermer par `sendPrompt` un tour BIEN VIVANT — bulle rouge « panne interne du

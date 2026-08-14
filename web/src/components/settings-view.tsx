@@ -1112,11 +1112,11 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
 }
 
 /**
- * CE QUE PERMET UNE CLÉ CURSOR, sous la ligne de son compte : le nom que Cursor
- * donne à la clé, et les dépôts GitHub qu'elle peut réellement ouvrir. Sans
- * cette liste, rien à l'écran ne disait POURQUOI un agent Cursor répond sans
- * jamais toucher au code — la réponse est presque toujours « aucun dépôt n'est
- * relié à ce compte ».
+ * CE QU'IL FAUT POUR QU'UN TOUR CURSOR PARTE, sous la ligne de son compte : le
+ * nom que Cursor donne à la clé, et l'outil « cursor-agent » sur le serveur.
+ * Les deux sont nécessaires — sans l'outil, aucun agent ne se lance ; sans
+ * clé, il se lance et se fait refuser. Sans cette ligne, rien à l'écran ne
+ * disait POURQUOI un moteur pourtant déclaré ne travaille pas.
  *
  * La lecture appelle Cursor : elle se fait à l'ouverture des réglages, une
  * fois, et son échec se DIT au lieu de laisser une ligne vide.
@@ -1138,26 +1138,19 @@ function EtatCursor({ accountId }: { accountId: string }) {
 
   if (erreur) return <p className="text-[11.5px] text-danger">{erreur}</p>;
   if (!etat) return <p className="text-[11.5px] text-faint">lecture de la clé…</p>;
-  if (!etat.cleAcceptee) {
-    return <p className="text-[11.5px] text-danger">clé refusée — {etat.erreur ?? 'raison inconnue'}</p>;
-  }
 
   return (
     <div className="text-[11.5px] text-faint">
-      <p>
-        clé « {etat.nomDeLaCle ?? 'sans nom'} » acceptée · aucun quota publié par Cursor
-      </p>
-      {etat.erreurDepots ? (
-        <p className="text-warning">dépôts illisibles — {etat.erreurDepots}</p>
-      ) : etat.depots.length ? (
-        <p>
-          {etat.depots.length} dépôt{etat.depots.length > 1 ? 's' : ''} ouvert
-          {etat.depots.length > 1 ? 's' : ''} : {etat.depots.slice(0, 6).join(', ')}
-          {etat.depots.length > 6 ? ` … (+${etat.depots.length - 6})` : ''}
-        </p>
+      {etat.cleAcceptee ? (
+        <p>clé « {etat.nomDeLaCle ?? 'sans nom'} » acceptée · aucun quota publié par Cursor</p>
+      ) : (
+        <p className="text-danger">clé refusée — {etat.erreur ?? 'raison inconnue'}</p>
+      )}
+      {etat.cliInstalle ? (
+        <p>outil « cursor-agent » installé{etat.versionDuCli ? ` (version ${etat.versionDuCli})` : ''}</p>
       ) : (
         <p className="text-warning">
-          aucun dépôt relié : ses agents répondent sans ouvrir le code du projet
+          outil « cursor-agent » absent du serveur — {etat.erreurDuCli ?? 'aucun tour ne peut partir'}
         </p>
       )}
     </div>
