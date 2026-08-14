@@ -15,11 +15,12 @@
  *  6. LA RECHERCHE PAR LE SENS (façon RAG) retrouve une règle REFORMULÉE, avec
  *     d'autres mots que les siens — ce que le repli sur les mots ne sait pas faire.
  *
- * Les cinq premières parties tournent SANS CLÉ, sur le repli : c'est l'ancien
- * comportement, qui doit rester intact. La sixième appelle réellement le modèle
- * de vectorisation, sur un petit corpus fabriqué pour l'occasion — quelques
- * textes, quelques centimes de millier, pas les milliers de passages du dépôt.
- * Sans clé posée, elle le DIT et se passe : un contrôle ne se tait jamais.
+ * Les cinq premières parties tournent SANS MOTEUR DE SENS, sur le repli par les
+ * mots : c'est l'ancien comportement, qui doit rester intact. La sixième fait
+ * tourner le VRAI moteur — BAAI/bge-m3, en local sur ce serveur — sur un petit
+ * corpus fabriqué pour l'occasion : quelques textes, quelques secondes, pas les
+ * milliers de passages du dépôt. Moteur absent, elle le DIT et se passe : un
+ * contrôle ne se tait jamais.
  *
  *   node scripts/verif-recherche-passages.mjs
  */
@@ -38,27 +39,17 @@ const BASE = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-recherche-'));
 process.env.HAIKODEV_DATA = BASE;
 process.on('exit', () => fs.rmSync(BASE, { recursive: true, force: true }));
 
-/* LES CINQ PREMIÈRES PARTIES TOURNENT SANS RÉSEAU : on met la clé de côté pour
-   éprouver le REPLI, et on la reprend à la sixième. */
-const CLE = process.env.HAIKODEV_EMBED_API_KEY || process.env.OPENROUTER_API_KEY || cleDuService();
+/* LES CINQ PREMIÈRES PARTIES ÉPROUVENT LE REPLI : on écarte tout moteur de sens
+   — le local en pointant le dossier de données ailleurs, l'externe en oubliant
+   sa clé — et on rend le moteur local à la sixième. */
+const DONNEES_REELLES = process.env.HAIKODEV_DATA_REELLES || '/root/haikodev/data';
 delete process.env.HAIKODEV_EMBED_API_KEY;
 delete process.env.OPENROUTER_API_KEY;
 process.env.HAIKODEV_ENV_FILE = path.join(BASE, 'aucun-environnement');
 
-function cleDuService() {
-  try {
-    for (const ligne of fs.readFileSync('/etc/haikodev.env', 'utf8').split('\n')) {
-      const trouve = ligne.trim().match(/^(?:export\s+)?(?:HAIKODEV_EMBED_API_KEY|OPENROUTER_API_KEY)=(.+)$/);
-      if (trouve) return trouve[1].trim().replace(/^["']|["']$/g, '');
-    }
-  } catch {
-    /* pas de fichier de service : la sixième partie se passera */
-  }
-  return undefined;
-}
-
 const passages = await import(path.join(RACINE, 'server/dist/passages.js'));
 const memory = await import(path.join(RACINE, 'server/dist/memory.js'));
+const vecteurs = await import(path.join(RACINE, 'server/dist/vecteurs.js'));
 const partage = await import(path.join(RACINE, 'shared/dist/index.js'));
 
 const echecs = [];
@@ -199,10 +190,15 @@ verifier(
 /* ------------------------------------------------------------------ */
 
 console.log('\n6. La recherche par le sens (façon RAG), sur un petit corpus');
-if (!CLE) {
-  console.log('  … passée : aucune clé de vectorisation posée (HAIKODEV_EMBED_API_KEY / OPENROUTER_API_KEY).');
+/* Le moteur local vit dans le dossier de données RÉEL (`data/vectoriseur`), pas
+   dans la base jetable de ce contrôle : on l'y pointe le temps de la partie 6. */
+const VECTORISEUR = path.join(DONNEES_REELLES, 'vectoriseur');
+const moteurLocal = fs.existsSync(path.join(VECTORISEUR, 'node_modules'));
+if (!moteurLocal) {
+  console.log(`  … passée : aucun moteur local dans ${DONNEES_REELLES}/vectoriseur.`);
+  console.log('    Lance « node scripts/installer-vectoriseur.mjs » pour l’installer.');
 } else {
-  process.env.HAIKODEV_EMBED_API_KEY = CLE;
+  process.env.HAIKODEV_VECTORISEUR = VECTORISEUR;
 
   /* Un corpus MINUSCULE et fabriqué : quelques règles écrites avec un
      vocabulaire, et une question posée avec un AUTRE. Le repli sur les mots ne
@@ -264,10 +260,12 @@ if (!CLE) {
     parLeSens ? parLeSens.passages.map((p) => `${p.source} (${p.score.toFixed(2)})`).join(', ') : '',
   );
 
-  /* Le même corpus, la même question, mais SANS clé : c'est là que se voit ce
-     que le sens apporte. On ne juge pas le repli — il a le droit de rater —, on
-     AFFICHE la différence. */
-  delete process.env.HAIKODEV_EMBED_API_KEY;
+  console.log(`  → moteur : ${vecteurs.etatDesVecteurs().moteur}, modèle ${vecteurs.etatDesVecteurs().modele}`);
+
+  /* Le même corpus, la même question, mais SANS moteur de sens : c'est là que se
+     voit ce qu'il apporte. On ne juge pas le repli — il a le droit de rater —,
+     on AFFICHE la différence. */
+  delete process.env.HAIKODEV_VECTORISEUR;
   const parLesMots = await passages.rechercherPourLaTache('verif-mots', CORPUS, REFORMULEE, INDEX_CORPUS);
   console.log(
     `  → par les mots seuls : ${parLesMots ? parLesMots.passages.map((p) => p.source).join(', ') : 'aucun passage retrouvé'}`,

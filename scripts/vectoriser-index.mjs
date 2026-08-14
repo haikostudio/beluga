@@ -30,8 +30,15 @@ const vecteurs = await import(path.join(RACINE, 'server/dist/vecteurs.js'));
 const store = await import(path.join(RACINE, 'server/dist/store.js'));
 
 const etat = vecteurs.etatDesVecteurs();
-console.log(`Moteur de vectorisation : ${etat.modele}`);
-console.log(`Clé posée : ${etat.clePosee ? 'oui' : 'NON — rien ne sera vectorisé'}\n`);
+console.log(`Moteur de vectorisation : ${etat.moteur === 'local' ? 'LOCAL, sur ce serveur' : 'EXTERNE (OpenRouter), facturé'}`);
+console.log(`Modèle : ${etat.modele}`);
+console.log(
+  etat.pret
+    ? 'Prêt : oui\n'
+    : etat.moteur === 'local'
+      ? 'Prêt : NON — lance « node scripts/installer-vectoriseur.mjs »\n'
+      : 'Prêt : NON — aucune clé posée\n',
+);
 
 const projets = store
   .listProjects()

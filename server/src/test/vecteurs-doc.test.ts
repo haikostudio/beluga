@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   COUVERTURE_VECTEURS_MIN,
-  DIMENSIONS_VECTEUR,
+  DIMENSIONS_LOCAL,
   FENETRE_VECTORISATION_HEURES,
   HEURE_VECTORISATION,
   PLAFOND_PASSAGE_SIGNES,
@@ -38,7 +38,7 @@ import {
 /* ------------------------------------------------------------------ */
 
 function vecteurDEssai(remplir: (i: number) => number): number[] {
-  return Array.from({ length: DIMENSIONS_VECTEUR }, (_, i) => remplir(i));
+  return Array.from({ length: DIMENSIONS_LOCAL }, (_, i) => remplir(i));
 }
 
 test('un vecteur normalisé est de longueur 1, et un vecteur nul le reste', () => {

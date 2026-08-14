@@ -96,20 +96,28 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   L'INDEX reste le REPLI : ce qui part tient sous plafond et ne doit JAMAIS peser plus que l'index
   remplacé, sinon la recherche est refusée. Les passages retrouvés sont visibles dans le tiroir
   « Contexte envoyé » et dans l'onglet « Détails ».
-- **Le SENS vient d'un VRAI modèle de vectorisation, façon RAG** (`shared/src/vecteurs-doc.ts`,
-  `server/src/vecteurs.ts`, migration 27) : `openai/text-embedding-3-small` en 512 dimensions à
-  travers OpenRouter — donc un service EXTERNE et facturé. Clé dans `HAIKODEV_EMBED_API_KEY` /
-  `OPENROUTER_API_KEY` (hors dépôt), modèle et adresse réglables par `HAIKODEV_EMBED_MODEL` /
-  `HAIKODEV_EMBED_URL`. L'ancienne empreinte par hachage de MOTS reste le REPLI, entier et sans
-  panne, tant que la clé manque ou que l'index n'est vectorisé qu'à moins de 75 %. Le score reste
-  MIXTE (sens + mots exacts), le sens pesant plus lourd quand il est vrai. Le CODE passe derrière la
-  documentation (priorité négative) et n'occupe jamais plus de 2 passages.
+- **Le SENS vient d'un VRAI modèle de vectorisation, façon RAG, et il tourne EN LOCAL**
+  (`shared/src/vecteurs-doc.ts`, `server/src/vecteurs-local.ts`, `server/src/vecteurs.ts`,
+  migration 27) : `BAAI/bge-m3` en 1024 dimensions, exécuté SUR CE SERVEUR — aucun octet de
+  documentation ne sort de la machine, aucun centime par appel. Il vit HORS DÉPÔT dans
+  `data/vectoriseur` (bibliothèque + modèle > 1 Go ; chaque carte refait `npm install` dans sa copie,
+  les y mettre ralentirait tous les lancements), posé par `node scripts/installer-vectoriseur.mjs` —
+  même choix que Kokoro pour la voix. Un moteur EXTERNE (OpenRouter, `openai/text-embedding-3-small`
+  en 512 dimensions, facturé) reste écrit mais ne sert que sur demande explicite
+  (`HAIKODEV_EMBED_MOTEUR=openrouter`). La TAILLE du vecteur dépend donc du moteur : rien ne la
+  suppose, c'est le NOM du modèle rangé à côté de chaque vecteur qui empêche de comparer deux
+  échelles. L'ancienne empreinte par hachage de MOTS reste le REPLI, entier et sans panne, tant que
+  le moteur manque ou que l'index n'est vectorisé qu'à moins de 75 %. Le score reste MIXTE (sens +
+  mots exacts), le sens pesant plus lourd quand il est vrai. Le CODE passe derrière la documentation
+  (priorité négative) et n'occupe jamais plus de 2 passages.
 - **VECTORISER EST UN TRAVAIL DE NUIT, jamais un péage au lancement d'une carte**
   (`server/src/vecteurs-nocturne.ts`, règles dans `shared/src/vecteurs-doc.ts`) : chaque nuit vers
   1 h — avant l'auto-amélioration de 3 h —, le démon réindexe et vectorise TOUS les projets non
-  archivés, par tranches de 480 passages, 120 tranches au plus par nuit. Un travail en cours ne le
-  REPORTE PAS : vectoriser n'appelle aucun moteur et ne prend la place d'aucun agent. Au lancement
-  d'une carte, le seul appel payé est celui de la QUESTION. `node scripts/vectoriser-index.mjs`
+  archivés, par tranches de 480 passages, 120 tranches et TROIS HEURES au plus par nuit (le moteur
+  local fait ~2 passages/s : les 62 000 passages des 18 projets demandent quelques nuits la première
+  fois, puis seulement ce qui a changé). Un travail en cours ne le REPORTE PAS : vectoriser n'appelle
+  aucun moteur de langage et ne prend la place d'aucun agent. Au lancement d'une carte, seule la
+  QUESTION est vectorisée. `HAIKODEV_DATA=/root/haikodev/data node scripts/vectoriser-index.mjs`
   le fait tout de suite à la main (`--etat` pour ne rien vectoriser et voir où en est chaque projet).
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en

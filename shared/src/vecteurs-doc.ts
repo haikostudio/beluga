@@ -27,29 +27,58 @@
 /* ------------------------------------------------------------------ */
 
 /**
- * LE MODÈLE DE VECTORISATION, le même que le chat de HaikoFormations. Il est
- * NOMMÉ dans l'index : un passage vectorisé par un autre modèle n'est pas
- * comparable, il sera donc revectorisé au lieu d'être cru sur parole.
+ * DEUX MOTEURS POSSIBLES, ET LE LOCAL EST LE DÉFAUT.
+ *
+ * `local` — BAAI/bge-m3 tourne SUR LE SERVEUR (`server/src/vecteurs-local.ts`,
+ * installé par `scripts/installer-vectoriseur.mjs`). Aucun octet de
+ * documentation ne sort de la machine, aucun centime n'est dépensé par appel.
+ * C'est plus lent (deux passages par seconde contre cent), d'où le rendez-vous
+ * de nuit — mais c'est le seul moteur qu'on peut laisser tourner sans compter.
+ *
+ * `openrouter` — le chemin d'origine, EXTERNE et facturé. Il ne sert plus que si
+ * on le demande en toutes lettres (`HAIKODEV_EMBED_MOTEUR=openrouter`).
  */
-export const MODELE_VECTEURS = 'openai/text-embedding-3-small';
+export type MoteurDeVecteurs = 'local' | 'openrouter';
+export const MOTEUR_PAR_DEFAUT: MoteurDeVecteurs = 'local';
 
-/** La porte d'entrée, compatible avec l'interface d'OpenAI. */
+/**
+ * LE MODÈLE DE CHAQUE MOTEUR. Il est NOMMÉ dans l'index : un passage vectorisé
+ * par un autre modèle n'est pas comparable, il sera donc revectorisé au lieu
+ * d'être cru sur parole. Changer de moteur, c'est donc refaire l'index — pas le
+ * corrompre.
+ */
+export const MODELE_LOCAL = 'Xenova/bge-m3';
+export const MODELE_OPENROUTER = 'openai/text-embedding-3-small';
+export const MODELE_VECTEURS = MODELE_LOCAL;
+
+/** La porte d'entrée du moteur externe, compatible avec l'interface d'OpenAI. */
 export const URL_VECTEURS = 'https://openrouter.ai/api/v1/embeddings';
 
 /**
- * LA TAILLE DU VECTEUR. Le modèle en rend 1536 par défaut ; il sait aussi les
- * rendre plus courts sans perdre grand-chose (les premières dimensions portent
- * l'essentiel du sens). On demande 512 : trois fois moins de place en base et
- * trois fois moins de calcul à chaque recherche, pour une qualité qui tient.
- *
- * Un vecteur raccourci n'est plus de longueur 1 : il se RENORMALISE avant d'être
- * rangé, sinon le cosinus ne serait plus une proximité mais un mélange de
- * proximité et de longueur.
+ * LA TAILLE DU VECTEUR DÉPEND DU MOTEUR : bge-m3 en rend 1024, toujours ; le
+ * modèle d'OpenAI en rend 1536 mais sait les raccourcir, et on lui en demandait
+ * 512. Rien dans le reste du code ne suppose une taille : le cosinus rend 0 pour
+ * deux vecteurs de longueurs différentes, et le NOM du modèle rangé à côté de
+ * chaque vecteur suffit à ne jamais comparer deux échelles.
  */
-export const DIMENSIONS_VECTEUR = 512;
+export const DIMENSIONS_LOCAL = 1024;
+export const DIMENSIONS_OPENROUTER = 512;
 
-/** Combien de textes par appel. Au-delà, le fournisseur refuse ou tronque. */
+export function dimensionsDuMoteur(moteur: MoteurDeVecteurs): number {
+  return moteur === 'local' ? DIMENSIONS_LOCAL : DIMENSIONS_OPENROUTER;
+}
+
+/**
+ * COMBIEN DE TEXTES PAR APPEL. Le moteur externe accepte de gros paquets ; le
+ * local, lui, tient tout le lot en mémoire d'un coup — huit passages de 1 800
+ * signes suffisent à occuper les quatre cœurs sans faire enfler le démon.
+ */
 export const LOT_VECTEURS = 96;
+export const LOT_VECTEURS_LOCAL = 8;
+
+export function lotDuMoteur(moteur: MoteurDeVecteurs): number {
+  return moteur === 'local' ? LOT_VECTEURS_LOCAL : LOT_VECTEURS;
+}
 
 /** Combien de fois on retente un appel tombé sur une panne passagère. */
 export const ESSAIS_VECTEURS = 3;
@@ -97,9 +126,16 @@ export function normaliserLeVecteur(vecteur: number[]): number[] {
   return vecteur.map((v) => v / norme);
 }
 
-/** Un vecteur est utilisable s'il a la bonne taille et n'est pas vide. */
+/**
+ * La plus petite taille qu'on accepte : en deçà, ce n'est pas un vecteur de
+ * sens mais une réponse tronquée. On ne fixe PAS de taille exacte — elle dépend
+ * du moteur, et c'est le NOM du modèle rangé à côté qui évite les mélanges.
+ */
+export const DIMENSIONS_MINIMALES = 128;
+
+/** Un vecteur est utilisable s'il a une taille plausible et n'est pas vide. */
 export function vecteurUtilisable(vecteur: ArrayLike<number> | undefined | null): boolean {
-  if (!vecteur || vecteur.length !== DIMENSIONS_VECTEUR) return false;
+  if (!vecteur || vecteur.length < DIMENSIONS_MINIMALES) return false;
   for (let i = 0; i < vecteur.length; i++) if (vecteur[i] !== 0) return true;
   return false;
 }
@@ -207,6 +243,16 @@ export const PERIODE_VECTORISATION_MS = 24 * 60 * 60 * 1000;
  * la nuit suivante.
  */
 export const TRANCHES_MAX_PAR_NUIT = 120;
+
+/**
+ * ET SURTOUT UNE BORNE DE TEMPS. Le moteur local vectorise environ DEUX passages
+ * par seconde : les 62 000 passages des dix-huit projets demandent près de neuf
+ * heures la première fois. On s'arrête donc au bout de trois heures et on
+ * reprend la nuit suivante, là où on s'était arrêté — l'index se complète en
+ * trois nuits, et aucune ne déborde sur la journée. Les nuits d'après ne
+ * revectorisent que ce qui a changé, donc quelques minutes.
+ */
+export const DUREE_MAX_PAR_NUIT_MS = 3 * 60 * 60 * 1000;
 
 /** Pourquoi la vectorisation de la nuit ne part pas cette fois-ci. */
 export type RaisonSansVectorisation = 'pas-l-heure' | 'deja-passe' | 'aucune-cle';
