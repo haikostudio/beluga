@@ -109,6 +109,27 @@ export function retireOccurrence(texte: string, nom: string, occurrence: number)
 }
 
 /**
+ * Lâché sur un mot, le drapeau se colle au bord le plus proche — on n'a pas
+ * à viser l'espace entre deux lettres. Un `[fichier: …]` compte comme un
+ * seul mot. Entre deux mots, l'endroit visé reste tel quel.
+ */
+const MOT_OU_ANCRE = /\[fichier:\s*[^\n\]]+\]|[^\s]+/g;
+
+export function accrocheAuMot(texte: string, index: number): number {
+  const vise = Math.max(0, Math.min(index, texte.length));
+  MOT_OU_ANCRE.lastIndex = 0;
+  let trouve: RegExpExecArray | null;
+  while ((trouve = MOT_OU_ANCRE.exec(texte))) {
+    const debut = trouve.index;
+    const fin = debut + trouve[0].length;
+    if (vise > debut && vise < fin) {
+      return vise - debut < fin - vise ? debut : fin;
+    }
+  }
+  return vise;
+}
+
+/**
  * Glisser une ancre ailleurs dans la phrase. Lâchée sur elle-même, elle ne
  * bouge pas. Le compte des ancres ne change pas : les pièces jointes restent.
  */
