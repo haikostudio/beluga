@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronUp, CornerDownRight, MessageSquare, RotateCcw, Square } from 'lucide-react';
+import { ChevronDown, ChevronUp, CornerDownRight, MessageSquare, RotateCcw, Square } from 'lucide-react';
 import {
   Agent,
   Message,
@@ -17,7 +17,7 @@ import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
-import { VoletTaches } from '@/components/todos';
+import { CorpsListeTaches, VoletTaches } from '@/components/todos';
 import { BandeauPropositions } from '@/components/propositions';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -260,8 +260,11 @@ export function Chat({
       <BandeauPropositions messages={messages} />
 
       {/* La liste des tâches est un volet FIXE, entre le fil et la barre
-          d'écriture : elle ne remonte plus avec les messages. Elle porte celle
-          du dernier échange — sans liste, elle s'efface entièrement. */}
+          d'écriture, une fois le tour refermé : elle ne remonte plus avec les
+          messages, et porte celle du dernier échange — sans liste, elle
+          s'efface entièrement. PENDANT le tour, c'est la barre « Réflexion en
+          cours » (juste au-dessus du prompt) qui porte cette même liste,
+          dépliable : ce volet-ci s'efface pour ne pas la répéter. */}
       <VoletTaches todos={messages[messages.length - 1]?.todos} streaming={busy} />
 
       {/* La barre d'écriture reste disponible FACE À UNE ANALYSE : on peut
@@ -433,6 +436,11 @@ function TravailEnCours({
   // Le geste d'arrêt est le MÊME qu'en bas de la barre d'écriture : un seul
   // texte, donc le même contrôle, la même commande et la même confirmation.
   const arret = useArretAgent({ agent, cardId });
+  // La liste des tâches, dépliée depuis CETTE barre plutôt que dans un volet
+  // séparé — sinon le même compte se lisait deux fois d'affilée, juste
+  // au-dessus l'un de l'autre (`VoletTaches` s'efface tant que l'agent
+  // travaille, voir `todos.tsx`).
+  const [listeOuverte, setListeOuverte] = React.useState(false);
 
   // Le temps écoulé avance tout seul, seconde par seconde.
   React.useEffect(() => {
@@ -466,41 +474,77 @@ function TravailEnCours({
         ? { done: dernier.steps.filter((step) => step.state === 'done').length, total: dernier.steps.length }
         : null;
 
+  // La liste complète ne se déplie que si l'agent en a annoncé une — un
+  // agent qui n'avance que par étapes (steps) n'a rien de plus à montrer ici,
+  // ces étapes restant visibles repliées dans le fil au-dessus.
+  const todos = dernier?.todos;
+  const todosDisponibles = !!todos?.length;
+
   return (
     <div
       data-temoin-reflexion
       className={cn(
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
-        'relative z-0 -mb-2 flex shrink-0 items-center gap-2 rounded-t-lg',
-        // pb-4 (16px) compense le recouvrement de -mb-2 (8px) : il reste
-        // 8px d'air visible sous le texte avant que la zone de saisie ne le
-        // recouvre, proche des 6px du pt-1.5 au-dessus (pb-5 en laissait 12,
-        // visiblement plus que le haut ; pb-3 n'en laissait que 4, collé au
-        // bord).
-        //
+        'relative z-0 -mb-2 flex shrink-0 flex-col rounded-t-lg',
         // bg-surface plutôt qu'un bg-border translucide : ce composeur vit
         // tantôt sur un fond bg-bg (chef), tantôt sur un fond bg-surface
         // (tiroir d'une carte) — un fond translucide se mélange donc à ce qui
         // est DERRIÈRE, avec un résultat différent (et parfois trop clair)
         // selon l'endroit. Un ton plein, toujours plus sombre que bg-raised
         // dans les deux thèmes, rend la barre identique partout.
-        'border border-b-0 border-border bg-surface px-3 pb-4 pt-1.5',
+        'border border-b-0 border-border bg-surface',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}
     >
-      <InfoTravail quoi={quoi} avancement={avancement} temps={temps} />
-      {arret.possible ? (
-        <Tooltip label="Arrêter l'action en cours">
+      <div
+        className={cn(
+          'flex items-center gap-2 px-3 pt-1.5',
+          // pb-4 (16px) compense le recouvrement de -mb-2 (8px) posé sur le
+          // conteneur : il reste 8px d'air visible sous le texte avant que la
+          // zone de saisie ne le recouvre, proche des 6px du pt-1.5 au-dessus
+          // (pb-5 en laissait 12, visiblement plus que le haut ; pb-3 n'en
+          // laissait que 4, collé au bord) — cette marge ne vaut que pour la
+          // DERNIÈRE ligne visible : une fois la liste dépliée sous elle,
+          // c'est elle qui la porte à la place.
+          todosDisponibles && listeOuverte ? 'pb-1.5' : 'pb-4',
+        )}
+      >
+        {todosDisponibles ? (
           <button
             type="button"
-            aria-label="Arrêter l'action en cours"
-            onClick={arret.demander}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border text-muted transition-colors hover:border-danger hover:bg-raised hover:text-danger"
+            aria-expanded={listeOuverte}
+            onClick={() => setListeOuverte((v) => !v)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
-            <Square className="h-2.5 w-2.5 fill-current" />
+            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} />
+            {listeOuverte ? (
+              <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
+            ) : (
+              <ChevronUp className="h-3 w-3 shrink-0 text-faint" />
+            )}
           </button>
-        </Tooltip>
+        ) : (
+          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} />
+        )}
+        {arret.possible ? (
+          <Tooltip label="Arrêter l'action en cours">
+            <button
+              type="button"
+              aria-label="Arrêter l'action en cours"
+              onClick={arret.demander}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border text-muted transition-colors hover:border-danger hover:bg-raised hover:text-danger"
+            >
+              <Square className="h-2.5 w-2.5 fill-current" />
+            </button>
+          </Tooltip>
+        ) : null}
+      </div>
+
+      {todosDisponibles && listeOuverte ? (
+        <div className="pb-4">
+          <CorpsListeTaches todos={todos} streaming={busy} maintenant={Date.now()} />
+        </div>
       ) : null}
 
       {arret.dialogue}

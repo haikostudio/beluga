@@ -663,6 +663,15 @@ le nom, là-bas le texte).
   pourcentage sur une conversation vide et le tour suivant renvoie un résumé du fil coupé. Rien
   n'est supprimé : les anciens messages restent derrière leur lien. Vérifié par
   `scripts/verif-depart-a-zero.mjs`.
+- **LA LISTE DES TÂCHES NE S'AFFICHE JAMAIS DEUX FOIS** (`VoletTaches` et `CorpsListeTaches`,
+  `web/src/components/todos.tsx` ; `TravailEnCours`, `web/src/components/chat.tsx`) : PENDANT que
+  l'agent travaille, c'est la barre « Réflexion en cours », juste au-dessus du prompt
+  (`TravailEnCours`), qui porte le compte et se déplie sur la liste complète (bouton avec chevron) ;
+  le volet fixe `VoletTaches`, lui, s'efface tant que `streaming` est vrai — sinon le même en-tête
+  (« Liste des tâches — n/N faites ») se lisait deux fois d'affilée, l'un juste au-dessus de l'autre.
+  Une fois le tour refermé, `TravailEnCours` disparaît et `VoletTaches` reprend seul la main. Le
+  CORPS de la liste (les lignes cochables) est un composant PARTAGÉ, `CorpsListeTaches`, pour ne
+  jamais l'écrire à deux endroits.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon

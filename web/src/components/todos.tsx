@@ -69,13 +69,101 @@ function choixInitial(): boolean {
 }
 
 /**
+ * Le CORPS de la liste — les lignes cochables, avec leur temps. Partagé entre
+ * le volet fixe ci-dessous (une fois le tour refermé) et la barre « Réflexion
+ * en cours », qui se déplie sur ces mêmes lignes PENDANT le tour : deux
+ * endroits, un seul rendu de la liste, pour ne jamais l'écrire deux fois.
+ */
+export function CorpsListeTaches({
+  todos,
+  streaming,
+  maintenant,
+}: {
+  todos: TodoItem[];
+  streaming: boolean;
+  maintenant: number;
+}) {
+  return (
+    /* Hauteur BORNÉE : au-delà, la liste défile sur elle-même. Elle ne mange
+       jamais la conversation ni la barre d'écriture. */
+    <ZoneDefilement classeEnveloppe="max-h-[min(35vh,260px)] flex-none" className="px-2 py-1.5">
+      <ul className="space-y-0.5">
+        {todos.map((todo, index) => (
+          <li
+            key={`${index}-${todo.label}`}
+            className="flex items-start gap-2 px-1 py-1"
+            title={
+              todo.closedByTurnEnd
+                ? "Cochée à la fin du tour : l'agent ne l'a pas marquée lui-même."
+                : todo.state === 'unfinished'
+                  ? "Le tour s'est terminé sans que cette étape soit menée à bout."
+                  : undefined
+            }
+          >
+            {/* Une vraie case à cocher : vide, en cours, cochée — ou barrée
+                d'une croix quand le tour s'est fini sans elle. */}
+            <span
+              className={cn(
+                'mt-[2px] flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border',
+                todo.state === 'done'
+                  ? 'border-termine bg-termine/15'
+                  : todo.state === 'running'
+                    ? 'border-en-cours'
+                    : 'border-border',
+              )}
+            >
+              {todo.state === 'done' ? (
+                <Check className="h-2.5 w-2.5 text-termine" />
+              ) : todo.state === 'running' ? (
+                streaming ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin text-en-cours" />
+                ) : (
+                  <CircleDot className="h-2.5 w-2.5 text-en-cours" />
+                )
+              ) : todo.state === 'unfinished' ? (
+                <X className="h-2.5 w-2.5 text-faint" />
+              ) : null}
+            </span>
+            <span
+              className={cn(
+                'flex-1 text-[13.5px] leading-snug',
+                todo.state === 'done'
+                  ? 'text-faint line-through'
+                  : todo.state === 'running'
+                    ? 'font-medium text-text'
+                    : 'text-muted',
+              )}
+            >
+              {todo.label}
+            </span>
+            {/* Le temps passé sur la ligne, exactement comme pour les étapes.
+                Une ligne en cours affiche son temps qui court. Une ligne que
+                le tour a laissée en plan le DIT, à la place de son temps. */}
+            {todo.state === 'unfinished' ? (
+              <span data-tache="non-faite" className="mt-[1px] shrink-0 text-[12px] text-faint">
+                non faite
+              </span>
+            ) : todo.startedAt ? (
+              <span className="mt-[1px] shrink-0 text-[12px] text-faint">
+                {duration(((todo.endedAt ?? maintenant) - todo.startedAt) / 1000)}
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </ZoneDefilement>
+  );
+}
+
+/**
  * La liste de tâches annoncée par l'agent, cochée en direct. Elle dit ce qu'il
  * VA faire ; les étapes, elles, racontent ce qu'il a fait.
  *
  * Ce n'est PAS un bloc du fil : c'est un volet FIXE, posé entre la conversation
- * et la barre d'écriture. Dans le fil, la liste remontait avec les messages et
- * disparaissait de l'écran dès que l'agent répondait — précisément ce qu'on
- * voulait garder sous les yeux.
+ * et la barre d'écriture — mais SEULEMENT une fois le tour refermé. PENDANT le
+ * tour, c'est la barre « Réflexion en cours », juste au-dessus du prompt, qui
+ * porte cette même liste (dépliable) : les deux ne s'affichent plus ensemble,
+ * sans quoi le même compte se lisait deux fois d'affilée.
  */
 export function VoletTaches({
   todos,
@@ -106,8 +194,11 @@ export function VoletTaches({
     return () => window.clearInterval(timer);
   }, [streaming]);
 
-  // Aucune liste en cours : le volet n'existe pas du tout.
-  if (!todos?.length) return null;
+  // Aucune liste en cours : le volet n'existe pas du tout. Et PENDANT que
+  // l'agent travaille, ce même en-tête vit déjà dans la barre au-dessus du
+  // prompt (`TravailEnCours`, `chat.tsx`) — le laisser ici aussi affichait le
+  // même compte deux fois d'affilée, l'un replié juste au-dessus de l'autre.
+  if (!todos?.length || streaming) return null;
 
   const faites = todos.filter((t) => t.state === 'done').length;
   const encours = todos.find((t) => t.state === 'running');
@@ -148,76 +239,7 @@ export function VoletTaches({
         )}
       </button>
 
-      {open ? (
-        /* Hauteur BORNÉE : au-delà, le volet défile sur lui-même. Il ne mange
-           jamais la conversation ni la barre d'écriture. */
-        <ZoneDefilement classeEnveloppe="max-h-[min(35vh,260px)] flex-none" className="px-2 py-1.5">
-        <ul className="space-y-0.5">
-          {todos.map((todo, index) => (
-            <li
-              key={`${index}-${todo.label}`}
-              className="flex items-start gap-2 px-1 py-1"
-              title={
-                todo.closedByTurnEnd
-                  ? "Cochée à la fin du tour : l'agent ne l'a pas marquée lui-même."
-                  : todo.state === 'unfinished'
-                    ? "Le tour s'est terminé sans que cette étape soit menée à bout."
-                    : undefined
-              }
-            >
-              {/* Une vraie case à cocher : vide, en cours, cochée — ou barrée
-                  d'une croix quand le tour s'est fini sans elle. */}
-              <span
-                className={cn(
-                  'mt-[2px] flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border',
-                  todo.state === 'done'
-                    ? 'border-termine bg-termine/15'
-                    : todo.state === 'running'
-                      ? 'border-en-cours'
-                      : 'border-border',
-                )}
-              >
-                {todo.state === 'done' ? (
-                  <Check className="h-2.5 w-2.5 text-termine" />
-                ) : todo.state === 'running' ? (
-                  streaming ? (
-                    <Loader2 className="h-2.5 w-2.5 animate-spin text-en-cours" />
-                  ) : (
-                    <CircleDot className="h-2.5 w-2.5 text-en-cours" />
-                  )
-                ) : todo.state === 'unfinished' ? (
-                  <X className="h-2.5 w-2.5 text-faint" />
-                ) : null}
-              </span>
-              <span
-                className={cn(
-                  'flex-1 text-[13.5px] leading-snug',
-                  todo.state === 'done'
-                    ? 'text-faint line-through'
-                    : todo.state === 'running'
-                      ? 'font-medium text-text'
-                      : 'text-muted',
-                )}
-              >
-                {todo.label}
-              </span>
-              {/* Le temps passé sur la ligne, exactement comme pour les étapes.
-                  Une ligne en cours affiche son temps qui court. Une ligne que
-                  le tour a laissée en plan le DIT, à la place de son temps. */}
-              {todo.state === 'unfinished' ? (
-                <span data-tache="non-faite" className="mt-[1px] shrink-0 text-[12px] text-faint">
-                  non faite
-                </span>
-              ) : todo.startedAt ? (
-                <span className="mt-[1px] shrink-0 text-[12px] text-faint">
-                  {duration(((todo.endedAt ?? maintenant) - todo.startedAt) / 1000)}
-                </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-        </ZoneDefilement>
-      ) : null}
+      {open ? <CorpsListeTaches todos={todos} streaming={streaming} maintenant={maintenant} /> : null}
     </div>
   );
 }
