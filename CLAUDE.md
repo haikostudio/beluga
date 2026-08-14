@@ -294,6 +294,19 @@ le nom, là-bas le texte).
   sinon → « Planifié » RETENUE avec `RAISON_TOUR_SANS_ISSUE`. Trois refus rendent le balayage sûr : un
   tour qui TIENT encore la carte (marque `tourEnVolDepuis`), un agent au travail, un dernier tour en
   ÉCHEC ou arrêté à la main.
+- **Une PHRASE de carte ne dit JAMAIS le contraire de ce qui s'est passé**
+  (`RAISON_DEJA_LIVRE`, `RAISON_TRAVAIL_SAUVE`, `natureDeLaMention`, `shared/src/suivi-colonne.ts` ;
+  migration 25) : une carte dont le code était enregistré ET fusionné affichait « Rien à changer »
+  dans un encadré JAUNE, à côté de la coche du travail rendu. La phrase commence désormais par le
+  FAIT (« Travail déjà enregistré : le code de cette carte est bien sur sa branche… »), les phrases
+  déjà en base sont réécrites, et le TON suit la règle : une phrase de TRAVAIL acquis s'affiche en
+  BLEU avec une coche, une phrase d'ATTENTE garde son jaune. Le travail sauvé d'office par le ménage
+  du démarrage le DIT tout de suite sur la carte, et la carte derrière une branche se reconnaît à son
+  NUMÉRO (`estLaBrancheDeLaCarte`), plus au nom entier — un titre modifié entre l'interruption et le
+  redémarrage lui faisait perdre son drapeau `codeDejaEnregistre`. Enfin le MÉNAGE DES DOSSIERS PASSE
+  DEVANT TOUTE RELANCE (`menageEnCours`, `server/src/scheduler.ts` ; `ouvrirDossierDeCarte` mis dans
+  la même file que `refermerDossierDeCarte`) : sinon l'ordonnanceur rendait à un agent une copie de
+  travail que le ménage était en train de retirer, avec le travail écrit dedans.
 - **Une carte INTERROMPUE se « REPRENDRE », elle ne repart pas de zéro**
   (`shared/src/reprise-carte.ts`) : une carte de « Planifié » qui a déjà travaillé (`attempts`,
   `restarts`, `codeDejaEnregistre`) est une REPRISE — `carteSeReprend`, cause reconnue par

@@ -1,6 +1,21 @@
 import Database from 'better-sqlite3';
+import { RAISON_DEJA_LIVRE } from '@haikodev/shared';
 import { PATHS, ensureDirs } from './config.js';
 import { log } from './logger.js';
+
+/**
+ * L'ANCIENNE phrase du travail déjà livré, gardée ici et NULLE PART ailleurs :
+ * une migration répare le passé, elle a donc besoin du texte d'hier, mot pour
+ * mot. La phrase d'aujourd'hui, elle, vient de la règle (`RAISON_DEJA_LIVRE`) —
+ * jamais recopiée, sinon les deux se mettraient un jour à diverger en silence.
+ */
+const ANCIENNE_PHRASE_DEJA_LIVRE =
+  'Rien à changer : le travail demandé était déjà livré et enregistré. La carte est rangée sans nouveau code.';
+
+/** Une chaîne posée telle quelle dans une requête SQL, apostrophes comprises. */
+function litteralSql(texte: string): string {
+  return `'${texte.replace(/'/g, "''")}'`;
+}
 
 export type DB = Database.Database;
 
@@ -740,6 +755,32 @@ const MIGRATIONS: {
         AND m.rang = 1
         AND agents.status NOT IN ('running', 'starting')
         AND json_extract(agents.data, '$.todos') IS NOT NULL;
+    `,
+  },
+  {
+    id: 25,
+    name: 'reecrire-la-phrase-du-travail-deja-livre',
+    siTable: 'cards',
+    // « RIEN À CHANGER » SUR UN TRAVAIL BEL ET BIEN FAIT.
+    //
+    // La phrase posée sur une carte dont le code avait déjà été livré lors d'un
+    // tour précédent commençait par « Rien à changer ». Affichée en encadré
+    // JAUNE, à côté de la coche du travail rendu, elle se lisait comme
+    // l'inverse de ce qui s'était passé : l'utilisateur voyait « rien n'a été
+    // fait » sur une carte dont les fichiers étaient enregistrés et fusionnés.
+    //
+    // La phrase est réparée à la source (`RAISON_DEJA_LIVRE`,
+    // `shared/src/suivi-colonne.ts`) et son ton d'affichage aussi
+    // (`natureDeLaMention`). Ici on réécrit celles DÉJÀ posées en base : sans
+    // cela, les cartes d'hier garderaient à jamais l'ancien texte, et le
+    // resteraient en jaune faute d'être reconnues.
+    //
+    // Comme toute migration de RÉPARATION, elle nomme la table qu'elle attend
+    // et ne touche QUE l'ancienne phrase, mot pour mot.
+    sql: `
+      UPDATE cards
+      SET data = json_set(data, '$.sansModification', ${litteralSql(RAISON_DEJA_LIVRE)})
+      WHERE json_extract(data, '$.sansModification') = ${litteralSql(ANCIENNE_PHRASE_DEJA_LIVRE)};
     `,
   },
 ];

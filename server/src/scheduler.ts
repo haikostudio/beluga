@@ -8,10 +8,12 @@ import {
   TurnMeasurement,
   OccupantDossier,
   RAISON_SANS_DEPOT,
+  RAISON_TRAVAIL_SAUVE,
   cheminDossierDeCarte,
   consigneDeReprise,
   origineDeReprise,
   demarrageAutomatiqueAutorise,
+  estLaBrancheDeLaCarte,
   etatDuDepart,
   raisonDattente,
   nomDeBranche,
@@ -611,7 +613,20 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
 
 let ticking = false;
 
+/**
+ * LE MÉNAGE DES DOSSIERS PASSE DEVANT TOUTE RELANCE.
+ *
+ * Au démarrage, deux travaux visent les mêmes copies : le ménage, qui enregistre
+ * d'office ce qui traîne dedans puis les referme, et l'ordonnanceur, qui reprend
+ * les cartes interrompues. Lancés en parallèle, le second pouvait rendre à un
+ * agent une copie que le premier était en train de retirer — le travail écrit
+ * partait avec elle. La boucle attend donc que le ménage ait fini : c'est une
+ * poignée de secondes, une seule fois, au démarrage.
+ */
+let menageEnCours: Promise<void> | null = null;
+
 export async function tick(): Promise<void> {
+  if (menageEnCours) await menageEnCours.catch(() => undefined);
   if (ticking) return;
   ticking = true;
   try {
@@ -702,29 +717,53 @@ async function menageDesDossiersDeCarte(): Promise<void> {
     });
     for (const rattrape of rattrapes) {
       if (!rattrape.enregistre && !rattrape.fusionnee) continue;
-      marquerCodeDejaEnregistre(project.id, rattrape.branche);
+      marquerCodeDejaEnregistre(project.id, rattrape.branche, rattrape.enregistre);
     }
   }
 }
 
 /**
- * La carte derrière une branche « tache/… » : le nom de branche naît du titre et
- * du numéro de la carte (`nomDeBranche`), donc il suffit de le recalculer pour
- * chaque carte du projet plutôt que d'analyser la chaîne.
+ * La carte derrière une branche « tache/… ».
+ *
+ * Le nom de branche naît du titre ET du numéro de la carte (`nomDeBranche`),
+ * mais seul le NUMÉRO ne bouge jamais : un titre modifié entre l'interruption et
+ * le redémarrage faisait échouer la comparaison de nom entier, la carte ne
+ * recevait pas son drapeau, et sa reprise s'entendait dire « aucun fichier n'a
+ * changé » alors que son code venait justement d'être sauvé. On reconnaît donc
+ * la carte à la SIGNATURE de son numéro, celle que porte la fin de la branche.
+ *
+ * Et l'on DIT ce qui vient de se passer : une carte dont le travail a été
+ * enregistré d'office porte la phrase du sauvetage, tout de suite, sans attendre
+ * la fin d'un futur tour. Sans elle, le seul mot que l'utilisateur voyait était
+ * celui d'un tour ultérieur — qui, lui, n'avait effectivement plus rien à
+ * changer.
  */
-function marquerCodeDejaEnregistre(projectId: string, branche: string): void {
+function marquerCodeDejaEnregistre(projectId: string, branche: string, sauveDOffice: boolean): void {
   const carte = store
     .listCards(projectId)
-    .find((c) => nomDeBranche(c.title, c.id) === branche);
-  if (!carte || carte.codeDejaEnregistre) return;
-  const marquee = store.saveCard({ ...carte, codeDejaEnregistre: true });
+    .find((c) => nomDeBranche(c.title, c.id) === branche || estLaBrancheDeLaCarte(branche, c.id));
+  if (!carte) return;
+  if (carte.codeDejaEnregistre && !sauveDOffice) return;
+  const marquee = store.saveCard({
+    ...carte,
+    codeDejaEnregistre: true,
+    ...(sauveDOffice ? { sansModification: RAISON_TRAVAIL_SAUVE } : {}),
+  });
   bus.emit({ type: 'card.upsert', card: marquee });
-  log.info(`carte « ${carte.title} » : travail retrouvé sur sa branche, code déjà enregistré`);
+  log.info(
+    `carte « ${carte.title} » : travail retrouvé sur sa branche, code déjà enregistré${
+      sauveDOffice ? " (enregistré d'office)" : ''
+    }`,
+  );
 }
 
 export function startScheduler(): NodeJS.Timeout {
   log.info(`ordonnanceur démarré (plafond ${store.getSettings().maxAgents} agents, ${runningCount()} en cours)`);
-  void menageDesDossiersDeCarte();
+  // Le ménage passe devant la boucle : `tick` l'attend (`menageEnCours`) plutôt
+  // que de rendre à une carte une copie de travail en cours de fermeture.
+  menageEnCours = menageDesDossiersDeCarte().finally(() => {
+    menageEnCours = null;
+  });
   return setInterval(() => {
     void tick();
   }, 15000);
