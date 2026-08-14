@@ -20,8 +20,12 @@ import { client } from '@/lib/client';
 /** Au-delà de cinq minutes, un clic malheureux jetterait un vrai travail. */
 export const ARRET_SANS_CONFIRMATION_SECONDES = 300;
 
-/** « 12 s », « 7 min 3 s » — ou rien si l'agent n'a pas d'heure de départ. */
-function dureeLisible(secondes: number | null): string | null {
+/**
+ * « 12 s », « 7 min 3 s » — ou rien si l'agent n'a pas d'heure de départ.
+ * Exportée : la barre de travail du tableau (`board.tsx`) en a besoin pour
+ * afficher le même temps écoulé que ce crochet, sans le geste d'arrêt.
+ */
+export function dureeLisible(secondes: number | null): string | null {
   if (secondes === null) return null;
   return secondes < 60 ? `${secondes} s` : `${Math.floor(secondes / 60)} min ${secondes % 60} s`;
 }
