@@ -217,12 +217,22 @@ export function Composer({
     // Dès que la personne écrit à nouveau, l'ancien envoi cesse d'être une
     // référence : c'est un texte neuf.
     if (text) dejaEnvoye.current = null;
-    // Retenu tout de suite en mémoire, envoyé au serveur juste après.
-    client.setPrefLocally(cleBrouillon, text);
-    const timer = window.setTimeout(
-      () => client.send({ type: 'prefs.set', key: cleBrouillon, value: text }),
-      600,
-    );
+    /*
+     * LA FRAPPE NE TRAVERSE PLUS LE MAGASIN GÉNÉRAL À CHAQUE TOUCHE.
+     *
+     * `setPrefLocally` écrit dans l'état PARTAGÉ de l'application : chaque
+     * lettre tapée refaisait donc l'affichage de TOUTE l'application — le
+     * tableau et ses cartes, la colonne de gauche, la conversation. C'est ce qui
+     * faisait apparaître la frappe au ralenti. Le champ, lui, n'a jamais eu
+     * besoin de ce détour : il tient déjà son propre texte.
+     *
+     * Le brouillon reste retenu — c'est la même temporisation de 600 ms qui
+     * pose la copie locale ET l'envoi au serveur, une fois la frappe reposée.
+     */
+    const timer = window.setTimeout(() => {
+      client.setPrefLocally(cleBrouillon, text);
+      client.send({ type: 'prefs.set', key: cleBrouillon, value: text });
+    }, 600);
     return () => window.clearTimeout(timer);
   }, [text, agentId, cleBrouillon]);
 

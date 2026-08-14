@@ -24,6 +24,7 @@ import {
   RAISON_SANS_REPONSE,
   alerteServeurInjoignable,
   choisirProjetAOuvrir,
+  projetsADecharger,
 } from '@haikodev/shared';
 
 export interface Toast {
@@ -205,6 +206,7 @@ class Client {
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    this.lancerLaVeilleDeDechargement();
     this.set({ connecting: true });
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocol}//${location.host}/ws`);
@@ -644,12 +646,53 @@ class Client {
   }
 
   setActiveProject(id: string | null): void {
+    const quitte = this.state.activeProjectId;
+    // Le projet qu'on quitte garde ses cartes un quart d'heure : un aller-retour
+    // entre deux projets est un geste courant, il ne doit rien faire clignoter.
+    if (quitte && quitte !== id) this.vuA.set(quitte, Date.now());
     this.set({ activeProjectId: id });
     if (id) {
+      this.vuA.delete(id);
       this.send({ type: 'project.open', id });
       this.send({ type: 'attachments.list', projectId: id });
       this.retenirProjetActif(id);
     }
+  }
+
+  /*
+   * LES CARTES D'UN PROJET QU'ON NE CONSULTE PLUS SE DÉCHARGENT — APRÈS QUINZE
+   * MINUTES, PAS AVANT (`projetsADecharger`, `shared/src/decharge-projets.ts`).
+   *
+   * Sans cela, ouvrir cinq projets revenait à garder cinq tableaux entiers en
+   * mémoire jusqu'à la fin de la session, et à en payer le poids à chaque
+   * changement d'état. Un projet rouvert redemande ses cartes au serveur, qui
+   * les renvoie entières : `setActiveProject` envoie déjà `project.open`, il n'y
+   * a rien de plus à faire — et rien n'est perdu, la base reste la source.
+   */
+  /** Quand chaque projet a été quitté. Le projet affiché n'y figure jamais. */
+  private vuA = new Map<string, number>();
+  private veilleDechargement = 0;
+
+  private lancerLaVeilleDeDechargement(): void {
+    if (this.veilleDechargement) return;
+    this.veilleDechargement = window.setInterval(() => this.dechargerLesProjetsOublies(), 60_000);
+  }
+
+  dechargerLesProjetsOublies(maintenant = Date.now()): string[] {
+    const oublies = projetsADecharger({
+      vuA: Object.fromEntries(this.vuA),
+      projetAffiche: this.state.activeProjectId,
+      maintenant,
+    });
+    if (!oublies.length) return [];
+    for (const id of oublies) this.vuA.delete(id);
+    const aOublier = new Set(oublies);
+    this.set((state) => ({
+      cards: Object.fromEntries(
+        Object.entries(state.cards).filter(([, carte]) => !aOublier.has(carte.projectId)),
+      ),
+    }));
+    return oublies;
   }
 
   /**
