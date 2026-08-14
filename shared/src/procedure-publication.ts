@@ -249,6 +249,109 @@ export function promptReponseProcedure(cible: CiblePublication, reponse: string)
   ].join('\n');
 }
 
+/* ------------------------------------------------------------------ */
+/* LE TOUR NE SE LIVRE PLUS PAR LA RÉPONSE D'UNE REQUÊTE                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Un tour de ce tiroir dure une à deux MINUTES : l'agent lit tout le projet
+ * avant de parler. Faire attendre la réponse d'une commande pendant tout ce
+ * temps rendait le dialogue impossible à suivre et surtout impossible à
+ * RATTRAPER — tiroir refermé, page rechargée, serveur redémarré, réseau qui
+ * cligne : la question, déjà payée, était perdue sans un mot, et chaque
+ * réouverture repayait un tour.
+ *
+ * Le dialogue vit donc SUR LE SERVEUR, et l'écran ne fait que le suivre. Les
+ * règles qui suivent sont pures : elles disent quoi afficher et quand relancer,
+ * sans base ni disque.
+ */
+
+/** Une bulle du dialogue : ce que l'agent a dit, ce qu'on lui a répondu. */
+export type EchangeDeProcedure = { qui: 'agent' | 'moi'; texte: string };
+
+/** Le dialogue d'une étape, tel que le serveur le garde et l'écran l'affiche. */
+export type EtatDeProcedure = {
+  projectId: string;
+  cible: CiblePublication;
+  /** L'agent qui mène le dialogue : la question et la réponse dans une session. */
+  agentId?: string;
+  /** Un tour tourne-t-il en ce moment ? C'est LUI qui allume le témoin. */
+  enCours: boolean;
+  echanges: EchangeDeProcedure[];
+  /** La procédure écrite ET enregistrée, quand le dialogue aboutit. */
+  procedure?: string;
+  /** Ce qui a empêché le tour d'aboutir, dit en clair. */
+  raison?: string;
+  /** L'instant où le tour en cours est parti : de quoi afficher sa durée. */
+  depuis?: number;
+};
+
+/** Au-delà, le projet a pu changer : on repose la question plutôt que la relire. */
+export const DIALOGUE_FRAIS_MS = 15 * 60 * 1000;
+
+/**
+ * Ce qu'un tiroir qui s'OUVRE doit faire du dialogue déjà là.
+ *
+ *  - `attendre`  : un tour tourne encore, on s'y raccroche — on n'en paie pas un second ;
+ *  - `reprendre` : le tour est fini et sa question (ou son échec) n'a pas été lue ;
+ *  - `relancer`  : rien à reprendre, un tour part.
+ *
+ * Un échec ne se relance JAMAIS tout seul : une panne de quota rejouée à chaque
+ * ouverture coûterait sans rien rendre. C'est le bouton « Relancer » qui décide.
+ */
+export function repriseDuDialogue(
+  etat: EtatDeProcedure | null | undefined,
+  maintenant: number,
+): 'attendre' | 'reprendre' | 'relancer' {
+  if (!etat) return 'relancer';
+  if (etat.enCours) return 'attendre';
+  if (etat.raison) return 'reprendre';
+  // Une procédure écrite clôt le dialogue : rouvrir, c'est vouloir la modifier.
+  if (etat.procedure) return 'relancer';
+  if (!etat.echanges.some((echange) => echange.qui === 'agent')) return 'relancer';
+  const age = maintenant - (etat.depuis ?? 0);
+  return age <= DIALOGUE_FRAIS_MS ? 'reprendre' : 'relancer';
+}
+
+/** Le témoin de travail : jamais un mot seul, toujours ce qui se passe et depuis quand. */
+export function phraseDeTravail(
+  input: { depuis?: number; etape?: string },
+  maintenant: number,
+): string {
+  const secondes = input.depuis ? Math.max(0, Math.round((maintenant - input.depuis) / 1000)) : 0;
+  const duree =
+    secondes >= 60
+      ? `${Math.floor(secondes / 60)} min ${String(secondes % 60).padStart(2, '0')} s`
+      : `${secondes} s`;
+  const etape = (input.etape ?? '').trim().slice(0, 80);
+  return etape ? `L’agent travaille… ${etape} · ${duree}` : `L’agent travaille… ${duree}`;
+}
+
+/** Le tour attendu n'existe plus : le dire, au lieu de tourner sans fin. */
+export const RAISON_TOUR_PERDU =
+  'Le tour de l’agent ne tourne plus (serveur redémarré, ou agent arrêté). Rien n’a été écrit : relancez la question.';
+
+/** Ce qu'un tour d'agent a rendu : une question, la procédure, ou un échec dit en clair. */
+export type IssueDuTour = { question: string } | { procedure: string } | { raison: string };
+
+/**
+ * L'ISSUE D'UN TOUR, décidée en un seul endroit.
+ *
+ * Un tour qui ne rend rien, un agent qui s'arrête, une panne du moteur : chacun
+ * a sa phrase. Rien ne « reste en cours » faute d'avoir su quoi dire.
+ */
+export function issueDuTour(input: { contenu?: string; statut?: string; erreur?: string }): IssueDuTour {
+  const erreur = (input.erreur ?? '').trim();
+  if (erreur) return { raison: `Le tour de l’agent s’est arrêté : ${erreur}` };
+  if (input.statut && input.statut !== 'done') {
+    return { raison: `Le tour de l’agent s’est terminé en « ${input.statut} », sans réponse.` };
+  }
+  const contenu = (input.contenu ?? '').trim();
+  if (!contenu) return { raison: 'L’agent n’a rien rendu : aucune question, aucune procédure.' };
+  const lue = lireReponseDeProcedure(contenu);
+  return lue.procedure ? { procedure: lue.procedure } : { question: lue.question ?? contenu };
+}
+
 /** L'état de la procédure, dit en une ligne dans le tiroir. */
 export function mentionProcedure(cible: CiblePublication, procedure: string): string {
   const propre = (procedure ?? '').trim();

@@ -218,11 +218,12 @@ const erreurs = [];
 page.on('pageerror', (e) => erreurs.push(String(e)));
 
 /*
- * Le tour d'agent est INTERCEPTÉ : on répond à sa place — une question au
- * premier tour, la procédure au second. Le serveur, lui, n'est jamais appelé
- * pour cette commande : aucun agent, aucun quota. La réponse est suivie du
- * `project.upsert` que le vrai serveur émettrait, pour que l'écran voie la
- * procédure apparaître exactement comme en vrai.
+ * Le tour d'agent est INTERCEPTÉ, et il est intercepté COMME EN VRAI : la
+ * commande rend l'ÉTAT tout de suite (tour parti), puis l'issue arrive plus
+ * tard par l'événement `procedure`. Le serveur n'est jamais appelé pour ces
+ * commandes : aucun agent, aucun quota. Le `project.upsert` que le vrai serveur
+ * émet à l'enregistrement est rejoué lui aussi, pour que la colonne change sous
+ * les yeux comme en vrai.
  */
 await page.addInitScript((id) => {
   window.__idProjet = id;
@@ -263,6 +264,15 @@ await page.addInitScript((id) => {
     for (const ecouteur of window.__ecouteurs) ecouteur({ data: donnees });
   };
   window.__tours = [];
+  window.__etats = {};
+  /* De quoi jouer les cas qui font mal : un tour LENT (le témoin doit vivre et
+     s'éteindre), un tour qui TOMBE (il doit le dire), un tour PERDU (serveur
+     redémarré : l'état disparaît). */
+  window.__delai = 300;
+  window.__echec = null;
+  window.__perdre = false;
+
+  const cle = (projectId, cible) => `${projectId}:${cible}`;
 
   const envoiOriginal = WebSocket.prototype.send;
   WebSocket.prototype.send = function (donnees) {
@@ -273,30 +283,71 @@ await page.addInitScript((id) => {
       /* pas du JSON */
     }
     const cmd = enveloppe?.cmd;
+
+    if (cmd?.type === 'procedure.etat') {
+      const etat = window.__perdre ? null : (window.__etats[cle(cmd.projectId, cmd.cible)] ?? null);
+      setTimeout(() => window.__injecter({ id: enveloppe.id, type: 'ack', ok: true, data: { etat } }), 20);
+      return;
+    }
+
     if (cmd?.type === 'procedure.tour') {
       window.__tours.push({ cible: cmd.cible, message: cmd.message ?? null });
-      if (!cmd.message) {
-        setTimeout(() => {
-          window.__injecter({
-            id: enveloppe.id,
-            type: 'ack',
-            ok: true,
-            data: { ok: true, agentId: 'a-essai', question: `Comment se passe cette étape ? (${cmd.cible})` },
-          });
-        }, 200);
+      const k = cle(cmd.projectId, cmd.cible);
+      const courant = window.__etats[k];
+      if (courant?.enCours) {
+        setTimeout(() => window.__injecter({ id: enveloppe.id, type: 'ack', ok: true, data: { etat: courant } }), 20);
         return;
       }
-      const procedure = `Procédure ${cmd.cible} :: ${cmd.message}`;
-      const projet = window.__projet ?? { id: window.__idProjet };
-      const suite =
-        cmd.cible === 'dev'
-          ? { ...projet, deploiement: { base: cmd.message, prompt: procedure } }
-          : { ...projet, miseEnProduction: { ...projet.miseEnProduction, base: cmd.message, prompt: procedure } };
-      window.__projet = suite;
+      const echanges = cmd.message
+        ? [...(courant?.echanges ?? []), { qui: 'moi', texte: cmd.message }]
+        : [];
+      const parti = {
+        projectId: cmd.projectId,
+        cible: cmd.cible,
+        agentId: 'a-essai',
+        enCours: true,
+        echanges,
+        depuis: Date.now(),
+      };
+      window.__etats[k] = parti;
+      setTimeout(() => window.__injecter({ id: enveloppe.id, type: 'ack', ok: true, data: { etat: parti } }), 20);
+
       setTimeout(() => {
-        window.__injecter({ id: enveloppe.id, type: 'ack', ok: true, data: { ok: true, agentId: 'a-essai', procedure } });
+        if (window.__echec) {
+          const tombe = { ...parti, enCours: false, depuis: undefined, raison: window.__echec };
+          window.__etats[k] = tombe;
+          window.__injecter({ type: 'procedure', etat: tombe });
+          return;
+        }
+        if (!cmd.message) {
+          const pose = {
+            ...parti,
+            enCours: false,
+            depuis: parti.depuis,
+            echanges: [...echanges, { qui: 'agent', texte: `Comment se passe cette étape ? (${cmd.cible})` }],
+          };
+          window.__etats[k] = pose;
+          window.__injecter({ type: 'procedure', etat: pose });
+          return;
+        }
+        const procedure = `Procédure ${cmd.cible} :: ${cmd.message}`;
+        const projet = window.__projet ?? { id: window.__idProjet };
+        const suite =
+          cmd.cible === 'dev'
+            ? { ...projet, deploiement: { base: cmd.message, prompt: procedure } }
+            : { ...projet, miseEnProduction: { ...projet.miseEnProduction, base: cmd.message, prompt: procedure } };
+        window.__projet = suite;
+        const ecrite = {
+          ...parti,
+          enCours: false,
+          depuis: undefined,
+          procedure,
+          echanges: [...echanges, { qui: 'agent', texte: 'La procédure est écrite et enregistrée.' }],
+        };
+        window.__etats[k] = ecrite;
+        window.__injecter({ type: 'procedure', etat: ecrite });
         window.__injecter({ type: 'project.upsert', project: suite });
-      }, 200);
+      }, window.__delai);
       return;
     }
     return envoiOriginal.call(this, donnees);
@@ -326,6 +377,74 @@ noter(
   JSON.stringify(avant),
 );
 noter('aucune icône de réglages tant qu’aucune procédure n’existe', avant.reglages === 0);
+
+/* ------------------------------------------------------------------ */
+/* Le tour dure des MINUTES : le tiroir doit vivre, se rattraper, et    */
+/* dire ses échecs — jamais tourner sans fin sur « L'agent travaille… ».*/
+/* ------------------------------------------------------------------ */
+
+const texteDe = (selecteur) =>
+  page.evaluate((s) => document.querySelector(s)?.textContent?.trim() ?? '', selecteur);
+const present = (selecteur) => page.evaluate((s) => !!document.querySelector(s), selecteur);
+const compterTours = () => page.evaluate(() => window.__tours.length);
+
+/* Un tour LENT, comme en vrai : l'agent lit tout le projet avant de parler. */
+await page.evaluate(() => {
+  window.__delai = 2500;
+});
+await page.click('[data-initier-procedure="dev"]');
+await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
+await page.waitForTimeout(1400);
+
+const temoin = await texteDe('[data-procedure-en-cours]');
+noter(
+  'pendant le tour, le témoin dit ce qui se passe ET depuis combien de temps',
+  /L’agent travaille…/.test(temoin) && /\d+ s/.test(temoin),
+  temoin,
+);
+noter('pendant le tour, le bouton « Envoyer » attend', await page.isDisabled('[data-envoyer-procedure]'));
+
+/* ON REFERME PENDANT QUE ÇA TOURNE : c'est le geste qui perdait tout. */
+await page.keyboard.press('Escape');
+await page.waitForTimeout(2400);
+await page.click('[data-initier-procedure="dev"]');
+await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
+await page.waitForTimeout(900);
+
+const rattrapee = await texteDe('[data-tiroir-procedure="dev"] [data-bulle-procedure="agent"]');
+noter('une question posée tiroir REFERMÉ se retrouve à la réouverture', rattrapee.includes('dev'), rattrapee);
+noter('la rouvrir ne repaie AUCUN tour : un seul est parti', (await compterTours()) === 1);
+noter(
+  'le témoin est éteint dès que plus rien ne tourne',
+  !(await present('[data-procedure-en-cours]')),
+);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(500);
+
+/* UN TOUR QUI TOMBE : il doit DIRE ce qui s'est passé, et laisser relancer. */
+await page.evaluate(() => {
+  window.__delai = 400;
+  window.__echec = 'Le tour de l’agent s’est arrêté : quota';
+});
+await page.click('[data-initier-procedure="production"]');
+await page.waitForSelector('[data-tiroir-procedure="production"]', { timeout: 8000 });
+await page.waitForTimeout(1000);
+const dit = await texteDe('[data-erreur-procedure]');
+noter('un tour qui tombe dit sa cause au lieu de tourner', /quota/.test(dit), dit);
+noter('et le témoin s’éteint aussi sur un échec', !(await present('[data-procedure-en-cours]')));
+noter('un échec laisse un bouton pour relancer', await present('[data-relancer-procedure]'));
+
+await page.evaluate(() => {
+  window.__echec = null;
+});
+await page.click('[data-relancer-procedure]');
+await page.waitForTimeout(1000);
+noter(
+  'relancer à la main repose la question',
+  (await texteDe('[data-tiroir-procedure="production"] [data-bulle-procedure="agent"]')).includes('production'),
+);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(500);
 
 /** Ouvre le tiroir, répond à l'agent, et rend l'état des colonnes après coup. */
 async function configurer(cible) {
@@ -387,10 +506,17 @@ noter(
   relu.trim().slice(0, 80),
 );
 
+/*
+ * TOUS les tours partis, dans l'ordre. Chacun porte la cible de la colonne d'où
+ * il vient, et il n'y en a pas UN de trop : ouverture « dev » (la réouverture
+ * pendant le tour n'en repaie aucun), production tombée puis relancée à la
+ * main, la réponse de chaque étape, et la réouverture par l'icône de réglages —
+ * celle-là repart bien d'une question neuve, la procédure étant déjà écrite.
+ */
 const cibles = await page.evaluate(() => window.__tours.map((t) => t.cible).join(','));
 noter(
-  'chaque tour porte la cible de la colonne d’où il vient',
-  cibles === 'dev,dev,production,production,dev',
+  'chaque tour porte la cible de la colonne d’où il vient, et aucun tour de trop',
+  cibles === 'dev,production,production,dev,production,dev',
   cibles,
 );
 

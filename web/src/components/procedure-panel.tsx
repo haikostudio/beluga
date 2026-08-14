@@ -1,10 +1,13 @@
 import * as React from 'react';
-import { Loader2, Settings2, Sparkles, Check, X } from 'lucide-react';
+import { Loader2, RotateCw, Settings2, Sparkles, Check, X } from 'lucide-react';
 import {
   CiblePublication,
+  RAISON_TOUR_PERDU,
   libelleInitier,
   libelleReglages,
+  phraseDeTravail,
   procedureDeLEtape,
+  repriseDuDialogue,
   titreDeLaProcedure,
 } from '@haikodev/shared';
 import { Button, Drawer, Textarea, Tooltip, ZoneDefilement } from '@/components/ui';
@@ -24,9 +27,15 @@ import { useApp } from '@/lib/use-app';
  * serveur l'enregistre — sur la cible de la colonne d'où l'on vient, jamais sur
  * l'autre. Chaque tour est un tour d'agent payant : rien ne part tout seul, ni
  * à l'ouverture d'un projet, ni en fond.
+ *
+ * LE DIALOGUE VIT SUR LE SERVEUR, ce tiroir ne fait que le SUIVRE. Un tour dure
+ * une à deux minutes (l'agent lit tout le projet) : attendre la réponse d'une
+ * requête pendant tout ce temps faisait tourner le témoin sans rien dire, et la
+ * question, déjà payée, était perdue dès qu'on refermait le tiroir, qu'on
+ * rechargeait la page ou que le lien clignait. Ici, l'état arrive par
+ * l'événement `procedure` ; le témoin suit le SEUL champ `enCours`, et un tour
+ * qui ne tourne plus le DIT au lieu de tourner à vide.
  */
-
-type Bulle = { qui: 'agent' | 'moi'; texte: string };
 
 export function TiroirProcedure({
   projectId,
@@ -41,72 +50,101 @@ export function TiroirProcedure({
 }) {
   const state = useApp();
   const projet = state.projects.find((p) => p.id === projectId);
-  const [bulles, setBulles] = React.useState<Bulle[]>([]);
-  const [agentId, setAgentId] = React.useState<string | undefined>();
   const [saisie, setSaisie] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
-  const [erreur, setErreur] = React.useState<string | null>(null);
-  /* La procédure écrite au dernier tour : elle est DÉJÀ enregistrée quand elle
-     paraît ici — on la montre pour qu'on puisse la lire, pas pour la valider. */
-  const [ecrite, setEcrite] = React.useState<string | null>(null);
+  /* L'échec de la COMMANDE elle-même (lien coupé, tour perdu) : celui du tour,
+     lui, arrive dans l'état diffusé par le serveur. */
+  const [erreurLocale, setErreurLocale] = React.useState<string | null>(null);
+  const [maintenant, setMaintenant] = React.useState(() => Date.now());
 
+  const etat = cible ? state.procedures[`${projectId}:${cible}`] : undefined;
+  const enCours = !!etat?.enCours;
+  const bulles = etat?.echanges ?? [];
+  const ecrite = etat?.procedure ?? null;
+  const erreur = etat?.raison ?? erreurLocale;
   const actuelle = cible ? procedureDeLEtape(projet, cible) : '';
 
+  /* La dernière étape de l'agent : elle prouve, seconde après seconde, que le
+     tour est bien VIVANT — un témoin muet ne se distingue pas d'un blocage. */
+  const etape = React.useMemo(() => {
+    if (!enCours || !etat?.agentId) return undefined;
+    const messages = state.messages[etat.agentId] ?? [];
+    const dernier = messages[messages.length - 1];
+    const etapes = dernier?.steps ?? [];
+    return etapes[etapes.length - 1]?.label;
+  }, [enCours, etat?.agentId, state.messages]);
+
+  const lancer = React.useCallback(
+    async (message?: string) => {
+      if (!cible) return;
+      setErreurLocale(null);
+      try {
+        const res: any = await client.call({ type: 'procedure.tour', projectId, cible, agentId: etat?.agentId, message });
+        client.majProcedure(projectId, cible, res?.etat ?? null);
+      } catch (err: any) {
+        setErreurLocale(err?.message ?? 'la demande n’est pas partie');
+      }
+    },
+    [cible, projectId, etat?.agentId],
+  );
+
   /*
-   * L'OUVERTURE lance le premier tour : l'agent lit le projet et pose sa
-   * question. On repart de zéro à chaque ouverture — une session gardée d'une
-   * fois sur l'autre relirait un projet qui a changé entre-temps.
+   * À L'OUVERTURE, on demande d'abord l'ÉTAT : un tour déjà en train de tourner
+   * se rejoint (on n'en paie pas un second), une question posée pendant que le
+   * tiroir était fermé se relit, et ce n'est qu'à défaut qu'un tour part.
    */
   React.useEffect(() => {
     if (!open || !cible) return;
     let vivant = true;
-    setBulles([]);
-    setAgentId(undefined);
-    setEcrite(null);
-    setErreur(null);
     setSaisie('');
-    setBusy(true);
-    client
-      .call({ type: 'procedure.tour', projectId, cible })
-      .then((res: any) => {
+    setErreurLocale(null);
+    (async () => {
+      try {
+        const res: any = await client.call({ type: 'procedure.etat', projectId, cible });
         if (!vivant) return;
-        setAgentId(res?.agentId);
-        if (res?.ok && res.question) setBulles([{ qui: 'agent', texte: res.question }]);
-        else if (!res?.ok) setErreur(res?.raison ?? 'l’agent n’a pas répondu');
-      })
-      .catch((err: any) => {
-        if (vivant) setErreur(err?.message ?? 'l’agent n’a pas répondu');
-      })
-      .finally(() => {
-        if (vivant) setBusy(false);
-      });
+        client.majProcedure(projectId, cible, res?.etat ?? null);
+        if (repriseDuDialogue(res?.etat ?? null, Date.now()) === 'relancer') await lancer();
+      } catch (err: any) {
+        if (vivant) setErreurLocale(err?.message ?? 'le serveur n’a pas répondu');
+      }
+    })();
     return () => {
       vivant = false;
     };
+    // `lancer` change avec l'agent du dialogue : le relire ici relancerait un
+    // tour à chaque réponse. L'ouverture ne dépend que du tiroir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, cible, projectId]);
+
+  /*
+   * PENDANT L'ATTENTE : l'horloge avance (la durée se voit), et l'état est
+   * revérifié régulièrement. Un serveur redémarré a perdu le dialogue : il rend
+   * alors « rien », et on le DIT — c'est ce qui remplace un témoin sans fin.
+   */
+  React.useEffect(() => {
+    if (!open || !cible || !enCours) return;
+    const horloge = window.setInterval(() => setMaintenant(Date.now()), 1000);
+    const veille = window.setInterval(async () => {
+      try {
+        const res: any = await client.call({ type: 'procedure.etat', projectId, cible });
+        client.majProcedure(projectId, cible, res?.etat ?? null);
+        if (!res?.etat) setErreurLocale(RAISON_TOUR_PERDU);
+      } catch {
+        /* lien coupé : la reconnexion redemandera */
+      }
+    }, 15000);
+    return () => {
+      window.clearInterval(horloge);
+      window.clearInterval(veille);
+    };
+  }, [open, cible, projectId, enCours]);
 
   if (!cible) return null;
 
   const envoyer = async () => {
     const message = saisie.trim();
-    if (!message || busy) return;
-    setBulles((prev) => [...prev, { qui: 'moi', texte: message }]);
+    if (!message || enCours) return;
     setSaisie('');
-    setBusy(true);
-    setErreur(null);
-    try {
-      const res: any = await client.call({ type: 'procedure.tour', projectId, cible, agentId, message });
-      setAgentId(res?.agentId ?? agentId);
-      if (!res?.ok) setErreur(res?.raison ?? 'l’agent n’a pas répondu');
-      else if (res.procedure) {
-        setEcrite(res.procedure);
-        setBulles((prev) => [...prev, { qui: 'agent', texte: 'La procédure est écrite et enregistrée.' }]);
-      } else if (res.question) setBulles((prev) => [...prev, { qui: 'agent', texte: res.question }]);
-    } catch (err: any) {
-      setErreur(err?.message ?? 'l’agent n’a pas répondu');
-    } finally {
-      setBusy(false);
-    }
+    await lancer(message);
   };
 
   return (
@@ -143,17 +181,28 @@ export function TiroirProcedure({
             </div>
           ))}
 
-          {busy ? (
+          {/* Le témoin suit l'AGENT, jamais une requête en attente : il dit ce
+              que l'agent fait et depuis combien de temps, et il s'éteint dès
+              que plus rien ne tourne — réussite comme échec. */}
+          {enCours ? (
             <p className="flex items-center gap-1.5 text-[12.5px] text-faint" data-procedure-en-cours>
-              <Loader2 className="h-3 w-3 animate-spin" /> L’agent travaille…
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+              <span className="truncate">{phraseDeTravail({ depuis: etat?.depuis, etape }, maintenant)}</span>
             </p>
           ) : null}
 
-          {erreur ? (
-            <p className="flex items-start gap-1.5 text-[12.5px] text-danger" data-erreur-procedure>
-              <X className="mt-[3px] h-3 w-3 shrink-0" />
-              <span>{erreur}</span>
-            </p>
+          {erreur && !enCours ? (
+            <div className="space-y-1.5" data-erreur-procedure>
+              <p className="flex items-start gap-1.5 text-[12.5px] text-danger">
+                <X className="mt-[3px] h-3 w-3 shrink-0" />
+                <span>{erreur}</span>
+              </p>
+              {/* Un échec ne se rejoue jamais tout seul : un tour coûte. */}
+              <Button size="sm" variant="outline" onClick={() => void lancer()} data-relancer-procedure>
+                <RotateCw className="h-3 w-3" />
+                Relancer la question
+              </Button>
+            </div>
           ) : null}
 
           {ecrite ? (
@@ -181,8 +230,8 @@ export function TiroirProcedure({
             <Button variant="outline" size="sm" onClick={onClose}>
               Fermer
             </Button>
-            <Button size="sm" disabled={busy || !saisie.trim()} onClick={() => void envoyer()} data-envoyer-procedure>
-              {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            <Button size="sm" disabled={enCours || !saisie.trim()} onClick={() => void envoyer()} data-envoyer-procedure>
+              {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
               Envoyer
             </Button>
           </div>

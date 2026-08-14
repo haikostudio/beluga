@@ -430,6 +430,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     agentId: z.string().optional(),
     message: z.string().optional(),
   }),
+  /**
+   * L'ÉTAT du dialogue de procédure, SANS lancer aucun tour : ce que le tiroir
+   * demande à son ouverture et pendant qu'un tour tourne. Rendre `null` veut
+   * dire « plus aucun tour ici » — le tiroir le dit au lieu de tourner.
+   */
+  z.object({
+    type: z.literal('procedure.etat'),
+    projectId: z.string(),
+    cible: z.enum(['dev', 'production']),
+  }),
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),
@@ -456,6 +466,27 @@ export type ClientEnvelope = z.infer<typeof ClientEnvelope>;
 /* ------------------------------------------------------------------ */
 /* Serveur → client                                                    */
 /* ------------------------------------------------------------------ */
+
+/**
+ * LE DIALOGUE D'UNE PROCÉDURE DE MISE EN LIGNE, tel qu'il voyage.
+ *
+ * Il vit sur le SERVEUR le temps du dialogue (jamais en base : seule la
+ * procédure écrite est enregistrée) et l'écran ne fait que le suivre. Les
+ * règles qui le lisent — quand reprendre, quoi afficher — sont pures et vivent
+ * dans `shared/src/procedure-publication.ts`.
+ */
+export const EtatProcedure = z.object({
+  projectId: z.string(),
+  cible: z.enum(['dev', 'production']),
+  agentId: z.string().optional(),
+  /** Un tour tourne-t-il ? C'est ce seul champ qui allume le témoin de travail. */
+  enCours: z.boolean(),
+  echanges: z.array(z.object({ qui: z.enum(['agent', 'moi']), texte: z.string() })).default([]),
+  procedure: z.string().optional(),
+  raison: z.string().optional(),
+  depuis: z.number().optional(),
+});
+export type EtatProcedure = z.infer<typeof EtatProcedure>;
 
 export const ServerEvent = z.discriminatedUnion('type', [
   z.object({
@@ -543,6 +574,14 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('message.upsert'), message: Message }),
   z.object({ type: z.literal('queue.snapshot'), agentId: z.string(), queue: z.array(QueuedPrompt) }),
   z.object({ type: z.literal('deploy.upsert'), run: DeployRun }),
+  /**
+   * LE DIALOGUE DE PROCÉDURE, diffusé à chaque changement : tour parti, question
+   * posée, procédure écrite, tour tombé. C'est ce qui remplace la réponse d'une
+   * requête retenue pendant tout le tour — l'écran suit en direct, se rattrape
+   * après une coupure, et le témoin de travail s'éteint dès que plus rien ne
+   * tourne (`shared/src/procedure-publication.ts`).
+   */
+  z.object({ type: z.literal('procedure'), etat: EtatProcedure }),
   z.object({ type: z.literal('quotas'), quotas: z.array(AccountQuota) }),
   /**
    * Le catalogue des moteurs, rediffusé quand il a changé — après une

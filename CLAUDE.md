@@ -151,6 +151,12 @@ le nom, là-bas le texte).
   sur la cible de la colonne d'où il vient, JAMAIS sur l'autre. Une fois en place, une icône de
   réglages, en haut à DROITE de la colonne, rouvre le même tiroir. Les projets d'AVANT portent le
   marqueur `constate` : leur déploiement garde exactement le déroulé constaté.
+- **Le tour de ce tiroir ne se livre PAS par la réponse de sa commande** (`EtatDeProcedure`,
+  `repriseDuDialogue`, `issueDuTour`, `shared/src/procedure-publication.ts` ; événement `procedure`,
+  commande `procedure.etat`) : il dure des MINUTES, la commande rend l'état tout de suite, le tour
+  continue en fond et chaque changement est DIFFUSÉ. Le témoin suit le seul champ `enCours`, toute
+  issue est dite (échec compris), rouvrir se raccroche au tour qui tourne au lieu d'en repayer un, et
+  un dialogue perdu se dit au lieu de tourner sans fin.
 - **Une carte qui ENTRE dans « À déployer » perd sa date de mise en ligne, et un bouton éteint DIT
   pourquoi** (`dateDeMiseEnLignePerimee` / `raisonLotBloque`, `shared/src/lot-a-deployer.ts` ;
   `rangerLaCarte`, `server/src/deplacement-carte.ts` ; migration 20). Sans cela, une carte revenue

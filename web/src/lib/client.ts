@@ -7,8 +7,10 @@ import {
   ClientCommand,
   ConnexionCompte,
   DecisionAttendue,
+  CiblePublication,
   DeployRun,
   EngineInfo,
+  EtatProcedure,
   FileNode,
   Message,
   Project,
@@ -79,6 +81,13 @@ export interface AppState {
   files: Record<string, FileNode[]>;
   memory: Record<string, string>;
   deploys: Record<string, DeployRun>;
+  /**
+   * Les dialogues de PROCÉDURE en cours, par `projet:cible`. Ils viennent du
+   * serveur, qui les diffuse à chaque changement : le tiroir n'attend donc plus
+   * la réponse d'une requête retenue pendant tout le tour — il suit, et il se
+   * rattrape après une coupure.
+   */
+  procedures: Record<string, EtatProcedure>;
   activeProjectId: string | null;
   toasts: Toast[];
 }
@@ -111,6 +120,7 @@ const initialState: AppState = {
   files: {},
   memory: {},
   deploys: {},
+  procedures: {},
   activeProjectId: null,
   toasts: [],
 };
@@ -397,6 +407,13 @@ class Client {
         this.set((state) => ({ deploys: { ...state.deploys, [event.run.projectId]: event.run } }));
         break;
 
+      // Le dialogue d'une procédure a bougé : tour parti, question posée,
+      // procédure écrite, tour tombé. Le tiroir n'a rien à demander pour le
+      // savoir — et deux tiroirs ouverts voient exactement la même chose.
+      case 'procedure':
+        this.majProcedure(event.etat.projectId, event.etat.cible, event.etat);
+        break;
+
       case 'quotas':
         this.set({ quotas: event.quotas });
         break;
@@ -553,6 +570,22 @@ class Client {
     } catch {
       // Pas connecté, ou serveur pas encore remonté : le prochain appel réessaiera.
     }
+  }
+
+  /**
+   * Le dialogue d'une procédure, tel que le serveur le dit — par un événement
+   * ou en réponse à `procedure.etat`. `null` veut dire « plus aucun tour ici » :
+   * on l'EFFACE, pour que le tiroir puisse dire qu'il a été perdu au lieu de
+   * garder un témoin allumé sur un tour qui ne tourne plus.
+   */
+  majProcedure(projectId: string, cible: CiblePublication, etat: EtatProcedure | null): void {
+    const cle = `${projectId}:${cible}`;
+    this.set((state) => {
+      const procedures = { ...state.procedures };
+      if (etat) procedures[cle] = etat;
+      else delete procedures[cle];
+      return { procedures };
+    });
   }
 
   setActiveProject(id: string | null): void {
