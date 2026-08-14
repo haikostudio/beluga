@@ -130,19 +130,37 @@ export function App() {
     };
   }, []);
 
-  // Une carte affichée dans la conversation s'ouvre dans le tiroir.
-  React.useEffect(() => client.onOpenCard(setOpenCardId), []);
+  /*
+   * Une carte affichée dans la conversation s'ouvre dans le tiroir. Elle
+   * ferme au passage le petit panneau d'un AUTRE agent resté ouvert : sinon,
+   * en refermant la carte, ce panneau périmé réapparaissait par surprise.
+   */
+  React.useEffect(
+    () =>
+      client.onOpenCard((cardId) => {
+        setOpenAgentId(null);
+        setOpenCardId(cardId);
+      }),
+    [],
+  );
 
   /*
    * « Emmène-moi à la décision. » Le triangle de la colonne de gauche mène
    * jusqu'ici quand la décision ne tient à aucune carte : on ouvre le projet,
    * on déplie la conversation (elle est cachée derrière un bouton sur
    * téléphone, et repliable sur ordinateur), et si la décision vit dans le fil
-   * d'un autre agent que le chef, c'est ce fil-là qui s'ouvre.
+   * d'un autre agent que le chef, c'est ce fil-là qui s'ouvre. Le tiroir d'une
+   * carte resté ouvert (un autre projet, par exemple) est un plein écran qui
+   * cacherait cette conversation par-dessus : on le referme au passage. Le
+   * tableau de bord, lui, prend la place du panneau de droite sur ordinateur
+   * (il ne s'affiche pas pendant que le tableau de bord est ouvert) : on
+   * quitte aussi le tableau de bord, sinon la conversation restait invisible.
    */
   React.useEffect(
     () =>
       client.onOpenConversation(({ projectId, agentId }) => {
+        setOpenCardId(null);
+        setDashboardOpen(false);
         client.setActiveProject(projectId);
         setRightOpen(true);
         // L'onglet du bas n'existe que sur téléphone, et il est RETENU : un
