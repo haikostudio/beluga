@@ -623,6 +623,64 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       WHERE json_extract(data, '$.deploiement') IS NULL;
     `,
   },
+  {
+    id: 23,
+    name: 'refermer-les-listes-de-taches-des-tours-finis',
+    // LES LISTES QUI NE SE TERMINAIENT JAMAIS.
+    //
+    // Une ligne de la liste de tâches restait « en cours » après la fin du
+    // tour : le moteur ne renvoie pas toujours une dernière mise à jour, et le
+    // démon n'arrêtait que son chronomètre, pas son ÉTAT. Des cartes closes
+    // depuis des semaines affichent donc encore « 4/5 faites » avec un rond
+    // orange sur la dernière ligne.
+    //
+    // La règle est réparée à la source (`cloturerLesTaches`, branchée sur tous
+    // les chemins de fin de tour) ; ici on referme ce qui est DÉJÀ figé, avec
+    // exactement la même lecture : un tour qui a rendu une réponse coche la
+    // ligne qui tournait (marquée `closedByTurnEnd` : c'est le démon qui coche,
+    // pas l'agent), un tour muet la dit « non faite », et une ligne jamais
+    // commencée est « non faite » dans les deux cas.
+    //
+    // Seuls les messages DÉJÀ figés sont touchés (`streaming` faux) : un tour
+    // encore en écriture au moment de la migration garde sa liste vivante.
+    sql: `
+      UPDATE messages
+      SET data = json_set(
+        data,
+        '$.todos',
+        (
+          SELECT json_group_array(json(
+            CASE json_extract(t.value, '$.state')
+              WHEN 'running' THEN
+                CASE WHEN length(trim(coalesce(json_extract(messages.data, '$.content'), ''))) > 0
+                  THEN json_set(
+                         json_set(
+                           json_set(t.value, '$.state', 'done'),
+                           '$.endedAt',
+                           coalesce(
+                             json_extract(t.value, '$.endedAt'),
+                             messages.created_at + coalesce(json_extract(messages.data, '$.durationMs'), 0)
+                           )
+                         ),
+                         '$.closedByTurnEnd',
+                         json('true')
+                       )
+                  ELSE json_set(t.value, '$.state', 'unfinished')
+                END
+              WHEN 'todo' THEN json_set(t.value, '$.state', 'unfinished')
+              ELSE t.value
+            END
+          ))
+          FROM json_each(messages.data, '$.todos') AS t
+        )
+      )
+      WHERE coalesce(json_extract(data, '$.streaming'), 0) IN (0, 'false')
+        AND EXISTS (
+          SELECT 1 FROM json_each(messages.data, '$.todos') AS t
+          WHERE json_extract(t.value, '$.state') IN ('running', 'todo')
+        );
+    `,
+  },
 ];
 
 export function openDb(): DB {

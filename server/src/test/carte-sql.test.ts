@@ -81,6 +81,15 @@ avant.exec(`
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
+  /* Même raison pour les MESSAGES, présents depuis la migration 1 : la 23 y
+     referme les listes de tâches restées « en cours ». */
+  CREATE TABLE messages (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
 `);
 for (let id = 1; id <= 16; id += 1) {
   avant.prepare('INSERT INTO migrations (id, name, applied_at) VALUES (?, ?, ?)').run(id, `ancienne-${id}`, 1);

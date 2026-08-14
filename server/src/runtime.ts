@@ -44,6 +44,7 @@ import {
   messageDePanneDefinitive,
   MotifDeContinuite,
   tachesAPoursuivre,
+  cloturerLesTaches,
   cleDeSession,
   partMoteurDeLaCle,
   colonneApresMoteurMuet,
@@ -1763,14 +1764,21 @@ async function startTurn(
       store.clearSession(agent.id, cleSession);
     }
   }
+  /*
+   * LA LISTE DE TÂCHES SE REFERME AVEC LE TOUR (`cloturerLesTaches`). Arrêter
+   * le chronomètre de la dernière ligne ne suffisait pas : son ÉTAT restait
+   * « en cours », et le rond orange brillait pour toujours sur une carte
+   * pourtant close. Un tour rendu coche cette ligne ; un tour tombé, coupé par
+   * un quota ou par une panne, dit « non faite » — jamais « en attente ».
+   */
+  runState.todos = cloturerLesTaches(runState.todos, {
+    issue: failed || reprise || panneDefinitive ? 'interrompu' : 'reussi',
+    maintenant: Date.now(),
+  });
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: [...runState.steps.values()].map((s) => (s.state === 'running' ? { ...s, state: 'failed' as const } : s)),
-    // Une ligne restée « en cours » alors que le tour est fini garderait un
-    // temps qui court : on l'arrête ici.
-    todos: runState.todos.map((todo) =>
-      todo.state === 'running' && !todo.endedAt ? { ...todo, endedAt: Date.now() } : todo,
-    ),
+    todos: runState.todos,
     streaming: false,
     tokens: tokens || undefined,
     durationMs: Math.round(elapsedSeconds * 1000),
@@ -2355,6 +2363,25 @@ function pushMessage(run: LiveRun, patch: Partial<Message>): void {
 }
 
 /**
+ * LES CHEMINS DE SECOURS REFERMENT LA LISTE, EUX AUSSI. La fin normale d'un
+ * tour passe par `cloturerLesTaches` ; mais un tour peut aussi se refermer
+ * d'autorité, s'éteindre en écriture orpheline ou disparaître avec le démon.
+ * Chacun de ces chemins fige un message : il doit figer sa liste avec lui,
+ * sinon la ligne « en cours » survit à tout — c'est justement le cas qu'on
+ * répare. Refermer une liste déjà refermée ne change rien.
+ *
+ * Une réponse RÉDIGÉE vaut un tour rendu (même lecture que
+ * `statutDeFermetureForcee`) : sa dernière ligne se coche. Un message muet,
+ * lui, a été coupé : ses lignes ouvertes disent « non faite ».
+ */
+function tachesRefermees(message: Message): TodoItem[] {
+  return cloturerLesTaches(message.todos, {
+    issue: message.content.trim().length > 0 ? 'reussi' : 'interrompu',
+    maintenant: Date.now(),
+  });
+}
+
+/**
  * ÉTEINDRE UNE ÉCRITURE ORPHELINE : un message resté marqué « en cours
  * d'écriture » alors que son agent est au repos depuis. La règle du jugement
  * vit dans `shared` (`ecritureOrpheline`) ; ici on ne fait que constater et
@@ -2378,7 +2405,7 @@ function eteindreEcritureOrpheline(
   ) {
     return false;
   }
-  const fige = store.saveMessage({ ...enEcriture, streaming: false });
+  const fige = store.saveMessage({ ...enEcriture, streaming: false, todos: tachesRefermees(enEcriture) });
   bus.emit({ type: 'message.upsert', message: fige });
   log.warn(`écriture orpheline éteinte (agent ${agent.id}, message ${enEcriture.id})`);
   return true;
@@ -2531,6 +2558,7 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
     const fige = store.saveMessage({
       ...dernier,
       streaming: false,
+      todos: tachesRefermees(dernier),
       // Une réponse écrite se garde telle quelle : y coller un bandeau rouge
       // ferait passer un travail livré pour une panne. C'est le silence qui se
       // dit, jamais le texte rendu.
@@ -2909,6 +2937,10 @@ export function recoverAfterRestart(
       const fixed = store.saveMessage({
         ...dangling,
         streaming: false,
+        // Le moteur est parti avec le démon : rien de ce qui restait ouvert
+        // n'a été mené à bout, et la liste doit le DIRE plutôt que garder une
+        // ligne qui tourne à vide.
+        todos: cloturerLesTaches(dangling.todos, { issue: 'interrompu', maintenant: Date.now() }),
         error: 'Interrompu par un redémarrage du serveur. Cette interruption ne compte pas comme un essai raté.',
       });
       bus.emit({ type: 'message.upsert', message: fixed });
