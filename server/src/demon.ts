@@ -90,15 +90,15 @@ export function redemarrageEstEnAttente(): boolean {
 }
 
 /**
- * Rejoue la règle : redémarre, reste en attente, ou ne fait rien. `ignorerAgents`
- * vaut pour le BOUTON, geste humain qui a déjà vu l'avertissement sur les agents
- * et passe outre — mais jamais outre une publication, qu'aucun avertissement ne
- * couvre.
+ * Rejoue la règle : redémarre, reste en attente, ou ne fait rien. Ni un agent
+ * au travail ni une publication en cours ne se laissent jamais contourner —
+ * pas même par le bouton, geste humain compris : passer outre couperait un
+ * travail en plein vol, exactement ce qu'on veut empêcher.
  */
-function evaluerRedemarrage(ignorerAgents: boolean): { ok: boolean; raison?: string; enAttente: boolean } {
+function evaluerRedemarrage(): { ok: boolean; raison?: string; enAttente: boolean } {
   const suite = suiteDuRedemarrage(redemarrageEnAttente, {
     publications: publicationsEnCours(),
-    agents: ignorerAgents ? 0 : agentsActifs().length,
+    agents: agentsActifs().length,
   });
   redemarrageEnAttente = suite.enAttente;
   if (suite.redemarrer) {
@@ -110,21 +110,23 @@ function evaluerRedemarrage(ignorerAgents: boolean): { ok: boolean; raison?: str
 }
 
 /**
- * Demande un redémarrage. S'il peut partir, il part ; sinon il est retenu et la
- * raison (nom du projet qui publie) est rendue à qui l'a demandé.
+ * Demande un redémarrage. S'il peut partir, il part ; sinon il est retenu — le
+ * bouton passe alors sur « Redémarrage requis » — et la raison (agent au
+ * travail ou nom du projet qui publie) est rendue à qui l'a demandé.
  */
-export function demanderRedemarrage(opts?: { ignorerAgents?: boolean }): { ok: boolean; raison?: string; enAttente: boolean } {
+export function demanderRedemarrage(): { ok: boolean; raison?: string; enAttente: boolean } {
   redemarrageEnAttente = true;
-  return evaluerRedemarrage(opts?.ignorerAgents ?? false);
+  return evaluerRedemarrage();
 }
 
 /**
- * À appeler quand une publication vient de se terminer : si un redémarrage
- * attendait, on rejoue la règle. Dès la DERNIÈRE publication finie, il part.
+ * À appeler quand une publication ou un agent vient de se terminer : si un
+ * redémarrage attendait, on rejoue la règle. Dès le DERNIER travail fini, il
+ * part tout seul.
  */
 export function appliquerRedemarrageEnAttente(): void {
   if (!redemarrageEnAttente) return;
-  evaluerRedemarrage(false);
+  evaluerRedemarrage();
 }
 
 /**

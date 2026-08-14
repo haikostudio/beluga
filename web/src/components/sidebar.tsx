@@ -880,14 +880,14 @@ function BoutonRedemarrage() {
     : publie
       ? 'Publication en cours'
       : enAttente
-        ? 'Redémarrage en attente'
+        ? 'Redémarrage requis'
         : attendu
           ? 'Redémarrage attendu'
           : 'Redémarrer le serveur';
   const titre = publie
     ? raisonPublications(publications)
     : enAttente
-      ? 'Un redémarrage attend la fin de la publication : il partira tout seul.'
+      ? 'Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.'
       : attendu
         ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
         : 'Redémarrer le serveur';
@@ -925,7 +925,6 @@ function BoutonRedemarrage() {
         title="Redémarrer le serveur ?"
         description={avertissementRedemarrage(demon ?? { demarreA: 0 })}
         confirmLabel="Redémarrer"
-        danger={!!demon?.agentsEnCours}
         onConfirm={() => {
           setEnCours(true);
           // La réponse part avant la coupure ; la reconnexion se fait toute

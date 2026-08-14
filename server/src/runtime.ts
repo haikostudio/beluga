@@ -536,6 +536,10 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
      * personne ne l'attendait.
      */
     refermerLeTour(agentId, "Le tour s'est arrêté sur une panne interne du serveur.");
+    // Un redémarrage retenu tant qu'un agent travaillait peut désormais
+    // repartir — importé au moment de l'appel pour éviter le cycle avec
+    // demon.ts, qui lit lui-même `agentsActifs` d'ici.
+    void import('./demon.js').then((demon) => demon.appliquerRedemarrageEnAttente());
   }
 }
 
