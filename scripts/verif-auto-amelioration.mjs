@@ -12,8 +12,9 @@
  *  3. un seul passage par nuit ;
  *  4. sur une VRAIE base, le projet examiné est bien HaikoDev lui-même, et un
  *     projet mis de côté ne l'est plus ;
- *  5. sur cette même base, le compte de propositions laissées au réveil est
- *     juste : une proposition déjà décidée n'attend plus personne.
+ *  5. sur cette même base, chaque proposition encore en attente devient, SANS
+ *     clic, une carte réelle dans « Planifié », étiquetée « auto amélioration » ;
+ *     une proposition déjà décidée n'en fait pas naître une seconde.
  *
  * AUCUN MOTEUR N'EST APPELÉ : le script ne lance jamais le rendez-vous réel —
  * il vérifie la décision qui y mène, et le mécanisme qui l'entoure. Il est donc
@@ -189,15 +190,30 @@ const message = store.saveMessage(
 // les retient pour la colonne de gauche. Le contrôle refait le même geste.
 for (const p of propositions) store.saveProposal(message.id, soi.id, p);
 
-const compte = rendezVous.propositionsDuTour(agent.id);
-verifier(compte === 2, `deux propositions attendent une décision — compté : ${compte}`);
-verifier(compte <= PROPOSITIONS_MAX, `jamais plus de ${PROPOSITIONS_MAX} propositions : le tableau reste lisible`);
+const posees = rendezVous.accepterPropositionsDeLaNuit(agent.id);
+verifier(posees === 2, `deux cartes doivent naître directement — compté : ${posees}`);
+verifier(posees <= PROPOSITIONS_MAX, `jamais plus de ${PROPOSITIONS_MAX} propositions : le tableau reste lisible`);
+
+const cartes = store.listCards(soi.id);
+verifier(cartes.length === 2, `les cartes de la nuit sont bien sur le tableau — trouvé : ${cartes.length}`);
+verifier(
+  cartes.every((c) => c.column === 'planned'),
+  'chaque carte naît directement dans « Planifié », sans attendre un clic',
+);
+verifier(
+  cartes.every((c) => c.labels.includes(partage.LABEL_AUTO_AMELIORATION)),
+  'chaque carte porte l’étiquette « auto amélioration »',
+);
 
 const decisions = store.decisionsEnAttente().filter((d) => d.projectId === soi.id && !d.reglee);
 verifier(
-  decisions.length >= 1 && decisions.every((d) => d.agentId === agent.id && !d.cardId),
-  'la colonne de gauche mène au fil de la nuit : décision sans carte, portée par l’agent',
+  decisions.length === 0,
+  'aucune décision ne reste en attente : les propositions de la nuit sont déjà tranchées',
 );
+
+// Rejouer l’acceptation ne doit rien créer de plus : une proposition décidée
+// n’attend plus personne.
+verifier(rendezVous.accepterPropositionsDeLaNuit(agent.id) === 0, 'un second passage sur le même agent ne pose rien de plus');
 
 /* ------------------------------------------------------------------ */
 console.log('\n6. La consigne envoyée à l’agent');

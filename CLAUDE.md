@@ -283,8 +283,11 @@ le nom, là-bas le texte).
   `analysis` — il ne modifie RIEN —, sortie unique `propose_task`, TROIS propositions au plus
   (`PROPOSITIONS_MAX`), et le projet examiné est HaikoDev lui-même (`project.isSelf`). Fenêtre 3 h –
   5 h : un travail en cours REPORTE le rendez-vous, il ne le supprime pas ; aucun rattrapage au
-  démarrage, la réserve du jour ne se dépense pas en pleine journée. Verrouillé par
-  `server/src/test/auto-amelioration.test.ts` et `scripts/verif-auto-amelioration.mjs`.
+  démarrage, la réserve du jour ne se dépense pas en pleine journée. **CE RENDEZ-VOUS SE CONCLUT SEUL**
+  (`accepterPropositionsDeLaNuit`) : chaque proposition encore en attente à la fin du tour devient,
+  SANS clic, une carte réelle posée dans « Planifié » et étiquetée « auto amélioration »
+  (`LABEL_AUTO_AMELIORATION`) — seul le LANCEMENT de ces cartes reste un geste de l'utilisateur.
+  Verrouillé par `server/src/test/auto-amelioration.test.ts` et `scripts/verif-auto-amelioration.mjs`.
 
 ### Branches et dossiers
 
