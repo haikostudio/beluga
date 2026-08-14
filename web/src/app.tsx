@@ -351,8 +351,7 @@ export function App() {
       });
       notification.onclick = () => {
         window.focus();
-        if (event.projectId) client.setActiveProject(event.projectId);
-        if (event.cardId) setOpenCardId(event.cardId);
+        client.allerVersDecision({ projectId: event.projectId, cardId: event.cardId, agentId: event.agentId });
       };
     });
     return () => {
@@ -392,11 +391,16 @@ export function App() {
     };
     void setup();
 
-    // Un appui sur une notification ouvre la carte concernée.
+    // Un appui sur une notification poussée emmène à la décision concernée
+    // (carte, ou conversation quand elle n'en a aucune — question du chef
+    // d'orchestre).
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OPEN_CARD') {
-        if (event.data.projectId) client.setActiveProject(event.data.projectId);
-        if (event.data.cardId) setOpenCardId(event.data.cardId);
+        client.allerVersDecision({
+          projectId: event.data.projectId,
+          cardId: event.data.cardId,
+          agentId: event.data.agentId,
+        });
       }
     };
     navigator.serviceWorker?.addEventListener('message', onMessage);

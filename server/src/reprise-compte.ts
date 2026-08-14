@@ -123,6 +123,7 @@ export function poserDecisionDeReprise(entree: {
     element: entree.agent.title,
     projectId: entree.agent.projectId,
     cardId: entree.agent.cardId,
+    agentId: entree.agent.id,
   });
   bus.emit({ type: 'attention', ...store.signalAttention() });
 }
@@ -251,6 +252,7 @@ export function signalerRepriseRedevenuePossible(): void {
       element: agent?.title ?? 'un travail en attente',
       projectId: attente.projectId,
       cardId: attente.cardId,
+      agentId: attente.agentId,
     });
   }
 }

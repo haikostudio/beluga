@@ -629,6 +629,10 @@ export const ServerEvent = z.discriminatedUnion('type', [
     voix: z.string().optional(),
     cardId: z.string().optional(),
     projectId: z.string().optional(),
+    /** L'agent où la décision se prend quand elle ne tient à aucune carte
+        (question du chef d'orchestre) : sans lui, un clic sur la notification
+        ne savait ouvrir qu'une carte, jamais une conversation seule. */
+    agentId: z.string().optional(),
   }),
   z.object({ type: z.literal('memory'), projectId: z.string(), content: z.string() }),
 ]);

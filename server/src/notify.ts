@@ -41,6 +41,9 @@ interface Pending {
   voix?: string;
   cardId?: string;
   projectId?: string;
+  /** L'agent où répondre quand l'événement ne tient à aucune carte (question
+      du chef d'orchestre) : perdu dès qu'un groupe mélange deux agents. */
+  agentId?: string;
   /** Le projet nommé en tête du titre, tant que tous les événements du groupe viennent de lui. */
   projet?: string;
   timer: NodeJS.Timeout;
@@ -96,6 +99,8 @@ export function notify(input: {
   voix?: string;
   cardId?: string;
   projectId?: string;
+  /** L'agent où la décision se prend, quand elle ne tient à aucune carte. */
+  agentId?: string;
 }): void {
   const famille = familleDuMotif(input.motif);
 
@@ -155,6 +160,7 @@ export function notify(input: {
     // Un groupe qui mélange deux projets ne peut plus en nommer un seul.
     if (existing.projet && existing.projet !== projet) existing.projet = undefined;
     existing.cardId = undefined; // un groupe ne pointe plus vers une carte précise
+    existing.agentId = undefined; // ni vers une conversation précise
     existing.voix = undefined; // un résumé ne vaut que pour UNE tâche, pas pour un lot
     existing.timer = setTimeout(() => flush(famille), GROUP_WINDOW_MS);
     return;
@@ -169,6 +175,7 @@ export function notify(input: {
     voix: input.voix,
     cardId: input.cardId,
     projectId: input.projectId,
+    agentId: input.agentId,
     projet,
     timer: setTimeout(() => flush(famille), GROUP_WINDOW_MS),
   });
@@ -209,6 +216,7 @@ function flush(famille: FamilleNotification): Promise<void> {
     motif: entry.motif,
     cardId: entry.cardId,
     projectId: entry.projectId,
+    agentId: entry.agentId,
   };
   // Vers les onglets ouverts…
   bus.emit({ type: 'notify', ...payload });
