@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { AlertTriangle, Check, Loader2, Mic, RotateCw, Trash2 } from 'lucide-react';
 import { client } from '@/lib/client';
+import { ouvrirMicro, type PriseMicro } from '@/lib/micro';
 import { cn } from '@/lib/utils';
 
 /**
@@ -14,6 +15,12 @@ import { cn } from '@/lib/utils';
  * (`ESSAIS_MAX`). Le son dicté n'est JAMAIS jeté avant d'avoir soit réussi,
  * soit épuisé ses essais — il reste alors dans `blobEnAttenteRef`, prêt à
  * repartir d'un clic sur « Réessayer », sans qu'il faille tout redicter.
+ *
+ * LE MICRO NE SURVIT À RIEN. Il s'ouvre par la porte unique (`lib/micro.ts`),
+ * sur le seul clic du bouton, et il se referme aux QUATRE issues : valider,
+ * jeter, QUITTER L'ÉCRAN (le démontage), et un second clic pendant qu'il
+ * s'ouvrait encore. Sans cela, changer d'onglet en pleine dictée le laissait
+ * ouvert pour toujours — et le repère orange du téléphone allumé.
  */
 
 const BARRES = 28;
@@ -30,15 +37,23 @@ export function useRecorder(onText: (text: string) => void) {
 
   const recorderRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
-  const audioRef = React.useRef<{ context: AudioContext; raf: number } | null>(null);
+  const audioRef = React.useRef<{ raf: number } | null>(null);
   const timerRef = React.useRef<number | null>(null);
+  // La prise de micro en cours : c'est ELLE qui referme tout (flux et contexte).
+  const priseRef = React.useRef<PriseMicro | null>(null);
+  // Une ouverture est-elle déjà en route ? Le navigateur met un instant à rendre
+  // le micro : sans ce garde, un second clic ouvrait un DEUXIÈME flux et le
+  // premier ne se refermait plus jamais.
+  const ouvertureRef = React.useRef(false);
+  // La barre d'écriture est-elle toujours à l'écran ? Lu par l'ouverture, qui
+  // dure quelques instants et peut se terminer après un changement d'écran.
+  const viveRef = React.useRef(true);
   // Le son dicté, gardé tant qu'il n'a pas été transcrit avec succès.
   const blobEnAttenteRef = React.useRef<Blob | null>(null);
 
   const stopMeter = React.useCallback(() => {
     if (audioRef.current) {
       cancelAnimationFrame(audioRef.current.raf);
-      void audioRef.current.context.close();
       audioRef.current = null;
     }
     if (timerRef.current) {
@@ -49,14 +64,45 @@ export function useRecorder(onText: (text: string) => void) {
     setSeconds(0);
   }, []);
 
+  /**
+   * TOUT REFERMER, d'où que vienne la demande : les deux boutons du bandeau, le
+   * démontage, un enregistreur tombé. Rejouable sans risque.
+   */
+  const relacherLeMicro = React.useCallback(() => {
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.stop();
+      } catch {
+        /* déjà arrêté */
+      }
+    }
+    priseRef.current?.fermer();
+    priseRef.current = null;
+    stopMeter();
+  }, [stopMeter]);
+
   const start = React.useCallback(async () => {
+    // Le micro n'est demandé qu'une fois : ni double clic, ni second flux.
+    if (ouvertureRef.current || priseRef.current) return;
+    ouvertureRef.current = true;
+    let prise: PriseMicro | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      prise = await ouvrirMicro('dictée');
+      // Le micro a mis un instant à s'ouvrir et l'écran est parti entre-temps
+      // (démontage, page quittée) : on le referme au lieu de le garder.
+      if (!viveRef.current) {
+        prise.fermer();
+        return;
+      }
+      const stream = prise.flux;
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
       recorder.ondataavailable = (event) => event.data.size && chunksRef.current.push(event.data);
       recorder.start();
       recorderRef.current = recorder;
+      priseRef.current = prise;
       setRecording(true);
       setSeconds(0);
       timerRef.current = window.setInterval(() => setSeconds((value) => value + 1), 1000);
@@ -66,6 +112,10 @@ export function useRecorder(onText: (text: string) => void) {
       const analyser = context.createAnalyser();
       analyser.fftSize = 512;
       source.connect(analyser);
+      // Le contexte est confié à la prise : il se fermera AVEC le micro, jamais
+      // après — un contexte nourri par le micro garde, sur iPhone, la session
+      // d'enregistrement du système ouverte.
+      prise.brancher(context, source);
       const data = new Uint8Array(analyser.frequencyBinCount);
 
       const loop = () => {
@@ -77,9 +127,14 @@ export function useRecorder(onText: (text: string) => void) {
         const raf = requestAnimationFrame(loop);
         if (audioRef.current) audioRef.current.raf = raf;
       };
-      audioRef.current = { context, raf: requestAnimationFrame(loop) };
+      audioRef.current = { raf: requestAnimationFrame(loop) };
     } catch {
+      // Rien ne reste ouvert derrière un démarrage raté.
+      prise?.fermer();
+      priseRef.current = null;
       client.pushToast('error', 'Micro indisponible dans ce navigateur');
+    } finally {
+      ouvertureRef.current = false;
     }
   }, []);
 
@@ -127,15 +182,21 @@ export function useRecorder(onText: (text: string) => void) {
     async (keep: boolean) => {
       const recorder = recorderRef.current;
       if (!recorder) return;
-      const stream = recorder.stream;
+      recorderRef.current = null;
       await new Promise<void>((resolve) => {
         recorder.onstop = () => resolve();
-        recorder.stop();
+        try {
+          recorder.stop();
+        } catch {
+          resolve();
+        }
       });
-      stream.getTracks().forEach((track) => track.stop());
+      // Le micro est relâché AVANT tout envoi : on ne garde pas un micro ouvert
+      // le temps d'une transcription.
+      priseRef.current?.fermer();
+      priseRef.current = null;
       stopMeter();
       setRecording(false);
-      recorderRef.current = null;
 
       if (!keep) {
         chunksRef.current = [];
@@ -159,6 +220,20 @@ export function useRecorder(onText: (text: string) => void) {
     blobEnAttenteRef.current = null;
     setError(null);
   }, []);
+
+  /*
+   * QUITTER L'ÉCRAN RELÂCHE LE MICRO. Cet effet est le filet de sécurité de
+   * toutes les issues qu'on n'a pas prévues : passer du chef au tableau, fermer
+   * la conversation, recharger la page. Sans lui, une dictée commencée puis
+   * abandonnée laissait le flux ouvert et le repère du système allumé.
+   */
+  React.useEffect(() => {
+    viveRef.current = true;
+    return () => {
+      viveRef.current = false;
+      relacherLeMicro();
+    };
+  }, [relacherLeMicro]);
 
   return { recording, working, levels, seconds, error, start, finish, retry, discardError };
 }

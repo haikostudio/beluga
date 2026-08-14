@@ -25,29 +25,34 @@ import {
   type VoixOptions,
 } from '@haikodev/shared';
 import { client } from '@/lib/client';
-import { readPref, usePref } from '@/lib/prefs';
+import { usePref } from '@/lib/prefs';
 import { useSurvol } from '@/lib/pointeur';
 import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
 import { direVoix, lireNiveaux, taireVoix, useVoix } from '@/lib/voix';
 import { lireNiveauxMicro, useEcoutePermanente } from '@/lib/ecoute';
 import { lireNiveauxConversation, useConversationVocale } from '@/lib/conversation-vocale';
+import { signalerEcouteVoulue } from '@/lib/micro';
 
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
 
 /**
- * La clé de préférence de l'ÉCOUTE PERMANENTE. Éteinte par défaut : le micro ne
- * s'ouvre jamais sans que l'interrupteur ait été allumé à la main. Retenue comme
- * les autres réglages de voix, donc côté serveur : la même sur tous les
- * appareils.
+ * La clé de l'ÉCOUTE PERMANENTE. Éteinte À CHAQUE OUVERTURE de l'application :
+ * le micro ne s'ouvre jamais sans que l'interrupteur ait été allumé à la main,
+ * DANS cette page. Elle était jadis retenue côté serveur, comme les autres
+ * réglages de voix — allumée une fois sur un ordinateur, elle rouvrait le micro
+ * toute seule au chargement suivant, sur le téléphone comme ailleurs, sans le
+ * moindre geste : le repère orange du système s'allumait sans que rien ne le
+ * demande. La clé ne sert donc plus qu'à EFFACER une valeur restée allumée.
  */
 export const CLE_VOIX_ECOUTE = 'voix.ecoute';
 
 /**
- * La clé de préférence du MODE CONVERSATION VOCALE. À CÔTÉ de l'écoute par mot de
- * réveil (`CLE_VOIX_ECOUTE`) : ici on parle SANS « Dis Haiko », l'agent répond à
- * la voix, et reparler coupe sa parole. Éteint par défaut, retenu côté serveur.
+ * La clé du MODE CONVERSATION VOCALE. À CÔTÉ de l'écoute par mot de réveil
+ * (`CLE_VOIX_ECOUTE`) : ici on parle SANS « Dis Haiko », l'agent répond à la
+ * voix, et reparler coupe sa parole. Éteint à chaque ouverture, pour la même
+ * raison.
  */
 export const CLE_VOIX_CONVERSATION = 'voix.conversation';
 
@@ -397,6 +402,31 @@ function LigneOndes({
  * AUTOMATIQUE (jamais les notifications visuelles ni le badge, jamais l'icône,
  * jamais la réécoute manuelle) ; son état est retenu en préférence.
  */
+/**
+ * UN INTERRUPTEUR D'ÉCOUTE — éteint à chaque ouverture de l'application.
+ *
+ * Ce n'est PAS une préférence comme les autres. Un réglage retenu se retrouve au
+ * chargement suivant ; ici, cela voudrait dire un micro qui s'ouvre sans que
+ * personne ne l'ait demandé sur cet appareil-là, à cet instant-là — exactement le
+ * repère orange qui s'allume tout seul sur le téléphone. L'état ne vit donc que
+ * dans la page ouverte, et il repart de zéro à chaque fois.
+ *
+ * La valeur restée en base (d'avant cette règle, ou d'un autre appareil) est
+ * ÉTEINTE une bonne fois : sans cela, elle mentirait sur ce que l'application
+ * fait vraiment.
+ */
+function useInterrupteurDEcoute(cle: string): [boolean, (valeur: boolean) => void] {
+  const [allume, setAllume] = React.useState(false);
+  // La valeur retenue arrive du serveur APRÈS le premier rendu : on la surveille
+  // au lieu de la lire une fois pour toutes, sinon on éteindrait un réglage
+  // qu'on n'a pas encore reçu — et il resterait allumé en base pour toujours.
+  const [retenu, oublier] = usePref<boolean>(cle, false);
+  React.useEffect(() => {
+    if (retenu) oublier(false);
+  }, [retenu, oublier]);
+  return [allume, setAllume];
+}
+
 export function VoixAssistant() {
   const state = useApp();
   const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
@@ -516,12 +546,14 @@ export function VoixAssistant() {
   /*
    * L'ÉCOUTE PERMANENTE. L'interrupteur vit dans le panneau déplié, à côté du
    * Muet ; éteint, RIEN n'est ouvert — pas de micro, pas de flux, pas d'envoi.
+   * Il est ÉTEINT à chaque ouverture de l'application (`useInterrupteurDEcoute`) :
+   * seul un geste fait dans CETTE page ouvre un micro.
    * Allumé, le micro guette « Dis Haiko » ; le mot passé, la phrase est
    * recueillie, relue deux secondes à l'écran, puis publiée. Tout le mécanisme
    * (micro, découpe par le silence, transcription) vit dans `useEcoutePermanente` ;
    * ici, on ne fait que l'afficher.
    */
-  const [ecouteAllumee, setEcouteAllumee] = usePref<boolean>(CLE_VOIX_ECOUTE, false);
+  const [ecouteAllumee, setEcouteAllumee] = useInterrupteurDEcoute(CLE_VOIX_ECOUTE);
   // Le mot de réveil réglé (« Dis Haiko » par défaut), sous ses DEUX formes
   // comparées : ses lettres, et ce qu'il sonne — la transcription n'écrit
   // presque jamais « Haiko », mais elle en écrit toujours le son.
@@ -530,14 +562,17 @@ export function VoixAssistant() {
     [state.settings?.voixReveil],
   );
   const ecoute = useEcoutePermanente(ecouteAllumee, reveil);
+  // Lu par le raccourci clavier, qui ne se réabonne pas à chaque bascule.
+  const ecouteAllumeeRef = React.useRef(ecouteAllumee);
+  ecouteAllumeeRef.current = ecouteAllumee;
 
   /*
    * LE RACCOURCI CLAVIER qui bascule l'écoute, réglé dans l'onglet Système
    * (`Settings.voixRaccourci`, vide par défaut). Un écouteur global l'attend où
    * que l'on soit — mais jamais pendant qu'on tape dans un champ, et jamais si
    * aucun raccourci n'est réglé. On relit la préférence d'écoute au moment de
-   * l'appui (`readPref`) : le setter n'a pas de forme « inverse la valeur », et
-   * on évite de réabonner l'écouteur à chaque bascule.
+   * l'appui par une référence : le setter n'a pas de forme « inverse la
+   * valeur », et on évite de réabonner l'écouteur à chaque bascule.
    */
   const raccourci = state.settings?.voixRaccourci;
   React.useEffect(() => {
@@ -547,7 +582,7 @@ export function VoixAssistant() {
       const actif = document.activeElement as HTMLElement | null;
       if (estCibleDeSaisie({ tagName: actif?.tagName, editable: actif?.isContentEditable })) return;
       event.preventDefault();
-      setEcouteAllumee(!readPref<boolean>(CLE_VOIX_ECOUTE, false));
+      setEcouteAllumee(!ecouteAllumeeRef.current);
     };
     window.addEventListener('keydown', surTouche);
     return () => window.removeEventListener('keydown', surTouche);
@@ -563,7 +598,7 @@ export function VoixAssistant() {
    * haute. Reparler coupe cette parole (`onParole` → `taireVoix`). Les ondes sont
    * BLEUES (le micro du réveil, lui, reste rouge).
    */
-  const [conversationAllumee, setConversationAllumee] = usePref<boolean>(CLE_VOIX_CONVERSATION, false);
+  const [conversationAllumee, setConversationAllumee] = useInterrupteurDEcoute(CLE_VOIX_CONVERSATION);
   // Lu par les écouteurs (fermeture au survol-sort, appui-dehors) sans les
   // réabonner : tant qu'on converse, le panneau reste ouvert pour montrer le fil.
   const conversationAllumeeRef = React.useRef(conversationAllumee);
@@ -616,6 +651,16 @@ export function VoixAssistant() {
       client.pushToast('error', "La demande vocale n’a pas pu partir.");
     }
   }, [ajouterAuFil]);
+
+  /*
+   * QUITTER L'ÉCRAN REFERME LE MICRO — sauf si une écoute a été VOULUE. La porte
+   * unique (`lib/micro.ts`) referme tout quand la page part ou passe en
+   * arrière-plan ; une écoute demandée à la main, elle, survit à un simple coup
+   * d'œil sur une autre application, sinon elle se couperait sans jamais revenir.
+   */
+  React.useEffect(() => {
+    signalerEcouteVoulue(ecouteAllumee || conversationAllumee);
+  }, [ecouteAllumee, conversationAllumee]);
 
   const conversation = useConversationVocale(conversationAllumee, {
     onTexte: envoyerConversation,

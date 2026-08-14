@@ -14,6 +14,7 @@ import {
   type FormesDeReveil,
 } from '@haikodev/shared';
 import { client } from './client';
+import { ouvrirMicro, type PriseMicro } from './micro';
 
 /**
  * L'ÉCOUTE PERMANENTE — le micro ouvert, mais seulement si on l'a demandé.
@@ -263,8 +264,10 @@ export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ec
     }
 
     let vivant = true;
+    // LA PRISE de micro : ouverte par la porte unique (`lib/micro.ts`), elle
+    // referme le flux ET le contexte audio qui l'écoute, d'un seul geste.
+    let prise: PriseMicro | null = null;
     let flux: MediaStream | null = null;
-    let contexte: AudioContext | null = null;
     let enregistreur: MediaRecorder | null = null;
     let image = 0;
     let morceaux: Blob[] = [];
@@ -282,10 +285,9 @@ export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ec
       analyseurMicro = null;
       donneesMicro = null;
       morceaux = [];
-      flux?.getTracks().forEach((piste) => piste.stop());
+      prise?.fermer();
+      prise = null;
       flux = null;
-      void contexte?.close().catch(() => undefined);
-      contexte = null;
       setEtat('refusee');
       setErreur(message);
       client.pushToast('error', message);
@@ -412,7 +414,8 @@ export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ec
       format = { mimeType: choisi.mimeType, extension: choisi.extension };
 
       try {
-        flux = await navigator.mediaDevices.getUserMedia({ audio: true });
+        prise = await ouvrirMicro('mot de réveil');
+        flux = prise.flux;
       } catch {
         if (!vivant) return;
         setEtat('refusee');
@@ -420,8 +423,11 @@ export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ec
         client.pushToast('error', REFUS_MICRO);
         return;
       }
+      // L'interrupteur s'est éteint pendant que le micro s'ouvrait : on le rend.
       if (!vivant) {
-        flux.getTracks().forEach((p) => p.stop());
+        prise.fermer();
+        prise = null;
+        flux = null;
         return;
       }
       setErreur(null);
@@ -436,8 +442,10 @@ export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ec
           window.AudioContext ||
           (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (!Ctx) throw new Error('aucun contexte audio');
-        contexte = new Ctx();
+        const contexte = new Ctx();
         const source = contexte.createMediaStreamSource(flux);
+        // Le contexte est confié à la PRISE : il se fermera avec le micro.
+        prise.brancher(contexte, source);
         analyseur = contexte.createAnalyser();
         analyseur.fftSize = BINS_MICRO * 2;
         analyseur.smoothingTimeConstant = 0.8;
@@ -499,8 +507,10 @@ export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ec
         /* déjà arrêté */
       }
       morceaux = [];
-      flux?.getTracks().forEach((piste) => piste.stop());
-      void contexte?.close().catch(() => undefined);
+      // La prise referme tout : les pistes du flux ET le contexte audio.
+      prise?.fermer();
+      prise = null;
+      flux = null;
     };
     // L'INTERRUPTEUR, et lui seul : tout le reste passe par des références.
   }, [actif]);

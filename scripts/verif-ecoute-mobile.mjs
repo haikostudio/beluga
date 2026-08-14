@@ -246,7 +246,10 @@ const applicationVivante = async (p) => {
     p.evaluate((cherche) => {
       const boutons = [...document.querySelectorAll('[data-menu-bas] button')];
       const vise = boutons.find((b) => b.textContent?.includes(cherche));
-      return vise ? vise.className.includes('bg-raised') : null;
+      // L'onglet actif se reconnaît à `aria-current`, jamais à une couleur
+      // écrite en dur : la classe cherchée jadis (`bg-raised`) a changé, et le
+      // contrôle déclarait l'application morte alors qu'elle répondait.
+      return vise ? vise.getAttribute('aria-current') === 'page' : null;
     }, nom);
   try {
     // Le module de voix se pose en bas, par-dessus le menu : on le referme
