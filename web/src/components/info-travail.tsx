@@ -14,17 +14,40 @@ import { cn } from '@/lib/utils';
  * aussi bien la barre du tiroir (avec son bouton d'arrêt, posé par l'appelant)
  * que la bande sous une carte du tableau (sans bouton du tout).
  */
+/*
+ * Le rythme de la rotation, en millisecondes : assez lent pour se lire, assez
+ * rapide pour ne pas donner l'impression d'un chiffre figé.
+ */
+const RYTHME_ALTERNANCE_MS = 2500;
+
 export function InfoTravail({
   quoi,
   avancement,
   temps,
   className,
+  alterner = false,
 }: {
   quoi: string;
   avancement?: { done: number; total: number } | null;
   temps?: string | null;
   className?: string;
+  /*
+   * Sur la carte du tableau, la pastille est trop étroite pour porter le
+   * compte des étapes ET le chronomètre à la fois — contrairement à la barre
+   * au-dessus du composeur, plus large. `alterner` fait alors tourner
+   * l'affichage entre les deux, à un rythme régulier, plutôt que de les
+   * concaténer.
+   */
+  alterner?: boolean;
 }) {
+  const [afficherAvancement, setAfficherAvancement] = React.useState(true);
+  const rotationActive = alterner && !!avancement && !!temps;
+  React.useEffect(() => {
+    if (!rotationActive) return;
+    const timer = window.setInterval(() => setAfficherAvancement((v) => !v), RYTHME_ALTERNANCE_MS);
+    return () => window.clearInterval(timer);
+  }, [rotationActive]);
+
   return (
     <>
       <Loader2 className={cn('h-3 w-3 shrink-0 animate-spin text-en-cours', className)} />
@@ -34,9 +57,19 @@ export function InfoTravail({
           data-avancement-travail
           className="shrink-0 rounded border border-border px-1 text-[11px] tabular-nums text-faint"
         >
-          {avancement ? `${avancement.done}/${avancement.total}` : null}
-          {avancement && temps ? ' · ' : null}
-          {temps ?? null}
+          {rotationActive ? (
+            afficherAvancement ? (
+              `${avancement.done}/${avancement.total}`
+            ) : (
+              temps
+            )
+          ) : (
+            <>
+              {avancement ? `${avancement.done}/${avancement.total}` : null}
+              {avancement && temps ? ' · ' : null}
+              {temps ?? null}
+            </>
+          )}
         </span>
       ) : null}
     </>
