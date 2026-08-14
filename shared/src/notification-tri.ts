@@ -136,10 +136,6 @@ const EMOJIS: Record<IconeNotification, string> = {
   redemarrage: '🔄',
 };
 
-export function emojiDeLIcone(icone: IconeNotification): string {
-  return EMOJIS[icone];
-}
-
 /**
  * L'emoji d'une alerte, à partir du motif. Un motif inconnu — serveur plus
  * récent que l'application — ne met aucun emoji plutôt qu'un caractère au

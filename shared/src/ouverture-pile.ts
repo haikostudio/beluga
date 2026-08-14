@@ -27,9 +27,6 @@ export type EvenementDePile = 'survol-entre' | 'survol-sort' | 'appui-dedans' | 
 /** Combien de messages se voient quand la pile est fermée. */
 export const MESSAGES_FERMES = 1;
 
-/** La durée de l'ouverture et de la fermeture, en millisecondes. */
-export const OUVERTURE_DUREE = 200;
-
 /** Le geste d'ouverture, d'après ce que le pointeur sait faire. */
 export function gesteDOuverture(survolPossible: boolean): GesteDOuverture {
   return survolPossible ? 'survol' : 'appui';

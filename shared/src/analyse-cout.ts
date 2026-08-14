@@ -81,13 +81,6 @@ export function finaliserAnalyseDeProposition(
   };
 }
 
-/** Une analyse du chef n'est réutilisable que si chiffres ET relais existent. */
-export function analyseDuChefReutilisable(
-  card: Pick<Card, 'estimate' | 'analysisContext'>,
-): boolean {
-  return !!card.estimate && !card.estimate.failed && !!card.analysisContext?.trim();
-}
-
 /** Une édition du sujet au dernier clic rend l'analyse précédente caduque. */
 export function heritageAnalyseDeProposition(
   proposal: Pick<TaskProposal, 'title' | 'description' | 'estimate' | 'analysisContext'>,

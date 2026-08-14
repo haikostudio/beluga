@@ -140,14 +140,6 @@ export function fichierDuSujet(id: string): string {
   return `${DOSSIER_MEMOIRE}/${id}.md`;
 }
 
-/** Le sujet porté par un chemin de fichier de mémoire, s'il en est un. */
-export function sujetDuFichier(cheminRelatif: string): string | undefined {
-  const normalise = cheminRelatif.replace(/\\/g, '/');
-  if (!normalise.startsWith(`${DOSSIER_MEMOIRE}/`)) return undefined;
-  const id = normalise.slice(DOSSIER_MEMOIRE.length + 1).replace(/\.mdx?$/i, '');
-  return SUJETS_MEMOIRE.some((s) => s.id === id) ? id : undefined;
-}
-
 /** Le contenu d'un fichier de sujet : un titre, puis une ligne par fait. */
 export function rendreFichierSujet(id: string, faits: string[]): string {
   const entete =
