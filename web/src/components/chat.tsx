@@ -272,17 +272,6 @@ export function Chat({
           au-dessus de la barre, là où la réponse s'écrit. */}
       {questionEnTexte ? <RepereReponseTexte /> : null}
 
-      {/* Le témoin « en cours » est un petit décroché posé JUSTE AU-DESSUS de
-          la barre d'écriture, là où le regard reste pendant que l'agent
-          travaille — plutôt qu'en haut du tiroir, hors de vue une fois qu'on a
-          défilé. Sa marge négative le fait glisser sous le padding supérieur
-          de la barre (huit pixels de part et d'autre) : la barre, posée
-          APRÈS lui dans le document, recouvre son bas et donne l'impression
-          qu'il sort de derrière elle — le même principe que le bandeau
-          « en cours » qui dépasse en bas des cartes du tableau, retourné vers
-          le haut. */}
-      <TravailEnCours agent={agent} messages={messages} busy={busy} cardId={cardId} />
-
       <Composer
         agent={agent}
         engines={state.engines}
@@ -297,6 +286,18 @@ export function Chat({
         dansTiroir={!!cardId || !!creuxReserveAilleurs}
         cardId={cardId}
         fondNoir={!!nouveauDepart}
+        /* Le témoin « en cours » est un petit décroché posé JUSTE AU-DESSUS de
+           la zone de saisie, collé à elle — rien ne doit s'intercaler entre
+           les deux. Les messages déjà envoyés (le fil, au-dessus) et ceux qui
+           attendent leur tour (la file, dans la barre d'écriture) passent
+           donc TOUS au-dessus de lui : c'est pour cela qu'il est confié à la
+           barre d'écriture elle-même plutôt que posé à côté, dans le fil.
+           Rendu ICI (même conteneur, même repli horizontal que la zone de
+           saisie), il a exactement sa largeur. Sa marge négative le fait
+           glisser sous le haut de la zone de saisie qui, posée APRÈS lui
+           dans le document, recouvre son bas et donne l'impression qu'il
+           sort de derrière elle. */
+        barreTravail={<TravailEnCours agent={agent} messages={messages} busy={busy} cardId={cardId} />}
       />
     </div>
   );
@@ -452,7 +453,9 @@ function TravailEnCours({
     <div
       data-temoin-reflexion
       className={cn(
-        'relative z-0 mx-4 -mb-2 flex shrink-0 items-center gap-2 rounded-t-lg',
+        // Aucune marge horizontale : posé dans le même conteneur que la zone
+        // de saisie (même repli latéral), il en épouse exactement la largeur.
+        'relative z-0 -mb-2 flex shrink-0 items-center gap-2 rounded-t-lg',
         'border border-b-0 border-border bg-border/30 px-3 py-1.5',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}

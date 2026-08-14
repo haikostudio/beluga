@@ -49,6 +49,14 @@ export interface ComposerProps {
    *  (pas dans un tiroir) ; partout ailleurs (tiroir de carte, pile des
    *  agents) le fond entourant est gris cendré, la barre doit le reprendre. */
   fondNoir?: boolean;
+  /**
+   * Le témoin « travail en cours », rendu ICI plutôt qu'à côté : dans ce
+   * même conteneur (même repli latéral que la zone de saisie), il en épouse
+   * exactement la largeur, et rien ne peut plus s'intercaler entre lui et
+   * elle — la file d'attente, les pièces jointes et le reste restent tous
+   * au-dessus, comme le fil des messages déjà envoyés.
+   */
+  barreTravail?: React.ReactNode;
 }
 
 export function Composer({
@@ -65,6 +73,7 @@ export function Composer({
   dansTiroir,
   cardId,
   fondNoir,
+  barreTravail,
 }: ComposerProps) {
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
@@ -487,6 +496,10 @@ export function Composer({
           </button>
         </div>
       ) : null}
+
+      {/* Collée à la zone de saisie, rien entre les deux : la file d'attente,
+          les pièces jointes et l'édition en cours restent au-dessus. */}
+      {barreTravail}
 
       <div className={cn('relative rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
         <Textarea
