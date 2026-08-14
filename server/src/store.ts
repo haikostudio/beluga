@@ -1020,6 +1020,7 @@ export interface RepriseEnAttente {
   messageId: string;
   engine: string;
   compteEpuise: string;
+  compteEpuiseLabel: string;
   poseeA: number;
 }
 
@@ -1054,6 +1055,7 @@ export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
         messageId: row.messageId,
         engine: reprise.engine,
         compteEpuise: reprise.compteEpuise,
+        compteEpuiseLabel: reprise.compteEpuiseLabel,
         poseeA: row.createdAt,
       });
     } catch {
@@ -1063,8 +1065,60 @@ export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
   return attentes;
 }
 
+/**
+ * Le nom du projet et le titre de l'endroit (carte ou conversation), pour
+ * l'affichage d'une décision — jamais pour trancher où elle se prend, ce que
+ * fait déjà `decision-attendue.ts` côté partagé. Mis en cache le temps d'un
+ * appel : plusieurs décisions partagent souvent le même projet ou la même
+ * carte.
+ */
+function enrichisseurDeDecisions() {
+  const projets = new Map<string, string | undefined>();
+  const cartes = new Map<string, string | undefined>();
+  const agents = new Map<string, string | undefined>();
+  return {
+    nomProjet(projectId: string): string | undefined {
+      if (!projets.has(projectId)) {
+        const row = getDb().prepare('SELECT name FROM projects WHERE id = ?').get(projectId) as
+          | { name?: string }
+          | undefined;
+        projets.set(projectId, row?.name);
+      }
+      return projets.get(projectId);
+    },
+    titreCarte(cardId: string): string | undefined {
+      if (!cartes.has(cardId)) {
+        const row = getDb().prepare('SELECT title FROM cards WHERE id = ?').get(cardId) as
+          | { title?: string }
+          | undefined;
+        cartes.set(cardId, row?.title);
+      }
+      return cartes.get(cardId);
+    },
+    titreAgent(agentId: string): string | undefined {
+      if (!agents.has(agentId)) {
+        const raw = rawAgent(agentId);
+        let titre: string | undefined;
+        try {
+          titre = raw ? (JSON.parse(raw).title as string | undefined) : undefined;
+        } catch {
+          titre = undefined;
+        }
+        agents.set(agentId, titre);
+      }
+      return agents.get(agentId);
+    },
+    lieuTitre(cardId?: string, agentId?: string): string | undefined {
+      if (cardId) return this.titreCarte(cardId) ?? 'Carte';
+      if (agentId) return this.titreAgent(agentId) ?? 'Conversation';
+      return undefined;
+    },
+  };
+}
+
 export function decisionsEnAttente(): DecisionAttendue[] {
   const decisions: DecisionAttendue[] = [];
+  const enrichir = enrichisseurDeDecisions();
 
   /*
    * Un tour coupé par la limite d'un compte attend un choix au même titre
@@ -1079,6 +1133,9 @@ export function decisionsEnAttente(): DecisionAttendue[] {
       genre: 'question',
       reglee: false,
       poseeA: attente.poseeA,
+      texte: `Le compte « ${attente.compteEpuiseLabel} » a atteint sa limite : avec quel compte poursuivre ?`,
+      projectName: enrichir.nomProjet(attente.projectId),
+      lieuTitre: enrichir.lieuTitre(attente.cardId, attente.agentId),
     });
   }
 
@@ -1108,6 +1165,9 @@ export function decisionsEnAttente(): DecisionAttendue[] {
           genre: 'question',
           reglee: Boolean(question.answer) || question.cancelled,
           poseeA: row.createdAt,
+          texte: question.question,
+          projectName: enrichir.nomProjet(row.projectId),
+          lieuTitre: enrichir.lieuTitre(row.cardId ?? undefined, row.agentId),
         });
       }
     } catch {
@@ -1118,7 +1178,7 @@ export function decisionsEnAttente(): DecisionAttendue[] {
   const propositions = getDb()
     .prepare(
       `SELECT p.project_id AS projectId, p.decision AS decision, p.created_at AS createdAt,
-              a.id AS agentId, a.card_id AS cardId
+              p.data AS data, a.id AS agentId, a.card_id AS cardId
        FROM proposals p
        JOIN messages m ON m.id = p.message_id
        JOIN agents a ON a.id = m.agent_id`,
@@ -1127,6 +1187,7 @@ export function decisionsEnAttente(): DecisionAttendue[] {
     projectId: string;
     decision: string;
     createdAt: number;
+    data: string;
     agentId: string;
     cardId: string | null;
   }[];
@@ -1188,6 +1249,9 @@ export function decisionsEnAttente(): DecisionAttendue[] {
         genre: 'question',
         reglee: false,
         poseeA: dernier.createdAt,
+        texte: question,
+        projectName: enrichir.nomProjet(dernier.projectId),
+        lieuTitre: enrichir.lieuTitre(dernier.cardId, dernier.agentId),
       });
     } catch {
       /* message illisible : on l'ignore */
@@ -1195,6 +1259,12 @@ export function decisionsEnAttente(): DecisionAttendue[] {
   }
 
   for (const proposition of propositions) {
+    let titre: string | undefined;
+    try {
+      titre = JSON.parse(proposition.data).title as string | undefined;
+    } catch {
+      titre = undefined;
+    }
     decisions.push({
       projectId: proposition.projectId,
       agentId: proposition.agentId,
@@ -1206,6 +1276,9 @@ export function decisionsEnAttente(): DecisionAttendue[] {
       genre: 'validation',
       reglee: proposition.decision !== 'pending',
       poseeA: proposition.createdAt,
+      texte: titre ? `Carte proposée : ${titre}` : 'Une carte est proposée',
+      projectName: enrichir.nomProjet(proposition.projectId),
+      lieuTitre: enrichir.lieuTitre(proposition.cardId ?? undefined, proposition.agentId),
     });
   }
 

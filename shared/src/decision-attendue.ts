@@ -28,6 +28,16 @@ export interface DecisionAttendue extends DemandeEnAttente {
   cardId?: string;
   /** Quand la demande a été posée : la plus ancienne passe en premier. */
   poseeA?: number;
+  /**
+   * Ce qui est demandé, en clair — le texte de la question ou le titre de la
+   * carte proposée. Sert UNIQUEMENT à l'affichage (liste des questions en
+   * attente) ; aucune des fonctions de ce fichier n'en dépend.
+   */
+  texte?: string;
+  /** Le nom du projet, recopié pour l'affichage — sans lui, une liste globale ne dit rien. */
+  projectName?: string;
+  /** Le titre de la carte, ou le nom de la conversation quand il n'y en a pas. */
+  lieuTitre?: string;
 }
 
 /** L'endroit où l'utilisateur doit être emmené pour trancher. */

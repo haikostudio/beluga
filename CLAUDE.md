@@ -419,6 +419,12 @@ le nom, là-bas le texte).
   deux jetons. Les AUTRES états ne bougent pas — erreur (`danger`), avertissement et attente
   (`warning`), publication en cours (`publie`), réussite acquise (`success`). Vérifié par
   `scripts/verif-couleurs-avancement.mjs`.
+- **Le triangle orange n'est pas le seul chemin vers une décision attendue : une CLOCHE dans le
+  bandeau du haut les liste TOUTES**, tous projets confondus (`QuestionsEnAttente`,
+  `web/src/components/questions-en-attente.tsx`) — projet, endroit (carte ou conversation) et texte
+  de chaque question, un clic y emmène. `decisionsEnAttente` (`server/src/store.ts`) enrichit
+  chaque décision de champs d'AFFICHAGE seulement (`texte`, `projectName`, `lieuTitre`) ; le compte
+  qui décide où la trancher ne bouge pas. Vérifié par `scripts/verif-questions-en-attente.mjs`.
 - **Un plan proposé qui attend une décision pose sa PROPRE bordure sur la ligne de son projet, en
   plus de la couleur d'état déjà là** (`plans`, `shared/src/protocol.ts` ; `store.signalPlans`,
   `server/src/store.ts` ; `RepereDePlan`, `web/src/components/sidebar.tsx`) : bordure blanche

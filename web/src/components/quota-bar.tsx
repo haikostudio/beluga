@@ -24,6 +24,7 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { MemoryView } from '@/components/memory-view';
+import { QuestionsEnAttente } from '@/components/questions-en-attente';
 import { QuotaBadge } from '@/components/quota-badge';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
@@ -213,6 +214,12 @@ export function QuotaBar({
       )}
 
       <QuotaBadge activeEngine={activeEngine} />
+
+      {/* La cloche des questions en attente : visible depuis n'importe où,
+          elle liste chaque décision — projet, carte ou conversation, texte —
+          et y emmène en un clic. Le triangle de la colonne de gauche reste,
+          mais il n'est plus le seul chemin. */}
+      <QuestionsEnAttente />
 
       {capacity ? (
         <Tooltip
