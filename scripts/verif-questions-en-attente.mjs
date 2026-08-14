@@ -47,11 +47,12 @@ const DATA = path.join(TMP, 'data');
 const PROJETS = path.join(TMP, 'projets');
 const DOSSIER_A = path.join(TMP, 'projet-a');
 const DOSSIER_B = path.join(TMP, 'projet-b');
+const DOSSIER_C = path.join(TMP, 'projet-c');
 // Un HOME vide, à soi : sans lui, le démon retrouve les vrais identifiants
 // Claude/Codex de la machine et « Répondre » relancerait un VRAI tour, sur le
 // VRAI compte — exactement ce qu'on ne veut jamais d'un script de vérification.
 const HOME_VIDE = path.join(TMP, 'home');
-for (const dossier of [DATA, PROJETS, DOSSIER_A, DOSSIER_B, HOME_VIDE]) fs.mkdirSync(dossier, { recursive: true });
+for (const dossier of [DATA, PROJETS, DOSSIER_A, DOSSIER_B, DOSSIER_C, HOME_VIDE]) fs.mkdirSync(dossier, { recursive: true });
 
 const demon = spawn('node', [path.join(RACINE, 'server', 'dist', 'main.js')], {
   env: {
@@ -99,6 +100,7 @@ async function attendrePort(limiteMs = 60000) {
 
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const JETON = crypto.randomBytes(32).toString('hex');
+const PROJET_C = 'p-questions-c';
 const PROJET_A = 'p-questions-a';
 const PROJET_B = 'p-questions-b';
 const CARD_ID = 'c-questions-a';
@@ -146,6 +148,14 @@ function poserLeDecor() {
   ).run(JSON.stringify({ ...reglages, maxAgents: 0 }));
 
   db.prepare('DELETE FROM projects').run();
+  // Un TROISIÈME projet, sans aucune décision, de rang le plus bas : c'est
+  // lui que l'application ouvre par défaut au chargement. Sans lui, la
+  // « carte » de PROJET_A (rang 1, souvent choisi par défaut) n'exigeait
+  // jamais de VRAI changement de projet pour être atteinte par un clic sur
+  // la cloche — ce qui aurait laissé passer un bug propre à ce changement
+  // (cartes chargées seulement pour le projet OUVERT, donc pas encore là au
+  // moment du clic).
+  inserProjet(db, PROJET_C, `Essai questions C ${marque} (par défaut)`, DOSSIER_C, 0, maintenant);
   inserProjet(db, PROJET_A, `Essai questions A ${marque}`, DOSSIER_A, 1, maintenant);
   inserProjet(db, PROJET_B, `Essai questions B ${marque}`, DOSSIER_B, 2, maintenant);
 
@@ -261,6 +271,22 @@ async function main() {
   await context.addCookies([{ name: 'haikodev_session', value: JETON, url: BASE, httpOnly: true, sameSite: 'Lax' }]);
   const page = await context.newPage();
   const erreurs = [];
+  // Chaque « project.open » envoyé par le client dit à quel projet
+  // l'écran est vraiment passé — la preuve, indépendante du texte affiché,
+  // qu'un clic sur la cloche a bien changé de projet et pas seulement ouvert
+  // un tiroir sur celui déjà affiché.
+  const projetsOuverts = [];
+  page.on('websocket', (ws) => {
+    ws.on('framesent', (frame) => {
+      try {
+        const msg = JSON.parse(frame.payload);
+        const cmd = msg.cmd ?? msg;
+        if (cmd.type === 'project.open') projetsOuverts.push(cmd.id);
+      } catch {
+        /* pas du JSON, ou pas ce message : ignoré */
+      }
+    });
+  });
   page.on('pageerror', (error) => erreurs.push(String(error)));
   // La synthèse vocale est volontairement absente du démon isolé : son 503 ne
   // concerne pas ce qui est vérifié ici.
@@ -298,10 +324,25 @@ async function main() {
     );
     await page.screenshot({ path: `${SHOTS}/questions-en-attente-liste.png` });
 
-    /* ---- 3. Cliquer une question de CARTE y emmène directement ---- */
+    /* ---- 2bis. On part bien du TROISIÈME projet, sans décision : les deux
+       clics qui suivent exigent donc un VRAI changement de projet, pas
+       seulement l'ouverture d'un tiroir sur le projet déjà affiché. Les
+       cartes d'un projet ne sont chargées qu'une fois ce projet OUVERT
+       (« project.open ») : cliquer une question qui vit ailleurs doit
+       provoquer ce message, sinon le tiroir resterait vide en arrivant. ---- */
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    noter('le projet ouvert par défaut est le troisième, sans décision', projetsOuverts.at(-1) === PROJET_C);
+
+    await page.locator('[data-repere-questions]').click();
+    await page.waitForTimeout(500);
+
+    /* ---- 3. Cliquer une question de CARTE y emmène directement, sur un
+       AUTRE projet que celui affiché ---- */
     const entreeCarte = page.locator('[data-question-en-attente]', { hasText: TEXTES.carte });
     await entreeCarte.click();
     await page.waitForTimeout(2000);
+    noter('cliquer la question de la carte a bien ouvert le projet A (pas resté sur C)', projetsOuverts.at(-1) === PROJET_A);
     const questionVisibleSurCarte = await page.getByText(TEXTES.carte).count();
     noter('un clic sur la question de la carte ouvre la carte, question visible', questionVisibleSurCarte > 0);
     await page.screenshot({ path: `${SHOTS}/questions-en-attente-carte-ouverte.png` });
@@ -321,15 +362,27 @@ async function main() {
     noter('répondre à la question de la carte fait passer la cloche à 1', badgeApres?.trim() === '1', badgeApres ?? '');
 
     /* ---- 5. La question restante (conversation, sans carte) reste
-       atteignable et amène à la bonne conversation ---- */
+       atteignable et amène à la bonne conversation. Le tiroir de la carte
+       est un plein écran modal : tant qu'il est ouvert, rien derrière lui —
+       la cloche comprise — n'est cliquable, il faut donc le refermer d'abord
+       (un vrai geste, pas une fuite de l'application). Ce qui est vérifié
+       ici, c'est qu'une fois refermé, la cloche retrouve la question
+       restante et y emmène — SANS que le tiroir qu'on vient de quitter ne
+       revienne se poser par-dessus la conversation. */
     await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
+    noter('fermer le tiroir de la carte le retire bien de l’écran', (await page.locator('[data-tags-carte]').count()) === 0);
     await page.locator('[data-repere-questions]').click();
     await page.waitForTimeout(500);
     const derniereEntree = page.locator('[data-question-en-attente]', { hasText: TEXTES.conversation });
     noter('la question restante (conversation du chef) est toujours listée', (await derniereEntree.count()) === 1);
     await derniereEntree.click();
     await page.waitForTimeout(2000);
+    noter(
+      'le tiroir de la carte ne revient pas se poser par-dessus la conversation',
+      (await page.locator('[data-tags-carte]').count()) === 0,
+    );
+    noter('cliquer la question de conversation a bien ouvert le projet B (pas resté sur A)', projetsOuverts.at(-1) === PROJET_B);
     const questionVisibleEnConversation = await page.getByText(TEXTES.conversation).count();
     noter(
       'un clic sur la question de conversation ouvre le projet et la question s’y voit',
