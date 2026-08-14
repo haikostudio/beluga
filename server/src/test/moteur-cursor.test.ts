@@ -20,7 +20,7 @@ import {
   raisonDeLaSortieCursor,
   raisonDeRefusCursor,
 } from '@haikodev/shared';
-import { buildCursorArgs, emitFromCursor } from '../engines/cursor.js';
+import { avecVerrouCwd, buildCursorArgs, emitFromCursor } from '../engines/cursor.js';
 import type { EngineEvent, EngineRunOptions } from '../engines/types.js';
 
 /*
@@ -154,6 +154,56 @@ test('le mode plan ferme l\'écriture, et une reprise garde son fil', () => {
   // Les outils du projet ne sont approuvés que s'il y en a à brancher.
   assert.equal(reprise.includes('--approve-mcps'), false);
   assert.ok(buildCursorArgs(options({ mcpConfigPath: '/tmp/mcp.json' }), 'composer-2.5').includes('--approve-mcps'));
+});
+
+/*
+ * LE VERROU PAR DOSSIER. Le chef bridé garde le MÊME dossier de travail d'un
+ * tour à l'autre : deux tours lancés en même temps sur ce dossier ne doivent
+ * jamais écrire `.cursor/mcp.json` l'un par-dessus l'autre pendant que l'un des
+ * deux `cursor-agent` le lit encore — sinon le pont annonce le mauvais agent, et
+ * le vrai reste sans outil sans qu'aucune erreur ne se voie (constaté sur un
+ * tour réel le 14/08/2026).
+ */
+test('deux tours du même dossier s\'attendent, deux dossiers différents non', async () => {
+  const ordre: string[] = [];
+  let debloquerA: () => void = () => undefined;
+  const bloqueA = new Promise<void>((resolve) => {
+    debloquerA = resolve;
+  });
+
+  const a = avecVerrouCwd('/tmp/chef-scratch/projet-1', async () => {
+    ordre.push('a-debut');
+    await bloqueA;
+    ordre.push('a-fin');
+  });
+  const b = avecVerrouCwd('/tmp/chef-scratch/projet-1', async () => {
+    ordre.push('b-debut');
+  });
+  const c = avecVerrouCwd('/tmp/chef-scratch/projet-2', async () => {
+    ordre.push('c-debut');
+  });
+
+  // Le second tour du MÊME dossier n'a pas encore pu démarrer : le premier
+  // tient toujours le verrou.
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(ordre.filter((e) => e.startsWith('b')), []);
+  // Un dossier différent, lui, n'attend jamais l'autre.
+  await c;
+  assert.ok(ordre.includes('c-debut'));
+
+  debloquerA();
+  await Promise.all([a, b]);
+  assert.deepEqual(ordre, ['a-debut', 'c-debut', 'a-fin', 'b-debut']);
+});
+
+test('un tour qui échoue ne bloque pas les suivants du même dossier', async () => {
+  const premier = avecVerrouCwd('/tmp/chef-scratch/projet-3', async () => {
+    throw new Error('panne du premier tour');
+  }).catch(() => 'rattrapé');
+  const second = avecVerrouCwd('/tmp/chef-scratch/projet-3', async () => 'ok');
+  assert.equal(await premier, 'rattrapé');
+  assert.equal(await second, 'ok');
 });
 
 /*

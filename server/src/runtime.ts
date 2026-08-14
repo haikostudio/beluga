@@ -57,6 +57,7 @@ import {
   decisionEnTexteLibre,
   enteteDuTour,
   etatDuPont,
+  noteDePontEnEchec,
   finaliserAnalyseDeProposition,
   libelleSujet,
   MemoireDeReprise,
@@ -1608,6 +1609,10 @@ async function startTurn(
       endedAt: Date.now(),
     });
     log.warn(`pont d'outils indisponible pour l'agent ${agent.id} : ${pont.raison}`);
+    // L'étape rouge se replie dans un tiroir qu'on peut ne jamais ouvrir : sans
+    // ce mot dans le TEXTE, une phrase inventée par le moteur (« refusé »,
+    // « aucune carte créée ») restait la seule chose lue.
+    finalText += noteDePontEnEchec(pont.raison);
   }
 
   const failed = !result.ok || !!sawError;

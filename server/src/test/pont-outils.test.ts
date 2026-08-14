@@ -5,6 +5,7 @@ import {
   PONT_LISTE_VIDE,
   PONT_SANS_LISTE,
   etatDuPont,
+  noteDePontEnEchec,
   serveursTiers,
 } from '@haikodev/shared';
 
@@ -39,6 +40,18 @@ test('liste vide : le tour le dit, au lieu de continuer en inventant', () => {
 
 test('pont démarré avec des outils : rien à signaler', () => {
   assert.deepEqual(etatDuPont({ demarre: true, outils: 9 }), { ok: true });
+});
+
+/*
+ * LA RÉPONSE ELLE-MÊME DOIT LE DIRE, pas seulement l'étape repliée : un moteur
+ * privé d'outils peut écrire « refusé » ou « aucune carte créée » de son propre
+ * chef — cette phrase inventée ne doit jamais rester la seule chose lue.
+ */
+test('la note ajoutée à la réponse dit le fait, pas une supposition du moteur', () => {
+  const note = noteDePontEnEchec(PONT_ABSENT);
+  assert.match(note, /pont d'outils n'a pas démarré/);
+  assert.match(note, /refus.*n'en est pas un/s);
+  assert.ok(note.startsWith('\n\n> [!WARNING]\n'), 'un encadré, pas un texte noyé dans le reste');
 });
 
 /* ------------------------------------------------------------------ */
