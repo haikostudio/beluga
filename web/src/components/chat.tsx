@@ -539,7 +539,7 @@ function TravailEnCours({
         // est DERRIÈRE, avec un résultat différent (et parfois trop clair)
         // selon l'endroit. Un ton plein, toujours plus sombre que bg-raised
         // dans les deux thèmes, rend la barre identique partout.
-        'border border-b-0 border-border bg-surface',
+        'border border-b-0 border-border bg-gradient-to-b from-surface to-surface/0',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}
     >

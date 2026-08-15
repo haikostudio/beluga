@@ -671,7 +671,10 @@ export function Composer({
       // Repère pour les contrôles : plusieurs barres d'écriture coexistent
       // (conversation, tiroir de carte), il faut viser CELLE qu'on voit.
       data-composer
-      className={cn('px-2.5 pt-2', fondNoir ? 'bg-bg' : 'bg-surface')}
+      className={cn(
+        'px-2.5 pt-2 bg-gradient-to-b',
+        fondNoir ? 'from-bg to-bg/0' : 'from-surface to-surface/0',
+      )}
       /*
        * Le creux du téléphone (barre de gestes) n'est réservé QUE si la barre
        * d'écriture touche vraiment le bas de l'écran. Dans le tiroir d'une

@@ -75,7 +75,10 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
   };
 
   return (
-    <div data-bandeau="propositions" className="shrink-0 border-t border-accent/30 bg-surface">
+    <div
+      data-bandeau="propositions"
+      className="shrink-0 border-t border-accent/30 bg-gradient-to-b from-surface to-surface/0"
+    >
       <div className="flex items-center gap-1.5 px-3 pt-1.5 text-[12px] text-muted">
         <LayoutGrid className="h-3 w-3 shrink-0 text-accent" />
         <span className="min-w-0 flex-1 truncate">
