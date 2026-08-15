@@ -218,6 +218,9 @@ export function promptOuvertureProcedure(cible: CiblePublication, ctx: ContexteD
     '- deux ou trois pistes courtes, en liste, tirées de ce que tu as vraiment vu (jamais inventées).',
     '',
     'Reste sous 1200 signes. Ne rends AUCUN bloc de procédure à ce tour-ci : on attend la réponse de l’utilisateur.',
+    '',
+    'Ta question s’affiche DANS LE TIROIR ouvert en bas de l’écran, et c’est là qu’on te répond — que tu l’écrives en texte ou que tu passes par l’outil « ask_user ». Si tu passes par l’outil, la réponse te revient dans le MÊME tour : écris alors la procédure aussitôt, enfermée entre ces deux repères et rien d’autre autour —',
+    `${DEBUT_PROCEDURE} …la procédure… ${FIN_PROCEDURE}`,
   ];
   return lignes.filter((ligne): ligne is string => ligne !== null).join('\n');
 }
@@ -249,6 +252,58 @@ export function promptReponseProcedure(cible: CiblePublication, reponse: string)
   ].join('\n');
 }
 
+/**
+ * MODIFIER UNE PROCÉDURE DÉJÀ ÉCRITE, sans repartir de la question d'ouverture.
+ *
+ * On rouvre le tiroir avec une procédure en place, on écrit ce qu'on veut y
+ * changer, et c'est un agent NEUF qui reçoit la demande : le dialogue de la
+ * fois précédente a disparu depuis longtemps (il ne vit qu'en mémoire), donc
+ * `promptReponseProcedure` — qui suppose la session encore ouverte — lui
+ * parlerait d'un projet qu'il n'a jamais lu. Ce prompt-ci porte donc le
+ * contexte ET la demande, et attend la procédure corrigée dans le même tour.
+ */
+export function promptModificationProcedure(
+  cible: CiblePublication,
+  ctx: ContexteDeProcedure,
+  demande: string,
+): string {
+  const existante = (ctx.actuelle ?? '').trim();
+  const lignes: string[] = [
+    existante
+      ? `Tu modifies la procédure de ${titreDeLaProcedure(cible).toUpperCase()} du projet « ${ctx.projet} ».`
+      : `Tu écris la procédure de ${titreDeLaProcedure(cible).toUpperCase()} du projet « ${ctx.projet} ».`,
+    '',
+    ...perimetre(cible),
+    '',
+    `Dossier du projet : ${ctx.dossier}`,
+    ctx.devUrl ? `Adresse de l’instance de dev réglée : ${ctx.devUrl}` : 'Aucune adresse d’instance de dev n’est réglée.',
+    '',
+    existante
+      ? ['Procédure ACTUELLE, celle qui est suivie aujourd’hui :', '--- procédure actuelle ---', existante, '--- fin ---'].join('\n')
+      : 'Aucune procédure n’existe encore pour cette étape.',
+    '',
+    'Ce que l’utilisateur demande :',
+    '<<<DEMANDE',
+    (demande ?? '').trim(),
+    'DEMANDE',
+    '',
+    'Va vérifier dans le projet ce que cette demande touche (fichiers de configuration, scripts, service système, adresse servie), puis ÉCRIS la procédure ENTIÈRE en tenant compte de ce qu’elle dit : les gestes dans l’ordre, un par ligne, en français simple ; ce qu’il faut contrôler ; ce qu’il ne faut surtout pas faire.',
+    existante
+      ? 'Garde tout ce que la demande ne remet pas en cause : tu modifies une procédure qui marche, tu n’en inventes pas une autre.'
+      : 'Reste FIDÈLE à la demande : tu la mets en forme et tu la précises avec ce que tu as lu du projet, tu n’inventes aucune étape qu’elle ne dit pas.',
+    'Le code sera DÉJÀ fusionné, enregistré et envoyé sur le dépôt quand cette procédure servira : n’y mets aucune manœuvre git de fusion ou d’envoi, HaikoDev s’en charge.',
+    'Ne modifie aucun fichier et ne déploie rien : tu ne fais que RÉDIGER.',
+    '',
+    'Rends-la enfermée entre ces deux repères, seule et sans bloc de code autour :',
+    DEBUT_PROCEDURE,
+    '…la procédure…',
+    FIN_PROCEDURE,
+    '',
+    `S’il te manque VRAIMENT une information sans laquelle la procédure serait fausse, pose une seule question courte avec l’outil « ask_user » et attends la réponse. Reste sous ${PROCEDURE_MAX} signes.`,
+  ];
+  return lignes.join('\n');
+}
+
 /* ------------------------------------------------------------------ */
 /* LE TOUR NE SE LIVRE PLUS PAR LA RÉPONSE D'UNE REQUÊTE                */
 /* ------------------------------------------------------------------ */
@@ -269,6 +324,27 @@ export function promptReponseProcedure(cible: CiblePublication, reponse: string)
 /** Une bulle du dialogue : ce que l'agent a dit, ce qu'on lui a répondu. */
 export type EchangeDeProcedure = { qui: 'agent' | 'moi'; texte: string };
 
+/**
+ * LA QUESTION QUE L'AGENT POSE AVEC SON OUTIL, portée jusqu'au tiroir.
+ *
+ * Un agent ne finit pas un tour sur une question écrite en texte : la méthode
+ * du projet lui impose l'outil `ask_user`, qui ARRÊTE son tour jusqu'à la
+ * réponse. Cette question-là s'affichait donc dans la cloche du bandeau (avec
+ * toutes les autres décisions attendues) mais NULLE PART dans le tiroir ouvert
+ * juste dessous — celui-ci restait sur « L'agent travaille… », sans rien à
+ * répondre, alors que c'est exactement l'endroit où on l'attend.
+ *
+ * L'état du dialogue la porte donc, avec de quoi y répondre sur place :
+ * le message qui la tient et son identifiant, comme partout ailleurs.
+ */
+export type QuestionDeProcedure = {
+  messageId: string;
+  questionId: string;
+  texte: string;
+  /** Les choix proposés, quand l'agent en propose : un clic répond. */
+  options: { id: string; label: string; description?: string }[];
+};
+
 /** Le dialogue d'une étape, tel que le serveur le garde et l'écran l'affiche. */
 export type EtatDeProcedure = {
   projectId: string;
@@ -282,8 +358,15 @@ export type EtatDeProcedure = {
   procedure?: string;
   /** Ce qui a empêché le tour d'aboutir, dit en clair. */
   raison?: string;
-  /** L'instant où le tour en cours est parti : de quoi afficher sa durée. */
+  /**
+   * L'instant où le DERNIER tour est parti : de quoi afficher sa durée pendant
+   * qu'il tourne, et de quoi juger ensuite si sa question est encore fraîche.
+   * Il n'est donc PAS effacé à la fin du tour — sinon toute question posée
+   * tiroir fermé paraissait vieille et se repayait à la réouverture.
+   */
   depuis?: number;
+  /** La question posée par l'outil de l'agent, tant que personne n'y a répondu. */
+  question?: QuestionDeProcedure;
 };
 
 /** Au-delà, le projet a pu changer : on repose la question plutôt que la relire. */
@@ -294,23 +377,34 @@ export const DIALOGUE_FRAIS_MS = 15 * 60 * 1000;
  *
  *  - `attendre`  : un tour tourne encore, on s'y raccroche — on n'en paie pas un second ;
  *  - `reprendre` : le tour est fini et sa question (ou son échec) n'a pas été lue ;
- *  - `relancer`  : rien à reprendre, un tour part.
+ *  - `proposer`  : une procédure est DÉJÀ écrite — on la montre, on ne demande rien ;
+ *  - `relancer`  : rien à reprendre et rien d'écrit, un tour part.
  *
- * Un échec ne se relance JAMAIS tout seul : une panne de quota rejouée à chaque
- * ouverture coûterait sans rien rendre. C'est le bouton « Relancer » qui décide.
+ * UNE PROCÉDURE EN PLACE NE SE REDEMANDE JAMAIS TOUTE SEULE. L'icône de
+ * réglages relançait un agent complet à CHAQUE clic : il relisait tout le
+ * projet (une à deux minutes, un tour payé) pour reposer depuis le début une
+ * question déjà tranchée, alors que la procédure était là, sous les yeux. Le
+ * tiroir affiche donc ce qui existe et attend un geste : ou bien on écrit ce
+ * qu'on veut changer, ou bien on clique pour reposer la question.
+ *
+ * Un échec ne se relance pas non plus tout seul : une panne de quota rejouée à
+ * chaque ouverture coûterait sans rien rendre. C'est le bouton qui décide.
  */
 export function repriseDuDialogue(
   etat: EtatDeProcedure | null | undefined,
   maintenant: number,
-): 'attendre' | 'reprendre' | 'relancer' {
-  if (!etat) return 'relancer';
-  if (etat.enCours) return 'attendre';
-  if (etat.raison) return 'reprendre';
+  procedureEcrite = false,
+): 'attendre' | 'reprendre' | 'proposer' | 'relancer' {
+  if (etat?.enCours) return 'attendre';
+  if (etat?.raison) return 'reprendre';
   // Une procédure écrite clôt le dialogue : rouvrir, c'est vouloir la modifier.
-  if (etat.procedure) return 'relancer';
-  if (!etat.echanges.some((echange) => echange.qui === 'agent')) return 'relancer';
-  const age = maintenant - (etat.depuis ?? 0);
-  return age <= DIALOGUE_FRAIS_MS ? 'reprendre' : 'relancer';
+  if (etat?.procedure) return 'proposer';
+  const fraiche =
+    !!etat &&
+    (!!etat.question || etat.echanges.some((echange) => echange.qui === 'agent')) &&
+    maintenant - (etat.depuis ?? 0) <= DIALOGUE_FRAIS_MS;
+  if (fraiche) return 'reprendre';
+  return procedureEcrite ? 'proposer' : 'relancer';
 }
 
 /** Le témoin de travail : jamais un mot seul, toujours ce qui se passe et depuis quand. */
@@ -351,6 +445,21 @@ export function issueDuTour(input: { contenu?: string; statut?: string; erreur?:
   const lue = lireReponseDeProcedure(contenu);
   return lue.procedure ? { procedure: lue.procedure } : { question: lue.question ?? contenu };
 }
+
+/**
+ * Ce que le tiroir dit quand une procédure existe DÉJÀ : rien n'a été demandé à
+ * un agent, et rien ne le sera sans un geste. Cette phrase remplace le témoin
+ * de travail qui s'allumait tout seul à chaque clic sur l'icône de réglages.
+ */
+export function mentionProcedureEnPlace(cible: CiblePublication): string {
+  return (
+    `Une procédure de ${titreDeLaProcedure(cible).toLowerCase()} est déjà en place : aucun agent n’a été ` +
+    'lancé. Écrivez ci-dessous ce que vous voulez y changer, ou reposez la question depuis le début.'
+  );
+}
+
+/** Le bouton qui, lui, paie un tour : on ne repose la question que si on le veut. */
+export const LIBELLE_REPOSER_LA_QUESTION = 'Reposer la question depuis le début';
 
 /** L'état de la procédure, dit en une ligne dans le tiroir. */
 export function mentionProcedure(cible: CiblePublication, procedure: string): string {
