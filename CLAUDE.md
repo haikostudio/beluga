@@ -729,6 +729,17 @@ le nom, là-bas le texte).
   texte réel — habillage sur marges négatives. Une pastille « trombone + nom » n'a pas la largeur du
   tag qu'elle recouvre : texte décalé, ligne vide en trop, curseur ailleurs qu'où il paraît. Vérifié
   par `scripts/verif-tags-mise-en-page.mjs`.
+- **UN TAG « [fichier: …] » S'EFFACE D'UN BLOC, jamais caractère par caractère** (`effacementDeTag`,
+  `tagsDuTexte`, `shared/src/ancres.ts` ; touche branchée dans `onKeyDown` de `composer.tsx`) : le
+  retour arrière ou la suppression avant qui entame un tag — d'une seule lettre, ou par une sélection
+  qui ne le couvre qu'à moitié — emporte le tag ENTIER et son espace devenu inutile ; la pièce jointe
+  suit par `jointesApresFrappe`. Sans cela le tag restait à l'écran, amputé, accroché à un fichier
+  que le texte ne désignait plus. La règle rend `null` quand aucun tag n'est touché : la touche suit
+  alors son chemin normal et le champ garde son historique d'annulation. Chaque tag porte en plus une
+  CROIX qui prend la place du crochet fermant (`data-prompt-file-close`) — le caractère reste écrit,
+  seulement rendu invisible, la croix étant dessinée par-dessus hors flux : une pastille ajoutée à
+  côté décalerait le texte, la ligne et le curseur. Verrouillé par
+  `server/src/test/ancres-fichiers.test.ts` et `scripts/verif-tag-suppression-bloc.mjs`.
 - **LA FRAPPE AU CLAVIER NE TRAVERSE PLUS LE MAGASIN GÉNÉRAL** (`composer.tsx`) : le brouillon était
   posé dans l'état PARTAGÉ à chaque touche, ce qui refaisait l'affichage de toute l'application —
   98 ms par touche sur 400 cartes, contre 0,7 ms depuis (`scripts/mesure-fluidite.mjs`, qui MESURE

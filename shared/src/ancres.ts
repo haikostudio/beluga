@@ -184,6 +184,81 @@ export function jointesApresFrappe<T extends { name: string }>(
 }
 
 /**
+ * UN TAG EST UN BLOC, PAS UNE SUITE DE LETTRES.
+ *
+ * Dans le champ de saisie, « [fichier: capture.png] » se lit comme une
+ * pastille : effacer une lettre à l'intérieur doit retirer le tag ENTIER, pas
+ * le grignoter caractère par caractère — un tag amputé ne désigne plus rien et
+ * sa pièce jointe reste accrochée à un texte devenu faux.
+ */
+const TAG_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
+
+export interface TagDuTexte {
+  nom: string;
+  debut: number;
+  /** Le premier caractère APRÈS le tag. */
+  fin: number;
+}
+
+/** Tous les tags du texte, dans l'ordre où ils apparaissent. */
+export function tagsDuTexte(texte: string): TagDuTexte[] {
+  TAG_FICHIER.lastIndex = 0;
+  const tags: TagDuTexte[] = [];
+  let trouve: RegExpExecArray | null;
+  while ((trouve = TAG_FICHIER.exec(texte))) {
+    tags.push({ nom: trouve[1]!.trim(), debut: trouve.index, fin: trouve.index + trouve[0].length });
+  }
+  return tags;
+}
+
+/** Le sens de la touche d'effacement : retour arrière ou suppression avant. */
+export type SensDEffacement = 'arriere' | 'avant';
+
+/**
+ * Ce que devient le texte quand on efface, une fois les tags traités comme des
+ * blocs. Rend `null` quand aucun tag n'est touché : la frappe suit alors son
+ * chemin normal, et le champ garde son historique d'annulation.
+ *
+ * Le curseur seul (rien de sélectionné) efface un caractère ; ce caractère
+ * appartient-il à un tag, c'est TOUT le tag qui part. Une sélection, elle,
+ * s'ÉTEND aux tags qu'elle n'entame qu'à moitié : on n'en laisse jamais un
+ * morceau derrière.
+ */
+export function effacementDeTag(
+  texte: string,
+  debutSelection: number,
+  finSelection: number,
+  sens: SensDEffacement,
+): { texte: string; curseur: number } | null {
+  const tags = tagsDuTexte(texte);
+  if (!tags.length) return null;
+
+  let debut = Math.max(0, Math.min(debutSelection, texte.length));
+  let fin = Math.max(0, Math.min(finSelection, texte.length));
+  if (debut > fin) [debut, fin] = [fin, debut];
+
+  if (debut === fin) {
+    // Le caractère que la touche allait retirer.
+    if (sens === 'arriere') {
+      if (debut === 0) return null;
+      debut -= 1;
+    } else {
+      if (fin === texte.length) return null;
+      fin += 1;
+    }
+  }
+
+  // Les tags que cette coupe entame, même d'une seule lettre.
+  const touches = tags.filter((tag) => tag.debut < fin && debut < tag.fin);
+  if (!touches.length) return null;
+
+  const coupeDebut = Math.min(debut, ...touches.map((t) => t.debut));
+  const coupeFin = Math.max(fin, ...touches.map((t) => t.fin));
+  const { texte: suite } = retireAncreA(texte, coupeDebut, coupeFin - coupeDebut);
+  return { texte: suite, curseur: coupeDebut };
+}
+
+/**
  * Réordonner la liste des pièces jointes après un glissement : l'ordre choisi
  * dans la barre d'écriture est celui envoyé avec le message. Les ancres dans
  * le texte ne bougent pas — seul l'ordre d'ENVOI change.
