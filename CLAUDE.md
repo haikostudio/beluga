@@ -776,8 +776,12 @@ le nom, là-bas le texte).
   de la demande quand elle existe, sinon sur le message de RÉPONSE
   (`contexteUtilisateur?.messageId ?? assistantMessage.id`) ; cette réponse ouvre alors par un bloc
   « Demande envoyée à l'agent — n passages retrouvés », AVANT la mémoire relue et AVANT le déroulé,
-  avec le même repère « Prompt envoyé ». Une demande écrite à la main ne bouge pas. Vérifié par
-  `server/src/test/prompt-envoye.test.ts` et `scripts/verif-contexte-envoye.mjs`.
+  avec le même repère « Prompt envoyé ». Une demande écrite à la main ne bouge pas. Ce bloc dit aussi
+  CE QUI EST PARTI EN MÊME TEMPS, sans rien ouvrir (`donneesParallelesDuPrompt`) : les NOMS des
+  morceaux de contexte — briefing, mémoire, carte, pièces jointes —, jamais leur poids en jetons.
+  Vérifié par `server/src/test/prompt-envoye.test.ts`, `scripts/verif-contexte-envoye.mjs` (l'écran,
+  sur un instantané posé à la main) et `scripts/verif-prompt-envoye-tour-lance.mjs` (le CHEMIN entier :
+  carte lancée par le bouton, démon et faux moteur d'essai).
 - **L'onglet « Détails » d'une carte est une LIGNE DE TEMPS** (`shared/src/parcours-carte.ts`,
   commande `card.parcours`) : une étape par moment réel — tri du chef, autorisation, travail,
   déploiement, mise en production —, chacune avec ce qu'elle est allée CHERCHER et ce qu'elle a

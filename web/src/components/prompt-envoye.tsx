@@ -3,6 +3,7 @@ import { Braces, Check, ChevronRight, Copy, SendHorizonal } from 'lucide-react';
 import {
   SentContextSnapshot,
   demandeDuPromptEnvoye,
+  donneesParallelesDuPrompt,
   mentionDesPassages,
   morceauxDuPromptEnvoye,
   nomDuMoteurEnvoye,
@@ -163,6 +164,7 @@ export function DemandeEnvoyee({ contexte }: { contexte: SentContextSnapshot }) 
   const [ouvert, setOuvert] = React.useState(false);
   const demande = demandeDuPromptEnvoye(contexte);
   const mention = mentionDesPassages(contexte);
+  const paralleles = donneesParallelesDuPrompt(contexte);
 
   return (
     <div data-demande-envoyee className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">
@@ -192,6 +194,24 @@ export function DemandeEnvoyee({ contexte }: { contexte: SentContextSnapshot }) 
               {demande}
             </pre>
           </ZoneDefilement>
+        </div>
+      ) : null}
+
+      {/* CE QUI EST PARTI EN MÊME TEMPS. La demande n'a jamais voyagé seule :
+          briefing, mémoire du projet, carte en cours, pièces jointes l'ont
+          accompagnée. Leurs noms se lisent ICI, sans rien ouvrir ; leur TEXTE
+          reste derrière le repère juste en dessous. */}
+      {paralleles.length ? (
+        <div data-donnees-paralleles className="flex flex-wrap items-center gap-1 px-2.5 pb-1">
+          <span className="text-[11.5px] text-faint">Transmis en même temps :</span>
+          {paralleles.map((nom) => (
+            <span
+              key={nom}
+              className="rounded-full border border-border bg-raised px-1.5 py-0.5 text-[11px] text-muted"
+            >
+              {nom}
+            </span>
+          ))}
         </div>
       ) : null}
 

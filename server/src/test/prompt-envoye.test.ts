@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   demandeDuPromptEnvoye,
+  donneesParallelesDuPrompt,
   mentionDesPassages,
   morceauxDuPromptEnvoye,
   nomDuMoteurEnvoye,
@@ -134,6 +135,51 @@ test('la réponse d’un tour lancé par un bouton montre la demande au-dessus d
   assert.ok(bloc > 0, 'le bloc de la demande envoyée doit être posé sur la réponse');
   assert.ok(bloc < vue.indexOf('<MemoryNote'), 'il passe avant la mémoire relue');
   assert.ok(bloc < vue.indexOf('<Steps'), 'et avant le déroulé des étapes');
+});
+
+/*
+ * CE QUI EST PARTI EN MÊME TEMPS QUE LA DEMANDE. Le bloc posé au-dessus du
+ * déroulé doit dire, sans rien ouvrir, ce qui a voyagé à côté du texte tapé.
+ */
+
+test('les données parallèles nomment le contexte, jamais la demande ni le gabarit', () => {
+  const noms = donneesParallelesDuPrompt(
+    tourEssai({
+      blocks: [
+        { kind: 'request', label: 'Demande utilisateur', characters: 10, text: 'fais-le' },
+        { kind: 'briefing', label: 'Briefing du projet', characters: 20, text: 'projet' },
+        { kind: 'memory', label: 'Index de la mémoire du projet', characters: 30, text: 'faits' },
+        { kind: 'card', label: 'Carte en cours', characters: 12, text: 'carte' },
+        { kind: 'format', label: 'Gabarit et séparateurs HaikoDev', characters: 8 },
+      ],
+    }),
+  );
+
+  assert.deepEqual(noms, ['Briefing du projet', 'Index de la mémoire du projet', 'Carte en cours']);
+});
+
+test('les passages retrouvés comptent pour une seule entrée, et un nom répété ne l’est pas', () => {
+  const noms = donneesParallelesDuPrompt(
+    tourEssai({
+      blocks: [
+        { kind: 'briefing', label: 'Briefing du projet', characters: 20, text: 'projet' },
+        { kind: 'briefing', label: 'Briefing du projet', characters: 20, text: 'projet' },
+      ],
+      passages: [
+        { source: 'a.md', titre: 'A', score: 0.5, tokens: 10, texte: 'un' },
+        { source: 'b.md', titre: 'B', score: 0.4, tokens: 10, texte: 'deux' },
+      ],
+    }),
+  );
+
+  assert.deepEqual(noms, ['Briefing du projet', 'Passages retrouvés (2)']);
+  assert.ok(!noms.some((nom) => /jetons?|tokens?/i.test(nom)));
+});
+
+test('la conversation affiche ces données parallèles dans le bloc de la demande', () => {
+  const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
+  assert.ok(vue.includes('donneesParallelesDuPrompt'), 'le bloc lit la règle partagée');
+  assert.ok(vue.includes('data-donnees-paralleles'), 'et les pose sous un repère d’écran');
 });
 
 test('le prompt envoyé est conservé même quand aucun message utilisateur n’est écrit', () => {

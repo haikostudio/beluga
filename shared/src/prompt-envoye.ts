@@ -91,6 +91,37 @@ export function mentionDesPassages(contexte: SentContextSnapshot): string | unde
 }
 
 /**
+ * CE QUI EST PARTI EN MÊME TEMPS QUE LA DEMANDE.
+ *
+ * La demande n'est qu'un morceau du prompt : à côté d'elle voyagent le briefing
+ * du projet, la mémoire (index ou passages retrouvés), la carte en cours, les
+ * pièces jointes, la consigne système. Ces morceaux-là étaient bien conservés,
+ * mais il fallait ouvrir le tiroir pour seulement SAVOIR qu'ils existaient —
+ * l'utilisateur, lui, veut voir d'un coup d'œil ce qui a été transmis en
+ * parallèle, au-dessus du déroulé.
+ *
+ * On rend donc leurs NOMS, dans l'ordre d'envoi, sans la demande elle-même (déjà
+ * affichée) ni le gabarit (des séparateurs, jamais du contenu). Les passages
+ * retrouvés sont comptés en UNE seule entrée : leur détail vit dans le tiroir.
+ * Aucun chiffre de jetons, ici comme ailleurs.
+ */
+export function donneesParallelesDuPrompt(contexte: SentContextSnapshot): string[] {
+  const noms = contexte.blocks
+    .filter((bloc) => bloc.kind !== 'request' && bloc.kind !== 'format')
+    .map((bloc) => bloc.label.trim())
+    .filter(Boolean);
+
+  const passages = contexte.passages ?? [];
+  if (passages.length) {
+    noms.push(`Passages retrouvés (${passages.length})`);
+  }
+
+  // Deux morceaux peuvent porter le même nom (une reprise qui repose son
+  // briefing) : on ne l'écrit qu'une fois, la liste sert à se repérer.
+  return [...new Set(noms)];
+}
+
+/**
  * Le tour entier en texte brut, pour la copie : l'en-tête, puis chaque morceau
  * nommé. C'est exactement ce que le tiroir montre, rien de plus.
  */
