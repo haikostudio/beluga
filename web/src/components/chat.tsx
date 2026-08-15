@@ -1,5 +1,14 @@
 import * as React from 'react';
-import { ChevronDown, ChevronUp, CornerDownRight, MessageSquare, RotateCcw, Square } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  CircleDot,
+  CornerDownRight,
+  MessageSquare,
+  RotateCcw,
+  Square,
+} from 'lucide-react';
 import {
   Agent,
   Message,
@@ -18,7 +27,7 @@ import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
-import { CorpsListeTaches, VoletTaches } from '@/components/todos';
+import { CorpsListeTaches, resumeDesTaches, usePliDesTaches } from '@/components/todos';
 import { BandeauPropositions } from '@/components/propositions';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -260,13 +269,10 @@ export function Chat({
           proposition en attente, le bandeau ne rend rien. */}
       <BandeauPropositions messages={messages} />
 
-      {/* La liste des tâches est un volet FIXE, entre le fil et la barre
-          d'écriture, une fois le tour refermé : elle ne remonte plus avec les
-          messages, et porte celle du dernier échange — sans liste, elle
-          s'efface entièrement. PENDANT le tour, c'est la barre « Réflexion en
-          cours » (juste au-dessus du prompt) qui porte cette même liste,
-          dépliable : ce volet-ci s'efface pour ne pas la répéter. */}
-      <VoletTaches todos={messages[messages.length - 1]?.todos} streaming={busy} />
+      {/* La liste des tâches n'a plus qu'UN seul endroit : le repère compact
+          collé au-dessus de la barre d'écriture (`TravailEnCours`, plus bas),
+          qui reste en place une fois le tour refermé. L'ancien volet pleine
+          largeur, posé ici et séparé du champ de saisie, est retiré. */}
 
       {/* La barre d'écriture reste disponible FACE À UNE ANALYSE : on peut
           corriger une hypothèse fausse ou ajouter une précision avant de lancer
@@ -412,7 +418,15 @@ function SeparateurAgent({ titre }: { titre: string }) {
 /**
  * Le témoin de travail : un petit décroché, en retrait, collé au-dessus de la
  * barre d'écriture — on voit d'un coup d'œil si quelque chose tourne, quoi, et
- * depuis combien de temps. Quand rien ne tourne, il disparaît complètement.
+ * depuis combien de temps.
+ *
+ * IL RESTE EN PLACE UNE FOIS LE TOUR REFERMÉ, dès que l'agent s'est annoncé une
+ * liste de tâches : le même repère compact, à la même place, dit alors
+ * « Liste des tâches — n/N faites » et s'ouvre au clic sur la liste complète.
+ * L'ancienne barre pleine largeur (`VoletTaches`), posée à part entre le fil et
+ * le champ de saisie, est retirée : la liste changeait de forme et de place
+ * selon que l'agent travaillait ou non. Sans liste ET sans travail, le repère
+ * disparaît toujours complètement.
  *
  * C'est aussi d'ici qu'on arrête l'agent : le bouton est posé sur la chose
  * qu'il arrête, plutôt que perdu dans la rangée d'outils de la barre d'écriture.
@@ -437,11 +451,10 @@ function TravailEnCours({
   // Le geste d'arrêt est le MÊME qu'en bas de la barre d'écriture : un seul
   // texte, donc le même contrôle, la même commande et la même confirmation.
   const arret = useArretAgent({ agent, cardId });
-  // La liste des tâches, dépliée depuis CETTE barre plutôt que dans un volet
-  // séparé — sinon le même compte se lisait deux fois d'affilée, juste
-  // au-dessus l'un de l'autre (`VoletTaches` s'efface tant que l'agent
-  // travaille, voir `todos.tsx`).
-  const [listeOuverte, setListeOuverte] = React.useState(false);
+  // La liste des tâches se déplie depuis CETTE barre, et de nulle part
+  // ailleurs. Le pli est retenu d'une fois sur l'autre (`usePliDesTaches`,
+  // `todos.tsx`) : téléphone replié, ordinateur déplié, sauf choix contraire.
+  const [listeOuverte, basculerListe] = usePliDesTaches();
 
   // Le temps écoulé avance tout seul, seconde par seconde.
   React.useEffect(() => {
@@ -450,9 +463,16 @@ function TravailEnCours({
     return () => window.clearInterval(timer);
   }, [busy]);
 
-  if (!busy) return null;
-
   const dernier = messages[messages.length - 1];
+  // La liste complète ne se déplie que si l'agent en a annoncé une — un
+  // agent qui n'avance que par étapes (steps) n'a rien de plus à montrer ici,
+  // ces étapes restant visibles repliées dans le fil au-dessus.
+  const todos = dernier?.todos;
+  const todosDisponibles = !!todos?.length;
+
+  // Rien ne tourne et aucune liste à garder sous les yeux : le repère s'efface.
+  if (!busy && !todosDisponibles) return null;
+
   const todoEnCours = dernier?.todos?.find((todo) => todo.state === 'running');
   const etapeEnCours = [...(dernier?.steps ?? [])].reverse().find((step) => step.state === 'running');
   /*
@@ -461,11 +481,20 @@ function TravailEnCours({
    * aucune étape suivante ne tourne — le témoin doit le dire au lieu
    * d'afficher l'étape figée d'avant (`shared/src/attente-question.ts`).
    */
-  const quoi = agent?.attendReponse
-    ? TEXTE_BARRE_EN_ATTENTE
-    : (todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…');
+  //
+   /* Une fois le tour refermé, il n'y a plus d'étape en cours à nommer : le
+      repère dit alors le BILAN de la liste, exactement comme le faisait
+      l'ancienne barre pleine largeur. */
+  const quoi = !busy
+    ? resumeDesTaches(todos!)
+    : agent?.attendReponse
+      ? TEXTE_BARRE_EN_ATTENTE
+      : (todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…');
 
-  const temps = arret.temps;
+  // Le chronomètre et le compte « n/N » ne parlent que d'un travail EN COURS :
+  // une fois le tour refermé, le compte est déjà dans la phrase ci-dessus, et
+  // le temps n'avance plus.
+  const temps = busy ? arret.temps : null;
   // Même décompte que le décroché d'une carte (`agent.todos`, mis à jour en
   // direct par le démon à chaque étape cochée) : « n/N » sur l'ensemble des
   // étapes prévues, pas seulement l'étape en cours. Silence tant qu'aucune
@@ -476,22 +505,30 @@ function TravailEnCours({
   // « Exécution de la tâche ») n'a alors AUCUN chiffre ici, alors que le
   // même compte est déjà affiché plus haut : on retombe donc sur les étapes
   // du dernier message quand aucune liste de tâches n'existe.
-  const avancement =
-    agent?.todos && agent.todos.total > 0
+  const avancement = !busy
+    ? null
+    : agent?.todos && agent.todos.total > 0
       ? agent.todos
       : dernier?.steps && dernier.steps.length > 0
         ? { done: dernier.steps.filter((step) => step.state === 'done').length, total: dernier.steps.length }
         : null;
 
-  // La liste complète ne se déplie que si l'agent en a annoncé une — un
-  // agent qui n'avance que par étapes (steps) n'a rien de plus à montrer ici,
-  // ces étapes restant visibles repliées dans le fil au-dessus.
-  const todos = dernier?.todos;
-  const todosDisponibles = !!todos?.length;
+  // L'icône de gauche : la roue tourne tant que l'agent travaille ; une fois le
+  // tour refermé, une coche BLEUE si tout est fait, sinon un point discret —
+  // les mêmes repères que portait l'ancienne barre pleine largeur.
+  const toutFait = todosDisponibles && todos!.every((todo) => todo.state === 'done');
+  const icone = busy ? undefined : toutFait ? (
+    <Check className="h-3 w-3 shrink-0 text-termine" />
+  ) : (
+    <CircleDot className="h-3 w-3 shrink-0 text-faint" />
+  );
 
   return (
     <div
       data-temoin-reflexion
+      /* C'est aussi, désormais, LE volet des tâches : un seul endroit, donc le
+         même repère pour qui le cherche (scripts de vérification compris). */
+      data-volet="taches"
       className={cn(
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
@@ -523,10 +560,10 @@ function TravailEnCours({
           <button
             type="button"
             aria-expanded={listeOuverte}
-            onClick={() => setListeOuverte((v) => !v)}
+            onClick={basculerListe}
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
-            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} />
+            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} />
             {listeOuverte ? (
               <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
             ) : (
@@ -534,9 +571,13 @@ function TravailEnCours({
             )}
           </button>
         ) : (
-          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} />
+          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} />
         )}
-        {arret.possible ? (
+        {/* Le bouton d'arrêt ne vaut que pour un travail EN COURS : le repère
+            restant en place une fois le tour refermé, il proposerait sinon
+            d'arrêter un agent qui ne fait plus rien (`arretDeCarteAutorise` ne
+            juge que l'appartenance de l'agent à la carte, pas son activité). */}
+        {busy && arret.possible ? (
           <Tooltip label="Arrêter l'action en cours">
             <button
               type="button"

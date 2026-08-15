@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, CircleDot, Loader2, X } from 'lucide-react';
+import { BookOpen, Check, ChevronRight, CircleDot, Loader2, X } from 'lucide-react';
 import { RunStep, TodoItem, mentionTachesNonFaites } from '@haikodev/shared';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -66,6 +66,33 @@ function choixInitial(): boolean {
   if (retenu === '1') return true;
   if (retenu === '0') return false;
   return !estTelephone();
+}
+
+/**
+ * LE PLI DE LA LISTE DES TÂCHES, RETENU D'UNE FOIS SUR L'AUTRE.
+ *
+ * Il n'y a plus qu'UN seul endroit où la liste s'ouvre — le repère compact
+ * posé juste au-dessus de la barre d'écriture (`TravailEnCours`, `chat.tsx`),
+ * qui reste là que l'agent travaille ou non. Le choix « replié / déplié » vit
+ * donc ici, à côté de la liste elle-même, et pas dans le composant qui
+ * l'affiche.
+ */
+export function usePliDesTaches(): [boolean, () => void] {
+  const [open, setOpen] = React.useState(choixInitial);
+  const basculer = React.useCallback(
+    () =>
+      setOpen((value) => {
+        const suivant = !value;
+        try {
+          window.localStorage.setItem(CLE_VOLET, suivant ? '1' : '0');
+        } catch {
+          /* navigation privée : le choix vaut pour la session, c'est tout. */
+        }
+        return suivant;
+      }),
+    [],
+  );
+  return [open, basculer];
 }
 
 /**
@@ -156,90 +183,15 @@ export function CorpsListeTaches({
 }
 
 /**
- * La liste de tâches annoncée par l'agent, cochée en direct. Elle dit ce qu'il
- * VA faire ; les étapes, elles, racontent ce qu'il a fait.
+ * LA PHRASE DU REPÈRE UNE FOIS LE TOUR REFERMÉ.
  *
- * Ce n'est PAS un bloc du fil : c'est un volet FIXE, posé entre la conversation
- * et la barre d'écriture — mais SEULEMENT une fois le tour refermé. PENDANT le
- * tour, c'est la barre « Réflexion en cours », juste au-dessus du prompt, qui
- * porte cette même liste (dépliable) : les deux ne s'affichent plus ensemble,
- * sans quoi le même compte se lisait deux fois d'affilée.
+ * Le même texte que portait l'ancienne barre pleine largeur — le compte des
+ * tâches faites, et ce que le tour a laissé en plan — mais servi désormais au
+ * repère compact posé au-dessus de la barre d'écriture.
  */
-export function VoletTaches({
-  todos,
-  streaming,
-}: {
-  todos?: TodoItem[];
-  streaming: boolean;
-}) {
-  const [open, setOpen] = React.useState(choixInitial);
-
-  const basculer = () =>
-    setOpen((value) => {
-      const suivant = !value;
-      try {
-        window.localStorage.setItem(CLE_VOLET, suivant ? '1' : '0');
-      } catch {
-        /* navigation privée : le choix vaut pour la session, c'est tout. */
-      }
-      return suivant;
-    });
-
-  // Une horloge, seulement pendant le travail : la ligne en cours voit son
-  // temps avancer, comme un chronomètre.
-  const [maintenant, setMaintenant] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    if (!streaming) return;
-    const timer = window.setInterval(() => setMaintenant(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [streaming]);
-
-  // Aucune liste en cours : le volet n'existe pas du tout. Et PENDANT que
-  // l'agent travaille, ce même en-tête vit déjà dans la barre au-dessus du
-  // prompt (`TravailEnCours`, `chat.tsx`) — le laisser ici aussi affichait le
-  // même compte deux fois d'affilée, l'un replié juste au-dessus de l'autre.
-  if (!todos?.length || streaming) return null;
-
+export function resumeDesTaches(todos: readonly TodoItem[]): string {
   const faites = todos.filter((t) => t.state === 'done').length;
-  const encours = todos.find((t) => t.state === 'running');
-  const tout = faites === todos.length;
-  // Ce que le tour a laissé en plan. L'en-tête le dit à la place de la ligne
-  // en cours — il n'y en a plus une seule fois le tour refermé.
   const nonFaites = mentionTachesNonFaites(todos);
-
-  return (
-    <div data-volet="taches" className="shrink-0 border-t border-border bg-surface">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={basculer}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-raised"
-      >
-        {tout ? (
-          <Check className="h-3 w-3 shrink-0 text-termine" />
-        ) : streaming ? (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
-        ) : (
-          <CircleDot className="h-3 w-3 shrink-0 text-faint" />
-        )}
-        {/* L'en-tête est TOUJOURS lisible, replié comme déplié : le compte, puis
-            la tâche en cours, tronquée proprement s'il le faut. */}
-        <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">
-          <span className="text-text">
-            Liste des tâches — {faites}/{todos.length} faite{faites > 1 ? 's' : ''}
-          </span>
-          {encours ? ` · ${encours.label}` : nonFaites ? ` · ${nonFaites}` : ''}
-        </span>
-        {/* La flèche pointe vers le HAUT quand le volet est fermé : c'est par
-            là qu'il s'ouvre, au-dessus de la ligne. */}
-        {open ? (
-          <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
-        ) : (
-          <ChevronUp className="h-3 w-3 shrink-0 text-faint" />
-        )}
-      </button>
-
-      {open ? <CorpsListeTaches todos={todos} streaming={streaming} maintenant={maintenant} /> : null}
-    </div>
-  );
+  const compte = `Liste des tâches — ${faites}/${todos.length} faite${faites > 1 ? 's' : ''}`;
+  return nonFaites ? `${compte} · ${nonFaites}` : compte;
 }
