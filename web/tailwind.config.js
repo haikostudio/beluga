@@ -76,7 +76,7 @@ export default {
           '50%': { transform: 'scaleY(1)' },
         },
         // Le compte à rebours d'un message d'information : la barre se vide
-        // en 15 secondes, la durée exacte de `DUREE_MESSAGE_MS`.
+        // en 10 secondes, la durée exacte de `DUREE_MESSAGE_MS`.
         'barre-message': { from: { transform: 'scaleX(1)' }, to: { transform: 'scaleX(0)' } },
       },
       animation: {
@@ -95,7 +95,7 @@ export default {
         // Une seule passe : le motif contient déjà deux allers-retours.
         secousse: 'secousse 420ms ease-in-out 1',
         onde: 'onde 900ms ease-in-out infinite',
-        'barre-message': 'barre-message 15000ms linear forwards',
+        'barre-message': 'barre-message 10000ms linear forwards',
       },
     },
   },
