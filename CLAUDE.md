@@ -862,6 +862,19 @@ le nom, là-bas le texte).
   dans l'environnement de chaque agent, donc `gh` marche en copie de travail comme dans le bac à sable
   du chef ; l'accueil ANNONCE les gestes, sauf au palier minimal d'un dépannage. Publier et mettre en
   ligne restent des gestes de l'utilisateur, GitHub compris. Vérifié par `scripts/verif-acces-github.mjs`.
+- **L'ONGLET « GITHUB » D'UNE CARTE NE PARLE QUE DE LA BRANCHE DE SON AGENT**
+  (`shared/src/suivi-branche-carte.ts` ; `baseDeLaBranche` et `refreshCard`, `server/src/github.ts` ;
+  `GithubTracking.baseSha`) : il montrait « les 10 derniers commits » de la branche, c'est-à-dire
+  l'HISTORIQUE GÉNÉRAL du dépôt — le travail d'autres cartes. Tout se compte désormais depuis le
+  POINT DE DÉPART de la branche, retenu à sa création (`ouvrirDossierDeCarte` rend `base`, le
+  scheduler le pose et ne le réécrit jamais) : sa naissance, ses seuls enregistrements, les fichiers
+  ajoutés/modifiés/supprimés avec leur liste, puis le DÉROULÉ de son déploiement étape par étape
+  jusqu'à la fusion (`github.deploiements`, lecture en base seule). Sans base retenue — cartes
+  d'avant —, elle est retrouvée : ancêtre commun tant que la branche est ouverte, sinon le commit de
+  FUSION dont le second parent est le sommet de la branche, la principale la contenant déjà. Rien
+  n'est deviné : une branche introuvable rend « je ne sais pas » au lieu d'un périmètre inventé.
+  Verrouillé par `server/src/test/suivi-branche-carte.test.ts` et
+  `scripts/verif-onglet-github-branche.mjs`.
 
 ### Quotas
 

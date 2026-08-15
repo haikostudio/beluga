@@ -171,7 +171,19 @@ export async function travailDejaSurLaBranche(
 }
 
 export type DossierOuvert =
-  | { kind: 'pret'; dossier: string; branche: string }
+  | {
+      kind: 'pret';
+      dossier: string;
+      branche: string;
+      /**
+       * LE POINT DE DÉPART DE LA BRANCHE, quand ce tour vient de la CRÉER.
+       * Retenu sur la carte (`github.baseSha`), il dit pour toujours ce qui
+       * appartient à cette carte et ce qui appartient au dépôt — même après la
+       * fusion, où l'ancêtre commun ne sait plus le dire. Absent sur une carte
+       * relancée : sa base est déjà connue, on ne l'écrase pas.
+       */
+      base?: string;
+    }
   | { kind: 'echec'; raison: string };
 
 /**
@@ -212,9 +224,13 @@ async function ouvrirVraiment(racine: string, card: Card): Promise<DossierOuvert
 
   const existe = await git(racine, ['rev-parse', '--verify', '--quiet', branche], 20000);
   const depuis = await branchePrincipale(racine);
-  const args = existe.ok && existe.out.trim()
-    ? ['worktree', 'add', dossier, branche]
-    : ['worktree', 'add', '-b', branche, dossier, depuis];
+  const neuve = !(existe.ok && existe.out.trim());
+  const args = neuve
+    ? ['worktree', 'add', '-b', branche, dossier, depuis]
+    : ['worktree', 'add', dossier, branche];
+  // La base ne se note QUE pour une branche qu'on crée : plus tard, la
+  // principale aura avancé et ne dirait plus d'où la carte est partie.
+  const base = neuve ? (await git(racine, ['rev-parse', depuis], 20000)).out.trim() || undefined : undefined;
 
   let ajout = await git(racine, args);
   if (!ajout.ok && /already (checked out|used by worktree)/i.test(ajout.out)) {
@@ -238,7 +254,7 @@ async function ouvrirVraiment(racine: string, card: Card): Promise<DossierOuvert
   }
 
   relierLesLourds(racine, dossier);
-  return { kind: 'pret', dossier, branche };
+  return { kind: 'pret', dossier, branche, base };
 }
 
 async function retirerLeDossier(racine: string, dossier: string): Promise<boolean> {

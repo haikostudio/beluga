@@ -325,6 +325,29 @@ export type BillingLine = z.infer<typeof BillingLine>;
 
 export const GithubTracking = z.object({
   branch: z.string().optional(),
+  /**
+   * LE POINT DE DÉPART DE LA BRANCHE, retenu à sa création. C'est lui qui rend
+   * l'onglet « GitHub » honnête : tout ce qui vient AVANT appartient au dépôt,
+   * pas à la carte. Sans lui — cartes d'avant cette règle —, il est retrouvé au
+   * relevé (`baseDeLaBranche`, `server/src/github.ts`), y compris après la
+   * fusion, où la principale contient déjà la branche.
+   */
+  baseSha: z.string().optional(),
+  /** La branche dans laquelle celle de la carte doit rejoindre. */
+  branchePrincipale: z.string().optional(),
+  /** Le premier enregistrement de la branche : sa date de naissance réelle. */
+  creeLe: z.string().optional(),
+  /** Vrai quand la branche a déjà rejoint la principale. */
+  fusionnee: z.boolean().optional(),
+  /** Les fichiers touchés par la branche, depuis son point de départ. */
+  fichiers: z
+    .array(
+      z.object({
+        chemin: z.string(),
+        etat: z.enum(['ajoute', 'modifie', 'supprime', 'renomme']),
+      }),
+    )
+    .default([]),
   prNumber: z.number().optional(),
   prTitle: z.string().optional(),
   prState: z.enum(['open', 'merged', 'closed']).optional(),
@@ -334,6 +357,10 @@ export const GithubTracking = z.object({
     .default([]),
   reviewDecision: z.string().optional(),
   mergeable: z.string().optional(),
+  /**
+   * Les enregistrements DE LA BRANCHE — ceux faits depuis `baseSha`, jamais
+   * l'historique général du dépôt.
+   */
   commits: z
     .array(z.object({ sha: z.string(), message: z.string(), date: z.string().optional() }))
     .default([]),
