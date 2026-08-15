@@ -333,7 +333,16 @@ export interface PromptOptions {
 }
 
 interface ContexteUtilisateurDuTour {
-  messageId: string;
+  /**
+   * Le message qui PORTE le prompt envoyé. C'est la bulle de la demande quand
+   * l'utilisateur a écrit quelque chose. Un tour lancé par un BOUTON — carte
+   * démarrée, reprise, dépannage de publication — n'écrit aucune bulle
+   * (`options.silent`) : le prompt est alors porté par le message de RÉPONSE du
+   * tour, sans quoi le texte réellement envoyé et les passages retrouvés dans la
+   * mémoire n'étaient conservés NULLE PART, et le tiroir de la carte s'ouvrait
+   * directement sur « Exécution de la tâche ».
+   */
+  messageId?: string;
   blocks: SentContextBlock[];
   /** Les passages retrouvés par recherche pour CE tour, quand il y en a. */
   passages?: PassageRetrouve[];
@@ -877,20 +886,25 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
       cardDescriptionCharacters: description.length * occurrencesDescription,
       memoryAndInstructionsCharacters,
     },
-    userMessageId
-      ? {
-          messageId: userMessageId,
-          blocks,
-          passages: recherche?.passages.map((passage) => ({
-            source: passage.source,
-            titre: passage.titre,
-            score: Math.round(passage.score * 1000) / 1000,
-            tokens: passage.jetons,
-            texte: passage.texte,
-          })),
-          passagesRaison,
-        }
-      : undefined,
+    /*
+     * LE PROMPT ENVOYÉ EST GARDÉ MÊME SANS BULLE DE DEMANDE. Il ne l'était que
+     * lorsqu'un message utilisateur existait : un tour lancé par un bouton
+     * n'en écrit pas, donc le texte parti au moteur et les passages retrouvés
+     * dans la mémoire du projet étaient perdus. Sans `messageId`, `startTurn`
+     * les pose sur le message de RÉPONSE du tour.
+     */
+    {
+      messageId: userMessageId,
+      blocks,
+      passages: recherche?.passages.map((passage) => ({
+        source: passage.source,
+        titre: passage.titre,
+        score: Math.round(passage.score * 1000) / 1000,
+        tokens: passage.jetons,
+        texte: passage.texte,
+      })),
+      passagesRaison,
+    },
     niveau,
     {
       account,
@@ -1122,6 +1136,13 @@ async function startTurn(
   });
   store.saveMessage(assistantMessage);
   bus.emit({ type: 'message.upsert', message: assistantMessage });
+
+  /*
+   * QUI PORTE LE PROMPT ENVOYÉ. La bulle de la demande quand il y en a une ;
+   * sinon la réponse de ce tour — un lancement de carte, une reprise ou un
+   * dépannage n'écrit aucune bulle, et son prompt ne se rattacherait à rien.
+   */
+  const messageDuContexte = contexteUtilisateur?.messageId ?? assistantMessage.id;
 
   /*
    * L'IDENTIFIANT DE CE TOUR-CI. Il part dans la configuration d'outils et
@@ -1408,7 +1429,7 @@ async function startTurn(
             // dernier.
             runState.usage = additionnerUsage(usageDesEssaisPrecedents, event.usage);
             if (contexteUtilisateur && runState.usage) {
-              mesurerContexteUtilisateur(contexteUtilisateur.messageId, runState.usage);
+              mesurerContexteUtilisateur(messageDuContexte, runState.usage);
             }
             break;
           case 'context':
@@ -1471,14 +1492,14 @@ async function startTurn(
    */
   if (contexteUtilisateur && instantane) {
     try {
-      const message = store.getMessage(contexteUtilisateur.messageId);
+      const message = store.getMessage(messageDuContexte);
       if (message) {
         const updated = store.saveMessage({ ...message, sentContext: instantane });
         bus.emit({ type: 'message.upsert', message: updated });
         store.purgerContexteEnvoyeAncien(agent.id);
         // Un adaptateur d'essai peut rendre l'usage dès son appel ; dans ce cas
         // on applique aussitôt la mesure qui serait sinon arrivée trop tôt.
-        if (runState.usage) mesurerContexteUtilisateur(contexteUtilisateur.messageId, runState.usage);
+        if (runState.usage) mesurerContexteUtilisateur(messageDuContexte, runState.usage);
       }
     } catch (err) {
       log.warn(`contexte envoyé non enregistré (agent ${agent.id}) : ${(err as Error).message}`);

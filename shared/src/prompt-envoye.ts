@@ -62,6 +62,21 @@ export function morceauxDuPromptEnvoye(contexte: SentContextSnapshot): MorceauDe
 }
 
 /**
+ * LA DEMANDE ELLE-MÊME, telle qu'elle est partie au moteur.
+ *
+ * Un tour lancé par un BOUTON — une carte qu'on démarre, une reprise, un
+ * dépannage de publication — n'écrit aucune bulle de demande dans le fil :
+ * personne n'a rien tapé. Le texte réellement envoyé existe pourtant, dans le
+ * bloc « Demande utilisateur » de l'instantané. On le rend ici pour pouvoir
+ * l'afficher AU-DESSUS du déroulé, là où une bulle se serait trouvée.
+ */
+export function demandeDuPromptEnvoye(contexte: SentContextSnapshot): string | undefined {
+  const bloc = contexte.blocks.find((b) => b.kind === 'request');
+  const texte = bloc?.text?.trim();
+  return texte ? texte : undefined;
+}
+
+/**
  * Ce que la recherche a rapporté pour ce tour, en une phrase : le nombre de
  * passages, ou la raison écrite par le démon quand il n'y en a aucun.
  */

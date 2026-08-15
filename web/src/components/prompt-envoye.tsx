@@ -1,13 +1,15 @@
 import * as React from 'react';
-import { Braces, Check, Copy } from 'lucide-react';
+import { Braces, Check, ChevronRight, Copy, SendHorizonal } from 'lucide-react';
 import {
   SentContextSnapshot,
+  demandeDuPromptEnvoye,
   mentionDesPassages,
   morceauxDuPromptEnvoye,
   nomDuMoteurEnvoye,
   texteDuPromptEnvoye,
 } from '@haikodev/shared';
 import { DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
 /**
  * LE REPÈRE DU PROMPT ENVOYÉ — à GAUCHE, dès que la demande est partie.
@@ -140,5 +142,64 @@ export function RepereDuPrompt({ contexte }: { contexte: SentContextSnapshot }) 
         </ZoneDefilement>
       </Drawer>
     </>
+  );
+}
+
+/**
+ * LA DEMANDE ENVOYÉE, QUAND PERSONNE N'A ÉCRIT DE BULLE.
+ *
+ * Une carte lancée par un bouton — comme une reprise ou un dépannage de
+ * publication — n'a pas de message d'utilisateur dans son fil : l'onglet
+ * « Conversation » du tiroir s'ouvrait donc directement sur « Exécution de la
+ * tâche », sans qu'on puisse voir ce qui était réellement parti au moteur ni ce
+ * que le système était allé chercher dans la mémoire du projet.
+ *
+ * Ce bloc prend la place qu'une bulle aurait occupée, AU-DESSUS du déroulé : le
+ * texte de la demande (replié par défaut, comme la mémoire juste en dessous),
+ * la phrase qui dit combien de passages la recherche a rapportés, et le repère
+ * qui ouvre le prompt entier. Le tiroir, lui, ne change pas : c'est le même.
+ */
+export function DemandeEnvoyee({ contexte }: { contexte: SentContextSnapshot }) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const demande = demandeDuPromptEnvoye(contexte);
+  const mention = mentionDesPassages(contexte);
+
+  return (
+    <div data-demande-envoyee className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">
+      <button
+        type="button"
+        disabled={!demande}
+        onClick={() => setOuvert((valeur) => !valeur)}
+        className={cn('flex w-full items-center gap-2 px-2.5 py-1.5 text-left', demande && 'hover:bg-raised')}
+      >
+        <SendHorizonal className={cn('h-3 w-3 shrink-0', demande ? 'text-accent' : 'text-faint')} />
+        <span className="flex-1 truncate text-[13.5px] text-muted">
+          Demande envoyée à l'agent{mention ? ` — ${mention}` : ''}
+        </span>
+        {demande ? (
+          <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} />
+        ) : null}
+      </button>
+
+      {ouvert && demande ? (
+        <div className="mx-2 mb-2">
+          <ZoneDefilement
+            fond="hsl(var(--raised))"
+            classeEnveloppe="max-h-64 flex-none rounded bg-raised"
+            className="p-2"
+          >
+            <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">
+              {demande}
+            </pre>
+          </ZoneDefilement>
+        </div>
+      ) : null}
+
+      {/* Le prompt ENTIER — briefing, carte, passages retrouvés — reste derrière
+          le même repère qu'ailleurs dans l'application. */}
+      <div className="px-2.5 pb-1.5">
+        <RepereDuPrompt contexte={contexte} />
+      </div>
+    </div>
   );
 }
