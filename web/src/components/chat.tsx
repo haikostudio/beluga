@@ -29,6 +29,7 @@ import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
 import { CorpsListeTaches, resumeDesTaches, usePliDesTaches } from '@/components/todos';
 import { BandeauPropositions } from '@/components/propositions';
+import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -81,6 +82,19 @@ export function Chat({
     : agent
       ? (state.messages[agent.id] ?? [])
       : [];
+  /*
+   * LE FIL EST-IL SEULEMENT EN TRAIN D'ARRIVER ? Une liste vide se lit de deux
+   * façons opposées : « rien à dire » ou « pas encore reçu ». On les sépare sur
+   * l'ABSENCE de l'entrée (jamais sur sa longueur) : le serveur envoie les
+   * messages d'un agent en un bloc (`agent.snapshot`), ceux d'une carte de même,
+   * et tant que le premier état du projet n'est pas là on ne connaît même pas
+   * l'agent du chef.
+   */
+  const chargement = cardId
+    ? conversation === undefined
+    : agent
+      ? state.messages[agent.id] === undefined
+      : !state.cartesChargees[projectId];
   const queue = agent ? (state.queues[agent.id] ?? []) : [];
   /*
    * LE TÉMOIN DE TRAVAIL SUIT L'AGENT, PAS LE MESSAGE. Un message peut rester
@@ -251,6 +265,11 @@ export function Chat({
                 />
               </React.Fragment>
             ))
+          ) : chargement ? (
+            /* Les échanges ne sont PAS encore arrivés du serveur : des bulles en
+               silhouette, jamais « Aucun échange pour le moment » — une phrase
+               qui annoncerait une conversation vide sur un fil bien fourni. */
+            <SilhouetteConversation />
           ) : (
             <EmptyState
               icon={<MessageSquare className="h-5 w-5" />}

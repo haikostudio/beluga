@@ -753,6 +753,13 @@ le nom, là-bas le texte).
   170 / 240 / 320 %). Le COMPTE affiché sépare enfin les TÂCHES (`runningTasks`, rôle `task`, les
   seules visibles sur le tableau) des agents de service. Verrouillé par
   `server/src/test/capacite.test.ts` et `scripts/verif-capacite-saturation.mjs`.
+- **UNE ZONE QUI N'A PAS ENCORE SES DONNÉES MONTRE UNE SILHOUETTE, JAMAIS UN ÉTAT VIDE**
+  (`web/src/components/silhouettes.tsx` ; drapeaux `pret` et `cartesChargees` de
+  `web/src/lib/client.ts`) : colonne de gauche, tableau et conversation dessinent la FORME de leur
+  contenu à venir tant que `ready` / `project.snapshot` / le fil de l'agent manquent. « Aucun projet
+  inscrit », « Aucun projet sélectionné », « Aucun échange » ne s'écrivent qu'après réception. Les
+  drapeaux jugent l'ABSENCE de la donnée, jamais une liste vide ; l'animation se coupe sous
+  `prefers-reduced-motion`. Vérifié par `scripts/verif-silhouettes-chargement.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon

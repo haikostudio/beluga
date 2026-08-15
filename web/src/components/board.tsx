@@ -42,6 +42,7 @@ import {
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
+import { SilhouetteTableau } from '@/components/silhouettes';
 import { InfoTravail } from '@/components/info-travail';
 import { dureeLisible } from '@/components/arret-agent';
 import {
@@ -862,6 +863,22 @@ export function Board({
     }, 16);
     return () => window.clearInterval(timer);
   }, [dragging, pointer]);
+
+  /*
+   * LES CARTES DE CE PROJET NE SONT PAS ENCORE ARRIVÉES : le serveur les envoie
+   * en un bloc (`project.snapshot`), demandé à l'ouverture du projet. Entre les
+   * deux, `state.cards` ne contient rien pour ce projet — sept colonnes vides,
+   * qu'on lirait comme un tableau réellement vide. On dessine donc le tableau à
+   * venir en SILHOUETTE, sans toucher aux données. Un projet déchargé au bout de
+   * quinze minutes repasse par là à sa réouverture.
+   */
+  if (!state.cartesChargees[projectId]) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <SilhouetteTableau />
+      </div>
+    );
+  }
 
   // Le rail ne glisse QUE de gauche à droite : `overflow-y-hidden` est
   // indispensable, sinon le navigateur repasse tout seul l'axe vertical en

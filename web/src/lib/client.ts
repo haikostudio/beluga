@@ -38,6 +38,20 @@ export interface Toast {
 export interface AppState {
   connected: boolean;
   connecting: boolean;
+  /**
+   * Le premier état complet du serveur (`ready`) est-il arrivé ? Tant qu'il
+   * manque, la liste des projets est vide SANS qu'aucun projet ne manque : on
+   * montre des SILHOUETTES de contenu, jamais « Aucun projet inscrit ».
+   */
+  pret: boolean;
+  /**
+   * Les projets dont les cartes sont réellement arrivées (`project.snapshot`).
+   * Un tableau qui n'est pas encore dans cette liste attend ses cartes : il
+   * affiche des silhouettes, pas des colonnes vides. Un projet déchargé après
+   * quinze minutes en sort, et redevient donc « en chargement » à sa
+   * réouverture.
+   */
+  cartesChargees: Record<string, boolean>;
   version: string;
   settings: Settings | null;
   prefs: Record<string, unknown>;
@@ -96,6 +110,8 @@ export interface AppState {
 const initialState: AppState = {
   connected: false,
   connecting: true,
+  pret: false,
+  cartesChargees: {},
   version: '',
   settings: null,
   prefs: {},
@@ -263,6 +279,7 @@ class Client {
         // archivé ou supprimé, on retombe sans bruit sur le premier de la liste.
         const choix = choisirProjetAOuvrir(event.projects, prefs[CLE_PROJET_ACTIF], this.state.activeProjectId);
         this.set({
+          pret: true,
           version: event.version,
           settings: event.settings,
           prefs,
@@ -342,6 +359,9 @@ class Client {
           agents: { ...state.agents, ...Object.fromEntries(event.agents.map((agent) => [agent.id, agent])) },
           deploys: event.deploy ? { ...state.deploys, [event.projectId]: event.deploy } : state.deploys,
           memory: event.memory !== undefined ? { ...state.memory, [event.projectId]: event.memory } : state.memory,
+          // Les cartes de ce projet sont là : le tableau peut cesser de montrer
+          // ses silhouettes, et dire un vrai « aucune carte » s'il est vide.
+          cartesChargees: { ...state.cartesChargees, [event.projectId]: true },
         }));
         break;
 
@@ -690,6 +710,11 @@ class Client {
     this.set((state) => ({
       cards: Object.fromEntries(
         Object.entries(state.cards).filter(([, carte]) => !aOublier.has(carte.projectId)),
+      ),
+      // Un projet déchargé n'a plus ses cartes : sa réouverture doit remontrer
+      // des silhouettes, pas un tableau qu'on croirait vide.
+      cartesChargees: Object.fromEntries(
+        Object.entries(state.cartesChargees).filter(([id]) => !aOublier.has(id)),
       ),
     }));
     return oublies;

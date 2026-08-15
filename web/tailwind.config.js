@@ -78,6 +78,10 @@ export default {
         // Le compte à rebours d'un message d'information : la barre se vide
         // en 10 secondes, la durée exacte de `DUREE_MESSAGE_MS`.
         'barre-message': { from: { transform: 'scaleX(1)' }, to: { transform: 'scaleX(0)' } },
+        // Le battement d'une SILHOUETTE de contenu (skeleton) : une respiration
+        // lente et faible, qui dit « ça arrive » sans attirer l'œil comme une
+        // alerte. Jamais un balayage brillant, qui trancherait sur un fond noir.
+        silhouette: { '0%,100%': { opacity: '0.5' }, '50%': { opacity: '0.85' } },
       },
       animation: {
         'fade-in': 'fade-in 140ms ease-out',
@@ -96,6 +100,7 @@ export default {
         secousse: 'secousse 420ms ease-in-out 1',
         onde: 'onde 900ms ease-in-out infinite',
         'barre-message': 'barre-message 10000ms linear forwards',
+        silhouette: 'silhouette 1.4s ease-in-out infinite',
       },
     },
   },
