@@ -23,16 +23,21 @@
  * par `server/src/test/suivi-colonne.test.ts`.
  */
 import { chromium } from 'playwright';
-import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
+import Database from 'better-sqlite3';
 import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { lireCarteParId } from './carte-en-base.mjs';
 
-const RACINE = '/root/haikodev';
+/* Le dépôt d'où PART ce script, jamais `/root/haikodev` en dur : lancé depuis
+   la copie de travail d'une carte, il jugeait le code du dossier PRINCIPAL —
+   donc la version publiée, pas celle qu'on vient d'écrire. Ses échecs ne
+   disaient alors rien du travail en cours. */
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.HAIKODEV_VERIF_PORT || 7188);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-glissement-'));

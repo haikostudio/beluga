@@ -717,8 +717,9 @@ le nom, là-bas le texte).
   sélection. La classe pose `overflow-wrap: anywhere` partout (un titre au mot insécable revient à la
   ligne au lieu de sortir du cadre) et n'ouvre la sélection qu'au POINTEUR FIN ; au doigt, rien ne
   change. Un glissement de souris parti d'un texte marqué ne déplace ni ne balaie, et le clic qui
-  termine une sélection faite DANS la carte n'ouvre pas son tiroir — un clic simple, si. Vérifié par
-  `scripts/verif-texte-copiable.mjs`.
+  termine une sélection faite DANS la carte n'ouvre pas son tiroir — un clic simple, si. Un message
+  d'ERREUR porte en plus un bouton « copier » (`data-toast-copier`) qui emporte tout son texte d'un
+  clic, sans l'écarter. Vérifié par `scripts/verif-texte-copiable.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon

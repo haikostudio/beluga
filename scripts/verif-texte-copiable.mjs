@@ -9,12 +9,14 @@
  * comme ce texte n'avait pas non plus de coupure de mot, un titre portant un
  * long chemin sans espace sortait du cadre de sa carte.
  *
- * Cinq constats, dans un vrai navigateur :
+ * Six constats, dans un vrai navigateur :
  *  1. le titre d'une carte au mot interminable tient dans la largeur du cadre ;
  *  2. il se surligne au glissé de souris, et la carte ne bouge pas de colonne ;
  *  3. ce glissé n'ouvre PAS le tiroir de la carte (il termine par un clic) ;
  *  4. un clic normal, lui, ouvre toujours le tiroir ;
- *  5. le texte d'un message passager tient dans son cadre et se surligne aussi.
+ *  5. le texte d'un message passager tient dans son cadre et se surligne aussi ;
+ *  6. un message d'ERREUR porte un bouton « copier » qui emporte tout son texte
+ *     d'un seul clic, sans écarter le message.
  *
  * Se lance contre le serveur de développement :
  *   npm run dev --workspace web -- --port 7117
@@ -92,6 +94,8 @@ async function main() {
     viewport: { width: 1280, height: 900 },
     locale: 'fr-CH',
     ignoreHTTPSErrors: true,
+    // Le presse-papiers, pour juger le bouton « copier » d'un message d'erreur.
+    permissions: ['clipboard-read', 'clipboard-write'],
     // Sinon c'est la version publiée qui s'affiche.
     serviceWorkers: 'block',
   });
@@ -113,12 +117,21 @@ async function main() {
       await page.waitForTimeout(1000);
     }
 
-    // Le projet HaikoDev, par son nom dans la colonne de gauche.
-    const ligneProjet = page.getByText(projet.name, { exact: true }).first();
-    if (await ligneProjet.count()) {
-      await ligneProjet.click({ force: true }).catch(() => {});
-      await page.waitForTimeout(2500);
+    /*
+     * HaikoDev ne vit PAS dans la liste des projets : c'est l'espace de
+     * développement, épinglé tout en haut de la colonne sous le nom
+     * « Développement » (`data-espace-dev`). Le chercher par son nom de base ne
+     * donnait rien — d'où le repli, qui vaut pour un projet ordinaire.
+     */
+    const espaceDev = page.locator(`[data-espace-dev="${projet.id}"]`).first();
+    const ligneProjet = (await espaceDev.count())
+      ? espaceDev
+      : page.getByText(projet.name, { exact: true }).first();
+    if (!(await ligneProjet.count())) {
+      throw new Error(`le projet « ${projet.name} » reste introuvable dans la colonne de gauche`);
     }
+    await ligneProjet.click({ force: true });
+    await page.waitForTimeout(3000);
 
     const carte = page.locator(`[data-carte="${CARTE_ID}"]`).first();
     await carte.waitFor({ state: 'visible', timeout: 20000 });
@@ -239,6 +252,24 @@ async function main() {
           surligneMessage.length > 2,
           surligneMessage ? `« ${surligneMessage.slice(0, 40)} »` : 'aucune sélection',
         );
+      }
+
+      /* ------ 6. Le bouton « copier » d'un message d'erreur, d'un clic ------ */
+      const bouton = page.locator('[data-toast-copier]').first();
+      const boutonVu = await bouton.isVisible().catch(() => false);
+      record('Un message d’erreur porte son bouton « copier »', boutonVu);
+      if (boutonVu) {
+        await page.evaluate(() => navigator.clipboard.writeText('presse-papiers vide'));
+        await bouton.click();
+        await page.waitForTimeout(500);
+        const emporte = await page.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+        record(
+          'Le clic emporte le texte entier du message',
+          emporte.trim() === MESSAGE.trim(),
+          emporte ? `« ${emporte.slice(0, 40)} »` : 'presse-papiers vide',
+        );
+        // Le message reste : copier n'est pas écarter.
+        record('Copier n’écarte pas le message', await page.locator('[data-toast]').first().isVisible());
       }
     }
 

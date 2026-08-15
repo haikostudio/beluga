@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AlertCircle, Check, Info, TriangleAlert, X } from 'lucide-react';
+import { AlertCircle, Check, Copy, Info, TriangleAlert, X } from 'lucide-react';
 import { DUREE_MESSAGE_MS, heureEtDate } from '@haikodev/shared';
 import { client, Toast } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -55,6 +55,50 @@ export function Toasts() {
         <ToastItem key={toast.id} toast={toast} enPause={enPause} />
       ))}
     </div>
+  );
+}
+
+/**
+ * LE BOUTON « COPIER » D'UN MESSAGE D'ERREUR : une icône, rien de plus, qui
+ * devient une coche le temps de dire que c'est fait. Le presse-papiers moderne
+ * n'est servi qu'en contexte sûr (HTTPS ou localhost) : ailleurs, on retombe
+ * sur un champ caché et la vieille commande de copie, qui, elle, marche
+ * partout — sans quoi un clic resterait sans effet et sans explication.
+ */
+function BoutonCopier({ texte }: { texte: string }) {
+  const [copie, setCopie] = React.useState(false);
+  const minuteur = React.useRef<number | undefined>(undefined);
+  React.useEffect(() => () => window.clearTimeout(minuteur.current), []);
+
+  const copier = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(texte);
+    } catch {
+      const zone = document.createElement('textarea');
+      zone.value = texte;
+      zone.style.position = 'fixed';
+      zone.style.opacity = '0';
+      document.body.appendChild(zone);
+      zone.select();
+      document.execCommand('copy');
+      zone.remove();
+    }
+    setCopie(true);
+    window.clearTimeout(minuteur.current);
+    minuteur.current = window.setTimeout(() => setCopie(false), 1800);
+  };
+
+  return (
+    <button
+      type="button"
+      data-toast-copier
+      onClick={copier}
+      title={copie ? 'Message copié' : 'Copier ce message'}
+      className="flex items-center justify-center p-[11px] opacity-60 transition-opacity hover:opacity-100"
+    >
+      {copie ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+    </button>
   );
 }
 
@@ -146,16 +190,25 @@ function ToastItem({ toast, enPause }: { toast: Toast; enPause: boolean }) {
             {heureEtDate(toast.at)}
           </span>
         </span>
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            client.dismissToast(toast.id);
-          }}
-          title="Retirer ce message"
-          className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] opacity-60 hover:opacity-100"
-        >
-          <X className="h-2.5 w-2.5" />
-        </button>
+        <span className="-my-[11px] -mr-[11px] flex shrink-0 items-start">
+          {/* LA COPIE D'UN COUP, SUR UN MESSAGE D'ERREUR. C'est le message
+              qu'on veut emporter ailleurs — un rapport, une recherche —, et le
+              surligner à la souris marche mais reste un geste de patience sur
+              un texte de plusieurs lignes. Réservé à l'erreur : partout
+              ailleurs, ce bouton n'ajouterait qu'un repère de plus dans une
+              pile qui se veut discrète. */}
+          {toast.level === 'error' ? <BoutonCopier texte={toast.text} /> : null}
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              client.dismissToast(toast.id);
+            }}
+            title="Retirer ce message"
+            className="flex items-center justify-center p-[11px] opacity-60 hover:opacity-100"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </span>
       </div>
       <div className="h-[2px] w-full bg-current/15">
         <div
