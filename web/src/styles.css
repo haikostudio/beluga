@@ -270,6 +270,23 @@
   scroll-snap-align: start;
 }
 
+/* UN TEXTE QUE L'ON PEUT COPIER, SANS CASSER LE GESTE DU DOIGT.
+   Certains blocs vivent dans un conteneur volontairement `select-none` — une
+   carte du tableau se tire, un message passager se balaie vers la gauche —, et
+   leur TEXTE devenait de ce fait impossible à surligner à la souris. Cette
+   classe le rend sélectionnable pour le seul POINTEUR FIN (souris, pavé
+   tactile) : au doigt, le comportement d'avant ne bouge pas d'un pixel. */
+.texte-copiable {
+  overflow-wrap: anywhere;
+}
+@media (hover: hover) and (pointer: fine) {
+  .texte-copiable {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+}
+
 /* Réglage système « réduire les animations » : la secousse d'un projet qui
    attend une réponse ne joue pas, et le badge du travail rendu cesse de
    clignoter. Le triangle d'alerte et le badge, eux, restent — le signal ne
