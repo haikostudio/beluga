@@ -1525,17 +1525,59 @@ export function CardTile({
     onOpen(event);
   };
   /*
-   * LE GLISSEMENT NE PART PAS DU TEXTE, À LA SOURIS. La carte se déplace en la
-   * tirant de n'importe où ; mais un glissement qui commence SUR son titre est
-   * un geste de sélection, pas un déménagement. Au doigt, rien ne change : il
-   * n'y a pas de sélection au glissé, et l'appui maintenu reste le seul départ.
+   * PARTI DU TITRE, LE GESTE ATTEND DE SORTIR DE LA CARTE POUR DEVENIR UN
+   * DÉPLACEMENT.
+   *
+   * Refuser tout net le glissement depuis le texte rendait la carte
+   * intirable par son titre — c'est-à-dire par l'essentiel de sa surface :
+   * `scripts/verif-glissement-lancement.mjs`, qui vise le centre d'une carte,
+   * n'obtenait plus aucun déplacement, donc plus aucun refus à afficher.
+   * Refuser l'inverse rendait le titre impossible à surligner.
+   *
+   * Les deux gestes se départagent donc par leur FIN, pas par leur départ :
+   * tant que la souris reste DANS la carte, elle surligne ; dès qu'elle en
+   * sort — la seule façon d'aller déposer ailleurs —, le déplacement prend le
+   * relais depuis ce point, et la sélection commencée est effacée. Au doigt,
+   * rien de tout cela : pas de sélection au glissé, l'appui maintenu reste le
+   * seul départ.
    */
   const commencerLeGeste = onPointerDown
     ? (event: React.PointerEvent) => {
-        if (event.pointerType === 'mouse' && (event.target as HTMLElement).closest?.('[data-carte-texte]')) {
+        const surLeTexte =
+          event.pointerType === 'mouse' && (event.target as HTMLElement).closest?.('[data-carte-texte]');
+        if (!surLeTexte) {
+          onPointerDown(event);
           return;
         }
-        onPointerDown(event);
+        const cadre = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        const pointerId = event.pointerId;
+        const suivre = (bouge: PointerEvent) => {
+          if (bouge.pointerId !== pointerId) return;
+          const dehors =
+            bouge.clientX < cadre.left ||
+            bouge.clientX > cadre.right ||
+            bouge.clientY < cadre.top ||
+            bouge.clientY > cadre.bottom;
+          if (!dehors) return;
+          arreter();
+          window.getSelection()?.removeAllRanges();
+          // Le glissement repart de l'endroit où le pointeur a quitté la carte :
+          // `usePointerDrag` ne lit que ces quatre champs.
+          onPointerDown({
+            button: 0,
+            pointerType: 'mouse',
+            clientX: bouge.clientX,
+            clientY: bouge.clientY,
+          } as React.PointerEvent);
+        };
+        const arreter = () => {
+          window.removeEventListener('pointermove', suivre);
+          window.removeEventListener('pointerup', arreter);
+          window.removeEventListener('pointercancel', arreter);
+        };
+        window.addEventListener('pointermove', suivre);
+        window.addEventListener('pointerup', arreter);
+        window.addEventListener('pointercancel', arreter);
       }
     : undefined;
   const agent = card.agentId ? state.agents[card.agentId] : null;
