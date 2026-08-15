@@ -908,15 +908,31 @@ export const CapacitySnapshot = z.object({
    * jauge de remplissage.
    */
   cpuLoadPct: z.number().optional(),
+  /**
+   * La charge moyenne des QUINZE dernières minutes. C'est elle qui dit si la
+   * machine est vraiment prise : une pointe d'une minute passe 200 % dès qu'une
+   * construction démarre, sans rien saturer.
+   */
+  cpuLoadSustainedPct: z.number().optional(),
   memUsedMb: z.number(),
   memTotalMb: z.number(),
   cpuCount: z.number(),
   runningAgents: z.number(),
+  /**
+   * Ceux qui portent une CARTE du tableau. Le compte total mélange le chef
+   * d'orchestre, l'analyse de nuit et la publication, qui ne s'affichent sur
+   * aucune carte : « 3 en cours » là où l'utilisateur ne voit que 2 tâches.
+   */
+  runningTasks: z.number().optional(),
   maxAgents: z.number(),
-  /** Calculé sur la consommation mesurée, pas deviné (PLAN §27). */
+  /** Places libres selon la MÉMOIRE et le plafond, jamais selon la charge (PLAN §27). */
   slotsFree: z.number(),
+  /** Départs réellement possibles tout de suite : les places, moins le frein de charge. */
+  startableNow: z.number().optional(),
   paused: z.boolean().default(false),
   pauseReason: z.string().optional(),
+  /** La charge processeur ralentit les départs : la cause, écrite en clair. */
+  loadHoldReason: z.string().optional(),
   avgAgentMemMb: z.number().optional(),
   at: z.number(),
 });

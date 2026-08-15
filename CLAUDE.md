@@ -728,6 +728,28 @@ le nom, là-bas le texte).
   le pli « replié / déplié » est retenu par `usePliDesTaches` (téléphone replié, ordinateur déplié).
   Le repère porte les DEUX repères d'écran, `data-temoin-reflexion` et `data-volet="taches"`.
   Vérifié par `scripts/verif-volet-taches.mjs`.
+- **UN TEXTE AFFICHÉ RESTE DANS SON CADRE, ET SE COPIE À LA SOURIS** (`.texte-copiable`,
+  `web/src/styles.css` ; `data-carte-texte` de `board.tsx`, `data-toast-texte` de `toasts.tsx`) : un
+  conteneur `select-none` — une carte qu'on TIRE, un message qu'on BALAIE — ne prive plus son texte de
+  sélection. La classe pose `overflow-wrap: anywhere` partout (un titre au mot insécable revient à la
+  ligne au lieu de sortir du cadre) et n'ouvre la sélection qu'au POINTEUR FIN ; au doigt, rien ne
+  change. Un glissement de souris parti d'un texte marqué ne déplace ni ne balaie, et le clic qui
+  termine une sélection faite DANS la carte n'ouvre pas son tiroir — un clic simple, si. Parti du
+  titre, le geste ne devient un DÉPLACEMENT qu'en SORTANT de la carte (refuser le glissement depuis
+  le texte rendait la carte intirable par son titre, `verif-glissement-lancement.mjs`). Un message
+  d'ERREUR porte en plus un bouton « copier » (`data-toast-copier`) qui emporte tout son texte d'un
+  clic, sans l'écarter. Vérifié par `scripts/verif-texte-copiable.mjs`.
+- **LA JAUGE « CAPACITÉ DU SYSTÈME » NE DIT « SATURÉ » QUE SUR UNE VRAIE SATURATION**
+  (`freinDeCharge`, `chargeRetenue`, `detailDesAgents`, `shared/src/capacite.ts` ; `snapshot`,
+  `server/src/capacity.ts`) : l'écran annonçait « Plus aucun agent ne peut démarrer · 3 en cours ·
+  plafond 15 », une phrase qui se contredit elle-même. La CHARGE PROCESSEUR freine, elle ne remplit
+  jamais la barre — `slotsFree` ne compte que la MÉMOIRE et le plafond, le frein vit à part
+  (`startableNow`, `loadHoldReason`) et se dit avec sa cause ; seules la mémoire (> 94 %) et la pause
+  manuelle SUSPENDENT. Et la charge retenue est celle qui DURE : le plus petit de la minute et du
+  quart d'heure, car une pointe passe 200 % sur ce serveur mutualisé sans rien saturer (paliers
+  170 / 240 / 320 %). Le COMPTE affiché sépare enfin les TÂCHES (`runningTasks`, rôle `task`, les
+  seules visibles sur le tableau) des agents de service. Verrouillé par
+  `server/src/test/capacite.test.ts` et `scripts/verif-capacite-saturation.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon

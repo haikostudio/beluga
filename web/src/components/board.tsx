@@ -1503,8 +1503,83 @@ export function CardTile({
   }, [menuOuvert]);
   const ouvrir = (event: React.MouseEvent) => {
     if (menuOuvert || Date.now() - ouvertureMenu.current < 700) return;
+    /*
+     * SÉLECTIONNER DU TEXTE N'OUVRE PAS LA CARTE. Le relâchement qui termine
+     * une sélection à la souris est aussi un clic : sans ce garde-fou, on ne
+     * pourrait jamais copier le titre d'une carte — le tiroir s'ouvrirait sur
+     * le geste même qui vient de surligner le mot. On ne regarde que les
+     * sélections POSÉES DANS CETTE CARTE, pour ne pas avaler un clic normal
+     * fait pendant qu'un texte reste surligné ailleurs dans la page.
+     */
+    const selection = window.getSelection();
+    if (
+      selection &&
+      !selection.isCollapsed &&
+      selection.toString().trim() &&
+      event.currentTarget instanceof Node &&
+      selection.anchorNode &&
+      event.currentTarget.contains(selection.anchorNode)
+    ) {
+      return;
+    }
     onOpen(event);
   };
+  /*
+   * PARTI DU TITRE, LE GESTE ATTEND DE SORTIR DE LA CARTE POUR DEVENIR UN
+   * DÉPLACEMENT.
+   *
+   * Refuser tout net le glissement depuis le texte rendait la carte
+   * intirable par son titre — c'est-à-dire par l'essentiel de sa surface :
+   * `scripts/verif-glissement-lancement.mjs`, qui vise le centre d'une carte,
+   * n'obtenait plus aucun déplacement, donc plus aucun refus à afficher.
+   * Refuser l'inverse rendait le titre impossible à surligner.
+   *
+   * Les deux gestes se départagent donc par leur FIN, pas par leur départ :
+   * tant que la souris reste DANS la carte, elle surligne ; dès qu'elle en
+   * sort — la seule façon d'aller déposer ailleurs —, le déplacement prend le
+   * relais depuis ce point, et la sélection commencée est effacée. Au doigt,
+   * rien de tout cela : pas de sélection au glissé, l'appui maintenu reste le
+   * seul départ.
+   */
+  const commencerLeGeste = onPointerDown
+    ? (event: React.PointerEvent) => {
+        const surLeTexte =
+          event.pointerType === 'mouse' && (event.target as HTMLElement).closest?.('[data-carte-texte]');
+        if (!surLeTexte) {
+          onPointerDown(event);
+          return;
+        }
+        const cadre = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        const pointerId = event.pointerId;
+        const suivre = (bouge: PointerEvent) => {
+          if (bouge.pointerId !== pointerId) return;
+          const dehors =
+            bouge.clientX < cadre.left ||
+            bouge.clientX > cadre.right ||
+            bouge.clientY < cadre.top ||
+            bouge.clientY > cadre.bottom;
+          if (!dehors) return;
+          arreter();
+          window.getSelection()?.removeAllRanges();
+          // Le glissement repart de l'endroit où le pointeur a quitté la carte :
+          // `usePointerDrag` ne lit que ces quatre champs.
+          onPointerDown({
+            button: 0,
+            pointerType: 'mouse',
+            clientX: bouge.clientX,
+            clientY: bouge.clientY,
+          } as React.PointerEvent);
+        };
+        const arreter = () => {
+          window.removeEventListener('pointermove', suivre);
+          window.removeEventListener('pointerup', arreter);
+          window.removeEventListener('pointercancel', arreter);
+        };
+        window.addEventListener('pointermove', suivre);
+        window.addEventListener('pointerup', arreter);
+        window.addEventListener('pointercancel', arreter);
+      }
+    : undefined;
   const agent = card.agentId ? state.agents[card.agentId] : null;
   const waiting = card.scheduling?.waitingReason;
   /* Une horloge UNIQUE pour toutes les cartes : vingt cartes ne font pas vingt
@@ -1669,7 +1744,7 @@ export function CardTile({
       <article
         // Le seul repère des scripts de vérification pour retrouver UNE carte.
         data-carte={card.id}
-        onPointerDown={onPointerDown}
+        onPointerDown={commencerLeGeste}
         onContextMenu={
           onMenuChange
             ? (event) => {
@@ -1694,6 +1769,11 @@ export function CardTile({
         }
         onClick={ouvrir}
         className={cn(
+          // `select-none` reste la règle : au doigt, une carte se tire et se
+          // fait défiler, jamais surligner. Seul le POINTEUR FIN (souris,
+          // pavé tactile) rend le texte sélectionnable — là, on veut pouvoir
+          // copier le titre d'une carte, et ce qui est marqué
+          // `data-carte-texte` le repasse en `select-text`.
           'relative z-10 cursor-pointer touch-manipulation select-none rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint',
           (statut || travailActuel) && 'rounded-b-none',
         )}
@@ -1723,7 +1803,16 @@ export function CardTile({
         ) : null}
 
         <div className="flex items-start gap-1.5">
-          <h3 className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{card.title}</h3>
+          {/* Le titre est le texte que l'on cherche à COPIER, et le seul de la
+              carte qui ne soit pas tronqué : il revient donc à la ligne, y
+              compris au milieu d'un mot interminable (une adresse, un chemin),
+              plutôt que de sortir du cadre. */}
+          <h3
+            data-carte-texte
+            className="texte-copiable min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text"
+          >
+            {card.title}
+          </h3>
           {/* Le triangle passe AVANT le voyant : une décision attendue prime
               sur l'état d'avancement, elle est ce qui demande un geste. */}
           <RepereAttention compte={decisions} className="mt-[2px]" data-attention-carte={card.id} />
