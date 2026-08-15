@@ -325,6 +325,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
 
   // GitHub
   z.object({ type: z.literal('github.refresh'), cardId: z.string() }),
+  /**
+   * Le DÉROULÉ des publications qui ont emporté cette carte, jusqu'à la fusion.
+   * Lecture en base seule — aucun appel à git ni à GitHub : l'onglet peut donc
+   * le demander à chaque ouverture, sans rien coûter.
+   */
+  z.object({ type: z.literal('github.deploiements'), cardId: z.string() }),
   z.object({
     type: z.literal('github.merge'),
     cardId: z.string(),

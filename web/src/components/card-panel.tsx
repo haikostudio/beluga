@@ -24,10 +24,18 @@ import {
   COLUMN_LABELS,
   Card,
   DecisionGeste,
+  DeployRun,
   EngineInfo,
+  EtatDeFichier,
   GesteCarte,
   ReglagesCarte,
   carteSeReprend,
+  etapesAMontrer,
+  libelleCibleDeploiement,
+  libelleEtapeDeploiement,
+  phraseDesFichiers,
+  resumeDeBranche,
+  resumeDesFichiers,
   colonneDeReprise,
   libelleDeLancement,
   libelleDeReprise,
@@ -1126,14 +1134,58 @@ function dateHeure(valeur?: string): string {
   return `${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
+/** Une durée d'étape de publication : « 12 s », « 3 min ». */
+function dureeEtape(debut?: number, fin?: number): string {
+  if (!debut || !fin || fin < debut) return '';
+  const secondes = Math.round((fin - debut) / 1000);
+  if (secondes < 60) return `${secondes} s`;
+  return `${Math.round(secondes / 60)} min`;
+}
+
+/** La couleur d'un fichier touché suit son sort : ajouté, modifié, supprimé. */
+const TON_DU_FICHIER: Record<EtatDeFichier, string> = {
+  ajoute: 'text-success',
+  modifie: 'text-en-cours',
+  supprime: 'text-danger',
+  renomme: 'text-en-cours',
+};
+
+const LETTRE_DU_FICHIER: Record<EtatDeFichier, string> = {
+  ajoute: 'A',
+  modifie: 'M',
+  supprime: 'S',
+  renomme: 'R',
+};
+
 function GithubTab({ card }: { card: Card }) {
   const [busy, setBusy] = React.useState(false);
+  const [deploiements, setDeploiements] = React.useState<DeployRun[]>([]);
   const tracking = card.github;
+
+  /*
+   * LE DÉROULÉ DU DÉPLOIEMENT SE DEMANDE À L'OUVERTURE. C'est une lecture en
+   * base seule — aucun appel à git ni à GitHub —, elle ne coûte donc rien et
+   * n'attend pas le bouton « Actualiser ».
+   */
+  React.useEffect(() => {
+    let vivant = true;
+    client
+      .call({ type: 'github.deploiements', cardId: card.id })
+      .then((res: any) => {
+        if (vivant) setDeploiements(res?.deploiements ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      vivant = false;
+    };
+  }, [card.id, card.column, card.github?.fetchedAt]);
 
   const refresh = async () => {
     setBusy(true);
     try {
       await client.call({ type: 'github.refresh', cardId: card.id });
+      const res: any = await client.call({ type: 'github.deploiements', cardId: card.id });
+      setDeploiements(res?.deploiements ?? []);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'lecture impossible');
     } finally {
@@ -1153,16 +1205,65 @@ function GithubTab({ card }: { card: Card }) {
     }
   };
 
+  const fichiers = tracking?.fichiers ?? [];
+  const resume = resumeDesFichiers(fichiers);
+  const etatBranche = resumeDeBranche(tracking ?? {});
+
   return (
     <div className="space-y-3 px-4 py-3">
       <div className="flex items-center gap-2">
         <GitBranch className="h-3.5 w-3.5 text-faint" />
-        <span className="text-[14px] text-text">{tracking?.branch ?? 'aucune branche'}</span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={refresh} disabled={busy}>
+        <span className="min-w-0 flex-1 truncate text-[14px] text-text">{tracking?.branch ?? 'aucune branche'}</span>
+        <Button size="sm" variant="ghost" onClick={refresh} disabled={busy}>
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           Actualiser
         </Button>
       </div>
+
+      {/* LA BRANCHE DE CETTE CARTE : sa naissance, ce qu'elle a changé, où elle en est. */}
+      {tracking?.branch ? (
+        <div className="rounded-md border border-border bg-surface px-2.5 py-2" data-github-branche>
+          <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
+            <Badge tone={etatBranche.etat === 'fusionnee' ? 'success' : 'neutral'}>{etatBranche.phrase}</Badge>
+            {tracking.creeLe ? <span className="text-faint">créée le {dateHeure(tracking.creeLe)}</span> : null}
+          </div>
+
+          <p className="mt-2 text-[13.5px] text-text" data-github-fichiers>
+            {resume.total
+              ? `${resume.total} fichier${resume.total > 1 ? 's' : ''} touché${resume.total > 1 ? 's' : ''} — ${phraseDesFichiers(resume)}`
+              : tracking.fetchedAt
+                ? "Aucun fichier touché par cette branche pour l'instant."
+                : 'Fichiers pas encore relevés — « Actualiser » les lit.'}
+          </p>
+
+          {fichiers.length ? (
+            <ul className="mt-1.5 space-y-0.5">
+              {fichiers.map((fichier) => (
+                <li key={fichier.chemin} className="flex items-baseline gap-2 text-[13px]">
+                  <span className={cn('w-3 shrink-0 font-mono', TON_DU_FICHIER[fichier.etat])}>
+                    {LETTRE_DU_FICHIER[fichier.etat]}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-muted texte-copiable">{fichier.chemin}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {tracking.commits.length ? (
+            <ul className="mt-2 space-y-0.5 border-t border-border pt-2">
+              {tracking.commits.map((commit) => (
+                <li key={commit.sha} className="flex gap-2 text-[13px]">
+                  <code className="shrink-0 text-faint">{commit.sha.slice(0, 7)}</code>
+                  <span className="min-w-0 flex-1 truncate text-muted texte-copiable">{commit.message}</span>
+                  <span className="shrink-0 text-faint">{dateHeure(commit.date)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-[13.5px] text-faint">Cette carte n'a pas encore de branche : elle n'a jamais été lancée.</p>
+      )}
 
       {tracking?.prNumber ? (
         <div className="rounded-md border border-border bg-surface px-2.5 py-2">
@@ -1222,24 +1323,67 @@ function GithubTab({ card }: { card: Card }) {
         <p className="text-[13.5px] text-faint">Aucune demande de fusion liée pour l'instant.</p>
       )}
 
-      {tracking?.commits.length ? (
-        <div>
-          <p className="mb-1 text-[12.5px] uppercase tracking-wide text-faint">Derniers commits</p>
-          <ul className="space-y-0.5">
-            {tracking.commits.map((commit) => (
-              <li key={commit.sha} className="flex gap-2 text-[13px]">
-                <code className="text-faint">{commit.sha.slice(0, 7)}</code>
-                <span className="min-w-0 flex-1 truncate text-muted">{commit.message}</span>
-                <span className="shrink-0 text-faint">{dateHeure(commit.date)}</span>
-              </li>
+      {/* LE DÉROULÉ DU DÉPLOIEMENT DE CETTE CARTE, étape par étape, jusqu'à la fusion. */}
+      {deploiements.length ? (
+        <div data-github-deploiements>
+          <p className="mb-1 text-[12.5px] uppercase tracking-wide text-faint">Déploiement</p>
+          <div className="space-y-2">
+            {deploiements.map((run) => (
+              <div key={run.id} className="rounded-md border border-border bg-surface px-2.5 py-2">
+                <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
+                  <Badge
+                    tone={
+                      run.state === 'success'
+                        ? 'success'
+                        : run.state === 'failed'
+                          ? 'danger'
+                          : run.state === 'running'
+                            ? 'strong'
+                            : 'neutral'
+                    }
+                  >
+                    {libelleCibleDeploiement(run.cible)}
+                  </Badge>
+                  <span className="text-faint">{dateHeure(new Date(run.startedAt).toISOString())}</span>
+                </div>
+
+                <ul className="mt-1.5 space-y-0.5">
+                  {etapesAMontrer(run).map((etape) => (
+                    <li key={etape.key} className="flex items-center gap-1.5 text-[13px]">
+                      <span
+                        className={cn(
+                          'h-1.5 w-1.5 shrink-0 rounded-full',
+                          etape.state === 'done'
+                            ? 'bg-termine'
+                            : etape.state === 'failed'
+                              ? 'bg-danger'
+                              : etape.state === 'running'
+                                ? 'bg-en-cours'
+                                : 'bg-border',
+                        )}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-muted">{libelleEtapeDeploiement(etape.key)}</span>
+                      <span className="shrink-0 text-faint">
+                        {etape.state === 'skipped'
+                          ? 'ignorée'
+                          : etape.progress || dureeEtape(etape.startedAt, etape.endedAt)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                {run.error ? <p className="mt-1 text-[13px] text-danger texte-copiable">{run.error}</p> : null}
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
-      ) : null}
+      ) : (
+        <p className="text-[13.5px] text-faint">Cette carte n'a encore été emportée par aucun déploiement.</p>
+      )}
 
       {tracking?.activity.length ? (
         <div>
-          <p className="mb-1 text-[12.5px] uppercase tracking-wide text-faint">Activité</p>
+          <p className="mb-1 text-[12.5px] uppercase tracking-wide text-faint">Sur la demande de fusion</p>
           <ul className="space-y-1.5">
             {tracking.activity.slice(0, 10).map((event, index) => (
               <li key={index} className="rounded border border-border bg-surface px-2 py-1.5 text-[13px]">

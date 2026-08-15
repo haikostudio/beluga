@@ -1212,6 +1212,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'github.refresh':
       return { tracking: await github.refreshCard(cmd.cardId) };
 
+    case 'github.deploiements':
+      return { deploiements: github.deploiementsDeCarte(cmd.cardId) };
+
     case 'github.merge': {
       const result = await github.mergeCard(cmd.cardId, cmd.method, cmd.auto);
       if (!result.ok) throw new Error(result.error ?? 'fusion impossible');

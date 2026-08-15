@@ -304,14 +304,14 @@ export function occupantsDesDossiers(saufCardId?: string): OccupantDossier[] {
  * projet peuvent travailler en même temps.
  */
 export type Branche =
-  | { kind: 'prete'; nom: string; dossier: string }
+  | { kind: 'prete'; nom: string; dossier: string; base?: string }
   | { kind: 'echec'; raison: string };
 
 export async function prepareBranch(projectPath: string, card: Card): Promise<Branche> {
   if (!(await estUnDepotGit(projectPath))) return { kind: 'echec', raison: RAISON_SANS_DEPOT };
   const ouvert = await ouvrirDossierDeCarte(projectPath, card);
   if (ouvert.kind === 'echec') return ouvert;
-  return { kind: 'prete', nom: ouvert.branche, dossier: ouvert.dossier };
+  return { kind: 'prete', nom: ouvert.branche, dossier: ouvert.dossier, base: ouvert.base };
 }
 
 /**
@@ -474,7 +474,13 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
     position: store.nextPosition(card.projectId, 'running'),
     agentId: agent.id,
     codeDejaEnregistre: dejaEnregistre,
-    github: { ...(card.github ?? { checks: [], commits: [], activity: [] }), branch },
+    github: {
+      ...(card.github ?? { checks: [], commits: [], fichiers: [], activity: [] }),
+      branch,
+      // La base n'est notée qu'à la CRÉATION de la branche, et jamais réécrite :
+      // c'est elle qui dira, même après la fusion, ce que cette carte a touché.
+      baseSha: card.github?.baseSha ?? prepa.base,
+    },
     scheduling: {
       ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
       attempts: (card.scheduling?.attempts ?? 0) + 1,

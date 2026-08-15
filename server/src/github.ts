@@ -1,11 +1,25 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { GithubTracking, variablesGithub } from '@haikodev/shared';
+import {
+  DeployRun,
+  GithubTracking,
+  deploiementsDeLaCarte,
+  fichiersDepuisNameStatus,
+  variablesGithub,
+} from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
+import { branchePrincipale } from './dossier-de-carte.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Combien d'enregistrements de la branche s'affichent. Une carte reprise dix
+ * fois en aligne parfois des dizaines ; la liste doit rester lisible, et le
+ * compte de fichiers dit déjà l'ampleur.
+ */
+const COMMITS_MONTRES_MAX = 20;
 
 /**
  * Suivi GitHub (PLAN §8). La lecture passe par l'outil GitHub en ligne de
@@ -148,6 +162,62 @@ export async function branchesDuDepot(cwd: string): Promise<BranchesDuDepot> {
   return { branches: [], source: 'aucune', raison };
 }
 
+/* ------------------------------------------------------------------ */
+/* Le point de départ de la branche d'une carte                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * D'OÙ PART LA BRANCHE DE CETTE CARTE ?
+ *
+ * Toute la question de l'onglet « GitHub » tient là : sans ce point, un
+ * `git log branche` rend l'historique GÉNÉRAL du dépôt — le travail des autres
+ * cartes, parfois de l'année d'avant. Trois chemins, du plus sûr au plus faible :
+ *
+ *   1. la base RETENUE à la création de la branche (`baseSha`) — la seule qui ne
+ *      puisse pas mentir ;
+ *   2. l'ancêtre commun avec la principale, tant que la branche n'a pas été
+ *      fusionnée ;
+ *   3. après la fusion, cet ancêtre devient la branche elle-même (la principale
+ *      la contient) : on retrouve alors le commit de FUSION — celui dont le
+ *      second parent est le sommet de la branche — et on repart de son PREMIER
+ *      parent, l'état de la principale juste avant.
+ *
+ * Rien de trouvé rend `undefined` : on préfère un onglet qui dit ne pas savoir à
+ * un onglet qui invente un périmètre.
+ */
+export async function baseDeLaBranche(
+  cwd: string,
+  branche: string,
+  principale: string,
+  baseConnue?: string,
+): Promise<string | undefined> {
+  if (baseConnue) {
+    const valide = await git(['rev-parse', '--verify', '--quiet', `${baseConnue}^{commit}`], cwd);
+    if (valide.trim()) return valide.trim();
+  }
+
+  const sommet = (await git(['rev-parse', '--verify', '--quiet', `${branche}^{commit}`], cwd)).trim();
+  if (!sommet) return undefined;
+
+  const ancetre = (await git(['merge-base', principale, branche], cwd)).trim();
+  if (ancetre && ancetre !== sommet) return ancetre;
+
+  // La principale contient déjà la branche : on cherche la fusion qui l'a prise.
+  const fusions = await git(
+    ['rev-list', '--merges', '--first-parent', '--format=%H %P', '-n', '200', principale],
+    cwd,
+  );
+  for (const ligne of fusions.split('\n')) {
+    const parts = ligne.trim().split(/\s+/);
+    if (parts.length < 3 || ligne.startsWith('commit ')) continue;
+    const parents = parts.slice(1);
+    if (!parents.slice(1).includes(sommet)) continue;
+    const avant = (await git(['merge-base', parents[0], branche], cwd)).trim();
+    if (avant && avant !== sommet) return avant;
+  }
+  return undefined;
+}
+
 export async function refreshCard(cardId: string): Promise<GithubTracking | null> {
   const card = store.getCard(cardId);
   if (!card) return null;
@@ -159,21 +229,47 @@ export async function refreshCard(cardId: string): Promise<GithubTracking | null
     ...(card.github ?? {}),
     checks: [],
     commits: [],
+    fichiers: [],
     activity: [],
     fetchedAt: Date.now(),
   });
 
   if (branch) {
-    // Date complète (heure comprise) : « le 2 à 09:14 » est plus utile que « le 2 ».
-    const logOut = await git(['log', '-n', '10', '--format=%H|%s|%aI', branch], project.path);
-    tracking.commits = logOut
-      .trim()
+    /*
+     * LA BRANCHE DE LA CARTE, ET ELLE SEULE. Le relevé part du point de départ
+     * de la branche : les enregistrements faits depuis, les fichiers touchés
+     * depuis, et la date du plus ancien — sa naissance réelle.
+     */
+    const principale = await branchePrincipale(project.path);
+    tracking.branchePrincipale = principale;
+    const base = await baseDeLaBranche(project.path, branch, principale, card.github?.baseSha);
+    tracking.baseSha = base;
+
+    if (base) {
+      // Date complète (heure comprise) : « le 2 à 09:14 » est plus utile que « le 2 ».
+      const logOut = await git(['log', '--format=%H|%s|%aI', `${base}..${branch}`], project.path);
+      tracking.commits = logOut
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const [sha, message, date] = line.split('|');
+          return { sha: sha ?? '', message: message ?? '', date };
+        })
+        .slice(0, COMMITS_MONTRES_MAX);
+      tracking.creeLe = tracking.commits.length
+        ? tracking.commits[tracking.commits.length - 1]?.date
+        : undefined;
+
+      const diff = await git(['diff', '--name-status', `${base}`, branch], project.path);
+      tracking.fichiers = fichiersDepuisNameStatus(diff);
+    }
+
+    const contenue = await git(['branch', '--contains', branch, '--format=%(refname:short)'], project.path);
+    tracking.fusionnee = contenue
       .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const [sha, message, date] = line.split('|');
-        return { sha: sha ?? '', message: message ?? '', date };
-      });
+      .map((l) => l.trim())
+      .includes(principale);
 
     const prJson = await gh(
       ['pr', 'view', branch, '--json', 'number,title,state,url,mergeable,reviewDecision,statusCheckRollup,comments,reviews'],
@@ -216,6 +312,19 @@ export async function refreshCard(cardId: string): Promise<GithubTracking | null
   const updated = store.saveCard({ ...card, github: tracking });
   bus.emit({ type: 'card.upsert', card: updated });
   return tracking;
+}
+
+/**
+ * LES PUBLICATIONS QUI ONT EMPORTÉ CETTE CARTE, du plus récent au plus ancien.
+ *
+ * Le tri et le plafond sont une règle pure (`deploiementsDeLaCarte`) : ici on ne
+ * fait que relire la base du projet. Une carte jamais déployée rend une liste
+ * vide — pas une panne.
+ */
+export function deploiementsDeCarte(cardId: string): DeployRun[] {
+  const card = store.getCard(cardId);
+  if (!card) return [];
+  return deploiementsDeLaCarte(store.recentDeploys(card.projectId, 50), cardId);
 }
 
 export async function mergeCard(

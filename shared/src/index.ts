@@ -116,6 +116,7 @@ export * from './routage-vocal.js';
 export * from './selection-deploiement.js';
 export * from './signal-projet.js';
 export * from './sous-domaine-projet.js';
+export * from './suivi-branche-carte.js';
 export * from './suivi-colonne.js';
 export * from './taches-fin-de-tour.js';
 export * from './templates.js';
