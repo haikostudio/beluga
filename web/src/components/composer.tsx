@@ -15,6 +15,7 @@ import {
   boutonsBarreEcriture,
   deplacerAncre,
   deplacerJointe,
+  effacementDeTag,
   indexDeLAncre,
   insereAncre,
   jointesApresFrappe,
@@ -288,8 +289,8 @@ export function Composer({
     setDrapeauGlisse(null);
   };
 
-  const gestesDrapeau = React.useRef({ poserDrapeau, suivreDrapeau, lacherDrapeau, annulerDrapeau });
-  gestesDrapeau.current = { poserDrapeau, suivreDrapeau, lacherDrapeau, annulerDrapeau };
+  const gestesDrapeau = React.useRef({ poserDrapeau, suivreDrapeau, lacherDrapeau, annulerDrapeau, retirerDrapeau });
+  gestesDrapeau.current = { poserDrapeau, suivreDrapeau, lacherDrapeau, annulerDrapeau, retirerDrapeau };
 
   /*
    * L'overlay (drapeaux fichier) ne se pose QUE s'il y a vraiment un tag :
@@ -364,7 +365,29 @@ export function Composer({
               posé sur des marges négatives, donc il ne prend aucune place. */}
           <span className="opacity-50">{brut.slice(0, debutNom)}</span>
           {nom}
-          <span className="opacity-50">{brut.slice(debutNom + nom.length)}</span>
+          {/* LA CROIX PREND LA PLACE DU CROCHET FERMANT, elle ne s'ajoute pas
+              à côté : le caractère reste écrit (donc la largeur ne bouge pas
+              d'un pixel), il est seulement rendu invisible et la croix est
+              dessinée par-dessus, hors flux. Une pastille posée en plus
+              décalerait le texte du champ, la ligne et le curseur. */}
+          <span
+            role="button"
+            data-prompt-file-close
+            title="Retirer ce fichier"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              gestesDrapeau.current.retirerDrapeau(nom, position);
+            }}
+            className="relative inline-block cursor-pointer align-baseline hover:text-danger"
+          >
+            <span className="invisible">{brut.slice(debutNom + nom.length)}</span>
+            <X aria-hidden="true" className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2" />
+          </span>
         </span>,
       );
       fin = trouve.index + trouve[0].length;
@@ -616,7 +639,31 @@ export function Composer({
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void submit();
+      return;
     }
+
+    /*
+     * UN TAG S'EFFACE D'UN BLOC. Sans cela, le retour arrière grignotait
+     * « [fichier: capture.png] » lettre par lettre : le tag restait à l'écran,
+     * amputé, et sa pièce jointe accrochée à un texte devenu faux. La règle
+     * pure (`effacementDeTag`) dit ce qui part ; elle rend `null` quand aucun
+     * tag n'est touché, et la touche suit alors son chemin normal — le champ
+     * garde ainsi son historique d'annulation partout ailleurs.
+     */
+    if (event.key !== 'Backspace' && event.key !== 'Delete') return;
+    if (event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+    const zone = event.currentTarget;
+    const coupe = effacementDeTag(
+      zone.value,
+      zone.selectionStart,
+      zone.selectionEnd,
+      event.key === 'Backspace' ? 'arriere' : 'avant',
+    );
+    if (!coupe) return;
+    event.preventDefault();
+    majTexte(coupe.texte);
+    curseur.current = coupe.curseur;
+    curseurAPoser.current = coupe.curseur;
   };
 
   return (

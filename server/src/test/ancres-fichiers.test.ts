@@ -6,10 +6,12 @@ import {
   compteAncres,
   deplacerAncre,
   deplacerJointe,
+  effacementDeTag,
   insereAncre,
   jointesApresFrappe,
   retireAncre,
   retireOccurrence,
+  tagsDuTexte,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
@@ -196,4 +198,57 @@ test('la liste d’origine n’est jamais modifiée', () => {
   const liste = ['a', 'b', 'c'];
   deplacerJointe(liste, 0, 2);
   assert.deepEqual(liste, ['a', 'b', 'c']);
+});
+
+/* -------- Un tag s'efface d'un BLOC, pas caractère par caractère -------- */
+
+test('le retour arrière au milieu d’un tag emporte le tag entier', () => {
+  const texte = 'Regarde [fichier: capture.png] ici';
+  // Curseur posé au milieu du nom du fichier.
+  const r = effacementDeTag(texte, 22, 22, 'arriere');
+  assert.ok(r);
+  assert.equal(r.texte, 'Regarde ici');
+  assert.equal(r.curseur, 8);
+});
+
+test('le retour arrière juste après le crochet fermant emporte le tag', () => {
+  const texte = 'Regarde [fichier: capture.png]';
+  const r = effacementDeTag(texte, texte.length, texte.length, 'arriere');
+  assert.ok(r);
+  assert.equal(r.texte, 'Regarde ');
+});
+
+test('la suppression avant, curseur au début du tag, emporte le tag', () => {
+  const texte = 'Regarde [fichier: capture.png] ici';
+  const r = effacementDeTag(texte, 8, 8, 'avant');
+  assert.ok(r);
+  assert.equal(r.texte, 'Regarde ici');
+});
+
+test('une lettre effacée hors de tout tag ne déclenche rien', () => {
+  const texte = 'Regarde [fichier: capture.png] ici';
+  assert.equal(effacementDeTag(texte, texte.length, texte.length, 'arriere'), null);
+  assert.equal(effacementDeTag('aucun tag ici', 5, 5, 'arriere'), null);
+});
+
+test('un texte sans tag laisse la touche suivre son chemin normal', () => {
+  assert.equal(effacementDeTag('bonjour', 3, 3, 'arriere'), null);
+  assert.equal(effacementDeTag('bonjour', 0, 0, 'arriere'), null);
+  assert.equal(effacementDeTag('bonjour', 7, 7, 'avant'), null);
+});
+
+test('une sélection qui n’entame un tag qu’à moitié l’emporte en entier', () => {
+  const texte = 'un [fichier: a.png] deux [fichier: b.png] trois';
+  // De « deux » jusqu'au milieu du second tag.
+  const r = effacementDeTag(texte, 20, 34, 'arriere');
+  assert.ok(r);
+  assert.equal(r.texte, 'un [fichier: a.png] trois');
+});
+
+test('les tags du texte sont repérés avec leur nom et leurs bornes', () => {
+  const tags = tagsDuTexte('un [fichier: a.png] deux [fichier: b.png]');
+  assert.equal(tags.length, 2);
+  assert.equal(tags[0].nom, 'a.png');
+  assert.equal(tags[0].debut, 3);
+  assert.equal(tags[1].nom, 'b.png');
 });
