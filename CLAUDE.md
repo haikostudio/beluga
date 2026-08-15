@@ -212,6 +212,21 @@ le nom, là-bas le texte).
   continue en fond et chaque changement est DIFFUSÉ. Le témoin suit le seul champ `enCours`, toute
   issue est dite (échec compris), rouvrir se raccroche au tour qui tourne au lieu d'en repayer un, et
   un dialogue perdu se dit au lieu de tourner sans fin.
+- **Une procédure DÉJÀ écrite ne se redemande jamais toute seule** (`repriseDuDialogue`, issue
+  `proposer` ; `promptModificationProcedure`, `mentionProcedureEnPlace`,
+  `shared/src/procedure-publication.ts`) : l'icône de réglages relançait un agent complet à CHAQUE
+  clic, qui relisait tout le projet pour reposer depuis le début une question déjà tranchée. Le
+  tiroir montre la procédure en place et ATTEND — on écrit ce qu'on veut y changer (un seul tour,
+  avec le contexte du projet et la procédure actuelle), ou on clique « Reposer la question ». Un tour
+  ne part de lui-même que sur une étape encore VIERGE. L'instant du dernier tour n'est plus effacé à
+  sa fin : c'est lui qui dit si la question rendue est encore fraîche.
+- **La question posée par l'outil de cet agent s'affiche DANS le tiroir, et s'y répond**
+  (`QuestionDeProcedure`, champ `question` de `EtatDeProcedure` ; `questionDeLAgent` et l'abonnement
+  à `message.upsert`, `server/src/procedure-publication.ts`) : `ask_user` ARRÊTE le tour jusqu'à la
+  réponse, et cette question ne paraissait que dans la cloche du bandeau — le tiroir ouvert dessous
+  restait sur « L'agent travaille… », sans rien à répondre. La réponse part par `question.answer`,
+  donc dans l'appel d'outil arrêté : aucun tour de plus n'est payé, et l'échange laisse sa trace dans
+  le fil du tiroir.
 - **Une carte qui ENTRE dans « À déployer » perd sa date de mise en ligne, et un bouton éteint DIT
   pourquoi** (`dateDeMiseEnLignePerimee` / `raisonLotBloque`, `shared/src/lot-a-deployer.ts` ;
   `rangerLaCarte`, `server/src/deplacement-carte.ts` ; migration 20). Sans cela, une carte revenue
