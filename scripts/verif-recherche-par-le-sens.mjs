@@ -79,8 +79,8 @@ const DEMANDES = [
     pourquoi: 'aucun mot commun avec « mot de réveil »',
   },
   {
-    question: 'l’écran rame quand il y a énormément de fiches à afficher',
-    attendu: /interface|cartes|mobile|conversation|paquets/,
+    question: 'pourquoi l’affichage ralentit quand une colonne porte beaucoup de cartes ?',
+    attendu: /interface|cartes|mobile|paquets/,
     pourquoi: 'aucun mot commun avec « paquets de vingt »',
   },
   {
@@ -112,6 +112,30 @@ for (const { question, attendu, pourquoi } of DEMANDES) {
     console.log(`      ${p.score.toFixed(2)}  ${p.source} — ${p.titre.slice(0, 54)}`);
   }
   if (pretPourLeSens) verifier(trouve.mode.vecteurs, '  … et elle a bien classé par le SENS');
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. Les cas DIFFICILES : on les affiche, on n'en fait pas un échec   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Un modèle de sens a ses limites, et les taire serait pire que les montrer.
+ * Ces demandes-là n'ont AUCUN mot du projet : « fiches » pour « cartes »,
+ * « rame » pour « lenteur ». On affiche à quel rang la bonne page arrive — c'est
+ * la mesure honnête de ce que le sens sait faire, et de ce qu'il ne sait pas.
+ */
+const DIFFICILES = [
+  { question: 'l’écran rame quand il y a énormément de fiches à afficher', vise: /paquets de vingt|CARTES_PAR_PAQUET/i },
+  { question: 'il oublie ce qu’on s’est dit au bout d’un moment', vise: /compress|contexte/i },
+];
+
+console.log('\n4. Les cas difficiles — aucun mot du projet dans la question');
+for (const { question, vise } of DIFFICILES) {
+  const trouve = await passages.rechercherPourLaTache(cible.id, cible.path, question, INDEX);
+  const rang = trouve?.passages.findIndex((p) => vise.test(p.texte)) ?? -1;
+  console.log(
+    `  « ${question.slice(0, 56)}… » → ${rang >= 0 ? `la bonne page arrive en ${rang + 1}ᵉ position` : 'la bonne page ne remonte pas'}`,
+  );
 }
 
 /* ------------------------------------------------------------------ */

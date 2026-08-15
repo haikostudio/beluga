@@ -33,6 +33,9 @@ const nomVoulu = args.find((a) => !a.startsWith('--'));
 /* `--part=2/3` : ce processus ne prend qu'un projet sur trois, le deuxième de
    chaque groupe. Trois processus se partagent ainsi le travail sans se marcher
    dessus — chacun écrit ses propres lignes, la base sérialise le reste. */
+/* `--saut=480` : partir d'un rang différent dans ce qui reste à vectoriser, pour
+   que plusieurs processus se partagent UN MÊME projet sans refaire le même. */
+const saut = Number((args.find((a) => a.startsWith('--saut=')) ?? '').slice(7)) || 0;
 const decoupe = (args.find((a) => a.startsWith('--part=')) ?? '').slice(7).split('/').map(Number);
 const [maPart, parts] = decoupe.length === 2 && decoupe.every((n) => n > 0) ? decoupe : [1, 1];
 
@@ -78,7 +81,7 @@ for (const projet of projets) {
   const debut = Date.now();
   if (!etatSeulement) {
     try {
-      bilan = await nocturne.vectoriserUnProjet(projet.id, projet.path, 500);
+      bilan = await nocturne.vectoriserUnProjet(projet.id, projet.path, 500, Number.POSITIVE_INFINITY, saut);
     } catch (err) {
       console.log(`${pad(projet.name, largeur)}  ${num('—', 9)}  ${num('—', 11)}  ${num('—', 7)}   ÉCHEC : ${err.message}`);
       continue;

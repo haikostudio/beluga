@@ -45,14 +45,25 @@ export const DOSSIERS_HORS_INDEX = new Set([
  * LES DOSSIERS ÉCARTÉS POUR LES DOCUMENTS, plus courts que pour le code : un
  * Markdown peut vivre N'IMPORTE OÙ dans un projet et porter une information
  * qu'on ne trouve nulle part ailleurs — le contenu d'un cours dans
- * `scripts/formation-content/`, un document du chef dans `data/documents/`. On
- * n'écarte donc que ce qui n'a pas été ÉCRIT ici : les dépendances installées et
- * les dossiers de machine.
+ * `scripts/formation-content/`, un mode d'emploi au fond d'un dossier. On
+ * n'écarte donc que ce qui n'a pas été ÉCRIT pour CE projet : les dépendances
+ * installées, les dossiers de machine, et le dossier de DONNÉES du démon.
  */
 export const DOSSIERS_SANS_DOC = new Set([
   'node_modules', '.git', '.worktrees', 'dist', 'build', 'out', 'coverage',
   'vendor', '.next', '.nuxt', '.cache', '__pycache__',
   'venv', '.venv', 'venv-kokoro', 'site-packages', 'env', '.tox',
+  /*
+   * `data/` EST LE DOSSIER DE DONNÉES DU DÉMON, PAS LA DOCUMENTATION D'UN PROJET.
+   * On y trouve la base, les pièces jointes, les modèles — et surtout
+   * `data/documents/`, le magasin COMMUN des documents écrits par le chef pour
+   * TOUS les projets, à plat, sans rien qui dise à qui chacun appartient. Les
+   * indexer dans HaikoDev, c'est répondre à « l'écran rame quand il y a beaucoup
+   * de fiches » par une note sur les profils recherchés d'un autre client
+   * (constaté). Les COMPÉTENCES, elles, entrent quand même : `fichiersAIndexer`
+   * les ajoute nommément, hors de ce parcours.
+   */
+  'data',
 ]);
 
 /**

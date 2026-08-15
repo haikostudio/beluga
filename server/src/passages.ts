@@ -366,17 +366,24 @@ export function couvertureDesVecteurs(projectId: string): { total: number; vecto
  * Un passage vectorisé par un AUTRE modèle est repris : deux vecteurs venus de
  * deux modèles ne se comparent pas.
  */
-export async function vectoriserLIndex(projectId: string): Promise<{ faits: number }> {
+export async function vectoriserLIndex(projectId: string, saut = 0): Promise<{ faits: number }> {
   const db = getDb();
   const modele = modeleDesVecteurs();
+  /*
+   * LE SAUT permet à PLUSIEURS processus de vectoriser le MÊME projet sans se
+   * marcher dessus : chacun part d'un rang différent dans la liste de ce qui
+   * reste à faire. Sur un gros projet, c'est la seule façon d'occuper les
+   * quatre cœurs — un processus d'un fil rend 0,8 passage/s, trois en rendent
+   * 2,4. Un recouvrement à la marge ne coûte qu'un vecteur recalculé.
+   */
   const aFaire = db
     .prepare(
       `SELECT id, source, titre, texte FROM doc_passages
         WHERE project_id = ? AND (vecteur IS NULL OR modele IS NOT ?)
         ORDER BY priorite DESC, source
-        LIMIT ?`,
+        LIMIT ? OFFSET ?`,
     )
-    .all(projectId, modele, PASSAGES_PAR_PASSE_MAX) as {
+    .all(projectId, modele, PASSAGES_PAR_PASSE_MAX, saut) as {
     id: string;
     source: string;
     titre: string;

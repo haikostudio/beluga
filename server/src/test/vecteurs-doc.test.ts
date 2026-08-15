@@ -232,7 +232,11 @@ test('un Markdown s’indexe où qu’il soit, sauf dans les dépendances', () =
   assert.equal(estDocumentMarkdown('README.md'), true);
   assert.equal(estDocumentMarkdown('docs/regles/cartes.md'), true);
   assert.equal(estDocumentMarkdown('scripts/formation-content/module-2/lecon-4.md'), true, 'un cours rangé loin');
-  assert.equal(estDocumentMarkdown('data/documents/un-plan.md'), true, 'un document du chef');
+  assert.equal(
+    estDocumentMarkdown('data/documents/un-plan.md'),
+    false,
+    'le magasin commun des documents du chef appartient à tous les projets, donc à aucun',
+  );
   assert.equal(estDocumentMarkdown('node_modules/paquet/README.md'), false);
   assert.equal(estDocumentMarkdown('data/venv/lib/paquet/README.md'), false, 'une dépendance Python');
   assert.equal(estDocumentMarkdown('.worktrees/carte/README.md'), false);

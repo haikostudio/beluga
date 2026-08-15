@@ -107,9 +107,12 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   (`HAIKODEV_EMBED_MOTEUR=openrouter`). La TAILLE du vecteur dépend donc du moteur : rien ne la
   suppose, c'est le NOM du modèle rangé à côté de chaque vecteur qui empêche de comparer deux
   échelles. L'ancienne empreinte par hachage de MOTS reste le REPLI, entier et sans panne, tant que
-  le moteur manque ou que l'index n'est vectorisé qu'à moins de 75 %. Le score reste MIXTE (sens +
+  le moteur manque ou que l'index n'est vectorisé qu'à moins de 75 % — part comptée sur les seuls
+  DOCUMENTS, le CODE venant après et ne devant pas retenir la bascule. Le score reste MIXTE (sens +
   mots exacts), le sens pesant plus lourd quand il est vrai. Le CODE passe derrière la documentation
-  (priorité négative) et n'occupe jamais plus de 2 passages.
+  (priorité négative) et n'occupe jamais plus de 2 passages. On ne VECTORISE que les 1 000 premiers
+  signes d'un passage (le texte envoyé à l'agent reste entier) : le temps du modèle croît vite avec
+  la longueur, 1 800 signes → 0,8 passage/s, 1 000 → 1,6, 600 → 2,3.
 - **VECTORISER EST UN TRAVAIL DE NUIT, jamais un péage au lancement d'une carte**
   (`server/src/vecteurs-nocturne.ts`, règles dans `shared/src/vecteurs-doc.ts`) : chaque nuit vers
   1 h — avant l'auto-amélioration de 3 h —, le démon réindexe et vectorise TOUS les projets non
