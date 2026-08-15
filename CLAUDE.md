@@ -736,10 +736,16 @@ le nom, là-bas le texte).
   suit par `jointesApresFrappe`. Sans cela le tag restait à l'écran, amputé, accroché à un fichier
   que le texte ne désignait plus. La règle rend `null` quand aucun tag n'est touché : la touche suit
   alors son chemin normal et le champ garde son historique d'annulation. Chaque tag porte en plus une
-  CROIX qui prend la place du crochet fermant (`data-prompt-file-close`) — le caractère reste écrit,
-  seulement rendu invisible, la croix étant dessinée par-dessus hors flux : une pastille ajoutée à
-  côté décalerait le texte, la ligne et le curseur. Verrouillé par
-  `server/src/test/ancres-fichiers.test.ts` et `scripts/verif-tag-suppression-bloc.mjs`.
+  CROIX (`data-prompt-file-close`). Verrouillé par `server/src/test/ancres-fichiers.test.ts` et
+  `scripts/verif-tag-suppression-bloc.mjs`.
+- **UN TAG « [fichier: …] » SE LIT COMME UNE PASTILLE, JAMAIS COMME DU TEXTE BRUT**
+  (`data-prompt-file-pastille`, `composer.tsx`) : les caractères réels gardent leur place mais sont
+  rendus INVISIBLES, et une pastille « trombone + nom + croix » est dessinée par-dessus, HORS FLUX,
+  centrée dans leur largeur — inchangée, donc ni le texte, ni la ligne, ni le curseur ne bougent. La
+  syntaxe ne se voit plus, et la croix garde de la marge avant le mot qui suit. Deux gardes : la
+  pastille ne dépasse jamais la HAUTEUR des caractères recouverts (sinon elle mord sur la ligne
+  voisine et vole le clic qui vise le champ), et un tag COUPÉ en fin de ligne (`getClientRects`,
+  `data-tag="coupe"`) revient au texte brut. Vérifié par `scripts/verif-tag-pastille.mjs`.
 - **LA FRAPPE AU CLAVIER NE TRAVERSE PLUS LE MAGASIN GÉNÉRAL** (`composer.tsx`) : le brouillon était
   posé dans l'état PARTAGÉ à chaque touche, ce qui refaisait l'affichage de toute l'application —
   98 ms par touche sur 400 cartes, contre 0,7 ms depuis (`scripts/mesure-fluidite.mjs`, qui MESURE

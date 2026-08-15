@@ -344,7 +344,6 @@ export function Composer({
       const position = vus[nom] ?? 0;
       vus[nom] = position + 1;
       const brut = trouve[0];
-      const debutNom = brut.indexOf(nom);
       morceaux.push(
         <span
           key={`fichier-${trouve.index}`}
@@ -355,38 +354,50 @@ export function Composer({
           onPointerMove={(event) => gestesDrapeau.current.suivreDrapeau(event)}
           onPointerUp={(event) => gestesDrapeau.current.lacherDrapeau(event)}
           onPointerCancel={() => gestesDrapeau.current.annulerDrapeau()}
-          className="pointer-events-auto cursor-grab touch-none rounded-[3px] bg-accent/20 px-[3px] text-accent ring-1 ring-inset ring-accent/40 [box-decoration-break:clone] [-webkit-box-decoration-break:clone] hover:bg-accent/30 active:cursor-grabbing"
-          style={{ marginInline: '-3px' }}
+          className="group pointer-events-auto relative cursor-grab touch-none align-baseline text-accent active:cursor-grabbing"
         >
-          {/* LES MÊMES CARACTÈRES QUE LE TEXTE RÉEL, jamais un raccourci : une
-              pastille « trombone + nom » n'occupe pas la largeur du tag
-              qu'elle recouvre, et c'est ce décalage qui cassait la mise en
-              page. Seule la couleur change — l'habillage (fond, filet) est
-              posé sur des marges négatives, donc il ne prend aucune place. */}
-          <span className="opacity-50">{brut.slice(0, debutNom)}</span>
-          {nom}
-          {/* LA CROIX PREND LA PLACE DU CROCHET FERMANT, elle ne s'ajoute pas
-              à côté : le caractère reste écrit (donc la largeur ne bouge pas
-              d'un pixel), il est seulement rendu invisible et la croix est
-              dessinée par-dessus, hors flux. Une pastille posée en plus
-              décalerait le texte du champ, la ligne et le curseur. */}
+          {/* LE TEXTE BRUT GARDE SA PLACE, IL NE SE VOIT PLUS. La largeur du
+              tag reste EXACTEMENT celle des caractères réellement écrits dans
+              le champ — c'est elle qui décide des retours à la ligne et de
+              l'endroit du curseur, qu'aucun habillage ne doit déplacer. Les
+              caractères sont seulement rendus invisibles ; la pastille est
+              dessinée par-dessus, HORS FLUX, donc elle ne prend aucune place.
+              Le texte brut réapparaît quand le tag est coupé en fin de ligne
+              (`data-tag="coupe"`), cas où un dessin posé par-dessus tomberait
+              à côté. */}
+          <span className="invisible rounded-[3px] group-data-[tag=coupe]:visible group-data-[tag=coupe]:bg-accent/20 group-data-[tag=coupe]:ring-1 group-data-[tag=coupe]:ring-inset group-data-[tag=coupe]:ring-accent/40 [box-decoration-break:clone] [-webkit-box-decoration-break:clone]">
+            {brut}
+          </span>
+          {/* LA PASTILLE DESSINÉE : trombone, nom, croix. Elle est CENTRÉE
+              dans la largeur du texte brut, toujours plus large qu'elle
+              (« [fichier: » et « ] » comptent onze signes) : la croix ne
+              touche donc jamais le mot qui suit, même quand aucun espace ne
+              sépare le tag du texte. Sa hauteur ne DÉPASSE PAS celle des
+              caractères recouverts : plus haute, elle mordrait sur la ligne
+              voisine et volerait le clic qui vise le champ. */}
           <span
-            role="button"
-            data-prompt-file-close
-            title="Retirer ce fichier"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              gestesDrapeau.current.retirerDrapeau(nom, position);
-            }}
-            className="relative inline-block cursor-pointer align-baseline hover:text-danger"
+            data-prompt-file-pastille
+            className="absolute left-1/2 top-1/2 inline-flex h-[1.15em] max-w-full -translate-x-1/2 -translate-y-1/2 items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[4px] bg-accent/20 px-[0.35em] ring-1 ring-inset ring-accent/40 group-hover:bg-accent/30 group-data-[tag=coupe]:hidden"
           >
-            <span className="invisible">{brut.slice(debutNom + nom.length)}</span>
-            <X aria-hidden="true" className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2" />
+            <Paperclip aria-hidden="true" className="h-[0.85em] w-[0.85em] shrink-0" />
+            <span className="truncate">{nom}</span>
+            <span
+              role="button"
+              data-prompt-file-close
+              title="Retirer ce fichier"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                gestesDrapeau.current.retirerDrapeau(nom, position);
+              }}
+              className="shrink-0 cursor-pointer hover:text-danger"
+            >
+              <X aria-hidden="true" className="h-[0.85em] w-[0.85em]" />
+            </span>
           </span>
         </span>,
       );
@@ -395,6 +406,32 @@ export function Composer({
     if (fin < text.length) morceaux.push(<React.Fragment key={`texte-${fin}`}>{text.slice(fin)}</React.Fragment>);
     return morceaux;
   }, [text]);
+
+  /*
+   * UN TAG COUPÉ EN FIN DE LIGNE REVIENT AU TEXTE BRUT. La pastille est
+   * dessinée par-dessus le tag, hors flux : elle suppose donc que le tag tient
+   * sur UNE seule ligne. Quand le champ est étroit, le texte peut se couper à
+   * l'espace de « [fichier: nom] » — le tag occupe alors deux rectangles et un
+   * dessin posé par-dessus tomberait à cheval entre les deux. On le repère
+   * après le rendu (`getClientRects`) et on rend la main au texte brut, coloré
+   * comme avant. La mise en page du champ, elle, n'est jamais touchée : rien
+   * ici ne change la largeur d'un caractère.
+   */
+  const calqueRef = React.useRef<HTMLDivElement | null>(null);
+  React.useLayoutEffect(() => {
+    const calque = calqueRef.current;
+    if (!calque || !aDesDrapeaux) return;
+    const marquer = () => {
+      for (const drapeau of Array.from(calque.querySelectorAll<HTMLElement>('[data-prompt-file-flag]'))) {
+        if (drapeau.getClientRects().length > 1) drapeau.dataset.tag = 'coupe';
+        else delete drapeau.dataset.tag;
+      }
+    };
+    marquer();
+    const observateur = new ResizeObserver(marquer);
+    observateur.observe(calque);
+    return () => observateur.disconnect();
+  }, [aDesDrapeaux, texteAvecDrapeaux, calage]);
 
   // La dictée dépose son texte à la suite de ce qui est déjà écrit.
   const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
@@ -845,6 +882,7 @@ export function Composer({
         {aDesDrapeaux ? (
           <div
             aria-hidden="true"
+            ref={calqueRef}
             data-prompt-calque
             className="pointer-events-none absolute inset-0 z-20 overflow-hidden whitespace-pre-wrap break-words text-text"
             style={{ ...calage.style, right: calage.barre, transform: `translateY(${-scrollTexte}px)` }}
