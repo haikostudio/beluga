@@ -67,6 +67,7 @@ export function QuotaBar({
   const [speaking, setSpeaking] = React.useState(false);
   const [memoireOuverte, setMemoireOuverte] = React.useState(false);
   const [arretGroupe, setArretGroupe] = React.useState(false);
+  const [arretTous, setArretTous] = React.useState(false);
 
   /*
    * Les agents qui travaillent à cet instant : tous pour le compteur du coin
@@ -82,6 +83,20 @@ export function QuotaBar({
       'info',
       duProjet.length > 1 ? `${duProjet.length} agents arrêtés.` : 'Agent arrêté.',
     );
+  };
+
+  const arreterTousLesAgents = () => {
+    client
+      .call({ type: 'agents.stop-all' })
+      .then((response: any) => {
+        client.pushToast(
+          'success',
+          response?.count > 0
+            ? `${response.count} agent${response.count > 1 ? 's' : ''} arrêté${response.count > 1 ? 's' : ''}.`
+            : 'Aucun agent à arrêter.',
+        );
+      })
+      .catch((err: any) => client.pushToast('error', err?.message ?? 'Arrêt refusé'));
   };
 
   const applyTheme = (next: 'dark' | 'light') => {
@@ -288,6 +303,12 @@ export function QuotaBar({
               Arrêter les agents du projet ({duProjet.length})
             </DropdownMenuItem>
           ) : null}
+          {enCours.length ? (
+            <DropdownMenuItem className="text-danger" onSelect={() => setArretTous(true)}>
+              <Square className="h-3.5 w-3.5 fill-current" />
+              Arrêter tous les agents ({enCours.length})
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
             <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
@@ -318,12 +339,29 @@ export function QuotaBar({
         title={
           duProjet.length > 1
             ? `Arrêter les ${duProjet.length} agents de ce projet ?`
-            : 'Arrêter l’agent de ce projet ?'
+            : `Arrêter l’agent de ce projet ?`
         }
         description="Le travail en cours sera perdu. Les agents des autres projets continuent."
         confirmLabel="Tout arrêter"
         onConfirm={arreterLeProjet}
         onClose={() => setArretGroupe(false)}
+      />
+
+      <ConfirmDialog
+        open={arretTous}
+        danger
+        title={
+          enCours.length > 1
+            ? `Arrêter les ${enCours.length} agents en cours sur tous les projets ?`
+            : `Arrêter l’agent en cours ?`
+        }
+        description="Le travail en cours sera perdu sur tous les projets."
+        confirmLabel="Arrêter tous les agents"
+        onConfirm={() => {
+          arreterTousLesAgents();
+          setArretTous(false);
+        }}
+        onClose={() => setArretTous(false)}
       />
     </header>
   );
