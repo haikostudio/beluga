@@ -734,6 +734,17 @@ le nom, là-bas le texte).
   change. Un glissement de souris parti d'un texte marqué ne déplace ni ne balaie, et le clic qui
   termine une sélection faite DANS la carte n'ouvre pas son tiroir — un clic simple, si. Vérifié par
   `scripts/verif-texte-copiable.mjs`.
+- **LA JAUGE « CAPACITÉ DU SYSTÈME » NE DIT « SATURÉ » QUE SUR UNE VRAIE SATURATION**
+  (`freinDeCharge`, `chargeRetenue`, `detailDesAgents`, `shared/src/capacite.ts` ; `snapshot`,
+  `server/src/capacity.ts`) : l'écran annonçait « Plus aucun agent ne peut démarrer · 3 en cours ·
+  plafond 15 », une phrase qui se contredit elle-même. La CHARGE PROCESSEUR freine, elle ne remplit
+  jamais la barre — `slotsFree` ne compte que la MÉMOIRE et le plafond, le frein vit à part
+  (`startableNow`, `loadHoldReason`) et se dit avec sa cause ; seules la mémoire (> 94 %) et la pause
+  manuelle SUSPENDENT. Et la charge retenue est celle qui DURE : le plus petit de la minute et du
+  quart d'heure, car une pointe passe 200 % sur ce serveur mutualisé sans rien saturer (paliers
+  170 / 240 / 320 %). Le COMPTE affiché sépare enfin les TÂCHES (`runningTasks`, rôle `task`, les
+  seules visibles sur le tableau) des agents de service. Verrouillé par
+  `server/src/test/capacite.test.ts` et `scripts/verif-capacite-saturation.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon
