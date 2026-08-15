@@ -755,6 +755,18 @@ le nom, là-bas le texte).
   (`chronologieContexteEnvoye`, `recapitulatifEnvoi`, `shared/src/couches-tokens.ts`) reste, mais ne
   sert plus que le lecteur de l'onglet « Détails ». Vérifié par `server/src/test/prompt-envoye.test.ts`
   et `scripts/verif-contexte-envoye.mjs`.
+- **UN TOUR SANS BULLE DE DEMANDE PORTE SON PROMPT SUR SA RÉPONSE** (`DemandeEnvoyee`,
+  `web/src/components/prompt-envoye.tsx` ; `demandeDuPromptEnvoye`, `shared/src/prompt-envoye.ts` ;
+  `messageDuContexte`, `server/src/runtime.ts`) : un tour lancé par un BOUTON n'écrit aucun message
+  d'utilisateur (`options.silent` — carte démarrée, reprise, dépannage, mise en production,
+  auto-amélioration), et le prompt envoyé n'était gardé que sur ce message-là. Le texte parti au
+  moteur et les PASSAGES retrouvés dans la mémoire n'existaient donc nulle part, et le tiroir d'une
+  carte s'ouvrait droit sur « Exécution de la tâche ». Le contexte se pose maintenant sur la bulle
+  de la demande quand elle existe, sinon sur le message de RÉPONSE
+  (`contexteUtilisateur?.messageId ?? assistantMessage.id`) ; cette réponse ouvre alors par un bloc
+  « Demande envoyée à l'agent — n passages retrouvés », AVANT la mémoire relue et AVANT le déroulé,
+  avec le même repère « Prompt envoyé ». Une demande écrite à la main ne bouge pas. Vérifié par
+  `server/src/test/prompt-envoye.test.ts` et `scripts/verif-contexte-envoye.mjs`.
 - **L'onglet « Détails » d'une carte est une LIGNE DE TEMPS** (`shared/src/parcours-carte.ts`,
   commande `card.parcours`) : une étape par moment réel — tri du chef, autorisation, travail,
   déploiement, mise en production —, chacune avec ce qu'elle est allée CHERCHER et ce qu'elle a

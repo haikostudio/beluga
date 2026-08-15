@@ -264,16 +264,25 @@ function poserDecor() {
      VALUES (?, ?, ?, 'task', 'done', ?, ?, ?)`,
   ).run(AGENT_TACHE, PROJET_ID, CARTE_ID, JSON.stringify(agentTache), t, t);
 
+  /*
+   * UNE CARTE LANCÉE PAR UN BOUTON N'ÉCRIT AUCUNE BULLE DE DEMANDE : son tour
+   * part en silence, et c'est le message de RÉPONSE qui porte le prompt envoyé.
+   * Le tiroir doit donc montrer la demande et la mémoire retrouvée AU-DESSUS du
+   * déroulé des étapes, là où une bulle se serait trouvée.
+   */
   const idMessage = 'm-tache';
   db.prepare('INSERT INTO messages (id, agent_id, role, data, created_at) VALUES (?, ?, ?, ?, ?)').run(
     idMessage,
     AGENT_TACHE,
-    'user',
+    'assistant',
     JSON.stringify({
       id: idMessage,
       agentId: AGENT_TACHE,
-      role: 'user',
-      content: 'Réalise cette tâche.',
+      role: 'assistant',
+      content: '## 1. Analyse\n\nLe travail est fait.',
+      steps: [
+        { id: 's-1', label: 'Lecture des fichiers du projet', state: 'done', startedAt: t, endedAt: t + 1 },
+      ],
       createdAt: t,
       tokens: 5_000,
       sentContext: {
@@ -463,6 +472,33 @@ try {
       const panneau = page.getByRole('dialog').last();
       await panneau.getByRole('tab', { name: 'Conversation' }).click();
       await page.waitForTimeout(1200);
+
+      /*
+       * CE QUI SE VOIT SANS RIEN OUVRIR : la demande envoyée à l'agent et la
+       * mémoire retrouvée, POSÉES AU-DESSUS du déroulé. Sans elles, l'onglet
+       * s'ouvrait droit sur « Exécution de la tâche ».
+       */
+      const bloc = panneau.locator('[data-demande-envoyee]').first();
+      await bloc.waitFor({ state: 'visible', timeout: 10_000 });
+      const texteBloc = await bloc.innerText();
+      noter('carte : la demande envoyée est annoncée sans rien ouvrir', /Demande envoyée à l’agent|Demande envoyée à l'agent/.test(texteBloc));
+      noter('carte : la mémoire retrouvée est chiffrée sur ce bloc', /2 passages retrouvés/.test(texteBloc));
+
+      const placeBloc = await bloc.boundingBox();
+      const placeEtapes = await panneau.getByText('1 étape terminée').first().boundingBox();
+      noter(
+        'carte : le bloc est posé AU-DESSUS du déroulé des étapes',
+        !!placeBloc && !!placeEtapes && placeBloc.y < placeEtapes.y,
+      );
+
+      await bloc.locator('button').first().click();
+      await page.waitForTimeout(400);
+      noter(
+        'carte : déplier le bloc rend le texte réel de la demande',
+        /Réalise cette tâche\./.test(await bloc.innerText()),
+      );
+
+      await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte-conversation.png') });
 
       await panneau.locator('[data-contexte-envoye]').first().click();
       const tiroir = page.getByRole('dialog').last();
