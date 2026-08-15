@@ -2720,6 +2720,25 @@ export function stopAgent(agentId: string): boolean {
   return true;
 }
 
+/** Arrêter TOUS les agents en cours (running ou starting), sur tous les projets. */
+export function stopAllAgents(): Array<{ agentId: string; cardId?: string }> {
+  const allAgents = store.listAgents();
+  const activeStatuses = ['running', 'starting'] as const;
+  const stoppedAgents: Array<{ agentId: string; cardId?: string }> = [];
+
+  for (const agent of allAgents) {
+    if (activeStatuses.includes(agent.status as any)) {
+      stopAgent(agent.id);
+      stoppedAgents.push({
+        agentId: agent.id,
+        cardId: agent.cardId,
+      });
+    }
+  }
+
+  return stoppedAgents;
+}
+
 /* ------------------------------------------------------------------ */
 /* Fermeture forcée et veille des tours bloqués                        */
 /* ------------------------------------------------------------------ */

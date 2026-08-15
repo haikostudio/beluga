@@ -54,7 +54,7 @@ import { creditCursor, etatDuCompteCursor } from './engines/cursor.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
-import { createAgent, sendPrompt, stopAgent, isRunning } from './runtime.js';
+import { createAgent, sendPrompt, stopAgent, stopAllAgents, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
@@ -774,6 +774,45 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       }
 
       return { stopped };
+    }
+
+    case 'agents.stop-all': {
+      const stoppedAgents = stopAllAgents();
+
+      /*
+       * Mettre à jour les cartes : les agents arrêtés reviennent en suspension
+       * avec la raison « arrêt à la main ». C'est ce qui les empêche d'être
+       * relancées automatiquement.
+       */
+      for (const { cardId } of stoppedAgents) {
+        if (!cardId) continue;
+        const carte = store.getCard(cardId);
+        if (!carte) continue;
+
+        const suspendue = store.saveCard({
+          ...carte,
+          scheduling: {
+            ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+            suspendu: true,
+            waitingReason: RAISON_ARRETE_A_LA_MAIN,
+          },
+        });
+        bus.emit({ type: 'card.upsert', card: suspendue });
+      }
+
+      /*
+       * Actualiser la capacité du système (la charge vient de baisser).
+       */
+      void import('./capacity.js').then((capacity) =>
+        bus.emit({ type: 'capacity', capacity: capacity.snapshot() }),
+      );
+
+      bus.toast(
+        'success',
+        `${stoppedAgents.length} agent${stoppedAgents.length > 1 ? 's' : ''} arrêté${stoppedAgents.length > 1 ? 's' : ''}.`,
+      );
+
+      return { count: stoppedAgents.length, stoppedAgents };
     }
 
     case 'agent.config': {
