@@ -50,6 +50,7 @@ function verifier(condition, message) {
 }
 
 const {
+  ATTENTE_PLACE_MAX_MS,
   AXES_D_EXAMEN,
   FENETRE_HEURES,
   HEURE_RENDEZ_VOUS,
@@ -68,7 +69,7 @@ function decider(surcharges = {}) {
     dernierPassage: undefined,
     maintenant: instant(HEURE_RENDEZ_VOUS),
     heureCourante: HEURE_RENDEZ_VOUS,
-    travauxEnCours: 0,
+    placeLibre: true,
     ...surcharges,
   });
 }
@@ -89,18 +90,43 @@ verifier(
 verifier(!fenetre.some((heure) => heure >= 7 && heure <= 22), 'aucun départ en pleine journée');
 
 /* ------------------------------------------------------------------ */
-console.log('\n2. Un travail en cours reporte, il n’annule pas');
+console.log('\n2. Sans place libre, le rendez-vous ATTEND, il ne saute plus la nuit');
 /* ------------------------------------------------------------------ */
 
-const occupe = decider({ travauxEnCours: 1 });
-verifier(!occupe.lancer && occupe.raison === 'travail-en-cours', 'à 3 h, un agent qui travaille fait patienter');
+const occupe = decider({ placeLibre: false });
+verifier(!occupe.lancer && occupe.raison === 'travail-en-cours', 'à 3 h, aucune place libre fait patienter');
 verifier(
-  decider({ heureCourante: HEURE_RENDEZ_VOUS + 1, travauxEnCours: 0 }).lancer,
-  'une heure plus tard, la machine libre, il repart tout seul',
+  decider({ heureCourante: HEURE_RENDEZ_VOUS + 1, placeLibre: true }).lancer,
+  'une heure plus tard, une place libre, il repart tout seul',
+);
+
+const debutAttente = instant(HEURE_RENDEZ_VOUS);
+verifier(
+  !decider({
+    heureCourante: HEURE_RENDEZ_VOUS + FENETRE_HEURES,
+    maintenant: instant(HEURE_RENDEZ_VOUS + FENETRE_HEURES),
+    placeLibre: false,
+    enAttenteDepuis: debutAttente,
+  }).lancer,
+  'passé la fenêtre, toujours occupé, on attend encore',
 );
 verifier(
-  !decider({ heureCourante: HEURE_RENDEZ_VOUS + FENETRE_HEURES, travauxEnCours: 0 }).lancer,
-  'passé la fenêtre, on renonce jusqu’à la nuit suivante',
+  decider({
+    heureCourante: HEURE_RENDEZ_VOUS + FENETRE_HEURES,
+    maintenant: instant(HEURE_RENDEZ_VOUS + FENETRE_HEURES),
+    placeLibre: true,
+    enAttenteDepuis: debutAttente,
+  }).lancer,
+  'passé la fenêtre, une place libérée fait partir le rendez-vous — la nuit n’est pas sautée',
+);
+verifier(
+  !decider({
+    heureCourante: 22,
+    maintenant: debutAttente + ATTENTE_PLACE_MAX_MS + 60_000,
+    placeLibre: false,
+    enAttenteDepuis: debutAttente,
+  }).lancer,
+  'passé le plafond d’attente, on renonce quand même — jusqu’à la nuit suivante',
 );
 
 /* ------------------------------------------------------------------ */

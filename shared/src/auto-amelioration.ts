@@ -27,14 +27,28 @@
 export const HEURE_RENDEZ_VOUS = 3;
 
 /**
- * La FENÊTRE de rattrapage, en heures pleines : 3 h, 4 h, 5 h.
+ * La FENÊTRE de DÉPART, en heures pleines : 3 h, 4 h, 5 h.
  *
  * « Vers 3 h » et non « à 3 h pile » : la boucle du démon ne tombe pas à la
- * seconde, et surtout un travail encore en cours à 3 h fait REPORTER le
- * rendez-vous — sans fenêtre, il sauterait la nuit entière. Passé 5 h, on
- * renonce : plus tard, ce ne serait plus une heure creuse.
+ * seconde. C'est la fenêtre où le rendez-vous COMMENCE à essayer — une fois
+ * engagé dans une nuit (parce qu'un travail occupait la place), il n'y est
+ * plus tenu : voir `ATTENTE_PLACE_MAX_MS` plus bas, qui dit jusqu'où il patiente.
  */
 export const FENETRE_HEURES = 3;
+
+/**
+ * TANT QU'UNE PLACE MANQUE, LE RENDEZ-VOUS ATTEND — IL NE SAUTE PLUS LA NUIT.
+ *
+ * Avant cette règle, un travail encore en cours à 3 h faisait reporter le
+ * rendez-vous de dix minutes en dix minutes, et si ça durait toute la fenêtre
+ * (3 h-5 h), la nuit entière était sautée sans analyse ni carte — alors même
+ * que le démon sait faire tourner plusieurs agents à la fois. Désormais, une
+ * fois entré dans la fenêtre 3 h-5 h, le rendez-vous continue de guetter une
+ * place libre bien après 5 h, jusqu'à ce qu'il en trouve une — dix-huit heures
+ * au plus, pour laisser la place au rendez-vous du lendemain plutôt que de
+ * chevaucher deux nuits.
+ */
+export const ATTENTE_PLACE_MAX_MS = 18 * 60 * 60 * 1000;
 
 /** Un passage par nuit, jamais deux. */
 export const PERIODE_MS = 24 * 60 * 60 * 1000;
@@ -97,9 +111,10 @@ export function heureDuRendezVous(heure: number): boolean {
  *
  * L'ordre des refus est voulu. Le projet d'abord — sans lui il n'y a rien à
  * examiner. La périodicité ensuite : elle est vraie toute la journée et coûte
- * une lecture. L'heure après. Le travail en cours EN DERNIER, parce que c'est le
- * seul refus qui se rejoue dix minutes plus tard : les autres sont acquis pour
- * la nuit.
+ * une lecture. L'heure après — sauf si l'attente est déjà engagée pour cette
+ * nuit, auquel cas elle ne bloque plus. Le manque de place EN DERNIER, parce
+ * que c'est le seul refus qui se rejoue dix minutes plus tard : les autres
+ * sont acquis pour la nuit.
  *
  * Aucun rattrapage au démarrage, contrairement au cerveau : un serveur redémarré
  * à midi ne doit surtout pas lancer une analyse complète en pleine journée — la
@@ -112,15 +127,28 @@ export function decisionDuRendezVous(input: {
   dernierPassage?: number;
   maintenant: number;
   heureCourante: number;
-  /** Combien d'agents travaillent à cet instant, tous projets confondus. */
-  travauxEnCours: number;
+  /** Une place est-elle libre pour lancer l'agent d'analyse tout de suite ? */
+  placeLibre: boolean;
+  /**
+   * Depuis quand le rendez-vous ATTEND une place pour cette nuit — absent
+   * tant qu'il n'a pas encore commencé à attendre. Posé la première fois que
+   * le manque de place le fait patienter, il permet aux essais SUIVANTS de
+   * continuer même une fois sorti de la fenêtre 3 h-5 h : sans lui, le
+   * rendez-vous se ferait à nouveau refuser pour « pas-l-heure » à 6 h, et la
+   * nuit serait sautée malgré l'attente déjà commencée.
+   */
+  enAttenteDepuis?: number;
 }): DecisionDuRendezVous {
   if (!input.projetPresent) return { lancer: false, raison: 'projet-absent' };
   if (input.dernierPassage !== undefined && input.maintenant - input.dernierPassage < PERIODE_MS) {
     return { lancer: false, raison: 'deja-passe' };
   }
-  if (!heureDuRendezVous(input.heureCourante)) return { lancer: false, raison: 'pas-l-heure' };
-  if (input.travauxEnCours > 0) return { lancer: false, raison: 'travail-en-cours' };
+  const dejaEnAttente =
+    input.enAttenteDepuis !== undefined && input.maintenant - input.enAttenteDepuis < ATTENTE_PLACE_MAX_MS;
+  if (!dejaEnAttente && !heureDuRendezVous(input.heureCourante)) {
+    return { lancer: false, raison: 'pas-l-heure' };
+  }
+  if (!input.placeLibre) return { lancer: false, raison: 'travail-en-cours' };
   return { lancer: true };
 }
 
@@ -132,7 +160,7 @@ export function raisonDite(raison: RaisonDeSauter): string {
     case 'deja-passe':
       return 'le rendez-vous de cette nuit a déjà eu lieu';
     case 'travail-en-cours':
-      return 'un travail est en cours, le rendez-vous est reporté';
+      return 'aucune place libre, le rendez-vous attend';
     case 'projet-absent':
       return 'aucun projet à examiner';
   }

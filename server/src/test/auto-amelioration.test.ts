@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+  ATTENTE_PLACE_MAX_MS,
   AXES_D_EXAMEN,
   FENETRE_HEURES,
   HEURE_RENDEZ_VOUS,
@@ -20,7 +21,8 @@ import {
  * Ce que ces tests verrouillent, dans l'ordre de ce qui coûterait cher :
  *   1. le rendez-vous ne part JAMAIS en pleine journée — c'est la réserve du
  *      jour qu'on protège, et un agent d'analyse n'est pas gratuit ;
- *   2. il ne part pas non plus quand un travail est en cours ;
+ *   2. quand aucune place n'est libre, il ATTEND — même après la fenêtre
+ *      3 h-5 h — au lieu de sauter la nuit, et jusqu'à dix-huit heures ;
  *   3. un seul passage par nuit ;
  *   4. la consigne dit bien à l'agent de ne rien modifier et de se tenir à
  *      quelques propositions.
@@ -34,16 +36,16 @@ function base(surcharges: Partial<Parameters<typeof decisionDuRendezVous>[0]> = 
     dernierPassage: undefined,
     maintenant: NUIT(HEURE_RENDEZ_VOUS),
     heureCourante: HEURE_RENDEZ_VOUS,
-    travauxEnCours: 0,
+    placeLibre: true,
     ...surcharges,
   });
 }
 
-test('à 3 h, sans travail en cours et sans passage du jour, le rendez-vous part', () => {
+test('à 3 h, une place libre et sans passage du jour, le rendez-vous part', () => {
   assert.deepEqual(base(), { lancer: true });
 });
 
-test('en pleine journée, le rendez-vous ne part jamais', () => {
+test('en pleine journée, sans attente déjà engagée, le rendez-vous ne part jamais', () => {
   for (const heure of [8, 11, 14, 17, 20, 22]) {
     const decision = base({ heureCourante: heure, maintenant: NUIT(heure) });
     assert.deepEqual(
@@ -54,7 +56,7 @@ test('en pleine journée, le rendez-vous ne part jamais', () => {
   }
 });
 
-test('la fenêtre couvre 3 h, 4 h et 5 h, et rien d’autre', () => {
+test('la fenêtre de DÉPART couvre 3 h, 4 h et 5 h, et rien d’autre', () => {
   for (let pas = 0; pas < FENETRE_HEURES; pas += 1) {
     assert.ok(heureDuRendezVous(HEURE_RENDEZ_VOUS + pas), `${HEURE_RENDEZ_VOUS + pas} h est dans la fenêtre`);
   }
@@ -62,11 +64,43 @@ test('la fenêtre couvre 3 h, 4 h et 5 h, et rien d’autre', () => {
   assert.equal(heureDuRendezVous(HEURE_RENDEZ_VOUS + FENETRE_HEURES), false, 'juste après, non plus');
 });
 
-test('un travail en cours REPORTE le rendez-vous, il ne l’annule pas', () => {
-  const reporte = base({ travauxEnCours: 1 });
+test('sans place libre, le rendez-vous ATTEND, il ne l’annule pas', () => {
+  const reporte = base({ placeLibre: false });
   assert.deepEqual(reporte, { lancer: false, raison: 'travail-en-cours' });
   // Une heure plus tard, toujours dans la fenêtre : il repart tout seul.
-  assert.deepEqual(base({ heureCourante: HEURE_RENDEZ_VOUS + 1, travauxEnCours: 0 }), { lancer: true });
+  assert.deepEqual(base({ heureCourante: HEURE_RENDEZ_VOUS + 1, placeLibre: true }), { lancer: true });
+});
+
+test('une place manquante APRÈS la fenêtre 3 h-5 h ne fait plus sauter la nuit', () => {
+  const debut = NUIT(HEURE_RENDEZ_VOUS);
+  // À 3 h, aucune place : l'attente commence.
+  assert.deepEqual(
+    base({ placeLibre: false }),
+    { lancer: false, raison: 'travail-en-cours' },
+  );
+  // À 8 h, toujours occupé : hors fenêtre, mais l'attente engagée à 3 h le
+  // maintient en vie — il ne se fait pas refuser pour « pas-l-heure ».
+  assert.deepEqual(
+    base({ heureCourante: 8, maintenant: NUIT(8), placeLibre: false, enAttenteDepuis: debut }),
+    { lancer: false, raison: 'travail-en-cours' },
+    'passé 5 h, une attente déjà engagée continue au lieu de sauter la nuit',
+  );
+  // Une place se libère à 9 h : il part, alors qu'il est loin de la fenêtre.
+  assert.deepEqual(
+    base({ heureCourante: 9, maintenant: NUIT(9), placeLibre: true, enAttenteDepuis: debut }),
+    { lancer: true },
+    'la place trouvée hors fenêtre suffit, l’attente était déjà engagée',
+  );
+});
+
+test('l’attente ne dure pas indéfiniment : au-delà de dix-huit heures, on renonce', () => {
+  const debut = NUIT(HEURE_RENDEZ_VOUS);
+  const tropTard = debut + ATTENTE_PLACE_MAX_MS + 60_000;
+  assert.deepEqual(
+    base({ heureCourante: new Date(tropTard).getHours(), maintenant: tropTard, placeLibre: false, enAttenteDepuis: debut }),
+    { lancer: false, raison: 'pas-l-heure' },
+    'passé le plafond d’attente, on retombe sur le refus normal, en attendant la nuit suivante',
+  );
 });
 
 test('un seul rendez-vous par nuit', () => {

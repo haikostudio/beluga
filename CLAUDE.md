@@ -461,9 +461,12 @@ le nom, là-bas le texte).
   `planifierAutoAmelioration` dans `main.ts`) : performance, code jamais appelé, doublons, fichiers et
   documentation que rien ne lit, mémoire qui gonfle, contrôles en double (`AXES_D_EXAMEN`). Rôle
   `analysis` — il ne modifie RIEN —, sortie unique `propose_task`, TROIS propositions au plus
-  (`PROPOSITIONS_MAX`), et le projet examiné est HaikoDev lui-même (`project.isSelf`). Fenêtre 3 h –
-  5 h : un travail en cours REPORTE le rendez-vous, il ne le supprime pas ; aucun rattrapage au
-  démarrage, la réserve du jour ne se dépense pas en pleine journée. **CE RENDEZ-VOUS SE CONCLUT SEUL**
+  (`PROPOSITIONS_MAX`), et le projet examiné est HaikoDev lui-même (`project.isSelf`). Démarre dans la
+  fenêtre 3 h – 5 h ; **sans place libre pour l'agent, il ATTEND au lieu de sauter la nuit**
+  (`canStartAgent`, `server/src/capacity.ts`) — l'attente engagée dans la fenêtre continue au-delà de
+  5 h, jusqu'à dix-huit heures (`ATTENTE_PLACE_MAX_MS`), pour trouver sa place dès qu'elle se libère ;
+  aucun rattrapage au démarrage, la réserve du jour ne se dépense pas en pleine journée.
+  **CE RENDEZ-VOUS SE CONCLUT SEUL**
   (`accepterPropositionsDeLaNuit`) : chaque proposition encore en attente à la fin du tour devient,
   SANS clic, une carte réelle posée dans « Planifié » et étiquetée « auto amélioration »
   (`LABEL_AUTO_AMELIORATION`) — seul le LANCEMENT de ces cartes reste un geste de l'utilisateur.
