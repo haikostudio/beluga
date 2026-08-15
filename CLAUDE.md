@@ -176,6 +176,10 @@ le nom, là-bas le texte).
   (`shared/src/demon.ts`) : le démon porte toutes les publications et tous les agents, le couper en
   tranche un en plein vol. Un redémarrage demandé est retenu — le bouton affiche « Redémarrage
   requis » — et rejoué tout seul dès le dernier travail fini ; même le clic ne passe jamais outre.
+  **EXCEPTION : le chef d'orchestre peut arrêter TOUS les agents, puis redémarrer le serveur**
+  (`chefArreteTousEtRedémarre`, `shared/src/demon.ts`) : le chef envoie `agents.stop-all` pour
+  liquider immédiatement tout ce qui tourne, puis demande le redémarrage. Le verrou lâche prise. La
+  situation est nommée dans les avertissements du redémarrage.
   **Ce qui retient le redémarrage est NOMMÉ, jamais un simple compte** (`agentsActifsDetail`,
   `server/src/runtime.ts` ; `EtatDemon.agentsDetail`, `raisonAgents`, `avertissementRedemarrage`,
   `shared/src/demon.ts`) : `agentsActifs()` compte TOUT agent vivant, y compris le chef d'orchestre,
