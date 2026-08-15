@@ -25,12 +25,20 @@ export function InfoTravail({
   avancement,
   temps,
   className,
+  icone,
   alterner = false,
 }: {
   quoi: string;
   avancement?: { done: number; total: number } | null;
   temps?: string | null;
   className?: string;
+  /*
+   * L'ICÔNE DE GAUCHE. Par défaut la roue qui tourne — l'agent travaille. Une
+   * fois le tour refermé, le même repère reste à sa place mais ne tourne plus :
+   * l'appelant pose alors une coche (tout est fait) ou un point (il reste
+   * quelque chose), comme le faisait l'ancienne barre pleine largeur.
+   */
+  icone?: React.ReactNode;
   /*
    * Sur la carte du tableau, la pastille est trop étroite pour porter le
    * compte des étapes ET le chronomètre à la fois — contrairement à la barre
@@ -50,7 +58,7 @@ export function InfoTravail({
 
   return (
     <>
-      <Loader2 className={cn('h-3 w-3 shrink-0 animate-spin text-en-cours', className)} />
+      {icone ?? <Loader2 className={cn('h-3 w-3 shrink-0 animate-spin text-en-cours', className)} />}
       <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
       {avancement || temps ? (
         <span

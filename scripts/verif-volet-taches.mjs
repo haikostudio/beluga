@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
- * La liste des tâches est-elle un VOLET FIXE au bas de la conversation ?
+ * La liste des tâches tient-elle dans LE REPÈRE COMPACT, collé au champ de saisie ?
  *
- * On ouvre une carte dont l'agent a une liste en cours, en écran de téléphone
- * puis en écran d'ordinateur, on fait défiler la conversation de haut en bas,
- * et on vérifie que l'en-tête du volet ne quitte jamais l'écran, qu'il reste
- * au-dessus de la barre d'écriture, et que le pli se retient.
+ * Une fois le tour refermé, la liste ne revient plus en barre pleine largeur
+ * posée à part : c'est le MÊME repère que pendant le travail qui reste en
+ * place, juste au-dessus de la barre d'écriture, et un clic l'ouvre.
+ *
+ * On ouvre une carte dont l'agent a une liste, en écran de téléphone puis en
+ * écran d'ordinateur, on fait défiler la conversation de haut en bas, et on
+ * vérifie que l'en-tête ne quitte jamais l'écran, qu'il reste au-dessus de la
+ * barre d'écriture, que c'est bien le repère compact, et que le pli se retient.
  *
  *   HAIKODEV_CARTE=… node scripts/verif-volet-taches.mjs
  */
@@ -17,9 +21,12 @@ import Database from 'better-sqlite3';
 /* On vise le serveur de DÉVELOPPEMENT : HAIKODEV_URL, posée pour les agents,
    pointe l'application déjà publiée — on y verrait l'ancienne version. */
 const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
-const CARTE = process.env.HAIKODEV_CARTE || '1690c416-e135-4765-8ad7-04e99dd73e33';
+/* Une carte RÉELLE, encore sur le tableau, dont le dernier message porte une
+   liste de tâches : la précédente avait été archivée, et le contrôle ne
+   trouvait plus rien à ouvrir. */
+const CARTE = process.env.HAIKODEV_CARTE || 'cf52e715-b972-4f06-ac51-1e1932d5c067';
 /** La carte à ouvrir, reconnue à son titre sur le tableau. */
-const TITRE = process.env.HAIKODEV_TITRE || 'volet fixe en bas de la conversation';
+const TITRE = process.env.HAIKODEV_TITRE || "Stopper l'agent quand il pose une question";
 const SHOTS = '/root/haikodev/data/verification';
 
 const resultats = [];
@@ -130,7 +137,8 @@ async function surLaConversation(page) {
 
 async function mesurer(page) {
   return page.evaluate(() => {
-    const tete = document.querySelector('[data-volet="taches"] button');
+    const volet = document.querySelector('[data-volet="taches"]');
+    const tete = volet?.querySelector('button');
     if (!tete) return null;
     const r = tete.getBoundingClientRect();
     const zone = document.querySelector('textarea');
@@ -141,6 +149,9 @@ async function mesurer(page) {
       ecran: window.innerHeight,
       visible: r.top >= 0 && r.bottom <= window.innerHeight,
       auDessusDeLaBarre: rz ? r.bottom <= rz.top + 2 : null,
+      /* Le repère compact et le volet des tâches sont désormais UN SEUL
+         élément : celui qui est collé au champ de saisie. */
+      compact: volet.hasAttribute('data-temoin-reflexion'),
       texte: (tete.textContent || '').trim().slice(0, 90),
     };
   });
@@ -181,6 +192,10 @@ async function main() {
         `${ecran} : le volet est posé au-dessus de la barre d'écriture`,
         mesure.auDessusDeLaBarre !== false,
         mesure.auDessusDeLaBarre === null ? 'pas de barre d\'écriture ici' : '',
+      );
+      noter(
+        `${ecran} : c'est le repère COMPACT, pas une barre pleine largeur séparée`,
+        mesure.compact,
       );
 
       // Le pli par défaut : replié sur téléphone, déplié sur ordinateur.
