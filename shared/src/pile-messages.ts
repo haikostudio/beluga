@@ -122,7 +122,8 @@ export function heureEtDate(at?: number): string {
 /**
  * Le temps qu'un message d'information passager reste à l'écran avant de se
  * fermer seul, sa barre de progression comprise — pour TOUS les niveaux, une
- * erreur y compris : 15 secondes suffisent à la lire, là où les 4,2 secondes
- * d'avant ne le permettaient qu'aux messages sans conséquence.
+ * erreur y compris : 10 secondes au maximum, mise en pause tant qu'on le
+ * survole ou le touche (`pauseToasts` / `resumeToasts`), reprise ensuite là
+ * où elle en était.
  */
-export const DUREE_MESSAGE_MS = 15000;
+export const DUREE_MESSAGE_MS = 10000;

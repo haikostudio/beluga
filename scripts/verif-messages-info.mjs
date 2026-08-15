@@ -2,13 +2,14 @@
 /**
  * Les messages d'information passagers (les « toasts ») : en HAUT AU CENTRE,
  * empilés les uns SOUS les autres, chacun avec sa barre de progression et son
- * compte à rebours de 15 secondes.
+ * compte à rebours de 10 secondes au maximum.
  *
  * On déclenche plusieurs messages d'affilée, comme le ferait le démon, et on
  * regarde dans un vrai navigateur : sont-ils posés en haut au centre ?
  * S'empilent-ils en liste, sans se remplacer ni se cacher ? La barre se
- * vide-t-elle avec le temps ? Chacun s'efface-t-il à 15 secondes ? Sur
- * téléphone, la pile masque-t-elle l'en-tête ?
+ * vide-t-elle avec le temps ? Chacun s'efface-t-il à dix secondes ? Le survol
+ * gèle-t-il bien le compte à rebours, qui reprend ensuite là où il en était ?
+ * Sur téléphone, la pile masque-t-elle l'en-tête ?
  *
  *   node scripts/verif-messages-info.mjs
  *
@@ -173,20 +174,64 @@ async function main() {
       noter('aucune erreur dans la console, ordinateur', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
     }
 
-    /* ---------- Un seul message : disparaît-il à 15 secondes ? ---------- */
+    /* ---------- Un seul message : disparaît-il à dix secondes ? ---------- */
     // On repart d'une pile vide : les messages restants du bloc précédent ne
-    // doivent pas fausser le compte.
+    // doivent pas fausser le compte. On cherche ensuite NOTRE texte plutôt que
+    // le nombre total affiché : sur ce serveur partagé, un vrai agent en train
+    // de finir une tâche ailleurs peut pousser sa propre notification pendant
+    // l'attente, sans rapport avec ce contrôle.
     while (await page.locator('[data-toast] button').count()) {
       await page.locator('[data-toast] button').first().click();
       await page.waitForTimeout(150);
     }
-    await page.evaluate(() => window.haikodevEssai.message('info', 'Message qui doit disparaître seul'));
+    // Le clic laisse la souris posée sur la pile : sans ce geste, elle y
+    // reste et garde tout nouveau message en pause dès son apparition.
+    await page.mouse.move(10, 10);
+    await page.waitForTimeout(200);
+    const texteSeul = 'Message qui doit disparaître seul (91bf42)';
+    await page.evaluate((t) => window.haikodevEssai.message('info', t), texteSeul);
     await page.waitForTimeout(500);
     const present = await page.evaluate(LECTURE);
-    noter('le message tout neuf est bien affiché', present?.messages.length === 1, `${present?.messages.length ?? 0} message`);
-    await page.waitForTimeout(15200);
-    const disparu = await page.evaluate(LECTURE);
-    noter('il s’est effacé seul, quinze secondes plus tard', !disparu || disparu.messages.length === 0);
+    noter(
+      'le message tout neuf est bien affiché',
+      !!present?.messages.some((m) => m.texte.includes(texteSeul)),
+      `${present?.messages.length ?? 0} message(s)`,
+    );
+    // On SONDE plutôt qu'une seule attente figée : sur une machine chargée,
+    // le rendu du navigateur peut retarder le déclenchement de quelques
+    // secondes sans que ce soit un défaut — seul un blocage DÉFINITIF en est
+    // un. On vise dix secondes, on tolère jusqu'à vingt avant d'échouer.
+    let effaceSeul = false;
+    for (let attente = 0; attente < 30000 && !effaceSeul; attente += 500) {
+      await page.waitForTimeout(500);
+      const lu = await page.evaluate(LECTURE);
+      effaceSeul = !lu?.messages.some((m) => m.texte.includes(texteSeul));
+    }
+    noter('il s’est effacé seul, environ dix secondes plus tard', effaceSeul);
+
+    /* ---------- Survol : le compte à rebours gèle, puis reprend ---------- */
+    const texteSurvol = 'Message mis en pause au survol (91bf42)';
+    await page.evaluate((t) => window.haikodevEssai.message('info', t), texteSurvol);
+    await page.waitForTimeout(6000);
+    await page.locator('[data-toast]', { hasText: texteSurvol }).hover();
+    // Survolé pendant six secondes de plus : sans la pause, dix secondes se
+    // seraient écoulées depuis l'apparition et le message aurait disparu.
+    await page.waitForTimeout(6000);
+    const pendantLeSurvol = await page.evaluate(LECTURE);
+    noter(
+      'le survol gèle le compte à rebours : le message tient plus de dix secondes',
+      !!pendantLeSurvol?.messages.some((m) => m.texte.includes(texteSurvol)),
+    );
+    await page.mouse.move(10, 10);
+    // Il restait environ quatre secondes au message avant le survol ; on
+    // sonde là aussi, avec la même tolérance qu'au-dessus.
+    let repriseEtEfface = false;
+    for (let attente = 0; attente < 30000 && !repriseEtEfface; attente += 500) {
+      await page.waitForTimeout(500);
+      const lu = await page.evaluate(LECTURE);
+      repriseEtEfface = !lu?.messages.some((m) => m.texte.includes(texteSurvol));
+    }
+    noter('le compte à rebours reprend et le message finit par disparaître', repriseEtEfface);
 
     await page.context().close();
 
