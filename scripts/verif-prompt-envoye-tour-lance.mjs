@@ -399,29 +399,33 @@ async function main() {
     if (await onglet.count()) await onglet.first().click();
     await page.waitForTimeout(1500);
 
-    const bloc = panneau.locator('[data-demande-envoyee]').first();
+    const bloc = panneau.locator('[data-prompt-envoye]').first();
     const visible = await bloc.isVisible().catch(() => false);
-    noter('carte lancée : le bloc « Demande envoyée à l’agent » est bien là', visible);
+    noter('carte lancée : les bulles du prompt envoyé sont bien là', visible);
 
     if (visible) {
-      const texteBloc = await bloc.innerText();
+      /* LA DEMANDE ELLE-MÊME, en première bulle : personne ne l'a tapée, c'est
+         le bouton qui a lancé le tour. */
+      const demande = bloc.locator('[data-bulle-prompt="demande"]').first();
+      noter('la première bulle porte la demande envoyée', (await demande.count()) === 1);
       noter(
-        'il annonce la demande envoyée à l’agent',
-        /Demande envoyée à l’agent|Demande envoyée à l'agent/.test(texteBloc),
-        texteBloc.split('\n')[0],
+        'elle rend le texte réel de la demande',
+        new RegExp(TITRE_CARTE.slice(0, 30)).test(await demande.innerText().catch(() => '')),
       );
 
       const placeBloc = await bloc.boundingBox();
       const reponse = panneau.getByText('Travail rendu, tout est en place.').first();
       const placeReponse = await reponse.boundingBox().catch(() => null);
       noter(
-        'il est posé AU-DESSUS de la réponse et du déroulé',
+        'elles sont posées AU-DESSUS de la réponse et du déroulé',
         !!placeBloc && !!placeReponse && placeBloc.y < placeReponse.y,
       );
 
-      /* CE QUI EST PARTI EN MÊME TEMPS : les noms des morceaux de contexte,
-         lisibles sans rien ouvrir — c'est la demande de l'utilisateur. */
-      const paralleles = bloc.locator('[data-donnees-paralleles]').first();
+      /* LA BULLE DU PROMPT COMPLET : ce qui est parti en entier, avec les NOMS
+         de ce qui l'accompagnait, lisibles sans rien ouvrir. */
+      const complet = bloc.locator('[data-bulle-prompt="complet"]').first();
+      noter('la dernière bulle porte le prompt complet', (await complet.count()) === 1);
+      const paralleles = complet.locator('[data-donnees-paralleles]').first();
       const texteParalleles = (await paralleles.count()) ? await paralleles.innerText() : '';
       noter(
         'ce qui est parti en même temps se lit sans rien ouvrir',
@@ -433,23 +437,25 @@ async function main() {
         !/\d+\s*(jetons?|tokens?)/i.test(texteParalleles),
       );
 
-      await bloc.locator('button').first().click();
-      await page.waitForTimeout(500);
+      /* LA COUPE À CINQ LIGNES : le prompt complet est long, il ne peut pas
+         s'étaler dans le fil — « voir plus » le déroule. */
+      const voirPlus = complet.locator('[data-voir-plus]').first();
+      noter('le prompt complet est replié derrière « voir plus »', (await voirPlus.count()) === 1);
+      const hauteurRepliee = await complet.locator('[data-texte-bulle]').boundingBox();
+      await voirPlus.click().catch(() => {});
+      await page.waitForTimeout(400);
+      const hauteurDeroulee = await complet.locator('[data-texte-bulle]').boundingBox();
       noter(
-        'déplié, il rend le texte réel de la demande',
-        new RegExp(TITRE_CARTE.slice(0, 30)).test(await bloc.innerText()),
+        '« voir plus » déroule réellement le reste du texte',
+        !!hauteurRepliee && !!hauteurDeroulee && hauteurDeroulee.height > hauteurRepliee.height,
       );
 
-      await panneau.locator('[data-contexte-envoye]').first().click();
-      const tiroir = page.getByRole('dialog').last();
-      const morceaux = tiroir.locator('[data-morceau-prompt]');
-      await morceaux.first().waitFor({ state: 'visible', timeout: 15_000 });
-      noter('son repère ouvre le prompt entier, morceau par morceau', (await morceaux.count()) >= 2);
-      const passagesAffiches = await tiroir.locator('[data-morceau-prompt][data-passage="oui"]').count();
+      /* LES PASSAGES DE MÉMOIRE ont leur propre bulle, entre les deux autres. */
+      const memoire = bloc.locator('[data-bulle-prompt="memoire"]');
       noter(
-        'les passages de mémoire s’y retrouvent quand il y en a',
-        passages.length === 0 || passagesAffiches >= 1,
-        `${passagesAffiches} affiché(s) pour ${passages.length} enregistré(s)`,
+        'les passages de mémoire ont leur bulle quand il y en a',
+        passages.length === 0 || (await memoire.count()) === 1,
+        `${await memoire.count()} bulle(s) pour ${passages.length} passage(s) enregistré(s)`,
       );
     }
 

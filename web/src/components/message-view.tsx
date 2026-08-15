@@ -54,7 +54,7 @@ import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { MemoryNote } from '@/components/todos';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
-import { DemandeEnvoyee, RepereDuPrompt } from '@/components/prompt-envoye';
+import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -147,12 +147,13 @@ export function MessageView({
     const jointes = jointesDuMessage(message.attachments, connues);
 
     /*
-     * Vos demandes : à droite, sur une largeur réduite — mais le REPÈRE du
-     * prompt envoyé se pose à GAUCHE, sous la bulle, dès que la demande est
-     * réellement partie au moteur (`RepereDuPrompt`).
+     * Vos demandes : à droite, sur une largeur réduite — suivies, dès que le
+     * prompt est réellement parti, des BULLES qui montrent ce qui a été envoyé
+     * (`BullesDuPromptEnvoye`). Sa propre demande n'y est pas répétée : elle est
+     * juste au-dessus, dans cette bulle-ci.
      */
     return (
-      <div>
+      <>
         <div className="flex justify-end">
           <div className="w-[min(78%,520px)] min-w-0 max-w-full">
             <div className="overflow-hidden rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
@@ -179,8 +180,10 @@ export function MessageView({
             />
           </div>
         </div>
-        {message.sentContext ? <RepereDuPrompt contexte={message.sentContext} /> : null}
-      </div>
+        {message.sentContext ? (
+          <BullesDuPromptEnvoye contexte={message.sentContext} demandeDejaAffichee />
+        ) : null}
+      </>
     );
   }
 
@@ -200,107 +203,110 @@ export function MessageView({
 
   // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
-    <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
+    <>
       {/* UN TOUR LANCÉ PAR UN BOUTON N'A PAS DE BULLE DE DEMANDE : son prompt
-          est porté par cette réponse même. On le montre alors ICI, tout en
-          haut — avant la mémoire relue et avant le déroulé des étapes —, là où
-          la bulle se serait trouvée. Quand la demande a bien été écrite à la
-          main, c'est elle qui porte le repère et rien ne paraît ici. */}
-      {message.sentContext ? <DemandeEnvoyee contexte={message.sentContext} /> : null}
-      {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}
-      <Steps steps={etapes} streaming={message.streaming} />
+          est porté par cette réponse même. Les bulles sont alors posées ICI,
+          au-dessus de la réponse — avant la mémoire relue et avant le déroulé
+          des étapes —, là où la demande se serait trouvée, et la PREMIÈRE porte
+          la demande elle-même. Quand elle a bien été écrite à la main, c'est sa
+          bulle qui les porte et rien ne paraît ici. */}
+      {message.sentContext ? <BullesDuPromptEnvoye contexte={message.sentContext} /> : null}
+      <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
+        {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}
+        <Steps steps={etapes} streaming={message.streaming} />
 
-      {message.content ? (
-        cadreDePlanVisible(message) ? (
-          <PlanBlock
-            message={message}
-            allMessages={allMessages}
-            etat={etatPlan}
-            pickedEvolutions={pickedEvolutions}
-            onToggleEvolution={onToggleEvolution}
-            onToggleAll={onToggleAll}
-            onEcrireDansLeChamp={onEcrireDansLeChamp}
-          />
-        ) : (
-          <Markdown
-            content={message.content}
-            pickedEvolutions={pickedEvolutions}
-            onToggleEvolution={onToggleEvolution}
-            onToggleAll={onToggleAll}
-            streaming={message.streaming}
-          />
-        )
-      ) : message.streaming && !etapes.length ? (
-        <p className="text-[14px] text-faint">L'agent réfléchit…</p>
-      ) : null}
-
-      {/* Seules les propositions DÉCIDÉES restent ici : celles qui attendent
-          encore un clic sont sorties du fil et se posent dans le bandeau fixe
-          au-dessus de la barre d'écriture (`propositionsDuFil`). */}
-      {decidees.length ? (
-        <div className="mt-2 space-y-1.5">
-          {decidees.map((proposal) => (
-            <ProposalChip key={proposal.id} proposal={proposal} />
-          ))}
-        </div>
-      ) : null}
-
-      {message.repriseCompte ? <RepriseDeCompteCard message={message} /> : null}
-
-      {message.questions.length ? (
-        <div className="mt-2 space-y-2">
-          {message.questions.map((question) => (
-            <QuestionCard
-              key={question.id}
-              messageId={message.id}
-              agentId={message.agentId}
-              projectId={projectId}
-              question={question}
+        {message.content ? (
+          cadreDePlanVisible(message) ? (
+            <PlanBlock
+              message={message}
+              allMessages={allMessages}
+              etat={etatPlan}
+              pickedEvolutions={pickedEvolutions}
+              onToggleEvolution={onToggleEvolution}
+              onToggleAll={onToggleAll}
+              onEcrireDansLeChamp={onEcrireDansLeChamp}
             />
-          ))}
-        </div>
-      ) : null}
+          ) : (
+            <Markdown
+              content={message.content}
+              pickedEvolutions={pickedEvolutions}
+              onToggleEvolution={onToggleEvolution}
+              onToggleAll={onToggleAll}
+              streaming={message.streaming}
+            />
+          )
+        ) : message.streaming && !etapes.length ? (
+          <p className="text-[14px] text-faint">L'agent réfléchit…</p>
+        ) : null}
 
-      {message.downloads.length ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {message.downloads.map((offer) => (
-            <a
-              key={offer.id}
-              href={`/api/download?token=${encodeURIComponent(offer.id)}`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-raised px-2 py-1 text-[13.5px] text-text hover:bg-border"
-            >
-              <Download className="h-3 w-3" />
-              {offer.label}
-            </a>
-          ))}
-        </div>
-      ) : null}
+        {/* Seules les propositions DÉCIDÉES restent ici : celles qui attendent
+            encore un clic sont sorties du fil et se posent dans le bandeau fixe
+            au-dessus de la barre d'écriture (`propositionsDuFil`). */}
+        {decidees.length ? (
+          <div className="mt-2 space-y-1.5">
+            {decidees.map((proposal) => (
+              <ProposalChip key={proposal.id} proposal={proposal} />
+            ))}
+          </div>
+        ) : null}
 
-      {message.error ? (
-        <div className="mt-2 flex gap-2 rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-[13.5px] text-danger">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="leading-relaxed">{message.error}</span>
-        </div>
-      ) : null}
+        {message.repriseCompte ? <RepriseDeCompteCard message={message} /> : null}
 
-      {/* L'heure se montre TOUJOURS, ordinateur comme téléphone, et des deux
-          côtés du fil : la mettre au second plan se fait par la COULEUR et la
-          taille, jamais par la transparence — effacée, elle disparaît.
-          La durée du tour ne se dit que sous les RÉPONSES : une demande ne
-          « dure » pas. C'est du temps machine, sans rapport avec les heures
-          facturées, d'où la formulation « de travail ». */}
-      <LigneReperes
-        at={message.createdAt}
-        montrerHeure={montrerHeure}
-        complements={[
-          message.durationMs && message.durationMs >= 1000
-            ? `${duration(message.durationMs / 1000)} de travail`
-            : null,
-        ]}
-        texte={message.content}
-        cle={message.id}
-      />
-    </div>
+        {message.questions.length ? (
+          <div className="mt-2 space-y-2">
+            {message.questions.map((question) => (
+              <QuestionCard
+                key={question.id}
+                messageId={message.id}
+                agentId={message.agentId}
+                projectId={projectId}
+                question={question}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        {message.downloads.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {message.downloads.map((offer) => (
+              <a
+                key={offer.id}
+                href={`/api/download?token=${encodeURIComponent(offer.id)}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-raised px-2 py-1 text-[13.5px] text-text hover:bg-border"
+              >
+                <Download className="h-3 w-3" />
+                {offer.label}
+              </a>
+            ))}
+          </div>
+        ) : null}
+
+        {message.error ? (
+          <div className="mt-2 flex gap-2 rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-[13.5px] text-danger">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span className="leading-relaxed">{message.error}</span>
+          </div>
+        ) : null}
+
+        {/* L'heure se montre TOUJOURS, ordinateur comme téléphone, et des deux
+            côtés du fil : la mettre au second plan se fait par la COULEUR et la
+            taille, jamais par la transparence — effacée, elle disparaît.
+            La durée du tour ne se dit que sous les RÉPONSES : une demande ne
+            « dure » pas. C'est du temps machine, sans rapport avec les heures
+            facturées, d'où la formulation « de travail ». */}
+        <LigneReperes
+          at={message.createdAt}
+          montrerHeure={montrerHeure}
+          complements={[
+            message.durationMs && message.durationMs >= 1000
+              ? `${duration(message.durationMs / 1000)} de travail`
+              : null,
+          ]}
+          texte={message.content}
+          cle={message.id}
+        />
+      </div>
+    </>
   );
 }
 

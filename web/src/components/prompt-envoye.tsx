@@ -1,31 +1,31 @@
 import * as React from 'react';
-import { Braces, Check, ChevronRight, Copy, SendHorizonal } from 'lucide-react';
+import { Check, ChevronDown, Copy } from 'lucide-react';
 import {
+  BulleDePrompt,
+  LIGNES_VISIBLES_BULLE,
   SentContextSnapshot,
-  demandeDuPromptEnvoye,
-  donneesParallelesDuPrompt,
-  mentionDesPassages,
-  morceauxDuPromptEnvoye,
-  nomDuMoteurEnvoye,
-  texteDuPromptEnvoye,
+  apercuDeBulle,
+  bullesDuPromptEnvoye,
 } from '@haikodev/shared';
-import { DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 /**
- * LE REPÈRE DU PROMPT ENVOYÉ — à GAUCHE, dès que la demande est partie.
+ * LE PROMPT ENVOYÉ, EN BULLES DE MESSAGE — plus aucun tiroir.
  *
- * Le bloc « Contexte envoyé » vivait sous la bulle de la demande, à droite,
- * et ouvrait une chronologie de TOUS les tours avec sa recherche et ses blocs
- * repliés. À sa place : un repère discret, posé à GAUCHE sous la demande dès
- * que le prompt est parti au moteur, et un tiroir qui montre CE tour-là — le
- * texte réellement envoyé, dans l'ordre, passages retrouvés compris
- * (`shared/src/prompt-envoye.ts`). Rien d'autre : ni chiffre, ni recherche, ni
- * pile des autres tours. Le LECTEUR DE PROMPTS complet, lui, reste dans
- * l'onglet « Détails » d'une carte.
+ * Il fallait auparavant repérer une pastille « Prompt envoyé » sous la demande,
+ * cliquer, puis lire un tiroir plein écran : quatre gestes pour voir le texte
+ * qu'on avait sous les yeux. Ce qui est parti au moteur se lit maintenant DANS
+ * la conversation, comme des messages de l'utilisateur — alignés à droite, dans
+ * le même encadré gris que ses demandes — et dans l'ordre fixé par
+ * `bullesDuPromptEnvoye` (`shared/src/prompt-envoye.ts`) : sa demande, la
+ * mémoire retrouvée par la recherche, puis le prompt complet.
+ *
+ * Une bulle longue ne montre que ses CINQ premières lignes ; « voir plus », en
+ * bas, déroule le reste. Le LECTEUR DE PROMPTS complet, avec tous les tours,
+ * reste dans l'onglet « Détails » d'une carte.
  */
 
-function BoutonCopierPrompt({ texte }: { texte: string }) {
+function BoutonCopier({ texte }: { texte: string }) {
   const [copie, setCopie] = React.useState(false);
   if (!texte.trim()) return null;
 
@@ -50,7 +50,7 @@ function BoutonCopierPrompt({ texte }: { texte: string }) {
     <button
       type="button"
       onClick={copier}
-      title="Copier le prompt envoyé"
+      title="Copier ce texte"
       className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
     >
       {copie ? <Check className="h-2.5 w-2.5 text-success" /> : <Copy className="h-2.5 w-2.5" />}
@@ -59,167 +59,118 @@ function BoutonCopierPrompt({ texte }: { texte: string }) {
   );
 }
 
-/** Un morceau du prompt : son nom, puis son texte en clair — jamais replié. */
-function MorceauDuPrompt({
-  label,
-  texte,
-  cached,
-  passage,
-}: {
-  label: string;
-  texte?: string;
-  cached: boolean;
-  passage: boolean;
-}) {
-  return (
-    <div data-morceau-prompt data-passage={passage ? 'oui' : 'non'} className="space-y-1">
-      <div className="flex items-center gap-2">
-        {/* Jamais de MAJUSCULES ici : un nom de morceau porte souvent un chemin
-            de fichier (« docs/regles/quotas.md »), qu'une capitale rend faux à
-            l'œil et illisible. */}
-        <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
-          {label}
-        </span>
-        {cached ? (
-          <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10.5px] text-faint">
-            relu au cache
-          </span>
-        ) : null}
-      </div>
-      {texte ? (
-        <pre className="whitespace-pre-wrap break-words rounded-md bg-raised px-2.5 py-2 font-sans text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">
-          {texte}
-        </pre>
-      ) : (
-        <p className="text-[12px] text-faint">Texte non conservé (tour ancien, retiré pour borner le disque).</p>
-      )}
-    </div>
-  );
-}
+/**
+ * UNE BULLE : son titre, son texte, et « voir plus » quand il déborde.
+ *
+ * La coupe se décide à DEUX endroits, parce qu'aucun des deux ne suffit seul :
+ * la règle pure compte les vraies lignes du texte, et la mesure d'écran voit ce
+ * que la règle ne peut pas voir — une ligne unique mais si longue qu'elle se
+ * replie toute seule sur dix hauteurs. Le texte reste du texte simple, jamais
+ * un pavé rogné : il se sélectionne et se copie comme n'importe quelle bulle.
+ */
+function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
+  const [deroule, setDeroule] = React.useState(false);
+  const [deborde, setDeborde] = React.useState(false);
+  const zone = React.useRef<HTMLPreElement>(null);
+  const { apercu, tronque } = React.useMemo(() => apercuDeBulle(bulle.texte), [bulle.texte]);
 
-export function RepereDuPrompt({ contexte }: { contexte: SentContextSnapshot }) {
-  const [open, setOpen] = React.useState(false);
-  const morceaux = React.useMemo(() => morceauxDuPromptEnvoye(contexte), [contexte]);
-  const mention = mentionDesPassages(contexte);
+  React.useLayoutEffect(() => {
+    const element = zone.current;
+    // Déroulée, la bulle ne déborde plus par construction : on garde la mesure
+    // prise à l'état replié, sinon « voir moins » disparaîtrait sous le doigt.
+    if (!element || deroule) return;
+    setDeborde(element.scrollHeight > element.clientHeight + 1);
+  }, [apercu, deroule]);
+
+  const aVoirPlus = tronque || deborde;
 
   return (
-    <>
-      <button
-        type="button"
-        data-contexte-envoye
-        onClick={() => setOpen(true)}
-        title="Voir le prompt réellement envoyé au moteur"
-        className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/60 px-2 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-raised hover:text-text"
+    <div className="flex justify-end">
+      <div
+        data-bulle-prompt={bulle.cle}
+        className="w-[min(78%,520px)] min-w-0 max-w-full overflow-hidden rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2"
       >
-        <Braces className="h-3 w-3 shrink-0 text-accent" />
-        Prompt envoyé
-      </button>
+        <div className="mb-1 flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
+            {bulle.titre}
+            {bulle.mention ? <span className="text-faint"> · {bulle.mention}</span> : null}
+          </span>
+          <BoutonCopier texte={bulle.texte} />
+        </div>
 
-      <Drawer open={open} onClose={() => setOpen(false)}>
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <Braces className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="min-w-0 flex-1 truncate">Prompt envoyé</DialogTitle>
-          <BoutonCopierPrompt texte={texteDuPromptEnvoye(contexte)} />
-        </header>
-
-        <ZoneDefilement data-contexte-envoye-contenu className="px-3 py-3">
-          <div className="space-y-3">
-            <p className="text-[12px] text-faint">
-              {nomDuMoteurEnvoye(contexte.engine)}
-              {contexte.model ? ` · ${contexte.model}` : ''} ·{' '}
-              {new Date(contexte.sentAt).toLocaleString('fr-CH')}
-              {mention ? ` · ${mention}` : ''}
-            </p>
-            {morceaux.map((morceau, index) => (
-              <MorceauDuPrompt
-                key={`${morceau.label}-${index}`}
-                label={morceau.label}
-                texte={morceau.texte}
-                cached={morceau.cached}
-                passage={morceau.passage}
-              />
+        {/* CE QUI EST PARTI EN MÊME TEMPS : briefing, mémoire, carte, pièces
+            jointes. Leurs NOMS se lisent sans rien dérouler ; leur texte est
+            dans la bulle, à sa place. Jamais un chiffre de jetons. */}
+        {bulle.noms?.length ? (
+          <div data-donnees-paralleles className="mb-1.5 flex flex-wrap items-center gap-1">
+            <span className="text-[11.5px] text-faint">Transmis en même temps :</span>
+            {bulle.noms.map((nom) => (
+              <span
+                key={nom}
+                className="rounded-full border border-border bg-surface px-1.5 py-0.5 text-[11px] text-muted"
+              >
+                {nom}
+              </span>
             ))}
           </div>
-        </ZoneDefilement>
-      </Drawer>
-    </>
+        ) : null}
+
+        <pre
+          ref={zone}
+          data-texte-bulle
+          className={cn(
+            'whitespace-pre-wrap break-words font-sans text-[13.5px] leading-[1.6] text-text [overflow-wrap:anywhere]',
+            !deroule && 'max-h-[8em] overflow-hidden',
+          )}
+        >
+          {deroule ? bulle.texte : apercu}
+        </pre>
+
+        {aVoirPlus ? (
+          <button
+            type="button"
+            data-voir-plus
+            onClick={() => setDeroule((valeur) => !valeur)}
+            className="mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[12px] text-faint transition-colors hover:bg-surface hover:text-text"
+          >
+            <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', deroule && 'rotate-180')} />
+            {deroule ? 'voir moins' : 'voir plus'}
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
 /**
- * LA DEMANDE ENVOYÉE, QUAND PERSONNE N'A ÉCRIT DE BULLE.
+ * LES BULLES D'UN TOUR, posées sous la demande (ou à sa place).
  *
- * Une carte lancée par un bouton — comme une reprise ou un dépannage de
- * publication — n'a pas de message d'utilisateur dans son fil : l'onglet
- * « Conversation » du tiroir s'ouvrait donc directement sur « Exécution de la
- * tâche », sans qu'on puisse voir ce qui était réellement parti au moteur ni ce
- * que le système était allé chercher dans la mémoire du projet.
- *
- * Ce bloc prend la place qu'une bulle aurait occupée, AU-DESSUS du déroulé : le
- * texte de la demande (replié par défaut, comme la mémoire juste en dessous),
- * la phrase qui dit combien de passages la recherche a rapportés, et le repère
- * qui ouvre le prompt entier. Le tiroir, lui, ne change pas : c'est le même.
+ * `demandeDejaAffichee` vaut vrai quand l'utilisateur a TAPÉ sa demande : sa
+ * bulle est déjà là, juste au-dessus, et la répéter mot pour mot n'apprendrait
+ * rien. Un tour lancé par un BOUTON n'écrit aucune bulle — la première est
+ * alors posée ici, là où elle se serait trouvée.
  */
-export function DemandeEnvoyee({ contexte }: { contexte: SentContextSnapshot }) {
-  const [ouvert, setOuvert] = React.useState(false);
-  const demande = demandeDuPromptEnvoye(contexte);
-  const mention = mentionDesPassages(contexte);
-  const paralleles = donneesParallelesDuPrompt(contexte);
+export function BullesDuPromptEnvoye({
+  contexte,
+  demandeDejaAffichee = false,
+}: {
+  contexte: SentContextSnapshot;
+  demandeDejaAffichee?: boolean;
+}) {
+  const bulles = React.useMemo(
+    () => bullesDuPromptEnvoye(contexte, { demandeDejaAffichee }),
+    [contexte, demandeDejaAffichee],
+  );
+  if (!bulles.length) return null;
 
   return (
-    <div data-demande-envoyee className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">
-      <button
-        type="button"
-        disabled={!demande}
-        onClick={() => setOuvert((valeur) => !valeur)}
-        className={cn('flex w-full items-center gap-2 px-2.5 py-1.5 text-left', demande && 'hover:bg-raised')}
-      >
-        <SendHorizonal className={cn('h-3 w-3 shrink-0', demande ? 'text-accent' : 'text-faint')} />
-        <span className="flex-1 truncate text-[13.5px] text-muted">
-          Demande envoyée à l'agent{mention ? ` — ${mention}` : ''}
-        </span>
-        {demande ? (
-          <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} />
-        ) : null}
-      </button>
-
-      {ouvert && demande ? (
-        <div className="mx-2 mb-2">
-          <ZoneDefilement
-            fond="hsl(var(--raised))"
-            classeEnveloppe="max-h-64 flex-none rounded bg-raised"
-            className="p-2"
-          >
-            <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">
-              {demande}
-            </pre>
-          </ZoneDefilement>
-        </div>
-      ) : null}
-
-      {/* CE QUI EST PARTI EN MÊME TEMPS. La demande n'a jamais voyagé seule :
-          briefing, mémoire du projet, carte en cours, pièces jointes l'ont
-          accompagnée. Leurs noms se lisent ICI, sans rien ouvrir ; leur TEXTE
-          reste derrière le repère juste en dessous. */}
-      {paralleles.length ? (
-        <div data-donnees-paralleles className="flex flex-wrap items-center gap-1 px-2.5 pb-1">
-          <span className="text-[11.5px] text-faint">Transmis en même temps :</span>
-          {paralleles.map((nom) => (
-            <span
-              key={nom}
-              className="rounded-full border border-border bg-raised px-1.5 py-0.5 text-[11px] text-muted"
-            >
-              {nom}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      {/* Le prompt ENTIER — briefing, carte, passages retrouvés — reste derrière
-          le même repère qu'ailleurs dans l'application. */}
-      <div className="px-2.5 pb-1.5">
-        <RepereDuPrompt contexte={contexte} />
-      </div>
+    <div data-prompt-envoye className="space-y-2">
+      {bulles.map((bulle) => (
+        <BulleDuPrompt key={bulle.cle} bulle={bulle} />
+      ))}
     </div>
   );
 }
+
+/** Le nombre de lignes montrées avant « voir plus », pour les contrôles. */
+export const LIGNES_AVANT_VOIR_PLUS = LIGNES_VISIBLES_BULLE;

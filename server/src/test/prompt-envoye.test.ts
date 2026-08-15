@@ -4,11 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  LIGNES_VISIBLES_BULLE,
+  apercuDeBulle,
+  bullesDuPromptEnvoye,
   demandeDuPromptEnvoye,
   donneesParallelesDuPrompt,
   mentionDesPassages,
   morceauxDuPromptEnvoye,
   nomDuMoteurEnvoye,
+  texteDesPassagesRetrouves,
   texteDuPromptEnvoye,
   type SentContextSnapshot,
 } from '@haikodev/shared';
@@ -101,14 +105,108 @@ test('chaque moteur porte son nom lisible', () => {
   assert.equal(nomDuMoteurEnvoye('cursor'), 'Cursor');
 });
 
-test('la conversation ne pose plus l’ancien bloc « Contexte envoyé » sous la demande', () => {
+test('la conversation ne pose plus ni pastille ni tiroir : des bulles, dans le fil', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'message-view.tsx'), 'utf8');
   assert.ok(!vue.includes('function ContexteEnvoye'), 'l’ancien bloc doit être retiré');
-  assert.ok(vue.includes('<RepereDuPrompt'), 'le repère du prompt doit être posé sous la demande');
+  assert.ok(!vue.includes('RepereDuPrompt'), 'l’ancienne pastille doit être retirée');
+  assert.ok(vue.includes('<BullesDuPromptEnvoye'), 'les bulles se posent dans la conversation');
 
-  const repere = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(repere.includes('morceauxDuPromptEnvoye'), 'le tiroir lit la règle partagée');
-  assert.ok(!repere.includes('LecteurPrompt'), 'le tiroir du chat reste simple : pas de chronologie');
+  const bulles = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
+  assert.ok(bulles.includes('bullesDuPromptEnvoye'), 'l’affichage lit la règle partagée');
+  assert.ok(!/<Drawer/.test(bulles), 'plus aucun tiroir à ouvrir pour lire le prompt');
+  assert.ok(!bulles.includes('LecteurPrompt'), 'le fil reste simple : pas de chronologie ici');
+});
+
+/*
+ * LES TROIS BULLES. Ce qui est parti au moteur se lit comme des messages de
+ * l'utilisateur, alignés à droite : sa demande, la mémoire retrouvée, puis le
+ * prompt complet — dans cet ordre, jamais un autre.
+ */
+
+test('les trois bulles sortent dans l’ordre demandé', () => {
+  const bulles = bullesDuPromptEnvoye(
+    tourEssai({
+      passages: [{ source: 'docs/regles/cartes.md', titre: 'Cartes', score: 0.6, tokens: 12, texte: 'une règle' }],
+    }),
+  );
+
+  assert.deepEqual(
+    bulles.map((b) => b.cle),
+    ['demande', 'memoire', 'complet'],
+  );
+  assert.equal(bulles[0].texte, 'DEMANDE : montre le prompt réel.');
+  assert.match(bulles[1].texte, /docs\/regles\/cartes\.md/);
+  assert.match(bulles[1].texte, /une règle/);
+  assert.match(bulles[2].texte, /Claude Code — claude-sonnet-5/);
+});
+
+test('une demande déjà écrite par l’utilisateur n’est pas redite en bulle', () => {
+  const bulles = bullesDuPromptEnvoye(tourEssai({ passagesRaison: 'Index complet transmis.' }), {
+    demandeDejaAffichee: true,
+  });
+  assert.deepEqual(
+    bulles.map((b) => b.cle),
+    ['memoire', 'complet'],
+  );
+});
+
+test('sans aucun passage, la bulle de mémoire dit la raison plutôt que de disparaître', () => {
+  const bulles = bullesDuPromptEnvoye(
+    tourEssai({ passagesRaison: 'Reprise de session : la mémoire est déjà là.' }),
+  );
+  const memoire = bulles.find((b) => b.cle === 'memoire');
+  assert.equal(memoire?.texte, 'Reprise de session : la mémoire est déjà là.');
+});
+
+test('sans passage ET sans raison, aucune bulle de mémoire n’est posée', () => {
+  assert.equal(texteDesPassagesRetrouves(tourEssai()), undefined);
+  const bulles = bullesDuPromptEnvoye(tourEssai());
+  assert.ok(!bulles.some((b) => b.cle === 'memoire'));
+});
+
+test('la bulle du prompt complet nomme ce qui est parti en même temps', () => {
+  const bulles = bullesDuPromptEnvoye(
+    tourEssai({
+      blocks: [
+        { kind: 'request', label: 'Demande utilisateur', characters: 10, text: 'fais-le' },
+        { kind: 'briefing', label: 'Briefing du projet', characters: 20, text: 'projet' },
+      ],
+    }),
+  );
+  const complet = bulles.find((b) => b.cle === 'complet');
+  assert.deepEqual(complet?.noms, ['Briefing du projet']);
+});
+
+/*
+ * LA COUPE À CINQ LIGNES. Une bulle trop longue ne montre que ses cinq
+ * premières lignes ; « voir plus » déroule le reste.
+ */
+
+test('un texte court n’est pas coupé, et ne demande pas « voir plus »', () => {
+  const { apercu, tronque } = apercuDeBulle('une\ndeux\ntrois');
+  assert.equal(apercu, 'une\ndeux\ntrois');
+  assert.equal(tronque, false);
+});
+
+test('un texte long ne montre que ses cinq premières lignes', () => {
+  const texte = Array.from({ length: 12 }, (_, i) => `ligne ${i + 1}`).join('\n');
+  const { apercu, tronque } = apercuDeBulle(texte);
+  assert.equal(tronque, true);
+  assert.equal(apercu.split('\n').length, LIGNES_VISIBLES_BULLE);
+  assert.equal(apercu.split('\n').at(-1), 'ligne 5');
+});
+
+test('exactement cinq lignes tiennent sans « voir plus »', () => {
+  const texte = Array.from({ length: LIGNES_VISIBLES_BULLE }, (_, i) => `ligne ${i + 1}`).join('\n');
+  assert.equal(apercuDeBulle(texte).tronque, false);
+});
+
+test('l’affichage borne aussi la hauteur, pour une ligne unique très longue', () => {
+  const bulles = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
+  assert.ok(bulles.includes('apercuDeBulle'), 'la règle pure décide de la coupe');
+  assert.ok(/max-h-\[8em\]/.test(bulles), 'cinq lignes de hauteur bornent aussi le texte replié');
+  assert.ok(bulles.includes('scrollHeight'), 'un texte replié par l’écran seul demande aussi « voir plus »');
+  assert.ok(bulles.includes('data-voir-plus'), 'le bouton porte son repère d’écran');
 });
 
 /*
@@ -131,9 +229,9 @@ test('un bloc de demande vidé par la purge ne rend rien plutôt qu’une chaîn
 
 test('la réponse d’un tour lancé par un bouton montre la demande au-dessus des étapes', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'message-view.tsx'), 'utf8');
-  const bloc = vue.indexOf('<DemandeEnvoyee');
-  assert.ok(bloc > 0, 'le bloc de la demande envoyée doit être posé sur la réponse');
-  assert.ok(bloc < vue.indexOf('<MemoryNote'), 'il passe avant la mémoire relue');
+  const bloc = vue.lastIndexOf('<BullesDuPromptEnvoye');
+  assert.ok(bloc > 0, 'les bulles doivent être posées sur la réponse');
+  assert.ok(bloc < vue.indexOf('<MemoryNote'), 'elles passent avant la mémoire relue');
   assert.ok(bloc < vue.indexOf('<Steps'), 'et avant le déroulé des étapes');
 });
 
@@ -176,9 +274,9 @@ test('les passages retrouvés comptent pour une seule entrée, et un nom répét
   assert.ok(!noms.some((nom) => /jetons?|tokens?/i.test(nom)));
 });
 
-test('la conversation affiche ces données parallèles dans le bloc de la demande', () => {
+test('la conversation affiche ces données parallèles dans la bulle du prompt complet', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(vue.includes('donneesParallelesDuPrompt'), 'le bloc lit la règle partagée');
+  assert.ok(vue.includes('bulle.noms'), 'la bulle rend les noms venus de la règle partagée');
   assert.ok(vue.includes('data-donnees-paralleles'), 'et les pose sous un repère d’écran');
 });
 

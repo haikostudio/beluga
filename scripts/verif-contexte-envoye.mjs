@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * LE PROMPT ENVOYÉ reste-t-il consultable sous la demande ? Le bloc
- * « Contexte envoyé » a disparu : sous chaque demande réellement partie, un
- * REPÈRE simple se pose à GAUCHE, et son clic ouvre un tiroir qui montre CE
- * tour-là — les morceaux nommés du prompt, leur TEXTE réel (jamais un
- * chiffre), les passages retrouvés par la recherche, et une copie fidèle.
+ * LE PROMPT ENVOYÉ se lit-il SANS RIEN OUVRIR ? Il n'y a plus ni pastille ni
+ * tiroir : sous chaque demande réellement partie, des BULLES de message se
+ * posent dans le fil, alignées à droite dans le même encadré gris — la demande,
+ * la mémoire retrouvée, puis le prompt complet. Une bulle trop longue ne montre
+ * que ses cinq premières lignes, avec « voir plus » en bas.
  * Démon et base d'essai à soi, aucun moteur appelé, téléphone + ordinateur.
  */
 import { chromium } from 'playwright';
@@ -372,54 +372,97 @@ try {
     choisirTheme(cas.theme);
     const { contexte, page, erreurs } = await ouvrir(navigateur, cas.telephone);
     try {
-      const reperes = page.locator('[data-contexte-envoye]:visible');
-      noter(`${cas.nom} : seuls les deux tours réellement partis portent un repère`, (await reperes.count()) === 2);
-      const texteRepere = await reperes.first().innerText();
-      noter(`${cas.nom} : le repère se lit « Prompt envoyé », sans chiffre`, /Prompt envoyé/.test(texteRepere) && !/\d[\s ]*tokens?/i.test(texteRepere));
+      /*
+       * PLUS AUCUNE PASTILLE, PLUS AUCUN TIROIR : ce qui est parti au moteur se
+       * lit comme des messages, dans le fil, sans un clic.
+       */
+      noter(
+        `${cas.nom} : l’ancienne pastille « Prompt envoyé » a disparu`,
+        (await page.locator('[data-contexte-envoye]').count()) === 0,
+      );
+      const groupes = page.locator('[data-prompt-envoye]:visible');
+      noter(`${cas.nom} : seuls les deux tours réellement partis portent des bulles`, (await groupes.count()) === 2);
 
       /*
-       * LE REPÈRE EST À GAUCHE : la bulle de la demande, elle, est à droite.
-       * On compare les deux bords gauches dans la même largeur de page.
+       * LA DEMANDE TAPÉE N'EST PAS REDITE : sa bulle est déjà juste au-dessus.
+       * Restent la mémoire retrouvée, puis le prompt complet — dans cet ordre.
        */
-      const aGauche = await reperes.first().evaluate((el) => {
-        const bulle = el.parentElement?.querySelector('.flex.justify-end > div');
-        if (!bulle) return false;
-        return el.getBoundingClientRect().left < bulle.getBoundingClientRect().left;
+      const premier = groupes.first();
+      const ordre = await premier.locator('[data-bulle-prompt]').evaluateAll((els) =>
+        els.map((el) => el.getAttribute('data-bulle-prompt')),
+      );
+      noter(`${cas.nom} : les bulles sortent dans l’ordre, sans redire la demande tapée`, JSON.stringify(ordre) === JSON.stringify(['memoire', 'complet']), ordre.join(' → '));
+
+      /*
+       * ALIGNÉES À DROITE, DANS LE MÊME ENCADRÉ GRIS QUE LES DEMANDES : c'est ce
+       * qui les fait lire comme des messages de l'utilisateur.
+       */
+      const place = await premier.locator('[data-bulle-prompt]').first().evaluate((el) => {
+        const parent = el.parentElement;
+        const p = parent.getBoundingClientRect();
+        const b = el.getBoundingClientRect();
+        const sonde = document.createElement('div');
+        sonde.style.background = 'hsl(var(--raised))';
+        document.body.appendChild(sonde);
+        const grisAttendu = getComputedStyle(sonde).backgroundColor;
+        sonde.remove();
+        return {
+          aDroite: b.left > p.left + 8 && Math.abs(b.right - p.right) < 2,
+          gris: getComputedStyle(el).backgroundColor === grisAttendu,
+        };
       });
-      noter(`${cas.nom} : le repère est posé à gauche, sous la demande`, aGauche);
+      noter(`${cas.nom} : la bulle est alignée à droite`, place.aDroite);
+      noter(`${cas.nom} : la bulle porte le même encadré gris que les demandes`, place.gris);
 
-      await reperes.first().click();
-      const tiroir = page.getByRole('dialog');
-      await tiroir.waitFor({ state: 'visible' });
+      const memoire1 = premier.locator('[data-bulle-prompt="memoire"]').first();
+      noter(
+        `${cas.nom} : la bulle de mémoire dit pourquoi rien n’a été retrouvé`,
+        /Reprise de session/.test(await memoire1.innerText()),
+      );
+      const complet1 = premier.locator('[data-bulle-prompt="complet"]').first();
+      const texteComplet1 = await complet1.innerText();
+      noter(
+        `${cas.nom} : la bulle du prompt complet nomme ce qui est parti à côté`,
+        /Transmis en même temps/.test(texteComplet1) && /mémoire/i.test(texteComplet1),
+      );
+      noter(`${cas.nom} : aucun compteur de jetons dans les bulles`, !/\d[\s ]*tokens?\b/i.test(texteComplet1));
 
       /*
-       * LE TIROIR MONTRE CE TOUR-LÀ, À PLAT : plus de chronologie de tous les
-       * tours, plus de recherche, plus de blocs repliés — les morceaux nommés
-       * du prompt, chacun avec son texte réel, tout de suite lisibles.
+       * LA COUPE À CINQ LIGNES. Le prompt complet fait des dizaines de lignes :
+       * replié il tient dans la conversation, « voir plus » le déroule.
        */
-      const morceaux = tiroir.locator('[data-morceau-prompt]');
-      noter(`${cas.nom} : le tiroir montre les morceaux du prompt de ce tour`, (await morceaux.count()) === 5);
-      noter(`${cas.nom} : le tiroir ne montre aucun autre tour`, (await tiroir.locator('[data-tour-envoye]').count()) === 0);
-      noter(`${cas.nom} : le tiroir n’a plus de recherche`, (await tiroir.locator('[data-recherche-prompt]').count()) === 0);
-
-      const blocMemoire = morceaux.filter({ hasText: 'Nouveaux faits de la mémoire' });
+      const texte1 = complet1.locator('[data-texte-bulle]').first();
+      const replie = await texte1.boundingBox();
+      const voirPlus = complet1.locator('[data-voir-plus]').first();
+      noter(`${cas.nom} : le prompt complet est replié derrière « voir plus »`, (await voirPlus.count()) === 1);
       noter(
-        `${cas.nom} : le morceau « Nouveaux faits de la mémoire » rend le texte réel envoyé`,
-        (await blocMemoire.locator('pre').innerText()) === MEMOIRE_SUIVI,
+        `${cas.nom} : replié, il ne montre que cinq lignes`,
+        !!replie && replie.height <= 5 * 1.6 * 13.5 + 2,
+        replie ? `${Math.round(replie.height)} px` : '(introuvable)',
       );
-      const blocSysteme = morceaux.filter({ hasText: 'Rappel de méthode' });
-      noter(
-        `${cas.nom} : le morceau relu au cache porte son repère, sans chiffre`,
-        /relu au cache/.test(await blocSysteme.first().innerText()),
-      );
-
-      // Le SECOND tour a son propre repère : son tiroir montre SON passage retrouvé.
-      await page.keyboard.press('Escape');
+      await voirPlus.click();
       await page.waitForTimeout(400);
-      await reperes.nth(1).click();
-      const tiroir2 = page.getByRole('dialog');
-      await tiroir2.waitFor({ state: 'visible' });
-      const texteTour2 = await tiroir2.innerText();
+      const deroule = await texte1.boundingBox();
+      noter(
+        `${cas.nom} : « voir plus » déroule le reste du texte`,
+        !!deroule && !!replie && deroule.height > replie.height,
+      );
+      noter(
+        `${cas.nom} : déroulé, il rend le texte réel du prompt`,
+        (await complet1.innerText()).includes(MEMOIRE_SUIVI.slice(0, 40)),
+      );
+      await complet1.locator('[data-voir-plus]').first().click();
+      await page.waitForTimeout(300);
+
+      // Le SECOND tour porte SES propres passages, jamais ceux du premier.
+      const second = groupes.nth(1);
+      // Déroulé d'abord : replié, un texte long ne rend que ses cinq lignes.
+      const aDerouler = second.locator('[data-voir-plus]');
+      for (let i = 0; i < (await aDerouler.count()); i += 1) {
+        await aDerouler.nth(i).click().catch(() => {});
+      }
+      await page.waitForTimeout(300);
+      const texteTour2 = await second.innerText();
       noter(`${cas.nom} : le second tour nomme le passage retrouvé`, /docs\/regles\/quotas\.md/.test(texteTour2));
       noter(
         `${cas.nom} : le second tour rend le texte exact de sa demande`,
@@ -437,18 +480,14 @@ try {
           value: { writeText: async (texte) => { window.__contexteCopie = texte; } },
         });
       });
-      await tiroir2.getByRole('button', { name: /Copier/ }).first().click();
+      await second.locator('[data-bulle-prompt="complet"]').getByRole('button', { name: /Copier/ }).first().click();
       const copie = await page.evaluate(() => window.__contexteCopie);
       noter(
         `${cas.nom} : la copie contient le texte réel de ce tour`,
         copie.includes('Et maintenant, montre-moi le tour suivant.') && !copie.includes(MEMOIRE_SUIVI),
       );
 
-      // Le tiroir doit rester PRÊT à défiler dès que le prompt déborde.
-      const zonePrete = await tiroir2.locator('[data-contexte-envoye-contenu]').evaluate((zone) => {
-        return getComputedStyle(zone).overflowY !== 'hidden' && getComputedStyle(zone).overflowY !== 'visible';
-      });
-      noter(`${cas.nom} : la zone du tiroir est prête à défiler`, zonePrete);
+      noter(`${cas.nom} : rien n’a ouvert de tiroir`, (await page.getByRole('dialog').count()) === 0);
       noter(`${cas.nom} : aucune erreur de page`, erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, `contexte-envoye-${cas.telephone ? 'telephone' : 'ordinateur'}.png`) });
     } finally {
@@ -478,55 +517,63 @@ try {
        * mémoire retrouvée, POSÉES AU-DESSUS du déroulé. Sans elles, l'onglet
        * s'ouvrait droit sur « Exécution de la tâche ».
        */
-      const bloc = panneau.locator('[data-demande-envoyee]').first();
+      const bloc = panneau.locator('[data-prompt-envoye]').first();
       await bloc.waitFor({ state: 'visible', timeout: 10_000 });
-      const texteBloc = await bloc.innerText();
-      noter('carte : la demande envoyée est annoncée sans rien ouvrir', /Demande envoyée à l’agent|Demande envoyée à l'agent/.test(texteBloc));
-      noter('carte : la mémoire retrouvée est chiffrée sur ce bloc', /2 passages retrouvés/.test(texteBloc));
+
+      /*
+       * UNE CARTE LANCÉE PAR UN BOUTON n'a aucune bulle de demande : la
+       * PREMIÈRE bulle porte donc la demande elle-même, puis la mémoire
+       * retrouvée, puis le prompt complet.
+       */
+      const ordre = await bloc.locator('[data-bulle-prompt]').evaluateAll((els) =>
+        els.map((el) => el.getAttribute('data-bulle-prompt')),
+      );
+      noter(
+        'carte : les trois bulles sont là, dans l’ordre',
+        JSON.stringify(ordre) === JSON.stringify(['demande', 'memoire', 'complet']),
+        ordre.join(' → '),
+      );
+      noter(
+        'carte : la première bulle rend le texte réel de la demande',
+        /Réalise cette tâche\./.test(await bloc.locator('[data-bulle-prompt="demande"]').innerText()),
+      );
 
       const placeBloc = await bloc.boundingBox();
       const placeEtapes = await panneau.getByText('1 étape terminée').first().boundingBox();
       noter(
-        'carte : le bloc est posé AU-DESSUS du déroulé des étapes',
+        'carte : les bulles sont posées AU-DESSUS du déroulé des étapes',
         !!placeBloc && !!placeEtapes && placeBloc.y < placeEtapes.y,
       );
 
-      await bloc.locator('button').first().click();
-      await page.waitForTimeout(400);
-      noter(
-        'carte : déplier le bloc rend le texte réel de la demande',
-        /Réalise cette tâche\./.test(await bloc.innerText()),
-      );
-
-      await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte-conversation.png') });
-
-      await panneau.locator('[data-contexte-envoye]').first().click();
-      const tiroir = page.getByRole('dialog').last();
-      const morceaux = tiroir.locator('[data-morceau-prompt]');
-      await morceaux.first().waitFor({ state: 'visible', timeout: 10_000 });
-
       /*
-       * LES PASSAGES RETROUVÉS : source, titre — et leur texte réel, pas un
-       * coût en tokens. Un contexte choisi par la machine doit rester lisible,
-       * sinon personne ne peut dire pourquoi l'agent a lu ceci plutôt que cela.
+       * LES PASSAGES RETROUVÉS ont leur bulle à eux : source, titre — et leur
+       * texte réel, pas un coût en tokens. Un contexte choisi par la machine
+       * doit rester lisible, sinon personne ne peut dire pourquoi l'agent a lu
+       * ceci plutôt que cela.
        */
-      const texteTiroir = await tiroir.innerText();
+      const memoire = bloc.locator('[data-bulle-prompt="memoire"]').first();
+      await memoire.locator('[data-voir-plus]').first().click().catch(() => {});
+      await page.waitForTimeout(300);
+      const texteMemoire = await memoire.innerText();
+      noter('carte : la bulle de mémoire compte les passages retrouvés', /2 passages retrouvés/.test(texteMemoire));
       noter(
-        'carte : le tiroir nomme les deux passages retrouvés',
-        /docs\/regles\/cartes\.md/.test(texteTiroir) && /ajouter-une-colonne\.md/.test(texteTiroir),
+        'carte : elle nomme les deux passages retrouvés',
+        /docs\/regles\/cartes\.md/.test(texteMemoire) && /ajouter-une-colonne\.md/.test(texteMemoire),
       );
-      noter('carte : les passages sont marqués comme tels', (await tiroir.locator('[data-passage="oui"]').count()) === 2);
-      const blocPassage = morceaux.filter({ hasText: 'cartes.md' });
       noter(
         'carte : le texte du premier passage est affiché en clair',
-        /Une carte NAÎT dans « Planifié »/.test(await blocPassage.locator('pre').innerText()),
+        /Une carte NAÎT dans « Planifié »/.test(texteMemoire),
       );
-      const blocBriefing = morceaux.filter({ hasText: 'Briefing du projet' });
+
+      const complet = bloc.locator('[data-bulle-prompt="complet"]').first();
+      await complet.locator('[data-voir-plus]').first().click().catch(() => {});
+      await page.waitForTimeout(300);
+      const texteComplet = await complet.innerText();
       noter(
-        'carte : le morceau « Briefing du projet » rend son texte réel',
-        (await blocBriefing.locator('pre').innerText()) === 'BRIEFING DU PROJET — Essai contexte envoyé.',
+        'carte : le prompt complet rend le texte réel du briefing',
+        texteComplet.includes('BRIEFING DU PROJET — Essai contexte envoyé.'),
       );
-      noter('carte : aucun compteur de jetons dans le tiroir', !/\d[\s ]*tokens?\b/i.test(texteTiroir));
+      noter('carte : aucun compteur de jetons dans les bulles', !/\d[\s ]*tokens?\b/i.test(await bloc.innerText()));
       noter('carte : aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte.png') });
     } finally {

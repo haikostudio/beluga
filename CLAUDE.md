@@ -94,8 +94,9 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   (`shared/src/passages-code.ts`), puis envoie les quelques PASSAGES qui répondent, à la place de
   l'index. Découpage par section ou par règle, index de recherche INCRÉMENTAL (migration 19).
   L'INDEX reste le REPLI : ce qui part tient sous plafond et ne doit JAMAIS peser plus que l'index
-  remplacé, sinon la recherche est refusée. Les passages retrouvés sont visibles dans le tiroir
-  « Prompt envoyé » (le repère à gauche, sous la demande) et dans l'onglet « Détails ».
+  remplacé, sinon la recherche est refusée. Les passages retrouvés sont visibles dans la BULLE
+  « Mémoire du projet retrouvée », posée sous la demande dans la conversation, et dans l'onglet
+  « Détails ».
 - **Le SENS vient d'un VRAI modèle de vectorisation, façon RAG, et il tourne EN LOCAL**
   (`shared/src/vecteurs-doc.ts`, `server/src/vecteurs-local.ts`, `server/src/vecteurs.ts`,
   migration 27) : `BAAI/bge-m3` en 1024 dimensions, exécuté SUR CE SERVEUR — aucun octet de
@@ -696,7 +697,8 @@ le nom, là-bas le texte).
   carte lit le LECTEUR DE PROMPTS (`LecteurPrompt`, `web/src/components/lecteur-prompt.tsx`) — une
   liste de tours, chacun dépliable en blocs nommés (`SentContextBlock.text`), avec recherche et copie,
   et un repère VISUEL (`cached`) pour ce qui est relu au cache plutôt qu'un chiffre ; la CONVERSATION,
-  elle, a son repère à gauche et son tiroir à un seul tour (`RepereDuPrompt`). Le texte de chaque tour est conservé dans
+  elle, a ses BULLES de message, un seul tour par bulle et rien à ouvrir (`BullesDuPromptEnvoye`). Le
+  texte de chaque tour est conservé dans
   `Message.sentContext` (`server/src/store.ts`, `purgerContexteEnvoyeAncien` — les
   `TOURS_CONTEXTE_CONSERVES` derniers tours d'un agent gardent leur texte, les plus vieux ne gardent
   que les compteurs). Le composeur ne montre plus le pourcentage de contexte de l'agent, l'onglet
@@ -773,32 +775,38 @@ le nom, là-bas le texte).
   `server/src/test/decharge-projets.test.ts`.
 - **Une demande réellement partie garde son contexte envoyé et sa mesure moteur** ; en reprise,
   l'historique opaque est seulement nommé, jamais recopié ni inventé.
-- **SOUS LA DEMANDE, UN REPÈRE À GAUCHE — et son tiroir ne montre QUE ce tour-là**
-  (`RepereDuPrompt`, `web/src/components/prompt-envoye.tsx` ; règles pures
-  `morceauxDuPromptEnvoye`, `mentionDesPassages`, `texteDuPromptEnvoye`, `shared/src/prompt-envoye.ts`).
-  Le bloc « Contexte envoyé » posé à DROITE, qui ouvrait la chronologie de TOUS les tours avec son
-  récapitulatif, sa recherche et ses blocs repliés, est RETIRÉ : il fallait quatre clics pour lire le
-  prompt qu'on avait sous les yeux. À sa place, une pastille « Prompt envoyé » à GAUCHE, posée dès que
-  `message.sentContext` existe — donc dès que le prompt part au moteur. Le tiroir est À PLAT : en-tête
-  (moteur, modèle, date, nombre de passages retrouvés ou RAISON de leur absence), morceaux nommés du
-  prompt avec leur TEXTE affiché d'emblée, puis les PASSAGES rapportés par la recherche, nommés par
-  leur source. Aucun repli, aucune recherche, aucun autre tour, aucun chiffre ; un nom de morceau n'est
-  jamais mis en MAJUSCULES (il porte souvent un chemin de fichier). La CHRONOLOGIE
-  (`chronologieContexteEnvoye`, `recapitulatifEnvoi`, `shared/src/couches-tokens.ts`) reste, mais ne
-  sert plus que le lecteur de l'onglet « Détails ». Vérifié par `server/src/test/prompt-envoye.test.ts`
-  et `scripts/verif-contexte-envoye.mjs`.
-- **UN TOUR SANS BULLE DE DEMANDE PORTE SON PROMPT SUR SA RÉPONSE** (`DemandeEnvoyee`,
-  `web/src/components/prompt-envoye.tsx` ; `demandeDuPromptEnvoye`, `shared/src/prompt-envoye.ts` ;
-  `messageDuContexte`, `server/src/runtime.ts`) : un tour lancé par un BOUTON n'écrit aucun message
-  d'utilisateur (`options.silent` — carte démarrée, reprise, dépannage, mise en production,
-  auto-amélioration), et le prompt envoyé n'était gardé que sur ce message-là. Le texte parti au
-  moteur et les PASSAGES retrouvés dans la mémoire n'existaient donc nulle part, et le tiroir d'une
-  carte s'ouvrait droit sur « Exécution de la tâche ». Le contexte se pose maintenant sur la bulle
-  de la demande quand elle existe, sinon sur le message de RÉPONSE
-  (`contexteUtilisateur?.messageId ?? assistantMessage.id`) ; cette réponse ouvre alors par un bloc
-  « Demande envoyée à l'agent — n passages retrouvés », AVANT la mémoire relue et AVANT le déroulé,
-  avec le même repère « Prompt envoyé ». Une demande écrite à la main ne bouge pas. Ce bloc dit aussi
-  CE QUI EST PARTI EN MÊME TEMPS, sans rien ouvrir (`donneesParallelesDuPrompt`) : les NOMS des
+- **LE PROMPT ENVOYÉ SE LIT EN BULLES DE MESSAGE, PLUS AUCUN TIROIR** (`BullesDuPromptEnvoye`,
+  `web/src/components/prompt-envoye.tsx` ; règles pures `bullesDuPromptEnvoye`,
+  `texteDesPassagesRetrouves`, `apercuDeBulle`, `LIGNES_VISIBLES_BULLE`, `texteDuPromptEnvoye`,
+  `shared/src/prompt-envoye.ts`). La pastille « Prompt envoyé » et son tiroir plein écran sont
+  RETIRÉS : il fallait repérer un bouton et cliquer pour lire le prompt qu'on avait sous les yeux. Ce
+  qui part au moteur s'affiche DANS le fil, comme des messages de l'utilisateur — alignés à DROITE,
+  même encadré gris et même largeur que ses demandes —, dès que `message.sentContext` existe. TROIS
+  bulles, toujours dans cet ordre (`data-bulle-prompt`) : sa DEMANDE, la MÉMOIRE retrouvée par la
+  recherche (chaque passage nommé par sa source, ou la RAISON de leur absence ; ni l'un ni l'autre, pas
+  de bulle), puis le PROMPT COMPLET (en-tête, morceaux nommés avec leur texte, repère écrit sur ce qui
+  est relu au cache). Une demande TAPÉE n'est pas redite — sa bulle est juste au-dessus
+  (`demandeDejaAffichee`) ; un tour lancé par un BOUTON, lui, porte les trois. Aucun chiffre nulle
+  part, et un nom de morceau n'est jamais mis en MAJUSCULES (il porte souvent un chemin de fichier).
+  La CHRONOLOGIE (`chronologieContexteEnvoye`, `recapitulatifEnvoi`, `shared/src/couches-tokens.ts`)
+  reste, mais ne sert plus que le lecteur de l'onglet « Détails ».
+  **Une bulle trop longue ne montre que ses CINQ premières lignes, avec « voir plus » en bas**
+  (`apercuDeBulle`, `data-texte-bulle`, `data-voir-plus`) : la règle pure compte les vraies lignes,
+  l'écran borne EN PLUS la hauteur à cinq lignes et mesure son débordement — seul moyen de voir qu'une
+  ligne unique mais très longue se replie d'elle-même. Cette mesure n'est pas refaite une fois la
+  bulle déroulée, sinon « voir moins » disparaîtrait sous le doigt. Vérifié par
+  `server/src/test/prompt-envoye.test.ts` et `scripts/verif-contexte-envoye.mjs`.
+- **UN TOUR SANS BULLE DE DEMANDE PORTE SES BULLES SUR SA RÉPONSE** (`demandeDuPromptEnvoye`,
+  `shared/src/prompt-envoye.ts` ; `messageDuContexte`, `server/src/runtime.ts`) : un tour lancé par un
+  BOUTON n'écrit aucun message d'utilisateur (`options.silent` — carte démarrée, reprise, dépannage,
+  mise en production, auto-amélioration), et le prompt envoyé n'était gardé que sur ce message-là. Le
+  texte parti au moteur et les PASSAGES retrouvés dans la mémoire n'existaient donc nulle part, et le
+  tiroir d'une carte s'ouvrait droit sur « Exécution de la tâche ». Le contexte se pose maintenant sur
+  la bulle de la demande quand elle existe, sinon sur le message de RÉPONSE
+  (`contexteUtilisateur?.messageId ?? assistantMessage.id`) ; cette réponse ouvre alors par les trois
+  bulles, la PREMIÈRE portant la demande elle-même, AVANT la mémoire relue et AVANT le déroulé. Une
+  demande écrite à la main ne bouge pas. La bulle du prompt complet dit aussi CE QUI EST PARTI EN MÊME
+  TEMPS, sans rien dérouler (`donneesParallelesDuPrompt`, `data-donnees-paralleles`) : les NOMS des
   morceaux de contexte — briefing, mémoire, carte, pièces jointes —, jamais leur poids en jetons.
   Vérifié par `server/src/test/prompt-envoye.test.ts`, `scripts/verif-contexte-envoye.mjs` (l'écran,
   sur un instantané posé à la main) et `scripts/verif-prompt-envoye-tour-lance.mjs` (le CHEMIN entier :
