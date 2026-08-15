@@ -16,6 +16,13 @@ export interface EtatDemon {
   construitA?: number;
   /** Agents qui travaillent en ce moment : un redémarrage les interromprait. */
   agentsEnCours?: number;
+  /**
+   * Ce que fait chaque agent compté ci-dessus, en une phrase courte (« une
+   * carte « X » du projet « Y » », « le chef d'orchestre du projet « Y » »…) —
+   * sans quoi le compte reste anonyme et personne ne peut vérifier ce qui
+   * retient le redémarrage.
+   */
+  agentsDetail?: string[];
   /** Noms des projets dont une publication tourne : un redémarrage la couperait. */
   publications?: string[];
   /** Un redémarrage est demandé mais attend la fin des publications. */
@@ -35,15 +42,23 @@ export function redemarrageNecessaire(etat: EtatDemon): boolean {
   return etat.construitA > etat.demarreA + MARGE_MS;
 }
 
+/** La liste des agents, telle qu'ajoutée à une phrase (« : X, Y. »), vide si rien à nommer. */
+function listeDesAgents(detail: string[] | undefined, agents: number): string {
+  const propres = (detail ?? []).filter((d) => d.trim());
+  if (propres.length !== agents || propres.length === 0) return '';
+  return ` (${propres.join(', ')})`;
+}
+
 /** Ce qu'on dit à l'utilisateur avant de demander le redémarrage. */
 export function avertissementRedemarrage(etat: EtatDemon): string {
   const base =
     'Le serveur s’arrête et repart tout seul en quelques secondes. L’application se reconnecte d’elle-même.';
   const agents = etat.agentsEnCours ?? 0;
   if (!agents) return base;
+  const liste = listeDesAgents(etat.agentsDetail, agents);
   return agents === 1
-    ? `Un agent travaille en ce moment : le redémarrage attendra qu’il ait fini, pour ne pas le couper. ${base}`
-    : `${agents} agents travaillent en ce moment : le redémarrage attendra qu’ils aient fini, pour ne pas les couper. ${base}`;
+    ? `Un agent travaille en ce moment${liste} : le redémarrage attendra qu’il ait fini, pour ne pas le couper. ${base}`
+    : `${agents} agents travaillent en ce moment${liste} : le redémarrage attendra qu’ils aient fini, pour ne pas les couper. ${base}`;
 }
 
 /*
@@ -72,6 +87,8 @@ export interface EtatPourRedemarrage {
   publications: string[];
   /** Nombre d'agents au travail. */
   agents: number;
+  /** Ce que fait chaque agent compté ci-dessus, en une phrase courte. */
+  agentsDetail?: string[];
 }
 
 /**
@@ -88,7 +105,7 @@ export function decisionDeRedemarrage(etat: EtatPourRedemarrage): DecisionRedema
     return { action: 'attendre', raison: raisonPublications(publications) };
   }
   if (etat.agents > 0) {
-    return { action: 'attendre', raison: raisonAgents(etat.agents) };
+    return { action: 'attendre', raison: raisonAgents(etat.agents, etat.agentsDetail) };
   }
   return { action: 'redemarrer' };
 }
@@ -108,10 +125,11 @@ export function raisonPublications(noms: string[]): string {
 }
 
 /** La phrase qui nomme les agents au travail. */
-export function raisonAgents(agents: number): string {
+export function raisonAgents(agents: number, detail?: string[]): string {
+  const liste = listeDesAgents(detail, agents);
   return agents === 1
-    ? 'Un agent travaille en ce moment : le redémarrage attend pour ne pas couper son travail.'
-    : `${agents} agents travaillent en ce moment : le redémarrage attend pour ne pas couper leur travail.`;
+    ? `Un agent travaille en ce moment${liste} : le redémarrage attend pour ne pas couper son travail.`
+    : `${agents} agents travaillent en ce moment${liste} : le redémarrage attend pour ne pas couper leur travail.`;
 }
 
 /*
@@ -141,7 +159,11 @@ export interface DecisionSurSignal {
  * règle que le bouton, sans exception : rien qui tourne, on s'arrête ; un
  * travail en vol, on retient.
  */
-export function decisionSurSignalDArret(monde: { publications: string[]; agents: number }): DecisionSurSignal {
+export function decisionSurSignalDArret(monde: {
+  publications: string[];
+  agents: number;
+  agentsDetail?: string[];
+}): DecisionSurSignal {
   const suite = suiteDuRedemarrage(true, monde);
   if (suite.redemarrer) return { arreter: true, retenu: false };
   return { arreter: false, retenu: true, raison: suite.raison };
@@ -225,8 +247,16 @@ export interface SuiteRedemarrage {
  * garantit le « une seule fois » : dès qu'on redémarre, la demande retombe
  * (`enAttente: false`), donc un second appel sans demande ne relance rien.
  */
-export function suiteDuRedemarrage(demande: boolean, monde: { publications: string[]; agents: number }): SuiteRedemarrage {
-  const decision = decisionDeRedemarrage({ demande, publications: monde.publications, agents: monde.agents });
+export function suiteDuRedemarrage(
+  demande: boolean,
+  monde: { publications: string[]; agents: number; agentsDetail?: string[] },
+): SuiteRedemarrage {
+  const decision = decisionDeRedemarrage({
+    demande,
+    publications: monde.publications,
+    agents: monde.agents,
+    agentsDetail: monde.agentsDetail,
+  });
   if (decision.action === 'redemarrer') return { redemarrer: true, enAttente: false };
   if (decision.action === 'attendre') return { redemarrer: false, enAttente: true, raison: decision.raison };
   return { redemarrer: false, enAttente: false };

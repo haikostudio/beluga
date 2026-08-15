@@ -232,6 +232,36 @@ export function agentsActifs(): string[] {
   return [...new Set([...live.keys(), ...demarrant])];
 }
 
+/**
+ * Ce que fait chaque agent actif, en une phrase courte — pour que « un agent
+ * travaille » nomme le projet (et la carte, s'il en a une) au lieu de rester
+ * anonyme. Un agent de rôle « task », le seul que le tableau affiche, dit sa
+ * carte ; les autres rôles (chef d'orchestre, analyse, déploiement) restent
+ * invisibles du tableau et des projets — sans cette phrase, rien ne permet de
+ * les retrouver.
+ */
+export function agentsActifsDetail(): string[] {
+  const details: string[] = [];
+  for (const id of agentsActifs()) {
+    const agent = store.getAgent(id);
+    if (!agent) continue;
+    const projet = store.getProject(agent.projectId)?.name ?? 'un projet inconnu';
+    if (agent.role === 'task' && agent.cardId) {
+      const carte = store.getCard(agent.cardId);
+      details.push(carte ? `la carte « ${carte.title} » (${projet})` : `une carte du projet « ${projet} »`);
+    } else if (agent.role === 'orchestrator') {
+      details.push(`le chef d’orchestre du projet « ${projet} »`);
+    } else if (agent.role === 'analysis') {
+      details.push(`une analyse du projet « ${projet} »`);
+    } else if (agent.role === 'deploy') {
+      details.push(`une mise en production du projet « ${projet} »`);
+    } else {
+      details.push(`un agent du projet « ${projet} »`);
+    }
+  }
+  return details;
+}
+
 export function liveRun(agentId: string): LiveRun | undefined {
   return live.get(agentId);
 }

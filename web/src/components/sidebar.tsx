@@ -32,6 +32,7 @@ import {
   ZONE_PROJETS,
   avancementDeLaColonne,
   avertissementRedemarrage,
+  raisonAgents,
   raisonPublications,
   doitSecouerLigne,
   premiereDecision,
@@ -922,7 +923,9 @@ function BoutonRedemarrage() {
     : publie
       ? raisonPublications(publications)
       : enAttente
-        ? 'Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.'
+        ? (demon?.agentsEnCours
+            ? `${raisonAgents(demon.agentsEnCours, demon.agentsDetail)} Il partira tout seul dès qu’il aura fini.`
+            : 'Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.')
         : attendu
           ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
           : 'Redémarrer le serveur';

@@ -36,6 +36,17 @@ test('un agent au travail fait attendre, publication finie', () => {
   assert.match(decision.raison ?? '', /agents/);
 });
 
+test('un agent au travail nomme le projet quand on le connaît', () => {
+  const decision = decisionDeRedemarrage({
+    demande: true,
+    publications: [],
+    agents: 1,
+    agentsDetail: ['le chef d’orchestre du projet « Brain »'],
+  });
+  assert.equal(decision.action, 'attendre');
+  assert.match(decision.raison ?? '', /le chef d’orchestre du projet « Brain »/);
+});
+
 test('la publication passe AVANT les agents dans la raison', () => {
   const decision = decisionDeRedemarrage({ demande: true, publications: ['Brain'], agents: 3 });
   assert.equal(decision.action, 'attendre');

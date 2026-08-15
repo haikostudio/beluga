@@ -176,6 +176,14 @@ le nom, là-bas le texte).
   (`shared/src/demon.ts`) : le démon porte toutes les publications et tous les agents, le couper en
   tranche un en plein vol. Un redémarrage demandé est retenu — le bouton affiche « Redémarrage
   requis » — et rejoué tout seul dès le dernier travail fini ; même le clic ne passe jamais outre.
+  **Ce qui retient le redémarrage est NOMMÉ, jamais un simple compte** (`agentsActifsDetail`,
+  `server/src/runtime.ts` ; `EtatDemon.agentsDetail`, `raisonAgents`, `avertissementRedemarrage`,
+  `shared/src/demon.ts`) : `agentsActifs()` compte TOUT agent vivant, y compris le chef d'orchestre,
+  une analyse ou une mise en production — des rôles que le tableau et la colonne de gauche
+  n'affichent jamais (ils ne montrent que les cartes, rôle `task`). Un « Un agent travaille en ce
+  moment » sans le dire nommément laissait l'utilisateur sans moyen de vérifier ni de savoir où
+  chercher. Le message nomme désormais le projet et la nature du travail (carte, chef d'orchestre,
+  analyse, mise en production) quand on la connaît.
 - **Un SIGNAL d'arrêt venu du dehors suit la MÊME règle que le bouton** (`decisionSurSignalDArret`,
   `shared/src/demon.ts` ; `arretParSignal`, appelé en tête de `shutdown` dans `server/src/main.ts`) :
   un `SIGTERM`/`SIGINT` reçu pendant qu'un travail tourne est RETENU, dit, et rejoué seul à la fin —

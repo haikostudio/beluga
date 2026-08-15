@@ -80,6 +80,7 @@ export interface AppState {
     demarreA: number;
     construitA?: number;
     agentsEnCours?: number;
+    agentsDetail?: string[];
     publications?: string[];
     redemarrageEnAttente?: boolean;
     redemarrageNecessaire: boolean;
