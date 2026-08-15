@@ -293,7 +293,8 @@
    disparaît jamais, seul son mouvement s'efface. */
 @media (prefers-reduced-motion: reduce) {
   .animate-secousse,
-  .animate-pulse-soft {
+  .animate-pulse-soft,
+  .animate-silhouette {
     animation: none !important;
   }
 }

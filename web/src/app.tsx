@@ -5,6 +5,7 @@ import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
 import { Board } from '@/components/board';
 import { Dashboard } from '@/components/dashboard';
+import { SilhouetteTableau } from '@/components/silhouettes';
 import { RightPanel } from '@/components/right-panel';
 import { CardPanel } from '@/components/card-panel';
 import { Toasts } from '@/components/toasts';
@@ -518,6 +519,12 @@ export function App() {
               <Filet zone="Tableau">
                 <Board projectId={activeProject.id} onOpenCard={setOpenCardId} />
               </Filet>
+            ) : !state.pret ? (
+              /* LE PREMIER ÉTAT DU SERVEUR N'EST PAS ENCORE ARRIVÉ : aucun projet
+                 n'est choisi parce qu'on ne connaît pas encore la liste. On
+                 dessine donc le tableau à venir en silhouette, au lieu d'annoncer
+                 un vide qui n'en est pas un. */
+              <SilhouetteTableau />
             ) : (
               <EmptyState
                 icon={<LayoutGrid className="h-5 w-5" />}

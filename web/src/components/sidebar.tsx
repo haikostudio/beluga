@@ -62,6 +62,7 @@ import {
 } from '@/components/ui';
 import { Filet } from '@/components/filet';
 import { ProjectSettings } from '@/components/project-settings';
+import { SilhouetteProjets } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { usePointerDrag } from '@/lib/dnd';
 import { usePref } from '@/lib/prefs';
@@ -632,7 +633,15 @@ export function Sidebar({
           );
         })}
 
-        {!entries.length ? <p className="px-2 py-3 text-[13px] text-faint">Aucun projet inscrit.</p> : null}
+        {/* TANT QUE LE PREMIER ÉTAT DU SERVEUR N'EST PAS ARRIVÉ, la liste est
+            vide sans qu'aucun projet ne manque : on montre des SILHOUETTES de
+            lignes de projet. « Aucun projet inscrit » ne s'écrit qu'une fois la
+            liste réellement reçue — sinon la phrase ment pendant tout le
+            chargement. */}
+        {!state.pret ? <SilhouetteProjets /> : null}
+        {state.pret && !entries.length ? (
+          <p className="px-2 py-3 text-[13px] text-faint">Aucun projet inscrit.</p>
+        ) : null}
 
         <button
           onClick={() => setShowArchived((value) => !value)}
