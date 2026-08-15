@@ -240,7 +240,17 @@ export function recapitulatifEnvoi(tours: TourEnvoye[]): RecapitulatifEnvoi {
 export function raisonAbsenceDePassages(input: {
   nouvelleSession: boolean;
   accueilEmporteLaMemoire: boolean;
+  /**
+   * Vrai quand la recherche a RÉELLEMENT tourné sur la demande de ce tour et
+   * n'a rien rapporté de neuf. Cette raison-là passe avant toutes les autres :
+   * dire « reprise de session » d'une recherche qui vient d'avoir lieu serait
+   * faux, et c'est exactement ce que la bulle vient vérifier.
+   */
+  rechercheTentee?: boolean;
 }): string {
+  if (input.rechercheTentee) {
+    return 'La recherche a bien tourné sur cette demande : rien de neuf au-dessus du seuil de pertinence. Les passages déjà transmis plus haut dans ce fil ne sont pas renvoyés.';
+  }
   if (!input.nouvelleSession) {
     return 'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil, seuls les faits ajoutés depuis sont renvoyés.';
   }

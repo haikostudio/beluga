@@ -195,7 +195,13 @@ export function bullesDuPromptEnvoye(
   if (memoire) {
     bulles.push({
       cle: 'memoire',
-      titre: 'Mémoire du projet retrouvée',
+      /*
+       * LE TITRE NOMME LA DEMANDE, PAS LA SESSION. « Mémoire du projet
+       * retrouvée » laissait croire à un résumé de la mémoire du projet — celle
+       * que l'agent connaît déjà. Ce qu'on montre ici est la réponse de la
+       * recherche à CE message-là, relancée à chaque tour.
+       */
+      titre: 'Mémoire retrouvée pour cette demande',
       mention: mentionDesPassages(contexte),
       texte: memoire,
     });
