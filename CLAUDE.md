@@ -778,6 +778,17 @@ le nom, là-bas le texte).
   texte réel — habillage sur marges négatives. Une pastille « trombone + nom » n'a pas la largeur du
   tag qu'elle recouvre : texte décalé, ligne vide en trop, curseur ailleurs qu'où il paraît. Vérifié
   par `scripts/verif-tags-mise-en-page.mjs`.
+- **CE CALQUE NE COUVRE QUE LA PART VISIBLE DU CHAMP, ET LA SÉLECTION Y RESTE VISIBLE**
+  (`fenetre` de `reglagesDuChamp` ; `data-prompt-calque` / `data-prompt-calque-texte`,
+  `composer.tsx` ; `.texte-sous-calque`, `web/src/styles.css`) : un SEUL bloc posé en `inset-0` et
+  déplacé par `translateY(-scrollTop)` emportait sa propre découpe en glissant et couvrait la rangée
+  de boutons — dès qu'un fichier était joint et le texte assez long pour défiler, les lignes de trop
+  s'écrivaient par-dessus le trombone, le sélecteur de moteur et le micro. Ce sont désormais DEUX
+  blocs : une FENÊTRE calée sur les `clientWidth` / `clientHeight` du champ, qui coupe et ne bouge
+  jamais, et DEDANS le texte, qui seul glisse. Et le champ, rendu transparent sous le calque, DOIT
+  redire un fond de `::selection` : poser une règle `::selection` ôte à Chrome son fond par défaut,
+  et sélectionner à la souris ne montrait alors plus rien. Vérifié par
+  `scripts/verif-composeur-jointe-debordement.mjs`.
 - **UN TAG « [fichier: …] » S'EFFACE D'UN BLOC, jamais caractère par caractère** (`effacementDeTag`,
   `tagsDuTexte`, `shared/src/ancres.ts` ; touche branchée dans `onKeyDown` de `composer.tsx`) : le
   retour arrière ou la suppression avant qui entame un tag — d'une seule lettre, ou par une sélection
