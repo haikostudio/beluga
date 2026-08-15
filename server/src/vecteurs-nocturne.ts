@@ -49,12 +49,13 @@ export async function vectoriserUnProjet(
   projectPath: string,
   tranchesRestantes: number,
   finAu = Number.POSITIVE_INFINITY,
+  saut = 0,
 ): Promise<{ vectorises: number; tranches: number; total: number }> {
   indexerDocumentation(projectId, projectPath);
   let vectorises = 0;
   let tranches = 0;
   while (tranches < tranchesRestantes && Date.now() < finAu) {
-    const { faits } = await vectoriserLIndex(projectId);
+    const { faits } = await vectoriserLIndex(projectId, saut);
     if (!faits) break;
     vectorises += faits;
     tranches += 1;
