@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { CapacitySnapshot, SystemProcess } from '@haikodev/shared';
+import { CapacitySnapshot, ChargeMachine, SystemProcess, freinDeCharge } from '@haikodev/shared';
 import * as store from './store.js';
 import { runningAgentIds, pidFor, stopAgent } from './runtime.js';
 import { bus } from './bus.js';
@@ -37,10 +37,30 @@ function memoryMb(): { used: number; total: number } {
   }
 }
 
-/** Charge en % des cœurs : 100 = un processus prêt par cœur, 200 = file d'attente double. */
-function loadPercent(): number {
-  const [one] = os.loadavg();
-  return Math.round((one / os.cpus().length) * 100);
+/**
+ * Charge en % des cœurs : 100 = un processus prêt par cœur, 200 = file d'attente
+ * double. On lit l'INSTANT (une minute) ET le SOUTENU (quinze minutes) : seule
+ * une charge qui dure dit quelque chose d'une machine vraiment saturée.
+ */
+function chargeMachine(): ChargeMachine {
+  const [une, , quinze] = os.loadavg();
+  const coeurs = Math.max(1, os.cpus().length);
+  return {
+    instantPct: Math.round((une / coeurs) * 100),
+    soutenuePct: Math.round((quinze / coeurs) * 100),
+  };
+}
+
+/** Les agents qui tournent, séparés par rôle : les TÂCHES d'un côté, le reste de l'autre. */
+function comptesDAgents(): { total: number; taches: number } {
+  const ids = runningAgentIds();
+  let taches = 0;
+  for (const id of ids) {
+    // Une carte du tableau, c'est un agent de rôle « task » : le chef
+    // d'orchestre, l'analyse de nuit et la publication ne s'y voient pas.
+    if (store.getAgent(id)?.role === 'task') taches += 1;
+  }
+  return { total: ids.length, taches };
 }
 
 /**
@@ -51,8 +71,9 @@ function loadPercent(): number {
 export function snapshot(): CapacitySnapshot {
   const settings = store.getSettings();
   const mem = memoryMb();
-  const load = loadPercent();
-  const running = runningAgentIds().length;
+  const charge = chargeMachine();
+  const load = charge.instantPct;
+  const { total: running, taches } = comptesDAgents();
   const measured = store.averageAgentMemMb();
   const perAgent = measured && measured > 50 ? measured : FALLBACK_AGENT_MEM_MB;
 
@@ -60,31 +81,39 @@ export function snapshot(): CapacitySnapshot {
   const byMemory = Math.floor(freeForAgents / perAgent);
   const byCeiling = Math.max(0, settings.maxAgents - running);
 
-  // La mémoire décide, la charge freine. Le serveur héberge déjà Paseo et une
-  // dizaine de serveurs de projets : sa charge de fond tourne autour du nombre
-  // de cœurs sans être saturée pour autant. On ne bride donc qu'au-delà d'une
-  // vraie surcharge (file d'attente processeur), pas à la première tension.
-  const byLoad = load >= 200 ? 0 : load >= 150 ? 1 : load >= 120 ? 3 : byCeiling;
-
   const memPct = Math.round((mem.used / mem.total) * 100);
-  const paused = manualPause || load >= 220 || memPct > 94;
-  const slotsFree = paused ? 0 : Math.max(0, Math.min(byMemory, byCeiling, byLoad));
+  // Seules la mémoire et la main de l'utilisateur SUSPENDENT : une charge
+  // processeur, si haute soit-elle, n'est jamais une suspension.
+  const paused = manualPause || memPct > 94;
+
+  // La PLACE, c'est la mémoire et le plafond — rien d'autre. C'est elle que la
+  // barre montre, et ce qu'annonce « N agents peuvent encore démarrer ».
+  const places = paused ? 0 : Math.max(0, Math.min(byMemory, byCeiling));
+
+  // La charge, elle, FREINE : elle réduit les départs simultanés sans jamais se
+  // déguiser en manque de place, et sa cause se dit en clair.
+  const frein = freinDeCharge(charge);
+  const slotsFree = frein.placesMax === null ? places : Math.min(places, frein.placesMax);
 
   return {
     loadPct: Math.max(Math.min(load, 100), memPct),
     cpuLoadPct: load,
+    cpuLoadSustainedPct: charge.soutenuePct,
     memUsedMb: mem.used,
     memTotalMb: mem.total,
     cpuCount: os.cpus().length,
     runningAgents: running,
+    runningTasks: taches,
     maxAgents: settings.maxAgents,
-    slotsFree,
+    slotsFree: places,
+    startableNow: slotsFree,
     paused,
     pauseReason: paused
       ? manualPause
         ? 'Départs suspendus manuellement'
-        : 'Machine saturée : les nouveaux départs sont suspendus'
+        : `Mémoire presque pleine (${memPct} %) : les nouveaux départs sont suspendus`
       : undefined,
+    loadHoldReason: frein.raison,
     avgAgentMemMb: Math.round(perAgent),
     at: Date.now(),
   };
@@ -98,6 +127,10 @@ export function canStartAgent(): { ok: boolean; reason?: string } {
       ok: false,
       reason: `Plafond atteint : ${snap.runningAgents} agents tournent déjà (maximum ${snap.maxAgents})`,
     };
+  }
+  // Le frein processeur refuse pour SA raison, jamais pour un manque de place.
+  if ((snap.startableNow ?? snap.slotsFree) <= 0) {
+    return { ok: false, reason: snap.loadHoldReason ?? 'La machine est trop chargée pour lancer un agent de plus.' };
   }
   return { ok: true };
 }
@@ -123,7 +156,11 @@ export function sampleCapacity(): void {
       notify({
         motif: 'charge-machine',
         title: 'Serveur très chargé',
-        body: `Charge à ${snap.loadPct} % depuis ${Math.round(minutes)} minutes. Les nouveaux départs sont suspendus.`,
+        // On ne promet plus une suspension qui n'a pas forcément lieu : c'est
+        // la mémoire qui suspend, la charge ne fait que ralentir.
+        body: `Charge à ${snap.loadPct} % depuis ${Math.round(minutes)} minutes.${
+          snap.loadHoldReason ? ` ${snap.loadHoldReason}` : ''
+        }`,
       });
     }
   } else {
