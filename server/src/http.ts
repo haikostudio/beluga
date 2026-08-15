@@ -7,6 +7,7 @@ import {
   TRANCHE_ATTENTE_MS,
   ROUTE_CARTE_EXTERNE,
   ROUTE_DOC_API,
+  appelDuPontRecevable,
   cleDesEntetes,
   documentationApi,
   jugerDemandeDeCarte,
@@ -21,7 +22,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { callTool, createCard, toolsFor } from './tools.js';
 import { cleParSecret, noterUsageDeCle } from './cles-api.js';
-import { attachToCurrentMessage } from './runtime.js';
+import { attachToCurrentMessage, liveRun } from './runtime.js';
 import { readFilePreview, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
@@ -282,6 +283,26 @@ export function createHttpServer(): http.Server {
         if (!agent) return json(res, 404, { error: 'agent inconnu' });
 
         /*
+         * L'APPEL VIENT-IL DU TOUR QUI TOURNE ? La configuration du pont est un
+         * fichier sur le disque : elle survit à son tour, et Cursor peut même
+         * lire celle d'un dépôt VOISIN au lieu de la sienne
+         * (`shared/src/racine-cursor.ts`). Une carte proposée par le chef d'un
+         * projet s'est ainsi écrite dans le fil d'un agent d'un AUTRE projet,
+         * terminé deux heures plus tôt. Le tour annoncé est donc comparé à celui
+         * qui travaille vraiment, et un appel étranger est REFUSÉ, en clair,
+         * avant d'écrire quoi que ce soit.
+         */
+        const recevable = appelDuPontRecevable({
+          tourAnnonce: String(req.headers['x-haikodev-tour'] ?? '') || undefined,
+          tourEnCours: liveRun(agentId)?.tourId,
+        });
+        if (!recevable.ok) {
+          log.warn(`appel d'outil refusé (agent ${agentId}) : ${recevable.raison}`);
+          if (route === '/internal/call') return json(res, 200, { ok: false, text: recevable.raison });
+          return json(res, 409, { error: recevable.raison });
+        }
+
+        /*
          * Le pont s'annonce en démarrant : sans cette trace, un tour sans le
          * moindre outil passait pour un tour normal (la réponse affirmait même
          * avoir lu la mémoire). `runtime` la relit à la fin du tour.
@@ -332,12 +353,14 @@ export function createHttpServer(): http.Server {
             body.args ?? {},
           );
           if (result.proposal) {
-            store.saveProposal(
-              store.listMessages(agentId, 1).slice(-1)[0]?.id ?? '',
-              agent.projectId,
-              result.proposal,
-            );
-            attachToCurrentMessage(agentId, { proposal: result.proposal });
+            /*
+             * UN SEUL MESSAGE PORTE LA PROPOSITION. Le fil la lit sur le message
+             * du tour, la table la rangeait sous le « dernier message » relu à
+             * part : deux lectures qui pouvaient déjà se contredire. C'est
+             * désormais le message réellement touché qui fait foi.
+             */
+            const messageId = attachToCurrentMessage(agentId, { proposal: result.proposal });
+            store.saveProposal(messageId ?? '', agent.projectId, result.proposal);
           }
           if (result.download) attachToCurrentMessage(agentId, { download: result.download });
           /*

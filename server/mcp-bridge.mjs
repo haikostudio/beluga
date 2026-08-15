@@ -9,6 +9,13 @@ import readline from 'node:readline';
 const URL_BASE = process.env.HAIKODEV_URL || 'http://127.0.0.1:7070';
 const TOKEN = process.env.HAIKODEV_TOKEN || '';
 const AGENT = process.env.HAIKODEV_AGENT || '';
+/*
+ * LE TOUR, pas seulement l'agent. Un fichier de configuration reste sur le
+ * disque après son tour, et Cursor peut même lire celui d'un dépôt voisin : sans
+ * ce repère, un appel d'outil s'écrivait dans la conversation d'un autre agent.
+ * Le démon refuse l'appel quand ce numéro n'est pas celui du tour qui tourne.
+ */
+const TOUR = process.env.HAIKODEV_TOUR || '';
 
 function send(payload) {
   process.stdout.write(JSON.stringify(payload) + '\n');
@@ -25,7 +32,12 @@ function replyError(id, code, message) {
 async function callDaemon(route, body) {
   const res = await fetch(`${URL_BASE}/internal/${route}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-haikodev-token': TOKEN, 'x-haikodev-agent': AGENT },
+    headers: {
+      'content-type': 'application/json',
+      'x-haikodev-token': TOKEN,
+      'x-haikodev-agent': AGENT,
+      'x-haikodev-tour': TOUR,
+    },
     body: JSON.stringify(body ?? {}),
   });
   if (!res.ok) throw new Error(`démon indisponible (${res.status})`);

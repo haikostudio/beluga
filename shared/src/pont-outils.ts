@@ -68,6 +68,52 @@ export function etatDuPont(passage: PassageDuPont): EtatDuPont {
 }
 
 /**
+ * UN APPEL D'OUTIL APPARTIENT AU TOUR QUI L'A LANCÉ, ET À LUI SEUL.
+ *
+ * Le pont dit au démon quel AGENT il sert, en recopiant ce que sa configuration
+ * porte. Cette configuration est un FICHIER sur le disque : s'il est resté là
+ * après un tour, ou si le moteur en a lu un autre que le sien
+ * (`shared/src/racine-cursor.ts`), l'appel arrive au nom d'un agent qui ne
+ * travaille pas — et ce qu'il écrit part dans la conversation de quelqu'un
+ * d'autre. C'est ainsi qu'une carte proposée s'est retrouvée dans le fil d'un
+ * agent terminé deux heures plus tôt, dans un autre projet.
+ *
+ * Chaque tour porte donc un identifiant à lui, posé dans la configuration au
+ * lancement. Le démon n'accepte l'appel que si cet identifiant est celui du tour
+ * qui tourne VRAIMENT pour cet agent. Le refus se dit au moteur en toutes
+ * lettres : mieux vaut un outil qui répond « ce n'est pas ton tour » qu'une
+ * carte écrite chez le voisin.
+ *
+ * Une configuration ÉCRITE AVANT cette règle ne porte aucun identifiant : tant
+ * que l'agent a bien un tour en cours, l'appel passe — un déploiement ne doit
+ * pas couper les tours déjà partis.
+ */
+export const TOUR_TERMINE =
+  "Refusé : ce tour est terminé. L'appel vient d'une configuration d'outils périmée — " +
+  "rien n'a été écrit, et rien ne doit l'être au nom d'un autre agent.";
+
+export const TOUR_ETRANGER =
+  "Refusé : cet outil appartient à un autre tour que le tien. L'appel vient d'une configuration " +
+  "d'outils qui n'est pas celle de ce tour — rien n'a été écrit.";
+
+/** Ce que le démon sait au moment d'un appel d'outil. */
+export interface AppelDuPont {
+  /** L'identifiant de tour recopié par le pont ; absent d'une vieille configuration. */
+  tourAnnonce?: string;
+  /** L'identifiant du tour qui tourne pour cet agent ; absent : aucun tour. */
+  tourEnCours?: string;
+}
+
+/** L'appel vient-il bien du tour qui tourne ? */
+export function appelDuPontRecevable(appel: AppelDuPont): EtatDuPont {
+  if (!appel.tourEnCours) return { ok: false, raison: TOUR_TERMINE };
+  if (appel.tourAnnonce && appel.tourAnnonce !== appel.tourEnCours) {
+    return { ok: false, raison: TOUR_ETRANGER };
+  }
+  return { ok: true };
+}
+
+/**
  * Les serveurs d'outils ÉTRANGERS déclarés dans la configuration d'un moteur.
  *
  * Codex lit sa propre `config.toml`, où l'utilisateur peut avoir branché
