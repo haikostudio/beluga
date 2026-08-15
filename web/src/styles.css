@@ -287,6 +287,29 @@
   }
 }
 
+/* LE CHAMP D'ÉCRITURE MASQUÉ PAR LE CALQUE DES TAGS GARDE UNE SÉLECTION VISIBLE.
+
+   Dès qu'un tag « [fichier: …] » est affiché, le champ rend son texte
+   transparent : ce sont les mêmes caractères, redessinés par le calque posé
+   par-dessus. Il faut alors empêcher le texte SÉLECTIONNÉ de redevenir opaque
+   — sinon il se voit en double —, donc poser une règle `::selection`. Or, dès
+   qu'une telle règle existe, Chrome cesse d'appliquer SON fond de sélection
+   par défaut : sans couleur redite ici, sélectionner à la souris ne montrait
+   plus rien du tout, et le champ paraissait refuser toute sélection. La teinte
+   est semi-transparente pour rester lisible sous le texte du calque, dans les
+   deux thèmes. */
+.texte-sous-calque {
+  color: transparent;
+}
+.texte-sous-calque::selection {
+  color: transparent;
+  background-color: hsl(var(--info) / 0.45);
+}
+.texte-sous-calque::-moz-selection {
+  color: transparent;
+  background-color: hsl(var(--info) / 0.45);
+}
+
 /* Réglage système « réduire les animations » : la secousse d'un projet qui
    attend une réponse ne joue pas, et le badge du travail rendu cesse de
    clignoter. Le triangle d'alerte et le badge, eux, restent — le signal ne

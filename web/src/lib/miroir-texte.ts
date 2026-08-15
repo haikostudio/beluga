@@ -49,24 +49,38 @@ const TROP_LONG = 8000;
  * il paraît. On copie donc les réglages RÉELLEMENT calculés du champ, la même
  * liste que le miroir de mesure, et rien d'autre.
  *
- * `barreDeDefilement` est la largeur mangée à droite par l'ascenseur du champ
- * quand le texte dépasse : sans elle, le calque disposerait ses lignes sur
- * quelques pixels de plus que le champ, et les retours à la ligne diffèreraient.
+ * `fenetre` est la PART VISIBLE du champ, mesurée dans le repère de son
+ * conteneur : c'est elle, et rien d'autre, que le calque doit recouvrir. Un
+ * calque étendu à tout le conteneur (`inset-0`) déborde sur ce qui suit le
+ * champ — la rangée de boutons de la barre d'écriture —, et le texte trop long
+ * s'y écrit par-dessus. La largeur retire l'ascenseur du champ, qui rétrécit
+ * ses lignes dès que le texte dépasse ; les bordures sont retirées des deux
+ * côtés, puisque la fenêtre commence déjà DANS le champ.
  */
 export function reglagesDuChamp(zone: HTMLTextAreaElement): {
   style: Record<string, string>;
-  barreDeDefilement: number;
+  fenetre: { top: number; left: number; width: number; height: number };
 } {
   const calcule = window.getComputedStyle(zone);
   const style: Record<string, string> = {};
   for (const nom of REGLAGES) {
-    // La largeur du calque vient de son placement (inset), pas du champ.
-    if (nom === 'width' || nom === 'boxSizing') continue;
+    // La largeur du calque vient de son placement, pas du champ ; ses bordures
+    // sont déjà retirées par la fenêtre, les redire décalerait tout le texte.
+    if (nom === 'width' || nom === 'boxSizing' || nom.startsWith('border')) continue;
     style[nom] = calcule[nom];
   }
-  const bordures = (Number.parseFloat(calcule.borderLeftWidth) || 0) + (Number.parseFloat(calcule.borderRightWidth) || 0);
-  const barre = Math.max(0, zone.offsetWidth - zone.clientWidth - bordures);
-  return { style, barreDeDefilement: barre };
+  const hautBordure = Number.parseFloat(calcule.borderTopWidth) || 0;
+  const gaucheBordure = Number.parseFloat(calcule.borderLeftWidth) || 0;
+  return {
+    style,
+    fenetre: {
+      top: zone.offsetTop + hautBordure,
+      left: zone.offsetLeft + gaucheBordure,
+      // `client*` : marges intérieures comprises, bordures et ascenseur exclus.
+      width: zone.clientWidth,
+      height: zone.clientHeight,
+    },
+  };
 }
 
 function avecMiroir<T>(zone: HTMLTextAreaElement, travail: (texte: Text, miroir: HTMLDivElement) => T): T | null {

@@ -308,21 +308,26 @@ export function Composer({
    * d'être redits en classes : un seul réglage qui diffère — la hauteur de
    * ligne, par exemple — et les lignes du calque tombent à côté des vraies,
    * d'où le texte décalé, la ligne vide en trop et le curseur ailleurs qu'où
-   * il paraît. `right` retire en plus la largeur de l'ascenseur du champ, qui
-   * rétrécit ses lignes dès que le texte dépasse la hauteur du champ.
+   * il paraît. La FENÊTRE, elle, dit la part visible du champ : le calque ne
+   * couvre que celle-là, jamais la rangée de boutons qui suit le champ.
    */
-  const [calage, setCalage] = React.useState<{ style: React.CSSProperties; barre: number }>({ style: {}, barre: 0 });
+  const [calage, setCalage] = React.useState<{
+    style: React.CSSProperties;
+    fenetre: { top: number; left: number; width: number; height: number };
+  }>({ style: {}, fenetre: { top: 0, left: 0, width: 0, height: 0 } });
   React.useLayoutEffect(() => {
     const zone = textareaRef.current;
     if (!zone || !aDesDrapeaux) return;
     const mesurer = () => {
       const releve = reglagesDuChamp(zone);
       setCalage((avant) => {
-        const memeBarre = avant.barre === releve.barreDeDefilement;
+        const memeFenetre = (Object.keys(releve.fenetre) as (keyof typeof releve.fenetre)[]).every(
+          (cle) => avant.fenetre[cle] === releve.fenetre[cle],
+        );
         const memeStyle = Object.keys(releve.style).every(
           (cle) => (avant.style as Record<string, string>)[cle] === releve.style[cle],
         );
-        return memeBarre && memeStyle ? avant : { style: releve.style as React.CSSProperties, barre: releve.barreDeDefilement };
+        return memeFenetre && memeStyle ? avant : { style: releve.style as React.CSSProperties, fenetre: releve.fenetre };
       });
     };
     mesurer();
@@ -418,8 +423,9 @@ export function Composer({
    * ici ne change la largeur d'un caractère.
    */
   const calqueRef = React.useRef<HTMLDivElement | null>(null);
+  const texteCalqueRef = React.useRef<HTMLDivElement | null>(null);
   React.useLayoutEffect(() => {
-    const calque = calqueRef.current;
+    const calque = texteCalqueRef.current;
     if (!calque || !aDesDrapeaux) return;
     const marquer = () => {
       for (const drapeau of Array.from(calque.querySelectorAll<HTMLElement>('[data-prompt-file-flag]'))) {
@@ -882,15 +888,34 @@ export function Composer({
       {barreTravail}
 
       <div className={cn('relative rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
+        {/* LE CALQUE NE COUVRE QUE LA PART VISIBLE DU CHAMP, ET SA DÉCOUPE NE
+            BOUGE PAS. Deux blocs, et non un seul : une FENÊTRE posée exactement
+            sur le champ, qui coupe ce qui dépasse, et DEDANS le texte, qui seul
+            se déplace au rythme de l'ascenseur. Un unique bloc portant à la fois
+            la découpe et le déplacement emmenait sa propre fenêtre avec le
+            texte : les lignes de trop s'écrivaient alors par-dessus la rangée
+            de boutons, sous le champ. */}
         {aDesDrapeaux ? (
           <div
             aria-hidden="true"
             ref={calqueRef}
             data-prompt-calque
-            className="pointer-events-none absolute inset-0 z-20 overflow-hidden whitespace-pre-wrap break-words text-text"
-            style={{ ...calage.style, right: calage.barre, transform: `translateY(${-scrollTexte}px)` }}
+            className="pointer-events-none absolute z-20 overflow-hidden"
+            style={{
+              top: calage.fenetre.top,
+              left: calage.fenetre.left,
+              width: calage.fenetre.width,
+              height: calage.fenetre.height,
+            }}
           >
-            {texteAvecDrapeaux}
+            <div
+              ref={texteCalqueRef}
+              data-prompt-calque-texte
+              className="w-full whitespace-pre-wrap break-words text-text"
+              style={{ ...calage.style, boxSizing: 'border-box', transform: `translateY(${-scrollTexte}px)` }}
+            >
+              {texteAvecDrapeaux}
+            </div>
           </div>
         ) : null}
         {drapeauGlisse
@@ -1013,7 +1038,7 @@ export function Composer({
           rows={1}
           className={cn(
             'relative z-10 min-h-[38px] border-0 bg-transparent pr-14 focus-visible:ring-0',
-            aDesDrapeaux && 'text-transparent caret-text selection:text-transparent',
+            aDesDrapeaux && 'texte-sous-calque caret-text',
           )}
         />
 
