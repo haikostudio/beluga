@@ -27,3 +27,21 @@ test('l’avertissement nomme les agents qui seront interrompus', () => {
   assert.match(avertissementRedemarrage({ demarreA: DEMARRE, agentsEnCours: 1 }), /^Un agent travaille/);
   assert.match(avertissementRedemarrage({ demarreA: DEMARRE, agentsEnCours: 3 }), /^3 agents travaillent/);
 });
+
+test('l’avertissement nomme le projet et la nature du travail quand on les connaît', () => {
+  const texte = avertissementRedemarrage({
+    demarreA: DEMARRE,
+    agentsEnCours: 1,
+    agentsDetail: ['le chef d’orchestre du projet « Vitrine »'],
+  });
+  assert.match(texte, /le chef d’orchestre du projet « Vitrine »/);
+});
+
+test('un décompte de détails qui ne correspond pas au nombre d’agents ne s’affiche pas à moitié', () => {
+  const texte = avertissementRedemarrage({
+    demarreA: DEMARRE,
+    agentsEnCours: 2,
+    agentsDetail: ['une carte du projet « X »'],
+  });
+  assert.doesNotMatch(texte, /une carte du projet/);
+});

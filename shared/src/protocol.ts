@@ -652,6 +652,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
       demarreA: z.number(),
       construitA: z.number().optional(),
       agentsEnCours: z.number().optional(),
+      agentsDetail: z.array(z.string()).optional(),
       publications: z.array(z.string()).optional(),
       redemarrageEnAttente: z.boolean().optional(),
       redemarrageNecessaire: z.boolean(),

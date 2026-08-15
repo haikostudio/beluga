@@ -9,7 +9,7 @@ import {
 } from '@haikodev/shared';
 import { ROOT } from './config.js';
 import { bus } from './bus.js';
-import { agentsActifs } from './runtime.js';
+import { agentsActifs, agentsActifsDetail } from './runtime.js';
 import * as store from './store.js';
 import { notify, viderLesGroupes } from './notify.js';
 import { log } from './logger.js';
@@ -62,6 +62,7 @@ export function etatDemon(): EtatDemon & { redemarrageNecessaire: boolean } {
     demarreA: DEMARRE_A,
     construitA,
     agentsEnCours: agentsActifs().length,
+    agentsDetail: agentsActifsDetail(),
     publications: publicationsEnCours(),
     redemarrageEnAttente,
   };
@@ -74,7 +75,7 @@ let dernierEnvoi = '';
 /** Diffuse l'état s'il a changé. Appelé au rythme du relevé de capacité. */
 export function diffuserEtatDemon(force = false): void {
   const etat = etatDemon();
-  const signature = `${etat.redemarrageNecessaire}:${etat.agentsEnCours}:${etat.redemarrageEnAttente}:${(etat.publications ?? []).join('|')}`;
+  const signature = `${etat.redemarrageNecessaire}:${etat.agentsEnCours}:${etat.redemarrageEnAttente}:${(etat.publications ?? []).join('|')}:${(etat.agentsDetail ?? []).join('|')}`;
   if (!force && signature === dernierEnvoi) return;
   dernierEnvoi = signature;
   bus.emit({ type: 'demon', etat });
@@ -105,6 +106,7 @@ function evaluerRedemarrage(): { ok: boolean; raison?: string; enAttente: boolea
   const suite = suiteDuRedemarrage(redemarrageEnAttente, {
     publications: publicationsEnCours(),
     agents: agentsActifs().length,
+    agentsDetail: agentsActifsDetail(),
   });
   redemarrageEnAttente = suite.enAttente;
   if (suite.redemarrer) {
@@ -151,6 +153,7 @@ export function arretParSignal(signal: string): boolean {
   const decision = decisionSurSignalDArret({
     publications: publicationsEnCours(),
     agents: agentsActifs().length,
+    agentsDetail: agentsActifsDetail(),
   });
   if (decision.arreter) return true;
   redemarrageEnAttente = true;
