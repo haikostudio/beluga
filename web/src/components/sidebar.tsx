@@ -6,11 +6,13 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  Compass,
   Folder,
   FolderPlus,
   GripVertical,
   LayoutDashboard,
   Loader2,
+  Microscope,
   Palette,
   Pencil,
   Plus,
@@ -748,14 +750,19 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
   const agents = Object.values(state.agents)
     .filter((agent) => {
       if (dismissed.has(agent.id)) return false;
-      if (agent.status === 'running') return true;
+      // « starting » compte aussi : c'est un tour PARTI, même avant que son
+      // moteur n'écrive quoi que ce soit — sans quoi la pile restait muette
+      // pendant toute la préparation (lecture du projet, mémoire…), y compris
+      // pour un chef d'orchestre, une analyse ou une mise en production, que
+      // ni le tableau ni la colonne de gauche ne montrent ailleurs.
+      if (agent.status === 'running' || agent.status === 'starting') return true;
       // Un agent qui finit reste un instant avec sa mention « terminé ».
       return !!agent.endedAt && Date.now() - agent.endedAt < 60000 && agent.role !== 'analysis';
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 
   if (!agents.length) return null;
-  const running = agents.filter((agent) => agent.status === 'running').length;
+  const running = agents.filter((agent) => agent.status === 'running' || agent.status === 'starting').length;
 
   const clearAll = () => {
     const ids = agents.map((agent) => agent.id);
@@ -790,7 +797,7 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
           <div className="flex max-h-[70vh] flex-col gap-1 overflow-auto rounded-md border border-border bg-surface p-1.5 shadow-lg">
             {agents.slice(0, 6).map((agent, index) => {
               const project = state.projects.find((p) => p.id === agent.projectId);
-              const runningAgent = agent.status === 'running';
+              const runningAgent = agent.status === 'running' || agent.status === 'starting';
               return (
                 <div
                   key={agent.id}
@@ -800,17 +807,30 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                   style={{ animationDelay: `${index * 30}ms` }}
                   className="flex animate-slide-up items-center gap-1.5 rounded-md border border-border bg-bg px-2 py-1.5"
                 >
-                  {/* Un agent de PUBLICATION porte l'icône réseau/envoi, violette et
-                      clignotante tant qu'il tourne. */}
+                  {/* Un agent de rôle « task » (une carte) est le seul que le
+                      tableau montre ailleurs — les trois autres (chef
+                      d'orchestre, analyse, publication) n'ont aucun autre
+                      repère : leur icône ici est leur SEUL signe visible. */}
                   {agent.role === 'deploy' ? (
                     <UploadCloud
                       className={cn(
                         'h-3 w-3 shrink-0',
                         runningAgent ? 'text-publie animate-pulse-soft motion-reduce:animate-none' : 'text-faint',
                       )}
+                      aria-label="Mise en production"
+                    />
+                  ) : agent.role === 'orchestrator' ? (
+                    <Compass
+                      className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')}
+                      aria-label="Chef d'orchestre"
+                    />
+                  ) : agent.role === 'analysis' ? (
+                    <Microscope
+                      className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')}
+                      aria-label="Analyse"
                     />
                   ) : (
-                    <Bot className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')} />
+                    <Bot className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')} aria-label="Carte" />
                   )}
                   <button
                     onClick={(event) => {
@@ -822,7 +842,13 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                     <p className="truncate text-[13px] text-text">{agent.title}</p>
                     <p className="truncate text-[11.5px] text-faint">
                       {project?.name} · {agent.run.engine} ·{' '}
-                      {runningAgent ? elapsed(agent.startedAt) : agent.status === 'failed' ? 'échec' : 'terminé'}
+                      {agent.status === 'starting'
+                        ? 'démarre…'
+                        : runningAgent
+                          ? elapsed(agent.startedAt)
+                          : agent.status === 'failed'
+                            ? 'échec'
+                            : 'terminé'}
                     </p>
                   </button>
                   {runningAgent ? <Dot tone="running" pulse /> : null}

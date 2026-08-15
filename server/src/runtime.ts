@@ -572,8 +572,13 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   /*
    * À partir d'ici, le tour est PARTI, même si aucun processus n'existe encore :
    * l'agent compte comme occupé jusqu'au bout, pour qu'un redémarrage
-   * automatique ne le coupe pas dans la fenêtre de préparation.
+   * automatique ne le coupe pas dans la fenêtre de préparation. Le statut passe
+   * à « starting » ET part aussitôt aux clients : sans cet envoi immédiat, la
+   * pile d'agents de la colonne de gauche ne savait rien de ce tour tant que la
+   * préparation durait (lecture du projet, recherche de mémoire…) — un agent
+   * pouvait donc retenir un redémarrage sans apparaître nulle part à l'écran.
    */
+  setStatus(agent, 'starting');
   demarrant.add(agentId);
   try {
     await preparerLeTour(agent, text, options);
