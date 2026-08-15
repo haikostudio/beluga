@@ -66,6 +66,14 @@ function ToastItem({ toast, enPause }: { toast: Toast; enPause: boolean }) {
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     if ((event.target as HTMLElement).closest('button')) return;
+    /*
+     * À LA SOURIS, LE TEXTE SE SURLIGNE AVANT DE SE BALAYER. Un message d'erreur
+     * est ce qu'on veut le plus souvent copier ; or le glissement capturait le
+     * pointeur dès le premier appui, donc aucune sélection ne pouvait naître.
+     * Le geste de balayage reste entier ailleurs sur le message, et au doigt il
+     * ne change pas du tout.
+     */
+    if (event.pointerType === 'mouse' && (event.target as HTMLElement).closest('[data-toast-texte]')) return;
     depart.current = event.clientX;
     setEnGlissement(true);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -125,7 +133,15 @@ function ToastItem({ toast, enPause }: { toast: Toast; enPause: boolean }) {
           )}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block whitespace-pre-line leading-snug">{toast.text}</span>
+          {/* Le texte du message : il revient à la ligne même sur un mot sans
+              coupure (chemin, adresse, identifiant), au lieu d'être rogné par
+              le bord du cadre, et se surligne à la souris pour être copié. */}
+          <span
+            data-toast-texte
+            className="texte-copiable block whitespace-pre-line break-words leading-snug"
+          >
+            {toast.text}
+          </span>
           <span className="mt-0.5 block text-[11.5px] text-faint" data-heure-message>
             {heureEtDate(toast.at)}
           </span>

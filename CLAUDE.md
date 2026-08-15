@@ -726,6 +726,14 @@ le nom, là-bas le texte).
   le pli « replié / déplié » est retenu par `usePliDesTaches` (téléphone replié, ordinateur déplié).
   Le repère porte les DEUX repères d'écran, `data-temoin-reflexion` et `data-volet="taches"`.
   Vérifié par `scripts/verif-volet-taches.mjs`.
+- **UN TEXTE AFFICHÉ RESTE DANS SON CADRE, ET SE COPIE À LA SOURIS** (`.texte-copiable`,
+  `web/src/styles.css` ; `data-carte-texte` de `board.tsx`, `data-toast-texte` de `toasts.tsx`) : un
+  conteneur `select-none` — une carte qu'on TIRE, un message qu'on BALAIE — ne prive plus son texte de
+  sélection. La classe pose `overflow-wrap: anywhere` partout (un titre au mot insécable revient à la
+  ligne au lieu de sortir du cadre) et n'ouvre la sélection qu'au POINTEUR FIN ; au doigt, rien ne
+  change. Un glissement de souris parti d'un texte marqué ne déplace ni ne balaie, et le clic qui
+  termine une sélection faite DANS la carte n'ouvre pas son tiroir — un clic simple, si. Vérifié par
+  `scripts/verif-texte-copiable.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon
