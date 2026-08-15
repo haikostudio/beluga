@@ -975,10 +975,36 @@ export function marquerPassagesRetrouves(agentId: string, passages: PassageRetro
   setMeta(`memoire.passages.${agentId}`, JSON.stringify(tout.slice(-30)));
 }
 
+/**
+ * LES PASSAGES QUE CET AGENT A DÉJÀ SOUS LES YEUX, DANS CETTE SESSION.
+ *
+ * À distinguer de `passagesRetrouves`, qui est une trace de toute une vie pour
+ * le parcours d'une carte. Ici on ne garde que des CLÉS (`source#titre`), et
+ * seulement pour la session en cours : la recherche relancée à chaque message
+ * s'en sert pour ne jamais renvoyer deux fois le même passage. Une session
+ * neuve les oublie — le contexte du moteur repart vide.
+ */
+export function passagesServisDansLaSession(agentId: string): string[] {
+  return listeMeta(`memoire.passages.session.${agentId}`);
+}
+
+export function marquerPassagesServis(agentId: string, cles: string[]): void {
+  if (!cles.length) return;
+  const deja = passagesServisDansLaSession(agentId);
+  setMeta(
+    `memoire.passages.session.${agentId}`,
+    // Plafonné : une conversation longue ne doit pas traîner une liste sans fin,
+    // et un passage servi il y a cinquante messages n'est plus vraiment « sous
+    // les yeux » de l'agent — le contexte s'est compressé entre-temps.
+    JSON.stringify([...new Set([...deja, ...cles])].slice(-60)),
+  );
+}
+
 /** Une session neuve repart d'un contexte vide : plus rien n'est « déjà servi ». */
 export function oublierMemoireServie(agentId: string): void {
   setMeta(`memoire.vue.${agentId}`, '[]');
   setMeta(`memoire.sujets.${agentId}`, '[]');
+  setMeta(`memoire.passages.session.${agentId}`, '[]');
   // `memoire.demandes.<agent>` n'est PAS touché : c'est la trace de ce qui a
   // été lu, pas de ce que l'agent a encore sous les yeux.
 }

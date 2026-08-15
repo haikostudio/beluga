@@ -95,8 +95,21 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   l'index. Découpage par section ou par règle, index de recherche INCRÉMENTAL (migration 19).
   L'INDEX reste le REPLI : ce qui part tient sous plafond et ne doit JAMAIS peser plus que l'index
   remplacé, sinon la recherche est refusée. Les passages retrouvés sont visibles dans la BULLE
-  « Mémoire du projet retrouvée », posée sous la demande dans la conversation, et dans l'onglet
-  « Détails ».
+  « Mémoire retrouvée pour cette demande », posée sous la demande dans la conversation, et dans
+  l'onglet « Détails ».
+- **…ET LA RECHERCHE EST RELANCÉE À CHAQUE DEMANDE, plus seulement au premier tour**
+  (`shared/src/passages-de-suite.ts` ; `rechercherPourLaSuite`, `server/src/passages.ts` ;
+  `marquerPassagesServis`, `server/src/store.ts`) : une conversation change de sujet, la deuxième
+  question porte souvent sur une règle que la première n'avait aucune raison de remonter. On cherche
+  donc sur le TEXTE QUE L'UTILISATEUR VIENT D'ÉCRIRE, et la bulle montre ce qui a été trouvé pour CE
+  message — au lieu du rappel générique « reprise de session, la mémoire a déjà été transmise », qui
+  ne disait rien de la question posée. Trois garde-fous : un passage déjà servi DANS LA SESSION ne
+  repart jamais (clés `source#titre`, oubliées par `oublierMemoireServie`), le plafond est le tiers
+  de celui du lancement et le seuil de pertinence monte d'un cran (`seuilDeSuite`) — un tour de
+  suite AJOUTE, il ne remplace aucun index. Sans rien de neuf, la raison le DIT (« la recherche a
+  bien tourné sur cette demande ») ; au LANCEMENT, le repli reste l'index complet et se dit ainsi.
+  Verrouillé par `server/src/test/passages-de-suite.test.ts` et
+  `scripts/verif-memoire-a-chaque-demande.mjs`.
 - **Le SENS vient d'un VRAI modèle de vectorisation, façon RAG, et il tourne EN LOCAL**
   (`shared/src/vecteurs-doc.ts`, `server/src/vecteurs-local.ts`, `server/src/vecteurs.ts`,
   migration 27) : `BAAI/bge-m3` en 1024 dimensions, exécuté SUR CE SERVEUR — aucun octet de

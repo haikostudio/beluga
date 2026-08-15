@@ -4,6 +4,12 @@ import path from 'node:path';
 import {
   DIMENSIONS_MINIMALES,
   DOSSIER_MEMOIRE,
+  PASSAGES_SUITE_MAX,
+  PLAFOND_PASSAGES_SUITE_JETONS,
+  SCORE_MINIMUM,
+  passagesInedits,
+  seuilDeSuite,
+  texteDesPassagesDeSuite,
   DOSSIER_PLANS,
   FICHIERS_CODE_MAX,
   FICHIERS_DOC_MAX,
@@ -475,6 +481,57 @@ export interface RechercheDePassages {
  * dessus du seuil, ou une recherche qui pèserait PLUS LOURD que l'index qu'elle
  * remplace (`rechercheRentable`). Le repli n'est pas une panne : c'est la règle.
  */
+/**
+ * LE TRAVAIL COMMUN AUX DEUX RECHERCHES : indexer ce qui a changé, choisir le
+ * mode (sens réel ou mots), classer tout l'index face à la question. Ce qui
+ * DIFFÈRE — le plafond, le seuil, les passages déjà servis, le texte du bloc —
+ * reste chez l'appelant.
+ */
+async function classerPourLaQuestion(
+  projectId: string,
+  projectPath: string,
+  question: string,
+): Promise<{ classes: PassageClasse[]; mode: ModeDeRecherche } | undefined> {
+  /*
+   * ON INDEXE, ON NE VECTORISE PAS. Découper les fichiers modifiés coûte
+   * quelques centaines de millisecondes et doit être fait maintenant, sinon
+   * l'agent travaillerait sur une documentation d'hier. VECTORISER, en
+   * revanche, est un travail de fond : il se fait la nuit, pour tous les
+   * projets d'un coup (`server/src/vecteurs-nocturne.ts`). Le seul appel payé
+   * ici est celui de la QUESTION — un vecteur, quelques dizaines de
+   * millisecondes.
+   */
+  indexerDocumentation(projectId, projectPath);
+  const indexes = passagesIndexes(projectId);
+  if (!indexes.length) return undefined;
+
+  /*
+   * LE MODE se décide AVANT de classer : soit tout le monde est jugé au sens
+   * réel, soit tout le monde l'est à l'empreinte de mots. Mélanger les deux
+   * échelles ferait gagner les passages vectorisés par construction.
+   */
+  const vecteurQuestion = await vectoriserLaQuestion(question);
+  /*
+   * La couverture se juge sur la DOCUMENTATION seule : le code vient après et
+   * ne doit pas retenir la bascule (`couvertureDesVecteurs`).
+   */
+  const documents = indexes.filter((p) => p.priorite >= 0);
+  const mode = modeDeRecherche({
+    vecteurQuestion,
+    total: documents.length,
+    vectorises: documents.filter((p) => p.vecteur).length,
+  });
+
+  const classes = classerPassages(
+    indexes,
+    question,
+    mode.vecteurs
+      ? { vecteurQuestion, poids: { sens: POIDS_SENS_VECTEUR, mots: POIDS_MOTS_VECTEUR } }
+      : {},
+  );
+  return { classes, mode };
+}
+
 export async function rechercherPourLaTache(
   projectId: string,
   projectPath: string,
@@ -483,44 +540,11 @@ export async function rechercherPourLaTache(
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
-    /*
-     * ON INDEXE, ON NE VECTORISE PAS. Découper les fichiers modifiés coûte
-     * quelques centaines de millisecondes et doit être fait maintenant, sinon
-     * l'agent travaillerait sur une documentation d'hier. VECTORISER, en
-     * revanche, est un travail de fond : il se fait la nuit, pour tous les
-     * projets d'un coup (`server/src/vecteurs-nocturne.ts`). Le seul appel payé
-     * ici est celui de la QUESTION — un vecteur, quelques dizaines de
-     * millisecondes.
-     */
-    indexerDocumentation(projectId, projectPath);
-    const indexes = passagesIndexes(projectId);
-    if (!indexes.length) return undefined;
-
-    /*
-     * LE MODE se décide AVANT de classer : soit tout le monde est jugé au sens
-     * réel, soit tout le monde l'est à l'empreinte de mots. Mélanger les deux
-     * échelles ferait gagner les passages vectorisés par construction.
-     */
-    const vecteurQuestion = await vectoriserLaQuestion(question);
-    /*
-     * La couverture se juge sur la DOCUMENTATION seule : le code vient après et
-     * ne doit pas retenir la bascule (`couvertureDesVecteurs`).
-     */
-    const documents = indexes.filter((p) => p.priorite >= 0);
-    const mode = modeDeRecherche({
-      vecteurQuestion,
-      total: documents.length,
-      vectorises: documents.filter((p) => p.vecteur).length,
-    });
+    const classement = await classerPourLaQuestion(projectId, projectPath, question);
+    if (!classement) return undefined;
+    const { classes, mode } = classement;
 
     const jetonsIndex = jetonsApproches(index.texte.length);
-    const classes = classerPassages(
-      indexes,
-      question,
-      mode.vecteurs
-        ? { vecteurQuestion, poids: { sens: POIDS_SENS_VECTEUR, mots: POIDS_MOTS_VECTEUR } }
-        : {},
-    );
     const choix = choisirPassages(classes, {
       plafond: plafondDeRecherche(jetonsIndex),
       minimum: mode.vecteurs ? SCORE_MINIMUM_VECTEUR : undefined,
@@ -548,6 +572,57 @@ export async function rechercherPourLaTache(
     return undefined;
   } catch (err) {
     log.warn(`recherche de passages impossible : ${(err as Error).message}`);
+    return undefined;
+  }
+}
+
+/**
+ * LA RECHERCHE POUR UN MESSAGE DE SUITE — la deuxième question, la dixième.
+ *
+ * La session est déjà ouverte : l'index de la mémoire est parti au premier tour
+ * et ne repart pas. Rien n'était donc cherché du tout, et l'utilisateur voyait
+ * une bulle « Mémoire du projet retrouvée » qui ne portait qu'un rappel
+ * générique — alors que sa question, elle, était neuve.
+ *
+ * On cherche donc sur le texte QU'IL VIENT D'ÉCRIRE, et on ne garde que ce
+ * qu'il n'a pas déjà reçu dans cette session (`dejaServies`, des clés
+ * `source#titre`). Trois différences avec le lancement : plafond plus bas, seuil
+ * plus exigeant, aucun index à remplacer — donc aucun test de rentabilité, ces
+ * passages n'économisent rien, ils ajoutent le peu qui manque.
+ */
+export async function rechercherPourLaSuite(
+  projectId: string,
+  projectPath: string,
+  question: string,
+  dejaServies: Iterable<string>,
+): Promise<RechercheDePassages | undefined> {
+  if (!question.trim()) return undefined;
+  try {
+    const classement = await classerPourLaQuestion(projectId, projectPath, question);
+    if (!classement) return undefined;
+
+    const candidats = passagesInedits(classement.classes, dejaServies);
+    if (!candidats.length) return undefined;
+
+    const choix = choisirPassages(candidats, {
+      plafond: PLAFOND_PASSAGES_SUITE_JETONS,
+      max: PASSAGES_SUITE_MAX,
+      minimum: seuilDeSuite(classement.mode.vecteurs ? SCORE_MINIMUM_VECTEUR : SCORE_MINIMUM),
+      maxCode: PASSAGES_CODE_MAX,
+    });
+    if (!choix.gardes.length) return undefined;
+
+    const texte = texteDesPassagesDeSuite(choix.gardes);
+    return {
+      texte,
+      passages: choix.gardes,
+      jetons: jetonsApproches(texte.length),
+      jetonsIndex: 0,
+      ecartes: choix.ecartes,
+      mode: classement.mode,
+    };
+  } catch (err) {
+    log.warn(`recherche de passages (tour de suite) impossible : ${(err as Error).message}`);
     return undefined;
   }
 }

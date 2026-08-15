@@ -76,6 +76,8 @@ import {
   observerContexte,
   poidsDeTour,
   raisonAbsenceDePassages,
+  clePassage,
+  libelleDesPassagesDeSuite,
   consigneEspaceDuChef,
   detailDuRefus,
   resumeContinuite,
@@ -106,7 +108,7 @@ import {
   memorySummary,
   newFactsSince,
 } from './memory.js';
-import { rechercherPourLaTache } from './passages.js';
+import { rechercherPourLaSuite, rechercherPourLaTache } from './passages.js';
 import { allDone, mergeTodos } from './todos.js';
 import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
@@ -676,22 +678,50 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
    * Le chef d'orchestre n'est pas concerné : son accueil `tri` n'emporte aucune
    * mémoire, la recherche n'a donc rien à remplacer chez lui.
    */
-  const recherche = nouvelleSession && partsDAccueil(niveau).memoire
-    ? await rechercherPourLaTache(
-        project.id,
-        project.path,
-        [card?.title, card?.description, text].filter(Boolean).join('\n'),
-        { texte: blocMemoire(project.path), faits: memoryFacts(project.path).length },
-      )
-    : undefined;
   /*
-   * POURQUOI AUCUN PASSAGE, dit en clair pour le tiroir « Contexte envoyé » —
-   * jamais une case à zéro sans explication (`raisonAbsenceDePassages`,
-   * shared/src/couches-tokens.ts, pure et testée seule).
+   * ...ET ELLE NE S'ARRÊTE PLUS AU PREMIER TOUR. La deuxième question d'une
+   * conversation porte souvent sur une règle que la première n'avait aucune
+   * raison de remonter : on cherche donc à CHAQUE demande, sur le texte que
+   * l'utilisateur vient d'écrire, et la bulle montre ce qui a été trouvé POUR
+   * CE MESSAGE. Un passage déjà servi dans la session ne repart pas, le plafond
+   * est plus bas et le seuil plus exigeant (`shared/src/passages-de-suite.ts`).
+   */
+  const memoireALAccueil = partsDAccueil(niveau).memoire;
+  // La QUESTION du tour : au lancement, tout ce qui décrit la tâche ; ensuite,
+  // le seul message qu'on vient de lire — c'est lui, la question neuve.
+  const question = nouvelleSession
+    ? [card?.title, card?.description, text].filter(Boolean).join('\n')
+    : text;
+  const rechercheTentee = memoireALAccueil && Boolean(question.trim());
+  const recherche = !rechercheTentee
+    ? undefined
+    : nouvelleSession
+      ? await rechercherPourLaTache(project.id, project.path, question, {
+          texte: blocMemoire(project.path),
+          faits: memoryFacts(project.path).length,
+        })
+      : await rechercherPourLaSuite(
+          project.id,
+          project.path,
+          question,
+          store.passagesServisDansLaSession(agent.id),
+        );
+  /*
+   * POURQUOI AUCUN PASSAGE, dit en clair pour la bulle de mémoire et le lecteur
+   * de prompts — jamais une case à zéro sans explication
+   * (`raisonAbsenceDePassages`, shared/src/couches-tokens.ts, pure et testée
+   * seule). Une recherche qui a TOURNÉ sans rien rapporter le dit ainsi : dire
+   * « reprise de session » serait faux, et c'est justement ce qu'on vérifie.
    */
   const passagesRaison = recherche
     ? undefined
-    : raisonAbsenceDePassages({ nouvelleSession, accueilEmporteLaMemoire: partsDAccueil(niveau).memoire });
+    : raisonAbsenceDePassages({
+        nouvelleSession,
+        accueilEmporteLaMemoire: memoireALAccueil,
+        // Seulement sur un tour de SUITE : au lancement, le repli est l'index
+        // complet de la mémoire, et c'est ce fait-là qu'il faut dire.
+        rechercheTentee: rechercheTentee && !nouvelleSession,
+      });
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, compétences)
@@ -727,21 +757,6 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
         content: memoire,
       });
       memoryAndInstructionsCharacters += memoire.length;
-    }
-    // Ce que la recherche est allée chercher se retient : le tiroir « Contexte
-    // envoyé » et le parcours de la carte le montrent, source et pertinence
-    // comprises. Trace durable, comme les sujets de mémoire demandés.
-    if (recherche) {
-      store.marquerPassagesRetrouves(
-        agent.id,
-        recherche.passages.map((passage) => ({
-          source: passage.source,
-          titre: passage.titre,
-          score: Math.round(passage.score * 1000) / 1000,
-          tokens: passage.jetons,
-          texte: passage.texte,
-        })),
-      );
     }
     // Session neuve : l'agent repart d'un contexte vide — plus rien de ce qui
     // lui a été servi avant n'y est. On oublie les sujets déjà donnés, sinon
@@ -780,6 +795,44 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
       memoryAndInstructionsCharacters += ajout.length;
       store.setMemorySeen(agent.id, empreintesDesFaits(project.path));
     }
+    /*
+     * LES PASSAGES TROUVÉS POUR CE MESSAGE-CI. La session est déjà ouverte : le
+     * briefing et l'index ne repartent pas, mais ce que la recherche vient de
+     * remonter pour cette question, si — c'est tout l'intérêt de relancer la
+     * recherche à chaque tour. Le bloc dit lui-même qu'il est un complément
+     * (`texteDesPassagesDeSuite`).
+     */
+    if (recherche) {
+      contextParts.push({
+        label: libelleDesPassagesDeSuite(recherche.passages.length),
+        kind: 'memory',
+        content: recherche.texte,
+      });
+      memoryAndInstructionsCharacters += recherche.texte.length;
+    }
+  }
+
+  /*
+   * CE QUE LA RECHERCHE EST ALLÉE CHERCHER SE RETIENT, à chaque tour et non au
+   * seul premier. Deux traces, pour deux usages :
+   *  - la DURABLE (`marquerPassagesRetrouves`) : le parcours d'une carte doit
+   *    pouvoir dire des mois plus tard ce que l'agent est allé lire ;
+   *  - celle de la SESSION (`marquerPassagesServis`) : elle empêche le tour
+   *    suivant de renvoyer un passage que l'agent a déjà sous les yeux.
+   * Posée APRÈS `oublierMemoireServie`, qui vide la seconde sur session neuve.
+   */
+  if (recherche) {
+    store.marquerPassagesRetrouves(
+      agent.id,
+      recherche.passages.map((passage) => ({
+        source: passage.source,
+        titre: passage.titre,
+        score: Math.round(passage.score * 1000) / 1000,
+        tokens: passage.jetons,
+        texte: passage.texte,
+      })),
+    );
+    store.marquerPassagesServis(agent.id, recherche.passages.map((passage) => clePassage(passage)));
   }
 
   /*
