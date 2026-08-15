@@ -18,6 +18,7 @@
  */
 
 import {
+  ATTENTE_PLACE_MAX_MS,
   consigneDAutoAmelioration,
   decisionDuRendezVous,
   heritageAnalyseDeProposition,
@@ -30,12 +31,28 @@ import type { Project, RaisonDeSauter, TaskProposal } from '@haikodev/shared';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import { bus } from './bus.js';
-import { createAgent, runningCount, sendPrompt } from './runtime.js';
+import { createAgent, sendPrompt } from './runtime.js';
 import { createCard } from './tools.js';
+import { canStartAgent } from './capacity.js';
 import * as store from './store.js';
 
 /** L'instant du dernier rendez-vous, tenu ou seulement tenté. */
 const CLE_DERNIER_PASSAGE = 'auto-amelioration.dernier-passage';
+
+/**
+ * Depuis quand le rendez-vous ATTEND une place pour la nuit en cours — posée
+ * dès le premier refus « travail-en-cours », effacée dès que le tour part
+ * (ou que la nuit est abandonnée, `ATTENTE_PLACE_MAX_MS` dépassé). C'est elle qui
+ * permet aux essais suivants de continuer même une fois sorti de la fenêtre
+ * 3 h-5 h, au lieu de se faire refuser pour « pas-l-heure » à 6 h.
+ */
+const CLE_ATTENTE_DEPUIS = 'auto-amelioration.attente-depuis';
+
+function attenteDepuis(): number | undefined {
+  const brut = getMeta(CLE_ATTENTE_DEPUIS);
+  const valeur = brut ? Number(brut) : NaN;
+  return Number.isFinite(valeur) ? valeur : undefined;
+}
 
 /**
  * À quel rythme on REGARDE si le rendez-vous doit partir. Dix minutes : assez
@@ -138,18 +155,42 @@ export async function rendezVousDAutoAmelioration(): Promise<{
 
   const maintenant = Date.now();
   const projet = projetDuRendezVous();
+  // Une attente PÉRIMÉE (nuit d'avant, abandonnée) ne doit pas empêcher la
+  // nuit suivante d'en ouvrir une nouvelle : sans ce nettoyage, le prochain
+  // refus « travail-en-cours » verrait `attente` déjà défini et ne poserait
+  // pas de NOUVEAU départ d'attente, empêchant cette nuit-là de dépasser la
+  // fenêtre 3 h-5 h à son tour.
+  const brute = attenteDepuis();
+  const attente = brute !== undefined && maintenant - brute >= ATTENTE_PLACE_MAX_MS ? undefined : brute;
+  if (brute !== undefined && attente === undefined) setMeta(CLE_ATTENTE_DEPUIS, '');
   const decision = decisionDuRendezVous({
     projetPresent: !!projet,
     dernierPassage: dernierPassage(),
     maintenant,
     heureCourante: new Date(maintenant).getHours(),
-    travauxEnCours: runningCount(),
+    placeLibre: canStartAgent().ok,
+    enAttenteDepuis: attente,
   });
   if (!decision.lancer) {
+    // Le premier refus « travail-en-cours » marque le début de l'attente ;
+    // les suivants ne font que la prolonger (rien à réécrire), et ne se
+    // journalisent pas : ils reviendraient toutes les dix minutes pendant des
+    // heures pour ne rien dire de neuf.
+    if (decision.raison === 'travail-en-cours' && attente === undefined) {
+      setMeta(CLE_ATTENTE_DEPUIS, String(maintenant));
+      log.info(`auto-amélioration : ${raisonDite(decision.raison)}`);
+    }
     return { lance: false, raison: raisonDite(decision.raison), motif: decision.raison };
   }
   // `projetPresent` vient d'être vérifié : le projet existe forcément ici.
   const cible = projet!;
+
+  if (attente !== undefined) {
+    log.info(
+      `auto-amélioration : une place s'est libérée après ${Math.round((maintenant - attente) / 60000)} min d'attente`,
+    );
+  }
+  setMeta(CLE_ATTENTE_DEPUIS, '');
 
   /*
    * La date est notée AVANT le tour, et non après. Un tour d'analyse peut durer
@@ -196,14 +237,12 @@ export async function rendezVousDAutoAmelioration(): Promise<{
  */
 export function planifierAutoAmelioration(): NodeJS.Timeout {
   return setInterval(() => {
-    void rendezVousDAutoAmelioration().then((resultat) => {
-      // Un rendez-vous sauté ne se journalise pas : « ce n'est pas l'heure »
-      // reviendrait des dizaines de fois par jour et remplirait le journal pour
-      // rien. Le REPORT, lui, se dit : il arrive dans la fenêtre de la nuit, et
-      // c'est la seule trace d'une nuit passée sans analyse.
-      if (!resultat.lance && resultat.motif === 'travail-en-cours') {
-        log.info(`auto-amélioration : ${resultat.raison}`);
-      }
-    });
+    // Un rendez-vous sauté ne se journalise pas : « ce n'est pas l'heure »
+    // reviendrait des dizaines de fois par jour et remplirait le journal pour
+    // rien. Le début et la fin d'une attente se journalisent déjà à l'intérieur
+    // de `rendezVousDAutoAmelioration`, pas ici : sinon un manque de place se
+    // redirait toutes les dix minutes pendant des heures pour ne rien apprendre
+    // de neuf.
+    void rendezVousDAutoAmelioration();
   }, PERIODE_DE_VEILLE_MS);
 }
