@@ -52,6 +52,7 @@ import {
   ligneEtatCerveau,
   origineEnClair,
   validerCleCerveau,
+  detailDesAgents,
   partMemoire,
   phraseCapacite,
   tauxOccupation,
@@ -230,18 +231,26 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
             <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-[17px] font-semibold text-text">{phraseCapacite(capacity)}</span>
               <span className="text-[12.5px] text-faint">
-                {capacity.runningAgents} en cours · plafond {capacity.maxAgents} · mémoire moyenne mesurée{' '}
+                {detailDesAgents(capacity)} · plafond {capacity.maxAgents} · mémoire moyenne mesurée{' '}
                 {capacity.avgAgentMemMb} Mo
               </span>
             </div>
             <p className="mt-1 text-[12.5px] leading-relaxed text-faint">
               La barre montre les places d'agents occupées, rien d'autre : elle ne devient rouge que lorsqu'aucun agent
-              ne peut plus démarrer.
+              ne peut plus démarrer, faute de mémoire ou de place sous le plafond.
             </p>
 
-            {ton === 'tendu' ? (
+            {/* Le manque de place et le frein processeur sont DEUX choses : on
+                ne dit plus « plus aucun agent ne peut démarrer » pour une
+                pointe de charge d'une minute. */}
+            {ton === 'tendu' && !capacity.loadHoldReason ? (
               <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
                 Il ne reste presque plus de place : les prochaines tâches attendront leur tour.
+              </p>
+            ) : null}
+            {capacity.loadHoldReason ? (
+              <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
+                {capacity.loadHoldReason}
               </p>
             ) : null}
             {capacity.paused ? (
@@ -262,7 +271,13 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
               <Mesure
                 titre="Charge processeur"
                 valeur={`${Math.round(capacity.cpuLoadPct ?? capacity.loadPct)} %`}
-                detail={`${capacity.cpuCount} cœurs — au-delà de 120 % la machine freine les départs`}
+                detail={
+                  capacity.cpuLoadSustainedPct === undefined
+                    ? `${capacity.cpuCount} cœurs`
+                    : `${capacity.cpuCount} cœurs — ${Math.round(
+                        capacity.cpuLoadSustainedPct,
+                      )} % sur un quart d'heure, et c'est ce chiffre-là qui freine les départs`
+                }
               />
             </div>
 

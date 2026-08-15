@@ -265,6 +265,10 @@ await page.addInitScript((id) => {
   };
   window.__tours = [];
   window.__etats = {};
+  /* Les réponses données AUX QUESTIONS de l'agent : elles ne passent pas par
+     `procedure.tour` (aucun tour de plus n'est payé) mais par la commande des
+     questions, celle qui rend la main à l'appel d'outil arrêté. */
+  window.__reponses = [];
   /* De quoi jouer les cas qui font mal : un tour LENT (le témoin doit vivre et
      s'éteindre), un tour qui TOMBE (il doit le dire), un tour PERDU (serveur
      redémarré : l'état disparaît). */
@@ -287,6 +291,28 @@ await page.addInitScript((id) => {
     if (cmd?.type === 'procedure.etat') {
       const etat = window.__perdre ? null : (window.__etats[cle(cmd.projectId, cmd.cible)] ?? null);
       setTimeout(() => window.__injecter({ id: enveloppe.id, type: 'ack', ok: true, data: { etat } }), 20);
+      return;
+    }
+
+    if (cmd?.type === 'question.answer') {
+      window.__reponses.push({ questionId: cmd.questionId, answer: cmd.answer });
+      const k = window.__cleQuestion;
+      const courant = k ? window.__etats[k] : null;
+      if (courant) {
+        /* Le serveur retire la question et note l'échange : on fait pareil. */
+        const suite = {
+          ...courant,
+          question: undefined,
+          echanges: [
+            ...(courant.echanges ?? []),
+            { qui: 'agent', texte: courant.question?.texte ?? '' },
+            { qui: 'moi', texte: cmd.answer },
+          ],
+        };
+        window.__etats[k] = suite;
+        setTimeout(() => window.__injecter({ type: 'procedure', etat: suite }), 30);
+      }
+      setTimeout(() => window.__injecter({ id: enveloppe.id, type: 'ack', ok: true, data: {} }), 20);
       return;
     }
 
@@ -493,10 +519,18 @@ noter(
   JSON.stringify(apresTout),
 );
 
-/* L'icône de réglages rouvre le MÊME tiroir, avec la procédure déjà en place. */
+/* ------------------------------------------------------------------ */
+/* L'ICÔNE DE RÉGLAGES NE PAIE PLUS UN AGENT À CHAQUE CLIC             */
+/*                                                                      */
+/* Elle relançait un agent complet, qui relisait tout le projet pour     */
+/* reposer une question déjà tranchée. Elle montre maintenant ce qui     */
+/* existe, et rien ne part sans un geste.                               */
+/* ------------------------------------------------------------------ */
+
+const avantReglages = await compterTours();
 await page.click('[data-reglages-procedure="dev"]');
 await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
-await page.waitForTimeout(800);
+await page.waitForTimeout(900);
 const relu = await page.evaluate(
   () => document.querySelector('[data-tiroir-procedure="dev"] [data-procedure-actuelle]')?.textContent ?? '',
 );
@@ -505,13 +539,74 @@ noter(
   relu.includes('Procédure dev ::'),
   relu.trim().slice(0, 80),
 );
+noter('… et n’envoie AUCUN agent relire le projet', (await compterTours()) === avantReglages);
+noter(
+  '… le tiroir dit qu’il attend un geste, et propose de reposer la question',
+  (await present('[data-procedure-en-attente]')) && (await present('[data-reposer-question]')),
+);
+
+/* Reposer la question reste possible — mais c'est un geste, et il est payé. */
+await page.click('[data-reposer-question]');
+await page.waitForTimeout(900);
+noter('reposer la question à la main paie un tour, et un seul', (await compterTours()) === avantReglages + 1);
+
+/* ------------------------------------------------------------------ */
+/* LA QUESTION DE L'AGENT S'AFFICHE DANS LE TIROIR, ET S'Y RÉPOND      */
+/*                                                                      */
+/* Elle vient de l'outil `ask_user`, qui arrête le tour jusqu'à la      */
+/* réponse : elle paraissait dans la cloche du bandeau et nulle part    */
+/* dans le tiroir ouvert dessous.                                       */
+/* ------------------------------------------------------------------ */
+
+await page.evaluate(() => {
+  const k = `${window.__idProjet}:dev`;
+  window.__cleQuestion = k;
+  const etat = {
+    ...(window.__etats[k] ?? { projectId: window.__idProjet, cible: 'dev', echanges: [] }),
+    agentId: 'a-essai',
+    enCours: true,
+    depuis: Date.now(),
+    question: {
+      messageId: 'm-essai',
+      questionId: 'q-essai',
+      texte: 'Quel service faut-il redémarrer ?',
+      options: [{ id: 'o0', label: 'haikodev' }],
+    },
+  };
+  window.__etats[k] = etat;
+  window.__injecter({ type: 'procedure', etat });
+});
+await page.waitForTimeout(600);
+const posee = await texteDe('[data-tiroir-procedure="dev"] [data-question-procedure]');
+noter('la question de l’agent s’affiche DANS le tiroir', posee.includes('Quel service'), posee.slice(0, 80));
+noter('… avec ses choix cliquables', await present('[data-option-procedure]'));
+
+/* Un tour tourne encore : c'est justement de cette réponse qu'il a besoin. */
+await page.fill('[data-reponse-procedure]', 'le service haikodev');
+await page.waitForTimeout(200);
+noter(
+  '… et le champ de réponse reste actif malgré le tour en cours',
+  !(await page.isDisabled('[data-envoyer-procedure]')),
+);
+
+const avantReponse = await compterTours();
+await page.click('[data-option-procedure]');
+await page.waitForTimeout(700);
+const reponses = await page.evaluate(() => window.__reponses);
+noter(
+  'un clic sur un choix répond à l’agent arrêté, sans payer de tour',
+  reponses.length === 1 && reponses[0].answer === 'haikodev' && (await compterTours()) === avantReponse,
+  JSON.stringify(reponses),
+);
+noter('la question répondue laisse sa trace dans le fil', !(await present('[data-question-procedure]')));
 
 /*
  * TOUS les tours partis, dans l'ordre. Chacun porte la cible de la colonne d'où
  * il vient, et il n'y en a pas UN de trop : ouverture « dev » (la réouverture
  * pendant le tour n'en repaie aucun), production tombée puis relancée à la
- * main, la réponse de chaque étape, et la réouverture par l'icône de réglages —
- * celle-là repart bien d'une question neuve, la procédure étant déjà écrite.
+ * main, la réponse de chaque étape — puis le SEUL tour de la réouverture, celui
+ * qu'on a demandé en cliquant « Reposer la question ». L'icône de réglages,
+ * elle, n'en paie plus aucun.
  */
 const cibles = await page.evaluate(() => window.__tours.map((t) => t.cible).join(','));
 noter(

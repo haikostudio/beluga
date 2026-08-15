@@ -516,6 +516,22 @@ export const EtatProcedure = z.object({
   procedure: z.string().optional(),
   raison: z.string().optional(),
   depuis: z.number().optional(),
+  /**
+   * La question posée par l'outil `ask_user` de l'agent, tant qu'elle attend
+   * une réponse. Elle s'affichait dans la cloche du bandeau et NULLE PART dans
+   * le tiroir ouvert dessous : elle voyage donc avec l'état du dialogue, avec
+   * de quoi y répondre sur place.
+   */
+  question: z
+    .object({
+      messageId: z.string(),
+      questionId: z.string(),
+      texte: z.string(),
+      options: z
+        .array(z.object({ id: z.string(), label: z.string(), description: z.string().optional() }))
+        .default([]),
+    })
+    .optional(),
 });
 export type EtatProcedure = z.infer<typeof EtatProcedure>;
 

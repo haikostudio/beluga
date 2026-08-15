@@ -1,9 +1,12 @@
 import {
   CiblePublication,
   EtatDeProcedure,
+  Message,
   PROCEDURE_MAX,
+  QuestionDeProcedure,
   issueDuTour,
   procedureDeLEtape,
+  promptModificationProcedure,
   promptOuvertureProcedure,
   promptReponseProcedure,
   titreDeLaProcedure,
@@ -62,10 +65,89 @@ function poser(etat: EtatDeProcedure): EtatDeProcedure {
   return etat;
 }
 
-/** Le dialogue de cette étape, quand il y en a un. Aucun tour n'est lancé ici. */
-export function etatDeProcedure(projectId: string, cible: CiblePublication): EtatDeProcedure | null {
-  return dialogues.get(cleDuDialogue(projectId, cible)) ?? null;
+/**
+ * LA QUESTION QUE L'AGENT A POSÉE AVEC SON OUTIL, relue dans ses messages.
+ *
+ * `ask_user` arrête le tour jusqu'à la réponse : la question s'affichait donc
+ * dans la cloche du bandeau, avec toutes les autres décisions attendues, et
+ * nulle part dans le tiroir ouvert juste dessous — qui restait sur « L'agent
+ * travaille… ». On va la chercher là où elle est rangée, sur le message de
+ * l'agent, et on la porte dans l'état du dialogue.
+ */
+function questionDuMessage(message: Message): QuestionDeProcedure | undefined {
+  const ouverte = [...message.questions].reverse().find((q) => !q.answer && !q.cancelled);
+  if (!ouverte) return undefined;
+  return {
+    messageId: message.id,
+    questionId: ouverte.id,
+    texte: ouverte.question,
+    options: ouverte.options.map((option) => ({
+      id: option.id,
+      label: option.label,
+      description: option.description,
+    })),
+  };
 }
+
+/** La question ouverte de cet agent, s'il en a une : le dernier message gagne. */
+function questionDeLAgent(agentId: string | undefined): QuestionDeProcedure | undefined {
+  if (!agentId) return undefined;
+  const messages = store.listMessages(agentId, 30);
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const question = questionDuMessage(messages[i]);
+    if (question) return question;
+  }
+  return undefined;
+}
+
+/**
+ * Le dialogue de cette étape, quand il y en a un. Aucun tour n'est lancé ici.
+ *
+ * La question ouverte est RELUE à chaque lecture : un tiroir rouvert après une
+ * coupure la retrouve, même si l'événement qui l'annonçait est passé pendant
+ * que personne n'écoutait.
+ */
+export function etatDeProcedure(projectId: string, cible: CiblePublication): EtatDeProcedure | null {
+  const etat = dialogues.get(cleDuDialogue(projectId, cible));
+  if (!etat) return null;
+  const question = questionDeLAgent(etat.agentId);
+  return question ? { ...etat, question } : { ...etat, question: undefined };
+}
+
+/**
+ * L'AGENT POSE SA QUESTION, LE TIROIR L'APPREND TOUT DE SUITE.
+ *
+ * On écoute les messages qui bougent : dès que celui d'un agent de dialogue
+ * porte une question sans réponse — ou qu'elle vient d'être tranchée —, l'état
+ * est reposé et diffusé. Sans cela, le tiroir ne l'aurait vue qu'au prochain
+ * sondage, ou jamais.
+ */
+bus.subscribe((event) => {
+  if (event.type !== 'message.upsert') return;
+  for (const etat of dialogues.values()) {
+    if (etat.agentId !== event.message.agentId) continue;
+    const question = questionDeLAgent(etat.agentId);
+    if ((question?.questionId ?? null) === (etat.question?.questionId ?? null)) return;
+    /*
+     * Une question TRANCHÉE laisse sa trace dans le fil du tiroir : sans cela,
+     * la question et la réponse disparaissaient de l'écran d'un coup, et l'on
+     * ne savait plus ce qu'on avait répondu à l'agent qui travaille encore.
+     */
+    const tranchee = etat.question
+      ? event.message.questions.find((q) => q.id === etat.question?.questionId)
+      : undefined;
+    const echanges =
+      tranchee?.answer
+        ? [
+            ...etat.echanges,
+            { qui: 'agent' as const, texte: etat.question!.texte },
+            { qui: 'moi' as const, texte: tranchee.answer },
+          ]
+        : etat.echanges;
+    poser({ ...etat, echanges, question });
+    return;
+  }
+});
 
 /**
  * Enregistre la procédure sur la CIBLE demandée, et sur elle seule.
@@ -156,14 +238,28 @@ export function tourDeProcedure(input: {
     depuis: store.now(),
   });
 
-  const prompt = reponse
-    ? promptReponseProcedure(input.cible, reponse)
-    : promptOuvertureProcedure(input.cible, {
-        projet: projet.name,
-        dossier: projet.path,
-        devUrl: projet.devUrl,
-        actuelle: procedureDeLEtape(projet, input.cible) || undefined,
-      });
+  /*
+   * QUEL PROMPT ? Il dépend de ce que l'agent a DÉJÀ dans sa session.
+   *  - une réponse dans un dialogue en cours → il a lu le projet et posé la
+   *    question : sa réponse suffit ;
+   *  - une demande de MODIFICATION arrivée sur un tiroir rouvert (le dialogue
+   *    d'avant a disparu, il ne vivait qu'en mémoire) → l'agent est neuf, il
+   *    lui faut le projet, la procédure actuelle ET la demande ;
+   *  - rien d'écrit → l'ouverture, l'agent lit le projet et demande.
+   */
+  const actuelle = procedureDeLEtape(projet, input.cible) || undefined;
+  const dialogueEnCours = !!courant?.echanges.length && !!reprenable;
+  const contexte = {
+    projet: projet.name,
+    dossier: projet.path,
+    devUrl: projet.devUrl,
+    actuelle,
+  };
+  const prompt = !reponse
+    ? promptOuvertureProcedure(input.cible, contexte)
+    : dialogueEnCours
+      ? promptReponseProcedure(input.cible, reponse)
+      : promptModificationProcedure(input.cible, contexte, reponse);
 
   void mener(etat, prompt, reponse);
   return etat;
@@ -196,7 +292,20 @@ async function mener(depart: EtatDeProcedure, prompt: string, reponse: string): 
     statut: agent?.status,
     erreur: erreur ?? dernier?.error,
   });
-  const fini = { ...depart, enCours: false, depuis: undefined };
+  /*
+   * L'instant du tour est GARDÉ : il ne sert plus seulement à afficher une
+   * durée, il dit aussi si la question rendue est encore fraîche à la
+   * réouverture du tiroir. L'effacer faisait passer toute question posée
+   * pendant que le tiroir était fermé pour une vieillerie — donc un tour
+   * repayé. La question de l'outil, elle, est retombée avec le tour.
+   */
+  /*
+   * On repart de l'état RANGÉ, pas de celui du départ : le tour a pu se voir
+   * ajouter des bulles pendant qu'il tournait (une question de l'agent, la
+   * réponse qu'on lui a faite). Rendre `depart` les effacerait.
+   */
+  const courant = dialogues.get(cleDuDialogue(depart.projectId, depart.cible)) ?? depart;
+  const fini = { ...courant, enCours: false, question: undefined };
 
   if ('procedure' in issue) {
     if (!enregistrerProcedure(depart.projectId, depart.cible, issue.procedure, reponse)) {
@@ -206,13 +315,13 @@ async function mener(depart: EtatDeProcedure, prompt: string, reponse: string): 
     poser({
       ...fini,
       procedure: issue.procedure,
-      echanges: [...depart.echanges, { qui: 'agent', texte: 'La procédure est écrite et enregistrée.' }],
+      echanges: [...fini.echanges, { qui: 'agent', texte: 'La procédure est écrite et enregistrée.' }],
     });
     return;
   }
 
   if ('question' in issue) {
-    poser({ ...fini, echanges: [...depart.echanges, { qui: 'agent', texte: issue.question }] });
+    poser({ ...fini, echanges: [...fini.echanges, { qui: 'agent', texte: issue.question }] });
     return;
   }
 

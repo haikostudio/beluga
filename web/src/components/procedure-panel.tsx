@@ -1,10 +1,12 @@
 import * as React from 'react';
-import { Loader2, RotateCw, Settings2, Sparkles, Check, X } from 'lucide-react';
+import { Loader2, MessageCircleQuestion, RotateCw, Settings2, Sparkles, Check, X } from 'lucide-react';
 import {
   CiblePublication,
+  LIBELLE_REPOSER_LA_QUESTION,
   RAISON_TOUR_PERDU,
   libelleInitier,
   libelleReglages,
+  mentionProcedureEnPlace,
   phraseDeTravail,
   procedureDeLEtape,
   repriseDuDialogue,
@@ -62,6 +64,12 @@ export function TiroirProcedure({
   const ecrite = etat?.procedure ?? null;
   const erreur = etat?.raison ?? erreurLocale;
   const actuelle = cible ? procedureDeLEtape(projet, cible) : '';
+  /* La question posée par l'outil de l'agent : elle attend ICI, pas seulement
+     dans la cloche du bandeau. Tant qu'elle est là, on répond à ELLE. */
+  const question = etat?.question ?? null;
+  /* Une procédure est déjà écrite et rien ne tourne : le tiroir ne demande
+     RIEN à un agent tant qu'on ne le lui dit pas. */
+  const enAttenteDeGeste = !!actuelle && !enCours && !question && !bulles.length && !ecrite && !erreur;
 
   /* La dernière étape de l'agent : elle prouve, seconde après seconde, que le
      tour est bien VIVANT — un témoin muet ne se distingue pas d'un blocage. */
@@ -91,6 +99,11 @@ export function TiroirProcedure({
    * À L'OUVERTURE, on demande d'abord l'ÉTAT : un tour déjà en train de tourner
    * se rejoint (on n'en paie pas un second), une question posée pendant que le
    * tiroir était fermé se relit, et ce n'est qu'à défaut qu'un tour part.
+   *
+   * ET SI UNE PROCÉDURE EST DÉJÀ ÉCRITE, RIEN NE PART. L'icône de réglages
+   * relançait un agent complet à chaque clic — il relisait tout le projet pour
+   * reposer une question déjà tranchée. Le tiroir montre alors ce qui existe et
+   * attend : on écrit ce qu'on veut changer, ou on repose la question soi-même.
    */
   React.useEffect(() => {
     if (!open || !cible) return;
@@ -101,8 +114,12 @@ export function TiroirProcedure({
       try {
         const res: any = await client.call({ type: 'procedure.etat', projectId, cible });
         if (!vivant) return;
-        client.majProcedure(projectId, cible, res?.etat ?? null);
-        if (repriseDuDialogue(res?.etat ?? null, Date.now()) === 'relancer') await lancer();
+        const reprise = repriseDuDialogue(res?.etat ?? null, Date.now(), !!actuelle);
+        /* « proposer » : le dialogue d'avant a abouti, sa procédure est
+           désormais SUR LE PROJET. On repart donc de l'écran propre — la
+           procédure en place — au lieu de rejouer un échange déjà clos. */
+        client.majProcedure(projectId, cible, reprise === 'proposer' ? null : (res?.etat ?? null));
+        if (reprise === 'relancer') await lancer();
       } catch (err: any) {
         if (vivant) setErreurLocale(err?.message ?? 'le serveur n’a pas répondu');
       }
@@ -140,9 +157,33 @@ export function TiroirProcedure({
 
   if (!cible) return null;
 
+  /*
+   * RÉPONDRE À LA QUESTION DE L'AGENT, DEPUIS LE TIROIR. Elle vient de l'outil
+   * `ask_user` : son tour est ARRÊTÉ dessus, la réponse lui est rendue dans
+   * l'appel même et il reprend aussitôt — aucun tour de plus n'est payé.
+   */
+  const repondreALaQuestion = async (texte: string) => {
+    if (!question || !texte.trim()) return;
+    setSaisie('');
+    setErreurLocale(null);
+    try {
+      await client.call({
+        type: 'question.answer',
+        messageId: question.messageId,
+        questionId: question.questionId,
+        answer: texte.trim(),
+      });
+    } catch (err: any) {
+      setErreurLocale(err?.message ?? 'la réponse n’est pas partie');
+    }
+  };
+
   const envoyer = async () => {
     const message = saisie.trim();
-    if (!message || enCours) return;
+    if (!message) return;
+    // Une question ouverte prime : on lui répond au lieu de payer un tour.
+    if (question) return repondreALaQuestion(message);
+    if (enCours) return;
     setSaisie('');
     await lancer(message);
   };
@@ -180,6 +221,50 @@ export function TiroirProcedure({
               {bulle.qui === 'agent' ? <Markdown content={bulle.texte} /> : bulle.texte}
             </div>
           ))}
+
+          {/* LA QUESTION DE L'AGENT, ICI ET PAS SEULEMENT DANS LA CLOCHE. Son
+              tour est arrêté dessus : on y répond sur place, d'un choix ou
+              d'une phrase, et il reprend sans qu'un tour de plus soit payé. */}
+          {question ? (
+            <div
+              className="rounded-md border border-warning/50 bg-raised p-2.5"
+              data-question-procedure={question.questionId}
+            >
+              <p className="mb-1 flex items-center gap-1.5 text-[12px] uppercase tracking-wide text-warning">
+                <MessageCircleQuestion className="h-3 w-3" /> L’agent attend votre réponse
+              </p>
+              <div className="text-[13px] text-text">
+                <Markdown content={question.texte} />
+              </div>
+              {question.options.length ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {question.options.map((option) => (
+                    <Button
+                      key={option.id}
+                      size="sm"
+                      variant="outline"
+                      data-option-procedure={option.id}
+                      onClick={() => void repondreALaQuestion(option.label)}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Une procédure est en place et rien ne tourne : on le DIT, au lieu
+              d'allumer un agent que personne n'a demandé. */}
+          {enAttenteDeGeste ? (
+            <div className="space-y-1.5" data-procedure-en-attente>
+              <p className="text-[12.5px] text-faint">{mentionProcedureEnPlace(cible)}</p>
+              <Button size="sm" variant="outline" onClick={() => void lancer()} data-reposer-question>
+                <RotateCw className="h-3 w-3" />
+                {LIBELLE_REPOSER_LA_QUESTION}
+              </Button>
+            </div>
+          ) : null}
 
           {/* Le témoin suit l'AGENT, jamais une requête en attente : il dit ce
               que l'agent fait et depuis combien de temps, et il s'éteint dès
@@ -220,7 +305,13 @@ export function TiroirProcedure({
             value={saisie}
             onChange={(e) => setSaisie(e.target.value)}
             rows={3}
-            placeholder="Répondez à l’agent : comment cette mise en ligne doit-elle se passer ?"
+            placeholder={
+              question
+                ? 'Répondez à la question de l’agent…'
+                : actuelle
+                  ? 'Que voulez-vous changer à cette procédure ?'
+                  : 'Répondez à l’agent : comment cette mise en ligne doit-elle se passer ?'
+            }
             data-reponse-procedure
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void envoyer();
@@ -230,9 +321,16 @@ export function TiroirProcedure({
             <Button variant="outline" size="sm" onClick={onClose}>
               Fermer
             </Button>
-            <Button size="sm" disabled={enCours || !saisie.trim()} onClick={() => void envoyer()} data-envoyer-procedure>
-              {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              Envoyer
+            {/* Un tour qui tourne bloque l'envoi — SAUF s'il est arrêté sur une
+                question : c'est justement de sa réponse qu'il a besoin. */}
+            <Button
+              size="sm"
+              disabled={(enCours && !question) || !saisie.trim()}
+              onClick={() => void envoyer()}
+              data-envoyer-procedure
+            >
+              {enCours && !question ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {question ? 'Répondre' : 'Envoyer'}
             </Button>
           </div>
         </div>

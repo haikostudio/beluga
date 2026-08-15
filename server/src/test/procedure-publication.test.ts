@@ -232,8 +232,83 @@ test('un échec ne se rejoue pas tout seul, et une procédure écrite clôt le d
     procedure: '1. Construire.',
     depuis: 0,
   };
-  assert.equal(repriseDuDialogue(finie, 0), 'relancer', 'rouvrir, c’est vouloir la modifier');
+  assert.equal(repriseDuDialogue(finie, 0), 'proposer', 'le dialogue a abouti : rien ne se repaie');
   assert.equal(repriseDuDialogue(null, 0), 'relancer');
+});
+
+/* ------------------------------------------------------------------ */
+/* L'ICÔNE DE RÉGLAGES NE PAIE PLUS UN AGENT À CHAQUE CLIC             */
+/*                                                                      */
+/* Avec une procédure DÉJÀ en place, chaque clic relançait un agent      */
+/* complet : il relisait tout le projet (une à deux minutes) pour        */
+/* reposer depuis le début une question déjà tranchée. Le tiroir montre  */
+/* désormais ce qui existe et attend un geste.                          */
+/* ------------------------------------------------------------------ */
+
+test('une procédure DÉJÀ écrite ne fait partir aucun tour à l’ouverture', () => {
+  // Aucun dialogue en mémoire (le cas normal : ils ne survivent pas au démon).
+  assert.equal(repriseDuDialogue(null, 0, true), 'proposer', 'on montre, on ne demande pas');
+  assert.equal(repriseDuDialogue(null, 0, false), 'relancer', 'sans procédure, l’initiation part');
+  // Un dialogue trop vieux ne relance pas non plus quand la procédure existe.
+  const vieux = {
+    projectId: 'p',
+    cible: 'dev' as const,
+    enCours: false,
+    echanges: [{ qui: 'agent' as const, texte: 'Comment cela doit-il se passer ?' }],
+    depuis: 1000,
+  };
+  assert.equal(repriseDuDialogue(vieux, 1000 + DIALOGUE_FRAIS_MS + 1, true), 'proposer');
+  assert.equal(repriseDuDialogue(vieux, 1000 + DIALOGUE_FRAIS_MS + 1, false), 'relancer');
+});
+
+test('une question de l’outil, posée tiroir fermé, se RELIT au lieu de se repayer', () => {
+  const pose = {
+    projectId: 'p',
+    cible: 'dev' as const,
+    enCours: false,
+    echanges: [],
+    depuis: 1000,
+    question: { messageId: 'm1', questionId: 'q1', texte: 'Quel service redémarrer ?', options: [] },
+  };
+  assert.equal(repriseDuDialogue(pose, 1000 + DIALOGUE_FRAIS_MS - 1, true), 'reprendre');
+  // L'instant du tour n'est donc PAS effacé à la fin : sans lui, tout paraît vieux.
+  const corps = SOURCE_TIROIR.slice(SOURCE_TIROIR.indexOf('async function mener'));
+  assert.doesNotMatch(corps, /depuis: undefined/, 'l’instant du tour survit à sa fin');
+});
+
+test('le tiroir écrit la procédure DEPUIS une demande de modification, sans redemander', () => {
+  assert.match(SOURCE_TIROIR, /promptModificationProcedure/);
+  assert.match(SOURCE_TIROIR, /const dialogueEnCours = /, 'la session vivante décide du prompt');
+  assert.match(SOURCE_PANNEAU, /data-reposer-question/, 'reposer la question reste un geste');
+  assert.match(SOURCE_PANNEAU, /repriseDuDialogue\(res\?\.etat \?\? null, Date\.now\(\), !!actuelle\)/);
+});
+
+/* ------------------------------------------------------------------ */
+/* LA QUESTION DE L'AGENT S'AFFICHE DANS LE TIROIR, ET S'Y RÉPOND      */
+/*                                                                      */
+/* `ask_user` arrête le tour jusqu'à la réponse : la question partait    */
+/* dans la cloche du bandeau et nulle part dans le tiroir ouvert         */
+/* dessous, qui restait sur « L'agent travaille… ».                     */
+/* ------------------------------------------------------------------ */
+
+test('la question ouverte de l’agent voyage dans l’état du dialogue', () => {
+  assert.match(SOURCE_TIROIR, /function questionDeLAgent/);
+  assert.match(SOURCE_TIROIR, /!q\.answer && !q\.cancelled/, 'seule une question sans réponse attend');
+  assert.match(SOURCE_TIROIR, /bus\.subscribe/, 'le tiroir l’apprend tout de suite');
+  const debut = SOURCE_TIROIR.indexOf('export function etatDeProcedure');
+  const corps = SOURCE_TIROIR.slice(debut, SOURCE_TIROIR.indexOf('\n}\n', debut));
+  assert.match(corps, /questionDeLAgent/, 'relue à chaque lecture : une coupure ne la perd pas');
+});
+
+test('on répond à la question DANS le tiroir, sans payer un tour de plus', () => {
+  assert.match(SOURCE_PANNEAU, /data-question-procedure/);
+  assert.match(SOURCE_PANNEAU, /type: 'question\.answer'/, 'la réponse va à l’appel d’outil arrêté');
+  const corps = SOURCE_PANNEAU.slice(
+    SOURCE_PANNEAU.indexOf('const repondreALaQuestion'),
+    SOURCE_PANNEAU.indexOf('const envoyer'),
+  );
+  assert.doesNotMatch(corps, /procedure\.tour/, 'répondre ne relance jamais un tour');
+  assert.match(SOURCE_PANNEAU, /disabled=\{\(enCours && !question\) \|\| !saisie\.trim\(\)\}/);
 });
 
 test('le témoin dit ce que l’agent fait et depuis quand, jamais un mot seul', () => {
