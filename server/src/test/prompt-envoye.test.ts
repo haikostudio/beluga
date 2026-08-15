@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  demandeDuPromptEnvoye,
   mentionDesPassages,
   morceauxDuPromptEnvoye,
   nomDuMoteurEnvoye,
@@ -107,4 +108,42 @@ test('la conversation ne pose plus l’ancien bloc « Contexte envoyé » sous l
   const repere = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
   assert.ok(repere.includes('morceauxDuPromptEnvoye'), 'le tiroir lit la règle partagée');
   assert.ok(!repere.includes('LecteurPrompt'), 'le tiroir du chat reste simple : pas de chronologie');
+});
+
+/*
+ * LE TOUR SANS BULLE DE DEMANDE. Une carte lancée par un bouton n'écrit aucun
+ * message d'utilisateur : le prompt envoyé est alors porté par la RÉPONSE du
+ * tour, et le tiroir de la carte le montre au-dessus du déroulé.
+ */
+
+test('la demande envoyée se relit dans l’instantané, même sans bulle écrite', () => {
+  assert.equal(demandeDuPromptEnvoye(tourEssai()), 'DEMANDE : montre le prompt réel.');
+});
+
+test('un bloc de demande vidé par la purge ne rend rien plutôt qu’une chaîne vide', () => {
+  const purge = tourEssai({
+    blocks: [{ kind: 'request', label: 'Demande utilisateur', characters: 30, text: '   ' }],
+  });
+  assert.equal(demandeDuPromptEnvoye(purge), undefined);
+  assert.equal(demandeDuPromptEnvoye(tourEssai({ blocks: [] })), undefined);
+});
+
+test('la réponse d’un tour lancé par un bouton montre la demande au-dessus des étapes', () => {
+  const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'message-view.tsx'), 'utf8');
+  const bloc = vue.indexOf('<DemandeEnvoyee');
+  assert.ok(bloc > 0, 'le bloc de la demande envoyée doit être posé sur la réponse');
+  assert.ok(bloc < vue.indexOf('<MemoryNote'), 'il passe avant la mémoire relue');
+  assert.ok(bloc < vue.indexOf('<Steps'), 'et avant le déroulé des étapes');
+});
+
+test('le prompt envoyé est conservé même quand aucun message utilisateur n’est écrit', () => {
+  const runtime = fs.readFileSync(path.join(RACINE, 'server', 'src', 'runtime.ts'), 'utf8');
+  assert.ok(
+    runtime.includes('contexteUtilisateur?.messageId ?? assistantMessage.id'),
+    'sans bulle de demande, le contexte envoyé se pose sur la réponse du tour',
+  );
+  assert.ok(
+    !/userMessageId\s*\n?\s*\?\s*\{\s*\n\s*messageId: userMessageId,/.test(runtime),
+    'le contexte envoyé ne dépend plus de l’existence d’un message utilisateur',
+  );
 });

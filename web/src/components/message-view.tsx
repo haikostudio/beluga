@@ -54,7 +54,7 @@ import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { MemoryNote } from '@/components/todos';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
-import { RepereDuPrompt } from '@/components/prompt-envoye';
+import { DemandeEnvoyee, RepereDuPrompt } from '@/components/prompt-envoye';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -201,6 +201,12 @@ export function MessageView({
   // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
     <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
+      {/* UN TOUR LANCÉ PAR UN BOUTON N'A PAS DE BULLE DE DEMANDE : son prompt
+          est porté par cette réponse même. On le montre alors ICI, tout en
+          haut — avant la mémoire relue et avant le déroulé des étapes —, là où
+          la bulle se serait trouvée. Quand la demande a bien été écrite à la
+          main, c'est elle qui porte le repère et rien ne paraît ici. */}
+      {message.sentContext ? <DemandeEnvoyee contexte={message.sentContext} /> : null}
       {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}
       <Steps steps={etapes} streaming={message.streaming} />
 
