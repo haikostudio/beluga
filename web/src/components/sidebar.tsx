@@ -517,24 +517,29 @@ export function Sidebar({
                   <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-40 transition-opacity survol:opacity-0 group-hover/g:opacity-100 active:cursor-grabbing" />
                 </span>
                 {/* Le point de couleur du groupe, posé À GAUCHE du nom (juste
-                    avant le libellé), et non plus tout à droite de la ligne. Un
-                    sélecteur ouvre un menu : il ne peut pas vivre DANS le bouton
-                    du nom (un bouton n'en contient pas un autre), donc il se
-                    place juste avant. Même pastille, même taille, même action. */}
-                <ColorPicker
-                  value={entry.group.color}
-                  onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
-                />
+                    avant le libellé). Il ne se voit qu'au survol de la carte :
+                    au repos il se replie à largeur nulle (même mécanique que la
+                    poignée de glisser juste avant), et le nom reprend sa place
+                    normale. Un sélecteur ouvre un menu : il ne peut pas vivre
+                    DANS le bouton du nom (un bouton n'en contient pas un autre),
+                    donc il se place juste avant. */}
+                <span
+                  className={cn(
+                    '-m-1 shrink-0 touch-none overflow-hidden p-1',
+                    'transition-[max-width,padding,margin] duration-150 motion-reduce:transition-none',
+                    'survol:m-0 survol:max-w-0 survol:p-0',
+                    'group-hover/g:survol:-m-1 group-hover/g:survol:max-w-5 group-hover/g:survol:p-1',
+                  )}
+                >
+                  <ColorPicker
+                    value={entry.group.color}
+                    onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
+                  />
+                </span>
                 <button
                   onClick={() => toggle(entry.id)}
                   className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-text hover:text-text"
                 >
-                  <ChevronRight
-                    className={cn(
-                      'h-2.5 w-2.5 shrink-0 transition-transform',
-                      !replie && 'rotate-90',
-                    )}
-                  />
                   <span className="min-w-0 truncate">{entry.group.name}</span>
                   <span className="shrink-0 text-faint">{entry.members.length}</span>
                 </button>
@@ -578,6 +583,18 @@ export function Sidebar({
                   title="Supprimer le groupe"
                 >
                   <X className="h-2.5 w-2.5" />
+                </button>
+                {/* La flèche de dépliage/repliage, à DROITE de la carte — après
+                    la croix de suppression, jamais devant le nom. */}
+                <button
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => toggle(entry.id)}
+                  className="shrink-0 text-faint hover:text-text"
+                  title={replie ? 'Déplier le groupe' : 'Replier le groupe'}
+                >
+                  <ChevronRight
+                    className={cn('h-2.5 w-2.5 transition-transform', !replie && 'rotate-90')}
+                  />
                 </button>
               </EnteteGroupe>
 
