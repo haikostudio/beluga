@@ -19,6 +19,14 @@
 /** L'adresse de la porte d'entrée. Une seule vérité : le serveur, l'écran des réglages et le contrôle la lisent ici. */
 export const ROUTE_CARTE_EXTERNE = '/api/externe/carte';
 
+/**
+ * L'adresse qui rend les clients déjà rapprochés d'un projet — pour retrouver
+ * le projet d'un client à partir de son NOM, pas seulement de son identifiant.
+ * Même clé que la création de carte : la porte reste unique, elle ouvre
+ * plusieurs gestes de LECTURE et un seul geste d'ÉCRITURE.
+ */
+export const ROUTE_CLIENTS_EXTERNE = '/api/externe/clients';
+
 /** Le préfixe visible de toute clé : on reconnaît une clé HaikoDev d'un coup d'œil. */
 export const PREFIXE_CLE_API = 'hkd_';
 
@@ -270,4 +278,59 @@ export function trouverLeProjetVise<P extends ProjetDesigne>(projets: P[], desig
   }
 
   return { ok: false, statut: 404, raison: `Aucun projet nommé « ${designation} ».` };
+}
+
+/* ------------------------------------------------------------------ */
+/* Retrouver un projet par le nom de son client                        */
+/* ------------------------------------------------------------------ */
+
+/** Un projet rapproché d'un client de facturation, tel que rendu à un appelant extérieur. */
+export interface ClientRapproche {
+  projet: { id: string; nom: string };
+  client: { id: string; nom: string };
+  entreprise?: { id: string; nom: string };
+}
+
+/** Un projet et son lien de facturation, tels que connus du serveur — avant mise en forme. */
+export interface ProjetAvecClient {
+  id: string;
+  name: string;
+  archive?: boolean;
+  billing?: {
+    clientId?: string;
+    clientName?: string;
+    companyId?: string;
+    companyName?: string;
+  };
+}
+
+/** Les projets vivants qui portent bien un client rapproché, mis en forme pour l'appelant. */
+function clientsRapproches(projets: ProjetAvecClient[]): ClientRapproche[] {
+  const out: ClientRapproche[] = [];
+  for (const p of projets) {
+    if (p.archive) continue;
+    const b = p.billing;
+    if (!b || !b.clientId || !b.clientName) continue;
+    const entree: ClientRapproche = {
+      projet: { id: p.id, nom: p.name },
+      client: { id: b.clientId, nom: b.clientName },
+    };
+    if (b.companyId && b.companyName) entree.entreprise = { id: b.companyId, nom: b.companyName };
+    out.push(entree);
+  }
+  return out;
+}
+
+/**
+ * La liste des clients rapprochés d'un projet, filtrée sur le NOM du client
+ * quand une recherche est donnée — sans accents ni casse, sur une PARTIE du
+ * nom : « dupont » retrouve « Dupont & Fils SA ». Sans recherche, la liste
+ * entière est rendue.
+ */
+export function rechercherClientsParNom(projets: ProjetAvecClient[], recherche?: string): ClientRapproche[] {
+  const tous = clientsRapproches(projets);
+  const q = recherche?.trim();
+  if (!q) return tous;
+  const cible = forme(q);
+  return tous.filter((c) => forme(c.client.nom).includes(cible));
 }

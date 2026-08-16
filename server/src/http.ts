@@ -6,6 +6,7 @@ import {
   Attachment,
   TRANCHE_ATTENTE_MS,
   ROUTE_CARTE_EXTERNE,
+  ROUTE_CLIENTS_EXTERNE,
   ROUTE_DOC_API,
   appelDuPontRecevable,
   cleDesEntetes,
@@ -14,6 +15,7 @@ import {
   jugerLaCle,
   jugerRapportErreur,
   pageDocApi,
+  rechercherClientsParNom,
   trouverLeProjetVise,
 } from '@haikodev/shared';
 import { CONFIG, PATHS, webRoot } from './config.js';
@@ -270,6 +272,39 @@ export function createHttpServer(): http.Server {
             creeeLe: card.createdAt,
           },
         });
+      }
+
+      /**
+       * RETROUVER LE PROJET D'UN CLIENT, PAR SON NOM.
+       *
+       * Un service extérieur connaît le nom d'un client — celui qui vient
+       * d'écrire, par exemple — pas l'identifiant technique du projet
+       * HaikoDev qui lui correspond. Cette adresse rend les clients déjà
+       * rapprochés d'un projet (réglages → onglet facturation), filtrés sur
+       * le nom quand `?client=` est donné. Même clé que la création de
+       * carte : lecture seule, rien n'est modifié.
+       */
+      if (route === ROUTE_CLIENTS_EXTERNE) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          return json(res, 405, { ok: false, error: 'Cette adresse se lit en GET.' });
+        }
+
+        const presentee = cleDesEntetes(req.headers);
+        const verdict = jugerLaCle(presentee, presentee ? cleParSecret(presentee) : undefined);
+        if (!verdict.ok) {
+          log.warn('api externe', `appel refusé (${verdict.motif}) depuis ${clientIp(req)}`);
+          return json(res, verdict.statut, { ok: false, error: verdict.raison });
+        }
+
+        const recherche = url.searchParams.get('client') ?? url.searchParams.get('nom') ?? undefined;
+        const projets = store.listProjects(true).map((p) => ({
+          id: p.id,
+          name: p.name,
+          archive: p.archived,
+          billing: p.billing,
+        }));
+        const clients = rechercherClientsParNom(projets, recherche ?? undefined);
+        return json(res, 200, { ok: true, clients });
       }
 
       /* ---------------- Pont d'outils des agents ---------------- */

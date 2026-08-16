@@ -11,6 +11,7 @@ import {
   jugerDemandeDeCarte,
   jugerLaCle,
   jugerNomDeCle,
+  rechercherClientsParNom,
   trouverLeProjetVise,
 } from '@haikodev/shared';
 
@@ -179,4 +180,55 @@ test('un projet mis de côté le DIT, un nom inconnu rend 404, une ambiguïté r
   const ambigu = trouverLeProjetVise(doublons, 'Café du Coin');
   assert.equal(ambigu.ok, false);
   assert.equal(ambigu.ok === false && ambigu.statut, 409);
+});
+
+/* -------------------- Retrouver un projet par le nom d'un client -------------------- */
+
+const PROJETS_AVEC_CLIENT = [
+  { id: 'p-1', name: 'Chez Dupont', billing: { clientId: 'c-1', clientName: 'Dupont & Fils SA' } },
+  {
+    id: 'p-2',
+    name: 'Boulangerie Léa',
+    billing: {
+      clientId: 'c-2',
+      clientName: 'Boulangerie Léa Sàrl',
+      companyId: 'e-1',
+      companyName: 'Groupe Léa',
+    },
+  },
+  { id: 'p-3', name: 'Sans client rapproché' },
+  { id: 'p-4', name: 'Client sans nom', billing: { clientId: 'c-4' } },
+  { id: 'p-5', name: 'Ancien client', archive: true, billing: { clientId: 'c-5', clientName: 'Dupont Retiré' } },
+];
+
+test('sans recherche, seuls les projets VRAIMENT rapprochés d’un client sont rendus', () => {
+  const clients = rechercherClientsParNom(PROJETS_AVEC_CLIENT);
+  assert.deepEqual(
+    clients.map((c) => c.projet.id),
+    ['p-1', 'p-2'],
+  );
+  assert.deepEqual(clients[1].entreprise, { id: 'e-1', nom: 'Groupe Léa' });
+});
+
+test('la recherche porte sur le NOM du client, sans accents ni casse, sur une partie du nom', () => {
+  const parPartiel = rechercherClientsParNom(PROJETS_AVEC_CLIENT, 'dupont');
+  assert.deepEqual(
+    parPartiel.map((c) => c.projet.id),
+    ['p-1'],
+  );
+
+  const sansAccent = rechercherClientsParNom(PROJETS_AVEC_CLIENT, 'lea');
+  assert.deepEqual(
+    sansAccent.map((c) => c.projet.id),
+    ['p-2'],
+  );
+});
+
+test('un projet archivé ne ressort jamais, même quand son client répond à la recherche', () => {
+  const clients = rechercherClientsParNom(PROJETS_AVEC_CLIENT, 'dupont');
+  assert.ok(!clients.some((c) => c.projet.id === 'p-5'));
+});
+
+test('une recherche sans résultat rend une liste vide', () => {
+  assert.deepEqual(rechercherClientsParNom(PROJETS_AVEC_CLIENT, 'jamais vu'), []);
 });
