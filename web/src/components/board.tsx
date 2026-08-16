@@ -505,6 +505,51 @@ export function Board({
   const [colonneActive, setColonneActive] = React.useState<ColumnKey | null>(null);
 
   /*
+   * Tant que les cartes du projet ne sont pas arrivées, le tableau rend la
+   * SILHOUETTE (plus bas) : ni le rail ni la barre d'onglets n'existent
+   * encore dans la page, les refs restent `null`. Les effets qui suivent
+   * doivent donc se RELANCER dès que ce chargement bascule — sinon, sur un
+   * projet fraîchement ouvert, ils s'exécutent une seule fois avec des refs
+   * introuvables et ne s'y raccrochent jamais, même une fois le tableau
+   * réellement affiché : leurs autres dépendances ne changent pas entre les
+   * deux rendus, React ne les rejoue donc pas de lui-même.
+   */
+  const tableauCharge = !!state.cartesChargees[projectId];
+
+  /*
+   * L'onglet actif a-t-il des VOISINS CACHÉS DES DEUX CÔTÉS de sa propre
+   * barre (qui glisse, elle aussi, une fois les colonnes plus nombreuses que
+   * la largeur de l'écran) ? Un repère discret — un fondu à chaque bord — ne
+   * s'allume que dans ce cas précis : au tout début ou à la toute fin de la
+   * barre, un seul côté suffit à dire où sont les onglets restants, le fondu
+   * de l'AUTRE bord n'apprendrait rien.
+   */
+  const [voisinsMasques, setVoisinsMasques] = React.useState({ gauche: false, droite: false });
+
+  const mesurerVoisinsMasques = React.useCallback(() => {
+    const barre = barreOnglets.current;
+    if (!barre) return;
+    const marge = 4;
+    setVoisinsMasques({
+      gauche: barre.scrollLeft > marge,
+      droite: barre.scrollLeft + barre.clientWidth < barre.scrollWidth - marge,
+    });
+  }, []);
+
+  React.useEffect(() => {
+    const barre = barreOnglets.current;
+    if (!barre) return;
+    mesurerVoisinsMasques();
+    barre.addEventListener('scroll', mesurerVoisinsMasques, { passive: true });
+    const suivi = new ResizeObserver(mesurerVoisinsMasques);
+    suivi.observe(barre);
+    return () => {
+      barre.removeEventListener('scroll', mesurerVoisinsMasques);
+      suivi.disconnect();
+    };
+  }, [telephone, tableauCharge, mesurerVoisinsMasques]);
+
+  /*
    * L'onglet lui-même est amené au CENTRE de sa barre défilante — même geste
    * que le second temps d'`allerALaColonne`, extrait pour servir aussi au
    * défilement du tableau et au chargement initial. Sur ordinateur la barre
@@ -520,18 +565,6 @@ export function Board({
       rectOnglet.left + rectOnglet.width / 2 - (rectBarre.left + rectBarre.width / 2);
     barre.scrollTo({ left: barre.scrollLeft + decalage, behavior: comportement });
   }, []);
-
-  /*
-   * Tant que les cartes du projet n'sont pas arrivées, le tableau rend la
-   * SILHOUETTE (plus bas) : ni le rail ni la barre d'onglets n'existent
-   * encore dans la page, `rail.current` reste `null`. Les deux effets qui
-   * suivent doivent donc se RELANCER dès que ce chargement bascule — sinon,
-   * sur un projet fraîchement ouvert, ils s'exécutent une seule fois avec un
-   * rail introuvable et ne s'y raccrochent jamais, même une fois le tableau
-   * réellement affiché : leurs dépendances ne changent pas entre les deux
-   * rendus, React ne les rejoue donc pas de lui-même.
-   */
-  const tableauCharge = !!state.cartesChargees[projectId];
 
   React.useEffect(() => {
     if (!tableauCharge) return;
@@ -953,7 +986,7 @@ export function Board({
         <Tabs
           value={colonneActive ?? ''}
           onValueChange={(cle) => allerALaColonne(cle as ColumnKey)}
-          className="shrink-0 px-3 py-1.5"
+          className="relative shrink-0 px-3 py-1.5"
         >
           <TabsList
             ref={barreOnglets}
@@ -1035,6 +1068,27 @@ export function Board({
               );
             })}
           </TabsList>
+          {/*
+            Repère DISCRET : l'onglet actif a des voisins cachés des DEUX
+            côtés de sa barre — un fondu à chaque bord, jamais un seul (au
+            tout début ou à la toute fin de la barre, il n'y a qu'un côté à
+            signaler, et le bord opposé n'apprendrait rien). `pointer-events-
+            none` : un pur repère, jamais un obstacle au glissement du doigt.
+          */}
+          {voisinsMasques.gauche && voisinsMasques.droite ? (
+            <>
+              <div
+                aria-hidden
+                data-repere-voisins-masques="gauche"
+                className="pointer-events-none absolute inset-y-1.5 left-3 w-4 bg-gradient-to-r from-surface to-transparent"
+              />
+              <div
+                aria-hidden
+                data-repere-voisins-masques="droite"
+                className="pointer-events-none absolute inset-y-1.5 right-3 w-4 bg-gradient-to-l from-surface to-transparent"
+              />
+            </>
+          ) : null}
         </Tabs>
       ) : null}
 
