@@ -9,8 +9,17 @@ import * as DropdownPrimitive from '@radix-ui/react-dropdown-menu';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as SeparatorPrimitive from '@radix-ui/react-separator';
 import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
-import { X } from 'lucide-react';
-import { niveauQuota } from '@haikodev/shared';
+import { Check, Loader2, X } from 'lucide-react';
+import {
+  DUREE_REUSSITE_MS,
+  boutonOccupe,
+  estUneRequete,
+  etatApresIssue,
+  issueDeLaReponse,
+  niveauQuota,
+  suiteDesEtats,
+  type EtatDeBouton,
+} from '@haikodev/shared';
 import { cn } from '@/lib/utils';
 import { useSurvol } from '@/lib/pointeur';
 
@@ -49,12 +58,102 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /**
+   * Le bouton porte son propre témoin de chargement (un `busy` local, déjà
+   * dessiné dans ses enfants) : on ne lui en pose pas un second par-dessus.
+   */
+  sansAttente?: boolean;
 }
 
+/**
+ * UN CLIC SE VOIT TOUT DE SUITE.
+ *
+ * Quand le gestionnaire de clic rend une REQUÊTE (tout objet muni d'un `then`),
+ * le bouton passe en « en cours » avant même la première réponse : ses enfants
+ * s'effacent sur place — la largeur ne bouge donc pas —, une roue tourne à leur
+ * place et le bouton n'accepte plus de clic. La réussite montre une coche une
+ * seconde et demie, l'échec ramène le bouton exactement à son état d'avant ; le
+ * refus, lui, est déjà dit en rouge par ailleurs.
+ *
+ * L'enchaînement des états est une règle PURE (`shared/src/bouton-en-attente.ts`),
+ * testable sans monter le moindre composant. Un `onClick` qui ne rend rien — la
+ * plupart — ne change strictement pas de comportement.
+ *
+ * Le bouton reste OUVERT pendant la coche : un geste qu'on veut refaire n'a pas
+ * à attendre la fin d'une animation.
+ */
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, sansAttente = false, onClick, children, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
-    return <Comp className={cn(buttonVariants({ variant, size }), className)} ref={ref} {...props} />;
+    const [etat, setEtat] = React.useState<EtatDeBouton>('repos');
+    /* Un bouton démonté pendant sa requête ne doit rien reposer : la carte est
+       souvent rangée ailleurs par la réponse même qu'on attendait. */
+    const monte = React.useRef(true);
+    React.useEffect(() => {
+      monte.current = true;
+      return () => {
+        monte.current = false;
+      };
+    }, []);
+    /* La coche s'efface toute seule ; son minuteur meurt avec le bouton. */
+    React.useEffect(() => {
+      if (etat !== 'reussi') return;
+      const t = window.setTimeout(() => {
+        if (monte.current) setEtat((e) => suiteDesEtats(e, 'fin-de-coche'));
+      }, DUREE_REUSSITE_MS);
+      return () => window.clearTimeout(t);
+    }, [etat]);
+
+    const suivi = asChild || sansAttente ? undefined : etat;
+    const occupe = suivi ? boutonOccupe(suivi) : false;
+
+    const auClic = (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (occupe) return;
+      const retour = onClick?.(event) as unknown;
+      if (asChild || sansAttente || !estUneRequete(retour)) return;
+      setEtat('en-cours');
+      retour.then(
+        (valeur) => {
+          if (monte.current) setEtat(etatApresIssue(issueDeLaReponse(valeur)));
+        },
+        () => {
+          if (monte.current) setEtat(etatApresIssue('echec'));
+        },
+      );
+    };
+
+    return (
+      <Comp
+        className={cn(
+          buttonVariants({ variant, size }),
+          suivi && suivi !== 'repos' && 'relative',
+          occupe && 'pointer-events-none',
+          className,
+        )}
+        ref={ref}
+        aria-busy={occupe || undefined}
+        data-attente={suivi && suivi !== 'repos' ? suivi : undefined}
+        onClick={auClic}
+        {...props}
+      >
+        {suivi && suivi !== 'repos' ? (
+          <>
+            {/* Les enfants gardent leur place : c'est ce qui empêche le bouton
+                de rétrécir puis de sauter au retour de la requête. */}
+            <span className="pointer-events-none inline-flex items-center gap-1.5 opacity-0">{children}</span>
+            <span className="absolute inset-0 flex items-center justify-center">
+              {suivi === 'en-cours' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
+            </span>
+          </>
+        ) : (
+          children
+        )}
+      </Comp>
+    );
   },
 );
 Button.displayName = 'Button';

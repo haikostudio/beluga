@@ -401,7 +401,13 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                             // Un lancement ne répond qu'à la FIN du tour : le
                             // délai dépassé n'est pas un refus, et n'allume
                             // donc pas l'alerte de serveur injoignable.
-                            .catch((err: any) => client.signalerRefus(err?.message ?? 'lancement refusé', card.id))
+                            .catch((err: any) => {
+                              client.signalerRefus(err?.message ?? 'lancement refusé', card.id);
+                              // …mais le bouton, lui, doit revenir à son état
+                              // initial : avaler l'erreur ici lui ferait
+                              // afficher une coche sur un lancement refusé.
+                              throw err;
+                            })
                         )
                     }
                   >
@@ -434,7 +440,16 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                   variant="default"
                   className={cn(vientDeSallumer && 'animate-appel')}
                   disabled={!peut('terminer').possible}
-                  onClick={() => client.call({ type: 'card.finish', id: card.id })}
+                  /* Le clic rend sa requête : le bouton montre la roue tant que
+                     le serveur n'a pas répondu, la coche s'il accepte, et
+                     revient tel quel si le geste est refusé — refus dit en
+                     rouge, puis relancé pour que le bouton le sache. */
+                  onClick={() =>
+                    client.call({ type: 'card.finish', id: card.id }).catch((err: any) => {
+                      client.signalerRefus(err?.message ?? 'clôture refusée', card.id);
+                      throw err;
+                    })
+                  }
                 >
                   <Check className="h-3 w-3" /> Terminer la tâche
                 </Button>

@@ -720,6 +720,16 @@ le nom, là-bas le texte).
   deux jetons. Les AUTRES états ne bougent pas — erreur (`danger`), avertissement et attente
   (`warning`), publication en cours (`publie`), réussite acquise (`success`). Vérifié par
   `scripts/verif-couleurs-avancement.mjs`.
+- **UN BOUTON QUI PART EN REQUÊTE LE DIT DÈS LE CLIC** (`shared/src/bouton-en-attente.ts` ;
+  `Button`, `web/src/components/ui/index.tsx`) : « Terminer la tâche » restait figé entre le clic et
+  la réponse, on croyait que rien ne partait et on recliquait. Un `onClick` qui rend une requête
+  (`estUneRequete` : tout retour muni d'un `then`) fait passer le bouton en « en cours » AVANT toute
+  réponse — enfants effacés SUR PLACE, roue à leur place, largeur inchangée, `aria-busy`, plus aucun
+  clic accepté. La RÉUSSITE montre une coche 1,4 s puis s'efface ; l'ÉCHEC ramène le bouton à son
+  état INITIAL, le refus étant déjà dit en rouge. Deux pièges : un `{ ok: false }` rendu SANS erreur
+  (`moveCard`, `validerCarte`) est un ÉCHEC (`issueDeLaReponse`), et un `onClick` qui avale son
+  erreur pour dire le refus doit la RELANCER, sinon le bouton croit avoir réussi. Verrouillé par
+  `server/src/test/bouton-en-attente.test.ts` et `scripts/verif-bouton-en-attente.mjs`.
 - **Le triangle orange n'est pas le seul chemin vers une décision attendue : une CLOCHE dans le
   bandeau du haut les liste TOUTES**, tous projets confondus (`QuestionsEnAttente`,
   `web/src/components/questions-en-attente.tsx`) — projet, endroit (carte ou conversation) et texte
