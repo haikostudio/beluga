@@ -277,21 +277,42 @@ export const POIDS_SENS_VECTEUR = 0.7;
 export const POIDS_MOTS_VECTEUR = 0.3;
 
 /**
- * LE SEUIL, EN MODE VECTEURS. Les cosinus d'un vrai modèle se tiennent plus haut
- * et plus serrés que ceux d'une empreinte de mots : un passage sans rapport est
- * rarement à zéro, il est vers 0,1. Le seuil monte donc avec eux.
+ * LE SEUIL, EN MODE VECTEURS — RÉGLÉ SUR UNE MESURE, PAS À L'ESTIME.
  *
- * MAIS IL NE FILTRE PRESQUE RIEN, ET C'EST MESURÉ (`scripts/audit-memoire-rag.mjs`,
- * relevé du 16/08/2026 dans `docs/audit-memoire-rag.md`) : sur une vraie demande,
- * 4 524 des 5 143 passages de HaikoDev le franchissent — 88 % du corpus. Une
- * question qui n'a RIEN à voir avec le projet (« la recette de la tarte aux
- * pommes ») reçoit tout de même six passages de règles. Ce qui borne réellement ce
- * qui part, ce sont les sept places et les 900 jetons, pas la pertinence — et
- * `rechercherPourLaTache`, qui ne retombe sur l'index que si AUCUN passage ne
- * passe le seuil, ne peut donc plus y retomber en mode sens. Le relever demande
- * une mesure, pas une estimation : c'est une carte à part.
+ * Les cosinus d'un vrai modèle se tiennent plus haut et plus serrés que ceux
+ * d'une empreinte de mots : un passage sans rapport est rarement à zéro, il est
+ * vers 0,1. Le seuil monte donc avec eux — mais de combien ?
+ *
+ * À 0,24, il ne filtrait RIEN : 87 % du corpus de HaikoDev le franchissait sur
+ * une vraie demande (4 486 passages sur 5 170), et une question étrangère au
+ * projet — la recette d'une tarte, la durée d'un vol — recevait cinq à six
+ * passages de règles au prix fort. `rechercherPourLaTache` ne retombant sur
+ * l'index que si AUCUN passage ne passe le seuil, le repli était devenu du code
+ * mort en mode sens.
+ *
+ * LA VALEUR VIENT DU BALAYAGE de `scripts/audit-memoire-rag.mjs` (section 5 bis),
+ * qui rejoue 120 cartes RÉELLEMENT exécutées et juge chaque seuil candidat sur
+ * les mêmes classements, avec pour vérité de terrain les fichiers que chaque
+ * carte a modifiés. Relevé du 16/08/2026 :
+ *
+ *   seuil   bonne page retrouvée   passages servis   corpus au-dessus   hors sujet
+ *   0,24        67 % (80/120)           5,2               87 %           6 passages
+ *   0,34        67 % (80/120)           5,1               23 %           0
+ *   0,38        67 % (80/120)           4,8               10 %           0
+ *   0,40        66 % (79/120)           4,8                7 %           0
+ *   0,55        58 % (70/120)           2,1                0 %           0
+ *
+ * De 0,24 à 0,38, la pertinence ne bouge pas d'une carte ; à 0,40, la première
+ * tombe. Dans cette plage à coût nul, on prend la valeur la PLUS HAUTE : elle
+ * laisse 0,05 de marge au-dessus du meilleur score qu'atteint une question hors
+ * sujet (0,33), là où 0,34 collerait à cette limite. Le repli sur l'index
+ * redevient donc ce qu'il devait être — ce qui se déclenche quand la question ne
+ * parle pas du projet, et jamais sur une vraie demande (0 repli sur 120).
+ *
+ * Refaire la mesure avant de retoucher ce nombre :
+ *   node scripts/audit-memoire-rag.mjs --cartes=120
  */
-export const SCORE_MINIMUM_VECTEUR = 0.24;
+export const SCORE_MINIMUM_VECTEUR = 0.38;
 
 /* ------------------------------------------------------------------ */
 /* LE RENDEZ-VOUS DE LA NUIT                                           */

@@ -324,6 +324,26 @@ function rangDuBon(classes, attendus) {
   return rang < 0 ? 0 : rang + 1;
 }
 
+/*
+ * LES SEUILS QU'ON ESSAIE, sur les MÊMES cartes et les MÊMES classements.
+ *
+ * Le seuil de pertinence ne se choisit pas à l'intuition : il se BALAIE. Pour
+ * chaque valeur, on regarde ce qu'elle coûte (des cartes qui perdent la bonne
+ * page, des passages en moins) et ce qu'elle rapporte (une question hors sujet
+ * qui repart les mains vides, donc le repli sur l'index qui reprend son rôle).
+ * Le classement d'une carte est calculé UNE fois et jugé par tous les seuils :
+ * le balayage ne coûte donc presque rien de plus que le duel.
+ */
+const SEUILS_ESSAYES = [
+  0.24, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.55, 0.6,
+];
+const balayage = new Map(
+  SEUILS_ESSAYES.map((seuil) => [
+    seuil,
+    { touche: 0, toucheStrict: 0, vides: 0, passages: [], auDessus: [], horsSujet: [] },
+  ]),
+);
+
 const duel = {
   total: 0,
   sens: 0,
@@ -379,6 +399,18 @@ for (const carte of cartes) {
   duel.rangs.push(rangDuBon(classesSens, carte.fichiers));
   duel.rangsStricts.push(rangDuBon(classesSens, carte.propres));
   duel.auDessusDuSeuil.push(classesSens.filter((p) => p.score >= SCORE_MINIMUM_VECTEUR).length);
+
+  /* Le même classement, jugé par chaque seuil candidat. */
+  for (const seuil of SEUILS_ESSAYES) {
+    const essai = choisir(classesSens, seuil);
+    const releve = balayage.get(seuil);
+    const sources = new Set(essai.gardes.map((p) => p.source));
+    if (!essai.gardes.length) releve.vides += 1;
+    if ([...sources].some((s) => carte.fichiers.has(s))) releve.touche += 1;
+    if ([...sources].some((s) => carte.propres.has(s))) releve.toucheStrict += 1;
+    releve.passages.push(essai.gardes.length);
+    releve.auDessus.push(classesSens.filter((p) => p.score >= seuil).length);
+  }
 }
 
 const part = (n) => `${Math.round((n / Math.max(1, duel.total)) * 100)} %`;
@@ -429,7 +461,66 @@ for (const question of HORS_SUJET) {
     `   « ${question.slice(0, 46)}… » → ${choix.gardes.length} passages retenus, ` +
       `le mieux placé à ${(classes[0]?.score ?? 0).toFixed(2)} : ${choix.gardes[0]?.source ?? '—'}`,
   );
+  /* La même question, jugée par chaque seuil candidat. */
+  for (const seuil of SEUILS_ESSAYES) {
+    balayage.get(seuil).horsSujet.push(choisir(classes, seuil).gardes.length);
+  }
 }
+console.log('');
+
+/* ------------------------------------------------------------------ */
+/* 5 bis. Le BALAYAGE : quelle valeur de seuil, et pourquoi celle-là   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LA VALEUR DU SEUIL SE MESURE, ELLE NE SE DEVINE PAS. On rejoue les mêmes
+ * cartes et les mêmes questions hors sujet à chaque seuil candidat, et on
+ * demande à chacun trois choses :
+ *   - NE RIEN PERDRE : la part de cartes qui reçoivent encore au moins une page
+ *     d'un fichier qu'elles allaient réellement modifier ne doit pas baisser ;
+ *   - REFUSER LE HORS SUJET : une question étrangère au projet doit repartir les
+ *     mains vides, sans quoi le repli sur l'index ne peut plus se déclencher ;
+ *   - PRENDRE LA PLUS GRANDE MARGE à coût nul : entre le premier seuil qui
+ *     refuse le hors sujet et le dernier qui ne perd aucune carte, la pertinence
+ *     est IDENTIQUE — autant se tenir le plus loin possible du score qu'atteint
+ *     une question étrangère, sinon la moindre dérive du corpus rouvre la porte.
+ * La recommandation est donc CALCULÉE, pas choisie : c'est le PLUS HAUT seuil
+ * qui ne coûte aucune carte, parmi ceux qui refusent le hors sujet.
+ */
+console.log('5 bis. LE BALAYAGE DES SEUILS — chaque valeur jugée sur les mêmes cartes');
+const referenceTouche = balayage.get(SEUILS_ESSAYES[0]).touche;
+const lignes = SEUILS_ESSAYES.map((seuil) => {
+  const releve = balayage.get(seuil);
+  return {
+    seuil,
+    pertinence: releve.touche / Math.max(1, duel.total),
+    pertinenceStricte: releve.toucheStrict / Math.max(1, duel.total),
+    perdues: referenceTouche - releve.touche,
+    passages: moyenne(releve.passages),
+    vides: releve.vides,
+    partDuCorpus: moyenne(releve.auDessus) / Math.max(1, tousLesPassages.length),
+    horsSujet: Math.max(0, ...releve.horsSujet),
+  };
+});
+for (const ligne of lignes) {
+  console.log(
+    `   seuil ${ligne.seuil.toFixed(2)} · bonne page retrouvée ${Math.round(ligne.pertinence * 100)} %` +
+      ` (stricte ${Math.round(ligne.pertinenceStricte * 100)} %, ${ligne.perdues >= 0 ? `${ligne.perdues} carte(s) perdue(s)` : `${-ligne.perdues} gagnée(s)`})` +
+      ` · ${ligne.passages.toFixed(1)} passages servis · ${ligne.vides} repli(s) sur l’index` +
+      ` · ${Math.round(ligne.partDuCorpus * 100)} % du corpus au-dessus` +
+      ` · hors sujet : ${ligne.horsSujet} passage(s)`,
+  );
+}
+const sansPerte = lignes.filter((l) => l.perdues <= 0 && l.horsSujet === 0);
+const premier = sansPerte[0];
+const recommande = sansPerte[sansPerte.length - 1];
+console.log(
+  recommande
+    ? `   → sans perdre une seule carte, le seuil tient de ${premier.seuil.toFixed(2)} (premier à refuser le hors sujet)` +
+        ` à ${recommande.seuil.toFixed(2)} · VALEUR RETENUE : ${recommande.seuil.toFixed(2)}, la plus haute à coût nul` +
+        ` (seuil en place : ${SCORE_MINIMUM_VECTEUR})`
+    : '   → aucun seuil essayé ne tient les deux conditions : la fourchette est à élargir.',
+);
 console.log('');
 
 /* ------------------------------------------------------------------ */
@@ -485,6 +576,13 @@ const bilan = {
     omnipresents: [...omnipresents],
   },
   duel,
+  seuils: {
+    essayes: SEUILS_ESSAYES,
+    enPlace: SCORE_MINIMUM_VECTEUR,
+    plageSansPerte: sansPerte.length ? [premier.seuil, recommande.seuil] : null,
+    recommande: recommande?.seuil ?? null,
+    lignes,
+  },
   releves,
 };
 

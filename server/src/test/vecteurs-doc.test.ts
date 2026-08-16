@@ -11,6 +11,7 @@ import {
   TRANCHES_MAX_PAR_NUIT,
   PLAFOND_PASSAGE_SIGNES,
   PRIORITE,
+  SCORE_MINIMUM_VECTEUR,
   attenteAvantEssai,
   choisirPassages,
   classerPassages,
@@ -147,6 +148,44 @@ test('deux passages de code au plus, même s’ils sont les mieux classés', () 
   );
   assert.equal(choix.gardes.filter((p) => p.priorite === PRIORITE.code).length, 2);
   assert.ok(choix.gardes.some((p) => p.source.startsWith('docs/')), 'la documentation garde sa place');
+});
+
+/* ------------------------------------------------------------------ */
+/* Le seuil de pertinence : ce qu'il laisse passer, ce qu'il refuse    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LES CHIFFRES VIENNENT DU BALAYAGE de `scripts/audit-memoire-rag.mjs`
+ * (section 5 bis, relevé du 16/08/2026, 120 cartes réelles) : une question
+ * ÉTRANGÈRE au projet ne dépasse pas 0,33, et le dernier passage réellement
+ * retenu sur une vraie demande est en moyenne à 0,42. Le seuil doit donc vivre
+ * ENTRE les deux — au-dessus du hors sujet, sous ce qu'une vraie demande sert.
+ */
+test('le seuil du mode sens refuse une question hors sujet sans couper une vraie demande', () => {
+  assert.ok(SCORE_MINIMUM_VECTEUR > 0.33, 'au-dessus du meilleur score mesuré d’une question hors sujet');
+  assert.ok(SCORE_MINIMUM_VECTEUR < 0.42, 'sous le score moyen du dernier passage retenu sur une vraie demande');
+
+  /* Un classement de question ÉTRANGÈRE : rien ne passe, donc l'index reprend sa place. */
+  const horsSujet = choisirPassages(
+    [
+      classe('docs/regles/interface.md', PRIORITE.regle, 0.33),
+      classe('docs/regles/cartes.md', PRIORITE.regle, 0.31),
+      classe('CLAUDE.md', PRIORITE.regle, 0.28),
+    ],
+    { minimum: SCORE_MINIMUM_VECTEUR, plafond: 1000 },
+  );
+  assert.equal(horsSujet.gardes.length, 0, 'aucun passage servi : c’est ce qui rend au repli son rôle');
+
+  /* Une vraie demande garde les siens. */
+  const vraieDemande = choisirPassages(
+    [
+      classe('docs/regles/publication.md', PRIORITE.regle, 0.6),
+      classe('docs/regles/cartes.md', PRIORITE.regle, 0.45),
+      classe('CLAUDE.md', PRIORITE.regle, 0.42),
+    ],
+    { minimum: SCORE_MINIMUM_VECTEUR, plafond: 1000 },
+  );
+  assert.equal(vraieDemande.gardes.length, 3);
 });
 
 /* ------------------------------------------------------------------ */

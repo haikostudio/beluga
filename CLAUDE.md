@@ -195,11 +195,22 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   bon fichier, le code ne prend plus que 6 % du poids envoyé. DEUX promesses ne tiennent pas. Le
   SENS n'apporte **aucun gain mesurable** au lancement d'une carte (66 % contre 66 % pour les mots,
   cinq victoires chacun) alors qu'il change la moitié des passages remontés : une demande de carte
-  est déjà écrite avec le vocabulaire du projet. Et le SEUIL de pertinence ne filtre rien (88 % du
-  corpus le franchit ; une question sur la tarte aux pommes reçoit six passages de règles), si bien
-  que le repli sur l'index ne peut plus se déclencher en mode sens. La recherche coûte enfin ~2,1 s
-  par demande, dont 0,9 s à noter les 5 143 passages et ~1 s à les relire. Le relevé travaille sur
-  une COPIE de la base du démon et ne pose aucun seuil : il mesure, il ne fait échouer personne.
+  est déjà écrite avec le vocabulaire du projet. La recherche coûte enfin ~2,1 s par demande, dont
+  0,9 s à noter les 5 143 passages et ~1 s à les relire. Le relevé travaille sur une COPIE de la
+  base du démon et ne pose aucun seuil : il mesure, il ne fait échouer personne.
+- **LE SEUIL DU MODE SENS EST RÉGLÉ SUR CE BALAYAGE, PAS À L'ESTIME** (`SCORE_MINIMUM_VECTEUR`,
+  `shared/src/vecteurs-doc.ts` ; section 5 bis de `scripts/audit-memoire-rag.mjs`) : à 0,24 il ne
+  filtrait RIEN — 87 % du corpus le franchissait, une question sur la tarte aux pommes recevait six
+  passages de règles, et le repli sur l'index ne pouvait plus se déclencher. Le relevé juge chaque
+  valeur candidate sur les MÊMES 120 cartes et les MÊMES classements : de 0,24 à **0,38** la
+  pertinence ne bouge pas d'une carte (80 sur 120), à 0,40 la première tombe. On prend donc la plus
+  HAUTE de cette plage à coût nul — 0,05 de marge au-dessus du meilleur score qu'atteint une
+  question étrangère au projet (0,33), quand 0,34 y collerait. Le corpus au-dessus du seuil passe de
+  87 % à 10 %, ce qui part de 1 330 à 1 312 jetons, et une question hors sujet repart les mains
+  vides : le repli sur l'index redevient ce qu'il devait être. Un tour de SUITE ajoutant sa marge
+  (`seuilDeSuite`, +0,06) cherche donc à 0,44 — valeur que le même balayage donne encore à
+  79 cartes sur 120. Refaire la mesure avant de retoucher ce nombre. Verrouillé par
+  `server/src/test/vecteurs-doc.test.ts`.
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
   priorité haute par la recherche.

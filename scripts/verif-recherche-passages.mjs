@@ -227,7 +227,18 @@ if (!moteurLocal) {
   }
 
   /* La question ne partage AUCUN mot porteur avec la règle visée : ni
-     « publication », ni « mise en ligne », ni « déployer ». */
+     « publication », ni « mise en ligne », ni « déployer ».
+
+     ELLE PASSE LE SEUIL DE JUSTESSE, ET C'EST NORMAL : sans un seul mot commun,
+     la part de MOTS EXACTS du score mixte est presque nulle, si bien que la
+     bonne règle sort à ~0,39 pour un seuil à 0,38 (`SCORE_MINIMUM_VECTEUR`).
+     C'est le cas le plus difficile qui soit — un corpus de trois règles, aucun
+     mot partagé —, très en dessous de ce que donne la vraie base (les quatre
+     demandes de `verif-recherche-par-le-sens.mjs` sortent entre 0,41 et 0,59).
+     Si ce contrôle tombe un jour ici, la question n'est donc PAS « le seuil
+     est-il trop haut ? » mais « le corpus fabriqué a-t-il changé ? » : le seuil,
+     lui, se rejuge par le balayage de `scripts/audit-memoire-rag.mjs`, sur 120
+     vraies cartes. */
   const REFORMULEE = 'est-ce que le programme peut décider tout seul d’envoyer le site chez le client ?';
   const INDEX_CORPUS = {
     texte: Array.from({ length: 40 }, (_, i) => `  ${i + 1}. Une ligne d’index qui résume un fait durable du projet.`).join('\n'),
