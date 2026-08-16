@@ -128,15 +128,21 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   (priorité négative) et n'occupe jamais plus de 2 passages. On ne VECTORISE que les 1 000 premiers
   signes d'un passage (le texte envoyé à l'agent reste entier) : le temps du modèle croît vite avec
   la longueur, 1 800 signes → 0,8 passage/s, 1 000 → 1,6, 600 → 2,3.
-- **VECTORISER EST UN TRAVAIL DE NUIT, jamais un péage au lancement d'une carte**
-  (`server/src/vecteurs-nocturne.ts`, règles dans `shared/src/vecteurs-doc.ts`) : chaque nuit vers
-  1 h — avant l'auto-amélioration de 3 h —, le démon réindexe et vectorise TOUS les projets non
-  archivés, par tranches de 480 passages, 120 tranches et TROIS HEURES au plus par nuit (le moteur
-  local fait ~2 passages/s : les 62 000 passages des 18 projets demandent quelques nuits la première
-  fois, puis seulement ce qui a changé). Un travail en cours ne le REPORTE PAS : vectoriser n'appelle
+- **VECTORISER EST UN TRAVAIL DE FOND, jamais un péage au lancement d'une carte — ET IL REVIENT
+  TOUTES LES SIX HEURES** (`server/src/vecteurs-nocturne.ts`, règles dans
+  `shared/src/vecteurs-doc.ts`) : le démon réindexe et vectorise TOUS les projets non archivés, par
+  tranches de 480 passages. DEUX AMPLEURS (`BORNES_DE_VECTORISATION`) — la passe de NUIT (fenêtre
+  1 h – 3 h, avant l'auto-amélioration) est le grand rattrapage, 120 tranches et TROIS HEURES au
+  plus ; les trois passes de JOUR ne reprennent que ce que les cartes viennent de modifier, 15
+  tranches et DIX MINUTES au plus — sur un projet ordinaire elles n'ont rien à faire. Une seule
+  passe par nuit laissait la journée défaire ce que la nuit venait de faire. « Ce n'est pas l'heure »
+  n'est donc plus un refus : le rendez-vous dépend d'un DÉLAI (`PERIODE_VECTORISATION_MS`, 6 h),
+  l'heure ne décide que de l'ampleur. Un travail en cours ne le REPORTE PAS : vectoriser n'appelle
   aucun moteur de langage et ne prend la place d'aucun agent. Au lancement d'une carte, seule la
   QUESTION est vectorisée. `HAIKODEV_DATA=/root/haikodev/data node scripts/vectoriser-index.mjs`
-  le fait tout de suite à la main (`--etat` pour ne rien vectoriser et voir où en est chaque projet).
+  le fait tout de suite à la main (`--etat` pour ne rien vectoriser et voir où en est chaque projet) ;
+  forcée à la main, la passe garde l'ampleur de son HEURE — on ne bloque pas la machine trois heures
+  en plein après-midi.
 - **…ET UN PASSAGE INCHANGÉ GARDE SON VECTEUR, sinon la nuit travaille pour rien** (`vecteursRepris`,
   `cleDeVecteur`, `shared/src/vecteurs-doc.ts` ; `indexerDocumentation`, `server/src/passages.ts`) :
   l'indexation est incrémentale par FICHIER, si bien qu'un fichier réécrit d'UNE LIGNE voyait TOUS
@@ -167,6 +173,20 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   voulue : le PREMIER passage de code passe toujours, sinon une demande qui NOMME un fichier ne le
   remonterait plus. Mesuré sur « est-ce que le programme peut décider tout seul d'envoyer le site
   chez le client ? » : 1 page de documentation avant, 3 après.
+- **PAR LE SENS OU PAR LES MOTS, C'EST ÉCRIT DANS LA BULLE** (`SentContextSnapshot.passagesMode`,
+  `shared/src/models.ts` ; `mentionDuModeDeRecherche`, `shared/src/prompt-envoye.ts`) : le repli sur
+  les mots n'était visible NULLE PART — la bulle « Mémoire retrouvée » montrait des passages
+  médiocres sans dire qu'ils avaient été choisis à l'ancienne, et la panne a duré des jours sans que
+  personne ne puisse s'en apercevoir. La mention porte désormais le MODE et la COUVERTURE (« 4
+  passages retrouvés · par les MOTS · 53 % de la documentation préparée ») — le seul chiffre qui
+  explique le mode. Un contexte écrit avant cette règle ne raconte rien : le champ est absent, la
+  mention reste celle d'avant.
+- **UNE AMPLEUR IMPOSÉE NE SE FAIT PLUS RABAISSER PAR LE CRAN DE SUIVI** (`ampleurDuTour`,
+  `shared/src/templates.ts`, branché dans `preparerLeTour`) : un tour de SUITE part d'un cran plus
+  bas — vraie économie, elle reste. Mais elle écrasait `ampleur: 'complete'`, que `startCard` exige
+  en toutes lettres : toute REPRISE de carte interrompue, tout relancement après panne, tout second
+  tour d'un même agent se retrouvait à trois titres et 250 mots. Le cran ne joue donc que sur une
+  ampleur DÉDUITE de la demande.
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
   priorité haute par la recherche.

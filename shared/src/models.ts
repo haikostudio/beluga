@@ -798,6 +798,27 @@ export const SentContextSnapshot = z.object({
    * Absent quand `passages` n'est pas vide.
    */
   passagesRaison: z.string().optional(),
+  /**
+   * COMMENT la recherche a classé : par le SENS (vrais vecteurs) ou par les
+   * MOTS (l'empreinte de repli), et quelle part de la documentation du projet
+   * était prête au moment du tour.
+   *
+   * Sans cette information, un repli sur les mots était INVISIBLE : la bulle
+   * montrait des passages médiocres sans dire qu'ils avaient été choisis à
+   * l'ancienne, et rien à l'écran ne permettait de s'en apercevoir. C'est
+   * exactement ce qui a duré des jours sur HaikoDev, dont la couverture était
+   * retombée à 53 % sans que personne ne le voie.
+   */
+  passagesMode: z
+    .object({
+      /** Vrai quand le classement s'est fait sur de vrais vecteurs de sens. */
+      sens: z.boolean(),
+      /** La part de la documentation du projet réellement préparée, de 0 à 1. */
+      couverture: z.number().min(0).max(1),
+      /** Dit en clair pourquoi on est resté sur les mots. */
+      raison: z.string().optional(),
+    })
+    .optional(),
   history: z.enum(['none', 'retained_by_engine']),
   usage: z
     .object({

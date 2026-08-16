@@ -83,11 +83,30 @@ export function demandeDuPromptEnvoye(contexte: SentContextSnapshot): string | u
 export function mentionDesPassages(contexte: SentContextSnapshot): string | undefined {
   const passages = contexte.passages ?? [];
   if (passages.length) {
-    return `${passages.length} passage${passages.length > 1 ? 's' : ''} retrouvé${
+    const compte = `${passages.length} passage${passages.length > 1 ? 's' : ''} retrouvé${
       passages.length > 1 ? 's' : ''
     } dans la documentation`;
+    const mode = mentionDuModeDeRecherche(contexte);
+    return mode ? `${compte} · ${mode}` : compte;
   }
   return contexte.passagesRaison;
+}
+
+/**
+ * PAR LE SENS OU PAR LES MOTS — dit à l'écran, jamais deviné.
+ *
+ * La recherche ne classe par le SENS que si la documentation du projet est
+ * préparée à plus de `COUVERTURE_VECTEURS_MIN` ; en dessous, elle retombe sur
+ * une comparaison de mots, bien moins fine. Ce repli n'était visible NULLE PART :
+ * la bulle affichait des passages médiocres sans dire pourquoi, et la panne a
+ * duré des jours sur HaikoDev (couverture retombée à 53 %). La mention porte
+ * donc le mode ET la part préparée — le seul chiffre qui explique le mode.
+ */
+export function mentionDuModeDeRecherche(contexte: SentContextSnapshot): string | undefined {
+  const mode = contexte.passagesMode;
+  if (!mode) return undefined;
+  const part = `${Math.round(mode.couverture * 100)} % de la documentation préparée`;
+  return mode.sens ? `par le sens · ${part}` : `par les MOTS · ${part}`;
 }
 
 /**
