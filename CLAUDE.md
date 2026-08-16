@@ -777,10 +777,12 @@ le nom, là-bas le texte).
   de chaque question, un clic y emmène. `decisionsEnAttente` (`server/src/store.ts`) enrichit
   chaque décision de champs d'AFFICHAGE seulement (`texte`, `projectName`, `lieuTitre`) ; le compte
   qui décide où la trancher ne bouge pas. Vérifié par `scripts/verif-questions-en-attente.mjs`.
-- **Un plan proposé qui attend une décision pose sa PROPRE bordure sur la ligne de son projet, en
-  plus de la couleur d'état déjà là** (`plans`, `shared/src/protocol.ts` ; `store.signalPlans`,
-  `server/src/store.ts` ; `RepereDePlan`, `web/src/components/sidebar.tsx`) : bordure blanche
-  additive, jamais à la place de l'orange/bleu/violet existant. L'icône du plan, elle, prend
+- **Un plan proposé qui attend une décision pose son ICÔNE sur la ligne de son projet — et RIEN
+  d'autre : la ligne reste NUE** (`plans`, `shared/src/protocol.ts` ; `store.signalPlans`,
+  `server/src/store.ts` ; `RepereDePlan`, `web/src/components/sidebar.tsx`). La bordure blanche
+  additive des débuts a été RETIRÉE avec le passage aux lignes de projet sans cadre ni fond : plus
+  aucune ligne ne porte de bordure, l'état ne vit que sur l'icône de gauche et le repère de droite.
+  L'icône du plan prend
   l'emplacement de GAUCHE (celui du dossier ou de l'outil), comme le fait déjà le loader « au
   travail » ou l'icône « en publication » (`RepereRobot`) — un seul signe à la fois, rien à droite
   du nom ; priorité publication > travail en cours > plan. Seul le badge de l'en-tête d'un groupe
@@ -876,6 +878,27 @@ le nom, là-bas le texte).
   rabaissant. Règle générale : monter le `z-index` d'un enfant ne sert à rien quand un ancêtre forme
   un plan d'empilement, c'est cet ancêtre qu'il faut relever. Vérifié par
   `scripts/verif-fenetre-note.mjs` (mesure au `elementFromPoint`, ordinateur et téléphone).
+- **LE PREMIER ENVOI N'ATTEND RIEN ET NE PORTE QUE L'UTILE** (`shared/src/premier-envoi.ts` ; bloc
+  de connexion de `server/src/ws.ts` ; `cachedEngines`, `server/src/engines/index.ts`) : rien ne
+  s'affiche tant que `ready` n'est pas arrivé. Il n'attend donc plus le catalogue des moteurs
+  (7 476 ms mesurés : trois exécutables et des appels réseau) ni une tournée de quotas — le dernier
+  catalogue connu part tel quel, MÊME PÉRIMÉ, et la vraie liste suit par les événements `engines` et
+  `quotas` ; les trois moteurs sont interrogés EN MÊME TEMPS (2 595 ms) et une seule tournée sert
+  toutes les connexions. Il ne porte que les agents utiles (vivants, finis depuis moins d'une heure,
+  ou du projet ouvert) et les décisions ENCORE OUVERTES — 1 043 Ko → 3 Ko —, le COMPTE par projet
+  restant calculé sur la liste entière. Et les cartes du projet retenu partent AVEC lui
+  (`openedProjectId`), sans aller-retour : première carte à l'écran 13 814 → 5 419 ms sur un
+  téléphone au réseau bridé. Verrouillé par `server/src/test/premier-envoi.test.ts`, mesuré par
+  `scripts/mesure-premier-affichage.mjs`.
+- **UN ÉCRAN QU'ON N'A PAS OUVERT NE SE TÉLÉCHARGE PAS** (`PanneauALaDemande`,
+  `prechargerAuRepos`, `web/src/lib/panneau-a-la-demande.tsx` ; `React.lazy` en tête de
+  `web/src/app.tsx`) : tableau de bord, réglages, tiroir de carte, module de voix et CONVERSATION
+  partent en MORCEAUX à part — 841 → 596 Ko (249 → 180 Ko compressés), la seule attente qui restait
+  sur téléphone une fois le premier envoi allégé. Deux règles : un panneau fermé n'est PAS monté
+  (monter un composant paresseux qui rend `null` téléchargerait quand même son morceau), et rien ne
+  s'affiche pendant le chargement — ces panneaux s'ouvrent par-dessus l'écran. Tous les morceaux
+  sont réclamés une fois l'application AU REPOS (`requestIdleCallback`) : le premier clic n'attend
+  pas le réseau non plus.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon

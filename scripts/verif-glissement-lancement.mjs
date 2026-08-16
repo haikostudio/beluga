@@ -227,14 +227,46 @@ function lireCarte() {
 async function glisser(page, versColonne, pointerType) {
   const carte = page.locator(`article:has-text(${JSON.stringify(TITRE)})`).first();
   const colonne = page.locator(`[data-column="${versColonne}"]`);
+  /*
+   * LE GESTE PART DE LA CARTE : c'est ELLE qu'on amène à l'écran en dernier.
+   * Amener d'abord la colonne d'arrivée poussait la carte HORS de l'écran sur
+   * un écran étroit (elle se retrouvait à x = 775 sur 700 px de large) :
+   * `elementFromPoint` ne rendait alors plus rien, l'appui n'était dispatché à
+   * personne, et le contrôle concluait à un déplacement refusé alors qu'AUCUN
+   * geste n'avait eu lieu. Les deux colonnes sont voisines : une fois la carte
+   * visible, la colonne d'arrivée l'est au moins en partie, et c'est le milieu
+   * de cette PART VISIBLE qu'on vise.
+   */
   await colonne.scrollIntoViewIfNeeded();
+  await carte.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
   const depart = await carte.boundingBox();
   const arrivee = await colonne.boundingBox();
   if (!depart || !arrivee) throw new Error('carte ou colonne introuvable à l’écran');
+  /*
+   * On vise dans le TABLEAU, pas dans l'écran : la colonne de gauche occupe les
+   * ~200 premiers pixels, et une colonne scrollée sous ce bord n'est plus
+   * déposable même si sa boîte dit qu'elle commence à x = -66. Viser le milieu
+   * de sa part « visible à l'écran » faisait donc relâcher le doigt SUR LA
+   * COLONNE DE GAUCHE : aucun `[data-column]` sous le pointeur, dépôt ignoré en
+   * silence, et le contrôle concluait à un déplacement refusé sans qu'aucun
+   * dépôt n'ait eu lieu.
+   */
+  const rail = await page.evaluate(() => {
+    const boite = document.querySelector('[data-column]')?.parentElement?.getBoundingClientRect();
+    return boite ? { gauche: boite.left, droite: boite.right } : null;
+  });
+  if (!rail) throw new Error('le tableau n’a aucune colonne à l’écran');
 
   const x0 = depart.x + depart.width / 2;
   const y0 = depart.y + 12;
-  const x1 = arrivee.x + arrivee.width / 2;
+  if (x0 < rail.gauche || x0 > rail.droite) {
+    throw new Error(`la carte est hors du tableau visible (x = ${Math.round(x0)})`);
+  }
+  const gauche = Math.max(arrivee.x, rail.gauche);
+  const droite = Math.min(arrivee.x + arrivee.width, rail.droite);
+  if (droite - gauche < 60) throw new Error(`la colonne « ${versColonne} » n’est pas assez visible pour y déposer`);
+  const x1 = (gauche + droite) / 2;
   const y1 = arrivee.y + Math.min(140, arrivee.height / 2);
 
   await page.evaluate(
@@ -318,11 +350,14 @@ async function main() {
 
   poserAgentEnTravail();
 
-  /* Écran tactile, mais assez large pour voir DEUX colonnes : le geste du doigt
-     se juge sur le pointeur (appui maintenu, puis déplacement), pas sur la
-     largeur — et on ne peut pas glisser vers une colonne hors de l'écran. */
+  /* Écran tactile, mais assez large pour voir DEUX colonnes DU TABLEAU : le
+     geste du doigt se juge sur le pointeur (appui maintenu, puis déplacement),
+     pas sur la largeur — et on ne peut pas glisser vers une colonne hors de
+     l'écran. 700 px ne suffisaient plus : la colonne de gauche en prend ~200,
+     et les deux colonnes visées ne tenaient plus côte à côte dans ce qui
+     reste. */
   const telephone = await navigateur.newContext({
-    viewport: { width: 700, height: 900 },
+    viewport: { width: 1000, height: 900 },
     isMobile: true,
     hasTouch: true,
     locale: 'fr-CH',

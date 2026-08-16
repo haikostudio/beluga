@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 /**
- * LA COLONNE DE GAUCHE : BORDURE BLANCHE ET ICÔNE DE PLAN sur un projet dont
- * un plan proposé attend encore une décision — vérifié dans un VRAI
- * navigateur, sur son PROPRE démon (base neuve, dossier de projets vide, port
- * libre : le démon de production n'est pas touché, aucun quota dépensé).
+ * LA COLONNE DE GAUCHE : L'ICÔNE DE PLAN sur un projet dont un plan proposé
+ * attend encore une décision — vérifié dans un VRAI navigateur, sur son PROPRE
+ * démon (base neuve, dossier de projets vide, port libre : le démon de
+ * production n'est pas touché, aucun quota dépensé).
+ *
+ * LA BORDURE BLANCHE N'EXISTE PLUS, et ce n'est pas une panne : les lignes de
+ * projet sont NUES depuis le 13/08/2026 (« lignes de projet sans cadre ni
+ * fond »), l'état ne vivant plus que sur l'icône de gauche et le repère de
+ * droite. Ce contrôle a donc cessé de la réclamer — il vérifie en revanche
+ * qu'AUCUNE bordure ne revient, pour que la règle des lignes nues tienne.
  *
  *   node scripts/verif-repere-plan.mjs
  */
@@ -186,7 +192,8 @@ async function etatDuRepere(page) {
     return {
       trouve: true,
       planAttribut: ligne.getAttribute('data-projet-plan'),
-      ring: ligne.className.includes('ring-white'),
+      // La ligne doit rester NUE : aucun anneau, aucune bordure de couleur.
+      ring: /\bring-|border-(?!transparent)/.test(ligne.className),
       badge: !!ligne.querySelector('[data-repere-plan]'),
     };
   }, PROJET_ID);
@@ -212,8 +219,8 @@ async function main() {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);
   const avecPlan = await etatDuRepere(page);
-  noter('un plan qui attend une décision pose la bordure blanche', avecPlan.ring, JSON.stringify(avecPlan));
-  noter('…et l’icône du plan, en badge', avecPlan.badge, JSON.stringify(avecPlan));
+  noter('un plan qui attend une décision pose son icône', avecPlan.badge, JSON.stringify(avecPlan));
+  noter('…et la ligne reste NUE : aucune bordure ne revient', !avecPlan.ring, JSON.stringify(avecPlan));
   await page.screenshot({ path: path.join(TMP, 'repere-plan-allume.png') });
 
   poserUnMessage({ content: 'Vas-y, lance ce plan.', plan: false, createdAt: Date.now() + 1000 });
@@ -231,7 +238,11 @@ async function main() {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);
   const nouvellVersion = await etatDuRepere(page);
-  noter('une nouvelle version du plan rallume le repère', nouvellVersion.ring && nouvellVersion.badge, JSON.stringify(nouvellVersion));
+  noter(
+    'une nouvelle version du plan rallume le repère',
+    nouvellVersion.badge && !nouvellVersion.ring,
+    JSON.stringify(nouvellVersion),
+  );
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 
