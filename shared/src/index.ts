@@ -12,6 +12,7 @@ export * from './attente-question.js';
 export * from './attention.js';
 export * from './auto-amelioration.js';
 export * from './bloc-cerveau.js';
+export * from './bouton-en-attente.js';
 export * from './branche-de-carte.js';
 export * from './branche-de-publication.js';
 export * from './bridage-chef.js';

@@ -73,6 +73,7 @@ import { ParcoursTache } from '@/components/parcours-tache';
 import { RepereAttention } from '@/components/repere-attention';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
+import { FournisseurDeChargement, useChargementOnglet, useOngletsQuiChargent } from '@/lib/chargement-onglet';
 import { useMinute } from '@/lib/horloge';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
@@ -195,6 +196,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     }
     etatPrecedent.current = terminerActif;
   }, [terminerActif]);
+  /* Ce que les onglets vont chercher : « Détails » son parcours, « GitHub »
+     le déroulé de ses déploiements. Chacun l'annonce depuis son contenu. */
+  const [chargement, signalerChargement] = useOngletsQuiChargent();
   const bascule = React.useRef(aLire);
   React.useEffect(() => {
     if (bascule.current || !aLire) return;
@@ -348,9 +352,18 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               Conversation
               <RepereAttention compte={decisions} data-attention-carte={card.id} />
             </TabsTrigger>
-            <TabsTrigger value="details" className="flex-1">Détails</TabsTrigger>
+            {/* Ces deux onglets vont CHERCHER leurs données : tant qu'elles ne
+                sont pas là, une petite roue le dit — sinon on ne sait pas si
+                l'onglet est vide ou s'il arrive. */}
+            <TabsTrigger value="details" className="flex-1 gap-1">
+              Détails
+              <RoueDOnglet visible={!!chargement.details} />
+            </TabsTrigger>
             <TabsTrigger value="billing" className="flex-1">Facturation</TabsTrigger>
-            <TabsTrigger value="github" className="flex-1">GitHub</TabsTrigger>
+            <TabsTrigger value="github" className="flex-1 gap-1">
+              GitHub
+              <RoueDOnglet visible={!!chargement.github} />
+            </TabsTrigger>
           </TabsList>
         </ZoneDefilement>
         </div>
@@ -360,7 +373,11 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         </TabsContent>
 
         <TabsContent value="details" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          <ZoneDefilement><CardSummary card={card} /></ZoneDefilement>
+          <ZoneDefilement>
+            <FournisseurDeChargement signaler={signalerChargement}>
+              <CardSummary card={card} />
+            </FournisseurDeChargement>
+          </ZoneDefilement>
         </TabsContent>
 
         <TabsContent value="billing" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
@@ -368,7 +385,11 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
         </TabsContent>
 
         <TabsContent value="github" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          <ZoneDefilement><GithubTab card={card} /></ZoneDefilement>
+          <ZoneDefilement>
+            <FournisseurDeChargement signaler={signalerChargement}>
+              <GithubTab card={card} />
+            </FournisseurDeChargement>
+          </ZoneDefilement>
         </TabsContent>
       </Tabs>
 
@@ -401,7 +422,13 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                             // Un lancement ne répond qu'à la FIN du tour : le
                             // délai dépassé n'est pas un refus, et n'allume
                             // donc pas l'alerte de serveur injoignable.
-                            .catch((err: any) => client.signalerRefus(err?.message ?? 'lancement refusé', card.id))
+                            .catch((err: any) => {
+                              client.signalerRefus(err?.message ?? 'lancement refusé', card.id);
+                              // …mais le bouton, lui, doit revenir à son état
+                              // initial : avaler l'erreur ici lui ferait
+                              // afficher une coche sur un lancement refusé.
+                              throw err;
+                            })
                         )
                     }
                   >
@@ -434,7 +461,16 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                   variant="default"
                   className={cn(vientDeSallumer && 'animate-appel')}
                   disabled={!peut('terminer').possible}
-                  onClick={() => client.call({ type: 'card.finish', id: card.id })}
+                  /* Le clic rend sa requête : le bouton montre la roue tant que
+                     le serveur n'a pas répondu, la coche s'il accepte, et
+                     revient tel quel si le geste est refusé — refus dit en
+                     rouge, puis relancé pour que le bouton le sache. */
+                  onClick={() =>
+                    client.call({ type: 'card.finish', id: card.id }).catch((err: any) => {
+                      client.signalerRefus(err?.message ?? 'clôture refusée', card.id);
+                      throw err;
+                    })
+                  }
                 >
                   <Check className="h-3 w-3" /> Terminer la tâche
                 </Button>
@@ -485,6 +521,19 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
  * Un geste éteint garde sa place et sa raison. L'enveloppe porte l'infobulle :
  * un bouton désactivé ne reçoit aucun survol, il ne pourrait pas la montrer.
  */
+/**
+ * La roue d'un onglet qui va chercher ses données. Elle prend la place d'un
+ * caractère à côté du nom : l'onglet ne change donc pas de largeur en la
+ * posant, et la barre ne se réorganise pas sous le doigt.
+ */
+function RoueDOnglet({ visible }: { visible: boolean }) {
+  return (
+    <span data-onglet-charge={visible ? '' : undefined} className="inline-flex h-3 w-3 items-center justify-center">
+      {visible ? <Loader2 className="h-3 w-3 animate-spin text-en-cours" /> : null}
+    </span>
+  );
+}
+
 function Geste({ decision, children }: { decision: DecisionGeste; children: React.ReactNode }) {
   if (decision.possible || !decision.raison) return <>{children}</>;
   return (
@@ -970,7 +1019,6 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
   const [type, setType] = React.useState<'offer' | 'invoice'>(
     (project?.billing?.defaultDocumentType as 'offer' | 'invoice') ?? 'invoice',
   );
-  const [busy, setBusy] = React.useState(false);
   const [available, setAvailable] = React.useState(true);
   const [confirmeNouveau, setConfirmeNouveau] = React.useState(false);
 
@@ -984,17 +1032,24 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
   const amount = Number(hours) * rate;
 
   const push = async () => {
+    /* Un refus de saisie est un ÉCHEC, pas un geste réussi : on le RELANCE
+       après l'avoir dit, sinon le bouton afficherait sa coche sans rien avoir
+       envoyé. */
     if (!hours || Number.isNaN(Number(hours))) {
-      client.pushToast('warning', 'Indiquez un nombre d\'heures');
-      return;
+      const raison = 'Indiquez un nombre d\'heures';
+      client.pushToast('warning', raison);
+      throw new Error(raison);
     }
     // Sans document par défaut sur le projet, on ne devine pas : il faut dire
     // dans quelle facture ou quelle offre la ligne doit atterrir.
     if (!defaut && !documentId && !confirmeNouveau) {
-      client.pushToast('warning', 'Choisissez le document, ou cochez « créer un nouveau document ».');
-      return;
+      const raison = 'Choisissez le document, ou cochez « créer un nouveau document ».';
+      client.pushToast('warning', raison);
+      throw new Error(raison);
     }
-    setBusy(true);
+    /* Le bouton pose lui-même sa roue : `push` lui REND sa requête, et une
+       erreur dite en rouge doit être RELANCÉE pour qu'il n'affiche pas de
+       coche sur un ajout raté. */
     try {
       await client.call({
         type: 'billing.push',
@@ -1008,8 +1063,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
       });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'ajout impossible');
-    } finally {
-      setBusy(false);
+      throw err;
     }
   };
 
@@ -1110,8 +1164,8 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
             </label>
           ) : null}
 
-          <Button variant="default" size="sm" className="w-full" disabled={busy} onClick={push}>
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CircleDollarSign className="h-3 w-3" />}
+          <Button variant="default" size="sm" className="w-full" onClick={push}>
+            <CircleDollarSign className="h-3 w-3" />
             Ajouter la ligne
           </Button>
         </>
@@ -1158,50 +1212,60 @@ const LETTRE_DU_FICHIER: Record<EtatDeFichier, string> = {
 };
 
 function GithubTab({ card }: { card: Card }) {
-  const [busy, setBusy] = React.useState(false);
   const [deploiements, setDeploiements] = React.useState<DeployRun[]>([]);
   const tracking = card.github;
 
   /*
    * LE DÉROULÉ DU DÉPLOIEMENT SE DEMANDE À L'OUVERTURE. C'est une lecture en
    * base seule — aucun appel à git ni à GitHub —, elle ne coûte donc rien et
-   * n'attend pas le bouton « Actualiser ».
+   * n'attend pas le bouton « Actualiser ». L'onglet DIT cette attente : sur une
+   * liaison lente, on ne savait pas s'il n'y avait rien ou si ça arrivait.
    */
+  const [charge, setCharge] = React.useState(true);
+  useChargementOnglet('github', charge);
+
   React.useEffect(() => {
     let vivant = true;
+    setCharge(true);
     client
       .call({ type: 'github.deploiements', cardId: card.id })
       .then((res: any) => {
         if (vivant) setDeploiements(res?.deploiements ?? []);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (vivant) setCharge(false);
+      });
     return () => {
       vivant = false;
     };
   }, [card.id, card.column, card.github?.fetchedAt]);
 
+  /*
+   * Ces deux gestes RENDENT leur requête : le bouton pose lui-même sa roue,
+   * sa coche et son retour à l'état initial (`shared/src/bouton-en-attente.ts`).
+   * Le `busy` maison qu'ils portaient chacun de leur côté a disparu — une seule
+   * façon de faire dans toute l'application, et un refus qui ne peut plus
+   * passer pour une réussite (l'erreur est dite PUIS relancée).
+   */
   const refresh = async () => {
-    setBusy(true);
     try {
       await client.call({ type: 'github.refresh', cardId: card.id });
       const res: any = await client.call({ type: 'github.deploiements', cardId: card.id });
       setDeploiements(res?.deploiements ?? []);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'lecture impossible');
-    } finally {
-      setBusy(false);
+      throw err;
     }
   };
 
   const merge = async (method: 'merge' | 'squash' | 'rebase', auto = false) => {
-    setBusy(true);
     try {
       await client.call({ type: 'github.merge', cardId: card.id, method, auto });
       client.pushToast('success', auto ? 'Fusion automatique activée' : 'Fusion demandée');
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'fusion impossible');
-    } finally {
-      setBusy(false);
+      throw err;
     }
   };
 
@@ -1214,8 +1278,8 @@ function GithubTab({ card }: { card: Card }) {
       <div className="flex items-center gap-2">
         <GitBranch className="h-3.5 w-3.5 text-faint" />
         <span className="min-w-0 flex-1 truncate text-[14px] text-text">{tracking?.branch ?? 'aucune branche'}</span>
-        <Button size="sm" variant="ghost" onClick={refresh} disabled={busy}>
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        <Button size="sm" variant="ghost" onClick={refresh}>
+          <RefreshCw className="h-3 w-3" />
           Actualiser
         </Button>
       </div>
@@ -1307,13 +1371,13 @@ function GithubTab({ card }: { card: Card }) {
 
           {tracking.prState === 'open' ? (
             <div className="mt-2 flex flex-wrap gap-1">
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => merge('squash')}>
+              <Button size="sm" variant="outline" onClick={() => merge('squash')}>
                 <GitMerge className="h-3 w-3" /> Fusionner (écrasée)
               </Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => merge('merge')}>
+              <Button size="sm" variant="ghost" onClick={() => merge('merge')}>
                 Fusion simple
               </Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => merge('squash', true)}>
+              <Button size="sm" variant="ghost" onClick={() => merge('squash', true)}>
                 Auto dès que les tests passent
               </Button>
             </div>

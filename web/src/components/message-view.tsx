@@ -912,12 +912,10 @@ function QuestionCard({
 }) {
   const [choisis, setChoisis] = React.useState<string[]>([]);
   const [complement, setComplement] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
   /** Les images jointes à la réponse, avant l'envoi. */
   const [images, setImages] = React.useState<Attachment[]>([]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [envoiFichier, setEnvoiFichier] = React.useState(false);
-  const [annulation, setAnnulation] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   if (question.cancelled) {
@@ -990,11 +988,15 @@ function QuestionCard({
     }
   };
 
+  /*
+   * Ces deux gestes RENDENT leur requête : c'est le bouton qui pose sa roue,
+   * sa coche et son retour à l'état initial. Le refus est dit en rouge PUIS
+   * relancé — sans quoi le bouton croirait avoir réussi.
+   */
   const envoyer = async () => {
     const libelles = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
     const reponse = texteDeReponse(libelles, complement, images.length);
     if (!reponse) return;
-    setBusy(true);
     try {
       await client.call({
         type: 'question.answer',
@@ -1005,19 +1007,16 @@ function QuestionCard({
       });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'réponse impossible');
-    } finally {
-      setBusy(false);
+      throw err;
     }
   };
 
   const annuler = async () => {
-    setAnnulation(true);
     try {
       await client.call({ type: 'question.cancel', messageId, questionId: question.id });
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'annulation impossible');
-    } finally {
-      setAnnulation(false);
+      throw err;
     }
   };
 
@@ -1127,8 +1126,7 @@ function QuestionCard({
       <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
 
       <div className="mt-2 flex items-center gap-1.5">
-        <Button variant="default" size="sm" disabled={!pret || busy} onClick={envoyer}>
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+        <Button variant="default" size="sm" disabled={!pret} onClick={envoyer}>
           Répondre
         </Button>
         <input
@@ -1162,11 +1160,10 @@ function QuestionCard({
           variant="ghost"
           size="sm"
           title="Fermer la question sans répondre"
-          disabled={annulation}
           onClick={annuler}
           className="text-faint hover:text-danger"
         >
-          {annulation ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+          <X className="h-3 w-3" />
           Annuler
         </Button>
       </div>
