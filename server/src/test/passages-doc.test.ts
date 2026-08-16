@@ -12,6 +12,8 @@ import {
   empreinteSemantique,
   partDesMotsExacts,
   plafondDeRecherche,
+  cheminsCites,
+  rebondSurLesFichiersCites,
   rechercheConvaincante,
   rechercheRentable,
   termesRares,
@@ -299,4 +301,120 @@ test('sans aucun passage classé, la question ne se pose pas', () => {
 
 test('un seul passage dans tout le corpus est dit convaincant, faute de comparaison', () => {
   assert.equal(rechercheConvaincante([faux('docs/regles/cartes.md', 0.15, 20)]), true);
+});
+
+/* ------------------------------------------------------------------ */
+/* 5. LE REBOND : la documentation NOMME les fichiers                  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * MESURÉ SUR 120 CARTES RÉELLES : la bonne page — celle d'un fichier que la
+ * carte allait vraiment modifier — passait de 67 % à 78 % avec ce second pas,
+ * sans un jeton de plus. La règle qui répond à la question NOMME le fichier qui
+ * la porte ; c'est ce lien-là qu'on suit.
+ */
+
+test('un chemin cité se reconnaît, un nom de fichier nu ne suffit pas', () => {
+  const cites = cheminsCites('la règle vit dans `shared/src/demon.ts`, verrouillée par server/src/test/demon.test.ts');
+  assert.deepEqual(cites, ['shared/src/demon.ts', 'server/src/test/demon.test.ts']);
+  assert.deepEqual(cheminsCites('le fichier demon.ts, tout seul, ne désigne rien de sûr'), []);
+});
+
+test('un même chemin cité deux fois ne compte qu’une fois', () => {
+  assert.deepEqual(cheminsCites('server/src/ws.ts puis encore server/src/ws.ts'), ['server/src/ws.ts']);
+});
+
+test('le fichier NOMMÉ par la règle la mieux placée remonte avec elle', () => {
+  const regle = {
+    source: 'docs/regles/publication.md',
+    titre: 'Publication › Ne jamais publier de sa propre initiative',
+    sujet: 'publication',
+    priorite: PRIORITE.regle,
+    texte: 'Publier reste un geste de l’utilisateur, et la procédure vit dans `shared/src/mise-en-ligne.ts`.',
+    score: 0.5,
+    sens: 0.5,
+    mots: 0.4,
+    jetons: 30,
+  };
+  const codeVise = { ...regle, source: 'shared/src/mise-en-ligne.ts', titre: 'planDeMiseEnLigne', priorite: PRIORITE.code, score: 0.1 };
+  const codeVoisin = { ...regle, source: 'server/src/ws.ts', titre: 'diffuser', priorite: PRIORITE.code, score: 0.12 };
+
+  const avant = [regle, codeVoisin, codeVise];
+  const apres = rebondSurLesFichiersCites(avant, 'reprendre une mise en ligne interrompue');
+
+  assert.equal(apres[0].source, 'docs/regles/publication.md', 'la règle garde sa place');
+  assert.equal(apres[1].source, 'shared/src/mise-en-ligne.ts', 'le fichier qu’elle nomme passe devant son voisin');
+  assert.ok(apres[1].score > codeVise.score, 'et il le doit à la citation, pas au hasard');
+});
+
+test('un fichier NOMMÉ par la question remonte lui aussi', () => {
+  const rien = {
+    source: 'docs/regles/cartes.md',
+    titre: 'Cartes',
+    sujet: 'cartes',
+    priorite: PRIORITE.regle,
+    texte: 'Une règle qui ne cite aucun fichier.',
+    score: 0.4,
+    sens: 0.4,
+    mots: 0.3,
+    jetons: 20,
+  };
+  const vise = { ...rien, source: 'server/src/quota.ts', titre: 'relever', priorite: PRIORITE.code, score: 0.05 };
+  const apres = rebondSurLesFichiersCites([rien, vise], 'corriger le relevé de server/src/quota.ts');
+  assert.equal(apres[1].source, 'server/src/quota.ts');
+  assert.ok(apres[1].score > vise.score);
+});
+
+test('sans un seul chemin cité, le classement ne bouge pas d’un rang', () => {
+  const a = { source: 'a.md', titre: 'A', sujet: '', priorite: 0, texte: 'rien à citer ici', score: 0.4, sens: 0.4, mots: 0, jetons: 10 };
+  const b = { ...a, source: 'b.md', titre: 'B', score: 0.3 };
+  const apres = rebondSurLesFichiersCites([a, b], 'une question sans aucun chemin');
+  assert.deepEqual(apres.map((p) => p.source), ['a.md', 'b.md']);
+});
+
+test('le rebond ne prend ses graines que dans la DOCUMENTATION', () => {
+  const codeEnTete = {
+    source: 'server/src/main.ts',
+    titre: 'demarrer',
+    sujet: '',
+    priorite: PRIORITE.code,
+    texte: "import { log } from 'server/src/logger.ts';",
+    score: 0.9,
+    sens: 0.9,
+    mots: 0.5,
+    jetons: 20,
+  };
+  const dependance = { ...codeEnTete, source: 'server/src/logger.ts', titre: 'log', score: 0.05 };
+  const apres = rebondSurLesFichiersCites([codeEnTete, dependance], 'démarrer le démon');
+  assert.equal(apres[1].score, dependance.score, 'les imports d’un fichier de code ne sont pas des citations');
+});
+
+test('le classement fait son second pas tout seul, et se coupe pour le mesurer', () => {
+  const corpus = [
+    {
+      source: 'docs/regles/voix.md',
+      titre: 'Voix › Le mot de réveil',
+      sujet: 'voix',
+      priorite: PRIORITE.regle,
+      texte: 'Le mot de réveil de l’écoute se règle dans les réglages, et vit dans `shared/src/voix.ts`.',
+      empreinte: empreinteSemantique('Le mot de réveil de l’écoute se règle dans les réglages, et vit dans shared/src/voix.ts.'),
+    },
+    {
+      source: 'shared/src/voix.ts',
+      titre: 'motDeReveil',
+      sujet: '',
+      priorite: PRIORITE.code,
+      texte: 'export function motDeReveil(reglage: string): string { return reglage.trim(); }',
+      empreinte: empreinteSemantique('export function motDeReveil(reglage: string): string { return reglage.trim(); }'),
+    },
+  ];
+  const question = 'changer le mot de réveil de l’écoute vocale';
+  const sansRebond = classerPassages(corpus, question, { rebond: false });
+  const avecRebond = classerPassages(corpus, question);
+
+  assert.equal(sansRebond[0].source, 'docs/regles/voix.md');
+  const codeAvant = sansRebond.find((p) => p.source === 'shared/src/voix.ts');
+  const codeApres = avecRebond.find((p) => p.source === 'shared/src/voix.ts');
+  assert.ok(codeAvant && codeApres, 'le fichier cité est bien dans les deux classements');
+  assert.ok(codeApres.score > codeAvant.score, 'le fichier cité par la règle gagne son cran, et seulement lui');
 });

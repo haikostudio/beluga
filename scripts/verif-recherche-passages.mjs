@@ -323,6 +323,46 @@ if (!moteurLocal) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 7. LE REBOND : la règle nomme son fichier, et il remonte avec elle  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LE SECOND PAS DU CLASSEMENT, sur la VRAIE documentation du dépôt. Ici, toute
+ * règle NOMME les fichiers qui la portent : une demande retrouve donc très bien
+ * la règle, et ratait le fichier de code derrière elle, faute de partager un
+ * seul mot avec la question. On vérifie le MÉCANISME, pas un classement précis
+ * — celui-là bouge à chaque carte, et se mesure ailleurs
+ * (`scripts/audit-memoire-rag.mjs`, 67 % → 78 % sur 120 cartes réelles).
+ */
+console.log('\n7. Le rebond : le fichier NOMMÉ par la meilleure règle remonte avec elle');
+const DEMANDES_REBOND = [
+  'empêcher un redémarrage du serveur pendant qu’une publication tourne',
+  'une carte interrompue par une panne ne doit pas passer pour terminée',
+  'reprendre un tour coupé par la limite d’un compte',
+];
+let rebondsUtiles = 0;
+for (const question of DEMANDES_REBOND) {
+  const sans = partage.classerPassages(indexes, question, { rebond: false });
+  const avec = partage.rebondSurLesFichiersCites(sans, question);
+  const cites = new Set(
+    sans
+      .filter((p) => p.priorite !== partage.PRIORITE.code)
+      .slice(0, partage.GRAINES_DU_REBOND)
+      .flatMap((p) => partage.cheminsCites(`${p.texte} ${p.titre}`)),
+  );
+  const monte = avec.filter(
+    (p, rang) => cites.has(p.source) && rang < sans.findIndex((q) => q.source === p.source && q.titre === p.titre),
+  );
+  if (monte.length) rebondsUtiles += 1;
+  verifier(
+    avec[0].score >= sans[0].score,
+    `« ${question.slice(0, 44)}… »`,
+    `${cites.size} fichiers cités par les meilleures règles, ${monte.length} passages remontés`,
+  );
+}
+verifier(rebondsUtiles > 0, 'au moins une demande gagne un fichier grâce au rebond', `${rebondsUtiles} sur ${DEMANDES_REBOND.length}`);
+
+/* ------------------------------------------------------------------ */
 
 console.log('');
 if (echecs.length) {

@@ -97,6 +97,7 @@ const {
   classerPassages,
   jetonsApproches,
   plafondDeRecherche,
+  rebondSurLesFichiersCites,
   seuilDeSuite,
   texteDuSommaire,
 } = shared;
@@ -276,7 +277,22 @@ console.log(`   moteur de sens : ${moteur.moteur === 'local' ? 'LOCAL, sur ce se
 
 // L'index de la copie est celui du démon ; on le remet à jour sur l'état du dépôt.
 const indexation = passagesMod.indexerDocumentation(projet.id, CHEMIN_PROJET);
-const tousLesPassages = passagesMod.passagesIndexes(projet.id);
+/*
+ * CE RELEVÉ NE SE MESURE PAS LUI-MÊME. Ses questions « hors sujet » (la tarte,
+ * le vol pour Tokyo) sont écrites en toutes lettres plus bas, et ce fichier est
+ * indexé comme n'importe quel autre : sans cette exclusion, la question retrouve
+ * SA PROPRE COPIE — mesuré le 16/08/2026, mots exacts à 0,67 — et le relevé
+ * conclut que le seuil ne filtre plus rien alors qu'il n'a mesuré que sa trace.
+ * Même piège que pour `scripts/verif-recherche-par-le-sens.mjs`, et il vaut pour
+ * la vérité de terrain (déjà écartée plus haut) comme pour le corpus.
+ *
+ * LE RAPPORT COMPTE AUTANT QUE LE SCRIPT : `docs/audit-memoire-rag.md` cite ces
+ * mêmes questions pour expliquer ce qu'elles ont montré, et il remontait à leur
+ * place (0,52). D'où le filtre sur le NOM, script et rapport confondus.
+ */
+const tousLesPassages = passagesMod
+  .passagesIndexes(projet.id)
+  .filter((p) => !p.source.includes('audit-memoire-rag'));
 const documents = tousLesPassages.filter((p) => p.priorite >= 0);
 const code = tousLesPassages.filter((p) => p.priorite < 0);
 const couverture = passagesMod.couvertureDesVecteurs(projet.id);
@@ -420,6 +436,12 @@ const duel = {
   sensSeul: 0,
   motsSeul: 0,
   aucunDesDeux: 0,
+  /* LE REBOND : le même classement, jugé avec et SANS son second pas. */
+  motsSansRebond: 0,
+  motsSansRebondStrict: 0,
+  sensSansRebond: 0,
+  sensSansRebondStrict: 0,
+  rangsSansRebond: [],
 };
 for (const carte of cartes) {
   const t0 = Date.now();
@@ -427,13 +449,32 @@ for (const carte of cartes) {
   if (!vecteurQuestion) continue;
   duel.msVecteur.push(Date.now() - t0);
 
+  /*
+   * LE REBOND EST UN SECOND PAS SUR LE MÊME CLASSEMENT : on note UNE fois, puis
+   * on applique — ou non — le rebond. Rejouer `classerPassages` deux fois
+   * doublerait le temps du relevé pour rendre exactement la même note.
+   */
   const t1 = Date.now();
-  const classesSens = classerPassages(tousLesPassages, carte.question, {
+  const classesSensBrut = classerPassages(tousLesPassages, carte.question, {
     vecteurQuestion,
     poids: { sens: POIDS_SENS_VECTEUR, mots: POIDS_MOTS_VECTEUR },
+    rebond: false,
   });
   duel.msClassement.push(Date.now() - t1);
-  const classesMots = classerPassages(tousLesPassages, carte.question);
+  const classesSens = rebondSurLesFichiersCites(classesSensBrut, carte.question);
+  const classesMotsBrut = classerPassages(tousLesPassages, carte.question, { rebond: false });
+  const classesMots = rebondSurLesFichiersCites(classesMotsBrut, carte.question);
+
+  for (const [brut, cle] of [
+    [classesMotsBrut, 'motsSansRebond'],
+    [classesSensBrut, 'sensSansRebond'],
+  ]) {
+    const sources = new Set(choisir(brut, cle === 'sensSansRebond' ? SCORE_MINIMUM_VECTEUR : undefined).gardes.map((p) => p.source));
+    if ([...sources].some((s) => carte.fichiers.has(s))) duel[cle] += 1;
+    if ([...sources].some((s) => carte.propres.has(s))) duel[`${cle}Strict`] += 1;
+  }
+  /* Le rang se compare à celui de `duel.rangs`, mesuré lui aussi sur le SENS. */
+  duel.rangsSansRebond.push(rangDuBon(classesSensBrut, carte.fichiers));
   const parLeSens = choisir(classesSens, SCORE_MINIMUM_VECTEUR);
   const parLesMots = choisir(classesMots, undefined);
 
@@ -478,7 +519,26 @@ console.log(`   cartes où UN SEUL des deux réussit — le SENS : ${duel.sensSe
 console.log(`   fichiers communs aux deux réponses : ${Math.round((duel.communs / Math.max(1, duel.total)) * 100)} % — le reste est ce que le sens change`);
 console.log(`   fichiers jugés omniprésents, donc neutralisés en vérité stricte : ${[...omnipresents].join(', ') || 'aucun'}\n`);
 
+/*
+ * LE REBOND, MESURÉ À PART. Tout est identique — mêmes passages, même note, même
+ * plafond — sauf le SECOND PAS du classement : relever d'un cran les passages
+ * venus d'un fichier que les meilleures pages de documentation NOMMENT.
+ */
+console.log('3 bis. LE REBOND SUR LES FICHIERS CITÉS — même note, second pas en plus');
+console.log(
+  `   par les MOTS (le réglage du lancement) — sans rebond : ${part(duel.motsSansRebond)} · avec : ${part(duel.mots)}` +
+    ` · en vérité stricte ${part(duel.motsSansRebondStrict)} → ${part(duel.motsStrict)}`,
+);
+console.log(
+  `   par le SENS — sans rebond : ${part(duel.sensSansRebond)} · avec : ${part(duel.sens)}` +
+    ` · en vérité stricte ${part(duel.sensSansRebondStrict)} → ${part(duel.sensStrict)}`,
+);
+
 const auRang = (rangs, k) => `${Math.round((rangs.filter((r) => r > 0 && r <= k).length / Math.max(1, rangs.length)) * 100)} %`;
+console.log(
+  `   la bonne page arrive dans les 7 premiers rangs — sans rebond : ${auRang(duel.rangsSansRebond, 7)} · avec : ${auRang(duel.rangs, 7)}\n`,
+);
+
 console.log('4. LE PLAFOND OU LE CLASSEMENT ? — à quel rang la bonne page arrive dans le classement entier');
 console.log(`   vérité large  — dans les 7 servis : ${auRang(duel.rangs, 7)} · dans les 20 premiers : ${auRang(duel.rangs, 20)} · dans les 100 premiers : ${auRang(duel.rangs, 100)}`);
 console.log(`   vérité stricte — dans les 7 servis : ${auRang(duel.rangsStricts, 7)} · dans les 20 premiers : ${auRang(duel.rangsStricts, 20)} · dans les 100 premiers : ${auRang(duel.rangsStricts, 100)}`);
@@ -516,18 +576,30 @@ const duelConv = {
   motsVides: 0,
   rangs: [],
   signes: [],
+  sensSansRebond: 0,
+  sensSansRebondStrict: 0,
 };
 const messagesRejoues = messages.slice(0, Math.max(0, MESSAGES_VOULUS));
 if (messagesRejoues.length) {
   for (const message of messagesRejoues) {
     const vecteurQuestion = await vecteursMod.vectoriserLaQuestion(message.question);
     if (!vecteurQuestion) continue;
-    const classesSens = classerPassages(tousLesPassages, message.question, {
+    const classesSensBrut = classerPassages(tousLesPassages, message.question, {
       vecteurQuestion,
       poids: { sens: POIDS_SENS_VECTEUR, mots: POIDS_MOTS_VECTEUR },
+      rebond: false,
     });
+    const classesSens = rebondSurLesFichiersCites(classesSensBrut, message.question);
     const classesMots = classerPassages(tousLesPassages, message.question);
     const bornes = { plafond: PLAFOND_PASSAGES_SUITE_JETONS, max: PASSAGES_SUITE_MAX, maxCode: PASSAGES_CODE_MAX };
+    {
+      /* LE REBOND EN CONVERSATION : il doit gagner là aussi, ou au moins ne rien coûter. */
+      const brut = new Set(
+        choisirPassages(classesSensBrut, { ...bornes, minimum: seuilDeSuite(SCORE_MINIMUM_VECTEUR) }).gardes.map((p) => p.source),
+      );
+      if ([...brut].some((s) => message.carte.fichiers.has(s))) duelConv.sensSansRebond += 1;
+      if ([...brut].some((s) => message.carte.propres.has(s))) duelConv.sensSansRebondStrict += 1;
+    }
     const parLeSens = choisirPassages(classesSens, { ...bornes, minimum: seuilDeSuite(SCORE_MINIMUM_VECTEUR) });
     const parLesMots = choisirPassages(classesMots, { ...bornes, minimum: seuilDeSuite(SCORE_MINIMUM) });
 
@@ -563,6 +635,7 @@ if (!duelConv.total) {
   console.log(`   en vérité STRICTE — par le SENS : ${partConv(duelConv.sensStrict)} · par les MOTS : ${partConv(duelConv.motsStrict)}`);
   console.log(`   recherches qui ne rendent RIEN — par le SENS : ${partConv(duelConv.sensVides)} · par les MOTS : ${partConv(duelConv.motsVides)}`);
   console.log(`   messages où UN SEUL des deux réussit — le SENS : ${duelConv.sensSeul} · les MOTS : ${duelConv.motsSeul} · aucun des deux : ${duelConv.aucunDesDeux}`);
+  console.log(`   le REBOND sur ce terrain — sans : ${partConv(duelConv.sensSansRebond)} · avec : ${partConv(duelConv.sens)} · en vérité stricte ${partConv(duelConv.sensSansRebondStrict)} → ${partConv(duelConv.sensStrict)}`);
   console.log(`   fichiers communs aux deux réponses : ${Math.round((duelConv.communs / Math.max(1, duelConv.total)) * 100)} %\n`);
 }
 

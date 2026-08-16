@@ -489,6 +489,105 @@ export function scoreDuPassage(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* 3 bis. LE REBOND : la documentation NOMME les fichiers               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN CHEMIN DE FICHIER CITÉ DANS UN TEXTE.
+ *
+ * On exige au moins un dossier (`server/src/passages.ts`, jamais « passages.ts »
+ * tout seul) : un nom nu ne désigne rien de sûr dans un dépôt qui porte trois
+ * `index.ts`, et il suffirait d'un mot de la langue suivi d'un point pour
+ * inventer un fichier qui n'existe pas.
+ */
+const MOTIF_CHEMIN_CITE =
+  /\b(?:[\w.-]+\/)+[\w.-]+\.(?:ts|tsx|mjs|cjs|js|jsx|md|json|css|sh|py|yml|yaml|toml|service|sql)\b/g;
+
+/** Les fichiers qu'un texte NOMME, tels qu'ils s'écrivent depuis la racine du projet. */
+export function cheminsCites(texte: string): string[] {
+  const trouves = texte.match(MOTIF_CHEMIN_CITE);
+  if (!trouves) return [];
+  return [...new Set(trouves.map((chemin) => chemin.replace(/^\.\//, '')))];
+}
+
+/**
+ * COMBIEN DE PASSAGES SERVENT DE GRAINE au rebond. Huit, mesuré : à trois, la
+ * moitié des fichiers cités manque encore ; à douze, on ramasse les citations de
+ * passages qui ne répondaient déjà plus à la question, et la pertinence redescend.
+ */
+export const GRAINES_DU_REBOND = 8;
+
+/**
+ * CE QUE VAUT UNE CITATION. Assez pour faire remonter un fichier nommé par la
+ * règle qui répond à la question — un passage passe environ de la 20ᵉ place aux
+ * sept premières —, pas assez pour couronner un fichier que rien d'autre ne
+ * désigne : le score d'origine continue de départager.
+ */
+export const BONUS_FICHIER_CITE = 0.15;
+
+/**
+ * LE REBOND — LE SECOND PAS D'UNE RECHERCHE, ET IL VAUT ONZE POINTS SUR LES
+ * 120 CARTES DE RÉFÉRENCE, VINGT-CINQ SUR LES 327 QU'ON SAIT REJOUER.
+ *
+ * Mesuré : la bonne page — celle d'un fichier que la carte allait vraiment
+ * modifier — n'arrivait dans les sept servis que 67 fois sur 100, alors qu'elle
+ * est dans les cent premiers 95 fois sur 100. Ce n'était donc pas le plafond qui
+ * coupait trop tôt, c'était le classement qui ne voyait pas le rapport.
+ *
+ * Or ce rapport est ÉCRIT, et il l'est dans la documentation elle-même : ici,
+ * toute règle NOMME les fichiers qui la portent (« `shared/src/demon.ts` »,
+ * « Verrouillé par `server/src/test/…` »). Une demande retrouve donc très bien
+ * la RÈGLE qui la concerne — c'est le fichier de CODE derrière cette règle
+ * qu'elle ratait, faute de partager un seul mot avec la question.
+ *
+ * On fait donc un second pas : on lit les chemins cités par les meilleurs
+ * passages de DOCUMENTATION (et par la question elle-même), et on relève d'un
+ * cran tout passage venu de l'un de ces fichiers. Rien n'est écarté, rien n'est
+ * ajouté au corpus : seul l'ordre change.
+ *
+ * RÉSULTAT : 67 % → 78 % de bonne page retrouvée sur les 120 cartes de
+ * référence (63 % → 77 % en vérité stricte), 51 % → 76 % sur les 327 cartes qui
+ * ont une vérité de terrain, 27 % → 39 % en conversation — et **pas un jeton de
+ * plus**, puisque seul l'ordre change.
+ *
+ * Ce qui a été essayé et REFUSÉ, sur les mêmes cartes : peser le bonus au
+ * nombre de citations (74 %), l'étendre aux fichiers de même nom de famille
+ * (79 %, sans gain), aux fichiers dont le nom paraît dans la question (75 %),
+ * cumuler ces trois-là (70 %), et refaire un second rebond sur le résultat du
+ * premier (74 %). La forme la plus simple est la meilleure : 79 %.
+ * Les réglages sont un PLATEAU : 6 à 8 graines, un bonus de 0,12 à 0,15 donnent
+ * le même résultat ; on prend le centre. Relevé complet dans
+ * `docs/audit-memoire-rag.md`, section 12.
+ */
+export function rebondSurLesFichiersCites(
+  classes: PassageClasse[],
+  question: string,
+  options: { graines?: number; bonus?: number } = {},
+): PassageClasse[] {
+  const graines = options.graines ?? GRAINES_DU_REBOND;
+  const bonus = options.bonus ?? BONUS_FICHIER_CITE;
+
+  const cites = new Set(cheminsCites(question));
+  let vus = 0;
+  for (const passage of classes) {
+    if (vus >= graines) break;
+    /*
+     * Les graines sont des passages de DOCUMENTATION. Un fichier de code cite
+     * surtout ses propres dépendances (`import`), qui n'ont rien à voir avec la
+     * question : c'est la documentation qui dit quel fichier porte quelle règle.
+     */
+    if (passage.priorite === PRIORITE.code) continue;
+    for (const chemin of cheminsCites(`${passage.texte} ${passage.titre}`)) cites.add(chemin);
+    vus += 1;
+  }
+  if (!cites.size) return classes;
+
+  return classes
+    .map((passage) => (cites.has(passage.source) ? { ...passage, score: passage.score + bonus } : passage))
+    .sort((a, b) => b.score - a.score);
+}
+
 /**
  * Les passages classés du plus pertinent au moins pertinent.
  *
@@ -496,18 +595,23 @@ export function scoreDuPassage(
  * empreinte de mots. Avec, on classe par le SENS RÉEL — et les poids qui vont
  * avec sont fournis par l'appelant (`vecteurs-doc.ts`), qui seul sait dans quel
  * mode on est.
+ *
+ * Le classement se fait en DEUX PAS : la note de chaque passage, puis le REBOND
+ * sur les fichiers que les meilleurs passages NOMMENT. Le second pas se coupe
+ * (`rebond: false`) pour mesurer ce qu'il apporte, jamais en production.
  */
 export function classerPassages(
   passages: PassageIndexe[],
   question: string,
-  options: { vecteurQuestion?: ArrayLike<number>; poids?: PoidsDuScore } = {},
+  options: { vecteurQuestion?: ArrayLike<number>; poids?: PoidsDuScore; rebond?: boolean } = {},
 ): PassageClasse[] {
   const empreinte = empreinteSemantique(question);
   const termes = termesRares(question);
   const contexte = { empreinte, termes, vecteur: options.vecteurQuestion, poids: options.poids };
-  return passages
+  const classes = passages
     .map((passage) => scoreDuPassage(passage, contexte))
     .sort((a, b) => b.score - a.score);
+  return options.rebond === false ? classes : rebondSurLesFichiersCites(classes, question);
 }
 
 /* ------------------------------------------------------------------ */

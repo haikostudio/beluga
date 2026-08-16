@@ -187,6 +187,25 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   voulue : le PREMIER passage de code passe toujours, sinon une demande qui NOMME un fichier ne le
   remonterait plus. Mesuré sur « est-ce que le programme peut décider tout seul d'envoyer le site
   chez le client ? » : 1 page de documentation avant, 3 après.
+- **LE CLASSEMENT FAIT UN SECOND PAS : LA RÈGLE NOMME SON FICHIER, ET IL REMONTE AVEC ELLE**
+  (`rebondSurLesFichiersCites`, `cheminsCites`, `GRAINES_DU_REBOND` = 8, `BONUS_FICHIER_CITE` = 0,15,
+  `shared/src/passages-doc.ts` ; appliqué par `classerPassages`, coupable par `rebond: false` pour le
+  mesurer). La bonne page — celle d'un fichier que la carte allait vraiment modifier — n'arrivait
+  dans les sept servis que 67 fois sur 100, alors qu'elle est dans les cent premiers 95 fois sur
+  100 : ce n'était donc PAS le plafond qui coupait trop tôt, c'était le classement qui ne voyait pas
+  le rapport. Or ce rapport est ÉCRIT, et il l'est dans la documentation elle-même — ici, toute règle
+  NOMME les fichiers qui la portent (« `shared/src/demon.ts` », « Verrouillé par
+  `server/src/test/…` »). Une demande retrouvait donc très bien la RÈGLE ; c'est le FICHIER derrière
+  elle qu'elle ratait, faute de partager un seul mot avec la question. On lit donc les chemins cités
+  par les HUIT meilleurs passages de DOCUMENTATION (et par la question), et on relève d'un cran tout
+  passage venu de l'un de ces fichiers : rien n'est ajouté au corpus, rien n'est écarté, seul l'ORDRE
+  change — donc **pas un jeton de plus**. Mesuré sur 120 cartes réelles (`audit-memoire-rag.mjs`,
+  section 3 bis) : **67 % → 78 %** en vérité large, **63 % → 77 %** en stricte, la bonne page dans
+  les sept premiers rangs 73 % → 88 % ; en CONVERSATION, 27 % → 39 %. Les graines viennent de la
+  DOCUMENTATION seule — un fichier de code cite surtout ses propres `import`. Essayé et REFUSÉ sur
+  les mêmes cartes : peser le bonus au nombre de citations (74 %), l'étendre aux fichiers de même
+  famille de nom (79 %, sans gain), à ceux dont le nom paraît dans la question (75 %), les cumuler
+  (70 %), refaire un second rebond (74 %). La forme la plus simple gagne.
 - **PAR LE SENS OU PAR LES MOTS, C'EST ÉCRIT DANS LA BULLE** (`SentContextSnapshot.passagesMode`,
   `shared/src/models.ts` ; `mentionDuModeDeRecherche`, `shared/src/prompt-envoye.ts`) : le repli sur
   les mots n'était visible NULLE PART — la bulle « Mémoire retrouvée » montrait des passages
@@ -215,6 +234,10 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   ligne du SEUIL, plus bas. La recherche coûte enfin ~2,1 s
   par demande, dont 0,9 s à noter les 5 143 passages et ~1 s à les relire. Le relevé travaille sur
   une COPIE de la base du démon et ne pose aucun seuil : il mesure, il ne fait échouer personne.
+  **ET IL NE SE MESURE PLUS LUI-MÊME** : ses deux questions « hors sujet » sont écrites en toutes
+  lettres dans le script ET rappelées dans son rapport, tous deux indexés — la recherche
+  retrouvait sa PROPRE COPIE (mots exacts 0,67) et le relevé concluait que le seuil ne filtrait
+  plus rien. Tout passage venu de `audit-memoire-rag`, script comme rapport, est retiré du corpus.
 - **…D'OÙ DEUX TERRAINS ET DEUX RÉGLAGES : les MOTS EXACTS au LANCEMENT d'une carte, le SENS en
   CONVERSATION** (`TerrainDeRecherche`, `SENS_PAR_TERRAIN`, `sensUtileSur`, `RAISON_TERRAIN_SANS_SENS`,
   `shared/src/vecteurs-doc.ts` ; quatrième argument de `classerPourLaQuestion`,
@@ -239,6 +262,14 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   préparée ». Verrouillé par `server/src/test/vecteurs-doc.test.ts`,
   `scripts/verif-recherche-passages.mjs` (corpus fabriqué) et `scripts/verif-recherche-par-le-sens.mjs`
   (vraie base).
+  **MAIS CETTE ÉGALITÉ A ÉTÉ MESURÉE AVANT LE REBOND, ET ELLE NE TIENT PLUS** (relevé du
+  17/08/2026, section 12 de `docs/audit-memoire-rag.md`) : sur 327 cartes, rebond en place, le
+  sens passe à **82 % contre 76 %** en vérité large et **81 % contre 74 %** en stricte, avec
+  **36 victoires exclusives contre 16** — l'écart n'est plus du bruit. La raison est mécanique :
+  le rebond transforme « avoir trouvé la bonne règle » en « avoir trouvé le bon fichier », et
+  c'est le sens qui trouve la bonne règle. Le réglage n'a PAS été changé par la carte qui a posé
+  le rebond — revenir au sens au lancement coûte 64 ms par carte et remet en jeu le repli sur
+  l'index, donc le seuil : c'est une décision à part, avec sa mesure déjà faite.
 - **LE SEUIL DU MODE SENS EST RÉGLÉ SUR CE BALAYAGE, PAS À L'ESTIME** (`SCORE_MINIMUM_VECTEUR`,
   `shared/src/vecteurs-doc.ts` ; section 5 bis de `scripts/audit-memoire-rag.mjs`) : à 0,24 il ne
   filtrait RIEN — 87 % du corpus le franchissait, une question sur la tarte aux pommes recevait six
@@ -252,6 +283,11 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   (`seuilDeSuite`, +0,06) cherche donc à 0,44 — valeur que le même balayage donne encore à
   79 cartes sur 120. Refaire la mesure avant de retoucher ce nombre. Verrouillé par
   `server/src/test/vecteurs-doc.test.ts`.
+  **REJOUÉ AVEC LE REBOND, le balayage recommande 0,48** (327 cartes, 17/08/2026) : aucune carte
+  perdue jusque-là, la première tombe à 0,50, et le hors sujet repart les mains vides dès 0,44.
+  Non appliqué : ce nombre est réglé sur les 5 184 passages de HaikoDev, or le corpus MINUSCULE
+  de `verif-recherche-passages.mjs` fait sortir la bonne règle vers 0,39 — le monter demande de
+  revoir ce contrôle avec lui.
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
   priorité haute par la recherche.
