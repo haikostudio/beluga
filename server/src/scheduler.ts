@@ -135,13 +135,25 @@ function num(value: unknown): number | undefined {
   return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * Le RATIO réel/annoncé de chaque carte close, triée par la MESURE la plus
+ * récente (pas par la position d'affichage, qui suit le glisser-déposer et
+ * non le temps) : on garde les huit dernières comparaisons plutôt que cinq,
+ * pour lisser un cas isolé.
+ */
 function pastGaps(projectId: string): string | null {
   const cards = store
     .listCards(projectId)
     .filter((c) => c.estimate?.machineSeconds && c.consumption?.machineSeconds)
-    .slice(0, 5);
+    .sort((a, b) => (b.consumption!.measuredAt ?? 0) - (a.consumption!.measuredAt ?? 0))
+    .slice(0, 8);
   if (!cards.length) return null;
-  return cards
+
+  const ratios = cards.map((c) => (c.consumption!.machineSeconds ?? 0) / (c.estimate!.machineSeconds || 1));
+  const ratioMoyen = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+  const pourcentage = Math.round(ratioMoyen * 100);
+
+  const lignes = cards
     .map(
       (c) =>
         `- « ${c.title} » : annoncé ${Math.round((c.estimate!.machineSeconds ?? 0) / 60)} min, réalisé ${Math.round(
@@ -149,6 +161,8 @@ function pastGaps(projectId: string): string | null {
         )} min`,
     )
     .join('\n');
+
+  return `${lignes}\n\nEn moyenne sur ces cartes, le réel ne représente que ${pourcentage} % de la durée annoncée : le chiffrage part systématiquement trop haut. Aucune mesure indépendante n'existe pour les heures de développeur senior, mais elles suivent le même excès — corrige machineSeconds ET seniorHours à la baisse dans cette proportion, plutôt que d'ajouter une marge de sécurité.`;
 }
 
 /* ------------------------------------------------------------------ */
