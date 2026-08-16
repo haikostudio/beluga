@@ -623,18 +623,24 @@ export function rechercheRentable(jetonsPassages: number, jetonsIndex: number): 
  * pouvoir ouvrir le fichier — et il DIT qu'il ne montre pas tout : l'index
  * complet et les sujets restent à un appel de `project_memory`. Un plafond
  * silencieux se lirait comme une réponse complète.
+ *
+ * ET IL PORTE LE SOMMAIRE DES SUJETS (`texteDuSommaire`, shared/src/memoire.ts).
+ * Sans lui, ce bloc invitait l'agent à demander « un sujet » sans jamais dire
+ * lesquels existent : le sommaire coûte une ligne par sujet, l'index en coûtait
+ * une par fait, et c'est lui qui rend l'outil réellement utilisable.
  */
-export function texteDesPassages(passages: PassageClasse[], faits: number): string {
+export function texteDesPassages(passages: PassageClasse[], faits: number, sommaire = ''): string {
   if (!passages.length) return '';
   const corps = passages
     .map((passage) => `▸ ${passage.source}${passage.titre ? ` — ${passage.titre}` : ''}\n${passage.texte.trim()}`)
     .join('\n\n');
+  const carte = sommaire.trim() ? `\n\n${sommaire.trim()}` : '';
   return (
     `MÉMOIRE DU PROJET — ${passages.length} passages retrouvés pour CETTE tâche ` +
     `(règles, faits, contrôles, mécaniques, fichiers du projet) :\n\n` +
     `${corps}\n\n` +
     `Ce sont les mieux placés, sous plafond de jetons — pas toute la mémoire (${faits} faits, ` +
     `plus les règles et les contrôles). Appelle « project_memory » dès que cela ne suffit pas : ` +
-    `sans argument pour l'index complet, avec un sujet ou des mots-clés pour le reste.`
+    `sans argument pour l'index complet, avec un sujet ou des mots-clés pour le reste.${carte}`
   );
 }

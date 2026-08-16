@@ -60,6 +60,7 @@ import {
   noteDePontEnEchec,
   finaliserAnalyseDeProposition,
   libelleSujet,
+  texteDuSommaire,
   MemoireDeReprise,
   type MotifDAppel,
   type NiveauDAccueil,
@@ -744,6 +745,14 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
       ? await rechercherPourLaTache(project.id, project.path, question, {
           texte: blocMemoire(project.path),
           faits: memoryFacts(project.path).length,
+          /*
+           * LE SOMMAIRE DES SUJETS SUIT LES PASSAGES. La recherche remplace
+           * l'index : elle emportait avec lui la LISTE des sujets, alors que la
+           * méthode de travail dit à l'agent de demander « le SUJET de sa
+           * tâche » à `project_memory`. Il devinait donc un nom. Une ligne par
+           * sujet, contre une par fait : la carte revient, le territoire non.
+           */
+          sommaire: texteDuSommaire(memoryFacts(project.path)),
         })
       : await rechercherPourLaSuite(
           project.id,
@@ -2956,7 +2965,8 @@ const OUTIL_LISTE: Record<EngineId, string> = {
 const SILENCE_IDENTIFIANTS = `SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet — ni dans ta réponse, ni dans une carte proposée, ni dans une alerte, même en passant. Tu peux les lire et t'en servir comme n'importe quel fichier. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
 
 const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de HaikoDev, pas de toi : applique-la telle quelle, dans cet ordre) :
-1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis l'outil « project_memory » — pour CHAQUE ligne de l'index qui touche au sujet ET pour le SUJET de ta tâche (« publication », « cartes », « voix », « quotas »…) : il rend d'un coup les FAITS, les RÈGLES du moteur et les CONTRÔLES qui le concernent, sans le reste. Puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
+1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis l'outil « project_memory » pour le SUJET de ta tâche — le bloc de mémoire ci-dessus en donne la LISTE, tu ne devines donc aucun nom ; un sujet rend d'un coup ses FAITS, ses RÈGLES et ses CONTRÔLES, sans le reste. Puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
+   LES PASSAGES DE MÉMOIRE REÇUS SONT UN EXTRAIT, PAS LA MÉMOIRE : quelques morceaux choisis par une machine sur le texte de ta demande, sous plafond. Ils te disent OÙ regarder, jamais si tu as tout vu. Un travail bâti sur eux seuls passe à côté de la règle qui n'a pas été remontée : demande le sujet, ouvre le fichier cité.
 2. CONSTATER PAR ÉCRIT avant de conclure : ce que le projet fait aujourd'hui, ce que la demande veut, ce qui manque entre les deux. C'est ce qui remplit la section « Analyse » de ta réponse.
 3. NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Ce que tu n'as pas vérifié se dit comme une hypothèse, en toutes lettres.
 4. VÉRIFIER À LA FIN : rejoue les contrôles du projet qui touchent à ce que tu as changé, et donne leur résultat, même en échec. Un échec tu, c'est un travail rendu faux.
