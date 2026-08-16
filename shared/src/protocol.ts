@@ -555,6 +555,13 @@ export const ServerEvent = z.discriminatedUnion('type', [
     quotas: z.array(AccountQuota),
     capacity: CapacitySnapshot,
     agents: z.array(Agent),
+    /**
+     * Le projet dont les cartes sont DÉJÀ en route, poussées juste derrière ce
+     * message : le navigateur n'a alors pas à les redemander, ce qui épargne un
+     * aller-retour complet avant que le tableau ne s'affiche. Absent, le
+     * navigateur demande comme avant.
+     */
+    openedProjectId: z.string().optional(),
   }),
   z.object({ type: z.literal('pong'), at: z.number() }),
   z.object({ type: z.literal('ack'), id: z.string(), ok: z.boolean(), data: z.any().optional(), error: z.string().optional() }),
