@@ -74,15 +74,34 @@ export function QuotaBar({
    * gauche (c'est l'état de la machine), ceux du projet affiché pour l'arrêt
    * groupé (on n'arrête jamais le travail d'un autre projet sans le dire).
    */
-  const enCours = Object.values(state.agents).filter((agent) => agent.status === 'running');
+  // « starting » compte aussi : un tour resté coincé dans sa préparation est
+  // justement celui qu'on veut pouvoir arrêter, et il retient un redémarrage
+  // au même titre qu'un moteur en marche.
+  const enCours = Object.values(state.agents).filter(
+    (agent) => agent.status === 'running' || agent.status === 'starting',
+  );
   const duProjet = enCours.filter((agent) => agent.projectId === state.activeProjectId);
 
   const arreterLeProjet = () => {
-    for (const agent of duProjet) client.send({ type: 'agent.stop', agentId: agent.id });
-    client.pushToast(
-      'info',
-      duProjet.length > 1 ? `${duProjet.length} agents arrêtés.` : 'Agent arrêté.',
+    /*
+     * `send` ne rapportait RIEN : un arrêt refusé ou sans effet passait en
+     * silence, et le message « agents arrêtés » s'affichait quand même. On
+     * ATTEND désormais chaque réponse, et on annonce ce qui s'est réellement
+     * passé — un refus compris.
+     */
+    const gestes = duProjet.map((agent) =>
+      client.call<{ stopped?: boolean }>({ type: 'agent.stop', agentId: agent.id }),
     );
+    Promise.allSettled(gestes).then((issues) => {
+      const refus = issues.filter((issue) => issue.status === 'rejected').length;
+      const arretes = issues.length - refus;
+      if (arretes) {
+        client.pushToast('info', arretes > 1 ? `${arretes} agents arrêtés.` : 'Agent arrêté.');
+      }
+      if (refus) {
+        client.pushToast('error', refus > 1 ? `${refus} arrêts refusés.` : 'Arrêt refusé.');
+      }
+    });
   };
 
   const arreterTousLesAgents = () => {

@@ -383,6 +383,14 @@ le nom, là-bas le texte).
   quoi Claude abandonnerait à 5 minutes et Codex à 1. L'agent porte `attendReponse` pendant ce temps :
   la barre d'écriture dit « l'agent attend votre réponse », jamais « votre message attendra son tour ».
   Verrouillé par `server/src/test/attente-question.test.ts` et `scripts/verif-attente-question.mjs`.
+- **UN ARRÊT AGIT TOUJOURS, ET DIT CE QU'IL A FAIT** (`decisionDArret`,
+  `shared/src/arret-de-secours.ts` ; `arreterLAgent`, `server/src/runtime.ts`) : sans tour vivant à
+  couper — préparation pendue, fermeture avalée par une panne —, le bouton rendait « faux » en
+  silence et l'agent restait « au travail » pour toujours. Trois gestes nommés : « coupe »,
+  « secours » (tour refermé d'autorité, agent en `stopped`, jamais en « échec ») et « inactif ». Le
+  passage à « starting » rafraîchit `startedAt` (d'où les durées de milliers d'heures), et l'arrêt
+  s'atteint aussi depuis la PILE d'agents de la colonne de gauche. Verrouillé par
+  `server/src/test/arret-de-secours.test.ts` et `scripts/verif-arret-agent-bloque.mjs`.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
