@@ -511,6 +511,18 @@ le nom, là-bas le texte).
   (`git worktree`, `shared/src/dossier-de-carte.ts`) ; le démon fusionne cette branche dans la
   principale puis referme la copie en fin de tour. Refus dit si le projet n'est pas un dépôt git, ou
   si le dossier est déjà pris par une autre carte.
+- **UN DOSSIER DE TRAVAIL CASSÉ SE RÉPARE TOUT SEUL AU LANCEMENT** (`shared/src/reparation-worktree.ts`,
+  boucle de `ouvrirVraiment` et `appliquerLeGeste`, `server/src/dossier-de-carte.ts`) : une carte ne
+  s'arrête plus sur le message brut de git. Les pannes connues se reconnaissent au MESSAGE
+  (`reconnaitrePanneDeDossier` : verrou oublié, copie verrouillée, branche prise ailleurs, branche
+  déjà là, objets vides ou abîmés, dossier encombré, fichiers de service abîmés) et chacune porte ses
+  GESTES, retentés jusqu'à trois fois. **Aucun geste ne détruit du travail** — un dossier retiré est
+  d'abord enregistré d'office sur sa branche, aucune branche n'est jamais effacée, seul un objet VIDE
+  et NOMMÉ par git est effacé puis redemandé au distant (`fetch --refetch`). **Une panne non reconnue
+  n'est pas bricolée** : elle est rendue telle quelle, et le refus DIT la panne et les réparations
+  tentées. Le démon parle à git en langue NEUTRE (`LC_ALL=C`), sans quoi aucun message ne serait
+  reconnu. Verrouillé par `server/src/test/reparation-worktree.test.ts` et
+  `scripts/verif-reparation-dossier-de-carte.mjs`.
 - **Une branche poussée n'est PAS livrée** : le travail d'une carte finit sur la branche principale.
   Un agent SANS carte enregistre et pousse SA branche `hors-tache/…`, jamais la principale — une
   fonctionnalité = une branche = un enregistrement, nommé.
