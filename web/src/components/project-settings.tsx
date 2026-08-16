@@ -267,6 +267,7 @@ export function ProjectSettings({
   const [rate, setRate] = React.useState('130');
   const [documentId, setDocumentId] = React.useState('');
   const [documentType, setDocumentType] = React.useState<'offer' | 'invoice'>('invoice');
+  const [ecartChiffrage, setEcartChiffrage] = React.useState<{ count: number; ratioMoyen: number } | null>(null);
   const [confirmSuppression, setConfirmSuppression] = React.useState(false);
   const [faviconEnCours, setFaviconEnCours] = React.useState(false);
 
@@ -305,6 +306,20 @@ export function ProjectSettings({
       .then((data) => setDocuments(data.documents ?? []))
       .catch(() => setDocuments([]));
   }, [open]);
+
+  React.useEffect(() => {
+    if (!open || !project) {
+      setEcartChiffrage(null);
+      return;
+    }
+    client
+      .call<{ ecart: { count: number; ratioMoyen: number } | null }>(
+        { type: 'card.ecartChiffrage', projectId: project.id },
+        60000,
+      )
+      .then((data) => setEcartChiffrage(data.ecart ?? null))
+      .catch(() => setEcartChiffrage(null));
+  }, [open, project?.id]);
 
   /*
    * LES BRANCHES DU DÉPÔT, à l'ouverture des réglages. Elles viennent de
@@ -703,6 +718,13 @@ export function ProjectSettings({
             <h3 className="mb-1.5 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
               <CircleDollarSign className="h-3.5 w-3.5 text-faint" /> Client et tarif
             </h3>
+
+            {ecartChiffrage ? (
+              <p className="mb-2 text-[12.5px] leading-snug text-faint">
+                Sur les {ecartChiffrage.count} dernières cartes mesurées, le travail réel a pris en moyenne{' '}
+                {Math.round(ecartChiffrage.ratioMoyen * 100)} % du temps annoncé au chiffrage.
+              </p>
+            ) : null}
 
             {loading ? (
               <p className="flex items-center gap-1.5 text-[13.5px] text-faint">

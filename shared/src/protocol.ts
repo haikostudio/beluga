@@ -323,6 +323,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
     hours: z.number(),
   }),
   z.object({ type: z.literal('billing.summary') }),
+  /**
+   * L'écart moyen entre chiffrage annoncé et durée réelle des dernières
+   * cartes closes d'un projet — lu dans les réglages du projet, sans ouvrir
+   * de carte.
+   */
+  z.object({ type: z.literal('card.ecartChiffrage'), projectId: z.string() }),
 
   // GitHub
   z.object({ type: z.literal('github.refresh'), cardId: z.string() }),

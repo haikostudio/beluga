@@ -136,22 +136,39 @@ function num(value: unknown): number | undefined {
 }
 
 /**
- * Le RATIO réel/annoncé de chaque carte close, triée par la MESURE la plus
- * récente (pas par la position d'affichage, qui suit le glisser-déposer et
- * non le temps) : on garde les huit dernières comparaisons plutôt que cinq,
- * pour lisser un cas isolé.
+ * Les huit dernières cartes closes d'un projet dont on connaît À LA FOIS le
+ * chiffrage annoncé et la mesure réelle, triées par la MESURE la plus récente
+ * (pas par la position d'affichage, qui suit le glisser-déposer et non le
+ * temps). Base commune à la consigne envoyée à l'agent et à l'affichage dans
+ * les réglages du projet — un seul calcul, jamais deux formules qui pourraient
+ * diverger.
  */
-function pastGaps(projectId: string): string | null {
-  const cards = store
+function dernieresCartesChiffrees(projectId: string): Card[] {
+  return store
     .listCards(projectId)
     .filter((c) => c.estimate?.machineSeconds && c.consumption?.machineSeconds)
     .sort((a, b) => (b.consumption!.measuredAt ?? 0) - (a.consumption!.measuredAt ?? 0))
     .slice(0, 8);
-  if (!cards.length) return null;
+}
 
+/**
+ * Le ratio réel/annoncé moyen, LU par les réglages du projet — visible sans
+ * ouvrir de carte, sur la seule mesure de durée machine (aucune mesure
+ * indépendante n'existe pour les heures de développeur senior).
+ */
+export function ecartChiffrage(projectId: string): { count: number; ratioMoyen: number } | null {
+  const cards = dernieresCartesChiffrees(projectId);
+  if (!cards.length) return null;
   const ratios = cards.map((c) => (c.consumption!.machineSeconds ?? 0) / (c.estimate!.machineSeconds || 1));
-  const ratioMoyen = ratios.reduce((a, b) => a + b, 0) / ratios.length;
-  const pourcentage = Math.round(ratioMoyen * 100);
+  return { count: cards.length, ratioMoyen: ratios.reduce((a, b) => a + b, 0) / ratios.length };
+}
+
+function pastGaps(projectId: string): string | null {
+  const cards = dernieresCartesChiffrees(projectId);
+  const ecart = ecartChiffrage(projectId);
+  if (!cards.length || !ecart) return null;
+
+  const pourcentage = Math.round(ecart.ratioMoyen * 100);
 
   const lignes = cards
     .map(
