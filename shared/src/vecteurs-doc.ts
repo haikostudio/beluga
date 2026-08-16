@@ -279,8 +279,17 @@ export const POIDS_MOTS_VECTEUR = 0.3;
 /**
  * LE SEUIL, EN MODE VECTEURS. Les cosinus d'un vrai modèle se tiennent plus haut
  * et plus serrés que ceux d'une empreinte de mots : un passage sans rapport est
- * rarement à zéro, il est vers 0,1. Le seuil monte donc avec eux, sinon la
- * recherche remonterait sept passages pour n'importe quelle question.
+ * rarement à zéro, il est vers 0,1. Le seuil monte donc avec eux.
+ *
+ * MAIS IL NE FILTRE PRESQUE RIEN, ET C'EST MESURÉ (`scripts/audit-memoire-rag.mjs`,
+ * relevé du 16/08/2026 dans `docs/audit-memoire-rag.md`) : sur une vraie demande,
+ * 4 524 des 5 143 passages de HaikoDev le franchissent — 88 % du corpus. Une
+ * question qui n'a RIEN à voir avec le projet (« la recette de la tarte aux
+ * pommes ») reçoit tout de même six passages de règles. Ce qui borne réellement ce
+ * qui part, ce sont les sept places et les 900 jetons, pas la pertinence — et
+ * `rechercherPourLaTache`, qui ne retombe sur l'index que si AUCUN passage ne
+ * passe le seuil, ne peut donc plus y retomber en mode sens. Le relever demande
+ * une mesure, pas une estimation : c'est une carte à part.
  */
 export const SCORE_MINIMUM_VECTEUR = 0.24;
 

@@ -68,8 +68,23 @@ verifier(parLeSens > 0, 'au moins un projet cherche par le sens', `${parLeSens} 
 /* ------------------------------------------------------------------ */
 
 const DEMANDES = [
+  /*
+   * UNE QUESTION CITÉE DANS LA DOCUMENTATION N'ÉPROUVE PLUS LE SENS.
+   *
+   * La précédente — « est-ce que le programme peut décider tout seul d'envoyer le
+   * site chez le client ? » — a servi d'exemple à la règle du bornage du code, et a
+   * donc été RECOPIÉE dans `CLAUDE.md`, `docs/regles/methode.md` et trois scripts.
+   * La recherche retrouvait alors ces citations (part de mots exacts à 0,86 contre
+   * 0,29 pour la vraie règle) et `docs/regles/publication.md` tombait au 13ᵉ rang :
+   * le contrôle échouait en jugeant la documentation qui parle de LUI, exactement
+   * le piège déjà corrigé pour le CODE. Écarter la priorité négative ne suffit plus,
+   * la citation vit maintenant dans des pages de documentation.
+   *
+   * D'où la règle : la question d'un contrôle de SENS ne se recopie NULLE PART
+   * ailleurs — ni dans une règle, ni dans un audit, ni dans un commentaire.
+   */
   {
-    question: 'est-ce que le programme peut décider tout seul d’envoyer le site chez le client ?',
+    question: 'le logiciel a-t-il le droit d’envoyer tout seul le travail chez le client ?',
     attendu: /publication|mise-en-ligne|deploiement/,
     pourquoi: 'aucun mot commun avec « publication »',
   },
