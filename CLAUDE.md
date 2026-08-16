@@ -825,6 +825,18 @@ le nom, là-bas le texte).
   rabaissant. Règle générale : monter le `z-index` d'un enfant ne sert à rien quand un ancêtre forme
   un plan d'empilement, c'est cet ancêtre qu'il faut relever. Vérifié par
   `scripts/verif-fenetre-note.mjs` (mesure au `elementFromPoint`, ordinateur et téléphone).
+- **LE PREMIER ENVOI N'ATTEND RIEN ET NE PORTE QUE L'UTILE** (`shared/src/premier-envoi.ts` ; bloc
+  de connexion de `server/src/ws.ts` ; `cachedEngines`, `server/src/engines/index.ts`) : rien ne
+  s'affiche tant que `ready` n'est pas arrivé. Il n'attend donc plus le catalogue des moteurs
+  (7 476 ms mesurés : trois exécutables et des appels réseau) ni une tournée de quotas — le dernier
+  catalogue connu part tel quel, MÊME PÉRIMÉ, et la vraie liste suit par les événements `engines` et
+  `quotas` ; les trois moteurs sont interrogés EN MÊME TEMPS (2 595 ms) et une seule tournée sert
+  toutes les connexions. Il ne porte que les agents utiles (vivants, finis depuis moins d'une heure,
+  ou du projet ouvert) et les décisions ENCORE OUVERTES — 1 043 Ko → 3 Ko —, le COMPTE par projet
+  restant calculé sur la liste entière. Et les cartes du projet retenu partent AVEC lui
+  (`openedProjectId`), sans aller-retour : première carte à l'écran 13 814 → 5 419 ms sur un
+  téléphone au réseau bridé. Verrouillé par `server/src/test/premier-envoi.test.ts`, mesuré par
+  `scripts/mesure-premier-affichage.mjs`.
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon
