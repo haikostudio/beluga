@@ -579,6 +579,19 @@ class Client {
       this.toastTimers.delete(id);
     }
     this.set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+    if (this.state.toasts.length === 0 && this.toastsEnPause) {
+      /*
+       * La pile disparaît du DOM dès qu'elle est vide (`Toasts` rend `null`),
+       * donc plus aucun `mouseleave` ne peut jamais parvenir au conteneur
+       * retiré : si le dernier message s'en va pendant un survol (croix,
+       * glissement), la pause restait bloquée à vrai pour toujours — tout
+       * message poussé ensuite s'armait déjà en pause et ne disparaissait
+       * plus jamais tout seul. Rien à protéger sur une pile vide : on relâche.
+       */
+      this.toastsEnPause = false;
+      for (const [, reste] of this.toastTimers) window.clearTimeout(reste.handle);
+      this.toastTimers.clear();
+    }
   }
 
   /** Les connexions de comptes que le serveur suit déjà, à l'ouverture des réglages. */
