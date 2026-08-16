@@ -110,6 +110,9 @@ test('la bulle de mémoire nomme la demande, pas la mémoire du projet en géné
   } as SentContextSnapshot;
   const bulles = bullesDuPromptEnvoye(tour);
   const memoire = bulles.find((b) => b.cle === 'memoire');
-  assert.match(memoire?.titre ?? '', /cette demande/);
+  // Le titre reste court (« Mémoire retrouvée ») ; c'est la RECHERCHE elle-même
+  // qui nomme la demande, pas la session — vérifié sur son texte, les vrais
+  // passages retrouvés pour CE message.
+  assert.match(memoire?.titre ?? '', /Mémoire retrouvée/);
   assert.match(memoire?.texte ?? '', /docs\/regles\/cartes\.md/);
 });

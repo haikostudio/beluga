@@ -230,12 +230,12 @@ export function bullesDuPromptEnvoye(
     bulles.push({
       cle: 'memoire',
       /*
-       * LE TITRE NOMME LA DEMANDE, PAS LA SESSION. « Mémoire du projet
-       * retrouvée » laissait croire à un résumé de la mémoire du projet — celle
-       * que l'agent connaît déjà. Ce qu'on montre ici est la réponse de la
-       * recherche à CE message-là, relancée à chaque tour.
+       * LE TITRE RESTE COURT : il illustre le contenu de la bulle, jamais le
+       * détail (le compte, le mode de recherche ou la raison de son absence),
+       * qui vit dans `mention`, affichée SOUS le titre plutôt qu'à sa suite —
+       * sinon le titre s'allonge de toute la phrase et déborde de la bulle.
        */
-      titre: 'Mémoire retrouvée pour cette demande',
+      titre: 'Mémoire retrouvée',
       mention: mentionDesPassages(contexte),
       texte: memoire,
       isole: true,

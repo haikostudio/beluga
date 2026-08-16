@@ -107,100 +107,131 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
     ? 'my-3 rounded-lg border border-border border-l-2 border-l-faint bg-surface'
     : 'rounded-lg rounded-br-sm border border-border bg-raised';
 
-  return (
-    <div className="flex justify-end">
-      <div
-        data-bulle-prompt={bulle.cle}
-        data-bulle-isolee={bulle.isole ? '' : undefined}
-        className={cn('w-[min(78%,520px)] min-w-0 max-w-full overflow-hidden px-3 py-2', encadre)}
-      >
-        <div className="mb-1 flex items-baseline gap-2">
-          {/*
-            L'ENTÊTE ENTIER OUVRE ET REFERME la bulle isolée : un clic n'importe
-            où sur son titre suffit, sans viser le petit « voir plus » du bas.
-            Les autres bulles gardent un titre inerte — leur repli tient au seul
-            bouton, et rendre le titre cliquable volerait la sélection du texte.
-          */}
-          {bulle.isole ? (
-            <button
-              type="button"
-              data-bulle-entete
-              onClick={basculer}
-              aria-expanded={deroule}
-              title={deroule ? 'Replier cette mémoire' : 'Déplier cette mémoire'}
-              className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-raised"
-            >
-              <BookOpen className="h-3 w-3 shrink-0 text-faint" />
-              <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
-                {bulle.titre}
-                {bulle.mention ? <span className="text-faint"> · {bulle.mention}</span> : null}
-              </span>
-              <ChevronDown
-                className={cn('h-3 w-3 shrink-0 text-faint transition-transform', deroule && 'rotate-180')}
-              />
-            </button>
-          ) : (
-            <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
-              {bulle.titre}
-              {bulle.mention ? <span className="text-faint"> · {bulle.mention}</span> : null}
-            </span>
-          )}
-          <BoutonCopier texte={bulle.texte} />
-        </div>
+  // Le détail (compte, mode de recherche, raison) ne redit rien qu'on ne lise
+  // déjà dans le corps de la bulle — c'est le cas sans passage, où la mention
+  // ET le texte portent la même raison. Il n'apparaît donc que s'il ajoute
+  // vraiment quelque chose.
+  const detailUtile = bulle.mention && bulle.mention !== bulle.texte ? bulle.mention : undefined;
 
-        {/* CE QUI EST PARTI EN MÊME TEMPS : briefing, mémoire, carte, pièces
-            jointes. Leurs NOMS se lisent sans rien dérouler ; leur texte est
-            dans la bulle, à sa place. Jamais un chiffre de jetons. */}
-        {bulle.noms?.length ? (
-          <div data-donnees-paralleles className="mb-1.5 flex flex-wrap items-center gap-1">
-            <span className="text-[11.5px] text-faint">Transmis en même temps :</span>
-            {bulle.noms.map((nom) => (
-              <span
-                key={nom}
-                className="rounded-full border border-border bg-surface px-1.5 py-0.5 text-[11px] text-muted"
-              >
-                {nom}
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        <pre
-          ref={zone}
-          data-texte-bulle
-          /*
-            REPLIÉE, une bulle isolée s'ouvre aussi d'un clic sur son aperçu :
-            trois lignes coupées ne se lisent pas, elles s'ouvrent. Une fois
-            DÉROULÉE, le clic ne referme plus rien — sinon sélectionner une
-            citation pour la copier refermerait la bulle sous le doigt.
-          */
-          onClick={bulle.isole && !deroule && aVoirPlus ? basculer : undefined}
-          className={cn(
-            'whitespace-pre-wrap break-words font-sans text-[13.5px] leading-[1.6] text-text [overflow-wrap:anywhere]',
-            !deroule && (bulle.isole ? 'max-h-[4.8em] overflow-hidden' : 'max-h-[8em] overflow-hidden'),
-            bulle.isole && !deroule && aVoirPlus && 'cursor-pointer',
-          )}
-        >
-          {deroule ? bulle.texte : apercu}
-        </pre>
-
-        {aVoirPlus ? (
+  const boite = (
+    <div
+      data-bulle-prompt={bulle.cle}
+      data-bulle-isolee={bulle.isole ? '' : undefined}
+      className={cn(
+        'min-w-0 max-w-full overflow-hidden px-3 py-2',
+        bulle.isole ? 'flex-1' : 'w-[min(78%,520px)]',
+        encadre,
+      )}
+    >
+      <div className="mb-1 flex items-baseline gap-2">
+        {/*
+          L'ENTÊTE ENTIER OUVRE ET REFERME la bulle isolée : un clic n'importe
+          où sur son titre suffit, sans viser le petit « voir plus » du bas.
+          Les autres bulles gardent un titre inerte — leur repli tient au seul
+          bouton, et rendre le titre cliquable volerait la sélection du texte.
+        */}
+        {bulle.isole ? (
           <button
             type="button"
-            data-voir-plus
+            data-bulle-entete
             onClick={basculer}
-            // Le survol se voit sur le fond de SA bulle : gris clair sur une
-            // bulle de message, gris de message sur la bulle isolée.
-            className={cn(
-              'mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[12px] text-faint transition-colors hover:text-text',
-              bulle.isole ? 'hover:bg-raised' : 'hover:bg-surface',
-            )}
+            aria-expanded={deroule}
+            title={deroule ? 'Replier cette mémoire' : 'Déplier cette mémoire'}
+            className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-raised"
           >
-            <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', deroule && 'rotate-180')} />
-            {deroule ? 'voir moins' : 'voir plus'}
+            <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
+              {bulle.titre}
+            </span>
+            <ChevronDown
+              className={cn('h-3 w-3 shrink-0 text-faint transition-transform', deroule && 'rotate-180')}
+            />
           </button>
-        ) : null}
+        ) : (
+          <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
+            {bulle.titre}
+          </span>
+        )}
       </div>
+
+      {detailUtile ? (
+        <p className="-mt-0.5 mb-1.5 break-words text-[11.5px] text-faint [overflow-wrap:anywhere]">{detailUtile}</p>
+      ) : null}
+
+      {/* CE QUI EST PARTI EN MÊME TEMPS : briefing, mémoire, carte, pièces
+          jointes. Leurs NOMS se lisent sans rien dérouler ; leur texte est
+          dans la bulle, à sa place. Jamais un chiffre de jetons. */}
+      {bulle.noms?.length ? (
+        <div data-donnees-paralleles className="mb-1.5 flex flex-wrap items-center gap-1">
+          <span className="text-[11.5px] text-faint">Transmis en même temps :</span>
+          {bulle.noms.map((nom) => (
+            <span
+              key={nom}
+              className="rounded-full border border-border bg-surface px-1.5 py-0.5 text-[11px] text-muted"
+            >
+              {nom}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <pre
+        ref={zone}
+        data-texte-bulle
+        /*
+          REPLIÉE, une bulle isolée s'ouvre aussi d'un clic sur son aperçu :
+          trois lignes coupées ne se lisent pas, elles s'ouvrent. Une fois
+          DÉROULÉE, le clic ne referme plus rien — sinon sélectionner une
+          citation pour la copier refermerait la bulle sous le doigt.
+        */
+        onClick={bulle.isole && !deroule && aVoirPlus ? basculer : undefined}
+        className={cn(
+          'whitespace-pre-wrap break-words font-sans text-[13.5px] leading-[1.6] text-text [overflow-wrap:anywhere]',
+          !deroule && (bulle.isole ? 'max-h-[4.8em] overflow-hidden' : 'max-h-[8em] overflow-hidden'),
+          bulle.isole && !deroule && aVoirPlus && 'cursor-pointer',
+        )}
+      >
+        {deroule ? bulle.texte : apercu}
+      </pre>
+
+      {aVoirPlus ? (
+        <button
+          type="button"
+          data-voir-plus
+          onClick={basculer}
+          // Le survol se voit sur le fond de SA bulle : gris clair sur une
+          // bulle de message, gris de message sur la bulle isolée.
+          className={cn(
+            'mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[12px] text-faint transition-colors hover:text-text',
+            bulle.isole ? 'hover:bg-raised' : 'hover:bg-surface',
+          )}
+        >
+          <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', deroule && 'rotate-180')} />
+          {deroule ? 'voir moins' : 'voir plus'}
+        </button>
+      ) : null}
+    </div>
+  );
+
+  /*
+   * L'ICÔNE ET LE BOUTON « COPIER » VIVENT HORS DE LA BULLE, comme partout
+   * ailleurs dans l'application (`LigneReperes`, sous les messages) : une
+   * icône collée à l'intérieur d'un encadré, ou un bouton en haut à droite
+   * dedans, ne s'y lisaient nulle part ailleurs. L'icône du livre se pose à
+   * GAUCHE, à l'extérieur, seulement pour la bulle isolée (les autres n'en
+   * portent pas) ; « Copier » se pose EN DESSOUS, à l'extérieur, pour les
+   * trois.
+   */
+  return (
+    <div data-bulle-groupe={bulle.cle} className="flex flex-col items-end gap-1">
+      {bulle.isole ? (
+        <div className="flex w-[min(78%,520px)] min-w-0 max-w-full items-start gap-2">
+          <BookOpen className="mt-2 h-3.5 w-3.5 shrink-0 text-faint" aria-hidden="true" />
+          {boite}
+        </div>
+      ) : (
+        boite
+      )}
+      <BoutonCopier texte={bulle.texte} />
     </div>
   );
 }
