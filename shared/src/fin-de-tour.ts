@@ -19,6 +19,17 @@
  *      pendu pour toujours. Ils sont désormais bornés.
  *   3. UNE PANNE INTERNE POUVAIT AVALER LA FERMETURE. Le tour restait alors
  *      marqué « au travail » sans que plus personne ne l'attende.
+ *   4. LA PRÉPARATION D'AVANT LE MOTEUR N'AVAIT AUCUN PLAFOND. Entre la demande
+ *      et le lancement du moteur, le démon choisit un compte, relève des quotas,
+ *      cherche la mémoire, ouvre une copie de travail : autant d'appels qui
+ *      peuvent rester pendus. L'agent était alors marqué « au travail » ET
+ *      compté comme SUIVI — donc le constat 1 ne s'appliquait pas, aucun moteur
+ *      n'existait pour le constat 2, aucune réponse pour le constat 3. Rien ne
+ *      le refermait jamais : les demandes suivantes s'empilaient dans sa file et
+ *      seul un redémarrage du serveur libérait l'agent.
+ *   5. UN MOTEUR LANCÉ POUVAIT SE TAIRE POUR TOUJOURS. Processus bien vivant,
+ *      aucun événement, aucune réponse écrite : là non plus aucun constat ne
+ *      s'appliquait. C'est le même cul-de-sac, une étape plus loin.
  *
  * Les seuils et le jugement vivent ici, sans base ni disque : c'est ce qui les
  * rend rejouables.
@@ -49,12 +60,37 @@ export const PLAFOND_FERMETURE_MS = 6 * 60_000;
  */
 export const DELAI_AVANT_PROCESSUS_DISPARU_MS = 60_000;
 
+/**
+ * PRÉPARER UN TOUR N'EST PAS UN TRAVAIL SANS FIN. Avant le moteur, le démon lit
+ * le projet, choisit le compte, relève les quotas, cherche la mémoire et ouvre
+ * la copie de travail — quelques secondes d'ordinaire, une minute au pire quand
+ * un dossier de carte doit être réparé. Passé CINQ minutes, la préparation est
+ * tenue pour perdue : mieux vaut un agent libéré, qui dit ce qui s'est passé,
+ * qu'un agent bloqué jusqu'au prochain redémarrage.
+ */
+export const PLAFOND_PREPARATION_MS = 5 * 60_000;
+
+/**
+ * UN MOTEUR QUI SE TAIT TROP LONGTEMPS. Filet de dernier recours, jamais une
+ * règle de travail : un agent qui construit, teste ou lance une longue commande
+ * reste muet quelques minutes, et une question posée à l'utilisateur suspend
+ * légitimement le tour jusqu'à trente minutes. L'heure entière laisse tout cela
+ * passer largement — et un tour qui ATTEND UNE RÉPONSE n'est de toute façon
+ * jamais jugé silencieux.
+ */
+export const PLAFOND_SILENCE_MOTEUR_MS = 60 * 60_000;
+
 export type StatutDAgent = 'idle' | 'starting' | 'running' | 'stopped' | 'failed' | 'done';
 
 export interface EtatDuTour {
   statut: StatutDAgent;
   /** Le démon attend-il encore ce tour (il figure dans ses tours vivants) ? */
   suivi: boolean;
+  /**
+   * Le tour est SUIVI, mais son moteur n'a pas encore été lancé : le démon est
+   * encore en train de préparer ce qu'il va lui envoyer.
+   */
+  enPreparation?: boolean;
   /**
    * Le processus du moteur répond-il encore ? `undefined` quand la question ne
    * se pose pas : aucun numéro de processus connu, donc rien à constater.
@@ -67,6 +103,17 @@ export interface EtatDuTour {
   reponseFigeeDepuisMs?: number;
   /** Depuis combien de temps ce tour est-il parti ? */
   partiDepuisMs: number;
+  /**
+   * Depuis combien de temps le moteur n'a-t-il plus donné le moindre signe de
+   * vie (aucun événement reçu) ? `undefined` quand la question ne se pose pas :
+   * aucun moteur lancé, ou aucun repère connu.
+   */
+  silenceDepuisMs?: number;
+  /**
+   * Ce tour est-il arrêté sur une question posée à l'utilisateur ? Un tour qui
+   * attend une réponse se tait pour une bonne raison : on ne le juge jamais.
+   */
+  attendUneReponse?: boolean;
 }
 
 export interface TourBloque {
@@ -89,6 +136,18 @@ export function tourBloque(etat: EtatDuTour): TourBloque | null {
     return { raison: "Ce tour n'était plus suivi par le serveur : il a été refermé pour libérer l'agent." };
   }
 
+  // 1 bis. LA PRÉPARATION NE FINIT JAMAIS. Le tour est bien suivi — c'est le
+  //    démon lui-même qui prépare —, mais aucun moteur n'a été lancé : ni le
+  //    constat 1 (il est suivi), ni le 2 (aucun processus), ni le 3 (aucune
+  //    réponse) ne peuvent le voir. Sans ce plafond, un appel pendu dans la
+  //    préparation gelait l'agent jusqu'au prochain redémarrage du serveur.
+  if (etat.enPreparation && etat.partiDepuisMs > PLAFOND_PREPARATION_MS) {
+    return {
+      raison:
+        "La préparation de ce tour est restée bloquée avant même le lancement du moteur : il a été refermé pour libérer l'agent.",
+    };
+  }
+
   // 2. Le moteur a disparu sans rendre la main, ALORS QUE LA RÉPONSE S'ÉCRIT
   //    ENCORE. Une réponse déjà figée, elle, relève du cas 3 : le processus du
   //    tour est normalement fini à ce moment-là, c'est le travail d'après qui
@@ -108,6 +167,21 @@ export function tourBloque(etat: EtatDuTour): TourBloque | null {
       raison: `La réponse était rendue depuis ${Math.round(
         etat.reponseFigeeDepuisMs / 60_000,
       )} minutes sans que le tour se referme : il a été refermé.`,
+    };
+  }
+
+  // 4. Le moteur tourne toujours mais ne dit plus rien depuis très longtemps.
+  //    Le filet de dernier recours : un tour arrêté sur une question de
+  //    l'utilisateur en est expressément exclu, il se tait pour une raison.
+  if (
+    !etat.attendUneReponse &&
+    etat.silenceDepuisMs !== undefined &&
+    etat.silenceDepuisMs > PLAFOND_SILENCE_MOTEUR_MS
+  ) {
+    return {
+      raison: `Le moteur n'a plus donné signe de vie depuis ${Math.round(
+        etat.silenceDepuisMs / 60_000,
+      )} minutes : le tour a été refermé pour libérer l'agent.`,
     };
   }
 

@@ -136,7 +136,7 @@ import {
 import { carteApresFinDeTour } from './deplacement-carte.js';
 import { envGithub } from './github.js';
 import { oublierLePont, passageDuPont } from './pont.js';
-import { libererLesAttentes, oublierToutesLesAttentes } from './attente-question.js';
+import { agentEnAttente, libererLesAttentes, oublierToutesLesAttentes } from './attente-question.js';
 import { ouvrirDossierDeCarte, refermerDossierDeCarte } from './dossier-de-carte.js';
 import { lancerAvecRelances } from './relance-moteur.js';
 
@@ -177,6 +177,13 @@ export interface LiveRun {
    * La veille des tours bloqués s'appuie sur ce repère.
    */
   reponseFigeeA?: number;
+  /**
+   * Le dernier signe de vie du moteur : l'instant du dernier événement reçu.
+   * Posé au lancement, rafraîchi à chaque événement. C'est le seul repère qui
+   * distingue un moteur QUI TRAVAILLE d'un moteur vivant mais muet pour
+   * toujours — la veille des tours bloqués s'en sert en dernier recours.
+   */
+  dernierSigneDeVie: number;
 }
 
 const live = new Map<string, LiveRun>();
@@ -221,8 +228,19 @@ export function runningAgentIds(): string[] {
  * fenêtre, `live` est encore vide — un redémarrage automatique de fin de
  * publication ne voyait donc personne travailler et coupait un agent qui venait
  * juste de partir. On tient donc à part la liste de ceux qui démarrent.
+ *
+ * Chaque préparation porte l'INSTANT de son départ — sans lui, rien ne
+ * permettait de dire qu'elle durait depuis trop longtemps — et un JETON qui ne
+ * sert qu'une fois. Le jeton est le garde-fou : une préparation abandonnée
+ * (retirée d'ici par la veille ou par un arrêt à la main) peut très bien se
+ * réveiller plus tard, alors qu'un tour tout neuf est reparti de la file. Elle
+ * constate alors que le jeton n'est plus le sien et se retire sans rien toucher,
+ * au lieu de poser son moteur sur l'agent d'un autre ou de refermer son tour.
  */
-const demarrant = new Set<string>();
+const demarrant = new Map<string, { depuis: number; jeton: number }>();
+
+/** Un numéro de préparation qui ne se répète jamais dans la vie du démon. */
+let prochainePreparation = 1;
 
 /**
  * Tous les agents qu'un redémarrage COUPERAIT : ceux dont le moteur écrit, et
@@ -233,7 +251,7 @@ const demarrant = new Set<string>();
 export function agentsActifs(): string[] {
   // `live` d'abord (le moteur écrit), puis ceux qui démarrent : un même agent
   // peut être dans les deux, on ne le compte qu'une fois.
-  return [...new Set([...live.keys(), ...demarrant])];
+  return [...new Set([...live.keys(), ...demarrant.keys()])];
 }
 
 /**
@@ -599,35 +617,56 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * l'instant. La durée montrée est désormais toujours celle du travail réel.
    */
   setStatus(agent, 'starting', { startedAt: Date.now(), endedAt: undefined });
-  demarrant.add(agentId);
+  const preparation = prochainePreparation++;
+  demarrant.set(agentId, { depuis: Date.now(), jeton: preparation });
   try {
-    await preparerLeTour(agent, text, options);
+    await preparerLeTour(agent, text, options, preparation);
   } finally {
-    demarrant.delete(agentId);
     /*
-     * PLUS PERSONNE N'ATTEND. Un tour arrêté sur une question (`ask_user`) tient
-     * une attente ouverte : le tour fini — normalement, en panne ou coupé à la
-     * main —, elle doit tomber, sinon le pont d'un moteur déjà mort continuerait
-     * de sonder et l'agent porterait « en attente » pour toujours.
+     * CE TOUR EST-IL ENCORE LE MIEN ?
+     *
+     * Une préparation peut être ABANDONNÉE en cours de route — par la veille des
+     * tours bloqués, quand elle dure trop, ou par un arrêt à la main. L'agent est
+     * alors libéré et sa file repart : un tour tout neuf peut déjà tourner quand
+     * celle-ci se réveille enfin. Refermer « son » tour reviendrait à couper
+     * celui du remplaçant, et effacer la préparation reviendrait à effacer la
+     * sienne. On ne range donc que ce qui porte encore NOTRE jeton.
      */
-    libererLesAttentes(agentId);
-    /*
-     * LE TOUR SE REFERME, QUOI QU'IL ARRIVE. Le chemin normal a déjà tout rangé,
-     * et cet appel ne fait alors rien. Mais une panne interne survenue APRÈS le
-     * lancement du moteur — un fichier disparu, une base qui refuse — sautait
-     * par-dessus la fermeture : l'agent restait marqué « au travail » pour
-     * toujours, compteur en marche et barre d'écriture bloquée, alors que plus
-     * personne ne l'attendait.
-     */
-    refermerLeTour(agentId, "Le tour s'est arrêté sur une panne interne du serveur.");
-    // Un redémarrage retenu tant qu'un agent travaillait peut désormais
-    // repartir — importé au moment de l'appel pour éviter le cycle avec
-    // demon.ts, qui lit lui-même `agentsActifs` d'ici.
-    void import('./demon.js').then((demon) => demon.appliquerRedemarrageEnAttente());
+    if (demarrant.get(agentId)?.jeton !== preparation) {
+      log.warn(`préparation abandonnée revenue trop tard (agent ${agentId}) : rien n'a été refermé`);
+    } else {
+      demarrant.delete(agentId);
+      /*
+       * PLUS PERSONNE N'ATTEND. Un tour arrêté sur une question (`ask_user`) tient
+       * une attente ouverte : le tour fini — normalement, en panne ou coupé à la
+       * main —, elle doit tomber, sinon le pont d'un moteur déjà mort continuerait
+       * de sonder et l'agent porterait « en attente » pour toujours.
+       */
+      libererLesAttentes(agentId);
+      /*
+       * LE TOUR SE REFERME, QUOI QU'IL ARRIVE. Le chemin normal a déjà tout rangé,
+       * et cet appel ne fait alors rien. Mais une panne interne survenue APRÈS le
+       * lancement du moteur — un fichier disparu, une base qui refuse — sautait
+       * par-dessus la fermeture : l'agent restait marqué « au travail » pour
+       * toujours, compteur en marche et barre d'écriture bloquée, alors que plus
+       * personne ne l'attendait.
+       */
+      refermerLeTour(agentId, "Le tour s'est arrêté sur une panne interne du serveur.");
+      // Un redémarrage retenu tant qu'un agent travaillait peut désormais
+      // repartir — importé au moment de l'appel pour éviter le cycle avec
+      // demon.ts, qui lit lui-même `agentsActifs` d'ici.
+      void import('./demon.js').then((demon) => demon.appliquerRedemarrageEnAttente());
+    }
   }
 }
 
-async function preparerLeTour(agent: Agent, text: string, options: PromptOptions): Promise<void> {
+async function preparerLeTour(
+  agent: Agent,
+  text: string,
+  options: PromptOptions,
+  /** Le jeton de CETTE préparation : il dit jusqu'au bout si elle a toujours cours. */
+  preparation: number,
+): Promise<void> {
   const agentId = agent.id;
   const project = store.getProject(agent.projectId);
   if (!project) throw new Error('projet introuvable');
@@ -1045,6 +1084,7 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
       // poursuivre ? »), et c'est ce qui autorise le tour à garder l'avancement
       // et la liste de tâches du tour d'avant.
       poursuite: Boolean(compteImpose),
+      preparation,
     },
   );
 }
@@ -1144,7 +1184,7 @@ async function startTurn(
    * COMPTE porteur (le contexte a été bâti pour lui) et la clé sous laquelle son
    * fil est rangé. `poursuite` dit que ce tour reprend un travail coupé.
    */
-  tour: { account: AccountRecord; cleSession: string; poursuite: boolean },
+  tour: { account: AccountRecord; cleSession: string; poursuite: boolean; preparation: number },
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -1289,6 +1329,8 @@ async function startTurn(
     handle: null as unknown as EngineHandle,
     messageId: assistantMessage.id,
     startedAt: Date.now(),
+    // Le moteur n'a encore rien dit : son lancement vaut premier signe de vie.
+    dernierSigneDeVie: Date.now(),
     steps: new Map(memoryStep ? [[memoryStep.id, memoryStep]] : []),
     todos: todosRepris,
     text: '',
@@ -1477,6 +1519,9 @@ async function startTurn(
       env,
       onEvent: (event) => {
         agentLog(PATHS.logs, agent.id, JSON.stringify(event));
+        // Le moteur parle : il est vivant. C'est ce repère, et lui seul, qui
+        // distingue un tour qui travaille d'un tour muet pour toujours.
+        runState.dernierSigneDeVie = Date.now();
         switch (event.kind) {
           case 'session':
             if (event.sessionId) {
@@ -1610,6 +1655,20 @@ async function startTurn(
    * continuait, sans personne pour l'arrêter ni pour ranger sa fin de tour.
    * Suivi d'abord : une panne survenue ensuite arrête vraiment le moteur.
    */
+  /*
+   * …MAIS SEULEMENT SI CE TOUR A ENCORE COURS. La préparation qui mène ici peut
+   * avoir été ABANDONNÉE entre-temps — trop longue, donc refermée par la veille,
+   * ou coupée par un arrêt à la main — et l'agent porte alors peut-être déjà un
+   * tour tout neuf, reparti de sa file. Lancer un second moteur par-dessus lui
+   * volerait sa place dans les tours vivants : le premier à finir refermerait le
+   * tour de l'autre, et la réponse attendue n'arriverait jamais. On s'arrête donc
+   * là, sans rien toucher.
+   */
+  if (demarrant.get(agent.id)?.jeton !== tour.preparation) {
+    log.warn(`tour abandonné avant le lancement du moteur (agent ${agent.id}) : la préparation a été refermée`);
+    return;
+  }
+
   const handle = lancerLeMoteur(prompt, sessionId);
 
   runState.handle = handle;
@@ -2941,18 +3000,71 @@ export function veilleDesToursBloques(maintenant = Date.now()): number {
       continue;
     }
     const run = live.get(agent.id);
+    const preparation = demarrant.get(agent.id);
     const pid = run?.handle.pid;
     const verdict = tourBloque({
       statut: agent.status,
-      suivi: !!run || demarrant.has(agent.id),
+      suivi: !!run || !!preparation,
+      // En préparation tant qu'aucun moteur ne tourne : c'est le démon qui
+      // travaille, et c'est cette fenêtre-là qui n'avait aucun plafond.
+      enPreparation: !run && !!preparation,
       processusVivant: pid ? processusVivant(pid) : undefined,
       reponseFigeeDepuisMs: run?.reponseFigeeA ? maintenant - run.reponseFigeeA : undefined,
-      partiDepuisMs: maintenant - (run?.startedAt ?? agent.startedAt ?? agent.updatedAt),
+      partiDepuisMs: maintenant - (run?.startedAt ?? preparation?.depuis ?? agent.startedAt ?? agent.updatedAt),
+      silenceDepuisMs: run ? maintenant - run.dernierSigneDeVie : undefined,
+      attendUneReponse: agentEnAttente(agent.id),
     });
     if (!verdict) continue;
-    if (refermerLeTour(agent.id, verdict.raison)) refermes += 1;
+    /*
+     * LA PRÉPARATION EST ABANDONNÉE POUR DE BON. Sans cet oubli, elle resterait
+     * inscrite ici : la veille la reverrait « suivie » à chaque passage, et
+     * surtout, en revenant un jour de son sommeil, elle se croirait encore
+     * légitime et poserait son moteur sur un agent déjà reparti.
+     */
+    demarrant.delete(agent.id);
+    if (!refermerLeTour(agent.id, verdict.raison)) continue;
+    refermes += 1;
+    /*
+     * ET LA DEMANDE NE RESTE PAS SANS RÉPONSE À L'ÉCRAN. Un tour refermé APRÈS
+     * le moteur a un message en cours d'écriture, qui reçoit la raison. Un tour
+     * bloqué AVANT lui n'a rien écrit du tout : sans ce mot, l'utilisateur
+     * verrait sa demande partir dans le vide, exactement comme avant.
+     */
+    direLeBlocage(agent.id, verdict.raison);
   }
   return refermes;
+}
+
+/**
+ * DIRE À L'ÉCRAN POURQUOI RIEN N'EST VENU.
+ *
+ * Un tour refermé d'autorité laisse sa raison sur le message qu'il écrivait.
+ * Mais un tour bloqué AVANT le moteur n'a écrit aucun message : la demande de
+ * l'utilisateur restait alors seule au fil, sans un mot, et le silence était
+ * exactement ce dont il se plaignait. On pose donc la raison en clair.
+ *
+ * On n'écrit rien quand le dernier message dit déjà quelque chose : la fermeture
+ * a pu figer une réponse ou poser son bandeau, et deux explications valent moins
+ * qu'une.
+ */
+function direLeBlocage(agentId: string, raison: string): void {
+  try {
+    const dernier = [...store.listMessages(agentId, 1)].pop();
+    if (dernier?.role === 'assistant' && (dernier.error || dernier.content.trim())) return;
+    const message = store.saveMessage(
+      Message.parse({
+        id: store.newId(),
+        agentId,
+        role: 'assistant',
+        content: raison,
+        error: raison,
+        createdAt: store.now(),
+      }),
+    );
+    bus.emit({ type: 'message.upsert', message });
+  } catch (err) {
+    log.warn(`blocage non annoncé (agent ${agentId}) : ${(err as Error).message}`);
+  }
 }
 
 /* ------------------------------------------------------------------ */

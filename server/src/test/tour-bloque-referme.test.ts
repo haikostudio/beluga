@@ -89,6 +89,64 @@ test('un agent inconnu ne fait pas tomber la veille', () => {
   assert.equal(refermerLeTour('agent-qui-n-existe-pas', 'peu importe'), false);
 });
 
+test('un tour refermé sans avoir rien écrit DIT pourquoi, au lieu du silence', () => {
+  // Le cas de la panne : la demande de l'utilisateur est au fil, le tour est
+  // parti, et rien n'a jamais été écrit en réponse. Avant, l'agent restait
+  // « au travail » sans un mot ; maintenant la raison s'affiche.
+  const projet = store.saveProject(
+    Project.parse({
+      id: 'projet-sans-un-mot',
+      name: 'Projet muet',
+      path: bacASable,
+      createdAt: store.now(),
+      updatedAt: store.now(),
+    }),
+  );
+  store.saveAgent(
+    Agent.parse({
+      id: 'agent-sans-un-mot',
+      projectId: projet.id,
+      role: 'orchestrator',
+      title: 'Chef d’orchestre',
+      run: { engine: 'claude' },
+      status: 'starting',
+      startedAt: store.now() - 3_600_000,
+      createdAt: store.now() - 3_600_000,
+      updatedAt: store.now() - 3_600_000,
+    }),
+  );
+  store.saveMessage(
+    Message.parse({
+      id: 'demande-sans-un-mot',
+      agentId: 'agent-sans-un-mot',
+      role: 'user',
+      content: 'Explique-moi ce que fait ce projet.',
+      createdAt: store.now(),
+    }),
+  );
+
+  veilleDesToursBloques();
+
+  const messages = store.listMessages('agent-sans-un-mot');
+  const dernier = messages[messages.length - 1];
+  assert.equal(dernier.role, 'assistant', 'une réponse a été posée');
+  assert.ok(dernier.error, 'elle porte la raison en clair');
+  assert.notEqual(store.getAgent('agent-sans-un-mot')!.status, 'starting', 'l’agent est libéré');
+});
+
+test('une raison n’est pas dite deux fois sur le même tour', () => {
+  const message = poserAgent('agent-deja-dit', '');
+  refermerLeTour('agent-deja-dit', 'Le moteur s’est arrêté sans rendre la main.');
+  const avant = store.listMessages('agent-deja-dit').length;
+
+  // L'agent est déjà au repos : la veille n'a plus rien à refermer, donc rien
+  // à écrire. Et le message du tour porte déjà sa raison.
+  veilleDesToursBloques();
+
+  assert.equal(store.listMessages('agent-deja-dit').length, avant);
+  assert.match(store.getMessage(message.id)!.error ?? '', /sans rendre la main/);
+});
+
 /* ------------------------------------------------------------------ */
 /* L'ÉCRITURE ORPHELINE : un message resté « en cours d'écriture »      */
 /* alors que son agent est au repos depuis. C'est ce qui laissait le    */
