@@ -561,7 +561,8 @@ le nom, là-bas le texte).
   **La MÊME clé ouvre aussi une LECTURE : `GET /api/externe/clients`** (`ROUTE_CLIENTS_EXTERNE`,
   `rechercherClientsParNom`) retrouve un projet à partir du NOM d'un client déjà rapproché
   (`Project.billing`), pas seulement de son identifiant — recherche partielle, sans accents ni casse,
-  sur `?client=`. Texte entier dans `docs/regles/cartes.md`.
+  sur `?client=`, comparée au nom du client ET à celui de son entreprise. Texte entier dans
+  `docs/regles/cartes.md`.
 
 - **Chaque NUIT VERS 3 H, un agent d'analyse cherche ce qui peut être amélioré, et il ne fait que
   PROPOSER** (`shared/src/auto-amelioration.ts`, `server/src/auto-amelioration.ts`, veille lancée par

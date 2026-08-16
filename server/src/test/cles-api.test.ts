@@ -224,6 +224,14 @@ test('la recherche porte sur le NOM du client, sans accents ni casse, sur une pa
   );
 });
 
+test('la recherche porte aussi sur le nom de l’ENTREPRISE du client', () => {
+  const parEntreprise = rechercherClientsParNom(PROJETS_AVEC_CLIENT, 'Groupe Lea');
+  assert.deepEqual(
+    parEntreprise.map((c) => c.projet.id),
+    ['p-2'],
+  );
+});
+
 test('un projet archivé ne ressort jamais, même quand son client répond à la recherche', () => {
   const clients = rechercherClientsParNom(PROJETS_AVEC_CLIENT, 'dupont');
   assert.ok(!clients.some((c) => c.projet.id === 'p-5'));
