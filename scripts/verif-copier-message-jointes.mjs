@@ -99,6 +99,10 @@ const marque = Date.now();
 const TEXTE = `Vérification ${marque} — voici mes fichiers, reprends-les.`;
 const NOM_IMAGE = `capture-copie-${marque}.png`;
 const NOM_DOC = `notes-copie-${marque}.txt`;
+/* La demande d'origine ne cite aucun fichier : la COPIE doit les nommer
+   d'elle-même, sans quoi rien ne permettrait de les retrouver quand le
+   presse-papiers du système n'a porté que du texte (téléphone). */
+const TEXTE_COPIE = `${TEXTE} [fichier: ${NOM_IMAGE}] [fichier: ${NOM_DOC}]`;
 
 function poserLeDecor() {
   const db = base();
@@ -277,7 +281,11 @@ async function ecran(navigateur) {
 
     const copie = await page.evaluate(() => window.__copie);
     noter('Le clic sur « Copier » écrit bien dans le presse-papiers', Boolean(copie));
-    noter('Le texte de la demande est copié', copie?.texte === TEXTE, copie?.texte?.slice(0, 60));
+    noter(
+      'Le texte copié porte la demande ET le nom de ses deux fichiers',
+      copie?.texte === TEXTE_COPIE,
+      copie?.texte?.slice(0, 90),
+    );
 
     let jointes = [];
     try {
@@ -303,7 +311,7 @@ async function ecran(navigateur) {
     /* ---- 2. Le collage dans la barre d'écriture recrée les fichiers ---- */
     const zone = page.locator('textarea:visible').last();
     await zone.waitFor({ state: 'visible', timeout: 10000 });
-    await zone.click();
+    await zone.focus();
     await zone.fill('');
     await page.waitForTimeout(500);
 
@@ -322,7 +330,11 @@ async function ecran(navigateur) {
     );
     await page.waitForTimeout(3000);
 
-    noter('Le texte collé revient dans le champ', (await zone.inputValue()) === TEXTE, await zone.inputValue());
+    noter(
+      'Le texte collé revient dans le champ',
+      (await zone.inputValue()) === TEXTE_COPIE,
+      await zone.inputValue(),
+    );
 
     const retraits = page.locator('button[title="Retirer ce fichier"]');
     const posees = await page.evaluate(() =>
@@ -357,8 +369,48 @@ async function ecran(navigateur) {
     await page.waitForTimeout(2000);
     noter('Coller deux fois ne joint pas les mêmes fichiers en double', (await retraits.count()) === 2);
 
+    /* ---- 4. LE CAS DU TÉLÉPHONE : le presse-papiers n'a porté QUE du texte ---- */
+    await zone.focus();
+    await zone.fill('');
+    await page.waitForTimeout(1200);
+    noter('La barre est vide avant le collage en texte seul', (await retraits.count()) === 0);
+
+    await zone.evaluate(
+      (node, texte) => {
+        node.focus();
+        node.setSelectionRange(0, 0);
+        const transfert = new DataTransfer();
+        // Rien d'autre : c'est tout ce que rend le presse-papiers du système.
+        transfert.setData('text/plain', texte);
+        node.dispatchEvent(
+          new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfert }),
+        );
+      },
+      TEXTE_COPIE,
+    );
+    await page.waitForTimeout(3000);
+
+    const parLeTexte = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('button[title="Retirer ce fichier"]')).map(
+        (bouton) => bouton.parentElement?.textContent?.trim() ?? '',
+      ),
+    );
+    noter(
+      'Un collage en TEXTE SEUL rattache quand même les deux fichiers d’origine',
+      parLeTexte.length === 2 &&
+        parLeTexte.some((nom) => nom.includes(NOM_IMAGE)) &&
+        parLeTexte.some((nom) => nom.includes(NOM_DOC)),
+      JSON.stringify(parLeTexte),
+    );
+    noter(
+      'Le texte, lui, arrive entier',
+      (await zone.inputValue()) === TEXTE_COPIE,
+      await zone.inputValue(),
+    );
+    await page.screenshot({ path: `${SHOTS}/copie-jointes-collage-texte-seul.png` });
+
     // On laisse la barre propre.
-    await zone.click();
+    await zone.focus();
     await zone.fill('');
     await page.waitForTimeout(800);
   } finally {

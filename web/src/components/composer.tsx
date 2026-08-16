@@ -19,6 +19,7 @@ import {
   indexDeLAncre,
   insereAncre,
   jointesApresFrappe,
+  jointesDesTags,
   retireAncre,
   retireOccurrence,
   texteApresInsertion,
@@ -977,6 +978,21 @@ export function Composer({
           }}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.files);
+            /*
+             * LES FICHIERS D'ORIGINE PASSENT DEVANT TOUT LE RESTE. Le texte
+             * collé nomme ses fichiers par ses tags « [fichier: …] » : s'ils
+             * sont connus du projet, ce sont EUX qu'on repose — jamais des
+             * copies téléversées à nouveau, et même quand le presse-papiers
+             * n'a porté que du texte (téléphone, presse-papiers du système,
+             * où notre type maison ne survit pas).
+             */
+            const texteDuPressePapiers = event.clipboardData.getData('text/plain');
+            const jointesParTag = projectId
+              ? jointesDesTags(
+                  texteDuPressePapiers,
+                  client.getSnapshot().attachments[projectId] ?? [],
+                )
+              : [];
             if (files.length) {
               event.preventDefault();
               /*
@@ -994,12 +1010,20 @@ export function Composer({
                 curseur.current = position;
                 curseurAPoser.current = position;
               }
+              // Le message copié désigne des fichiers DÉJÀ là : on les repose
+              // tels quels au lieu de téléverser les images du presse-papiers,
+              // qui feraient doublon sous un nouvel identifiant.
+              if (jointesParTag.length) {
+                setAttachments((current) => ajouterJointesCollees(current, jointesParTag));
+                return;
+              }
               // Les fichiers, eux, ne visent aucun endroit précis : à la fin.
               void upload(files, true);
               return;
             }
 
-            const jointes = relireJointes(event.clipboardData.getData(TYPE_JOINTES_COLLABLES));
+            const emballees = relireJointes(event.clipboardData.getData(TYPE_JOINTES_COLLABLES));
+            const jointes = emballees.length ? emballees : jointesParTag;
             if (!jointes.length) return;
 
             /* Un tag [fichier: …] copié, ou un message historique copié avec

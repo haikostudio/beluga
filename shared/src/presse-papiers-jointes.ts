@@ -13,6 +13,7 @@
  * réseau : cela se teste seul.
  */
 
+import { ancre } from './ancres.js';
 import { Attachment } from './models.js';
 
 /**
@@ -81,4 +82,66 @@ export function jointesDuMessage(ids: string[], connues: Attachment[]): Attachme
   return ids
     .map((id) => connues.find((item) => item.id === id))
     .filter((item): item is Attachment => !!item);
+}
+
+/** La marque d'un fichier dans le texte d'une demande : « [fichier: nom] ». */
+const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
+
+/** Les noms de fichiers cités par le texte, dans l'ordre, sans répétition. */
+export function nomsDesTags(texte: string | null | undefined): string[] {
+  if (!texte) return [];
+  MARQUE_FICHIER.lastIndex = 0;
+  const noms: string[] = [];
+  let trouve: RegExpExecArray | null;
+  while ((trouve = MARQUE_FICHIER.exec(texte))) {
+    const nom = (trouve[1] ?? '').trim();
+    if (nom && !noms.includes(nom)) noms.push(nom);
+  }
+  return noms;
+}
+
+/**
+ * LE TEXTE COPIÉ NOMME TOUS SES FICHIERS. C'est ce nom, et lui seul, qui
+ * permettra de les retrouver au collage quand le presse-papiers n'aura porté
+ * que du texte. Un fichier joint sans tag dans la phrase (dépôt à côté du
+ * texte, message ancien) reçoit donc le sien, à la fin — le texte d'origine
+ * n'est jamais modifié dans la conversation, seule la COPIE le porte.
+ */
+export function texteAvecTagsDesJointes(texte: string, jointes: Attachment[]): string {
+  const cites = new Set(nomsDesTags(texte));
+  const manquants = jointes.map((item) => item.name).filter((nom) => nom && !cites.has(nom));
+  if (!manquants.length) return texte;
+  const marques = manquants.map((nom) => ancre(nom)).join(' ');
+  if (!texte.trim()) return marques;
+  return /\s$/.test(texte) ? `${texte}${marques}` : `${texte} ${marques}`;
+}
+
+/**
+ * LE REPLI QUAND LE PRESSE-PAPIERS N'A PORTÉ QUE DU TEXTE.
+ *
+ * Un type de presse-papiers à nous ne survit pas partout : sur TÉLÉPHONE
+ * (iOS, presse-papiers du système), copier un message puis coller ne rend que
+ * le texte — les tags « [fichier: …] » revenaient alors morts, sans fichier.
+ * Or ces tags NOMMENT les fichiers : il suffit de les retrouver dans la liste
+ * du projet, déjà chargée dans la page.
+ *
+ * Un même nom peut avoir été envoyé plusieurs fois : on retient le plus
+ * RÉCENT, celui que l'utilisateur vient de voir. Un nom inconnu (fichier
+ * retiré, liste pas encore chargée) est sauté sans bruit — le texte reste
+ * collé, comme avant.
+ */
+export function jointesDesTags(
+  texte: string | null | undefined,
+  connues: Attachment[],
+): Attachment[] {
+  const trouvees: Attachment[] = [];
+  for (const nom of nomsDesTags(texte)) {
+    let meilleure: Attachment | undefined;
+    for (const item of connues) {
+      if (item.name !== nom) continue;
+      if (!meilleure || item.createdAt > meilleure.createdAt) meilleure = item;
+    }
+    if (meilleure) trouvees.push(meilleure);
+  }
+  return trouvees;
 }

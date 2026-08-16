@@ -41,6 +41,7 @@ import {
   emballerJointes,
   estTitreDesSuggestions,
   jointesDuMessage,
+  texteAvecTagsDesJointes,
   texteAEcouter,
   tempsRestant,
   texteDeReponse,
@@ -761,7 +762,7 @@ async function htmlDeLaCopie(texte: string, images: Attachment[]): Promise<strin
  * pas par leur contenu — rien n'est renvoyé au serveur.
  */
 function BoutonCopier({
-  texte,
+  texte: texteBrut,
   libelle = 'Copier',
   titre = 'Copier le message',
   jointes = [],
@@ -773,6 +774,11 @@ function BoutonCopier({
   jointes?: Attachment[];
 }) {
   const [copie, setCopie] = React.useState(false);
+  /* LE TEXTE COPIÉ NOMME SES FICHIERS. Un type de presse-papiers à nous ne
+     survit pas au presse-papiers du SYSTÈME (téléphone) : les tags
+     « [fichier: …] » sont alors le seul fil qui reste pour retrouver les
+     fichiers d'origine au collage (`jointesDesTags`). */
+  const texte = texteAvecTagsDesJointes(texteBrut ?? '', jointes);
   if (!texte?.trim() && !jointes.length) return null;
 
   const copierTexteSeul = () => {

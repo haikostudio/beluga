@@ -4,8 +4,11 @@ import {
   Attachment,
   ajouterJointesCollees,
   emballerJointes,
+  jointesDesTags,
   jointesDuMessage,
+  nomsDesTags,
   relireJointes,
+  texteAvecTagsDesJointes,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
@@ -73,4 +76,55 @@ test('les pièces jointes d’un message se retrouvent dans la liste du projet',
 
 test('un identifiant inconnu est sauté : on ne copie que ce qu’on a', () => {
   assert.deepEqual(jointesDuMessage(['a', 'perdu'], [jointe('a')]).length, 1);
+});
+
+/* ------------------------------------------------------------------ */
+/* Le repli quand le presse-papiers n'a porté que du TEXTE (téléphone)  */
+/* ------------------------------------------------------------------ */
+
+test('les noms cités par les tags sont lus dans l’ordre, sans répétition', () => {
+  assert.deepEqual(
+    nomsDesTags('[fichier: a.png] au début [fichier: b.pdf] puis [fichier: a.png] encore'),
+    ['a.png', 'b.pdf'],
+  );
+  assert.deepEqual(nomsDesTags(''), []);
+  assert.deepEqual(nomsDesTags('aucun fichier ici'), []);
+});
+
+test('un texte collé sans notre type retrouve ses fichiers par leur nom', () => {
+  const connues = [jointe('a', { name: 'capture.png' }), jointe('b', { name: 'devis.pdf' })];
+  const trouvees = jointesDesTags('[fichier: capture.png] [fichier: devis.pdf] regarde', connues);
+  assert.deepEqual(trouvees.map((item) => item.id), ['a', 'b']);
+});
+
+test('un nom envoyé plusieurs fois rend le fichier le plus récent', () => {
+  const connues = [
+    jointe('vieux', { name: 'capture.png', createdAt: 10 }),
+    jointe('recent', { name: 'capture.png', createdAt: 90 }),
+  ];
+  assert.deepEqual(
+    jointesDesTags('[fichier: capture.png]', connues).map((item) => item.id),
+    ['recent'],
+  );
+});
+
+test('un nom inconnu est sauté sans bruit', () => {
+  assert.deepEqual(jointesDesTags('[fichier: perdu.png]', [jointe('a')]), []);
+  assert.deepEqual(jointesDesTags('rien à voir', [jointe('a')]), []);
+});
+
+test('le texte copié nomme les fichiers qui n’avaient pas de tag', () => {
+  const jointes = [jointe('a', { name: 'capture.png' }), jointe('b', { name: 'devis.pdf' })];
+  assert.equal(
+    texteAvecTagsDesJointes('[fichier: capture.png] regarde', jointes),
+    '[fichier: capture.png] regarde [fichier: devis.pdf]',
+  );
+  assert.equal(texteAvecTagsDesJointes('regarde', []), 'regarde');
+  assert.equal(texteAvecTagsDesJointes('', [jointe('a', { name: 'capture.png' })]), '[fichier: capture.png]');
+});
+
+test('le texte complété se relit par la règle du collage', () => {
+  const jointes = [jointe('a', { name: 'capture.png' })];
+  const copie = texteAvecTagsDesJointes('regarde ça', jointes);
+  assert.deepEqual(jointesDesTags(copie, jointes).map((item) => item.id), ['a']);
 });
