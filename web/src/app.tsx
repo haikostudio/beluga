@@ -4,14 +4,9 @@ import { TooltipProvider, Button, EmptyState, SidePanel } from '@/components/ui'
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
 import { Board } from '@/components/board';
-import { Dashboard } from '@/components/dashboard';
 import { SilhouetteTableau } from '@/components/silhouettes';
-import { RightPanel } from '@/components/right-panel';
-import { CardPanel } from '@/components/card-panel';
 import { Toasts } from '@/components/toasts';
-import { VoixAssistant } from '@/components/voix-assistant';
-import { SettingsView } from '@/components/settings-view';
-import { Chat } from '@/components/chat';
+import { PanneauALaDemande, prechargerAuRepos } from '@/lib/panneau-a-la-demande';
 import { useResizable, ResizeHandle } from '@/components/resizer';
 import { client } from '@/lib/client';
 import { usePref, writePref } from '@/lib/prefs';
@@ -31,6 +26,34 @@ import {
   type EcranNavigateur,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
+
+/*
+ * LES ÉCRANS QU'ON OUVRE PAR UN BOUTON SONT DES MORCEAUX À PART
+ * (`web/src/lib/panneau-a-la-demande.tsx`). Aucun d'eux ne sert au premier
+ * affichage — colonne de gauche et tableau —, et tous ensemble ils pesaient
+ * plus du tiers du fichier téléchargé au démarrage.
+ */
+const chargerTableauDeBord = () => import('@/components/dashboard');
+const chargerTiroirCarte = () => import('@/components/card-panel');
+const chargerReglages = () => import('@/components/settings-view');
+const chargerVoix = () => import('@/components/voix-assistant');
+/*
+ * La CONVERSATION est le seul cas limite : sur un grand écran elle s'ouvre
+ * d'entrée, sur téléphone elle attend son onglet. Elle emporte avec elle la
+ * barre d'écriture et l'affichage des messages — le plus gros morceau après le
+ * tableau — et le premier écran d'un téléphone est le TABLEAU. Elle part donc
+ * elle aussi à part, et se précharge au repos.
+ */
+const chargerConversation = () => import('@/components/right-panel');
+const chargerFilDeDiscussion = () => import('@/components/chat');
+
+const RightPanel = React.lazy(() => chargerConversation().then((m) => ({ default: m.RightPanel })));
+const Chat = React.lazy(() => chargerFilDeDiscussion().then((m) => ({ default: m.Chat })));
+
+const Dashboard = React.lazy(() => chargerTableauDeBord().then((m) => ({ default: m.Dashboard })));
+const CardPanel = React.lazy(() => chargerTiroirCarte().then((m) => ({ default: m.CardPanel })));
+const SettingsView = React.lazy(() => chargerReglages().then((m) => ({ default: m.SettingsView })));
+const VoixAssistant = React.lazy(() => chargerVoix().then((m) => ({ default: m.VoixAssistant })));
 
 /** Les destinations de la barre du bas, sur téléphone. */
 const ONGLETS_MOBILES = ['board', 'chat'] as const;
@@ -75,6 +98,24 @@ export function App() {
 
   React.useEffect(() => {
     client.connect();
+  }, []);
+
+  /*
+   * Les morceaux des panneaux sont réclamés UNE FOIS L'APPLICATION AU REPOS :
+   * le premier affichage ne les attend pas, et le premier clic ne les attend
+   * pas non plus. Le tiroir d'une carte passe en tête — c'est le plus ouvert.
+   */
+  React.useEffect(() => {
+    const annuler = [
+      chargerConversation,
+      chargerTiroirCarte,
+      chargerVoix,
+      chargerReglages,
+      chargerTableauDeBord,
+    ].map(
+      prechargerAuRepos,
+    );
+    return () => annuler.forEach((stop) => stop());
   }, []);
 
   /*
@@ -513,7 +554,9 @@ export function App() {
           <main className={cn('flex min-h-0 min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}>
             {dashboardOpen ? (
               <Filet zone="Tableau de bord">
-                <Dashboard onClose={() => setDashboardOpen(false)} />
+                <PanneauALaDemande monte>
+                  <Dashboard onClose={() => setDashboardOpen(false)} />
+                </PanneauALaDemande>
               </Filet>
             ) : activeProject ? (
               <Filet zone="Tableau">
@@ -546,7 +589,9 @@ export function App() {
                 style={{ width: `${droite.width}px` }}
               >
                 <Filet zone="Chef d'orchestre">
-                  <RightPanel projectId={activeProject.id} />
+                  <PanneauALaDemande monte>
+                    <RightPanel projectId={activeProject.id} />
+                  </PanneauALaDemande>
                 </Filet>
               </aside>
             </>
@@ -556,7 +601,9 @@ export function App() {
           {activeProject && mobileView === 'chat' ? (
             <aside className="flex min-w-0 flex-1 flex-col sm:hidden">
               <Filet zone="Chef d'orchestre">
-                <RightPanel projectId={activeProject.id} />
+                <PanneauALaDemande monte>
+                  <RightPanel projectId={activeProject.id} />
+                </PanneauALaDemande>
               </Filet>
             </aside>
           ) : null}
@@ -644,10 +691,16 @@ export function App() {
         ) : null}
 
         <Filet zone="Carte" onReprendre={() => setOpenCardId(null)}>
-          <CardPanel cardId={openCardId} onClose={() => setOpenCardId(null)} />
+          {/* Fermé, le tiroir d'une carte ne rendait déjà rien : on ne monte
+              donc rien, et son morceau n'est même pas demandé. */}
+          <PanneauALaDemande monte={!!openCardId}>
+            <CardPanel cardId={openCardId} onClose={() => setOpenCardId(null)} />
+          </PanneauALaDemande>
         </Filet>
         <Filet zone="Réglages" onReprendre={() => setSettingsOpen(false)}>
-          <SettingsView open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <PanneauALaDemande monte={settingsOpen}>
+            <SettingsView open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          </PanneauALaDemande>
         </Filet>
         <Toasts />
         {/* Le module de voix ouvre un micro et du son : ce qu'il fait de plus
@@ -655,8 +708,13 @@ export function App() {
             REND RIEN quand il tombe — un bloc d'erreur flottant en bas de
             l'écran gênerait plus qu'il n'aiderait ; l'échec est déjà écrit
             dans la console et l'application, elle, continue. */}
+        {/* La voix reste TOUJOURS montée — elle écoute et parle sans qu'on
+            l'ouvre —, mais son morceau arrive APRÈS le premier affichage au
+            lieu de le retarder. */}
         <Filet zone="Module de voix" muet>
-          <VoixAssistant />
+          <PanneauALaDemande monte>
+            <VoixAssistant />
+          </PanneauALaDemande>
         </Filet>
 
         {openAgent ? (
@@ -673,7 +731,9 @@ export function App() {
               </header>
               <div className="min-h-0 flex-1">
                 <Filet zone="Conversation">
-                  <Chat agent={openAgent} projectId={openAgent.projectId} />
+                  <PanneauALaDemande monte>
+                    <Chat agent={openAgent} projectId={openAgent.projectId} />
+                  </PanneauALaDemande>
                 </Filet>
               </div>
             </div>
