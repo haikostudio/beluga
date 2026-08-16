@@ -446,6 +446,17 @@ le nom, là-bas le texte).
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
   heure manquée est rattrapée, la suspension à la main l'emporte, et le départ CONSOMME la date.
+- **…et une carte SANS date DIT quand il serait opportun de la lancer, sans coûter un jeton**
+  (`shared/src/heure-de-lancement.ts`, `server/src/heure-de-lancement.ts` ;
+  `scheduling.creneauConseille`, posé par `createCard`) : heures creuses réglées, CREUX MESURÉ sur
+  les relevés (`profilHoraire`) et état des comptes du moteur, recoupés par le démon — **aucun
+  moteur n'est appelé**, ni à la proposition ni ensuite. Ce qui est GARDÉ ne dépend jamais de
+  l'heure du calcul : une PLAGE, sa source, le drapeau `lourde`, la reprise du quota — jamais une
+  date ni une phrase, sinon une carte créée à 2 h répéterait « c'est le bon moment » tout
+  l'après-midi. Le moment réel et la phrase se recalculent à CHAQUE affichage
+  (`momentDuCreneau`, `phraseDuCreneau`). Le conseil ne décide de rien : un bouton « Retenir cette
+  heure » le recopie dans `departPrevu`, et il se TAIT dès qu'une date existe. Verrouillé par
+  `server/src/test/heure-de-lancement.test.ts` et `scripts/verif-creneau-conseille.mjs`.
 - **Une carte dont un agent TRAVAILLE ne s'affiche jamais ailleurs qu'en « En cours »**
   (`colonneAffichee`, `shared/src/colonne-affichee.ts`, branché sur `byColumn` dans `board.tsx`) :
   quand un agent tourne, l'agent fait foi, pas la colonne enregistrée — qu'on ne touche pas. Correction
