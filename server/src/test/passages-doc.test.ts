@@ -12,6 +12,7 @@ import {
   empreinteSemantique,
   partDesMotsExacts,
   plafondDeRecherche,
+  rechercheConvaincante,
   rechercheRentable,
   termesRares,
   texteDesPassages,
@@ -274,4 +275,28 @@ test('le bloc envoyé nomme ses sources et DIT qu’il ne montre pas tout', () =
   assert.match(texte, /docs\/regles\/cartes\.md/);
   assert.match(texte, /project_memory/);
   assert.match(texte, /45 faits/);
+});
+
+/*
+ * LA RECHERCHE A-T-ELLE TROUVÉ QUELQUE CHOSE DE CONVAINCANT ? Ce signal ne
+ * change ni le classement ni le seuil : il compare le mieux placé à la
+ * moyenne du reste du corpus classé pour cette question.
+ */
+
+test('un passage nettement au-dessus du reste du corpus est dit convaincant', () => {
+  const classes = [faux('docs/regles/cartes.md', 0.7, 20), faux('docs/regles/quotas.md', 0.2, 20), faux('docs/regles/voix.md', 0.18, 20)];
+  assert.equal(rechercheConvaincante(classes), true);
+});
+
+test('un lot où tout se vaut à peu près n’est pas dit convaincant', () => {
+  const classes = [faux('docs/regles/cartes.md', 0.33, 20), faux('docs/regles/quotas.md', 0.31, 20), faux('docs/regles/voix.md', 0.32, 20)];
+  assert.equal(rechercheConvaincante(classes), false);
+});
+
+test('sans aucun passage classé, la question ne se pose pas', () => {
+  assert.equal(rechercheConvaincante([]), undefined);
+});
+
+test('un seul passage dans tout le corpus est dit convaincant, faute de comparaison', () => {
+  assert.equal(rechercheConvaincante([faux('docs/regles/cartes.md', 0.15, 20)]), true);
 });

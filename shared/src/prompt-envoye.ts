@@ -89,8 +89,8 @@ export function mentionDesPassages(contexte: SentContextSnapshot): string | unde
     const compte = `${passages.length} passage${passages.length > 1 ? 's' : ''} retrouvé${
       passages.length > 1 ? 's' : ''
     } dans la documentation`;
-    const mode = mentionDuModeDeRecherche(contexte);
-    return mode ? `${compte} · ${mode}` : compte;
+    const details = [mentionDuModeDeRecherche(contexte), mentionDePertinence(contexte)].filter(Boolean);
+    return details.length ? `${compte} · ${details.join(' · ')}` : compte;
   }
   return contexte.passagesRaison;
 }
@@ -104,12 +104,37 @@ export function mentionDesPassages(contexte: SentContextSnapshot): string | unde
  * la bulle affichait des passages médiocres sans dire pourquoi, et la panne a
  * duré des jours sur HaikoDev (couverture retombée à 53 %). La mention porte
  * donc le mode ET la part préparée — le seul chiffre qui explique le mode.
+ *
+ * UN CHOIX N'EST PAS UN REPLI, et la mention ne doit pas les confondre. Au
+ * lancement d'une carte, les mots exacts sont désormais le réglage VOULU
+ * (mesuré : ils font aussi bien que le sens sur ce terrain-là). Écrire « par les
+ * MOTS · 99 % de la documentation préparée » se lirait comme la panne de
+ * couverture d'hier : la part préparée n'explique plus rien, puisqu'elle est
+ * bonne. On dit donc le choix, sans chiffre — le chiffre revient dès que c'est
+ * un vrai repli.
  */
 export function mentionDuModeDeRecherche(contexte: SentContextSnapshot): string | undefined {
   const mode = contexte.passagesMode;
   if (!mode) return undefined;
   const part = `${Math.round(mode.couverture * 100)} % de la documentation préparée`;
-  return mode.sens ? `par le sens · ${part}` : `par les MOTS · ${part}`;
+  if (mode.sens) return `par le sens · ${part}`;
+  if (mode.choisi) return 'par les mots exacts · le réglage de ce terrain';
+  return `par les MOTS · ${part}`;
+}
+
+/**
+ * RIEN DE NETTEMENT PERTINENT — dit à l'écran, plutôt que servi en silence.
+ *
+ * `contexte.passagesPertinents` compare le score du passage le mieux placé à
+ * la moyenne du reste du corpus (`rechercheConvaincante`,
+ * shared/src/passages-doc.ts). Faux ne veut pas dire que la recherche a
+ * échoué — les passages restent envoyés, ils peuvent aider — mais que rien ne
+ * s'est nettement détaché du reste, contrairement à un passage qui répond
+ * clairement à la question. `undefined` (comparaison non faite, ou contexte
+ * écrit avant cette règle) ne dit rien, plutôt qu'une fausse alerte.
+ */
+export function mentionDePertinence(contexte: SentContextSnapshot): string | undefined {
+  return contexte.passagesPertinents === false ? 'rien de nettement pertinent trouvé' : undefined;
 }
 
 /**

@@ -386,6 +386,8 @@ interface ContexteUtilisateurDuTour {
   passagesRaison?: string;
   /** Par le SENS ou par les MOTS, et la part de documentation préparée. */
   passagesMode?: SentContextSnapshot['passagesMode'];
+  /** La recherche a-t-elle trouvé quelque chose de nettement pertinent ? */
+  passagesPertinents?: boolean;
 }
 
 /** Fabrique la photographie persistée sur la demande, sans lire l'ancien fil. */
@@ -406,6 +408,7 @@ export function instantaneContexteEnvoye(input: {
   passages?: PassageRetrouve[];
   passagesRaison?: string;
   passagesMode?: SentContextSnapshot['passagesMode'];
+  passagesPertinents?: boolean;
   sentAt?: number;
 }): SentContextSnapshot {
   const entier = input.enteteEntier ?? input.nouvelleSession;
@@ -440,6 +443,7 @@ export function instantaneContexteEnvoye(input: {
     // Le MODE se dit même sans passage : « rien trouvé par les mots » et
     // « rien trouvé par le sens » ne racontent pas la même histoire.
     passagesMode: input.passagesMode,
+    passagesPertinents: input.passagesPertinents,
     history: input.nouvelleSession ? 'none' : 'retained_by_engine',
     sentAt: input.sentAt ?? Date.now(),
   });
@@ -1027,8 +1031,10 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
             sens: recherche.mode.vecteurs,
             couverture: Math.min(1, Math.max(0, recherche.mode.couverture)),
             raison: recherche.mode.raison,
+            choisi: recherche.mode.choisi,
           }
         : undefined,
+      passagesPertinents: recherche?.pertinents,
     },
     niveau,
     {
@@ -1415,6 +1421,7 @@ async function startTurn(
         passages: contexteUtilisateur.passages,
         passagesRaison: contexteUtilisateur.passagesRaison,
         passagesMode: contexteUtilisateur.passagesMode,
+        passagesPertinents: contexteUtilisateur.passagesPertinents,
       })
     : undefined;
 

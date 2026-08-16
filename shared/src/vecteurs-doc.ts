@@ -226,6 +226,68 @@ export function vecteursRepris<V>(
  */
 export const COUVERTURE_VECTEURS_MIN = 0.75;
 
+/* ------------------------------------------------------------------ */
+/* DEUX TERRAINS, DEUX RÉGLAGES — parce que c'est mesuré               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES DEUX TERRAINS D'UNE MÊME RECHERCHE.
+ *
+ * `lancement` — la demande d'une CARTE : un titre et une description RÉDIGÉS,
+ * déjà pleins du vocabulaire du projet, qui nomment souvent le fichier à
+ * toucher. Ces passages REMPLACENT l'index de la mémoire.
+ *
+ * `conversation` — ce que l'utilisateur TAPE, du deuxième message au dixième :
+ * une phrase, une plainte, une question posée comme on parle, qui ne nomme
+ * presque jamais un fichier. Ces passages AJOUTENT le peu qui manque.
+ *
+ * Ce ne sont pas deux moments du même travail : ce sont deux populations de
+ * questions différentes, et rien n'obligeait à les régler pareil.
+ */
+export type TerrainDeRecherche = 'lancement' | 'conversation';
+
+/**
+ * OÙ LE SENS SERT VRAIMENT — MESURÉ, PAS SUPPOSÉ
+ * (`scripts/audit-memoire-rag.mjs`, relevé complet dans `docs/audit-memoire-rag.md`).
+ *
+ * Le même corpus, le même plafond, le même choix sous plafond : seule la NOTATION
+ * change, et la vérité de terrain est objective — les fichiers que le travail a
+ * réellement modifiés, lus dans git.
+ *
+ * AU LANCEMENT D'UNE CARTE, sur 120 cartes réelles et DEUX relevés indépendants :
+ * 66 % de pertinence par le sens contre 66 % par les mots, puis 67 % contre 67 %
+ * — cinq cartes gagnées de chaque côté les deux fois. Le sens change pourtant la
+ * MOITIÉ des passages remontés : il travaille beaucoup pour ne rien améliorer.
+ * Une demande de carte est écrite avec les mots du projet, et ce sont les mots
+ * exacts qui retrouvent un fichier qu'on NOMME.
+ *
+ * EN CONVERSATION, le terrain s'inverse : la question est tapée comme on parle,
+ * elle ne partage plus le vocabulaire de la documentation. Sur 55 vrais messages
+ * d'utilisateur, aux bornes dures du tour de suite, le sens passe devant sur les
+ * deux vérités (27 % contre 25 %, et 25 % contre 20 % en stricte). L'écart est
+ * mince et ne suffirait pas seul ; il ne perd nulle part, et
+ * `scripts/verif-recherche-par-le-sens.mjs` montre sur la vraie base ce que ce
+ * relevé ne voit pas — une question REFORMULÉE retrouve sa règle.
+ *
+ * Le moteur local, la vectorisation de fond et la conservation des vecteurs
+ * restent donc EN PLACE : ils servent la conversation. Rien n'est démonté — on
+ * cesse seulement de payer la vectorisation de la question au lancement d'une
+ * carte (130 à 190 ms selon la charge) pour un gain nul.
+ */
+export const SENS_PAR_TERRAIN: Record<TerrainDeRecherche, boolean> = {
+  lancement: false,
+  conversation: true,
+};
+
+/** Le sens a-t-il quelque chose à apporter sur ce terrain ? */
+export function sensUtileSur(terrain: TerrainDeRecherche): boolean {
+  return SENS_PAR_TERRAIN[terrain];
+}
+
+/** Ce qui s'écrit dans la bulle quand c'est le TERRAIN qui a décidé, pas une panne. */
+export const RAISON_TERRAIN_SANS_SENS =
+  'au lancement d’une carte, les mots exacts font aussi bien que le sens (mesuré sur 120 cartes)';
+
 /** Ce que la recherche a décidé, et pourquoi — c'est ce que le contrôle affiche. */
 export interface ModeDeRecherche {
   /** Vrai quand le classement se fait sur de vrais vecteurs de sens. */
@@ -234,19 +296,33 @@ export interface ModeDeRecherche {
   couverture: number;
   /** Dit en clair quand on reste sur les mots. */
   raison?: string;
+  /**
+   * Vrai quand les mots sont un CHOIX de terrain, faux quand ils sont un REPLI.
+   *
+   * Sans cette distinction, la bulle dirait « par les MOTS · 99 % de la
+   * documentation préparée » — une phrase qui se contredit elle-même et qu'on
+   * lirait comme la panne de couverture qui a duré des jours ici.
+   */
+  choisi?: boolean;
 }
 
 /**
- * LE MODE RETENU POUR UNE RECHERCHE. Trois conditions, toutes nécessaires : la
- * question a son vecteur (donc la clé répond), l'index en a assez, et il y a
- * quelque chose à classer.
+ * LE MODE RETENU POUR UNE RECHERCHE. Le TERRAIN décide en premier : sur un
+ * terrain où le sens n'apporte rien de mesurable, on ne le paie pas, quelle que
+ * soit la couverture. Restent les trois conditions d'avant : la question a son
+ * vecteur (donc le moteur répond), l'index en a assez, et il y a quelque chose à
+ * classer.
  */
 export function modeDeRecherche(args: {
+  terrain?: TerrainDeRecherche;
   vecteurQuestion?: ArrayLike<number> | null;
   total: number;
   vectorises: number;
 }): ModeDeRecherche {
   const couverture = args.total > 0 ? args.vectorises / args.total : 0;
+  if (args.terrain && !sensUtileSur(args.terrain)) {
+    return { vecteurs: false, couverture, raison: RAISON_TERRAIN_SANS_SENS, choisi: true };
+  }
   if (!vecteurUtilisable(args.vecteurQuestion ?? undefined)) {
     return { vecteurs: false, couverture, raison: 'la question n’a pas pu être vectorisée' };
   }

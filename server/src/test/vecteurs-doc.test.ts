@@ -8,6 +8,7 @@ import {
   FENETRE_VECTORISATION_HEURES,
   HEURE_VECTORISATION,
   PERIODE_VECTORISATION_MS,
+  RAISON_TERRAIN_SANS_SENS,
   TRANCHES_MAX_PAR_NUIT,
   PLAFOND_PASSAGE_SIGNES,
   PRIORITE,
@@ -26,6 +27,7 @@ import {
   normaliserLeVecteur,
   raisonSansVectorisationDite,
   reponseRejouable,
+  sensUtileSur,
   texteAVectoriser,
   vecteurUtilisable,
   type PassageClasse,
@@ -93,6 +95,51 @@ test('un index à moitié vectorisé ne bascule pas : les deux échelles ne se c
 
 test('un index vide ne bascule jamais', () => {
   assert.equal(modeDeRecherche({ vecteurQuestion: BON_VECTEUR, total: 0, vectorises: 0 }).vecteurs, false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Deux terrains, deux réglages — et c'est le terrain qui décide       */
+/* ------------------------------------------------------------------ */
+
+test('au LANCEMENT d’une carte, le classement se fait par les mots, index parfaitement préparé compris', () => {
+  const mode = modeDeRecherche({
+    terrain: 'lancement',
+    vecteurQuestion: BON_VECTEUR,
+    total: 100,
+    vectorises: 100,
+  });
+  assert.equal(mode.vecteurs, false);
+  // Un CHOIX, pas un repli : sans ce drapeau, la bulle afficherait « par les
+  // MOTS · 100 % de la documentation préparée », la phrase même de la panne.
+  assert.equal(mode.choisi, true);
+  assert.equal(mode.raison, RAISON_TERRAIN_SANS_SENS);
+  assert.equal(mode.couverture, 1);
+});
+
+test('en CONVERSATION, le sens reprend la main dès que l’index le permet', () => {
+  const mode = modeDeRecherche({
+    terrain: 'conversation',
+    vecteurQuestion: BON_VECTEUR,
+    total: 100,
+    vectorises: 100,
+  });
+  assert.equal(mode.vecteurs, true);
+  assert.equal(mode.choisi, undefined);
+  assert.equal(sensUtileSur('conversation'), true);
+  assert.equal(sensUtileSur('lancement'), false);
+});
+
+test('le terrain ne fabrique jamais un faux « choisi » : un vrai repli reste un repli', () => {
+  // La conversation garde ses trois refus d'origine, terrain ou pas.
+  const sansIndex = modeDeRecherche({
+    terrain: 'conversation',
+    vecteurQuestion: BON_VECTEUR,
+    total: 100,
+    vectorises: 50,
+  });
+  assert.equal(sansIndex.vecteurs, false);
+  assert.equal(sansIndex.choisi, undefined);
+  assert.match(sansIndex.raison ?? '', /50 %/);
 });
 
 /* ------------------------------------------------------------------ */

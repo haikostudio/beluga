@@ -34,12 +34,15 @@ import {
   jetonsApproches,
   modeDeRecherche,
   plafondDeRecherche,
+  rechercheConvaincante,
   rechercheRentable,
+  sensUtileSur,
   texteAVectoriser,
   texteDesPassages,
   vecteurUtilisable,
   vecteursRepris,
   type ModeDeRecherche,
+  type TerrainDeRecherche,
   type PassageClasse,
   type PassageDoc,
   type PassageIndexe,
@@ -82,6 +85,92 @@ import { modeleDesVecteurs, vectoriser, vectoriserLaQuestion } from './vecteurs.
  * changement de règle force une réindexation complète, sans migration à écrire.
  */
 const VERSION_INDEX = 'v3';
+
+/* ------------------------------------------------------------------ */
+/* L'INDEX EN MÉMOIRE VIVE                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN PASSAGE TEL QU'IL EST GARDÉ EN MÉMOIRE — le vecteur reste sous sa forme
+ * BINAIRE (celle de la base) et le modèle qui l'a produit reste à côté : la
+ * conversion en `PassageIndexe` (vers un `Float32Array`, filtrée par le modèle
+ * COURANT) se refait à chaque lecture, pour rester identique à ce que
+ * `passagesIndexes` rendait avant ce cache — un changement de moteur de
+ * vectorisation en cours de route ne doit rien casser.
+ */
+interface PassageEnCache {
+  source: string;
+  titre: string;
+  sujet: string;
+  priorite: number;
+  texte: string;
+  empreinte: number[];
+  vecteur: Buffer | null;
+  modele: string | null;
+}
+
+/**
+ * TENIR L'INDEX EN MÉMOIRE, PAR PROJET, POUR TOUTE LA VIE DU PROCESSUS.
+ *
+ * La recherche relisait TOUTE la table `doc_passages` à chaque demande — 880 ms
+ * sur les 5 143 passages de HaikoDev, dont l'essentiel à faire un `JSON.parse`
+ * de l'empreinte de repli de chacun. Or `indexerDocumentation` sait déjà,
+ * précisément, ce qui a changé (un fichier modifié, un fichier disparu) : il
+ * met ce cache à jour lui-même, passage par passage, sans jamais relire ce qui
+ * n'a pas bougé. `vectoriserLIndex` fait de même pour les vecteurs qu'il vient
+ * de calculer.
+ *
+ * La clé du sous-dossier est le SOURCE (le chemin relatif du fichier) : c'est
+ * la même granularité que la base (`doc_fichiers.chemin`), donc un fichier
+ * modifié ou disparu se traite en UNE écriture, jamais en relisant les autres.
+ *
+ * Le premier accès à un projet — après un redémarrage, ou son tout premier
+ * passage dans ce processus — coûte encore la lecture complète : c'est le prix,
+ * payé une fois, de ne plus jamais la repayer ensuite.
+ */
+const indexEnMemoire = new Map<string, Map<string, PassageEnCache[]>>();
+
+/** Charge l'index d'un projet depuis la base — le coût payé une seule fois. */
+function chargerIndexDepuisLaBase(projectId: string): Map<string, PassageEnCache[]> {
+  const lignes = getDb()
+    .prepare('SELECT source, titre, sujet, priorite, texte, empreinte, vecteur, modele FROM doc_passages WHERE project_id = ?')
+    .all(projectId) as {
+    source: string;
+    titre: string;
+    sujet: string;
+    priorite: number;
+    texte: string;
+    empreinte: string;
+    vecteur: Buffer | null;
+    modele: string | null;
+  }[];
+  const carte = new Map<string, PassageEnCache[]>();
+  for (const ligne of lignes) {
+    const liste = carte.get(ligne.source) ?? [];
+    liste.push({
+      source: ligne.source,
+      titre: ligne.titre,
+      sujet: ligne.sujet,
+      priorite: ligne.priorite,
+      texte: ligne.texte,
+      empreinte: JSON.parse(ligne.empreinte) as number[],
+      vecteur: ligne.vecteur,
+      modele: ligne.modele,
+    });
+    carte.set(ligne.source, liste);
+  }
+  return carte;
+}
+
+/** L'index en mémoire d'un projet — chargé depuis la base au tout premier accès. */
+function indexDuProjet(projectId: string): Map<string, PassageEnCache[]> {
+  let carte = indexEnMemoire.get(projectId);
+  if (!carte) {
+    carte = chargerIndexDepuisLaBase(projectId);
+    indexEnMemoire.set(projectId, carte);
+  }
+  return carte;
+}
 
 /** Un fichier à indexer, avec ce qu'il pèse dans le classement. */
 interface FichierIndexable {
@@ -248,6 +337,9 @@ export function indexerDocumentation(
       empreinte: string;
     }[]).map((ligne) => [ligne.chemin, ligne.empreinte]),
   );
+  // L'index en mémoire du projet — chargé une fois depuis la base, tenu à jour
+  // ci-dessous EXACTEMENT comme la base, jamais relu ensuite.
+  const carteCache = indexDuProjet(projectId);
 
   const supprimerFichier = db.prepare('DELETE FROM doc_fichiers WHERE project_id = ? AND chemin = ?');
   const supprimerPassages = db.prepare('DELETE FROM doc_passages WHERE project_id = ? AND source = ?');
@@ -260,12 +352,13 @@ export function indexerDocumentation(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   /*
-   * CE QU'ON VA POUVOIR REPRENDRE. Un fichier réécrit voit tous ses passages
-   * effacés, mais la modification n'en touche qu'un ou deux : les autres sont
-   * mot pour mot les mêmes et gardent donc leur vecteur (`vecteursRepris`,
-   * shared/src/vecteurs-doc.ts). Sans cela, un projet dont la documentation
-   * bouge chaque jour retombe sous le seuil de couverture et cherche par les
-   * MOTS toute la journée, pendant que la nuit revectorise en pure perte.
+   * LES « ANCIENS » VIENNENT DE LA BASE, PAS DU CACHE — à dessein. Le cache
+   * n'a de garantie d'exactitude que sur ce que CE module a lui-même écrit ;
+   * un contrôle qui pose un vecteur en SQL direct (`scripts/verif-memoire-des-
+   * vecteurs.mjs`), ou tout futur écrivain hors de ce fichier, le laisserait
+   * périmé. La lecture ici reste ciblée (quelques lignes, un seul fichier) :
+   * ce n'est pas elle qui coûtait les 880 ms mesurés, c'est la lecture de
+   * TOUT l'index à chaque appel — c'est CETTE lecture-là que le cache évite.
    */
   const lireAnciens = db.prepare(
     'SELECT titre, texte, vecteur, modele FROM doc_passages WHERE project_id = ? AND source = ?',
@@ -273,6 +366,11 @@ export function indexerDocumentation(
 
   let modifies = 0;
   const maintenant = Date.now();
+  // Les changements à répercuter sur le CACHE — appliqués seulement après le
+  // succès de la transaction, jamais pendant : une transaction qui échoue est
+  // annulée côté base, et le cache ne doit alors pas s'en écarter.
+  const suppressionsEnCache: string[] = [];
+  const misesAJourEnCache: { source: string; passages: PassageEnCache[] }[] = [];
 
   const travail = db.transaction(() => {
     const vivants = new Set(fichiers.map((f) => f.source));
@@ -282,6 +380,7 @@ export function indexerDocumentation(
       if (vivants.has(chemin)) continue;
       supprimerFichier.run(projectId, chemin);
       supprimerPassages.run(projectId, chemin);
+      suppressionsEnCache.push(chemin);
       modifies++;
     }
 
@@ -297,6 +396,15 @@ export function indexerDocumentation(
       const empreinte = empreinteDuContenu(texte);
       if (connus.get(fichier.source) === empreinte) continue;
 
+      /*
+       * CE QU'ON VA POUVOIR REPRENDRE. Un fichier réécrit voit tous ses
+       * passages effacés, mais la modification n'en touche qu'un ou deux : les
+       * autres sont mot pour mot les mêmes et gardent donc leur vecteur
+       * (`vecteursRepris`, shared/src/vecteurs-doc.ts). Sans cela, un projet
+       * dont la documentation bouge chaque jour retombe sous le seuil de
+       * couverture et cherche par les MOTS toute la journée, pendant que la
+       * nuit revectorise en pure perte.
+       */
       const anciens = lireAnciens.all(projectId, fichier.source) as {
         titre: string;
         texte: string;
@@ -312,8 +420,10 @@ export function indexerDocumentation(
               priorite: fichier.priorite,
             });
       const repris = vecteursRepris(anciens, passages);
+      const nouveauxEnCache: PassageEnCache[] = [];
       passages.forEach((passage, rang) => {
         const garde = repris[rang];
+        const empreintePassage = empreinteDuPassage(passage);
         poserPassage.run(
           idDuPassage(projectId, fichier.source, rang),
           projectId,
@@ -322,14 +432,25 @@ export function indexerDocumentation(
           passage.sujet,
           passage.priorite,
           passage.texte,
-          JSON.stringify(empreinteDuPassage(passage)),
+          JSON.stringify(empreintePassage),
           passage.texte.length,
           maintenant,
           garde?.vecteur ?? null,
           garde?.modele ?? null,
         );
+        nouveauxEnCache.push({
+          source: passage.source,
+          titre: passage.titre,
+          sujet: passage.sujet,
+          priorite: passage.priorite,
+          texte: passage.texte,
+          empreinte: empreintePassage,
+          vecteur: garde?.vecteur ?? null,
+          modele: garde?.modele ?? null,
+        });
       });
       poserFichier.run(projectId, fichier.source, empreinte, maintenant);
+      misesAJourEnCache.push({ source: fichier.source, passages: nouveauxEnCache });
       modifies++;
     }
   });
@@ -338,13 +459,18 @@ export function indexerDocumentation(
     travail();
   } catch (err) {
     log.warn(`indexation de la documentation impossible : ${(err as Error).message}`);
+    // Le cache a pu être lu (indexDuProjet) mais rien n'a été mis à jour côté
+    // base : on ne touche à AUCUNE entrée, il reste donc fidèle à la base.
     return { fichiers: fichiers.length, modifies: 0, passages: 0 };
   }
 
-  const total = db
-    .prepare('SELECT COUNT(*) AS n FROM doc_passages WHERE project_id = ?')
-    .get(projectId) as { n: number };
-  return { fichiers: fichiers.length, modifies, passages: total.n };
+  // La transaction a réussi : le cache suit, exactement comme la base.
+  for (const chemin of suppressionsEnCache) carteCache.delete(chemin);
+  for (const { source, passages } of misesAJourEnCache) carteCache.set(source, passages);
+
+  let total = 0;
+  for (const passages of carteCache.values()) total += passages.length;
+  return { fichiers: fichiers.length, modifies, passages: total };
 }
 
 /** L'empreinte de repli d'un passage : son titre compte, il porte le sujet en clair. */
@@ -397,6 +523,7 @@ export function couvertureDesVecteurs(projectId: string): { total: number; vecto
 export async function vectoriserLIndex(projectId: string, saut = 0): Promise<{ faits: number }> {
   const db = getDb();
   const modele = modeleDesVecteurs();
+  const carteCache = indexDuProjet(projectId);
   /*
    * LE SAUT permet à PLUSIEURS processus de vectoriser le MÊME projet sans se
    * marcher dessus : chacun part d'un rang différent dans la liste de ce qui
@@ -443,6 +570,17 @@ export async function vectoriserLIndex(projectId: string, saut = 0): Promise<{ f
     try {
       ecrire();
       faits += tranche.length;
+      // Le CACHE suit, comme la base : on ne touche à un passage qu'une fois
+      // la transaction commise, jamais avant.
+      tranche.forEach((passage, rang) => {
+        const vecteur = vecteurs[rang];
+        if (!vecteurUtilisable(vecteur)) return;
+        const liste = carteCache.get(passage.source);
+        const entree = liste?.find((p) => p.titre === passage.titre && p.texte === passage.texte);
+        if (!entree) return;
+        entree.vecteur = vecteurEnBinaire(vecteur);
+        entree.modele = modele;
+      });
     } catch (err) {
       log.warn(`vecteurs non enregistrés : ${(err as Error).message}`);
       break;
@@ -454,30 +592,32 @@ export async function vectoriserLIndex(projectId: string, saut = 0): Promise<{ f
 /** Tous les combien on range ce qui est vectorisé : assez souvent pour ne rien reperdre. */
 const ECRITURE_TOUS_LES = 96;
 
-/** Tous les passages indexés d'un projet, empreinte de repli et vecteur compris. */
+/**
+ * Tous les passages indexés d'un projet, empreinte de repli et vecteur compris.
+ *
+ * Lit désormais l'INDEX EN MÉMOIRE (`indexDuProjet`) plutôt que la base : plus
+ * de lecture des 5 000+ lignes ni de `JSON.parse` de leur empreinte à chaque
+ * appel — seule la conversion binaire → `Float32Array` du vecteur se refait ici,
+ * filtrée par le modèle COURANT comme avant ce cache.
+ */
 export function passagesIndexes(projectId: string): PassageIndexe[] {
   const modele = modeleDesVecteurs();
-  const lignes = getDb()
-    .prepare('SELECT source, titre, sujet, priorite, texte, empreinte, vecteur, modele FROM doc_passages WHERE project_id = ?')
-    .all(projectId) as {
-    source: string;
-    titre: string;
-    sujet: string;
-    priorite: number;
-    texte: string;
-    empreinte: string;
-    vecteur: Buffer | null;
-    modele: string | null;
-  }[];
-  return lignes.map((ligne) => ({
-    source: ligne.source,
-    titre: ligne.titre,
-    sujet: ligne.sujet,
-    priorite: ligne.priorite,
-    texte: ligne.texte,
-    empreinte: JSON.parse(ligne.empreinte) as number[],
-    vecteur: ligne.modele === modele ? vecteurDepuisBinaire(ligne.vecteur) : undefined,
-  }));
+  const carte = indexDuProjet(projectId);
+  const resultat: PassageIndexe[] = [];
+  for (const passages of carte.values()) {
+    for (const passage of passages) {
+      resultat.push({
+        source: passage.source,
+        titre: passage.titre,
+        sujet: passage.sujet,
+        priorite: passage.priorite,
+        texte: passage.texte,
+        empreinte: passage.empreinte,
+        vecteur: passage.modele === modele ? vecteurDepuisBinaire(passage.vecteur) : undefined,
+      });
+    }
+  }
+  return resultat;
 }
 
 /** Ce qu'une recherche rend au démon : le bloc à envoyer, et de quoi l'afficher. */
@@ -492,6 +632,12 @@ export interface RechercheDePassages {
   ecartes: number;
   /** Par le SENS RÉEL ou par les mots — et pourquoi, quand c'est par les mots. */
   mode: ModeDeRecherche;
+  /**
+   * La recherche a-t-elle trouvé quelque chose de NETTEMENT pertinent ?
+   * Comparé au reste du corpus classé pour cette question, pas seulement aux
+   * passages retenus (`rechercheConvaincante`, shared/src/passages-doc.ts).
+   */
+  pertinents?: boolean;
 }
 
 /**
@@ -513,6 +659,13 @@ async function classerPourLaQuestion(
   projectId: string,
   projectPath: string,
   question: string,
+  /**
+   * LE TERRAIN — et c'est LUI qui décide du mode, avant tout le reste. La demande
+   * d'une carte et un message tapé ne sont pas la même population de questions :
+   * mesuré, le sens n'apporte rien sur la première et gagne sur la seconde
+   * (`SENS_PAR_TERRAIN`, shared/src/vecteurs-doc.ts).
+   */
+  terrain: TerrainDeRecherche,
 ): Promise<{ classes: PassageClasse[]; mode: ModeDeRecherche } | undefined> {
   /*
    * ON INDEXE, ON NE VECTORISE PAS. Découper les fichiers modifiés coûte
@@ -531,14 +684,19 @@ async function classerPourLaQuestion(
    * LE MODE se décide AVANT de classer : soit tout le monde est jugé au sens
    * réel, soit tout le monde l'est à l'empreinte de mots. Mélanger les deux
    * échelles ferait gagner les passages vectorisés par construction.
+   *
+   * ET ON NE VECTORISE PAS UNE QUESTION QU'ON NE COMPTE PAS UTILISER : sur un
+   * terrain rendu aux mots exacts, l'appel au modèle serait 189 ms payés pour
+   * rien à chaque lancement de carte.
    */
-  const vecteurQuestion = await vectoriserLaQuestion(question);
+  const vecteurQuestion = sensUtileSur(terrain) ? await vectoriserLaQuestion(question) : undefined;
   /*
    * La couverture se juge sur la DOCUMENTATION seule : le code vient après et
    * ne doit pas retenir la bascule (`couvertureDesVecteurs`).
    */
   const documents = indexes.filter((p) => p.priorite >= 0);
   const mode = modeDeRecherche({
+    terrain,
     vecteurQuestion,
     total: documents.length,
     vectorises: documents.filter((p) => p.vecteur).length,
@@ -567,9 +725,10 @@ export async function rechercherPourLaTache(
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
-    const classement = await classerPourLaQuestion(projectId, projectPath, question);
+    const classement = await classerPourLaQuestion(projectId, projectPath, question, 'lancement');
     if (!classement) return undefined;
     const { classes, mode } = classement;
+    const pertinents = rechercheConvaincante(classes);
 
     const jetonsIndex = jetonsApproches(index.texte.length);
     const choix = choisirPassages(classes, {
@@ -591,7 +750,7 @@ export async function rechercherPourLaTache(
       const texte = texteDesPassages(gardes, index.faits, index.sommaire);
       const jetons = jetonsApproches(texte.length);
       if (rechercheRentable(jetons, jetonsIndex)) {
-        return { texte, passages: gardes, jetons, jetonsIndex, ecartes, mode };
+        return { texte, passages: gardes, jetons, jetonsIndex, ecartes, mode, pertinents };
       }
       gardes = gardes.slice(0, -1);
       ecartes++;
@@ -625,7 +784,7 @@ export async function rechercherPourLaSuite(
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
-    const classement = await classerPourLaQuestion(projectId, projectPath, question);
+    const classement = await classerPourLaQuestion(projectId, projectPath, question, 'conversation');
     if (!classement) return undefined;
 
     const candidats = passagesInedits(classement.classes, dejaServies);
@@ -647,6 +806,7 @@ export async function rechercherPourLaSuite(
       jetonsIndex: 0,
       ecartes: choix.ecartes,
       mode: classement.mode,
+      pertinents: rechercheConvaincante(classement.classes),
     };
   } catch (err) {
     log.warn(`recherche de passages (tour de suite) impossible : ${(err as Error).message}`);

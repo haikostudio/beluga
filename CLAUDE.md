@@ -156,6 +156,20 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   reconnu à son TITRE et à son TEXTE — jamais à son rang, qui glisse dès qu'une section est insérée —
   et garde son vecteur ; seul ce qui a VRAIMENT changé repart à vectoriser. Verrouillé par
   `server/src/test/memoire-des-vecteurs.test.ts` et `scripts/verif-memoire-des-vecteurs.mjs`.
+- **L'INDEX RESTE EN MÉMOIRE VIVE ENTRE DEUX DEMANDES, il ne se relit plus en entier à chaque
+  fois** (`indexEnMemoire`, `indexDuProjet`, `server/src/passages.ts`) : mesuré le 16/08/2026 sur
+  120 demandes réelles, chaque recherche payait ~880 ms pour relire les 5 143 lignes de
+  `doc_passages` et faire un `JSON.parse` de leur empreinte de repli — à CHAQUE tour, alors que
+  presque rien n'avait changé depuis le précédent. Le démon garde désormais, PAR PROJET et pour
+  toute la vie du processus, une carte `source → passages` tenue à jour par `indexerDocumentation`
+  lui-même (un fichier modifié remplace SA seule entrée, un fichier disparu la retire) et par
+  `vectoriserLIndex` (un vecteur calculé met à jour SON seul passage) — jamais par une relecture.
+  Seul le tout premier accès à un projet, après un redémarrage, paie encore la lecture complète.
+  Les « anciens » vecteurs à reprendre (`vecteursRepris`) restent lus en base, PAS depuis ce cache :
+  lui seul est garanti à jour avec ce que `passages.ts` a écrit, un écrivain extérieur (un contrôle
+  qui pose un vecteur en SQL direct, par exemple) le laisserait périmé. Une transaction qui échoue
+  ne touche jamais au cache. Verrouillé par `server/src/test/recherche-passages.test.ts` et
+  `scripts/verif-memoire-des-vecteurs.mjs` ; mesuré par `scripts/audit-memoire-rag.mjs`.
 - **LE SOMMAIRE DES SUJETS VOYAGE AVEC LES PASSAGES** (`sommaireDesSujets`, `texteDuSommaire`,
   `shared/src/memoire.ts` ; `texteDesPassages`, `shared/src/passages-doc.ts`) : la recherche remplace
   l'INDEX de la mémoire, donc elle emportait avec lui la LISTE des sujets — alors que la MÉTHODE dit
@@ -195,9 +209,36 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   bon fichier, le code ne prend plus que 6 % du poids envoyé. DEUX promesses ne tiennent pas. Le
   SENS n'apporte **aucun gain mesurable** au lancement d'une carte (66 % contre 66 % pour les mots,
   cinq victoires chacun) alors qu'il change la moitié des passages remontés : une demande de carte
-  est déjà écrite avec le vocabulaire du projet. La recherche coûte enfin ~2,1 s par demande, dont
-  0,9 s à noter les 5 143 passages et ~1 s à les relire. Le relevé travaille sur une COPIE de la
-  base du démon et ne pose aucun seuil : il mesure, il ne fait échouer personne.
+  est déjà écrite avec le vocabulaire du projet. Et le SEUIL de pertinence ne filtrait rien (88 % du
+  corpus le franchissait ; une question sur la tarte aux pommes recevait six passages de règles), si
+  bien que le repli sur l'index ne pouvait plus se déclencher en mode sens — c'est ce que règle la
+  ligne du SEUIL, plus bas. La recherche coûte enfin ~2,1 s
+  par demande, dont 0,9 s à noter les 5 143 passages et ~1 s à les relire. Le relevé travaille sur
+  une COPIE de la base du démon et ne pose aucun seuil : il mesure, il ne fait échouer personne.
+- **…D'OÙ DEUX TERRAINS ET DEUX RÉGLAGES : les MOTS EXACTS au LANCEMENT d'une carte, le SENS en
+  CONVERSATION** (`TerrainDeRecherche`, `SENS_PAR_TERRAIN`, `sensUtileSur`, `RAISON_TERRAIN_SANS_SENS`,
+  `shared/src/vecteurs-doc.ts` ; quatrième argument de `classerPourLaQuestion`,
+  `server/src/passages.ts`). Ce ne sont pas deux moments du même travail, ce sont deux populations de
+  QUESTIONS. La demande d'une carte est un titre et une description RÉDIGÉS, déjà pleins du
+  vocabulaire du projet, qui nomment souvent le fichier à toucher : mesuré sur 120 cartes réelles,
+  DEUX relevés indépendants donnent la même égalité (**66 % contre 66 %**, puis **67 % contre 67 %**)
+  — cinq cartes gagnées de chaque côté à chaque fois — alors que le sens change la MOITIÉ des
+  passages remontés. Un message de conversation, lui, est TAPÉ comme on parle et ne partage plus ce
+  vocabulaire : sur 55 vrais messages, le sens passe devant sur les deux vérités (**27 % contre
+  25 %**, et **25 % contre 20 %** en vérité stricte) — un écart mince, que `verif-recherche-par-le-
+  sens.mjs` appuie sur la vraie base en montrant qu'une question REFORMULÉE retrouve sa règle. Le
+  mode se décide donc au TERRAIN, avant la couverture — et la question n'est même plus vectorisée au
+  lancement (130 à 190 ms de moins par carte). **RIEN N'EST DÉMONTÉ** : le moteur local, la vectorisation de fond et la
+  conservation des vecteurs restent en place, ils servent la conversation. DEUX effets à connaître :
+  le REPLI SUR L'INDEX redevient possible au lancement (par les mots, une demande sans rapport ne
+  passe plus le seuil — il était mort en mode sens tant que le seuil restait à 0,24, où 88 % du
+  corpus le franchissait), et la bulle
+  ne doit PAS lire ce choix comme la panne d'hier — d'où le drapeau `choisi`
+  (`SentContextSnapshot.passagesMode.choisi`, `mentionDuModeDeRecherche`), qui écrit « par les mots
+  exacts · le réglage de ce terrain » au lieu de « par les MOTS · 96 % de la documentation
+  préparée ». Verrouillé par `server/src/test/vecteurs-doc.test.ts`,
+  `scripts/verif-recherche-passages.mjs` (corpus fabriqué) et `scripts/verif-recherche-par-le-sens.mjs`
+  (vraie base).
 - **LE SEUIL DU MODE SENS EST RÉGLÉ SUR CE BALAYAGE, PAS À L'ESTIME** (`SCORE_MINIMUM_VECTEUR`,
   `shared/src/vecteurs-doc.ts` ; section 5 bis de `scripts/audit-memoire-rag.mjs`) : à 0,24 il ne
   filtrait RIEN — 87 % du corpus le franchissait, une question sur la tarte aux pommes recevait six
@@ -905,6 +946,15 @@ le nom, là-bas le texte).
   le texte rendait la carte intirable par son titre, `verif-glissement-lancement.mjs`). Un message
   d'ERREUR porte en plus un bouton « copier » (`data-toast-copier`) qui emporte tout son texte d'un
   clic, sans l'écarter. Vérifié par `scripts/verif-texte-copiable.mjs`.
+- **UN TEXTE REPLIÉ (`line-clamp`) NE SE POSE JAMAIS DANS UN `button`** (`ProposalChip`,
+  `data-carte-proposee="validee"`, `web/src/components/message-view.tsx`) : sous WebKit — Safari,
+  donc tous les navigateurs de l'iPhone —, le bloc qui porte un tel bouton réserve la hauteur du
+  texte ENTIER. La pastille d'une carte validée se dessinait sur 114 px, son bloc en gardait 410, et
+  un grand vide s'ouvrait sous la carte acceptée. Rien ne se voit sous Chrome, ni sur une page
+  ouverte alors que la carte est DÉJÀ validée : il faut Safari ET le remplacement en direct de la
+  vignette par la pastille. On emploie donc un bloc ordinaire avec `role="button"`, `tabIndex` et la
+  touche Entrée/Espace. Verrouillé par `scripts/verif-vide-carte-validee.mjs`, qui rejoue la
+  validation dans un vrai Safari (`npx playwright install webkit` ; moteur absent, le cas est DIT).
 - **LA JAUGE « CAPACITÉ DU SYSTÈME » NE DIT « SATURÉ » QUE SUR UNE VRAIE SATURATION**
   (`freinDeCharge`, `chargeRetenue`, `detailDesAgents`, `shared/src/capacite.ts` ; `snapshot`,
   `server/src/capacity.ts`) : l'écran annonçait « Plus aucun agent ne peut démarrer · 3 en cours ·

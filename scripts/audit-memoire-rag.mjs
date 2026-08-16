@@ -38,6 +38,13 @@ const valeur = (nom, defaut) => {
   return trouve ? trouve.slice(nom.length + 3) : defaut;
 };
 const CARTES_VOULUES = Number(valeur('cartes', 60));
+/*
+ * Les MESSAGES DE CONVERSATION rejoués à côté des cartes : l'autre terrain, celui
+ * des questions écrites comme on parle. `--messages=0` s'en tient aux cartes.
+ */
+const MESSAGES_VOULUS = Number(valeur('messages', 100));
+/** En deçà, un message n'est qu'un « ok » ou un « vas-y » : rien à chercher dedans. */
+const SIGNES_MIN_MESSAGE = 15;
 const SORTIE_JSON = valeur('json', '');
 /*
  * La base du DÉMON est la source : c'est elle qui porte l'index et les vecteurs
@@ -78,14 +85,19 @@ const store = await import(path.join(RACINE, 'server/dist/store.js'));
 const shared = await import(path.join(RACINE, 'shared/dist/index.js'));
 
 const {
+  MARGE_SEUIL_SUITE,
   PASSAGES_CODE_MAX,
+  PASSAGES_SUITE_MAX,
+  PLAFOND_PASSAGES_SUITE_JETONS,
   POIDS_MOTS_VECTEUR,
   POIDS_SENS_VECTEUR,
+  SCORE_MINIMUM,
   SCORE_MINIMUM_VECTEUR,
   choisirPassages,
   classerPassages,
   jetonsApproches,
   plafondDeRecherche,
+  seuilDeSuite,
   texteDuSommaire,
 } = shared;
 
@@ -154,7 +166,7 @@ const toutes = [];
 let sansFusion = 0;
 for (const ligne of baseCopiee
   .prepare(
-    `SELECT title, description, data FROM cards
+    `SELECT id, title, description, data FROM cards
       WHERE project_id = ? AND column_key IN ('in_production', 'archived', 'to_deploy')
       ORDER BY created_at DESC LIMIT 400`,
   )
@@ -171,6 +183,7 @@ for (const ligne of baseCopiee
     continue;
   }
   toutes.push({
+    id: ligne.id,
     titre: ligne.title,
     // La QUESTION est composée exactement comme le démon la compose au lancement
     // d'une carte (`preparerLeTour`, server/src/runtime.ts) : titre puis description.
@@ -202,9 +215,53 @@ for (const carte of toutes) {
 const omnipresents = new Set(
   [...compteParFichier].filter(([, n]) => n / toutes.length >= OMNIPRESENT).map(([f]) => f),
 );
-const cartes = toutes.slice(0, CARTES_VOULUES);
-for (const carte of cartes) {
+for (const carte of toutes) {
   carte.propres = new Set([...carte.fichiers].filter((f) => !omnipresents.has(f)));
+}
+const cartes = toutes.slice(0, CARTES_VOULUES);
+
+/* ------------------------------------------------------------------ */
+/* Les MESSAGES DE CONVERSATION, et leur vérité de terrain             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * DEUX TERRAINS, PAS UN. La demande d'une carte est un titre et une description
+ * ÉCRITS avec le vocabulaire du projet ; un message de conversation est tapé
+ * comme on parle, souvent sans nommer un seul fichier. Ce sont deux populations
+ * de questions différentes, et rien ne dit qu'elles appellent le même réglage —
+ * c'est exactement ce que cette carte doit trancher.
+ *
+ * La vérité de terrain reste la MÊME et reste objective : le message a été écrit
+ * à l'agent d'une carte, cette carte a fusionné une branche, et cette branche a
+ * modifié des fichiers. Un message d'humeur (« ça marche toujours pas ») compte
+ * donc comme un échec s'il ne remonte rien du bon endroit — c'est un plancher,
+ * comme pour les cartes.
+ */
+const parCarte = new Map(toutes.map((c) => [c.id, c]));
+const messages = [];
+let messagesEcartes = 0;
+for (const ligne of baseCopiee
+  .prepare(
+    `SELECT m.data AS data, a.card_id AS card_id
+       FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+      WHERE m.role = 'user' AND a.role = 'task' AND a.project_id = ? AND a.card_id IS NOT NULL
+      ORDER BY m.created_at DESC LIMIT 400`,
+  )
+  .all(projet.id)) {
+  const carte = parCarte.get(ligne.card_id);
+  let contenu = '';
+  try {
+    contenu = (JSON.parse(ligne.data || '{}').content || '').trim();
+  } catch {
+    contenu = '';
+  }
+  // Trop court, c'est un « ok » ou un « vas-y » : il n'y a rien à chercher dedans.
+  if (!carte || contenu.length < SIGNES_MIN_MESSAGE) {
+    messagesEcartes += 1;
+    continue;
+  }
+  messages.push({ question: contenu, carte });
 }
 
 /* ------------------------------------------------------------------ */
@@ -428,6 +485,88 @@ console.log(`   vérité stricte — dans les 7 servis : ${auRang(duel.rangsStri
 console.log(`   rang médian de la première bonne page (vérité large) : ${mediane(duel.rangs.filter((r) => r > 0))} sur ${tousLesPassages.length} passages\n`);
 
 /* ------------------------------------------------------------------ */
+/* 4bis. LE MÊME DUEL, SUR DE VRAIS MESSAGES DE CONVERSATION           */
+/* ------------------------------------------------------------------ */
+
+/*
+ * L'AUTRE TERRAIN. Le duel du dessus juge des demandes de CARTE — un titre et une
+ * description rédigés, déjà pleins du vocabulaire du projet. Celui-ci juge ce que
+ * l'utilisateur TAPE dans une conversation : une phrase, une plainte, une question
+ * posée comme on parle, qui ne nomme presque jamais un fichier. C'est le terrain
+ * où un modèle de sens est censé servir, et c'est le seul moyen de savoir si le
+ * lancement et la conversation appellent le même réglage.
+ *
+ * Le classement est le même ; ce qui change, ce sont les BORNES du tour de suite
+ * (`rechercherPourLaSuite`) : trois passages, le tiers du plafond, le seuil relevé
+ * d'un cran. On n'applique PAS la liste des passages déjà servis — on ne sait pas
+ * ce que l'agent avait reçu ce jour-là — mais elle jouerait à l'identique pour les
+ * deux modes : la comparaison reste honnête.
+ */
+const duelConv = {
+  total: 0,
+  sens: 0,
+  mots: 0,
+  sensStrict: 0,
+  motsStrict: 0,
+  sensSeul: 0,
+  motsSeul: 0,
+  aucunDesDeux: 0,
+  communs: 0,
+  sensVides: 0,
+  motsVides: 0,
+  rangs: [],
+  signes: [],
+};
+const messagesRejoues = messages.slice(0, Math.max(0, MESSAGES_VOULUS));
+if (messagesRejoues.length) {
+  for (const message of messagesRejoues) {
+    const vecteurQuestion = await vecteursMod.vectoriserLaQuestion(message.question);
+    if (!vecteurQuestion) continue;
+    const classesSens = classerPassages(tousLesPassages, message.question, {
+      vecteurQuestion,
+      poids: { sens: POIDS_SENS_VECTEUR, mots: POIDS_MOTS_VECTEUR },
+    });
+    const classesMots = classerPassages(tousLesPassages, message.question);
+    const bornes = { plafond: PLAFOND_PASSAGES_SUITE_JETONS, max: PASSAGES_SUITE_MAX, maxCode: PASSAGES_CODE_MAX };
+    const parLeSens = choisirPassages(classesSens, { ...bornes, minimum: seuilDeSuite(SCORE_MINIMUM_VECTEUR) });
+    const parLesMots = choisirPassages(classesMots, { ...bornes, minimum: seuilDeSuite(SCORE_MINIMUM) });
+
+    const sourcesSens = new Set(parLeSens.gardes.map((p) => p.source));
+    const sourcesMots = new Set(parLesMots.gardes.map((p) => p.source));
+    duelConv.total += 1;
+    duelConv.signes.push(message.question.length);
+    if (!parLeSens.gardes.length) duelConv.sensVides += 1;
+    if (!parLesMots.gardes.length) duelConv.motsVides += 1;
+    const gagneSens = [...sourcesSens].some((s) => message.carte.fichiers.has(s));
+    const gagneMots = [...sourcesMots].some((s) => message.carte.fichiers.has(s));
+    if (gagneSens) duelConv.sens += 1;
+    if (gagneMots) duelConv.mots += 1;
+    if (gagneSens && !gagneMots) duelConv.sensSeul += 1;
+    if (gagneMots && !gagneSens) duelConv.motsSeul += 1;
+    if (!gagneSens && !gagneMots) duelConv.aucunDesDeux += 1;
+    if ([...sourcesSens].some((s) => message.carte.propres.has(s))) duelConv.sensStrict += 1;
+    if ([...sourcesMots].some((s) => message.carte.propres.has(s))) duelConv.motsStrict += 1;
+    const communs = [...sourcesSens].filter((s) => sourcesMots.has(s)).length;
+    duelConv.communs += sourcesSens.size ? communs / sourcesSens.size : 0;
+    duelConv.rangs.push(rangDuBon(classesSens, message.carte.fichiers));
+  }
+}
+
+const partConv = (n) => `${Math.round((n / Math.max(1, duelConv.total)) * 100)} %`;
+console.log('4bis. LE MÊME DUEL SUR DE VRAIS MESSAGES DE CONVERSATION — questions tapées, pas rédigées');
+if (!duelConv.total) {
+  console.log('   aucun message exploitable : rien à comparer sur ce terrain\n');
+} else {
+  console.log(`   messages rejoués : ${duelConv.total} (${messagesEcartes} écartés : trop courts, ou carte sans vérité de terrain) · longueur médiane ${mediane(duelConv.signes)} signes`);
+  console.log(`   bornes appliquées : celles d’un tour de SUITE — ${PASSAGES_SUITE_MAX} passages au plus, ${PLAFOND_PASSAGES_SUITE_JETONS} jetons, seuil relevé de ${MARGE_SEUIL_SUITE}`);
+  console.log(`   un fichier réellement modifié remonte — par le SENS : ${partConv(duelConv.sens)} · par les MOTS : ${partConv(duelConv.mots)}`);
+  console.log(`   en vérité STRICTE — par le SENS : ${partConv(duelConv.sensStrict)} · par les MOTS : ${partConv(duelConv.motsStrict)}`);
+  console.log(`   recherches qui ne rendent RIEN — par le SENS : ${partConv(duelConv.sensVides)} · par les MOTS : ${partConv(duelConv.motsVides)}`);
+  console.log(`   messages où UN SEUL des deux réussit — le SENS : ${duelConv.sensSeul} · les MOTS : ${duelConv.motsSeul} · aucun des deux : ${duelConv.aucunDesDeux}`);
+  console.log(`   fichiers communs aux deux réponses : ${Math.round((duelConv.communs / Math.max(1, duelConv.total)) * 100)} %\n`);
+}
+
+/* ------------------------------------------------------------------ */
 /* 5. Le seuil de pertinence filtre-t-il quelque chose ?               */
 /* ------------------------------------------------------------------ */
 
@@ -558,7 +697,12 @@ const bilan = {
     jetonsIndex,
     plafond,
   },
-  echantillon: { cartes: cartes.length, ecartees: sansFusion },
+  echantillon: {
+    cartes: cartes.length,
+    ecartees: sansFusion,
+    messages: duelConv.total,
+    messagesEcartes,
+  },
   envoi: {
     servies: servis.length,
     replis,
@@ -576,6 +720,7 @@ const bilan = {
     omnipresents: [...omnipresents],
   },
   duel,
+  duelConversation: duelConv,
   seuils: {
     essayes: SEUILS_ESSAYES,
     enPlace: SCORE_MINIMUM_VECTEUR,
