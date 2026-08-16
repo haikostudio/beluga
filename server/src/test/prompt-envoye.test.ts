@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   LIGNES_VISIBLES_BULLE,
+  LIGNES_VISIBLES_MEMOIRE,
   apercuDeBulle,
   bullesDuPromptEnvoye,
   demandeDuPromptEnvoye,
@@ -207,6 +208,49 @@ test('l’affichage borne aussi la hauteur, pour une ligne unique très longue',
   assert.ok(/max-h-\[8em\]/.test(bulles), 'cinq lignes de hauteur bornent aussi le texte replié');
   assert.ok(bulles.includes('scrollHeight'), 'un texte replié par l’écran seul demande aussi « voir plus »');
   assert.ok(bulles.includes('data-voir-plus'), 'le bouton porte son repère d’écran');
+});
+
+/*
+ * LA MÉMOIRE RETROUVÉE, ISOLÉE ET REPLIÉE. Elle portait le même encadré que le
+ * prompt complet posé juste dessous : deux pavés collés, sans frontière, et ses
+ * passages cités en entier poussaient la réponse de l'agent hors de l'écran.
+ */
+
+test('la bulle de mémoire est isolée et repliée sur trois lignes', () => {
+  const bulles = bullesDuPromptEnvoye(
+    tourEssai({
+      passages: [
+        { source: 'docs/regles/quotas.md', titre: 'Quotas', score: 0.6, tokens: 20, texte: 'une\ndeux\ntrois\nquatre' },
+      ],
+    }),
+  );
+  const memoire = bulles.find((b) => b.cle === 'memoire');
+  assert.equal(memoire?.isole, true, 'elle porte son propre encadré');
+  assert.equal(memoire?.lignesVisibles, LIGNES_VISIBLES_MEMOIRE);
+  assert.equal(LIGNES_VISIBLES_MEMOIRE < LIGNES_VISIBLES_BULLE, true, 'plus courte que les autres bulles');
+});
+
+test('les autres bulles gardent l’encadré des messages', () => {
+  const bulles = bullesDuPromptEnvoye(tourEssai());
+  for (const bulle of bulles.filter((b) => b.cle !== 'memoire')) {
+    assert.equal(bulle.isole, undefined, `${bulle.cle} reste une bulle de message`);
+    assert.equal(bulle.lignesVisibles, undefined);
+  }
+});
+
+test('l’aperçu suit le nombre de lignes demandé par la bulle', () => {
+  const texte = Array.from({ length: 9 }, (_, i) => `ligne ${i + 1}`).join('\n');
+  const { apercu, tronque } = apercuDeBulle(texte, LIGNES_VISIBLES_MEMOIRE);
+  assert.equal(tronque, true);
+  assert.equal(apercu.split('\n').length, LIGNES_VISIBLES_MEMOIRE);
+});
+
+test('l’écran isole la bulle de mémoire et l’ouvre d’un clic sur son entête', () => {
+  const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
+  assert.ok(vue.includes('data-bulle-isolee'), 'la bulle isolée porte son repère d’écran');
+  assert.ok(vue.includes('data-bulle-entete'), 'son entête est un bouton qui bascule');
+  assert.ok(/max-h-\[4\.8em\]/.test(vue), 'trois lignes de hauteur bornent le texte replié');
+  assert.ok(/bg-surface/.test(vue), 'elle ne reprend pas le gris des messages');
 });
 
 /*

@@ -397,7 +397,7 @@ try {
        * ALIGNÉES À DROITE, DANS LE MÊME ENCADRÉ GRIS QUE LES DEMANDES : c'est ce
        * qui les fait lire comme des messages de l'utilisateur.
        */
-      const place = await premier.locator('[data-bulle-prompt]').first().evaluate((el) => {
+      const place = await premier.locator('[data-bulle-prompt="complet"]').first().evaluate((el) => {
         const parent = el.parentElement;
         const p = parent.getBoundingClientRect();
         const b = el.getBoundingClientRect();
@@ -456,6 +456,50 @@ try {
 
       // Le SECOND tour porte SES propres passages, jamais ceux du premier.
       const second = groupes.nth(1);
+
+      /*
+       * LA MÉMOIRE RETROUVÉE FAIT BANDE À PART : son propre encadré (jamais le
+       * gris des messages), repliée sur trois lignes, ouverte d'un clic sur son
+       * entête. Collée au prompt complet dans le même gris, elle se lisait comme
+       * sa première moitié et poussait la réponse hors de l'écran.
+       */
+      const memoire2 = second.locator('[data-bulle-prompt="memoire"]').first();
+      noter(
+        `${cas.nom} : la bulle de mémoire porte son propre encadré`,
+        (await second.locator('[data-bulle-prompt="memoire"][data-bulle-isolee]').count()) === 1,
+      );
+      const encadre = await memoire2.evaluate((el) => {
+        const sonde = document.createElement('div');
+        sonde.style.background = 'hsl(var(--raised))';
+        document.body.appendChild(sonde);
+        const gris = getComputedStyle(sonde).backgroundColor;
+        sonde.remove();
+        return { memeGris: getComputedStyle(el).backgroundColor === gris };
+      });
+      noter(`${cas.nom} : elle ne reprend pas le gris des messages`, !encadre.memeGris);
+
+      const texteMemoire2 = memoire2.locator('[data-texte-bulle]').first();
+      const memRepliee = await texteMemoire2.boundingBox();
+      noter(
+        `${cas.nom} : repliée, la mémoire ne montre que trois lignes`,
+        !!memRepliee && memRepliee.height <= 3 * 1.6 * 13.5 + 2,
+        memRepliee ? `${Math.round(memRepliee.height)} px` : '(introuvable)',
+      );
+      await memoire2.locator('[data-bulle-entete]').first().click();
+      await page.waitForTimeout(300);
+      const memDepliee = await texteMemoire2.boundingBox();
+      noter(
+        `${cas.nom} : un clic sur son entête la déplie`,
+        !!memDepliee && !!memRepliee && memDepliee.height > memRepliee.height,
+      );
+      await memoire2.locator('[data-bulle-entete]').first().click();
+      await page.waitForTimeout(300);
+      const memRefermee = await texteMemoire2.boundingBox();
+      noter(
+        `${cas.nom} : un second clic la referme`,
+        !!memRefermee && !!memDepliee && memRefermee.height < memDepliee.height,
+      );
+
       // Déroulé d'abord : replié, un texte long ne rend que ses cinq lignes.
       const aDerouler = second.locator('[data-voir-plus]');
       for (let i = 0; i < (await aDerouler.count()); i += 1) {

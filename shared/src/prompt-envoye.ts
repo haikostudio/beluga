@@ -13,7 +13,10 @@ import type { SentContextSnapshot } from './models.js';
  * Les PASSAGES retrouvés par la recherche (le « RAG ») ont leur bulle à eux :
  * ils sont ce que la machine est allée chercher toute seule, donc ce qu'on vient
  * justement vérifier. Ils restent aussi DANS le prompt complet, à leur place —
- * la deuxième bulle les met en avant, elle ne les déplace pas.
+ * la deuxième bulle les met en avant, elle ne les déplace pas. Cette bulle-là est
+ * ISOLÉE (`isole`) et repliée plus court que les autres
+ * (`LIGNES_VISIBLES_MEMOIRE`) : elle porte son propre encadré, sans quoi elle se
+ * lisait comme la première moitié du prompt complet posé juste dessous.
  *
  * Aucune mesure, aucun compteur de jetons : seulement du texte.
  */
@@ -163,6 +166,18 @@ export interface BulleDePrompt {
   texte: string;
   /** Les NOMS des morceaux partis en même temps (troisième bulle seulement). */
   noms?: string[];
+  /**
+   * Une bulle ISOLÉE : son propre encadré, détaché des messages du fil.
+   *
+   * La mémoire retrouvée n'est pas un message de l'utilisateur — c'est ce que la
+   * machine est allée chercher toute seule. Rendue dans le même encadré gris que
+   * le prompt complet, juste au-dessus de lui, elle se lisait comme sa première
+   * moitié : deux pavés collés, sans frontière. Elle porte donc son propre fond,
+   * son propre écart et son propre repli.
+   */
+  isole?: boolean;
+  /** Combien de lignes cette bulle montre avant qu'on la déroule. */
+  lignesVisibles?: number;
 }
 
 /**
@@ -204,6 +219,8 @@ export function bullesDuPromptEnvoye(
       titre: 'Mémoire retrouvée pour cette demande',
       mention: mentionDesPassages(contexte),
       texte: memoire,
+      isole: true,
+      lignesVisibles: LIGNES_VISIBLES_MEMOIRE,
     });
   }
 
@@ -227,6 +244,16 @@ export function bullesDuPromptEnvoye(
  * centaines de lignes — pousse la conversation hors de l'écran.
  */
 export const LIGNES_VISIBLES_BULLE = 5;
+
+/**
+ * COMBIEN DE LIGNES LA BULLE DE MÉMOIRE MONTRE AVANT D'ÊTRE DÉPLIÉE.
+ *
+ * Trois : de quoi reconnaître d'où vient le premier passage retrouvé, sans que
+ * la liste entière — souvent des dizaines de lignes citées mot pour mot — pousse
+ * la réponse de l'agent hors de l'écran. C'est un REPÈRE, pas une lecture : on
+ * déplie quand on veut vérifier ce que la recherche a rapporté.
+ */
+export const LIGNES_VISIBLES_MEMOIRE = 3;
 
 /**
  * L'aperçu d'un texte long : ses premières lignes, et le fait qu'il en reste.
