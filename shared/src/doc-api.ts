@@ -83,8 +83,9 @@ function documentationRouteClients(base: string): DocumentationRouteLecture {
     titre: 'Retrouver un projet à partir du nom d’un client',
     resume:
       'Rend les clients déjà rapprochés d’un projet (réglages → onglet facturation), filtrés sur ' +
-      'le nom du client quand `client` est donné — une PARTIE du nom suffit, accents et majuscules ' +
-      'mis de côté. Sans ce paramètre, la liste entière est rendue. Lecture seule : rien n’est modifié.',
+      'le nom du client OU de son entreprise quand `client` est donné — une PARTIE du nom suffit, ' +
+      'accents et majuscules mis de côté. Sans ce paramètre, la liste entière est rendue. Lecture ' +
+      'seule : rien n’est modifié.',
     methode: 'GET',
     adresse,
     chemin: ROUTE_CLIENTS_EXTERNE,
@@ -92,7 +93,8 @@ function documentationRouteClients(base: string): DocumentationRouteLecture {
       {
         nom: 'client',
         obligatoire: false,
-        description: 'Le nom (ou un morceau du nom) du client cherché — alias : « nom ».',
+        description:
+          'Le nom (ou un morceau du nom) cherché, comparé au client ET à son entreprise — alias : « nom ».',
       },
     ],
     exempleCurl: [

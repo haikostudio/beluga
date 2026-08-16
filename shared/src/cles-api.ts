@@ -323,14 +323,16 @@ function clientsRapproches(projets: ProjetAvecClient[]): ClientRapproche[] {
 
 /**
  * La liste des clients rapprochés d'un projet, filtrée sur le NOM du client
- * quand une recherche est donnée — sans accents ni casse, sur une PARTIE du
- * nom : « dupont » retrouve « Dupont & Fils SA ». Sans recherche, la liste
- * entière est rendue.
+ * OU sur celui de son ENTREPRISE quand une recherche est donnée — sans
+ * accents ni casse, sur une PARTIE du nom : « dupont » retrouve « Dupont &
+ * Fils SA », et « groupe léa » retrouve un client rattaché à l'entreprise
+ * « Groupe Léa » même si son propre nom ne le porte pas. Sans recherche, la
+ * liste entière est rendue.
  */
 export function rechercherClientsParNom(projets: ProjetAvecClient[], recherche?: string): ClientRapproche[] {
   const tous = clientsRapproches(projets);
   const q = recherche?.trim();
   if (!q) return tous;
   const cible = forme(q);
-  return tous.filter((c) => forme(c.client.nom).includes(cible));
+  return tous.filter((c) => forme(c.client.nom).includes(cible) || (c.entreprise && forme(c.entreprise.nom).includes(cible)));
 }
