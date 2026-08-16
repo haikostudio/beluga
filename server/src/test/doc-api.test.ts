@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   PREFIXE_CLE_API,
   ROUTE_CARTE_EXTERNE,
+  ROUTE_CLIENTS_EXTERNE,
   ROUTE_DOC_API,
   TITRE_EXTERNE_MIN,
   documentationApi,
@@ -80,4 +81,25 @@ test('ce qui est interpolé dans la page est échappé', () => {
   const html = pageDocApi('https://exemple.tld/<script>alert(1)</script>');
   assert.ok(!html.includes('<script>alert(1)</script>'));
   assert.ok(html.includes('&lt;script&gt;'));
+});
+
+/* -------------------- La route qui retrouve un projet par un client -------------------- */
+
+test('la route « clients » est décrite, à une adresse distincte de celle des cartes', () => {
+  const doc = documentationApi('https://haiko.exemple');
+  assert.equal(doc.routeClients.chemin, ROUTE_CLIENTS_EXTERNE);
+  assert.notEqual(ROUTE_CLIENTS_EXTERNE, ROUTE_CARTE_EXTERNE);
+  assert.equal(doc.routeClients.adresse, `https://haiko.exemple${ROUTE_CLIENTS_EXTERNE}`);
+  assert.equal(doc.routeClients.methode, 'GET');
+});
+
+test('la route « clients » documente son paramètre de recherche par nom, facultatif', () => {
+  const parametre = documentationApi().routeClients.parametres.find((p) => p.nom === 'client')!;
+  assert.ok(parametre);
+  assert.equal(parametre.obligatoire, false);
+});
+
+test('la page HTML montre aussi l’adresse de la route « clients »', () => {
+  const html = pageDocApi('https://haiko.exemple');
+  assert.ok(html.includes(`https://haiko.exemple${ROUTE_CLIENTS_EXTERNE}`));
 });

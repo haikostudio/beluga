@@ -17,6 +17,7 @@ import {
   ETIQUETTES_EXTERNES_MAX,
   PREFIXE_CLE_API,
   ROUTE_CARTE_EXTERNE,
+  ROUTE_CLIENTS_EXTERNE,
   TITRE_EXTERNE_MAX,
   TITRE_EXTERNE_MIN,
 } from './cles-api.js';
@@ -53,11 +54,71 @@ export interface DocumentationApi {
   invariants: string[];
   /** Où l'on fabrique une clé. */
   ouObtenirUneCle: string;
+  /** La seconde adresse de la porte : retrouver un projet par le nom d'un client. */
+  routeClients: DocumentationRouteLecture;
+}
+
+/** Le mode d'emploi d'une adresse de LECTURE — plus légère qu'une adresse de création. */
+export interface DocumentationRouteLecture {
+  titre: string;
+  resume: string;
+  methode: string;
+  adresse: string;
+  chemin: string;
+  parametres: { nom: string; obligatoire: boolean; description: string }[];
+  exempleCurl: string;
+  exempleReponse: string;
+  refus: RefusDocumente[];
 }
 
 /** La racine sans barre finale : `https://exemple.tld/` et `https://exemple.tld` valent pareil. */
 function racineNette(racine: string): string {
   return racine.replace(/\/+$/, '');
+}
+
+/** Le mode d'emploi de la route qui retrouve un projet par le nom de son client. */
+function documentationRouteClients(base: string): DocumentationRouteLecture {
+  const adresse = `${base}${ROUTE_CLIENTS_EXTERNE}`;
+  return {
+    titre: 'Retrouver un projet à partir du nom d’un client',
+    resume:
+      'Rend les clients déjà rapprochés d’un projet (réglages → onglet facturation), filtrés sur ' +
+      'le nom du client quand `client` est donné — une PARTIE du nom suffit, accents et majuscules ' +
+      'mis de côté. Sans ce paramètre, la liste entière est rendue. Lecture seule : rien n’est modifié.',
+    methode: 'GET',
+    adresse,
+    chemin: ROUTE_CLIENTS_EXTERNE,
+    parametres: [
+      {
+        nom: 'client',
+        obligatoire: false,
+        description: 'Le nom (ou un morceau du nom) du client cherché — alias : « nom ».',
+      },
+    ],
+    exempleCurl: [
+      `curl "${adresse}?client=Dupont" \\`,
+      `  -H "x-haikodev-cle: ${PREFIXE_CLE_API}…"`,
+    ].join('\n'),
+    exempleReponse: JSON.stringify(
+      {
+        ok: true,
+        clients: [
+          {
+            projet: { id: 'p_…', nom: 'Nom du projet' },
+            client: { id: 'c_…', nom: 'Dupont & Fils SA' },
+            entreprise: { id: 'e_…', nom: 'Entreprise' },
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    refus: [
+      { statut: 401, quand: 'Aucune clé, clé mal formée ou clé inconnue.' },
+      { statut: 403, quand: 'La clé a été révoquée.' },
+      { statut: 405, quand: 'Une autre méthode que GET.' },
+    ],
+  };
 }
 
 export function documentationApi(racine = ''): DocumentationApi {
@@ -145,6 +206,7 @@ export function documentationApi(racine = ''): DocumentationApi {
     ouObtenirUneCle:
       'Réglages → onglet « Accès API » : on nomme le service, on génère sa clé, on la copie ' +
       '(elle n’est montrée qu’une fois) et on peut la révoquer d’un clic.',
+    routeClients: documentationRouteClients(base),
   };
 }
 
@@ -185,6 +247,20 @@ export function pageDocApi(racine = ''): string {
     .join('\n');
 
   const invariants = doc.invariants.map((i) => `<li>${echapper(i)}</li>`).join('\n');
+
+  const rc = doc.routeClients;
+  const rcParametres = rc.parametres
+    .map(
+      (p) => `<tr>
+        <td><code>${echapper(p.nom)}</code></td>
+        <td>${p.obligatoire ? '<span class="oblig">obligatoire</span>' : 'facultatif'}</td>
+        <td>${echapper(p.description)}</td>
+      </tr>`,
+    )
+    .join('\n');
+  const rcRefus = rc.refus
+    .map((r) => `<tr><td><code>${r.statut}</code></td><td>${echapper(r.quand)}</td></tr>`)
+    .join('\n');
 
   return `<!doctype html>
 <html lang="fr" class="dark">
@@ -264,6 +340,24 @@ ${refus}
 ${invariants}
     </ul>
   </div>
+
+  <h2>${echapper(rc.titre)}</h2>
+  <p>${echapper(rc.resume)}</p>
+  <p class="adresse">${echapper(rc.methode)} ${echapper(rc.adresse)}</p>
+  <table>
+    <thead><tr><th>Paramètre</th><th></th><th>Rôle</th></tr></thead>
+    <tbody>
+${rcParametres}
+    </tbody>
+  </table>
+  <pre><code>${echapper(rc.exempleCurl)}</code></pre>
+  <pre><code>${echapper(rc.exempleReponse)}</code></pre>
+  <table>
+    <thead><tr><th>Code</th><th>Quand</th></tr></thead>
+    <tbody>
+${rcRefus}
+    </tbody>
+  </table>
 
   <footer>Cette page est publique et en lecture seule. Le même contenu en JSON :
     <code>${echapper(`${racineNette(racine)}${ROUTE_DOC_API}`)}</code> avec l'en-tête
