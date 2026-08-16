@@ -35,11 +35,13 @@ import {
   modeDeRecherche,
   plafondDeRecherche,
   rechercheRentable,
+  sensUtileSur,
   texteAVectoriser,
   texteDesPassages,
   vecteurUtilisable,
   vecteursRepris,
   type ModeDeRecherche,
+  type TerrainDeRecherche,
   type PassageClasse,
   type PassageDoc,
   type PassageIndexe,
@@ -650,6 +652,13 @@ async function classerPourLaQuestion(
   projectId: string,
   projectPath: string,
   question: string,
+  /**
+   * LE TERRAIN — et c'est LUI qui décide du mode, avant tout le reste. La demande
+   * d'une carte et un message tapé ne sont pas la même population de questions :
+   * mesuré, le sens n'apporte rien sur la première et gagne sur la seconde
+   * (`SENS_PAR_TERRAIN`, shared/src/vecteurs-doc.ts).
+   */
+  terrain: TerrainDeRecherche,
 ): Promise<{ classes: PassageClasse[]; mode: ModeDeRecherche } | undefined> {
   /*
    * ON INDEXE, ON NE VECTORISE PAS. Découper les fichiers modifiés coûte
@@ -668,14 +677,19 @@ async function classerPourLaQuestion(
    * LE MODE se décide AVANT de classer : soit tout le monde est jugé au sens
    * réel, soit tout le monde l'est à l'empreinte de mots. Mélanger les deux
    * échelles ferait gagner les passages vectorisés par construction.
+   *
+   * ET ON NE VECTORISE PAS UNE QUESTION QU'ON NE COMPTE PAS UTILISER : sur un
+   * terrain rendu aux mots exacts, l'appel au modèle serait 189 ms payés pour
+   * rien à chaque lancement de carte.
    */
-  const vecteurQuestion = await vectoriserLaQuestion(question);
+  const vecteurQuestion = sensUtileSur(terrain) ? await vectoriserLaQuestion(question) : undefined;
   /*
    * La couverture se juge sur la DOCUMENTATION seule : le code vient après et
    * ne doit pas retenir la bascule (`couvertureDesVecteurs`).
    */
   const documents = indexes.filter((p) => p.priorite >= 0);
   const mode = modeDeRecherche({
+    terrain,
     vecteurQuestion,
     total: documents.length,
     vectorises: documents.filter((p) => p.vecteur).length,
@@ -704,7 +718,7 @@ export async function rechercherPourLaTache(
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
-    const classement = await classerPourLaQuestion(projectId, projectPath, question);
+    const classement = await classerPourLaQuestion(projectId, projectPath, question, 'lancement');
     if (!classement) return undefined;
     const { classes, mode } = classement;
 
@@ -762,7 +776,7 @@ export async function rechercherPourLaSuite(
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
-    const classement = await classerPourLaQuestion(projectId, projectPath, question);
+    const classement = await classerPourLaQuestion(projectId, projectPath, question, 'conversation');
     if (!classement) return undefined;
 
     const candidats = passagesInedits(classement.classes, dejaServies);

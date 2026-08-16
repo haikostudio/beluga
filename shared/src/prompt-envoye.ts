@@ -104,12 +104,22 @@ export function mentionDesPassages(contexte: SentContextSnapshot): string | unde
  * la bulle affichait des passages médiocres sans dire pourquoi, et la panne a
  * duré des jours sur HaikoDev (couverture retombée à 53 %). La mention porte
  * donc le mode ET la part préparée — le seul chiffre qui explique le mode.
+ *
+ * UN CHOIX N'EST PAS UN REPLI, et la mention ne doit pas les confondre. Au
+ * lancement d'une carte, les mots exacts sont désormais le réglage VOULU
+ * (mesuré : ils font aussi bien que le sens sur ce terrain-là). Écrire « par les
+ * MOTS · 99 % de la documentation préparée » se lirait comme la panne de
+ * couverture d'hier : la part préparée n'explique plus rien, puisqu'elle est
+ * bonne. On dit donc le choix, sans chiffre — le chiffre revient dès que c'est
+ * un vrai repli.
  */
 export function mentionDuModeDeRecherche(contexte: SentContextSnapshot): string | undefined {
   const mode = contexte.passagesMode;
   if (!mode) return undefined;
   const part = `${Math.round(mode.couverture * 100)} % de la documentation préparée`;
-  return mode.sens ? `par le sens · ${part}` : `par les MOTS · ${part}`;
+  if (mode.sens) return `par le sens · ${part}`;
+  if (mode.choisi) return 'par les mots exacts · le réglage de ce terrain';
+  return `par les MOTS · ${part}`;
 }
 
 /**

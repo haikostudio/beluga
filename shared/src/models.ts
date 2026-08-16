@@ -838,6 +838,13 @@ export const SentContextSnapshot = z.object({
       couverture: z.number().min(0).max(1),
       /** Dit en clair pourquoi on est resté sur les mots. */
       raison: z.string().optional(),
+      /**
+       * Vrai quand les mots sont le RÉGLAGE VOULU de ce terrain, faux quand ils
+       * sont un repli. Sans cette nuance, un lancement de carte afficherait
+       * « par les MOTS · 99 % de la documentation préparée » — la phrase même de
+       * la panne de couverture, sur un tour parfaitement sain.
+       */
+      choisi: z.boolean().optional(),
     })
     .optional(),
   history: z.enum(['none', 'retained_by_engine']),
