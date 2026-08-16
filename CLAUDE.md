@@ -894,6 +894,15 @@ le nom, là-bas le texte).
   le texte rendait la carte intirable par son titre, `verif-glissement-lancement.mjs`). Un message
   d'ERREUR porte en plus un bouton « copier » (`data-toast-copier`) qui emporte tout son texte d'un
   clic, sans l'écarter. Vérifié par `scripts/verif-texte-copiable.mjs`.
+- **UN TEXTE REPLIÉ (`line-clamp`) NE SE POSE JAMAIS DANS UN `button`** (`ProposalChip`,
+  `data-carte-proposee="validee"`, `web/src/components/message-view.tsx`) : sous WebKit — Safari,
+  donc tous les navigateurs de l'iPhone —, le bloc qui porte un tel bouton réserve la hauteur du
+  texte ENTIER. La pastille d'une carte validée se dessinait sur 114 px, son bloc en gardait 410, et
+  un grand vide s'ouvrait sous la carte acceptée. Rien ne se voit sous Chrome, ni sur une page
+  ouverte alors que la carte est DÉJÀ validée : il faut Safari ET le remplacement en direct de la
+  vignette par la pastille. On emploie donc un bloc ordinaire avec `role="button"`, `tabIndex` et la
+  touche Entrée/Espace. Verrouillé par `scripts/verif-vide-carte-validee.mjs`, qui rejoue la
+  validation dans un vrai Safari (`npx playwright install webkit` ; moteur absent, le cas est DIT).
 - **LA JAUGE « CAPACITÉ DU SYSTÈME » NE DIT « SATURÉ » QUE SUR UNE VRAIE SATURATION**
   (`freinDeCharge`, `chargeRetenue`, `detailDesAgents`, `shared/src/capacite.ts` ; `snapshot`,
   `server/src/capacity.ts`) : l'écran annonçait « Plus aucun agent ne peut démarrer · 3 en cours ·

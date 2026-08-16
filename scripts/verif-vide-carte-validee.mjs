@@ -14,7 +14,7 @@
  * Le script monte son PROPRE démon, sur un port libre, avec une base neuve :
  * le démon de production n'est pas touché, et aucun moteur n'est appelé.
  */
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import Database from 'better-sqlite3';
 import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -109,6 +109,20 @@ const TITRE_CARTE = 'Carte d’essai — proposition validée';
 /** Combien d'échanges dorment derrière le repli, dans le cas « fil long ». */
 const PRECEDENTS = 40;
 
+/** La description de la carte proposée : longue, comme une vraie. */
+const DESCRIPTION_LONGUE = [
+  '**Attendu** : le bloc d’une carte validée reprend une hauteur normale, sans laisser',
+  'un grand vide sous lui dans la conversation.',
+  '',
+  '**Limites** : rien d’autre ne bouge dans le fil ; la carte en attente garde son bandeau.',
+  '',
+  '**Vérification** : valider une carte proposée depuis un téléphone, puis mesurer ce qui',
+  'sépare la pastille du reste du message — il ne doit rester qu’un interligne. Parcourir',
+  'ensuite la conversation entière, du premier échange au dernier, sur téléphone comme sur',
+  'ordinateur, et vérifier qu’aucun autre bloc n’a bougé : la carte refusée, la carte réunie,',
+  'la liste des tâches et la barre d’écriture gardent exactement la place qu’elles avaient.',
+].join('\n');
+
 function poserLeDecor(decision, replie = false) {
   const db = new Database(path.join(DATA, 'haikodev.db'));
   const t = Date.now() - 60_000;
@@ -175,9 +189,16 @@ function poserLeDecor(decision, replie = false) {
   const proposition = {
     id: 'prop-essai',
     title: TITRE_CARTE,
-    description:
-      'Proposition fabriquée par le script de vérification : elle sert à mesurer ce qui reste sous le bloc.',
-    labels: ['interface'],
+    /* Une description AUSSI LONGUE qu'une vraie (une carte en règle en fait au
+       moins 320 signes) : c'est elle qui est repliée à deux lignes dans la
+       pastille, et c'est exactement ce repli qui faisait mentir la hauteur du
+       bloc sous Safari. Une description courte ne verrait rien. */
+    description: DESCRIPTION_LONGUE,
+    /* AUCUNE étiquette, et c'est le cas qui compte : le texte replié est alors
+       le DERNIER enfant de la pastille — la forme exacte où Safari réservait la
+       hauteur du texte entier. Une étiquette posée dessous masquait le défaut,
+       et les cartes du chef n'en portent presque jamais. */
+    labels: [],
     decision,
     cardId: decision === 'accepted' ? 'c-essai' : undefined,
     decidedAt: t + 2000,
@@ -233,7 +254,11 @@ function poserLeDecor(decision, replie = false) {
       labels: ['interface'],
       column: 'planned',
       position: 1,
-      origin: 'orchestrator',
+      /* « agent », la seule origine que le modèle accepte à côté de « user » :
+         une carte d'essai mal formée fait tomber la lecture des cartes, et le
+         fil reste alors en silhouette — on mesurerait le vide d'un écran de
+         chargement. */
+      origin: 'agent',
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
       scheduling: { asap: false, attempts: 0, restarts: 0, suspendu: false },
       excludedFromDeploy: false,
@@ -301,6 +326,28 @@ async function mesurer(page) {
       margeHaute: Math.round(parseFloat(getComputedStyle(dedans).marginTop) || 0),
       restePlusBas: Math.round(zone.scrollHeight - zone.scrollTop - zone.clientHeight),
       texte: (dernier.textContent || '').trim().slice(0, 40),
+    };
+  });
+}
+
+/**
+ * La pastille d'une carte VALIDÉE et le bloc qui la porte font-ils la même
+ * hauteur ?
+ *
+ * Sous WebKit — Safari, donc tous les navigateurs de l'iPhone —, un `button`
+ * qui porte un texte replié à deux lignes réclame à la mise en page la hauteur
+ * du texte ENTIER : la pastille se dessinait sur trois lignes, son bloc en
+ * réservait vingt, et le reste du message était repoussé de plusieurs centaines
+ * de pixels plus bas. On compare donc ce qui est DESSINÉ à ce qui est RÉSERVÉ.
+ */
+async function mesurerLaPastille(page) {
+  return page.evaluate(() => {
+    const pastille = document.querySelector('[data-carte-proposee="validee"]');
+    if (!pastille) return { erreur: 'aucune pastille de carte validée' };
+    const bloc = pastille.parentElement;
+    return {
+      pastille: Math.round(pastille.getBoundingClientRect().height),
+      bloc: Math.round(bloc.getBoundingClientRect().height),
     };
   });
 }
@@ -400,6 +447,14 @@ try {
           `écart ${m.ecart} px (max ${INTERLIGNE_MAX}) — fil ${m.hauteurZone} px, contenu ${m.hauteurContenu} px,` +
             ` bloc ${m.hauteurBloc} px, marge haute ${m.margeHaute} px, reste plus bas ${m.restePlusBas} px`,
         );
+        if (decision === 'accepted') {
+          const p = await mesurerLaPastille(page);
+          noter(
+            `${cas} — ${ecran} : la pastille et son bloc font la même hauteur`,
+            !p.erreur && Math.abs(p.bloc - p.pastille) <= 2,
+            p.erreur ?? `pastille ${p.pastille} px, bloc ${p.bloc} px`,
+          );
+        }
         if (telephone) {
           noter(`${cas} — ${ecran} : le volet des tâches est bien là`, m.volet === true);
         }
@@ -411,6 +466,71 @@ try {
   }
 } finally {
   await navigateur.close();
+}
+
+/* ------------------------------------------------------------------ */
+/* La VALIDATION EN DIRECT, sur le moteur de Safari                    */
+/*                                                                     */
+/* Le défaut ne se voyait NI sous Chrome, NI sur une page ouverte une   */
+/* fois la carte déjà validée : il fallait le moteur de l'iPhone ET le  */
+/* clic qui remplace la vignette en attente par la pastille. On rejoue  */
+/* donc ce geste-là, sur les deux moteurs quand les deux sont posés.    */
+/* ------------------------------------------------------------------ */
+
+/** Sous Safari, le bloc réservait la hauteur du texte entier : 428 px de trop. */
+const ECART_PASTILLE_MAX = 2;
+
+async function validerEnDirect(navigateur, moteur) {
+  poserLeDecor('pending', true);
+  const { contexte, page, erreurs } = await ouvrir(navigateur, true);
+  try {
+    noter(`validation en direct (${moteur}) : la conversation du chef s’ouvre`, await ouvrirLeChef(page));
+    const bouton = page.getByRole('button', { name: /Créer la carte/ });
+    if (!(await bouton.count())) {
+      noter(`validation en direct (${moteur}) : la carte à valider est proposée`, false, 'bouton absent');
+      return;
+    }
+    await bouton.first().click();
+    await page.waitForTimeout(4000);
+    await page.screenshot({ path: path.join(SHOTS, `vide-carte-validee-${moteur}.png`) });
+
+    const p = await mesurerLaPastille(page);
+    noter(
+      `validation en direct (${moteur}) : la pastille et son bloc font la même hauteur`,
+      !p.erreur && Math.abs(p.bloc - p.pastille) <= ECART_PASTILLE_MAX,
+      p.erreur ?? `pastille ${p.pastille} px, bloc ${p.bloc} px`,
+    );
+
+    const m = await mesurer(page);
+    noter(
+      `validation en direct (${moteur}) : sous le dernier bloc, un interligne et non un vide`,
+      !m.erreur && m.ecart <= INTERLIGNE_MAX,
+      m.erreur ?? `écart ${m.ecart} px (max ${INTERLIGNE_MAX})`,
+    );
+    noter(`validation en direct (${moteur}) : aucune erreur de page`, erreurs.length === 0, erreurs[0] ?? '');
+  } finally {
+    await contexte.close();
+  }
+}
+
+for (const [moteur, lanceur, options] of [
+  ['Safari', webkit, {}],
+  ['Chrome', chromium, { channel: 'chrome', args: ['--no-sandbox', '--disable-dev-shm-usage'] }],
+]) {
+  let navigateur = null;
+  try {
+    navigateur = await lanceur.launch(options);
+  } catch (err) {
+    /* Un moteur absent se DIT — il ne se tait pas : le cas n'est pas joué, et
+       la ligne le nomme. `npx playwright install webkit` le pose. */
+    noter(`validation en direct (${moteur}) : moteur disponible`, false, `non joué — ${String(err).slice(0, 120)}`);
+    continue;
+  }
+  try {
+    await validerEnDirect(navigateur, moteur);
+  } finally {
+    await navigateur.close();
+  }
 }
 
 const echecs = resultats.filter((r) => !r.ok).length;
