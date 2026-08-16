@@ -205,13 +205,15 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   `shared/src/vecteurs-doc.ts` ; quatrième argument de `classerPourLaQuestion`,
   `server/src/passages.ts`). Ce ne sont pas deux moments du même travail, ce sont deux populations de
   QUESTIONS. La demande d'une carte est un titre et une description RÉDIGÉS, déjà pleins du
-  vocabulaire du projet, qui nomment souvent le fichier à toucher : mesuré sur 120 cartes réelles, le
-  sens y fait **66 % contre 66 %** pour les mots — cinq cartes gagnées de chaque côté, 36 échecs
-  communs — tout en changeant la MOITIÉ des passages remontés. Un message de conversation, lui, est
-  TAPÉ comme on parle et ne partage plus ce vocabulaire : c'est là que le modèle de sens gagne, et
-  `scripts/verif-recherche-par-le-sens.mjs` le montre sur la vraie base. Le mode se décide donc au
-  TERRAIN, avant la couverture — et la question n'est même plus vectorisée au lancement (189 ms de
-  moins par carte). **RIEN N'EST DÉMONTÉ** : le moteur local, la vectorisation de fond et la
+  vocabulaire du projet, qui nomment souvent le fichier à toucher : mesuré sur 120 cartes réelles,
+  DEUX relevés indépendants donnent la même égalité (**66 % contre 66 %**, puis **67 % contre 67 %**)
+  — cinq cartes gagnées de chaque côté à chaque fois — alors que le sens change la MOITIÉ des
+  passages remontés. Un message de conversation, lui, est TAPÉ comme on parle et ne partage plus ce
+  vocabulaire : sur 55 vrais messages, le sens passe devant sur les deux vérités (**27 % contre
+  25 %**, et **25 % contre 20 %** en vérité stricte) — un écart mince, que `verif-recherche-par-le-
+  sens.mjs` appuie sur la vraie base en montrant qu'une question REFORMULÉE retrouve sa règle. Le
+  mode se décide donc au TERRAIN, avant la couverture — et la question n'est même plus vectorisée au
+  lancement (130 à 190 ms de moins par carte). **RIEN N'EST DÉMONTÉ** : le moteur local, la vectorisation de fond et la
   conservation des vecteurs restent en place, ils servent la conversation. DEUX effets à connaître :
   le REPLI SUR L'INDEX redevient possible au lancement (par les mots, une demande sans rapport ne
   passe plus le seuil — il était mort en mode sens, où 88 % du corpus le franchissait), et la bulle
