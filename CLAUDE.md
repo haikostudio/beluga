@@ -187,6 +187,19 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   en toutes lettres : toute REPRISE de carte interrompue, tout relancement après panne, tout second
   tour d'un même agent se retrouvait à trois titres et 250 mots. Le cran ne joue donc que sur une
   ampleur DÉDUITE de la demande.
+- **CE QUE LA RECHERCHE RAPPORTE EST MESURÉ, PAS SUPPOSÉ** (`scripts/audit-memoire-rag.mjs`,
+  relevé complet dans `docs/audit-memoire-rag.md`) : il rejoue de VRAIES cartes déjà exécutées et
+  prend pour vérité de terrain les fichiers que chacune a réellement modifiés, lus dans git. Sur 120
+  cartes, le 16/08/2026 : **72 % d'économie** contre l'index (1 329 jetons contre 4 717, écart de
+  cinq points seulement d'une carte à l'autre), **66 % des demandes** reçoivent au moins une page du
+  bon fichier, le code ne prend plus que 6 % du poids envoyé. DEUX promesses ne tiennent pas. Le
+  SENS n'apporte **aucun gain mesurable** au lancement d'une carte (66 % contre 66 % pour les mots,
+  cinq victoires chacun) alors qu'il change la moitié des passages remontés : une demande de carte
+  est déjà écrite avec le vocabulaire du projet. Et le SEUIL de pertinence ne filtre rien (88 % du
+  corpus le franchit ; une question sur la tarte aux pommes reçoit six passages de règles), si bien
+  que le repli sur l'index ne peut plus se déclencher en mode sens. La recherche coûte enfin ~2,1 s
+  par demande, dont 0,9 s à noter les 5 143 passages et ~1 s à les relire. Le relevé travaille sur
+  une COPIE de la base du démon et ne pose aucun seuil : il mesure, il ne fait échouer personne.
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
   priorité haute par la recherche.
