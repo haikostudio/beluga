@@ -18,6 +18,11 @@ const SEUIL_GLISSEMENT_PX = 80;
  * téléphone comme sur ordinateur, le même en-tête est en flux normal en
  * haut de l'écran, jamais recouvert.
  *
+ * `z-[100]`, au-dessus de TOUT le reste (`z-50` au plus ailleurs) : un
+ * tiroir (`Sheet`/`SidePanel`) est posé par un portail Radix, ajouté en fin
+ * de `<body>` à son ouverture — à z-index égal, il finit donc APRÈS les
+ * toasts dans le document et les recouvre, quel que soit l'ordre du JSX.
+ *
  * Tant qu'un doigt ou une souris reste posé sur la pile, le compte à rebours
  * de TOUS les messages affichés est gelé (`pauseToasts` / `resumeToasts`,
  * gérés côté client pour reprendre exactement là où ils en étaient — pas
@@ -43,7 +48,7 @@ export function Toasts() {
   return (
     <div
       data-bloc="toasts"
-      className="pointer-events-none fixed inset-x-0 z-50 flex flex-col items-center gap-1.5 px-2"
+      className="pointer-events-none fixed inset-x-0 z-[100] flex flex-col items-center gap-1.5 px-2"
       style={{ top: 'calc(44px + env(safe-area-inset-top) + 0.5rem)' }}
       onMouseEnter={surLaPile}
       onMouseLeave={horsDeLaPile}
