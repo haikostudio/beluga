@@ -1317,9 +1317,24 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
 function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) {
   if (proposal.decision === 'accepted') {
     return (
-      <button
+      /* CE N'EST PAS UN `button`, ET C'EST VOULU : sous WebKit (Safari, donc
+         tous les navigateurs de l'iPhone), la boîte de contenu d'un `button`
+         réclame à la mise en page la hauteur du texte ENTIER d'un paragraphe
+         replié — la pastille se dessinait bien sur deux lignes, mais son
+         parent en réservait vingt, d'où le grand vide sous une carte validée.
+         Un bloc ordinaire muni du rôle « bouton » se mesure honnêtement, et
+         garde le clic, le clavier et l'annonce aux lecteurs d'écran. */
+      <div
+        data-carte-proposee="validee"
+        role="button"
+        tabIndex={0}
         onClick={() => proposal.cardId && client.openCard(proposal.cardId)}
-        className="w-full rounded-md border border-success/40 bg-surface px-3 py-2.5 text-left transition-colors hover:bg-raised"
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          if (proposal.cardId) client.openCard(proposal.cardId);
+        }}
+        className="w-full cursor-pointer rounded-md border border-success/40 bg-surface px-3 py-2.5 text-left transition-colors hover:bg-raised"
       >
         <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-success">
           <Check className="h-3 w-3" />
@@ -1336,7 +1351,7 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
             ))}
           </div>
         ) : null}
-      </button>
+      </div>
     );
   }
 
