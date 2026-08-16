@@ -28,6 +28,10 @@ export type EtatDeFichier = 'ajoute' | 'modifie' | 'supprime' | 'renomme';
 export interface FichierTouche {
   chemin: string;
   etat: EtatDeFichier;
+  /** Lignes ajoutées, comme `git diff --numstat`. Absent sur un fichier binaire. */
+  ajoutees?: number;
+  /** Lignes supprimées, même règle. */
+  supprimees?: number;
 }
 
 /**
@@ -63,6 +67,66 @@ export function fichiersDepuisNameStatus(sortie: string): FichierTouche[] {
     fichiers.push({ chemin, etat });
   }
   return fichiers;
+}
+
+/**
+ * LES LIGNES AJOUTÉES ET SUPPRIMÉES, FICHIER PAR FICHIER — comme git.
+ *
+ * `git diff --numstat` rend « 12 <tab> 3 <tab> chemin ». Un fichier BINAIRE
+ * (image, archive) rend « - <tab> - » : on ne compte alors rien plutôt que
+ * d'écrire un zéro qui ferait croire à un fichier inchangé. Un renommage rend
+ * le chemin sous la forme « ancien => nouveau » (ou trois colonnes) : on garde
+ * le NOUVEAU, le seul qui existe encore — même choix que `--name-status`.
+ */
+export function cheminApresRenommage(chemin: string): string {
+  const brut = (chemin ?? '').trim();
+  // « docs/{ancien => nouveau}/page.md » → « docs/nouveau/page.md »
+  const parAccolades = brut.replace(/\{[^{}]* => ([^{}]*)\}/g, '$1').replace(/\/{2,}/g, '/');
+  if (parAccolades !== brut) return parAccolades;
+  // « ancien.md => nouveau.md » → « nouveau.md »
+  if (brut.includes(' => ')) return brut.split(' => ').pop()!.trim();
+  return brut;
+}
+
+export function lignesDepuisNumstat(sortie: string): Map<string, { ajoutees?: number; supprimees?: number }> {
+  const lignes = new Map<string, { ajoutees?: number; supprimees?: number }>();
+  for (const ligne of (sortie ?? '').split('\n')) {
+    const morceaux = ligne.split('\t');
+    if (morceaux.length < 3) continue;
+    const nombre = (valeur: string) => {
+      const n = Number.parseInt((valeur ?? '').trim(), 10);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const nom = cheminApresRenommage((morceaux[morceaux.length - 1] ?? '').trim());
+    if (!nom) continue;
+    lignes.set(nom, { ajoutees: nombre(morceaux[0]), supprimees: nombre(morceaux[1]) });
+  }
+  return lignes;
+}
+
+/**
+ * Les fichiers touchés, chacun muni de son compte de lignes. Un fichier sans
+ * relevé garde ses champs vides : l'écran dit alors « — », il n'invente pas.
+ */
+export function avecLesLignes(
+  fichiers: FichierTouche[],
+  lignes: Map<string, { ajoutees?: number; supprimees?: number }>,
+): FichierTouche[] {
+  return (fichiers ?? []).map((fichier) => {
+    const compte = lignes.get(fichier.chemin);
+    return compte ? { ...fichier, ...compte } : fichier;
+  });
+}
+
+/** Le total des lignes ajoutées et supprimées sur toute la branche. */
+export function totalDesLignes(fichiers: FichierTouche[]): { ajoutees: number; supprimees: number } {
+  let ajoutees = 0;
+  let supprimees = 0;
+  for (const fichier of fichiers ?? []) {
+    ajoutees += fichier.ajoutees ?? 0;
+    supprimees += fichier.supprimees ?? 0;
+  }
+  return { ajoutees, supprimees };
 }
 
 export interface ResumeDesFichiers {
