@@ -59,7 +59,7 @@ import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
 import { etatDeProcedure, tourDeProcedure } from './procedure-publication.js';
-import { appliquerChiffrageDiscute, startCard, tick, validerCarte } from './scheduler.js';
+import { appliquerChiffrageDiscute, ecartChiffrage, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
 import { iconeManquante, recupererFaviconEnTache } from './favicon.js';
 import {
@@ -1254,6 +1254,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'billing.summary':
       return { summary: await billing.summary() };
+
+    case 'card.ecartChiffrage':
+      return { ecart: ecartChiffrage(cmd.projectId) };
 
     /* -------- GitHub -------- */
 
