@@ -393,6 +393,27 @@ export const SchedulingState = z.object({
    */
   departPrevu: z.number().optional(),
   /**
+   * LE CRÉNEAU CONSEILLÉ, calculé par le démon à la création de la carte et
+   * sans le moindre appel de moteur (`shared/src/heure-de-lancement.ts`). Il ne
+   * décide de rien : il DIT quand il serait opportun de partir, pour qu'un
+   * tableau de cinq cartes en attente n'oblige plus à deviner.
+   *
+   * On garde une PLAGE et ses raisons, jamais une date ni une phrase : rien de
+   * ce qui est écrit ici ne dépend de l'heure du calcul, sinon une carte créée
+   * en pleine nuit répéterait « c'est le bon moment » tout le lendemain. Le
+   * moment réel se recalcule à l'affichage, et c'est un CLIC qui le recopie
+   * dans `departPrevu`.
+   */
+  creneauConseille: z
+    .object({
+      source: z.enum(['creux-mesure', 'heures-creuses']),
+      heureDebut: z.number(),
+      heureFin: z.number(),
+      lourde: z.boolean().optional(),
+      pasAvant: z.number().optional(),
+    })
+    .optional(),
+  /**
    * L'instant où un tour d'EXÉCUTION a pris cette carte en main, retiré quand
    * ce tour a fini de tout ranger (dépôt constaté, branche fusionnée, colonne
    * posée). Une marque encore là au démarrage du démon désigne une tâche coupée

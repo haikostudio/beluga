@@ -32,8 +32,10 @@ import {
   MENTION_REPRISE_COURTE,
   mentionArchivage,
   mentionDeReprise,
+  mentionCreneauConseille,
   mentionDepartProgramme,
   phraseDepartProgramme,
+  RAISON_ATTENTE_LANCEMENT,
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
@@ -1744,6 +1746,9 @@ export function CardTile({
   /* « Cette carte partira demain à 6 h. » Recalculée à chaque minute plutôt que
      lue en base : une phrase figée dirait encore « demain » trois jours après. */
   const depart = mentionDepartProgramme(card, maintenant);
+  /* « Lancement conseillé demain à 02:00. » Même principe : la carte ne garde
+     qu'une plage horaire, la phrase se refait à chaque minute. */
+  const creneau = mentionCreneauConseille(card, maintenant);
   const estimateFailed = card.estimate?.failed;
   // Un agent au travail sur la carte, quel qu'il soit : le voyant doit tourner
   // même quand la carte n'a pas encore retenu son agent.
@@ -1806,7 +1811,20 @@ export function CardTile({
         ton: 'text-muted',
         marqueur: 'depart-programme' as const,
       }
-    : waiting
+    : /*
+       * « La carte attend votre lancement » ne dit que la moitié de ce qu'on
+       * vient chercher : il manque QUAND. Le créneau conseillé passe donc
+       * devant CETTE attente-là — reconnue à sa constante, jamais à son texte —
+       * et derrière toutes les autres, qui nomment un vrai obstacle.
+       */
+      creneau && (!waiting || waiting === RAISON_ATTENTE_LANCEMENT)
+      ? {
+          icon: <CalendarClock className="h-2.5 w-2.5 shrink-0" />,
+          texte: creneau,
+          ton: 'text-muted',
+          marqueur: 'creneau-conseille' as const,
+        }
+      : waiting
       ? { icon: <Clock className="h-2.5 w-2.5 shrink-0" />, texte: waiting, ton: 'text-warning' }
       : estimateFailed
         ? {
@@ -2145,6 +2163,7 @@ export function CardTile({
                 className="min-w-0 flex-1 truncate"
                 data-progression-taches={'marqueur' in statut && statut.marqueur === 'progression-taches' ? card.id : undefined}
                 data-depart-programme={'marqueur' in statut && statut.marqueur === 'depart-programme' ? card.id : undefined}
+                data-creneau-conseille={'marqueur' in statut && statut.marqueur === 'creneau-conseille' ? card.id : undefined}
               >
                 {statut.texte}
               </span>

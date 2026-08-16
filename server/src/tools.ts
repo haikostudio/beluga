@@ -54,6 +54,7 @@ import { makeZip, safeJoin } from './files.js';
 import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { listerCompetences } from './competences.js';
+import { creneauPourUneCarte } from './heure-de-lancement.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -1206,6 +1207,19 @@ export function createCard(
   },
 ): Card {
   const project = store.getProject(projectId);
+  const moteur = input.run?.engine ?? project?.defaultEngine ?? 'claude';
+  /*
+   * LE CRÉNEAU CONSEILLÉ SE CALCULE ICI, une fois, et sans appeler le moindre
+   * moteur : heures creuses réglées, creux mesuré sur les relevés, état des
+   * comptes. Une carte proposée par le chef le porte donc dès sa naissance,
+   * sans un jeton de plus (`shared/src/heure-de-lancement.ts`).
+   *
+   * Une carte qui naît DÉJÀ datée n'en reçoit pas : elle a une réponse ferme,
+   * un conseil ne ferait que la contredire.
+   */
+  const creneauConseille = input.departPrevu
+    ? undefined
+    : creneauPourUneCarte({ moteur, ampleurSecondes: input.estimate?.machineSeconds });
   const card = Card.parse({
     id: store.newId(),
     projectId,
@@ -1224,7 +1238,7 @@ export function createCard(
     position: store.nextPosition(projectId, 'planned'),
     origin: input.origin ?? 'user',
     run: {
-      engine: input.run?.engine ?? project?.defaultEngine ?? 'claude',
+      engine: moteur,
       model: input.run?.model ?? project?.defaultModel,
       thinking: input.run?.thinking ?? 'none',
       mode: input.run?.mode ?? 'direct',
@@ -1234,6 +1248,7 @@ export function createCard(
       attempts: 0,
       restarts: 0,
       departPrevu: input.departPrevu,
+      ...(creneauConseille ? { creneauConseille } : {}),
       /*
        * Une carte qui naît DÉJÀ chiffrée (l'analyse du chef d'orchestre voyage
        * avec sa proposition) attend son lancement, et le DIT — exactement comme

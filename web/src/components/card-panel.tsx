@@ -45,7 +45,9 @@ import {
   lireDateDeDepart,
   mentionArchivage,
   mentionDeReprise,
+  mentionCreneauConseille,
   mentionDepartProgramme,
+  momentDuCreneau,
   motAnalyse,
   phaseAnalyse,
   reglagesDeLaCarte,
@@ -778,6 +780,16 @@ function DepartProgramme({ card }: { card: Card }) {
   const depart = card.scheduling?.departPrevu;
   const mention = mentionDepartProgramme(card, maintenant);
 
+  /*
+   * LE CRÉNEAU CONSEILLÉ, calculé sans le moindre appel de moteur au moment où
+   * la carte a été posée (`shared/src/heure-de-lancement.ts`). Il ne fait que
+   * DIRE : tant qu'aucune date n'est choisie, il propose l'heure et le bouton
+   * qui la recopie. Poser cette date reste un geste de l'utilisateur.
+   */
+  const creneau = card.scheduling?.creneauConseille;
+  const conseil = mentionCreneauConseille(card, maintenant);
+  const heureConseillee = creneau ? momentDuCreneau(creneau, maintenant) : null;
+
   const poser = (valeur: string) => {
     const date = lireDateDeDepart(valeur);
     client.call({ type: 'card.schedule', id: card.id, at: date });
@@ -812,6 +824,22 @@ function DepartProgramme({ card }: { card: Card }) {
       <p className="mt-1.5 text-[13px] text-faint">
         {mention ?? 'Sans date, la carte attend votre lancement : rien ne démarre tout seul.'}
       </p>
+
+      {conseil && heureConseillee ? (
+        <div
+          className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2"
+          data-creneau-conseille={card.id}
+        >
+          <p className="min-w-0 flex-1 text-[13px] text-muted">{conseil}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => client.call({ type: 'card.schedule', id: card.id, at: heureConseillee })}
+          >
+            Retenir cette heure
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
