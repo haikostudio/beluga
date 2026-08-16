@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  PART_MAX_DU_CODE,
+  PRIORITE,
+  choisirPassages,
   cleDeVecteur,
   sommaireDesSujets,
   texteDesPassages,
@@ -136,4 +139,68 @@ test('le bloc des passages porte le sommaire quand on le lui donne, et rien de p
 
 test('sans passage, il n’y a pas de bloc — même avec un sommaire', () => {
   assert.equal(texteDesPassages([], 12, texteDuSommaire(['un fait'])), '');
+});
+
+/*
+ * LE CODE NE MANGE PLUS LE BUDGET DE LA DOCUMENTATION. Il était borné en NOMBRE
+ * (2 passages sur 7) mais pas en POIDS : un passage de code fait 1 592 signes en
+ * moyenne contre 578 pour une page de documentation, si bien que deux morceaux
+ * de code bien placés prenaient les deux tiers du plafond — et l'agent recevait
+ * deux fichiers source pour une seule règle.
+ */
+const gros = (source: string, priorite: number, jetons: number): PassageClasse => ({
+  source,
+  titre: source,
+  sujet: source,
+  priorite,
+  texte: 'x'.repeat(jetons * 4),
+  score: 0.9,
+  sens: 0.7,
+  mots: 0.2,
+  jetons,
+});
+
+test('deux gros passages de code ne prennent plus tout le plafond', () => {
+  const plafond = 900;
+  // Le code est le mieux classé : sans borne de POIDS, il rafle les 900 jetons.
+  const choix = choisirPassages(
+    [
+      gros('server/src/a.ts', PRIORITE.code, 400),
+      gros('server/src/b.ts', PRIORITE.code, 400),
+      gros('docs/regles/publication.md', PRIORITE.regle, 200),
+      gros('docs/regles/cartes.md', PRIORITE.regle, 200),
+    ],
+    { plafond, maxCode: 2 },
+  );
+
+  const sources = choix.gardes.map((p) => p.source);
+  assert.ok(sources.includes('docs/regles/publication.md'), 'la documentation garde sa place');
+  assert.ok(sources.includes('docs/regles/cartes.md'));
+
+  const duCode = choix.gardes.filter((p) => p.priorite === PRIORITE.code);
+  assert.equal(duCode.length, 1, 'un seul gros passage de code entre, pas deux');
+});
+
+test('le PREMIER passage de code passe toujours : une demande qui nomme un fichier le remonte', () => {
+  // Il pèse à lui seul plus que la part réservée au code — et il entre quand même.
+  const plafond = 900;
+  const lourd = Math.floor(plafond * PART_MAX_DU_CODE) + 100;
+  const choix = choisirPassages([gros('server/src/passages.ts', PRIORITE.code, lourd)], {
+    plafond,
+    maxCode: 2,
+  });
+  assert.equal(choix.gardes.length, 1);
+  assert.equal(choix.gardes[0].source, 'server/src/passages.ts');
+});
+
+test('sans code en lice, le plafond reste entier pour la documentation', () => {
+  const choix = choisirPassages(
+    [
+      gros('docs/regles/publication.md', PRIORITE.regle, 400),
+      gros('docs/regles/cartes.md', PRIORITE.regle, 400),
+    ],
+    { plafond: 900, maxCode: 2 },
+  );
+  assert.equal(choix.gardes.length, 2, 'la borne du code ne rogne jamais la documentation');
+  assert.equal(choix.jetons, 800);
 });

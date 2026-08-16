@@ -159,6 +159,14 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   4 310 pour l'index — l'économie passe de 74 % à 68 %, et le garde-fou de rentabilité reste
   appliqué sommaire compris. La MÉTHODE dit en outre que les passages reçus sont un EXTRAIT et non
   la mémoire.
+- **LE CODE NE MANGE PLUS LE BUDGET DE LA DOCUMENTATION** (`PART_MAX_DU_CODE`, `plafondCode` de
+  `choisirPassages`, `shared/src/passages-doc.ts`) : il était borné en NOMBRE (2 passages sur 7) mais
+  pas en POIDS — or un passage de code fait 1 592 signes contre 578 pour une page de documentation,
+  et deux morceaux bien placés prenaient les deux tiers du plafond. L'agent recevait alors DEUX
+  fichiers source et UNE règle. Le code tient désormais dans 35 % du plafond, avec une exception
+  voulue : le PREMIER passage de code passe toujours, sinon une demande qui NOMME un fichier ne le
+  remonterait plus. Mesuré sur « est-ce que le programme peut décider tout seul d'envoyer le site
+  chez le client ? » : 1 page de documentation avant, 3 après.
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
   priorité haute par la recherche.

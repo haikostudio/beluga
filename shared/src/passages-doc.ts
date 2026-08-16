@@ -540,6 +540,28 @@ export const PASSAGES_PAR_SOURCE_MAX = 3;
 /** En deçà, un passage ne répond pas à la question : il la croise par hasard. */
 export const SCORE_MINIMUM = 0.14;
 
+/**
+ * LA PART DU BUDGET QUE LE CODE A LE DROIT DE PRENDRE.
+ *
+ * Le code était déjà borné en NOMBRE (`PASSAGES_CODE_MAX`, 2 sur 7) — mais pas
+ * en POIDS, et c'est le poids qui compte : un passage de code fait 1 592 signes
+ * en moyenne contre 578 pour un passage de documentation. Deux morceaux de code
+ * bien placés mangeaient donc les deux tiers du plafond, et l'agent recevait
+ * DEUX fichiers source et UNE page de documentation.
+ *
+ * Constaté le 16/08/2026 sur « est-ce que le programme peut décider tout seul
+ * d'envoyer le site chez le client ? » : deux scripts en tête (ils contiennent
+ * la question, la recherche a raison), puis plus de place — `publication.md`,
+ * classé juste derrière, ne rentrait plus. Le code sert à MONTRER où le
+ * comportement est écrit ; ce qui fait travailler un agent, ce sont les règles.
+ *
+ * LE PREMIER PASSAGE DE CODE ÉCHAPPE À CETTE PART, et c'est voulu : une demande
+ * qui NOMME un fichier (« la fonction X de server/src/passages.ts ») doit
+ * remonter ce fichier, fût-il gros. C'est le SECOND qui commence à coûter cher,
+ * et c'est lui que la part arrête.
+ */
+export const PART_MAX_DU_CODE = 0.35;
+
 /** Ce qu'une recherche retient, et ce qu'elle a écarté. */
 export interface ChoixDePassages {
   gardes: PassageClasse[];
@@ -563,6 +585,13 @@ export function choisirPassages(
     minimum?: number;
     /** Combien de passages de CODE au plus : le reste de la place va à la doc. */
     maxCode?: number;
+    /**
+     * Ce que le CODE a le droit de PESER, en jetons. Le compter en nombre ne
+     * suffit pas : un passage de code est trois fois plus gros qu'une page de
+     * documentation, et deux suffisaient à manger le plafond
+     * (`PART_MAX_DU_CODE`).
+     */
+    plafondCode?: number;
   } = {},
 ): ChoixDePassages {
   const plafond = options.plafond ?? PLAFOND_PASSAGES_JETONS;
@@ -570,6 +599,7 @@ export function choisirPassages(
   const parSource = options.parSource ?? PASSAGES_PAR_SOURCE_MAX;
   const minimum = options.minimum ?? SCORE_MINIMUM;
   const maxCode = options.maxCode ?? Number.POSITIVE_INFINITY;
+  const plafondCode = options.plafondCode ?? Math.floor(plafond * PART_MAX_DU_CODE);
 
   const gardes: PassageClasse[] = [];
   const vus = new Set<string>();
@@ -577,6 +607,7 @@ export function choisirPassages(
   let jetons = 0;
   let ecartes = 0;
   let code = 0;
+  let jetonsDuCode = 0;
 
   for (const passage of classes) {
     if (passage.score < minimum) continue;
@@ -586,9 +617,14 @@ export function choisirPassages(
       ecartes++;
       continue;
     }
-    if (passage.priorite === PRIORITE.code && code >= maxCode) {
-      ecartes++;
-      continue;
+    if (passage.priorite === PRIORITE.code) {
+      // Le PREMIER passe sous le seul plafond général : une demande qui nomme un
+      // fichier doit le remonter. À partir du second, la part s'applique.
+      const tropLourd = code > 0 && jetonsDuCode + passage.jetons > plafondCode;
+      if (code >= maxCode || tropLourd) {
+        ecartes++;
+        continue;
+      }
     }
     if ((parFichier.get(passage.source) ?? 0) >= parSource) {
       ecartes++;
@@ -600,7 +636,10 @@ export function choisirPassages(
     }
     vus.add(cle);
     parFichier.set(passage.source, (parFichier.get(passage.source) ?? 0) + 1);
-    if (passage.priorite === PRIORITE.code) code++;
+    if (passage.priorite === PRIORITE.code) {
+      code++;
+      jetonsDuCode += passage.jetons;
+    }
     gardes.push(passage);
     jetons += passage.jetons;
   }
