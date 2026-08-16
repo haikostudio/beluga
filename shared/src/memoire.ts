@@ -281,6 +281,39 @@ export function texteIndex(faits: string[]): string {
 }
 
 /**
+ * LE SOMMAIRE DES SUJETS — la CARTE de la mémoire, sans son territoire.
+ *
+ * Depuis que la recherche remonte des PASSAGES à la place de l'index, l'agent
+ * reçoit quelques extraits bien placés… et plus aucune vue d'ensemble. Or la
+ * méthode de travail lui dit d'appeler `project_memory` « pour le SUJET de ta
+ * tâche » : sans la liste des sujets qui existent, il devine un nom, se trompe,
+ * et travaille sur ce qu'il a sous les yeux au lieu de ce que le projet sait.
+ *
+ * Le sommaire ne coûte qu'une ligne par sujet — le nom et le nombre de faits —
+ * là où l'index en coûte une par fait. C'est la seule part de l'index qu'on
+ * remet, et c'est celle qui rend l'outil utilisable.
+ */
+export function sommaireDesSujets(faits: string[]): { id: string; libelle: string; faits: number }[] {
+  const indexes = indexerFaits(faits);
+  return SUJETS_MEMOIRE.map((sujet) => ({
+    id: sujet.id,
+    libelle: sujet.libelle,
+    faits: indexes.filter((f) => f.sujet === sujet.id).length,
+  })).filter((sujet) => sujet.faits > 0);
+}
+
+/** Le sommaire écrit pour le moteur : les sujets qu'il peut demander, et leur poids. */
+export function texteDuSommaire(faits: string[]): string {
+  const sujets = sommaireDesSujets(faits);
+  if (!sujets.length) return '';
+  return (
+    `LES SUJETS DE LA MÉMOIRE DE CE PROJET (${faits.length} faits en tout), à demander par leur NOM ` +
+    `avec « project_memory » — un sujet rend d'un coup ses FAITS, ses RÈGLES et ses CONTRÔLES :\n` +
+    sujets.map((s) => `- « ${s.id} » (${s.libelle}) — ${s.faits} fait${s.faits > 1 ? 's' : ''}`).join('\n')
+  );
+}
+
+/**
  * Le SUJET visé par une demande, quand elle en nomme un. C'est lui qui permet
  * de ne pas resservir deux fois le même fichier dans une session : une demande
  * qui ne vise aucun sujet précis (un numéro, des mots) n'est jamais dédoublonnée.

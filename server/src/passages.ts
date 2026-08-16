@@ -38,6 +38,7 @@ import {
   texteAVectoriser,
   texteDesPassages,
   vecteurUtilisable,
+  vecteursRepris,
   type ModeDeRecherche,
   type PassageClasse,
   type PassageDoc,
@@ -255,8 +256,19 @@ export function indexerDocumentation(
   );
   const poserPassage = db.prepare(
     `INSERT OR REPLACE INTO doc_passages
-       (id, project_id, source, titre, sujet, priorite, texte, empreinte, signes, maj_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, project_id, source, titre, sujet, priorite, texte, empreinte, signes, maj_at, vecteur, modele)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  /*
+   * CE QU'ON VA POUVOIR REPRENDRE. Un fichier réécrit voit tous ses passages
+   * effacés, mais la modification n'en touche qu'un ou deux : les autres sont
+   * mot pour mot les mêmes et gardent donc leur vecteur (`vecteursRepris`,
+   * shared/src/vecteurs-doc.ts). Sans cela, un projet dont la documentation
+   * bouge chaque jour retombe sous le seuil de couverture et cherche par les
+   * MOTS toute la journée, pendant que la nuit revectorise en pure perte.
+   */
+  const lireAnciens = db.prepare(
+    'SELECT titre, texte, vecteur, modele FROM doc_passages WHERE project_id = ? AND source = ?',
   );
 
   let modifies = 0;
@@ -285,6 +297,12 @@ export function indexerDocumentation(
       const empreinte = empreinteDuContenu(texte);
       if (connus.get(fichier.source) === empreinte) continue;
 
+      const anciens = lireAnciens.all(projectId, fichier.source) as {
+        titre: string;
+        texte: string;
+        vecteur: Buffer | null;
+        modele: string | null;
+      }[];
       supprimerPassages.run(projectId, fichier.source);
       const passages =
         fichier.priorite === PRIORITE.code
@@ -293,7 +311,9 @@ export function indexerDocumentation(
               sujet: fichier.sujet,
               priorite: fichier.priorite,
             });
+      const repris = vecteursRepris(anciens, passages);
       passages.forEach((passage, rang) => {
+        const garde = repris[rang];
         poserPassage.run(
           idDuPassage(projectId, fichier.source, rang),
           projectId,
@@ -305,6 +325,8 @@ export function indexerDocumentation(
           JSON.stringify(empreinteDuPassage(passage)),
           passage.texte.length,
           maintenant,
+          garde?.vecteur ?? null,
+          garde?.modele ?? null,
         );
       });
       poserFichier.run(projectId, fichier.source, empreinte, maintenant);
@@ -536,7 +558,12 @@ export async function rechercherPourLaTache(
   projectId: string,
   projectPath: string,
   question: string,
-  index: { texte: string; faits: number },
+  /**
+   * L'index qu'on remplace : son TEXTE (le point de comparaison du garde-fou),
+   * son nombre de faits, et son SOMMAIRE — la seule part de l'index qui reste
+   * dans le bloc envoyé, pour que l'agent sache quels sujets il peut demander.
+   */
+  index: { texte: string; faits: number; sommaire?: string },
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
@@ -561,7 +588,7 @@ export async function rechercherPourLaTache(
     let gardes = choix.gardes;
     let ecartes = choix.ecartes;
     while (gardes.length) {
-      const texte = texteDesPassages(gardes, index.faits);
+      const texte = texteDesPassages(gardes, index.faits, index.sommaire);
       const jetons = jetonsApproches(texte.length);
       if (rechercheRentable(jetons, jetonsIndex)) {
         return { texte, passages: gardes, jetons, jetonsIndex, ecartes, mode };

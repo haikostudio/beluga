@@ -102,11 +102,24 @@ for (const { question, attendu, pourquoi } of DEMANDES) {
     verifier(false, `« ${question.slice(0, 52)}… » — aucun passage`);
     continue;
   }
-  const sources = trouve.passages.map((p) => p.source).join(' ');
+  /*
+   * ON NE JUGE QUE LA DOCUMENTATION (priorité ≥ 0), jamais le CODE.
+   *
+   * Ce script écrit ses questions en toutes lettres, et il est lui-même indexé
+   * comme fichier du projet : une fois l'index vraiment vectorisé, la recherche
+   * retrouve la QUESTION dans ce fichier-ci et dans son voisin
+   * `verif-recherche-passages.mjs`, tous deux en tête. Elle a parfaitement
+   * raison — mais elle occupe alors les deux places réservées au code
+   * (`PASSAGES_CODE_MAX`), et le contrôle se jugeait lui-même au lieu de juger
+   * la page de documentation qu'il cherche. Constaté le 16/08/2026, le jour où
+   * HaikoDev est repassé au-dessus du seuil de couverture.
+   */
+  const documents = trouve.passages.filter((p) => p.priorite >= 0);
+  const sources = documents.map((p) => p.source).join(' ');
   verifier(
     attendu.test(sources),
     `« ${question.slice(0, 52)}… »`,
-    `${trouve.mode.vecteurs ? 'SENS' : 'mots'} · ${trouve.passages.length} passages · ${pourquoi}`,
+    `${trouve.mode.vecteurs ? 'SENS' : 'mots'} · ${documents.length} pages de documentation · ${pourquoi}`,
   );
   for (const p of trouve.passages.slice(0, 3)) {
     console.log(`      ${p.score.toFixed(2)}  ${p.source} — ${p.titre.slice(0, 54)}`);

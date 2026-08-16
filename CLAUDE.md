@@ -64,6 +64,7 @@ node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
 node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
+node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
@@ -136,6 +137,36 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   aucun moteur de langage et ne prend la place d'aucun agent. Au lancement d'une carte, seule la
   QUESTION est vectorisée. `HAIKODEV_DATA=/root/haikodev/data node scripts/vectoriser-index.mjs`
   le fait tout de suite à la main (`--etat` pour ne rien vectoriser et voir où en est chaque projet).
+- **…ET UN PASSAGE INCHANGÉ GARDE SON VECTEUR, sinon la nuit travaille pour rien** (`vecteursRepris`,
+  `cleDeVecteur`, `shared/src/vecteurs-doc.ts` ; `indexerDocumentation`, `server/src/passages.ts`) :
+  l'indexation est incrémentale par FICHIER, si bien qu'un fichier réécrit d'UNE LIGNE voyait TOUS
+  ses passages effacés puis réécrits sans vecteur. Sur HaikoDev — le seul projet dont la
+  documentation est réécrite par presque chaque carte —, 390 passages sur 824 étaient donc sans
+  vecteur le 16/08/2026 : `CLAUDE.md` en entier (122), `docs/regles/cartes.md` (75),
+  `docs/regles/interface.md` (60), `docs/verifications.md` et tout `docs/memoire/` — exactement les
+  fichiers qui comptent. L'index retombait sous `COUVERTURE_VECTEURS_MIN` (53 %) et TOUTE la
+  recherche repassait par les MOTS, toute la journée, pendant que les autres projets (98 à 100 %)
+  cherchaient par le sens. La nuit rattrapait, la journée redéfaisait. Un passage est désormais
+  reconnu à son TITRE et à son TEXTE — jamais à son rang, qui glisse dès qu'une section est insérée —
+  et garde son vecteur ; seul ce qui a VRAIMENT changé repart à vectoriser. Verrouillé par
+  `server/src/test/memoire-des-vecteurs.test.ts` et `scripts/verif-memoire-des-vecteurs.mjs`.
+- **LE SOMMAIRE DES SUJETS VOYAGE AVEC LES PASSAGES** (`sommaireDesSujets`, `texteDuSommaire`,
+  `shared/src/memoire.ts` ; `texteDesPassages`, `shared/src/passages-doc.ts`) : la recherche remplace
+  l'INDEX de la mémoire, donc elle emportait avec lui la LISTE des sujets — alors que la MÉTHODE dit
+  à l'agent de demander « le SUJET de ta tâche » à `project_memory`. Il devinait un nom, se trompait,
+  et concluait sur les quelques passages reçus. Le bloc porte maintenant une ligne par sujet (son
+  nom, son libellé, son nombre de faits) là où l'index en portait une par fait : ~150 jetons, contre
+  4 310 pour l'index — l'économie passe de 74 % à 68 %, et le garde-fou de rentabilité reste
+  appliqué sommaire compris. La MÉTHODE dit en outre que les passages reçus sont un EXTRAIT et non
+  la mémoire.
+- **LE CODE NE MANGE PLUS LE BUDGET DE LA DOCUMENTATION** (`PART_MAX_DU_CODE`, `plafondCode` de
+  `choisirPassages`, `shared/src/passages-doc.ts`) : il était borné en NOMBRE (2 passages sur 7) mais
+  pas en POIDS — or un passage de code fait 1 592 signes contre 578 pour une page de documentation,
+  et deux morceaux bien placés prenaient les deux tiers du plafond. L'agent recevait alors DEUX
+  fichiers source et UNE règle. Le code tient désormais dans 35 % du plafond, avec une exception
+  voulue : le PREMIER passage de code passe toujours, sinon une demande qui NOMME un fichier ne le
+  remonterait plus. Mesuré sur « est-ce que le programme peut décider tout seul d'envoyer le site
+  chez le client ? » : 1 page de documentation avant, 3 après.
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
   priorité haute par la recherche.

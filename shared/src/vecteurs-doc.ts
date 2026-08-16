@@ -157,6 +157,63 @@ export function vecteurUtilisable(vecteur: ArrayLike<number> | undefined | null)
 }
 
 /* ------------------------------------------------------------------ */
+/* Ce qu'une réindexation a le droit de JETER                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN PASSAGE QUI N'A PAS CHANGÉ GARDE SON VECTEUR.
+ *
+ * L'indexation est incrémentale par FICHIER, pas par passage : un fichier dont
+ * l'empreinte a bougé voit TOUS ses passages effacés puis réécrits, donc tous
+ * ses vecteurs perdus. Sur un projet dont la documentation se réécrit chaque
+ * jour, c'est fatal — constaté le 16/08/2026 sur HaikoDev : les 122 passages de
+ * `CLAUDE.md`, les 75 de `docs/regles/cartes.md`, les 60 de
+ * `docs/regles/interface.md` et tout `docs/memoire/` étaient sans vecteur, soit
+ * 390 passages sur 824. L'index retombait donc sous `COUVERTURE_VECTEURS_MIN`,
+ * et TOUTE la recherche repassait sur les mots — sur les fichiers qui comptent
+ * le plus, et sur le seul projet dont la documentation bouge tous les jours. La
+ * nuit rattrapait, la journée redéfaisait.
+ *
+ * Or une modification touche une SECTION, pas le fichier : la quasi-totalité des
+ * passages réécrits sont mot pour mot les mêmes. On les reconnaît à leur TITRE et
+ * à leur TEXTE — jamais à leur rang, qui glisse dès qu'une section est insérée —
+ * et on leur rend leur vecteur. Rien n'est cru sur parole : un texte modifié
+ * d'un signe n'est plus la même clé, donc il repart sans vecteur.
+ */
+export function cleDeVecteur(titre: string, texte: string): string {
+  return `${titre.trim()} ${texte.trim()}`;
+}
+
+/** Un passage tel qu'il est rangé, avec ce qu'on cherche à lui reprendre. */
+export interface PassageAVecteur<V> {
+  titre: string;
+  texte: string;
+  vecteur: V | null | undefined;
+  modele: string | null | undefined;
+}
+
+/**
+ * Les vecteurs à REPRENDRE, dans l'ordre des nouveaux passages : `undefined` là
+ * où il faudra revectoriser. Un même texte présent deux fois dans un fichier ne
+ * sert qu'une fois — deux passages identiques auront chacun le leur à la passe
+ * suivante, et rien n'est jamais dupliqué par erreur.
+ */
+export function vecteursRepris<V>(
+  anciens: PassageAVecteur<V>[],
+  nouveaux: { titre: string; texte: string }[],
+): ({ vecteur: V; modele: string } | undefined)[] {
+  const dispo = new Map<string, { vecteur: V; modele: string }[]>();
+  for (const ancien of anciens) {
+    if (!ancien.vecteur || !ancien.modele) continue;
+    const cle = cleDeVecteur(ancien.titre, ancien.texte);
+    const liste = dispo.get(cle) ?? [];
+    liste.push({ vecteur: ancien.vecteur, modele: ancien.modele });
+    dispo.set(cle, liste);
+  }
+  return nouveaux.map((passage) => dispo.get(cleDeVecteur(passage.titre, passage.texte))?.shift());
+}
+
+/* ------------------------------------------------------------------ */
 /* Quand on cherche par le sens, et quand on retombe sur les mots      */
 /* ------------------------------------------------------------------ */
 
