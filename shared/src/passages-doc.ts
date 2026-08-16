@@ -658,6 +658,41 @@ export function rechercheRentable(jetonsPassages: number, jetonsIndex: number): 
 }
 
 /**
+ * L'ÉCART MINIMUM entre le passage le mieux placé et le reste du corpus pour
+ * dire que la recherche a trouvé quelque chose de NETTEMENT pertinent.
+ *
+ * Mesuré sur 120 cartes réelles (`docs/audit-memoire-rag.md`) : le score du
+ * mieux placé vaut en moyenne 0,60, celui du dernier passage retenu 0,42 — et
+ * une question hors sujet reçoit tout de même cinq à six passages entre 0,31
+ * et 0,33. La recherche sert donc TOUJOURS le même volume, qu'elle soit
+ * tombée juste ou qu'elle ait ramené le moins mauvais d'un lot médiocre, sans
+ * qu'aucun signal ne le distingue à l'écran.
+ */
+export const ECART_PERTINENCE_MIN = 0.2;
+
+/**
+ * LA RECHERCHE A-T-ELLE TROUVÉ QUELQUE CHOSE DE CONVAINCANT ?
+ *
+ * Ne change ni le classement, ni le seuil, ni le plafond — elle rend un
+ * défaut VISIBLE, elle ne le corrige pas. Compare le score du passage le
+ * mieux placé à la MOYENNE de tout le reste du corpus classé pour cette
+ * question : un écart net dit que la recherche a reconnu quelque chose de
+ * particulier, un écart faible dit qu'elle a rendu le sommet d'un lot où
+ * tout se vaut à peu près.
+ *
+ * `undefined` sans aucun passage classé (rien à comparer) ; `true` s'il n'y a
+ * qu'un seul passage dans tout le corpus (rien à comparer non plus, mais ce
+ * n'est pas un défaut de le dire).
+ */
+export function rechercheConvaincante(classes: { score: number }[]): boolean | undefined {
+  if (!classes.length) return undefined;
+  const [meilleur, ...reste] = classes.map((passage) => passage.score);
+  if (!reste.length) return true;
+  const moyenneDuReste = reste.reduce((total, score) => total + score, 0) / reste.length;
+  return meilleur - moyenneDuReste >= ECART_PERTINENCE_MIN;
+}
+
+/**
  * LE BLOC ENVOYÉ AU MOTEUR. Il dit d'où vient chaque passage — un agent doit
  * pouvoir ouvrir le fichier — et il DIT qu'il ne montre pas tout : l'index
  * complet et les sujets restent à un appel de `project_memory`. Un plafond

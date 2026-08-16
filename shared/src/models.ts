@@ -847,6 +847,21 @@ export const SentContextSnapshot = z.object({
       choisi: z.boolean().optional(),
     })
     .optional(),
+  /**
+   * LA RECHERCHE A-T-ELLE TROUVÉ QUELQUE CHOSE DE CONVAINCANT ?
+   *
+   * La bulle « Mémoire retrouvée » disait le NOMBRE de passages, le MODE et la
+   * COUVERTURE — jamais la QUALITÉ du résultat. Mesuré sur 120 cartes réelles
+   * (`docs/audit-memoire-rag.md`) : 34 % des demandes reçoivent le même volume
+   * de passages sans qu'aucun ne se détache vraiment du reste — rien à
+   * l'écran ne le distinguait des 66 % qui tombaient juste. Ce champ compare
+   * le score du mieux placé à la moyenne du reste du corpus classé pour cette
+   * question (`rechercheConvaincante`, shared/src/passages-doc.ts) — jamais un
+   * changement de classement, de seuil ou de plafond. `undefined` quand la
+   * comparaison n'a pas été faite (pas de recherche, ou contexte écrit avant
+   * cette règle).
+   */
+  passagesPertinents: z.boolean().optional(),
   history: z.enum(['none', 'retained_by_engine']),
   usage: z
     .object({

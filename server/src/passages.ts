@@ -34,6 +34,7 @@ import {
   jetonsApproches,
   modeDeRecherche,
   plafondDeRecherche,
+  rechercheConvaincante,
   rechercheRentable,
   sensUtileSur,
   texteAVectoriser,
@@ -631,6 +632,12 @@ export interface RechercheDePassages {
   ecartes: number;
   /** Par le SENS RÉEL ou par les mots — et pourquoi, quand c'est par les mots. */
   mode: ModeDeRecherche;
+  /**
+   * La recherche a-t-elle trouvé quelque chose de NETTEMENT pertinent ?
+   * Comparé au reste du corpus classé pour cette question, pas seulement aux
+   * passages retenus (`rechercheConvaincante`, shared/src/passages-doc.ts).
+   */
+  pertinents?: boolean;
 }
 
 /**
@@ -721,6 +728,7 @@ export async function rechercherPourLaTache(
     const classement = await classerPourLaQuestion(projectId, projectPath, question, 'lancement');
     if (!classement) return undefined;
     const { classes, mode } = classement;
+    const pertinents = rechercheConvaincante(classes);
 
     const jetonsIndex = jetonsApproches(index.texte.length);
     const choix = choisirPassages(classes, {
@@ -742,7 +750,7 @@ export async function rechercherPourLaTache(
       const texte = texteDesPassages(gardes, index.faits, index.sommaire);
       const jetons = jetonsApproches(texte.length);
       if (rechercheRentable(jetons, jetonsIndex)) {
-        return { texte, passages: gardes, jetons, jetonsIndex, ecartes, mode };
+        return { texte, passages: gardes, jetons, jetonsIndex, ecartes, mode, pertinents };
       }
       gardes = gardes.slice(0, -1);
       ecartes++;
@@ -798,6 +806,7 @@ export async function rechercherPourLaSuite(
       jetonsIndex: 0,
       ecartes: choix.ecartes,
       mode: classement.mode,
+      pertinents: rechercheConvaincante(classement.classes),
     };
   } catch (err) {
     log.warn(`recherche de passages (tour de suite) impossible : ${(err as Error).message}`);
