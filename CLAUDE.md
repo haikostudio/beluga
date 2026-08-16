@@ -1146,6 +1146,18 @@ le nom, là-bas le texte).
   n'est deviné : une branche introuvable rend « je ne sais pas » au lieu d'un périmètre inventé.
   Verrouillé par `server/src/test/suivi-branche-carte.test.ts` et
   `scripts/verif-onglet-github-branche.mjs`.
+- **…ET IL SE LIT COMME UNE LIGNE DE TEMPS VERTICALE, CHARGÉE À L'OUVERTURE** (`GithubTab`,
+  `NoeudDeTemps`, `web/src/components/card-panel.tsx` ; `lignesDepuisNumstat`, `avecLesLignes`,
+  `totalDesLignes`, `shared/src/suivi-branche-carte.ts`) : il portait tout ce que GitHub sait dire —
+  enregistrements, demande de fusion, contrôles d'intégration, commentaires de revue — et
+  l'essentiel s'y perdait. Il ne garde plus que DEUX nœuds, dans l'ordre où ils arrivent : les
+  fichiers touchés avec leurs LIGNES ajoutées et supprimées (`git diff --numstat`, relevé à côté du
+  `--name-status` ; un binaire n'a pas de compte et n'en affiche aucun, un renommage garde le
+  chemin nouveau), puis le déroulé du déploiement étape par étape. Le bouton « Actualiser » est
+  RETIRÉ : le relevé part tout seul à l'ouverture, une fois par carte (marque `releve`, sinon
+  `fetchedAt` relancerait l'effet sans fin), et le déroulé se recharge quand ce relevé rend. Le
+  trait vertical est porté par CHAQUE nœud, jamais par la colonne : il s'arrête donc de lui-même
+  sur le dernier.
 
 ### Quotas
 

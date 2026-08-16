@@ -3,8 +3,10 @@ import { promisify } from 'node:util';
 import {
   DeployRun,
   GithubTracking,
+  avecLesLignes,
   deploiementsDeLaCarte,
   fichiersDepuisNameStatus,
+  lignesDepuisNumstat,
   variablesGithub,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -261,8 +263,14 @@ export async function refreshCard(cardId: string): Promise<GithubTracking | null
         ? tracking.commits[tracking.commits.length - 1]?.date
         : undefined;
 
+      /*
+       * LES FICHIERS, ET CE QU'ILS ONT VRAIMENT PRIS OU PERDU. `--name-status`
+       * donne le sort de chaque fichier, `--numstat` ses lignes ajoutées et
+       * supprimées : deux lectures de git, une seule liste rendue.
+       */
       const diff = await git(['diff', '--name-status', `${base}`, branch], project.path);
-      tracking.fichiers = fichiersDepuisNameStatus(diff);
+      const numstat = await git(['diff', '--numstat', `${base}`, branch], project.path);
+      tracking.fichiers = avecLesLignes(fichiersDepuisNameStatus(diff), lignesDepuisNumstat(numstat));
     }
 
     const contenue = await git(['branch', '--contains', branch, '--format=%(refname:short)'], project.path);

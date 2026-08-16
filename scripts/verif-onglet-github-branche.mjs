@@ -32,9 +32,8 @@ process.env.HAIKODEV_DATA = path.join(jetable, 'data');
 fs.mkdirSync(process.env.HAIKODEV_DATA, { recursive: true });
 
 const { baseDeLaBranche } = await import(path.join(RACINE, 'server/dist/github.js'));
-const { fichiersDepuisNameStatus, resumeDesFichiers, phraseDesFichiers } = await import(
-  path.join(RACINE, 'shared/dist/index.js')
-);
+const { fichiersDepuisNameStatus, resumeDesFichiers, phraseDesFichiers, lignesDepuisNumstat, avecLesLignes, totalDesLignes } =
+  await import(path.join(RACINE, 'shared/dist/index.js'));
 
 const depot = path.join(jetable, 'depot');
 fs.mkdirSync(depot, { recursive: true });
@@ -104,6 +103,28 @@ verifier(
   fichiers.map((f) => f.chemin).join(','),
 );
 
+/* -------- Les lignes ajoutées et supprimées, fichier par fichier -------- */
+
+const avecLignes = avecLesLignes(fichiers, lignesDepuisNumstat(git('diff', '--numstat', base, 'tache/ma-carte')));
+const parChemin = Object.fromEntries(avecLignes.map((f) => [f.chemin, f]));
+verifier(
+  'un fichier ajouté porte ses lignes ajoutées',
+  parChemin['web/neuf.tsx']?.ajoutees === 1 && parChemin['web/neuf.tsx']?.supprimees === 0,
+  JSON.stringify(parChemin['web/neuf.tsx']),
+);
+verifier(
+  'un fichier modifié porte ses deux comptes',
+  parChemin['vieux-1.md']?.ajoutees === 1 && parChemin['vieux-1.md']?.supprimees === 1,
+  JSON.stringify(parChemin['vieux-1.md']),
+);
+verifier(
+  'un fichier supprimé ne compte que des lignes perdues',
+  parChemin['vieux-2.md']?.ajoutees === 0 && parChemin['vieux-2.md']?.supprimees === 1,
+  JSON.stringify(parChemin['vieux-2.md']),
+);
+const total = totalDesLignes(avecLignes);
+verifier('le total de la branche additionne les fichiers', total.ajoutees === 2 && total.supprimees === 2, JSON.stringify(total));
+
 /* -------- La branche fusionnée, et la principale qui avance -------- */
 
 console.log('\n2. Branche fusionnée, principale repartie');
@@ -144,6 +165,22 @@ verifier('une base inventée est écartée, pas suivie', base === baseAttendue, 
 
 base = await baseDeLaBranche(depot, 'tache/jamais-vue', 'main');
 verifier("une branche absente rend « je ne sais pas », jamais un périmètre inventé", base === undefined, String(base));
+
+/* -------- L'écran : une ligne de temps, et rien à cliquer pour voir -------- */
+
+console.log("\n4. L'onglet lui-même");
+const ecran = fs.readFileSync(path.join(RACINE, 'web/src/components/card-panel.tsx'), 'utf8');
+const onglet = ecran.slice(ecran.indexOf('function GithubTab'));
+verifier('la ligne de temps porte son repère', onglet.includes('data-github-timeline'));
+verifier(
+  "les données se chargent à l'ouverture, sans bouton « Actualiser »",
+  !onglet.includes('Actualiser') && onglet.includes("type: 'github.refresh'"),
+);
+verifier(
+  "l'onglet ne montre plus que les fichiers puis le déploiement",
+  !onglet.includes('prNumber') && !onglet.includes('tracking.commits') && !onglet.includes('tracking?.activity'),
+);
+verifier('les lignes ajoutées et supprimées sont affichées par fichier', onglet.includes('lignesDuFichier(fichier)'));
 
 fs.rmSync(jetable, { recursive: true, force: true });
 

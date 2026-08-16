@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEPLOIEMENTS_MONTRES_MAX,
+  avecLesLignes,
+  cheminApresRenommage,
   deploiementsDeLaCarte,
+  lignesDepuisNumstat,
+  totalDesLignes,
   etapesAMontrer,
   etatDepuisGit,
   fichiersDepuisNameStatus,
@@ -43,6 +47,37 @@ test('un renommage garde le chemin NOUVEAU, le seul qui existe encore', () => {
 test('les lignes vides et les doublons ne comptent pas', () => {
   const fichiers = fichiersDepuisNameStatus('\nM\ta.ts\n\nM\ta.ts\nbruit\n');
   assert.deepEqual(fichiers, [{ chemin: 'a.ts', etat: 'modifie' }]);
+});
+
+test('les lignes ajoutées et supprimées se lisent fichier par fichier, comme git', () => {
+  const lignes = lignesDepuisNumstat(
+    ['12\t3\tweb/src/neuf.tsx', '0\t7\tvieux.md', '-\t-\timages/capture.png', 'bruit'].join('\n'),
+  );
+  assert.deepEqual(lignes.get('web/src/neuf.tsx'), { ajoutees: 12, supprimees: 3 });
+  assert.deepEqual(lignes.get('vieux.md'), { ajoutees: 0, supprimees: 7 });
+  // Un binaire n'a pas de compte : rien, plutôt qu'un zéro qui mentirait.
+  assert.deepEqual(lignes.get('images/capture.png'), { ajoutees: undefined, supprimees: undefined });
+  assert.equal(lignes.size, 3);
+});
+
+test('un renommage rend le chemin NOUVEAU, sous ses deux écritures', () => {
+  assert.equal(cheminApresRenommage('ancien.md => nouveau.md'), 'nouveau.md');
+  assert.equal(cheminApresRenommage('docs/{ancien => nouveau}/page.md'), 'docs/nouveau/page.md');
+  assert.equal(cheminApresRenommage('docs/{ => nouveau}/page.md'), 'docs/nouveau/page.md');
+  assert.equal(cheminApresRenommage('simple.ts'), 'simple.ts');
+});
+
+test('les fichiers reçoivent leurs lignes ; sans relevé, ils restent muets', () => {
+  const fichiers = avecLesLignes(
+    [
+      { chemin: 'a.ts', etat: 'modifie' },
+      { chemin: 'b.png', etat: 'ajoute' },
+    ],
+    lignesDepuisNumstat('4\t1\ta.ts'),
+  );
+  assert.deepEqual(fichiers[0], { chemin: 'a.ts', etat: 'modifie', ajoutees: 4, supprimees: 1 });
+  assert.deepEqual(fichiers[1], { chemin: 'b.png', etat: 'ajoute' });
+  assert.deepEqual(totalDesLignes(fichiers), { ajoutees: 4, supprimees: 1 });
 });
 
 test('le compte sépare ajoutés, modifiés et supprimés — un renommage compte comme une modification', () => {
