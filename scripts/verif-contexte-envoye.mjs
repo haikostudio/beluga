@@ -524,7 +524,10 @@ try {
           value: { writeText: async (texte) => { window.__contexteCopie = texte; } },
         });
       });
-      await second.locator('[data-bulle-prompt="complet"]').getByRole('button', { name: /Copier/ }).first().click();
+      // « Copier » vit maintenant SOUS la bulle, hors de son encadré : on le
+      // cherche dans le groupe entier (icône + bulle + bouton), pas dans le
+      // seul encadré coloré.
+      await second.locator('[data-bulle-groupe="complet"]').getByRole('button', { name: /Copier/ }).first().click();
       const copie = await page.evaluate(() => window.__contexteCopie);
       noter(
         `${cas.nom} : la copie contient le texte réel de ce tour`,

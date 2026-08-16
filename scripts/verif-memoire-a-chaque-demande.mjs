@@ -19,7 +19,7 @@
  *   2. ces passages répondent au SECOND sujet, pas au premier ;
  *   3. aucun passage déjà servi au premier tour n'est renvoyé ;
  *   4. le bloc parti au moteur nomme la DEMANDE, pas la session ;
- *   5. à l'écran, la bulle s'intitule « Mémoire retrouvée pour cette demande »
+ *   5. à l'écran, la bulle s'intitule « Mémoire retrouvée »
  *      et ne porte plus le rappel « Reprise de session ».
  */
 import { chromium } from 'playwright';
@@ -537,8 +537,8 @@ async function main() {
     await page.waitForTimeout(400);
     const texteBulle = combien ? await derniere.innerText() : '';
     noter(
-      'la bulle du dernier tour s’intitule « Mémoire retrouvée pour cette demande »',
-      /Mémoire retrouvée pour cette demande/.test(texteBulle),
+      'la bulle du dernier tour s’intitule « Mémoire retrouvée »',
+      /Mémoire retrouvée/.test(texteBulle),
       texteBulle.split('\n')[0] ?? '',
     );
     /*
