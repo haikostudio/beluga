@@ -978,6 +978,13 @@ le nom, là-bas le texte).
   ligne unique mais très longue se replie d'elle-même. Cette mesure n'est pas refaite une fois la
   bulle déroulée, sinon « voir moins » disparaîtrait sous le doigt. Vérifié par
   `server/src/test/prompt-envoye.test.ts` et `scripts/verif-contexte-envoye.mjs`.
+  **La bulle de MÉMOIRE, elle, est ISOLÉE et repliée sur TROIS lignes** (`isole`, `lignesVisibles`,
+  `LIGNES_VISIBLES_MEMOIRE`, `shared/src/prompt-envoye.ts` ; `data-bulle-isolee`,
+  `data-bulle-entete`) : même encadré gris que le prompt complet posé dessous, elle se lisait comme
+  sa première moitié et poussait la réponse hors de l'écran. Fond propre (`bg-surface`), liseré à
+  gauche, écart au-dessus et au-dessous, pas de queue de bulle — et un ENTÊTE cliquable qui la déplie
+  et la referme (repliée, l'aperçu s'ouvre aussi d'un clic ; déroulée, non, sinon sélectionner une
+  citation la refermerait).
 - **UN TOUR SANS BULLE DE DEMANDE PORTE SES BULLES SUR SA RÉPONSE** (`demandeDuPromptEnvoye`,
   `shared/src/prompt-envoye.ts` ; `messageDuContexte`, `server/src/runtime.ts`) : un tour lancé par un
   BOUTON n'écrit aucun message d'utilisateur (`options.silent` — carte démarrée, reprise, dépannage,

@@ -1,8 +1,9 @@
 import * as React from 'react';
-import { Check, ChevronDown, Copy } from 'lucide-react';
+import { BookOpen, Check, ChevronDown, Copy } from 'lucide-react';
 import {
   BulleDePrompt,
   LIGNES_VISIBLES_BULLE,
+  LIGNES_VISIBLES_MEMOIRE,
   SentContextSnapshot,
   apercuDeBulle,
   bullesDuPromptEnvoye,
@@ -23,6 +24,13 @@ import { cn } from '@/lib/utils';
  * Une bulle longue ne montre que ses CINQ premières lignes ; « voir plus », en
  * bas, déroule le reste. Le LECTEUR DE PROMPTS complet, avec tous les tours,
  * reste dans l'onglet « Détails » d'une carte.
+ *
+ * LA MÉMOIRE RETROUVÉE FAIT BANDE À PART. Les trois bulles portaient le même
+ * encadré gris : posée juste au-dessus du prompt complet, la mémoire se lisait
+ * comme sa première moitié, et ses passages cités en entier repoussaient la
+ * réponse de l'agent hors de l'écran. Elle a désormais son propre fond, son
+ * propre écart, un repli plus court (trois lignes) et un entête cliquable qui
+ * l'ouvre et la referme.
  */
 
 function BoutonCopier({ texte }: { texte: string }) {
@@ -72,7 +80,11 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
   const [deroule, setDeroule] = React.useState(false);
   const [deborde, setDeborde] = React.useState(false);
   const zone = React.useRef<HTMLPreElement>(null);
-  const { apercu, tronque } = React.useMemo(() => apercuDeBulle(bulle.texte), [bulle.texte]);
+  const lignes = bulle.lignesVisibles ?? LIGNES_VISIBLES_BULLE;
+  const { apercu, tronque } = React.useMemo(
+    () => apercuDeBulle(bulle.texte, lignes),
+    [bulle.texte, lignes],
+  );
 
   React.useLayoutEffect(() => {
     const element = zone.current;
@@ -83,18 +95,56 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
   }, [apercu, deroule]);
 
   const aVoirPlus = tronque || deborde;
+  const basculer = () => setDeroule((valeur) => !valeur);
+
+  /*
+   * UNE BULLE ISOLÉE PORTE SON PROPRE ENCADRÉ. Pas la « queue » de bulle des
+   * messages (le coin bas droit rabattu), pas le même gris : un fond `surface`,
+   * un liseré à gauche et un peu d'air au-dessus et au-dessous — de quoi la lire
+   * comme une note à part, jamais comme la suite du bloc voisin.
+   */
+  const encadre = bulle.isole
+    ? 'my-3 rounded-lg border border-border border-l-2 border-l-faint bg-surface'
+    : 'rounded-lg rounded-br-sm border border-border bg-raised';
 
   return (
     <div className="flex justify-end">
       <div
         data-bulle-prompt={bulle.cle}
-        className="w-[min(78%,520px)] min-w-0 max-w-full overflow-hidden rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2"
+        data-bulle-isolee={bulle.isole ? '' : undefined}
+        className={cn('w-[min(78%,520px)] min-w-0 max-w-full overflow-hidden px-3 py-2', encadre)}
       >
         <div className="mb-1 flex items-baseline gap-2">
-          <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
-            {bulle.titre}
-            {bulle.mention ? <span className="text-faint"> · {bulle.mention}</span> : null}
-          </span>
+          {/*
+            L'ENTÊTE ENTIER OUVRE ET REFERME la bulle isolée : un clic n'importe
+            où sur son titre suffit, sans viser le petit « voir plus » du bas.
+            Les autres bulles gardent un titre inerte — leur repli tient au seul
+            bouton, et rendre le titre cliquable volerait la sélection du texte.
+          */}
+          {bulle.isole ? (
+            <button
+              type="button"
+              data-bulle-entete
+              onClick={basculer}
+              aria-expanded={deroule}
+              title={deroule ? 'Replier cette mémoire' : 'Déplier cette mémoire'}
+              className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-raised"
+            >
+              <BookOpen className="h-3 w-3 shrink-0 text-faint" />
+              <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
+                {bulle.titre}
+                {bulle.mention ? <span className="text-faint"> · {bulle.mention}</span> : null}
+              </span>
+              <ChevronDown
+                className={cn('h-3 w-3 shrink-0 text-faint transition-transform', deroule && 'rotate-180')}
+              />
+            </button>
+          ) : (
+            <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
+              {bulle.titre}
+              {bulle.mention ? <span className="text-faint"> · {bulle.mention}</span> : null}
+            </span>
+          )}
           <BoutonCopier texte={bulle.texte} />
         </div>
 
@@ -118,9 +168,17 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
         <pre
           ref={zone}
           data-texte-bulle
+          /*
+            REPLIÉE, une bulle isolée s'ouvre aussi d'un clic sur son aperçu :
+            trois lignes coupées ne se lisent pas, elles s'ouvrent. Une fois
+            DÉROULÉE, le clic ne referme plus rien — sinon sélectionner une
+            citation pour la copier refermerait la bulle sous le doigt.
+          */
+          onClick={bulle.isole && !deroule && aVoirPlus ? basculer : undefined}
           className={cn(
             'whitespace-pre-wrap break-words font-sans text-[13.5px] leading-[1.6] text-text [overflow-wrap:anywhere]',
-            !deroule && 'max-h-[8em] overflow-hidden',
+            !deroule && (bulle.isole ? 'max-h-[4.8em] overflow-hidden' : 'max-h-[8em] overflow-hidden'),
+            bulle.isole && !deroule && aVoirPlus && 'cursor-pointer',
           )}
         >
           {deroule ? bulle.texte : apercu}
@@ -130,8 +188,13 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
           <button
             type="button"
             data-voir-plus
-            onClick={() => setDeroule((valeur) => !valeur)}
-            className="mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[12px] text-faint transition-colors hover:bg-surface hover:text-text"
+            onClick={basculer}
+            // Le survol se voit sur le fond de SA bulle : gris clair sur une
+            // bulle de message, gris de message sur la bulle isolée.
+            className={cn(
+              'mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[12px] text-faint transition-colors hover:text-text',
+              bulle.isole ? 'hover:bg-raised' : 'hover:bg-surface',
+            )}
           >
             <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', deroule && 'rotate-180')} />
             {deroule ? 'voir moins' : 'voir plus'}
