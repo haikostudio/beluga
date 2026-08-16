@@ -156,6 +156,20 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   reconnu à son TITRE et à son TEXTE — jamais à son rang, qui glisse dès qu'une section est insérée —
   et garde son vecteur ; seul ce qui a VRAIMENT changé repart à vectoriser. Verrouillé par
   `server/src/test/memoire-des-vecteurs.test.ts` et `scripts/verif-memoire-des-vecteurs.mjs`.
+- **L'INDEX RESTE EN MÉMOIRE VIVE ENTRE DEUX DEMANDES, il ne se relit plus en entier à chaque
+  fois** (`indexEnMemoire`, `indexDuProjet`, `server/src/passages.ts`) : mesuré le 16/08/2026 sur
+  120 demandes réelles, chaque recherche payait ~880 ms pour relire les 5 143 lignes de
+  `doc_passages` et faire un `JSON.parse` de leur empreinte de repli — à CHAQUE tour, alors que
+  presque rien n'avait changé depuis le précédent. Le démon garde désormais, PAR PROJET et pour
+  toute la vie du processus, une carte `source → passages` tenue à jour par `indexerDocumentation`
+  lui-même (un fichier modifié remplace SA seule entrée, un fichier disparu la retire) et par
+  `vectoriserLIndex` (un vecteur calculé met à jour SON seul passage) — jamais par une relecture.
+  Seul le tout premier accès à un projet, après un redémarrage, paie encore la lecture complète.
+  Les « anciens » vecteurs à reprendre (`vecteursRepris`) restent lus en base, PAS depuis ce cache :
+  lui seul est garanti à jour avec ce que `passages.ts` a écrit, un écrivain extérieur (un contrôle
+  qui pose un vecteur en SQL direct, par exemple) le laisserait périmé. Une transaction qui échoue
+  ne touche jamais au cache. Verrouillé par `server/src/test/recherche-passages.test.ts` et
+  `scripts/verif-memoire-des-vecteurs.mjs` ; mesuré par `scripts/audit-memoire-rag.mjs`.
 - **LE SOMMAIRE DES SUJETS VOYAGE AVEC LES PASSAGES** (`sommaireDesSujets`, `texteDuSommaire`,
   `shared/src/memoire.ts` ; `texteDesPassages`, `shared/src/passages-doc.ts`) : la recherche remplace
   l'INDEX de la mémoire, donc elle emportait avec lui la LISTE des sujets — alors que la MÉTHODE dit
