@@ -793,6 +793,18 @@ le nom, là-bas le texte).
   inscrit », « Aucun projet sélectionné », « Aucun échange » ne s'écrivent qu'après réception. Les
   drapeaux jugent l'ABSENCE de la donnée, jamais une liste vide ; l'animation se coupe sous
   `prefers-reduced-motion`. Vérifié par `scripts/verif-silhouettes-chargement.mjs`.
+- **UNE FENÊTRE POSÉE DANS L'ENTÊTE D'UNE COLONNE RELÈVE L'ENTÊTE, PAS ELLE-MÊME**
+  (`composerOuvert` / `onOuvert` de `ComposerInline`, `web/src/components/board.tsx`) : la fenêtre de
+  création d'une note ou d'une tâche est en `absolute` DANS l'entête, qui porte `isolate` — son
+  `z-index` reste donc enfermé dans ce plan d'empilement et ne se compare jamais à celui de la zone
+  qui défile, posée APRÈS dans le DOM et elle aussi positionnée. Elle se peignait par-dessus tout ce
+  qui dépasse sous l'entête : seul le TITRE recevait les clics, la description et les boutons
+  « Ajouter la note » / « Joindre » / « Annuler » étaient recouverts par les cartes, et la fenêtre
+  restait bloquée sans même pouvoir être fermée. La fenêtre REMONTE donc son ouverture au tableau,
+  qui relève l'entête entier (`z-30`) — uniquement tant qu'elle est ouverte, le démontage le
+  rabaissant. Règle générale : monter le `z-index` d'un enfant ne sert à rien quand un ancêtre forme
+  un plan d'empilement, c'est cet ancêtre qu'il faut relever. Vérifié par
+  `scripts/verif-fenetre-note.mjs` (mesure au `elementFromPoint`, ordinateur et téléphone).
 - **Toute zone qui défile passe par `ZoneDefilement`** (`web/src/components/ui`) : elle bloque le
   second axe et pose le fondu. Le tableau ne glisse que de gauche à droite, une colonne de haut en bas.
   Elle ne refait son `ResizeObserver` que si les éléments à surveiller ont VRAIMENT changé — sinon

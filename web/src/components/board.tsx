@@ -401,6 +401,21 @@ export function Board({
   const [deployCounts, setDeployCounts] = React.useState<Partial<Record<ColumnKey, number>>>({});
 
   /*
+   * LA COLONNE DONT LA FENÊTRE DE CRÉATION EST OUVERTE. La fenêtre est posée en
+   * `absolute` DANS l'entête de colonne, qui porte `isolate` : son `z-index`
+   * reste donc enfermé dans le plan d'empilement de l'entête et ne se compare
+   * jamais à celui de la zone qui défile — laquelle vient APRÈS dans le DOM,
+   * est elle aussi positionnée, et se peint par conséquent PAR-DESSUS tout ce
+   * qui dépasse sous l'entête. Seul le titre, qui tient dans la hauteur de
+   * l'entête, recevait encore les clics : la description, « Ajouter la note »,
+   * « Joindre » et « Annuler » étaient recouverts, et la fenêtre restait
+   * bloquée sans même pouvoir être fermée. On relève donc l'entête ENTIER
+   * au-dessus de la zone qui défile, mais UNIQUEMENT tant que sa fenêtre est
+   * ouverte : hors de ce moment, l'ordre d'empilement d'origine ne bouge pas.
+   */
+  const [composerOuvert, setComposerOuvert] = React.useState<ColumnKey | null>(null);
+
+  /*
    * LE TIROIR DE PROCÉDURE, tenu par le tableau parce qu'il s'ouvre de DEUX
    * endroits : le bouton « Initier… » du bloc de publication, et l'icône de
    * réglages de la tête de colonne. Un seul tiroir, une seule cible à la fois —
@@ -1021,7 +1036,13 @@ export function Board({
               carteTiree && !allowed && 'opacity-40',
             )}
           >
-            <div className="relative isolate flex shrink-0 items-center gap-1.5 px-2 py-1.5">
+            <div
+              className={cn(
+                'relative isolate flex shrink-0 items-center gap-1.5 px-2 py-1.5',
+                composerOuvert === column && 'z-30',
+              )}
+              data-tete-colonne={column}
+            >
               {/* Repère de colonne (« En cours » / « Terminé ») : un voile,
                   DERRIÈRE le libellé, en dégradé vertical qui part de la
                   couleur EN HAUT et s'efface jusqu'à zéro tout EN BAS — jamais
@@ -1081,7 +1102,15 @@ export function Board({
                   lire, rien de non-lu. */}
               <div className="ml-auto flex items-center gap-0.5">
                 {column === 'planned' || column === 'notes' ? (
-                  <ComposerInline projectId={projectId} column={column} />
+                  <ComposerInline
+                    projectId={projectId}
+                    column={column}
+                    onOuvert={(ouvert) =>
+                      setComposerOuvert((actuel) =>
+                        ouvert ? column : actuel === column ? null : actuel,
+                      )
+                    }
+                  />
                 ) : null}
                 {column === 'running' ? <RepereAvancement avancement={avancementDeCesCartes(columnCards)} /> : null}
                 {column === 'to_deploy' || column === 'in_production' ? (
@@ -1278,7 +1307,16 @@ function maintenantEnChamp(): string {
   )}`;
 }
 
-function ComposerInline({ projectId, column }: { projectId: string; column: ColumnKey }) {
+function ComposerInline({
+  projectId,
+  column,
+  onOuvert,
+}: {
+  projectId: string;
+  column: ColumnKey;
+  /** Dit à la colonne quand sa fenêtre s'ouvre et quand elle se referme. */
+  onOuvert?: (ouvert: boolean) => void;
+}) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
@@ -1302,6 +1340,19 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+
+  /*
+   * La colonne doit savoir que sa fenêtre est ouverte : c'est elle, et non
+   * cette fenêtre, qui peut se relever au-dessus de la zone qui défile — le
+   * `z-index` posé ici resterait enfermé dans le plan d'empilement de l'entête.
+   * Le démontage la rabaisse, sinon un changement de projet la laisserait en
+   * l'air.
+   */
+  React.useEffect(() => {
+    onOuvert?.(open);
+    return () => onOuvert?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const upload = async (files: FileList | File[]) => {
@@ -1393,7 +1444,10 @@ function ComposerInline({ projectId, column }: { projectId: string; column: Colu
   }
 
   return (
-    <div className="absolute left-0 right-0 top-0 z-20 rounded-md border border-border bg-raised p-2 shadow-xl">
+    <div
+      className="absolute left-0 right-0 top-0 z-20 rounded-md border border-border bg-raised p-2 shadow-xl"
+      data-composer-ouvert={column}
+    >
       <Input
         autoFocus
         value={title}
