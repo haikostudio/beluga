@@ -54,7 +54,7 @@ import { creditCursor, etatDuCompteCursor } from './engines/cursor.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
-import { createAgent, sendPrompt, stopAgent, stopAllAgents, isRunning } from './runtime.js';
+import { createAgent, sendPrompt, stopAgent, arreterLAgent, stopAllAgents, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
@@ -747,7 +747,16 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       });
       if (!verdict.possible) throw new Error(verdict.raison ?? 'arrêt refusé');
 
-      const stopped = stopAgent(cmd.agentId);
+      /*
+       * L'ARRÊT RÉPOND TOUJOURS. Sans moteur en marche — préparation coincée,
+       * fermeture avalée par une panne, tour d'un démon d'avant — l'agent est
+       * refermé d'autorité au lieu de rester marqué « au travail » ; et dans
+       * tous les cas le geste DIT ce qu'il a fait, au lieu de glisser en
+       * silence.
+       */
+      const decision = arreterLAgent(cmd.agentId);
+      const stopped = decision.travaillait;
+      if (decision.geste !== 'coupe') bus.toast('info', decision.message, cmd.cardId);
 
       /*
        * L'arrêt coupe aussi ce qui attendait DERRIÈRE : les demandes en file
@@ -773,7 +782,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         bus.toast('warning', RAISON_ARRETE_A_LA_MAIN, arretee.id);
       }
 
-      return { stopped };
+      return { stopped, geste: decision.geste, message: decision.message };
     }
 
     case 'agents.stop-all': {

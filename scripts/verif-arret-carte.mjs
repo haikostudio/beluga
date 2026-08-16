@@ -359,6 +359,16 @@ async function main() {
 
   /* -------- 4. Le démon refuse, et le dit -------- */
 
+  /*
+   * L'état de B est relevé JUSTE AVANT le refus, et comparé juste après : le
+   * script fabrique des agents « au travail » sans aucun moteur derrière, et la
+   * veille du démon finit légitimement par les refermer au bout de quelques
+   * secondes. Ce qu'on juge ici, c'est que LE REFUS n'a rien touché — pas que
+   * le démon a laissé un agent fantôme tourner pour toujours.
+   */
+  const statutAvant = lireAgent(CARTES.B.agent)?.status;
+  const fileAvant = compterFile(CARTES.B.agent);
+
   const refus = await commande({ type: 'agent.stop', agentId: CARTES.B.agent, cardId: CARTES.C.id });
   noter('un arrêt visant l’agent d’une autre carte est REFUSÉ', refus.ok === false, String(refus.error ?? ''));
   noter(
@@ -366,8 +376,12 @@ async function main() {
     /ne travaille pas pour cette carte/i.test(refus.error ?? ''),
     refus.error ?? '(rien)',
   );
-  noter('la seconde tâche a survécu au refus', lireAgent(CARTES.B.agent)?.status === 'running');
-  noter('sa file aussi', compterFile(CARTES.B.agent) === 1);
+  noter(
+    'la seconde tâche a survécu au refus',
+    lireAgent(CARTES.B.agent)?.status === statutAvant,
+    `${statutAvant} → ${lireAgent(CARTES.B.agent)?.status}`,
+  );
+  noter('sa file aussi', compterFile(CARTES.B.agent) === fileAvant);
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 

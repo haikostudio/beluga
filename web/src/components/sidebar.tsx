@@ -20,6 +20,7 @@ import {
   Route,
   Search,
   Settings2,
+  Square,
   TriangleAlert,
   UploadCloud,
   Wrench,
@@ -852,6 +853,30 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                     </p>
                   </button>
                   {runningAgent ? <Dot tone="running" pulse /> : null}
+                  {/* L'ARRÊT SE FAIT ICI AUSSI. La pile ne portait qu'une croix
+                      qui MASQUE la vignette (« l'agent continue ») : pour
+                      couper un agent d'un autre projet, il fallait aller
+                      l'ouvrir. Le carré rouge, lui, arrête vraiment — y compris
+                      un agent bloqué depuis longtemps, que le démon referme
+                      alors d'autorité. */}
+                  {runningAgent ? (
+                    <button
+                      data-arret-agent-colonne
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        client
+                          .call({ type: 'agent.stop', agentId: agent.id, cardId: agent.cardId })
+                          .catch((err: any) => client.pushToast('error', err?.message ?? 'arrêt refusé'));
+                      }}
+                      // `z-10` : la croix voisine étend sa zone tactile de
+                      // 11 px vers la gauche et recouvrait ce bouton — le clic
+                      // destiné à l'arrêt masquait la vignette à la place.
+                      className="relative z-10 -m-[9px] flex shrink-0 items-center justify-center p-[9px] text-faint hover:text-danger"
+                      title="Arrêter cet agent"
+                    >
+                      <Square className="h-2.5 w-2.5 fill-current" />
+                    </button>
+                  ) : null}
                   <button
                     onClick={(event) => {
                       event.stopPropagation();
@@ -861,7 +886,9 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                         return next;
                       });
                     }}
-                    className="-m-[11px] flex shrink-0 items-center justify-center p-[11px] text-faint hover:text-text"
+                    // Sa zone tactile ne déborde plus vers la GAUCHE : elle y
+                    // recouvrait le carré d'arrêt posé à côté.
+                    className="-my-[11px] -mr-[11px] flex shrink-0 items-center justify-center p-[11px] text-faint hover:text-text"
                     title="Retirer la vignette (l'agent continue)"
                   >
                     <X className="h-2.5 w-2.5" />

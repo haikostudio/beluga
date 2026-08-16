@@ -92,7 +92,11 @@ import {
   statutDeFermetureForcee,
   tourBloque,
   ecritureOrpheline,
+  decisionDArret,
+  seDitAuTravail,
+  RAISON_ARRET_DE_SECOURS,
 } from '@haikodev/shared';
+import type { DecisionDArret } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
@@ -578,7 +582,13 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * préparation durait (lecture du projet, recherche de mémoire…) — un agent
    * pouvait donc retenir un redémarrage sans apparaître nulle part à l'écran.
    */
-  setStatus(agent, 'starting');
+  /*
+   * L'HEURE DE DÉPART EST CELLE DE CE TOUR-CI. Le statut passait à « starting »
+   * sans toucher `startedAt` : un agent réutilisé gardait l'heure de son tour
+   * précédent, et la pile d'agents affichait « 3 214 h » sur un tour parti à
+   * l'instant. La durée montrée est désormais toujours celle du travail réel.
+   */
+  setStatus(agent, 'starting', { startedAt: Date.now(), endedAt: undefined });
   demarrant.add(agentId);
   try {
     await preparerLeTour(agent, text, options);
@@ -2712,12 +2722,62 @@ function finaliserPropositionsDuChef(
   bus.emit({ type: 'message.upsert', message: updated });
 }
 
-export function stopAgent(agentId: string): boolean {
+/**
+ * ARRÊTER UN AGENT — ET QUE LE CLIC AIT TOUJOURS UN EFFET.
+ *
+ * Le geste ne savait faire qu'une chose : retrouver le tour vivant et couper
+ * son moteur. Sans tour vivant il rendait « faux » et n'allait pas plus loin :
+ * l'agent restait marqué « au travail », son compteur continuait de courir
+ * (parfois depuis des milliers d'heures, quand une préparation s'était coincée
+ * bien avant), et rien — ni arrêt, ni message — ne répondait au clic.
+ *
+ * La décision vit dans `shared` (`decisionDArret`). Ici on l'applique : couper
+ * le moteur quand il y en a un, refermer d'autorité sinon. Le tour de
+ * préparation est retiré des tours qui « démarrent » : sans cela, un agent
+ * pendu dans cette fenêtre restait considéré comme suivi, donc la veille ne le
+ * refermait jamais et il retenait même les redémarrages.
+ */
+export function arreterLAgent(agentId: string): DecisionDArret {
+  const agent = store.getAgent(agentId);
   const run = live.get(agentId);
-  if (!run) return false;
-  run.stopping = true;
-  run.handle.stop();
-  return true;
+  const decision = decisionDArret({
+    statut: agent?.status ?? 'idle',
+    tourVivant: !!run,
+    enPreparation: demarrant.has(agentId),
+  });
+
+  if (decision.geste === 'coupe' && run) {
+    run.stopping = true;
+    run.handle.stop();
+    return decision;
+  }
+
+  if (decision.geste === 'secours') {
+    demarrant.delete(agentId);
+    libererLesAttentes(agentId);
+    refermerLeTour(agentId, RAISON_ARRET_DE_SECOURS);
+    const frais = store.getAgent(agentId);
+    /*
+     * `refermerLeTour` range le tour selon ce qui a été rendu : sans réponse,
+     * il marque « en échec ». Or rien n'a échoué ici — c'est un arrêt DEMANDÉ,
+     * et il se dit « arrêté ». Seule une réponse déjà rendue (« terminé »)
+     * garde son statut.
+     */
+    if (frais && frais.status !== 'done') {
+      setStatus(frais, 'stopped', { endedAt: frais.endedAt ?? Date.now() });
+    }
+    void import('./demon.js').then((demon) => demon.appliquerRedemarrageEnAttente());
+  }
+
+  return decision;
+}
+
+/**
+ * L'ancien nom, gardé pour les appels qui ne veulent qu'un oui/non : l'arrêt
+ * a-t-il touché un agent qui travaillait ?
+ */
+export function stopAgent(agentId: string): boolean {
+  return arreterLAgent(agentId).travaillait;
 }
 
 /** Arrêter TOUS les agents en cours (running ou starting), sur tous les projets. */

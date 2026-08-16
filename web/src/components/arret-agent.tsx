@@ -49,7 +49,15 @@ export function useArretAgent({ agent, cardId }: { agent: Agent | null; cardId?:
   const arreter = React.useCallback(() => {
     if (!agent) return;
     client
-      .call({ type: 'agent.stop', agentId: agent.id, cardId })
+      .call<{ stopped?: boolean; geste?: string; message?: string }>({
+        type: 'agent.stop',
+        agentId: agent.id,
+        cardId,
+      })
+      // Ce que le démon a fait — moteur coupé, tour refermé d'autorité, ou
+      // rien à arrêter — est DIT par le démon lui-même, pour tous les chemins
+      // d'arrêt à la fois : un clic sans réponse visible, c'est ce qui faisait
+      // croire que le bouton ne marchait pas.
       .catch((err: any) => client.pushToast('error', err?.message ?? 'arrêt refusé', cardId));
   }, [agent, cardId]);
 
