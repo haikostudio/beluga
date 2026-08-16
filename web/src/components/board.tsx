@@ -504,7 +504,37 @@ export function Board({
 
   const [colonneActive, setColonneActive] = React.useState<ColumnKey | null>(null);
 
+  /*
+   * L'onglet lui-même est amené au CENTRE de sa barre défilante — même geste
+   * que le second temps d'`allerALaColonne`, extrait pour servir aussi au
+   * défilement du tableau et au chargement initial. Sur ordinateur la barre
+   * n'existe pas (`barreOnglets` reste vide) : rien ne bouge.
+   */
+  const centrerOngletDansLaBarre = React.useCallback((cle: ColumnKey, comportement: ScrollBehavior) => {
+    const barre = barreOnglets.current;
+    const onglet = barre?.querySelector<HTMLElement>(`[data-onglet-colonne="${cle}"]`);
+    if (!barre || !onglet) return;
+    const rectBarre = barre.getBoundingClientRect();
+    const rectOnglet = onglet.getBoundingClientRect();
+    const decalage =
+      rectOnglet.left + rectOnglet.width / 2 - (rectBarre.left + rectBarre.width / 2);
+    barre.scrollTo({ left: barre.scrollLeft + decalage, behavior: comportement });
+  }, []);
+
+  /*
+   * Tant que les cartes du projet n'sont pas arrivées, le tableau rend la
+   * SILHOUETTE (plus bas) : ni le rail ni la barre d'onglets n'existent
+   * encore dans la page, `rail.current` reste `null`. Les deux effets qui
+   * suivent doivent donc se RELANCER dès que ce chargement bascule — sinon,
+   * sur un projet fraîchement ouvert, ils s'exécutent une seule fois avec un
+   * rail introuvable et ne s'y raccrochent jamais, même une fois le tableau
+   * réellement affiché : leurs dépendances ne changent pas entre les deux
+   * rendus, React ne les rejoue donc pas de lui-même.
+   */
+  const tableauCharge = !!state.cartesChargees[projectId];
+
   React.useEffect(() => {
+    if (!tableauCharge) return;
     const memorisee = colonneAReprendre(readPref(cleColonneTableau(projectId), null));
     const voulue = memorisee ?? (window.innerWidth < 640 ? 'planned' : null);
     if (voulue) {
@@ -512,24 +542,33 @@ export function Board({
       if (cible) rail.current!.scrollLeft = cible.offsetLeft - 12;
     }
     // L'onglet actif part de la colonne réellement au bord après ce placement.
-    setColonneActive(colonneAuBord());
-  }, [projectId, colonneAuBord]);
+    const active = colonneAuBord();
+    setColonneActive(active);
+    if (active) centrerOngletDansLaBarre(active, 'auto');
+  }, [projectId, tableauCharge, colonneAuBord, centrerOngletDansLaBarre]);
 
   /*
    * Au défilement, l'onglet actif suit le doigt TOUT DE SUITE (sinon la mise en
-   * évidence traînerait). L'écriture en base, elle, attend une demi-seconde
-   * après l'arrêt du doigt : pendant un défilé, chaque pixel n'a pas à traverser
-   * le réseau.
+   * évidence traînerait), et se recentre dans sa barre dès qu'il change — sinon
+   * il reste collé au bord de la barre une fois le tableau parvenu tout à
+   * droite ou tout à gauche, comme au chargement. L'écriture en base, elle,
+   * attend une demi-seconde après l'arrêt du doigt : pendant un défilé, chaque
+   * pixel n'a pas à traverser le réseau.
    */
   React.useEffect(() => {
     const node = rail.current;
     if (!node) return;
     let timer = 0;
+    let derniereColonne: ColumnKey | null = null;
     const noter = () => {
-      setColonneActive(colonneAuBord());
+      const cle = colonneAuBord();
+      setColonneActive(cle);
+      if (cle && cle !== derniereColonne) {
+        derniereColonne = cle;
+        centrerOngletDansLaBarre(cle, 'smooth');
+      }
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        const cle = colonneAuBord();
         if (cle && readPref(cleColonneTableau(projectId), null) !== cle) {
           writePref(cleColonneTableau(projectId), cle);
         }
@@ -540,7 +579,7 @@ export function Board({
       window.clearTimeout(timer);
       node.removeEventListener('scroll', noter);
     };
-  }, [projectId, colonneAuBord]);
+  }, [projectId, tableauCharge, colonneAuBord, centrerOngletDansLaBarre]);
 
   /*
    * Un appui sur un onglet amène sa colonne au bord gauche, en douceur. Même
@@ -560,17 +599,9 @@ export function Board({
     const node = rail.current;
     const cible = node?.querySelector<HTMLElement>(`[data-column="${cle}"]`);
     if (node && cible) node.scrollTo({ left: cible.offsetLeft - 12, behavior: 'smooth' });
-    const barre = barreOnglets.current;
-    const onglet = barre?.querySelector<HTMLElement>(`[data-onglet-colonne="${cle}"]`);
-    if (barre && onglet) {
-      const rectBarre = barre.getBoundingClientRect();
-      const rectOnglet = onglet.getBoundingClientRect();
-      const decalage =
-        rectOnglet.left + rectOnglet.width / 2 - (rectBarre.left + rectBarre.width / 2);
-      barre.scrollTo({ left: barre.scrollLeft + decalage, behavior: 'smooth' });
-    }
+    centrerOngletDansLaBarre(cle, 'smooth');
     setColonneActive(cle);
-  }, []);
+  }, [centrerOngletDansLaBarre]);
 
   /*
    * Le déplacement se fait AU POINTEUR, jamais avec le glisser-déposer natif :
