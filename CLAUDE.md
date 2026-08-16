@@ -733,6 +733,24 @@ le nom, là-bas le texte).
   APRÈS la réponse — compression, mesure, relance de plan — porte un `plafondMs`, le tour lui-même
   jamais ; `sendPrompt` referme en `finally` ; et l'ordonnanceur referme d'autorité un agent que plus
   rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec.
+- **…ET LE TEMPS D'AVANT LE MOTEUR EST BORNÉ LUI AUSSI, sinon seul un redémarrage débloquait**
+  (`PLAFOND_PREPARATION_MS`, `PLAFOND_SILENCE_MOTEUR_MS`, `EtatDuTour.enPreparation` /
+  `silenceDepuisMs` / `attendUneReponse`, `shared/src/fin-de-tour.ts` ; `demarrant`, `direLeBlocage`,
+  `veilleDesToursBloques`, `server/src/runtime.ts`) : entre la demande et le lancement du moteur, le
+  démon choisit un compte, relève des quotas, cherche la mémoire et ouvre une copie de travail. Un
+  seul de ces appels resté pendu gelait l'agent POUR TOUJOURS — il était marqué « au travail » ET
+  compté comme SUIVI, donc aucun des trois constats ne le voyait (il est suivi, aucun moteur pour le
+  deuxième, aucune réponse pour le troisième). Les demandes suivantes s'empilaient alors dans sa file
+  (`sendPrompt` empile dès que `live.has`), la barre disait « votre message attendra son tour », et
+  l'utilisateur n'avait plus que le redémarrage du serveur. Deux plafonds ferment le cul-de-sac : la
+  PRÉPARATION (5 min) et le SILENCE d'un moteur pourtant vivant (60 min, jamais appliqué à un tour
+  arrêté sur `ask_user`, qui se tait pour une bonne raison). Chaque préparation porte désormais son
+  INSTANT et un JETON à usage unique : une préparation abandonnée qui se réveille constate que le
+  jeton n'est plus le sien et se retire sans rien toucher — sans quoi elle poserait son moteur sur un
+  agent déjà reparti de sa file, ou refermerait le tour de son remplaçant. Et la veille DIT la raison
+  dans la conversation (`direLeBlocage`) : un tour bloqué avant le moteur n'a écrit aucun message,
+  son silence était précisément le symptôme. Verrouillé par `server/src/test/fin-de-tour.test.ts` et
+  `server/src/test/tour-bloque-referme.test.ts`.
 - **Une PANNE PASSAGÈRE du fournisseur se retente, elle ne tue pas la tâche**
   (`shared/src/panne-passagere.ts`, `server/src/relance-moteur.ts`, branchée dans `startTurn`) :
   erreur 500 (« Internal server error », « Server error mid-response »), moteur surchargé, lien
