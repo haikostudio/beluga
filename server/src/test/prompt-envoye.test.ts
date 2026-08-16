@@ -91,6 +91,52 @@ test('la mention dit le nombre de passages, sinon la raison écrite par le démo
   assert.equal(avec, '2 passages retrouvés dans la documentation');
 });
 
+test('un lot peu convaincant le dit, sans faire disparaître les passages', () => {
+  const mention = mentionDesPassages(
+    tourEssai({
+      passages: [
+        { source: 'a.md', titre: 'A', score: 0.33, tokens: 10, texte: 'un' },
+        { source: 'b.md', titre: 'B', score: 0.31, tokens: 10, texte: 'deux' },
+      ],
+      passagesPertinents: false,
+    }),
+  );
+  assert.equal(mention, '2 passages retrouvés dans la documentation · rien de nettement pertinent trouvé');
+});
+
+test('un lot net ne porte aucune mention de pertinence en trop', () => {
+  const mention = mentionDesPassages(
+    tourEssai({
+      passages: [{ source: 'a.md', titre: 'A', score: 0.7, tokens: 10, texte: 'un' }],
+      passagesPertinents: true,
+    }),
+  );
+  assert.equal(mention, '1 passage retrouvé dans la documentation');
+});
+
+test('sans mesure de pertinence (contexte écrit avant cette règle), rien ne se dit', () => {
+  const mention = mentionDesPassages(
+    tourEssai({
+      passages: [{ source: 'a.md', titre: 'A', score: 0.7, tokens: 10, texte: 'un' }],
+    }),
+  );
+  assert.equal(mention, '1 passage retrouvé dans la documentation');
+});
+
+test('mode et pertinence se combinent dans une même mention', () => {
+  const mention = mentionDesPassages(
+    tourEssai({
+      passages: [{ source: 'a.md', titre: 'A', score: 0.33, tokens: 10, texte: 'un' }],
+      passagesMode: { sens: false, couverture: 0.53 },
+      passagesPertinents: false,
+    }),
+  );
+  assert.equal(
+    mention,
+    '1 passage retrouvé dans la documentation · par les MOTS · 53 % de la documentation préparée · rien de nettement pertinent trouvé',
+  );
+});
+
 test('la copie rend le texte réel, jamais un bloc vide ni un chiffre de jetons', () => {
   const texte = texteDuPromptEnvoye(tourEssai());
   assert.match(texte, /Claude Code — claude-sonnet-5/);
