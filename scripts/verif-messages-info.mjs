@@ -9,7 +9,9 @@
  * S'empilent-ils en liste, sans se remplacer ni se cacher ? La barre se
  * vide-t-elle avec le temps ? Chacun s'efface-t-il à dix secondes ? Le survol
  * gèle-t-il bien le compte à rebours, qui reprend ensuite là où il en était ?
- * Sur téléphone, la pile masque-t-elle l'en-tête ?
+ * Vider la pile EN SURVOLANT (croix cliquée sans écarter la souris) laisse-t-
+ * il repartir la pause pour les messages suivants ? Sur téléphone, la pile
+ * masque-t-elle l'en-tête ?
  *
  *   node scripts/verif-messages-info.mjs
  *
@@ -184,10 +186,37 @@ async function main() {
       await page.locator('[data-toast] button').first().click();
       await page.waitForTimeout(150);
     }
-    // Le clic laisse la souris posée sur la pile : sans ce geste, elle y
-    // reste et garde tout nouveau message en pause dès son apparition.
     await page.mouse.move(10, 10);
     await page.waitForTimeout(200);
+
+    /* ---------- Vider la pile EN SURVOLANT ne doit jamais bloquer la pause ---------- */
+    // La pile disparaît de l'écran dès qu'elle est vide : si le DERNIER
+    // message part pendant qu'on le survole (croix cliquée sans écarter la
+    // souris), aucun « la souris a quitté la pile » ne peut plus jamais
+    // arriver puisqu'il n'y a plus rien à quitter. La pause ne doit donc pas
+    // rester bloquée pour les messages suivants.
+    const texteAVider = 'Message unique, écarté en survolant (91bf42-vide)';
+    await page.evaluate((t) => window.haikodevEssai.message('info', t), texteAVider);
+    await page.waitForTimeout(300);
+    const toastAVider = page.locator('[data-toast]', { hasText: texteAVider });
+    await toastAVider.hover();
+    await page.waitForTimeout(200);
+    await toastAVider.locator('button').first().click();
+    await page.waitForTimeout(300);
+    // La souris n'a PAS bougé depuis : elle reste là où le message a disparu.
+    const texteApresVide = 'Message poussé juste après une pile vidée en survol (91bf42-suite)';
+    await page.evaluate((t) => window.haikodevEssai.message('info', t), texteApresVide);
+    await page.waitForTimeout(500);
+    let effaceMalgreVide = false;
+    for (let attente = 0; attente < 15000 && !effaceMalgreVide; attente += 500) {
+      await page.waitForTimeout(500);
+      const lu = await page.evaluate(LECTURE);
+      effaceMalgreVide = !lu?.messages.some((m) => m.texte.includes(texteApresVide));
+    }
+    noter('vider la pile en survolant ne fige pas la pause pour les messages suivants', effaceMalgreVide);
+    await page.mouse.move(10, 10);
+    await page.waitForTimeout(200);
+
     const texteSeul = 'Message qui doit disparaître seul (91bf42)';
     await page.evaluate((t) => window.haikodevEssai.message('info', t), texteSeul);
     await page.waitForTimeout(500);
