@@ -44,6 +44,7 @@ export * from './garde-demon.js';
 export * from './depart-programme.js';
 export * from './description-carte.js';
 export * from './dossier-de-carte.js';
+export * from './reparation-worktree.js';
 export * from './echec-construction.js';
 export * from './erreur-interface.js';
 export * from './echec-verification.js';

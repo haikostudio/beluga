@@ -19,14 +19,39 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Card, cheminDossierDeCarte, dossiersOrphelins, nomDeBranche } from '@haikodev/shared';
+import {
+  Card,
+  GesteDeReparation,
+  PanneDeDossier,
+  REPARATIONS_MAX,
+  cheminDossierDeCarte,
+  dossiersOrphelins,
+  nomDeBranche,
+  objetsCitesDansLErreur,
+  raisonApresReparations,
+  reconnaitrePanneDeDossier,
+} from '@haikodev/shared';
 import { log } from './logger.js';
 
 const execFileAsync = promisify(execFile);
 
+/*
+ * Git parle la langue de l'environnement. Or les pannes de dossier se
+ * reconnaissent à leur MESSAGE (`shared/src/reparation-worktree.ts`) : sous un
+ * serveur réglé en français, « une branche nommée … existe déjà » ne
+ * ressemblerait à aucun de nos motifs et la réparation ne partirait jamais. On
+ * force donc la langue neutre pour tout ce que le démon demande à git.
+ */
+const LANGUE_NEUTRE = { LC_ALL: 'C', LANG: 'C', LANGUAGE: 'C' };
+
 async function git(cwd: string, args: string[], timeout = 180000): Promise<{ ok: boolean; out: string }> {
   try {
-    const { stdout, stderr } = await execFileAsync('git', args, { cwd, timeout, maxBuffer: 8 * 1024 * 1024 });
+    const { stdout, stderr } = await execFileAsync('git', args, {
+      cwd,
+      timeout,
+      maxBuffer: 8 * 1024 * 1024,
+      env: { ...process.env, ...LANGUE_NEUTRE },
+    });
     return { ok: true, out: `${stdout}${stderr}`.trim() };
   } catch (err: any) {
     return { ok: false, out: `${err?.stdout ?? ''}${err?.stderr ?? ''}${err?.message ?? ''}`.trim().slice(-1500) };
@@ -211,55 +236,282 @@ async function ouvrirVraiment(racine: string, card: Card): Promise<DossierOuvert
   ecarterLeRangement(racine);
   await git(racine, ['worktree', 'prune'], 60000);
 
-  // Le dossier est déjà là : on le garde s'il est bien sur la branche de la
-  // carte (relance), on le retire sinon — un reste de tour précédent ne doit pas
-  // faire échouer le départ.
+  /*
+   * Le dossier est déjà là : on le garde s'il est bien sur la branche de la
+   * carte (relance), on le retire sinon — un reste de tour précédent ne doit
+   * pas faire échouer le départ.
+   *
+   * Un dossier qui ne dit plus SUR QUOI il est posé n'est pas forcément un
+   * reste : ses fichiers de service ont pu être coupés du dépôt (rangement de
+   * copies, dossier déplacé). On tente donc de le RECOLLER
+   * (`git worktree repair`) avant d'envisager de le retirer, et ce qui traîne
+   * dedans est enregistré d'office : on ne détruit jamais du travail pour
+   * réparer.
+   */
   if (fs.existsSync(dossier)) {
-    if ((await brancheCourante(dossier)) === branche) {
+    let posee = await brancheCourante(dossier);
+    if (posee !== branche) {
+      await git(racine, ['worktree', 'repair', dossier], 60000);
+      posee = await brancheCourante(dossier);
+    }
+    if (posee === branche) {
       relierLesLourds(racine, dossier);
       return { kind: 'pret', dossier, branche };
     }
+    await enregistrerLeTravailEnCours(dossier);
     await retirerLeDossier(racine, dossier);
   }
 
   const existe = await git(racine, ['rev-parse', '--verify', '--quiet', branche], 20000);
-  const depuis = await branchePrincipale(racine);
-  const neuve = !(existe.ok && existe.out.trim());
-  const args = neuve
-    ? ['worktree', 'add', '-b', branche, dossier, depuis]
-    : ['worktree', 'add', dossier, branche];
-  // La base ne se note QUE pour une branche qu'on crée : plus tard, la
-  // principale aura avancé et ne dirait plus d'où la carte est partie.
-  const base = neuve ? (await git(racine, ['rev-parse', depuis], 20000)).out.trim() || undefined : undefined;
+  const principale = await branchePrincipale(racine);
 
-  let ajout = await git(racine, args);
-  if (!ajout.ok && /already (checked out|used by worktree)/i.test(ajout.out)) {
-    /*
-     * Reste de l'ancien fonctionnement : la branche de la carte est encore
-     * sortie dans le dossier PRINCIPAL (`git checkout -B` d'avant). On rend le
-     * dossier principal à sa branche principale, à condition qu'il soit propre —
-     * jamais au prix du travail de quelqu'un.
-     */
-    const sale = await git(racine, ['status', '--porcelain'], 60000);
-    if (!sale.out.trim()) {
-      await git(racine, ['checkout', depuis], 60000);
-      ajout = await git(racine, args);
+  /*
+   * L'ÉTAT DE L'OUVERTURE, qui traverse les réparations. `depuis` et `neuve`
+   * bougent : une branche qu'on croyait à créer peut se révéler déjà là
+   * (« attacher-la-branche »), et un point de départ abîmé se remplace par
+   * celui du dépôt distant (« repartir-du-distant »).
+   */
+  const etat = { depuis: principale, neuve: !(existe.ok && existe.out.trim()) };
+  const argsDuTour = () =>
+    etat.neuve
+      ? ['worktree', 'add', '-b', branche, dossier, etat.depuis]
+      : ['worktree', 'add', dossier, branche];
+
+  let ajout = await git(racine, argsDuTour());
+
+  /*
+   * L'OUVERTURE SE RÉPARE ELLE-MÊME AVANT D'ABANDONNER. La carte s'arrêtait
+   * jusqu'ici sur le message brut de git, et il fallait qu'un humain le
+   * repère à l'écran puis demande la réparation à la main (constaté sur le
+   * projet Rezideo). Chaque panne connue porte ses gestes
+   * (`reconnaitrePanneDeDossier`) : on les applique, on retente, et on
+   * s'arrête dès que plus rien n'est reconnu ou que plus aucun geste ne prend.
+   */
+  const gestesTentes: string[] = [];
+  let derniere: PanneDeDossier | null = null;
+  for (let essai = 0; !ajout.ok && essai < REPARATIONS_MAX; essai++) {
+    const panne = reconnaitrePanneDeDossier(ajout.out);
+    if (!panne) break;
+    derniere = panne;
+    const faits: string[] = [];
+    for (const geste of panne.gestes) {
+      if (await appliquerLeGeste(geste, { racine, dossier, branche, erreur: ajout.out, etat })) {
+        faits.push(geste);
+      }
     }
+    if (!faits.length) break;
+    gestesTentes.push(...faits);
+    log.warn(
+      `dossier de carte (${dossier}) : panne « ${panne.panne} » reconnue, réparation tentée (${faits.join(', ')})`,
+    );
+    ajout = await git(racine, argsDuTour());
   }
+
   if (!ajout.ok) {
-    return {
-      kind: 'echec',
-      raison: `Dossier de travail impossible à ouvrir pour cette carte (git worktree) : ${ajout.out.slice(-300)}`,
-    };
+    return { kind: 'echec', raison: raisonApresReparations(ajout.out, derniere, gestesTentes) };
   }
+  if (gestesTentes.length) {
+    log.info(`dossier de carte ouvert après réparation (${dossier}) : ${gestesTentes.join(', ')}`);
+  }
+
+  // La base ne se note QUE pour une branche qu'on vient de créer : plus tard,
+  // la principale aura avancé et ne dirait plus d'où la carte est partie.
+  const base = etat.neuve ? (await git(racine, ['rev-parse', branche], 20000)).out.trim() || undefined : undefined;
 
   relierLesLourds(racine, dossier);
   return { kind: 'pret', dossier, branche, base };
 }
 
+/** Ce dont un geste de réparation a besoin pour agir sur ce dépôt-là. */
+interface ContexteDeReparation {
+  racine: string;
+  dossier: string;
+  branche: string;
+  /** Le message d'erreur de git : il NOMME souvent le fichier à réparer. */
+  erreur: string;
+  etat: { depuis: string; neuve: boolean };
+}
+
+/**
+ * Un verrou (`index.lock`) laissé par un git tué net bloque tout le dépôt. Mais
+ * un verrou FRAIS appartient peut-être à un git qui travaille en ce moment —
+ * une publication, un autre agent : on ne retire que ce qui dort depuis une
+ * minute.
+ */
+const VERROU_PERIME_MS = 60000;
+
+async function appliquerLeGeste(geste: GesteDeReparation, ctx: ContexteDeReparation): Promise<boolean> {
+  const { racine, dossier, branche, erreur, etat } = ctx;
+  switch (geste) {
+    case 'ranger-les-copies':
+      return (await git(racine, ['worktree', 'prune'], 60000)).ok;
+
+    case 'reparer-les-copies':
+      return (await git(racine, ['worktree', 'repair'], 60000)).ok;
+
+    case 'deverrouiller-la-copie': {
+      const leve = await git(racine, ['worktree', 'unlock', dossier], 30000);
+      await git(racine, ['worktree', 'prune'], 60000);
+      return leve.ok;
+    }
+
+    case 'retirer-le-dossier': {
+      if (!fs.existsSync(dossier)) return false;
+      // Rien ne se perd : ce qui traîne part sur la branche avant le retrait.
+      await enregistrerLeTravailEnCours(dossier);
+      return retirerLeDossier(racine, dossier);
+    }
+
+    case 'liberer-la-branche':
+      return libererLaBranche(racine, branche, etat.depuis);
+
+    case 'retirer-le-verrou':
+      return retirerLesVerrous(racine, erreur);
+
+    case 'recuperer-les-objets':
+      return recupererLesObjets(racine, erreur);
+
+    case 'attacher-la-branche': {
+      // La branche existe : on la REPREND. Jamais on ne l'efface — c'est
+      // peut-être tout le travail d'un tour précédent de cette carte.
+      if (!etat.neuve) return false;
+      etat.neuve = false;
+      return true;
+    }
+
+    case 'repartir-du-distant': {
+      if (!etat.neuve) return false;
+      const distant = `origin/${etat.depuis.replace(/^origin\//, '')}`;
+      if (etat.depuis === distant) return false;
+      const existe = await git(racine, ['rev-parse', '--verify', '--quiet', distant], 20000);
+      if (!(existe.ok && existe.out.trim())) return false;
+      etat.depuis = distant;
+      return true;
+    }
+
+    default:
+      return false;
+  }
+}
+
+/**
+ * Qui détient la branche de la carte ? `git worktree list` le dit. Deux cas :
+ * une autre copie de carte la tient encore (on l'enregistre puis on la retire),
+ * ou c'est le dossier PRINCIPAL — reste de l'ancien fonctionnement par
+ * `git checkout -B` — qu'on rend à sa branche principale, à condition qu'il
+ * soit propre : jamais au prix du travail de quelqu'un.
+ */
+async function libererLaBranche(racine: string, branche: string, principale: string): Promise<boolean> {
+  const liste = await git(racine, ['worktree', 'list', '--porcelain'], 30000);
+  if (!liste.ok) return false;
+
+  let courant = '';
+  let detenteur = '';
+  for (const ligne of liste.out.split('\n')) {
+    if (ligne.startsWith('worktree ')) courant = ligne.slice('worktree '.length).trim();
+    if (ligne.trim() === `branch refs/heads/${branche}`) detenteur = courant;
+  }
+  if (!detenteur) return false;
+
+  if (path.resolve(detenteur) === path.resolve(racine)) {
+    const sale = await git(racine, ['status', '--porcelain'], 60000);
+    if (sale.out.trim()) return false;
+    return (await git(racine, ['checkout', principale], 60000)).ok;
+  }
+
+  await enregistrerLeTravailEnCours(detenteur);
+  await git(racine, ['worktree', 'unlock', detenteur], 30000);
+  return retirerLeDossier(racine, detenteur);
+}
+
+/**
+ * Les fichiers de verrou oubliés : celui que git NOMME dans son erreur, et les
+ * verrous connus du dépôt et de ses copies. Un verrou encore frais est laissé
+ * en place — il appartient sans doute à un git qui travaille.
+ */
+async function retirerLesVerrous(racine: string, erreur: string): Promise<boolean> {
+  const commun = await git(racine, ['rev-parse', '--git-common-dir'], 20000);
+  const dossierGit = commun.ok && commun.out.trim() ? path.resolve(racine, commun.out.trim()) : path.join(racine, '.git');
+
+  const candidats = new Set<string>();
+  for (const m of (erreur ?? '').matchAll(/'([^']+\.lock)'/g)) candidats.add(path.resolve(racine, m[1]));
+  for (const nom of ['index.lock', 'HEAD.lock', 'config.lock', 'packed-refs.lock']) {
+    candidats.add(path.join(dossierGit, nom));
+  }
+  try {
+    const copies = path.join(dossierGit, 'worktrees');
+    if (fs.existsSync(copies)) {
+      for (const entree of fs.readdirSync(copies)) candidats.add(path.join(copies, entree, 'index.lock'));
+    }
+  } catch {
+    /* le dossier des copies n'est pas lisible : les verrous connus suffiront */
+  }
+
+  let retire = false;
+  for (const chemin of candidats) {
+    try {
+      const etat = fs.statSync(chemin);
+      if (Date.now() - etat.mtimeMs < VERROU_PERIME_MS) continue;
+      fs.rmSync(chemin, { force: true });
+      log.warn(`verrou git oublié retiré : ${chemin}`);
+      retire = true;
+    } catch {
+      /* absent ou déjà retiré */
+    }
+  }
+  return retire;
+}
+
+/**
+ * Un objet VIDE (fichier de zéro octet dans `.git/objects`) fait tomber tout ce
+ * qui lit le dépôt. Il se répare en l'effaçant puis en le redemandant au dépôt
+ * distant : git le retéléchargera comme un objet manquant. On n'efface QUE des
+ * fichiers vides, et QUE ceux que git a nommés dans son erreur — jamais un
+ * objet qui porte quelque chose.
+ */
+async function recupererLesObjets(racine: string, erreur: string): Promise<boolean> {
+  const commun = await git(racine, ['rev-parse', '--git-common-dir'], 20000);
+  const dossierGit = commun.ok && commun.out.trim() ? path.resolve(racine, commun.out.trim()) : path.join(racine, '.git');
+
+  let efface = false;
+  for (const relatif of objetsCitesDansLErreur(erreur)) {
+    const chemin = relatif.includes('.git/') ? path.resolve(racine, relatif) : path.join(dossierGit, relatif);
+    try {
+      if (fs.statSync(chemin).size !== 0) continue;
+      fs.rmSync(chemin, { force: true });
+      log.warn(`objet git vide retiré : ${chemin}`);
+      efface = true;
+    } catch {
+      /* absent, ou pas lisible : le fetch tentera sa chance */
+    }
+  }
+
+  const distants = await git(racine, ['remote'], 20000);
+  if (distants.ok && distants.out.trim().split('\n').some((n) => n.trim() === 'origin')) {
+    /*
+     * `--refetch` redemande TOUT au lieu de négocier ce qui manque : c'est le
+     * seul moyen de récupérer un objet que le dépôt croit déjà avoir, puisque
+     * la négociation part des références et non du contenu des fichiers.
+     * L'option date de git 2.41 ; sans elle, on retombe sur un fetch ordinaire.
+     */
+    const recup = await git(racine, ['fetch', '--refetch', '--prune', '--quiet', 'origin'], 300000);
+    if (recup.ok) return true;
+    const simple = await git(racine, ['fetch', '--prune', '--quiet', 'origin'], 300000);
+    if (simple.ok) return true;
+  }
+  return efface;
+}
+
 async function retirerLeDossier(racine: string, dossier: string): Promise<boolean> {
   await git(racine, ['worktree', 'remove', dossier], 120000);
   if (fs.existsSync(dossier)) await git(racine, ['worktree', 'remove', '--force', dossier], 120000);
+  /*
+   * Une copie VERROUILLÉE — ou dont le dossier a disparu sans que git l'oublie —
+   * ne cède qu'au double `--force`. Sans cette troisième tentative, elle gardait
+   * la branche de la carte pour toujours et le lancement suivant échouait à
+   * nouveau, réparation comprise.
+   */
+  await git(racine, ['worktree', 'remove', '--force', '--force', dossier], 120000);
   if (fs.existsSync(dossier)) {
     try {
       fs.rmSync(dossier, { recursive: true, force: true });
