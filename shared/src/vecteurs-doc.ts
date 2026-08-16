@@ -254,21 +254,25 @@ export type TerrainDeRecherche = 'lancement' | 'conversation';
  * change, et la vérité de terrain est objective — les fichiers que le travail a
  * réellement modifiés, lus dans git.
  *
- * AU LANCEMENT D'UNE CARTE, sur 120 cartes réelles : 66 % de pertinence par le
- * sens contre 66 % par les mots, cinq cartes gagnées de chaque côté, 36 échecs
- * communs. Le sens change pourtant la MOITIÉ des passages remontés — il travaille
- * beaucoup pour ne rien améliorer. Une demande de carte est écrite avec les mots
- * du projet : les mots exacts y suffisent, et ce sont eux qui retrouvent un
- * fichier qu'on NOMME.
+ * AU LANCEMENT D'UNE CARTE, sur 120 cartes réelles et DEUX relevés indépendants :
+ * 66 % de pertinence par le sens contre 66 % par les mots, puis 67 % contre 67 %
+ * — cinq cartes gagnées de chaque côté les deux fois. Le sens change pourtant la
+ * MOITIÉ des passages remontés : il travaille beaucoup pour ne rien améliorer.
+ * Une demande de carte est écrite avec les mots du projet, et ce sont les mots
+ * exacts qui retrouvent un fichier qu'on NOMME.
  *
  * EN CONVERSATION, le terrain s'inverse : la question est tapée comme on parle,
- * elle ne partage plus le vocabulaire de la documentation, et c'est là que le
- * modèle de sens gagne.
+ * elle ne partage plus le vocabulaire de la documentation. Sur 55 vrais messages
+ * d'utilisateur, aux bornes dures du tour de suite, le sens passe devant sur les
+ * deux vérités (27 % contre 25 %, et 25 % contre 20 % en stricte). L'écart est
+ * mince et ne suffirait pas seul ; il ne perd nulle part, et
+ * `scripts/verif-recherche-par-le-sens.mjs` montre sur la vraie base ce que ce
+ * relevé ne voit pas — une question REFORMULÉE retrouve sa règle.
  *
  * Le moteur local, la vectorisation de fond et la conservation des vecteurs
  * restent donc EN PLACE : ils servent la conversation. Rien n'est démonté — on
- * cesse seulement de payer 189 ms de vectorisation au lancement d'une carte pour
- * un gain nul.
+ * cesse seulement de payer la vectorisation de la question au lancement d'une
+ * carte (130 à 190 ms selon la charge) pour un gain nul.
  */
 export const SENS_PAR_TERRAIN: Record<TerrainDeRecherche, boolean> = {
   lancement: false,

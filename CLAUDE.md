@@ -214,6 +214,29 @@ publié), point d'essai `window.haikodevEssai` gardé par `import.meta.env.MODE 
   que le repli sur l'index ne peut plus se déclencher en mode sens. La recherche coûte enfin ~2,1 s
   par demande, dont 0,9 s à noter les 5 143 passages et ~1 s à les relire. Le relevé travaille sur
   une COPIE de la base du démon et ne pose aucun seuil : il mesure, il ne fait échouer personne.
+- **…D'OÙ DEUX TERRAINS ET DEUX RÉGLAGES : les MOTS EXACTS au LANCEMENT d'une carte, le SENS en
+  CONVERSATION** (`TerrainDeRecherche`, `SENS_PAR_TERRAIN`, `sensUtileSur`, `RAISON_TERRAIN_SANS_SENS`,
+  `shared/src/vecteurs-doc.ts` ; quatrième argument de `classerPourLaQuestion`,
+  `server/src/passages.ts`). Ce ne sont pas deux moments du même travail, ce sont deux populations de
+  QUESTIONS. La demande d'une carte est un titre et une description RÉDIGÉS, déjà pleins du
+  vocabulaire du projet, qui nomment souvent le fichier à toucher : mesuré sur 120 cartes réelles,
+  DEUX relevés indépendants donnent la même égalité (**66 % contre 66 %**, puis **67 % contre 67 %**)
+  — cinq cartes gagnées de chaque côté à chaque fois — alors que le sens change la MOITIÉ des
+  passages remontés. Un message de conversation, lui, est TAPÉ comme on parle et ne partage plus ce
+  vocabulaire : sur 55 vrais messages, le sens passe devant sur les deux vérités (**27 % contre
+  25 %**, et **25 % contre 20 %** en vérité stricte) — un écart mince, que `verif-recherche-par-le-
+  sens.mjs` appuie sur la vraie base en montrant qu'une question REFORMULÉE retrouve sa règle. Le
+  mode se décide donc au TERRAIN, avant la couverture — et la question n'est même plus vectorisée au
+  lancement (130 à 190 ms de moins par carte). **RIEN N'EST DÉMONTÉ** : le moteur local, la vectorisation de fond et la
+  conservation des vecteurs restent en place, ils servent la conversation. DEUX effets à connaître :
+  le REPLI SUR L'INDEX redevient possible au lancement (par les mots, une demande sans rapport ne
+  passe plus le seuil — il était mort en mode sens, où 88 % du corpus le franchissait), et la bulle
+  ne doit PAS lire ce choix comme la panne d'hier — d'où le drapeau `choisi`
+  (`SentContextSnapshot.passagesMode.choisi`, `mentionDuModeDeRecherche`), qui écrit « par les mots
+  exacts · le réglage de ce terrain » au lieu de « par les MOTS · 96 % de la documentation
+  préparée ». Verrouillé par `server/src/test/vecteurs-doc.test.ts`,
+  `scripts/verif-recherche-passages.mjs` (corpus fabriqué) et `scripts/verif-recherche-par-le-sens.mjs`
+  (vraie base).
 - **Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`** : un mode d'emploi court par geste
   qui se rejoue (ajouter un outil, une colonne, un écran, un contrôle, une règle durable), indexé en
   priorité haute par la recherche.
