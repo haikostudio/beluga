@@ -105,7 +105,6 @@ function FilesTab({ projectId }: { projectId: string }) {
   const [filter, setFilter] = React.useState('');
   const [selection, setSelection] = React.useState<Set<string>>(new Set());
   const [preview, setPreview] = React.useState<{ path: string; data: any } | null>(null);
-  const [busy, setBusy] = React.useState(false);
 
   const nodes = state.files[`${projectId}:${path}`] ?? [];
 
@@ -128,32 +127,29 @@ function FilesTab({ projectId }: { projectId: string }) {
       setPath(node.path);
       return;
     }
-    setBusy(true);
-    try {
-      const response = await fetch(
-        `/api/file?project=${encodeURIComponent(projectId)}&path=${encodeURIComponent(node.path)}`,
-      );
-      setPreview({ path: node.path, data: await response.json() });
-    } finally {
-      setBusy(false);
-    }
+    const response = await fetch(
+      `/api/file?project=${encodeURIComponent(projectId)}&path=${encodeURIComponent(node.path)}`,
+    );
+    setPreview({ path: node.path, data: await response.json() });
   };
 
   const downloadSelection = async () => {
     const paths = selection.size ? [...selection] : path ? [path] : ['.'];
-    setBusy(true);
-    try {
-      const response = await fetch('/api/zip', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ projectId, paths, label: 'fichiers' }),
-      });
-      const data = await response.json();
-      if (data.token) window.location.href = `/api/download?token=${encodeURIComponent(data.token)}`;
-      else client.pushToast('error', data.error ?? 'archive impossible');
-    } finally {
-      setBusy(false);
+    /* Le bouton porte lui-même son attente : il ne reste ici qu'à dire un
+       refus — et à le RELANCER, sinon la coche s'afficherait sur une archive
+       qui n'est jamais partie. */
+    const response = await fetch('/api/zip', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectId, paths, label: 'fichiers' }),
+    });
+    const data = await response.json();
+    if (!data.token) {
+      const raison = data.error ?? 'archive impossible';
+      client.pushToast('error', raison);
+      throw new Error(raison);
     }
+    window.location.href = `/api/download?token=${encodeURIComponent(data.token)}`;
   };
 
   return (
@@ -178,8 +174,8 @@ function FilesTab({ projectId }: { projectId: string }) {
           />
         </div>
         <Tooltip label={selection.size ? `Télécharger ${selection.size} élément(s)` : 'Télécharger ce dossier'}>
-          <Button variant="ghost" size="icon-sm" onClick={downloadSelection} disabled={busy}>
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+          <Button variant="ghost" size="icon-sm" onClick={downloadSelection}>
+            <Download className="h-3 w-3" />
           </Button>
         </Tooltip>
       </div>

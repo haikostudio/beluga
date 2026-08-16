@@ -12,6 +12,8 @@ import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
 import { Check, Loader2, X } from 'lucide-react';
 import {
   DUREE_REUSSITE_MS,
+  EVENEMENT_ATTENTE_LONGUE,
+  SEUIL_LONGUE_ATTENTE_MS,
   boutonOccupe,
   estUneRequete,
   etatApresIssue,
@@ -66,6 +68,18 @@ export interface ButtonProps
 }
 
 /**
+ * Le TEXTE d'un bouton, pour le nommer dans un message : on ne garde que les
+ * morceaux qui sont vraiment du texte — une icône n'a rien à dire.
+ */
+function libelleDuBouton(children: React.ReactNode): string {
+  const morceaux: string[] = [];
+  React.Children.forEach(children, (enfant) => {
+    if (typeof enfant === 'string' || typeof enfant === 'number') morceaux.push(String(enfant));
+  });
+  return morceaux.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
  * UN CLIC SE VOIT TOUT DE SUITE.
  *
  * Quand le gestionnaire de clic rend une REQUÊTE (tout objet muni d'un `then`),
@@ -103,6 +117,23 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       }, DUREE_REUSSITE_MS);
       return () => window.clearTimeout(t);
     }, [etat]);
+    /*
+     * UNE ATTENTE QUI DURE SE DIT. Passé dix secondes, une roue qui tourne
+     * n'apprend plus rien : on ne sait plus si ça travaille ou si c'est bloqué.
+     * Le bouton ne connaît pas les messages passagers — il annonce l'attente à
+     * la PAGE, et c'est l'application qui la met en mots (un seul mot par
+     * attente : le minuteur meurt avec l'état).
+     */
+    React.useEffect(() => {
+      if (etat !== 'en-cours') return;
+      const t = window.setTimeout(() => {
+        if (!monte.current) return;
+        window.dispatchEvent(
+          new CustomEvent(EVENEMENT_ATTENTE_LONGUE, { detail: { geste: libelleDuBouton(children) } }),
+        );
+      }, SEUIL_LONGUE_ATTENTE_MS);
+      return () => window.clearTimeout(t);
+    }, [etat, children]);
 
     const suivi = asChild || sansAttente ? undefined : etat;
     const occupe = suivi ? boutonOccupe(suivi) : false;

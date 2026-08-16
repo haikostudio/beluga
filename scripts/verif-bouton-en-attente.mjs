@@ -295,6 +295,28 @@ async function main() {
   await page.locator(`article:has-text(${JSON.stringify(CARTE.titre)})`).first().click();
   await page.waitForTimeout(2500);
 
+  /* -------- 0 : l'onglet qui va CHERCHER ses données le dit -------- */
+
+  await page.evaluate(() => {
+    const vus = [];
+    window.__ongletsCharges = vus;
+    const relever = () => {
+      if (document.querySelector('[data-onglet-charge]')) vus.push(1);
+    };
+    relever();
+    new MutationObserver(relever).observe(document.body, { subtree: true, childList: true, attributes: true });
+  });
+  await page.getByRole('tab', { name: /Détails/ }).first().click();
+  await page.waitForTimeout(2000);
+  noter(
+    'l’onglet « Détails » montre sa roue le temps d’aller chercher son parcours',
+    await page.evaluate(() => (window.__ongletsCharges ?? []).length > 0),
+  );
+  noter(
+    'une fois chargé, la roue de l’onglet s’éteint',
+    (await page.locator('[data-onglet-charge]').count()) === 0,
+  );
+
   const bouton = page.getByRole('button', { name: 'Terminer la tâche' });
   noter('le tiroir montre « Terminer la tâche »', (await bouton.count()) === 1);
   noter('au repos, le bouton ne porte aucun repère d’attente', (await bouton.first().getAttribute('data-attente')) === null);
@@ -344,6 +366,31 @@ async function main() {
     etatsApres[etatsApres.length - 1] === 'repos',
     etatsApres.join(' → '),
   );
+
+  /* -------- Une attente qui DURE se dit -------- */
+
+  /*
+   * Le démon est GELÉ (SIGSTOP) : la liaison reste ouverte, la requête part et
+   * n'obtient aucune réponse. Au bout de dix secondes, le bouton doit prévenir
+   * — un message d'INFORMATION, sans conclure à la panne. Puis on le réveille.
+   */
+  demon.kill('SIGSTOP');
+  await page.getByRole('button', { name: 'Dès que possible' }).first().click();
+  await page.waitForTimeout(13000);
+  const messages = await page.locator('[data-toast-texte]').allInnerTexts();
+  noter(
+    'passé dix secondes, l’attente se DIT au lieu de tourner en silence',
+    messages.some((texte) => /prend plus de temps que prévu/.test(texte)),
+    messages.join(' | ') || '(aucun message)',
+  );
+  noter(
+    'et ce message ne conclut ni à la panne ni à la réussite',
+    !messages.some((texte) => /panne|erreur|échec/i.test(texte)),
+    messages.join(' | ') || '(aucun message)',
+  );
+  await page.screenshot({ path: path.join(TMP, 'attente-longue.png') });
+  demon.kill('SIGCONT');
+  await page.waitForTimeout(2500);
 
   /* -------- 5 : un refus ne ment pas -------- */
 

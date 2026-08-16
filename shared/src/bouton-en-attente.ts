@@ -34,6 +34,26 @@ export type IssueDeRequete = 'reussite' | 'echec';
 export const DUREE_REUSSITE_MS = 1400;
 
 /**
+ * Au-delà de ce délai, une roue qui tourne ne rassure plus : elle inquiète. On
+ * DIT alors que la demande est partie et qu'elle prend son temps, au lieu de
+ * laisser deviner entre « ça travaille » et « c'est bloqué ».
+ */
+export const SEUIL_LONGUE_ATTENTE_MS = 10_000;
+
+/** L'événement de page qui porte cet avertissement jusqu'aux messages passagers. */
+export const EVENEMENT_ATTENTE_LONGUE = 'haikodev:attente-longue';
+
+/**
+ * Le mot dit au bout de dix secondes. Il ne conclut RIEN — ni panne, ni
+ * réussite : la requête est partie, elle n'a pas encore répondu. Le nom du
+ * geste, quand on le connaît, remplace « la demande ».
+ */
+export function motDAttenteLongue(geste?: string): string {
+  const quoi = geste?.trim() ? `« ${geste.trim()} »` : 'La demande';
+  return `${quoi} prend plus de temps que prévu — la demande est bien partie, elle attend encore la réponse du serveur.`;
+}
+
+/**
  * Un bouton en cours de requête n'accepte plus de clic. C'est le seul état qui
  * ferme le bouton : une réussite affichée reste cliquable, sans quoi un geste
  * qu'on veut refaire attendrait la fin de l'animation.

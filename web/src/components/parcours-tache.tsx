@@ -3,6 +3,7 @@ import { Check, ChevronDown, Loader2, Circle } from 'lucide-react';
 import type { EtapeParcours } from '@haikodev/shared';
 import { chronologieContexteEnvoye } from '@haikodev/shared';
 import { client } from '@/lib/client';
+import { useChargementOnglet } from '@/lib/chargement-onglet';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, money } from '@/lib/utils';
 import { LecteurPrompt } from '@/components/lecteur-prompt';
@@ -74,11 +75,17 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
   const [quota, setQuota] = React.useState<QuotaParcours | null>(null);
   const state = useApp();
 
+  /* Tant que le parcours n'est pas arrivé, l'onglet « Détails » le DIT : sans
+     ce mot, on ne sait pas si la carte n'a rien à montrer ou si ça charge. */
+  const [charge, setCharge] = React.useState(true);
+  useChargementOnglet('details', charge);
+
   React.useEffect(() => {
     let vivant = true;
     setEtapes(null);
     setTotal(null);
     setQuota(null);
+    setCharge(true);
     client
       .call({ type: 'card.parcours', cardId })
       .then((data) => {
@@ -87,7 +94,10 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
         setTotal(data.total ?? null);
         setQuota(data.quota ?? null);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (vivant) setCharge(false);
+      });
     return () => {
       vivant = false;
     };

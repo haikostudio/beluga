@@ -21,7 +21,9 @@ import {
   SystemProcess,
   CLE_PROJET_ACTIF,
   DUREE_MESSAGE_MS,
+  EVENEMENT_ATTENTE_LONGUE,
   RAISON_SANS_REPONSE,
+  motDAttenteLongue,
   alerteServeurInjoignable,
   choisirProjetAOuvrir,
   projetsADecharger,
@@ -802,6 +804,20 @@ class Client {
 }
 
 export const client = new Client();
+
+/*
+ * UNE ATTENTE QUI DURE SE DIT. Passé dix secondes, un bouton qui tourne annonce
+ * son attente à la PAGE (`EVENEMENT_ATTENTE_LONGUE`) : le socle visuel ne
+ * connaît pas les messages passagers, et n'a pas à les connaître. C'est ici
+ * qu'on met cette attente en mots — un message d'INFORMATION, jamais une
+ * alerte : rien n'est en panne, la réponse n'est simplement pas encore là.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener(EVENEMENT_ATTENTE_LONGUE, (evenement) => {
+    const geste = (evenement as CustomEvent<{ geste?: string }>).detail?.geste;
+    client.pushToast('info', motDAttenteLongue(geste));
+  });
+}
 
 /*
   En DÉVELOPPEMENT seulement, un message court peut être provoqué depuis la
