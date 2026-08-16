@@ -1213,7 +1213,7 @@ function RepereRobot({
       <Tooltip label={libelle}>
         <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
           <Loader2 className="h-[15px] w-[15px] shrink-0 animate-spin text-en-cours motion-reduce:animate-none" />
-          {running > 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
+          {running >= 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
         </span>
       </Tooltip>
     );
