@@ -1027,6 +1027,7 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
             sens: recherche.mode.vecteurs,
             couverture: Math.min(1, Math.max(0, recherche.mode.couverture)),
             raison: recherche.mode.raison,
+            choisi: recherche.mode.choisi,
           }
         : undefined,
     },
