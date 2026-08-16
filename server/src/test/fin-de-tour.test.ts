@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import {
   DELAI_AVANT_PROCESSUS_DISPARU_MS,
   PLAFOND_FERMETURE_MS,
+  PLAFOND_PREPARATION_MS,
+  PLAFOND_SILENCE_MOTEUR_MS,
   statutDeFermetureForcee,
   tourBloque,
 } from '@haikodev/shared';
@@ -63,6 +65,84 @@ test('une réponse rendue depuis trop longtemps referme le tour', () => {
     tourBloque({ ...commun, reponseFigeeDepuisMs: PLAFOND_FERMETURE_MS + 60_000 })?.raison ?? '',
     /réponse était rendue/,
   );
+});
+
+/* ------------------------------------------------------------------ */
+/* La PRÉPARATION : le cul-de-sac qui obligeait à redémarrer le serveur */
+/* ------------------------------------------------------------------ */
+
+test('une préparation ordinaire n’est pas jugée bloquée', () => {
+  const verdict = tourBloque({
+    statut: 'starting',
+    suivi: true,
+    enPreparation: true,
+    partiDepuisMs: 20_000,
+  });
+  assert.equal(verdict, null);
+});
+
+test('une préparation qui ne finit jamais est refermée à son plafond', () => {
+  const commun = { statut: 'starting' as const, suivi: true, enPreparation: true };
+  assert.equal(
+    tourBloque({ ...commun, partiDepuisMs: PLAFOND_PREPARATION_MS - 1 }),
+    null,
+    'sous le plafond, on laisse préparer',
+  );
+  assert.match(
+    tourBloque({ ...commun, partiDepuisMs: PLAFOND_PREPARATION_MS + 1 })?.raison ?? '',
+    /préparation/,
+  );
+});
+
+test('une préparation trop longue est refermée même sans aucun moteur connu', () => {
+  // Le cas réel : aucun processus n'a été lancé, donc `processusVivant` ne dit
+  // rien, et aucune réponse n'a été figée. Avant ce plafond, RIEN ne le voyait.
+  const verdict = tourBloque({
+    statut: 'starting',
+    suivi: true,
+    enPreparation: true,
+    processusVivant: undefined,
+    reponseFigeeDepuisMs: undefined,
+    partiDepuisMs: 3 * 3_600_000,
+  });
+  assert.ok(verdict, 'un agent ne reste plus bloqué jusqu’au redémarrage');
+});
+
+/* ------------------------------------------------------------------ */
+/* Le SILENCE d'un moteur pourtant vivant                              */
+/* ------------------------------------------------------------------ */
+
+test('un moteur qui parle encore n’est jamais jugé silencieux', () => {
+  const verdict = tourBloque({
+    statut: 'running',
+    suivi: true,
+    processusVivant: true,
+    partiDepuisMs: 5 * 3_600_000,
+    silenceDepuisMs: 60_000,
+  });
+  assert.equal(verdict, null);
+});
+
+test('un moteur muet depuis trop longtemps est refermé', () => {
+  const commun = { statut: 'running' as const, suivi: true, processusVivant: true, partiDepuisMs: 5 * 3_600_000 };
+  assert.equal(tourBloque({ ...commun, silenceDepuisMs: PLAFOND_SILENCE_MOTEUR_MS - 1 }), null);
+  assert.match(
+    tourBloque({ ...commun, silenceDepuisMs: PLAFOND_SILENCE_MOTEUR_MS + 60_000 })?.raison ?? '',
+    /signe de vie/,
+  );
+});
+
+test('un tour arrêté sur une question n’est jamais pris pour un moteur muet', () => {
+  // `ask_user` suspend le tour jusqu'à trente minutes : ce silence-là est voulu.
+  const verdict = tourBloque({
+    statut: 'running',
+    suivi: true,
+    processusVivant: true,
+    partiDepuisMs: 5 * 3_600_000,
+    silenceDepuisMs: PLAFOND_SILENCE_MOTEUR_MS + 3_600_000,
+    attendUneReponse: true,
+  });
+  assert.equal(verdict, null);
 });
 
 test('une réponse rendue reste un travail fini, un silence reste un échec', () => {
