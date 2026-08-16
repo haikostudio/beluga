@@ -13,6 +13,7 @@ import {
   DicteeEnAttente,
   ProjetJoignable,
   attentionParProjet,
+  decisionsDuPremierEnvoi,
   DeployRun,
   fusionnerPropositions,
   Message,
@@ -1370,9 +1371,18 @@ export function projectsNeedingAttention(): Record<string, number> {
  * ENSEMBLE — un compte diffusé sans ses endroits laisserait la ligne du projet
  * s'allumer pendant que cartes et conversations restent muettes.
  */
-export function signalAttention(): { byProject: Record<string, number>; decisions: DecisionAttendue[] } {
-  const decisions = decisionsEnAttente();
-  return { byProject: attentionParProjet(decisions), decisions };
+export function signalAttention(
+  connues?: DecisionAttendue[],
+): { byProject: Record<string, number>; decisions: DecisionAttendue[] } {
+  const decisions = connues ?? decisionsEnAttente();
+  /*
+   * Seules les décisions ENCORE OUVERTES partent sur le fil. Tout ce qui les
+   * lit à l'écran passe déjà par `decisionsOuvertes` : les tranchées étaient
+   * jetées à l'arrivée, après avoir pesé 236 Ko dans le premier envoi (708
+   * entrées sur ce serveur). Le COMPTE par projet, lui, se fait toujours sur la
+   * liste entière — il ne change pas d'un iota.
+   */
+  return { byProject: attentionParProjet(decisions), decisions: decisionsDuPremierEnvoi(decisions) };
 }
 
 /**

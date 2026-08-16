@@ -275,6 +275,11 @@ async function main() {
   // l'écran est vraiment passé — la preuve, indépendante du texte affiché,
   // qu'un clic sur la cloche a bien changé de projet et pas seulement ouvert
   // un tiroir sur celui déjà affiché.
+  //
+  // Le PREMIER projet, lui, n'est plus demandé : le serveur pousse ses cartes
+  // de lui-même, juste derrière « ready », et l'annonce par « openedProjectId »
+  // (c'est ce qui épargne un aller-retour avant le premier affichage). On lit
+  // donc les deux — ce que le serveur a poussé, et ce que le client demande.
   const projetsOuverts = [];
   page.on('websocket', (ws) => {
     ws.on('framesent', (frame) => {
@@ -282,6 +287,14 @@ async function main() {
         const msg = JSON.parse(frame.payload);
         const cmd = msg.cmd ?? msg;
         if (cmd.type === 'project.open') projetsOuverts.push(cmd.id);
+      } catch {
+        /* pas du JSON, ou pas ce message : ignoré */
+      }
+    });
+    ws.on('framereceived', (frame) => {
+      try {
+        const event = JSON.parse(frame.payload);
+        if (event.type === 'ready' && event.openedProjectId) projetsOuverts.push(event.openedProjectId);
       } catch {
         /* pas du JSON, ou pas ce message : ignoré */
       }

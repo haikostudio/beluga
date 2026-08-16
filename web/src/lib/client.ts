@@ -296,7 +296,11 @@ class Client {
         // sans cette demande, le tableau reste vide tant qu'on n'a pas cliqué
         // dans la colonne de gauche — invisible sur téléphone, où elle est repliée.
         if (choix.id) {
-          this.send({ type: 'project.open', id: choix.id });
+          // Le serveur pousse déjà les cartes du projet qu'il a choisi, juste
+          // derrière ce message : les redemander ferait payer un aller-retour
+          // complet — et un second envoi du même tableau — avant le premier
+          // affichage. On ne demande que si son choix diffère du nôtre.
+          if (event.openedProjectId !== choix.id) this.send({ type: 'project.open', id: choix.id });
           this.send({ type: 'attachments.list', projectId: choix.id });
           if (choix.aCorriger) this.retenirProjetActif(choix.id);
         }

@@ -33,13 +33,16 @@ import {
   peutRepartir,
   raisonDattente,
   accorderRunDeProposition,
+  CLE_PROJET_ACTIF,
+  agentsDuPremierEnvoi,
+  choisirProjetAOuvrir,
 } from '@haikodev/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
 import { isAuthenticated } from './http.js';
-import { listEngines } from './engines/index.js';
+import { cachedEngines, enginesFrais, listEngines } from './engines/index.js';
 import { normaliseThinking } from './engines/catalog.js';
 import {
   cachedQuotas,
@@ -120,23 +123,71 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     };
     const unsubscribe = bus.subscribe(send);
 
-    void (async () => {
-      send({ type: 'attention', ...store.signalAttention() });
-      send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
-      send({ type: 'plans', ...store.signalPlans() });
+    /*
+     * LE PREMIER ENVOI NE FAIT PLUS ATTENDRE L'ÉCRAN.
+     *
+     * Rien ne s'affiche tant que `ready` n'est pas arrivé : la colonne de
+     * gauche et le tableau restent sur leurs silhouettes. Ce message attendait
+     * pourtant le CATALOGUE DES MOTEURS (trois exécutables lancés et des appels
+     * réseau, mesurés à 7,5 secondes) et, cache vide, une tournée de quotas —
+     * deux choses dont le tableau n'a nul besoin pour se dessiner. On envoie
+     * donc ce qu'on sait déjà, tout de suite, et le reste suit par ses propres
+     * événements (`engines`, `quotas`), que l'interface reçoit déjà.
+     *
+     * Le premier envoi est aussi ALLÉGÉ (`shared/src/premier-envoi.ts`) : les
+     * agents utiles et les décisions encore ouvertes, au lieu de l'historique
+     * entier du serveur — près d'un mégaoctet à télécharger avant la première
+     * carte, sur un téléphone.
+     */
+    const decisions = store.decisionsEnAttente();
+    send({ type: 'attention', ...store.signalAttention(decisions) });
+    send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+    send({ type: 'plans', ...store.signalPlans() });
+
+    const projets = store.listProjects();
+    const prefs = store.readPreferences();
+    // Le même choix que fera le navigateur : ses cartes partent donc SANS
+    // attendre qu'il les demande — un aller-retour de moins avant le tableau.
+    const choix = choisirProjetAOuvrir(projets, prefs[CLE_PROJET_ACTIF]);
+    const projetOuvert = choix.id && store.getProject(choix.id) ? choix.id : null;
+
+    send({
+      type: 'ready',
+      protocol: PROTOCOL_VERSION,
+      version: CONFIG.version,
+      settings: store.getSettings(),
+      prefs,
+      projects: projets,
+      groups: store.listGroups(),
+      engines: cachedEngines(),
+      quotas: cachedQuotas(),
+      capacity: snapshot(),
+      agents: agentsDuPremierEnvoi(store.listAgents(), projetOuvert, Date.now()),
+      openedProjectId: projetOuvert ?? undefined,
+    });
+
+    if (projetOuvert) {
+      const projet = store.getProject(projetOuvert)!;
       send({
-        type: 'ready',
-        protocol: PROTOCOL_VERSION,
-        version: CONFIG.version,
-        settings: store.getSettings(),
-        prefs: store.readPreferences(),
-        projects: store.listProjects(),
-        groups: store.listGroups(),
-        engines: await listEngines(),
-        quotas: cachedQuotas().length ? cachedQuotas() : await refreshQuotas(),
-        capacity: snapshot(),
-        agents: store.listAgents(),
+        type: 'project.snapshot',
+        projectId: projetOuvert,
+        cards: store.listCards(projetOuvert),
+        agents: store.listAgents(projetOuvert),
+        deploy: store.latestDeploy(projetOuvert) ?? undefined,
+        memory: readMemory(projet.path),
       });
+    }
+
+    // Ce qui manquait au premier envoi arrive dès qu'il est prêt, par les
+    // événements que l'interface écoute déjà. Une panne ici n'a jamais empêché
+    // le tableau de s'afficher : elle se journalise, elle ne remonte pas.
+    void (async () => {
+      try {
+        if (!enginesFrais()) send({ type: 'engines', engines: await listEngines() });
+        if (!cachedQuotas().length) send({ type: 'quotas', quotas: await refreshQuotas() });
+      } catch (err) {
+        log.warn('premier envoi : moteurs ou quotas indisponibles', err);
+      }
     })();
 
     ws.on('message', async (raw) => {
