@@ -156,6 +156,35 @@ export function ampleurDeSuivi(kind: TemplateKind, ampleur: Ampleur): Ampleur {
 }
 
 /**
+ * LA LONGUEUR DE RÉFÉRENCE D'UN TOUR, ET LE CRAN QUI NE S'APPLIQUE PLUS À TOUT.
+ *
+ * Le cran de suivi est une vraie économie et il reste : la question de fond a eu
+ * sa réponse ample, la précision qui suit n'a pas à la refaire au même volume.
+ *
+ * MAIS IL ÉCRASAIT UNE AMPLEUR IMPOSÉE. `startCard` demande en toutes lettres
+ * « complete » — « une carte lancée est une vraie tâche, elle mérite le compte
+ * rendu entier » — et le cran la ramenait à « moyenne » dès que la session du
+ * moteur était déjà ouverte : c'est-à-dire sur toute REPRISE de carte
+ * interrompue, tout relancement après panne, tout second tour d'un même agent.
+ * Exactement les tours où le travail est le plus long et le compte rendu le plus
+ * utile, ramenés à trois titres et 250 mots. La consigne du lancement disait une
+ * chose, le prompt en disait une autre.
+ *
+ * Le cran ne joue donc que sur une ampleur DÉDUITE de la demande.
+ */
+export function ampleurDuTour(input: {
+  /** Ce que l'appelant a EXIGÉ, quand il a exigé quelque chose. */
+  imposee?: Ampleur;
+  kind: TemplateKind;
+  texte: string;
+  nouvelleSession: boolean;
+}): Ampleur {
+  if (input.imposee) return input.imposee;
+  const deduite = ampleurParDefaut(input.kind, input.texte);
+  return input.nouvelleSession ? deduite : ampleurDeSuivi(input.kind, deduite);
+}
+
+/**
  * La partie le plus souvent ratée : les moteurs rendent un pavé continu où les
  * sections se confondent. Elle est donc écrite à part, avant les règles de fond,
  * avec un plafond qui garde la réponse dense SANS la tasser.

@@ -31,8 +31,7 @@ import {
   TemplateKind,
   TodoItem,
   TurnMeasurement,
-  ampleurDeSuivi,
-  ampleurParDefaut,
+  ampleurDuTour,
   checkTemplate,
   motifDArretQuota,
   arretDuAuQuota,
@@ -385,6 +384,8 @@ interface ContexteUtilisateurDuTour {
   passages?: PassageRetrouve[];
   /** Pourquoi `passages` est vide, quand c'est le cas. */
   passagesRaison?: string;
+  /** Par le SENS ou par les MOTS, et la part de documentation préparée. */
+  passagesMode?: SentContextSnapshot['passagesMode'];
 }
 
 /** Fabrique la photographie persistée sur la demande, sans lire l'ancien fil. */
@@ -404,6 +405,7 @@ export function instantaneContexteEnvoye(input: {
   blocks: SentContextBlock[];
   passages?: PassageRetrouve[];
   passagesRaison?: string;
+  passagesMode?: SentContextSnapshot['passagesMode'];
   sentAt?: number;
 }): SentContextSnapshot {
   const entier = input.enteteEntier ?? input.nouvelleSession;
@@ -435,6 +437,9 @@ export function instantaneContexteEnvoye(input: {
     ],
     passages: input.passages ?? [],
     passagesRaison: input.passages?.length ? undefined : input.passagesRaison,
+    // Le MODE se dit même sans passage : « rien trouvé par les mots » et
+    // « rien trouvé par le sens » ne racontent pas la même histoire.
+    passagesMode: input.passagesMode,
     history: input.nouvelleSession ? 'none' : 'retained_by_engine',
     sentAt: input.sentAt ?? Date.now(),
   });
@@ -951,10 +956,10 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
     }
   }
 
-  let ampleur = options.ampleur ?? ampleurParDefaut(template, text);
-  // Un tour de SUIVI (session déjà ouverte) part d'un cran plus bas : la question
-  // de fond a eu sa réponse ample, la suite est une précision.
-  if (!nouvelleSession) ampleur = ampleurDeSuivi(template, ampleur);
+  // La règle vit dans `shared/src/templates.ts` (`ampleurDuTour`) : le cran de
+  // suivi ne s'applique qu'à une ampleur DÉDUITE de la demande, jamais à celle
+  // qu'un lancement de carte a EXIGÉE.
+  const ampleur = ampleurDuTour({ imposee: options.ampleur, kind: template, texte: text, nouvelleSession });
   const contexteAssemble = contextParts.map((part) => part.content).join('\n\n');
   const prompt = wrapPrompt(template, text, contexteAssemble, {
     // Session déjà ouverte : le gabarit entier est dans le fil, un rappel suffit.
@@ -1011,6 +1016,19 @@ async function preparerLeTour(agent: Agent, text: string, options: PromptOptions
         texte: passage.texte,
       })),
       passagesRaison,
+      /*
+       * PAR LE SENS OU PAR LES MOTS, dit à l'écran. Un repli sur les mots était
+       * INVISIBLE : la bulle montrait des passages médiocres sans dire qu'ils
+       * avaient été choisis à l'ancienne. La couverture voyage avec, c'est elle
+       * qui explique le mode.
+       */
+      passagesMode: recherche
+        ? {
+            sens: recherche.mode.vecteurs,
+            couverture: Math.min(1, Math.max(0, recherche.mode.couverture)),
+            raison: recherche.mode.raison,
+          }
+        : undefined,
     },
     niveau,
     {
@@ -1396,6 +1414,7 @@ async function startTurn(
         blocks: contexteUtilisateur.blocks,
         passages: contexteUtilisateur.passages,
         passagesRaison: contexteUtilisateur.passagesRaison,
+        passagesMode: contexteUtilisateur.passagesMode,
       })
     : undefined;
 

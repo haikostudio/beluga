@@ -36,12 +36,65 @@ import { fileURLToPath } from 'node:url';
 
 // Le dépôt d'où PART ce script — jamais un chemin écrit en dur.
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = Number(process.env.HAIKODEV_MEMOIRE_DEMANDE_PORT || 7203);
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-memoire-demande-'));
 const DATA = path.join(TMP, 'data');
 const PROJETS = path.join(TMP, 'projets');
 const DEPOT = path.join(TMP, 'depot');
 for (const dossier of [DATA, PROJETS, DEPOT]) fs.mkdirSync(dossier, { recursive: true });
+
+/* ------------------------------------------------------------------ */
+/* UN PORT LIBRE, CHOISI À L'INSTANT — jamais un numéro écrit en dur    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Ce contrôle partait sur le port 7203, fixe. Un démon d'essai OUBLIÉ par une
+ * exécution précédente — tuée avant son ménage, ou coupée par le délai d'une
+ * carte — reste pourtant à écouter dessus. `attendrePort` voyait alors ce
+ * démon-là répondre, croyait le sien démarré, et le décor allait s'écrire dans
+ * une base VIDE : « no such table: sessions », un message qui accuse une
+ * migration alors que le vrai coupable est un voisin sur le port. Constaté le
+ * 16/08/2026 (« haikodev-essai-7203 », resté d'un contrôle antérieur).
+ *
+ * On demande donc au système un port LIBRE, à l'instant du lancement : deux
+ * contrôles peuvent tourner en même temps, un oublié ne gêne plus personne, et
+ * plus rien n'est à nettoyer à la main. Un port imposé reste possible, et il
+ * est alors ÉPROUVÉ avant de partir — occupé, on le dit et on s'arrête, au lieu
+ * de juger le démon de quelqu'un d'autre.
+ */
+async function portOccupe(port) {
+  return new Promise((resolve) => {
+    const prise = net.connect(port, '127.0.0.1');
+    prise.on('connect', () => (prise.end(), resolve(true)));
+    prise.on('error', () => resolve(false));
+  });
+}
+
+async function choisirLePort() {
+  const impose = Number(process.env.HAIKODEV_MEMOIRE_DEMANDE_PORT || 0);
+  if (impose) {
+    if (await portOccupe(impose)) {
+      console.error(
+        `Le port ${impose} est déjà occupé — sans doute un démon d'essai oublié.\n` +
+          `Ce contrôle jugerait alors le démon de quelqu'un d'autre : il s'arrête.\n` +
+          `Laisse HAIKODEV_MEMOIRE_DEMANDE_PORT vide pour qu'il en choisisse un libre tout seul.`,
+      );
+      process.exit(1);
+    }
+    return impose;
+  }
+  // Le système attribue le port : c'est le seul moyen d'en avoir un VRAIMENT
+  // libre, sans course entre le moment où on l'éprouve et celui où on le prend.
+  return new Promise((resolve, reject) => {
+    const serveur = net.createServer();
+    serveur.on('error', reject);
+    serveur.listen(0, '127.0.0.1', () => {
+      const { port } = serveur.address();
+      serveur.close(() => resolve(port));
+    });
+  });
+}
+
+const PORT = await choisirLePort();
 
 const resultats = [];
 const noter = (nom, ok, detail = '') => {
@@ -180,12 +233,13 @@ process.on('exit', () => {
 async function attendrePort(limiteMs = 60_000) {
   const fin = Date.now() + limiteMs;
   while (Date.now() < fin) {
-    const ouvert = await new Promise((resolve) => {
-      const prise = net.connect(PORT, '127.0.0.1');
-      prise.on('connect', () => (prise.end(), resolve(true)));
-      prise.on('error', () => resolve(false));
-    });
-    if (ouvert) return true;
+    // Un démon MORT ne répondra jamais : on le dit tout de suite, avec son
+    // journal, au lieu d'attendre une minute pour un « n'a pas démarré » muet.
+    if (demon && demon.exitCode !== null) {
+      console.error(`Le démon d’essai s’est arrêté (code ${demon.exitCode}) :\n${journal.join('')}`);
+      return false;
+    }
+    if (await portOccupe(PORT)) return true;
     await new Promise((r) => setTimeout(r, 400));
   }
   return false;

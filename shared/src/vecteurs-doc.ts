@@ -306,8 +306,22 @@ export const HEURE_VECTORISATION = 1;
 /** La fenêtre de rattrapage, en heures pleines : 1 h, 2 h. */
 export const FENETRE_VECTORISATION_HEURES = 2;
 
-/** Un passage par nuit, jamais deux. */
-export const PERIODE_VECTORISATION_MS = 24 * 60 * 60 * 1000;
+/**
+ * TOUTES LES SIX HEURES, PLUS UNE FOIS PAR NUIT.
+ *
+ * Une seule passe par nuit laissait la journée entière défaire ce que la nuit
+ * venait de faire : sur HaikoDev, dont presque chaque carte réécrit `CLAUDE.md`
+ * ou `docs/`, la couverture retombait sous le seuil dès les premières cartes du
+ * matin, et toute la recherche repassait par les MOTS jusqu'au lendemain. La
+ * conservation des vecteurs (`vecteursRepris`) réduit énormément ce que chaque
+ * carte détruit — mais elle ne le supprime pas : une section réellement modifiée
+ * repart bien sans vecteur, et il faut alors quelqu'un pour la reprendre AVANT
+ * la nuit.
+ *
+ * Le rendez-vous revient donc toutes les six heures. Ce n'est pas la même passe
+ * selon l'heure : voir `AmpleurDeVectorisation`.
+ */
+export const PERIODE_VECTORISATION_MS = 6 * 60 * 60 * 1000;
 
 /**
  * COMBIEN DE TRANCHES AU PLUS EN UNE NUIT, tous projets confondus. Une borne,
@@ -327,12 +341,36 @@ export const TRANCHES_MAX_PAR_NUIT = 120;
  */
 export const DUREE_MAX_PAR_NUIT_MS = 3 * 60 * 60 * 1000;
 
-/** Pourquoi la vectorisation de la nuit ne part pas cette fois-ci. */
-export type RaisonSansVectorisation = 'pas-l-heure' | 'deja-passe' | 'aucune-cle';
+/**
+ * DEUX PASSES, ET ELLES N'ONT PAS LE MÊME DROIT SUR LA MACHINE.
+ *
+ * `nuit` — dans la fenêtre de 1 h à 3 h : le grand rattrapage. Trois heures,
+ * 120 tranches ; c'est elle qui absorbe un index neuf de dizaines de milliers de
+ * passages, en autant de nuits qu'il faut.
+ *
+ * `jour` — les trois autres rendez-vous de la journée : le RATTRAPAGE COURT de
+ * ce que les cartes viennent de modifier. Dix minutes, 15 tranches. Sur un
+ * projet ordinaire, il n'a rien à faire et se termine en une seconde ; sur
+ * HaikoDev après une matinée de cartes, quelques dizaines de passages, soit
+ * moins d'une minute. Elle est volontairement COURTE : vectoriser ne prend la
+ * place d'aucun agent, mais cela occupe les cœurs, et une passe de trois heures
+ * en plein après-midi freinerait la machine pour un gain que la nuit obtiendra
+ * de toute façon.
+ */
+export type AmpleurDeVectorisation = 'nuit' | 'jour';
 
-/** Le verdict du rendez-vous : partir, ou dire pourquoi non. */
+/** Ce qu'une passe a le droit de consommer, selon son ampleur. */
+export const BORNES_DE_VECTORISATION: Record<AmpleurDeVectorisation, { tranches: number; dureeMs: number }> = {
+  nuit: { tranches: TRANCHES_MAX_PAR_NUIT, dureeMs: DUREE_MAX_PAR_NUIT_MS },
+  jour: { tranches: 15, dureeMs: 10 * 60 * 1000 },
+};
+
+/** Pourquoi la vectorisation ne part pas cette fois-ci. */
+export type RaisonSansVectorisation = 'deja-passe' | 'aucune-cle';
+
+/** Le verdict du rendez-vous : partir — et avec quelle ampleur —, ou dire pourquoi non. */
 export type DecisionDeVectorisation =
-  | { lancer: true }
+  | { lancer: true; ampleur: AmpleurDeVectorisation }
   | { lancer: false; raison: RaisonSansVectorisation };
 
 /** Cette heure tombe-t-elle dans la fenêtre du rendez-vous ? */
@@ -346,11 +384,15 @@ export function heureDeVectorisation(heure: number): boolean {
 /**
  * LE RENDEZ-VOUS A-T-IL LIEU MAINTENANT ?
  *
- * Trois refus seulement, et surtout PAS « un travail est en cours » : à la
+ * Deux refus seulement, et surtout PAS « un travail est en cours » : à la
  * différence de l'auto-amélioration, vectoriser n'appelle aucun moteur, ne prend
- * la place d'aucun agent et n'entame aucune réserve. Reporter la nuit entière
+ * la place d'aucun agent et n'entame aucune réserve. Reporter la passe entière
  * parce qu'une carte tourne laisserait l'index à moitié fait, donc la recherche
  * en repli sur les mots — exactement ce qu'on cherche à quitter.
+ *
+ * « Ce n'est pas l'heure » a DISPARU des refus : le rendez-vous ne dépend plus
+ * d'une heure mais d'un DÉLAI (six heures depuis la précédente). L'heure ne
+ * décide plus que de l'AMPLEUR — grand rattrapage la nuit, passe courte le jour.
  */
 export function decisionDeVectorisation(input: {
   clePosee: boolean;
@@ -362,17 +404,14 @@ export function decisionDeVectorisation(input: {
   if (input.dernierPassage !== undefined && input.maintenant - input.dernierPassage < PERIODE_VECTORISATION_MS) {
     return { lancer: false, raison: 'deja-passe' };
   }
-  if (!heureDeVectorisation(input.heureCourante)) return { lancer: false, raison: 'pas-l-heure' };
-  return { lancer: true };
+  return { lancer: true, ampleur: heureDeVectorisation(input.heureCourante) ? 'nuit' : 'jour' };
 }
 
 /** La raison, écrite pour le journal du démon. */
 export function raisonSansVectorisationDite(raison: RaisonSansVectorisation): string {
   switch (raison) {
-    case 'pas-l-heure':
-      return `ce n'est pas l'heure (rendez-vous vers ${HEURE_VECTORISATION} h)`;
     case 'deja-passe':
-      return 'la vectorisation de cette nuit a déjà eu lieu';
+      return `la vectorisation est déjà passée il y a moins de ${PERIODE_VECTORISATION_MS / 3_600_000} heures`;
     case 'aucune-cle':
       return 'aucune clé de vectorisation posée : la recherche reste sur les mots';
   }

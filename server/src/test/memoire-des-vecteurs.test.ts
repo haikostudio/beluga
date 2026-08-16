@@ -3,8 +3,12 @@ import assert from 'node:assert/strict';
 import {
   PART_MAX_DU_CODE,
   PRIORITE,
+  SentContextSnapshot,
+  ampleurDuTour,
   choisirPassages,
   cleDeVecteur,
+  mentionDesPassages,
+  mentionDuModeDeRecherche,
   sommaireDesSujets,
   texteDesPassages,
   texteDuSommaire,
@@ -203,4 +207,71 @@ test('sans code en lice, le plafond reste entier pour la documentation', () => {
   );
   assert.equal(choix.gardes.length, 2, 'la borne du code ne rogne jamais la documentation');
   assert.equal(choix.jetons, 800);
+});
+
+/* ------------------------------------------------------------------ */
+/* Par le SENS ou par les MOTS — dit à l'écran                         */
+/* ------------------------------------------------------------------ */
+
+const contexte = (passagesMode?: SentContextSnapshot['passagesMode']): SentContextSnapshot =>
+  SentContextSnapshot.parse({
+    engine: 'claude',
+    session: 'new',
+    prompt: 'peu importe',
+    systemInstruction: { kind: 'full', content: 'consigne', transport: 'separate' },
+    blocks: [],
+    passages: [{ source: 'docs/regles/publication.md', titre: 'Publier', score: 0.5, tokens: 40, texte: 'texte' }],
+    passagesMode,
+    history: 'none',
+    sentAt: 1,
+  });
+
+test('la bulle dit que la recherche a marché par le SENS, avec sa couverture', () => {
+  const mention = mentionDesPassages(contexte({ sens: true, couverture: 0.96 }));
+  assert.match(mention ?? '', /1 passage retrouvé/);
+  assert.match(mention ?? '', /par le sens/);
+  assert.match(mention ?? '', /96 % de la documentation préparée/);
+});
+
+test('un repli sur les MOTS ne se tait plus : il est écrit, avec la couverture qui l’explique', () => {
+  const mention = mentionDesPassages(
+    contexte({ sens: false, couverture: 0.53, raison: 'index vectorisé à 53 % seulement' }),
+  );
+  assert.match(mention ?? '', /par les MOTS/);
+  assert.match(mention ?? '', /53 %/);
+});
+
+test('un vieux contexte, écrit avant cette règle, ne raconte pas d’histoire', () => {
+  const mention = mentionDesPassages(contexte(undefined));
+  assert.equal(mention, '1 passage retrouvé dans la documentation');
+  assert.equal(mentionDuModeDeRecherche(contexte(undefined)), undefined);
+});
+
+/* ------------------------------------------------------------------ */
+/* Le cran de suivi n'écrase plus une ampleur imposée                  */
+/* ------------------------------------------------------------------ */
+
+const LONGUE = 'a'.repeat(500);
+
+test('une carte lancée garde le compte rendu ENTIER, même quand sa session est déjà ouverte', () => {
+  // C'est le cas de TOUTE reprise de carte interrompue : même agent, même fil.
+  assert.equal(
+    ampleurDuTour({ imposee: 'complete', kind: 'in_run', texte: LONGUE, nouvelleSession: false }),
+    'complete',
+  );
+  assert.equal(
+    ampleurDuTour({ imposee: 'complete', kind: 'in_run', texte: 'ok', nouvelleSession: false }),
+    'complete',
+    'même une consigne de reprise courte ne rabaisse pas une ampleur exigée',
+  );
+});
+
+test('mais une question de suite reste bien un cran plus bas : l’économie ne bouge pas', () => {
+  assert.equal(ampleurDuTour({ kind: 'in_run', texte: LONGUE, nouvelleSession: true }), 'complete');
+  assert.equal(ampleurDuTour({ kind: 'in_run', texte: LONGUE, nouvelleSession: false }), 'standard');
+  assert.equal(ampleurDuTour({ kind: 'in_run', texte: 'ça marche ?', nouvelleSession: false }), 'breve');
+});
+
+test('un gabarit à forme structurelle ne bouge jamais, session ouverte ou non', () => {
+  assert.equal(ampleurDuTour({ kind: 'deploy', texte: 'ok', nouvelleSession: false }), 'complete');
 });

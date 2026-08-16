@@ -1,9 +1,9 @@
 import {
-  DUREE_MAX_PAR_NUIT_MS,
+  BORNES_DE_VECTORISATION,
   PERIODE_VECTORISATION_MS,
-  TRANCHES_MAX_PAR_NUIT,
   decisionDeVectorisation,
   raisonSansVectorisationDite,
+  type AmpleurDeVectorisation,
 } from '@haikodev/shared';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
@@ -12,28 +12,35 @@ import { couvertureDesVecteurs, indexerDocumentation, vectoriserLIndex } from '.
 import { etatDesVecteurs } from './vecteurs.js';
 
 /**
- * LA VECTORISATION DE LA NUIT — l'index de TOUS les projets, d'un coup.
+ * LA VECTORISATION DE FOND — l'index de TOUS les projets, d'un coup.
  *
- * Vectoriser ne se paie plus au lancement d'une carte : une fois par nuit vers
- * 1 h, le démon relit chaque projet non archivé, met son index à jour et
- * vectorise tout ce qui ne l'est pas encore. Au matin, la recherche par le sens
- * est en place partout ; entre-temps, un projet pas encore traité retombe
- * proprement sur l'empreinte de mots.
+ * Vectoriser ne se paie pas au lancement d'une carte : le démon relit chaque
+ * projet non archivé, met son index à jour et vectorise ce qui ne l'est pas
+ * encore. Entre-temps, un projet pas encore traité retombe proprement sur
+ * l'empreinte de mots.
  *
- * Les règles (heure, fenêtre, périodicité, refus) vivent dans
+ * LE RENDEZ-VOUS REVIENT TOUTES LES SIX HEURES, plus une seule fois par nuit :
+ * une passe nocturne unique laissait la journée défaire ce que la nuit venait de
+ * faire. La passe de NUIT (1 h – 3 h) reste le grand rattrapage, trois heures ;
+ * les trois passes de JOUR ne reprennent que ce que les cartes viennent de
+ * modifier, en dix minutes au plus (`BORNES_DE_VECTORISATION`).
+ *
+ * Les règles (heure, ampleur, périodicité, refus) vivent dans
  * `shared/src/vecteurs-doc.ts` et se testent seules. Ici, la boucle et le
  * journal.
  */
 
 const CLE_DERNIER_PASSAGE = 'vecteurs:dernier-passage';
 
-/** Une passe est BORNÉE : ce qui déborde attend la nuit suivante. */
+/** Une passe est BORNÉE : ce qui déborde attend la passe suivante. */
 export interface BilanDeVectorisation {
   lance: boolean;
   raison?: string;
   projets: number;
   passages: number;
   vectorises: number;
+  /** Grand rattrapage de nuit, ou passe courte de jour. */
+  ampleur?: AmpleurDeVectorisation;
 }
 
 /** Un seul rendez-vous à la fois : la boucle de veille ne se marche pas dessus. */
@@ -71,6 +78,12 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
   if (enCours) return { lance: false, raison: 'une vectorisation tourne déjà', projets: 0, passages: 0, vectorises: 0 };
 
   const maintenant = Date.now();
+  /*
+   * L'AMPLEUR DÉCIDE DES BORNES. Forcée à la main, la passe est traitée comme
+   * celle de son HEURE : lancée à 14 h, elle reste courte — on ne bloque pas la
+   * machine trois heures sur un geste manuel — et lancée la nuit, elle rattrape.
+   */
+  let ampleur: AmpleurDeVectorisation = new Date(maintenant).getHours() < 4 ? 'nuit' : 'jour';
   if (!force) {
     const brut = getMeta(CLE_DERNIER_PASSAGE);
     const decision = decisionDeVectorisation({
@@ -82,7 +95,9 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
     if (!decision.lancer) {
       return { lance: false, raison: raisonSansVectorisationDite(decision.raison), projets: 0, passages: 0, vectorises: 0 };
     }
+    ampleur = decision.ampleur;
   }
+  const bornes = BORNES_DE_VECTORISATION[ampleur];
 
   enCours = true;
   /*
@@ -91,7 +106,7 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
    * s'arrête à l'heure dite et on reprend demain, là où on en était — l'index
    * se complète en quelques nuits, aucune ne mord sur le travail.
    */
-  const finAu = maintenant + DUREE_MAX_PAR_NUIT_MS;
+  const finAu = maintenant + bornes.dureeMs;
   let projets = 0;
   let passages = 0;
   let vectorises = 0;
@@ -99,12 +114,14 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
   try {
     for (const projet of store.listProjects()) {
       if (projet.archived) continue;
-      if (tranches >= TRANCHES_MAX_PAR_NUIT || Date.now() >= finAu) {
-        log.info(`vectorisation : borne de la nuit atteinte, ${projet.name} et la suite attendront demain`);
+      if (tranches >= bornes.tranches || Date.now() >= finAu) {
+        log.info(
+          `vectorisation : borne de la passe de ${ampleur} atteinte, ${projet.name} et la suite attendront la prochaine`,
+        );
         break;
       }
       try {
-        const bilan = await vectoriserUnProjet(projet.id, projet.path, TRANCHES_MAX_PAR_NUIT - tranches, finAu);
+        const bilan = await vectoriserUnProjet(projet.id, projet.path, bornes.tranches - tranches, finAu);
         projets += 1;
         passages += bilan.total;
         vectorises += bilan.vectorises;
@@ -122,8 +139,10 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
     enCours = false;
   }
 
-  log.info(`vectorisation : ${projets} projet(s), ${vectorises} passages vectorisés sur ${passages} au total`);
-  return { lance: true, projets, passages, vectorises };
+  log.info(
+    `vectorisation (passe de ${ampleur}) : ${projets} projet(s), ${vectorises} passages vectorisés sur ${passages} au total`,
+  );
+  return { lance: true, projets, passages, vectorises, ampleur };
 }
 
 /**

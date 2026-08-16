@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BORNES_DE_VECTORISATION,
   COUVERTURE_VECTEURS_MIN,
   DIMENSIONS_LOCAL,
+  DUREE_MAX_PAR_NUIT_MS,
   FENETRE_VECTORISATION_HEURES,
   HEURE_VECTORISATION,
+  PERIODE_VECTORISATION_MS,
+  TRANCHES_MAX_PAR_NUIT,
   PLAFOND_PASSAGE_SIGNES,
   PRIORITE,
   attenteAvantEssai,
@@ -190,25 +194,40 @@ test('un fichier de code se coupe sous le plafond, chaque morceau nommé par sa 
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
-/* Le rendez-vous de la nuit                                           */
+/* Le rendez-vous : toutes les six heures, deux ampleurs               */
 /* ------------------------------------------------------------------ */
 
-test('la vectorisation part à l’heure creuse, une fois par nuit', () => {
+test('le rendez-vous revient toutes les six heures, à n’importe quelle heure', () => {
   const nuit = new Date('2026-08-16T01:30:00').getTime();
   assert.equal(decisionDeVectorisation({ clePosee: true, maintenant: nuit, heureCourante: 1 }).lancer, true);
   assert.equal(decisionDeVectorisation({ clePosee: true, maintenant: nuit, heureCourante: 2 }).lancer, true, 'la fenêtre rattrape');
+  // Une seule passe par nuit laissait la journée défaire ce que la nuit faisait :
+  // midi n'est plus un refus, c'est une passe COURTE.
   const midi = decisionDeVectorisation({ clePosee: true, maintenant: nuit, heureCourante: 14 });
-  assert.equal(midi.lancer, false);
-  assert.equal(midi.lancer === false && midi.raison, 'pas-l-heure');
+  assert.equal(midi.lancer, true);
+  assert.equal(midi.lancer === true && midi.ampleur, 'jour');
+});
+
+test('la nuit rattrape en grand, le jour rattrape court', () => {
+  const t = new Date('2026-08-16T01:30:00').getTime();
+  const nuit = decisionDeVectorisation({ clePosee: true, maintenant: t, heureCourante: HEURE_VECTORISATION });
+  assert.equal(nuit.lancer === true && nuit.ampleur, 'nuit');
+
+  const bornesNuit = BORNES_DE_VECTORISATION.nuit;
+  const bornesJour = BORNES_DE_VECTORISATION.jour;
+  assert.ok(bornesJour.dureeMs < bornesNuit.dureeMs, 'une passe de jour ne bloque pas la machine trois heures');
+  assert.ok(bornesJour.tranches < bornesNuit.tranches);
+  assert.equal(bornesNuit.dureeMs, DUREE_MAX_PAR_NUIT_MS);
+  assert.equal(bornesNuit.tranches, TRANCHES_MAX_PAR_NUIT);
 });
 
 test('sans clé, le rendez-vous ne part pas — et il le DIT', () => {
   const refus = decisionDeVectorisation({ clePosee: false, maintenant: 0, heureCourante: 1 });
   assert.equal(refus.lancer, false);
-  assert.match(raisonSansVectorisationDite(refus.lancer === false ? refus.raison : 'pas-l-heure'), /aucune clé/);
+  assert.match(raisonSansVectorisationDite(refus.lancer === false ? refus.raison : 'deja-passe'), /aucune clé/);
 });
 
-test('la nuit passée ne se rejoue pas, mais un travail en cours ne la reporte JAMAIS', () => {
+test('une passe récente ne se rejoue pas, mais un travail en cours ne la reporte JAMAIS', () => {
   const maintenant = 10 * 60 * 60 * 1000;
   const deja = decisionDeVectorisation({
     clePosee: true,
@@ -218,6 +237,17 @@ test('la nuit passée ne se rejoue pas, mais un travail en cours ne la reporte J
   });
   assert.equal(deja.lancer, false);
   assert.equal(deja.lancer === false && deja.raison, 'deja-passe');
+  assert.match(raisonSansVectorisationDite('deja-passe'), /6 heures/);
+
+  // Six heures plus tard, elle repart.
+  const apres = decisionDeVectorisation({
+    clePosee: true,
+    dernierPassage: maintenant - PERIODE_VECTORISATION_MS - 1,
+    maintenant,
+    heureCourante: 1,
+  });
+  assert.equal(apres.lancer, true);
+
   // Aucune raison « travail-en-cours » n'existe : vectoriser n'appelle aucun
   // moteur et ne prend la place d'aucun agent.
   assert.equal(heureDeVectorisation(HEURE_VECTORISATION), true);
