@@ -819,6 +819,33 @@ const MIGRATIONS: {
       CREATE INDEX idx_doc_passages_modele ON doc_passages(project_id, modele);
     `,
   },
+  {
+    id: 28,
+    name: 'retirer-le-message-duplique-avec-la-raison-d-attente',
+    siTable: 'cards',
+    // LE MÊME AVERTISSEMENT NE S'AFFICHE PLUS DEUX FOIS SUR UNE CARTE.
+    //
+    // Une carte RETENUE (dépôt non consultable, travail hors copie, tour sans
+    // issue…) recevait la MÊME phrase dans deux champs distincts :
+    // `sansModification` (encadré orange en triangle) et
+    // `scheduling.waitingReason` (pied de carte, icône horloge, texte tronqué).
+    // La carte l'affichait donc deux fois, à moitié coupée en bas, et cette
+    // phrase n'apparaît nulle part dans la conversation puisqu'elle décrit un
+    // constat du serveur, pas une réponse de l'agent.
+    //
+    // Réparé à la source dans `carteApresFinDeTour` et
+    // `rangerLesCartesOubliees` (`server/src/deplacement-carte.ts`) : une
+    // raison RETENUE ne vit plus que dans `waitingReason`. Ici on nettoie les
+    // cartes DÉJÀ posées en base avec le doublon, en ne touchant que celles où
+    // les deux champs portent EXACTEMENT le même texte.
+    sql: `
+      UPDATE cards
+      SET data = json_set(data, '$.sansModification', json('null'))
+      WHERE json_extract(data, '$.sansModification') IS NOT NULL
+        AND json_extract(data, '$.scheduling.waitingReason') IS NOT NULL
+        AND json_extract(data, '$.sansModification') = json_extract(data, '$.scheduling.waitingReason');
+    `,
+  },
 ];
 
 export function openDb(): DB {

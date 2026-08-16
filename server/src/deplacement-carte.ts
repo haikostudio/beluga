@@ -128,8 +128,10 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
     scheduling: planification,
     codeDejaEnregistre: dejaEnregistreApres(card, fin),
     // La phrase du tour n'appartient qu'à l'agent de la carte : un tour étranger
-    // la laisse telle quelle plutôt que de l'effacer.
-    ...(leSien ? { sansModification: raison ?? undefined } : {}),
+    // la laisse telle quelle plutôt que de l'effacer. Une raison RETENUE vit déjà
+    // dans `waitingReason` (pied de carte) : la recopier ici doublerait le même
+    // message à l'écran, une fois en encadré et une fois en pied de carte.
+    ...(leSien ? { sansModification: retenue ? undefined : raison ?? undefined } : {}),
   };
 }
 
@@ -183,7 +185,9 @@ export function rangerLesCartesOubliees(): void {
         ...scheduling,
         ...(issue.retenue ? { suspendu: true, waitingReason: issue.raison ?? undefined } : {}),
       },
-      sansModification: issue.raison ?? undefined,
+      // Même règle que `carteApresFinDeTour` : une raison RETENUE reste seule
+      // dans `waitingReason`, jamais recopiée ici.
+      sansModification: issue.retenue ? undefined : issue.raison ?? undefined,
     });
     bus.emit({ type: 'card.upsert', card: rangee });
     log.info(`carte « ${card.title} » oubliée en « En cours », rangée dans « ${issue.colonne} »`);
