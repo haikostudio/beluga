@@ -247,12 +247,51 @@ if (!moteurLocal) {
     `${couverture.vectorises}/${couverture.total} passages`,
   );
 
-  const parLeSens = await passages.rechercherPourLaTache('verif-rag', CORPUS, REFORMULEE, INDEX_CORPUS);
+  /*
+   * ON PASSE PAR LE CHEMIN DE LA CONVERSATION, car c'est là que le sens sert.
+   * Une question REFORMULÉE est exactement ce qu'un humain tape dans un fil ;
+   * au LANCEMENT d'une carte, mesuré sur 120 cartes réelles, les mots exacts
+   * font aussi bien et le sens a été retiré (`SENS_PAR_TERRAIN`). Interroger le
+   * lancement reviendrait à éprouver le sens là où il ne tourne plus.
+   */
+  const parLeSens = await passages.rechercherPourLaSuite('verif-rag', CORPUS, REFORMULEE, []);
   verifier(!!parLeSens, 'la recherche répond');
   verifier(
     !!parLeSens && parLeSens.mode.vecteurs,
     'elle a bien classé par le SENS RÉEL, pas par les mots',
     parLeSens ? `couverture ${Math.round(parLeSens.mode.couverture * 100)} %${parLeSens.mode.raison ? ` — ${parLeSens.mode.raison}` : ''}` : '',
+  );
+  /*
+   * ET LE MÊME CORPUS PAR LE CHEMIN DU LANCEMENT : les mots exacts, annoncés
+   * comme un CHOIX. La règle des deux terrains se verrouille ici sur un corpus
+   * fabriqué, donc sans dépendre de l'état de la vraie base. La demande d'une
+   * CARTE partage le vocabulaire du projet — c'est tout le raisonnement —, on la
+   * pose donc comme une carte l'écrit, pas comme un humain la parle.
+   */
+  const COMME_UNE_CARTE = 'la mise en ligne appartient à l’utilisateur : le démon pousse la branche sans publier';
+  const auLancement = await passages.rechercherPourLaTache('verif-rag', CORPUS, COMME_UNE_CARTE, INDEX_CORPUS);
+  verifier(
+    !!auLancement && !auLancement.mode.vecteurs && auLancement.mode.choisi === true,
+    'au LANCEMENT, le même corpus est classé par les MOTS — et c’est dit comme un choix',
+    auLancement ? auLancement.mode.raison ?? '' : 'aucune réponse',
+  );
+  verifier(
+    !!auLancement && auLancement.passages[0]?.source === 'docs/regles/publication.md',
+    'et une demande écrite avec les mots du projet retrouve bien sa règle',
+    auLancement ? auLancement.passages.map((p) => `${p.source} (${p.score.toFixed(2)})`).join(', ') : '',
+  );
+  /*
+   * LE REPLI SUR L'INDEX REDEVIENT POSSIBLE, et c'est un gain à part entière.
+   * L'audit du 16/08/2026 l'avait constaté mort : en mode sens, 88 % du corpus
+   * franchissait le seuil, donc AUCUNE question ne pouvait plus rendre la place à
+   * l'index — pas même une question de cuisine. Par les mots, une demande sans
+   * rapport ne trouve plus rien et l'index reprend sa place, comme la règle le dit.
+   */
+  const horsSujet = await passages.rechercherPourLaTache('verif-rag', CORPUS, REFORMULEE, INDEX_CORPUS);
+  verifier(
+    horsSujet === undefined,
+    'au LANCEMENT, une demande sans un mot du corpus rend sa place à l’index',
+    horsSujet ? horsSujet.passages.map((p) => p.source).join(', ') : 'repli sur l’index, comme prévu',
   );
   verifier(
     !!parLeSens && parLeSens.passages[0]?.source === 'docs/regles/publication.md',
@@ -266,7 +305,7 @@ if (!moteurLocal) {
      voit ce qu'il apporte. On ne juge pas le repli — il a le droit de rater —,
      on AFFICHE la différence. */
   delete process.env.HAIKODEV_VECTORISEUR;
-  const parLesMots = await passages.rechercherPourLaTache('verif-mots', CORPUS, REFORMULEE, INDEX_CORPUS);
+  const parLesMots = await passages.rechercherPourLaSuite('verif-mots', CORPUS, REFORMULEE, []);
   console.log(
     `  → par les mots seuls : ${parLesMots ? parLesMots.passages.map((p) => p.source).join(', ') : 'aucun passage retrouvé'}`,
   );

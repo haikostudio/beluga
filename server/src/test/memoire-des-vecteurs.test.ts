@@ -241,6 +241,21 @@ test('un repli sur les MOTS ne se tait plus : il est écrit, avec la couverture 
   assert.match(mention ?? '', /53 %/);
 });
 
+test('les mots CHOISIS ne se lisent pas comme la panne : ni « MOTS » en capitales, ni pourcentage', () => {
+  /*
+   * Au lancement d'une carte, les mots exacts sont le réglage VOULU et l'index
+   * est parfaitement préparé. Écrire « par les MOTS · 96 % de la documentation
+   * préparée » serait la phrase de la panne de couverture, sur un tour sain.
+   */
+  const mention = mentionDesPassages(
+    contexte({ sens: false, couverture: 0.96, raison: 'terrain', choisi: true }),
+  );
+  assert.match(mention ?? '', /par les mots exacts/);
+  assert.match(mention ?? '', /le réglage de ce terrain/);
+  assert.doesNotMatch(mention ?? '', /MOTS/);
+  assert.doesNotMatch(mention ?? '', /96 %/);
+});
+
 test('un vieux contexte, écrit avant cette règle, ne raconte pas d’histoire', () => {
   const mention = mentionDesPassages(contexte(undefined));
   assert.equal(mention, '1 passage retrouvé dans la documentation');

@@ -111,8 +111,24 @@ const INDEX = { texte: memory.blocMemoire(cible.path), faits: memory.memoryFacts
 const couverture = passages.couvertureDesVecteurs(cible.id);
 const pretPourLeSens = couverture.total > 0 && couverture.vectorises / couverture.total >= 0.75;
 
+/*
+ * ON INTERROGE LE TERRAIN AUQUEL CES QUESTIONS APPARTIENNENT.
+ *
+ * Ces demandes sont écrites COMME ON PARLE : ce sont des messages de
+ * conversation, pas des demandes de carte. Or les deux terrains n'ont plus le
+ * même réglage — mesuré sur 120 cartes, le sens ne rapporte rien au LANCEMENT,
+ * où la demande est déjà rédigée avec le vocabulaire du projet, et il garde tout
+ * son intérêt en CONVERSATION. Les poser au chemin du lancement, c'était juger
+ * le sens sur le seul terrain d'où il vient d'être retiré.
+ *
+ * Le chemin de suite est plus SÉVÈRE que celui du lancement — trois passages au
+ * lieu de sept, un seuil relevé d'un cran : ce que ce contrôle constate, il le
+ * constate donc dans les conditions les plus dures.
+ */
+const chercher = (question) => passages.rechercherPourLaSuite(cible.id, cible.path, question, []);
+
 for (const { question, attendu, pourquoi } of DEMANDES) {
-  const trouve = await passages.rechercherPourLaTache(cible.id, cible.path, question, INDEX);
+  const trouve = await chercher(question);
   if (!trouve) {
     verifier(false, `« ${question.slice(0, 52)}… » — aucun passage`);
     continue;
@@ -159,12 +175,49 @@ const DIFFICILES = [
 
 console.log('\n4. Les cas difficiles — aucun mot du projet dans la question');
 for (const { question, vise } of DIFFICILES) {
-  const trouve = await passages.rechercherPourLaTache(cible.id, cible.path, question, INDEX);
+  const trouve = await chercher(question);
   const rang = trouve?.passages.findIndex((p) => vise.test(p.texte)) ?? -1;
   console.log(
     `  « ${question.slice(0, 56)}… » → ${rang >= 0 ? `la bonne page arrive en ${rang + 1}ᵉ position` : 'la bonne page ne remonte pas'}`,
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* 5. LE LANCEMENT D'UNE CARTE, LUI, EST RENDU AUX MOTS EXACTS         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LA DÉCISION MESURÉE, ÉPROUVÉE LÀ OÙ ELLE S'APPLIQUE.
+ *
+ * Sur 120 cartes réelles, à corpus et plafond identiques, le sens et les mots
+ * font jeu égal au lancement (66 % contre 66 %). Le sens y est donc RETIRÉ : la
+ * demande d'une carte est rédigée avec le vocabulaire du projet, les mots exacts
+ * y suffisent, et on cesse de payer la vectorisation de la question.
+ *
+ * Deux choses à constater, et pas une seule : que le lancement classe bien par
+ * les MOTS, et qu'il le dit comme un CHOIX (`choisi`) et non comme le repli
+ * d'un index mal préparé — sans quoi la bulle rejouerait la panne de couverture
+ * qui a duré des jours ici.
+ */
+console.log('\n5. Le LANCEMENT d’une carte — rendu aux mots exacts, et il le dit');
+const auLancement = await passages.rechercherPourLaTache(
+  cible.id,
+  cible.path,
+  DEMANDES[0].question,
+  INDEX,
+);
+verifier(!!auLancement, 'le lancement répond toujours');
+verifier(!!auLancement && !auLancement.mode.vecteurs, 'il classe par les MOTS exacts');
+verifier(
+  !!auLancement && auLancement.mode.choisi === true,
+  'et c’est un CHOIX de terrain, pas un repli de couverture',
+  auLancement ? auLancement.mode.raison : '',
+);
+verifier(
+  !!auLancement && auLancement.mode.couverture >= (pretPourLeSens ? 0.75 : 0),
+  'la couverture reste bonne : rien n’a été démonté pour autant',
+  auLancement ? `${Math.round(auLancement.mode.couverture * 100)} % préparés` : '',
+);
 
 /* ------------------------------------------------------------------ */
 
@@ -173,4 +226,4 @@ if (echecs.length) {
   console.error(`✗ ÉCHEC : ${echecs.length} contrôle(s) tombé(s).`);
   process.exit(1);
 }
-console.log('✓ La recherche par le sens répond juste, sur la vraie base, avec le moteur local.');
+console.log('✓ Le sens sert la CONVERSATION, les mots exacts servent le LANCEMENT — chacun sur son terrain.');
