@@ -161,7 +161,7 @@ export function useRecorder(onText: (text: string) => void) {
           blobEnAttenteRef.current = null;
           setWorking(false);
           if (data.ok && data.text) onText(data.text);
-          else client.pushToast('warning', data.error ?? 'transcription vide');
+          else client.pushToast('warning', data.error ?? t('transcription vide'));
           return;
         } catch {
           if (essai < ESSAIS_MAX - 1) {

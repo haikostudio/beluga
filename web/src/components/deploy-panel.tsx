@@ -53,29 +53,37 @@ import { t } from '@/lib/langue';
 /** L'ordre des sept étapes de la mise en ligne — le même que côté serveur. */
 const ORDRE_ETAPES: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
 
-const STEP_LABELS: Record<DeployStepKey, string> = {
-  merge: t('Fusion des branches'),
+const CLES_ETAPES: Record<DeployStepKey, string> = {
+  merge: 'Fusion des branches',
   commit: 'Enregistrement',
-  push: t('Envoi sur le dépôt'),
+  push: 'Envoi sur le dépôt',
   verify: 'Vérification du code',
   build: 'Construction',
-  publish: t('Mise en ligne'),
-  restart: t('Redémarrage du serveur'),
+  publish: 'Mise en ligne',
+  restart: 'Redémarrage du serveur',
 };
+
+function labelEtape(etape: DeployStepKey): string {
+  return t(CLES_ETAPES[etape]);
+}
 
 /**
  * Une phrase courte qui rappelle à quoi sert chaque étape. Masquée par défaut,
  * révélée au « ? » : elle explique le déroulé sans qu'on ait à le connaître.
  */
-const STEP_DESCRIPTIONS: Record<DeployStepKey, string> = {
-  merge: t('Les branches des cartes du lot sont réunies dans la branche principale.'),
-  commit: t('Le résultat de la fusion est inscrit dans l\'historique du dépôt.'),
-  push: t('Le code réuni est envoyé sur le dépôt distant.'),
-  verify: t('Les contrôles du projet sont rejoués ; le moindre échec arrête la mise en ligne.'),
-  build: t('Le projet est recompilé à partir du code réuni.'),
-  publish: t('L\'instance de dev de ce serveur est rafraîchie avec la nouvelle version.'),
-  restart: t('Le service est relancé pour servir la version fraîche.'),
+const CLES_DESCRIPTIONS_ETAPES: Record<DeployStepKey, string> = {
+  merge: 'Les branches des cartes du lot sont réunies dans la branche principale.',
+  commit: 'Le résultat de la fusion est inscrit dans l\'historique du dépôt.',
+  push: 'Le code réuni est envoyé sur le dépôt distant.',
+  verify: 'Les contrôles du projet sont rejoués ; le moindre échec arrête la mise en ligne.',
+  build: 'Le projet est recompilé à partir du code réuni.',
+  publish: 'L\'instance de dev de ce serveur est rafraîchie avec la nouvelle version.',
+  restart: 'Le service est relancé pour servir la version fraîche.',
 };
+
+function descriptionEtape(etape: DeployStepKey): string {
+  return t(CLES_DESCRIPTIONS_ETAPES[etape]);
+}
 
 type EtapeRun = DeployRun['steps'][number];
 type EtatEtape = EtapeRun['state'];
@@ -92,13 +100,17 @@ function dureeEtape(etape?: EtapeRun): string | null {
 }
 
 /** L'état d'une étape, dit en français simple. */
-const ETAT_LABELS: Record<EtatEtape, string> = {
-  todo: t('à venir'),
+const CLES_ETATS_ETAPES: Record<EtatEtape, string> = {
+  todo: 'à venir',
   running: 'en cours',
   done: 'fait',
-  failed: t('échoué'),
-  skipped: t('sauté'),
+  failed: 'échoué',
+  skipped: 'sauté',
 };
+
+function labelEtat(etat: EtatEtape): string {
+  return t(CLES_ETATS_ETAPES[etat]);
+}
 
 /** La pastille d'état posée devant une étape, la même partout. */
 function IconeEtape({ etat }: { etat: EtatEtape }) {
@@ -113,7 +125,7 @@ type Conflict = { cardId: string; title: string; branch: string; files: string[]
 
 /** L'étape d'une publication, nommée comme dans la règle pure. */
 function libelleEtape(cible: DeployRun['cible']): string {
-  return etapeDePublication(cible).libelle;
+  return t(etapeDePublication(cible).libelle);
 }
 
 /**
@@ -495,7 +507,7 @@ export function DeployPanel({
           {publicationEnCours ? (
             <>
               <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-              <span className="truncate">{STEP_LABELS[etapeEnCours]}…</span>
+              <span className="truncate">{labelEtape(etapeEnCours)}…</span>
             </>
           ) : (
             <>
@@ -785,7 +797,7 @@ export function AlerteTravailSansCarte({
         onFiche?.();
       })
       .catch((err: any) => {
-        client.pushToast('error', err?.message ?? 'carte impossible à créer');
+        client.pushToast('error', err?.message ?? t('carte impossible à créer'));
         throw err;
       });
   return (
@@ -948,11 +960,11 @@ function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.
                   <IconeEtape etat={etat} />
                 </span>
                 <span className={cn('flex-1 truncate', etat === 'failed' ? 'text-danger' : 'text-muted')}>
-                  {STEP_LABELS[key]}
+                  {labelEtape(key)}
                 </span>
                 {/* L'état, et la DURÉE quand l'étape est terminée : « fait · 4 s ». */}
                 <span className="mt-[1px] shrink-0 text-[11px] text-faint" data-etat-etape={etat}>
-                  {ETAT_LABELS[etat]}
+                  {labelEtat(etat)}
                   {duree && (etat === 'done' || etat === 'failed') ? (
                     <span data-duree-etape={key}> · {duree}</span>
                   ) : null}
@@ -967,7 +979,7 @@ function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.
                 <button
                   type="button"
                   data-aide-etape={key}
-                  aria-label={`À quoi sert l'étape « ${STEP_LABELS[key]} »`}
+                  aria-label={`À quoi sert l'étape « ${CLES_ETAPES[key]} »`}
                   aria-expanded={ouverte}
                   className={cn(
                     'mt-[1px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border text-[10px] leading-none transition-colors',
@@ -999,7 +1011,7 @@ function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.
 
               {ouverte ? (
                 <p className="ml-[22px] mt-0.5 text-[12px] text-faint" data-description-etape={key}>
-                  {STEP_DESCRIPTIONS[key]}
+                  {descriptionEtape(key)}
                 </p>
               ) : null}
 

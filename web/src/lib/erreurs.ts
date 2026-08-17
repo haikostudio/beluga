@@ -1,4 +1,5 @@
 import { ERREURS_MAX_PAR_PAGE, RapportErreur, empreinteErreur } from '@haikodev/shared';
+import { t } from './langue';
 
 /**
  * La remontée des erreurs de la page au serveur.
@@ -54,7 +55,7 @@ export function signalerErreur(rapport: RapportErreur): void {
 /** Le message et la pile d'une erreur, quelle que soit sa forme. */
 export function detailErreur(cause: unknown): { message: string; pile?: string } {
   if (cause instanceof Error) {
-    return { message: cause.message || cause.name || 'erreur sans message', pile: cause.stack };
+    return { message: cause.message || cause.name || t('erreur sans message'), pile: cause.stack };
   }
   if (typeof cause === 'string') return { message: cause };
   try {

@@ -18,7 +18,7 @@ function nomMoteur(engine: SentContextSnapshot['engine']): string {
 }
 
 function nomSession(session: SentContextSnapshot['session']): string {
-  return session === 'new' ? 'Nouvelle session' : t('Reprise de session');
+  return session === 'new' ? t('Nouvelle session') : t('Reprise de session');
 }
 
 function contientLaRecherche(texte: string | undefined, requete: string): boolean {
@@ -26,7 +26,7 @@ function contientLaRecherche(texte: string | undefined, requete: string): boolea
   return (texte ?? '').toLowerCase().includes(requete.toLowerCase());
 }
 
-function BoutonCopierBloc({ texte, titre = 'Copier' }: { texte: string; titre?: string }) {
+function BoutonCopierBloc({ texte, titre = t('Copier') }: { texte: string; titre?: string }) {
   const [copie, setCopie] = React.useState(false);
   if (!texte?.trim()) return null;
   const copier = async (e: React.MouseEvent) => {
@@ -66,7 +66,7 @@ function texteDunTour(tour: TourEnvoye): string {
     `${nomMoteur(contexte.engine)}${contexte.model ? ` — ${contexte.model}` : ''} · ${nomSession(contexte.session)}`,
     ...contexte.blocks
       .filter((b) => b.text)
-      .map((b) => `${b.label}${b.cached ? ' (relu au cache)' : ''}\n\n${b.text}`),
+      .map((b) => `${b.label}${b.cached ? t(' (relu au cache)') : ''}\n\n${b.text}`),
   ];
   return parties.join('\n\n---\n\n');
 }
@@ -110,7 +110,7 @@ function BlocDePrompt({
         <span className="min-w-0 flex-1 truncate text-[13px] text-text">{label}</span>
         {cached ? (
           <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10.5px] text-faint">
-            relu au cache
+            {t('relu au cache')}
           </span>
         ) : null}
         {texte ? <BoutonCopierBloc texte={texte} titre={t('Copier « {label} »', { label })} /> : null}

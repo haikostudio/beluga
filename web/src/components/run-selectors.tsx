@@ -88,7 +88,7 @@ export function RunSelectors({
 
   const titreSousVue =
     sousVue === 'moteur'
-      ? 'Moteur'
+      ? t('Moteur')
       : sousVue === 'modele'
         ? engine?.live
           ? t('Modèle (liste du moteur)')
