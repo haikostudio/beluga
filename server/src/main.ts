@@ -10,7 +10,7 @@ import { bootstrapAccounts, prochaineTentativeQuota, refreshQuotas } from './acc
 import { relierCompetencesAuxCoffres } from './competences.js';
 import { bus } from './bus.js';
 import { sampleCapacity } from './capacity.js';
-import { startScheduler, tick } from './scheduler.js';
+import { startScheduler, startVeille, tick } from './scheduler.js';
 import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
 import { startDeploy } from './deploy.js';
 import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projects.js';
@@ -108,6 +108,12 @@ async function main(): Promise<void> {
 
   // Boucles de fond
   const scheduler = startScheduler();
+  /*
+   * LE FILET A SON PROPRE MINUTEUR, à côté de l'ordonnanceur et jamais dedans :
+   * une boucle d'ordonnancement pendue ne doit pas emporter avec elle ce qui
+   * referme les agents bloqués (`shared/src/veille-du-demon.ts`).
+   */
+  const veille = startVeille();
   const quotaEcheances = new PlanificateurEcheancesQuotas({
     lire: (comptes) => refreshQuotas(true, comptes),
     diffuser: (quotas) => bus.emit({ type: 'quotas', quotas }),
@@ -196,6 +202,7 @@ async function main(): Promise<void> {
     if (!arretParSignal(signal)) return;
     log.info(`arrêt demandé (${signal})`);
     clearInterval(scheduler);
+    clearInterval(veille);
     clearInterval(capacityTimer);
     clearInterval(quotaTimer);
     quotaEcheances.arreter();

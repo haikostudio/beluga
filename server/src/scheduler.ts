@@ -22,6 +22,9 @@ import {
   porteDuDossier,
   avecMesureAnalyse,
   contexteHeritePourExecution,
+  PERIODE_VEILLE_MS,
+  decisionDeBoucle,
+  travailAbandonne,
 } from '@haikodev/shared';
 import { menageDesDossiers, ouvrirDossierDeCarte, travailDejaSurLaBranche } from './dossier-de-carte.js';
 import * as store from './store.js';
@@ -416,7 +419,36 @@ export function validerCarte(cardId: string): { ok: boolean; error?: string } {
   return { ok: true };
 }
 
+/**
+ * LES CARTES DONT LE LANCEMENT EST DÉJÀ EN ROUTE, avec l'instant du départ.
+ *
+ * Entre l'appel de `startCard` et le moment où l'agent passe « au travail », il
+ * s'écoule plusieurs secondes : portes à franchir, copie de travail à ouvrir,
+ * branche à préparer. La garde de la ligne suivante (`isRunning`) ne voit rien
+ * pendant cette fenêtre. Elle suffisait tant qu'un seul tour de boucle tournait
+ * à la fois ; depuis qu'un tour trop long peut être déclaré perdu et la boucle
+ * repartir, deux tours peuvent se croiser — et lanceraient deux fois la même
+ * carte, donc deux agents sur la même branche.
+ *
+ * La marque est DATÉE, jamais éternelle : un lancement lui-même pendu ne doit
+ * pas condamner sa carte pour toujours.
+ */
+const lancementsEnRoute = new Map<string, number>();
+
 export async function startCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
+  const engage = lancementsEnRoute.get(cardId);
+  if (engage !== undefined && !travailAbandonne(Date.now() - engage)) {
+    return { ok: true };
+  }
+  lancementsEnRoute.set(cardId, Date.now());
+  try {
+    return await lancerLaCarte(cardId);
+  } finally {
+    lancementsEnRoute.delete(cardId);
+  }
+}
+
+async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: string }> {
   const card = store.getCard(cardId);
   if (!card) return { ok: false, error: 'carte introuvable' };
   if (card.agentId && isRunning(card.agentId)) return { ok: true };
@@ -675,6 +707,8 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
 /* ------------------------------------------------------------------ */
 
 let ticking = false;
+/** L'instant de départ du tour en cours — ce qui permet de le dire perdu. */
+let tourPartiA = 0;
 
 /**
  * LE MÉNAGE DES DOSSIERS PASSE DEVANT TOUTE RELANCE.
@@ -688,27 +722,60 @@ let ticking = false;
  */
 let menageEnCours: Promise<void> | null = null;
 
+/**
+ * LE FILET, SUR SA PROPRE HORLOGE.
+ *
+ * Deux gestes entièrement synchrones : refermer les agents que plus rien
+ * n'attend, ranger les cartes restées en « En cours ». Ils vivaient en tête de
+ * la boucle d'ordonnancement — donc derrière son verrou « un tour à la fois ».
+ * Un seul `await` de cette boucle qui ne revenait jamais (git pendu, appel
+ * réseau sans fin) et le verrou n'était plus rendu : le filet ne repassait plus
+ * JAMAIS, et seul un redémarrage du serveur libérait les conversations. Le
+ * filet ne dépend plus de ce qu'il surveille.
+ *
+ * Rien ici ne s'attend : `setInterval` ne peut donc pas superposer deux
+ * passages. L'enveloppe `try` est ce qui empêche une panne d'un seul agent
+ * d'emporter le minuteur — donc le filet — avec elle.
+ */
+export function passageDeVeille(): void {
+  try {
+    veilleDesToursBloques();
+  } catch (err) {
+    log.error('veille des tours bloqués', err);
+  }
+  try {
+    rangerLesCartesOubliees();
+  } catch (err) {
+    log.error('rangement des cartes oubliées', err);
+  }
+}
+
+export function startVeille(): NodeJS.Timeout {
+  return setInterval(passageDeVeille, PERIODE_VEILLE_MS);
+}
+
 export async function tick(): Promise<void> {
   if (menageEnCours) await menageEnCours.catch(() => undefined);
-  if (ticking) return;
+  /*
+   * UN TOUR QUI NE REND PAS LA MAIN NE CONDAMNE PLUS LES SUIVANTS. Le verrou
+   * reste la règle — deux tours en même temps lanceraient deux fois la même
+   * carte —, mais il n'est plus éternel : passé son plafond, le tour en cours
+   * est tenu pour perdu et la boucle reprend, en le DISANT. Le garde de
+   * `startCard` interdit le double départ pendant que le tour perdu s'achève.
+   */
+  const decision = decisionDeBoucle({ enCours: ticking, depuisMs: Date.now() - tourPartiA });
+  if (!decision.partir) return;
+  if (decision.abandon) log.warn(decision.abandon);
   ticking = true;
+  /*
+   * L'instant de départ sert AUSSI de jeton : un tour déclaré perdu qui
+   * reviendrait un jour de son sommeil ne doit pas rendre le verrou du tour qui
+   * a pris sa place, sinon deux tours finiraient par tourner ensemble pour de
+   * bon.
+   */
+  const monDepart = Date.now();
+  tourPartiA = monDepart;
   try {
-    /*
-     * LE FILET, AVANT TOUT LE RESTE : un agent resté « au travail » alors que
-     * plus rien ne l'attend est refermé ici. Il fait tourner un compteur dans le
-     * vide, retient la barre d'écriture, et occupe une place d'agent qui
-     * manquerait au démarrage d'une carte juste en dessous.
-     */
-    veilleDesToursBloques();
-
-    /*
-     * LE SECOND FILET : les cartes restées en « En cours » alors que plus rien
-     * ne les tient. Une fin de tour range la sienne ; celles qui étaient DÉJÀ
-     * bloquées avant cette règle n'attendent plus aucune fin de tour, et
-     * seraient restées comptées dans « EN COURS » à jamais.
-     */
-    rangerLesCartesOubliees();
-
     for (const project of store.listProjects()) {
       /*
        * Aucun balayage de chiffrage : une carte validée n'attend plus d'analyse,
@@ -754,7 +821,9 @@ export async function tick(): Promise<void> {
   } catch (err) {
     log.error('boucle d\'ordonnancement', err);
   } finally {
-    ticking = false;
+    // Seul le tour EN TITRE rend le verrou : un tour déjà remplacé se retire en
+    // silence.
+    if (tourPartiA === monDepart) ticking = false;
   }
 }
 
