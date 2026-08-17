@@ -37,7 +37,7 @@
        personne. */
     --bg: 0 0% 0%;
     --surface: 0 0% 8%;
-    --raised: 0 0% 13%;
+    --raised: 0 0% 15%;
     /* SANS UNE BORDURE, comme « sable » et « ardoise » (17.08.2026). Le trait
        gris à 24 % était le dernier reste de l'ancienne facture : un bloc se
        délimite par son fond — page 0 %, bloc 8 %, élément relevé 13 % —, plus
@@ -118,6 +118,39 @@
        trait, un fond qui se voit. */
     --bandeau-etape: 0 0% 22%;
     color-scheme: dark;
+  }
+
+  /**
+   * L'ÉTAGEMENT DES TROIS GRANDES ZONES, SOMBRE SEULEMENT (17.08.2026).
+   *
+   * La colonne des projets, le tableau et la conversation empruntaient tous
+   * `--bg` (0 %) sans le moindre fond à eux : trois régions peintes de la
+   * même main, qui se fondaient dans le même noir — aucune bordure ne les
+   * séparait plus depuis que le thème est devenu plat. Trois fonds DÉDIÉS,
+   * posés en repère (`data-zone`, `sidebar.tsx` et `app.tsx`), viennent les
+   * étager sans qu'aucun écran ne bouge d'un pixel.
+   *
+   * SCOPÉ À `html[data-theme='sombre']`, jamais à `:root` : ce sélecteur est
+   * plus fort qu'un pseudo-classe et n'a donc pas besoin de venir après —
+   * surtout, il n'est JAMAIS lu par `scripts/verif-themes.mjs` (qui ne scanne
+   * que les sept blocs connus) et ne s'applique à AUCUN autre thème, qui n'a
+   * jamais cet attribut. Les six autres thèmes n'ont donc ni ce jeton à
+   * déclarer, ni un pixel qui bouge.
+   *
+   * Palier complet, du plus sombre au plus clair, à peu près régulier (2 à
+   * 4 points) : bg 0, colonne des projets 3, tableau 5, colonnes du tableau
+   * (`--surface`) 8, conversation 11, cartes et bulles (`--raised`) 15. Les
+   * colonnes du tableau se détachent ainsi doucement de son propre fond, et
+   * les trois grandes zones ne sont plus jamais la même teinte.
+   */
+  html[data-theme='sombre'] [data-zone='gauche'] {
+    background-color: hsl(0 0% 3%);
+  }
+  html[data-theme='sombre'] [data-zone='centre'] {
+    background-color: hsl(0 0% 5%);
+  }
+  html[data-theme='sombre'] [data-zone='droite'] {
+    background-color: hsl(0 0% 11%);
   }
 
   html:not(.dark) {

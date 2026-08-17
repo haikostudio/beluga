@@ -386,6 +386,9 @@ export function Sidebar({
       // la liste du tableau : sur téléphone il n'y a rien à séparer, la liste
       // vit dans un panneau qui a déjà son propre bord — un second trait à
       // l'intérieur se lit comme une fausse limite.
+      // `data-zone="gauche"` : repère pour l'étagement des fonds du thème
+      // sombre (`styles.css`) — inerte dans les six autres thèmes.
+      data-zone="gauche"
       className="flex w-full shrink-0 flex-col bg-bg sm:w-[var(--largeur-projets)] sm:border-r sm:border-border"
       style={{ ['--largeur-projets' as any]: `${width ?? 196}px` }}
     >

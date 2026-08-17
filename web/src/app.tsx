@@ -568,7 +568,12 @@ export function App() {
             onDoubleClick={gauche.reset}
           />
 
-          <main className={cn('flex min-h-0 min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}>
+          {/* `data-zone="centre"` : repère pour l'étagement des fonds du thème
+              sombre (`styles.css`) — inerte dans les six autres thèmes. */}
+          <main
+            data-zone="centre"
+            className={cn('flex min-h-0 min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}
+          >
             {dashboardOpen ? (
               <Filet zone="Tableau de bord">
                 <PanneauALaDemande monte>
@@ -601,7 +606,11 @@ export function App() {
                 onPointerDown={(event) => droite.start(event, 'right')}
                 onDoubleClick={droite.reset}
               />
+              {/* `data-zone="droite"` : repère pour l'étagement des fonds du
+                  thème sombre (`styles.css`) — inerte dans les six autres
+                  thèmes. */}
               <aside
+                data-zone="droite"
                 className="hidden shrink-0 border-l border-border lg:flex lg:flex-col"
                 style={{ width: `${droite.width}px` }}
               >
@@ -616,7 +625,7 @@ export function App() {
 
           {/* Sur téléphone, la conversation prend toute la place */}
           {activeProject && mobileView === 'chat' ? (
-            <aside className="flex min-w-0 flex-1 flex-col sm:hidden">
+            <aside data-zone="droite" className="flex min-w-0 flex-1 flex-col sm:hidden">
               <Filet zone="Chef d'orchestre">
                 <PanneauALaDemande monte>
                   <RightPanel projectId={activeProject.id} />

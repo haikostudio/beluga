@@ -1085,6 +1085,19 @@ le nom, là-bas le texte).
   « light » sont REPRIS (`themeValide`), et `CHOIX_DE_THEME` porte la CLARTÉ de chaque thème
   (`item.clarte`) pour qu'un écran choisisse son icône (soleil/lune) sans lister les identifiants un
   par un. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
+- **LES TROIS GRANDES ZONES (colonne des projets, tableau, conversation) SONT ÉTAGÉES, SOMBRE
+  SEULEMENT** (`data-zone` sur `sidebar.tsx` et `app.tsx` ; règles `html[data-theme='sombre']
+  [data-zone='…']` dans `web/src/styles.css`, 17.08.2026) : les trois régions empruntaient toutes
+  `--bg` sans fond à elles, donc se fondaient dans le même noir dès que la bordure du thème plat a
+  disparu. `racine.dataset.theme` porte TOUJOURS le nom du thème, « sombre » compris, même si son
+  bloc de jetons reste `:root` — un sélecteur `html[data-theme='sombre']` cible donc ce thème SEUL,
+  sans toucher aux six autres (ils n'ont jamais cet attribut, la règle ne les concerne jamais) et
+  sans figurer dans les jetons que `verif-themes.mjs` compare entre thèmes (il ne lit que les sept
+  blocs connus). Palier complet : page 0 %, colonne des projets 3 %, tableau 5 %, colonnes du
+  tableau (`--surface`) 8 %, conversation 11 %, cartes et bulles (`--raised`, monté à 15 % à cette
+  occasion) 15 %. Cette technique — un sélecteur `[data-theme='…']` scopé plutôt qu'un nouveau jeton
+  partagé — est la manière de retoucher UN SEUL thème sans devoir en déclarer la valeur dans les six
+  autres.
 - **…ET LES HUIT CHOIX TIENNENT DERRIÈRE UNE SEULE ENTRÉE « THÈME » DU MENU**
   (`DropdownMenuSub` / `DropdownMenuSubTrigger` / `DropdownMenuSubContent`, `web/src/components/ui/index.tsx` ;
   entrée `data-theme-menu` de `web/src/components/quota-bar.tsx`) : alignés les uns sous les autres,
