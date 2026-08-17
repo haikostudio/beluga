@@ -333,17 +333,18 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           data-barre-onglets
           data-cachee={telephone && !barreVisible ? '' : undefined}
           className={cn(
-            'flex-none overflow-hidden transition-all duration-200',
+            'mx-4 mt-1 flex-none overflow-hidden rounded-md bg-raised transition-all duration-200',
             telephone && !barreVisible && 'max-h-0 opacity-0',
           )}
         >
+        {/* La barre d'onglets flottait sur le fond du tiroir (`bg-surface`
+            des deux côtés) : plus aucune limite visible depuis que la
+            bordure des thèmes plats s'efface. Elle pose maintenant son
+            propre fond — le même `bg-raised` que le champ de description,
+            plus bas — pour se détacher du tiroir comme un bloc à part ; la
+            piste de la pilule (`bg-surface`, posée par `TabsList`) et
+            l'onglet actif (`bg-raised`) gardent leur écart d'avant. */}
         <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-1.5 py-1">
-          {/* Même présentation en pilule que la barre « Chef / Fichiers /
-              Pièces jointes » : le tiroir porte déjà le même fond
-              (`bg-surface`) que la piste de la pilule, qui se détache donc
-              par un LISERÉ plutôt qu'un fond différent — `bg-bg` aurait
-              collé à `bg-raised` de l'onglet actif en thème clair, où les
-              deux valent blanc pur. */}
           <TabsList className="w-full border border-border">
             {/* La décision se prend DANS ce fil : l'onglet porte le même
                 triangle que la carte du tableau, sinon le tiroir ouvert
@@ -703,7 +704,7 @@ function ReglagesAgent({ card }: { card: Card }) {
   };
 
   return (
-    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+    <div className="rounded-md border border-border bg-raised px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
         <Cpu className="h-3 w-3" />
         {vu.modifiable ? "Réglages de l'agent" : 'Réglages qui ont servi'}
@@ -794,7 +795,7 @@ function DepartProgramme({ card }: { card: Card }) {
   };
 
   return (
-    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+    <div className="rounded-md border border-border bg-raised px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
         <CalendarClock className="h-3 w-3" />
         Départ programmé
