@@ -39,6 +39,8 @@ import {
   lireLienGithub,
   avancementDeLaColonne,
   avertissementRedemarrage,
+  resumeDeCeQuiSeraInterrompu,
+  type EtatDemon,
   raisonAgents,
   raisonPublications,
   doitSecouerLigne,
@@ -52,6 +54,7 @@ import {
   ConfirmDialog,
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
   Dot,
   DropdownMenu,
@@ -990,12 +993,24 @@ function BoutonRedemarrage() {
           ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
           : 'Redémarrer le serveur';
 
+  /*
+   * CE QUI RETIENT LE REDÉMARRAGE N'ÉTEINT PLUS LE BOUTON.
+   *
+   * Il était désactivé pendant une publication : impossible d'ouvrir la fenêtre,
+   * donc impossible de forcer — alors que c'est exactement la situation où l'on
+   * en a besoin. Le bouton s'ouvre donc toujours (sauf pendant que le serveur
+   * repart, où il n'y a plus personne à qui parler) ; c'est la FENÊTRE qui dit
+   * ce qui sera interrompu, et le forçage reste un second clic délibéré.
+   */
+  const retenu = publie || enAttente;
+
   return (
     <>
       <div className="border-t border-border px-1.5 py-1.5">
         <button
+          data-bouton-redemarrage
           onClick={() => setConfirmer(true)}
-          disabled={enCours || publie || deconnecte}
+          disabled={enCours || deconnecte}
           className={cn(
             'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors',
             'disabled:cursor-not-allowed',
@@ -1018,19 +1033,19 @@ function BoutonRedemarrage() {
         </button>
       </div>
 
-      <ConfirmDialog
+      <DialogueDeRedemarrage
         open={confirmer}
-        title="Redémarrer le serveur ?"
-        description={avertissementRedemarrage(demon ?? { demarreA: 0 })}
-        confirmLabel="Redémarrer"
-        onConfirm={() => {
+        demon={demon}
+        retenu={retenu}
+        onClose={() => setConfirmer(false)}
+        onPartir={(force) => {
           setEnCours(true);
           // La réponse part avant la coupure ; la reconnexion se fait toute
           // seule, on rend donc la main au bout de quelques secondes. Un refus
           // (publication en cours) revient AVANT la coupure : on le dit et on
           // rend la main tout de suite.
           void client
-            .call<{ ok: boolean; raison?: string }>({ type: 'daemon.restart' })
+            .call<{ ok: boolean; raison?: string }>({ type: 'daemon.restart', force })
             .then((res) => {
               if (res && res.ok === false) {
                 setEnCours(false);
@@ -1040,9 +1055,93 @@ function BoutonRedemarrage() {
             .catch(() => undefined);
           window.setTimeout(() => setEnCours(false), 12000);
         }}
-        onClose={() => setConfirmer(false)}
       />
     </>
+  );
+}
+
+/**
+ * LA FENÊTRE DU REDÉMARRAGE — ET SON SECOND BOUTON.
+ *
+ * Un redémarrage demandé pendant qu'un travail tourne est RETENU : il partira
+ * tout seul dès la dernière tâche finie, et c'est la bonne règle tant que ce
+ * travail avance vraiment. Le jour où plus rien n'avance, elle se retourne
+ * contre l'utilisateur — le redémarrage attend un agent qui n'ira jamais au
+ * bout, et il fallait un terminal pour s'en sortir.
+ *
+ * D'où le second bouton, et deux exigences qui vont avec : il ne part JAMAIS
+ * tout seul (un clic de plus, sur un bouton nommé « Forcer le redémarrage »),
+ * et la fenêtre DIT ce qui sera interrompu avant qu'on ne le clique
+ * (`resumeDeCeQuiSeraInterrompu`). Quand rien ne tourne, il n'y a rien à forcer
+ * et il ne s'affiche pas.
+ */
+function DialogueDeRedemarrage({
+  open,
+  demon,
+  retenu,
+  onPartir,
+  onClose,
+}: {
+  open: boolean;
+  demon?: EtatDemon & { redemarrageNecessaire?: boolean };
+  retenu: boolean;
+  onPartir: (force: boolean) => void;
+  onClose: () => void;
+}) {
+  const etat = demon ?? { demarreA: 0 };
+  const quelqueChoseTourne = (etat.agentsEnCours ?? 0) > 0 || (etat.publications ?? []).length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:w-[min(480px,100%)]">
+        <DialogTitle>Redémarrer le serveur ?</DialogTitle>
+        <DialogDescription>{avertissementRedemarrage(etat)}</DialogDescription>
+        {quelqueChoseTourne ? (
+          <p className="mt-2 text-[13px] leading-relaxed text-warning" data-redemarrage-interrompu>
+            {resumeDeCeQuiSeraInterrompu(etat)}
+          </p>
+        ) : null}
+        <div className="mt-4 flex flex-wrap justify-end gap-1.5">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Annuler
+          </Button>
+          {quelqueChoseTourne ? (
+            <Button
+              variant="danger"
+              size="sm"
+              data-redemarrage-force
+              onClick={() => {
+                onPartir(true);
+                onClose();
+              }}
+            >
+              Forcer le redémarrage
+            </Button>
+          ) : null}
+          {/*
+            « Redémarrer » reste ACTIF même quand un travail tourne : il pose
+            alors la demande RETENUE, qui partira toute seule dès la dernière
+            tâche finie — c'est le comportement d'avant, et il est utile. On
+            n'ajoute rien à sa charge : c'est « Forcer » qui passe outre.
+          */}
+          <Button
+            variant="default"
+            size="sm"
+            title={
+              retenu
+                ? 'Le redémarrage sera retenu et partira tout seul dès la fin du travail en cours.'
+                : undefined
+            }
+            onClick={() => {
+              onPartir(false);
+              onClose();
+            }}
+          >
+            {retenu ? 'Redémarrer dès que possible' : 'Redémarrer'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -105,6 +105,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
 import { adapterFor, contextWindowFor, EngineAdapter, EngineEvent, EngineHandle } from './engines/index.js';
+import { acheverLArbre } from './engines/fin-de-processus.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
 import {
@@ -3035,23 +3036,90 @@ export function stopAgent(agentId: string): boolean {
   return arreterLAgent(agentId).travaillait;
 }
 
-/** Arrêter TOUS les agents en cours (running ou starting), sur tous les projets. */
-export function stopAllAgents(): Array<{ agentId: string; cardId?: string }> {
-  const allAgents = store.listAgents();
-  const activeStatuses = ['running', 'starting'] as const;
-  const stoppedAgents: Array<{ agentId: string; cardId?: string }> = [];
+/**
+ * TOUT CE QUI TOURNE ENCORE, quelle que soit la façon dont ça tourne.
+ *
+ * On ne se fiait qu'au STATUT enregistré (« running », « starting »), donc à ce
+ * que la base croit savoir. C'est précisément ce qui est faux quand rien
+ * n'avance : un tour vivant sur un agent que la base dit au repos, une
+ * préparation coincée avant même que le statut ne soit posé, un moteur de
+ * SERVICE (compression du fil, relance d'un plan) qui n'apparaît nulle part.
+ * Ces trois-là survivaient au bouton « tout arrêter » — et retenaient ensuite le
+ * redémarrage sans que personne ne comprenne pourquoi.
+ *
+ * On part donc de l'UNION de quatre sources : le statut, les tours vivants, les
+ * préparations en route, les moteurs de service.
+ */
+function agentsQuiTournentEncore(): string[] {
+  const identifiants = new Set<string>();
+  for (const agent of store.listAgents()) {
+    if (agent.status === 'running' || agent.status === 'starting') identifiants.add(agent.id);
+  }
+  for (const agentId of live.keys()) identifiants.add(agentId);
+  for (const agentId of demarrant.keys()) identifiants.add(agentId);
+  for (const [agentId, ouverts] of moteursDeService) {
+    if (ouverts.size) identifiants.add(agentId);
+  }
+  return [...identifiants];
+}
 
-  for (const agent of allAgents) {
-    if (activeStatuses.includes(agent.status as any)) {
-      stopAgent(agent.id);
-      stoppedAgents.push({
-        agentId: agent.id,
-        cardId: agent.cardId,
-      });
-    }
+/**
+ * ARRÊTER TOUS LES AGENTS, SUR TOUS LES PROJETS — ET RENDRE LE GESTE FAIT SUR
+ * CHACUN.
+ *
+ * Même geste EN FORCE que le bouton d'un agent seul, appliqué un par un :
+ * moteur coupé puis achevé s'il fait la sourde oreille, descendance emportée,
+ * tour refermé d'autorité quand il n'y a plus de moteur à couper. Ce qui change
+ * ici, c'est le compte rendu : chaque agent rapporte SON geste, et l'écran peut
+ * enfin dire ce qui s'est passé au lieu d'un nombre sans contenu.
+ */
+export function stopAllAgents(): Array<{
+  agentId: string;
+  cardId?: string;
+  geste: DecisionDArret['geste'];
+  message: string;
+}> {
+  const arretes: Array<{
+    agentId: string;
+    cardId?: string;
+    geste: DecisionDArret['geste'];
+    message: string;
+  }> = [];
+
+  for (const agentId of agentsQuiTournentEncore()) {
+    const decision = arreterLAgent(agentId);
+    arretes.push({
+      agentId,
+      cardId: store.getAgent(agentId)?.cardId,
+      geste: decision.geste,
+      message: decision.message,
+    });
   }
 
-  return stoppedAgents;
+  return arretes;
+}
+
+/**
+ * ACHEVER TOUT CE QUI TOURNE, TOUT DE SUITE — le geste du redémarrage FORCÉ.
+ *
+ * `stopAllAgents` demande d'abord et n'achève qu'au bout du délai de grâce : très
+ * bien tant que le serveur reste là pour tenir sa promesse. Au redémarrage
+ * forcé, il quitte avant — le minuteur meurt avec lui et le moteur récalcitrant
+ * survit, orphelin, à tourner sur la machine (constaté par
+ * `scripts/verif-arret-en-force.mjs`). On repasse donc derrière, sans rien
+ * demander : chaque moteur encore inscrit est achevé par son NUMÉRO EXACT, sa
+ * descendance avec lui — jamais un motif de nom, jamais un groupe de processus,
+ * qui emporteraient le démon.
+ */
+export function acheverTousLesMoteurs(): number {
+  let acheves = 0;
+  for (const [agentId, run] of live) {
+    acheves += acheverLArbre(run.handle.pid, `tour de ${agentId}`);
+  }
+  for (const [agentId, ouverts] of moteursDeService) {
+    for (const handle of ouverts) acheves += acheverLArbre(handle.pid, `service de ${agentId}`);
+  }
+  return acheves;
 }
 
 /* ------------------------------------------------------------------ */

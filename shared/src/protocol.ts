@@ -522,8 +522,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('erreurs.effacer') }),
   /** L'état du démon : depuis quand il tourne, et s'il tourne sur du code périmé. */
   z.object({ type: z.literal('daemon.status') }),
-  /** Arrêter le démon pour que le service le relance avec le code construit. */
-  z.object({ type: z.literal('daemon.restart') }),
+  /**
+   * Arrêter le démon pour que le service le relance avec le code construit.
+   *
+   * `force` passe outre l'attente : le travail en cours est d'abord enregistré,
+   * tout ce qui tourne est coupé, puis le serveur repart. Geste EXPLICITE — il
+   * ne vient que d'un second bouton, jamais du chemin ordinaire.
+   */
+  z.object({ type: z.literal('daemon.restart'), force: z.boolean().optional() }),
   z.object({ type: z.literal('backup.now') }),
   z.object({ type: z.literal('backup.list') }),
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),

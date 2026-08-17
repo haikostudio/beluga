@@ -89,6 +89,17 @@ export interface EtatPourRedemarrage {
   agents: number;
   /** Ce que fait chaque agent compté ci-dessus, en une phrase courte. */
   agentsDetail?: string[];
+  /**
+   * LE FORÇAGE : passer outre l'attente, en connaissance de cause.
+   *
+   * L'attente est la bonne règle par défaut — on ne coupe pas un travail qui
+   * avance. Mais elle suppose que ce travail AVANCE, et c'est justement ce qui
+   * est faux le jour où l'on a besoin du bouton : un agent pendu retient le
+   * redémarrage pour toujours, et il faut alors ouvrir un terminal pour reprendre
+   * la main. Le forçage n'est jamais automatique : il ne vient que d'un second
+   * bouton, cliqué après avoir lu ce qui va être interrompu.
+   */
+  force?: boolean;
 }
 
 /**
@@ -97,9 +108,14 @@ export interface EtatPourRedemarrage {
  * Une publication en cours passe AVANT tout : on ne la coupe jamais, et le
  * message nomme le projet pour qu'on sache quoi attendre. Un agent au travail
  * fait attendre de même. Sans rien qui tourne, le redémarrage part.
+ *
+ * Un forçage EXPLICITE, lui, part toujours : c'est un geste humain pris après
+ * lecture de ce qui sera interrompu (`resumeDeCeQuiSeraInterrompu`), et il n'a
+ * de sens que quand plus rien n'avance.
  */
 export function decisionDeRedemarrage(etat: EtatPourRedemarrage): DecisionRedemarrage {
   if (!etat.demande) return { action: 'rien' };
+  if (etat.force) return { action: 'redemarrer' };
   const publications = etat.publications.filter((n) => n.trim());
   if (publications.length > 0) {
     return { action: 'attendre', raison: raisonPublications(publications) };
@@ -109,6 +125,42 @@ export function decisionDeRedemarrage(etat: EtatPourRedemarrage): DecisionRedema
   }
   return { action: 'redemarrer' };
 }
+
+/**
+ * CE QUI SERA INTERROMPU, ÉCRIT AVANT DE CONFIRMER.
+ *
+ * Forcer se fait les yeux ouverts : la fenêtre doit nommer ce qu'on s'apprête à
+ * couper — les agents, un par un quand on sait ce qu'ils font, et les
+ * publications, qui sont le cas le plus coûteux. Rien qui tourne : on le dit
+ * aussi, et le forçage n'a alors rien de particulier.
+ */
+export function resumeDeCeQuiSeraInterrompu(etat: EtatDemon): string {
+  const agents = etat.agentsEnCours ?? 0;
+  const publications = (etat.publications ?? []).filter((n) => n.trim());
+  if (!agents && !publications.length) {
+    return 'Rien ne tourne en ce moment : le redémarrage n’interrompt aucun travail.';
+  }
+
+  const morceaux: string[] = [];
+  if (agents) {
+    const liste = listeDesAgents(etat.agentsDetail, agents);
+    morceaux.push(agents === 1 ? `un agent au travail${liste}` : `${agents} agents au travail${liste}`);
+  }
+  if (publications.length) {
+    const noms = publications.map((n) => `« ${n} »`).join(', ');
+    morceaux.push(
+      publications.length === 1
+        ? `une publication en cours (projet ${noms})`
+        : `${publications.length} publications en cours (${noms})`,
+    );
+  }
+
+  return `Seront interrompus sur-le-champ : ${morceaux.join(' et ')}. Le travail déjà écrit est enregistré sur la branche de sa carte avant la coupure ; une publication coupée, elle, devra être relancée.`;
+}
+
+/** Ce qui est dit une fois le forçage parti — il ne se confond pas avec une attente. */
+export const MESSAGE_REDEMARRAGE_FORCE =
+  'Redémarrage forcé : tout ce qui tournait a été coupé, le serveur repart dans quelques secondes.';
 
 /** La phrase qui nomme la ou les publications qui retiennent le redémarrage. */
 export function raisonPublications(noms: string[]): string {
@@ -249,13 +301,14 @@ export interface SuiteRedemarrage {
  */
 export function suiteDuRedemarrage(
   demande: boolean,
-  monde: { publications: string[]; agents: number; agentsDetail?: string[] },
+  monde: { publications: string[]; agents: number; agentsDetail?: string[]; force?: boolean },
 ): SuiteRedemarrage {
   const decision = decisionDeRedemarrage({
     demande,
     publications: monde.publications,
     agents: monde.agents,
     agentsDetail: monde.agentsDetail,
+    force: monde.force,
   });
   if (decision.action === 'redemarrer') return { redemarrer: true, enAttente: false };
   if (decision.action === 'attendre') return { redemarrer: false, enAttente: true, raison: decision.raison };
