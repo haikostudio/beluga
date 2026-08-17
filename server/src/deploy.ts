@@ -27,6 +27,9 @@ import {
   phraseDEchecConstruction,
   estPlomberie,
   exclusionsDesBranchesDeCartes,
+  titreHorsTache,
+  descriptionCartePorteuse,
+  type CommitObserve,
   messageEchecPublication,
   natureDePublication,
   miseEnLigneReelle,
@@ -1220,8 +1223,10 @@ async function redemarrerService(cwd: string, service: string): Promise<{ ok: bo
  * quand la colonne « À déployer » est vide, et plus rien ne pouvait partir en
  * ligne. Rencontré le 03/08/2026 — plusieurs heures de travail bloquées.
  */
-export async function commitsEnAttente(projectId: string): Promise<{ nombre: number; titres: string[] }> {
-  const vide = { nombre: 0, titres: [] as string[] };
+export async function commitsEnAttente(
+  projectId: string,
+): Promise<{ nombre: number; titres: string[]; commits: CommitObserve[]; branche?: string }> {
+  const vide = { nombre: 0, titres: [] as string[], commits: [] as CommitObserve[] };
   const project = store.getProject(projectId);
   if (!project) return vide;
   const cwd = project.path;
@@ -1274,7 +1279,7 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
    * même travail était annoncé deux fois.
    */
   const couverts = new Set(store.shasCouverts(projectId));
-  const titres: string[] = [];
+  const commits: CommitObserve[] = [];
   for (const ligne of journal.out.split('\n')) {
     if (!ligne.trim()) continue;
     const [sha, titre] = ligne.split('\u001f');
@@ -1286,9 +1291,75 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
      * annonçait « 2 changements sans carte » juste après une mise en ligne.
      */
     if (estPlomberie(titre)) continue;
-    titres.push(titre.trim());
+    commits.push({ sha: sha?.trim() ?? '', titre: titre.trim(), branche: principale });
   }
-  return { nombre: titres.length, titres: titres.slice(0, 6) };
+  /* Les six premiers TITRES suffisent à l'affichage ; les enregistrements
+     entiers servent à FICHER ce travail dans une carte, si on le demande. */
+  return {
+    nombre: commits.length,
+    titres: commits.slice(0, 6).map((commit) => commit.titre),
+    commits,
+    branche: principale,
+  };
+}
+
+/**
+ * FICHER LE TRAVAIL SANS CARTE, sur demande de l'utilisateur.
+ *
+ * L'avertissement de la colonne « À déployer » nomme ce qui attend sans fiche ;
+ * ce geste lui en donne une. La carte est posée dans « À déployer » — le travail
+ * est FAIT, il n'y a rien à valider et rien à lancer — et porte les empreintes
+ * trouvées, si bien que l'avertissement s'éteint de lui-même au contrôle
+ * suivant : le même travail n'est jamais annoncé deux fois.
+ *
+ * RIEN N'EST PUBLIÉ NI FUSIONNÉ, aucune branche n'est touchée : les
+ * enregistrements sont déjà là où ils sont, on ne fait qu'écrire leur fiche.
+ * Tout refus est rendu en clair.
+ */
+export async function ficherLeTravailSansCarte(
+  projectId: string,
+): Promise<{ ok: boolean; error?: string; card?: Card }> {
+  const project = store.getProject(projectId);
+  if (!project) return { ok: false, error: 'projet introuvable' };
+
+  const attente = await commitsEnAttente(projectId);
+  if (!attente.commits.length) {
+    return { ok: false, error: 'plus aucune modification sans carte : il n’y a rien à ficher' };
+  }
+
+  const maintenant = Date.now();
+  const card = store.saveCard(
+    Card.parse({
+      id: store.newId(),
+      projectId,
+      title: titreHorsTache(attente.commits),
+      description: descriptionCartePorteuse(attente.commits, attente.branche),
+      /* Ce travail vit sur la principale : on le DIT sur la carte, comme le
+         fait déjà le fichage automatique quand il ne peut pas isoler. */
+      labels: ['hors tâche', 'sur la principale'],
+      column: 'to_deploy',
+      position: store.nextPosition(projectId, 'to_deploy'),
+      origin: 'user',
+      /* Rien ne sera exécuté depuis cette carte, mais le modèle en exige un :
+         on prend le moteur par défaut du projet, jamais un moteur inventé. */
+      run: { engine: project.defaultEngine },
+      horsTache: true,
+      /* Le CODE est déjà enregistré : la carte ne promet aucun travail à faire,
+         et rien ne partira au moteur. */
+      codeDejaEnregistre: true,
+      github: {
+        branch: attente.branche ?? '',
+        checks: [],
+        activity: [],
+        commits: attente.commits.map((commit) => ({ sha: commit.sha, message: commit.titre })),
+      },
+      createdAt: maintenant,
+      updatedAt: maintenant,
+    }),
+  );
+  bus.emit({ type: 'card.upsert', card });
+  log.info(`carte porteuse créée pour ${attente.commits.length} enregistrement(s) sans carte (${projectId})`);
+  return { ok: true, card };
 }
 
 export async function startDeploy(

@@ -456,6 +456,17 @@ le nom, là-bas le texte).
   donc du bouton « ! », où il fallait savoir qu'il existait pour aller le lire. Le bouton d'action,
   lui, garde le compte du LOT qui partira et NOMME ses deux parts (`libelleCompteLot`) — ce n'est pas
   le même objet. Rien n'est publié ni fusionné pour « régler » l'affichage.
+- **…ET L'ENCART PROPOSE DE LUI DONNER SA FICHE, D'UN CLIC** (`libelleCartePorteuse`,
+  `descriptionCartePorteuse`, `shared/src/colonne-a-deployer.ts` ; `ficherLeTravailSansCarte`,
+  `server/src/deploy.ts` ; commande `deploy.ficherSansCarte` ; bouton `data-ficher-sans-carte`) :
+  nommer le problème sans offrir de le régler laissait devant un encart qu'on ne pouvait que subir.
+  Le bouton pose UNE carte dans « À déployer » qui porte TOUS les enregistrements trouvés
+  (`github.commits`), avec `codeDejaEnregistre` — le travail est fait, rien ne partira au moteur — et
+  les étiquettes « hors tâche » / « sur la principale ». L'avertissement s'éteint alors de lui-même :
+  le contrôle suivant retrouve ces empreintes couvertes, et le même travail n'est jamais annoncé deux
+  fois. TROIS refus tenus : rien n'est publié, aucune branche n'est touchée, et un second clic sans
+  rien à ficher est refusé en clair. `commitsEnAttente` rend donc aussi les enregistrements entiers
+  (`commits`, `branche`) — mais `deploy.check` n'envoie au navigateur que le compte et les titres.
 - **…ET CE QUI EST PORTÉ PAR LA BRANCHE D'UNE CARTE N'EST PAS « SANS CARTE »**
   (`exclusionsDesBranchesDeCartes`, `shared/src/travail-hors-tache.ts` ; `commitsEnAttente`,
   `server/src/deploy.ts`). Le compte des modifications anonymes se lisait sur les seules empreintes

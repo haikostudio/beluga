@@ -78,6 +78,7 @@ import {
   conflitsPrevus,
   agentsOccupes,
   commitsEnAttente,
+  ficherLeTravailSansCarte,
   moyenDeMiseEnLigne,
   blocageMiseEnProduction,
   avertissementsDeLaSelection,
@@ -1292,8 +1293,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // sans lui, la fenêtre de publication disparaissait et rien ne partait.
         // Il entre dans le lot à la PREMIÈRE étape seulement : le compter aussi
         // à la seconde annoncerait deux fois le même travail.
-        enAttente:
-          etape?.source === 'to_deploy' ? await commitsEnAttente(cmd.projectId) : { nombre: 0, titres: [] },
+        // On n'envoie que le COMPTE et les titres : les empreintes entières ne
+        // servent qu'à ficher ce travail, côté serveur, si on le demande.
+        enAttente: await (async () => {
+          if (etape?.source !== 'to_deploy') return { nombre: 0, titres: [] };
+          const attente = await commitsEnAttente(cmd.projectId);
+          return { nombre: attente.nombre, titres: attente.titres };
+        })(),
         // COMMENT cette étape se fera. Le dire AVANT le clic vaut mieux que de
         // le découvrir dans le déroulé.
         miseEnLigne: await moyenDeMiseEnLigne(cmd.projectId, etape?.cible),
@@ -1301,6 +1307,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // pour que le bloc éteigne « Tout publier » et explique pourquoi.
         productionBloquee: blocageMiseEnProduction(cmd.projectId, etape?.cible),
       };
+    }
+
+    case 'deploy.ficherSansCarte': {
+      /* Un GESTE de l'utilisateur, depuis l'avertissement de la colonne : on
+         donne une fiche au travail trouvé. Rien n'est publié ni fusionné. */
+      const resultat = await ficherLeTravailSansCarte(cmd.projectId);
+      if (!resultat.ok) throw new Error(resultat.error ?? 'carte impossible à créer');
+      return { cardId: resultat.card?.id };
     }
 
     case 'deploy.selection': {

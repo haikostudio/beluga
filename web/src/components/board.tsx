@@ -1370,8 +1370,10 @@ export function Board({
               {column === 'to_deploy' || column === 'in_production' ? (
                 <AlerteTravailSansCarte
                   colonne={column}
+                  projectId={projectId}
                   travail={sansCarte[column] ?? null}
                   verbe={etapeDeLaColonne(column)?.verbe ?? 'déployer'}
+                  onFiche={() => setSansCarte((prev) => ({ ...prev, [column]: null }))}
                 />
               ) : null}
               {cartesPosees.map((card) => {

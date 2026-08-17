@@ -10,6 +10,7 @@ import {
   X,
   MinusCircle,
   AlertTriangle,
+  FilePlus2,
 } from 'lucide-react';
 import {
   Card,
@@ -20,6 +21,7 @@ import {
   PlanDeMiseEnLigne,
   TravailSansCarte,
   alerteTravailSansCarte,
+  libelleCartePorteuse,
   etapeDePublication,
   etapeDeLaColonne,
   libelleCompteLot,
@@ -758,15 +760,38 @@ function SelectionDeploiementDialog({
  */
 export function AlerteTravailSansCarte({
   colonne,
+  projectId,
   travail,
   verbe,
+  onFiche,
 }: {
   colonne: ColumnKey;
+  projectId: string;
   travail: TravailSansCarte | null;
   verbe: string;
+  /** La carte a été créée : la colonne oublie son avertissement, le contrôle
+   *  suivant confirmera qu'il n'y a plus rien d'anonyme. */
+  onFiche?: () => void;
 }) {
   const alerte = alerteTravailSansCarte(travail, verbe);
   if (!alerte) return null;
+  /*
+   * DONNER UNE FICHE À CE TRAVAIL, d'un clic. Le bouton part en requête et le
+   * dit tout seul (roue, puis coche) — c'est le socle `Button` qui s'en charge,
+   * à condition qu'on lui RENDE la promesse et qu'on RELANCE l'erreur, sinon il
+   * croirait avoir réussi. Rien n'est publié : la carte est simplement posée
+   * dans la colonne, où elle devient visible et comptée comme les autres.
+   */
+  const ficher = () =>
+    client
+      .call({ type: 'deploy.ficherSansCarte', projectId })
+      .then(() => {
+        onFiche?.();
+      })
+      .catch((err: any) => {
+        client.pushToast('error', err?.message ?? 'carte impossible à créer');
+        throw err;
+      });
   return (
     <div
       data-travail-sans-carte={colonne}
@@ -788,6 +813,15 @@ export function AlerteTravailSansCarte({
           {alerte.tronquee ? <li className="text-faint">• …</li> : null}
         </ul>
       ) : null}
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-1.5 h-7 w-full text-[12px]"
+        data-ficher-sans-carte={colonne}
+        onClick={ficher}
+      >
+        <FilePlus2 className="h-3 w-3" /> {libelleCartePorteuse(travail?.nombre ?? 0)}
+      </Button>
     </div>
   );
 }
