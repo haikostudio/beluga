@@ -1527,6 +1527,28 @@ function ComposerInline({
   const [busy, setBusy] = React.useState(false);
 
   /*
+   * CE BROUILLON APPARTIENT À SA COLONNE DE SON PROJET, PAS À L'APPLICATION.
+   * Ce composant n'est jamais démonté quand on change de projet (le tableau
+   * l'est, pas lui) : sans ceci, un titre ou une pièce jointe préparés pour
+   * une note du projet A restaient dans le formulaire en ouvrant celui du
+   * projet B — même défaut que le composeur de conversation, ici sans le
+   * geste d'envoi pour le vider. Un vrai changement de projet ou de colonne
+   * referme la fenêtre et vide tout ce qui n'a pas été créé.
+   */
+  const cleComposeur = `${projectId}:${column}`;
+  const cleComposeurPrecedente = React.useRef(cleComposeur);
+  React.useEffect(() => {
+    if (cleComposeurPrecedente.current === cleComposeur) return;
+    cleComposeurPrecedente.current = cleComposeur;
+    setOpen(false);
+    setTitle('');
+    setDescription('');
+    setDepart(maintenantEnChamp());
+    setAttachments([]);
+    setApercu(null);
+  }, [cleComposeur]);
+
+  /*
    * La colonne doit savoir que sa fenêtre est ouverte : c'est elle, et non
    * cette fenêtre, qui peut se relever au-dessus de la zone qui défile — le
    * `z-index` posé ici resterait enfermé dans le plan d'empilement de l'entête.

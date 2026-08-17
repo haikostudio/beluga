@@ -723,6 +723,10 @@ export function Composer({
       return;
     }
 
+    // Gardées pour un éventuel échec : l'envoi les vide tout de suite, mais
+    // elles ne doivent pas se perdre pour autant.
+    const jointesEnvoyees = attachments;
+
     oublierBrouillon();
     setText('');
     onClearPicked();
@@ -735,13 +739,19 @@ export function Composer({
         type: 'agent.prompt',
         agentId: agent.id,
         text: body,
-        attachments: attachments.map((a) => a.id),
+        attachments: jointesEnvoyees.map((a) => a.id),
       });
     } catch (err: any) {
-      // L'envoi a échoué : là, on rend le texte, sinon il serait perdu.
+      // L'envoi a échoué : là, on rend le texte ET les pièces jointes, sinon
+      // elles seraient perdues.
       client.pushToast('error', err?.message ?? 'envoi impossible');
       dejaEnvoye.current = null;
       setText(body);
+      if (jointesEnvoyees.length) {
+        setAttachments(jointesEnvoyees);
+        jointesIgnorerProchaineSauvegarde.current = true;
+        setJointesEnregistrees(jointesEnvoyees);
+      }
     }
   };
 
