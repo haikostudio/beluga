@@ -25,6 +25,13 @@ const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
 const DB = process.env.HAIKODEV_DB || '/root/haikodev/data/haikodev.db';
 const SHOTS = '/root/haikodev/data/verification';
 
+/*
+ * LE CHAMP ÉCRIT SES TAGS AVEC DES ESPACES INSÉCABLES (shared/src/ancres.ts) :
+ * c'est ce qui empêche « [fichier: nom] » d'être coupé en fin de ligne. Toute
+ * lecture du champ est donc ramenée aux espaces ordinaires avant comparaison.
+ */
+const lisible = (valeur) => (valeur || '').replace(/\u00A0/g, ' ');
+
 const results = [];
 function record(name, ok, detail = '') {
   results.push({ name, ok, detail });
@@ -125,7 +132,7 @@ async function main() {
     await choix.setInputFiles(image);
     await page.waitForTimeout(3500);
 
-    const texte = await zone.inputValue();
+    const texte = lisible(await zone.inputValue());
     record("L'ancre du fichier est écrite dans le texte", texte.includes('[fichier: capture-verif.png]'), texte.slice(0, 90));
     record(
       "L'ancre est posée à l'endroit du curseur, pas à la fin",
@@ -138,7 +145,7 @@ async function main() {
     // lettres trop tôt, au milieu des mots déjà là.
     await page.keyboard.type('SUITE');
     await page.waitForTimeout(500);
-    const apresFrappe = await zone.inputValue();
+    const apresFrappe = lisible(await zone.inputValue());
     record(
       'La frappe reprend juste après le tag, pas au milieu des mots',
       apresFrappe.includes('capture-verif.png]SUITE'),
@@ -164,7 +171,7 @@ async function main() {
     const drapeau = page.locator('[data-prompt-file-flag]').first();
     record('Le fichier joint apparaît comme un drapeau dans le texte', (await drapeau.count()) > 0);
     if ((await drapeau.count()) > 0) {
-      const avantGlisse = await zone.inputValue();
+      const avantGlisse = lisible(await zone.inputValue());
       /* Le drapeau épouse le texte du tag : quand la phrase le coupe en fin de
          ligne, il s'étale sur DEUX lignes et le centre de sa boîte englobante
          tombe dans le vide. On vise donc son PREMIER morceau. */
@@ -184,7 +191,7 @@ async function main() {
         );
         await page.mouse.up();
         await page.waitForTimeout(800);
-        const apresGlisse = await zone.inputValue();
+        const apresGlisse = lisible(await zone.inputValue());
         record(
           'Glisser le drapeau le déplace dans la phrase, sans le retirer',
           apresGlisse.includes('[fichier: capture-verif.png]') && apresGlisse !== avantGlisse,
@@ -222,7 +229,7 @@ async function main() {
     /* ---- 3 bis. Retirer le fichier retire son ancre ---- */
     await page.locator('button[title="Retirer ce fichier"]').first().click();
     await page.waitForTimeout(1200);
-    const apresRetrait = await zone.inputValue();
+    const apresRetrait = lisible(await zone.inputValue());
     record("Retirer le fichier retire son ancre du texte", !apresRetrait.includes('[fichier:'), apresRetrait.slice(0, 90));
     record("Le reste du texte est intact", apresRetrait.includes('Premier paragraphe.') && apresRetrait.includes('Second paragraphe.'));
     record("La vignette disparaît avec le fichier", (await page.locator('img[alt="capture-verif.png"]').count()) === 0);
@@ -232,7 +239,7 @@ async function main() {
     await zone.fill('');
     await choix.setInputFiles(texteJoint);
     await page.waitForTimeout(3000);
-    const avecAncre = await zone.inputValue();
+    const avecAncre = lisible(await zone.inputValue());
     const pastille = page.locator('button[title="notes-verif.txt"]');
     record("Un fichier sans image garde son nom dans la barre", (await pastille.count()) > 0);
     if (avecAncre.includes('[fichier: notes-verif.txt]')) {
@@ -264,7 +271,7 @@ async function main() {
       }
     }, octets);
     await page.waitForTimeout(3500);
-    const apresDepot = await zone.inputValue();
+    const apresDepot = lisible(await zone.inputValue());
     record(
       "Un fichier lâché sur les mots s'ancre à cet endroit, pas à la fin",
       apresDepot.startsWith('[fichier: depot-verif.png]') && apresDepot.trim().endsWith('Second paragraphe.'),

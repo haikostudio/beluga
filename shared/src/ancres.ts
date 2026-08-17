@@ -12,23 +12,69 @@
  * seules.
  */
 
-/** Le texte exact d'une ancre, tel qu'il apparaît dans le message. */
+/**
+ * UNE ANCRE NE SE COUPE JAMAIS EN FIN DE LIGNE : SES ESPACES SONT INSÉCABLES.
+ *
+ * Le champ de saisie est un vrai `textarea` : c'est LUI qui décide où le texte
+ * revient à la ligne, et il coupait volontiers à l'espace de « [fichier: nom] ».
+ * Le tag occupait alors deux morceaux de lignes, la pastille dessinée par-dessus
+ * ne pouvait plus s'y poser, et l'étiquette retombait en texte brut — sans sa
+ * croix, incohérente à côté de ses voisines restées en pastille.
+ *
+ * Un espace INSÉCABLE (U+00A0) se lit comme un espace, s'écrit comme un espace,
+ * mais interdit la coupure : le tag reste d'un bloc. Les espaces du NOM du
+ * fichier le deviennent aussi, sinon « ma photo.png » se couperait au milieu.
+ * Rien d'autre ne bouge : un espace insécable a la largeur d'un espace, donc ni
+ * la mise en page du champ ni la place du curseur ne changent.
+ *
+ * On ne dépend JAMAIS de cette forme pour RELIRE un tag : un brouillon écrit
+ * avant cette règle, un texte collé depuis le fil ou tapé à la main portent des
+ * espaces ordinaires et doivent se lire pareil. Tout passe donc par
+ * `tagsDuTexte`, jamais par une recherche du texte exact de l'ancre.
+ */
+export const ESPACE_INSECABLE = '\u00A0';
+
+/** Le nom tel qu'il s'écrit DANS le tag : ses espaces ne coupent plus la ligne. */
+function insecable(nom: string): string {
+  return nom.replace(/[ \t]/g, ESPACE_INSECABLE);
+}
+
+/** Le nom d'un fichier lu dans un tag, rendu à sa forme ordinaire. */
+export function nomDuTag(brut: string): string {
+  return brut.replace(/\u00A0/g, ' ').trim();
+}
+
+/** Le texte exact d'une ancre, telle qu'elle s'écrit dans le champ de saisie. */
 export function ancre(nom: string): string {
-  return `[fichier: ${nom}]`;
+  return `[fichier:${ESPACE_INSECABLE}${insecable(nom)}]`;
+}
+
+/**
+ * CE QUI PART AU MOTEUR GARDE DES ESPACES ORDINAIRES. L'insécable est un
+ * artifice d'AFFICHAGE : le message enregistré, relu et recopié ne doit pas
+ * porter un caractère invisible que personne n'a tapé.
+ */
+export function tagsEnEspacesOrdinaires(texte: string): string {
+  TAG_FICHIER.lastIndex = 0;
+  return texte.replace(TAG_FICHIER, (brut) => brut.replace(/\u00A0/g, ' '));
+}
+
+/**
+ * L'inverse, appliqu\u00E9 \u00E0 TOUT texte qui entre dans le champ de saisie : un
+ * brouillon recharg\u00E9, un texte coll\u00E9, une phrase dict\u00E9e portent des espaces
+ * ordinaires et leurs tags se couperaient en fin de ligne. Seuls les espaces
+ * INT\u00C9RIEURS aux tags changent, et un espace ins\u00E9cable a exactement la largeur
+ * d'un espace : la longueur du texte est identique, donc aucune position de
+ * curseur ni aucun retour \u00E0 la ligne ne bouge.
+ */
+export function tagsInsecables(texte: string): string {
+  TAG_FICHIER.lastIndex = 0;
+  return texte.replace(TAG_FICHIER, (brut) => brut.replace(/[ \t]/g, ESPACE_INSECABLE));
 }
 
 /** Combien de fois cette ancre apparaît dans le texte. */
 export function compteAncres(texte: string, nom: string): number {
-  const marque = ancre(nom);
-  if (!marque) return 0;
-  let total = 0;
-  let depuis = 0;
-  for (;;) {
-    const trouve = texte.indexOf(marque, depuis);
-    if (trouve === -1) return total;
-    total += 1;
-    depuis = trouve + marque.length;
-  }
+  return tagsDuTexte(texte).filter((tag) => tag.nom === nom).length;
 }
 
 /**
@@ -58,20 +104,23 @@ export function insereAncre(
 }
 
 /**
+ * La N-ième ancre de ce nom (0 = la première), avec ses bornes réelles dans le
+ * texte. `null` si elle n'y est pas : on ne suppose jamais qu'elle est encore
+ * là. La recherche se fait sur le MOTIF d'un tag, pas sur son texte exact —
+ * l'ancre écrite aujourd'hui porte des espaces insécables, celle d'un vieux
+ * brouillon des espaces ordinaires, et les deux désignent le même fichier.
+ */
+export function ancreDuTexte(texte: string, nom: string, occurrence: number): TagDuTexte | null {
+  if (occurrence < 0) return null;
+  return tagsDuTexte(texte).filter((tag) => tag.nom === nom)[occurrence] ?? null;
+}
+
+/**
  * Où commence la N-ième ancre de ce nom (0 = la première). -1 si elle
  * n'existe pas : on ne suppose jamais qu'elle est encore dans le texte.
  */
 export function indexDeLAncre(texte: string, nom: string, occurrence: number): number {
-  const marque = ancre(nom);
-  if (occurrence < 0) return -1;
-  let index = -1;
-  let depuis = 0;
-  for (let i = 0; i <= occurrence; i += 1) {
-    index = texte.indexOf(marque, depuis);
-    if (index === -1) return -1;
-    depuis = index + marque.length;
-  }
-  return index;
+  return ancreDuTexte(texte, nom, occurrence)?.debut ?? -1;
 }
 
 /** Retirer l'ancre à cet index, en ramassant l'espace devenu inutile. */
@@ -91,10 +140,10 @@ function retireAncreA(texte: string, debut: number, longueur: number): { texte: 
  * peut être cité deux fois.
  */
 export function retireAncre(texte: string, nom: string): string {
-  const marque = ancre(nom);
-  const trouve = texte.lastIndexOf(marque);
-  if (trouve === -1) return texte;
-  return retireAncreA(texte, trouve, marque.length).texte;
+  const siennes = tagsDuTexte(texte).filter((tag) => tag.nom === nom);
+  const dernier = siennes[siennes.length - 1];
+  if (!dernier) return texte;
+  return retireAncreA(texte, dernier.debut, dernier.fin - dernier.debut).texte;
 }
 
 /**
@@ -102,10 +151,9 @@ export function retireAncre(texte: string, nom: string): string {
  * toucher aux autres mots ni aux autres citations du même fichier.
  */
 export function retireOccurrence(texte: string, nom: string, occurrence: number): string {
-  const marque = ancre(nom);
-  const debut = indexDeLAncre(texte, nom, occurrence);
-  if (debut === -1) return texte;
-  return retireAncreA(texte, debut, marque.length).texte;
+  const tag = ancreDuTexte(texte, nom, occurrence);
+  if (!tag) return texte;
+  return retireAncreA(texte, tag.debut, tag.fin - tag.debut).texte;
 }
 
 /**
@@ -139,14 +187,13 @@ export function deplacerAncre(
   occurrence: number,
   vers: number,
 ): { texte: string; curseur: number } {
-  const marque = ancre(nom);
-  const debut = indexDeLAncre(texte, nom, occurrence);
-  if (debut === -1) return { texte, curseur: Math.max(0, Math.min(vers, texte.length)) };
-  const fin = debut + marque.length;
+  const tag = ancreDuTexte(texte, nom, occurrence);
+  if (!tag) return { texte, curseur: Math.max(0, Math.min(vers, texte.length)) };
+  const { debut, fin } = tag;
   const vise = Math.max(0, Math.min(vers, texte.length));
   if (vise >= debut && vise <= fin) return { texte, curseur: fin };
 
-  const { texte: sans, coupe } = retireAncreA(texte, debut, marque.length);
+  const { texte: sans, coupe } = retireAncreA(texte, debut, fin - debut);
   const viseAjuste = vise > debut ? Math.max(0, Math.min(vise - coupe, sans.length)) : vise;
   return insereAncre(sans, nom, viseAjuste);
 }
@@ -206,7 +253,7 @@ export function tagsDuTexte(texte: string): TagDuTexte[] {
   const tags: TagDuTexte[] = [];
   let trouve: RegExpExecArray | null;
   while ((trouve = TAG_FICHIER.exec(texte))) {
-    tags.push({ nom: trouve[1]!.trim(), debut: trouve.index, fin: trouve.index + trouve[0].length });
+    tags.push({ nom: nomDuTag(trouve[1]!), debut: trouve.index, fin: trouve.index + trouve[0].length });
   }
   return tags;
 }

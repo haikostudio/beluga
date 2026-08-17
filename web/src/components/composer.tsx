@@ -8,7 +8,7 @@ import {
   QueuedPrompt,
   TYPE_JOINTES_COLLABLES,
   ajouterJointesCollees,
-  ancre,
+  ancreDuTexte,
   accrocheAuMot,
   emballerJointes,
   relireJointes,
@@ -20,8 +20,11 @@ import {
   insereAncre,
   jointesApresFrappe,
   jointesDesTags,
+  nomDuTag,
   retireAncre,
   retireOccurrence,
+  tagsEnEspacesOrdinaires,
+  tagsInsecables,
   texteApresInsertion,
   TEXTE_BARRE_EN_ATTENTE,
 } from '@haikodev/shared';
@@ -93,6 +96,16 @@ export function Composer({
   barreTravail,
 }: ComposerProps) {
   const [text, setText] = React.useState('');
+  /*
+   * CE QUE LE CHAMP AFFICHE : le même texte, aux espaces des tags près, rendus
+   * INSÉCABLES pour qu'une étiquette « [fichier: …] » ne se coupe jamais en fin
+   * de ligne (`tagsInsecables`, shared/src/ancres.ts). Un texte collé, un
+   * brouillon rechargé ou une phrase dictée passent tous par ici. La longueur
+   * ne change pas d'un caractère, donc rien ne bouge : ni le curseur, ni les
+   * retours à la ligne. Le CALQUE lit la MÊME chaîne que le champ — deux
+   * chaînes différentes, et les tags dessinés tomberaient à côté.
+   */
+  const texteDuChamp = React.useMemo(() => tagsInsecables(text), [text]);
   /** Message en attente en cours de modification, et le texte mis de côté. */
   const [edition, setEdition] = React.useState<{ id: string; texteMisDeCote: string } | null>(null);
   const [attachments, setAttachments] = React.useState<Attachment[]>([]);
@@ -184,9 +197,12 @@ export function Composer({
   const montreAncre = (item: Attachment) => {
     const zone = textareaRef.current;
     if (!zone) return;
-    const debut = text.indexOf(ancre(item.name));
-    if (debut === -1) return;
-    montreLeMorceau(zone, debut, debut + ancre(item.name).length);
+    // Par le MOTIF du tag, jamais par son texte exact : un brouillon d'avant
+    // l'espace insécable porte des espaces ordinaires et désigne le même
+    // fichier.
+    const tag = ancreDuTexte(text, item.name, 0);
+    if (!tag) return;
+    montreLeMorceau(zone, tag.debut, tag.fin);
   };
 
   /** Retirer un fichier retire aussi son ancre du texte. */
@@ -344,9 +360,10 @@ export function Composer({
     const vus: Record<string, number> = {};
     let fin = 0;
     let trouve: RegExpExecArray | null;
-    while ((trouve = MARQUE_FICHIER.exec(text))) {
-      if (trouve.index > fin) morceaux.push(<React.Fragment key={`texte-${fin}`}>{text.slice(fin, trouve.index)}</React.Fragment>);
-      const nom = trouve[1]!.trim();
+    while ((trouve = MARQUE_FICHIER.exec(texteDuChamp))) {
+      if (trouve.index > fin)
+        morceaux.push(<React.Fragment key={`texte-${fin}`}>{texteDuChamp.slice(fin, trouve.index)}</React.Fragment>);
+      const nom = nomDuTag(trouve[1]!);
       const position = vus[nom] ?? 0;
       vus[nom] = position + 1;
       const brut = trouve[0];
@@ -380,12 +397,21 @@ export function Composer({
               touche donc jamais le mot qui suit, même quand aucun espace ne
               sépare le tag du texte. Sa hauteur ne DÉPASSE PAS celle des
               caractères recouverts : plus haute, elle mordrait sur la ligne
-              voisine et volerait le clic qui vise le champ. */}
+              voisine et volerait le clic qui vise le champ.
+
+              SON TEXTE EST PLUS PETIT QUE CELUI DU CHAMP (0,82 em) : à taille
+              égale, le nom remplissait la pastille bord à bord, sans un pixel
+              d'air, et pesait autant qu'une phrase écrite. Le reste des
+              mesures est donné en em DE LA PASTILLE, donc réduit d'autant :
+              c'est ce qui dégage la marge intérieure et l'écart avec le texte
+              voisin, sans jamais élargir le dessin au-delà des caractères
+              recouverts. La hauteur, elle, reste sous celle des caractères
+              recouverts (1,35 × 0,82 ≈ 1,1 em du champ). */}
           <span
             data-prompt-file-pastille
-            className="absolute left-1/2 top-1/2 inline-flex h-[1.15em] max-w-full -translate-x-1/2 -translate-y-1/2 items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[4px] bg-accent/20 px-[0.35em] ring-1 ring-inset ring-accent/40 group-hover:bg-accent/30 group-data-[tag=coupe]:hidden"
+            className="absolute left-1/2 top-1/2 inline-flex h-[1.35em] max-w-full -translate-x-1/2 -translate-y-1/2 items-center gap-[0.35em] overflow-hidden whitespace-nowrap rounded-[0.5em] bg-accent/20 px-[0.55em] text-[0.82em] font-medium leading-none ring-1 ring-inset ring-accent/40 group-hover:bg-accent/30 group-data-[tag=coupe]:hidden"
           >
-            <Paperclip aria-hidden="true" className="h-[0.85em] w-[0.85em] shrink-0" />
+            <Paperclip aria-hidden="true" className="h-[0.95em] w-[0.95em] shrink-0" />
             <span className="truncate">{nom}</span>
             <span
               role="button"
@@ -400,18 +426,19 @@ export function Composer({
                 event.stopPropagation();
                 gestesDrapeau.current.retirerDrapeau(nom, position);
               }}
-              className="shrink-0 cursor-pointer hover:text-danger"
+              className="shrink-0 cursor-pointer opacity-70 transition-opacity hover:text-danger hover:opacity-100"
             >
-              <X aria-hidden="true" className="h-[0.85em] w-[0.85em]" />
+              <X aria-hidden="true" className="h-[0.95em] w-[0.95em]" />
             </span>
           </span>
         </span>,
       );
       fin = trouve.index + trouve[0].length;
     }
-    if (fin < text.length) morceaux.push(<React.Fragment key={`texte-${fin}`}>{text.slice(fin)}</React.Fragment>);
+    if (fin < texteDuChamp.length)
+      morceaux.push(<React.Fragment key={`texte-${fin}`}>{texteDuChamp.slice(fin)}</React.Fragment>);
     return morceaux;
-  }, [text]);
+  }, [texteDuChamp]);
 
   /*
    * UN TAG COUPÉ EN FIN DE LIGNE REVIENT AU TEXTE BRUT. La pastille est
@@ -607,7 +634,7 @@ export function Composer({
   const terminerEdition = (envoyer: boolean) => {
     if (!edition) return;
     if (envoyer && text.trim()) {
-      client.send({ type: 'queue.update', id: edition.id, text: text.trim() });
+      client.send({ type: 'queue.update', id: edition.id, text: tagsEnEspacesOrdinaires(text.trim()) });
     }
     setText(edition.texteMisDeCote);
     setEdition(null);
@@ -620,7 +647,12 @@ export function Composer({
       return;
     }
 
-    const body = [text.trim(), ...picked].filter(Boolean).join('\n');
+    /*
+     * L'ESPACE INSÉCABLE DES TAGS NE SORT PAS DU CHAMP DE SAISIE. Il n'est là
+     * que pour empêcher « [fichier: nom] » de se couper en fin de ligne : le
+     * message enregistré, relu et recopié garde des espaces ordinaires.
+     */
+    const body = tagsEnEspacesOrdinaires([text.trim(), ...picked].filter(Boolean).join('\n'));
     if (!body || !agent) return;
 
     /*
@@ -946,7 +978,7 @@ export function Composer({
           : null}
         <Textarea
           ref={textareaRef}
-          value={text}
+          value={texteDuChamp}
           onChange={(event) => {
             majTexte(event.target.value);
             curseur.current = event.target.selectionStart;
@@ -962,11 +994,13 @@ export function Composer({
             const debut = zone.selectionStart;
             const fin = zone.selectionEnd;
             if (debut === fin) return;
-            const selection = text.slice(debut, fin);
+            // Ce qui SORT du champ retrouve des espaces ordinaires : l'insécable
+            // n'est là que pour empêcher un tag de se couper en fin de ligne.
+            const selection = tagsEnEspacesOrdinaires(texteDuChamp.slice(debut, fin));
             MARQUE_FICHIER.lastIndex = 0;
             const noms = new Set<string>();
             let trouve: RegExpExecArray | null;
-            while ((trouve = MARQUE_FICHIER.exec(selection))) noms.add(trouve[1]!.trim());
+            while ((trouve = MARQUE_FICHIER.exec(selection))) noms.add(nomDuTag(trouve[1]!));
             if (!noms.size) return;
             const jointes = attachments.filter((a) => noms.has(a.name));
             if (!jointes.length) return;

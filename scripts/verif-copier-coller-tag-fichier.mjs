@@ -18,6 +18,13 @@ import path from 'node:path';
 const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
 const DB = process.env.HAIKODEV_DB || '/root/haikodev/data/haikodev.db';
 
+/*
+ * LE CHAMP ÉCRIT SES TAGS AVEC DES ESPACES INSÉCABLES (shared/src/ancres.ts) :
+ * c'est ce qui empêche « [fichier: nom] » d'être coupé en fin de ligne. Toute
+ * lecture du champ est donc ramenée aux espaces ordinaires avant comparaison.
+ */
+const lisible = (valeur) => (valeur || '').replace(/\u00A0/g, ' ');
+
 const results = [];
 function record(name, ok, detail = '') {
   results.push({ name, ok, detail });
@@ -141,7 +148,7 @@ async function main() {
     await choix.setInputFiles(image);
     await page.waitForTimeout(3500);
 
-    const texteInitial = await zone.inputValue();
+    const texteInitial = lisible(await zone.inputValue());
     const marque = '[fichier: capture-copier-coller-verif.png]';
     const debutTag = texteInitial.indexOf(marque);
     record('Le tag du fichier est bien dans le texte de départ', debutTag !== -1, texteInitial);
@@ -168,17 +175,17 @@ async function main() {
     /* ---- 2. Retirer le fichier, puis coller le tag ailleurs le recrée ---- */
     await page.locator('button[title="Retirer ce fichier"]').first().click();
     await page.waitForTimeout(1200);
-    const apresRetrait = await zone.inputValue();
+    const apresRetrait = lisible(await zone.inputValue());
     record("Le fichier est bien retiré avant l'essai de collage", !apresRetrait.includes('[fichier:'), apresRetrait);
 
     await zone.click();
     await zone.fill('Un nouveau texte, sans rien de collé. ');
     await page.waitForTimeout(300);
-    const finTexte = (await zone.inputValue()).length;
+    const finTexte = (lisible(await zone.inputValue())).length;
     await collerA(zone, finTexte, presse);
     await page.waitForTimeout(3000);
 
-    const texteApresCollage = await zone.inputValue();
+    const texteApresCollage = lisible(await zone.inputValue());
     record(
       'Coller le tag copié réécrit le tag dans le texte',
       texteApresCollage.includes(marque),

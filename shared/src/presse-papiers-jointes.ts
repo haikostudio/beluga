@@ -13,7 +13,7 @@
  * réseau : cela se teste seul.
  */
 
-import { ancre } from './ancres.js';
+import { ancre, nomDuTag, tagsEnEspacesOrdinaires } from './ancres.js';
 import { Attachment } from './models.js';
 
 /**
@@ -84,7 +84,12 @@ export function jointesDuMessage(ids: string[], connues: Attachment[]): Attachme
     .filter((item): item is Attachment => !!item);
 }
 
-/** La marque d'un fichier dans le texte d'une demande : « [fichier: nom] ». */
+/**
+ * La marque d'un fichier dans le texte d'une demande : « [fichier: nom] ».
+ * Les espaces d'un tag écrit par le champ de saisie sont INSÉCABLES : le nom
+ * lu passe donc par `nomDuTag`, sans quoi « ma photo.png » ne correspondrait
+ * plus à la pièce jointe du même nom.
+ */
 const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
 
 /** Les noms de fichiers cités par le texte, dans l'ordre, sans répétition. */
@@ -94,7 +99,7 @@ export function nomsDesTags(texte: string | null | undefined): string[] {
   const noms: string[] = [];
   let trouve: RegExpExecArray | null;
   while ((trouve = MARQUE_FICHIER.exec(texte))) {
-    const nom = (trouve[1] ?? '').trim();
+    const nom = nomDuTag(trouve[1] ?? '');
     if (nom && !noms.includes(nom)) noms.push(nom);
   }
   return noms;
@@ -111,7 +116,12 @@ export function texteAvecTagsDesJointes(texte: string, jointes: Attachment[]): s
   const cites = new Set(nomsDesTags(texte));
   const manquants = jointes.map((item) => item.name).filter((nom) => nom && !cites.has(nom));
   if (!manquants.length) return texte;
-  const marques = manquants.map((nom) => ancre(nom)).join(' ');
+  /*
+   * Le texte COPIÉ sort de l'application : ses tags portent des espaces
+   * ORDINAIRES, comme tout message enregistré. L'espace insécable ne vit que
+   * dans le champ de saisie, où il empêche un tag de se couper en fin de ligne.
+   */
+  const marques = manquants.map((nom) => tagsEnEspacesOrdinaires(ancre(nom))).join(' ');
   if (!texte.trim()) return marques;
   return /\s$/.test(texte) ? `${texte}${marques}` : `${texte} ${marques}`;
 }
