@@ -1044,6 +1044,22 @@ le nom, là-bas le texte).
   alors son chemin normal et le champ garde son historique d'annulation. Chaque tag porte en plus une
   CROIX (`data-prompt-file-close`). Verrouillé par `server/src/test/ancres-fichiers.test.ts` et
   `scripts/verif-tag-suppression-bloc.mjs`.
+- **UN TAG « [fichier: …] » NE SE COUPE PLUS EN FIN DE LIGNE : SES ESPACES SONT INSÉCABLES**
+  (`ESPACE_INSECABLE`, `ancre`, `tagsInsecables`, `tagsEnEspacesOrdinaires`, `nomDuTag`,
+  `shared/src/ancres.ts` ; `texteDuChamp`, `composer.tsx`) : le champ coupait à l'espace de
+  « [fichier: nom] », le tag occupait deux lignes et retombait en texte brut SANS CROIX — deux
+  étiquettes voisines, l'une en pastille et l'autre en syntaxe nue. Le tag s'écrit donc avec des
+  espaces U+00A0, gabarit ET nom du fichier. La transformation est un AFFICHAGE à longueur
+  CONSTANTE, posée sur le `value` du champ et sur le CALQUE (même chaîne des deux côtés, sinon les
+  tags dessinés tombent à côté) : aucune position de curseur ne bouge, et tout ce qui entre dans le
+  champ (collage, brouillon, dictée) y passe. Rien d'insécable n'en SORT (envoi, copie,
+  modification d'un message en attente : `tagsEnEspacesOrdinaires`), et plus rien ne se RELIT par le
+  texte exact de l'ancre — `tagsDuTexte` / `ancreDuTexte` cherchent le MOTIF, sinon un texte d'avant
+  cette règle perdrait sa croix. Le repli « texte brut » reste pour un nom à TIRETS : aucun réglage
+  CSS n'empêche la coupure après un trait d'union. Un contrôle qui LIT le champ ramène les espaces à
+  leur forme ordinaire avant de comparer. La PASTILLE, elle, écrit en 0,82 em, toutes ses autres
+  mesures suivant en em d'elle-même : c'est ce qui dégage sa marge intérieure sans jamais l'élargir
+  au-delà des caractères recouverts.
 - **UN TAG « [fichier: …] » SE LIT COMME UNE PASTILLE, JAMAIS COMME DU TEXTE BRUT**
   (`data-prompt-file-pastille`, `composer.tsx`) : les caractères réels gardent leur place mais sont
   rendus INVISIBLES, et une pastille « trombone + nom + croix » est dessinée par-dessus, HORS FLUX,

@@ -9,41 +9,67 @@ import {
   effacementDeTag,
   insereAncre,
   jointesApresFrappe,
+  nomDuTag,
   retireAncre,
   retireOccurrence,
   tagsDuTexte,
+  tagsEnEspacesOrdinaires,
+  tagsInsecables,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
 /* Les ancres de fichiers dans la barre d'écriture                      */
 /* ------------------------------------------------------------------ */
 
-test("l'ancre porte le nom du fichier, tel qu'il partira dans le message", () => {
-  assert.equal(ancre('capture.png'), '[fichier: capture.png]');
+test("l'ancre porte le nom du fichier, tel qu'il s'écrit dans le champ", () => {
+  // Ses espaces sont INSÉCABLES : sinon le champ coupe le tag en fin de ligne
+  // et la pastille dessinée par-dessus retombe en texte brut.
+  assert.equal(ancre('capture.png'), '[fichier:\u00A0capture.png]');
+  assert.equal(ancre('ma photo.png'), '[fichier:\u00A0ma\u00A0photo.png]');
+});
+
+test('le nom se relit pareil, avec ou sans espaces insécables', () => {
+  assert.equal(nomDuTag('\u00A0ma\u00A0photo.png'), 'ma photo.png');
+  assert.equal(tagsDuTexte(ancre('ma photo.png'))[0].nom, 'ma photo.png');
+  assert.equal(tagsDuTexte('[fichier: ma photo.png]')[0].nom, 'ma photo.png');
+});
+
+test("ce qui part au moteur garde des espaces ordinaires", () => {
+  const ecrit = `Regarde ${ancre('ma photo.png')} ici`;
+  assert.equal(tagsEnEspacesOrdinaires(ecrit), 'Regarde [fichier: ma photo.png] ici');
+  // Hors des tags, rien n'est touché : un insécable tapé à la main reste.
+  assert.equal(tagsEnEspacesOrdinaires('deux\u00A0mots'), 'deux\u00A0mots');
+});
+
+test("un texte qui entre dans le champ voit ses tags rendus insécables, sans changer de longueur", () => {
+  const ancien = 'Regarde [fichier: ma photo.png] ici';
+  const suite = tagsInsecables(ancien);
+  assert.equal(suite, `Regarde ${ancre('ma photo.png')} ici`);
+  assert.equal(suite.length, ancien.length);
 });
 
 /* -------- Poser l'ancre -------- */
 
 test('sans curseur posé, l’ancre s’ajoute à la fin', () => {
   const r = insereAncre('Regarde ceci', 'capture.png', null);
-  assert.equal(r.texte, 'Regarde ceci [fichier: capture.png]');
+  assert.equal(r.texte, `Regarde ceci ${ancre('capture.png')}`);
 });
 
 test('un texte vide ne prend pas d’espace de départ', () => {
-  assert.equal(insereAncre('', 'a.pdf', null).texte, '[fichier: a.pdf]');
+  assert.equal(insereAncre('', 'a.pdf', null).texte, ancre('a.pdf'));
 });
 
 test('avec un curseur au milieu, l’ancre se glisse à cet endroit', () => {
   const texte = 'Premier paragraphe.\n\nSecond paragraphe.';
   const r = insereAncre(texte, 'capture.png', 19);
-  assert.equal(r.texte, 'Premier paragraphe. [fichier: capture.png]\n\nSecond paragraphe.');
+  assert.equal(r.texte, `Premier paragraphe. ${ancre('capture.png')}\n\nSecond paragraphe.`);
   // Le curseur suit l'ancre : le fichier suivant se pose après, pas avant.
-  assert.equal(r.texte.slice(0, r.curseur).endsWith('[fichier: capture.png] '), false);
-  assert.equal(r.texte.slice(0, r.curseur).includes('[fichier: capture.png]'), true);
+  assert.equal(r.texte.slice(0, r.curseur).endsWith(`${ancre('capture.png')} `), false);
+  assert.equal(r.texte.slice(0, r.curseur).includes(ancre('capture.png')), true);
 });
 
 test('un curseur hors du texte retombe sur la fin, sans casse', () => {
-  assert.equal(insereAncre('court', 'a.png', 999).texte, 'court [fichier: a.png]');
+  assert.equal(insereAncre('court', 'a.png', 999).texte, `court ${ancre('a.png')}`);
 });
 
 /* -------- Retirer l'ancre -------- */
@@ -116,14 +142,16 @@ test('deux fois le même nom : une ancre effacée n’en retire qu’un', () => 
 /* -------- Glisser une ancre ailleurs dans la phrase -------- */
 
 test('glisser une ancre au début de la phrase', () => {
+  // Le texte de départ porte des espaces ORDINAIRES : un brouillon d'avant
+  // cette règle doit se relire, se déplacer et se retirer comme les autres.
   const r = deplacerAncre('Regarde [fichier: a.png] ceci', 'a.png', 0, 0);
-  assert.equal(r.texte, '[fichier: a.png] Regarde ceci');
+  assert.equal(r.texte, `${ancre('a.png')} Regarde ceci`);
 });
 
 test('glisser une ancre à la fin de la phrase', () => {
   const texte = 'Regarde [fichier: a.png] ceci';
   const r = deplacerAncre(texte, 'a.png', 0, texte.length);
-  assert.equal(r.texte, 'Regarde ceci [fichier: a.png]');
+  assert.equal(r.texte, `Regarde ceci ${ancre('a.png')}`);
 });
 
 test('lâcher une ancre sur elle-même ne change rien', () => {
@@ -135,13 +163,13 @@ test('lâcher une ancre sur elle-même ne change rien', () => {
 test('deux fichiers différents : on déplace celui visé, pas l’autre', () => {
   const texte = 'A [fichier: a.png] B [fichier: b.pdf] C';
   const r = deplacerAncre(texte, 'b.pdf', 0, 0);
-  assert.equal(r.texte, '[fichier: b.pdf] A [fichier: a.png] B C');
+  assert.equal(r.texte, `${ancre('b.pdf')} A [fichier: a.png] B C`);
 });
 
 test('deux fois le même nom : on déplace la seconde citation', () => {
   const texte = '[fichier: a.png] milieu [fichier: a.png]';
   const r = deplacerAncre(texte, 'a.png', 1, 0);
-  assert.equal(r.texte.startsWith('[fichier: a.png]'), true);
+  assert.equal(r.texte.startsWith(ancre('a.png')), true);
   assert.equal(compteAncres(r.texte, 'a.png'), 2);
   assert.equal(r.texte.includes('milieu'), true);
   assert.notEqual(r.texte, texte);
