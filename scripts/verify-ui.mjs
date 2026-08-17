@@ -217,16 +217,20 @@ async function main() {
   await page.waitForTimeout(400);
 
   /* ---------- 12. Le choix du thème ----------
-     Ce n'est plus un INTERRUPTEUR clair / sombre : le menu liste les QUATRE
-     thèmes (`data-theme-choix`), et cliquer celui déjà en cours ne changerait
-     rien. On visite donc un thème de l'autre clarté, puis on revient. Le détail
-     des thèmes se vérifie à part, dans `scripts/verif-themes.mjs`. */
+     Ce n'est plus un INTERRUPTEUR clair / sombre, et ce n'est plus une liste
+     déroulée non plus : les cinq choix (`data-theme-choix`) tiennent derrière
+     une seule entrée « Thème » (`data-theme-menu`), qu'il faut donc SURVOLER
+     avant de pouvoir cliquer l'un d'eux. Cliquer le thème déjà en cours ne
+     changerait rien : on visite un thème de l'autre clarté, puis on revient. Le
+     détail des thèmes se vérifie à part, dans `scripts/verif-themes.mjs`. */
   const themeAuDepart = await page.evaluate(() => document.documentElement.dataset.theme ?? 'sombre');
   /* Les entrées d'un menu déroulant n'existent dans la page que MENU OUVERT : on
      le rouvre avant chaque clic, le choix le refermant. */
   const ouvrirLeMenu = async () => {
     await page.click('button[title="Menu"]');
     await page.waitForTimeout(700);
+    await page.hover('[data-theme-menu]');
+    await page.waitForTimeout(600);
   };
   const choisirLeTheme = async (id) => {
     await ouvrirLeMenu();
@@ -240,8 +244,14 @@ async function main() {
     noeuds.map((noeud) => noeud.dataset.themeChoix),
   );
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
-  record('Thème : les quatre thèmes sont au menu', themesOfferts.length === 4, themesOfferts.join(', ') || 'aucun');
+  record(
+    'Thème : les quatre thèmes et « Système » tiennent derrière une seule entrée du menu',
+    themesOfferts.length === 5,
+    themesOfferts.join(', ') || 'aucun',
+  );
 
   await choisirLeTheme('clair');
   const enClair = await page.evaluate(() => ({

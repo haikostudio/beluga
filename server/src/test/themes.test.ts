@@ -15,7 +15,7 @@ import {
   themeValide,
 } from '@haikodev/shared';
 
-test('quatre thèmes, deux clairs et deux sombres, deux plats', () => {
+test('quatre thèmes, deux clairs et deux sombres, trois plats', () => {
   assert.equal(THEMES.length, 4);
   assert.deepEqual(
     THEMES.map((theme) => theme.id),
@@ -23,10 +23,14 @@ test('quatre thèmes, deux clairs et deux sombres, deux plats', () => {
   );
   assert.equal(THEMES.filter((theme) => theme.clarte === 'sombre').length, 2);
   assert.equal(THEMES.filter((theme) => theme.clarte === 'clair').length, 2);
-  // Les deux thèmes d'origine gardent leurs bordures ; les deux nouveaux non.
+  // Le CLAIR est le dernier thème à bordures : les trois autres se lisent au fond.
   assert.deepEqual(
     THEMES.filter((theme) => theme.plat).map((theme) => theme.id),
-    ['sable', 'ardoise'],
+    ['sombre', 'sable', 'ardoise'],
+  );
+  assert.deepEqual(
+    THEMES.filter((theme) => !theme.plat).map((theme) => theme.id),
+    ['clair'],
   );
 });
 

@@ -8,9 +8,12 @@
    * catalogue, qui ne connaît lui-même aucune teinte).
    *
    *  - « sombre » (`:root`) et « clair » (`html:not(.dark)`) : les deux thèmes
-   *    d'origine, aux valeurs INCHANGÉES. On ajoute à côté, on ne retouche pas
-   *    ce que l'utilisateur connaît déjà.
+   *    d'origine. Le CLAIR garde toutes ses valeurs ; le SOMBRE a rejoint les
+   *    thèmes plats le 17.08.2026 — seuls sa bordure et le fond d'un bouton au
+   *    repos ont bougé, aucune de ses autres teintes.
    *  - « sable » et « ardoise » : deux thèmes FLAT DESIGN, plus bas.
+   *
+   * TROIS thèmes sont donc PLATS et un seul garde ses traits : le clair.
    *
    * TROIS RÈGLES QUI TIENNENT L'ENSEMBLE.
    *
@@ -34,7 +37,15 @@
     --bg: 0 0% 0%;
     --surface: 0 0% 8%;
     --raised: 0 0% 13%;
-    --border: 0 0% 24%;
+    /* SANS UNE BORDURE, comme « sable » et « ardoise » (17.08.2026). Le trait
+       gris à 24 % était le dernier reste de l'ancienne facture : un bloc se
+       délimite par son fond — page 0 %, bloc 8 %, élément relevé 13 % —, plus
+       par un contour. La bordure est amenée À UN POINT du fond d'un bloc : elle
+       existe toujours dans le code, aucun écran ne bouge d'un pixel, elle ne se
+       voit simplement plus. Les deux corollaires des thèmes plats valent donc
+       ici aussi : l'ascenseur ne suit pas `--border` (plus bas), et un bouton
+       « contour » reçoit le fond translucide `--controle`. */
+    --border: 0 0% 9%;
     --text: 0 0% 100%;
     --muted: 0 0% 78%;
     --faint: 0 0% 58%;
@@ -92,10 +103,11 @@
     /* LE FOND D'UN BOUTON AU REPOS. Un bouton « contour » ne se dessine que par sa
        bordure : dans un thème PLAT, où la bordure s'efface, il disparaîtrait — et
        c'est le bouton le plus courant de l'application. Il reçoit donc un fond,
-       TRANSLUCIDE pour rester juste quel que soit le bloc qui le porte. Ici, dans
-       les deux thèmes d'origine, il vaut la transparence : rien ne change.
+       TRANSLUCIDE pour rester juste quel que soit le bloc qui le porte. Le thème
+       sombre étant devenu plat à son tour, il en reçoit un : un blanc à 6 %, qui
+       relève très légèrement le bloc qui porte le bouton.
        L'alpha vit DANS le jeton, on n'écrit donc jamais `bg-controle/50`. */
-    --controle: 0 0% 0% / 0;
+    --controle: 0 0% 100% / 0.06;
     color-scheme: dark;
   }
 

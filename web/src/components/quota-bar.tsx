@@ -7,6 +7,7 @@ import {
   Menu,
   MonitorCog,
   MoreVertical,
+  Palette,
   PanelRight,
   Square,
   Volume2,
@@ -21,13 +22,16 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   Tooltip,
 } from '@/components/ui';
 import { MemoryView } from '@/components/memory-view';
 import { QuestionsEnAttente } from '@/components/questions-en-attente';
 import { QuotaBadge } from '@/components/quota-badge';
-import { CHOIX_DE_THEME } from '@haikodev/shared';
+import { CHOIX_DE_THEME, choixParId } from '@haikodev/shared';
 import { useThemeGeneral } from '@/lib/theme';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -350,24 +354,36 @@ export function QuotaBar({
           </DropdownMenuItem>
           {/* Le bouton « Muet » a quitté ce menu : il vit désormais dans le
               panneau du module de voix, à côté de la voix qu'il commande. */}
-          {/* Les thèmes ne se bousculent plus dans un interrupteur : le menu les
-              liste tous, celui en cours étant coché. Ce choix est le réglage
+          {/* LES CINQ THÈMES TIENNENT DERRIÈRE UNE SEULE ENTRÉE. Alignés les uns
+              sous les autres, ils occupaient la moitié du menu pour un réglage
+              qu'on change une fois par mois. L'entrée « Thème » rappelle le
+              choix en cours et déplie la liste au survol comme au clic ; la
+              coche du thème actif ne bouge pas. Ce choix est le réglage
               GÉNÉRAL — un projet qui impose son thème passe devant, et l'onglet
               « Apparence » des réglages le dit. */}
           <DropdownMenuSeparator />
-          {CHOIX_DE_THEME.map((item) => (
-            <DropdownMenuItem key={item.id} onSelect={() => setTheme(item.id)} data-theme-choix={item.id}>
-              {item.id === 'systeme' ? (
-                <MonitorCog className="h-3.5 w-3.5" />
-              ) : item.id === 'clair' || item.id === 'sable' ? (
-                <Sun className="h-3.5 w-3.5" />
-              ) : (
-                <Moon className="h-3.5 w-3.5" />
-              )}
-              <span className="flex-1">{item.libelle}</span>
-              {item.id === theme ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
-            </DropdownMenuItem>
-          ))}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-theme-menu>
+              <Palette className="h-3.5 w-3.5" />
+              <span className="flex-1">Thème</span>
+              <span className="text-faint">{choixParId(theme)?.libelle ?? ''}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {CHOIX_DE_THEME.map((item) => (
+                <DropdownMenuItem key={item.id} onSelect={() => setTheme(item.id)} data-theme-choix={item.id}>
+                  {item.id === 'systeme' ? (
+                    <MonitorCog className="h-3.5 w-3.5" />
+                  ) : item.id === 'clair' || item.id === 'sable' ? (
+                    <Sun className="h-3.5 w-3.5" />
+                  ) : (
+                    <Moon className="h-3.5 w-3.5" />
+                  )}
+                  <span className="flex-1">{item.libelle}</span>
+                  {item.id === theme ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onOpenSettings}>
             <Settings2 className="h-3.5 w-3.5" />

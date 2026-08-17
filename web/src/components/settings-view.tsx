@@ -251,8 +251,8 @@ function SectionApparence() {
       </h3>
       <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
         Le thème choisi vaut partout : sur l'ordinateur comme sur le téléphone, et il ne se perd pas en vidant un
-        cache. « Sable » et « Ardoise » sont sans bordures — un bloc s'y délimite par son fond. Chaque projet peut en
-        imposer un autre, dans ses propres réglages.
+        cache. « Sombre », « Sable » et « Ardoise » sont sans bordures — un bloc s'y délimite par son fond. Chaque
+        projet peut en imposer un autre, dans ses propres réglages.
       </p>
 
       {/* UN PROJET QUI IMPOSE SON THÈME PASSE DEVANT, ET ON LE DIT ICI. Sans

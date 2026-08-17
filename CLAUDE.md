@@ -65,7 +65,7 @@ node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait d�
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
 node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
 node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
-HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : aucun jeton oublié, aucune couleur en dur, puis le NAVIGATEUR — thème d'un projet, choix « Système »
+HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : aucun jeton oublié, aucune couleur en dur, puis le NAVIGATEUR — thème d'un projet, entrée « Thème » du menu (survol ET clic), choix « Système »
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
@@ -1002,11 +1002,16 @@ le nom, là-bas le texte).
   fichiers, rien de plus. Tout ou rien (les deux découpes ou aucune), et TOUT refus est dit avec sa
   raison. Verrouillé par `server/src/test/personnages-colonnes.test.ts` et
   `scripts/verif-personnages-colonnes.mjs`.
-- **QUATRE THÈMES AU CHOIX DANS LES RÉGLAGES, DONT DEUX SANS UNE BORDURE**
+- **QUATRE THÈMES AU CHOIX DANS LES RÉGLAGES, DONT TROIS SANS UNE BORDURE**
   (`shared/src/themes.ts` pour le catalogue ; `web/src/lib/theme.ts` pour la pose ;
   `web/src/styles.css` pour les quatre blocs de jetons ; onglet « Apparence » de `settings-view.tsx`).
-  « sombre » et « clair » sont les thèmes d'ORIGINE, aux valeurs INCHANGÉES ; « sable » (beiges
-  chauds) et « ardoise » (gris bleutés) sont deux thèmes FLAT DESIGN. SIX invariants. Le catalogue ne
+  « sombre » et « clair » sont les thèmes d'ORIGINE ; « sable » (beiges chauds) et « ardoise » (gris
+  bleutés) sont deux thèmes FLAT DESIGN. Le SOMBRE a rejoint les thèmes plats le 17.08.2026
+  (`plat: true`, `--border: 0 0% 9%` — un point du fond d'un bloc, `--controle: 0 0% 100% / 0.06`) :
+  il gardait seul un trait gris franc à 24 %, et seules ces DEUX valeurs ont bougé. **Le CLAIR est
+  désormais le seul thème à bordures**, et c'est voulu — `verif-themes.mjs` juge la bordure et le
+  fond d'un bouton sur `plat`, plus sur `origine`, les deux qualités étant distinctes. SIX
+  invariants. Le catalogue ne
   connaît AUCUNE teinte de l'interface — seulement un APERÇU de quatre pastilles, qui doit s'afficher
   pendant qu'un AUTRE thème est actif, d'où les seules couleurs posées en style direct de toute
   l'application. Le thème s'applique en UN endroit, depuis la RACINE (`useTheme` dans `app.tsx`) et
@@ -1019,9 +1024,20 @@ le nom, là-bas le texte).
   est amené à moins de deux points d'un fond, le trait existe et ne se voit plus, la mise en page ne
   bouge pas. D'où deux conséquences NOMMÉES : l'ascenseur ne prend plus sa couleur dans `--border`
   (il y disparaîtrait) et un bouton « contour » reçoit un fond translucide (`--controle`, la
-  transparence dans les deux thèmes d'origine). Enfin les anciens réglages « dark » / « light » sont
+  transparence dans le seul thème CLAIR). Enfin les anciens réglages « dark » / « light » sont
   REPRIS (`themeValide`), et aucune teinte des deux thèmes neufs n'est recopiée d'un autre. Verrouillé
   par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
+- **…ET LES CINQ CHOIX TIENNENT DERRIÈRE UNE SEULE ENTRÉE « THÈME » DU MENU**
+  (`DropdownMenuSub` / `DropdownMenuSubTrigger` / `DropdownMenuSubContent`, `web/src/components/ui/index.tsx` ;
+  entrée `data-theme-menu` de `web/src/components/quota-bar.tsx`) : alignés les uns sous les autres,
+  ils occupaient la moitié du menu à trois points pour un réglage qu'on change une fois par mois.
+  L'entrée rappelle le choix en cours (`choixParId(theme).libelle`) et déplie la liste AU SURVOL
+  comme AU CLIC — les deux gestes comptent, le téléphone et le clavier n'ayant pas de survol ; la
+  coche du thème actif ne bouge pas. Le sous-menu reste un panneau FLOTTANT même sur téléphone, où le
+  tiroir du bas appartient au menu de premier niveau — d'où son `z-index` plus haut que ce tiroir.
+  Conséquence pour les CONTRÔLES : `[data-theme-choix]` n'existe plus au premier niveau, il faut
+  survoler ou cliquer `[data-theme-menu]` d'abord (`scripts/verif-themes.mjs`,
+  `scripts/verify-ui.mjs`).
 - **…ET CHAQUE PROJET PEUT IMPOSER LE SIEN, plus un choix qui suit l'ORDINATEUR**
   (`themeAAppliquer`, `CHOIX_DE_THEME`, `THEME_SYSTEME`, `themeChoisiValide`, `shared/src/themes.ts` ;
   `Project.theme` ; `useThemeApplique` / `useSystemeSombre`, `web/src/lib/theme.ts` ; ligne « Thème de

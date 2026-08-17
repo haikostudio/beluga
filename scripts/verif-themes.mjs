@@ -12,10 +12,11 @@
  *  2. une teinte RECOPIÉE d'un thème à l'autre pour les deux thèmes NEUFS — la
  *     demande le dit en toutes lettres. Les deux thèmes d'ORIGINE sont exemptés :
  *     leurs valeurs ne doivent justement pas changer ;
- *  3. dans un thème PLAT, une bordure encore VISIBLE (elle doit se confondre avec
- *     un des fonds) ou des fonds mal étagés (il faut un contraste léger MAIS net) ;
- *  4. dans un thème d'ORIGINE, une bordure devenue invisible — la vérification
- *     marche donc dans les deux sens ;
+ *  3. dans un thème PLAT — « sombre », « sable » et « ardoise » —, une bordure
+ *     encore VISIBLE (elle doit se confondre avec un des fonds) ou des fonds mal
+ *     étagés (il faut un contraste léger MAIS net) ;
+ *  4. dans le seul thème À BORDURES, le clair, une bordure devenue invisible —
+ *     la vérification marche donc dans les deux sens ;
  *  5. un texte illisible sur son fond ;
  *  6. une couleur écrite EN DUR dans un écran ;
  *  7. un aperçu du catalogue qui ne dit pas la vérité sur les jetons du thème ;
@@ -55,7 +56,11 @@ const constater = (message) => constats.push(message);
 
 /** Les quatre thèmes et le sélecteur qui les porte, dans leur ordre d'écriture. */
 const BLOCS = [
-  { id: 'sombre', selecteur: ':root', origine: true, plat: false },
+  /* « sombre » est un thème d'ORIGINE — ses teintes ne se comparent donc pas aux
+     autres — mais il est PLAT depuis le 17.08.2026 : sa bordure doit se
+     confondre avec un de ses fonds, et son bouton « contour » porter un voile.
+     Les deux qualités sont bien séparées, c'est ce qui permet ce cas. */
+  { id: 'sombre', selecteur: ':root', origine: true, plat: true },
   { id: 'clair', selecteur: 'html:not(.dark)', origine: true, plat: false },
   { id: 'sable', selecteur: "html[data-theme='sable']", origine: false, plat: true },
   { id: 'ardoise', selecteur: "html[data-theme='ardoise']", origine: false, plat: true },
@@ -177,7 +182,7 @@ for (const bloc of BLOCS) {
     );
   }
 }
-constater('bordures effacées dans « sable » et « ardoise », intactes dans « sombre » et « clair »');
+constater('bordures effacées dans « sombre », « sable » et « ardoise », intactes dans « clair »');
 
 /* ------------------------------------------------------------------ */
 /* 5. Le texte reste lisible sur ses fonds                            */
@@ -451,14 +456,15 @@ async function dansLaPage(page, navigateur) {
         anomalies.push(`thème « ${bloc.id} » : la classe « ${nom} » ne produit aucune couleur (${valeur || 'vide'})`);
       }
     }
-    /* Le fond d'un bouton au repos : transparent dans les deux thèmes d'origine,
-       un voile TRANSLUCIDE — donc jamais opaque — dans les deux thèmes plats. */
+    /* Le fond d'un bouton au repos : transparent dans le seul thème à bordures
+       (le clair), un voile TRANSLUCIDE — donc jamais opaque — dans les trois
+       thèmes plats, où la bordure ne dessine plus le bouton. */
     const alpha = /rgba?\([^)]*?,\s*([\d.]+)\s*\)$/.exec(mesures.controle ?? '');
     const part = alpha ? Number(alpha[1]) : 1;
-    if (bloc.origine && part !== 0) {
-      anomalies.push(`thème d'origine « ${bloc.id} » : le fond d'un bouton au repos n'est plus transparent (${mesures.controle})`);
+    if (!bloc.plat && part !== 0) {
+      anomalies.push(`thème à bordures « ${bloc.id} » : le fond d'un bouton au repos n'est plus transparent (${mesures.controle})`);
     }
-    if (!bloc.origine && (part === 0 || part > 0.2)) {
+    if (bloc.plat && (part === 0 || part > 0.2)) {
       anomalies.push(`thème plat « ${bloc.id} » : le fond d'un bouton au repos doit être un voile léger, pas ${mesures.controle}`);
     }
     /* Et le voile d'une fenêtre garde bien sa part : `bg-voile/70` s'écrit avec
@@ -544,11 +550,48 @@ async function dansLaPage(page, navigateur) {
     await page.evaluate((id) => window.haikodevEssai.projet(id, { theme: null }), premier.id);
   }
 
-  /* « Système » suit l'ordinateur, et le suit EN DIRECT.
-     Le menu s'ouvre par un VRAI clic : un `.click()` posé depuis la page ne
-     réveille pas ce menu, qui écoute l'appui du pointeur et non le clic. */
+  /* LE MENU NE PORTE QU'UNE ENTRÉE « THÈME », et elle s'ouvre AU SURVOL comme
+     AU CLIC. Le menu s'ouvre par un VRAI clic : un `.click()` posé depuis la
+     page ne réveille pas ce menu, qui écoute l'appui du pointeur. */
   await page.click('button[title="Menu"]');
   await page.waitForTimeout(700);
+
+  const avantSurvol = await page.evaluate(() => ({
+    entree: !!document.querySelector('[data-theme-menu]'),
+    choix: document.querySelectorAll('[data-theme-choix]').length,
+  }));
+  if (!avantSurvol.entree) {
+    anomalies.push("le menu du bandeau n'a pas d'entrée « Thème » (repère `data-theme-menu`)");
+  }
+  if (avantSurvol.choix !== 0) {
+    anomalies.push(
+      `les ${avantSurvol.choix} thèmes s'alignent encore dans le menu : ils doivent tenir derrière l'entrée « Thème »`,
+    );
+  }
+
+  /* 1) LE SURVOL. C'est le geste attendu à la souris. */
+  await page.hover('[data-theme-menu]');
+  await page.waitForTimeout(600);
+  const auSurvol = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
+  if (auSurvol.length !== 5) {
+    anomalies.push(`le sous-menu ne s'ouvre pas au SURVOL (${auSurvol.length} thèmes vus, 5 attendus)`);
+  }
+
+  /* 2) LE CLIC, pour qui n'a pas de souris. On referme d'abord tout. */
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  await page.click('button[title="Menu"]');
+  await page.waitForTimeout(700);
+  await page.click('[data-theme-menu]');
+  await page.waitForTimeout(600);
+  const auClic = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
+  if (auClic.length !== 5) {
+    anomalies.push(`le sous-menu ne s'ouvre pas au CLIC (${auClic.length} thèmes vus, 5 attendus)`);
+  }
+
+  /* « Système » suit l'ordinateur, et le suit EN DIRECT. */
   const menuOuvert = await page.evaluate(() => !!document.querySelector('[data-theme-choix="systeme"]'));
   if (!menuOuvert) {
     anomalies.push("le choix « Système » n'est pas au menu du bandeau");
@@ -586,7 +629,8 @@ if (typeof mesureNavigateur === 'string') {
   for (const anomalie of mesureNavigateur) refuser(anomalie);
   constater(
     `dans un vrai navigateur : couleurs calculées des ${BLOCS.length} thèmes, thème d'un PROJET qui habille ` +
-      `toute l'application, et « Système » qui suit le réglage de l'ordinateur`,
+      `toute l'application, une SEULE entrée « Thème » au menu qui s'ouvre au survol comme au clic, ` +
+      `et « Système » qui suit le réglage de l'ordinateur`,
   );
 }
 

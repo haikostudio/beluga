@@ -5,11 +5,16 @@
  * interrupteur « clair / sombre » caché dans le menu trois points du bandeau.
  * Elle en compte désormais QUATRE, choisies dans les réglages :
  *
- *  - « sombre » et « clair » : les deux thèmes d'origine, INCHANGÉS — c'est le
- *    contrat, on ajoute à côté, on ne retouche pas ce que l'utilisateur connaît ;
+ *  - « sombre » et « clair » : les deux thèmes d'origine ;
  *  - « sable » (clair) et « ardoise » (sombre) : deux thèmes FLAT DESIGN, où un
  *    bloc ne se délimite plus par un trait mais par un fond qui contraste
  *    LÉGÈREMENT avec celui qui l'entoure.
+ *
+ * Le 17.08.2026, le thème SOMBRE a rejoint les thèmes plats : il gardait seul un
+ * trait gris franc là où les trois autres écrans s'étaient déjà débarrassés des
+ * contours. Seuls sa bordure et le fond d'un bouton au repos ont changé — aucune
+ * autre teinte. Le CLAIR, lui, garde ses traits : c'est le dernier thème à
+ * bordures, et c'est voulu.
  *
  * Ce fichier ne connaît AUCUNE teinte de l'interface : les palettes vivent dans
  * `web/src/styles.css`, un bloc de jetons par thème, et rien d'autre ne les
@@ -73,9 +78,9 @@ export const THEMES: readonly Theme[] = [
   {
     id: 'sombre',
     libelle: 'Sombre',
-    description: 'Le thème d’origine : noir et anthracite, blocs délimités par un trait.',
+    description: 'Le thème d’origine : noir et anthracite. Aucune bordure : les blocs se lisent au fond.',
     clarte: 'sombre',
-    plat: false,
+    plat: true,
     apercu: ['hsl(0 0% 0%)', 'hsl(0 0% 8%)', 'hsl(0 0% 100%)', 'hsl(38 90% 62%)'],
   },
   {
