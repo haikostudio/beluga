@@ -587,6 +587,22 @@ le nom, là-bas le texte).
   passage à « starting » rafraîchit `startedAt` (d'où les durées de milliers d'heures), et l'arrêt
   s'atteint aussi depuis la PILE d'agents de la colonne de gauche. Verrouillé par
   `server/src/test/arret-de-secours.test.ts` et `scripts/verif-arret-agent-bloque.mjs`.
+- **…ET IL MORD SUR UN MOTEUR QUI FAIT LA SOURDE OREILLE** (`tourACouper`, `arretAAchever`,
+  `DELAI_CONFIRMATION_ARRET_MS`, `MESSAGE_ARRET_SERVICE`, `shared/src/arret-de-secours.ts` ;
+  `moteurRepondEncore`, `acheverLArretSiBesoin`, `suivreLeService`, `server/src/runtime.ts` ;
+  `arreterProcessus`, `server/src/engines/fin-de-processus.ts`) : répondre quand il n'y a RIEN à
+  couper ne suffisait pas — le clic restait muet quand il y avait quelque chose à couper qui ne se
+  laissait pas faire. QUATRE trous. Un tour vivant SANS moteur (le tour reste inscrit tout le temps
+  du service d'après-réponse) se REFERME au lieu de se « couper » : on constate le processus
+  (`processusVivant` sur `handle.pid`, jamais `child.killed`) et la réponse figée, un numéro inconnu
+  valant « supposé vivant ». Les moteurs de SERVICE — compression, relance de plan — s'inscrivent
+  par `EngineRunOptions.surLancement` (les TROIS adaptateurs) et tombent avec le reste. Le SIGNAL
+  n'étant qu'une demande, on revient constater 6 s plus tard et on referme d'autorité si le MÊME
+  tour est encore là. Et le coup de grâce emporte la DESCENDANCE, lue dans
+  `/proc/<pid>/task/*/children` à partir du seul numéro du moteur — **jamais un groupe de
+  processus** (les moteurs n'étant pas `detached`, ils portent le groupe du DÉMON). Tous les gestes
+  se disent à l'écran, « coupe » compris (`ws.ts`). Verrouillé par
+  `server/src/test/arret-de-secours.test.ts` et `scripts/verif-arret-moteur-recalcitrant.mjs`.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une

@@ -52,6 +52,14 @@ export interface EtatALArret {
    * à libérer.
    */
   reponseFigee?: boolean;
+  /**
+   * Combien de moteurs de SERVICE tournent encore pour cet agent — compression
+   * du fil, relance d'un plan, résumé de continuité. Ce ne sont pas des tours :
+   * ils n'écrivent rien à l'écran, et l'agent peut se dire au repos pendant
+   * qu'ils tournent. Un arrêt demandé les emporte quand même, et il le DIT :
+   * sinon le clic paraît sans effet sur une machine qui, elle, travaille encore.
+   */
+  moteursDeService?: number;
 }
 
 /**
@@ -77,6 +85,14 @@ export const MESSAGE_ARRET_SECOURS =
   "Cet agent n'avait plus de moteur en marche : il se disait au travail sans que rien ne tourne. Il a été refermé et repasse au repos.";
 
 export const MESSAGE_ARRET_INACTIF = "Cet agent ne travaille plus : il n'y avait rien à arrêter.";
+
+/**
+ * Le cas de l'agent qui paraît au repos alors qu'un moteur de service tourne
+ * encore derrière lui. Le clic a bel et bien coupé quelque chose : on ne lui
+ * répond pas « il n'y avait rien à arrêter ».
+ */
+export const MESSAGE_ARRET_SERVICE =
+  "Cet agent avait fini de répondre, mais un moteur tournait encore en arrière-plan : il a été coupé.";
 
 /** L'agent se dit-il au travail ? Les deux seuls statuts qui l'affirment. */
 export function seDitAuTravail(statut: StatutDAgent): boolean {
@@ -104,7 +120,9 @@ export function tourACouper(etat: EtatALArret): boolean {
  * se DIT encore au travail — « running » ou « starting », préparation et tour de
  * service compris — est refermé d'autorité : c'est le seul moyen pour que le
  * clic ait toujours un effet visible, quel que soit l'endroit où le tour est
- * bloqué. Un agent déjà au repos ne se referme pas, et le dit.
+ * bloqué. Un agent déjà au repos ne se referme pas, et le dit — sauf s'il lui
+ * reste un moteur de SERVICE en marche, auquel cas le clic coupe ce moteur-là
+ * et l'annonce, plutôt que de prétendre qu'il n'y avait rien à faire.
  */
 export function decisionDArret(etat: EtatALArret): DecisionDArret {
   if (tourACouper(etat)) {
@@ -112,6 +130,9 @@ export function decisionDArret(etat: EtatALArret): DecisionDArret {
   }
   if (etat.tourVivant || seDitAuTravail(etat.statut) || etat.enPreparation) {
     return { geste: 'secours', message: MESSAGE_ARRET_SECOURS, travaillait: true };
+  }
+  if (etat.moteursDeService) {
+    return { geste: 'secours', message: MESSAGE_ARRET_SERVICE, travaillait: false };
   }
   return { geste: 'inactif', message: MESSAGE_ARRET_INACTIF, travaillait: false };
 }
@@ -139,6 +160,14 @@ export const DELAI_CONFIRMATION_ARRET_MS = 6_000;
 /** La raison écrite sur un tour que le signal d'arrêt n'a pas suffi à refermer. */
 export const RAISON_ARRET_SANS_REPONSE =
   "Arrêté à la main : le moteur n'a pas rendu la main après son signal d'arrêt, le tour a été refermé d'autorité.";
+
+/**
+ * Ce qui est dit à l'écran quand la fermeture d'autorité a dû suivre le signal.
+ * Le premier message annonçait « son moteur a été coupé » ; celui-ci corrige, en
+ * clair, ce qu'il a fallu faire de plus.
+ */
+export const MESSAGE_ARRET_ACHEVE =
+  "Le moteur n'a pas répondu à son signal d'arrêt : le tour a été refermé d'autorité et l'agent est libéré.";
 
 /**
  * FAUT-IL ACHEVER L'ARRÊT ?
