@@ -1372,6 +1372,14 @@ le nom, là-bas le texte).
   98 ms par touche sur 400 cartes, contre 0,7 ms depuis (`scripts/mesure-fluidite.mjs`, qui MESURE
   sans juger). La copie locale part dans la même temporisation de 600 ms que l'envoi au serveur, et
   le tableau range ses cartes par colonne UNE fois par rendu.
+- **LES PIÈCES JOINTES EN ATTENTE SUIVENT L'AGENT, COMME LE BROUILLON — PAS LE COMPOSANT**
+  (`cleJointes`, `jointesEnregistrees`, `composer.tsx`) : la liste des fichiers joints mais pas
+  encore envoyés était un simple état LOCAL du composant, jamais réinitialisé ni rechargé au
+  changement d'agent ou de projet — changer de conversation gardait les pièces jointes de la
+  précédente, avec le risque de les envoyer au mauvais destinataire. Retenues côté serveur par
+  conversation (`prefs`, clé `draftAttachments.<agentId>`), même mécanique de chargement et de
+  sauvegarde différée (600 ms) que le brouillon de texte ; effacées ensemble à l'envoi. Vérifié par
+  `scripts/verif-jointes-suivent-agent.mjs`.
 - **LES CARTES D'UN PROJET QU'ON NE CONSULTE PLUS SE DÉCHARGENT — APRÈS QUINZE MINUTES, PAS AVANT**
   (`DELAI_DECHARGEMENT_MS`, `projetsADecharger`, `shared/src/decharge-projets.ts` ;
   `dechargerLesProjetsOublies`, `web/src/lib/client.ts`) : le projet AFFICHÉ n'est jamais déchargé, et
