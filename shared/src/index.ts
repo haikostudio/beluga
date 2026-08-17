@@ -136,6 +136,7 @@ export * from './templates.js';
 export * from './themes.js';
 export * from './travail-en-cours.js';
 export * from './travail-hors-tache.js';
+export * from './travail-restant.js';
 export * from './travail-rendu.js';
 export * from './suggestions-de-plan.js';
 export * from './veille-du-demon.js';
