@@ -3,11 +3,13 @@ import {
   Activity,
   Brain,
   Bug,
+  Check,
   Copy,
   Database,
   KeyRound,
   Loader2,
   LogIn,
+  Palette,
   Pencil,
   Play,
   Plus,
@@ -33,6 +35,7 @@ import {
   PREFIXE_CLE_API,
   ROUTE_CARTE_EXTERNE,
   ROUTE_DOC_API,
+  THEMES,
   ConnexionCompte,
   jugerNomDeCle,
   formeDepuisEvenement,
@@ -81,6 +84,7 @@ import {
 } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
 import { client } from '@/lib/client';
+import { useTheme } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, elapsed, relativeTime } from '@/lib/utils';
 
@@ -100,6 +104,7 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
 
 const ONGLETS = [
   { cle: 'systeme', titre: 'Système' },
+  { cle: 'apparence', titre: 'Apparence' },
   { cle: 'fonctionnement', titre: 'Fonctionnement' },
   { cle: 'comptes', titre: 'Comptes' },
   { cle: 'voix', titre: 'Voix' },
@@ -150,6 +155,12 @@ function SettingsBody({ open }: { open: boolean }) {
         </ZoneDefilement>
         </TabsContent>
 
+        <TabsContent value="apparence" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
+          <SectionApparence />
+        </ZoneDefilement>
+        </TabsContent>
+
         <TabsContent value="fonctionnement" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
           {settings ? <SectionFonctionnement settings={settings} update={update} /> : null}
@@ -193,6 +204,77 @@ function SettingsBody({ open }: { open: boolean }) {
         </TabsContent>
       </Tabs>
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Apparence : le choix du thème                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE CHOIX DU THÈME, AVEC SON APERÇU.
+ *
+ * Il vivait dans le menu trois points du bandeau, sous la forme d'un
+ * interrupteur « clair / sombre » : introuvable, et incapable de porter quatre
+ * choix. Chaque thème montre ici ses vraies couleurs — fond de page, fond d'un
+ * bloc, texte, couleur d'un travail en cours.
+ *
+ * Ces quatre couleurs viennent du catalogue (`shared/src/themes.ts`) et se posent
+ * en style direct : un aperçu doit se voir pendant qu'un AUTRE thème est actif,
+ * les jetons de couleur ne valent donc pas ici — ils ne décrivent que le thème
+ * en cours. C'est le seul endroit de l'application dans ce cas.
+ */
+function SectionApparence() {
+  const [theme, setTheme] = useTheme();
+
+  return (
+    <section>
+      <h3 className="mb-1 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <Palette className="h-3.5 w-3.5 text-faint" /> Thème
+      </h3>
+      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
+        Le thème choisi vaut partout : sur l'ordinateur comme sur le téléphone, et il ne se perd pas en vidant un
+        cache. « Sable » et « Ardoise » sont sans bordures — un bloc s'y délimite par son fond.
+      </p>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {THEMES.map((item) => {
+          const actif = item.id === theme;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              data-theme-carte={item.id}
+              aria-pressed={actif}
+              onClick={() => setTheme(item.id)}
+              className={cn(
+                'flex items-start gap-3 rounded-lg border p-3 text-left transition-colors',
+                actif ? 'border-termine bg-raised' : 'border-border bg-surface hover:bg-raised',
+              )}
+            >
+              {/* L'aperçu : quatre bandes, dans l'ordre du catalogue. */}
+              <span
+                aria-hidden
+                data-theme-apercu
+                className="mt-0.5 flex h-9 w-9 shrink-0 flex-wrap overflow-hidden rounded-md"
+              >
+                {item.apercu.map((couleur, rang) => (
+                  <span key={rang} className="h-1/2 w-1/2" style={{ backgroundColor: couleur }} />
+                ))}
+              </span>
+
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[14px] font-medium text-text">{item.libelle}</span>
+                  {actif ? <Check className="h-3.5 w-3.5 shrink-0 text-termine" /> : null}
+                </span>
+                <span className="mt-0.5 block text-[12.5px] leading-relaxed text-faint">{item.description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

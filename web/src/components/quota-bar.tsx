@@ -3,6 +3,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  Check,
   FolderTree,
   MoreVertical,
   Network,
@@ -26,7 +27,8 @@ import {
 import { MemoryView } from '@/components/memory-view';
 import { QuestionsEnAttente } from '@/components/questions-en-attente';
 import { QuotaBadge } from '@/components/quota-badge';
-import { usePref } from '@/lib/prefs';
+import { THEMES } from '@haikodev/shared';
+import { useTheme } from '@/lib/theme';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
@@ -63,7 +65,7 @@ export function QuotaBar({
     Object.values(state.agents).find((agent) => agent.status === 'running')?.run.engine ??
     projetOuvert?.defaultEngine ??
     'claude';
-  const [theme, setTheme] = usePref<'dark' | 'light'>('theme', 'dark');
+  const [theme, setTheme] = useTheme();
   const [speaking, setSpeaking] = React.useState(false);
   const [memoireOuverte, setMemoireOuverte] = React.useState(false);
   const [arretGroupe, setArretGroupe] = React.useState(false);
@@ -117,16 +119,6 @@ export function QuotaBar({
       })
       .catch((err: any) => client.pushToast('error', err?.message ?? 'Arrêt refusé'));
   };
-
-  const applyTheme = (next: 'dark' | 'light') => {
-    setTheme(next);
-  };
-
-  // Le thème choisi s'applique dès qu'il est connu, y compris au chargement.
-  React.useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme !== 'light');
-    document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
-  }, [theme]);
 
   const listen = async () => {
     setSpeaking(true);
@@ -335,10 +327,18 @@ export function QuotaBar({
           </DropdownMenuItem>
           {/* Le bouton « Muet » a quitté ce menu : il vit désormais dans le
               panneau du module de voix, à côté de la voix qu'il commande. */}
-          <DropdownMenuItem onSelect={() => applyTheme(theme === 'dark' ? 'light' : 'dark')}>
-            {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-            {theme === 'dark' ? 'Thème clair' : 'Thème sombre'}
-          </DropdownMenuItem>
+          {/* QUATRE thèmes ne se bousculent plus dans un interrupteur : le menu
+              les liste tous, celui en cours étant coché. Le choix commenté, avec
+              son aperçu, vit dans les réglages (onglet « Apparence »). */}
+          <DropdownMenuSeparator />
+          {THEMES.map((item) => (
+            <DropdownMenuItem key={item.id} onSelect={() => setTheme(item.id)} data-theme-choix={item.id}>
+              {item.clarte === 'sombre' ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+              <span className="flex-1">{item.libelle}</span>
+              {item.id === theme ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onOpenSettings}>
             <Settings2 className="h-3.5 w-3.5" />
             Réglages

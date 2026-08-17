@@ -30,6 +30,21 @@ export default {
         // Le gris propre au cadre d'un plan : il se repère dans le fil sans
         // emprunter une couleur d'état (styles.css).
         'fond-plan': 'hsl(var(--fond-plan))',
+        // Le voile qui assombrit la page derrière une fenêtre ou un tiroir. Il
+        // s'écrit toujours avec sa part (`bg-voile/70`) : le jeton ne porte que
+        // la teinte, chaque endroit garde son opacité.
+        voile: 'hsl(var(--voile))',
+        // Le texte lisible SUR une couleur d'état (bouton rouge, badge orange).
+        'sur-etat': 'hsl(var(--sur-etat))',
+        // L'onglet actif du menu du bas, sur téléphone : un repère de navigation,
+        // jamais un état d'avancement.
+        actif: 'hsl(var(--actif))',
+        'actif-fg': 'hsl(var(--actif-fg))',
+        // Le fond d'un bouton « contour » au repos. Transparent dans les deux
+        // thèmes d'origine, un voile translucide dans les thèmes plats, où la
+        // bordure ne dessine plus rien. Son alpha vit DANS le jeton : on n'écrit
+        // jamais `bg-controle/50`, qui produirait un `hsl()` invalide.
+        controle: 'hsl(var(--controle))',
       },
       borderRadius: {
         lg: '10px',

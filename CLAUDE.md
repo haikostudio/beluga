@@ -65,6 +65,7 @@ node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait d�
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
 node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
 node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
+node scripts/verif-themes.mjs       # les quatre thèmes : aucun jeton oublié, aucune couleur en dur
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
@@ -972,6 +973,26 @@ le nom, là-bas le texte).
   (`offsetLeft`, couleur de colonne), seule la découpe descend d'un cran, et l'image ne prend AUCUN
   clic (le dépôt d'une carte vise `closest('[data-column]')`). Verrouillé par
   `server/src/test/personnages-colonnes.test.ts` et `scripts/verif-personnages-colonnes.mjs`.
+- **QUATRE THÈMES AU CHOIX DANS LES RÉGLAGES, DONT DEUX SANS UNE BORDURE**
+  (`shared/src/themes.ts` pour le catalogue ; `web/src/lib/theme.ts` pour la pose ;
+  `web/src/styles.css` pour les quatre blocs de jetons ; onglet « Apparence » de `settings-view.tsx`).
+  « sombre » et « clair » sont les thèmes d'ORIGINE, aux valeurs INCHANGÉES ; « sable » (beiges
+  chauds) et « ardoise » (gris bleutés) sont deux thèmes FLAT DESIGN. SIX invariants. Le catalogue ne
+  connaît AUCUNE teinte de l'interface — seulement un APERÇU de quatre pastilles, qui doit s'afficher
+  pendant qu'un AUTRE thème est actif, d'où les seules couleurs posées en style direct de toute
+  l'application. Le thème s'applique en UN endroit, depuis la RACINE (`useTheme` dans `app.tsx`) et
+  jamais depuis un panneau chargé à la demande : `data-theme`, la classe `dark` et `color-scheme`
+  partent ensemble, avec la couleur du bandeau du téléphone. Le thème « sombre » n'a PAS de sélecteur
+  à lui — c'est `:root`, donc le défaut avant le premier affichage — et le clair reste accroché à
+  `html:not(.dark)`, que plusieurs contrôles retirent pour basculer ; les deux thèmes plats passent
+  APRÈS et déclarent CHAQUE jeton, un oubli y retombant en silence sur une valeur du thème clair. Un
+  thème PLAT n'a pas ses bordures retirées du code (ce serait redessiner tous les écrans) : `--border`
+  est amené à moins de deux points d'un fond, le trait existe et ne se voit plus, la mise en page ne
+  bouge pas. D'où deux conséquences NOMMÉES : l'ascenseur ne prend plus sa couleur dans `--border`
+  (il y disparaîtrait) et un bouton « contour » reçoit un fond translucide (`--controle`, la
+  transparence dans les deux thèmes d'origine). Enfin les anciens réglages « dark » / « light » sont
+  REPRIS (`themeValide`), et aucune teinte des deux thèmes neufs n'est recopiée d'un autre. Verrouillé
+  par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
   `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de

@@ -1352,7 +1352,7 @@ function RepereDePlan() {
       <span
         aria-label="Un plan attend votre décision"
         data-repere-plan
-        className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-white bg-bg text-white"
+        className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-text bg-bg text-text"
       >
         <Route className="h-2 w-2" />
       </span>
@@ -1541,7 +1541,7 @@ function RepereDemiRond({
       aria-hidden
       data-repere-demi-rond
       className={cn(
-        'pointer-events-none absolute top-1/2 h-3 w-1.5 -translate-y-1/2 rounded-r-full bg-white',
+        'pointer-events-none absolute top-1/2 h-3 w-1.5 -translate-y-1/2 rounded-r-full bg-text',
         emboite ? '-left-[19px]' : '-left-[7px]',
       )}
       style={couleur ? { backgroundColor: couleur } : undefined}

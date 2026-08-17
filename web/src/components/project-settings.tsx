@@ -588,7 +588,7 @@ export function ProjectSettings({
                   onClick={() => setTypeCible(valeur)}
                   className={`rounded-md border px-2.5 py-1.5 text-left text-[13px] transition-colors ${
                     typeCible === valeur
-                      ? 'border-[hsl(var(--en-cours))] bg-[hsl(var(--en-cours)/0.1)] text-text'
+                      ? 'border-en-cours bg-en-cours/10 text-text'
                       : 'border-border bg-surface text-muted hover:text-text'
                   }`}
                 >

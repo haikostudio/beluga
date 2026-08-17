@@ -4,8 +4,27 @@
 
 @layer base {
   /**
-   * Palette volontairement pauvre : noir, anthracite, gris, blanc.
-   * Les SEULES couleurs sont des couleurs d'état (PLAN §17).
+   * QUATRE THÈMES, UN BLOC DE JETONS CHACUN (`shared/src/themes.ts` pour le
+   * catalogue, qui ne connaît lui-même aucune teinte).
+   *
+   *  - « sombre » (`:root`) et « clair » (`html:not(.dark)`) : les deux thèmes
+   *    d'origine, aux valeurs INCHANGÉES. On ajoute à côté, on ne retouche pas
+   *    ce que l'utilisateur connaît déjà.
+   *  - « sable » et « ardoise » : deux thèmes FLAT DESIGN, plus bas.
+   *
+   * TROIS RÈGLES QUI TIENNENT L'ENSEMBLE.
+   *
+   * 1. Le thème « sombre » n'a PAS de sélecteur `[data-theme]` à lui : c'est
+   *    `:root`, donc le défaut avant même que le script ne tourne — sinon
+   *    l'application clignote au chargement. Et le thème clair reste accroché à
+   *    `html:not(.dark)` : plusieurs contrôles basculent en clair en RETIRANT la
+   *    classe `dark`, sans toucher à l'attribut.
+   * 2. Les deux thèmes plats viennent APRÈS `html:not(.dark)` et déclarent CHAQUE
+   *    jeton. Leur sélecteur a la même force que `:not(.dark)` : c'est l'ordre qui
+   *    tranche, et un jeton oublié retomberait sur la valeur du thème clair.
+   *    `scripts/verif-themes.mjs` refuse un jeton manquant.
+   * 3. Aucune teinte ne s'écrit ailleurs que dans ces quatre blocs. Un écran ne
+   *    connaît que les NOMS (`web/tailwind.config.js`).
    */
   :root {
     /* Retour aux paliers d'origine (03.08.2026) : la version plus contrastée
@@ -57,6 +76,26 @@
        surfaces ordinaires, pour se repérer sans lire. Un gris NEUTRE, pas une
        couleur d'état — un plan n'est ni en cours, ni terminé, ni en alerte. */
     --fond-plan: 0 0% 14%;
+    /* LE VOILE qui assombrit la page derrière une fenêtre, un tiroir ou un menu
+       de téléphone. C'était un `bg-black/70` écrit en dur dans quatre endroits :
+       un noir pur convient à un thème noir, il alourdit un thème beige. */
+    --voile: 0 0% 0%;
+    /* LE TEXTE POSÉ SUR UNE COULEUR D'ÉTAT (bouton rouge, badge orange) : il ne
+       suit ni `--text` ni `--bg`, puisque la couleur qui le porte est la même
+       dans les deux clartés. C'était un `text-white` écrit en dur. */
+    --sur-etat: 0 0% 100%;
+    /* L'ONGLET ACTIF du menu du bas, sur téléphone. Un repère de NAVIGATION, pas
+       un état d'avancement : il ne peut donc pas emprunter `--en-cours`, dont la
+       teinte changerait le jour où l'on retouche l'orange du travail. */
+    --actif: 16 88% 54%;
+    --actif-fg: 0 0% 100%;
+    /* LE FOND D'UN BOUTON AU REPOS. Un bouton « contour » ne se dessine que par sa
+       bordure : dans un thème PLAT, où la bordure s'efface, il disparaîtrait — et
+       c'est le bouton le plus courant de l'application. Il reçoit donc un fond,
+       TRANSLUCIDE pour rester juste quel que soit le bloc qui le porte. Ici, dans
+       les deux thèmes d'origine, il vaut la transparence : rien ne change.
+       L'alpha vit DANS le jeton, on n'écrit donc jamais `bg-controle/50`. */
+    --controle: 0 0% 0% / 0;
     color-scheme: dark;
   }
 
@@ -84,7 +123,111 @@
     /* Sur fond blanc, le même repère : un gris clair LÉGER, assez marqué pour
        délimiter le cadre, assez pâle pour que le texte noir reste net. */
     --fond-plan: 0 0% 92%;
+    /* Valeurs REPRISES telles quelles du comportement d'avant : le voile de ce
+       thème était déjà un noir à 70 %, et le texte d'un bouton d'état blanc. */
+    --voile: 0 0% 0%;
+    --sur-etat: 0 0% 100%;
+    --actif: 16 88% 54%;
+    --actif-fg: 0 0% 100%;
+    --controle: 0 0% 0% / 0;
     color-scheme: light;
+  }
+
+  /**
+   * « SABLE » — CLAIR, CHAUD, SANS UNE BORDURE.
+   *
+   * Le parti pris : un bloc ne se délimite plus par un trait mais par un fond qui
+   * contraste LÉGÈREMENT avec celui qui l'entoure. Trois paliers étagés de quatre
+   * points de luminosité — page 91 %, bloc 96 %, élément relevé 99 % —, assez pour
+   * que la hiérarchie se lise, assez peu pour que rien ne tranche.
+   *
+   * Les bordures ne sont pas RETIRÉES du code (ce serait redessiner tous les
+   * écrans, et déplacer chaque cadre d'un pixel) : le jeton `--border` est amené à
+   * 93 %, soit entre le fond de page et le fond d'un bloc. Le trait existe encore,
+   * il ne se voit plus — et la mise en page ne bouge pas d'un cheveu.
+   *
+   * Conséquence à connaître : ce qui n'était visible QUE par sa bordure doit
+   * l'être autrement. C'est pourquoi l'ascenseur ne prend plus sa couleur dans
+   * `--border` (plus bas) : il y deviendrait invisible.
+   */
+  html[data-theme='sable'] {
+    --bg: 40 27% 91%;
+    --surface: 41 34% 96%;
+    --raised: 42 42% 99%;
+    /* Entre le fond de page et le fond d'un bloc : un trait qui ne tranche sur
+       aucun des deux. */
+    --border: 40 22% 93%;
+    --text: 35 22% 15%;
+    --muted: 34 14% 34%;
+    --faint: 36 12% 48%;
+    /* L'accent est un brun chaud, jamais le noir du thème clair : il porte les
+       boutons principaux, il doit appartenir à la famille du thème. */
+    --accent: 28 30% 22%;
+    --accent-fg: 41 38% 97%;
+    /* Les états gardent leur RÔLE et changent de teinte : réchauffés d'un cran,
+       et assombris ce qu'il faut pour rester lisibles sur un fond clair. */
+    --success: 148 42% 30%;
+    --warning: 30 78% 37%;
+    --danger: 6 62% 44%;
+    --record: 212 66% 42%;
+    --record-fg: 41 38% 97%;
+    --info: 205 62% 37%;
+    --publie: 272 44% 47%;
+    --en-cours: 28 78% 40%;
+    --termine: 205 62% 37%;
+    /* Le cadre d'un plan descend SOUS le fond de page, seul sens qui lui reste
+       une fois les blocs posés au-dessus : c'est un bloc à décider, pas un bloc
+       ordinaire, et il doit se repérer sans lire. */
+    --fond-plan: 40 24% 86%;
+    --voile: 32 28% 18%;
+    --sur-etat: 41 38% 97%;
+    --actif: 22 72% 44%;
+    --actif-fg: 41 38% 97%;
+    /* Un brun chaud à 7 % : il ASSOMBRIT très légèrement le bloc qui porte le
+       bouton, quel que soit ce bloc. C'est ce qui remplace la bordure effacée. */
+    --controle: 32 25% 25% / 0.07;
+    color-scheme: light;
+  }
+
+  /**
+   * « ARDOISE » — SOMBRE, DOUX, SANS UNE BORDURE.
+   *
+   * Le même parti pris que « sable », de l'autre côté : aucun noir pur (le fond de
+   * page est à 11 %, ce qui laisse de la place pour étager DESSOUS comme dessus),
+   * des gris légèrement bleutés, et trois paliers de quatre à cinq points. La
+   * bordure est amenée au niveau du fond d'un bloc : elle disparaît sans que rien
+   * ne se déplace.
+   */
+  html[data-theme='ardoise'] {
+    --bg: 220 14% 11%;
+    --surface: 220 13% 16%;
+    --raised: 220 12% 21%;
+    /* Au niveau du fond d'un bloc : le trait s'efface. */
+    --border: 220 13% 17%;
+    --text: 215 20% 95%;
+    --muted: 215 14% 74%;
+    --faint: 215 12% 54%;
+    --accent: 215 20% 95%;
+    --accent-fg: 220 16% 12%;
+    --success: 150 48% 58%;
+    --warning: 36 85% 62%;
+    --danger: 2 68% 64%;
+    --record: 212 78% 56%;
+    --record-fg: 210 30% 98%;
+    --info: 205 78% 64%;
+    --publie: 265 74% 72%;
+    --en-cours: 36 85% 62%;
+    --termine: 205 78% 64%;
+    --fond-plan: 220 12% 22%;
+    --voile: 220 26% 5%;
+    /* Un blanc à peine bleuté, jamais le blanc pur du thème sombre d'origine :
+       aucune teinte ne se recopie d'un thème à l'autre. */
+    --sur-etat: 210 30% 99%;
+    --actif: 16 82% 52%;
+    --actif-fg: 210 30% 99%;
+    /* Sur fond sombre, l'inverse : un voile CLAIR à 7 %, qui relève le bouton. */
+    --controle: 210 30% 100% / 0.07;
+    color-scheme: dark;
   }
 
   * {
@@ -142,12 +285,17 @@
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+  /* L'ASCENSEUR NE PEUT PAS SUIVRE `--border`. Dans les deux thèmes PLATS, ce
+     jeton est ramené au niveau du fond pour effacer les traits : la poignée de
+     l'ascenseur y devenait invisible, et une zone qui défile n'annonçait plus
+     qu'elle défile. Elle emprunte donc le gris du texte discret, à peine posé —
+     une valeur qui se voit dans les quatre thèmes sans jamais attirer l'œil. */
   ::-webkit-scrollbar-thumb {
     @apply rounded-full;
-    background: hsl(var(--border));
+    background: hsl(var(--faint) / 0.32);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--faint));
+    background: hsl(var(--faint) / 0.6);
   }
 
   input,
