@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import {
   DUREE_ATTENDUE_MS,
   DeployRun,
+  MOTIFS,
   PERIODE_DE_VEILLE_MS,
   PLAFOND_TOUR_D_AGENT_MS,
+  alerteDeRetard,
   constatDeDuree,
+  genreDeLAlerte,
   mentionEtapeQuiTraine,
   panneDeLenteur,
   recitDepassementNonResolu,
@@ -145,6 +148,38 @@ test('au bout des reprises, un blocage est RENDU TEL QUEL — jamais forcé', ()
   assert.match(recit, /2 reprises/);
   assert.match(recit, /rendue telle quelle/);
   assert.match(recit, /rien n’a été forcé/);
+});
+
+test('un retard PRÉVIENT, et son alerte dit qu’il n’y a rien à faire', () => {
+  const alerte = alerteDeRetard({
+    projet: 'HaikoDev',
+    libelleEtape: 'Mise en ligne',
+    constat: { depasse: true, ecouleMs: 50 * MINUTE, attenduMs: 45 * MINUTE },
+  });
+  assert.match(alerte.titre, /en retard/);
+  assert.match(alerte.titre, /HaikoDev/);
+  assert.match(alerte.corps, /Mise en ligne/);
+  assert.match(alerte.corps, /50 min/);
+  assert.match(alerte.corps, /45 min/);
+  // On prévient pour informer, pas pour réclamer un geste : la publication
+  // tente de se débloquer seule.
+  assert.match(alerte.corps, /Rien à faire/);
+  assert.match(alerte.element, /en retard/);
+  // Un projet sans nom ne fabrique pas de guillemets vides.
+  assert.doesNotMatch(alerteDeRetard({ libelleEtape: 'Construction', constat: { depasse: true, ecouleMs: 1, attenduMs: 1 } }).titre, /«/);
+});
+
+test('un retard alerte comme un BLOCAGE, sans être avalé par l’échec du même lot', () => {
+  // La règle des trois genres : un blocage est une erreur — le travail
+  // n'avance plus.
+  assert.equal(genreDeLAlerte('publication-en-retard'), 'erreur');
+  // Sujet à part : un retard, un échec et une réussite du même lot ne se
+  // remplacent jamais l'un l'autre.
+  assert.notEqual(MOTIFS['publication-en-retard'].sujet, MOTIFS['publication-echec'].sujet);
+  assert.notEqual(MOTIFS['publication-en-retard'].sujet, MOTIFS['publication-terminee'].sujet);
+  // L'image suit le genre de nouvelle : un blocage n'est pas une publication
+  // réussie en plus pâle.
+  assert.equal(MOTIFS['publication-en-retard'].icone, 'erreur');
 });
 
 test('une étape porte son retard dans le modèle, et une publication d’avant s’en passe', () => {

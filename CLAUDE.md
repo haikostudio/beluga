@@ -408,7 +408,13 @@ le nom, là-bas le texte).
   DEUX PRÉCAUTIONS : le temps d'un dépannage NE COMPTE PAS (sinon un dépannage naîtrait du précédent,
   sans fin — la veille est suspendue pendant), et les durées sont LARGES à dessein (on reconnaît un
   blocage, on ne mesure pas une lenteur). Une étape en retard le DIT à l'écran (`steps[].enRetard`,
-  ligne de progression en orange) au lieu d'obliger à venir constater. Le minuteur du plafond n'est
+  ligne de progression en orange) **et PRÉVIENT au CONSTAT, sans attendre qu'un dépanneur parte**
+  (`alerteDeRetard` ; motif `publication-en-retard`, genre « erreur » — un blocage en est un) : le
+  dépanneur ne part qu'une fois l'étape RETOMBÉE, ce qui pour une étape pendue peut vouloir dire
+  jamais, et la ligne orange ne se voit que par qui regarde déjà l'écran. UNE SEULE alerte par étape,
+  qui dit qu'il n'y a RIEN à faire ; sujet à part (jamais avalée par l'échec ni la réussite du même
+  lot) et AUCUN personnage de colonne — un retard tombe sur les deux étapes, il garde l'image de son
+  genre. Le minuteur du plafond n'est
   PAS `unref` — un minuteur détaché ne réveille pas le processus et le plafond ne serait jamais
   atteint. Verrouillé par `server/src/test/duree-des-etapes.test.ts` et
   `scripts/verif-garde-fou-duree.mjs`.
