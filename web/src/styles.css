@@ -117,6 +117,12 @@
        fond solide, un cran plus clair que le corps de la carte — jamais un
        trait, un fond qui se voit. */
     --bandeau-etape: 0 0% 22%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur (étape en cours, décompte
+       des tâches, temps) : un dégradé vers `surface/0` le rendait transparent
+       en bas, donc confondu avec ce qu'il y a DERRIÈRE — `--bg` (fond de
+       conversation du chef) ou `--surface` (tiroir d'une carte). Un fond
+       SOLIDE, dédié, nettement au-dessus des deux. */
+    --bloc-etapes: 0 0% 24%;
     color-scheme: dark;
   }
 
@@ -158,6 +164,10 @@
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, distinct
        du corps de la carte. */
     --bandeau-etape: 0 0% 87%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : distinct de `--bg`
+       (100 %) et de `--surface` (95 %), sans se confondre avec les deux autres
+       jetons dédiés ci-dessus. */
+    --bloc-etapes: 0 0% 84%;
     color-scheme: light;
   }
 
@@ -222,6 +232,9 @@
        fond de la colonne, la bordure de ce thème étant volontairement proche
        des fonds. Un fond SOLIDE, assombri, dédié à ce pied de carte. */
     --bandeau-etape: 40 22% 85%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : plus sombre encore,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 40 23% 82%;
     color-scheme: light;
   }
 
@@ -270,6 +283,9 @@
        bordure de ce thème est volontairement proche des fonds, elle ne peut
        plus servir de repère ici. */
     --bandeau-etape: 220 12% 31%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 220 12% 33%;
     color-scheme: dark;
   }
 
@@ -313,6 +329,17 @@
     /* Un bleu-marine à 6 % : il assombrit très légèrement le bloc qui porte le
        bouton, quel que soit ce bloc — ce qui remplace la bordure effacée. */
     --controle: 215 40% 20% / 0.06;
+    /* LA LIGNE DU PROJET OUVERT : ce thème ne déclarait pas encore ce jeton —
+       il retombait en silence sur la valeur du thème clair, un gris neutre
+       hors de la famille bleutée de « givre ». Un gris nettement plus sombre
+       que `--bg` (94 %) ET que `--surface` (88 %), même famille froide. */
+    --ligne-active: 210 25% 78%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, dédié, distinct de
+       la ligne active ci-dessus. */
+    --bandeau-etape: 210 23% 81%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 210 21% 76%;
     color-scheme: light;
   }
 
@@ -355,6 +382,17 @@
     /* Sur fond sombre, l'inverse de « givre » : un voile chaud et clair à 6 %,
        qui relève le bouton. */
     --controle: 60 30% 95% / 0.06;
+    /* LA LIGNE DU PROJET OUVERT : ce thème ne déclarait pas encore ce jeton —
+       il retombait en silence sur la valeur du thème sombre, un gris neutre
+       hors de la famille verte de « sapin ». Nettement plus clair que `--bg`
+       (9 %) ET que `--surface` (14 %), même famille chaude. */
+    --ligne-active: 150 15% 26%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, dédié, distinct de
+       la ligne active ci-dessus. */
+    --bandeau-etape: 148 14% 29%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 148 13% 32%;
     color-scheme: dark;
   }
 
@@ -396,6 +434,17 @@
     /* Un voile plus marqué que les autres thèmes plats (10 % contre 6-7 %) :
        la lisibilité prime ici sur la discrétion. */
     --controle: 45 20% 10% / 0.1;
+    /* LA LIGNE DU PROJET OUVERT : ce thème ne déclarait pas encore ce jeton —
+       il retombait en silence sur la valeur du thème clair. Nettement plus
+       sombre que `--bg` (92 %) ET que `--surface` (97 %), même hiérarchie de
+       lisibilité marquée que le reste de ce thème. */
+    --ligne-active: 45 7% 80%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, dédié, distinct de
+       la ligne active ci-dessus. */
+    --bandeau-etape: 45 6% 83%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 45 6% 77%;
     color-scheme: light;
   }
 

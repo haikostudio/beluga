@@ -556,13 +556,13 @@ function TravailEnCours({
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
         'relative z-0 -mb-2 flex shrink-0 flex-col rounded-t-lg',
-        // bg-surface plutôt qu'un bg-border translucide : ce composeur vit
+        // bg-bloc-etapes plutôt qu'un dégradé vers surface/0 : ce composeur vit
         // tantôt sur un fond bg-bg (chef), tantôt sur un fond bg-surface
-        // (tiroir d'une carte) — un fond translucide se mélange donc à ce qui
-        // est DERRIÈRE, avec un résultat différent (et parfois trop clair)
-        // selon l'endroit. Un ton plein, toujours plus sombre que bg-raised
-        // dans les deux thèmes, rend la barre identique partout.
-        'border border-b-0 border-border bg-gradient-to-b from-surface to-surface/0',
+        // (tiroir d'une carte), et un dégradé qui finit transparent se
+        // confondait avec l'un comme avec l'autre. Un jeton DÉDIÉ, SOLIDE du
+        // haut jusqu'en bas (entête et liste dépliée comprises), qui
+        // contraste avec les deux fonds dans les sept thèmes.
+        'border border-b-0 border-border bg-bloc-etapes',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}
     >

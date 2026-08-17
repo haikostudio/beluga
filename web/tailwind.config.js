@@ -51,6 +51,10 @@ export default {
         // Le fond du bandeau d'étape sous une carte (chronomètre, étape en
         // cours) : distinct du corps de la carte et de la colonne, sans trait.
         'bandeau-etape': 'hsl(var(--bandeau-etape))',
+        // Le fond du bloc des étapes collé au-dessus du composeur (étape en
+        // cours, décompte des tâches, temps) : distinct de la conversation
+        // qu'il porte tantôt sur bg, tantôt sur surface (styles.css).
+        'bloc-etapes': 'hsl(var(--bloc-etapes))',
       },
       borderRadius: {
         lg: '10px',
