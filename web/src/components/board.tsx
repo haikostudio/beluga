@@ -36,6 +36,7 @@ import {
   mentionDepartProgramme,
   phraseDepartProgramme,
   RAISON_ATTENTE_LANCEMENT,
+  imageDuPersonnage,
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
@@ -1108,11 +1109,27 @@ export function Board({
         const action = actionDeLot(column, columnCards);
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
         return (
+          /*
+            DEUX enveloppes, et c'est le PERSONNAGE qui l'impose. Il déborde du
+            coin haut-gauche de la colonne, or la colonne coupe ce qui dépasse
+            (`overflow-hidden`, sans quoi les cartes sortiraient de ses coins
+            arrondis) : il ne peut donc pas vivre dedans. L'enveloppe, elle, ne
+            coupe rien.
+            `data-column` reste posé sur ELLE — jamais sur la boîte intérieure :
+            `colonneAuBord` et `allerALaColonne` lisent `offsetLeft`, qui se
+            compte depuis le premier ancêtre POSITIONNÉ. Descendre l'attribut
+            d'un cran le rendrait relatif à l'enveloppe (donc toujours 0) et le
+            tableau ne saurait plus faire glisser une colonne au bord.
+            Le CADRE et le FOND restent sur elle pour la même raison : c'est sur
+            `[data-column]` que se lit la couleur de la colonne — orange pour
+            « En cours », bleu pour « Terminé » (`verif-couleurs-avancement`).
+            Seule la DÉCOUPE descend d'un cran.
+          */
           <div
             key={column}
             data-column={column}
             className={cn(
-              'flex h-full min-h-0 w-[268px] shrink-0 flex-col overflow-hidden rounded-lg border bg-surface/70 transition-colors',
+              'relative h-full min-h-0 w-[268px] shrink-0 rounded-lg border bg-surface/70 transition-colors',
               over === column && allowed
                 ? 'border-muted bg-surface'
                 : column === 'running'
@@ -1123,9 +1140,34 @@ export function Board({
               carteTiree && !allowed && 'opacity-40',
             )}
           >
+            {/* Le personnage de la colonne : posé en haut à GAUCHE, débordant
+                d'un cheveu vers le haut et vers la gauche — assez pour qu'il ne
+                paraisse pas rangé dans une case, pas assez pour manger l'espace
+                des cartes. `pointer-events-none` est VITAL : le dépôt d'une
+                carte se résout par `closest('[data-column]')` sur l'élément
+                sous le doigt, et une image qui l'intercepterait ferait échouer
+                le geste. Sa boîte est de proportion fixe (voir
+                `shared/src/personnages-colonnes.ts`), donc la même hauteur vaut
+                pour les sept. */}
+            <img
+              src={imageDuPersonnage(column)}
+              alt=""
+              aria-hidden
+              draggable={false}
+              data-personnage-colonne={column}
+              className="pointer-events-none absolute -left-1.5 -top-2 z-10 h-[42px] w-[31.5px] select-none object-contain"
+            />
+            {/* La DÉCOUPE, et rien d'autre : ce qui défile ne doit pas sortir
+                des coins arrondis. Un cheveu de moins que l'enveloppe, pour
+                rester à l'intérieur de son cadre. */}
+            <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[7px]">
             <div
               className={cn(
-                'relative isolate flex shrink-0 items-center gap-1.5 px-2 py-1.5',
+                /* `pl-[30px]` : la place du personnage, et rien de plus. Le
+                   libellé se décale d'autant, le groupe de droite (compteurs et
+                   boutons) ne bouge pas d'un pixel — il est collé à droite par
+                   son `ml-auto`. */
+                'relative isolate flex shrink-0 items-center gap-1.5 py-1.5 pl-[30px] pr-2',
                 composerOuvert === column && 'z-30',
               )}
               data-tete-colonne={column}
@@ -1349,6 +1391,7 @@ export function Board({
                 )}
               </div>
             ) : null}
+            </div>
           </div>
         );
       })}

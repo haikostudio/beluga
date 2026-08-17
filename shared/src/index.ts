@@ -93,6 +93,7 @@ export * from './nouveau-depart.js';
 export * from './outil-natif.js';
 export * from './ouverture-pile.js';
 export * from './panne-passagere.js';
+export * from './personnages-colonnes.js';
 export * from './pile-messages.js';
 export * from './plan-complet.js';
 export * from './plan-conversation.js';

@@ -19,6 +19,7 @@ import {
   cleCarteOuverte,
   construireFragment,
   decisionsHorsCarte,
+  avatarDeLAlerte,
   imageDeLAlerte,
   lireFragment,
   memeEcran,
@@ -385,11 +386,14 @@ export function App() {
       if (abonne) return;
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       // Même image que dans le service worker, tirée du même motif : une alerte
-      // ne change pas de visage selon que l'onglet est ouvert ou fermé.
+      // ne change pas de visage selon que l'onglet est ouvert ou fermé. Quand
+      // l'alerte parle d'une COLONNE, c'est le portrait rond de son personnage
+      // — celui-là même qui est en tête de la colonne où il faudra aller ;
+      // sinon (quota, redémarrage) l'image du genre, faute de colonne.
       const notification = new Notification(event.title, {
         body: event.body,
         tag: event.tag,
-        icon: imageDeLAlerte(event.motif),
+        icon: avatarDeLAlerte(event.motif) ?? imageDeLAlerte(event.motif),
       });
       notification.onclick = () => {
         window.focus();
