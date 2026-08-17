@@ -179,6 +179,22 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
   const [open, setOpen] = React.useState(false);
   const state = client.getSnapshot();
   const quotas = state.quotas;
+  /* Le bouton tourne pendant tout l'aller-retour, réussite comme échec : un
+     `send` sans réponse ne le permettait pas, il faut le `call` qui attend
+     la fin du relevé. */
+  const [actualisation, setActualisation] = React.useState(false);
+  const actualiser = React.useCallback(async () => {
+    if (actualisation) return;
+    setActualisation(true);
+    try {
+      await client.call({ type: 'quota.refresh' });
+    } catch {
+      // L'échec s'affiche déjà par ailleurs (compte en erreur) ; ici, seul le
+      // voyant doit s'éteindre.
+    } finally {
+      setActualisation(false);
+    }
+  }, [actualisation]);
   const [histoire, setHistoire] = React.useState<
     Record<string, { at: number; session: number; weekly: number; credit?: number }[]>
   >({});
@@ -303,14 +319,16 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="p-2 sm:w-[310px]">
-        <div className="mb-1.5 flex items-center justify-between">
+        <div className="mb-1.5 flex items-center justify-between gap-1.5">
           <span className="text-[12px] uppercase tracking-wide text-faint">{t('Quotas')}</span>
+          <DernierReleveReussi quotas={quotas} />
           <button
-            onClick={() => client.send({ type: 'quota.refresh' })}
-            className="rounded p-1 text-faint hover:bg-raised hover:text-text"
+            onClick={actualiser}
+            disabled={actualisation}
+            className="shrink-0 rounded p-1 text-faint hover:bg-raised hover:text-text disabled:opacity-70"
             title={t('Actualiser')}
           >
-            <RefreshCw className="h-3 w-3" />
+            <RefreshCw className={cn('h-3 w-3', actualisation && 'animate-spin')} />
           </button>
         </div>
 
@@ -471,6 +489,31 @@ function TrancheDePointe({ releves }: { releves?: ReleveQuota[] }) {
   const pointe = React.useMemo(() => trancheLaPlusChargee(profilHoraire(releves ?? [])), [releves]);
   if (!pointe) return null;
   return <p className="mt-0.5 text-[10.5px] text-faint">{pointe.texte}</p>;
+}
+
+/**
+ * L'heure du dernier relevé réussi, tous comptes confondus : elle bouge à
+ * chaque relevé, manuel ou automatique, puisqu'elle vient de `fetchedAt`, posé
+ * par le serveur sur chaque compte lu sans erreur.
+ */
+function DernierReleveReussi({ quotas }: { quotas: AccountQuota[] }) {
+  const [, battre] = React.useReducer((valeur: number) => valeur + 1, 0);
+  React.useEffect(() => {
+    const timer = window.setInterval(battre, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const dernier = quotas.reduce<number | undefined>((plusRecent, quota) => {
+    if (quota.error || !quota.fetchedAt) return plusRecent;
+    return !plusRecent || quota.fetchedAt > plusRecent ? quota.fetchedAt : plusRecent;
+  }, undefined);
+  if (!dernier) return null;
+
+  return (
+    <span className="truncate text-[10.5px] text-faint" title={t('Dernier relevé réussi')}>
+      {t('relevé {v0}', { v0: heureCourte(dernier) })}
+    </span>
+  );
 }
 
 /** L'heure du jour, sans la date : le journal ne remonte que de quelques jours. */
