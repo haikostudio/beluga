@@ -117,6 +117,7 @@ export function MessageView({
   onToggleAll,
   etatPlan = 'courant',
   onEcrireDansLeChamp,
+  agentAuTravail = false,
 }: {
   message: Message;
   /** La conversation entière : sert au cadre du plan à numéroter ses versions. */
@@ -132,6 +133,9 @@ export function MessageView({
    *  itération passée ? Une itération passée se replie et perd ses boutons
    *  (`indexDuPlanCourant`, `shared/src/plan-conversation.ts`). */
   etatPlan?: EtatDuPlan;
+  /** L'agent est-il encore au travail sur CE message ? Une étape « en cours »
+   *  ne s'anime que là : partout ailleurs, c'est le reliquat d'un tour coupé. */
+  agentAuTravail?: boolean;
   /** Déposer un texte dans la barre d'écriture, SANS rien envoyer : c'est ainsi
    *  qu'un refus et une suggestion d'optimisation reviennent à l'utilisateur,
    *  qui les complète puis décide d'envoyer (`shared/src/suggestions-de-plan.ts`). */
@@ -214,7 +218,7 @@ export function MessageView({
       {message.sentContext ? <BullesDuPromptEnvoye contexte={message.sentContext} /> : null}
       <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
         {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}
-        <Steps steps={etapes} streaming={message.streaming} />
+        <Steps steps={etapes} streaming={message.streaming} agentAuTravail={agentAuTravail} />
 
         {message.content ? (
           cadreDePlanVisible(message) ? (

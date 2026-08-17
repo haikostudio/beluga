@@ -537,6 +537,65 @@ test('le pavé est refusé autant que la maigreur', () => {
   assert.ok(jugerLeFond(fleuve).reproches.some((r) => r.id === 'plan-fleuve'));
 });
 
+/**
+ * LE CHEMIN ÉCRIT COMME LE CHEF L'ÉCRIT VRAIMENT : chaque étape porte un titre,
+ * donc son numéro est habillé — « **Étape 1 — … » ou « ### 2. … ». Le compteur
+ * n'acceptait que « 1. » en tête de ligne nue : il voyait ZÉRO étape sur ce
+ * chemin-là, le reproche partait à chaque plan, et le démon payait un tour de
+ * moteur entier avant d'afficher le cadre.
+ */
+const CHEMIN_A_TITRES = [
+  '## Faisabilité',
+  '',
+  "**Ce qui existe aujourd'hui.** Le compteur d'étapes n'accepte qu'un numéro nu en tête",
+  'de ligne, alors que le chef donne un titre à chacune de ses étapes et écrit donc son',
+  'numéro en gras ou en sous-titre. Mesuré sur les douze derniers plans du projet, le',
+  'reproche est parti douze fois sur douze, et la relance ne l’a jamais fait taire.',
+  '',
+  '**Ce que la demande veut.** Que le cadre du plan paraisse au moment même où le plan',
+  'est rendu, sans un tour de moteur de plus.',
+  '',
+  "**L'écart.** Le compteur, et lui seul : le reste de la règle du fond tient.",
+  '',
+  '## Chemin à suivre',
+  '',
+  '**Étape 1 — Enlever l’habillage avant de chercher le numéro**',
+  'Le titre Markdown, la puce et le gras sont retirés, puis le numéro est cherché.',
+  '',
+  '### 2. Accepter le mot qui précède le numéro',
+  '« Étape », « Phase », « Lot » : le chef les écrit naturellement.',
+  '',
+  '- 3) Garder un numéro court',
+  'Deux chiffres au plus, sinon une date passerait pour une étape.',
+  '',
+  '## Conséquences',
+  '',
+  'Un chemin bien découpé n’est plus renvoyé au chef pour la forme.',
+  '',
+  '## Améliorations apportées',
+  '',
+  '- Compte aussi les étapes écrites en toutes lettres.',
+  '- Dis dans le déroulé quel reproche a déclenché la reprise.',
+  '- Mesure le temps que la reprise ajoute au tour.',
+].join('\n');
+
+test('une étape numérotée compte quelle que soit la façon dont elle est écrite', () => {
+  assert.equal(jugerLePlan(CHEMIN_A_TITRES).complet, true);
+  const ids = jugerLeFond(CHEMIN_A_TITRES).reproches.map((r) => r.id);
+  assert.ok(!ids.includes('chemin-sans-etapes'), `un chemin à étapes titrées est accepté (${ids.join(', ')})`);
+});
+
+test('un chiffre qui n’ouvre pas une étape n’en fait pas une', () => {
+  const faux = CHEMIN_A_TITRES.replace(
+    '**Étape 1 — Enlever l’habillage avant de chercher le numéro**\nLe titre Markdown, la puce et le gras sont retirés, puis le numéro est cherché.\n\n### 2. Accepter le mot qui précède le numéro\n« Étape », « Phase », « Lot » : le chef les écrit naturellement.\n\n- 3) Garder un numéro court\nDeux chiffres au plus, sinon une date passerait pour une étape.',
+    ['Le 2026-08-17 : on a mesuré le coût de la reprise.',
+     '1000 signes : au-delà, un paragraphe devient un pavé.',
+     '- 3 fichiers seulement sont touchés par ce travail.'].join('\n'),
+  );
+  const ids = jugerLeFond(faux).reproches.map((r) => r.id);
+  assert.ok(ids.includes('chemin-sans-etapes'), 'ni une date, ni un compte, ni un nombre ne sont des étapes');
+});
+
 test('la relance de fond nomme la version attendue et ce qui manque', () => {
   const texte = consigneDePlanPlusFouille(4, jugerLeFond(PLAN_ENTIER).reproches);
   assert.match(texte, /VERSION 4/);

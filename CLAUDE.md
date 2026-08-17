@@ -495,6 +495,28 @@ le nom, là-bas le texte).
   continuait de chercher, et l'on pouvait valider un plan VIDE. Il ne se pose plus qu'à la FIN, une
   fois le texte jugé entier ; l'affichage refuse en plus le cadre sur tout message encore en
   écriture. Vérifié par `scripts/verif-plan-en-cours.mjs`.
+- **…ET IL S'AFFICHE À L'INSTANT OÙ IL EST RENDU, PLUS UNE MINUTE APRÈS** (`etapes` et
+  `estUneEtapeNumerotee`, `shared/src/plan-complet.ts` ; ordre de fin de `startTurn` et cadre posé
+  AVANT `rendreLePlanEntier`, `server/src/runtime.ts`) : le plan restait du TEXTE BRUT — sans cadre,
+  sans niveau, sans « Valider » — une à deux minutes après avoir fini de s'écrire, et se
+  transformait tout seul plus tard. TROIS causes, toutes réparées. (1) Le compteur d'ÉTAPES
+  n'acceptait qu'un numéro NU en tête de ligne (« 1. »), alors que le chef titre ses étapes et écrit
+  donc « **Étape 1 — …** » ou « ### 2. … » : le reproche `chemin-sans-etapes` partait sur les DOUZE
+  derniers plans du projet, et la relance de fond — un tour de moteur ENTIER, 60 à 120 s mesurées —
+  ne pouvait rien y changer puisqu'elle redemandait ce qui était déjà là. On enlève désormais
+  l'habillage (titre, puce, gras) avant de chercher le numéro, borné à DEUX chiffres pour qu'une
+  date ne passe pas pour une étape. (2) La COMPTABILITÉ du tour — relire le quota chez le
+  fournisseur, en file derrière les autres tours du même compte — se faisait AVANT le dernier
+  `pushMessage` : le message restait « en écriture » pendant un appel réseau qui ne regarde que des
+  chiffres. Elle passe APRÈS, dans la même frontière sûre. (3) Quand la reprise de fond est
+  VRAIMENT justifiée, le cadre est posé AVANT elle (`content` + `plan: true` + `streaming: false`) :
+  la forme est acquise, le plan est décidable, et cette exigence-là ne retire jamais le drapeau — si
+  la reprise améliore le texte, il se remplace DANS le cadre. La règle qui l'encadre ne bouge pas :
+  aucun cadre sur un message encore en écriture, aucun sur un texte qui n'a pas ses quatre parties.
+  Corollaire d'affichage : une étape « en cours » prime sur le bilan du déroulé (`enCours`,
+  `web/src/components/steps.tsx`), mais seulement sur le DERNIER message d'un agent AU TRAVAIL
+  (`agentAuTravail`) — ailleurs, c'est le reliquat d'un tour coupé. Verrouillé par
+  `server/src/test/mode-plan.test.ts` et `scripts/verif-plan-en-cours.mjs`.
 - **Le FOND du plan est vérifié aussi : quatre titres ne font pas un plan réfléchi** (`jugerLeFond`,
   `EXIGENCES_DE_FOND`, `consigneDePlanPlusFouille`, `shared/src/plan-complet.ts`) : une analyse
   CONSTATÉE sous FAISABILITÉ, des étapes numérotées, des sous-titres, des améliorations en liste — et

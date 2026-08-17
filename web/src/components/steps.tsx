@@ -9,7 +9,18 @@ import { cn, duration } from '@/lib/utils';
  * moteur : le serveur traduit tout dans un format unique.
  * Quand l'agent a fini, elle se replie en une ligne de bilan.
  */
-export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boolean }) {
+export function Steps({
+  steps,
+  streaming,
+  agentAuTravail = false,
+}: {
+  steps: RunStep[];
+  streaming: boolean;
+  /** L'agent travaille-t-il encore ? Une étape « en cours » sur un message déjà
+   *  figé ne compte que si c'est vrai — sinon elle tournerait pour toujours sur
+   *  le reliquat d'un tour coupé. */
+  agentAuTravail?: boolean;
+}) {
   /*
    * Le déroulé reste REPLIÉ : il raconte le détail du travail, pas la réponse.
    * Sa ligne de titre montre la dernière action en date — on sait où on en est
@@ -30,8 +41,18 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
     failed ? `, ${failed} en échec` : ''
   }${skipped ? `, ${skipped} ignorée${skipped > 1 ? 's' : ''}` : ''}`;
 
-  // Pendant le travail : la dernière action. À la fin : le bilan.
-  const summary = streaming ? (derniere?.label ?? 'préparation…') : bilan;
+  /*
+   * Pendant le travail : la dernière action. À la fin : le bilan.
+   *
+   * « À la fin » se juge sur les ÉTAPES, pas seulement sur le message. Une
+   * réponse peut être figée alors qu'une étape tourne encore : un plan rendu
+   * s'affiche désormais dans son cadre AVANT que le démon ne le reprenne en
+   * profondeur (`ETAPE_FOND`, `server/src/runtime.ts`). Le bilan disait alors
+   * « 2 étapes terminées » avec sa coche bleue pendant qu'un tour de moteur
+   * tournait — le déroulé démentait ce qui se passait.
+   */
+  const enCours = streaming || (agentAuTravail && !!running);
+  const summary = enCours ? (derniere?.label ?? 'préparation…') : bilan;
 
   return (
     <div className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">
@@ -40,7 +61,7 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
         onClick={() => setOpen((value) => !value)}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
       >
-        {streaming ? (
+        {enCours ? (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
         ) : failed ? (
           <X className="h-3 w-3 shrink-0 text-danger" />
@@ -49,7 +70,7 @@ export function Steps({ steps, streaming }: { steps: RunStep[]; streaming: boole
         )}
         <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">{summary}</span>
         {/* Le compte des étapes reste visible même repliée. */}
-        {streaming && steps.length > 1 ? (
+        {enCours && steps.length > 1 ? (
           <span className="shrink-0 text-[12px] tabular-nums text-faint">{done}/{steps.length}</span>
         ) : null}
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
