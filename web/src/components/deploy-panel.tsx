@@ -21,6 +21,7 @@ import {
   etapeDePublication,
   etapeDeLaColonne,
   libelleCompteLot,
+  mentionDesReprises,
   natureDePublication,
   procedureEnPlace,
   raisonLotBloque,
@@ -875,6 +876,11 @@ function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.
                   {duree && (etat === 'done' || etat === 'failed') ? (
                     <span data-duree-etape={key}> · {duree}</span>
                   ) : null}
+                  {/* Une étape relevée par un agent de dépannage le DIT ici :
+                      « fait · 4 s · réparée · 1 reprise ». */}
+                  {mentionDesReprises(etape?.reprises) ? (
+                    <span data-reprises-etape={key}> · {mentionDesReprises(etape?.reprises)}</span>
+                  ) : null}
                 </span>
                 {/* Le « ? » révèle la description : au survol à la souris, au
                     clic pour un écran tactile qui n'a pas de survol. */}
@@ -912,6 +918,20 @@ function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.
               {/* Un échec garde son motif sous l'étape tombée. */}
               {etat === 'failed' && etape?.log ? (
                 <p className="ml-[22px] mt-0.5 whitespace-pre-wrap text-[12px] text-faint">{motifLisible(etape.log)}</p>
+              ) : null}
+
+              {/* CE QUI A ÉTÉ TENTÉ POUR LA RELEVER, réussite comprise : la
+                  panne reconnue, le passage de l'agent, l'issue de la reprise —
+                  ou le refus de bricoler une panne inconnue. C'est ici qu'on
+                  lit ce qui s'est passé, sans avoir à ouvrir un journal. */}
+              {etape?.reparations?.length ? (
+                <ul className="ml-[22px] mt-0.5 space-y-0.5" data-reparations-etape={key}>
+                  {etape.reparations.map((recit, i) => (
+                    <li key={i} className="text-[12px] leading-snug text-faint">
+                      · {recit}
+                    </li>
+                  ))}
+                </ul>
               ) : null}
             </li>
           );
@@ -974,6 +994,15 @@ function DeployControls({ run }: { run: DeployRun }) {
       {run.repriseApresCoupure ? (
         <p className="mt-1 text-[12px] text-faint" data-reprise-coupure>
           Reprise après une coupure du serveur.
+        </p>
+      ) : null}
+
+      {/* Ce qui a bronché SANS empêcher la mise en ligne — une carte qu'on n'a
+          pas pu ranger après coup. En orange d'attente, jamais en rouge : le
+          code est bien en ligne, c'est la comptabilité qui a manqué. */}
+      {run.avertissement ? (
+        <p className="mt-1 text-[12px] text-warning texte-copiable" data-avertissement-publication>
+          {run.avertissement}
         </p>
       ) : null}
 

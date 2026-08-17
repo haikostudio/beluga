@@ -1076,6 +1076,24 @@ export const DeployRun = z.object({
          * termine, où c'est la durée qui prend le relais.
          */
         progress: z.string().optional(),
+        /**
+         * Combien de fois cette étape a été REJOUÉE après le passage d'un agent
+         * de dépannage. Absent — ou 0 — pour une étape passée du premier coup :
+         * elle n'a rien à raconter.
+         */
+        reprises: z.number().optional(),
+        /**
+         * Ce qui a été tenté pour la relever, dans l'ordre : la panne reconnue,
+         * le passage de l'agent, l'issue de la reprise. Ou le REFUS de réparer,
+         * quand la panne n'est pas reconnue — auquel cas on le DIT, au lieu de
+         * bricoler. C'est ce que lit le déroulé de la colonne.
+         *
+         * OPTIONNEL, jamais `default([])` : une valeur par défaut le rendrait
+         * OBLIGATOIRE dans le type rendu, et toute étape écrite ailleurs — un
+         * contrôle, une publication d'avant cette règle — cesserait de compiler
+         * ou de se relire.
+         */
+        reparations: z.array(z.string()).optional(),
         startedAt: z.number().optional(),
         endedAt: z.number().optional(),
       }),
@@ -1108,6 +1126,13 @@ export const DeployRun = z.object({
   targetCommit: z.string().optional(),
   agentId: z.string().optional(),
   error: z.string().optional(),
+  /**
+   * Ce qui a bronché SANS empêcher la mise en ligne : une carte qu'on n'a pas
+   * pu ranger après coup, par exemple. Une publication réussie qui porte un
+   * avertissement reste RÉUSSIE — le code est en ligne —, mais l'incident se
+   * dit, au lieu de la faire passer en rouge ou de disparaître.
+   */
+  avertissement: z.string().optional(),
   queued: z.boolean().default(false),
   startedAt: z.number(),
   endedAt: z.number().optional(),

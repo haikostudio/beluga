@@ -375,6 +375,27 @@ le nom, là-bas le texte).
   coup TOUT ce qui ouvre la base — 87 contrôles le 14/08/2026, dont cinq seulement sont nommés, dans
   du code sans faute. Reconnu au message, réparé par `npm rebuild --build-from-source` (jamais un
   binaire tout fait), essayé à chaque publication mais recompilé seulement sur un vrai refus.
+- **TOUTE ÉTAPE DE PUBLICATION QUI TOMBE EST RÉPARÉE PUIS REJOUÉE**
+  (`shared/src/reparation-publication.ts` ; `rejouerAvecDepannage`, `controlerLAdresse`,
+  `server/src/deploy.ts`) : la fusion, les contrôles et la construction savaient déjà se relever ;
+  l'ENVOI, la MISE EN LIGNE, le REDÉMARRAGE du service du projet et l'ADRESSE muette le savent
+  désormais aussi. La panne est RECONNUE à son message, un agent de dépannage reçoit son nom et ses
+  GESTES, l'étape est rejouée — `REPRISES_ETAPE_MAX` (2) fois au plus, `REPARATIONS_MAX` n'en étant
+  plus qu'un alias. DEUX REFUS : une panne INCONNUE n'est jamais bricolée (elle est rendue telle
+  quelle, avec ce qui a été tenté), une panne qui se règle AILLEURS (identifiant refusé, droit
+  d'administration) est nommée sans qu'on envoie personne. DEUX LIMITES, écrites dans les gestes :
+  rien n'est mis en ligne que l'utilisateur n'ait demandé — on rejoue SON étape, rien d'autre —, et
+  le service du démon HaikoDev n'est JAMAIS touché. Les reprises se lisent dans le DÉROULÉ de la
+  colonne (`steps[].reprises` et `.reparations`, « fait · 4 s · réparée · 1 reprise »), pas dans un
+  journal. Verrouillé par `server/src/test/reparation-publication.test.ts` et
+  `scripts/verif-reparation-publication.mjs`.
+- **RANGER LES CARTES NE PEUT PLUS FAIRE ÉCHOUER UNE MISE EN LIGNE RÉUSSIE**
+  (`DeployRun.avertissement`, `avertissementCartesNonRangees` ; fin de `startDeploy`) : le
+  17/08/2026, un déploiement a tout mené à bien puis s'est déclaré en ÉCHEC sur une carte de la base
+  devenue illisible (`sansModification` à `null`), avec pour message un dump de validation brut. Le
+  rangement des cartes est de la COMPTABILITÉ : il vient APRÈS et ne peut plus démentir ce qui est en
+  ligne. Chaque carte est rangée sous son propre filet, l'incident s'écrit en avertissement ORANGE
+  sous le compte rendu, et le `catch` général passe par `raisonEchecAgent` — plus jamais un dump.
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
   `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et

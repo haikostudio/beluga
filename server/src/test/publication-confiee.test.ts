@@ -251,7 +251,11 @@ test('les quatre étapes sont posées, et l’échec de l’agent arrête tout',
   for (const etape of ETAPES_CONFIEES) {
     assert.match(corps, new RegExp(`setStep\\(current, '${etape}'`), `l’étape ${etape} doit être posée`);
   }
-  assert.match(corps, /if \(!menee\.ok\) throw new Error\(phraseDEchecConfie\(/);
+  // L'échec arrête tout, et il est NOMMÉ — la mise en ligne confiée passe
+  // désormais par le mécanisme de reprise (`rejouerAvecDepannage`), mais le
+  // refus final ne bouge pas : rien n'est annoncé « publié ».
+  assert.match(corps, /if \(!confiee\.ok\) throw new Error\(phraseDEchecConfie\(/);
+  assert.match(corps, /rejouerAvecDepannage\(/, 'une étape tombée peut être réparée puis rejouée');
   assert.match(corps, /cartes: cards\.map\(/, 'le lot embarqué part avec le prompt');
   assert.match(corps, /enregistrement: current\.targetCommit/);
 });

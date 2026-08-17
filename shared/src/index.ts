@@ -8,6 +8,7 @@ export * from './apercu-fichier.js';
 export * from './arret-carte.js';
 export * from './arret-de-secours.js';
 export * from './reprise-publication.js';
+export * from './reparation-publication.js';
 export * from './attente-question.js';
 export * from './attention.js';
 export * from './auto-amelioration.js';
