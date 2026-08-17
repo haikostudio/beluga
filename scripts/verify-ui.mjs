@@ -216,22 +216,42 @@ async function main() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
 
-  /* ---------- 12. Thème clair / sombre ---------- */
-  const avantTheme = await page.evaluate(() => document.documentElement.classList.contains('dark'));
-  await page.evaluate(() => {
-    const buttons = Array.from(document.querySelectorAll('button'));
-    const toggle = buttons.find((b) => b.querySelector('.lucide-sun') || b.querySelector('.lucide-moon'));
-    toggle?.click();
-  });
-  await page.waitForTimeout(1500);
-  const apresTheme = await page.evaluate(() => document.documentElement.classList.contains('dark'));
-  record('Thème : bascule sombre / clair', avantTheme !== apresTheme);
+  /* ---------- 12. Le choix du thème ----------
+     Ce n'est plus un INTERRUPTEUR clair / sombre : le menu liste les QUATRE
+     thèmes (`data-theme-choix`), et cliquer celui déjà en cours ne changerait
+     rien. On visite donc un thème de l'autre clarté, puis on revient. Le détail
+     des thèmes se vérifie à part, dans `scripts/verif-themes.mjs`. */
+  const themeAuDepart = await page.evaluate(() => document.documentElement.dataset.theme ?? 'sombre');
+  /* Les entrées d'un menu déroulant n'existent dans la page que MENU OUVERT : on
+     le rouvre avant chaque clic, le choix le refermant. */
+  const ouvrirLeMenu = async () => {
+    await page.click('button[title="Menu"]');
+    await page.waitForTimeout(700);
+  };
+  const choisirLeTheme = async (id) => {
+    await ouvrirLeMenu();
+    await page.evaluate((cible) => {
+      document.querySelector(`[data-theme-choix="${cible}"]`)?.click();
+    }, id);
+    await page.waitForTimeout(1500);
+  };
+  await ouvrirLeMenu();
+  const themesOfferts = await page.$$eval('[data-theme-choix]', (noeuds) =>
+    noeuds.map((noeud) => noeud.dataset.themeChoix),
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  record('Thème : les quatre thèmes sont au menu', themesOfferts.length === 4, themesOfferts.join(', ') || 'aucun');
+
+  await choisirLeTheme('clair');
+  const enClair = await page.evaluate(() => ({
+    nom: document.documentElement.dataset.theme,
+    sombre: document.documentElement.classList.contains('dark'),
+  }));
+  record('Thème : passer en clair éteint le thème sombre', enClair.nom === 'clair' && !enClair.sombre, enClair.nom);
   await shot(page, '07-theme-clair');
-  await page.evaluate(() => {
-    const buttons = Array.from(document.querySelectorAll('button'));
-    const toggle = buttons.find((b) => b.querySelector('.lucide-sun') || b.querySelector('.lucide-moon'));
-    toggle?.click();
-  });
+
+  await choisirLeTheme(themeAuDepart);
 
   /* ---------- 13. Application installable ---------- */
   const pwa = await page.evaluate(async () => {

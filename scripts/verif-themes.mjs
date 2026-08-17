@@ -284,6 +284,116 @@ constater(`${new Set(noms).size} noms de couleur de Tailwind adossés à un jeto
 
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* 9. LE NAVIGATEUR : les jetons compilés donnent bien ces couleurs    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Tout ce qui précède lit du TEXTE. Or entre le jeton et le pixel il y a Tailwind,
+ * PostCSS et le navigateur — et une valeur qui se lit très bien peut ne rien
+ * produire du tout. Le cas qui a motivé ce passage : `--controle` porte son alpha
+ * DANS le jeton (`0 0% 0% / 0`), une écriture que rien ne valide à la lecture et
+ * qu'un `hsl()` mal formé rendrait silencieusement invalide — le bouton perdrait
+ * son fond sans qu'aucune erreur ne paraisse.
+ *
+ * On demande donc au navigateur les couleurs CALCULÉES, thème par thème, sur un
+ * témoin qui porte les mêmes classes que l'application. Aucune session, aucune
+ * base, aucun moteur : la page de l'application suffit, les jetons vivant sur
+ * `<html>`. Sans serveur de développement en face, le contrôle le DIT et s'arrête
+ * là — il ne se déclare pas réussi.
+ *
+ *   HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs
+ */
+const ADRESSE = process.env.HAIKO_THEMES_URL || 'http://localhost:7099';
+
+async function auNavigateur() {
+  const { chromium } = await import('playwright');
+  const navigateur = await chromium.launch({ channel: 'chrome' });
+  const page = await navigateur.newPage();
+  try {
+    await page.goto(ADRESSE, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+  } catch (err) {
+    await navigateur.close();
+    return `serveur de développement injoignable sur ${ADRESSE} — ${err.message.split('\n')[0]}`;
+  }
+  /* Le témoin porte les classes réellement employées par le kit : le fond d'un
+     bouton « contour », un trait de bordure, le voile d'une fenêtre. */
+  await page.evaluate(() => {
+    const temoin = document.createElement('div');
+    temoin.id = 'temoin-themes';
+    temoin.innerHTML =
+      '<span data-t="controle" class="bg-controle"></span>' +
+      '<span data-t="border" class="bg-border"></span>' +
+      '<span data-t="surface" class="bg-surface"></span>' +
+      '<span data-t="bg" class="bg-bg"></span>' +
+      '<span data-t="voile" class="bg-voile/70"></span>' +
+      '<span data-t="sur-etat" class="text-sur-etat"></span>' +
+      '<span data-t="en-cours" class="text-en-cours"></span>';
+    document.body.append(temoin);
+  });
+
+  const anomalies = [];
+  for (const bloc of BLOCS) {
+    const mesures = await page.evaluate(
+      ({ id, sombre }) => {
+        document.documentElement.dataset.theme = id;
+        document.documentElement.classList.toggle('dark', sombre);
+        const lu = {};
+        for (const noeud of document.querySelectorAll('#temoin-themes [data-t]')) {
+          const style = getComputedStyle(noeud);
+          lu[noeud.dataset.t] = noeud.dataset.t === 'sur-etat' || noeud.dataset.t === 'en-cours'
+            ? style.color
+            : style.backgroundColor;
+        }
+        return lu;
+      },
+      { id: bloc.id, sombre: bloc.id === 'sombre' || bloc.id === 'ardoise' },
+    );
+
+    /* Une couleur que le navigateur n'a pas comprise ne rend rien du tout, ou le
+       mot-clé initial : dans les deux cas la classe ne peint plus. */
+    for (const [nom, valeur] of Object.entries(mesures)) {
+      if (!valeur || valeur === 'initial' || valeur === 'currentcolor') {
+        anomalies.push(`thème « ${bloc.id} » : la classe « ${nom} » ne produit aucune couleur (${valeur || 'vide'})`);
+      }
+    }
+    /* Le fond d'un bouton au repos : transparent dans les deux thèmes d'origine,
+       un voile TRANSLUCIDE — donc jamais opaque — dans les deux thèmes plats. */
+    const alpha = /rgba?\([^)]*?,\s*([\d.]+)\s*\)$/.exec(mesures.controle ?? '');
+    const part = alpha ? Number(alpha[1]) : 1;
+    if (bloc.origine && part !== 0) {
+      anomalies.push(`thème d'origine « ${bloc.id} » : le fond d'un bouton au repos n'est plus transparent (${mesures.controle})`);
+    }
+    if (!bloc.origine && (part === 0 || part > 0.2)) {
+      anomalies.push(`thème plat « ${bloc.id} » : le fond d'un bouton au repos doit être un voile léger, pas ${mesures.controle}`);
+    }
+    /* Et le voile d'une fenêtre garde bien sa part : `bg-voile/70` s'écrit avec
+       son alpha, contrairement à `controle`. */
+    if (!/rgba\(/.test(mesures.voile ?? '')) {
+      anomalies.push(`thème « ${bloc.id} » : le voile d'une fenêtre a perdu sa transparence (${mesures.voile})`);
+    }
+  }
+
+  await navigateur.close();
+  return anomalies;
+}
+
+let mesureNavigateur;
+try {
+  mesureNavigateur = await auNavigateur();
+} catch (err) {
+  mesureNavigateur = `navigateur d'essai indisponible — ${err.message.split('\n')[0]}`;
+}
+
+if (typeof mesureNavigateur === 'string') {
+  refuser(`les couleurs calculées n'ont PAS pu être mesurées : ${mesureNavigateur}`);
+} else {
+  for (const anomalie of mesureNavigateur) refuser(anomalie);
+  constater(`couleurs calculées mesurées dans un vrai navigateur pour les ${BLOCS.length} thèmes`);
+}
+
+/* ------------------------------------------------------------------ */
+
 console.log('\nLES QUATRE THÈMES\n');
 for (const message of constats) console.log(`  ✓ ${message}`);
 if (echecs.length) {
