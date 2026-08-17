@@ -45,6 +45,19 @@ import {
   commandeDEssaiDuModuleNatif,
   commandeDeRecompilation,
   recitDeRecompilation,
+  REPRISES_ETAPE_MAX,
+  reconnaitrePanneDePublication,
+  panneDAdresseMuette,
+  consigneDeReparationDEtape,
+  titreDuDepanneur,
+  mentionDeDepannage,
+  recitEtapeRejouee,
+  recitEtapeRetombee,
+  recitSansReparation,
+  recitDepanneurEnEchec,
+  journalDesReprises,
+  avertissementCartesNonRangees,
+  type PanneDePublication,
   type AvertissementSelection,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -447,7 +460,11 @@ function raisonEchecAgent(err: unknown): string {
     return `réponse interne invalide (${champs})`;
   }
   const message = (err as { message?: unknown } | undefined)?.message;
-  return typeof message === 'string' && message ? message : 'raison inconnue';
+  if (typeof message === 'string' && message) return message;
+  // Un jet qui n'est pas une erreur (une chaîne, un nombre) garde son texte ;
+  // seul un objet muet finit en « raison inconnue ».
+  const texte = typeof err === 'string' || typeof err === 'number' ? String(err) : '';
+  return texte || 'raison inconnue';
 }
 
 /**
@@ -527,8 +544,15 @@ async function resoudreConflit(
 /* Les contrôles, et leur réparation pendant la publication            */
 /* ------------------------------------------------------------------ */
 
-/** Combien de fois la publication rappelle un agent pour réparer ses contrôles. */
-export const REPARATIONS_MAX = 2;
+/**
+ * Combien de fois la publication rappelle un agent pour réparer une étape.
+ *
+ * Le nombre vit dans les règles pures (`REPRISES_ETAPE_MAX`,
+ * `shared/src/reparation-publication.ts`) : contrôles, construction et les
+ * quatre étapes désormais réparables suivent tous le MÊME plafond, et il se
+ * rejoue sans publication en cours.
+ */
+export const REPARATIONS_MAX = REPRISES_ETAPE_MAX;
 
 /**
  * Les contrôles du projet, sur du code À JOUR.
@@ -802,6 +826,123 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
 function progresserEtape(run: DeployRun, key: DeployStepKey, progress: string): DeployRun {
   const steps = run.steps.map((step) => (step.key === key ? { ...step, progress } : step));
   return emit({ ...run, steps });
+}
+
+/* ------------------------------------------------------------------ */
+/* Une étape qui tombe est réparée, puis rejouée                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Noter sur l'étape ce qui a été tenté pour la relever.
+ *
+ * Les reprises vivent DANS l'étape (`reprises`, `reparations`), pas dans un
+ * fichier de journal : le déroulé de la colonne est le seul endroit où l'on
+ * regarde après coup, et on doit y lire d'un coup d'œil ce qui est tombé, ce
+ * qui a été tenté, et si ça a fini par passer.
+ */
+function noterLesReprises(
+  run: DeployRun,
+  key: DeployStepKey,
+  bilan: { reprises: number; reparations: string[] },
+): DeployRun {
+  if (!bilan.reparations.length) return run;
+  const steps = run.steps.map((step) =>
+    step.key === key
+      ? { ...step, reprises: bilan.reprises, reparations: [...(step.reparations ?? []), ...bilan.reparations] }
+      : step,
+  );
+  return emit({ ...run, steps });
+}
+
+/**
+ * Appeler un agent de dépannage sur une panne NOMMÉE, et attendre qu'il ait
+ * fini.
+ *
+ * L'agent porte le rôle « deploy » et le motif « depannage » : accueil MINIMAL
+ * (`niveauDAccueil`) — sa consigne dit déjà la panne, la sortie réelle et les
+ * gestes attendus, il n'a rien à chercher dans l'index de la mémoire.
+ */
+async function appelerLeDepanneur(
+  projectId: string,
+  etape: DeployStepKey,
+  panne: PanneDePublication,
+  sortie: string,
+  passe: number,
+): Promise<{ tente: boolean; recit: string }> {
+  const libelleEtape = STEP_LABELS[etape];
+  const agent = createAgent({ projectId, role: 'deploy', title: titreDuDepanneur(libelleEtape) });
+
+  bus.toast('info', `Publication bloquée (${libelleEtape}) : un agent de dépannage intervient — reprise ${passe} sur ${REPARATIONS_MAX}.`);
+
+  try {
+    await sendPrompt(
+      agent.id,
+      consigneDeReparationDEtape({ libelleEtape, panne, sortie, passe, passesMax: REPARATIONS_MAX }),
+      { template: 'free', silent: true, motif: 'depannage' },
+    );
+  } catch (err) {
+    return { tente: false, recit: recitDepanneurEnEchec(passe, raisonEchecAgent(err)) };
+  }
+  return { tente: true, recit: '' };
+}
+
+/**
+ * JOUER UNE ÉTAPE, LA FAIRE RÉPARER SI ELLE TOMBE, PUIS LA REJOUER.
+ *
+ * Le même mécanisme pour l'envoi, la mise en ligne, le redémarrage du service
+ * et l'adresse publique — les quatre étapes qui n'avaient aucun secours et
+ * laissaient la publication rouge. `jouer` doit être REJOUABLE : on l'appelle
+ * autant de fois qu'il y a de reprises.
+ *
+ * DEUX REFUS, qui sont l'essentiel de la règle. Une panne NON RECONNUE n'est
+ * jamais bricolée — on s'arrête et on le DIT. Une panne reconnue mais qui se
+ * règle ailleurs (identifiant refusé, droit d'administration absent) est nommée
+ * sans qu'on envoie personne. Dans les deux cas, l'étape retombe telle quelle,
+ * avec le récit de ce qui a été tenté.
+ *
+ * `panne` force la panne au lieu de la reconnaître au message : c'est le cas de
+ * l'adresse muette, qui est toujours la même panne quel que soit le motif rendu
+ * par le réseau.
+ *
+ * `depanneur` n'est là que pour le contrôle du projet
+ * (`scripts/verif-reparation-publication.mjs`) : il rejoue le mécanisme entier
+ * sans dépenser un tour de moteur. La publication, elle, passe toujours par
+ * l'agent — même convention que `construireAvecReparation`.
+ */
+export async function rejouerAvecDepannage(
+  run: DeployRun,
+  contexte: { projectId: string; etape: DeployStepKey; panne?: PanneDePublication },
+  jouer: () => Promise<{ ok: boolean; sortie: string }>,
+  depanneur = appelerLeDepanneur,
+): Promise<{ run: DeployRun; ok: boolean; sortie: string; reprises: number; reparations: string[] }> {
+  let courant = run;
+  let issue = await jouer();
+  const reparations: string[] = [];
+  let reprises = 0;
+
+  for (let passe = 1; !issue.ok && passe <= REPARATIONS_MAX; passe++) {
+    const panne = contexte.panne ?? reconnaitrePanneDePublication(contexte.etape, issue.sortie);
+    if (!panne || !panne.reparable) {
+      reparations.push(recitSansReparation(panne));
+      break;
+    }
+    const mention = mentionDeDepannage(panne, passe, REPARATIONS_MAX);
+    courant = progresserEtape(courant, contexte.etape, mention);
+    reparations.push(mention);
+
+    const depanne = await depanneur(contexte.projectId, contexte.etape, panne, issue.sortie, passe);
+    if (!depanne.tente) {
+      reparations.push(depanne.recit);
+      break;
+    }
+
+    reprises += 1;
+    courant = progresserEtape(courant, contexte.etape, `Reprise ${passe} de l’étape après réparation…`);
+    issue = await jouer();
+    reparations.push(issue.ok ? recitEtapeRejouee(passe) : recitEtapeRetombee(passe));
+  }
+
+  return { run: courant, ok: issue.ok, sortie: issue.sortie, reprises, reparations };
 }
 
 /**
@@ -1377,16 +1518,30 @@ export async function startDeploy(
            * de git refuse alors d'envoyer. On vise donc explicitement la
            * branche suivie, et on retombe sur -u si aucune n'est configurée.
            */
-          const suivie = (
-            await runCommand(cwd, 'git rev-parse --abbrev-ref --symbolic-full-name @{u}', 20000)
-          ).out.trim();
-          const locale = (await runCommand(cwd, 'git rev-parse --abbrev-ref HEAD', 20000)).out.trim();
-          const commande = suivie.includes('/')
-            ? `git push ${suivie.slice(0, suivie.indexOf('/'))} HEAD:${suivie.slice(suivie.indexOf('/') + 1)}`
-            : `git push -u origin ${locale}`;
-          const push = await runCommand(cwd, commande);
-          current = setStep(current, 'push', push.ok ? 'done' : 'failed', push.out);
-          if (!push.ok) throw new Error("L'envoi sur le dépôt a échoué.");
+          /*
+           * L'ENVOI SE RÉPARE ET SE REJOUE. Le cas courant est le plus bête :
+           * une autre carte a poussé pendant que la publication vérifiait et
+           * construisait, git refuse l'envoi (« non-fast-forward »), et tout
+           * s'arrêtait là — alors qu'il suffit de récupérer et de rejouer.
+           * La commande est RECALCULÉE à chaque reprise : l'agent a pu remettre
+           * la branche suivie d'aplomb.
+           */
+          const envoyer = async () => {
+            const suivie = (
+              await runCommand(cwd, 'git rev-parse --abbrev-ref --symbolic-full-name @{u}', 20000)
+            ).out.trim();
+            const locale = (await runCommand(cwd, 'git rev-parse --abbrev-ref HEAD', 20000)).out.trim();
+            const commande = suivie.includes('/')
+              ? `git push ${suivie.slice(0, suivie.indexOf('/'))} HEAD:${suivie.slice(suivie.indexOf('/') + 1)}`
+              : `git push -u origin ${locale}`;
+            const push = await runCommand(cwd, commande);
+            return { ok: push.ok, sortie: push.out };
+          };
+          const envoi = await rejouerAvecDepannage(current, { projectId: project.id, etape: 'push' }, envoyer);
+          current = envoi.run;
+          current = setStep(current, 'push', envoi.ok ? 'done' : 'failed', `${envoi.sortie}${journalDesReprises(envoi.reparations)}`);
+          current = noterLesReprises(current, 'push', envoi);
+          if (!envoi.ok) throw new Error("L'envoi sur le dépôt a échoué.");
         } else {
           current = setStep(current, 'push', 'skipped', 'aucun dépôt distant configuré');
         }
@@ -1442,9 +1597,22 @@ export async function startDeploy(
           'publish',
           typeCible === 'ssh' ? 'Transfert vers le serveur SSH…' : typeCible === 'ftp' ? 'Transfert vers le serveur FTP…' : 'Rien à transférer…',
         );
-        const resultat = await executerCibleMiseEnProduction(project, cwd);
-        current = setStep(current, 'publish', resultat.ok ? 'done' : 'failed', resultat.recit);
-        if (!resultat.ok) throw new Error(resultat.recit);
+        // Le transfert se répare et se rejoue comme les autres étapes : un
+        // dossier refusé à l'écriture, un disque plein, un chemin absent sont
+        // des pannes de plomberie, pas des fins de non-recevoir.
+        const transfert = await rejouerAvecDepannage(current, { projectId: project.id, etape: 'publish' }, async () => {
+          const resultat = await executerCibleMiseEnProduction(project, cwd);
+          return { ok: resultat.ok, sortie: resultat.recit };
+        });
+        current = transfert.run;
+        current = setStep(
+          current,
+          'publish',
+          transfert.ok ? 'done' : 'failed',
+          `${transfert.sortie}${journalDesReprises(transfert.reparations)}`,
+        );
+        current = noterLesReprises(current, 'publish', transfert);
+        if (!transfert.ok) throw new Error(transfert.sortie);
 
         current = setStep(
           current,
@@ -1469,21 +1637,43 @@ export async function startDeploy(
 
         current = setStep(current, 'publish', 'running', mentionEtapeConfiee('publish'));
         current = progresserEtape(current, 'publish', 'L’agent de mise en production suit le prompt du projet…');
-        const menee = await confierLaMiseEnLigne(project.id, {
-          projet: project.name,
-          dossier: cwd,
-          branche: brancheDuLot,
-          // Pas d'adresse imposée : l'adresse de dev n'est pas celle d'une mise
-          // en production, et c'est le prompt qui dit quoi contrôler.
-          url: undefined,
-          prompt,
-          cartes: cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
-          enregistrement: current.targetCommit,
-          clot: etape.clot,
+        /*
+         * La mise en ligne confiée se rejoue elle aussi — mais SEULEMENT sur
+         * une panne RECONNUE. Un agent qui s'est arrêté sur une cause qu'on ne
+         * sait pas nommer n'est pas renvoyé à l'aveugle : ce serait relancer un
+         * transfert à moitié fait sur un espoir. La reprise reste, dans tous les
+         * cas, celle de la publication que l'utilisateur a lancée : rien de neuf
+         * n'est mis en ligne de notre propre initiative.
+         */
+        let dernierRecit = '';
+        let derniereRaison: string | undefined;
+        const confiee = await rejouerAvecDepannage(current, { projectId: project.id, etape: 'publish' }, async () => {
+          const menee = await confierLaMiseEnLigne(project.id, {
+            projet: project.name,
+            dossier: cwd,
+            branche: brancheDuLot,
+            // Pas d'adresse imposée : l'adresse de dev n'est pas celle d'une mise
+            // en production, et c'est le prompt qui dit quoi contrôler.
+            url: undefined,
+            prompt,
+            cartes: cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
+            enregistrement: current.targetCommit,
+            clot: etape.clot,
+          });
+          dernierRecit = menee.recit;
+          derniereRaison = menee.raison;
+          return { ok: menee.ok, sortie: menee.raison ?? menee.recit };
         });
-        current = setStep(current, 'publish', menee.ok ? 'done' : 'failed', menee.recit);
+        current = confiee.run;
+        current = setStep(
+          current,
+          'publish',
+          confiee.ok ? 'done' : 'failed',
+          `${dernierRecit}${journalDesReprises(confiee.reparations)}`,
+        );
+        current = noterLesReprises(current, 'publish', confiee);
         // Un échec reste un échec, NOMMÉ : rien n'est annoncé « publié ».
-        if (!menee.ok) throw new Error(phraseDEchecConfie(menee.raison));
+        if (!confiee.ok) throw new Error(phraseDEchecConfie(derniereRaison));
 
         current = setStep(current, 'restart', 'skipped', mentionEtapeConfiee('restart'));
       } else if (project.isSelf) {
@@ -1551,8 +1741,30 @@ export async function startDeploy(
 
         current = setStep(current, 'publish', 'running');
         current = progresserEtape(current, 'publish', 'Installation de la nouvelle version dans le dossier servi…');
-        const installe = installerApplication();
-        current = setStep(current, 'publish', 'done', installe);
+        /*
+         * L'installation touche le disque : droits, place, dossier absent. Elle
+         * se répare et se rejoue comme le reste, au lieu de faire tomber une
+         * publication dont tout le travail est déjà fait.
+         */
+        let recitInstallation = '';
+        const installation = await rejouerAvecDepannage(current, { projectId: project.id, etape: 'publish' }, async () => {
+          try {
+            recitInstallation = installerApplication();
+            return { ok: true, sortie: recitInstallation };
+          } catch (err) {
+            recitInstallation = raisonEchecAgent(err);
+            return { ok: false, sortie: recitInstallation };
+          }
+        });
+        current = installation.run;
+        current = setStep(
+          current,
+          'publish',
+          installation.ok ? 'done' : 'failed',
+          `${recitInstallation}${journalDesReprises(installation.reparations)}`,
+        );
+        current = noterLesReprises(current, 'publish', installation);
+        if (!installation.ok) throw new Error(`L’installation dans le dossier servi a échoué : ${recitInstallation}`);
 
         /*
          * Le serveur garde le code chargé à son LANCEMENT : installer
@@ -1670,10 +1882,28 @@ export async function startDeploy(
           }
           current = setStep(current, 'restart', 'running');
           current = progresserEtape(current, 'restart', `Redémarrage du service ${service}…`);
-          const bilan = await redemarrerService(cwd, service);
-          current = setStep(current, 'restart', bilan.ok ? 'done' : 'failed', bilan.recit);
+          /*
+           * Le service du PROJET, jamais celui du démon : c'est un service
+           * ordinaire, qu'on peut relancer et faire réparer. La consigne de
+           * dépannage interdit en toutes lettres de toucher au service
+           * d'HaikoDev, qui porte cette publication.
+           */
+          let recitRedemarrage = '';
+          const relance = await rejouerAvecDepannage(current, { projectId: project.id, etape: 'restart' }, async () => {
+            const bilan = await redemarrerService(cwd, service);
+            recitRedemarrage = bilan.recit;
+            return { ok: bilan.ok, sortie: bilan.recit };
+          });
+          current = relance.run;
+          current = setStep(
+            current,
+            'restart',
+            relance.ok ? 'done' : 'failed',
+            `${recitRedemarrage}${journalDesReprises(relance.reparations)}`,
+          );
+          current = noterLesReprises(current, 'restart', relance);
           // Le motif exact remonte tel quel : plus de ligne rouge sans explication.
-          if (!bilan.ok) throw new Error(bilan.recit.split('\n')[0]);
+          if (!relance.ok) throw new Error(recitRedemarrage.split('\n')[0]);
         }
       }
 
@@ -1683,25 +1913,23 @@ export async function startDeploy(
       // mise en production, dont c'est le prompt de l'agent qui dit quoi
       // contrôler.
       if (etape.cible === 'dev' && project.devUrl) {
-        const online = await checkOnline(project.devUrl);
-        const verdict = online.ok
-          ? `Adresse ${project.devUrl} joignable (${online.status}).`
-          : `Adresse ${project.devUrl} injoignable (${online.status}).`;
-        current = setStep(current, 'publish', online.ok ? 'done' : 'failed', verdict);
+        const controle = await controlerLAdresse(current, project.id, project.devUrl);
+        current = controle.run;
         // Une adresse muette n'est pas un déploiement réussi : autrefois
         // l'étape passait au rouge et le run se déclarait quand même « réussi ».
-        if (!online.ok) throw new Error(verdict);
+        // Elle vaut désormais un dépannage et une nouvelle vérification : c'est
+        // le seul contrôle qui juge le RÉSULTAT, donc celui qui mérite le plus
+        // qu'on essaie de le faire passer avant d'abandonner.
+        if (!controle.ok) throw new Error(controle.verdict);
       } else if (etape.cible === 'production' && typeCible !== 'consigne' && project.miseEnProduction?.prodUrl) {
         /*
          * Même contrôle, pour une mise en production SSH ou FTP : l'adresse
          * réglée pour ce projet en production, vérifiée après le transfert —
          * exactement comme le déploiement le fait pour l'instance de dev.
          */
-        const url = project.miseEnProduction.prodUrl;
-        const online = await checkOnline(url);
-        const verdict = online.ok ? `Adresse ${url} joignable (${online.status}).` : `Adresse ${url} injoignable (${online.status}).`;
-        current = setStep(current, 'publish', online.ok ? 'done' : 'failed', verdict);
-        if (!online.ok) throw new Error(verdict);
+        const controle = await controlerLAdresse(current, project.id, project.miseEnProduction.prodUrl);
+        current = controle.run;
+        if (!controle.ok) throw new Error(controle.verdict);
       }
 
       /*
@@ -1740,21 +1968,54 @@ export async function startDeploy(
        * tourne sur l'instance de dev, mais rien n'est fini et la carte reste
        * reprenable. Une carte déployée ne part donc plus jamais aux archives.
        */
+      /*
+       * CE RANGEMENT NE PEUT PLUS FAIRE ÉCHOUER UNE MISE EN LIGNE RÉUSSIE.
+       *
+       * Le 17/08/2026, une publication d'HaikoDev a fusionné, envoyé, vérifié,
+       * construit et INSTALLÉ le lot — les sept étapes au vert ou sautées —
+       * puis s'est déclarée EN ÉCHEC, en rouge, avec pour seul message un
+       * tableau d'erreurs de validation illisible. La cause était ici : une
+       * carte de la base portait un champ à `null` là où le modèle attend une
+       * chaîne ou RIEN (`sansModification`, posé par la migration 28 dans sa
+       * première écriture), `store.getCard` refusait de la lire, et
+       * l'exception remontait au `catch` général — alors que le code était
+       * déjà en ligne.
+       *
+       * Le rangement des cartes est de la COMPTABILITÉ : il vient APRÈS la
+       * mise en ligne et ne peut plus la démentir. Chaque carte est donc rangée
+       * SOUS SON PROPRE FILET — une carte illisible n'emporte plus les six
+       * autres —, et l'incident est DIT (avertissement de la publication,
+       * visible sous le déroulé) au lieu de transformer une réussite en échec.
+       */
+      const cartesNonRangees: string[] = [];
       for (const cardId of current.cardIds) {
-        const card = store.getCard(cardId);
-        if (!card) continue;
-        const deployed = store.saveCard({ ...card, deployedAt: Date.now() });
-        bus.emit({ type: 'card.upsert', card: deployed });
-        if (etape.clot) {
-          await archiveCard(cardId, { url: project.devUrl, commit: current.targetCommit });
-        } else {
-          const avancee = store.saveCard({
-            ...deployed,
-            column: etape.arrivee,
-            position: store.nextPosition(card.projectId, etape.arrivee),
-          });
-          bus.emit({ type: 'card.upsert', card: avancee });
+        try {
+          const card = store.getCard(cardId);
+          if (!card) continue;
+          const deployed = store.saveCard({ ...card, deployedAt: Date.now() });
+          bus.emit({ type: 'card.upsert', card: deployed });
+          if (etape.clot) {
+            await archiveCard(cardId, { url: project.devUrl, commit: current.targetCommit });
+          } else {
+            const avancee = store.saveCard({
+              ...deployed,
+              column: etape.arrivee,
+              position: store.nextPosition(card.projectId, etape.arrivee),
+            });
+            bus.emit({ type: 'card.upsert', card: avancee });
+          }
+        } catch (err) {
+          // On ne relit pas la carte pour son titre : c'est justement sa
+          // lecture qui vient d'échouer.
+          cartesNonRangees.push(`${cardId} (${raisonEchecAgent(err)})`);
+          log.error(`publication : carte ${cardId} non rangée après la mise en ligne — ${raisonEchecAgent(err)}`);
         }
+      }
+      if (cartesNonRangees.length) {
+        current = emit({
+          ...current,
+          avertissement: avertissementCartesNonRangees(cartesNonRangees),
+        });
       }
 
       const reste = ecartees.size
@@ -1782,7 +2043,13 @@ export async function startDeploy(
       // « réussie » en base, donc elle ne se compte plus.
       if (redemarrageDemande) setTimeout(() => demanderRedemarrage(), 2000);
     } catch (err: any) {
-      const raison = err?.message ?? String(err);
+      /*
+       * La raison passe par `raisonEchecAgent` : une exception de VALIDATION
+       * (Zod) y devient une phrase, au lieu du tableau `issues` brut qui
+       * s'affichait jusqu'ici en rouge sous la publication — illisible, et sans
+       * le moindre indice sur ce qu'il fallait réparer.
+       */
+      const raison = raisonEchecAgent(err);
       current = emit({
         ...current,
         state: stopped ? 'stopped' : 'failed',
@@ -1843,6 +2110,44 @@ export async function startDeploy(
   })();
 
   return { ok: true, run };
+}
+
+/**
+ * LE VERDICT FINAL : l'adresse publique répond-elle ?
+ *
+ * C'est le seul contrôle qui juge le RÉSULTAT et non le processus — sept étapes
+ * vertes ne valent rien si l'adresse est muette. Il mérite donc, plus que tout
+ * autre, qu'on essaie de le faire passer : une adresse qui ne répond pas appelle
+ * un agent de dépannage, qui remonte la chaîne (service, port, serveur web),
+ * répare, puis l'adresse est RECONTRÔLÉE. Le refus, lui, ne bouge pas : au bout
+ * des reprises, la publication échoue et l'étape porte ce qui a été tenté.
+ *
+ * L'adresse muette est la seule panne qu'on n'a pas à reconnaître au message :
+ * elle est toujours la même, quel que soit le motif rendu par le réseau.
+ */
+async function controlerLAdresse(
+  run: DeployRun,
+  projectId: string,
+  url: string,
+): Promise<{ run: DeployRun; ok: boolean; verdict: string }> {
+  let verdict = '';
+  const controle = await rejouerAvecDepannage(
+    run,
+    { projectId, etape: 'publish', panne: panneDAdresseMuette(url) },
+    async () => {
+      const online = await checkOnline(url);
+      verdict = online.ok ? `Adresse ${url} joignable (${online.status}).` : `Adresse ${url} injoignable (${online.status}).`;
+      return { ok: online.ok, sortie: verdict };
+    },
+  );
+  let courant = setStep(
+    controle.run,
+    'publish',
+    controle.ok ? 'done' : 'failed',
+    `${verdict}${journalDesReprises(controle.reparations)}`,
+  );
+  courant = noterLesReprises(courant, 'publish', controle);
+  return { run: courant, ok: controle.ok, verdict };
 }
 
 async function checkOnline(url: string): Promise<{ ok: boolean; status: string }> {

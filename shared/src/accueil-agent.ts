@@ -45,10 +45,18 @@ export type NiveauDAccueil = 'complet' | 'tri' | 'minimal';
  * production entière d'après le prompt réglé du projet — celui-là agit sur le
  * projet dans son ensemble et garde l'accueil complet.
  */
-export type MotifDAppel = 'conflit' | 'controles' | 'construction' | 'mise-en-ligne';
+export type MotifDAppel = 'conflit' | 'controles' | 'construction' | 'depannage' | 'mise-en-ligne';
 
-/** Les dépannages : une panne nommée, réparée sur place, rien d'autre. */
-export const MOTIFS_DE_DEPANNAGE: MotifDAppel[] = ['conflit', 'controles', 'construction'];
+/**
+ * Les dépannages : une panne nommée, réparée sur place, rien d'autre.
+ *
+ * `depannage` est le motif GÉNÉRIQUE des étapes qui n'avaient pas le leur —
+ * envoi refusé, mise en ligne impossible, service qui ne repart pas, adresse
+ * muette (`shared/src/reparation-publication.ts`). Même accueil minimal que les
+ * trois autres : sa consigne NOMME la panne et les gestes attendus, elle n'a
+ * rien à chercher dans l'index de la mémoire.
+ */
+export const MOTIFS_DE_DEPANNAGE: MotifDAppel[] = ['conflit', 'controles', 'construction', 'depannage'];
 
 /** Les parts du briefing qu'un niveau d'accueil emporte. */
 export interface PartsDAccueil {
