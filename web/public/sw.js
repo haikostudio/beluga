@@ -28,8 +28,11 @@ const ICONES = {
   'decision-attendue': 'attention',
   'publication-terminee': 'publication',
   'publication-echec': 'erreur',
-  'redemarrage-serveur': 'redemarrage',
-  'quota-seuil': 'quota',
+  // Les deux BLOCAGES : une limite atteinte, un identifiant qui ne répond plus.
+  // Le redémarrage du serveur et les paliers 70 % / 90 % du quota n'alertent
+  // plus — ils n'ont donc plus rien à traduire ici.
+  'compte-sature': 'quota',
+  'amorcage-impossible': 'quota',
 };
 
 function imageDeLAlerte(motif) {

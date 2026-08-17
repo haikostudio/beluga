@@ -846,7 +846,9 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       const decision = arreterLAgent(cmd.agentId);
       const stopped = decision.travaillait;
-      if (decision.geste !== 'coupe') bus.toast('info', decision.message, cmd.cardId);
+      // Un travail interrompu d'autorité compte comme une erreur : le message
+      // s'affiche donc, malgré son niveau « info » (couleur inchangée).
+      if (decision.geste !== 'coupe') bus.toast('info', decision.message, cmd.cardId, 'agent-interrompu');
 
       /*
        * L'arrêt coupe aussi ce qui attendait DERRIÈRE : les demandes en file

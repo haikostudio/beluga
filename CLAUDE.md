@@ -1064,6 +1064,25 @@ le nom, là-bas le texte).
   d'attente : les `busy` maison sont rendus au bouton, sauf le choix d'un compte de reprise, une
   LISTE dont un clic doit éteindre tous les autres. Verrouillé par
   `server/src/test/bouton-en-attente.test.ts` et `scripts/verif-bouton-en-attente.mjs`.
+- **TROIS GENRES ALERTENT, PAS UN DE PLUS, ET LES DEUX CANAUX SUIVENT LA MÊME RÈGLE**
+  (`GenreDAlerte`, `MOTIFS[].genre`, `genreDeLAlerte`, `genreDuMessage`, `messageAlerte`,
+  `shared/src/notification-tri.ts`) : une ATTENTE (décision attendue), une TÂCHE FINIE (publication
+  comprise — longue et menée par un agent), une ERREUR (échec, publication tombée, et tout BLOCAGE :
+  compte à sa limite, amorçage refusé, agent coupé, geste sans réponse depuis dix secondes). Un motif
+  hors des trois porte `genre: null` et ne dit plus RIEN — ni notification poussée, ni message dans
+  l'application : redémarrage du serveur, paliers 70 % / 90 % du quota, surconsommation, emballement,
+  liste de tâches cochée, charge machine, point du jour. L'information reste là où on la cherche déjà
+  (bouton « Redémarrage requis », volet des quotas, jauge de capacité, repère des tâches, déroulé de
+  la colonne de publication, cloche du bandeau) : **on coupe l'alerte, pas la trace**. Le SECOND
+  CANAL passe par le même juge (`pushToast`, `web/src/lib/client.ts` ; `bus.toast` et le champ
+  `motif` de l'événement `toast`) — un message qui NOMME son motif est jugé sur lui, sinon son NIVEAU
+  tranche : « error » / « warning » disent un refus ou un blocage et s'affichent, « info » /
+  « success » confirment un geste et se taisent (le bouton en attente puis en coche le dit déjà).
+  Trois messages sont donc nommés à la main : « Agent terminé » (`tache-terminee`), l'arrêt de
+  secours (`agent-interrompu`) et l'attente de plus de dix secondes (`geste-lent`) ; les deux
+  derniers ne naissent que dans le navigateur (`dansLApplication`) et ne partent jamais en push.
+  `pushToast` juge, `afficherMessage` dessine. Ni le texte ni la couleur d'un message ne changent.
+  Verrouillé par `server/src/test/notification-tri.test.ts` et `scripts/verif-notifications.mjs`.
 - **Le triangle orange n'est pas le seul chemin vers une décision attendue : une CLOCHE dans le
   bandeau du haut les liste TOUTES**, tous projets confondus (`QuestionsEnAttente`,
   `web/src/components/questions-en-attente.tsx`) — projet, endroit (carte ou conversation) et texte

@@ -9,9 +9,14 @@ import {
   MOTIFS,
   type MotifNotification,
   SEUILS_SEMAINE,
+  type GenreDAlerte,
+  alerte,
   cleEvenement,
   evenementDejaVu,
   familleDuMotif,
+  genreDeLAlerte,
+  genreDuMessage,
+  messageAlerte,
   franchissementSemaine,
   TOLERANCE_FENETRE_MS,
   iconeDuMotif,
@@ -25,47 +30,98 @@ import {
 /* Ce qui mérite d'interrompre                                          */
 /* ------------------------------------------------------------------ */
 
-test('SEPT motifs interrompent, pas un de plus', () => {
-  const interrompent = (Object.keys(MOTIFS) as MotifNotification[]).filter(interrompt).sort();
-  assert.deepEqual(interrompent, [
-    'decision-attendue',
-    'publication-echec',
-    'publication-terminee',
-    'quota-seuil',
-    'redemarrage-serveur',
-    'tache-echec',
-    'tache-terminee',
-    'travail-sans-carte',
-  ]);
-  // Huit entrées pour sept genres : une tâche terminée l'est avec ou sans carte.
-  assert.equal(interrompent.length, 8);
+test('TROIS GENRES alertent, et rien d’autre', () => {
+  const genres = new Set(
+    (Object.keys(MOTIFS) as MotifNotification[]).map((motif) => genreDeLAlerte(motif)).filter(Boolean),
+  );
+  assert.deepEqual([...genres].sort(), ['attente', 'erreur', 'termine']);
 });
 
-test('la charge machine, l’amorçage et la fenêtre de quota ne sortent plus de l’application', () => {
-  for (const motif of [
-    'charge-machine',
+test('chaque motif qui alerte entre dans l’un des trois genres, nommément', () => {
+  const parGenre = (genre: GenreDAlerte) =>
+    (Object.keys(MOTIFS) as MotifNotification[]).filter((motif) => genreDeLAlerte(motif) === genre).sort();
+
+  // Une attente : un agent a besoin de l'utilisateur.
+  assert.deepEqual(parGenre('attente'), ['decision-attendue']);
+  // Une tâche finie : y compris la publication, longue et menée par un agent.
+  assert.deepEqual(parGenre('termine'), ['publication-terminee', 'tache-terminee', 'travail-sans-carte']);
+  // Une erreur : ce qui casse, et ce qui BLOQUE le travail.
+  assert.deepEqual(parGenre('erreur'), [
+    'agent-interrompu',
     'amorcage-impossible',
     'compte-sature',
+    'geste-lent',
+    'publication-echec',
+    'tache-echec',
+  ]);
+});
+
+test('les avancements, les états et les étapes ne notifient plus, sur aucun canal', () => {
+  for (const motif of [
+    'redemarrage-serveur',
+    'quota-seuil',
+    'quota-surconsommation',
+    'quota-emballement',
     'fenetre-bientot-finie',
+    'liste-taches',
+    'charge-machine',
     'point-du-jour',
   ] as const) {
+    assert.equal(genreDeLAlerte(motif), null, motif);
+    assert.equal(interrompt(motif), false, motif);
+    assert.equal(alerte(motif), false, motif);
+  }
+});
+
+test('un blocage compte comme une erreur : il alerte', () => {
+  // Quota épuisé, identifiant refusé, agent interrompu : le travail n'avance
+  // plus, et cela ne se lit nulle part ailleurs.
+  assert.equal(genreDeLAlerte('compte-sature'), 'erreur');
+  assert.equal(genreDeLAlerte('amorcage-impossible'), 'erreur');
+  assert.equal(genreDeLAlerte('agent-interrompu'), 'erreur');
+  // Le palier 70 % / 90 %, lui, n'est qu'un avancement.
+  assert.equal(genreDeLAlerte('quota-seuil'), null);
+});
+
+test('un motif né dans l’application alerte à l’écran, mais ne part jamais en push', () => {
+  for (const motif of ['agent-interrompu', 'geste-lent'] as const) {
+    assert.equal(alerte(motif), true, motif);
     assert.equal(interrompt(motif), false, motif);
   }
 });
 
-test('la surconsommation et l’emballement de quota redescendent en bannière', () => {
-  // Ils redisent ce que les paliers 70 % / 90 % annoncent déjà : trois alertes
-  // pour un seul quota faisaient du bruit.
-  assert.equal(interrompt('quota-surconsommation'), false);
-  assert.equal(interrompt('quota-emballement'), false);
-  assert.equal(interrompt('quota-seuil'), true);
-});
-
-test('une publication en échec et un redémarrage se disent, et sont bien connus', () => {
+test('une publication en échec et sa réussite gardent leur famille de réglage', () => {
   assert.equal(interrompt('publication-echec'), true);
-  assert.equal(interrompt('redemarrage-serveur'), true);
   assert.equal(familleDuMotif('publication-echec'), 'deploy');
   assert.equal(familleDuMotif('redemarrage-serveur'), 'systeme');
+});
+
+/* ------------------------------------------------------------------ */
+/* Le second canal suit la MÊME règle                                   */
+/* ------------------------------------------------------------------ */
+
+test('un message sans motif est jugé sur son niveau : un refus se dit, une réussite se tait', () => {
+  assert.equal(genreDuMessage('error', undefined), 'erreur');
+  assert.equal(genreDuMessage('warning', undefined), 'erreur');
+  assert.equal(genreDuMessage('success', undefined), null);
+  assert.equal(genreDuMessage('info', undefined), null);
+  assert.equal(messageAlerte('error'), true);
+  assert.equal(messageAlerte('success'), false);
+});
+
+test('un message qui NOMME son motif est jugé sur lui, jamais sur son niveau', () => {
+  // Une tâche finie s'affiche même en « success »…
+  assert.equal(messageAlerte('success', 'tache-terminee'), true);
+  // …un agent coupé d'autorité même en « info »…
+  assert.equal(messageAlerte('info', 'agent-interrompu'), true);
+  // …et une étape de publication se tait, même en « info ».
+  assert.equal(messageAlerte('info', 'redemarrage-serveur'), false);
+  assert.equal(messageAlerte('warning', 'charge-machine'), false);
+});
+
+test('un motif inconnu — serveur plus récent — retombe sur son niveau', () => {
+  assert.equal(messageAlerte('error', 'motif-d-une-version-plus-recente'), true);
+  assert.equal(messageAlerte('info', 'motif-d-une-version-plus-recente'), false);
 });
 
 test('une publication en échec n’est jamais avalée par la réussite du même lot', () => {
@@ -76,7 +132,7 @@ test('une publication en échec n’est jamais avalée par la réussite du même
 /* Chaque genre porte SON image                                         */
 /* ------------------------------------------------------------------ */
 
-test('les sept motifs qui interrompent portent chacun l’image de leur genre', () => {
+test('les motifs qui alertent portent chacun l’image de leur genre — les images ne bougent pas', () => {
   assert.equal(iconeDuMotif('tache-terminee'), 'termine');
   assert.equal(iconeDuMotif('travail-sans-carte'), 'termine');
   assert.equal(iconeDuMotif('decision-attendue'), 'attention');
@@ -84,15 +140,18 @@ test('les sept motifs qui interrompent portent chacun l’image de leur genre', 
   assert.equal(iconeDuMotif('publication-terminee'), 'publication');
   // Une publication tombée est un échec, pas une publication en plus pâle.
   assert.equal(iconeDuMotif('publication-echec'), 'erreur');
-  assert.equal(iconeDuMotif('quota-seuil'), 'quota');
-  assert.equal(iconeDuMotif('redemarrage-serveur'), 'redemarrage');
+  // Un blocage de quota garde l'image du quota : on ne touche pas au contenu
+  // des messages, seulement à ce qui les déclenche.
+  assert.equal(iconeDuMotif('compte-sature'), 'quota');
+  assert.equal(iconeDuMotif('amorcage-impossible'), 'quota');
 });
 
-test('six images distinctes servent les motifs qui interrompent', () => {
+test('quatre images distinctes servent les alertes poussées', () => {
   const images = new Set(
     (Object.keys(MOTIFS) as MotifNotification[]).filter(interrompt).map((motif) => imageDeLAlerte(motif)),
   );
-  assert.equal(images.size, 6);
+  // termine, attention, erreur, publication, quota.
+  assert.equal(images.size, 5);
   for (const image of images) assert.match(image, /^\/notif\/[a-z-]+\.png$/);
 });
 
@@ -110,8 +169,10 @@ test('le service worker traduit les MÊMES motifs que la règle, et les images e
 
   for (const motif of Object.keys(MOTIFS) as MotifNotification[]) {
     const ligne = new RegExp(`'${motif}':\\s*'([a-z-]+)'`).exec(table);
+    // Le service worker ne voit passer que les alertes POUSSÉES : un motif qui
+    // n'alerte plus, ou qui ne naît que dans le navigateur, n'y a rien à faire.
     if (!interrompt(motif)) {
-      assert.equal(ligne, null, `${motif} n'interrompt pas : rien à traduire`);
+      assert.equal(ligne, null, `${motif} ne part pas en push : rien à traduire`);
       continue;
     }
     assert.ok(ligne, `${motif} manque au service worker`);

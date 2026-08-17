@@ -5,12 +5,14 @@
  * Les règles pures sont déjà vérifiées par `notification-tri.test.ts`. Ici on
  * fait tourner le VRAI guichet du démon (`server/dist/notify.js`), avec une
  * vraie base, un vrai projet et de vraies cartes, en écoutant ce qui part sur
- * le bus. On vérifie six choses :
+ * le bus. On vérifie que TROIS MOTIFS SEULEMENT notifient :
  *
  *   1. la clôture d'une carte par deux chemins ne fait qu'UNE notification ;
  *   2. cette notification porte le NOM DU PROJET et une phrase claire ;
- *   3. ce qui ne mérite pas d'interrompre reste dans l'application ;
- *   4. la surconsommation et l'emballement de quota n'en sortent plus ;
+ *   3. un avancement (charge machine, liste cochée) ne dit plus rien — ni sur le
+ *      téléphone, ni en message dans l'application ;
+ *   4. les quotas non plus, SAUF la limite atteinte, qui est un blocage — et un
+ *      redémarrage du serveur se tait ;
  *   5. une publication en échec sort, et emporte le motif qui choisit son image ;
  *   6. un groupe NOMME ses éléments au lieu de les compter.
  *
@@ -152,14 +154,9 @@ try {
   });
   await attendre(ATTENTE_GROUPE_MS);
   noter(
-    'la charge machine et la liste cochée ne sortent plus de l’application',
-    notifications.length === 0,
-    `${notifications.length} notification(s)`,
-  );
-  noter(
-    'elles restent visibles dans l’application',
-    bannieres.length === 2,
-    `${bannieres.length} bannière(s)`,
+    'la charge machine et la liste cochée ne notifient plus, sur AUCUN canal',
+    notifications.length === 0 && bannieres.length === 0,
+    `${notifications.length} notification(s), ${bannieres.length} message(s)`,
   );
 
   /* --- 4 : la surconsommation de quota ne réveille plus personne --- */
@@ -178,9 +175,39 @@ try {
   });
   await attendre(ATTENTE_GROUPE_MS);
   noter(
-    'la surconsommation et l’emballement de quota restent dans l’application',
-    notifications.length === 0 && bannieres.length === 2,
-    `${notifications.length} notification(s), ${bannieres.length} bannière(s)`,
+    'la surconsommation et l’emballement de quota ne disent plus rien nulle part',
+    notifications.length === 0 && bannieres.length === 0,
+    `${notifications.length} notification(s), ${bannieres.length} message(s)`,
+  );
+
+  /* --- 4 bis : mais un quota ÉPUISÉ, lui, alerte : c'est un blocage --- */
+  vider();
+  notify({
+    motif: 'compte-sature',
+    title: 'Compte saturé',
+    body: 'Compte d’essai a atteint sa limite — de nouveau disponible vers 14:30.',
+    reference: 'compte-essai:sature',
+  });
+  await attendre(ATTENTE_GROUPE_MS);
+  noter(
+    'un compte qui a atteint sa limite sort de l’application',
+    notifications.length === 1 && notifications[0].motif === 'compte-sature',
+    `${notifications.length} notification(s)`,
+  );
+
+  /* --- 4 ter : un redémarrage du serveur ne réveille plus personne --- */
+  vider();
+  notify({
+    motif: 'redemarrage-serveur',
+    title: 'Le serveur redémarre',
+    body: 'L’application se reconnectera toute seule.',
+    reference: 'redemarrage',
+  });
+  await attendre(ATTENTE_GROUPE_MS);
+  noter(
+    'un redémarrage du serveur ne notifie plus : le bouton le dit déjà',
+    notifications.length === 0 && bannieres.length === 0,
+    `${notifications.length} notification(s), ${bannieres.length} message(s)`,
   );
 
   /* --- 5 : chaque genre d'alerte porte SON image --- */
@@ -205,8 +232,8 @@ try {
     `${echec?.motif} → ${imageDeLAlerte(echec?.motif)}`,
   );
   noter(
-    'les six images existent réellement dans l’application',
-    ['termine', 'attention', 'erreur', 'publication', 'quota', 'redemarrage'].every((nom) =>
+    'les images existent réellement dans l’application',
+    ['termine', 'attention', 'erreur', 'publication', 'quota'].every((nom) =>
       fs.existsSync(path.join(RACINE, 'web', 'public', 'notif', `${nom}.png`)),
     ),
   );

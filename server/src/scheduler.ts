@@ -682,9 +682,11 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
             projectId: fresh.projectId,
           });
         }
-        bus.toast('success', `Agent terminé : ${fresh.title}`, fresh.id);
+        // Une tâche finie est l'un des TROIS motifs qui alertent : le message
+        // est un « success », son motif dit qu'il s'affiche quand même.
+        bus.toast('success', `Agent terminé : ${fresh.title}`, fresh.id, 'tache-terminee');
       } else {
-        bus.toast('error', `Agent en échec : ${fresh.title}`, fresh.id);
+        bus.toast('error', `Agent en échec : ${fresh.title}`, fresh.id, 'tache-echec');
       }
     },
   }).catch((err) => {

@@ -779,6 +779,11 @@ export const ServerEvent = z.discriminatedUnion('type', [
     level: z.enum(['info', 'success', 'warning', 'error']),
     text: z.string(),
     cardId: z.string().optional(),
+    /**
+     * Le motif, quand le niveau seul ne suffit pas à décider si ce message
+     * s'affiche (`genreDuMessage`, `shared/src/notification-tri.ts`).
+     */
+    motif: z.string().optional(),
   }),
   z.object({
     type: z.literal('notify'),

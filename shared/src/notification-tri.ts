@@ -1,18 +1,36 @@
 /**
- * CE QUI MÉRITE D'INTERROMPRE — et ce qui ne le mérite pas.
+ * TROIS MOTIFS ALERTENT, PAS UN DE PLUS — et la règle vaut pour les DEUX
+ * canaux.
  *
- * Une notification sort de l'application : elle allume un téléphone, souvent
- * loin du bureau. Elle ne se justifie donc que si elle appelle une décision ou
- * annonce une fin. Tout le reste (charge machine, amorçage d'une fenêtre de
- * quota, liste de tâches cochée en cours de route) se voit très bien DANS
- * l'application, quand on l'ouvre.
+ * Une alerte n'a de valeur que si elle veut toujours dire la même chose. On
+ * n'en garde donc que trois genres :
  *
- * Quatre règles vivent ici, et nulle part ailleurs :
- *  1. quel motif interrompt, et à quelle famille de réglage il appartient ;
+ *  - « attente »  : un agent a besoin de l'utilisateur (question, décision) ;
+ *  - « termine »  : un agent a mené sa tâche au bout ;
+ *  - « erreur »   : quelque chose a cassé, ou bloque le travail (quota épuisé,
+ *                   identifiant refusé, agent interrompu).
+ *
+ * Tout le reste — étapes intermédiaires, changements d'état, avancements,
+ * confirmations d'un geste que l'utilisateur vient lui-même de déclencher — ne
+ * déclenche plus rien. L'information n'est pas perdue pour autant : elle reste
+ * là où elle se lit déjà (la cloche du bandeau, le tableau, le déroulé de la
+ * colonne de publication, le volet des quotas, la conversation). On coupe
+ * l'alerte, pas la trace.
+ *
+ * LES DEUX CANAUX SUIVENT CETTE SEULE RÈGLE : la notification POUSSÉE sur le
+ * téléphone (`server/src/notify.ts`) et le message passager affiché dans
+ * l'application (`pushToast`, `web/src/lib/client.ts`) appellent tous deux
+ * `genreDeLAlerte` / `genreDuMessage` — il n'y a rien à maintenir deux fois.
+ *
+ * Cinq règles vivent ici, et nulle part ailleurs :
+ *  1. quel GENRE porte chaque motif — donc s'il alerte —, et à quelle famille
+ *     de réglage il appartient ;
  *  2. l'IMAGE que porte l'alerte, pour qu'on la reconnaisse sans la lire ;
  *  3. l'IDENTITÉ d'un événement, pour que deux endroits du code qui décrivent
  *     la même chose ne fassent qu'une seule alerte ;
- *  4. le résumé d'un groupe : il NOMME les éléments au lieu d'un compte muet.
+ *  4. le résumé d'un groupe : il NOMME les éléments au lieu d'un compte muet ;
+ *  5. le sort d'un message de l'application qui n'annonce aucun motif : son
+ *     NIVEAU tranche (un refus se dit, une réussite se tait).
  *
  * Règles pures : aucune base, aucun disque — donc rejouables telles quelles.
  */
@@ -29,6 +47,12 @@ export type FamilleNotification =
   | 'capacity'
   | 'quota'
   | 'systeme';
+
+/**
+ * LES TROIS GENRES QUI ALERTENT, et eux seuls. Un motif qui n'entre dans aucun
+ * des trois ne notifie plus — ni sur le téléphone, ni à l'écran.
+ */
+export type GenreDAlerte = 'attente' | 'termine' | 'erreur';
 
 /** Le motif REEL de l'alerte : plus fin que la famille, c'est lui qui décide. */
 export type MotifNotification =
@@ -47,13 +71,23 @@ export type MotifNotification =
   | 'amorcage-impossible'
   | 'compte-sature'
   | 'fenetre-bientot-finie'
-  | 'point-du-jour';
+  | 'point-du-jour'
+  | 'agent-interrompu'
+  | 'geste-lent';
 
 interface RegleMotif {
   /** La famille de réglage : c'est elle que l'utilisateur active ou coupe. */
   famille: FamilleNotification;
-  /** Sortir de l'application, ou non. */
-  interrompt: boolean;
+  /**
+   * Le GENRE de l'alerte, ou `null` quand ce motif n'alerte plus du tout.
+   * C'est le seul champ qui décide : trois genres alertent, le reste se tait.
+   */
+  genre: GenreDAlerte | null;
+  /**
+   * Ce motif ne naît QUE dans le navigateur : il n'a donc aucune image à
+   * traduire côté service worker, qui ne voit passer que les alertes poussées.
+   */
+  dansLApplication?: true;
   /**
    * Le SUJET de l'événement. Deux motifs de même sujet parlant du même objet
    * sont le même événement : le second se tait.
@@ -71,50 +105,135 @@ interface RegleMotif {
 export type IconeNotification = 'termine' | 'attention' | 'erreur' | 'publication' | 'quota' | 'redemarrage';
 
 /**
- * SEPT motifs interrompent, pas un de plus. Chacun annonce une fin, un échec
- * ou une décision à prendre — c'est-à-dire quelque chose qu'on ne peut pas
- * découvrir plus tard sans dommage. Tout le reste attend qu'on ouvre
- * l'application.
+ * TROIS GENRES, et le motif qui n'en porte aucun se tait. L'ICÔNE, elle, ne
+ * bouge pas : elle suit toujours le genre de nouvelle (une publication garde
+ * son image de publication), et changer une image serait changer le contenu du
+ * message — ce que cette règle ne fait pas.
  */
 export const MOTIFS: Record<MotifNotification, RegleMotif> = {
-  // Ce qui interrompt : une fin, un échec, une décision attendue, un manque.
-  'tache-terminee': { famille: 'done', interrompt: true, sujet: 'fin-de-travail', icone: 'termine' },
-  'travail-sans-carte': { famille: 'done', interrompt: true, sujet: 'fin-de-travail', icone: 'termine' },
-  'tache-echec': { famille: 'failed', interrompt: true, sujet: 'echec', icone: 'erreur' },
-  'decision-attendue': { famille: 'waiting', interrompt: true, sujet: 'decision', icone: 'attention' },
-  'publication-terminee': { famille: 'deploy', interrompt: true, sujet: 'publication', icone: 'publication' },
+  /* --- « termine » : un agent a mené sa tâche au bout ------------------ */
+  'tache-terminee': { famille: 'done', genre: 'termine', sujet: 'fin-de-travail', icone: 'termine' },
+  'travail-sans-carte': { famille: 'done', genre: 'termine', sujet: 'fin-de-travail', icone: 'termine' },
+  /*
+   * La publication est LONGUE et menée par un agent : sa fin est bien une tâche
+   * finie, pas la confirmation instantanée d'un clic. On l'annonce donc encore —
+   * c'est le seul geste de l'utilisateur dont on ne voit pas le bout tout de
+   * suite.
+   */
+  'publication-terminee': { famille: 'deploy', genre: 'termine', sujet: 'publication', icone: 'publication' },
+
+  /* --- « attente » : un agent a besoin de l'utilisateur --------------- */
+  'decision-attendue': { famille: 'waiting', genre: 'attente', sujet: 'decision', icone: 'attention' },
+
+  /* --- « erreur » : cassé, ou bloqué ---------------------------------- */
+  'tache-echec': { famille: 'failed', genre: 'erreur', sujet: 'echec', icone: 'erreur' },
   // Une publication qui tombe se dit aussi fort qu'une qui aboutit : sans elle,
   // on croit son travail en ligne alors que rien n'est parti. Sujet à part, pour
   // qu'un échec ne soit jamais avalé par la réussite du même lot.
-  'publication-echec': { famille: 'deploy', interrompt: true, sujet: 'publication-echec', icone: 'erreur' },
-  // Le serveur qui repart coupe les conversations ouvertes quelques secondes :
-  // le dire évite de croire à une panne.
-  'redemarrage-serveur': { famille: 'systeme', interrompt: true, sujet: 'redemarrage', icone: 'redemarrage' },
-  'quota-seuil': { famille: 'quota', interrompt: true, sujet: 'quota', icone: 'quota' },
+  'publication-echec': { famille: 'deploy', genre: 'erreur', sujet: 'publication-echec', icone: 'erreur' },
+  /*
+   * UN BLOCAGE EST UNE ERREUR. Un compte dont la limite est atteinte et un
+   * amorçage refusé trois fois de suite (identifiant qui ne répond plus)
+   * empêchent le travail d'avancer : ils alertent, une seule fois chacun, leur
+   * appelant les gardant déjà d'insister. Leur icône reste celle du quota — on
+   * ne touche ni au texte ni à la couleur du message.
+   */
+  'compte-sature': { famille: 'quota', genre: 'erreur', sujet: 'compte-sature', icone: 'quota' },
+  'amorcage-impossible': { famille: 'quota', genre: 'erreur', sujet: 'amorcage', icone: 'quota' },
+  /*
+   * Un agent coupé d'autorité (arrêt de secours) est un travail interrompu : la
+   * règle du projet veut qu'un arrêt DISE toujours ce qu'il a fait. Il ne naît
+   * que dans l'application, jamais en push.
+   */
+  'agent-interrompu': {
+    famille: 'failed',
+    genre: 'erreur',
+    sujet: 'agent-interrompu',
+    icone: 'erreur',
+    dansLApplication: true,
+  },
+  /*
+   * Un geste resté sans réponse plus de dix secondes : l'application est
+   * bloquée, et c'est justement ce qu'on ne peut pas lire ailleurs. Né dans le
+   * navigateur (voir `EVENEMENT_ATTENTE_LONGUE`), jamais poussé.
+   */
+  'geste-lent': {
+    famille: 'systeme',
+    genre: 'erreur',
+    sujet: 'geste-lent',
+    icone: 'attention',
+    dansLApplication: true,
+  },
 
-  // Ce qui ne sort plus de l'application. Le sujet reste renseigné : « liste de
-  // tâches cochée » parle de la MÊME fin de travail que « tâche terminée »,
-  // c'était là le doublon d'origine.
-  //
-  // La surconsommation et l'emballement disent tous deux la même chose que les
-  // paliers 70 % / 90 % — que le quota descend vite — mais sans palier franchi :
-  // trois alertes pour un seul quota faisaient du bruit. Elles restent dans
-  // l'application, où la courbe les montre bien mieux.
-  'quota-surconsommation': { famille: 'quota', interrompt: false, sujet: 'quota', icone: 'quota' },
-  'quota-emballement': { famille: 'quota', interrompt: false, sujet: 'quota', icone: 'quota' },
-  'liste-taches': { famille: 'done', interrompt: false, sujet: 'fin-de-travail', icone: 'termine' },
-  'charge-machine': { famille: 'capacity', interrompt: false, sujet: 'charge', icone: 'attention' },
-  'amorcage-impossible': { famille: 'quota', interrompt: false, sujet: 'amorcage', icone: 'quota' },
-  // Un compte saturé n'est pas une panne : même famille que l'amorçage, mais
-  // sujet à part pour ne jamais se taire l'un l'autre, et jamais l'icône
-  // « attention » d'un vrai échec.
-  'compte-sature': { famille: 'quota', interrompt: false, sujet: 'compte-sature', icone: 'quota' },
-  'fenetre-bientot-finie': { famille: 'quota', interrompt: false, sujet: 'quota', icone: 'quota' },
-  'point-du-jour': { famille: 'waiting', interrompt: false, sujet: 'point-du-jour', icone: 'attention' },
+  /* --- CE QUI N'ALERTE PLUS ------------------------------------------- */
+  /*
+   * Chacun se lit encore là où on le cherche déjà. Le sujet reste renseigné :
+   * « liste de tâches cochée » parle de la MÊME fin de travail que « tâche
+   * terminée », c'était là le doublon d'origine.
+   */
+  // Le serveur qui repart : un changement d'état. Le bouton « Redémarrage
+  // requis » et le voyant de liaison le disent, sans réveiller personne.
+  'redemarrage-serveur': { famille: 'systeme', genre: null, sujet: 'redemarrage', icone: 'redemarrage' },
+  // Les paliers 70 % / 90 % sont un AVANCEMENT : le volet des quotas le montre
+  // bien mieux. Ce qui bloque vraiment — la limite atteinte — alerte, plus haut.
+  'quota-seuil': { famille: 'quota', genre: null, sujet: 'quota', icone: 'quota' },
+  'quota-surconsommation': { famille: 'quota', genre: null, sujet: 'quota', icone: 'quota' },
+  'quota-emballement': { famille: 'quota', genre: null, sujet: 'quota', icone: 'quota' },
+  'fenetre-bientot-finie': { famille: 'quota', genre: null, sujet: 'quota', icone: 'quota' },
+  // Une liste cochée en cours de route n'est pas une tâche finie : le repère des
+  // tâches, collé au champ de saisie, la montre en permanence.
+  'liste-taches': { famille: 'done', genre: null, sujet: 'fin-de-travail', icone: 'termine' },
+  // La jauge « Capacité du système » dit la charge, avec sa cause.
+  'charge-machine': { famille: 'capacity', genre: null, sujet: 'charge', icone: 'attention' },
+  'point-du-jour': { famille: 'waiting', genre: null, sujet: 'point-du-jour', icone: 'attention' },
 };
 
+/** Le genre d'un motif, ou `null` s'il n'alerte plus. */
+export function genreDeLAlerte(motif: MotifNotification): GenreDAlerte | null {
+  return MOTIFS[motif].genre;
+}
+
+/** Ce motif sort-il de l'application ? Vrai pour les trois genres, faux sinon. */
 export function interrompt(motif: MotifNotification): boolean {
-  return MOTIFS[motif].interrompt;
+  return MOTIFS[motif].genre !== null && !MOTIFS[motif].dansLApplication;
+}
+
+/** Ce motif mérite-t-il d'être DIT, sur l'un ou l'autre canal ? */
+export function alerte(motif: MotifNotification): boolean {
+  return MOTIFS[motif].genre !== null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Le second canal : les messages passagers de l'application            */
+/* ------------------------------------------------------------------ */
+
+/** Le niveau d'un message passager, tel que l'application le connaît déjà. */
+export type NiveauMessage = 'info' | 'success' | 'warning' | 'error';
+
+/**
+ * LE MÊME JUGE POUR LE SECOND CANAL. Un message passager annonce rarement son
+ * motif : la plupart accompagnent un geste (un projet renommé, des réglages
+ * enregistrés, une étape de publication franchie). Son NIVEAU tranche alors :
+ *
+ *  - « error » et « warning » disent un REFUS ou un BLOCAGE — donc une erreur,
+ *    et le geste refusé n'a aucun autre endroit où se lire (le bouton, lui, ne
+ *    fait que revenir à son état initial) ;
+ *  - « info » et « success » confirment un geste réussi ou une étape franchie :
+ *    ils se taisent. Le bouton qui passe en attente puis en coche le dit déjà.
+ *
+ * Un message qui NOMME son motif est jugé sur lui, jamais sur son niveau : la
+ * fin d'une tâche reste dite même en « success », une étape de publication se
+ * tait même en « info ».
+ */
+export function genreDuMessage(niveau: NiveauMessage, motif?: string): GenreDAlerte | null {
+  const regle = motif ? MOTIFS[motif as MotifNotification] : undefined;
+  if (regle) return regle.genre;
+  return niveau === 'error' || niveau === 'warning' ? 'erreur' : null;
+}
+
+/** Ce message doit-il s'afficher ? */
+export function messageAlerte(niveau: NiveauMessage, motif?: string): boolean {
+  return genreDuMessage(niveau, motif) !== null;
 }
 
 export function familleDuMotif(motif: MotifNotification): FamilleNotification {

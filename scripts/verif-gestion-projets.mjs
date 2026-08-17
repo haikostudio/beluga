@@ -186,7 +186,13 @@ verifier(!inconnu.ok && inconnu.text.includes('Root'), 'un nom inconnu rend la l
 console.log('6. Chaque geste est annoncé à l’interface');
 verifier(vus.some((e) => e.type === 'project.upsert'), 'les projets changés sont réémis');
 verifier(vus.some((e) => e.type === 'groups'), 'la liste des groupes est réémise');
-verifier(vus.some((e) => e.type === 'toast'), 'un message court accompagne les gestes');
+/*
+ * Le geste est bien DIT au bus (la trace reste) — mais ce message d'« info » ne
+ * s'affiche plus : depuis la règle des TROIS motifs, un geste réussi ne notifie
+ * pas, la colonne de gauche montrant elle-même son nouvel état
+ * (`messageAlerte`, `shared/src/notification-tri.ts`).
+ */
+verifier(vus.some((e) => e.type === 'toast'), 'le geste laisse sa trace sur le bus');
 
 /* ------------------------------------------------------------------ */
 /* 7. Le chef sait que ces outils existent                             */

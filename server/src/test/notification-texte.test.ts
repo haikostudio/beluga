@@ -30,7 +30,8 @@ test('un emoji ouvre le titre, avant le projet et l’action', () => {
   assert.equal(titreNotification('Tâche terminée', 'HaikoDev', ''), 'HaikoDev — Tâche terminée');
 });
 
-test('chaque motif qui interrompt porte son emoji, un motif inconnu n’en met aucun', () => {
+test('chaque motif connu porte l’emoji de son genre, un motif inconnu n’en met aucun', () => {
+  assert.equal(emojiDuMotif('compte-sature'), '📊');
   assert.equal(emojiDuMotif('tache-terminee'), '✅');
   assert.equal(emojiDuMotif('decision-attendue'), '⚠️');
   assert.equal(emojiDuMotif('tache-echec'), '⛔');

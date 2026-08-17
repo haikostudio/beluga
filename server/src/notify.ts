@@ -18,9 +18,10 @@ import { getCard, getProject, getSettings, projectsWithFinishedWork } from './st
  * Le guichet UNIQUE des notifications. Tout ce que le démon veut annoncer passe
  * ici, et trois filtres se posent dans cet ordre :
  *
- *  1. le MOTIF mérite-t-il d'interrompre ? Sinon la ligne reste dans
- *     l'application (une bannière dans l'onglet ouvert) et aucun téléphone ne
- *     sonne. Les règles sont dans `shared/src/notification-tri.ts`.
+ *  1. le MOTIF est-il l'un des TROIS qui alertent — une attente, une tâche
+ *     finie, une erreur ? Sinon rien ne part, ni sur le téléphone ni à l'écran :
+ *     l'événement se lit là où on le cherche déjà. Les règles sont dans
+ *     `shared/src/notification-tri.ts`, et le second canal les applique aussi.
  *  2. la famille est-elle activée, et sommes-nous hors des heures de silence ?
  *  3. cet ÉVÉNEMENT a-t-il déjà été annoncé ? Deux endroits du code qui
  *     décrivent la même chose ne font qu'une alerte.
@@ -105,15 +106,14 @@ export function notify(input: {
   const famille = familleDuMotif(input.motif);
 
   /*
-   * Ce qui ne mérite pas d'interrompre reste DANS l'application : la charge de
-   * la machine, une fenêtre de quota qui s'achève ou une liste de tâches cochée
-   * se voient très bien en ouvrant l'onglet — elles n'ont jamais valu qu'on
-   * allume un téléphone.
+   * TROIS MOTIFS ALERTENT, PAS UN DE PLUS (`shared/src/notification-tri.ts`) :
+   * une attente, une tâche finie, une erreur. Ce qui n'entre dans aucun des
+   * trois ne descend même plus en message passager : la charge de la machine se
+   * lit sur la jauge de capacité, un quota sur son volet, une liste cochée sur
+   * le repère des tâches, un redémarrage sur le bouton qui le réclame. On coupe
+   * l'alerte, pas la trace — le journal du serveur, lui, garde tout.
    */
-  if (!interrompt(input.motif)) {
-    bus.toast('info', input.body?.trim() || input.title, input.cardId);
-    return;
-  }
+  if (!interrompt(input.motif)) return;
 
   if (!allowed(famille) || inQuietHours()) return;
 

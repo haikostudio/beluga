@@ -24,6 +24,7 @@ import {
   DUREE_MESSAGE_MS,
   EVENEMENT_ATTENTE_LONGUE,
   RAISON_SANS_REPONSE,
+  messageAlerte,
   motDAttenteLongue,
   alerteServeurInjoignable,
   choisirProjetAOuvrir,
@@ -534,7 +535,7 @@ class Client {
         break;
 
       case 'toast':
-        this.pushToast(event.level, event.text, event.cardId);
+        this.pushToast(event.level, event.text, event.cardId, event.motif);
         break;
 
       case 'notify':
@@ -561,7 +562,27 @@ class Client {
   private toastTimers = new Map<string, { handle: number; restant: number; depuis: number }>();
   private toastsEnPause = false;
 
-  pushToast(level: Toast['level'], text: string, cardId?: string): void {
+  /**
+   * LE SECOND CANAL PASSE PAR LE MÊME JUGE QUE LE TÉLÉPHONE
+   * (`messageAlerte`, `shared/src/notification-tri.ts`) : trois motifs
+   * s'affichent — une attente, une tâche finie, une erreur (un refus ou un
+   * blocage compris) — et rien d'autre. Une étape franchie, un état qui change,
+   * un geste qu'on vient soi-même de déclencher ne s'annoncent plus : le bouton
+   * qui passe en attente puis en coche le dit déjà, et la trace reste là où on
+   * la lit (le tableau, la cloche, le déroulé d'une colonne, la conversation).
+   */
+  pushToast(level: Toast['level'], text: string, cardId?: string, motif?: string): void {
+    if (!messageAlerte(level, motif)) return;
+    this.afficherMessage(level, text, cardId);
+  }
+
+  /**
+   * L'AFFICHAGE seul, sans le juge : la pile de messages telle qu'elle est
+   * dessinée. Le point d'essai s'en sert pour éprouver la pile pour de vrai
+   * (compte à rebours, glissement, empilement) sans dépendre de ce qui mérite
+   * aujourd'hui d'être dit.
+   */
+  afficherMessage(level: Toast['level'], text: string, cardId?: string): void {
     const toast: Toast = { id: Math.random().toString(36).slice(2), level, text, cardId, at: Date.now() };
     this.set((state) => ({ toasts: [...state.toasts.slice(-5), toast] }));
     this.armerToast(toast.id, DUREE_MESSAGE_MS);
@@ -856,7 +877,10 @@ export const client = new Client();
 if (typeof window !== 'undefined') {
   window.addEventListener(EVENEMENT_ATTENTE_LONGUE, (evenement) => {
     const geste = (evenement as CustomEvent<{ geste?: string }>).detail?.geste;
-    client.pushToast('info', motDAttenteLongue(geste));
+    // Un geste sans réponse depuis dix secondes est un BLOCAGE — donc l'un des
+    // trois motifs qui alertent, et le seul qu'on ne peut lire nulle part
+    // ailleurs. Son niveau ne change pas : le message garde sa couleur.
+    client.pushToast('info', motDAttenteLongue(geste), undefined, 'geste-lent');
   });
 }
 
@@ -872,7 +896,9 @@ if (typeof window !== 'undefined') {
 */
 if (import.meta.env.MODE !== 'production') {
   (window as unknown as { haikodevEssai?: unknown }).haikodevEssai = {
-    message: (level: Toast['level'], text: string) => client.pushToast(level, text),
+    // L'affichage brut : ce point d'essai juge la PILE, pas ce qui mérite d'y
+    // entrer (le tri des trois motifs a ses propres contrôles).
+    message: (level: Toast['level'], text: string) => client.afficherMessage(level, text),
     // Un geste refusé, tel que le rend une commande : c'est ce qui permet de
     // juger POUR DE VRAI qu'une requête isolée restée sans réponse n'allume
     // aucune alerte, alors qu'un vrai refus, lui, se dit toujours.
