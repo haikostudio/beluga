@@ -838,12 +838,45 @@ const MIGRATIONS: {
     // raison RETENUE ne vit plus que dans `waitingReason`. Ici on nettoie les
     // cartes DÉJÀ posées en base avec le doublon, en ne touchant que celles où
     // les deux champs portent EXACTEMENT le même texte.
+    //
+    // ON RETIRE LE CHAMP (`json_remove`), on ne l'écrit pas à `null`
+    // (`json_set(…, json('null'))`) : le modèle le déclare `z.string()
+    // .optional()` (`shared/src/models.ts`), qui accepte l'ABSENCE et refuse
+    // `null`. Un `null` posé ici faisait échouer `carteDepuisLigne` sur ces
+    // cartes, donc `listCards` en entier — et avec elle TOUT le tableau, les
+    // conversations et la boucle d'ordonnancement, qui n'affichaient plus que
+    // des silhouettes. Règle générale : un champ optionnel se RETIRE.
     sql: `
       UPDATE cards
-      SET data = json_set(data, '$.sansModification', json('null'))
+      SET data = json_remove(data, '$.sansModification')
       WHERE json_extract(data, '$.sansModification') IS NOT NULL
         AND json_extract(data, '$.scheduling.waitingReason') IS NOT NULL
         AND json_extract(data, '$.sansModification') = json_extract(data, '$.scheduling.waitingReason');
+    `,
+  },
+  {
+    id: 29,
+    name: 'retirer-les-sansmodification-a-null',
+    siTable: 'cards',
+    // L'APPLICATION NE MONTRAIT PLUS QUE DES SILHOUETTES.
+    //
+    // La migration 28, dans sa première écriture, posait `json('null')` au lieu
+    // de RETIRER le champ : quatre cartes se sont retrouvées avec un
+    // `sansModification` à `null` là où le modèle attend une chaîne ou RIEN
+    // (`z.string().optional()`, `shared/src/models.ts`). `carteDepuisLigne`
+    // refusait donc ces lignes, et comme `listCards` lit ses cartes d'un seul
+    // `map`, UNE carte invalide faisait tomber la liste ENTIÈRE : plus de
+    // tableau, plus de tâches, plus de conversation, et la boucle
+    // d'ordonnancement en échec toutes les quinze secondes.
+    //
+    // La 28 est réparée à la source, mais elle est DÉJÀ passée sur les bases
+    // existantes et ne se rejouera pas. Celle-ci les rattrape. On vise le TYPE
+    // JSON du champ, jamais `json_extract(…) IS NOT NULL` : sur un null JSON,
+    // `json_extract` rend précisément SQL NULL, et le test manquerait sa cible.
+    sql: `
+      UPDATE cards
+      SET data = json_remove(data, '$.sansModification')
+      WHERE json_type(data, '$.sansModification') = 'null';
     `,
   },
 ];
