@@ -126,6 +126,8 @@ Texte entier : `docs/regles/publication.md` (`project_memory`, sujet « publicat
 - TOUTE ÉTAPE DE PUBLICATION QUI TOMBE EST RÉPARÉE PUIS REJOUÉE
 - …ET UNE ÉTAPE QUI NE REND PAS LA MAIN EST UNE PANNE, PAS UN TRAVAIL LENT
 - RANGER LES CARTES NE PEUT PLUS FAIRE ÉCHOUER UNE MISE EN LIGNE RÉUSSIE
+- CHAQUE ÉTAPE D'UNE PUBLICATION PORTE SON FIL HISTORIQUE, ET IL SE LIT DANS UN VRAI TIROIR
+- …ET LES CARTES MISES EN LIGNE ENSEMBLE RESTENT ENSEMBLE, AVEC UN BOUTON VERS LEUR HISTORIQUE
 - Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL
 - Déployer, c'est fusionner le lot « À déployer », enregistrer, pousser, puis mettre en ligne selon la PROCÉDURE définie
 - Un projet neuf n'a de procédure pour AUCUNE des deux étapes, et la colonne propose de l'INITIER

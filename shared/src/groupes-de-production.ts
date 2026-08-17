@@ -98,7 +98,7 @@ export function groupesDeProduction<C extends { id: string }>(
     }
     groupes.set(run.id, {
       runId: run.id,
-      titre: titreDeLaPublication(etapeDePublication(run.cible).libelle, run.startedAt),
+      titre: titreDeLaPublication(etapeDePublication(run.cible).titreCourt, run.startedAt),
       at: run.startedAt,
       etat: run.state,
       cartes: [carte],

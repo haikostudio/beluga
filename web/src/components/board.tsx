@@ -89,6 +89,7 @@ import {
   InfosPublication,
   AlerteTravailSansCarte,
 } from '@/components/deploy-panel';
+import { useGroupesDeProduction } from '@/components/groupes-production';
 import { BoutonReglagesProcedure, TiroirProcedure } from '@/components/procedure-panel';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { t, formatRegional } from '@/lib/langue';
@@ -353,6 +354,24 @@ export function Board({
   }, [cards, travailParCarte]);
 
   const byColumn = (column: ColumnKey) => parColonne[column];
+
+  /*
+   * LES CARTES MISES EN LIGNE ENSEMBLE, RANGÉES ENSEMBLE.
+   *
+   * Appelé ICI, une seule fois pour tout le tableau — jamais dans la boucle des
+   * colonnes, où ce serait un crochet sous condition. Il ne travaille que pour
+   * « En production » : ailleurs il ne demande rien et rend les cartes telles
+   * quelles.
+   *
+   * L'état de la publication du projet lui sert de RÉVEIL : la fin d'un
+   * déploiement crée justement le groupe qu'on veut voir apparaître.
+   */
+  const production = useGroupesDeProduction(
+    projectId,
+    parColonne.in_production,
+    true,
+    state.deploys[projectId]?.state,
+  );
 
   /*
    * COMBIEN DE PAQUETS DE VINGT chaque colonne a déjà posés dans la page.
@@ -1142,7 +1161,12 @@ export function Board({
         className="flex gap-2.5 px-3 py-3 snap-columns"
       >
       {COLUMN_KEYS.map((column) => {
-        const columnCards = byColumn(column);
+        /* « En production » range ses cartes par publication : un groupe reste
+           d'un seul tenant, sinon les paquets de vingt le couperaient en deux
+           et son bandeau se retrouverait sans ses cartes. Aucune carte n'est
+           ajoutée ni retirée — seul l'ORDRE change, et le compteur de la tête
+           lit toujours cette même liste. */
+        const columnCards = column === 'in_production' ? production.cartes : byColumn(column);
         // Ce qui est RÉELLEMENT posé dans la page : le premier paquet de vingt,
         // puis un paquet de plus à chaque fois que le bas approche.
         const cartesPosees = cartesDuPaquet(columnCards, paquets[column] ?? 1);
@@ -1391,9 +1415,14 @@ export function Board({
               ) : null}
               {cartesPosees.map((card) => {
                 const cochable = colonneEnLot === column;
+                /* Le bandeau du groupe se pose DEVANT sa première carte, jamais
+                   ailleurs : il nomme la publication qui a mis ces cartes en
+                   ligne et rouvre son fil. Hors « En production », rien. */
+                const bandeau = column === 'in_production' ? production.bandeau(card.id) : null;
                 return (
+                  <React.Fragment key={card.id}>
+                  {bandeau}
                   <CardTile
-                    key={card.id}
                     card={card}
                     onOpen={(event) => clicCarte(card, column, event)}
                     onPointerDown={
@@ -1411,6 +1440,7 @@ export function Board({
                     menuOuvert={menuCarte === card.id}
                     onMenuChange={(ouvert) => setMenuCarte(ouvert ? card.id : null)}
                   />
+                  </React.Fragment>
                 );
               })}
               {/* Le palier de chargement : sous la dernière carte posée, il
@@ -1513,6 +1543,12 @@ export function Board({
         open={!!procedureOuverte}
         onClose={() => setProcedureOuverte(null)}
       />
+
+      {/* L'HISTORIQUE D'UN DÉPLOIEMENT PASSÉ, rouvert depuis le bandeau d'un
+          groupe de « En production ». Monté UNE fois pour tout le tableau : un
+          tiroir par groupe en monterait autant qu'il y a de publications. Il
+          n'y a rien à décider dedans — on relit, on ne rejoue pas. */}
+      {production.tiroir}
     </div>
   );
 }
