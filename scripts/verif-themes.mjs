@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * LES QUATRE THÈMES, VÉRIFIÉS SUR LEUR SOURCE.
+ * LES QUATRE THÈMES, VÉRIFIÉS SUR LEUR SOURCE PUIS DANS UN VRAI NAVIGATEUR.
  *
- * Il n'y a ici NI navigateur NI base : tout ce qui fait un thème est écrit, donc
- * tout se lit. Le contrôle relit les blocs de jetons de `web/src/styles.css`, le
- * catalogue de `shared/src/themes.ts` et les écrans de `web/src`, puis refuse :
+ * La première moitié ne LIT que du texte : les blocs de jetons de
+ * `web/src/styles.css`, le catalogue de `shared/src/themes.ts` et les écrans de
+ * `web/src`. Elle refuse :
  *
  *  1. un jeton MANQUANT dans un thème — les deux thèmes plats passent après le
  *     thème clair et ont la même force de sélecteur : un oubli y retomberait en
@@ -19,9 +19,18 @@
  *  5. un texte illisible sur son fond ;
  *  6. une couleur écrite EN DUR dans un écran ;
  *  7. un aperçu du catalogue qui ne dit pas la vérité sur les jetons du thème ;
- *  8. un nom de couleur de Tailwind sans jeton derrière lui dans les quatre thèmes.
+ *  8. un nom de couleur de Tailwind sans jeton derrière lui dans les quatre thèmes ;
+ *  9. un bloc de jetons pour « systeme », qui n'est pas un thème mais une consigne,
+ *     ou un second endroit qui pose le thème.
  *
- *   node scripts/verif-themes.mjs
+ * La seconde moitié demande au NAVIGATEUR ce qu'il affiche vraiment — trois
+ * promesses qu'aucune relecture ne peut tenir : les couleurs CALCULÉES de chaque
+ * thème, le thème d'un PROJET qui habille l'application entière quand on change de
+ * projet, et « Système » qui suit le réglage clair / sombre de l'ordinateur, y
+ * compris quand il change sans recharger la page. Elle fabrique une session d'une
+ * heure, la retire en partant, et n'écrit rien d'autre en base.
+ *
+ *   HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -285,6 +294,40 @@ constater(`${new Set(noms).size} noms de couleur de Tailwind adossés à un jeto
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
+/* 8 bis. « Système » se choisit, mais n'a PAS de bloc de jetons       */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Le piège à éviter : croire que « systeme » est un cinquième thème. Ce n'est
+ * qu'une CONSIGNE — suivre le réglage de l'ordinateur —, elle désigne l'un des
+ * quatre. Un bloc `[data-theme='systeme']` dans la feuille de style signalerait
+ * que quelqu'un a cru le contraire, et l'attribut serait alors posé sur un nom
+ * qui n'habille rien.
+ */
+if (css.includes("data-theme='systeme'") || css.includes('data-theme="systeme"')) {
+  refuser(
+    "web/src/styles.css : un bloc de jetons pour « systeme » — or ce n'est pas un thème mais une " +
+      'consigne, qui désigne l’un des quatre (voir `themeDuSysteme`)',
+  );
+}
+if (!/CHOIX_DE_THEME/.test(catalogue) || !/THEME_SYSTEME/.test(catalogue)) {
+  refuser('shared/src/themes.ts : le choix « Système » n’est plus déclaré');
+}
+/* Et la règle de priorité ne doit pas se recopier dans un écran : un seul juge. */
+for (const fichier of ecrans(ECRANS)) {
+  const texte = fs.readFileSync(fichier, 'utf8');
+  const nom = path.relative(RACINE, fichier);
+  if (nom === 'web/src/lib/theme.ts') continue;
+  if (/prefers-color-scheme/.test(texte)) {
+    refuser(`${nom} : le réglage clair / sombre de l'ordinateur se lit dans web/src/lib/theme.ts, nulle part ailleurs`);
+  }
+  if (/dataset\.theme\s*=/.test(texte)) {
+    refuser(`${nom} : le thème se POSE dans web/src/lib/theme.ts seulement — deux poseurs finissent par se contredire`);
+  }
+}
+constater('« Système » est un choix sans palette, et un seul fichier pose le thème');
+
+/* ------------------------------------------------------------------ */
 /* 9. LE NAVIGATEUR : les jetons compilés donnent bien ces couleurs    */
 /* ------------------------------------------------------------------ */
 
@@ -305,17 +348,68 @@ constater(`${new Set(noms).size} noms de couleur de Tailwind adossés à un jeto
  *   HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs
  */
 const ADRESSE = process.env.HAIKO_THEMES_URL || 'http://localhost:7099';
+/* La base et ses dépendances natives vivent dans le dépôt PRINCIPAL, même quand
+   ce script est lancé d'une copie de travail. */
+const DONNEES = process.env.HAIKODEV_DATA || '/root/haikodev/data';
+
+/**
+ * Une session d'UNE HEURE, fabriquée puis retirée : la colonne `token` garde le
+ * SHA-256 du cookie, jamais le cookie. C'est la seule écriture en base de tout ce
+ * contrôle, et elle est défaite en partant.
+ */
+async function avecSession(travail) {
+  const { default: crypto } = await import('node:crypto');
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  const ouvrir = () =>
+    require(path.join(DONNEES, '../node_modules/better-sqlite3'))(path.join(DONNEES, 'haikodev.db'));
+
+  const cookie = crypto.randomBytes(24).toString('hex');
+  const empreinte = crypto.createHash('sha256').update(cookie).digest('hex');
+  const db = ouvrir();
+  const maintenant = Date.now();
+  db.prepare('INSERT INTO sessions (token, created_at, expires_at, label) VALUES (?, ?, ?, ?)').run(
+    empreinte,
+    maintenant,
+    maintenant + 3_600_000,
+    'vérification des thèmes',
+  );
+  db.close();
+  try {
+    return await travail(cookie);
+  } finally {
+    const fin = ouvrir();
+    fin.prepare('DELETE FROM sessions WHERE token = ?').run(empreinte);
+    fin.close();
+  }
+}
 
 async function auNavigateur() {
   const { chromium } = await import('playwright');
-  const navigateur = await chromium.launch({ channel: 'chrome' });
-  const page = await navigateur.newPage();
+  /* Sans session, l'application reste derrière le mur d'accès et ne connaît
+     aucun projet : le thème par projet ne pourrait pas être jugé. Une base
+     absente n'est pas une raison d'échouer en silence — on le DIT. */
   try {
-    await page.goto(ADRESSE, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+    return await avecSession(async (session) => {
+    const navigateur = await chromium.launch({ channel: 'chrome' });
+    const contexte = await navigateur.newContext({ viewport: { width: 1400, height: 900 } });
+    await contexte.addCookies([{ name: 'haikodev_session', value: session, domain: 'localhost', path: '/' }]);
+    const page = await contexte.newPage();
+    try {
+      await page.goto(ADRESSE, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+    } catch (err) {
+      await navigateur.close();
+      return `serveur de développement injoignable sur ${ADRESSE} — ${err.message.split('\n')[0]}`;
+    }
+    return dansLaPage(page, navigateur);
+    });
   } catch (err) {
-    await navigateur.close();
-    return `serveur de développement injoignable sur ${ADRESSE} — ${err.message.split('\n')[0]}`;
+    return `session d'essai impossible — ${err.message.split('\n')[0]}`;
   }
+}
+
+async function dansLaPage(page, navigateur) {
+  await page.waitForTimeout(6000);
   /* Le témoin porte les classes réellement employées par le kit : le fond d'un
      bouton « contour », un trait de bordure, le voile d'une fenêtre. */
   await page.evaluate(() => {
@@ -374,6 +468,107 @@ async function auNavigateur() {
     }
   }
 
+  /* ---------------------------------------------------------------- *
+   * LE THÈME D'UN PROJET, ET LE THÈME « SYSTÈME », POUR DE VRAI.
+   *
+   * Deux promesses qu'aucune lecture de texte ne peut tenir : changer de projet
+   * doit habiller l'application ENTIÈRE, et « Système » doit suivre le réglage
+   * clair / sombre de l'ordinateur — y compris quand il change en cours de
+   * route, sans recharger la page.
+   *
+   * Le projet est posé par le POINT D'ESSAI de l'interface
+   * (`window.haikodevEssai.projet`), jamais par le serveur : le démon en service
+   * est construit avant ce champ et le retire du bloc qu'il envoie. Rien n'est
+   * écrit en base, et le thème du projet est retiré en partant.
+   * ---------------------------------------------------------------- */
+  const point = await page.evaluate(() => typeof window.haikodevEssai?.projet === 'function');
+  if (!point) {
+    anomalies.push(
+      "le point d'essai de l'interface est absent : sans lui, ni le thème d'un projet ni le thème " +
+        '« Système » ne peuvent être jugés (attendu sur le serveur de développement)',
+    );
+    await navigateur.close();
+    return anomalies;
+  }
+
+  const projets = await page.evaluate(() => window.haikodevEssai.projets());
+  if (projets.length < 2) {
+    anomalies.push(`il faut deux projets pour juger le changement d'apparence, ${projets.length} trouvé(s)`);
+  } else {
+    const [premier, second] = projets;
+    const habiller = async (projectId, theme) => {
+      await page.evaluate(
+        ({ id, valeur }) => {
+          window.haikodevEssai.projet(id, { theme: valeur });
+          window.haikodevEssai.ouvrirProjet(id);
+        },
+        { id: projectId, valeur: theme },
+      );
+      await page.waitForTimeout(500);
+      return page.evaluate(() => document.documentElement.dataset.theme);
+    };
+
+    /* Deux projets, deux thèmes : passer de l'un à l'autre change tout. */
+    const surLePremier = await habiller(premier.id, 'sable');
+    if (surLePremier !== 'sable') {
+      anomalies.push(`le thème du projet « ${premier.name} » n'habille pas l'application (vu « ${surLePremier} »)`);
+    }
+    const surLeSecond = await habiller(second.id, 'ardoise');
+    if (surLeSecond !== 'ardoise') {
+      anomalies.push(`changer de projet ne change pas l'apparence (vu « ${surLeSecond} » au lieu de « ardoise »)`);
+    }
+
+    /* Le thème couvre TOUTE l'application, pas la seule colonne du milieu. */
+    const partout = await page.evaluate(() => {
+      const fond = (selecteur) => {
+        const noeud = document.querySelector(selecteur);
+        return noeud ? getComputedStyle(noeud).backgroundColor : null;
+      };
+      return { page: fond('body'), colonne: fond('aside'), bandeau: fond('header') };
+    });
+    const fondsSuspects = Object.entries(partout).filter(
+      ([, couleur]) => couleur && /^rgb\(0, 0, 0\)$/.test(couleur),
+    );
+    if (fondsSuspects.length) {
+      anomalies.push(
+        `le thème « ardoise » n'atteint pas ${fondsSuspects.map(([zone]) => zone).join(', ')} — ` +
+          `un noir pur y reste, or ce thème n'en a aucun`,
+      );
+    }
+
+    /* Un projet qui n'impose RIEN rend la main au réglage général. */
+    const rendu = await habiller(second.id, null);
+    if (rendu === 'ardoise') {
+      anomalies.push("un projet sans thème garde l'apparence qu'il imposait : le réglage général ne reprend pas la main");
+    }
+    await page.evaluate((id) => window.haikodevEssai.projet(id, { theme: null }), premier.id);
+  }
+
+  /* « Système » suit l'ordinateur, et le suit EN DIRECT.
+     Le menu s'ouvre par un VRAI clic : un `.click()` posé depuis la page ne
+     réveille pas ce menu, qui écoute l'appui du pointeur et non le clic. */
+  await page.click('button[title="Menu"]');
+  await page.waitForTimeout(700);
+  const menuOuvert = await page.evaluate(() => !!document.querySelector('[data-theme-choix="systeme"]'));
+  if (!menuOuvert) {
+    anomalies.push("le choix « Système » n'est pas au menu du bandeau");
+  } else {
+    await page.evaluate(() => document.querySelector('[data-theme-choix="systeme"]')?.click());
+    await page.waitForTimeout(900);
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForTimeout(600);
+    const surSombre = await page.evaluate(() => document.documentElement.dataset.theme);
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.waitForTimeout(600);
+    const surClair = await page.evaluate(() => document.documentElement.dataset.theme);
+    if (surSombre !== 'sombre' || surClair !== 'clair') {
+      anomalies.push(
+        `« Système » ne suit pas le réglage de l'ordinateur : sombre → « ${surSombre} », clair → « ${surClair} »`,
+      );
+    }
+    await page.emulateMedia({ colorScheme: null });
+  }
+
   await navigateur.close();
   return anomalies;
 }
@@ -389,7 +584,10 @@ if (typeof mesureNavigateur === 'string') {
   refuser(`les couleurs calculées n'ont PAS pu être mesurées : ${mesureNavigateur}`);
 } else {
   for (const anomalie of mesureNavigateur) refuser(anomalie);
-  constater(`couleurs calculées mesurées dans un vrai navigateur pour les ${BLOCS.length} thèmes`);
+  constater(
+    `dans un vrai navigateur : couleurs calculées des ${BLOCS.length} thèmes, thème d'un PROJET qui habille ` +
+      `toute l'application, et « Système » qui suit le réglage de l'ordinateur`,
+  );
 }
 
 /* ------------------------------------------------------------------ */

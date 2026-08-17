@@ -10,7 +10,7 @@ import { PanneauALaDemande, prechargerAuRepos } from '@/lib/panneau-a-la-demande
 import { useResizable, ResizeHandle } from '@/components/resizer';
 import { client } from '@/lib/client';
 import { usePref, writePref } from '@/lib/prefs';
-import { useTheme } from '@/lib/theme';
+import { useThemeApplique } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
 import { Filet } from '@/components/filet';
 import { cn } from '@/lib/utils';
@@ -80,8 +80,13 @@ export function App() {
    * par un effet du bandeau des quotas : sur téléphone, ce bandeau n'est pas
    * toujours monté, et les réglages qui portent maintenant le choix arrivent en
    * morceau séparé, à la demande. La racine, elle, est toujours là.
+   *
+   * C'est aussi le seul endroit qui voit les TROIS sources à la fois — le thème
+   * du projet ouvert, le réglage général, celui de l'ordinateur —, donc le seul
+   * qui puisse changer l'apparence de l'application ENTIÈRE quand on change de
+   * projet.
    */
-  useTheme();
+  useThemeApplique();
   const [openCardId, setOpenCardId] = React.useState<string | null>(null);
   const [openAgentId, setOpenAgentId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);

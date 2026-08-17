@@ -19,8 +19,20 @@
  * pas venir des jetons, qui ne valent que pour le thème en cours.
  */
 
-/** Le nom retenu d'un thème. Il vit dans les réglages (`prefs.theme`). */
+/**
+ * Un thème RÉEL, celui qui finit posé sur l'écran. Il y en a quatre, et un de
+ * plus se CHOISIT sans en être un (voir `ThemeChoisi` : « systeme » n'a pas de
+ * palette, il désigne l'un des quatre selon le réglage de l'ordinateur).
+ */
 export type ThemeId = 'sombre' | 'clair' | 'sable' | 'ardoise';
+
+/**
+ * CE QU'ON CHOISIT n'est pas toujours un thème : « systeme » est une CONSIGNE —
+ * suivre le réglage clair / sombre de l'ordinateur. Séparer les deux notions est
+ * ce qui empêche d'aller chercher une palette « systeme » qui n'existe pas.
+ */
+export const THEME_SYSTEME = 'systeme';
+export type ThemeChoisi = ThemeId | typeof THEME_SYSTEME;
 
 /** Ce qu'un thème éclaire : cela décide de `color-scheme` et de la classe `dark`. */
 export type ClarteTheme = 'clair' | 'sombre';
@@ -125,4 +137,104 @@ export function estThemeSombre(valeur: unknown): boolean {
  */
 export function couleurDeBandeau(valeur: unknown): string {
   return themeParId(valeur).apercu[0];
+}
+
+/* ------------------------------------------------------------------ */
+/* « SYSTÈME » : suivre le réglage clair / sombre de l'ordinateur      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Les DEUX thèmes que « systeme » désigne : les thèmes d'ORIGINE. C'est ce qu'on
+ * attend d'un réglage qui dit « clair » ou « sombre » — pas un beige surprise.
+ */
+export const THEMES_DU_SYSTEME: { sombre: ThemeId; clair: ThemeId } = { sombre: 'sombre', clair: 'clair' };
+
+/**
+ * La fiche du choix « Système », affichée à côté des quatre thèmes. Elle n'a pas
+ * de palette : son aperçu emprunte une moitié à chacun des deux thèmes qu'elle
+ * désigne, ce qui dit à l'œil qu'elle bascule.
+ */
+export const CHOIX_SYSTEME = {
+  id: THEME_SYSTEME,
+  libelle: 'Système',
+  description: 'Suit le réglage clair / sombre de votre ordinateur : « Sombre » la nuit, « Clair » le jour.',
+  apercu: ['hsl(0 0% 0%)', 'hsl(0 0% 100%)', 'hsl(0 0% 8%)', 'hsl(38 90% 62%)'] as [string, string, string, string],
+} as const;
+
+/** Tout ce qu'un menu de thème propose : les quatre thèmes, puis « Système ». */
+export const CHOIX_DE_THEME: readonly { id: ThemeChoisi; libelle: string; description: string; apercu: [string, string, string, string] }[] =
+  [
+    ...THEMES.map((theme) => ({
+      id: theme.id as ThemeChoisi,
+      libelle: theme.libelle,
+      description: theme.description,
+      apercu: theme.apercu,
+    })),
+    { id: CHOIX_SYSTEME.id, libelle: CHOIX_SYSTEME.libelle, description: CHOIX_SYSTEME.description, apercu: CHOIX_SYSTEME.apercu },
+  ];
+
+/**
+ * Un choix enregistré, ramené à quelque chose de connu. Rend `null` — et non le
+ * défaut — quand il n'y a RIEN de choisi : c'est ce qui distingue « ce projet
+ * n'impose aucun thème » de « ce projet impose le thème sombre ».
+ */
+export function themeChoisiValide(valeur: unknown): ThemeChoisi | null {
+  if (typeof valeur !== 'string') return null;
+  const nom = valeur.trim().toLowerCase();
+  if (nom === THEME_SYSTEME) return THEME_SYSTEME;
+  if (THEMES.some((theme) => theme.id === nom)) return nom as ThemeId;
+  return ANCIENS_NOMS[nom] ?? null;
+}
+
+/** La fiche d'un choix (thème ou « Système »), pour l'afficher. */
+export function choixParId(valeur: unknown): (typeof CHOIX_DE_THEME)[number] | null {
+  const id = themeChoisiValide(valeur);
+  return id ? CHOIX_DE_THEME.find((choix) => choix.id === id) ?? null : null;
+}
+
+/** Le thème que « systeme » désigne, une fois le réglage de l'ordinateur connu. */
+export function themeDuSysteme(systemeSombre: boolean): ThemeId {
+  return systemeSombre ? THEMES_DU_SYSTEME.sombre : THEMES_DU_SYSTEME.clair;
+}
+
+/** D'où vient le thème posé à l'écran — ce qui s'affiche pour l'expliquer. */
+export type SourceDeTheme = 'projet' | 'general';
+
+export type ThemeApplique = {
+  /** Le thème RÉEL, toujours l'un des quatre. */
+  theme: ThemeId;
+  /** Le PROJET ouvert impose-t-il son thème, ou est-ce le réglage général ? */
+  source: SourceDeTheme;
+  /** Le choix retenu, tel qu'il a été fait : « systeme » se voit encore ici. */
+  choisi: ThemeChoisi;
+  /** Vrai quand c'est l'ordinateur qui a tranché entre clair et sombre. */
+  parLeSysteme: boolean;
+};
+
+/**
+ * QUEL THÈME S'APPLIQUE, ET POURQUOI — la seule règle qui en décide.
+ *
+ * Trois entrées, dans cet ordre de priorité :
+ *  1. le thème du PROJET OUVERT, s'il en impose un. C'est tout l'intérêt : on
+ *     reconnaît d'un coup d'œil dans quel projet on travaille, et TOUTE
+ *     l'interface change, pas seulement la colonne du milieu ;
+ *  2. sinon le réglage GÉNÉRAL de l'application ;
+ *  3. et si l'un ou l'autre vaut « systeme », le réglage clair / sombre de
+ *     l'ordinateur tranche.
+ * Un projet sans thème, un réglage général absent : on retombe sur le défaut,
+ * jamais sur un vide.
+ */
+export function themeAAppliquer(entree: {
+  duProjet?: unknown;
+  general?: unknown;
+  systemeSombre?: boolean;
+}): ThemeApplique {
+  const duProjet = themeChoisiValide(entree.duProjet);
+  const general = themeChoisiValide(entree.general);
+  const choisi = duProjet ?? general ?? APPARENCE_PAR_DEFAUT;
+  const source: SourceDeTheme = duProjet ? 'projet' : 'general';
+  if (choisi === THEME_SYSTEME) {
+    return { theme: themeDuSysteme(!!entree.systemeSombre), source, choisi, parLeSysteme: true };
+  }
+  return { theme: choisi, source, choisi, parLeSysteme: false };
 }

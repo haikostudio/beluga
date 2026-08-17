@@ -65,7 +65,7 @@ node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait d�
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
 node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
 node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
-node scripts/verif-themes.mjs       # les quatre thèmes : aucun jeton oublié, aucune couleur en dur
+HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : aucun jeton oublié, aucune couleur en dur, puis le NAVIGATEUR — thème d'un projet, choix « Système »
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
@@ -993,6 +993,24 @@ le nom, là-bas le texte).
   transparence dans les deux thèmes d'origine). Enfin les anciens réglages « dark » / « light » sont
   REPRIS (`themeValide`), et aucune teinte des deux thèmes neufs n'est recopiée d'un autre. Verrouillé
   par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
+- **…ET CHAQUE PROJET PEUT IMPOSER LE SIEN, plus un choix qui suit l'ORDINATEUR**
+  (`themeAAppliquer`, `CHOIX_DE_THEME`, `THEME_SYSTEME`, `themeChoisiValide`, `shared/src/themes.ts` ;
+  `Project.theme` ; `useThemeApplique` / `useSystemeSombre`, `web/src/lib/theme.ts` ; ligne « Thème de
+  ce projet » de `project-settings.tsx`). CE QU'ON CHOISIT N'EST PLUS TOUJOURS UN THÈME : « systeme »
+  est une CONSIGNE — suivre le réglage clair / sombre de la machine — et désigne l'un des deux thèmes
+  d'ORIGINE (`themeDuSysteme`) ; il n'a donc AUCUN bloc de jetons, et le contrôle refuse qu'on lui en
+  écrive un. D'où deux types séparés, `ThemeId` (les 4 palettes) et `ThemeChoisi` (5 choix). UNE SEULE
+  règle décide : thème du PROJET OUVERT > réglage GÉNÉRAL > réglage de la machine, et changer de projet
+  rhabille l'application ENTIÈRE — d'où le crochet appelé à la RACINE, seul endroit qui voit les trois
+  sources. `themeChoisiValide` rend `null` et non le défaut : c'est ce qui distingue « ce projet
+  n'impose rien » de « il impose le sombre », et `Project.theme` est `nullish` pour que `null` puisse
+  RETIRER un thème (un `undefined` disparaîtrait du bloc envoyé). Le réglage de la machine est ÉCOUTÉ
+  (`prefers-color-scheme` change tout seul à la tombée du jour) et ne se lit que dans
+  `web/src/lib/theme.ts` — le contrôle refuse un second lecteur comme un second poseur. Enfin l'onglet
+  « Apparence » DIT quand un projet recouvre le choix général (`data-theme-recouvert`), sinon ce choix
+  paraissait cassé. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`
+  (qui pose le projet par `window.haikodevEssai.projet`, le démon en service pouvant précéder le champ
+  et le retirer — Zod écarte les clés qu'il ne connaît pas).
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
   `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de

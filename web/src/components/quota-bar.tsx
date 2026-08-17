@@ -5,6 +5,7 @@ import {
   BookOpen,
   Check,
   FolderTree,
+  MonitorCog,
   MoreVertical,
   Network,
   PanelRight,
@@ -27,8 +28,8 @@ import {
 import { MemoryView } from '@/components/memory-view';
 import { QuestionsEnAttente } from '@/components/questions-en-attente';
 import { QuotaBadge } from '@/components/quota-badge';
-import { THEMES } from '@haikodev/shared';
-import { useTheme } from '@/lib/theme';
+import { CHOIX_DE_THEME } from '@haikodev/shared';
+import { useThemeGeneral } from '@/lib/theme';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
@@ -65,7 +66,7 @@ export function QuotaBar({
     Object.values(state.agents).find((agent) => agent.status === 'running')?.run.engine ??
     projetOuvert?.defaultEngine ??
     'claude';
-  const [theme, setTheme] = useTheme();
+  const [theme, setTheme] = useThemeGeneral();
   const [speaking, setSpeaking] = React.useState(false);
   const [memoireOuverte, setMemoireOuverte] = React.useState(false);
   const [arretGroupe, setArretGroupe] = React.useState(false);
@@ -327,13 +328,20 @@ export function QuotaBar({
           </DropdownMenuItem>
           {/* Le bouton « Muet » a quitté ce menu : il vit désormais dans le
               panneau du module de voix, à côté de la voix qu'il commande. */}
-          {/* QUATRE thèmes ne se bousculent plus dans un interrupteur : le menu
-              les liste tous, celui en cours étant coché. Le choix commenté, avec
-              son aperçu, vit dans les réglages (onglet « Apparence »). */}
+          {/* Les thèmes ne se bousculent plus dans un interrupteur : le menu les
+              liste tous, celui en cours étant coché. Ce choix est le réglage
+              GÉNÉRAL — un projet qui impose son thème passe devant, et l'onglet
+              « Apparence » des réglages le dit. */}
           <DropdownMenuSeparator />
-          {THEMES.map((item) => (
+          {CHOIX_DE_THEME.map((item) => (
             <DropdownMenuItem key={item.id} onSelect={() => setTheme(item.id)} data-theme-choix={item.id}>
-              {item.clarte === 'sombre' ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+              {item.id === 'systeme' ? (
+                <MonitorCog className="h-3.5 w-3.5" />
+              ) : item.id === 'clair' || item.id === 'sable' ? (
+                <Sun className="h-3.5 w-3.5" />
+              ) : (
+                <Moon className="h-3.5 w-3.5" />
+              )}
               <span className="flex-1">{item.libelle}</span>
               {item.id === theme ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
             </DropdownMenuItem>

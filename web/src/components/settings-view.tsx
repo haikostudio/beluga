@@ -35,7 +35,9 @@ import {
   PREFIXE_CLE_API,
   ROUTE_CARTE_EXTERNE,
   ROUTE_DOC_API,
-  THEMES,
+  CHOIX_DE_THEME,
+  choixParId,
+  themeParId,
   ConnexionCompte,
   jugerNomDeCle,
   formeDepuisEvenement,
@@ -84,7 +86,7 @@ import {
 } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
 import { client } from '@/lib/client';
-import { useTheme } from '@/lib/theme';
+import { useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, elapsed, relativeTime } from '@/lib/utils';
 
@@ -225,20 +227,43 @@ function SettingsBody({ open }: { open: boolean }) {
  * en cours. C'est le seul endroit de l'application dans ce cas.
  */
 function SectionApparence() {
-  const [theme, setTheme] = useTheme();
+  const state = useApp();
+  const [theme, setTheme] = useThemeGeneral();
+  const enVigueur = useThemeEnVigueur();
+  const projetOuvert = state.projects.find((projet) => projet.id === state.activeProjectId);
 
   return (
     <section>
       <h3 className="mb-1 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Palette className="h-3.5 w-3.5 text-faint" /> Thème
+        <Palette className="h-3.5 w-3.5 text-faint" /> Thème général
       </h3>
       <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
         Le thème choisi vaut partout : sur l'ordinateur comme sur le téléphone, et il ne se perd pas en vidant un
-        cache. « Sable » et « Ardoise » sont sans bordures — un bloc s'y délimite par son fond.
+        cache. « Sable » et « Ardoise » sont sans bordures — un bloc s'y délimite par son fond. Chaque projet peut en
+        imposer un autre, dans ses propres réglages.
       </p>
 
+      {/* UN PROJET QUI IMPOSE SON THÈME PASSE DEVANT, ET ON LE DIT ICI. Sans
+          cette phrase, choisir un thème dans cet onglet ne changeait rien à
+          l'écran et l'on croyait le réglage cassé. */}
+      {enVigueur.source === 'projet' ? (
+        <p
+          data-theme-recouvert
+          className="mb-3 rounded-md border border-termine/30 bg-termine/5 px-2.5 py-1.5 text-[12.5px] leading-relaxed text-muted"
+        >
+          « {projetOuvert?.name} » impose son propre thème ({choixParId(projetOuvert?.theme)?.libelle}) : c'est celui
+          que vous voyez en ce moment. Le choix ci-dessous s'applique aux projets qui n'en imposent aucun.
+        </p>
+      ) : null}
+      {enVigueur.parLeSysteme && enVigueur.source === 'general' ? (
+        <p data-theme-par-le-systeme className="mb-3 text-[12.5px] leading-relaxed text-muted">
+          Votre ordinateur est réglé en {enVigueur.theme === 'sombre' ? 'sombre' : 'clair'} : c'est donc le thème
+          « {themeParId(enVigueur.theme).libelle} » qui s'affiche, et il changera tout seul si vous changez ce réglage.
+        </p>
+      ) : null}
+
       <div className="grid gap-2 sm:grid-cols-2">
-        {THEMES.map((item) => {
+        {CHOIX_DE_THEME.map((item) => {
           const actif = item.id === theme;
           return (
             <button

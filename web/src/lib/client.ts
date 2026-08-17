@@ -899,5 +899,22 @@ if (import.meta.env.MODE !== 'production') {
       };
       client.handleEssai({ type: 'message.upsert', message });
     },
+    /*
+     * Un RÉGLAGE DE PROJET posé par le canal, sans passer par le serveur : c'est
+     * ce qui permet de juger le THÈME PROPRE À UN PROJET dans un vrai navigateur
+     * alors que le démon en service, construit avant ce champ, le retire du bloc
+     * qu'il envoie (Zod écarte les clés qu'il ne connaît pas). Sans ce point, il
+     * faudrait redémarrer le démon pour vérifier une couleur.
+     */
+    projet: (projectId: string, patch: Record<string, unknown>) => {
+      const projet = client.getSnapshot().projects.find((candidat) => candidat.id === projectId);
+      if (!projet) return false;
+      client.handleEssai({ type: 'project.upsert', project: { ...projet, ...patch } as typeof projet });
+      return true;
+    },
+    /** Le projet ouvert, pour désigner celui qu'on veut habiller. */
+    projets: () =>
+      client.getSnapshot().projects.map((projet) => ({ id: projet.id, name: projet.name, theme: projet.theme })),
+    ouvrirProjet: (projectId: string) => client.setActiveProject(projectId),
   };
 }

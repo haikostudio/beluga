@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  CHOIX_DE_THEME,
   THEMES,
+  THEME_SYSTEME,
   APPARENCE_PAR_DEFAUT,
+  choixParId,
   couleurDeBandeau,
   estThemeSombre,
+  themeAAppliquer,
+  themeChoisiValide,
+  themeDuSysteme,
   themeParId,
   themeValide,
 } from '@haikodev/shared';
@@ -55,6 +61,78 @@ test('une valeur inconnue, absente ou d’un autre type retombe sur le défaut',
 
 test('les quatre noms se reconnaissent eux-mêmes', () => {
   for (const theme of THEMES) assert.equal(themeValide(theme.id), theme.id);
+});
+
+test('« Système » se choisit sans être un thème : il n’a pas de palette', () => {
+  // Cinq choix au menu, quatre palettes derrière : c'est toute la nuance.
+  assert.equal(CHOIX_DE_THEME.length, 5);
+  assert.deepEqual(
+    CHOIX_DE_THEME.map((choix) => choix.id),
+    ['sombre', 'clair', 'sable', 'ardoise', 'systeme'],
+  );
+  assert.equal(
+    THEMES.some((theme) => (theme.id as string) === THEME_SYSTEME),
+    false,
+  );
+  // Il désigne les deux thèmes d'ORIGINE, pas un beige surprise.
+  assert.equal(themeDuSysteme(true), 'sombre');
+  assert.equal(themeDuSysteme(false), 'clair');
+});
+
+test('un choix vide rend « rien de choisi », pas le thème par défaut', () => {
+  // C'est ce qui distingue « ce projet n'impose aucun thème » de « il impose le sombre ».
+  assert.equal(themeChoisiValide(undefined), null);
+  assert.equal(themeChoisiValide(null), null);
+  assert.equal(themeChoisiValide(''), null);
+  assert.equal(themeChoisiValide('turquoise'), null);
+  assert.equal(themeChoisiValide('systeme'), 'systeme');
+  assert.equal(themeChoisiValide('light'), 'clair');
+  assert.equal(choixParId('systeme')?.libelle, 'Système');
+  assert.equal(choixParId('turquoise'), null);
+});
+
+test('LE THÈME DU PROJET OUVERT PASSE DEVANT LE RÉGLAGE GÉNÉRAL', () => {
+  assert.deepEqual(themeAAppliquer({ duProjet: 'sable', general: 'ardoise' }), {
+    theme: 'sable',
+    source: 'projet',
+    choisi: 'sable',
+    parLeSysteme: false,
+  });
+  // Un projet sans thème rend la main au réglage général.
+  assert.deepEqual(themeAAppliquer({ duProjet: null, general: 'ardoise' }), {
+    theme: 'ardoise',
+    source: 'general',
+    choisi: 'ardoise',
+    parLeSysteme: false,
+  });
+  // Et un projet dont le thème est illisible ne bloque pas l'application.
+  assert.equal(themeAAppliquer({ duProjet: 'turquoise', general: 'sable' }).theme, 'sable');
+});
+
+test('« Système » est tranché par le réglage de l’ordinateur, où qu’il soit choisi', () => {
+  assert.deepEqual(themeAAppliquer({ general: 'systeme', systemeSombre: true }), {
+    theme: 'sombre',
+    source: 'general',
+    choisi: 'systeme',
+    parLeSysteme: true,
+  });
+  assert.equal(themeAAppliquer({ general: 'systeme', systemeSombre: false }).theme, 'clair');
+  // Un PROJET peut lui aussi suivre l'ordinateur, et il passe toujours devant.
+  const parLeProjet = themeAAppliquer({ duProjet: 'systeme', general: 'sable', systemeSombre: true });
+  assert.equal(parLeProjet.theme, 'sombre');
+  assert.equal(parLeProjet.source, 'projet');
+  assert.equal(parLeProjet.parLeSysteme, true);
+  // Réglage de l'ordinateur inconnu : on ne devine pas le sombre.
+  assert.equal(themeAAppliquer({ general: 'systeme' }).theme, 'clair');
+});
+
+test('rien de réglé nulle part : le défaut, jamais un vide', () => {
+  assert.deepEqual(themeAAppliquer({}), {
+    theme: 'sombre',
+    source: 'general',
+    choisi: 'sombre',
+    parLeSysteme: false,
+  });
 });
 
 test('la clarté décide de la classe « dark » et du bandeau du téléphone', () => {
