@@ -36,6 +36,8 @@ import {
   CLE_PROJET_ACTIF,
   agentsDuPremierEnvoi,
   choisirProjetAOuvrir,
+  lireLienGithub,
+  REFUS_LIEN_MAL_FORME,
 } from '@haikodev/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
@@ -93,6 +95,7 @@ import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
 import { scanProjects, registerProject, reorderProjects, createProjectFolder } from './projects.js';
+import { depotsDuCompte, monterDepuisGithub } from './depots-github.js';
 import { testerConnexionVps } from './acces-vps.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
@@ -439,6 +442,35 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         bus.toast('error', `Projet créé, mais ${rates.length} étape(s) ont échoué`);
       } else {
         bus.toast('success', `Projet « ${project.name} » monté sur le serveur`);
+      }
+      return { project, etapes };
+    }
+
+    case 'github.depots':
+      return await depotsDuCompte();
+
+    case 'project.fromGithub': {
+      /*
+       * Le lien est LU avant toute chose : mal formé, il est refusé ici, sans
+       * qu'aucun dossier ne soit touché. Le reste des refus (dépôt introuvable,
+       * accès refusé, dépôt vide, projet déjà inscrit) vient du montage.
+       */
+      const lu = lireLienGithub(cmd.lien);
+      if (!lu.ok || !lu.depot) throw new Error(lu.erreur ?? REFUS_LIEN_MAL_FORME);
+
+      const { project, etapes } = await monterDepuisGithub({
+        depot: lu.depot,
+        nom: cmd.name,
+        dossier: cmd.folder,
+        sousDomaine: cmd.sousDomaine,
+        port: cmd.port,
+      });
+      bus.emit({ type: 'project.upsert', project });
+      const ratees = etapes.filter((e) => !e.fait);
+      if (ratees.length) {
+        bus.toast('error', `Projet ajouté, mais ${ratees.length} étape(s) ont échoué`);
+      } else {
+        bus.toast('success', `« ${project.name} » ajouté depuis GitHub`);
       }
       return { project, etapes };
     }

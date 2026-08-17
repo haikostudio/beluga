@@ -106,6 +106,29 @@ export const ClientCommand = z.discriminatedUnion('type', [
     /** Le port sur lequel le projet écoute sur le serveur. */
     port: z.number().optional(),
   }),
+  /**
+   * Les dépôts du compte GitHub connecté au serveur, pour en choisir un dans la
+   * fenêtre « Projets du serveur ». Lecture seule : rien n'est cloné ici.
+   */
+  z.object({ type: z.literal('github.depots') }),
+  /**
+   * Monte un projet À PARTIR D'UN DÉPÔT GITHUB qui existe déjà : le dépôt est
+   * récupéré sur le serveur, l'adresse publique demandée est créée, puis le
+   * projet est inscrit dans la colonne de gauche. Rien n'est publié.
+   */
+  z.object({
+    type: z.literal('project.fromGithub'),
+    /** Le lien collé, ou « compte/depot » choisi dans la liste. */
+    lien: z.string(),
+    /** Le nom voulu dans la colonne de gauche. Vide : le nom du dépôt. */
+    name: z.string().optional(),
+    /** Le nom du dossier sur le serveur. Vide : déduit du nom du dépôt. */
+    folder: z.string().optional(),
+    /** Le nom court de l'adresse publique. Vide : le projet naît sans adresse. */
+    sousDomaine: z.string().optional(),
+    /** Le port sur lequel le projet écoute sur le serveur. */
+    port: z.number().optional(),
+  }),
 
   // Cartes
   z.object({
