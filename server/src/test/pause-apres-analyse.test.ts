@@ -51,7 +51,7 @@ test("un tour d'analyse ne fait entrer aucune carte en « En cours »", () => {
   assert.equal(colonneAuDemarrage('planned', 'analysis'), null);
   assert.equal(colonneAuDemarrage('notes', 'analysis'), null);
   // …et il ne la clôt pas non plus, même s'il avait modifié le dépôt.
-  assert.equal(colonneEnFinDeTour('running', true, 'analysis', true), null);
+  assert.equal(colonneEnFinDeTour('running', true, 'analysis'), null);
 });
 
 test("seul l'agent d'EXÉCUTION fait basculer la carte en « En cours »", () => {
@@ -59,7 +59,7 @@ test("seul l'agent d'EXÉCUTION fait basculer la carte en « En cours »", () =>
   // Les autres rôles la regardent sans y toucher, où qu'elle soit.
   for (const role of ['analysis', 'orchestrator', 'deploy'] as const) {
     assert.equal(colonneAuDemarrage('planned', role), null, `depuis « ${role} »`);
-    assert.equal(colonneEnFinDeTour('running', true, role, true), null, `fin de tour « ${role} »`);
+    assert.equal(colonneEnFinDeTour('running', true, role), null, `fin de tour « ${role} »`);
   }
 });
 

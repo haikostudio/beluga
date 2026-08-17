@@ -627,11 +627,27 @@ le nom, là-bas le texte).
   (`alerteServeurInjoignable`, `shared/src/panne-serveur.ts` ; `Client.signalerRefus`) : canal coupé
   depuis plus de 15 s, ou deux requêtes d'affilée sans réponse. Une requête isolée qui expire est
   rendue à l'appelant, jamais affichée en bulle rouge — un lancement ne répond qu'à la FIN du tour.
-- **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
-  carte, jamais le fait que le moteur ait répondu. Le constat rend QUATRE réponses
-  (`TraceDuTravail`, `shared/src/carte-interrompue.ts`) : oui, non, « je n'ai pas pu regarder », et
-  « ça a bougé AILLEURS » — seul « oui » ferme la carte, un dépôt muet ne vaut plus une preuve de
-  travail.
+- **UN RAPPORT RENDU FERME LA CARTE, avec ou sans code modifié** (`colonneEnFinDeTour`,
+  `shared/src/suivi-colonne.ts`) : la clôture attendait un CONSTAT de fichiers modifiés, et plantait
+  en « En cours » les cartes de vérification, celles dont l'agent conclut qu'il n'y avait rien à
+  faire, celles dont tout le travail tenait dans le rapport — le tableau démentait la conversation.
+  Le constat du dépôt rend toujours QUATRE réponses (`TraceDuTravail`,
+  `shared/src/carte-interrompue.ts` : oui, non, « je n'ai pas pu regarder », « ça a bougé AILLEURS »)
+  mais il ne décide plus de la COLONNE, seulement de la PHRASE portée par la carte close. Deux
+  garde-fous inchangés : un tour en ÉCHEC ou INTERROMPU n'est pas un rapport rendu, un rôle qui
+  n'exécute pas ne déplace rien. CONSÉQUENCE ASSUMÉE, dite en clair sur la carte
+  (`RAISON_RENDU_SANS_CODE`) : « Terminé » sans qu'aucun code n'ait changé — rien n'est promis à la
+  livraison. Rien ne change après « Terminé » : déployer reste un geste de l'utilisateur.
+- **UNE CARTE RESTÉE EN « EN COURS » DIT CE QUI TOURNE ENCORE** (`travailRestant`,
+  `phraseDuTravailRestant`, `dureeDite`, `shared/src/travail-restant.ts` ; `data-travail-restant`,
+  `web/src/components/board.tsx`) : pendant obligé de la règle ci-dessus — une carte qui RESTE là a
+  forcément une raison, et elle se lit sans ouvrir la carte. Une ligne, trois choses : l'ÉTAPE que
+  l'agent vient de nommer, DEPUIS QUAND, et CE QU'ON ATTEND. Quatre situations, dans cet ordre : une
+  QUESTION attend (seul cas où l'on attend l'utilisateur, elle passe devant), un AGENT travaille
+  (avec ce qui reste de sa liste), un TOUR se range (`tourEnVolDepuis`), PLUS PERSONNE — anomalie que
+  le balayage corrige en quinze secondes, écrite quand même. Règle PURE, `null` hors de « En cours ».
+  Verrouillé par `server/src/test/travail-restant.test.ts` et
+  `scripts/verif-carte-rangee-sans-changement.mjs`.
 - **LE CONSTAT REGARDE LES DEUX DOSSIERS : la copie de la carte ET le dossier PARTAGÉ du projet**
   (`traceDuTravailDuTour` / `fichiersRemues`, `server/src/hors-tache.ts` ; `RAISON_TRAVAIL_HORS_COPIE`,
   `shared/src/carte-interrompue.ts`). Un agent est censé rester dans sa copie, rien ne l'y oblige : un
@@ -639,8 +655,8 @@ le nom, là-bas le texte).
   à côté. La copie restait alors vierge, le dossier du projet portait pourtant ses fichiers modifiés,
   et la carte s'entendait dire « aucun fichier n'a changé » — phrase que l'utilisateur démentait d'un
   `git status`. On note donc ce qui remue DÉJÀ dans le dossier partagé AVANT le tour, et ce qui s'y
-  ajoute pendant vaut trace `ailleurs` : la carte revient en « Planifié » RETENUE (rien n'est
-  récoltable sur sa branche), mais sa phrase dit ce qui a été vu et où le chercher. Le dossier partagé
+  ajoute pendant vaut trace `ailleurs` : la carte se ferme comme les autres, mais sa phrase dit ce
+  qui a été vu et où le chercher, et reste une ATTENTE (rien n'est récoltable sur sa branche). Le dossier partagé
   étant aussi celui du chef, de l'analyse et de la publication, on ne compare JAMAIS son état absolu —
   seulement le delta du tour ; et une carte qui travaille à même le dossier du projet n'a qu'un
   dossier, donc rien de plus à demander. Verrouillé par `server/src/test/travail-hors-copie.test.ts`
@@ -650,23 +666,26 @@ le nom, là-bas le texte).
   `server/src/deplacement-carte.ts`). Dépôt qui a bougé → « Terminé ». Rien changé mais code DÉJÀ
   livré (`card.codeDejaEnregistre`) → « Terminé » avec sa raison : il n'y avait rien à refaire, le
   travail est constaté sur un tour antérieur. Rien changé et rien jamais enregistré, ou dépôt non
-  consultable → « Planifié », RETENUE (`suspendu` + `waitingReason`, sinon l'ordonnanceur relance le
-  même tour vide toutes les quinze secondes), raison écrite dessus. Un tour en ÉCHEC ne bouge rien :
-  l'incident est déjà dit en rouge, là où on relance. Verrouillé par
+  consultable → « Terminé » aussi, avec la raison écrite dessus (`RAISON_RENDU_SANS_CODE`,
+  `RAISON_TRACE_INCONNUE`). PLUS AUCUNE issue ne RETIENT la carte : `retenue` a disparu de la règle,
+  et une carte close ne garde ni `suspendu` ni `waitingReason` d'un tour précédent. Un tour en ÉCHEC
+  ne bouge rien : l'incident est déjà dit en rouge, là où on relance. Verrouillé par
   `server/src/test/suivi-colonne.test.ts` et `scripts/verif-carte-rangee-sans-changement.mjs`.
 - **…et les cartes DÉJÀ coincées sont rattrapées par un BALAYAGE** (`issueDeCarteOubliee`,
   `shared/src/suivi-colonne.ts` ; `rangerLesCartesOubliees`, `server/src/deplacement-carte.ts`, appelé
   par `tick`) : une fin de tour ne range que SA carte, et celles bloquées avant cette règle n'attendent
   plus aucune fin de tour. Toutes les quinze secondes — donc aussi au démarrage —, le démon relit
   « En cours » (`store.cartesEnCours`) et applique la MÊME issue : code déjà livré → « Terminé »,
-  sinon → « Planifié » RETENUE avec `RAISON_TOUR_SANS_ISSUE`. Trois refus rendent le balayage sûr : un
+  sinon → « Terminé » aussi avec `RAISON_TOUR_SANS_ISSUE` (leur tour avait rendu la main, c'est le
+  rangement qui a manqué). Trois refus rendent le balayage sûr : un
   tour qui TIENT encore la carte (marque `tourEnVolDepuis`), un agent au travail, un dernier tour en
   ÉCHEC ou arrêté à la main.
 - **Une PHRASE de carte ne dit JAMAIS le contraire de ce qui s'est passé**
   (`RAISON_DEJA_LIVRE`, `RAISON_TRAVAIL_SAUVE`, `natureDeLaMention`, `shared/src/suivi-colonne.ts` ;
   migration 25) : une carte dont le code était enregistré ET fusionné affichait « Rien à changer »
   dans un encadré JAUNE, à côté de la coche du travail rendu. La phrase commence désormais par le
-  FAIT (« Travail déjà enregistré : le code de cette carte est bien sur sa branche… »), les phrases
+  FAIT (« Travail déjà enregistré : le code de cette carte est bien sur sa branche… »), un troisième
+  ton existe (« information », gris : carte close, rien livré, personne n'attend), les phrases
   déjà en base sont réécrites, et le TON suit la règle : une phrase de TRAVAIL acquis s'affiche en
   BLEU avec une coche, une phrase d'ATTENTE garde son jaune. Le travail sauvé d'office par le ménage
   du démarrage le DIT tout de suite sur la carte, et la carte derrière une branche se reconnaît à son

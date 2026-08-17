@@ -149,23 +149,28 @@ verifier(rendue?.scheduling?.waitingReason === undefined, 'aucune raison d’att
 verifier(rendue?.scheduling?.restarts === 0, 'aucune reprise ne lui a été comptée');
 
 /* ------------------------------------------------------------------ */
-console.log('\n5. Pas de clôture sans trace vérifiable');
+console.log('\n5. Le rapport rendu ferme la carte, le constat écrit la phrase');
 /* ------------------------------------------------------------------ */
 
-const { traceAcquise, colonneEnFinDeTour, issueDeFinDeTour, RAISON_TRACE_INCONNUE } = partage;
-verifier(traceAcquise('oui') === true, 'un dépôt qui a bougé ferme la carte');
-verifier(traceAcquise('non') === false, 'un dépôt qui n’a pas bougé ne la ferme pas');
+const { traceAcquise, colonneEnFinDeTour, issueDeFinDeTour, RAISON_TRACE_INCONNUE, RAISON_RENDU_SANS_CODE } =
+  partage;
+verifier(traceAcquise('oui') === true, 'un dépôt qui a bougé atteste une livraison');
+verifier(traceAcquise('non') === false, 'un dépôt qui n’a pas bougé n’en atteste aucune');
 verifier(
-  traceAcquise('inconnue') === false && colonneEnFinDeTour('running', true, 'task', false) === null,
-  'un dépôt qu’on n’a pas pu consulter ne ferme rien',
+  traceAcquise('inconnue') === false && colonneEnFinDeTour('running', true, 'task') === 'done',
+  'un dépôt qu’on n’a pas pu consulter n’empêche plus la clôture : le rapport suffit',
 );
 verifier(
   issueDeFinDeTour('running', true, 'task', 'inconnue', false).raison === RAISON_TRACE_INCONNUE,
   'et la carte dit que le constat n’a pas pu être fait',
 );
 verifier(
-  issueDeFinDeTour('running', true, 'task', 'inconnue', false).colonne === 'planned',
-  'sans rien fermer, elle ne reste pas non plus coincée en « En cours »',
+  issueDeFinDeTour('running', true, 'task', 'non', false).raison === RAISON_RENDU_SANS_CODE,
+  'une carte close sans une ligne de code le dit, plutôt que de laisser croire à une livraison',
+);
+verifier(
+  issueDeFinDeTour('running', true, 'task', 'non', false).colonne === 'done',
+  'et elle ne reste pas coincée en « En cours »',
 );
 
 /* ------------------------------------------------------------------ */

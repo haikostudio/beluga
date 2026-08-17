@@ -12,7 +12,7 @@ import {
   etatApresCoupure,
   etatVisuelCarte,
   issueDeFinDeTour,
-  RAISON_SANS_MODIFICATION,
+  RAISON_RENDU_SANS_CODE,
   traceAcquise,
 } from '@haikodev/shared';
 
@@ -77,28 +77,34 @@ test('une carte marquée dans une fin de parcours ne bouge pas, mais le dit', ()
   }
 });
 
-test('sans trace vérifiable, aucune clôture', () => {
+test('le constat du dépôt reste FIN, mais ne décide plus de la clôture', () => {
+  // `traceAcquise` ne dit plus « la carte peut se fermer » : elle dit « du code
+  // a été LIVRÉ sur la branche de la carte ». La clôture, elle, tient au
+  // rapport rendu.
   assert.equal(traceAcquise('oui'), true);
   assert.equal(traceAcquise('non'), false);
-  // Le cœur de la tâche : un dépôt qu'on n'a pas pu consulter n'est pas une
-  // preuve de travail. Avant, il valait « oui ».
   assert.equal(traceAcquise('inconnue'), false);
-  assert.equal(colonneEnFinDeTour('running', true, 'task', traceAcquise('inconnue')), null);
+  assert.equal(traceAcquise('ailleurs'), false);
+  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'done');
 });
 
 test('un constat impossible se dit autrement que « rien n’a changé »', () => {
-  assert.equal(issueDeFinDeTour('running', true, 'task', 'non', false).raison, RAISON_SANS_MODIFICATION);
+  assert.equal(issueDeFinDeTour('running', true, 'task', 'non', false).raison, RAISON_RENDU_SANS_CODE);
   assert.equal(issueDeFinDeTour('running', true, 'task', 'inconnue', false).raison, RAISON_TRACE_INCONNUE);
-  assert.match(RAISON_TRACE_INCONNUE, /trace vérifiable/);
+  assert.match(RAISON_TRACE_INCONNUE, /sans preuve/);
 });
 
-test('sans trace, la carte n’est pas close — et pas coincée en « En cours » non plus', () => {
-  // Une carte laissée en « En cours » sans agent au travail n'en sortait plus.
+test('sans trace, la carte se ferme quand même — et le DIT', () => {
+  // Le rapport est rendu : la laisser en « En cours » démentait la conversation.
+  // Ce qui change d'un cas à l'autre, c'est la phrase, jamais la colonne.
+  const phrases = new Set<string>();
   for (const trace of ['non', 'inconnue'] as const) {
     const issue = issueDeFinDeTour('running', true, 'task', trace, false);
-    assert.notEqual(issue.colonne, 'done', `trace « ${trace} »`);
-    assert.equal(issue.colonne, 'planned', `trace « ${trace} »`);
+    assert.equal(issue.colonne, 'done', `trace « ${trace} »`);
+    assert.ok(issue.raison, `trace « ${trace} » : la carte ne se ferme pas en silence`);
+    phrases.add(issue.raison!);
   }
+  assert.equal(phrases.size, 2, 'deux constats différents, deux phrases différentes');
 });
 
 /* ------------------------------------------------------------------ */

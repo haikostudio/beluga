@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, RotateCcw, X } from 'lucide-react';
+import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, RotateCcw, X } from 'lucide-react';
 import {
   Attachment,
   COLUMN_KEYS,
@@ -2186,11 +2186,15 @@ export function CardTile({
 
         {/*
          * La phrase du dernier tour, à l'endroit où l'on cherche l'état de la
-         * carte. Deux tons, jamais un seul : une carte dont le CODE EST LÀ
+         * carte. TROIS tons, jamais un seul. Une carte dont le CODE EST LÀ
          * (`natureDeLaMention` → « travail ») porte une information bleue, celle
          * du travail acquis — l'afficher en triangle jaune démentait la coche
          * verte d'à côté et faisait lire « rien n'a été fait » sur un travail
-         * bel et bien livré. Une carte qui ATTEND, elle, garde son jaune.
+         * bel et bien livré. Une carte qui ATTEND garde son jaune. Et depuis
+         * qu'un rapport rendu ferme la carte, un troisième cas existe :
+         * « INFORMATION » — la carte est close, aucun code n'a été livré, et
+         * personne n'a rien à faire. Ni alerte ni promesse de livraison : du
+         * gris, et la phrase telle quelle.
          */}
         {card.sansModification ? (
           natureDeLaMention(card.sansModification) === 'travail' ? (
@@ -2200,6 +2204,15 @@ export function CardTile({
               className="mt-1.5 flex items-start gap-1.5 rounded border border-termine/30 bg-termine/10 px-1.5 py-1 text-[12px] leading-snug text-termine"
             >
               <Check className="mt-[2px] h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate">{card.sansModification}</span>
+            </div>
+          ) : natureDeLaMention(card.sansModification) === 'information' ? (
+            <div
+              data-mention-carte="information"
+              title={card.sansModification}
+              className="mt-1.5 flex items-start gap-1.5 rounded border border-border bg-surface px-1.5 py-1 text-[12px] leading-snug text-faint"
+            >
+              <Info className="mt-[2px] h-3 w-3 shrink-0" />
               <span className="min-w-0 truncate">{card.sansModification}</span>
             </div>
           ) : (

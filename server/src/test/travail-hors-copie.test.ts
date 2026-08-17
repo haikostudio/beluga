@@ -21,7 +21,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   RAISON_DEJA_LIVRE,
-  RAISON_SANS_MODIFICATION,
+  RAISON_RENDU_SANS_CODE,
   RAISON_TRAVAIL_HORS_COPIE,
   issueDeFinDeTour,
   natureDeLaMention,
@@ -41,7 +41,7 @@ test('« ailleurs » ne se dit surtout pas « aucun fichier n’a changé »', (
   const vu = issueDeFinDeTour('running', true, 'task', 'ailleurs', false);
   const rien = issueDeFinDeTour('running', true, 'task', 'non', false);
 
-  assert.equal(rien.raison, RAISON_SANS_MODIFICATION);
+  assert.equal(rien.raison, RAISON_RENDU_SANS_CODE);
   assert.equal(vu.raison, RAISON_TRAVAIL_HORS_COPIE);
   assert.notEqual(vu.raison, rien.raison);
   // La phrase nomme les deux choses utiles : ce qui a été vu, et où le chercher.
@@ -49,11 +49,12 @@ test('« ailleurs » ne se dit surtout pas « aucun fichier n’a changé »', (
   assert.match(RAISON_TRAVAIL_HORS_COPIE, /dossier du projet/);
 });
 
-test('« ailleurs » range la carte en « Planifié », retenue', () => {
+test('« ailleurs » ferme la carte en disant où chercher le travail', () => {
+  // Le rapport a été rendu : la carte se ferme. Mais sa branche est vide, donc
+  // la phrase reste une ATTENTE — il y a un geste à faire, aller récupérer le
+  // travail dans le dossier du projet.
   const issue = issueDeFinDeTour('running', true, 'task', 'ailleurs', false);
-  assert.equal(issue.colonne, 'planned');
-  assert.equal(issue.retenue, true);
-  // Une attente, pas un travail acquis : la phrase garde son jaune.
+  assert.equal(issue.colonne, 'done');
   assert.equal(natureDeLaMention(issue.raison), 'attente');
 });
 
