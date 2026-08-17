@@ -1154,6 +1154,24 @@ le nom, là-bas le texte).
   paraissait cassé. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`
   (qui pose le projet par `window.haikodevEssai.projet`, le démon en service pouvant précéder le champ
   et le retirer — Zod écarte les clés qu'il ne connaît pas).
+- **LE CHOIX EST DÉJÀ PARTAGÉ ENTRE APPAREILS — LE PROBLÈME ÉTAIT LE FLASH DE PREMIER AFFICHAGE, PRIS
+  POUR UN THÈME QUI « CHANGE TOUT SEUL »** (`CLE_REPERE_PREMIER_AFFICHAGE`, `appliquerLeTheme`,
+  `useThemeApplique`, `web/src/lib/theme.ts` ; script inline de `web/index.html`). Constaté le
+  17.08.2026 par un essai à deux navigateurs sur le même compte : le réglage général et celui d'un
+  projet vivent DÉJÀ en base (`usePref`, table `preferences`) et se propagent EN DIRECT à tous les
+  écrans ouverts (`bus.emit({ type: 'prefs', … })` sur `prefs.set`, `server/src/ws.ts`) — aucun
+  `localStorage` ne les double. Le vrai défaut : `index.html` posait TOUJOURS un flash « sombre »
+  avant que React ne connaisse le vrai thème, quel qu'il soit — un clignotement à CHAQUE chargement,
+  sur CHAQUE appareil, pour quiconque n'a pas choisi le sombre. Pire, l'effet qui pose le thème
+  tournait aussi AVANT que le serveur ait répondu (`state.pret` encore faux), avec les valeurs par
+  DÉFAUT (`prefs` et `projects` encore vides) : il réappliquait « sombre » par-dessus une bonne
+  devinette, produisant DEUX bascules au lieu d'une. Le script de `index.html` lit désormais un
+  REPÈRE local — jamais la source de vérité, seulement une devinette de premier instant — écrit par
+  `appliquerLeTheme` à chaque pose RÉELLE ; et `useThemeApplique` n'applique ni n'écrit plus rien tant
+  que `state.pret` est faux. Un appareil déjà vu n'a donc plus aucun flash ; un appareil neuf garde le
+  flash « sombre » unique, inévitable sans rendu côté serveur. Table de clarté DUPLIQUÉE dans
+  `index.html`, à la manière de `web/public/sw.js` : un script qui doit rester synchrone ne peut rien
+  importer.
 - **LE FLAT DESIGN NE RETIRE PAS UN CONTRASTE QUI PORTAIT UNE INFORMATION** — trois jetons DÉDIÉS,
   déclarés dans les SEPT thèmes (`--ligne-active`, `--bandeau-etape`, `--bloc-etapes`,
   `web/src/styles.css` ; noms Tailwind `bg-ligne-active` / `bg-bandeau-etape` / `bg-bloc-etapes`,

@@ -13,6 +13,17 @@ import { usePref } from './prefs';
 import { useApp } from './use-app';
 
 /**
+ * LE REPÈRE LOCAL DE PREMIER AFFICHAGE — jamais la source de vérité.
+ *
+ * `web/index.html` le lit de façon SYNCHRONE, avant tout module, pour deviner
+ * juste au tout premier instant et éviter un flash systématique en sombre. Il
+ * est écrit ici, et nulle part ailleurs : la même clé, dupliquée dans
+ * `index.html` comme `web/public/sw.js` duplique ses propres tables, faute de
+ * pouvoir importer ce fichier depuis un script qui doit rester synchrone.
+ */
+const CLE_REPERE_PREMIER_AFFICHAGE = 'haikodev-theme-flash';
+
+/**
  * LE THÈME S'APPLIQUE EN UN SEUL ENDROIT.
  *
  * Il était posé dans un effet du bandeau des quotas, à côté de son interrupteur.
@@ -29,6 +40,10 @@ import { useApp } from './use-app';
  *    système.
  * Et la couleur du bandeau du téléphone suit, sinon la barre d'état reste noire
  * au-dessus d'une application beige.
+ *
+ * Chaque pose retient aussi le REPÈRE de premier affichage (ci-dessus) : la
+ * source de vérité reste le serveur, ce repère ne sert qu'à deviner juste avant
+ * qu'elle n'ait répondu.
  */
 export function appliquerLeTheme(theme: ThemeId): ThemeId {
   const sombre = estThemeSombre(theme);
@@ -38,6 +53,12 @@ export function appliquerLeTheme(theme: ThemeId): ThemeId {
   racine.style.colorScheme = sombre ? 'dark' : 'light';
   const bandeau = document.querySelector('meta[name="theme-color"]');
   if (bandeau) bandeau.setAttribute('content', couleurDeBandeau(theme));
+  try {
+    window.localStorage.setItem(CLE_REPERE_PREMIER_AFFICHAGE, theme);
+  } catch {
+    /* stockage local indisponible (navigation privée, quota) : le flash reste
+       plus long, rien d'autre ne dépend de ce repère */
+  }
   return theme;
 }
 
@@ -100,9 +121,18 @@ export function useThemeApplique(): ThemeApplique {
 
   const applique = themeAAppliquer({ duProjet: projetOuvert?.theme, general, systemeSombre });
 
+  /*
+   * TANT QUE LE SERVEUR N'A PAS RÉPONDU (`state.pret`), `general` ET
+   * `projetOuvert` ne sont que des VALEURS PAR DÉFAUT (prefs et projets encore
+   * vides) — jamais le vrai choix. Poser ce défaut écraserait la devinette déjà
+   * posée par le script de `index.html` (le REPÈRE local de premier affichage)
+   * et produirait un second flash inutile : sombre par défaut, puis le vrai
+   * thème. On laisse donc le repère en place jusqu'à la vraie réponse.
+   */
   React.useEffect(() => {
+    if (!state.pret) return;
     appliquerLeTheme(applique.theme);
-  }, [applique.theme]);
+  }, [applique.theme, state.pret]);
 
   return applique;
 }

@@ -16,14 +16,45 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>HaikoDev</title>
     <script>
-      // Le thème se décide AVANT le premier affichage : sinon l'application
-      // clignote en blanc à chaque chargement (PLAN §30). Le sombre est le
-      // défaut ; celui des QUATRE thèmes enregistré côté serveur s'applique dès
-      // l'ouverture de la connexion, sans rien conserver dans le navigateur
-      // (`web/src/lib/theme.ts`).
-      document.documentElement.classList.add('dark');
-      document.documentElement.dataset.theme = 'sombre';
-      document.documentElement.style.colorScheme = 'dark';
+      /*
+       * LE THÈME SE DÉCIDE AVANT LE PREMIER AFFICHAGE, depuis un REPÈRE LOCAL —
+       * jamais la source de vérité, qui reste le réglage enregistré côté serveur
+       * (projet, réglage général, « Système » ; `web/src/lib/theme.ts`). Ce repère
+       * est écrit par `appliquerLeTheme` à chaque fois qu'un thème est VRAIMENT
+       * posé, et ne sert qu'à deviner juste au tout premier instant : sans lui,
+       * l'application flashait toujours en SOMBRE avant de rejoindre le vrai
+       * thème, quel qu'il soit — un clignotement à CHAQUE chargement, sur CHAQUE
+       * appareil, que l'on confondait avec « le thème change tout seul ». Le vrai
+       * thème reprend la main dès que la connexion au serveur est prête, y
+       * compris quand il diffère de ce repère (autre appareil, thème changé
+       * entre-temps).
+       *
+       * La table CLARTÉ est une COPIE, à la manière de `web/public/sw.js` : un
+       * script exécuté avant tout module ne peut rien importer sans perdre
+       * l'effet recherché (bloquer le premier affichage).
+       */
+      (function () {
+        var CLARTE = {
+          sombre: 'sombre',
+          clair: 'clair',
+          sable: 'clair',
+          ardoise: 'sombre',
+          givre: 'clair',
+          sapin: 'sombre',
+          contraste: 'clair',
+        };
+        var repere = null;
+        try {
+          repere = window.localStorage.getItem('haikodev-theme-flash');
+        } catch (erreur) {
+          repere = null;
+        }
+        var theme = repere && CLARTE[repere] ? repere : 'sombre';
+        var sombre = CLARTE[theme] === 'sombre';
+        document.documentElement.classList.toggle('dark', sombre);
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = sombre ? 'dark' : 'light';
+      })();
     </script>
   </head>
   <body>
