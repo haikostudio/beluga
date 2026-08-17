@@ -71,6 +71,13 @@ process.on('exit', () => {
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
+/*
+ * LE CHAMP ÉCRIT SES TAGS AVEC DES ESPACES INSÉCABLES (shared/src/ancres.ts) :
+ * c'est ce qui empêche « [fichier: nom] » d'être coupé en fin de ligne. Toute
+ * lecture du champ est donc ramenée aux espaces ordinaires avant comparaison.
+ */
+const lisible = (valeur) => (valeur || '').replace(/\u00A0/g, ' ');
+
 async function attendrePort(limiteMs = 60000) {
   const fin = Date.now() + limiteMs;
   while (Date.now() < fin) {
@@ -332,8 +339,8 @@ async function ecran(navigateur) {
 
     noter(
       'Le texte collé revient dans le champ',
-      (await zone.inputValue()) === TEXTE_COPIE,
-      await zone.inputValue(),
+      lisible(await zone.inputValue()) === TEXTE_COPIE,
+      lisible(await zone.inputValue()),
     );
 
     const retraits = page.locator('button[title="Retirer ce fichier"]');
@@ -404,8 +411,8 @@ async function ecran(navigateur) {
     );
     noter(
       'Le texte, lui, arrive entier',
-      (await zone.inputValue()) === TEXTE_COPIE,
-      await zone.inputValue(),
+      lisible(await zone.inputValue()) === TEXTE_COPIE,
+      lisible(await zone.inputValue()),
     );
     await page.screenshot({ path: `${SHOTS}/copie-jointes-collage-texte-seul.png` });
 

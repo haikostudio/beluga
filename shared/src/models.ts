@@ -345,6 +345,9 @@ export const GithubTracking = z.object({
       z.object({
         chemin: z.string(),
         etat: z.enum(['ajoute', 'modifie', 'supprime', 'renomme']),
+        /** Lignes ajoutées / supprimées, comme git. Absentes sur un binaire. */
+        ajoutees: z.number().optional(),
+        supprimees: z.number().optional(),
       }),
     )
     .default([]),

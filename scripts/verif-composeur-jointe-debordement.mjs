@@ -39,6 +39,13 @@ const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7131';
 const DB = process.env.HAIKODEV_DB || '/root/haikodev/data/haikodev.db';
 const SHOTS = '/root/haikodev/data/verification';
 
+/*
+ * LE CHAMP ÉCRIT SES TAGS AVEC DES ESPACES INSÉCABLES (shared/src/ancres.ts) :
+ * c'est ce qui empêche « [fichier: nom] » d'être coupé en fin de ligne. Toute
+ * lecture du champ est donc ramenée aux espaces ordinaires avant comparaison.
+ */
+const lisible = (valeur) => (valeur || '').replace(/\u00A0/g, ' ');
+
 const results = [];
 function record(name, ok, detail = '') {
   results.push({ name, ok, detail });
@@ -144,7 +151,8 @@ async function main() {
         (nom) => {
           const champs = Array.from(document.querySelectorAll('textarea')).filter((t) => t.offsetParent !== null);
           const z = champs[champs.length - 1];
-          return Boolean(z && z.value.includes(`[fichier: ${nom}]`));
+          // Les espaces du tag sont INSÉCABLES dans le champ.
+          return Boolean(z && z.value.replace(/\u00A0/g, ' ').includes(`[fichier: ${nom}]`));
         },
         NOM_JOINT,
         { timeout: 45000 },

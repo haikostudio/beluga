@@ -44,6 +44,14 @@ function poserSession(db) {
   return { cookie, empreinte };
 }
 
+/*
+ * LE CHAMP ÉCRIT SES TAGS AVEC DES ESPACES INSÉCABLES (shared/src/ancres.ts) :
+ * c'est ce qui empêche « [fichier: nom] » d'être coupé en fin de ligne. On lit
+ * donc la valeur du champ en la ramenant aux espaces ordinaires avant de la
+ * comparer — sinon tout constat échoue sur un caractère qu'on ne voit pas.
+ */
+const lisible = (valeur) => valeur.replace(/\u00A0/g, ' ');
+
 const TAG_A = '[fichier: premiere-capture.png]';
 const TAG_B = '[fichier: seconde-capture.png]';
 const TEXTE = `Regarde ${TAG_A} et aussi ${TAG_B} merci`;
@@ -108,7 +116,7 @@ async function main() {
     /* -------- 2. Un clic sur la croix retire le tag entier -------- */
     await croix.first().click({ force: true });
     await page.waitForTimeout(500);
-    let valeur = await zone.inputValue();
+    let valeur = lisible(await zone.inputValue());
     record(
       'Un clic sur la croix retire le tag entier',
       !valeur.includes(TAG_A) && valeur.includes(TAG_B),
@@ -121,7 +129,7 @@ async function main() {
     await poser(milieu);
     await page.keyboard.press('Backspace');
     await page.waitForTimeout(500);
-    valeur = await zone.inputValue();
+    valeur = lisible(await zone.inputValue());
     record(
       'Le retour arrière au milieu d’un tag emporte le tag entier',
       !valeur.includes('premiere-capture') && !valeur.includes('[fichier: ]'),
@@ -137,7 +145,13 @@ async function main() {
     await poser(TEXTE.length);
     await page.keyboard.press('Backspace');
     await page.waitForTimeout(400);
-    valeur = await zone.inputValue();
+    const brut = await zone.inputValue();
+    valeur = lisible(brut);
+    record(
+      'Les espaces d’un tag sont insécables dans le champ',
+      brut.includes('[fichier:\u00A0premiere-capture.png]'),
+      `${(brut.match(/\u00A0/g) || []).length} espace(s) insécable(s)`,
+    );
     record(
       'Hors d’un tag, le retour arrière n’efface qu’une lettre',
       valeur === TEXTE.slice(0, -1),
@@ -148,7 +162,7 @@ async function main() {
     await poser(TEXTE.indexOf(TAG_A));
     await page.keyboard.press('Delete');
     await page.waitForTimeout(500);
-    valeur = await zone.inputValue();
+    valeur = lisible(await zone.inputValue());
     record(
       'La suppression avant, posée au début d’un tag, l’emporte en entier',
       !valeur.includes('premiere-capture') && valeur.includes(TAG_B),

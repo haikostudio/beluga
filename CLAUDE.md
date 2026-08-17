@@ -768,7 +768,35 @@ le nom, là-bas le texte).
   petit-fils gardant la sortie ouverte pouvait retenir pour toujours) ; tout appel de SERVICE passé
   APRÈS la réponse — compression, mesure, relance de plan — porte un `plafondMs`, le tour lui-même
   jamais ; `sendPrompt` referme en `finally` ; et l'ordonnanceur referme d'autorité un agent que plus
-  rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec.
+  rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec. Deux culs-de-sac de
+  plus sont bornés : la PRÉPARATION d'avant le moteur (`PLAFOND_PREPARATION_MS`, 5 min — agent suivi,
+  aucun processus, aucune réponse : aucun autre constat ne pouvait le voir) et un moteur LANCÉ qui se
+  tait pour toujours (`PLAFOND_SILENCE_MOTEUR_MS`, 1 h ; un tour arrêté sur une question de
+  l'utilisateur en est exclu). Chaque préparation porte son INSTANT et un JETON à usage unique
+  (`demarrant`, `server/src/runtime.ts`) : une préparation abandonnée qui se réveille constate que le
+  jeton n'est plus le sien et se retire sans rien toucher, sinon elle poserait son moteur sur un
+  agent déjà reparti de sa file ou refermerait le tour de son remplaçant. Et la veille DIT la raison
+  dans la conversation (`direLeBlocage`) : un tour bloqué avant le moteur n'a écrit aucun message,
+  son silence était précisément le symptôme. Verrouillé par `server/src/test/fin-de-tour.test.ts` et
+  `server/src/test/tour-bloque-referme.test.ts`.
+- **…ET CE FILET NE DÉPEND PLUS DE CE QU'IL SURVEILLE** (`shared/src/veille-du-demon.ts` ;
+  `passageDeVeille`, `startVeille`, verrou de `tick`, `server/src/scheduler.ts` ; minuteur posé dans
+  `main.ts`) : la veille vivait EN TÊTE de la boucle d'ordonnancement, donc derrière son verrou « un
+  tour à la fois » — un verrou pris au départ et rendu à l'arrivée. Or cette boucle attend des choses
+  longues (lecture de quota chez le fournisseur, ouverture d'une copie de travail, commandes git). Un
+  seul `await` qui ne revient jamais et le verrou n'est PLUS JAMAIS rendu : les tours suivants
+  repartent aussitôt sans rien faire, la veille avec eux, et seul un redémarrage libère les
+  conversations. Constaté le 17/08/2026 — rien de refermé entre 03 h 10 et 07 h 36, une
+  auto-amélioration figée 220 minutes sans une ligne de journal, pendant que sauvegarde,
+  vectorisation et envoi au cerveau tournaient normalement. La veille a donc SON PROPRE MINUTEUR
+  (`PERIODE_VEILLE_MS`, 15 s), entièrement SYNCHRONE — rien ne peut la retenir —, et emporte avec
+  elle `rangerLesCartesOubliees`, chacun sous son `try` (une panne d'un seul agent emporterait sinon
+  le minuteur). Un tour de boucle passé `PLAFOND_TOUR_DE_BOUCLE_MS` (5 min) est DÉCLARÉ PERDU
+  (`decisionDeBoucle`) : le verrou est rendu, la boucle repart, le journal le dit ; l'instant de
+  départ sert de JETON pour qu'un tour perdu ne rende pas le verrou de son remplaçant. Et un
+  lancement de carte ne part plus deux fois (`lancementsEnRoute`, marque DATÉE) : `isRunning` ne voit
+  rien tant que l'agent n'est pas au travail. Verrouillé par `server/src/test/veille-du-demon.test.ts`
+  et `server/src/test/veille-hors-boucle.test.ts`.
 - **Une PANNE PASSAGÈRE du fournisseur se retente, elle ne tue pas la tâche**
   (`shared/src/panne-passagere.ts`, `server/src/relance-moteur.ts`, branchée dans `startTurn`) :
   erreur 500 (« Internal server error », « Server error mid-response »), moteur surchargé, lien
@@ -1080,6 +1108,22 @@ le nom, là-bas le texte).
   alors son chemin normal et le champ garde son historique d'annulation. Chaque tag porte en plus une
   CROIX (`data-prompt-file-close`). Verrouillé par `server/src/test/ancres-fichiers.test.ts` et
   `scripts/verif-tag-suppression-bloc.mjs`.
+- **UN TAG « [fichier: …] » NE SE COUPE PLUS EN FIN DE LIGNE : SES ESPACES SONT INSÉCABLES**
+  (`ESPACE_INSECABLE`, `ancre`, `tagsInsecables`, `tagsEnEspacesOrdinaires`, `nomDuTag`,
+  `shared/src/ancres.ts` ; `texteDuChamp`, `composer.tsx`) : le champ coupait à l'espace de
+  « [fichier: nom] », le tag occupait deux lignes et retombait en texte brut SANS CROIX — deux
+  étiquettes voisines, l'une en pastille et l'autre en syntaxe nue. Le tag s'écrit donc avec des
+  espaces U+00A0, gabarit ET nom du fichier. La transformation est un AFFICHAGE à longueur
+  CONSTANTE, posée sur le `value` du champ et sur le CALQUE (même chaîne des deux côtés, sinon les
+  tags dessinés tombent à côté) : aucune position de curseur ne bouge, et tout ce qui entre dans le
+  champ (collage, brouillon, dictée) y passe. Rien d'insécable n'en SORT (envoi, copie,
+  modification d'un message en attente : `tagsEnEspacesOrdinaires`), et plus rien ne se RELIT par le
+  texte exact de l'ancre — `tagsDuTexte` / `ancreDuTexte` cherchent le MOTIF, sinon un texte d'avant
+  cette règle perdrait sa croix. Le repli « texte brut » reste pour un nom à TIRETS : aucun réglage
+  CSS n'empêche la coupure après un trait d'union. Un contrôle qui LIT le champ ramène les espaces à
+  leur forme ordinaire avant de comparer. La PASTILLE, elle, écrit en 0,82 em, toutes ses autres
+  mesures suivant en em d'elle-même : c'est ce qui dégage sa marge intérieure sans jamais l'élargir
+  au-delà des caractères recouverts.
 - **UN TAG « [fichier: …] » SE LIT COMME UNE PASTILLE, JAMAIS COMME DU TEXTE BRUT**
   (`data-prompt-file-pastille`, `composer.tsx`) : les caractères réels gardent leur place mais sont
   rendus INVISIBLES, et une pastille « trombone + nom + croix » est dessinée par-dessus, HORS FLUX,
@@ -1182,6 +1226,18 @@ le nom, là-bas le texte).
   n'est deviné : une branche introuvable rend « je ne sais pas » au lieu d'un périmètre inventé.
   Verrouillé par `server/src/test/suivi-branche-carte.test.ts` et
   `scripts/verif-onglet-github-branche.mjs`.
+- **…ET IL SE LIT COMME UNE LIGNE DE TEMPS VERTICALE, CHARGÉE À L'OUVERTURE** (`GithubTab`,
+  `NoeudDeTemps`, `web/src/components/card-panel.tsx` ; `lignesDepuisNumstat`, `avecLesLignes`,
+  `totalDesLignes`, `shared/src/suivi-branche-carte.ts`) : il portait tout ce que GitHub sait dire —
+  enregistrements, demande de fusion, contrôles d'intégration, commentaires de revue — et
+  l'essentiel s'y perdait. Il ne garde plus que DEUX nœuds, dans l'ordre où ils arrivent : les
+  fichiers touchés avec leurs LIGNES ajoutées et supprimées (`git diff --numstat`, relevé à côté du
+  `--name-status` ; un binaire n'a pas de compte et n'en affiche aucun, un renommage garde le
+  chemin nouveau), puis le déroulé du déploiement étape par étape. Le bouton « Actualiser » est
+  RETIRÉ : le relevé part tout seul à l'ouverture, une fois par carte (marque `releve`, sinon
+  `fetchedAt` relancerait l'effet sans fin), et le déroulé se recharge quand ce relevé rend. Le
+  trait vertical est porté par CHAQUE nœud, jamais par la colonne : il s'arrête donc de lui-même
+  sur le dernier.
 
 ### Quotas
 
