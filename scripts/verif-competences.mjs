@@ -40,7 +40,24 @@ function dossierDonnees() {
     path.join(RACINE, 'data'),
     path.resolve(RACINE, '..', '..', 'data'),
   ].filter(Boolean);
-  return candidats.find((d) => fs.existsSync(path.join(d, 'haikodev.db'))) ?? path.join(RACINE, 'data');
+  /*
+   * ON PRÉFÈRE LE DOSSIER QUI PORTE UN POOL RÉELLEMENT REMPLI. Lancé depuis une
+   * COPIE DE TRAVAIL, ce script trouve un `data/` fabriqué par les tests — base
+   * vide, pool vide — et jugeait alors un pool inexistant : quatre contrôles
+   * tombaient sans qu'aucune compétence ne manque vraiment.
+   */
+  const poolRempli = (dossier) => {
+    try {
+      return fs.readdirSync(path.join(dossier, 'competences')).some((nom) => !nom.startsWith('.'));
+    } catch {
+      return false;
+    }
+  };
+  return (
+    candidats.find(poolRempli) ??
+    candidats.find((d) => fs.existsSync(path.join(d, 'haikodev.db'))) ??
+    path.join(RACINE, 'data')
+  );
 }
 
 const DONNEES = dossierDonnees();

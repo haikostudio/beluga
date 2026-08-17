@@ -33,7 +33,7 @@ import {
   type NiveauDAccueil,
   type SujetRegles,
 } from '@haikodev/shared';
-import { listerCompetences } from './competences.js';
+import { dossierDesCompetences, listerCompetences } from './competences.js';
 
 /**
  * La mémoire du projet (PLAN §25) : du texte DANS le dépôt, que les agents
@@ -769,7 +769,9 @@ export function briefingSepare(
    * cette ligne, le même projet « ne sait pas créer une offre » d'un moteur à
    * l'autre. Un chemin de fichier se lit partout.
    */
-  const competences = emporte.competences ? texteDesCompetences(listerCompetences()) : '';
+  const competences = emporte.competences
+    ? texteDesCompetences(listerCompetences(), dossierDesCompetences())
+    : '';
   if (competences) parts.push(competences);
 
   /*

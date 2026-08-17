@@ -1269,8 +1269,24 @@ le nom, là-bas le texte).
   `outils/`. Le dossier de travail d'un projet vit sous `/root/<projet>`.
 - **Un script de vérification vise le dépôt d'où il PART** (déduit de `import.meta.url`), jamais
   `/root/haikodev` en dur — sinon, lancé depuis une copie de travail, il jugerait le dossier principal.
-- **Une compétence partagée vit dans `data/competences/`** (un dossier avec son `SKILL.md`) : le démon
-  la pose dans le coffre de chaque compte Claude et le briefing l'annonce à tout agent.
+- **Les compétences partagées sont un POOL, alimenté par les tâches PROUVÉES**
+  (`shared/src/competences.ts`, `shared/src/fiche-competence.ts`, `server/src/competences.ts`,
+  `server/src/capitalisation.ts`, migration 30). Une compétence est un DOSSIER de
+  `data/competences/` portant un `SKILL.md` : le démon la pose dans le coffre de chaque compte Claude
+  et le briefing l'annonce à tout agent — désormais par un SOMMAIRE par thème (229 jetons pour quinze
+  fiches, contre 1 716 en énumérant). SEPT invariants : le coffre personnel est ADOPTÉ dans le pool
+  (quinze fiches y dormaient, une seule était raccordée) ; tout refus est DIT avec sa cause, jamais
+  muet ; une fiche est un ARBRE (tête + détails) indexé UNE SEULE FOIS sous `@competences`, jamais
+  recopié par projet, et sa part du contexte est plafonnée (`PART_MAX_DES_COMPETENCES`) — la
+  couverture des vecteurs se juge sur le PROJET seul, sinon un pool neuf renverrait toute la
+  recherche aux mots ; une fiche porte un ÉTAT (active, dépréciée, archivée — **rien ne se
+  supprime**), une PROVENANCE et une CONFIANCE mesurée sur quatre compteurs ; on n'écrit dans le pool
+  que par l'outil `competences`, à travers un contrôle de qualité (section « Vérification » exigée) ;
+  une carte ne se capitalise qu'après TROIS volets (contrôles rejoués et réussis, passage en
+  production, sept jours sans contradiction — cinq signaux, deux exigés) ; le pool est son propre
+  dépôt git, le pousser restant un geste de l'utilisateur. Verrouillé par
+  `server/src/test/competences.test.ts`, `server/src/test/capitalisation.test.ts` et
+  `scripts/verif-pool-competences.mjs`.
 - **GITHUB est ouvert à TOUT agent, sur TOUS les projets, sans carte ni réglage**
   (`shared/src/acces-github.ts`, `server/src/github.ts`) : le jeton du serveur (`gh auth token`) part
   dans l'environnement de chaque agent, donc `gh` marche en copie de travail comme dans le bac à sable

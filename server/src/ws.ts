@@ -56,6 +56,8 @@ import {
   setAccountDisabled,
 } from './accounts.js';
 import { creditCursor, etatDuCompteCursor } from './engines/cursor.js';
+import { changerLEtat, etatDuPoolPourLEcran, relierCompetencesAuxCoffres } from './competences.js';
+import { capitaliserMaintenant, jugementDeLaCarte } from './capitalisation.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
@@ -1400,6 +1402,31 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
      * cette commande ajoute — pour savoir si le compte peut travailler —,
      * c'est si la clé répond et si l'outil « cursor-agent » est sur le serveur.
      */
+    /*
+     * LE POOL DE COMPÉTENCES. Deux commandes seulement, et aucune n'écrit de
+     * fiche : l'écran LIT le pool et change l'ÉTAT d'une fiche ; écrire une
+     * compétence reste le travail d'un agent, à travers le contrôle de qualité.
+     */
+    case 'competences.etat':
+      return { pool: etatDuPoolPourLEcran() };
+
+    case 'competences.etatDeLaFiche': {
+      const resultat = changerLEtat(cmd.nom, cmd.etat);
+      if (!resultat.ok) throw new Error((resultat.raisons ?? ['changement impossible']).join(' ; '));
+      // Le coffre des comptes Claude suit : une fiche archivée ne doit plus s'y
+      // trouver au prochain tour.
+      relierCompetencesAuxCoffres();
+      const pool = etatDuPoolPourLEcran();
+      bus.emit({ type: 'competences', pool });
+      return { pool };
+    }
+
+    case 'card.capitaliser': {
+      const resultat = await capitaliserMaintenant(cmd.cardId);
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'capitalisation impossible');
+      return { ok: true };
+    }
+
     case 'cursor.etat': {
       const comptes = listAccountRecords().filter((a) => a.engine === 'cursor');
       const compte = cmd.accountId ? comptes.find((a) => a.id === cmd.accountId) : comptes[0];
@@ -1690,6 +1717,12 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         // parcours pour remplacer la projection retirée, jamais mêlée aux
         // jetons mesurés étape par étape.
         quota: store.usageQuotaByCard(cmd.cardId),
+        /*
+         * OÙ EN EST CETTE CARTE DANS LE POOL DE COMPÉTENCES — candidate, mûre,
+         * publiée —, et POURQUOI elle en est là. C'est la réponse à « pourquoi
+         * cette carte n'a rien donné ? », qu'il fallait deviner jusqu'ici.
+         */
+        capitalisation: jugementDeLaCarte(card),
       };
     }
 

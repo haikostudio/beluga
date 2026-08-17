@@ -879,6 +879,33 @@ const MIGRATIONS: {
       WHERE json_type(data, '$.sansModification') = 'null';
     `,
   },
+  {
+    id: 30,
+    name: 'compteurs-des-competences',
+    // L'USAGE RÉEL DU POOL DE COMPÉTENCES.
+    //
+    // Quatre compteurs par fiche, et rien d'autre : servie (partie dans le
+    // contexte d'un agent), aidée / inutile (ce que l'agent en a dit), et
+    // contredite (une carte a démenti ce qu'elle affirme). C'est de ces quatre
+    // nombres que sort la confiance d'une fiche
+    // (`shared/src/confiance-competence.ts`), donc le fait qu'elle soit servie,
+    // reprise ou dépréciée.
+    //
+    // Ils vivent EN BASE, jamais dans le fichier : une fiche est un document que
+    // l'utilisateur peut réécrire à la main, ses statistiques n'ont rien à y
+    // faire — et un pool versionné n'a pas à changer à chaque lecture.
+    sql: `
+      CREATE TABLE IF NOT EXISTS competence_stats (
+        nom TEXT PRIMARY KEY,
+        servie INTEGER NOT NULL DEFAULT 0,
+        aidee INTEGER NOT NULL DEFAULT 0,
+        inutile INTEGER NOT NULL DEFAULT 0,
+        contredite INTEGER NOT NULL DEFAULT 0,
+        dernier_service INTEGER,
+        maj_at INTEGER
+      );
+    `,
+  },
 ];
 
 export function openDb(): DB {

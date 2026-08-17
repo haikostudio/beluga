@@ -30,6 +30,7 @@
  */
 
 import { jetonsApproches } from './couches-tokens.js';
+import { PART_MAX_DES_COMPETENCES, estPassageDeCompetence } from './competences.js';
 
 /* ------------------------------------------------------------------ */
 /* Ce qu'est un passage                                                */
@@ -696,6 +697,13 @@ export function choisirPassages(
      * (`PART_MAX_DU_CODE`).
      */
     plafondCode?: number;
+    /**
+     * Ce que les COMPÉTENCES PARTAGÉES ont le droit de peser, en jetons. Même
+     * mécanique que pour le code : une part réservée — le pool a droit à sa
+     * place — mais plafonnée — il ne prend pas celle des règles du projet
+     * (`PART_MAX_DES_COMPETENCES`, shared/src/competences.ts).
+     */
+    plafondCompetences?: number;
   } = {},
 ): ChoixDePassages {
   const plafond = options.plafond ?? PLAFOND_PASSAGES_JETONS;
@@ -704,6 +712,7 @@ export function choisirPassages(
   const minimum = options.minimum ?? SCORE_MINIMUM;
   const maxCode = options.maxCode ?? Number.POSITIVE_INFINITY;
   const plafondCode = options.plafondCode ?? Math.floor(plafond * PART_MAX_DU_CODE);
+  const plafondCompetences = options.plafondCompetences ?? Math.floor(plafond * PART_MAX_DES_COMPETENCES);
 
   const gardes: PassageClasse[] = [];
   const vus = new Set<string>();
@@ -712,6 +721,7 @@ export function choisirPassages(
   let ecartes = 0;
   let code = 0;
   let jetonsDuCode = 0;
+  let jetonsDesCompetences = 0;
 
   for (const passage of classes) {
     if (passage.score < minimum) continue;
@@ -720,6 +730,21 @@ export function choisirPassages(
     if (gardes.length >= max) {
       ecartes++;
       continue;
+    }
+    /*
+     * LE POOL NE PASSE PAS DEVANT LA DOCUMENTATION DU PROJET. Une compétence est
+     * une leçon d'AILLEURS : elle peut être la meilleure réponse — son score le
+     * dit — mais elle ne doit jamais manger le budget des règles du projet visé.
+     * Comme pour le code, le PREMIER passage échappe à la part : une demande qui
+     * entre pile dans le champ d'une compétence doit la recevoir.
+     */
+    if (estPassageDeCompetence(passage.source)) {
+      const tropLourd =
+        jetonsDesCompetences > 0 && jetonsDesCompetences + passage.jetons > plafondCompetences;
+      if (tropLourd) {
+        ecartes++;
+        continue;
+      }
     }
     if (passage.priorite === PRIORITE.code) {
       // Le PREMIER passe sous le seul plafond général : une demande qui nomme un
@@ -744,6 +769,7 @@ export function choisirPassages(
       code++;
       jetonsDuCode += passage.jetons;
     }
+    if (estPassageDeCompetence(passage.source)) jetonsDesCompetences += passage.jetons;
     gardes.push(passage);
     jetons += passage.jetons;
   }

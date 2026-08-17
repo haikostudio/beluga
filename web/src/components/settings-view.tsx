@@ -21,6 +21,9 @@ import {
   Wifi,
   Trash2,
   Volume2,
+  GraduationCap,
+  Archive,
+  ArrowDownCircle,
 } from 'lucide-react';
 import {
   AccountQuota,
@@ -37,6 +40,7 @@ import {
   raisonRaccourciRefuse,
   ERREURS_MONTREES_REGLAGES,
   EngineId,
+  EtatDuPool,
   ErreurInterface,
   EtatCerveau,
   EtatCompteCursor,
@@ -102,6 +106,7 @@ const ONGLETS = [
   { cle: 'consommation', titre: 'Consommation' },
   { cle: 'sauvegardes', titre: 'Sauvegardes' },
   { cle: 'acces-api', titre: 'Accès API' },
+  { cle: 'competences', titre: 'Compétences' },
 ] as const;
 
 function SettingsBody({ open }: { open: boolean }) {
@@ -178,6 +183,12 @@ function SettingsBody({ open }: { open: boolean }) {
         <TabsContent value="acces-api" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
           <SectionClesApi open={open && onglet === 'acces-api'} />
+        </ZoneDefilement>
+        </TabsContent>
+
+        <TabsContent value="competences" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
+          <SectionCompetences open={open && onglet === 'competences'} />
         </ZoneDefilement>
         </TabsContent>
       </Tabs>
@@ -2175,6 +2186,152 @@ function SectionClesApi({ open }: { open: boolean }) {
         }}
         onClose={() => setARevoquer(null)}
       />
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Compétences : le pool partagé, ce qu'il sert et ce qu'il refuse     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE POOL, VU DE L'ÉCRAN. Il montre l'arbre (la tête d'une fiche et ses
+ * fichiers de détail), l'état, la confiance mesurée et l'usage réel de chaque
+ * fiche, et surtout CE QUI A ÉTÉ ÉCARTÉ avec sa raison — c'était le point
+ * aveugle : quinze compétences sur seize étaient ignorées en silence.
+ *
+ * On y déprécie ou on y archive d'un clic. RIEN NE SE SUPPRIME : une fiche
+ * dépréciée apprend encore quelque chose, une fiche effacée n'apprend rien.
+ * Écrire une fiche, en revanche, ne se fait pas ici : c'est le travail d'un
+ * agent, à travers le contrôle de qualité.
+ */
+function SectionCompetences({ open }: { open: boolean }) {
+  const state = useApp();
+  const [pool, setPool] = React.useState<EtatDuPool | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    client
+      .call<{ pool: EtatDuPool }>({ type: 'competences.etat' })
+      .then((data) => setPool(data.pool))
+      .catch(() => setPool(null));
+  }, [open]);
+
+  // Le démon diffuse le pool dès qu'une fiche est écrite ou change d'état :
+  // l'écran suit sans qu'on ait à le rouvrir.
+  React.useEffect(() => {
+    if (state.pool) setPool(state.pool);
+  }, [state.pool]);
+
+  const changerEtat = async (nom: string, etat: 'active' | 'depreciee' | 'archivee') => {
+    try {
+      const data = await client.call<{ pool: EtatDuPool }>({ type: 'competences.etatDeLaFiche', nom, etat });
+      setPool(data.pool);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'état non changé');
+      throw err;
+    }
+  };
+
+  const fiches = pool?.fiches ?? [];
+  const servies = fiches.filter((f) => f.etat !== 'archivee');
+
+  return (
+    <section>
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <GraduationCap className="h-3.5 w-3.5 text-faint" /> Compétences partagées
+      </h3>
+
+      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
+        Des modes d'emploi valables pour TOUS les projets. Une leçon apprise sur un projet sert aux autres, et une
+        fiche n'est écrite qu'à partir d'un travail qui a fait ses preuves. La confiance monte quand un agent dit
+        qu'elle l'a aidé, et descend quand une carte la contredit.
+      </p>
+
+      {pool ? (
+        <p className="mb-3 text-[12px] text-faint">
+          {servies.length} fiche(s) en service · {pool.dossier}
+          {pool.versionne ? ' · sauvegardé (dépôt git)' : ' · pas encore sous git'}
+        </p>
+      ) : null}
+
+      {/* Ce qui a été ÉCARTÉ, avec sa raison : plus aucun refus muet. */}
+      {pool?.refus.length ? (
+        <div className="mb-3 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2">
+          <p className="text-[12.5px] font-medium text-warning">
+            {pool.refus.length} entrée(s) écartée(s) du pool
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {pool.refus.map((refus) => (
+              <li key={refus.nom} className="text-[12px] text-faint">
+                {refus.raison}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="space-y-1">
+        {!pool ? (
+          <p className="text-[12.5px] text-faint">Lecture du pool…</p>
+        ) : fiches.length === 0 ? (
+          <p className="text-[12.5px] text-faint">Aucune compétence dans le pool pour l'instant.</p>
+        ) : (
+          fiches.map((fiche) => (
+            <div
+              key={fiche.nom}
+              className="rounded-md border border-border bg-surface px-2.5 py-2"
+              data-competence={fiche.nom}
+            >
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-[13px] text-text">{fiche.nom}</span>
+                {fiche.etat === 'active' ? (
+                  <Badge tone="success">active</Badge>
+                ) : fiche.etat === 'depreciee' ? (
+                  <Badge tone="warning">dépréciée</Badge>
+                ) : (
+                  <Badge tone="neutral">archivée</Badge>
+                )}
+                <span className="text-[12px] text-faint">confiance {Math.round(fiche.confiance * 100)} %</span>
+                <span className="text-[12px] text-faint">
+                  {fiche.servie
+                    ? `servie ${fiche.servie}× · ${fiche.aidee} utile(s) · ${fiche.contredite} contradiction(s)`
+                    : 'jamais servie'}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  {fiche.etat !== 'depreciee' && fiche.etat !== 'archivee' ? (
+                    <Button variant="ghost" size="sm" onClick={() => changerEtat(fiche.nom, 'depreciee')}>
+                      <ArrowDownCircle className="h-3 w-3" /> Déprécier
+                    </Button>
+                  ) : null}
+                  {fiche.etat !== 'archivee' ? (
+                    <Button variant="ghost" size="sm" onClick={() => changerEtat(fiche.nom, 'archivee')}>
+                      <Archive className="h-3 w-3" /> Archiver
+                    </Button>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={() => changerEtat(fiche.nom, 'active')}>
+                      <RefreshCw className="h-3 w-3" /> Remettre en service
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <p className="mt-1 text-[12.5px] leading-relaxed text-faint">{fiche.description}</p>
+
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-faint">
+                {fiche.themes.length ? <span>thèmes : {fiche.themes.join(', ')}</span> : null}
+                {fiche.annexes.length ? <span>{fiche.annexes.length} fichier(s) de détail</span> : null}
+                {fiche.provenanceProjet ? <span>venue de {fiche.provenanceProjet}</span> : null}
+                {fiche.renforceePar.length ? <span>renforcée {fiche.renforceePar.length}×</span> : null}
+              </div>
+
+              {fiche.anomalies.length ? (
+                <p className="mt-1 text-[12px] text-warning">À revoir : {fiche.anomalies.join(' ; ')}</p>
+              ) : null}
+            </div>
+          ))
+        )}
+      </div>
     </section>
   );
 }

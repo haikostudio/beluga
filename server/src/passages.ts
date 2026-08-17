@@ -47,8 +47,19 @@ import {
   type PassageDoc,
   type PassageIndexe,
 } from '@haikodev/shared';
+import {
+  FICHIERS_D_ENTREE,
+  FICHIER_COMPETENCE,
+  PREFIXE_SOURCE_COMPETENCE,
+  ajustementDeCompetence,
+  applicabiliteSurProjet,
+  confianceDeLaFiche,
+  estPassageDeCompetence,
+  ficheEnService,
+  nomDepuisLaSource,
+} from '@haikodev/shared';
 import { getDb } from './db.js';
-import { dossierDesCompetences } from './competences.js';
+import { compter, compteursDeLaFiche, dossierDesCompetences, lirePool } from './competences.js';
 import { log } from './logger.js';
 import { modeleDesVecteurs, vectoriser, vectoriserLaQuestion } from './vecteurs.js';
 
@@ -271,25 +282,78 @@ export function fichiersAIndexer(projectPath: string): FichierIndexable[] {
   };
   parcourir(projectPath, '', 0);
 
-  // Les COMPÉTENCES PARTAGÉES : elles ne vivent pas dans le dépôt du projet
-  // (`data/` est hors dépôt) mais elles s'appliquent à tous les projets.
-  const competences = dossierDesCompetences();
-  try {
-    for (const nom of fs.readdirSync(competences)) {
-      const chemin = path.join(competences, nom, 'SKILL.md');
-      if (!fs.existsSync(chemin)) continue;
-      documents.push({
-        source: `data/competences/${nom}/SKILL.md`,
-        chemin,
-        sujet: `competence-${nom}`,
-        priorite: PRIORITE.normale,
-      });
-    }
-  } catch {
-    /* aucune compétence : rien à indexer */
+  /*
+   * LES COMPÉTENCES PARTAGÉES NE SONT PLUS ICI. Elles ne vivent pas dans le
+   * dépôt du projet (`data/` est hors dépôt) et s'appliquent à TOUS les
+   * projets : les indexer par projet, c'était découper, empreinter puis
+   * VECTORISER le même texte autant de fois qu'il y a de projets. Le pool est
+   * désormais préparé UNE FOIS, sous son propre identifiant
+   * (`fichiersDuPool`, `indexerLePool`), et la recherche joint les deux index.
+   */
+  return [...documents, ...code];
+}
+
+/**
+ * L'IDENTIFIANT DU POOL DANS L'INDEX. Ce n'est pas un projet — aucune ligne de
+ * `projects` ne porte ce nom —, c'est un corpus de plus, préparé une seule fois
+ * et joint à celui de chaque projet au moment de chercher. L'arobase le rend
+ * impossible à confondre avec un identifiant de projet.
+ */
+export const PROJET_DU_POOL = '@competences';
+
+/** Les fichiers d'un arbre de compétence qu'on indexe comme des DOCUMENTS. */
+function estTexteDeCompetence(nom: string): boolean {
+  return /\.(md|markdown|txt)$/i.test(nom);
+}
+
+/**
+ * TOUT L'ARBRE DU POOL, à indexer : les deux fichiers d'ENTRÉE d'abord, puis
+ * pour chaque fiche sa TÊTE et ses fichiers de DÉTAIL.
+ *
+ * Une fiche ARCHIVÉE n'est pas indexée : elle est gardée sur le disque avec son
+ * histoire, elle ne se sert plus. Une fiche DÉPRÉCIÉE, si — elle apprend encore
+ * ce qu'il ne faut pas refaire, et le classement la fait reculer d'elle-même
+ * (`ajustementDeCompetence`).
+ */
+export function fichiersDuPool(racine = dossierDesCompetences()): FichierIndexable[] {
+  const fichiers: FichierIndexable[] = [];
+  const { fiches } = lirePool(racine);
+
+  for (const entree of FICHIERS_D_ENTREE) {
+    const chemin = path.join(racine, entree);
+    if (!fs.existsSync(chemin)) continue;
+    fichiers.push({
+      source: `${PREFIXE_SOURCE_COMPETENCE}${entree}`,
+      chemin,
+      sujet: 'competences',
+      // Les deux fichiers d'ENTRÉE passent en tête : ils rattrapent l'agent qui
+      // cherche large, là où une fiche précise ne répondrait pas.
+      priorite: PRIORITE.mecanique,
+    });
   }
 
-  return [...documents, ...code];
+  for (const fiche of fiches) {
+    if (!ficheEnService(fiche.etat)) continue;
+    fichiers.push({
+      source: `${PREFIXE_SOURCE_COMPETENCE}${fiche.nom}/${FICHIER_COMPETENCE}`,
+      chemin: fiche.fichier,
+      sujet: `competence-${fiche.nom}`,
+      priorite: PRIORITE.normale,
+    });
+    for (const annexe of fiche.annexes) {
+      const chemin = path.join(fiche.dossier, annexe);
+      const source = `${PREFIXE_SOURCE_COMPETENCE}${fiche.nom}/${annexe}`;
+      if (estTexteDeCompetence(annexe)) {
+        fichiers.push({ source, chemin, sujet: `competence-${fiche.nom}`, priorite: PRIORITE.normale });
+      } else if (estFichierDeCode(annexe) || estFichierDeConfig(annexe)) {
+        // Un script de compétence est du CODE : il passe derrière, comme celui
+        // d'un projet, et ne prend jamais la place d'une procédure.
+        fichiers.push({ source, chemin, sujet: `competence-${fiche.nom}`, priorite: PRIORITE.code });
+      }
+    }
+  }
+
+  return fichiers;
 }
 
 function empreinteDuContenu(texte: string): string {
@@ -329,8 +393,30 @@ export function indexerDocumentation(
   projectId: string,
   projectPath: string,
 ): { fichiers: number; modifies: number; passages: number } {
+  return indexerDesFichiers(projectId, fichiersAIndexer(projectPath));
+}
+
+/**
+ * LE POOL DE COMPÉTENCES, PRÉPARÉ UNE SEULE FOIS — pas une fois par projet.
+ *
+ * L'arbre entier y passe : les deux fichiers d'entrée, la tête de chaque fiche
+ * et ses fichiers de détail. Comme toute indexation, elle est incrémentale : un
+ * pool qui n'a pas bougé ne coûte que la lecture de ses empreintes.
+ */
+export function indexerLePool(racine = dossierDesCompetences()): {
+  fichiers: number;
+  modifies: number;
+  passages: number;
+} {
+  return indexerDesFichiers(PROJET_DU_POOL, fichiersDuPool(racine));
+}
+
+/** Le travail commun : indexer une LISTE de fichiers sous un identifiant de corpus. */
+function indexerDesFichiers(
+  projectId: string,
+  fichiers: FichierIndexable[],
+): { fichiers: number; modifies: number; passages: number } {
   const db = getDb();
-  const fichiers = fichiersAIndexer(projectPath);
   const connus = new Map<string, string>(
     (db.prepare('SELECT chemin, empreinte FROM doc_fichiers WHERE project_id = ?').all(projectId) as {
       chemin: string;
@@ -666,6 +752,12 @@ async function classerPourLaQuestion(
    * (`SENS_PAR_TERRAIN`, shared/src/vecteurs-doc.ts).
    */
   terrain: TerrainDeRecherche,
+  /**
+   * Le NOM du projet visé — il ne sert qu'à juger l'APPLICABILITÉ d'une fiche du
+   * pool (`applicabiliteSurProjet`). Absent, toutes les fiches sont réputées
+   * s'appliquer : c'est le cas général, une leçon de plateforme sert partout.
+   */
+  projectName = '',
 ): Promise<{ classes: PassageClasse[]; mode: ModeDeRecherche } | undefined> {
   /*
    * ON INDEXE, ON NE VECTORISE PAS. Découper les fichiers modifiés coûte
@@ -677,7 +769,15 @@ async function classerPourLaQuestion(
    * millisecondes.
    */
   indexerDocumentation(projectId, projectPath);
-  const indexes = passagesIndexes(projectId);
+  /*
+   * LE POOL EST JOINT ICI, il n'est plus recopié dans l'index de chaque projet.
+   * Préparé une seule fois (`indexerLePool`), il est simplement AJOUTÉ au corpus
+   * du projet au moment de classer : mêmes règles, même seuil, même plafond —
+   * une compétence ne passe devant une règle du projet que si son score le dit.
+   */
+  indexerLePool();
+  const duProjet = passagesIndexes(projectId);
+  const indexes = [...duProjet, ...passagesIndexes(PROJET_DU_POOL)];
   if (!indexes.length) return undefined;
 
   /*
@@ -693,8 +793,15 @@ async function classerPourLaQuestion(
   /*
    * La couverture se juge sur la DOCUMENTATION seule : le code vient après et
    * ne doit pas retenir la bascule (`couvertureDesVecteurs`).
+   *
+   * ET SUR CELLE DU PROJET SEUL, jamais sur le pool joint : un pool fraîchement
+   * rempli — quinze fiches adoptées d'un coup, pas encore vectorisées — ferait
+   * sinon tomber la couverture de TOUS les projets sous le seuil, et toute la
+   * recherche repasserait par les mots jusqu'à la nuit suivante. Un passage de
+   * compétence sans vecteur perd sa moitié « sens », comme n'importe quel
+   * passage en retard ; il ne décide pas du mode des autres.
    */
-  const documents = indexes.filter((p) => p.priorite >= 0);
+  const documents = duProjet.filter((p) => p.priorite >= 0);
   const mode = modeDeRecherche({
     terrain,
     vecteurQuestion,
@@ -709,7 +816,67 @@ async function classerPourLaQuestion(
       ? { vecteurQuestion, poids: { sens: POIDS_SENS_VECTEUR, mots: POIDS_MOTS_VECTEUR } }
       : {},
   );
-  return { classes, mode };
+  return { classes: ajusterLesCompetences(classes, projectName), mode };
+}
+
+/**
+ * LE SECOND PAS DU CLASSEMENT, POUR LES SEULES COMPÉTENCES.
+ *
+ * Le score de base ne connaît que le sens, les mots et le rang de la source. Une
+ * fiche du pool a deux qualités de plus, toutes deux MESURÉES : sa CONFIANCE
+ * (montée à l'usage utile, descendue aux contradictions) et son APPLICABILITÉ au
+ * projet visé. L'ajustement est volontairement petit — il DÉPARTAGE deux
+ * passages proches, il ne renverse pas un classement — sauf pour une fiche
+ * DÉPRÉCIÉE, qui recule franchement.
+ *
+ * Le tri est refait ensuite : `choisirPassages` prend les passages dans l'ordre
+ * où on les lui donne.
+ */
+function ajusterLesCompetences(classes: PassageClasse[], projectName = ''): PassageClasse[] {
+  const concernes = classes.filter((passage) => estPassageDeCompetence(passage.source));
+  if (!concernes.length) return classes;
+
+  const fiches = new Map(lirePool().fiches.map((fiche) => [fiche.nom, fiche]));
+  const ajustements = new Map<string, number>();
+  for (const passage of concernes) {
+    const nom = nomDepuisLaSource(passage.source);
+    if (!nom || ajustements.has(nom)) continue;
+    const fiche = fiches.get(nom);
+    if (!fiche) continue;
+    ajustements.set(
+      nom,
+      ajustementDeCompetence({
+        confiance: confianceDeLaFiche(compteursDeLaFiche(nom)),
+        applicabilite: applicabiliteSurProjet(fiche.projets, projectName),
+        etat: fiche.etat,
+      }),
+    );
+  }
+  if (!ajustements.size) return classes;
+
+  return classes
+    .map((passage) => {
+      const nom = nomDepuisLaSource(passage.source);
+      const ajustement = nom ? ajustements.get(nom) : undefined;
+      return ajustement ? { ...passage, score: passage.score + ajustement } : passage;
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * CE QUI A ÉTÉ SERVI EST COMPTÉ. C'est le premier des quatre compteurs d'une
+ * fiche (`shared/src/confiance-competence.ts`) : sans lui, « servie dix fois
+ * sans qu'un agent l'ait dite utile » ne se saurait jamais. Une fiche n'est
+ * comptée qu'UNE fois par recherche, quel que soit le nombre de ses passages
+ * retenus.
+ */
+function compterLesCompetencesServies(passages: PassageClasse[]): void {
+  const noms = new Set<string>();
+  for (const passage of passages) {
+    const nom = nomDepuisLaSource(passage.source);
+    if (nom) noms.add(nom);
+  }
+  for (const nom of noms) compter(nom, 'servie');
 }
 
 export async function rechercherPourLaTache(
@@ -722,10 +889,12 @@ export async function rechercherPourLaTache(
    * dans le bloc envoyé, pour que l'agent sache quels sujets il peut demander.
    */
   index: { texte: string; faits: number; sommaire?: string },
+  /** Le nom du projet visé : il ne sert qu'à juger l'applicabilité d'une fiche du pool. */
+  projectName = '',
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
-    const classement = await classerPourLaQuestion(projectId, projectPath, question, 'lancement');
+    const classement = await classerPourLaQuestion(projectId, projectPath, question, 'lancement', projectName);
     if (!classement) return undefined;
     const { classes, mode } = classement;
     const pertinents = rechercheConvaincante(classes);
@@ -750,6 +919,7 @@ export async function rechercherPourLaTache(
       const texte = texteDesPassages(gardes, index.faits, index.sommaire);
       const jetons = jetonsApproches(texte.length);
       if (rechercheRentable(jetons, jetonsIndex)) {
+        compterLesCompetencesServies(gardes);
         return { texte, passages: gardes, jetons, jetonsIndex, ecartes, mode, pertinents };
       }
       gardes = gardes.slice(0, -1);
@@ -781,10 +951,18 @@ export async function rechercherPourLaSuite(
   projectPath: string,
   question: string,
   dejaServies: Iterable<string>,
+  /** Le nom du projet visé : il ne sert qu'à juger l'applicabilité d'une fiche du pool. */
+  projectName = '',
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
-    const classement = await classerPourLaQuestion(projectId, projectPath, question, 'conversation');
+    const classement = await classerPourLaQuestion(
+      projectId,
+      projectPath,
+      question,
+      'conversation',
+      projectName,
+    );
     if (!classement) return undefined;
 
     const candidats = passagesInedits(classement.classes, dejaServies);
@@ -799,6 +977,7 @@ export async function rechercherPourLaSuite(
     if (!choix.gardes.length) return undefined;
 
     const texte = texteDesPassagesDeSuite(choix.gardes);
+    compterLesCompetencesServies(choix.gardes);
     return {
       texte,
       passages: choix.gardes,

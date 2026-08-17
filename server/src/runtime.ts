@@ -801,12 +801,16 @@ async function preparerLeTour(
            * sujet, contre une par fait : la carte revient, le territoire non.
            */
           sommaire: texteDuSommaire(memoryFacts(project.path)),
-        })
+        },
+        // Le NOM du projet ne sert qu'au pool de compétences : une fiche qui
+        // nomme ses projets s'applique mieux à celui-là qu'à un autre.
+        project.name)
       : await rechercherPourLaSuite(
           project.id,
           project.path,
           question,
           store.passagesServisDansLaSession(agent.id),
+          project.name,
         );
   /*
    * POURQUOI AUCUN PASSAGE, dit en clair pour la bulle de mémoire et le lecteur
