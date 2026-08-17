@@ -98,6 +98,16 @@ export interface EngineRunOptions {
    * lui-même n'en porte JAMAIS : un agent a le droit de réfléchir longtemps.
    */
   plafondMs?: number;
+  /**
+   * LE MOTEUR QUI VIENT DE PARTIR SE FAIT CONNAÎTRE.
+   *
+   * Appelé par l'adaptateur juste après le lancement, avec la poignée du
+   * processus. Sans lui, seul le moteur du TOUR était suivi : ceux des appels de
+   * SERVICE — compression du fil, relance d'un plan incomplet — tournaient hors
+   * de toute vue, et le bouton d'arrêt ne pouvait pas les couper. Un agent
+   * qu'on arrêtait pendant sa compression gardait donc un moteur en marche.
+   */
+  surLancement?: (handle: EngineHandle) => void;
   onEvent: (event: EngineEvent) => void;
 }
 

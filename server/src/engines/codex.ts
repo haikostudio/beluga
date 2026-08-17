@@ -116,11 +116,13 @@ export const codexAdapter: EngineAdapter = {
       },
     });
 
-    return {
+    const handle: EngineHandle = {
       pid: child.pid,
       stop: () => arreterProcessus(child, 'codex'),
       finished,
     };
+    options.surLancement?.(handle);
+    return handle;
   },
 };
 
