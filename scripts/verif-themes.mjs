@@ -572,12 +572,18 @@ async function dansLaPage(page, navigateur) {
     );
   }
 
+  /* Le sous-menu porte les sept thèmes PLUS « Système » — jamais un compte
+     recopié à la main, qui retomberait périmé au premier thème ajouté ou
+     retiré (constaté le 17.08.2026 : bloqué à 5 depuis l'ajout de givre,
+     sapin et contraste). */
+  const CHOIX_ATTENDUS = BLOCS.length + 1;
+
   /* 1) LE SURVOL. C'est le geste attendu à la souris. */
   await page.hover('[data-theme-menu]');
   await page.waitForTimeout(600);
   const auSurvol = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
-  if (auSurvol.length !== 5) {
-    anomalies.push(`le sous-menu ne s'ouvre pas au SURVOL (${auSurvol.length} thèmes vus, 5 attendus)`);
+  if (auSurvol.length !== CHOIX_ATTENDUS) {
+    anomalies.push(`le sous-menu ne s'ouvre pas au SURVOL (${auSurvol.length} thèmes vus, ${CHOIX_ATTENDUS} attendus)`);
   }
 
   /* 2) LE CLIC, pour qui n'a pas de souris. On referme d'abord tout. */
@@ -590,8 +596,8 @@ async function dansLaPage(page, navigateur) {
   await page.click('[data-theme-menu]');
   await page.waitForTimeout(600);
   const auClic = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
-  if (auClic.length !== 5) {
-    anomalies.push(`le sous-menu ne s'ouvre pas au CLIC (${auClic.length} thèmes vus, 5 attendus)`);
+  if (auClic.length !== CHOIX_ATTENDUS) {
+    anomalies.push(`le sous-menu ne s'ouvre pas au CLIC (${auClic.length} thèmes vus, ${CHOIX_ATTENDUS} attendus)`);
   }
 
   /* « Système » suit l'ordinateur, et le suit EN DIRECT. */
