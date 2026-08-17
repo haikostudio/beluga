@@ -42,6 +42,7 @@ import {
   imageDuPersonnage,
   animeDuPersonnage,
   gesteDuPersonnage,
+  agentTientSonTour,
   COLONNES_ANIMEES,
   runDeLEtape,
   mentionProgressionTaches,
@@ -381,10 +382,18 @@ export function Board({
    * `avancementDeLaColonne` ; ici on ne fait que rassembler la matière, et elle
    * se remet à jour toute seule puisque les agents sont diffusés en direct.
    */
+  /*
+   * …et « au travail » se lit avec la MÊME règle que le témoin d'une
+   * conversation (`agentTientSonTour`, `shared/src/travail-en-cours.ts`) : le TOUR
+   * VIVANT d'abord, le statut ensuite. Sans lui, le personnage de « En cours »
+   * cessait de piocher dès la réponse rendue, alors que le démon rangeait encore
+   * le tour (constat du dépôt, branche fusionnée) — l'immobilité disait « c'est
+   * fini » avant que ce le soit.
+   */
   const agentsTacheParCarte = React.useMemo(() => {
     const index = new Map<string, (typeof state.agents)[string]>();
     for (const agent of Object.values(state.agents)) {
-      if (agent.cardId && agent.role === 'task' && (agent.status === 'running' || agent.status === 'starting')) {
+      if (agent.cardId && agent.role === 'task' && agentTientSonTour(agent)) {
         if (!index.has(agent.cardId)) index.set(agent.cardId, agent);
       }
     }

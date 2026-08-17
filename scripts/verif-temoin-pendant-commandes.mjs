@@ -312,6 +312,16 @@ async function main() {
 
     await commande({ type: 'card.start', id: CARTE_ID });
 
+    /* LE PERSONNAGE DE « EN COURS » : il pioche tant que le tour vit. On le
+       regarde derrière le tiroir, sur le tableau resté en place. */
+    const pioche = page.locator('[data-personnage-colonne="running"]').first();
+    let aPioche = false;
+    for (let i = 0; i < 30 && !aPioche; i++) {
+      aPioche = (await pioche.getAttribute('data-personnage-geste').catch(() => null)) === 'pioche';
+      if (!aPioche) await page.waitForTimeout(1000);
+    }
+    noter('le personnage de « En cours » pioche pendant le tour', aPioche);
+
     // On attend que les commandes soient VRAIMENT parties : la phrase est
     // écrite, et le déroulé porte déjà plusieurs étapes.
     const deroule = panneau.locator('[data-steps]');
@@ -324,10 +334,16 @@ async function main() {
     const temoinVisible = await temoin.isVisible().catch(() => false);
     noter('le témoin de travail est allumé pendant les commandes', temoinVisible);
 
-    const texteTemoin = temoinVisible ? await temoin.innerText() : '';
+    /* Le libellé alterne entre la commande qui tourne et le court silence qui
+       la suit : on regarde plusieurs instants, une commande NOMMÉE suffit. */
+    let texteTemoin = '';
+    for (let i = 0; i < 8 && !/commande/i.test(texteTemoin); i++) {
+      texteTemoin = temoinVisible ? await temoin.innerText().catch(() => '') : '';
+      if (!/commande/i.test(texteTemoin)) await page.waitForTimeout(700);
+    }
     noter(
       'il DIT ce qui tourne, plutôt qu’un simple rond',
-      /commande/i.test(texteTemoin) || /git|sqlite/i.test(texteTemoin),
+      /commande/i.test(texteTemoin),
       texteTemoin.replace(/\n/g, ' · ').slice(0, 90) || '(rien)',
     );
 

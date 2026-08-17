@@ -73,6 +73,25 @@ export function temoinDeTravail(etat: EtatDuTemoin): boolean {
 }
 
 /**
+ * CET AGENT TRAVAILLE-T-IL, vu de l'extérieur d'une conversation ?
+ *
+ * Le tableau n'a ni message ni marque d'écriture sous la main : il ne connaît
+ * que l'agent. La même règle s'y applique donc, réduite à ce qu'il sait — et
+ * elle compte le TOUR VIVANT, pour que le personnage de la colonne « En cours »
+ * continue de piocher pendant le rangement d'après-réponse, au lieu de se figer
+ * dès que le statut retombe.
+ */
+export function agentTientSonTour(agent: {
+  status?: StatutDAgentSuivi | string;
+  tourVivantDepuis?: number;
+}): boolean {
+  return temoinDeTravail({
+    statut: agent.status as StatutDAgentSuivi | undefined,
+    tourVivantDepuis: agent.tourVivantDepuis,
+  });
+}
+
+/**
  * Ce message resté « en cours d'écriture » est-il ORPHELIN — c'est-à-dire plus
  * écrit par personne ? C'est la même règle, lue dans l'autre sens : le démon
  * s'en sert pour éteindre la marque, l'interface pour ne pas l'afficher.
