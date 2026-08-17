@@ -9,6 +9,7 @@ import {
   Compass,
   Folder,
   FolderPlus,
+  Github,
   GripVertical,
   LayoutDashboard,
   Loader2,
@@ -33,6 +34,9 @@ import {
   type AvancementColonne,
   type SignalProjet,
   ZONE_PROJETS,
+  type DepotDuCompte,
+  filtrerDepots,
+  lireLienGithub,
   avancementDeLaColonne,
   avertissementRedemarrage,
   raisonAgents,
@@ -1873,11 +1877,48 @@ interface Etape {
   detail?: string;
 }
 
+/**
+ * Le déroulé du montage, le même pour un projet neuf et pour un dépôt GitHub :
+ * une étape par ligne, ce qui a raté écrit avec sa cause.
+ */
+function DerouleDesEtapes({ etapes }: { etapes: Etape[] }) {
+  return (
+    <ul className="mt-1 space-y-1">
+      {etapes.map((etape, index) => (
+        <li key={index} className="flex items-start gap-1.5 text-[13px]">
+          {etape.fait ? (
+            <Check className="mt-[3px] h-3 w-3 shrink-0 text-success" />
+          ) : (
+            <TriangleAlert className="mt-[3px] h-3 w-3 shrink-0 text-warning" />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className={etape.fait ? 'text-muted' : 'text-warning'}>{etape.titre}</span>
+            {etape.detail ? <span className="block break-words text-[11.5px] text-faint">{etape.detail}</span> : null}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [found, setFound] = React.useState<Found[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [filter, setFilter] = React.useState('');
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [onglet, setOnglet] = React.useState('existing');
+
+  /* Le troisième chemin : un dépôt qui existe DÉJÀ sur GitHub. Deux entrées —
+     les dépôts du compte connecté, ou un lien collé à la main. */
+  const [depots, setDepots] = React.useState<DepotDuCompte[]>([]);
+  const [compteGithub, setCompteGithub] = React.useState<string | undefined>();
+  const [depotsErreur, setDepotsErreur] = React.useState<string | undefined>();
+  const [depotsCharges, setDepotsCharges] = React.useState(false);
+  const [chercheDepot, setChercheDepot] = React.useState('');
+  const [lienGithub, setLienGithub] = React.useState('');
+  const [ghSousDomaine, setGhSousDomaine] = React.useState('');
+  const [ghPort, setGhPort] = React.useState('');
+  const [etapesGithub, setEtapesGithub] = React.useState<Etape[] | null>(null);
 
   const [newName, setNewName] = React.useState('');
   const [newFolder, setNewFolder] = React.useState('');
@@ -1960,16 +2001,75 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
     }
   };
 
+  /*
+   * Les dépôts du compte ne se demandent qu'à l'OUVERTURE de l'onglet : les
+   * lister appelle GitHub, et personne ne veut payer cet appel pour ouvrir la
+   * fenêtre sur un autre chemin.
+   */
+  React.useEffect(() => {
+    if (!open || onglet !== 'github' || depotsCharges) return;
+    setDepotsCharges(true);
+    setLoading(true);
+    client
+      .call<{ depots?: DepotDuCompte[]; compte?: string; erreur?: string }>({ type: 'github.depots' }, 60000)
+      .then((data) => {
+        setDepots(data.depots ?? []);
+        setCompteGithub(data.compte);
+        setDepotsErreur(data.erreur);
+      })
+      .catch((err: any) => setDepotsErreur(err?.message ?? 'les dépôts GitHub sont illisibles'))
+      .finally(() => setLoading(false));
+  }, [open, onglet, depotsCharges]);
+
+  /** Le seul chemin d'ajout : le lien lu, l'adresse demandée, puis le montage. */
+  const ajouterDepuisGithub = async (lien: string, cle: string) => {
+    const lu = lireLienGithub(lien);
+    if (!lu.ok || !lu.depot) {
+      client.pushToast('error', lu.erreur ?? 'lien illisible');
+      return;
+    }
+    setBusy(cle);
+    setEtapesGithub(null);
+    try {
+      const data = await client.call<{ project: { id: string }; etapes?: Etape[] }>(
+        {
+          type: 'project.fromGithub',
+          lien: lu.depot.slug,
+          sousDomaine: ghSousDomaine.trim() || undefined,
+          port: ghPort ? Number(ghPort) : undefined,
+        },
+        /* Récupérer un dépôt puis créer son adresse peut durer : on laisse le
+           temps du clone, sinon un gros dépôt passerait pour une panne. */
+        600000,
+      );
+      client.setActiveProject(data.project.id);
+      setEtapesGithub(data.etapes ?? []);
+      setLienGithub('');
+      setGhSousDomaine('');
+      setGhPort('');
+      setDepots((current) => current.filter((depot) => depot.slug !== lu.depot!.slug));
+      /* La fenêtre reste ouverte tant qu'une étape a échoué : c'est le seul
+         endroit où l'on peut lire laquelle et pourquoi. */
+      if ((data.etapes ?? []).every((etape) => etape.fait)) onClose();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'ajout impossible');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const visible = filter ? found.filter((entry) => entry.name.toLowerCase().includes(filter.toLowerCase())) : found;
+  const depotsVisibles = filtrerDepots(depots, chercheDepot);
 
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
       <DialogContent className="sm:w-[min(600px,100%)]">
         <DialogTitle>Projets du serveur</DialogTitle>
 
-        <Tabs defaultValue="existing" className="mt-3">
+        <Tabs value={onglet} onValueChange={setOnglet} className="mt-3">
           <TabsList>
             <TabsTrigger value="existing">Déjà sur le serveur</TabsTrigger>
+            <TabsTrigger value="github">Depuis GitHub</TabsTrigger>
             <TabsTrigger value="new">Nouveau projet</TabsTrigger>
           </TabsList>
 
@@ -2024,6 +2124,121 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
             ) : (
               <p className="mt-3 text-[13.5px] text-faint">Tous les projets du serveur sont déjà dans votre liste.</p>
             )}
+          </TabsContent>
+
+          <TabsContent value="github" className="mt-3 space-y-2.5">
+            {/* L'adresse publique se demande AVANT le montage, ici comme pour un projet neuf. */}
+            <div data-adresse-depuis-github>
+              <Label>Adresse publique du projet (facultatif)</Label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Input
+                  value={ghSousDomaine}
+                  onChange={(event) => setGhSousDomaine(event.target.value)}
+                  placeholder="nom-du-site"
+                  className="flex-1"
+                  data-sous-domaine-github
+                />
+                <span className="shrink-0 text-[12.5px] text-faint">.{ZONE_PROJETS}</span>
+                <Input
+                  value={ghPort}
+                  onChange={(event) => setGhPort(event.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="port"
+                  className="w-[74px]"
+                  data-port-github
+                />
+              </div>
+              <p className="mt-1 text-[12px] leading-snug text-faint">
+                Le nom et le port sur lequel le projet écoutera. Ils sont demandés avant le montage : c'est cette adresse
+                qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est ajouté sans adresse.
+              </p>
+            </div>
+
+            <div className="border-t border-border pt-2.5">
+              <Label>Vos dépôts GitHub{compteGithub ? ` (compte ${compteGithub})` : ''}</Label>
+              <div className="relative mt-1">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
+                <Input
+                  value={chercheDepot}
+                  onChange={(event) => setChercheDepot(event.target.value)}
+                  placeholder="Chercher un dépôt…"
+                  className="pl-7"
+                  data-recherche-depot
+                />
+              </div>
+
+              {loading && !depots.length ? (
+                <p className="mt-2 flex items-center gap-1.5 text-[13.5px] text-faint">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Lecture des dépôts du compte GitHub…
+                </p>
+              ) : depotsErreur ? (
+                <p className="mt-2 text-[13px] text-warning">{depotsErreur}</p>
+              ) : depotsVisibles.length ? (
+                <ZoneDefilement classeEnveloppe="mt-1.5 max-h-[220px] flex-none" className="space-y-0.5">
+                  {depotsVisibles.map((depot) => (
+                    <div
+                      key={depot.slug}
+                      className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5"
+                      data-depot-github={depot.slug}
+                    >
+                      <Github className="h-3 w-3 shrink-0 text-faint" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[14px] text-text">{depot.slug}</p>
+                        <p className="truncate text-[11.5px] text-faint">
+                          {depot.prive ? 'privé' : 'public'}
+                          {depot.vide ? ' · vide' : ''}
+                          {depot.description ? ` · ${depot.description}` : ''}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy === depot.slug || depot.vide}
+                        onClick={() => ajouterDepuisGithub(depot.slug, depot.slug)}
+                      >
+                        {busy === depot.slug ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Plus className="h-3 w-3" />
+                        )}
+                        Ajouter
+                      </Button>
+                    </div>
+                  ))}
+                </ZoneDefilement>
+              ) : (
+                <p className="mt-2 text-[13.5px] text-faint">
+                  {depots.length ? 'Aucun dépôt ne correspond à cette recherche.' : 'Aucun dépôt trouvé sur ce compte.'}
+                </p>
+              )}
+            </div>
+
+            <div className="border-t border-border pt-2.5">
+              <Label>Ou collez le lien d'un dépôt</Label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Input
+                  value={lienGithub}
+                  onChange={(event) => setLienGithub(event.target.value)}
+                  placeholder="https://github.com/compte/depot"
+                  className="flex-1"
+                  data-lien-github
+                />
+                <Button
+                  size="sm"
+                  variant="default"
+                  disabled={!lienGithub.trim() || busy === 'lien'}
+                  onClick={() => ajouterDepuisGithub(lienGithub, 'lien')}
+                >
+                  {busy === 'lien' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                  Ajouter
+                </Button>
+              </div>
+              <p className="mt-1 text-[12px] leading-snug text-faint">
+                Pour un dépôt qui n'appartient pas à ce compte. Le dépôt est récupéré sur le serveur et le projet
+                apparaît dans la liste de gauche. Rien n'est publié ni mis en ligne au passage.
+              </p>
+            </div>
+
+            {etapesGithub ? <DerouleDesEtapes etapes={etapesGithub} /> : null}
           </TabsContent>
 
           <TabsContent value="new" className="mt-3 space-y-2.5">
@@ -2116,25 +2331,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
               Créer le projet
             </Button>
 
-            {etapes ? (
-              <ul className="mt-1 space-y-1">
-                {etapes.map((etape, index) => (
-                  <li key={index} className="flex items-start gap-1.5 text-[13px]">
-                    {etape.fait ? (
-                      <Check className="mt-[3px] h-3 w-3 shrink-0 text-success" />
-                    ) : (
-                      <TriangleAlert className="mt-[3px] h-3 w-3 shrink-0 text-warning" />
-                    )}
-                    <span className="min-w-0 flex-1">
-                      <span className={etape.fait ? 'text-muted' : 'text-warning'}>{etape.titre}</span>
-                      {etape.detail ? (
-                        <span className="block break-words text-[11.5px] text-faint">{etape.detail}</span>
-                      ) : null}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            {etapes ? <DerouleDesEtapes etapes={etapes} /> : null}
           </TabsContent>
         </Tabs>
       </DialogContent>

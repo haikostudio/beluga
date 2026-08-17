@@ -787,6 +787,16 @@ le nom, là-bas le texte).
 - **L'ADRESSE PUBLIQUE se demande AU MONTAGE** (nom court + port), avec l'outil `ask_user`, AVANT le
   premier dossier — jamais après coup. Elle devient `Project.devUrl`, l'adresse contrôlée à la fin de
   chaque déploiement.
+- **UN DÉPÔT QUI EXISTE DÉJÀ SUR GITHUB ENTRE EN QUELQUES CLICS** (`shared/src/depot-github.ts` ;
+  `server/src/depots-github.ts` ; commandes `github.depots` et `project.fromGithub` ; onglet
+  « Depuis GitHub » de la fenêtre « Projets du serveur ») : deux chemins, un seul montage — les
+  dépôts du compte GitHub connecté au serveur, listés et cherchables, ou un LIEN collé (page,
+  branche, adresse de clone https ou ssh, forme courte « compte/depot »). L'ADRESSE PUBLIQUE se
+  demande AVANT le montage, ici comme pour un projet neuf, et le clone passe par le jeton du
+  serveur posé dans l'ENVIRONNEMENT, jamais écrit dans l'adresse. Tout refus se dit en clair et
+  s'arrête AVANT de toucher au disque : lien mal formé, autre hébergeur, dépôt introuvable, accès
+  refusé, dépôt vide, projet déjà inscrit, dossier occupé. Rien n'est publié au passage.
+  Verrouillé par `server/src/test/depot-github.test.ts` et `scripts/verif-projet-depuis-github.mjs`.
 - **Un projet se déclare sur son DÉPÔT DE TRAVAIL, jamais sur son dossier publié** : un dossier servi
   n'est pas un dépôt git, l'agent n'y prouve rien.
 - **La COLONNE DE GAUCHE se pilote par outil** (`project_manage`, `group_manage`,
