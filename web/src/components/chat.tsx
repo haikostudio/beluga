@@ -21,6 +21,9 @@ import {
   questionEnTexteLibre,
   titreDeBloc,
   TEXTE_BARRE_EN_ATTENTE,
+  animeDuPersonnage,
+  gesteDuPersonnage,
+  imageDuPersonnage,
 } from '@haikodev/shared';
 import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
@@ -32,6 +35,7 @@ import { BandeauPropositions } from '@/components/propositions';
 import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { useAnimationsReduites } from '@/lib/animations-reduites';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -479,6 +483,8 @@ function TravailEnCours({
   cardId?: string;
 }) {
   const [, forcer] = React.useState(0);
+  const state = useApp();
+  const animationsReduites = useAnimationsReduites();
   // Le geste d'arrêt est le MÊME qu'en bas de la barre d'écriture : un seul
   // texte, donc le même contrôle, la même commande et la même confirmation.
   const arret = useArretAgent({ agent, cardId });
@@ -558,6 +564,19 @@ function TravailEnCours({
   // tour refermé, une coche BLEUE si tout est fait, sinon un point discret —
   // les mêmes repères que portait l'ancienne barre pleine largeur.
   const toutFait = todosDisponibles && todos!.every((todo) => todo.state === 'done');
+  /*
+   * L'AVATAR DU TIROIR : le même personnage que la colonne « En cours »
+   * (`shared/src/personnages-colonnes.ts`), qui donne de vrais coups de
+   * pioche tant que CETTE carte a un tour vivant (`busy`), et redevient
+   * l'image fixe dès que le tour se referme — « au moins une tâche n'est pas
+   * totalement finie » se lit ici comme `busy`, exactement ce que regarde
+   * déjà tout le reste de cette barre. `animationsReduites` l'immobilise
+   * pour qui préfère moins d'animations, comme pour le personnage de colonne.
+   */
+  const geste = gesteDuPersonnage('running', busy ? 1 : 0, {
+    remplace: state.personnages.running !== undefined,
+    animationsReduites,
+  });
   const icone = busy ? undefined : toutFait ? (
     <Check className="h-3 w-3 shrink-0 text-termine" />
   ) : (
@@ -597,6 +616,18 @@ function TravailEnCours({
           todosDisponibles && listeOuverte ? 'pb-1.5' : 'pb-4',
         )}
       >
+        <img
+          src={geste === 'pioche' ? animeDuPersonnage('running') : imageDuPersonnage('running', state.personnages.running)}
+          alt=""
+          aria-hidden
+          draggable={false}
+          data-avatar-tiroir
+          data-avatar-vivant={geste === 'immobile' ? 'non' : 'oui'}
+          className={cn(
+            'h-6 w-[18px] shrink-0 select-none object-contain',
+            geste === 'balancement' && 'origin-bottom animate-personnage-au-travail',
+          )}
+        />
         {todosDisponibles ? (
           <button
             type="button"
