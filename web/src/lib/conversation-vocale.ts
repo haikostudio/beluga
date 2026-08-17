@@ -173,7 +173,7 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
       try {
         rec = new MediaRecorder(flux);
       } catch {
-        renoncer("L’enregistrement audio n’est pas disponible dans ce navigateur.");
+        renoncer(t('L’enregistrement audio n’est pas disponible dans ce navigateur.'));
         return;
       }
       morceaux = [];
@@ -183,7 +183,7 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
       try {
         rec.start();
       } catch {
-        renoncer("L’enregistrement audio n’est pas disponible dans ce navigateur.");
+        renoncer(t('L’enregistrement audio n’est pas disponible dans ce navigateur.'));
         return;
       }
       enregistreur = rec;
@@ -191,7 +191,7 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
 
     const demarrer = async () => {
       if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-        renoncer("L’enregistrement audio n’est pas disponible dans ce navigateur.");
+        renoncer(t('L’enregistrement audio n’est pas disponible dans ce navigateur.'));
         return;
       }
       try {
@@ -200,7 +200,7 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
       } catch {
         if (!vivant) return;
         setEtat('refusee');
-        setErreur('Micro refusé — cliquer pour réessayer.');
+        setErreur(t('Micro refusé — cliquer pour réessayer.'));
         client.pushToast('error', t('Micro refusé — la conversation vocale ne peut pas écouter.'));
         return;
       }
@@ -231,7 +231,7 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
         source.connect(analyseur);
         temps = new Uint8Array(analyseur.fftSize);
       } catch {
-        renoncer('Le son n’est pas disponible dans ce navigateur.');
+        renoncer(t('Le son n’est pas disponible dans ce navigateur.'));
         return;
       }
       analyseurConversation = analyseur;
@@ -269,7 +269,7 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
     };
 
     void demarrer().catch(() =>
-      renoncer("L’enregistrement audio n’est pas disponible dans ce navigateur."),
+      renoncer(t('L’enregistrement audio n’est pas disponible dans ce navigateur.')),
     );
 
     return () => {

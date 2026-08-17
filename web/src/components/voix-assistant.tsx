@@ -1078,7 +1078,7 @@ export function VoixAssistant() {
         aria-label={
           parle
             ? 'L’assistant parle'
-            : `Voix de l’assistant — ${nb} message${nb > 1 ? 's' : ''} à réécouter — tirer pour le déplacer`
+            : t('Voix de l’assistant — {nb} message{v0} à réécouter — tirer pour le déplacer', { nb, v0: nb > 1 ? 's' : '' })
         }
         title={t('Voix de l’assistant — tirer pour le déplacer')}
         // AU DOIGT SEULEMENT, le bouton porte le glissement : le même appui sert

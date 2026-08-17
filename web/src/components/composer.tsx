@@ -629,7 +629,7 @@ export function Composer({
     try {
       await client.call({ type: 'agent.config', agentId: agent.id, run: patch });
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'réglage impossible');
+      client.pushToast('error', err?.message ?? t('réglage impossible'));
     }
   };
 

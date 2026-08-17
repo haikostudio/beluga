@@ -529,8 +529,8 @@ function TravailEnCours({
     : agent?.attendReponse
       ? TEXTE_BARRE_EN_ATTENTE
       : rangeLeTour
-        ? 'L’agent termine son tour…'
-        : (todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…');
+        ? t('L’agent termine son tour…')
+        : (todoEnCours?.label ?? etapeEnCours?.label ?? t('Réflexion en cours…'));
 
   // Le chronomètre et le compte « n/N » ne parlent que d'un travail EN COURS :
   // une fois le tour refermé, le compte est déjà dans la phrase ci-dessus, et

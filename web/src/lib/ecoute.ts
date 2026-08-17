@@ -322,7 +322,7 @@ export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ec
         const data = await reponse.json().catch(() => ({}) as { ok?: boolean; text?: string; error?: string });
         if (!vivant) return;
         if (!reponse.ok || !data.ok) {
-          direLaPanne(data.error ?? `réponse ${reponse.status}`);
+          direLaPanne(data.error ?? t('réponse {v0}', { v0: reponse.status }));
           return;
         }
         // Le serveur a répondu : ce qui bloquait ne bloque plus.
@@ -334,7 +334,7 @@ export function useEcoutePermanente(actif: boolean, formes?: FormesDeReveil): Ec
       } catch {
         // Le serveur n'a pas répondu du tout : l'écoute continue (la tranche
         // suivante repart), mais on ne laisse pas croire qu'elle comprend.
-        direLaPanne('le serveur n’a pas répondu');
+        direLaPanne(t('le serveur n’a pas répondu'));
       }
     };
 

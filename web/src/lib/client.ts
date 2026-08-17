@@ -30,6 +30,7 @@ import {
   choisirProjetAOuvrir,
   projetsADecharger,
 } from '@haikodev/shared';
+import { t } from '@/lib/langue';
 
 export interface Toast {
   id: string;
@@ -334,7 +335,7 @@ class Client {
           // dit oui ou non. Un refus MÉTIER n'est pas une panne de serveur.
           this.echecsReseau = 0;
           if (event.ok) entry.resolve(event.data);
-          else entry.reject(new Error(event.error ?? 'commande refusée'));
+          else entry.reject(new Error(event.error ?? t('commande refusée')));
         }
         break;
       }
@@ -653,7 +654,7 @@ class Client {
   call<T = any>(cmd: ClientCommand, timeoutMs = 120000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       if (this.socket?.readyState !== WebSocket.OPEN) {
-        reject(new Error('non connecté'));
+        reject(new Error(t('non connecté')));
         return;
       }
       const id = Math.random().toString(36).slice(2);
@@ -829,7 +830,7 @@ class Client {
       await this.call({ type: 'card.validate', id: card.id });
       return { ok: true };
     } catch (err: any) {
-      const raison = err?.message ?? 'validation refusée';
+      const raison = err?.message ?? t('validation refusée');
       if (!options.silencieux) this.signalerRefus(raison, card.id);
       return { ok: false, error: raison };
     }
@@ -848,7 +849,7 @@ class Client {
       await this.call({ type: 'card.move', id: card.id, column });
       return { ok: true };
     } catch (err: any) {
-      const raison = err?.message ?? 'déplacement refusé';
+      const raison = err?.message ?? t('déplacement refusé');
       this.set((state) => {
         const fraiche = state.cards[card.id];
         if (!fraiche) return {};

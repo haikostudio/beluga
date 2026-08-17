@@ -29,7 +29,7 @@ export function QuestionsEnAttente() {
 
   if (!decisions.length) return null;
 
-  const libelle = decisions.length > 1 ? `${decisions.length} questions en attente` : 'Une question en attente';
+  const libelle = decisions.length > 1 ? `${decisions.length} questions en attente` : t('Une question en attente');
 
   const aller = (decision: DecisionAttendue) => {
     setOpen(false);

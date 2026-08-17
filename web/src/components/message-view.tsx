@@ -769,7 +769,7 @@ async function htmlDeLaCopie(texte: string, images: Attachment[]): Promise<strin
 function BoutonCopier({
   texte: texteBrut,
   libelle = 'Copier',
-  titre = 'Copier le message',
+  titre = t('Copier le message'),
   jointes = [],
 }: {
   texte: string;
@@ -1012,7 +1012,7 @@ function QuestionCard({
         attachments: images.map((a) => a.id),
       });
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'réponse impossible');
+      client.pushToast('error', err?.message ?? t('réponse impossible'));
       throw err;
     }
   };

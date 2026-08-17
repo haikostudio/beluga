@@ -973,25 +973,25 @@ function BoutonRedemarrage() {
   const deconnecte = !state.connected;
 
   const libelle = enCours || deconnecte
-    ? 'Redémarrage…'
+    ? t('Redémarrage…')
     : publie
-      ? 'Publication en cours'
+      ? t('Publication en cours')
       : enAttente
-        ? 'Redémarrage requis'
+        ? t('Redémarrage requis')
         : attendu
-          ? 'Redémarrage attendu'
-          : 'Redémarrer le serveur';
+          ? t('Redémarrage attendu')
+          : t('Redémarrer le serveur');
   const titre = enCours || deconnecte
-    ? 'Le serveur redémarre — l’application se reconnectera toute seule.'
+    ? t('Le serveur redémarre — l’application se reconnectera toute seule.')
     : publie
       ? raisonPublications(publications)
       : enAttente
         ? (demon?.agentsEnCours
-            ? `${raisonAgents(demon.agentsEnCours, demon.agentsDetail)} Il partira tout seul dès qu’il aura fini.`
-            : 'Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.')
+            ? t('{v0} Il partira tout seul dès qu’il aura fini.', { v0: raisonAgents(demon.agentsEnCours, demon.agentsDetail) })
+            : t('Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.'))
         : attendu
-          ? 'Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.'
-          : 'Redémarrer le serveur';
+          ? t('Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.')
+          : t('Redémarrer le serveur');
 
   /*
    * CE QUI RETIENT LE REDÉMARRAGE N'ÉTEINT PLUS LE BOUTON.
@@ -1338,7 +1338,7 @@ function RepereRobot({
     );
   }
   if (running) {
-    const libelle = running > 1 ? `${running} agents au travail` : 'Un agent au travail';
+    const libelle = running > 1 ? `${running} agents au travail` : t('Un agent au travail');
     return (
       <Tooltip label={libelle}>
         <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label={libelle}>
@@ -1552,7 +1552,7 @@ function RepereLigne({
 
   if (quoi === 'attention') {
     const compte = signal.attention ?? 0;
-    const libelle = `${libelleAttention(compte)} — cliquez pour y aller`;
+    const libelle = t('{v0} — cliquez pour y aller', { v0: libelleAttention(compte) });
     /*
      * Le triangle EMMÈNE : c'est le chaînon qui manquait. Annoncer « 4
      * décisions attendues » sans dire où elles se prennent revenait à montrer
@@ -1581,8 +1581,8 @@ function RepereLigne({
   const compte = signal.rendus ?? 0;
   const libelle =
     compte > 1
-      ? `${compte} travaux terminés, pas encore lus — cliquez pour marquer comme lu`
-      : 'Un travail terminé, pas encore lu — cliquez pour marquer comme lu';
+      ? t('{compte} travaux terminés, pas encore lus — cliquez pour marquer comme lu', { compte })
+      : t('Un travail terminé, pas encore lu — cliquez pour marquer comme lu');
   return (
     <Tooltip label={libelle}>
       <button
@@ -2094,7 +2094,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
          endroit où l'on peut lire laquelle et pourquoi. */
       if ((data.etapes ?? []).every((etape) => etape.fait)) onClose();
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'création impossible');
+      client.pushToast('error', err?.message ?? t('création impossible'));
     } finally {
       setBusy(null);
     }
@@ -2116,7 +2116,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
         setCompteGithub(data.compte);
         setDepotsErreur(data.erreur);
       })
-      .catch((err: any) => setDepotsErreur(err?.message ?? 'les dépôts GitHub sont illisibles'))
+      .catch((err: any) => setDepotsErreur(err?.message ?? t('les dépôts GitHub sont illisibles')))
       .finally(() => setLoading(false));
   }, [open, onglet, depotsCharges]);
 

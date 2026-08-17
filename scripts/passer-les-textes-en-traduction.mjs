@@ -371,14 +371,22 @@ function remplacements(chemin, source) {
   return { gestes: retenus, cles };
 }
 
-/** Pose l'import de `t` en tête d'un fichier qui vient d'en gagner l'usage. */
+/**
+ * Pose l'import de `t` APRÈS LE DERNIER IMPORT du fichier — sa FIN, pas sa
+ * première ligne. Un import qui s'étale sur vingt lignes (`import {\n  A,\n
+ * B,\n} from …`) commence par « import » et finit vingt lignes plus bas : viser
+ * la ligne d'ouverture posait le nouvel import DEDANS, et le fichier ne
+ * compilait plus.
+ */
 function poserLImport(chemin, texte) {
   if (/from '@\/lib\/langue'/.test(texte)) return texte;
   const lignes = texte.split('\n');
   let rang = -1;
   for (let i = 0; i < lignes.length; i++) {
-    if (/^import\s/.test(lignes[i])) rang = i;
-    if (rang >= 0 && /^\s*$/.test(lignes[i]) && i > rang) break;
+    const ligne = lignes[i];
+    /* La FIN d'un import : soit tout tient sur une ligne, soit c'est l'accolade
+       fermante d'un import multiligne. */
+    if (/^import\s.*;\s*$/.test(ligne) || /^\}\s*from\s.*;\s*$/.test(ligne)) rang = i;
   }
   /* Après le dernier import, ou en tête si le fichier n'en a aucun. */
   const chemins = relative(dirname(chemin), join(SOURCE, 'lib', 'langue')).replace(/\\/g, '/');
@@ -438,19 +446,27 @@ function appelsDeTraduction(chemin, source) {
  *  - le titre d'un message d'ESSAI, sur lequel des scripts de contrôle
  *    s'appuient pour se reconnaître.
  */
-const A_LAISSER_EN_FRANCAIS = new Set([
+const A_LAISSER_EN_FRANCAIS = [
   'Vas-y, lance ce plan.',
+  '{TEXTE_VALIDATION_PLAN}',
+  'Abandonne les versions écrites après la version',
   'dictée',
   'mot de réveil',
   'Vérification',
-]);
+];
+
+/** Un DÉBUT suffit : les messages envoyés aux agents sont longs, on ne les recopie pas. */
+function laisseEnFrancais(texte) {
+  const nu = texte.trim();
+  return A_LAISSER_EN_FRANCAIS.some((debut) => nu === debut || nu.startsWith(debut));
+}
 
 const ACCENTS = /[àâäéèêëîïôöùûüÿçœÀÂÄÉÈÊËÎÏÔÖÙÛÜŸÇŒ’]/;
 const MOTS_FRANCAIS =
   /(^|[\s'’(«"])(le|la|les|un|une|des|du|de|au|aux|et|ou|en|dans|sur|pour|par|avec|sans|ce|cet|cette|qui|que|est|sont|pas|plus|tout|tous|toute|toutes|aucun|aucune|votre|vos|son|sa|ses|leur|encore|jamais|toujours|puis|donc|mais|quand|avant|entre|chaque|autre|autres|rien|peut|doit|vers|ici|déjà|elle|il|on|ne|se|si)([\s'’),.…:;!?»"]|$)/i;
 
 function ressembleAuFrancais(texte) {
-  if (A_LAISSER_EN_FRANCAIS.has(texte.trim())) return false;
+  if (laisseEnFrancais(texte)) return false;
   return ACCENTS.test(texte) || MOTS_FRANCAIS.test(texte);
 }
 
@@ -492,8 +508,14 @@ function francaisResteEnDur(chemin, source) {
       }
       return;
     }
-    if (ts.isTemplateExpression(noeud) && !dejaPrisEnCharge(noeud) && !positionDeCode(noeud)) {
+    if (
+      ts.isTemplateExpression(noeud) &&
+      !dejaPrisEnCharge(noeud) &&
+      !positionDeCode(noeud) &&
+      contexteDuLitteral(noeud) !== 'attribut-technique'
+    ) {
       const { texte, valeurs } = gabaritEnTexteATrous(noeud, source);
+      if (laisseEnFrancais(texte)) return;
       const nu = texte.replace(/\{\w+\}/g, ' ');
       if (texteLisible(nu) && ressembleAuFrancais(nu)) {
         const { line } = arbre.getLineAndCharacterOfPosition(noeud.getStart(arbre));

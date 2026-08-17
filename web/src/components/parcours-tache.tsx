@@ -56,7 +56,7 @@ interface QuotaParcours {
  * prétend pas à la décimale — « moins de 0,1 % » dit le vrai.
  */
 function partQuota(part: number): string {
-  if (part > 0 && part < 0.1) return 'moins de 0,1 %';
+  if (part > 0 && part < 0.1) return t('moins de 0,1 %');
   return `${part.toLocaleString(formatRegional(), { maximumFractionDigits: 1 })} %`;
 }
 
@@ -204,10 +204,10 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
  */
 function BlocDeCapitalisation({ cardId, etat }: { cardId: string; etat: Capitalisation }) {
   const libelles: Record<Capitalisation['etat'], string> = {
-    'sans-preuve': 'Rien n’est capitalisé',
+    'sans-preuve': t('Rien n’est capitalisé'),
     candidate: 'Candidate',
-    mure: 'Mûre',
-    publiee: 'Publiée dans le pool',
+    mure: t('Mûre'),
+    publiee: t('Publiée dans le pool'),
   };
   return (
     <div className="rounded-lg border border-border bg-raised px-3 py-2" data-capitalisation={etat.etat}>

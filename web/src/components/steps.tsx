@@ -3,6 +3,7 @@ import { Check, ChevronRight, Circle, Loader2, X, MinusCircle } from 'lucide-rea
 import { RunStep } from '@haikodev/shared';
 import { ZoneDefilement } from '@/components/ui';
 import { cn, duration } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * La liste d'exécution en direct (PLAN §26). Même affichage quel que soit le
@@ -37,9 +38,7 @@ export function Steps({
   const running = steps.find((s) => s.state === 'running');
   const derniere = running ?? [...steps].reverse().find((s) => s.state !== 'skipped') ?? steps[steps.length - 1];
 
-  const bilan = `${done} étape${done > 1 ? 's' : ''} terminée${done > 1 ? 's' : ''}${
-    failed ? `, ${failed} en échec` : ''
-  }${skipped ? `, ${skipped} ignorée${skipped > 1 ? 's' : ''}` : ''}`;
+  const bilan = t('{done} étape{v0} terminée{v1}{v2}{v3}', { done, v0: done > 1 ? 's' : '', v1: done > 1 ? 's' : '', v2: failed ? `, ${failed} en échec` : '', v3: skipped ? `, ${skipped} ignorée${skipped > 1 ? 's' : ''}` : '' });
 
   /*
    * Pendant le travail : la dernière action. À la fin : le bilan.
@@ -52,7 +51,7 @@ export function Steps({
    * tournait — le déroulé démentait ce qui se passait.
    */
   const enCours = streaming || (agentAuTravail && !!running);
-  const summary = enCours ? (derniere?.label ?? 'préparation…') : bilan;
+  const summary = enCours ? (derniere?.label ?? t('préparation…')) : bilan;
 
   return (
     <div className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">

@@ -355,7 +355,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                       attente={enAttente.includes(quota.id)}
                       checked={!quota.disabled}
                       onCheckedChange={(actif) => basculerCompte(quota.id, quota.label, actif)}
-                      aria-label={quota.disabled ? `Réactiver ${quota.label}` : `Désactiver ${quota.label}`}
+                      aria-label={quota.disabled ? t('Réactiver {v0}', { v0: quota.label }) : t('Désactiver {v0}', { v0: quota.label })}
                     />
                   </Tooltip>
                 </div>
@@ -550,17 +550,17 @@ function libelleFenetre(
   type: 'session' | 'weekly',
 ): string {
   const secondes = win.durationSeconds;
-  if (secondes === 5 * 60 * 60) return 'Fenêtre 5 h';
+  if (secondes === 5 * 60 * 60) return t('Fenêtre 5 h');
   if (secondes === 7 * 24 * 60 * 60) return 'Semaine';
   if (secondes && secondes < 24 * 60 * 60) {
     const heures = secondes / 3600;
-    return Number.isInteger(heures) ? `Fenêtre ${heures} h` : 'Fenêtre courte';
+    return Number.isInteger(heures) ? t('Fenêtre {heures} h', { heures }) : t('Fenêtre courte');
   }
   if (secondes) {
     const jours = secondes / (24 * 3600);
-    return Number.isInteger(jours) ? `Fenêtre ${jours} jours` : 'Fenêtre longue';
+    return Number.isInteger(jours) ? t('Fenêtre {jours} jours', { jours }) : t('Fenêtre longue');
   }
-  return type === 'weekly' ? 'Fenêtre longue' : 'Fenêtre courte';
+  return type === 'weekly' ? t('Fenêtre longue') : t('Fenêtre courte');
 }
 
 function Window({

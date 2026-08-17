@@ -105,10 +105,10 @@ export function QuotaBar({
       const refus = issues.filter((issue) => issue.status === 'rejected').length;
       const arretes = issues.length - refus;
       if (arretes) {
-        client.pushToast('info', arretes > 1 ? `${arretes} agents arrêtés.` : 'Agent arrêté.');
+        client.pushToast('info', arretes > 1 ? t('{arretes} agents arrêtés.', { arretes }) : t('Agent arrêté.'));
       }
       if (refus) {
-        client.pushToast('error', refus > 1 ? `${refus} arrêts refusés.` : 'Arrêt refusé.');
+        client.pushToast('error', refus > 1 ? t('{refus} arrêts refusés.', { refus }) : t('Arrêt refusé.'));
       }
     });
   };
@@ -128,7 +128,7 @@ export function QuotaBar({
         if (message) client.pushToast('info', message);
       })
       .catch((err: any) => {
-        client.pushToast('error', err?.message ?? 'Arrêt refusé');
+        client.pushToast('error', err?.message ?? t('Arrêt refusé'));
         // Relancée : sans cela le bouton en attente croirait avoir réussi.
         throw err;
       });
@@ -142,7 +142,7 @@ export function QuotaBar({
       // téléphone et Bluetooth de la voiture (PLAN §22).
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
-          title: 'Le point du jour',
+          title: t('Le point du jour'),
           artist: 'HaikoDev',
           artwork: [{ src: '/icon-512.png', sizes: '512x512', type: 'image/png' }],
         });
@@ -192,13 +192,13 @@ export function QuotaBar({
   const pointEtat = !state.connected
     ? { classe: 'animate-pulse-soft bg-warning', texte: 'Reconnexion…' }
     : ailleurs
-      ? { classe: 'bg-warning', texte: 'Un autre projet attend une réponse' }
+      ? { classe: 'bg-warning', texte: t('Un autre projet attend une réponse') }
       : {
           classe: 'bg-success',
           texte:
             enCours.length > 1
-              ? `Connecté au serveur · ${enCours.length} agents travaillent`
-              : 'Connecté au serveur',
+              ? t('Connecté au serveur · {v0} agents travaillent', { v0: enCours.length })
+              : t('Connecté au serveur'),
         };
 
   return (

@@ -129,28 +129,28 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
   // carte et le serveur passe par `startCard` — portes dures comprises. Une
   // carte refusée revient à sa colonne avec sa raison, et le lot continue.
-  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running', participe: 'lancée', parallele: true },
+  planned: { libelle: t('Tout lancer'), icone: Play, verbe: 'Lancer', cible: 'running', participe: t('lancée'), parallele: true },
   // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
-  done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy', participe: 'déployée' },
+  done: { libelle: t('Tout déployer'), icone: Rocket, verbe: t('Déployer'), cible: 'to_deploy', participe: t('déployée') },
   // La mise en ligne compte désormais DEUX étapes : « À déployer » pousse vers
   // « En production », et c'est de là seulement qu'on archive. Un pied suit le
   // parcours de la carte — on n'archive jamais par-dessus une étape.
   to_deploy: {
-    libelle: 'Tout mettre en production',
+    libelle: t('Tout mettre en production'),
     icone: Globe,
-    verbe: 'Mettre en production',
+    verbe: t('Mettre en production'),
     cible: 'in_production',
     participe: 'mise en production',
   },
   // Dernière colonne du parcours, où le ménage se fait en lot.
   in_production: {
-    libelle: 'Tout archiver',
+    libelle: t('Tout archiver'),
     icone: Archive,
     verbe: 'Archiver',
     cible: 'archived',
-    participe: 'archivée',
+    participe: t('archivée'),
   },
 };
 
@@ -167,7 +167,7 @@ function actionDeLot(colonne: ColumnKey, cartes: Card[]): ActionDeLot | undefine
   const action = ACTIONS_DE_LOT[colonne];
   if (!action || colonne !== 'planned') return action;
   const libelle = libelleDuLotDeLancement(cartes);
-  if (libelle !== 'Tout reprendre') return action;
+  if (libelle !== t('Tout reprendre')) return action;
   return { ...action, libelle, verbe: 'Reprendre', icone: RotateCcw };
 }
 
@@ -684,7 +684,7 @@ export function Board({
     if (!card || card.column === column) return;
     const decision = canMove('user', card.column, column);
     if (!decision.allowed) {
-      client.pushToast('error', decision.reason ?? 'déplacement refusé');
+      client.pushToast('error', decision.reason ?? t('déplacement refusé'));
       return;
     }
     /*
@@ -704,7 +704,7 @@ export function Board({
       column,
     );
     if (!sortie.possible) {
-      client.pushToast('warning', sortie.raison ?? 'déplacement refusé');
+      client.pushToast('warning', sortie.raison ?? t('déplacement refusé'));
       return;
     }
     void client.moveCard(card, column);
@@ -1625,7 +1625,7 @@ function ComposerInline({
       setApercu(null);
       setOpen(false);
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'création impossible');
+      client.pushToast('error', err?.message ?? t('création impossible'));
     } finally {
       setBusy(false);
     }
@@ -1905,7 +1905,7 @@ export function CardTile({
     : null;
   const avancementTravail = agentActif?.todos && agentActif.todos.total > 0 ? agentActif.todos : null;
   const travailActuel = agentActif
-    ? { quoi: agentActif.etapeEnCours ?? 'Réflexion en cours…', avancement: avancementTravail, temps: tempsTravail }
+    ? { quoi: agentActif.etapeEnCours ?? t('Réflexion en cours…'), avancement: avancementTravail, temps: tempsTravail }
     : null;
 
   /*

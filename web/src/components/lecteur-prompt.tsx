@@ -18,7 +18,7 @@ function nomMoteur(engine: SentContextSnapshot['engine']): string {
 }
 
 function nomSession(session: SentContextSnapshot['session']): string {
-  return session === 'new' ? 'Nouvelle session' : 'Reprise de session';
+  return session === 'new' ? 'Nouvelle session' : t('Reprise de session');
 }
 
 function contientLaRecherche(texte: string | undefined, requete: string): boolean {

@@ -193,6 +193,6 @@ export function CorpsListeTaches({
 export function resumeDesTaches(todos: readonly TodoItem[]): string {
   const faites = todos.filter((t) => t.state === 'done').length;
   const nonFaites = mentionTachesNonFaites(todos);
-  const compte = `Liste des tâches — ${faites}/${todos.length} faite${faites > 1 ? 's' : ''}`;
+  const compte = t('Liste des tâches — {faites}/{v0} faite{v1}', { faites, v0: todos.length, v1: faites > 1 ? 's' : '' });
   return nonFaites ? `${compte} · ${nonFaites}` : compte;
 }

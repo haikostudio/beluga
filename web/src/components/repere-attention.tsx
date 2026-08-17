@@ -2,6 +2,7 @@ import * as React from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { Tooltip } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * LE MÊME triangle orange, partout où une décision attend.
@@ -16,7 +17,7 @@ import { cn } from '@/lib/utils';
  * souris, `aria-label` pour la lecture d'écran.
  */
 export function libelleAttention(compte: number): string {
-  return compte > 1 ? `${compte} décisions attendues de votre part` : 'Une décision attendue de votre part';
+  return compte > 1 ? t('{compte} décisions attendues de votre part', { compte }) : t('Une décision attendue de votre part');
 }
 
 export function RepereAttention({

@@ -59,7 +59,7 @@ export function useArretAgent({ agent, cardId }: { agent: Agent | null; cardId?:
       // rien à arrêter — est DIT par le démon lui-même, pour tous les chemins
       // d'arrêt à la fois : un clic sans réponse visible, c'est ce qui faisait
       // croire que le bouton ne marchait pas.
-      .catch((err: any) => client.pushToast('error', err?.message ?? 'arrêt refusé', cardId));
+      .catch((err: any) => client.pushToast('error', err?.message ?? t('arrêt refusé'), cardId));
   }, [agent, cardId]);
 
   /*

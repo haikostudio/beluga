@@ -588,7 +588,7 @@ function PreparationChef({ card }: { card: Card }) {
     ? duration(card.estimate.machineSeconds)
     : card.estimate?.failed
       ? 'Chiffrage indisponible'
-      : 'Chiffrage en attente';
+      : t('Chiffrage en attente');
   const pieces = card.attachments.length;
   const etiquettes = card.labels.length;
 
@@ -751,7 +751,7 @@ function ReglagesAgent({ card }: { card: Card }) {
  * pour-cent, on ne prétend pas à la décimale — « moins de 0,1 % » dit le vrai.
  */
 function partQuota(part: number): string {
-  if (part > 0 && part < 0.1) return 'moins de 0,1 %';
+  if (part > 0 && part < 0.1) return t('moins de 0,1 %');
   return `${part.toLocaleString(formatRegional(), { maximumFractionDigits: 1 })} %`;
 }
 
@@ -1060,14 +1060,14 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
        après l'avoir dit, sinon le bouton afficherait sa coche sans rien avoir
        envoyé. */
     if (!hours || Number.isNaN(Number(hours))) {
-      const raison = 'Indiquez un nombre d\'heures';
+      const raison = t('Indiquez un nombre d\'heures');
       client.pushToast('warning', raison);
       throw new Error(raison);
     }
     // Sans document par défaut sur le projet, on ne devine pas : il faut dire
     // dans quelle facture ou quelle offre la ligne doit atterrir.
     if (!defaut && !documentId && !confirmeNouveau) {
-      const raison = 'Choisissez le document, ou cochez « créer un nouveau document ».';
+      const raison = t('Choisissez le document, ou cochez « créer un nouveau document ».');
       client.pushToast('warning', raison);
       throw new Error(raison);
     }
@@ -1123,9 +1123,9 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
 
       <Champ
         label={t('Heures (développeur senior)')}
-        aide={`Les heures qu'un développeur senior mettrait à la main — jamais la durée machine de l'agent (${duration(
+        aide={t('Les heures qu\'un développeur senior mettrait à la main — jamais la durée machine de l\'agent ({v0}).', { v0: duration(
           card.consumption?.machineSeconds,
-        )}).`}
+        ) })}
       >
         <Input
           value={hours}

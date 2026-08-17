@@ -346,12 +346,12 @@ export function ProjectSettings({
       )
       .then((data) => {
         setBranches(data.branches ?? []);
-        if (data.source === 'local') setBranchesRaison('Branches lues sur le serveur : GitHub n’a rien rendu.');
-        if (data.source === 'aucune') setBranchesRaison('Aucune branche lisible : ce projet n’a pas de dépôt joignable.');
+        if (data.source === 'local') setBranchesRaison(t('Branches lues sur le serveur : GitHub n’a rien rendu.'));
+        if (data.source === 'aucune') setBranchesRaison(t('Aucune branche lisible : ce projet n’a pas de dépôt joignable.'));
       })
       .catch(() => {
         setBranches([]);
-        setBranchesRaison('Lecture des branches impossible.');
+        setBranchesRaison(t('Lecture des branches impossible.'));
       })
       .finally(() => setBranchesEnCours(false));
   }, [open, project?.id]);
@@ -439,10 +439,10 @@ export function ProjectSettings({
         setPromptProduction(res.prompt);
         client.pushToast('success', t('Prompt rédigé. Relisez-le, puis enregistrez.'));
       } else {
-        client.pushToast('error', res.raison ?? 'la génération n’a rien rendu');
+        client.pushToast('error', res.raison ?? t('la génération n’a rien rendu'));
       }
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'génération impossible');
+      client.pushToast('error', err?.message ?? t('génération impossible'));
     } finally {
       setGeneration(false);
     }

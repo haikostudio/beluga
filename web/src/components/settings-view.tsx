@@ -111,15 +111,15 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
 }
 
 const ONGLETS = [
-  { cle: 'systeme', titre: 'Système' },
+  { cle: 'systeme', titre: t('Système') },
   { cle: 'apparence', titre: 'Apparence' },
   { cle: 'fonctionnement', titre: 'Fonctionnement' },
   { cle: 'comptes', titre: 'Comptes' },
   { cle: 'voix', titre: 'Voix' },
   { cle: 'consommation', titre: 'Consommation' },
   { cle: 'sauvegardes', titre: 'Sauvegardes' },
-  { cle: 'acces-api', titre: 'Accès API' },
-  { cle: 'competences', titre: 'Compétences' },
+  { cle: 'acces-api', titre: t('Accès API') },
+  { cle: 'competences', titre: t('Compétences') },
   { cle: 'personnages', titre: 'Personnages' },
 ] as const;
 
@@ -326,7 +326,7 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
         type: cible.running ? 'process.stop' : 'process.start',
         id: cible.id,
       });
-      if (!result.ok) client.pushToast('error', result.error ?? 'opération refusée');
+      if (!result.ok) client.pushToast('error', result.error ?? t('opération refusée'));
       else client.send({ type: 'capacity.processes' });
     } finally {
       setBusy(null);
@@ -392,10 +392,10 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
                 valeur={`${Math.round(capacity.cpuLoadPct ?? capacity.loadPct)} %`}
                 detail={
                   capacity.cpuLoadSustainedPct === undefined
-                    ? `${capacity.cpuCount} cœurs`
-                    : `${capacity.cpuCount} cœurs — ${Math.round(
+                    ? t('{v0} cœurs', { v0: capacity.cpuCount })
+                    : t('{v0} cœurs — {v1} % sur un quart d\'heure, et c\'est ce chiffre-là qui freine les départs', { v0: capacity.cpuCount, v1: Math.round(
                         capacity.cpuLoadSustainedPct,
-                      )} % sur un quart d'heure, et c'est ce chiffre-là qui freine les départs`
+                      ) })
                 }
               />
             </div>
@@ -485,9 +485,9 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
 /* ------------------------------------------------------------------ */
 
 const MOYENS_ACCES_VPS: { id: 'agent' | 'cle' | 'mot-de-passe'; libelle: string }[] = [
-  { id: 'agent', libelle: 'Clés SSH déjà en place' },
-  { id: 'cle', libelle: 'Fichier de clé privée' },
-  { id: 'mot-de-passe', libelle: 'Mot de passe' },
+  { id: 'agent', libelle: t('Clés SSH déjà en place') },
+  { id: 'cle', libelle: t('Fichier de clé privée') },
+  { id: 'mot-de-passe', libelle: t('Mot de passe') },
 ];
 
 /**
@@ -695,7 +695,7 @@ function SectionCerveau() {
         setCle('');
         client.pushToast('success', t('Clé posée : les envois peuvent partir.'));
       } else {
-        client.pushToast('error', data.pose?.raison ?? 'clé non enregistrée');
+        client.pushToast('error', data.pose?.raison ?? t('clé non enregistrée'));
       }
     } finally {
       setPose(false);
@@ -714,8 +714,8 @@ function SectionCerveau() {
         client.pushToast(
           'success',
           data.resultat.fichiers
-            ? `${data.resultat.fichiers} fichier(s) envoyé(s) pour ${data.resultat.projets} projet(s)`
-            : 'Rien de nouveau à envoyer : le cerveau est déjà à jour',
+            ? t('{v0} fichier(s) envoyé(s) pour {v1} projet(s)', { v0: data.resultat.fichiers, v1: data.resultat.projets })
+            : t('Rien de nouveau à envoyer : le cerveau est déjà à jour'),
         );
       } else {
         client.pushToast('error', data.resultat?.raison ?? 'envoi impossible');
@@ -831,7 +831,7 @@ function SectionErreursInterface() {
         client.pushToast('error', t('Le journal n\'a pas pu être vidé.'));
       }
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'effacement refusé');
+      client.pushToast('error', err?.message ?? t('effacement refusé'));
     } finally {
       setEnCours(false);
     }
@@ -1257,17 +1257,17 @@ function libelleFenetreCompte(
   type: 'session' | 'weekly',
 ): string {
   const secondes = win.durationSeconds;
-  if (secondes === 5 * 60 * 60) return 'fenêtre 5 h';
+  if (secondes === 5 * 60 * 60) return t('fenêtre 5 h');
   if (secondes === 7 * 24 * 60 * 60) return 'semaine';
   if (secondes && secondes < 24 * 60 * 60) {
     const heures = secondes / 3600;
-    return Number.isInteger(heures) ? `fenêtre ${heures} h` : 'fenêtre courte';
+    return Number.isInteger(heures) ? t('fenêtre {heures} h', { heures }) : t('fenêtre courte');
   }
   if (secondes) {
     const jours = secondes / (24 * 3600);
-    return Number.isInteger(jours) ? `fenêtre ${jours} jours` : 'fenêtre longue';
+    return Number.isInteger(jours) ? t('fenêtre {jours} jours', { jours }) : t('fenêtre longue');
   }
-  return type === 'weekly' ? 'fenêtre longue' : 'fenêtre courte';
+  return type === 'weekly' ? t('fenêtre longue') : t('fenêtre courte');
 }
 
 /**
@@ -1289,7 +1289,7 @@ function EtatCursor({ accountId }: { accountId: string }) {
     client
       .call<{ etat: EtatCompteCursor }>({ type: 'cursor.etat', accountId })
       .then((data) => vivant && setEtat(data.etat))
-      .catch((err) => vivant && setErreur(err?.message ?? 'état illisible'));
+      .catch((err) => vivant && setErreur(err?.message ?? t('état illisible')));
     return () => {
       vivant = false;
     };
@@ -1504,7 +1504,7 @@ function AjouterCleCursor() {
         cle,
       });
       if (!rendu.ok) {
-        setErreur(rendu.erreur ?? 'clé refusée');
+        setErreur(rendu.erreur ?? t('clé refusée'));
         return;
       }
       client.pushToast('success', t('compte Cursor ajouté'));
@@ -1942,7 +1942,7 @@ function UsageSection({ open }: { open: boolean }) {
   const nomDuProjet = (row: { projectId?: string | null; name?: string }) =>
     (row.projectId ? state.projects.find((p) => p.id === row.projectId)?.name : undefined) ??
     row.name ??
-    (row.projectId ? `Projet supprimé · ${row.projectId.slice(0, 8)}` : 'Hors projet');
+    (row.projectId ? t('Projet supprimé · {v0}', { v0: row.projectId.slice(0, 8) }) : 'Hors projet');
 
   return (
     <section>
@@ -2079,9 +2079,9 @@ function Sparkline({ points }: { points: { at: number; loadPct: number }[] }) {
 function exempleDAppel(): string {
   const racine = typeof window === 'undefined' ? '' : window.location.origin;
   const corps = JSON.stringify({
-    projet: 'Nom du projet',
-    titre: 'Mail de M. Dupont',
-    description: 'Ce qu’il demande, tel quel.',
+    projet: t('Nom du projet'),
+    titre: t('Mail de M. Dupont'),
+    description: t('Ce qu’il demande, tel quel.'),
   });
   return [
     `curl -X POST ${racine}${ROUTE_CARTE_EXTERNE} \\`,
@@ -2119,7 +2119,7 @@ function SectionClesApi({ open }: { open: boolean }) {
       setSecret({ nom: juge.nom, valeur: data.secret });
       setNom('');
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'clé non créée');
+      client.pushToast('error', err?.message ?? t('clé non créée'));
     } finally {
       setEnCours(false);
     }
@@ -2136,7 +2136,7 @@ function SectionClesApi({ open }: { open: boolean }) {
       const data = await client.call<{ cles: CleApiPublique[] }>({ type: 'cleApi.oublier', id: cle.id });
       setCles(data.cles ?? []);
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'clé non retirée');
+      client.pushToast('error', err?.message ?? t('clé non retirée'));
     }
   };
 
@@ -2317,7 +2317,7 @@ function SectionCompetences({ open }: { open: boolean }) {
       const data = await client.call<{ pool: EtatDuPool }>({ type: 'competences.etatDeLaFiche', nom, etat });
       setPool(data.pool);
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'état non changé');
+      client.pushToast('error', err?.message ?? t('état non changé'));
       throw err;
     }
   };
@@ -2456,12 +2456,12 @@ function SectionPersonnages() {
       });
       const data = await reponse.json().catch(() => ({}));
       if (!reponse.ok || !data?.ok) {
-        setRefus((avant) => ({ ...avant, [colonne]: data?.error ?? "Le remplacement a échoué." }));
+        setRefus((avant) => ({ ...avant, [colonne]: data?.error ?? t('Le remplacement a échoué.') }));
         return;
       }
       client.pushToast('success', t('Le personnage de « {v0} » a été remplacé.', { v0: t(COLUMN_LABELS[colonne]) }));
     } catch (err: any) {
-      setRefus((avant) => ({ ...avant, [colonne]: err?.message ?? "Le remplacement a échoué." }));
+      setRefus((avant) => ({ ...avant, [colonne]: err?.message ?? t('Le remplacement a échoué.') }));
     } finally {
       setEnCours(null);
       // Le champ garde sinon le fichier déposé : redéposer le MÊME ne
@@ -2476,9 +2476,9 @@ function SectionPersonnages() {
     const reponse = await fetch(`/api/personnage?colonne=${encodeURIComponent(colonne)}`, { method: 'DELETE' });
     const data = await reponse.json().catch(() => ({}));
     if (!reponse.ok || !data?.ok) {
-      setRefus((avant) => ({ ...avant, [colonne]: data?.error ?? "Le retour à l'original a échoué." }));
+      setRefus((avant) => ({ ...avant, [colonne]: data?.error ?? t('Le retour à l\'original a échoué.') }));
       // Le bouton doit se savoir en échec : sans cela il montrerait sa coche.
-      throw new Error(data?.error ?? 'échec');
+      throw new Error(data?.error ?? t('échec'));
     }
     client.pushToast('success', t('« {v0} » a retrouvé son personnage d\'origine.', { v0: t(COLUMN_LABELS[colonne]) }));
   };

@@ -35,11 +35,22 @@ function dureeEnClair(secondes: number): string {
   return reste ? `${heures} h ${reste.toString().padStart(2, '0')}` : `${heures} h`;
 }
 
-/** Un jour « 2026-08-04 » → « 4 août », pour l'axe de la courbe. */
+/**
+ * Un jour « 2026-08-04 » → « 4 août », pour l'axe de la courbe.
+ *
+ * Les noms de mois étaient écrits À LA MAIN, en français, dans un tableau de
+ * douze : la moitié serait restée française dans une page anglaise, et l'ordre
+ * « quantième puis mois » n'est pas celui de toutes les langues. On laisse donc
+ * le NAVIGATEUR écrire la date, dans le format régional de la langue en vigueur
+ * — il connaît les douze mois des cinq langues, et leur ordre.
+ */
 function jourEnClair(jour: string): string {
-  const [, mois, quantieme] = jour.split('-');
-  const noms = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
-  return `${Number(quantieme)} ${noms[Number(mois) - 1] ?? ''}`.trim();
+  const [annee, mois, quantieme] = jour.split('-').map(Number);
+  if (!annee || !mois || !quantieme) return jour;
+  /* Construit par PARTIES, jamais par `new Date('2026-08-04')` : cette forme est
+     lue en temps universel et peut reculer d'un jour selon le fuseau. */
+  const date = new Date(annee, mois - 1, quantieme);
+  return date.toLocaleDateString(formatRegional(), { day: 'numeric', month: 'short' });
 }
 
 /**
@@ -156,7 +167,7 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
 
   // Le nom vivant d'abord, sinon celui figé à la dépense.
   const nomDuProjet = (row: { projectId: string; name?: string }) =>
-    state.projects.find((p) => p.id === row.projectId)?.name ?? row.name ?? `Projet supprimé · ${row.projectId.slice(0, 8)}`;
+    state.projects.find((p) => p.id === row.projectId)?.name ?? row.name ?? t('Projet supprimé · {v0}', { v0: row.projectId.slice(0, 8) });
 
   const byProject = donnees?.byProject ?? [];
   const tempsTotal = byProject.reduce((total, p) => total + (p.seconds ?? 0), 0);
@@ -209,7 +220,7 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
               icone={<ListChecks className="h-3.5 w-3.5" />}
               titre={t('Tâches exécutées')}
               valeur={tachesTotal.toLocaleString(formatRegional())}
-              dessous={`${byProject.length} projet${byProject.length > 1 ? 's' : ''} concerné${byProject.length > 1 ? 's' : ''}`}
+              dessous={t('{v0} projet{v1} concerné{v2}', { v0: byProject.length, v1: byProject.length > 1 ? 's' : '', v2: byProject.length > 1 ? 's' : '' })}
             />
           </div>
 

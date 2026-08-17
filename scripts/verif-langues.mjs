@@ -171,6 +171,32 @@ try {
   refuser(`l'outil de bascule n'a pas pu être rejoué — ${err.message.split('\n')[0]}`);
 }
 
+/*
+ * LE FILET, LÀ OÙ LA BASCULE NE VA PAS. Elle ne réécrit que trois endroits sûrs.
+ * Mais un libellé peut se poser AILLEURS : rangé dans une variable au bout d'un
+ * `? :` puis affiché plus bas, mis dans une table d'options, rendu par une
+ * petite fonction. On relève donc TOUT littéral qui ressemble à du français et
+ * qui n'est pas déjà passé au dictionnaire — les repères techniques et les
+ * textes ENVOYÉS AUX AGENTS étant écartés à la source.
+ */
+try {
+  const sortie = execFileSync(
+    process.execPath,
+    [path.join(RACINE, 'scripts/passer-les-textes-en-traduction.mjs'), '--reste'],
+    { cwd: RACINE, encoding: 'utf8' },
+  );
+  const compte = Number(/(\d+) texte\(s\) français hors dictionnaire/.exec(sortie)?.[1] ?? -1);
+  if (compte < 0) refuser(`la chasse au français resté en dur n'a pas rendu de compte lisible`);
+  else if (compte > 0) {
+    const lignes = sortie.split('\n').filter((ligne) => /:\d+ {2}/.test(ligne)).slice(0, 12);
+    refuser(`${compte} texte(s) français vivent hors du dictionnaire :\n    ${lignes.join('\n    ')}`);
+  } else {
+    constater(`aucun texte français ne vit hors du dictionnaire, même rangé dans une variable`);
+  }
+} catch (err) {
+  refuser(`la chasse au français resté en dur n'a pas pu tourner — ${err.message.split('\n')[0]}`);
+}
+
 /* ------------------------------------------------------------------ */
 /* 4. Les repères techniques ne changent JAMAIS de langue              */
 /* ------------------------------------------------------------------ */
@@ -265,6 +291,13 @@ async function auNavigateur() {
       }
       try {
         return await dansLaPage(page);
+      } catch (err) {
+        /* Un geste qui ne mord pas doit DIRE lequel : « clic sans effet » n'aide
+           personne à trouver l'écran fautif. On garde l'état visible de la page. */
+        const etat = await page
+          .evaluate(() => ({ langue: document.documentElement.lang, menu: !!document.querySelector('[data-langue-menu]') }))
+          .catch(() => null);
+        return [`le parcours du menu s'est arrêté — ${err.message.split('\n')[0]} (à l'étape « ${derniereEtape} », page en « ${etat?.langue ?? '?'} », menu ${etat?.menu ? 'ouvert' : 'fermé'})`];
       } finally {
         await navigateur.close();
       }
@@ -293,11 +326,30 @@ async function refermerLeMenu(page) {
   }
 }
 
+let derniereEtape = 'départ';
 async function dansLaPage(page) {
   const anomalies = [];
-  await page.waitForTimeout(6000);
+  /* On attend que l'application SOIT LÀ, pas un délai au jugé : le tableau
+     dessiné et le bouton du menu vraiment cliquable. Un délai fixe passe une
+     fois sur deux selon la charge de la machine. */
+  await page.waitForSelector('[data-column]', { state: 'attached', timeout: 30_000 }).catch(() => {});
+  await page.waitForSelector('button[aria-label="Menu"]', { state: 'visible', timeout: 30_000 });
+  await page.waitForTimeout(1500);
+  /*
+   * ON REFERME CE QUI TRAÎNE AVANT DE TOUCHER AU MENU. L'application rouvre
+   * l'écran où on l'avait laissée : un tiroir de carte ou un panneau de réglages
+   * restés ouverts posent un VOILE plein écran (`bg-voile/70`) qui avale tous les
+   * clics — le bouton du menu est bien visible, il n'est simplement plus
+   * atteignable, et le contrôle échouait sans dire pourquoi.
+   */
+  for (let essai = 0; essai < 4; essai++) {
+    const voile = await page.$('[aria-hidden="true"].fixed.inset-0');
+    if (!voile) break;
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+  }
 
-  await ouvrirLeMenu(page);
+  derniereEtape='ouverture du menu'; await ouvrirLeMenu(page);
 
   /* L'ORDRE du menu : « Langue » sous « Thème », au-dessus de « Réglages ». */
   const ordre = await page.evaluate(() => {
@@ -339,7 +391,7 @@ async function dansLaPage(page) {
 
   /* AU SURVOL. Le téléphone et le clavier n'ont pas de survol, mais la souris si :
      les deux gestes doivent ouvrir, comme pour le thème. */
-  await page.hover('[data-langue-menu]');
+  derniereEtape='survol'; await page.hover('[data-langue-menu]');
   await page.waitForTimeout(600);
   let choix = await page.$$('[data-langue-choix]');
   if (choix.length !== 5) {
@@ -347,7 +399,7 @@ async function dansLaPage(page) {
   }
 
   /* AU CLIC. On referme tout d'abord, sinon on jugerait le survol d'avant. */
-  await refermerLeMenu(page);
+  derniereEtape='clic'; await refermerLeMenu(page);
   await ouvrirLeMenu(page);
   await page.click('[data-langue-menu]', { timeout: 8000 });
   await page.waitForTimeout(600);
@@ -375,7 +427,7 @@ async function dansLaPage(page) {
   }));
 
   /* On passe à l'ANGLAIS et on regarde ce que la page écrit vraiment. */
-  await page.click('[data-langue-choix="en"]', { timeout: 8000 });
+  derniereEtape='choix anglais'; await page.click('[data-langue-choix="en"]', { timeout: 8000 });
   await page.waitForTimeout(1800);
 
   const apres = await page.evaluate(() => ({
@@ -418,7 +470,7 @@ async function dansLaPage(page) {
 
   /* LE CHOIX EST RETENU : il vit en base, pas dans l'écran. Un rechargement
      complet — le seul moyen de le prouver — doit le retrouver. */
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
+  derniereEtape='rechargement'; await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
   await page.waitForTimeout(5000);
   const rechargee = await page.evaluate(() => document.documentElement.lang);
   if (rechargee !== 'en') {
@@ -426,7 +478,7 @@ async function dansLaPage(page) {
   }
 
   /* On remet le français : un contrôle ne laisse pas l'application ailleurs. */
-  await refermerLeMenu(page);
+  derniereEtape='retour au français'; await refermerLeMenu(page);
   await ouvrirLeMenu(page);
   await page.click('[data-langue-menu]', { timeout: 8000 });
   await page.waitForTimeout(600);
@@ -447,8 +499,9 @@ try {
 
 if (typeof mesure === 'string') {
   refuser(`le menu des langues n'a PAS pu être mesuré : ${mesure}`);
-} else {
+} else if (mesure.length) {
   for (const anomalie of mesure) refuser(anomalie);
+} else {
   constater(
     `dans un vrai navigateur : l'entrée « Langue » sous « Thème » et au-dessus de « Réglages », ` +
       `ouverte au survol comme au clic, cinq langues nommées dans leur propre langue, ` +

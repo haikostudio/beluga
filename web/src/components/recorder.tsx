@@ -156,7 +156,7 @@ export function useRecorder(onText: (text: string) => void) {
             headers: { 'content-type': 'application/octet-stream', 'x-audio-ext': 'webm' },
             body: blob,
           });
-          if (!response.ok) throw new Error(`réponse ${response.status}`);
+          if (!response.ok) throw new Error(t('réponse {v0}', { v0: response.status }));
           const data = await response.json();
           blobEnAttenteRef.current = null;
           setWorking(false);
@@ -172,7 +172,7 @@ export function useRecorder(onText: (text: string) => void) {
           // message le dit, avec la possibilité de relancer.
           blobEnAttenteRef.current = blob;
           setWorking(false);
-          setError('Connexion trop faible pour envoyer la dictée — le son est gardé.');
+          setError(t('Connexion trop faible pour envoyer la dictée — le son est gardé.'));
         }
       }
     },

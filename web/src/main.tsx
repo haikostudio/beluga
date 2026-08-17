@@ -4,6 +4,7 @@ import { App } from './app';
 import { Filet } from './components/filet';
 import { brancherRemonteeErreurs } from './lib/erreurs';
 import './styles.css';
+import { t } from '@/lib/langue';
 
 /*
  * AVANT tout le reste : une erreur survenue pendant le premier affichage doit
@@ -70,7 +71,7 @@ if ('serviceWorker' in navigator) {
           worker.addEventListener('statechange', () => {
             if (worker.state === 'installed' && navigator.serviceWorker.controller) {
               const banner = document.createElement('button');
-              banner.textContent = 'Nouvelle version disponible — appuyez pour l\'appliquer';
+              banner.textContent = t('Nouvelle version disponible — appuyez pour l\'appliquer');
               banner.style.cssText =
                 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:60;padding:8px 14px;border-radius:8px;border:1px solid hsl(var(--border));background:hsl(var(--surface));color:hsl(var(--text));font-size:12.5px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.4)';
               banner.onclick = () => worker.postMessage({ type: 'SKIP_WAITING' });

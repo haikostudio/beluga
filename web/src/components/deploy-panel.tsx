@@ -52,13 +52,13 @@ import { t } from '@/lib/langue';
 const ORDRE_ETAPES: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
 
 const STEP_LABELS: Record<DeployStepKey, string> = {
-  merge: 'Fusion des branches',
+  merge: t('Fusion des branches'),
   commit: 'Enregistrement',
-  push: 'Envoi sur le dépôt',
+  push: t('Envoi sur le dépôt'),
   verify: 'Vérification du code',
   build: 'Construction',
-  publish: 'Mise en ligne',
-  restart: 'Redémarrage du serveur',
+  publish: t('Mise en ligne'),
+  restart: t('Redémarrage du serveur'),
 };
 
 /**
@@ -66,13 +66,13 @@ const STEP_LABELS: Record<DeployStepKey, string> = {
  * révélée au « ? » : elle explique le déroulé sans qu'on ait à le connaître.
  */
 const STEP_DESCRIPTIONS: Record<DeployStepKey, string> = {
-  merge: 'Les branches des cartes du lot sont réunies dans la branche principale.',
-  commit: "Le résultat de la fusion est inscrit dans l'historique du dépôt.",
-  push: 'Le code réuni est envoyé sur le dépôt distant.',
-  verify: 'Les contrôles du projet sont rejoués ; le moindre échec arrête la mise en ligne.',
-  build: 'Le projet est recompilé à partir du code réuni.',
-  publish: "L'instance de dev de ce serveur est rafraîchie avec la nouvelle version.",
-  restart: 'Le service est relancé pour servir la version fraîche.',
+  merge: t('Les branches des cartes du lot sont réunies dans la branche principale.'),
+  commit: t('Le résultat de la fusion est inscrit dans l\'historique du dépôt.'),
+  push: t('Le code réuni est envoyé sur le dépôt distant.'),
+  verify: t('Les contrôles du projet sont rejoués ; le moindre échec arrête la mise en ligne.'),
+  build: t('Le projet est recompilé à partir du code réuni.'),
+  publish: t('L\'instance de dev de ce serveur est rafraîchie avec la nouvelle version.'),
+  restart: t('Le service est relancé pour servir la version fraîche.'),
 };
 
 type EtapeRun = DeployRun['steps'][number];
@@ -91,11 +91,11 @@ function dureeEtape(etape?: EtapeRun): string | null {
 
 /** L'état d'une étape, dit en français simple. */
 const ETAT_LABELS: Record<EtatEtape, string> = {
-  todo: 'à venir',
+  todo: t('à venir'),
   running: 'en cours',
   done: 'fait',
-  failed: 'échoué',
-  skipped: 'sauté',
+  failed: t('échoué'),
+  skipped: t('sauté'),
 };
 
 /** La pastille d'état posée devant une étape, la même partout. */
@@ -287,7 +287,7 @@ export function DeployPanel({
         })
         .catch((err: any) => {
           if (!vivant) return;
-          setErreurControle(err?.message ?? 'contrôle impossible');
+          setErreurControle(err?.message ?? t('contrôle impossible'));
         });
     void controler();
     const timer = window.setInterval(controler, 20000);

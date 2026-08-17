@@ -91,10 +91,10 @@ export function RunSelectors({
       ? 'Moteur'
       : sousVue === 'modele'
         ? engine?.live
-          ? 'Modèle (liste du moteur)'
-          : 'Modèle'
+          ? t('Modèle (liste du moteur)')
+          : t('Modèle')
         : sousVue === 'reflexion'
-          ? 'Niveau de réflexion'
+          ? t('Niveau de réflexion')
           : '';
 
   return (
@@ -305,10 +305,10 @@ export function Appetite({ level }: { level: 'light' | 'medium' | 'heavy' }) {
   const rempli = level === 'heavy' ? 3 : level === 'medium' ? 2 : 1;
   const titre =
     level === 'heavy'
-      ? 'Gourmand : consomme beaucoup de quota'
+      ? t('Gourmand : consomme beaucoup de quota')
       : level === 'medium'
-        ? 'Moyen : consommation de quota raisonnable'
-        : 'Léger : consomme peu de quota';
+        ? t('Moyen : consommation de quota raisonnable')
+        : t('Léger : consomme peu de quota');
   return (
     <span className="flex shrink-0 items-end gap-[1.5px]" title={titre} aria-label={titre}>
       {[0, 1, 2].map((index) => (

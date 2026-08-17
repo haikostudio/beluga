@@ -65,7 +65,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
       const resultat = await client.call<{ already?: boolean }>({ type: 'proposal.merge', items });
       client.pushToast(
         'success',
-        resultat.already ? 'Ces propositions étaient déjà réunies' : 'Propositions réunies, à relire avant validation',
+        resultat.already ? t('Ces propositions étaient déjà réunies') : t('Propositions réunies, à relire avant validation'),
       );
       fermerSelection();
     } catch (err: any) {
@@ -212,7 +212,7 @@ function VignetteProposition({
     : proposal.avertissement;
   const avertissementCompte =
     comptesDuMoteur.length && !compteDisponible
-      ? `Aucun compte disponible pour ${retenu.engine?.label ?? 'ce moteur'} : la carte attendra qu'un compte se libère.`
+      ? t('Aucun compte disponible pour {v0} : la carte attendra qu\'un compte se libère.', { v0: retenu.engine?.label ?? 'ce moteur' })
       : undefined;
   const avertissement = Array.from(new Set([avertissementInitial, avertissementCompte].filter(Boolean))).join(' ') || undefined;
 
@@ -230,9 +230,9 @@ function VignetteProposition({
           ? { engine: retenu.engine.id, model: retenu.model?.id, thinking: retenu.thinking?.id }
           : undefined,
       });
-      client.pushToast(accept ? 'success' : 'info', accept ? 'Carte créée dans « Planifié »' : 'Carte refusée');
+      client.pushToast(accept ? 'success' : 'info', accept ? t('Carte créée dans « Planifié »') : t('Carte refusée'));
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'décision impossible');
+      client.pushToast('error', err?.message ?? t('décision impossible'));
     } finally {
       setBusy(false);
     }
@@ -250,7 +250,7 @@ function VignetteProposition({
           <button
             type="button"
             aria-pressed={selectionnee}
-            aria-label={selectionnee ? `Retirer « ${proposal.title} » de la fusion` : `Ajouter « ${proposal.title} » à la fusion`}
+            aria-label={selectionnee ? t('Retirer « {v0} » de la fusion', { v0: proposal.title }) : t('Ajouter « {v0} » à la fusion', { v0: proposal.title })}
             onClick={onSelection}
             className={cn(
               'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border transition-colors',

@@ -90,7 +90,7 @@ export function TiroirProcedure({
         const res: any = await client.call({ type: 'procedure.tour', projectId, cible, agentId: etat?.agentId, message });
         client.majProcedure(projectId, cible, res?.etat ?? null);
       } catch (err: any) {
-        setErreurLocale(err?.message ?? 'la demande n’est pas partie');
+        setErreurLocale(err?.message ?? t('la demande n’est pas partie'));
       }
     },
     [cible, projectId, etat?.agentId],
@@ -122,7 +122,7 @@ export function TiroirProcedure({
         client.majProcedure(projectId, cible, reprise === 'proposer' ? null : (res?.etat ?? null));
         if (reprise === 'relancer') await lancer();
       } catch (err: any) {
-        if (vivant) setErreurLocale(err?.message ?? 'le serveur n’a pas répondu');
+        if (vivant) setErreurLocale(err?.message ?? t('le serveur n’a pas répondu'));
       }
     })();
     return () => {
@@ -175,7 +175,7 @@ export function TiroirProcedure({
         answer: texte.trim(),
       });
     } catch (err: any) {
-      setErreurLocale(err?.message ?? 'la réponse n’est pas partie');
+      setErreurLocale(err?.message ?? t('la réponse n’est pas partie'));
     }
   };
 
