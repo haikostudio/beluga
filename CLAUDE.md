@@ -1114,17 +1114,25 @@ le nom, là-bas le texte).
   paraissait cassé. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`
   (qui pose le projet par `window.haikodevEssai.projet`, le démon en service pouvant précéder le champ
   et le retirer — Zod écarte les clés qu'il ne connaît pas).
-- **LE FLAT DESIGN NE RETIRE PAS UN CONTRASTE QUI PORTAIT UNE INFORMATION** — deux jetons DÉDIÉS,
-  déclarés dans les QUATRE thèmes (`--ligne-active`, `--bandeau-etape`, `web/src/styles.css` ; noms
-  Tailwind `bg-ligne-active` / `bg-bandeau-etape`, `web/tailwind.config.js`) : la ligne du projet
-  OUVERT (colonne de gauche, `LigneEspaceDev` et `ProjectRow` de `web/src/components/sidebar.tsx`)
-  et le bandeau d'étape sous une carte (`web/src/components/board.tsx`) empruntaient `--raised` ou
-  `bg-border/30` — des jetons qui, dans certains thèmes, valent quasiment `--bg` ou `--surface` (le
-  thème « clair » d'origine a `--raised` STRICTEMENT ÉGAL à `--bg`, 0 0% 100% des deux côtés) ou sont
-  volontairement proches des fonds (les thèmes plats effacent `--border`). Le repère devenait donc
-  invisible, pas seulement discret. Aucune bordure n'est réintroduite : chaque jeton porte une
-  valeur SOLIDE, propre à chaque thème, choisie pour rester à distance visible du fond de page, du
-  survol ET du corps de la carte — jamais recopiée d'un autre jeton ni d'un autre thème.
+- **LE FLAT DESIGN NE RETIRE PAS UN CONTRASTE QUI PORTAIT UNE INFORMATION** — trois jetons DÉDIÉS,
+  déclarés dans les SEPT thèmes (`--ligne-active`, `--bandeau-etape`, `--bloc-etapes`,
+  `web/src/styles.css` ; noms Tailwind `bg-ligne-active` / `bg-bandeau-etape` / `bg-bloc-etapes`,
+  `web/tailwind.config.js`) : la ligne du projet OUVERT (colonne de gauche, `LigneEspaceDev` et
+  `ProjectRow` de `web/src/components/sidebar.tsx`), le bandeau d'étape sous une carte
+  (`web/src/components/board.tsx`) et le bloc des étapes collé au-dessus du composeur (étape en
+  cours, décompte des tâches, temps — `TravailEnCours`, `web/src/components/chat.tsx`)
+  empruntaient `--raised`, `bg-border/30` ou un dégradé finissant en `surface/0` — des jetons qui,
+  dans certains thèmes, valent quasiment `--bg` ou `--surface` (le thème « clair » d'origine a
+  `--raised` STRICTEMENT ÉGAL à `--bg`, 0 0% 100% des deux côtés) ou sont volontairement proches des
+  fonds (les thèmes plats effacent `--border`), et un dégradé transparent se confond forcément avec
+  ce qu'il y a DERRIÈRE, quel que soit ce fond. Le repère devenait donc invisible, pas seulement
+  discret. Aucune bordure n'est réintroduite : chaque jeton porte une valeur SOLIDE, propre à
+  chaque thème, choisie pour rester à distance visible du fond de page, du survol ET du corps de la
+  carte — jamais recopiée d'un autre jeton ni d'un autre thème. `--ligne-active` et
+  `--bandeau-etape` ne couvraient en réalité que QUATRE thèmes (sombre, clair, sable, ardoise) :
+  « givre », « sapin » et « contraste » retombaient en silence sur les valeurs du thème sombre ou
+  clair faute de les déclarer, une omission que `scripts/verif-themes.mjs` aurait dû refuser et que
+  cette même tâche a comblée en même temps que `--bloc-etapes`.
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
   `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de
