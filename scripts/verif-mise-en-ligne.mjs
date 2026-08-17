@@ -113,6 +113,33 @@ async function attendreFin(projectId, secondes = 180) {
   return store.latestDeploy(projectId);
 }
 
+/**
+ * ATTENDRE QUE LA CARTE SOIT RANGÉE — un run « réussi » ne le dit pas encore.
+ *
+ * Ce contrôle échouait une fois sur huit sur « c'est CETTE étape qui clôt la
+ * carte », et ce n'était pas un défaut du produit : le rangement des cartes est
+ * de la COMPTABILITÉ, il vient APRÈS la mise en ligne et ne peut plus la
+ * démentir (`avertissementCartesNonRangees`, règle voulue). La publication
+ * s'annonce donc « réussie » AVANT d'archiver, et `attendreFin` rendait la main
+ * dans cette fenêtre : on lisait la carte pendant qu'`archiveCard` travaillait
+ * encore, et le verdict tombait au hasard du temps machine.
+ *
+ * On ATTEND donc le fait au lieu de le supposer, comme partout ailleurs. La
+ * fonction rend la carte dès que la condition tient, sinon la dernière lue au
+ * bout du délai — l'assertion échoue alors pour de VRAIES raisons, et le
+ * contrôle ne peut plus passer par accident.
+ */
+async function attendreCarte(cardId, tient, secondes = 30) {
+  const fin = Date.now() + secondes * 1000;
+  let carte = store.getCard(cardId);
+  while (Date.now() < fin) {
+    if (carte && tient(carte)) return carte;
+    await new Promise((r) => setTimeout(r, 100));
+    carte = store.getCard(cardId);
+  }
+  return carte;
+}
+
 const etatDe = (run, cle) => run?.steps.find((s) => s.key === cle)?.state;
 const journalDe = (run, cle) => run?.steps.find((s) => s.key === cle)?.log ?? '';
 
@@ -141,12 +168,11 @@ dire(
   etatDe(runSans, 'publish') === 'skipped' && /Aucune instance de dev/.test(journalDe(runSans, 'publish')),
   'l’étape de mise en ligne DIT qu’aucune instance de dev n’a été trouvée',
 );
-dire(
-  store.getCard(sans.carte.id)?.column === 'in_production',
-  'la carte déployée se pose en « En production »',
-);
-dire(store.getCard(sans.carte.id)?.column !== 'archived', 'elle ne part PAS aux archives : clore vient après');
-dire(!!store.getCard(sans.carte.id)?.deployedAt, 'la carte porte sa date de déploiement');
+// Le rangement suit la mise en ligne : on l'attend, on ne le suppose pas.
+const carteDeployee = await attendreCarte(sans.carte.id, (c) => c.column === 'in_production');
+dire(carteDeployee?.column === 'in_production', 'la carte déployée se pose en « En production »');
+dire(carteDeployee?.column !== 'archived', 'elle ne part PAS aux archives : clore vient après');
+dire(!!carteDeployee?.deployedAt, 'la carte porte sa date de déploiement');
 dire(runSans?.cible === 'dev', 'la publication retient son étape (déploiement)');
 raconter(runSans);
 
@@ -180,7 +206,10 @@ const runProd = await attendreFin(prod.projet.id);
 dire(runProd?.state === 'success', `elle aboutit (état « ${runProd?.state} »)`);
 dire(runProd?.cible === 'production', 'la publication retient son étape (production)');
 dire(runProd?.cardIds.includes(prod.carte.id), 'le lot part bien de la colonne « En production »');
-dire(store.getCard(prod.carte.id)?.column === 'archived', 'c’est CETTE étape qui clôt la carte');
+// Archiver est plus long que déplacer (document de clôture, branche refermée) :
+// c'est ici que la fenêtre entre « réussi » et « rangé » se voyait le plus.
+const carteClose = await attendreCarte(prod.carte.id, (c) => c.column === 'archived');
+dire(carteClose?.column === 'archived', 'c’est CETTE étape qui clôt la carte');
 raconter(runProd);
 
 fs.rmSync(racine, { recursive: true, force: true });

@@ -60,6 +60,7 @@ import {
   avertissementCartesNonRangees,
   PERIODE_DE_VEILLE_MS,
   PLAFOND_TOUR_D_AGENT_MS,
+  alerteDeRetard,
   constatDeDuree,
   dureeDite,
   mentionEtapeQuiTraine,
@@ -917,6 +918,13 @@ interface VeilleDEtape {
   suspendueDepuis?: number;
   /** La dernière ligne écrite, pour ne pas réémettre le même texte. */
   derniereMention?: string;
+  /**
+   * L'alerte de retard est-elle DÉJÀ partie pour cette étape ?
+   *
+   * Un retard qui dure ne se répète pas toutes les trente secondes : on
+   * prévient une fois, au constat, et le déroulé porte la suite.
+   */
+  alerteEnvoyee?: boolean;
 }
 
 const veilles = new Map<string, VeilleDEtape>();
@@ -1017,6 +1025,33 @@ function passageDeVeille(runId: string): void {
 
   const constat = constatDeLEtape(runId, veille.etape);
   if (!constat.depasse) return;
+
+  /*
+   * ON PRÉVIENT AU CONSTAT, PAS AU DÉPANNAGE.
+   *
+   * Le dépanneur ne part qu'une fois l'étape RETOMBÉE — et pour une étape
+   * pendue, cela peut vouloir dire jamais, ou seulement au bout de son plafond.
+   * La ligne orange du déroulé, elle, ne se voit que par qui regarde déjà
+   * l'écran. Prévenir ici est donc le seul moment qui tienne la promesse : ne
+   * plus avoir à venir surveiller une publication soi-même. Une seule fois par
+   * étape, et l'alerte DIT que rien n'est attendu de l'utilisateur.
+   */
+  if (!veille.alerteEnvoyee) {
+    veille.alerteEnvoyee = true;
+    const projet = store.getProject(run.projectId);
+    const alerte = alerteDeRetard({ projet: projet?.name, libelleEtape: STEP_LABELS[veille.etape], constat });
+    notify({
+      motif: 'publication-en-retard',
+      title: alerte.titre,
+      body: alerte.corps,
+      // Une étape d'une publication donnée ne prévient qu'une fois, même si le
+      // démon redémarre et rouvre la veille.
+      reference: `${run.projectId}:retard:${run.id}:${veille.etape}`,
+      element: alerte.element,
+      projectId: run.projectId,
+    });
+  }
+
   const mention = mentionEtapeQuiTraine(STEP_LABELS[veille.etape], constat);
   // Deux passages rendent souvent la même phrase (la durée s'arrondit à la
   // minute) : on ne réémet que ce qui a changé.
