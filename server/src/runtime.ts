@@ -74,6 +74,7 @@ import {
   consigneDePlanPlusFouille,
   nomDeBranche,
   observerContexte,
+  plafondDeContexte,
   poidsDeTour,
   raisonAbsenceDePassages,
   clePassage,
@@ -2253,7 +2254,12 @@ async function startTurn(
   const contextWindow = runState.context?.window ?? catalogContextWindow;
   if (runState.context && contextWindow) {
     const frais = store.getAgent(agent.id)!;
-    const observation = observerContexte(frais.context, runState.context.tokens, contextWindow);
+    const observation = observerContexte(
+      frais.context,
+      runState.context.tokens,
+      contextWindow,
+      plafondDeContexte(agent.role),
+    );
     if (observation) {
       const mesure = store.saveAgent({
         ...frais,

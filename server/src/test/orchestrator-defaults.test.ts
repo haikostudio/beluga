@@ -13,6 +13,12 @@ function model(id: string, thinking = ['none', 'medium', 'high']): ModelInfo {
 }
 
 function choice(engine: EngineId, models: ModelInfo[], wanted?: string, thinking?: string) {
+  const { model, thinking: cran } = orchestratorChoice(engine, models, wanted, thinking);
+  return { model, thinking: cran };
+}
+
+/** Le choix ENTIER, avec ce qui a été ramené sous le plafond du chef. */
+function choixComplet(engine: EngineId, models: ModelInfo[], wanted?: string, thinking?: string) {
   return orchestratorChoice(engine, models, wanted, thinking);
 }
 
@@ -40,12 +46,39 @@ test('un chef Codex choisit GPT-5.4 avec une réflexion moyenne', () => {
   assert.deepEqual(choice('codex', models), { model: 'gpt-5.4', thinking: 'medium' });
 });
 
-test('un réglage manuel reste prioritaire sur le défaut du chef', () => {
+/*
+ * UN CHOIX MANUEL ÉCONOME EST RESPECTÉ — mais la RÉFLEXION reste plafonnée.
+ * Un chef qui ne fait que trier n'a jamais besoin du cran le plus poussé, et
+ * c'est ce cran, retenu une fois à l'écran, qui pesait 25 % du quota du serveur
+ * (relevé du 17/08/2026).
+ */
+test('un réglage manuel garde son modèle, mais sa réflexion redescend', () => {
   const models = [model('gpt-5.4'), model('gpt-5.6-terra')];
   assert.deepEqual(choice('codex', models, 'gpt-5.6-terra', 'high'), {
     model: 'gpt-5.6-terra',
-    thinking: 'high',
+    thinking: 'medium',
   });
+});
+
+test('un modèle GOURMAND retenu à l’écran est ramené sur l’épinglé, et c’est DIT', () => {
+  const opus = ModelInfo.parse({
+    id: 'claude-opus-5',
+    label: 'claude opus 5',
+    thinking: [{ id: 'high', label: 'high' }, { id: 'medium', label: 'medium' }],
+    appetite: 'heavy',
+  });
+  const models = [opus, model('claude-haiku-4-5-20251001')];
+  const retenu = choixComplet('claude', models, 'claude-opus-5', 'high');
+  assert.equal(retenu.model, 'claude-haiku-4-5-20251001');
+  assert.equal(retenu.thinking, 'medium');
+  assert.match(retenu.ramene ?? '', /trop gourmand/);
+});
+
+test('un modèle économe choisi à la main ne fait l’objet d’aucun rappel', () => {
+  const models = [model('claude-opus-5'), model('claude-sonnet-5-20260801')];
+  const retenu = choixComplet('claude', models, 'claude-sonnet-5-20260801', 'medium');
+  assert.equal(retenu.model, 'claude-sonnet-5-20260801');
+  assert.equal(retenu.ramene, undefined);
 });
 
 test('un modèle préféré absent se replie sur un modèle réellement disponible', () => {

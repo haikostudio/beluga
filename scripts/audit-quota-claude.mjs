@@ -278,6 +278,40 @@ tableau(instructions, [
   { titre: 'jetons (estimés)', valeur: (l) => milliers(l.taille / SIGNES_PAR_JETON) },
 ]);
 rapport.socle = socle;
+
+/*
+ * LE MÊME DÉFAUT EXISTE SUR LES AUTRES PROJETS, et il n'était mesuré nulle part.
+ * Rezideo porte un fichier d'instructions plus gros que celui d'HaikoDev : ses
+ * agents paient donc un socle plus lourd encore à chaque aller-retour. On lit
+ * la taille sur le disque — aucun moteur n'est appelé.
+ */
+titre("4 bis. LE SOCLE DES AUTRES PROJETS — taille du fichier d'instructions");
+const projetsAvecInstructions = db
+  .prepare("SELECT name, path FROM projects WHERE archived = 0 ORDER BY name")
+  .all()
+  .map((p) => {
+    const fichier = ['CLAUDE.md', 'AGENTS.md'].find((f) => fs.existsSync(path.join(p.path, f)));
+    if (!fichier) return null;
+    const taille = fs.statSync(path.join(p.path, fichier)).size;
+    const attente = path.join(p.path, 'docs/instructions-en-attente.md');
+    return {
+      projet: p.name,
+      fichier,
+      taille,
+      gele: fs.existsSync(attente) ? 'oui' : 'non',
+    };
+  })
+  .filter(Boolean)
+  .sort((a, b) => b.taille - a.taille);
+
+tableau(projetsAvecInstructions, [
+  { titre: 'projet', valeur: (l) => l.projet },
+  { titre: 'fichier', valeur: (l) => l.fichier },
+  { titre: 'signes', valeur: (l) => milliers(l.taille) },
+  { titre: 'jetons (estimés)', valeur: (l) => milliers(l.taille / SIGNES_PAR_JETON) },
+  { titre: 'gelé le jour', valeur: (l) => l.gele },
+]);
+rapport.socleDesProjets = projetsAvecInstructions;
 rapport.instructions = instructions;
 
 /* ------------------------------------------------------------------ */

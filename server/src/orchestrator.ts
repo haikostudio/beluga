@@ -4,6 +4,7 @@ import { createAgent } from './runtime.js';
 import { bus } from './bus.js';
 import { listEngines } from './engines/index.js';
 import { orchestratorChoice, resolveModel } from './engines/catalog.js';
+import { log } from './logger.js';
 
 /**
  * Le chef d'orchestre (PLAN §5) : un agent permanent par projet, dont la
@@ -47,12 +48,15 @@ export async function getOrCreateOrchestrator(projectId: string): Promise<Agent>
   const memorisedModel = memorisedEngine && settings.orchestratorModel
     ? resolveModel(engine?.models ?? [], settings.orchestratorModel)
     : undefined;
-  const { model, thinking } = orchestratorChoice(
+  const { model, thinking, ramene } = orchestratorChoice(
     engine?.id ?? 'claude',
     engine?.models ?? [],
     memorisedModel,
     settings.orchestratorThinking,
   );
+  // Un souvenir trop cher ne se corrige pas en silence : le journal le dit,
+  // sinon l'écran des réglages et le tour réel se contrediraient sans raison.
+  if (ramene) log.info(`chef d'orchestre ramené sous son plafond : ${ramene}`);
 
   const agent = createAgent({
     projectId,

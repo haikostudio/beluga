@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { jetonsApproches } from '@haikodev/shared';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,7 +148,8 @@ test('la chronologie numérote les tours dans l’ordre où ils sont réellement
     tours.map((t) => [t.numero, t.messageId]),
     [[1, 'm-1'], [2, 'm-2']],
   );
-  assert.equal(tours[0].repartition.memoireTokens, 200);
+  // 800 signes de mémoire, au rapport MESURÉ de 2,2 signes par jeton.
+  assert.equal(tours[0].repartition.memoireTokens, jetonsApproches(800));
   assert.equal(tours[1].repartition.envoyeTokens, 500);
 });
 
@@ -158,7 +160,7 @@ test('le récapitulatif additionne la mémoire et l’envoi de tous les tours me
   ]);
   const recap = recapitulatifEnvoi(tours);
   assert.equal(recap.tours, 2);
-  assert.equal(recap.memoireTotale, 300);
+  assert.equal(recap.memoireTotale, jetonsApproches(800) + jetonsApproches(400));
   assert.equal(recap.envoyeTotal, 1_700);
 });
 
