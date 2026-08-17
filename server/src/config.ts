@@ -81,6 +81,15 @@ export const PATHS = {
    */
   favicons: path.join(CONFIG.dataDir, 'favicons'),
   /**
+   * Les personnages de colonne REMPLACÉS à la main depuis les réglages : deux
+   * fichiers par colonne remplacée (la silhouette et le portrait rond), aux
+   * mêmes noms que ceux d'origine. Ils vivent dans les DONNÉES, jamais dans le
+   * dépôt : une image déposée par l'utilisateur n'est pas du code, et elle doit
+   * survivre à une publication comme à un changement de branche. Le dossier
+   * vide vaut « les sept personnages d'origine ». Voir `server/src/personnages.ts`.
+   */
+  personnages: path.join(CONFIG.dataDir, 'personnages'),
+  /**
    * Le DOSSIER DE TRAVAIL du chef d'orchestre bridé : un sous-dossier par projet,
    * le seul endroit où il a le droit d'écrire (brouillons, sorties d'analyse). Il
    * vit hors des dépôts des projets — le projet, lui, reste monté en lecture
@@ -102,6 +111,7 @@ export function ensureDirs(): void {
     PATHS.competences,
     PATHS.chefScratch,
     PATHS.favicons,
+    PATHS.personnages,
   ]) {
     fs.mkdirSync(dir, { recursive: true });
   }

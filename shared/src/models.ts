@@ -197,6 +197,15 @@ export const Project = z.object({
    * cartes, qui reste un geste à part (`project.read`).
    */
   lastVisitedAt: z.number().optional(),
+  /**
+   * LE THÈME PROPRE À CE PROJET (`shared/src/themes.ts`). Réglé, il IMPOSE son
+   * apparence à TOUTE l'application dès que le projet est ouvert : on reconnaît
+   * d'un coup d'œil où l'on travaille. ABSENT ou `null`, le projet suit le
+   * réglage général — d'où le `nullish` et non un simple `optional` : c'est
+   * `null` qui permet de RETIRER un thème déjà posé, `undefined` disparaissant
+   * du bloc envoyé au serveur.
+   */
+  theme: z.string().nullish(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
   rank: z.number().default(1000),
   /** Groupe de rangement choisi par l'utilisateur (« Clients », « Perso »…). */

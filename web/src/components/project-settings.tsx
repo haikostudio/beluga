@@ -25,6 +25,9 @@ import {
   type TypeCibleMiseEnProduction,
   type AccesSSH,
   type AccesFTP,
+  CHOIX_DE_THEME,
+  themeChoisiValide,
+  type ThemeChoisi,
 } from '@haikodev/shared';
 import {
   Button,
@@ -39,7 +42,7 @@ import {
 import { Filet } from '@/components/filet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
-import { money } from '@/lib/utils';
+import { cn, money } from '@/lib/utils';
 
 interface ClientEntry {
   id: string;
@@ -263,6 +266,10 @@ export function ProjectSettings({
   const [accesFTP, setAccesFTP] = React.useState<AccesFTP>({});
   const [prodUrl, setProdUrl] = React.useState('');
   const [engine, setEngine] = React.useState<string>('claude');
+  /* `null` = ce projet n'impose rien et suit le réglage général. C'est bien un
+     null explicite, pas un `undefined` : seul lui peut RETIRER un thème déjà
+     enregistré, `undefined` disparaissant du bloc envoyé au serveur. */
+  const [themeProjet, setThemeProjet] = React.useState<ThemeChoisi | null>(null);
   const [clientId, setClientId] = React.useState('');
   const [rate, setRate] = React.useState('130');
   const [documentId, setDocumentId] = React.useState('');
@@ -284,6 +291,7 @@ export function ProjectSettings({
     setAccesFTP(project.miseEnProduction?.ftp ?? {});
     setProdUrl(project.miseEnProduction?.prodUrl ?? '');
     setEngine(project.defaultEngine ?? 'claude');
+    setThemeProjet(themeChoisiValide(project.theme));
     setClientId(project.billing?.clientId ?? '');
     setRate(String(project.billing?.hourlyRate ?? 130));
     setDocumentId(project.billing?.defaultDocumentId ?? '');
@@ -366,6 +374,7 @@ export function ProjectSettings({
         patch: {
           name: name.trim() || project.name,
           defaultEngine: engine,
+          theme: themeProjet,
           devUrl: devUrl.trim() || undefined,
           /* Les deux branches partent ensemble ; vides, elles ne sont pas
              enregistrées et le comportement par défaut reprend la main. */
@@ -480,6 +489,47 @@ export function ProjectSettings({
             </p>
           </div>
 
+          {/*
+           * LE THÈME DE CE PROJET. Réglé, il habille TOUTE l'application dès que
+           * le projet est ouvert : on reconnaît d'un coup d'œil où l'on
+           * travaille, sans lire le nom. « Comme le réglage général » est le
+           * choix par défaut, et le seul qui rende la main au thème général.
+           */}
+          <div data-theme-projet>
+            <Label>Thème de ce projet</Label>
+            <p className="mt-0.5 text-[12.5px] leading-snug text-faint">
+              Un thème propre à ce projet habille toute l'application dès qu'on l'ouvre — c'est le repère le plus
+              rapide pour savoir où l'on est.
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {[{ id: null, libelle: 'Comme le réglage général', apercu: null }, ...CHOIX_DE_THEME].map((item) => {
+                const actif = (item.id ?? null) === themeProjet;
+                return (
+                  <button
+                    key={item.id ?? 'general'}
+                    type="button"
+                    data-theme-projet-choix={item.id ?? 'general'}
+                    aria-pressed={actif}
+                    onClick={() => setThemeProjet((item.id as ThemeChoisi | null) ?? null)}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[13px] transition-colors',
+                      actif ? 'border-termine bg-raised text-text' : 'border-border bg-surface text-muted hover:text-text',
+                    )}
+                  >
+                    {item.apercu ? (
+                      <span aria-hidden className="flex h-4 w-4 shrink-0 flex-wrap overflow-hidden rounded-sm">
+                        {item.apercu.map((couleur, rang) => (
+                          <span key={rang} className="h-1/2 w-1/2" style={{ backgroundColor: couleur }} />
+                        ))}
+                      </span>
+                    ) : null}
+                    {item.libelle}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-faint">
             Dossier sur le serveur : <span className="text-muted">{project.path}</span>
             {project.gitRemote ? (
@@ -588,7 +638,7 @@ export function ProjectSettings({
                   onClick={() => setTypeCible(valeur)}
                   className={`rounded-md border px-2.5 py-1.5 text-left text-[13px] transition-colors ${
                     typeCible === valeur
-                      ? 'border-[hsl(var(--en-cours))] bg-[hsl(var(--en-cours)/0.1)] text-text'
+                      ? 'border-en-cours bg-en-cours/10 text-text'
                       : 'border-border bg-surface text-muted hover:text-text'
                   }`}
                 >

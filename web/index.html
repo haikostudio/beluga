@@ -18,9 +18,11 @@
     <script>
       // Le thème se décide AVANT le premier affichage : sinon l'application
       // clignote en blanc à chaque chargement (PLAN §30). Le sombre est le
-      // défaut ; le choix enregistré côté serveur s'applique dès l'ouverture
-      // de la connexion, sans rien conserver dans le navigateur.
+      // défaut ; celui des QUATRE thèmes enregistré côté serveur s'applique dès
+      // l'ouverture de la connexion, sans rien conserver dans le navigateur
+      // (`web/src/lib/theme.ts`).
       document.documentElement.classList.add('dark');
+      document.documentElement.dataset.theme = 'sombre';
       document.documentElement.style.colorScheme = 'dark';
     </script>
   </head>

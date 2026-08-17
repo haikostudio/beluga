@@ -69,6 +69,7 @@ import { etatDeProcedure, tourDeProcedure } from './procedure-publication.js';
 import { appliquerChiffrageDiscute, ecartChiffrage, startCard, tick, validerCarte } from './scheduler.js';
 import { createCard } from './tools.js';
 import { iconeManquante, recupererFaviconEnTache } from './favicon.js';
+import { personnagesRemplaces } from './personnages.js';
 import {
   deployableCards,
   startDeploy,
@@ -148,6 +149,10 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     send({ type: 'attention', ...store.signalAttention(decisions) });
     send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
     send({ type: 'plans', ...store.signalPlans() });
+    // Les personnages remplacés à la main : le tableau doit les connaître AVANT
+    // de poser ses images, sinon il afficherait l'ancien puis le remplacerait
+    // sous les yeux. Lecture de deux dossiers, rien de plus.
+    send({ type: 'personnages', remplaces: personnagesRemplaces() });
 
     const projets = store.listProjects();
     const prefs = store.readPreferences();

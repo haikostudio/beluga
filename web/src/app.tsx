@@ -10,6 +10,7 @@ import { PanneauALaDemande, prechargerAuRepos } from '@/lib/panneau-a-la-demande
 import { useResizable, ResizeHandle } from '@/components/resizer';
 import { client } from '@/lib/client';
 import { usePref, writePref } from '@/lib/prefs';
+import { useThemeApplique } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
 import { Filet } from '@/components/filet';
 import { cn } from '@/lib/utils';
@@ -74,6 +75,18 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
 
 export function App() {
   const state = useApp();
+  /*
+   * LE THÈME S'APPLIQUE DEPUIS LA RACINE, jamais depuis un panneau. Il était posé
+   * par un effet du bandeau des quotas : sur téléphone, ce bandeau n'est pas
+   * toujours monté, et les réglages qui portent maintenant le choix arrivent en
+   * morceau séparé, à la demande. La racine, elle, est toujours là.
+   *
+   * C'est aussi le seul endroit qui voit les TROIS sources à la fois — le thème
+   * du projet ouvert, le réglage général, celui de l'ordinateur —, donc le seul
+   * qui puisse changer l'apparence de l'application ENTIÈRE quand on change de
+   * projet.
+   */
+  useThemeApplique();
   const [openCardId, setOpenCardId] = React.useState<string | null>(null);
   const [openAgentId, setOpenAgentId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -651,7 +664,7 @@ export function App() {
               aria-current={mobileView === 'board' && !dashboardOpen ? 'page' : undefined}
               className={cn(
                 'w-full justify-center gap-1 rounded-xl px-1 text-xs',
-                mobileView === 'board' && !dashboardOpen && 'bg-[hsl(16_88%_54%)] text-white hover:bg-[hsl(16_88%_54%)] hover:text-white',
+                mobileView === 'board' && !dashboardOpen && 'bg-actif text-actif-fg hover:bg-actif hover:text-actif-fg',
               )}
               onClick={() => {
                 setDashboardOpen(false);
@@ -672,7 +685,7 @@ export function App() {
               aria-current={mobileView === 'chat' && !dashboardOpen ? 'page' : undefined}
               className={cn(
                 'w-full justify-center gap-1 rounded-xl px-1 text-xs',
-                mobileView === 'chat' && !dashboardOpen && 'bg-[hsl(16_88%_54%)] text-white hover:bg-[hsl(16_88%_54%)] hover:text-white',
+                mobileView === 'chat' && !dashboardOpen && 'bg-actif text-actif-fg hover:bg-actif hover:text-actif-fg',
               )}
               onClick={() => {
                 setDashboardOpen(false);
@@ -691,7 +704,7 @@ export function App() {
         </nav>
 
         {dropTarget ? (
-          <div className="pointer-events-none fixed inset-0 z-50 border-2 border-dashed border-muted bg-black/20" />
+          <div className="pointer-events-none fixed inset-0 z-50 border-2 border-dashed border-muted bg-voile/20" />
         ) : null}
 
         <Filet zone="Carte" onReprendre={() => setOpenCardId(null)}>
@@ -722,7 +735,7 @@ export function App() {
         </Filet>
 
         {openAgent ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-3" onClick={() => setOpenAgentId(null)}>
+          <div className="fixed inset-0 z-40 grid place-items-center bg-voile/60 p-3" onClick={() => setOpenAgentId(null)}>
             <div
               className="flex h-[80dvh] w-[min(720px,100%)] flex-col overflow-hidden rounded-lg border border-border bg-surface"
               onClick={(event) => event.stopPropagation()}

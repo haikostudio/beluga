@@ -133,6 +133,7 @@ export * from './suivi-branche-carte.js';
 export * from './suivi-colonne.js';
 export * from './taches-fin-de-tour.js';
 export * from './templates.js';
+export * from './themes.js';
 export * from './travail-en-cours.js';
 export * from './travail-hors-tache.js';
 export * from './travail-rendu.js';

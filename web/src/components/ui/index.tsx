@@ -38,11 +38,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: 'bg-accent text-accent-fg hover:opacity-90',
-        outline: 'border border-border bg-transparent hover:bg-raised text-text',
+        // `bg-controle` vaut la TRANSPARENCE dans les deux thèmes d'origine — ce
+        // bouton ne bouge donc pas d'un pixel — et un voile translucide dans les
+        // thèmes plats, où la bordure ne dessine plus rien (styles.css).
+        outline: 'border border-border bg-controle hover:bg-raised text-text',
         ghost: 'hover:bg-raised text-muted hover:text-text',
         subtle: 'bg-raised text-text hover:bg-border',
-        danger: 'bg-danger text-white hover:opacity-90',
-        success: 'bg-success text-white hover:opacity-90',
+        danger: 'bg-danger text-sur-etat hover:opacity-90',
+        success: 'bg-success text-sur-etat hover:opacity-90',
       },
       size: {
         sm: 'h-7 px-2.5 text-[13.5px]',
@@ -515,7 +518,7 @@ export function DialogContent({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
       {/*
        * La fenêtre est POSÉE par une enveloppe en flux (collée en bas sur
        * téléphone, centrée sur grand écran), jamais par un décalage de moitié :
@@ -602,7 +605,7 @@ export function Drawer({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           className={cn(
             // Sur téléphone il occupe toute la largeur ; sur grand écran il se
@@ -705,7 +708,7 @@ export function SidePanel({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           aria-label={title}
           className={cn(
@@ -812,7 +815,7 @@ function VoileMenu({ panneau }: { panneau: React.RefObject<HTMLDivElement | null
       /* Sur grand écran un menu déroulant n'assombrit rien : il se pose à côté
          de son bouton, il n'interrompt pas. */
       className={cn(
-        'fixed inset-0 z-[55] bg-black/70 backdrop-blur-[2px] sm:hidden',
+        'fixed inset-0 z-[55] bg-voile/70 backdrop-blur-[2px] sm:hidden',
         'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
       )}
       style={{ opacity: etat === 'closed' ? 0 : undefined }}

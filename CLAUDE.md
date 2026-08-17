@@ -65,6 +65,7 @@ node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait d�
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
 node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
 node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
+HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : aucun jeton oublié, aucune couleur en dur, puis le NAVIGATEUR — thème d'un projet, choix « Système »
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
@@ -962,6 +963,14 @@ le nom, là-bas le texte).
 
 ### Interface et code
 
+- **LE COIN HAUT GAUCHE DU BANDEAU RÉPOND AU COIN HAUT DROIT** (`pointEtat`,
+  `web/src/components/quota-bar.tsx`) : le bouton des projets porte l'icône HAMBURGER et l'habillage
+  commun des boutons de droite (`variant="outline"`, `size="icon"`), sans changer ce qu'il ouvre ni
+  son `aria-label="Projets"` — six scripts le désignent par là. L'icône « réseau » est RETIRÉE ; son
+  information tient dans un POINT (`data-point-etat`) posé DANS le coin haut droit du bouton, avec
+  une priorité écrite (liaison rompue > un autre projet attend > liaison qui tient), le nombre
+  d'agents gardant sa propre pastille. Sur ORDINATEUR, où ce bouton n'existe pas, le même point seul
+  tient la place de l'ancienne icône. Vérifié par `scripts/verif-panneau-projets.mjs`.
 - **CHAQUE COLONNE A SON PERSONNAGE, DÉTOURÉ** (`shared/src/personnages-colonnes.ts` ; images dans
   `web/public/personnages/`, refaites par `scripts/personnages-colonnes.py`) : sept personnages en
   pâte à modeler sur fond TRANSPARENT, en DEUX découpes — la SILHOUETTE entière en tête de colonne
@@ -978,6 +987,59 @@ le nom, là-bas le texte).
   d'œil plafonne à 47 %) et qu'elle pèse plus de 0,003 % de l'image. Le contrôle juge SUR FOND
   SOMBRE, seul endroit où le défaut se voit. Verrouillé par
   `server/src/test/personnages-colonnes.test.ts` et `scripts/verif-personnages-colonnes.mjs`.
+  **CELUI DE « EN COURS » BOUGE QUAND UN AGENT TRAVAILLE, ET LUI SEUL** (`COLONNE_VIVANTE`,
+  `personnageEnMouvement` ; classe `animate-personnage-au-travail`, `web/tailwind.config.js`) : un
+  balancement d'1,5 px sur 2,6 s, pieds au sol — une TRANSFORMATION seule, donc rien qui clignote,
+  aucune carte poussée d'un pixel, le glisser-déposer intact. Au repos, la classe n'est même pas
+  posée : l'immobilité est TOTALE, et c'est ce contraste qui porte l'information. On compte les
+  AGENTS de la colonne, jamais l'avancement (un agent sans liste de tâches y pèse zéro et figerait un
+  tableau pourtant occupé) ; « réduire les animations » coupe le mouvement, jamais le personnage.
+  **ET N'IMPORTE LEQUEL SE REMPLACE DEPUIS LES RÉGLAGES, sans carte ni agent**
+  (`server/src/personnages.ts` ; onglet « Personnages » des réglages ; `POST` et
+  `DELETE /api/personnage`) : l'image déposée passe par la MÊME fabrique que les sept d'origine
+  (`personnages-colonnes.py --une`), vit dans les DONNÉES (`data/personnages/`, jamais dans le dépôt)
+  et se sert à la MÊME adresse que l'originale, qui reste intacte — revenir en arrière efface deux
+  fichiers, rien de plus. Tout ou rien (les deux découpes ou aucune), et TOUT refus est dit avec sa
+  raison. Verrouillé par `server/src/test/personnages-colonnes.test.ts` et
+  `scripts/verif-personnages-colonnes.mjs`.
+- **QUATRE THÈMES AU CHOIX DANS LES RÉGLAGES, DONT DEUX SANS UNE BORDURE**
+  (`shared/src/themes.ts` pour le catalogue ; `web/src/lib/theme.ts` pour la pose ;
+  `web/src/styles.css` pour les quatre blocs de jetons ; onglet « Apparence » de `settings-view.tsx`).
+  « sombre » et « clair » sont les thèmes d'ORIGINE, aux valeurs INCHANGÉES ; « sable » (beiges
+  chauds) et « ardoise » (gris bleutés) sont deux thèmes FLAT DESIGN. SIX invariants. Le catalogue ne
+  connaît AUCUNE teinte de l'interface — seulement un APERÇU de quatre pastilles, qui doit s'afficher
+  pendant qu'un AUTRE thème est actif, d'où les seules couleurs posées en style direct de toute
+  l'application. Le thème s'applique en UN endroit, depuis la RACINE (`useTheme` dans `app.tsx`) et
+  jamais depuis un panneau chargé à la demande : `data-theme`, la classe `dark` et `color-scheme`
+  partent ensemble, avec la couleur du bandeau du téléphone. Le thème « sombre » n'a PAS de sélecteur
+  à lui — c'est `:root`, donc le défaut avant le premier affichage — et le clair reste accroché à
+  `html:not(.dark)`, que plusieurs contrôles retirent pour basculer ; les deux thèmes plats passent
+  APRÈS et déclarent CHAQUE jeton, un oubli y retombant en silence sur une valeur du thème clair. Un
+  thème PLAT n'a pas ses bordures retirées du code (ce serait redessiner tous les écrans) : `--border`
+  est amené à moins de deux points d'un fond, le trait existe et ne se voit plus, la mise en page ne
+  bouge pas. D'où deux conséquences NOMMÉES : l'ascenseur ne prend plus sa couleur dans `--border`
+  (il y disparaîtrait) et un bouton « contour » reçoit un fond translucide (`--controle`, la
+  transparence dans les deux thèmes d'origine). Enfin les anciens réglages « dark » / « light » sont
+  REPRIS (`themeValide`), et aucune teinte des deux thèmes neufs n'est recopiée d'un autre. Verrouillé
+  par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
+- **…ET CHAQUE PROJET PEUT IMPOSER LE SIEN, plus un choix qui suit l'ORDINATEUR**
+  (`themeAAppliquer`, `CHOIX_DE_THEME`, `THEME_SYSTEME`, `themeChoisiValide`, `shared/src/themes.ts` ;
+  `Project.theme` ; `useThemeApplique` / `useSystemeSombre`, `web/src/lib/theme.ts` ; ligne « Thème de
+  ce projet » de `project-settings.tsx`). CE QU'ON CHOISIT N'EST PLUS TOUJOURS UN THÈME : « systeme »
+  est une CONSIGNE — suivre le réglage clair / sombre de la machine — et désigne l'un des deux thèmes
+  d'ORIGINE (`themeDuSysteme`) ; il n'a donc AUCUN bloc de jetons, et le contrôle refuse qu'on lui en
+  écrive un. D'où deux types séparés, `ThemeId` (les 4 palettes) et `ThemeChoisi` (5 choix). UNE SEULE
+  règle décide : thème du PROJET OUVERT > réglage GÉNÉRAL > réglage de la machine, et changer de projet
+  rhabille l'application ENTIÈRE — d'où le crochet appelé à la RACINE, seul endroit qui voit les trois
+  sources. `themeChoisiValide` rend `null` et non le défaut : c'est ce qui distingue « ce projet
+  n'impose rien » de « il impose le sombre », et `Project.theme` est `nullish` pour que `null` puisse
+  RETIRER un thème (un `undefined` disparaîtrait du bloc envoyé). Le réglage de la machine est ÉCOUTÉ
+  (`prefers-color-scheme` change tout seul à la tombée du jour) et ne se lit que dans
+  `web/src/lib/theme.ts` — le contrôle refuse un second lecteur comme un second poseur. Enfin l'onglet
+  « Apparence » DIT quand un projet recouvre le choix général (`data-theme-recouvert`), sinon ce choix
+  paraissait cassé. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`
+  (qui pose le projet par `window.haikodevEssai.projet`, le démon en service pouvant précéder le champ
+  et le retirer — Zod écarte les clés qu'il ne connaît pas).
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
   `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de
