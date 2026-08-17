@@ -4,13 +4,14 @@
 
 @layer base {
   /**
-   * QUATRE THÈMES, UN BLOC DE JETONS CHACUN (`shared/src/themes.ts` pour le
+   * SEPT THÈMES, UN BLOC DE JETONS CHACUN (`shared/src/themes.ts` pour le
    * catalogue, qui ne connaît lui-même aucune teinte).
    *
    *  - « sombre » (`:root`) et « clair » (`html:not(.dark)`) : les deux thèmes
    *    d'origine, aux valeurs INCHANGÉES. On ajoute à côté, on ne retouche pas
    *    ce que l'utilisateur connaît déjà.
-   *  - « sable » et « ardoise » : deux thèmes FLAT DESIGN, plus bas.
+   *  - « sable », « ardoise », « givre », « sapin » et « contraste » : cinq
+   *    thèmes FLAT DESIGN, plus bas.
    *
    * TROIS RÈGLES QUI TIENNENT L'ENSEMBLE.
    *
@@ -19,11 +20,11 @@
    *    l'application clignote au chargement. Et le thème clair reste accroché à
    *    `html:not(.dark)` : plusieurs contrôles basculent en clair en RETIRANT la
    *    classe `dark`, sans toucher à l'attribut.
-   * 2. Les deux thèmes plats viennent APRÈS `html:not(.dark)` et déclarent CHAQUE
+   * 2. Les cinq thèmes plats viennent APRÈS `html:not(.dark)` et déclarent CHAQUE
    *    jeton. Leur sélecteur a la même force que `:not(.dark)` : c'est l'ordre qui
    *    tranche, et un jeton oublié retomberait sur la valeur du thème clair.
    *    `scripts/verif-themes.mjs` refuse un jeton manquant.
-   * 3. Aucune teinte ne s'écrit ailleurs que dans ces quatre blocs. Un écran ne
+   * 3. Aucune teinte ne s'écrit ailleurs que dans ces sept blocs. Un écran ne
    *    connaît que les NOMS (`web/tailwind.config.js`).
    */
   :root {
@@ -228,6 +229,132 @@
     /* Sur fond sombre, l'inverse : un voile CLAIR à 7 %, qui relève le bouton. */
     --controle: 210 30% 100% / 0.07;
     color-scheme: dark;
+  }
+
+  /**
+   * « GIVRE » — CLAIR, FROID, SANS UNE BORDURE.
+   *
+   * Ce qui manquait au clair : « sable » est chaud, le thème d'origine est
+   * neutre — aucun des deux n'est FROID. Même parti pris flat design que
+   * « sable » (fond qui contraste légèrement, bordure amenée entre les fonds),
+   * mais des blancs BLEUTÉS plutôt que des beiges, et un accent bleu franc au
+   * lieu du brun de « sable » : la même mécanique, une famille différente.
+   */
+  html[data-theme='givre'] {
+    --bg: 210 30% 94%;
+    --surface: 210 26% 88%;
+    --raised: 210 35% 99%;
+    /* Entre le fond de page et le fond d'un bloc : un trait qui ne tranche sur
+       aucun des deux. */
+    --border: 210 24% 89%;
+    --text: 215 35% 12%;
+    --muted: 213 18% 32%;
+    --faint: 213 14% 48%;
+    /* Un bleu froid, jamais le brun de « sable » ni le noir du clair d'origine :
+       l'accent doit appartenir à la famille du thème. */
+    --accent: 217 70% 38%;
+    --accent-fg: 210 40% 98%;
+    --success: 152 55% 28%;
+    --warning: 30 85% 38%;
+    --danger: 355 70% 42%;
+    --record: 213 85% 42%;
+    --record-fg: 210 40% 98%;
+    --info: 205 85% 38%;
+    --publie: 262 55% 46%;
+    --en-cours: 30 85% 38%;
+    --termine: 205 85% 38%;
+    --fond-plan: 210 26% 84%;
+    --voile: 215 40% 15%;
+    --sur-etat: 210 40% 98%;
+    --actif: 16 82% 46%;
+    --actif-fg: 210 40% 98%;
+    /* Un bleu-marine à 6 % : il assombrit très légèrement le bloc qui porte le
+       bouton, quel que soit ce bloc — ce qui remplace la bordure effacée. */
+    --controle: 215 40% 20% / 0.06;
+    color-scheme: light;
+  }
+
+  /**
+   * « SAPIN » — SOMBRE, CHAUD, SANS UNE BORDURE.
+   *
+   * Ce qui manquait au sombre : « ardoise » est froid (des gris bleutés), le
+   * thème d'origine est neutre — aucun des deux n'est CHAUD. Même parti pris
+   * flat design que « ardoise » (bordure amenée au niveau du fond d'un bloc),
+   * mais des verts profonds plutôt que des gris bleutés, un texte à peine
+   * jauni et un accent doré chaud — jamais le bleu-gris de « ardoise ».
+   */
+  html[data-theme='sapin'] {
+    --bg: 150 18% 9%;
+    --surface: 150 15% 14%;
+    --raised: 148 14% 19%;
+    /* Au niveau du fond d'un bloc : le trait s'efface. */
+    --border: 148 14% 15%;
+    --text: 60 12% 90%;
+    --muted: 90 8% 68%;
+    --faint: 90 6% 52%;
+    --accent: 38 55% 55%;
+    --accent-fg: 150 20% 10%;
+    --success: 140 45% 55%;
+    --warning: 36 80% 58%;
+    --danger: 5 65% 60%;
+    --record: 210 75% 55%;
+    --record-fg: 150 20% 96%;
+    --info: 205 75% 60%;
+    --publie: 265 65% 68%;
+    --en-cours: 36 80% 58%;
+    --termine: 205 75% 60%;
+    --fond-plan: 148 13% 24%;
+    --voile: 150 30% 4%;
+    /* Un blanc chaud, à peine jauni — jamais le blanc pur du thème sombre
+       d'origine ni le blanc froid de « ardoise ». */
+    --sur-etat: 150 20% 97%;
+    --actif: 20 75% 50%;
+    --actif-fg: 150 20% 97%;
+    /* Sur fond sombre, l'inverse de « givre » : un voile chaud et clair à 6 %,
+       qui relève le bouton. */
+    --controle: 60 30% 95% / 0.06;
+    color-scheme: dark;
+  }
+
+  /**
+   * « CONTRASTE » — CLAIR, TRÈS MARQUÉ, SANS UNE BORDURE.
+   *
+   * Un thème utilitaire : plein soleil sur l'écran, vue fatiguée — les nuances
+   * fines des autres thèmes s'effacent, il faut un texte proche du noir pur sur
+   * un fond proche du blanc, et des couleurs d'état SATURÉES plutôt que
+   * discrètes. Même mécanique flat design que les autres (les paliers de fond
+   * restent réguliers, aucune bordure ne se voit), mais la hiérarchie tient
+   * surtout au texte et aux états, poussés au maximum de lisibilité.
+   */
+  html[data-theme='contraste'] {
+    --bg: 45 6% 92%;
+    --surface: 45 6% 97%;
+    --raised: 45 8% 100%;
+    /* Au niveau du fond de page : le trait s'efface. */
+    --border: 45 6% 93%;
+    --text: 45 10% 4%;
+    --muted: 45 8% 24%;
+    --faint: 45 6% 40%;
+    --accent: 45 15% 10%;
+    --accent-fg: 45 10% 99%;
+    --success: 142 80% 22%;
+    --warning: 28 100% 30%;
+    --danger: 0 90% 34%;
+    --record: 213 95% 34%;
+    --record-fg: 45 10% 99%;
+    --info: 205 100% 28%;
+    --publie: 268 85% 32%;
+    --en-cours: 28 100% 30%;
+    --termine: 205 100% 28%;
+    --fond-plan: 45 6% 84%;
+    --voile: 45 20% 8%;
+    --sur-etat: 45 10% 99%;
+    --actif: 16 95% 40%;
+    --actif-fg: 45 10% 99%;
+    /* Un voile plus marqué que les autres thèmes plats (10 % contre 6-7 %) :
+       la lisibilité prime ici sur la discrétion. */
+    --controle: 45 20% 10% / 0.1;
+    color-scheme: light;
   }
 
   * {
