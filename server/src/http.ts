@@ -32,6 +32,12 @@ import { pontDemarre, pontAServiLesOutils } from './pont.js';
 import { attendreUneTranche, poserLAttente } from './attente-question.js';
 import { enregistrerErreurInterface } from './erreurs-interface.js';
 import { fichierFavicon } from './favicon.js';
+import {
+  fichierDuPersonnageRemplace,
+  remplacerLePersonnage,
+  retablirLePersonnage,
+  routeDUnPersonnage,
+} from './personnages.js';
 import { log } from './logger.js';
 
 const COOKIE = 'haikodev_session';
@@ -519,6 +525,32 @@ export function createHttpServer(): http.Server {
         return json(res, 200, { attachment });
       }
 
+      /*
+       * LE PERSONNAGE D'UNE COLONNE, REMPLACÉ DEPUIS LES RÉGLAGES. L'image
+       * arrive telle quelle dans le corps de la requête, comme pour une pièce
+       * jointe ; le détourage et les deux découpes sont faits par la même
+       * fabrique que les sept d'origine. Tout refus est rendu EN CLAIR, avec sa
+       * raison : c'est cette phrase que l'écran affiche.
+       */
+      if (route === '/api/personnage' && req.method === 'POST') {
+        const colonne = url.searchParams.get('colonne') ?? '';
+        const nom = decodeURIComponent(String(req.headers['x-file-name'] ?? ''));
+        const image = await readBody(req);
+        const issue = await remplacerLePersonnage({
+          colonne,
+          nom,
+          mime: String(req.headers['content-type'] ?? ''),
+          image,
+        });
+        return json(res, issue.ok ? 200 : 400, issue);
+      }
+
+      /** Revenir au personnage d'origine : on efface ce qui avait été déposé. */
+      if (route === '/api/personnage' && req.method === 'DELETE') {
+        const issue = retablirLePersonnage(url.searchParams.get('colonne') ?? '');
+        return json(res, issue.ok ? 200 : 400, issue);
+      }
+
       if (route === '/api/attachment') {
         const id = url.searchParams.get('id') ?? '';
         const attachment = store.getAttachment(id);
@@ -671,6 +703,25 @@ export function createHttpServer(): http.Server {
       }
 
       /* ---------------- Interface web ---------------- */
+
+      /*
+       * UN PERSONNAGE REMPLACÉ SE SERT À LA PLACE DE CELUI D'ORIGINE, à la MÊME
+       * adresse. Ce détour vient AVANT le service des fichiers de l'interface :
+       * l'image livrée avec l'application est toujours là, elle reprend sa
+       * place dès qu'on efface le remplaçant. Rien d'autre à changer — le
+       * tableau, les notifications et le service worker continuent de demander
+       * `/personnages/<colonne>.png`. Jamais de cache long : un remplacement
+       * doit se voir tout de suite (le repère `?v=` de l'interface suffit à le
+       * forcer, mais une notification, elle, ne le porte pas).
+       */
+      const viseUnPersonnage = routeDUnPersonnage(route);
+      if (viseUnPersonnage) {
+        const remplacant = fichierDuPersonnageRemplace(viseUnPersonnage);
+        if (remplacant && fs.existsSync(remplacant)) {
+          res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-cache, must-revalidate' });
+          return fs.createReadStream(remplacant).pipe(res);
+        }
+      }
 
       const racineWeb = webRoot();
       if (route !== '/' && !route.startsWith('/api/')) {

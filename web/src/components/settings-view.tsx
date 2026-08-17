@@ -26,9 +26,14 @@ import {
   GraduationCap,
   Archive,
   ArrowDownCircle,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   AccountQuota,
+  COLUMN_KEYS,
+  COLUMN_LABELS,
+  type ColumnKey,
+  imageDuPersonnage,
   CRANS_DE_VITESSE,
   CleApiPublique,
   NOM_CLE_MAX,
@@ -114,6 +119,7 @@ const ONGLETS = [
   { cle: 'sauvegardes', titre: 'Sauvegardes' },
   { cle: 'acces-api', titre: 'Accès API' },
   { cle: 'competences', titre: 'Compétences' },
+  { cle: 'personnages', titre: 'Personnages' },
 ] as const;
 
 function SettingsBody({ open }: { open: boolean }) {
@@ -202,6 +208,12 @@ function SettingsBody({ open }: { open: boolean }) {
         <TabsContent value="competences" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
           <SectionCompetences open={open && onglet === 'competences'} />
+        </ZoneDefilement>
+        </TabsContent>
+
+        <TabsContent value="personnages" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+        <ZoneDefilement className="p-4">
+          <SectionPersonnages />
         </ZoneDefilement>
         </TabsContent>
       </Tabs>
@@ -2438,6 +2450,163 @@ function SectionCompetences({ open }: { open: boolean }) {
             </div>
           ))
         )}
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Personnages : remplacer celui d'une colonne, ou revenir à l'origine */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CHANGER UN PERSONNAGE QUI NE PLAÎT PAS, sans passer par une carte ni par un
+ * agent : on choisit la colonne, on dépose une image, et le démon la détoure et
+ * la recadre dans les DEUX découpes — la silhouette de tête de colonne et le
+ * portrait rond des notifications — avec la même fabrique que les sept
+ * d'origine (`scripts/personnages-colonnes.py`). Rien n'est perdu : « Revenir à
+ * l'original » efface l'image déposée et l'image livrée reprend sa place.
+ *
+ * Un refus est TOUJOURS dit avec sa raison, sous la colonne concernée (fichier
+ * qui n'est pas une image, image trop lourde, fond non uni où le détourage ne
+ * trouve aucun personnage, détourage indisponible sur ce serveur) : sans cela,
+ * un dépôt refusé ne se distinguait pas d'un dépôt oublié.
+ */
+function SectionPersonnages() {
+  const state = useApp();
+  const [enCours, setEnCours] = React.useState<ColumnKey | null>(null);
+  const [refus, setRefus] = React.useState<Partial<Record<ColumnKey, string>>>({});
+  const champs = React.useRef<Partial<Record<ColumnKey, HTMLInputElement | null>>>({});
+
+  const deposer = async (colonne: ColumnKey, fichier: File) => {
+    setRefus((avant) => ({ ...avant, [colonne]: undefined }));
+    setEnCours(colonne);
+    try {
+      const reponse = await fetch(`/api/personnage?colonne=${encodeURIComponent(colonne)}`, {
+        method: 'POST',
+        headers: {
+          'content-type': fichier.type || 'application/octet-stream',
+          'x-file-name': encodeURIComponent(fichier.name),
+        },
+        body: fichier,
+      });
+      const data = await reponse.json().catch(() => ({}));
+      if (!reponse.ok || !data?.ok) {
+        setRefus((avant) => ({ ...avant, [colonne]: data?.error ?? "Le remplacement a échoué." }));
+        return;
+      }
+      client.pushToast('success', `Le personnage de « ${COLUMN_LABELS[colonne]} » a été remplacé.`);
+    } catch (err: any) {
+      setRefus((avant) => ({ ...avant, [colonne]: err?.message ?? "Le remplacement a échoué." }));
+    } finally {
+      setEnCours(null);
+      // Le champ garde sinon le fichier déposé : redéposer le MÊME ne
+      // déclencherait plus rien.
+      const champ = champs.current[colonne];
+      if (champ) champ.value = '';
+    }
+  };
+
+  const retablir = async (colonne: ColumnKey) => {
+    setRefus((avant) => ({ ...avant, [colonne]: undefined }));
+    const reponse = await fetch(`/api/personnage?colonne=${encodeURIComponent(colonne)}`, { method: 'DELETE' });
+    const data = await reponse.json().catch(() => ({}));
+    if (!reponse.ok || !data?.ok) {
+      setRefus((avant) => ({ ...avant, [colonne]: data?.error ?? "Le retour à l'original a échoué." }));
+      // Le bouton doit se savoir en échec : sans cela il montrerait sa coche.
+      throw new Error(data?.error ?? 'échec');
+    }
+    client.pushToast('success', `« ${COLUMN_LABELS[colonne]} » a retrouvé son personnage d'origine.`);
+  };
+
+  return (
+    <section>
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <ImageIcon className="h-3.5 w-3.5 text-faint" /> Personnages des colonnes
+      </h3>
+
+      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
+        Chaque colonne du tableau a son personnage. Déposez une image — un sujet sur un fond clair et uni — et elle
+        prend la place de l'ancien : détourée et recadrée pour la tête de colonne comme pour les notifications. Le
+        personnage d'origine n'est jamais perdu.
+      </p>
+
+      <div className="space-y-2">
+        {COLUMN_KEYS.map((colonne) => {
+          const remplaceLe = state.personnages[colonne];
+          const raison = refus[colonne];
+          return (
+            <div
+              key={colonne}
+              className="rounded-md border border-border bg-surface px-2.5 py-2"
+              data-personnage-reglage={colonne}
+            >
+              <div className="flex items-center gap-2.5">
+                {/* La même boîte de proportion fixe que sur le tableau : ce
+                    qu'on voit ici est exactement ce qui sera posé là-bas. */}
+                <img
+                  src={imageDuPersonnage(colonne, remplaceLe)}
+                  alt=""
+                  aria-hidden
+                  className="h-12 w-9 shrink-0 select-none object-contain"
+                  data-personnage-apercu={colonne}
+                />
+                <div className="min-w-0">
+                  <div className="text-[13px] text-text">{COLUMN_LABELS[colonne]}</div>
+                  <div className="text-[12px] text-faint">
+                    {remplaceLe ? `remplacé ${relativeTime(remplaceLe)}` : "personnage d'origine"}
+                  </div>
+                </div>
+
+                <div className="ml-auto flex items-center gap-1">
+                  <input
+                    ref={(element) => {
+                      champs.current[colonne] = element;
+                    }}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    data-personnage-fichier={colonne}
+                    onChange={(event) => {
+                      const fichier = event.target.files?.[0];
+                      if (fichier) void deposer(colonne, fichier);
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={enCours === colonne}
+                    data-personnage-remplacer={colonne}
+                    onClick={() => champs.current[colonne]?.click()}
+                  >
+                    {enCours === colonne ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <ImageIcon className="h-3 w-3" />
+                    )}{' '}
+                    {enCours === colonne ? 'Détourage…' : 'Remplacer'}
+                  </Button>
+                  {remplaceLe ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-personnage-retablir={colonne}
+                      onClick={() => retablir(colonne)}
+                    >
+                      <RefreshCw className="h-3 w-3" /> Revenir à l'original
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              {raison ? (
+                <p className="mt-1 text-[12px] text-danger" data-personnage-refus={colonne}>
+                  {raison}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

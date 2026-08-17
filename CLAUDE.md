@@ -963,6 +963,14 @@ le nom, là-bas le texte).
 
 ### Interface et code
 
+- **LE COIN HAUT GAUCHE DU BANDEAU RÉPOND AU COIN HAUT DROIT** (`pointEtat`,
+  `web/src/components/quota-bar.tsx`) : le bouton des projets porte l'icône HAMBURGER et l'habillage
+  commun des boutons de droite (`variant="outline"`, `size="icon"`), sans changer ce qu'il ouvre ni
+  son `aria-label="Projets"` — six scripts le désignent par là. L'icône « réseau » est RETIRÉE ; son
+  information tient dans un POINT (`data-point-etat`) posé DANS le coin haut droit du bouton, avec
+  une priorité écrite (liaison rompue > un autre projet attend > liaison qui tient), le nombre
+  d'agents gardant sa propre pastille. Sur ORDINATEUR, où ce bouton n'existe pas, le même point seul
+  tient la place de l'ancienne icône. Vérifié par `scripts/verif-panneau-projets.mjs`.
 - **CHAQUE COLONNE A SON PERSONNAGE, DÉTOURÉ** (`shared/src/personnages-colonnes.ts` ; images dans
   `web/public/personnages/`, refaites par `scripts/personnages-colonnes.py`) : sept personnages en
   pâte à modeler sur fond TRANSPARENT, en DEUX découpes — la SILHOUETTE entière en tête de colonne
@@ -971,8 +979,22 @@ le nom, là-bas le texte).
   (`avatarDeLAlerte` ; un motif sans colonne — quota, redémarrage — garde l'image de son genre). La
   colonne compte donc DEUX enveloppes : `data-column`, le cadre et le fond restent sur l'extérieure
   (`offsetLeft`, couleur de colonne), seule la découpe descend d'un cran, et l'image ne prend AUCUN
-  clic (le dépôt d'une carte vise `closest('[data-column]')`). Verrouillé par
-  `server/src/test/personnages-colonnes.test.ts` et `scripts/verif-personnages-colonnes.mjs`.
+  clic (le dépôt d'une carte vise `closest('[data-column]')`).
+  **CELUI DE « EN COURS » BOUGE QUAND UN AGENT TRAVAILLE, ET LUI SEUL** (`COLONNE_VIVANTE`,
+  `personnageEnMouvement` ; classe `animate-personnage-au-travail`, `web/tailwind.config.js`) : un
+  balancement d'1,5 px sur 2,6 s, pieds au sol — une TRANSFORMATION seule, donc rien qui clignote,
+  aucune carte poussée d'un pixel, le glisser-déposer intact. Au repos, la classe n'est même pas
+  posée : l'immobilité est TOTALE, et c'est ce contraste qui porte l'information. On compte les
+  AGENTS de la colonne, jamais l'avancement (un agent sans liste de tâches y pèse zéro et figerait un
+  tableau pourtant occupé) ; « réduire les animations » coupe le mouvement, jamais le personnage.
+  **ET N'IMPORTE LEQUEL SE REMPLACE DEPUIS LES RÉGLAGES, sans carte ni agent**
+  (`server/src/personnages.ts` ; onglet « Personnages » des réglages ; `POST` et
+  `DELETE /api/personnage`) : l'image déposée passe par la MÊME fabrique que les sept d'origine
+  (`personnages-colonnes.py --une`), vit dans les DONNÉES (`data/personnages/`, jamais dans le dépôt)
+  et se sert à la MÊME adresse que l'originale, qui reste intacte — revenir en arrière efface deux
+  fichiers, rien de plus. Tout ou rien (les deux découpes ou aucune), et TOUT refus est dit avec sa
+  raison. Verrouillé par `server/src/test/personnages-colonnes.test.ts` et
+  `scripts/verif-personnages-colonnes.mjs`.
 - **QUATRE THÈMES AU CHOIX DANS LES RÉGLAGES, DONT DEUX SANS UNE BORDURE**
   (`shared/src/themes.ts` pour le catalogue ; `web/src/lib/theme.ts` pour la pose ;
   `web/src/styles.css` pour les quatre blocs de jetons ; onglet « Apparence » de `settings-view.tsx`).

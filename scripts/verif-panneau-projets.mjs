@@ -77,16 +77,61 @@ async function main() {
   /* ---------- 2. Le bouton est en haut à GAUCHE ---------- */
   const bouton = page.locator('header button[aria-label="Projets"]');
   const boite = await bouton.boundingBox();
-  const reseau = await page.locator('header .lucide-network').boundingBox();
   record(
     'Le bouton des projets est tout en haut à gauche',
     !!boite && boite.x < 20 && boite.y < 60,
     boite ? `x=${Math.round(boite.x)} y=${Math.round(boite.y)}` : 'absent',
   );
+
+  // L'icône « réseau » a été RETIRÉE de la barre : son information vit
+  // désormais dans un simple point posé dans le coin du bouton menu.
+  const reseau = await page.locator('header .lucide-network').count();
+  record("L'icône de réseau ne prend plus de place dans la barre", reseau === 0, `${reseau} icône(s)`);
+
+  // Le bouton porte une icône hamburger et le même cadre que ceux de droite.
+  const hamburger = await bouton.locator('.lucide-menu').count();
+  const cadres = await page.evaluate(() => {
+    const menu = document.querySelector('header button[aria-label="Projets"]');
+    const droite = document.querySelector('header button[aria-label="Menu"]');
+    if (!menu || !droite) return null;
+    const lire = (el) => {
+      const s = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return {
+        bord: s.borderTopWidth + ' ' + s.borderTopColor,
+        rayon: s.borderRadius,
+        taille: `${Math.round(r.width)}x${Math.round(r.height)}`,
+      };
+    };
+    return { menu: lire(menu), droite: lire(droite) };
+  });
+  const memeHabillage =
+    !!cadres &&
+    cadres.menu.bord === cadres.droite.bord &&
+    cadres.menu.rayon === cadres.droite.rayon &&
+    cadres.menu.taille === cadres.droite.taille;
+  record('Le bouton porte une icône hamburger', hamburger === 1);
   record(
-    "L'icône de réseau garde sa place juste à côté",
-    !!reseau && !!boite && reseau.x > boite.x,
-    reseau ? `réseau x=${Math.round(reseau.x)}` : 'absente',
+    'Le bouton a le MÊME habillage que ceux de droite (cadre, rayon, taille)',
+    memeHabillage,
+    cadres ? `${cadres.menu.taille} / ${cadres.droite.taille}` : 'boutons introuvables',
+  );
+
+  // Le point d'état est DANS le bouton, dans son coin haut droit.
+  const point = await bouton.locator('[data-point-etat]').boundingBox();
+  const dedans =
+    !!point &&
+    !!boite &&
+    point.x >= boite.x &&
+    point.y >= boite.y &&
+    point.x + point.width <= boite.x + boite.width + 0.5 &&
+    point.y + point.height <= boite.y + boite.height + 0.5 &&
+    point.x > boite.x + boite.width / 2 &&
+    point.y < boite.y + boite.height / 2;
+  record(
+    'Un point d’état est posé dans le coin haut droit du bouton, sans déborder',
+    dedans,
+    point ? `point x=${Math.round(point.x)} y=${Math.round(point.y)}` : 'absent',
   );
   await shot(page, 'panneau-01-barre-du-haut');
 

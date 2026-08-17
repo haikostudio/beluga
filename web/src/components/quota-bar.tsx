@@ -4,10 +4,9 @@ import {
   BarChart3,
   BookOpen,
   Check,
-  FolderTree,
+  Menu,
   MonitorCog,
   MoreVertical,
-  Network,
   PanelRight,
   Square,
   Volume2,
@@ -167,6 +166,28 @@ export function QuotaBar({
     ([projectId, compte]) => compte > 0 && projectId !== state.activeProjectId,
   );
 
+  /*
+   * LE POINT D'ÉTAT DU COIN HAUT GAUCHE — un seul repère, posé sur le bouton
+   * menu, à la place de l'ancienne icône « réseau » (des nœuds reliés) qui
+   * prenait sa propre place dans la barre. Il garde exactement ce que cette
+   * icône disait : la liaison au serveur, verte quand elle tient, orange et
+   * clignotante quand elle est rompue. La pastille orange « un AUTRE projet
+   * attend une réponse » vivait déjà à ce coin-là : les deux ne peuvent pas
+   * s'empiler, la liaison rompue passe donc devant, l'attente ailleurs
+   * ensuite, et le texte de survol dit toujours laquelle des deux on regarde.
+   */
+  const pointEtat = !state.connected
+    ? { classe: 'animate-pulse-soft bg-warning', texte: 'Reconnexion…' }
+    : ailleurs
+      ? { classe: 'bg-warning', texte: 'Un autre projet attend une réponse' }
+      : {
+          classe: 'bg-success',
+          texte:
+            enCours.length > 1
+              ? `Connecté au serveur · ${enCours.length} agents travaillent`
+              : 'Connecté au serveur',
+        };
+
   return (
     <header
       className={cn(
@@ -180,54 +201,55 @@ export function QuotaBar({
         paddingRight: 'max(10px, env(safe-area-inset-right))',
       }}
     >
-      {/* Tout à gauche, à la place laissée libre par le nom « HaikoDev » : le
-          bouton qui fait glisser la liste des projets par-dessus l'écran. Il ne
-          sert qu'au téléphone — sur grand écran la colonne est déjà là. Une
-          pastille orange prévient qu'un AUTRE projet attend une réponse, sinon
-          l'alerte serait cachée derrière le panneau. */}
+      {/* Tout à gauche : le bouton qui fait glisser la liste des projets
+          par-dessus l'écran. Il ne sert qu'au téléphone — sur grand écran la
+          colonne est déjà là. Il porte le MÊME habillage que les boutons de
+          droite (cadre arrondi, fond transparent, même taille, même survol) :
+          les deux côtés de la barre se répondent au lieu d'une icône nue à
+          gauche et de boutons encadrés à droite. Le point d'état est posé dans
+          son coin haut droit, DANS le cadre — il ne déborde pas et ne prend
+          aucune place au nom du projet. */}
       {onOpenProjects ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative -ml-1 sm:hidden"
-          aria-label="Projets"
-          title="Projets"
-          onClick={onOpenProjects}
-        >
-          <FolderTree className="h-4 w-4" />
-          {ailleurs ? (
-            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning" />
-          ) : null}
-        </Button>
+        <Tooltip label={`Projets · ${pointEtat.texte}`}>
+          <Button
+            variant="outline"
+            size="icon"
+            className="relative shrink-0 sm:hidden"
+            aria-label="Projets"
+            onClick={onOpenProjects}
+          >
+            <Menu className="h-3.5 w-3.5" />
+            <span
+              data-point-etat
+              className={cn('absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full', pointEtat.classe)}
+            />
+          </Button>
+        </Tooltip>
       ) : null}
 
-      {/* Le seul repère à gauche : des nœuds reliés, verts quand la liaison au
-          serveur tient, orange et clignotants quand elle est rompue. Le nombre
-          d'agents ne s'affiche que lorsque PLUSIEURS travaillent en même temps :
-          seul, un agent n'apprend rien de plus que la bande « en cours ». */}
-      <Tooltip
-        label={
-          state.connected
-            ? enCours.length > 1
-              ? `Connecté au serveur · ${enCours.length} agents travaillent`
-              : 'Connecté au serveur'
-            : 'Reconnexion…'
-        }
-      >
-        <span className="flex items-center gap-1">
-          <Network
-            className={cn(
-              'h-4 w-4',
-              state.connected ? 'text-success' : 'animate-pulse-soft text-warning',
-            )}
+      {/* Sur GRAND ÉCRAN il n'y a pas de bouton menu — la colonne des projets
+          est toujours là. Le même point d'état, seul, tient donc la place de
+          l'ancienne icône : mêmes couleurs, même texte de survol, les deux
+          versions disent la même chose de la même façon. */}
+      <Tooltip label={pointEtat.texte}>
+        <span className="hidden shrink-0 items-center sm:flex">
+          <span
+            data-point-etat
+            className={cn('h-1.5 w-1.5 rounded-full', pointEtat.classe)}
           />
-          {enCours.length > 1 ? (
-            <span className="rounded-full bg-raised px-1.5 text-[11.5px] font-medium tabular-nums text-muted">
-              {enCours.length}
-            </span>
-          ) : null}
         </span>
       </Tooltip>
+
+      {/* Le nombre d'agents ne s'affiche que lorsque PLUSIEURS travaillent en
+          même temps : seul, un agent n'apprend rien de plus que la bande « en
+          cours ». */}
+      {enCours.length > 1 ? (
+        <Tooltip label={`${enCours.length} agents travaillent`}>
+          <span className="shrink-0 rounded-full bg-raised px-1.5 text-[11.5px] font-medium tabular-nums text-muted">
+            {enCours.length}
+          </span>
+        </Tooltip>
+      ) : null}
 
       {/* Le nom du projet ouvert, juste à côté du voyant de liaison : on sait
           toujours dans quel projet on travaille, sans ouvrir la liste. Il prend
