@@ -9,7 +9,7 @@ import * as DropdownPrimitive from '@radix-ui/react-dropdown-menu';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as SeparatorPrimitive from '@radix-ui/react-separator';
 import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
-import { Check, Loader2, X } from 'lucide-react';
+import { Check, ChevronRight, Loader2, X } from 'lucide-react';
 import {
   DUREE_REUSSITE_MS,
   EVENEMENT_ATTENTE_LONGUE,
@@ -919,6 +919,65 @@ export function DropdownMenuItem({
       )}
       {...props}
     />
+  );
+}
+
+/* ------------------------- Menu DANS le menu ----------------------- *
+ *
+ * UN SOUS-MENU S'OUVRE AU SURVOL **ET** AU CLIC.
+ *
+ * Une famille de choix qui s'allonge (les cinq thèmes) occupait la moitié du
+ * menu : on la range derrière une seule entrée, qui déplie sa liste à côté. La
+ * bibliothèque ouvre ce genre d'entrée au survol de la souris ET à l'appui —
+ * les deux gestes comptent, puisque le téléphone et le clavier n'ont pas de
+ * survol. On ne réécrit donc AUCUN de ces deux chemins ; on ne fait que
+ * l'habiller comme une entrée ordinaire, avec le chevron qui dit « il y a une
+ * suite ».
+ */
+export const DropdownMenuSub = DropdownPrimitive.Sub;
+
+export function DropdownMenuSubTrigger({
+  className,
+  children,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.SubTrigger>) {
+  return (
+    <DropdownPrimitive.SubTrigger
+      className={cn(
+        'flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-[14px] text-muted outline-none',
+        'data-[highlighted]:bg-raised data-[highlighted]:text-text data-[state=open]:bg-raised data-[state=open]:text-text',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
+    </DropdownPrimitive.SubTrigger>
+  );
+}
+
+export function DropdownMenuSubContent({
+  className,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.SubContent>) {
+  return (
+    <DropdownPrimitive.Portal>
+      {/* Le panneau du sous-menu reste un panneau FLOTTANT, sur téléphone comme
+          sur grand écran : le tiroir du bas, lui, appartient au menu de premier
+          niveau. Il passe donc au-dessus de ce tiroir (z-index plus haut) et la
+          bibliothèque le replace toute seule s'il sortait de l'écran. */}
+      <DropdownPrimitive.SubContent
+        sideOffset={2}
+        alignOffset={-4}
+        className={cn(
+          'z-50 flex min-w-[170px] flex-col overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl',
+          'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+          'max-sm:z-[70]',
+          className,
+        )}
+        {...props}
+      />
+    </DropdownPrimitive.Portal>
   );
 }
 

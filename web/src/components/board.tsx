@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, RotateCcw, X } from 'lucide-react';
+import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, RotateCcw, X } from 'lucide-react';
 import {
   Attachment,
   COLUMN_KEYS,
@@ -37,11 +37,15 @@ import {
   phraseDepartProgramme,
   RAISON_ATTENTE_LANCEMENT,
   imageDuPersonnage,
-  personnageEnMouvement,
+  animeDuPersonnage,
+  gesteDuPersonnage,
+  COLONNES_ANIMEES,
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
   natureDeLaMention,
+  phraseDuTravailRestant,
+  travailRestant,
   repereVisible,
   sortieAutorisee,
 } from '@haikodev/shared';
@@ -72,6 +76,7 @@ import { readPref, writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
 import { useSurvol } from '@/lib/pointeur';
+import { useAnimationsReduites } from '@/lib/animations-reduites';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel, BoutonInfosPublication, InfosPublication } from '@/components/deploy-panel';
@@ -378,6 +383,20 @@ export function Board({
     return index;
   }, [state.agents]);
   const agentTacheActif = (card: Card) => agentsTacheParCarte.get(card.id);
+
+  /*
+   * Le geste du personnage se décide plus bas, colonne par colonne ; ce qu'il
+   * faut savoir de l'ÉCRAN se lit une seule fois ici. Et la boucle animée est
+   * DEMANDÉE D'AVANCE : sans cela, le premier coup de pioche attendrait le
+   * réseau, et la tête de colonne resterait vide juste au moment où l'on veut
+   * voir que ça démarre. Une image demandée et jamais montrée ne coûte que son
+   * entrée dans le cache du navigateur.
+   */
+  const animationsReduites = useAnimationsReduites();
+  React.useEffect(() => {
+    if (animationsReduites) return;
+    for (const colonne of COLONNES_ANIMEES) new Image().src = animeDuPersonnage(colonne);
+  }, [animationsReduites]);
   const avancementDeCesCartes = (cartes: Card[]) =>
     avancementDeLaColonne(
       cartes.map((card) => {
@@ -1110,14 +1129,18 @@ export function Board({
         const action = actionDeLot(column, columnCards);
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
         /*
-         * LE PERSONNAGE BOUGE-T-IL ? On compte les cartes de CETTE colonne dont
+         * QUE FAIT LE PERSONNAGE ? On compte les cartes de CETTE colonne dont
          * un agent de tâche travaille — le même index que l'avancement, déjà
          * construit une fois pour tout le rendu. La règle (une seule colonne
-         * vivante, et seulement quand ça travaille) vit dans
-         * `personnageEnMouvement` ; ici on ne fait que compter.
+         * vivante, quel geste, et quand il retombe sur le balancement) vit dans
+         * `gesteDuPersonnage` ; ici on ne fait que compter et lui dire ce qu'on
+         * sait de l'écran.
          */
         const auTravail = columnCards.reduce((n, card) => n + (agentsTacheParCarte.has(card.id) ? 1 : 0), 0);
-        const personnageVivant = personnageEnMouvement(column, auTravail);
+        const geste = gesteDuPersonnage(column, auTravail, {
+          remplace: state.personnages[column] !== undefined,
+          animationsReduites,
+        });
         return (
           /*
             DEUX enveloppes, et c'est le PERSONNAGE qui l'impose. Il déborde du
@@ -1159,26 +1182,34 @@ export function Board({
                 le geste. Sa boîte est de proportion fixe (voir
                 `shared/src/personnages-colonnes.ts`), donc la même hauteur vaut
                 pour les sept.
-                QUAND UN AGENT TRAVAILLE, celui de « En cours » se BALANCE : une
-                animation de TRANSFORMATION seulement, pieds au sol
-                (`origin-bottom`), qui ne déplace aucune carte et n'attrape
-                toujours aucun clic. Au repos, la classe n'est pas posée du tout
-                — l'immobilité est totale, c'est elle qui donne son sens au
-                mouvement. Le réglage système « réduire les animations » la
-                neutralise dans `styles.css`.
+                QUAND UN AGENT TRAVAILLE, celui de « En cours » PIOCHE : ce
+                n'est plus la même image, c'est une boucle animée du même mineur
+                donnant de vrais coups de pioche. Elle occupe exactement la même
+                boîte que l'image fixe (même proportion, même appui au sol) :
+                rien ne bouge autour, et le dépôt d'une carte reste insensible
+                (`pointer-events-none`). Au repos, on redemande l'image FIXE —
+                l'immobilité est alors totale, et c'est elle qui donne son sens
+                au geste. Quand la boucle ne peut pas servir (personnage
+                remplacé depuis les réglages), on retombe sur le BALANCEMENT
+                d'avant : une animation de transformation, pieds au sol
+                (`origin-bottom`), neutralisée par « réduire les animations »
+                dans `styles.css` — préférence qui, pour une image animée, se lit
+                en amont dans `gesteDuPersonnage`.
                 Le personnage REMPLACÉ, lui, se sert à la MÊME adresse : seul le
                 repère `?v=` change, pour que le navigateur redemande l'image au
-                lieu de ressortir l'ancienne de son cache. */}
+                lieu de ressortir l'ancienne de son cache. La boucle livrée n'a
+                pas ce repère : aucun dépôt ne la remplace jamais. */}
             <img
-              src={imageDuPersonnage(column, state.personnages[column])}
+              src={geste === 'pioche' ? animeDuPersonnage(column) : imageDuPersonnage(column, state.personnages[column])}
               alt=""
               aria-hidden
               draggable={false}
               data-personnage-colonne={column}
-              data-personnage-vivant={personnageVivant ? 'oui' : 'non'}
+              data-personnage-vivant={geste === 'immobile' ? 'non' : 'oui'}
+              data-personnage-geste={geste}
               className={cn(
                 'pointer-events-none absolute -left-1.5 -top-2 z-10 h-[42px] w-[31.5px] select-none object-contain',
-                personnageVivant && 'origin-bottom animate-personnage-au-travail',
+                geste === 'balancement' && 'origin-bottom animate-personnage-au-travail',
               )}
             />
             {/* La DÉCOUPE, et rien d'autre : ce qui défile ne doit pas sortir
@@ -1939,6 +1970,34 @@ export function CardTile({
     maintenant,
   );
 
+  /*
+   * « QU'EST-CE QUI TOURNE ENCORE ? » Depuis qu'un rapport rendu ferme la carte,
+   * une carte RESTÉE dans « En cours » a forcément une raison — et elle doit se
+   * lire sans ouvrir la carte : l'étape, depuis quand, ce qu'on attend. La règle
+   * est partagée et testée (`travailRestant`) ; ici on ne fait que l'afficher.
+   * Elle se tait quand la vieille mention « tour terminé sans suite » parle déjà
+   * : deux phrases pour le même silence ne diraient rien de plus.
+   */
+  const restant = sansSuite
+    ? null
+    : travailRestant(
+        {
+          colonne: card.column,
+          agentActif: agentActif
+            ? {
+                etapeEnCours: agentActif.etapeEnCours,
+                startedAt: agentActif.startedAt,
+                todos: agentActif.todos,
+                attendReponse: agentActif.attendReponse,
+              }
+            : undefined,
+          decisionEnAttente: decisions > 0,
+          tourEnVolDepuis: card.scheduling?.tourEnVolDepuis,
+          finDuDernierTour: agentsDeLaCarte.reduce((fin, a) => Math.max(fin, a.endedAt ?? 0), 0) || undefined,
+        },
+        maintenant,
+      );
+
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
     analyseEnCours: agentAuTravail,
@@ -2127,11 +2186,15 @@ export function CardTile({
 
         {/*
          * La phrase du dernier tour, à l'endroit où l'on cherche l'état de la
-         * carte. Deux tons, jamais un seul : une carte dont le CODE EST LÀ
+         * carte. TROIS tons, jamais un seul. Une carte dont le CODE EST LÀ
          * (`natureDeLaMention` → « travail ») porte une information bleue, celle
          * du travail acquis — l'afficher en triangle jaune démentait la coche
          * verte d'à côté et faisait lire « rien n'a été fait » sur un travail
-         * bel et bien livré. Une carte qui ATTEND, elle, garde son jaune.
+         * bel et bien livré. Une carte qui ATTEND garde son jaune. Et depuis
+         * qu'un rapport rendu ferme la carte, un troisième cas existe :
+         * « INFORMATION » — la carte est close, aucun code n'a été livré, et
+         * personne n'a rien à faire. Ni alerte ni promesse de livraison : du
+         * gris, et la phrase telle quelle.
          */}
         {card.sansModification ? (
           natureDeLaMention(card.sansModification) === 'travail' ? (
@@ -2141,6 +2204,15 @@ export function CardTile({
               className="mt-1.5 flex items-start gap-1.5 rounded border border-termine/30 bg-termine/10 px-1.5 py-1 text-[12px] leading-snug text-termine"
             >
               <Check className="mt-[2px] h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate">{card.sansModification}</span>
+            </div>
+          ) : natureDeLaMention(card.sansModification) === 'information' ? (
+            <div
+              data-mention-carte="information"
+              title={card.sansModification}
+              className="mt-1.5 flex items-start gap-1.5 rounded border border-border bg-surface px-1.5 py-1 text-[12px] leading-snug text-faint"
+            >
+              <Info className="mt-[2px] h-3 w-3 shrink-0" />
               <span className="min-w-0 truncate">{card.sansModification}</span>
             </div>
           ) : (
@@ -2184,6 +2256,39 @@ export function CardTile({
         ) : null}
 
         {/*
+         * CE QUI TOURNE ENCORE, écrit en toutes lettres. Une carte de « En
+         * cours » ne peut plus rester muette : l'étape, depuis quand, et ce
+         * qu'on attend. Le ton suit la nature — orange quand VOUS êtes
+         * attendu, la couleur des travaux en cours quand ça travaille, gris
+         * pâle pour le reste. La phrase est tronquée à l'écran, jamais dans
+         * l'infobulle.
+         */}
+        {restant ? (
+          <div
+            title={phraseDuTravailRestant(restant)}
+            className={cn(
+              'mt-1.5 flex items-start gap-1.5 rounded px-1.5 py-1 text-[12px] leading-snug',
+              restant.nature === 'question'
+                ? 'border border-warning/30 bg-warning/10 text-warning'
+                : restant.nature === 'travaille'
+                  ? 'border border-en-cours/30 bg-en-cours/10 text-en-cours'
+                  : 'text-faint',
+            )}
+          >
+            {restant.nature === 'question' ? (
+              <MessageSquare className="mt-[2px] h-3 w-3 shrink-0" />
+            ) : restant.nature === 'travaille' ? (
+              <Loader2 className="mt-[2px] h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Clock className="mt-[2px] h-3 w-3 shrink-0" />
+            )}
+            <span className="min-w-0 truncate" data-travail-restant={card.id}>
+              {phraseDuTravailRestant(restant)}
+            </span>
+          </div>
+        ) : null}
+
+        {/*
          * Une carte ressortie d'« Archivé » ne fait pas semblant de n'y être
          * jamais allée : elle porte la date de son passage, en gris pâle. Dans
          * la colonne « Archivé » elle-même, la mention ne s'affiche pas — la
@@ -2219,7 +2324,7 @@ export function CardTile({
               // un pied technique, pas le texte principal, et son icône comme
               // sa pastille doivent coller aux bords pour laisser le texte de
               // l'étape respirer avant d'être tronqué.
-              'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-border/30 px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
+              'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-bandeau-etape px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
               'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
               statut.ton,
             )}
@@ -2251,7 +2356,7 @@ export function CardTile({
             // Même resserrement que la bande ci-dessus (px-1.5 au lieu de
             // px-2.5) : l'icône colle au bord gauche, la pastille de temps au
             // bord droit, et le nom de l'étape gagne la place ainsi rendue.
-            'relative -mt-1 flex cursor-pointer items-center gap-1 overflow-hidden rounded-b-md bg-border/30 px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
+            'relative -mt-1 flex cursor-pointer items-center gap-1 overflow-hidden rounded-b-md bg-bandeau-etape px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
             'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
           )}
         >

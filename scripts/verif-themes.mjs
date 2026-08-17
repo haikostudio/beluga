@@ -1,25 +1,26 @@
 #!/usr/bin/env node
 /**
- * LES QUATRE THÈMES, VÉRIFIÉS SUR LEUR SOURCE PUIS DANS UN VRAI NAVIGATEUR.
+ * LES SEPT THÈMES, VÉRIFIÉS SUR LEUR SOURCE PUIS DANS UN VRAI NAVIGATEUR.
  *
  * La première moitié ne LIT que du texte : les blocs de jetons de
  * `web/src/styles.css`, le catalogue de `shared/src/themes.ts` et les écrans de
  * `web/src`. Elle refuse :
  *
- *  1. un jeton MANQUANT dans un thème — les deux thèmes plats passent après le
+ *  1. un jeton MANQUANT dans un thème — les thèmes plats passent après le
  *     thème clair et ont la même force de sélecteur : un oubli y retomberait en
  *     silence sur une valeur du thème clair, et personne ne le verrait ;
- *  2. une teinte RECOPIÉE d'un thème à l'autre pour les deux thèmes NEUFS — la
+ *  2. une teinte RECOPIÉE d'un thème à l'autre pour les cinq thèmes NEUFS — la
  *     demande le dit en toutes lettres. Les deux thèmes d'ORIGINE sont exemptés :
  *     leurs valeurs ne doivent justement pas changer ;
- *  3. dans un thème PLAT, une bordure encore VISIBLE (elle doit se confondre avec
- *     un des fonds) ou des fonds mal étagés (il faut un contraste léger MAIS net) ;
- *  4. dans un thème d'ORIGINE, une bordure devenue invisible — la vérification
- *     marche donc dans les deux sens ;
+ *  3. dans un thème PLAT — « sombre », « sable » et « ardoise » —, une bordure
+ *     encore VISIBLE (elle doit se confondre avec un des fonds) ou des fonds mal
+ *     étagés (il faut un contraste léger MAIS net) ;
+ *  4. dans le seul thème À BORDURES, le clair, une bordure devenue invisible —
+ *     la vérification marche donc dans les deux sens ;
  *  5. un texte illisible sur son fond ;
  *  6. une couleur écrite EN DUR dans un écran ;
  *  7. un aperçu du catalogue qui ne dit pas la vérité sur les jetons du thème ;
- *  8. un nom de couleur de Tailwind sans jeton derrière lui dans les quatre thèmes ;
+ *  8. un nom de couleur de Tailwind sans jeton derrière lui dans les sept thèmes ;
  *  9. un bloc de jetons pour « systeme », qui n'est pas un thème mais une consigne,
  *     ou un second endroit qui pose le thème.
  *
@@ -53,12 +54,19 @@ const constater = (message) => constats.push(message);
 /* Lire les blocs de jetons                                           */
 /* ------------------------------------------------------------------ */
 
-/** Les quatre thèmes et le sélecteur qui les porte, dans leur ordre d'écriture. */
+/** Les sept thèmes et le sélecteur qui les porte, dans leur ordre d'écriture. */
 const BLOCS = [
-  { id: 'sombre', selecteur: ':root', origine: true, plat: false },
+  /* « sombre » est un thème d'ORIGINE — ses teintes ne se comparent donc pas aux
+     autres — mais il est PLAT depuis le 17.08.2026 : sa bordure doit se
+     confondre avec un de ses fonds, et son bouton « contour » porter un voile.
+     Les deux qualités sont bien séparées, c'est ce qui permet ce cas. */
+  { id: 'sombre', selecteur: ':root', origine: true, plat: true },
   { id: 'clair', selecteur: 'html:not(.dark)', origine: true, plat: false },
   { id: 'sable', selecteur: "html[data-theme='sable']", origine: false, plat: true },
   { id: 'ardoise', selecteur: "html[data-theme='ardoise']", origine: false, plat: true },
+  { id: 'givre', selecteur: "html[data-theme='givre']", origine: false, plat: true },
+  { id: 'sapin', selecteur: "html[data-theme='sapin']", origine: false, plat: true },
+  { id: 'contraste', selecteur: "html[data-theme='contraste']", origine: false, plat: true },
 ];
 
 const css = fs.readFileSync(CSS, 'utf8');
@@ -109,7 +117,7 @@ for (const bloc of BLOCS.slice(1)) {
 constater(`${attendus.length} jetons déclarés par chacun des ${BLOCS.length} thèmes`);
 
 /* ------------------------------------------------------------------ */
-/* 2. Aucune teinte recopiée pour les deux thèmes NEUFS               */
+/* 2. Aucune teinte recopiée pour les cinq thèmes NEUFS               */
 /* ------------------------------------------------------------------ */
 
 for (const bloc of BLOCS.filter((item) => !item.origine)) {
@@ -123,7 +131,7 @@ for (const bloc of BLOCS.filter((item) => !item.origine)) {
     }
   }
 }
-constater('aucune teinte des thèmes « sable » et « ardoise » n’est recopiée d’un autre thème');
+constater('aucune teinte des cinq thèmes plats n’est recopiée d’un autre thème');
 
 /* ------------------------------------------------------------------ */
 /* 3 et 4. Les bordures : effacées dans les thèmes plats, visibles ailleurs */
@@ -177,7 +185,7 @@ for (const bloc of BLOCS) {
     );
   }
 }
-constater('bordures effacées dans « sable » et « ardoise », intactes dans « sombre » et « clair »');
+constater('bordures effacées dans les six thèmes plats, intactes dans le seul « clair »');
 
 /* ------------------------------------------------------------------ */
 /* 5. Le texte reste lisible sur ses fonds                            */
@@ -198,7 +206,7 @@ for (const bloc of BLOCS) {
     }
   }
 }
-constater('texte, texte discret et texte pâle lisibles sur les trois fonds des quatre thèmes');
+constater('texte, texte discret et texte pâle lisibles sur les trois fonds des sept thèmes');
 
 /* ------------------------------------------------------------------ */
 /* 6. Aucune couleur écrite en dur dans un écran                      */
@@ -233,7 +241,7 @@ for (const fichier of ecrans(ECRANS)) {
     const ligne = texte.slice(0, trouve.index).split('\n').length;
     refuser(
       `${path.relative(RACINE, fichier)}:${ligne} : couleur écrite en dur « ${trouve[0]} » — ` +
-        `elle ne suivra aucun des quatre thèmes`,
+        `elle ne suivra aucun des sept thèmes`,
     );
   }
 }
@@ -279,7 +287,7 @@ for (const bloc of BLOCS) {
     }
   });
 }
-constater('les quatre pastilles d’aperçu de chaque thème reprennent ses vrais jetons');
+constater('les pastilles d’aperçu de chaque thème reprennent ses vrais jetons');
 
 /* ------------------------------------------------------------------ */
 /* 8. Chaque nom de Tailwind a son jeton                              */
@@ -300,14 +308,14 @@ constater(`${new Set(noms).size} noms de couleur de Tailwind adossés à un jeto
 /*
  * Le piège à éviter : croire que « systeme » est un cinquième thème. Ce n'est
  * qu'une CONSIGNE — suivre le réglage de l'ordinateur —, elle désigne l'un des
- * quatre. Un bloc `[data-theme='systeme']` dans la feuille de style signalerait
+ * sept. Un bloc `[data-theme='systeme']` dans la feuille de style signalerait
  * que quelqu'un a cru le contraire, et l'attribut serait alors posé sur un nom
  * qui n'habille rien.
  */
 if (css.includes("data-theme='systeme'") || css.includes('data-theme="systeme"')) {
   refuser(
     "web/src/styles.css : un bloc de jetons pour « systeme » — or ce n'est pas un thème mais une " +
-      'consigne, qui désigne l’un des quatre (voir `themeDuSysteme`)',
+      'consigne, qui désigne l’un des sept (voir `themeDuSysteme`)',
   );
 }
 if (!/CHOIX_DE_THEME/.test(catalogue) || !/THEME_SYSTEME/.test(catalogue)) {
@@ -441,7 +449,7 @@ async function dansLaPage(page, navigateur) {
         }
         return lu;
       },
-      { id: bloc.id, sombre: bloc.id === 'sombre' || bloc.id === 'ardoise' },
+      { id: bloc.id, sombre: bloc.id === 'sombre' || bloc.id === 'ardoise' || bloc.id === 'sapin' },
     );
 
     /* Une couleur que le navigateur n'a pas comprise ne rend rien du tout, ou le
@@ -451,14 +459,15 @@ async function dansLaPage(page, navigateur) {
         anomalies.push(`thème « ${bloc.id} » : la classe « ${nom} » ne produit aucune couleur (${valeur || 'vide'})`);
       }
     }
-    /* Le fond d'un bouton au repos : transparent dans les deux thèmes d'origine,
-       un voile TRANSLUCIDE — donc jamais opaque — dans les deux thèmes plats. */
+    /* Le fond d'un bouton au repos : transparent dans le seul thème à bordures
+       (le clair), un voile TRANSLUCIDE — donc jamais opaque — dans les six
+       thèmes plats, où la bordure ne dessine plus le bouton. */
     const alpha = /rgba?\([^)]*?,\s*([\d.]+)\s*\)$/.exec(mesures.controle ?? '');
     const part = alpha ? Number(alpha[1]) : 1;
-    if (bloc.origine && part !== 0) {
-      anomalies.push(`thème d'origine « ${bloc.id} » : le fond d'un bouton au repos n'est plus transparent (${mesures.controle})`);
+    if (!bloc.plat && part !== 0) {
+      anomalies.push(`thème à bordures « ${bloc.id} » : le fond d'un bouton au repos n'est plus transparent (${mesures.controle})`);
     }
-    if (!bloc.origine && (part === 0 || part > 0.2)) {
+    if (bloc.plat && (part === 0 || part > 0.2)) {
       anomalies.push(`thème plat « ${bloc.id} » : le fond d'un bouton au repos doit être un voile léger, pas ${mesures.controle}`);
     }
     /* Et le voile d'une fenêtre garde bien sa part : `bg-voile/70` s'écrit avec
@@ -544,11 +553,48 @@ async function dansLaPage(page, navigateur) {
     await page.evaluate((id) => window.haikodevEssai.projet(id, { theme: null }), premier.id);
   }
 
-  /* « Système » suit l'ordinateur, et le suit EN DIRECT.
-     Le menu s'ouvre par un VRAI clic : un `.click()` posé depuis la page ne
-     réveille pas ce menu, qui écoute l'appui du pointeur et non le clic. */
+  /* LE MENU NE PORTE QU'UNE ENTRÉE « THÈME », et elle s'ouvre AU SURVOL comme
+     AU CLIC. Le menu s'ouvre par un VRAI clic : un `.click()` posé depuis la
+     page ne réveille pas ce menu, qui écoute l'appui du pointeur. */
   await page.click('button[title="Menu"]');
   await page.waitForTimeout(700);
+
+  const avantSurvol = await page.evaluate(() => ({
+    entree: !!document.querySelector('[data-theme-menu]'),
+    choix: document.querySelectorAll('[data-theme-choix]').length,
+  }));
+  if (!avantSurvol.entree) {
+    anomalies.push("le menu du bandeau n'a pas d'entrée « Thème » (repère `data-theme-menu`)");
+  }
+  if (avantSurvol.choix !== 0) {
+    anomalies.push(
+      `les ${avantSurvol.choix} thèmes s'alignent encore dans le menu : ils doivent tenir derrière l'entrée « Thème »`,
+    );
+  }
+
+  /* 1) LE SURVOL. C'est le geste attendu à la souris. */
+  await page.hover('[data-theme-menu]');
+  await page.waitForTimeout(600);
+  const auSurvol = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
+  if (auSurvol.length !== 5) {
+    anomalies.push(`le sous-menu ne s'ouvre pas au SURVOL (${auSurvol.length} thèmes vus, 5 attendus)`);
+  }
+
+  /* 2) LE CLIC, pour qui n'a pas de souris. On referme d'abord tout. */
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  await page.click('button[title="Menu"]');
+  await page.waitForTimeout(700);
+  await page.click('[data-theme-menu]');
+  await page.waitForTimeout(600);
+  const auClic = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
+  if (auClic.length !== 5) {
+    anomalies.push(`le sous-menu ne s'ouvre pas au CLIC (${auClic.length} thèmes vus, 5 attendus)`);
+  }
+
+  /* « Système » suit l'ordinateur, et le suit EN DIRECT. */
   const menuOuvert = await page.evaluate(() => !!document.querySelector('[data-theme-choix="systeme"]'));
   if (!menuOuvert) {
     anomalies.push("le choix « Système » n'est pas au menu du bandeau");
@@ -586,13 +632,14 @@ if (typeof mesureNavigateur === 'string') {
   for (const anomalie of mesureNavigateur) refuser(anomalie);
   constater(
     `dans un vrai navigateur : couleurs calculées des ${BLOCS.length} thèmes, thème d'un PROJET qui habille ` +
-      `toute l'application, et « Système » qui suit le réglage de l'ordinateur`,
+      `toute l'application, une SEULE entrée « Thème » au menu qui s'ouvre au survol comme au clic, ` +
+      `et « Système » qui suit le réglage de l'ordinateur`,
   );
 }
 
 /* ------------------------------------------------------------------ */
 
-console.log('\nLES QUATRE THÈMES\n');
+console.log('\nLES SEPT THÈMES\n');
 for (const message of constats) console.log(`  ✓ ${message}`);
 if (echecs.length) {
   console.error('');

@@ -29,7 +29,7 @@ import {
   type ModeleCursorCli,
 } from '@haikodev/shared';
 import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
-import { finDuProcessus } from './fin-de-processus.js';
+import { arreterProcessus, finDuProcessus } from './fin-de-processus.js';
 import { cleDuCompteCursor, listAccountRecords } from '../accounts.js';
 import { log } from '../logger.js';
 
@@ -469,20 +469,25 @@ export const cursorAdapter: EngineAdapter = {
       });
     });
 
-    return {
+    const handle: EngineHandle = {
+      // Le numéro n'existe qu'une fois le CLI lancé — la résolution du modèle
+      // passe d'abord. Il est lu à la demande, pour que le constat « ce moteur
+      // répond-il encore ? » ne se fasse jamais sur une valeur figée d'avant.
+      get pid() {
+        return enfant?.pid;
+      },
       stop: () => {
         arrete = true;
-        try {
-          enfant?.kill('SIGTERM');
-          setTimeout(() => {
-            if (enfant && !enfant.killed) enfant.kill('SIGKILL');
-          }, 4000);
-        } catch (err) {
-          log.warn('arrêt du moteur cursor impossible', err);
-        }
+        // `child.killed` disait seulement que le SIGNAL était parti, jamais que
+        // le processus avait quitté : un moteur en plein appel d'outil n'a
+        // jamais reçu son coup de grâce. On passe par le geste commun aux trois
+        // moteurs, qui suit la fin RÉELLE du processus et emporte sa descendance.
+        if (enfant) arreterProcessus(enfant, 'cursor');
       },
       finished,
     };
+    options.surLancement?.(handle);
+    return handle;
   },
 };
 

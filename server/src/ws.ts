@@ -846,9 +846,24 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       const decision = arreterLAgent(cmd.agentId);
       const stopped = decision.travaillait;
-      // Un travail interrompu d'autorité compte comme une erreur : le message
-      // s'affiche donc, malgré son niveau « info » (couleur inchangée).
-      if (decision.geste !== 'coupe') bus.toast('info', decision.message, cmd.cardId, 'agent-interrompu');
+      /*
+       * TOUS LES CAS SE DISENT, « coupé » COMPRIS — ET TOUS PASSENT PAR UN
+       * MOTIF NOMMÉ. Deux exigences se rejoignent ici. On se taisait sur le
+       * chemin ordinaire, en pariant que la disparition du témoin « au
+       * travail » se verrait d'elle-même ; or c'est justement là que le clic
+       * paraissait glisser, un moteur pendu mettant plusieurs secondes à lâcher
+       * prise (et jusqu'à la fermeture d'autorité) sans que l'écran ne bouge
+       * d'un cheveu. Le geste s'annonce donc toujours ; si la coupe ne suffit
+       * pas, un second message le dira (`MESSAGE_ARRET_ACHEVE`).
+       *
+       * Mais un message de niveau « info » SANS motif se tait désormais
+       * (`genreDuMessage`, `shared/src/notification-tri.ts` : seuls une
+       * attente, une tâche finie et une erreur alertent). Le motif
+       * `agent-interrompu` est donc posé sur TOUS les gestes, « coupe »
+       * compris : sans lui, le tri avalerait précisément le message qu'on veut
+       * voir. La couleur ne change pas.
+       */
+      bus.toast('info', decision.message, cmd.cardId, 'agent-interrompu');
 
       /*
        * L'arrêt coupe aussi ce qui attendait DERRIÈRE : les demandes en file

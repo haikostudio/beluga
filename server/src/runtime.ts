@@ -95,6 +95,10 @@ import {
   decisionDArret,
   seDitAuTravail,
   RAISON_ARRET_DE_SECOURS,
+  RAISON_ARRET_SANS_REPONSE,
+  MESSAGE_ARRET_ACHEVE,
+  DELAI_CONFIRMATION_ARRET_MS,
+  arretAAchever,
 } from '@haikodev/shared';
 import type { DecisionDArret } from '@haikodev/shared';
 import * as store from './store.js';
@@ -299,6 +303,56 @@ export function comptesOccupes(): string[] {
 
 export function pidFor(agentId: string): number | undefined {
   return live.get(agentId)?.handle.pid;
+}
+
+/**
+ * LES MOTEURS DE SERVICE D'UN AGENT — ceux que l'arrêt ne voyait pas.
+ *
+ * Autour du tour, le démon lance d'autres moteurs : la compression du fil, la
+ * relance d'un plan incomplet, le résumé de continuité. Ce ne sont pas des
+ * tours — ils n'écrivent rien à l'écran — mais ce sont de vrais processus, et
+ * `run.handle` ne désigne pas les leurs. Un agent arrêté pendant sa compression
+ * gardait donc un moteur en marche, invisible et sans personne pour l'attendre.
+ *
+ * Ils s'inscrivent ici le temps de leur vie, et le bouton d'arrêt les coupe avec
+ * le reste.
+ */
+const moteursDeService = new Map<string, Set<EngineHandle>>();
+
+/**
+ * Suivre un moteur de service pour la durée de son appel. Rendu à passer en
+ * `surLancement` ; le retrait se fait tout seul quand le moteur a fini.
+ */
+function suivreLeService(agentId: string): (handle: EngineHandle) => void {
+  return (handle) => {
+    const ouverts = moteursDeService.get(agentId) ?? new Set<EngineHandle>();
+    ouverts.add(handle);
+    moteursDeService.set(agentId, ouverts);
+    const oublier = () => {
+      const encore = moteursDeService.get(agentId);
+      if (!encore) return;
+      encore.delete(handle);
+      if (!encore.size) moteursDeService.delete(agentId);
+    };
+    handle.finished.then(oublier, oublier);
+  };
+}
+
+/** Couper tous les moteurs de service d'un agent. Rendu : combien ont été visés. */
+function couperLesServices(agentId: string): number {
+  const ouverts = moteursDeService.get(agentId);
+  if (!ouverts?.size) return 0;
+  let vises = 0;
+  for (const handle of ouverts) {
+    try {
+      handle.stop();
+      vises += 1;
+    } catch {
+      /* déjà parti */
+    }
+  }
+  moteursDeService.delete(agentId);
+  return vises;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2483,6 +2537,8 @@ async function compresserContexte(agent: Agent, options: OptionsCompression): Pr
       // Un appel de SERVICE, passé après la réponse : il ne retient jamais la
       // barre d'écriture plus que son plafond.
       plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
+      // …et il se fait suivre, pour que le bouton d'arrêt puisse le couper.
+      surLancement: suivreLeService(agent.id),
       onEvent: () => {},
     });
     if (native.ok && native.context) {
@@ -2563,6 +2619,7 @@ async function rendreLePlanEntier(options: {
     // Une relance de forme ne vaut pas qu'on retienne l'agent : au plafond, on
     // garde le texte d'origine plutôt que d'attendre un moteur muet.
     plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
+    surLancement: suivreLeService(options.agent.id),
     onEvent: (event) => {
       if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
       if (event.kind === 'error') erreur = true;
@@ -2616,6 +2673,7 @@ async function resumeSemantique(agent: Agent, options: OptionsCompression): Prom
     env: options.env,
     // Repli de compression : lui aussi passe après la réponse, lui aussi borné.
     plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
+    surLancement: suivreLeService(agent.id),
     onEvent: (event) => {
       if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
       if (event.kind === 'error') erreur = true;
@@ -2866,6 +2924,20 @@ function finaliserPropositionsDuChef(
  * préparation est retiré des tours qui « démarrent » : sans cela, un agent
  * pendu dans cette fenêtre restait considéré comme suivi, donc la veille ne le
  * refermait jamais et il retenait même les redémarrages.
+ *
+ * TROIS TROUS ONT ÉTÉ BOUCHÉS ICI, tous du même genre — le clic partait, et
+ * quelque chose continuait pourtant de tourner.
+ *
+ * 1. UN TOUR VIVANT SANS MOTEUR. On constate désormais le processus AVANT de
+ *    décider (`processusVivant`) : un tour dont le moteur est déjà mort, ou
+ *    dont la réponse est figée depuis longtemps, ne se « coupe » plus dans le
+ *    vide — il se referme.
+ * 2. LES MOTEURS DE SERVICE. Compression du fil, relance d'un plan : de vrais
+ *    processus, que `run.handle` ne désigne pas. Ils tombent avec le reste.
+ * 3. LE SIGNAL SANS RÉPONSE. Couper, c'est demander poliment : un moteur pendu
+ *    dans un appel réseau peut ne jamais rendre la main, et l'agent restait « au
+ *    travail » malgré le clic. On revient donc constater quelques secondes plus
+ *    tard, et on referme d'autorité si le même tour est toujours là.
  */
 export function arreterLAgent(agentId: string): DecisionDArret {
   const agent = store.getAgent(agentId);
@@ -2874,25 +2946,34 @@ export function arreterLAgent(agentId: string): DecisionDArret {
     statut: agent?.status ?? 'idle',
     tourVivant: !!run,
     enPreparation: demarrant.has(agentId),
+    moteurVivant: run ? moteurRepondEncore(run) : undefined,
+    reponseFigee: !!run?.reponseFigeeA,
+    moteursDeService: moteursDeService.get(agentId)?.size ?? 0,
   });
+
+  // Les moteurs de service tombent dans TOUS les cas : ils ne dépendent pas du
+  // tour, et un agent qu'on arrête n'a plus rien à faire tourner nulle part.
+  couperLesServices(agentId);
 
   if (decision.geste === 'coupe' && run) {
     run.stopping = true;
     run.handle.stop();
+    acheverLArretSiBesoin(agentId, run);
     return decision;
   }
 
   if (decision.geste === 'secours') {
     demarrant.delete(agentId);
     libererLesAttentes(agentId);
-    refermerLeTour(agentId, RAISON_ARRET_DE_SECOURS);
-    const frais = store.getAgent(agentId);
+    const referme = refermerLeTour(agentId, RAISON_ARRET_DE_SECOURS);
     /*
      * `refermerLeTour` range le tour selon ce qui a été rendu : sans réponse,
      * il marque « en échec ». Or rien n'a échoué ici — c'est un arrêt DEMANDÉ,
      * et il se dit « arrêté ». Seule une réponse déjà rendue (« terminé »)
-     * garde son statut.
+     * garde son statut. Rien n'a été refermé (un agent au repos dont on ne
+     * coupait qu'un moteur de service) : son statut ne bouge pas non plus.
      */
+    const frais = referme ? store.getAgent(agentId) : undefined;
     if (frais && frais.status !== 'done') {
       setStatus(frais, 'stopped', { endedAt: frais.endedAt ?? Date.now() });
     }
@@ -2900,6 +2981,50 @@ export function arreterLAgent(agentId: string): DecisionDArret {
   }
 
   return decision;
+}
+
+/**
+ * Le moteur de ce tour répond-il encore ? `undefined` quand on ne peut pas le
+ * savoir — aucun numéro de processus connu, un moteur qui n'a pas encore
+ * démarré : on ne conclut alors rien, et la règle suppose qu'il vit.
+ */
+function moteurRepondEncore(run: LiveRun): boolean | undefined {
+  const pid = run.handle.pid;
+  if (!pid) return undefined;
+  return processusVivant(pid);
+}
+
+/**
+ * REVENIR CONSTATER APRÈS LE SIGNAL.
+ *
+ * Couper un moteur, c'est lui envoyer un signal — donc lui demander de partir,
+ * pas l'y obliger. Le cas ordinaire est instantané : le processus quitte, le
+ * tour se referme par son chemin normal, et on ne trouve plus rien ici. Mais un
+ * moteur peut rester pendu (appel réseau sans fin, sortie tenue ouverte par un
+ * petit-fils), et c'est exactement le « rien ne se passe » reproché.
+ *
+ * On ne referme QUE si le tour visé est toujours le tour vivant de cet agent :
+ * un tour suivant, parti depuis, ne nous appartient pas.
+ */
+function acheverLArretSiBesoin(agentId: string, run: LiveRun): void {
+  const minuteur = setTimeout(() => {
+    if (!arretAAchever({ memeTourEncoreVivant: live.get(agentId) === run })) return;
+    demarrant.delete(agentId);
+    libererLesAttentes(agentId);
+    const referme = refermerLeTour(agentId, RAISON_ARRET_SANS_REPONSE);
+    if (!referme) return;
+    const frais = store.getAgent(agentId);
+    if (frais && frais.status !== 'done') {
+      setStatus(frais, 'stopped', { endedAt: frais.endedAt ?? Date.now() });
+    }
+    // Le premier message disait « son moteur a été coupé » : il a fallu faire
+    // plus, et cela se dit — sinon le clic reste, pour l'utilisateur, un geste
+    // dont il ne sait pas s'il a mordu.
+    direLeBlocage(agentId, RAISON_ARRET_SANS_REPONSE);
+    bus.toast('warning', MESSAGE_ARRET_ACHEVE, frais?.cardId);
+    void import('./demon.js').then((demon) => demon.appliquerRedemarrageEnAttente());
+  }, DELAI_CONFIRMATION_ARRET_MS);
+  minuteur.unref?.();
 }
 
 /**

@@ -28,9 +28,10 @@ import type { ColumnKey } from './columns.js';
  *     porte encore la marque a été coupée en vol, quel que soit l'état de son
  *     agent. Elle est rendue comme interrompue, avec la raison, et repart
  *     d'elle-même ;
- *   - la clôture exige une TRACE VÉRIFIABLE. Trois réponses possibles au
- *     constat, pas deux : oui, non, et « je n'ai pas pu regarder ». Seul « oui »
- *     ferme la carte.
+ *   - le constat du dépôt reste FIN : oui, non, « je n'ai pas pu regarder », et
+ *     « ça a bougé ailleurs ». Il ne décide plus de la clôture — le rapport
+ *     rendu s'en charge — mais de ce que la carte close DIT d'elle-même : code
+ *     livré, rien livré, ou travail à récupérer ailleurs.
  *
  * Les règles sont pures — ni base, ni disque, ni git : elles se rejouent seules
  * (`server/src/test/carte-interrompue.test.ts`).
@@ -123,7 +124,7 @@ export type TraceDuTravail = 'oui' | 'non' | 'inconnue' | 'ailleurs';
  * preuve, et la carte n'est pas restée coincée en « En cours » pour autant.
  */
 export const RAISON_TRACE_INCONNUE =
-  'Le dépôt n’a pas pu être consulté à la fin du tour : sans trace vérifiable, la carte revient en « Planifié » plutôt que d’être annoncée terminée.';
+  'Le dépôt n’a pas pu être consulté à la fin du tour : la carte est terminée sur la foi du rapport rendu, sans preuve de ce qui a été livré.';
 
 /**
  * La phrase portée par une carte dont le travail a été fait AILLEURS que dans sa
@@ -131,15 +132,19 @@ export const RAISON_TRACE_INCONNUE =
  * et où le chercher.
  */
 export const RAISON_TRAVAIL_HORS_COPIE =
-  'Des fichiers du projet ont changé pendant ce tour, mais dans le dossier partagé du projet et non dans la copie de travail de cette carte : rien n’a pu être rattaché à sa branche. La carte revient en « Planifié » — le travail est à récupérer dans le dossier du projet.';
+  'Des fichiers du projet ont changé pendant ce tour, mais dans le dossier partagé du projet et non dans la copie de travail de cette carte : rien n’a pu être rattaché à sa branche. Le travail est à récupérer dans le dossier du projet — il n’y a rien à déployer depuis cette carte.';
 
 /**
- * Le constat qui autorise la clôture. Seul « oui » ferme une carte : c'est la
- * traduction, en un mot, de « pas de trace vérifiable, pas de Terminé ».
+ * Le constat qui atteste une LIVRAISON : du code est bien sur la branche de la
+ * carte, donc quelque chose partira au déploiement.
  *
- * « ailleurs » n'est pas une clôture : le travail existe, mais il n'est ni
- * enregistré ni sur la branche de la carte, donc rien ne partirait au
- * déploiement. On ne ferme pas une carte sur du code qu'on ne peut pas livrer.
+ * Il ne décide plus de la CLÔTURE — un rapport rendu ferme la carte, avec ou
+ * sans code (`colonneEnFinDeTour`). Il décide de deux choses : la PHRASE portée
+ * par la carte close, et le drapeau `codeDejaEnregistre`, qui distingue « il
+ * n'y avait rien à refaire » de « rien n'a jamais été livré ».
+ *
+ * « ailleurs » n'est pas une livraison : le travail existe, mais il n'est ni
+ * enregistré ni sur la branche de la carte.
  */
 export function traceAcquise(trace: TraceDuTravail): boolean {
   return trace === 'oui';

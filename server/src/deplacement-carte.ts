@@ -76,12 +76,10 @@ export interface FinDeTour {
  *  2. LE MOTEUR A-T-IL SEULEMENT PARLÉ ? Muet, c'est le LANCEMENT qui a échoué,
  *     pas la tâche : retour en « Planifié », essai recompté, reprise
  *     automatique.
- *  3. QUELLE EST L'ISSUE DU TOUR ? `issueDeFinDeTour` la dit en un mot : la
- *     carte se ferme, ou elle redescend en file avec sa raison. Rien ne reste
- *     en « En cours » sans agent au travail.
- *  4. LA CARTE DOIT-ELLE ÊTRE RETENUE ? Une carte renvoyée en file après un
- *     tour qui n'a rien changé ne repart pas toute seule — sinon elle
- *     recommencerait en boucle le même tour vide.
+ *  3. QUELLE EST L'ISSUE DU TOUR ? `issueDeFinDeTour` la dit en un mot : un
+ *     rapport rendu FERME la carte, et le constat du dépôt décide seulement de
+ *     la phrase écrite dessus. Rien ne reste en « En cours » sans agent au
+ *     travail, et plus aucune carte n'est RETENUE en file par une fin de tour.
  *
  * La MARQUE DE VOL (`tourEnVolDepuis`) s'éteint ici, et nulle part avant : ce
  * tour a fini de tout ranger. Coupé plus tôt, le démon retrouve la marque au
@@ -99,7 +97,6 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
   // lancement manqué.
   const cible = relanceMoteurMuet ?? issue.colonne;
   const raison = relanceMoteurMuet ? null : issue.raison;
-  const retenue = !relanceMoteurMuet && issue.retenue;
 
   const planification =
     leSien || relanceMoteurMuet
@@ -112,7 +109,13 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
                 waitingReason: RAISON_MOTEUR_INJOIGNABLE,
               }
             : {}),
-          ...(retenue ? { suspendu: true, waitingReason: raison ?? undefined } : {}),
+          /*
+           * Une carte qui se FERME ne garde pas l'attente d'un tour précédent :
+           * la retenue posée avant ce changement de règle (« rien n'a changé,
+           * la carte attend un geste ») afficherait encore son horloge jaune au
+           * pied d'une carte pourtant terminée.
+           */
+          ...(cible === 'done' ? { suspendu: false, waitingReason: undefined } : {}),
         }
       : card.scheduling;
 
@@ -128,10 +131,10 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
     scheduling: planification,
     codeDejaEnregistre: dejaEnregistreApres(card, fin),
     // La phrase du tour n'appartient qu'à l'agent de la carte : un tour étranger
-    // la laisse telle quelle plutôt que de l'effacer. Une raison RETENUE vit déjà
-    // dans `waitingReason` (pied de carte) : la recopier ici doublerait le même
-    // message à l'écran, une fois en encadré et une fois en pied de carte.
-    ...(leSien ? { sansModification: retenue ? undefined : raison ?? undefined } : {}),
+    // la laisse telle quelle plutôt que de l'effacer. Plus aucune issue de fin
+    // de tour ne RETIENT la carte, donc plus aucune phrase ne part dans
+    // `waitingReason` : elles s'écrivent toutes ici, sur la carte close.
+    ...(leSien ? { sansModification: raison ?? undefined } : {}),
   };
 }
 
@@ -183,11 +186,11 @@ export function rangerLesCartesOubliees(): void {
       ...(issue.colonne === 'done' ? { doneAt: card.doneAt ?? Date.now() } : {}),
       scheduling: {
         ...scheduling,
-        ...(issue.retenue ? { suspendu: true, waitingReason: issue.raison ?? undefined } : {}),
+        // Même règle que `carteApresFinDeTour` : une carte qui se ferme ne
+        // garde pas l'attente d'un tour précédent.
+        ...(issue.colonne === 'done' ? { suspendu: false, waitingReason: undefined } : {}),
       },
-      // Même règle que `carteApresFinDeTour` : une raison RETENUE reste seule
-      // dans `waitingReason`, jamais recopiée ici.
-      sansModification: issue.retenue ? undefined : issue.raison ?? undefined,
+      sansModification: issue.raison ?? undefined,
     });
     bus.emit({ type: 'card.upsert', card: rangee });
     log.info(`carte « ${card.title} » oubliée en « En cours », rangée dans « ${issue.colonne} »`);

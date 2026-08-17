@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * RIEN NE RESTE COINCÉ DANS « EN COURS ».
+ * UN RAPPORT RENDU FERME LA CARTE — ET RIEN NE RESTE COINCÉ DANS « EN COURS ».
  *
  * Le bogue rapporté : une carte dont l'agent avait rendu sa réponse — coche de
  * fin comprise — restait comptée dans « EN COURS 3 », sans un mot, parce que le
- * tour n'avait modifié aucun fichier : la correction demandée était DÉJÀ livrée.
- * Aucun agent ne travaillait plus, rien ne devait la reprendre, et elle n'en
- * sortait jamais.
+ * tour n'avait modifié aucun fichier. La règle a donc été RENVERSÉE : dès que
+ * l'agent a rendu son rapport, la carte est TERMINÉE, qu'un fichier ait changé
+ * ou non. Ce que le constat du dépôt décide n'est plus la colonne, mais la
+ * PHRASE portée par la carte close — livré, rien livré, ou travail à récupérer
+ * ailleurs.
  *
  * Le contrôle, joué dans un VRAI navigateur, sur son PROPRE démon (base neuve,
  * dossier de projets vide, port libre : le démon de production n'est pas touché,
@@ -227,6 +229,10 @@ function poserLeProjetEtLesCartes() {
       status: essai.statutAgent,
       createdAt: maintenant,
       updatedAt: maintenant,
+      // Un agent au travail a toujours un instant de départ : c'est lui qui
+      // permet à la carte de dire DEPUIS COMBIEN DE TEMPS ça tourne.
+      startedAt: maintenant - 4 * 60 * 1000,
+      etapeEnCours: 'Analyse des fichiers',
     };
     db.prepare(
       `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
@@ -300,6 +306,9 @@ async function lireLeTableau(page) {
             // La couleur RÉELLEMENT calculée : le ton annoncé ne vaut rien si
             // l'encadré reste jaune à l'écran.
             couleur: mention ? getComputedStyle(mention).color : null,
+            // CE QUI TOURNE ENCORE : le second volet de la règle. Une carte
+            // restée en « En cours » ne peut plus être muette.
+            restant: noeud.querySelector(`[data-travail-restant]`)?.textContent?.trim() ?? null,
           }
         : null;
     }
@@ -401,27 +410,49 @@ async function main() {
 
   const neuve = apres.cartes['c-neuve'];
   noter(
-    'la carte qui n’a jamais rien enregistré redescend en file',
-    neuve?.colonne === 'planned',
+    'la carte qui n’a jamais rien enregistré est CLOSE quand même',
+    neuve?.colonne === 'done',
     `colonne=${neuve?.colonne}`,
   );
   noter(
-    '…et elle n’est jamais annoncée terminée',
-    neuve?.colonne !== 'done' && neuve?.colonne !== 'to_deploy',
+    '…et elle ne reste surtout pas en « En cours »',
+    neuve?.colonne !== 'running',
     `colonne=${neuve?.colonne}`,
   );
   noter(
-    '…avec sa raison écrite dessus',
-    /aucun fichier/.test(neuve?.mention ?? ''),
+    '…en disant en clair que rien n’a été livré',
+    /aucun fichier/.test(neuve?.mention ?? '') && /rien n’a été livré/.test(neuve?.mention ?? ''),
     (neuve?.mention ?? '').slice(0, 160),
   );
-  // Une carte qui ATTEND garde bien son alerte : le ton neuf ne l'a pas éteinte.
-  noter('…dite, elle, comme une ATTENTE', neuve?.ton === 'attente', `ton=${neuve?.ton}`);
+  // Ni alerte jaune (rien à faire) ni bleu du travail acquis (rien de livré) :
+  // un CONSTAT, écrit en gris.
+  noter('…dite comme une INFORMATION, ni alerte ni livraison', neuve?.ton === 'information', `ton=${neuve?.ton}`);
 
   noter(
     'la carte dont l’agent travaille encore reste en « En cours »',
     apres.cartes['c-au-travail']?.colonne === 'running',
     `colonne=${apres.cartes['c-au-travail']?.colonne}`,
+  );
+  /*
+   * SECOND VOLET DE LA RÈGLE : s'il reste vraiment quelque chose en train de
+   * tourner, la carte doit le DIRE — l'étape, depuis quand, ce qu'on attend.
+   * Plus jamais une carte qui a l'air finie et qui reste là sans un mot.
+   */
+  const enTravail = apres.cartes['c-au-travail'];
+  noter(
+    'et elle DIT ce qui tourne, au lieu de rester muette',
+    !!enTravail?.restant,
+    `phrase=${enTravail?.restant ?? '(rien)'}`,
+  );
+  noter(
+    '…avec le temps écoulé, en toutes lettres',
+    /depuis /.test(enTravail?.restant ?? ''),
+    `phrase=${enTravail?.restant ?? '(rien)'}`,
+  );
+  noter(
+    '…et une carte CLOSE, elle, ne dit plus rien de ce genre',
+    !neuve?.restant && !dejaLivre?.restant,
+    `neuve=${neuve?.restant ?? '(rien)'} · déjà livrée=${dejaLivre?.restant ?? '(rien)'}`,
   );
 
   /*
@@ -447,8 +478,8 @@ async function main() {
     `ton=${balaye.cartes['c-oubliee-livree']?.ton}`,
   );
   noter(
-    'la carte oubliée qui n’avait rien livré redescend en file, avec sa raison',
-    balaye.cartes['c-oubliee-neuve']?.colonne === 'planned' &&
+    'la carte oubliée qui n’avait rien livré est close, avec sa raison',
+    balaye.cartes['c-oubliee-neuve']?.colonne === 'done' &&
       /sans ranger la carte/.test(balaye.cartes['c-oubliee-neuve']?.texte ?? ''),
     `colonne=${balaye.cartes['c-oubliee-neuve']?.colonne} — ${(balaye.cartes['c-oubliee-neuve']?.texte ?? '').slice(0, 120)}`,
   );
@@ -462,22 +493,24 @@ async function main() {
     balaye.enCours === '2',
     `compteur=${balaye.enCours} (attendu 2 : l’agent au travail et le tour en échec)`,
   );
-  noter('la colonne « Terminé » compte les cartes rangées', balaye.termine === '2', `compteur=${balaye.termine}`);
+  // QUATRE désormais : les deux dont le code était livré, plus les deux qui
+  // n'avaient rien livré — leur rapport avait bien été rendu.
+  noter('la colonne « Terminé » compte les quatre cartes rangées', balaye.termine === '4', `compteur=${balaye.termine}`);
 
   await page.screenshot({ path: path.join(TMP, 'carte-rangee-sans-changement.png') });
 
   /*
-   * La carte renvoyée en file ne doit pas repartir toute seule : sans cette
-   * retenue, l'ordonnanceur relancerait le même tour vide toutes les quinze
-   * secondes. On le relit dans la base, là où l'ordonnanceur le lit.
+   * Plus aucune carte n'est RETENUE en file par une fin de tour : elles sont
+   * closes. Ce qu'il faut vérifier n'est donc plus la retenue, mais que la
+   * carte close ne traîne aucune attente d'un tour précédent — sans quoi elle
+   * afficherait encore son horloge jaune au pied d'une carte terminée.
    */
-  const partage = await import(path.join(RACINE, 'shared/dist/index.js'));
   const store = await import(path.join(RACINE, 'server/dist/store.js'));
-  const enFile = store.getCard('c-neuve');
+  const close = store.getCard('c-neuve');
   noter(
-    'la carte renvoyée en file ne repartira pas toute seule',
-    partage.demarrageAutomatiqueAutorise(enFile?.scheduling) === false,
-    JSON.stringify(enFile?.scheduling),
+    'la carte close ne garde aucune attente collée par le tour',
+    close?.scheduling?.suspendu !== true && !close?.scheduling?.waitingReason,
+    JSON.stringify(close?.scheduling),
   );
   noter(
     'la carte rangée porte sa date de clôture',

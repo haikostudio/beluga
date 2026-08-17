@@ -1,30 +1,41 @@
 /**
- * LES QUATRE THÈMES DE L'APPLICATION — le catalogue, sans une couleur dedans.
+ * LES SEPT THÈMES DE L'APPLICATION — le catalogue, sans une couleur dedans.
  *
  * L'application n'avait que DEUX apparences, et la bascule était un simple
  * interrupteur « clair / sombre » caché dans le menu trois points du bandeau.
- * Elle en compte désormais QUATRE, choisies dans les réglages :
+ * Elle en compte désormais SEPT, choisies dans les réglages :
  *
- *  - « sombre » et « clair » : les deux thèmes d'origine, INCHANGÉS — c'est le
- *    contrat, on ajoute à côté, on ne retouche pas ce que l'utilisateur connaît ;
- *  - « sable » (clair) et « ardoise » (sombre) : deux thèmes FLAT DESIGN, où un
- *    bloc ne se délimite plus par un trait mais par un fond qui contraste
- *    LÉGÈREMENT avec celui qui l'entoure.
+ *  - « sombre » et « clair » : les deux thèmes d'origine — on ajoute à côté, on
+ *    ne refait pas ce que l'utilisateur connaît (voir plus bas la seule
+ *    exception, la bordure du sombre) ;
+ *  - « sable » (clair, beiges chauds) et « ardoise » (sombre, gris bleutés) :
+ *    deux premiers thèmes FLAT DESIGN, où un bloc ne se délimite plus par un
+ *    trait mais par un fond qui contraste LÉGÈREMENT avec celui qui l'entoure ;
+ *  - « givre » (clair, blancs bleutés — le froid qui manquait au sable, chaud),
+ *    « sapin » (sombre, verts profonds — le chaud qui manquait à l'ardoise,
+ *    froide) et « contraste » (clair, très marqué — pour lire en plein soleil ou
+ *    les yeux fatigués) : trois thèmes de plus, MÊME parti pris flat design.
+ *
+ * Le 17.08.2026, le thème SOMBRE a rejoint les thèmes plats : il gardait seul un
+ * trait gris franc là où les trois autres écrans s'étaient déjà débarrassés des
+ * contours. Seuls sa bordure et le fond d'un bouton au repos ont changé — aucune
+ * autre teinte. Le CLAIR, lui, garde ses traits : c'est le dernier thème à
+ * bordures, et c'est voulu.
  *
  * Ce fichier ne connaît AUCUNE teinte de l'interface : les palettes vivent dans
  * `web/src/styles.css`, un bloc de jetons par thème, et rien d'autre ne les
- * écrit. Il ne garde ici qu'un APERÇU — les quatre pastilles montrées dans les
+ * écrit. Il ne garde ici qu'un APERÇU — les pastilles montrées dans les
  * réglages pour reconnaître un thème sans l'appliquer. Un aperçu doit pouvoir
  * s'afficher pendant qu'un AUTRE thème est actif : ses couleurs ne peuvent donc
  * pas venir des jetons, qui ne valent que pour le thème en cours.
  */
 
 /**
- * Un thème RÉEL, celui qui finit posé sur l'écran. Il y en a quatre, et un de
+ * Un thème RÉEL, celui qui finit posé sur l'écran. Il y en a sept, et un de
  * plus se CHOISIT sans en être un (voir `ThemeChoisi` : « systeme » n'a pas de
- * palette, il désigne l'un des quatre selon le réglage de l'ordinateur).
+ * palette, il désigne l'un des sept selon le réglage de l'ordinateur).
  */
-export type ThemeId = 'sombre' | 'clair' | 'sable' | 'ardoise';
+export type ThemeId = 'sombre' | 'clair' | 'sable' | 'ardoise' | 'givre' | 'sapin' | 'contraste';
 
 /**
  * CE QU'ON CHOISIT n'est pas toujours un thème : « systeme » est une CONSIGNE —
@@ -68,14 +79,14 @@ export type Theme = {
  */
 export const APPARENCE_PAR_DEFAUT: ThemeId = 'sombre';
 
-/** Les quatre thèmes, dans l'ordre où ils s'affichent dans les réglages. */
+/** Les sept thèmes, dans l'ordre où ils s'affichent dans les réglages. */
 export const THEMES: readonly Theme[] = [
   {
     id: 'sombre',
     libelle: 'Sombre',
-    description: 'Le thème d’origine : noir et anthracite, blocs délimités par un trait.',
+    description: 'Le thème d’origine : noir et anthracite. Aucune bordure : les blocs se lisent au fond.',
     clarte: 'sombre',
-    plat: false,
+    plat: true,
     apercu: ['hsl(0 0% 0%)', 'hsl(0 0% 8%)', 'hsl(0 0% 100%)', 'hsl(38 90% 62%)'],
   },
   {
@@ -101,6 +112,30 @@ export const THEMES: readonly Theme[] = [
     clarte: 'sombre',
     plat: true,
     apercu: ['hsl(220 14% 11%)', 'hsl(220 13% 16%)', 'hsl(215 20% 95%)', 'hsl(36 85% 62%)'],
+  },
+  {
+    id: 'givre',
+    libelle: 'Givre',
+    description: 'Clair et froid, dans des blancs bleutés. Aucune bordure : les blocs se lisent au fond.',
+    clarte: 'clair',
+    plat: true,
+    apercu: ['hsl(210 30% 94%)', 'hsl(210 26% 88%)', 'hsl(215 35% 12%)', 'hsl(30 85% 38%)'],
+  },
+  {
+    id: 'sapin',
+    libelle: 'Sapin',
+    description: 'Sombre et chaud, dans des verts profonds. Aucune bordure : les blocs se lisent au fond.',
+    clarte: 'sombre',
+    plat: true,
+    apercu: ['hsl(150 18% 9%)', 'hsl(150 15% 14%)', 'hsl(60 12% 90%)', 'hsl(36 80% 58%)'],
+  },
+  {
+    id: 'contraste',
+    libelle: 'Contraste',
+    description: 'Très marqué, pour lire en plein soleil ou les yeux fatigués. Aucune bordure : les blocs se lisent au fond.',
+    clarte: 'clair',
+    plat: true,
+    apercu: ['hsl(45 6% 92%)', 'hsl(45 6% 97%)', 'hsl(45 10% 4%)', 'hsl(28 100% 30%)'],
   },
 ];
 
@@ -150,7 +185,7 @@ export function couleurDeBandeau(valeur: unknown): string {
 export const THEMES_DU_SYSTEME: { sombre: ThemeId; clair: ThemeId } = { sombre: 'sombre', clair: 'clair' };
 
 /**
- * La fiche du choix « Système », affichée à côté des quatre thèmes. Elle n'a pas
+ * La fiche du choix « Système », affichée à côté des sept thèmes. Elle n'a pas
  * de palette : son aperçu emprunte une moitié à chacun des deux thèmes qu'elle
  * désigne, ce qui dit à l'œil qu'elle bascule.
  */
@@ -161,17 +196,24 @@ export const CHOIX_SYSTEME = {
   apercu: ['hsl(0 0% 0%)', 'hsl(0 0% 100%)', 'hsl(0 0% 8%)', 'hsl(38 90% 62%)'] as [string, string, string, string],
 } as const;
 
-/** Tout ce qu'un menu de thème propose : les quatre thèmes, puis « Système ». */
-export const CHOIX_DE_THEME: readonly { id: ThemeChoisi; libelle: string; description: string; apercu: [string, string, string, string] }[] =
-  [
-    ...THEMES.map((theme) => ({
-      id: theme.id as ThemeChoisi,
-      libelle: theme.libelle,
-      description: theme.description,
-      apercu: theme.apercu,
-    })),
-    { id: CHOIX_SYSTEME.id, libelle: CHOIX_SYSTEME.libelle, description: CHOIX_SYSTEME.description, apercu: CHOIX_SYSTEME.apercu },
-  ];
+/** Tout ce qu'un menu de thème propose : les sept thèmes, puis « Système ». */
+export const CHOIX_DE_THEME: readonly {
+  id: ThemeChoisi;
+  libelle: string;
+  description: string;
+  apercu: [string, string, string, string];
+  /** La clarté du thème désigné, absente pour « Système » qui n'en a pas de fixe. */
+  clarte?: ClarteTheme;
+}[] = [
+  ...THEMES.map((theme) => ({
+    id: theme.id as ThemeChoisi,
+    libelle: theme.libelle,
+    description: theme.description,
+    apercu: theme.apercu,
+    clarte: theme.clarte,
+  })),
+  { id: CHOIX_SYSTEME.id, libelle: CHOIX_SYSTEME.libelle, description: CHOIX_SYSTEME.description, apercu: CHOIX_SYSTEME.apercu },
+];
 
 /**
  * Un choix enregistré, ramené à quelque chose de connu. Rend `null` — et non le
@@ -201,7 +243,7 @@ export function themeDuSysteme(systemeSombre: boolean): ThemeId {
 export type SourceDeTheme = 'projet' | 'general';
 
 export type ThemeApplique = {
-  /** Le thème RÉEL, toujours l'un des quatre. */
+  /** Le thème RÉEL, toujours l'un des sept. */
   theme: ThemeId;
   /** Le PROJET ouvert impose-t-il son thème, ou est-ce le réglage général ? */
   source: SourceDeTheme;

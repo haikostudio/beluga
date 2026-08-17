@@ -1624,7 +1624,7 @@ function LigneEspaceDev({
           // La ligne reste NUE : ni cadre ni fond coloré. L'état (travail en
           // cours, publication, décision attendue, plan) ne vit plus que sur
           // l'icône (`RepereRobot`) et le repère de droite (`RepereLigne`).
-          active ? 'bg-raised text-text' : 'text-muted hover:bg-surface hover:text-text',
+          active ? 'bg-ligne-active text-text' : 'text-muted hover:bg-surface hover:text-text',
           secoue && 'animate-secousse',
         )}
       >
@@ -1759,7 +1759,7 @@ function ProjectRow({
         // La ligne reste NUE : ni cadre ni fond coloré. L'état (travail en
         // cours, publication, décision attendue, plan) ne vit plus que sur
         // l'icône (`RepereRobot`) et le repère de droite (`RepereLigne`).
-        active ? 'bg-raised text-text' : 'text-text hover:bg-surface',
+        active ? 'bg-ligne-active text-text' : 'text-text hover:bg-surface',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
       )}

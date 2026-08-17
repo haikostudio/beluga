@@ -281,7 +281,16 @@ async function main() {
   const passes = resultats.filter((r) => r.ok).length;
   console.log(`\n${passes}/${resultats.length} vérifications passées`);
   console.log(`(captures dans ${TMP})`);
-  if (passes !== resultats.length) process.exitCode = 1;
+  /*
+   * ON REND LA MAIN POUR DE BON. Le démon d'essai est lancé avec ses sorties
+   * branchées sur ce script : ces tuyaux restent des travaux en cours aux yeux
+   * de node, qui n'a donc aucune raison de s'arrêter — les douze vérifications
+   * passaient en quinze secondes, puis le script tournait dans le vide jusqu'à
+   * ce qu'on le coupe. Un contrôle qui ne rend jamais la main se lit comme un
+   * contrôle bloqué. On range et on sort, avec le bon code de sortie.
+   */
+  nettoyer();
+  process.exit(passes === resultats.length ? 0 : 1);
 }
 
 main().catch((err) => {
