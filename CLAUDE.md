@@ -987,13 +987,29 @@ le nom, là-bas le texte).
   d'œil plafonne à 47 %) et qu'elle pèse plus de 0,003 % de l'image. Le contrôle juge SUR FOND
   SOMBRE, seul endroit où le défaut se voit. Verrouillé par
   `server/src/test/personnages-colonnes.test.ts` et `scripts/verif-personnages-colonnes.mjs`.
-  **CELUI DE « EN COURS » BOUGE QUAND UN AGENT TRAVAILLE, ET LUI SEUL** (`COLONNE_VIVANTE`,
-  `personnageEnMouvement` ; classe `animate-personnage-au-travail`, `web/tailwind.config.js`) : un
-  balancement d'1,5 px sur 2,6 s, pieds au sol — une TRANSFORMATION seule, donc rien qui clignote,
-  aucune carte poussée d'un pixel, le glisser-déposer intact. Au repos, la classe n'est même pas
-  posée : l'immobilité est TOTALE, et c'est ce contraste qui porte l'information. On compte les
-  AGENTS de la colonne, jamais l'avancement (un agent sans liste de tâches y pèse zéro et figerait un
-  tableau pourtant occupé) ; « réduire les animations » coupe le mouvement, jamais le personnage.
+  **CELUI DE « EN COURS » PIOCHE QUAND UN AGENT TRAVAILLE, ET LUI SEUL** (`COLONNE_VIVANTE`,
+  `gesteDuPersonnage`, `COLONNES_ANIMEES`, `animeDuPersonnage` ; fabrique
+  `scripts/personnages-colonnes.py --anime`) : ce n'est plus un balancement mais une BOUCLE ANIMÉE du
+  même mineur donnant de vrais coups de pioche — un geste de TRAVAIL, qui se reconnaît d'un coup
+  d'œil. Elle vit dans la MÊME boîte que les images fixes (126×168, proportion 3:4, appui au sol),
+  donc rien ne saute à la bascule et l'image n'attrape toujours aucun clic. Trois gestes et pas un de
+  plus : « immobile », « pioche », « balancement ». Au repos on redemande l'image FIXE :
+  l'immobilité est TOTALE, et c'est ce contraste qui porte l'information. On compte les AGENTS de la
+  colonne, jamais l'avancement (un agent sans liste de tâches y pèse zéro et figerait un tableau
+  pourtant occupé). DEUX REPLIS sur le balancement d'avant (classe
+  `animate-personnage-au-travail`), aucun n'étant un échec : un personnage REMPLACÉ depuis les
+  réglages (l'image déposée est fixe, servir la boucle livrée montrerait le mineur d'origine) et une
+  colonne sans boucle — l'information « ça travaille » n'est jamais perdue, seule sa forme change.
+  Un WEBP animé et non un GIF : le GIF ne connaît qu'une transparence tout-ou-rien, qui redonnerait
+  au personnage détouré le contour en escalier que l'alpha progressif lui évite, et il pèse plusieurs
+  fois plus lourd pour une image que le tableau redemande à chaque affichage (138 Ko sans perte,
+  57 Ko à `quality=82`, le canal alpha restant intact). Chaque image de la boucle passe par le MÊME
+  détourage que les images fixes, mais dans une boîte COMMUNE (`boite_commune`) : recadrer chacune au
+  plus juste ferait sautiller le personnage. Le filigrane d'un site de montage n'est pas traité à
+  part — il ne touche pas le personnage, donc `sans_les_ilots` l'emporte. Enfin « réduire les
+  animations » ne coupe une IMAGE animée par AUCUNE règle de style : c'est le seul motif pour lequel
+  cette préférence remonte jusqu'au code (`REQUETE_ANIMATIONS_REDUITES`,
+  `web/src/lib/animations-reduites.ts`), et elle rend alors le personnage parfaitement immobile.
   **ET N'IMPORTE LEQUEL SE REMPLACE DEPUIS LES RÉGLAGES, sans carte ni agent**
   (`server/src/personnages.ts` ; onglet « Personnages » des réglages ; `POST` et
   `DELETE /api/personnage`) : l'image déposée passe par la MÊME fabrique que les sept d'origine

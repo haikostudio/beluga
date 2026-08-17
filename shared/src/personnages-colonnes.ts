@@ -25,8 +25,13 @@ import { MOTIFS, type MotifNotification } from './notification-tri.js';
 /** Trois de large pour quatre de haut : la boîte de toutes les silhouettes. */
 export const PROPORTION_SILHOUETTE = 3 / 4;
 
-/** Les deux découpes d'un même personnage — elles ne sont pas interchangeables. */
-export type DecoupeDePersonnage = 'silhouette' | 'portrait';
+/**
+ * Les découpes d'un même personnage — elles ne sont pas interchangeables. Les
+ * deux premières sont FIXES et existent pour les sept colonnes ; la troisième
+ * est la BOUCLE ANIMÉE du geste de travail, et seule la colonne vivante en a
+ * une (`COLONNES_ANIMEES`).
+ */
+export type DecoupeDePersonnage = 'silhouette' | 'portrait' | 'anime';
 
 /** Le dossier public où vivent les images, côté navigateur comme sur le disque. */
 export const DOSSIER_DES_PERSONNAGES = 'personnages';
@@ -37,7 +42,13 @@ export const DOSSIER_DES_PERSONNAGES = 'personnages';
  * personnage REMPLACÉ doivent tous tomber sur le même nom.
  */
 export function fichierDuPersonnage(colonne: ColumnKey, decoupe: DecoupeDePersonnage): string {
-  return decoupe === 'portrait' ? `${colonne}-rond.png` : `${colonne}.png`;
+  if (decoupe === 'portrait') return `${colonne}-rond.png`;
+  // Un WEBP animé, jamais un GIF : le GIF ne connaît qu'une transparence
+  // tout-ou-rien, qui rendrait au personnage détouré le contour en escalier que
+  // l'alpha progressif lui évite — et il pèse plusieurs fois plus lourd, pour
+  // une image que le tableau redemande à chaque affichage.
+  if (decoupe === 'anime') return `${colonne}-anime.webp`;
+  return `${colonne}.png`;
 }
 
 /**
@@ -86,6 +97,61 @@ export const COLONNE_VIVANTE: ColumnKey = 'running';
  */
 export function personnageEnMouvement(colonne: ColumnKey, cartesAuTravail: number): boolean {
   return colonne === COLONNE_VIVANTE && cartesAuTravail > 0;
+}
+
+/**
+ * Les colonnes dont le personnage a une BOUCLE ANIMÉE livrée avec
+ * l'application. Une seule aujourd'hui — le mineur de « En cours » qui donne
+ * des coups de pioche —, mais la table existe pour que rien, dans l'interface
+ * ni dans les contrôles, n'écrive « running » à la main pour le savoir.
+ */
+export const COLONNES_ANIMEES: readonly ColumnKey[] = [COLONNE_VIVANTE];
+
+/**
+ * La question posée au navigateur : cet écran doit-il s'agiter le moins
+ * possible ? La feuille de style la pose déjà pour toutes les animations CSS ;
+ * elle est écrite ici parce qu'une IMAGE animée oblige le code à la poser aussi.
+ */
+export const REQUETE_ANIMATIONS_REDUITES = '(prefers-reduced-motion: reduce)';
+
+/** Le fichier de la boucle animée, à la même adresse que les images fixes. */
+export function animeDuPersonnage(colonne: ColumnKey): string {
+  return `/${DOSSIER_DES_PERSONNAGES}/${fichierDuPersonnage(colonne, 'anime')}`;
+}
+
+/**
+ * CE QUE FAIT LE PERSONNAGE, à l'instant qu'on regarde. Trois gestes et pas un
+ * de plus :
+ *
+ *  - « immobile » — le cas de tous, presque tout le temps. Aucune classe posée,
+ *    aucune image animée demandée : l'immobilité est TOTALE, et c'est elle qui
+ *    donne son sens au reste ;
+ *  - « pioche » — la boucle animée, quand la colonne en a une. Le mineur donne
+ *    de vrais coups de pioche : un geste de TRAVAIL, qui se reconnaît d'un coup
+ *    d'œil là où un balancement demandait de deviner ;
+ *  - « balancement » — l'animation de repli, tenue par la feuille de style.
+ *
+ * Deux choses seulement font retomber sur le balancement, et aucune n'est un
+ * échec : un personnage REMPLACÉ depuis les réglages (l'image déposée est fixe,
+ * garder la boucle livrée montrerait le mineur d'origine à la place de celui
+ * qu'on vient de choisir) et une colonne SANS boucle. L'information « ça
+ * travaille » n'est donc jamais perdue, seule sa forme change.
+ *
+ * « Je préfère moins d'animations » ne se décide PAS ici pour le balancement —
+ * la feuille de style le neutralise seule. Mais une image animée ne s'arrête
+ * par aucune règle CSS : c'est le seul motif pour lequel cette préférence
+ * remonte jusqu'ici, et elle rend alors le personnage parfaitement immobile.
+ */
+export type GesteDuPersonnage = 'immobile' | 'pioche' | 'balancement';
+
+export function gesteDuPersonnage(
+  colonne: ColumnKey,
+  cartesAuTravail: number,
+  etat: { remplace?: boolean; animationsReduites?: boolean } = {},
+): GesteDuPersonnage {
+  if (!personnageEnMouvement(colonne, cartesAuTravail)) return 'immobile';
+  if (etat.remplace || !COLONNES_ANIMEES.includes(colonne)) return 'balancement';
+  return etat.animationsReduites ? 'immobile' : 'pioche';
 }
 
 /* ------------------------------------------------------------------ */

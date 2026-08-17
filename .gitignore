@@ -5,3 +5,7 @@ data/
 .DS_Store
 .env
 .env.local
+
+# Python : le cache compilé se refait tout seul, il n’a rien à faire dans le dépôt.
+__pycache__/
+*.pyc
