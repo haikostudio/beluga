@@ -292,6 +292,36 @@ export function liveRun(agentId: string): LiveRun | undefined {
   return live.get(agentId);
 }
 
+/**
+ * LE TOUR VIVANT SE DIT À L'ÉCRAN, IL NE SE DEVINE PLUS.
+ *
+ * Le témoin de travail se lisait sur deux indices INDIRECTS — le statut
+ * enregistré et la marque d'écriture d'un message — et chacun a sa fenêtre
+ * aveugle : le message est figé dès la réponse rendue, le statut retombe à
+ * « terminé » alors que le démon range encore le tour (compression, constat du
+ * dépôt, fusion de la branche). Un agent qui enchaîne des commandes en silence
+ * passait donc pour au repos, et l'on croyait pouvoir écrire.
+ *
+ * Ces deux fonctions publient le FAIT lui-même sur l'agent : un tour est là, ou
+ * il n'y est plus. Elles encadrent chaque `live.set` / `live.delete`, et
+ * n'écrivent que sur un vrai changement (aucune diffusion inutile).
+ */
+function marquerLeTourVivant(agentId: string, depuis: number): void {
+  const frais = store.getAgent(agentId);
+  if (!frais || frais.tourVivantDepuis === depuis) return;
+  const maj = store.saveAgent({ ...frais, tourVivantDepuis: depuis });
+  bus.emit({ type: 'agent.upsert', agent: maj });
+}
+
+/** Le tour est refermé : le témoin s'éteint, quel que soit le chemin pris. */
+function retirerLeTourVivant(agentId: string): void {
+  live.delete(agentId);
+  const frais = store.getAgent(agentId);
+  if (!frais || frais.tourVivantDepuis === undefined) return;
+  const maj = store.saveAgent({ ...frais, tourVivantDepuis: undefined });
+  bus.emit({ type: 'agent.upsert', agent: maj });
+}
+
 export function runningCount(): number {
   return live.size;
 }
@@ -1731,6 +1761,9 @@ async function startTurn(
 
   runState.handle = handle;
   live.set(agent.id, runState);
+  // …et l'écran l'apprend tout de suite : le témoin de travail suit ce tour, pas
+  // ce qui s'écrit (`shared/src/travail-en-cours.ts`).
+  marquerLeTourVivant(agent.id, runState.startedAt);
 
   /*
    * Seulement après que l'adaptateur a accepté et lancé le tour : une demande
@@ -2411,7 +2444,7 @@ async function startTurn(
     }
   }
 
-  live.delete(agent.id);
+  retirerLeTourVivant(agent.id);
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
@@ -3083,7 +3116,12 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
   if (!agent) return false;
   const run = live.get(agentId);
   const enCours = agent.status === 'running' || agent.status === 'starting';
-  if (!run && !enCours) return false;
+  if (!run && !enCours) {
+    // Rien à refermer — mais si une marque de tour vivant traînait encore, elle
+    // ferait tourner le témoin dans le vide : on l'éteint au passage.
+    if (agent.tourVivantDepuis !== undefined) retirerLeTourVivant(agentId);
+    return false;
+  }
 
   if (run) {
     try {
@@ -3112,7 +3150,7 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
     effacerEtapeEnCours(agentId);
   }
 
-  live.delete(agentId);
+  retirerLeTourVivant(agentId);
   // Un tour refermé d'autorité peut être arrêté sur une question : son attente
   // tombe avec lui, sinon le drapeau « attend une réponse » resterait gravé sur
   // un agent que plus personne ne fait travailler.
@@ -3525,6 +3563,17 @@ export function recoverAfterRestart(
     if (!agent.attendReponse) continue;
     const frais = store.saveAgent({ ...agent, attendReponse: undefined });
     bus.emit({ type: 'agent.upsert', agent: frais });
+  }
+  /*
+   * AUCUN TOUR NE SURVIT NON PLUS. La marque « un tour vit » est ce qui allume
+   * le témoin de travail : un moteur étant parti avec le démon, une marque
+   * encore là désigne un tour mort, et un tour mort ne rallume jamais rien.
+   */
+  for (const agent of tous) {
+    if (agent.tourVivantDepuis === undefined) continue;
+    // Relu en base : la boucle du dessus vient peut-être de réécrire ce même
+    // agent, et repartir de la copie d'avant lui rendrait son ancien drapeau.
+    retirerLeTourVivant(agent.id);
   }
   /*
    * AUCUN MESSAGE NE SURVIT « EN ÉCRITURE » À UN REDÉMARRAGE. Le nettoyage
