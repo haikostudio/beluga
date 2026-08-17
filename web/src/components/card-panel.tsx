@@ -941,7 +941,7 @@ function CeQuiEtaitPrevu({ card }: { card: Card }) {
   const debordement = prevue && reelle ? reelle > prevue * 1.3 : false;
 
   return (
-    <section className="space-y-2 rounded-lg border border-border bg-surface px-3 py-3" data-ce-qui-etait-prevu>
+    <section className="space-y-2 rounded-lg border border-border bg-raised px-3 py-3" data-ce-qui-etait-prevu>
       <div>
         <h3 className="text-[14px] font-semibold text-text">Ce qui était prévu</h3>
         <p className="mt-0.5 text-[12.5px] text-faint">
@@ -1019,7 +1019,7 @@ function Metric({
 }) {
   return (
     <Tooltip label={hint}>
-      <div className="rounded-md border border-border bg-surface px-2 py-1.5">
+      <div className="rounded-md border border-border bg-raised px-2 py-1.5">
         <p className="text-[11.5px] uppercase tracking-wide text-faint">{label}</p>
         <p className={cn('mt-0.5 text-[14.5px] font-medium', tone === 'warning' ? 'text-warning' : 'text-text')}>
           {value}
@@ -1138,7 +1138,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
       </Champ>
 
       {/* Le calcul est fait par l'outil de facturation : ici on ne fait que le montrer. */}
-      <div className="flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
+      <div className="flex items-center justify-between rounded-md border border-border bg-raised px-3 py-2">
         <span className="text-[13.5px] text-muted">
           {hours || '—'} h × {rate} CHF
         </span>
@@ -1176,7 +1176,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
           </Champ>
 
           {!defaut && !documentId ? (
-            <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
+            <label className="flex items-start gap-2 rounded-md border border-border bg-raised px-2.5 py-2 text-[13px] text-muted">
               <input
                 type="checkbox"
                 checked={confirmeNouveau}
