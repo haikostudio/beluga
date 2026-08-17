@@ -732,7 +732,29 @@ le nom, là-bas le texte).
   petit-fils gardant la sortie ouverte pouvait retenir pour toujours) ; tout appel de SERVICE passé
   APRÈS la réponse — compression, mesure, relance de plan — porte un `plafondMs`, le tour lui-même
   jamais ; `sendPrompt` referme en `finally` ; et l'ordonnanceur referme d'autorité un agent que plus
-  rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec.
+  rien n'attend. Une réponse rendue se referme en « terminé », jamais en échec. Deux culs-de-sac de
+  plus sont bornés : la PRÉPARATION d'avant le moteur (`PLAFOND_PREPARATION_MS`, 5 min — agent suivi,
+  aucun processus, aucune réponse : aucun autre constat ne pouvait le voir) et un moteur LANCÉ qui se
+  tait pour toujours (`PLAFOND_SILENCE_MOTEUR_MS`, 1 h ; un tour arrêté sur une question de
+  l'utilisateur en est exclu).
+- **…ET CE FILET NE DÉPEND PLUS DE CE QU'IL SURVEILLE** (`shared/src/veille-du-demon.ts` ;
+  `passageDeVeille`, `startVeille`, verrou de `tick`, `server/src/scheduler.ts` ; minuteur posé dans
+  `main.ts`) : la veille vivait EN TÊTE de la boucle d'ordonnancement, donc derrière son verrou « un
+  tour à la fois » — un verrou pris au départ et rendu à l'arrivée. Or cette boucle attend des choses
+  longues (lecture de quota chez le fournisseur, ouverture d'une copie de travail, commandes git). Un
+  seul `await` qui ne revient jamais et le verrou n'est PLUS JAMAIS rendu : les tours suivants
+  repartent aussitôt sans rien faire, la veille avec eux, et seul un redémarrage libère les
+  conversations. Constaté le 17/08/2026 — rien de refermé entre 03 h 10 et 07 h 36, une
+  auto-amélioration figée 220 minutes sans une ligne de journal, pendant que sauvegarde,
+  vectorisation et envoi au cerveau tournaient normalement. La veille a donc SON PROPRE MINUTEUR
+  (`PERIODE_VEILLE_MS`, 15 s), entièrement SYNCHRONE — rien ne peut la retenir —, et emporte avec
+  elle `rangerLesCartesOubliees`, chacun sous son `try` (une panne d'un seul agent emporterait sinon
+  le minuteur). Un tour de boucle passé `PLAFOND_TOUR_DE_BOUCLE_MS` (5 min) est DÉCLARÉ PERDU
+  (`decisionDeBoucle`) : le verrou est rendu, la boucle repart, le journal le dit ; l'instant de
+  départ sert de JETON pour qu'un tour perdu ne rende pas le verrou de son remplaçant. Et un
+  lancement de carte ne part plus deux fois (`lancementsEnRoute`, marque DATÉE) : `isRunning` ne voit
+  rien tant que l'agent n'est pas au travail. Verrouillé par `server/src/test/veille-du-demon.test.ts`
+  et `server/src/test/veille-hors-boucle.test.ts`.
 - **Une PANNE PASSAGÈRE du fournisseur se retente, elle ne tue pas la tâche**
   (`shared/src/panne-passagere.ts`, `server/src/relance-moteur.ts`, branchée dans `startTurn`) :
   erreur 500 (« Internal server error », « Server error mid-response »), moteur surchargé, lien
