@@ -12,7 +12,9 @@ fond blanc uni, avec son ombre douce) :
  1. DÉTOURE — le fond est reconnu par sa couleur (relevée sur les bords) et par
     son absence de couleur (gris très clair) ; seul le fond CONNECTÉ au bord est
     retiré, sinon le blanc des yeux partirait avec lui. L'ombre portée, grise et
-    désaturée, tombe dans le même filet. Les bords gardent un alpha progressif :
+    désaturée, tombe dans le même filet. Les POCHES ENCLAVÉES — l'espace entre
+    les jambes, la boucle d'un bras replié — ne touchent aucun bord et sont donc
+    reprises à part (`poches_de_fond`). Les bords gardent un alpha progressif :
     sans lui le personnage aurait un liseré en escalier.
  2. SILHOUETTE — le personnage entier, recadré au plus juste puis reposé dans une
     boîte de proportion FIXE (3:4), centré horizontalement et collé en bas. La
@@ -77,6 +79,50 @@ PORTRAIT = 192
 # Le fond du disque : un crème très clair, lisible sur un thème sombre comme clair.
 FOND_PORTRAIT = (247, 244, 240)
 
+# L'OMBRE PORTÉE est un gris sans couleur : on la reconnaît à sa clarté. Le seuil
+# était à 205, ce qui laissait sa part la plus SOMBRE — celle qui se creuse entre
+# les deux chaussures, où les deux ombres se rejoignent (relevé : 180 à 205). Il
+# en restait un coin pâle au bas de chaque personnage, criant sur un thème
+# sombre. Descendre à 185 le fait disparaître sans mordre nulle part ailleurs :
+# mesuré sur les sept images, tout ce qui part EN PLUS à plus de quatre pixels du
+# contour se tient entre les chevilles et le sol — cheveux gris, métal d'une
+# pioche, papier d'un porte-bloc et chemise crème sont intacts, protégés par leur
+# SATURATION, pas par leur clarté.
+OMBRE_CLAIR_MIN = 185
+
+# Une POCHE ENCLAVÉE est du fond qu'aucun bord ne touche : l'espace entre les
+# jambes, la boucle formée par un bras et un outil. Le remplissage venu du coin
+# ne l'atteint jamais, elle restait donc opaque — une flaque claire au milieu du
+# personnage, criante sur un thème sombre. Trois réglages la distinguent de ce
+# qui doit RESTER clair dans le personnage (le blanc d'un œil, une chemise
+# crème, un papier), tous relevés sur les sept images de l'utilisateur :
+#  - la poche est-elle VRAIMENT la couleur du fond ? Mesuré sur les sept
+#    personnages, les vraies poches ont 76 à 99 % de leurs pixels à cet écart
+#    serré, les blancs d'yeux 0 à 47 % : la séparation est franche.
+ECART_FOND_STRICT = 18
+PART_FOND_MINIMALE = 0.60
+#  - est-elle assez grande pour se voir ? En dessous, la poche ne pèse même pas
+#    un pixel une fois l'image réduite à la taille d'une silhouette ; l'écarter
+#    protège les reflets d'un œil, blancs et minuscules.
+AIRE_MINIMALE_POCHE = 0.00003
+
+
+def taches(masque: np.ndarray, plafond: int = 250) -> list[np.ndarray]:
+    """Les taches d'un seul tenant du masque, de la plus grande à la plus petite."""
+    travail = Image.fromarray(np.where(masque, 255, 0).astype(np.uint8), 'L').copy()
+    trouvees: list[np.ndarray] = []
+    marque = 1
+    while marque < plafond:
+        restant = np.asarray(travail) == 255
+        if not restant.any():
+            break
+        ligne, colonne = np.argwhere(restant)[0]
+        ImageDraw.floodfill(travail, (int(colonne), int(ligne)), marque, thresh=0)
+        trouvees.append(np.asarray(travail) == marque)
+        marque += 1
+    trouvees.sort(key=lambda tache: -int(tache.sum()))
+    return trouvees
+
 
 def sans_les_ilots(opaque: np.ndarray, part_minimale: float = 0.02) -> np.ndarray:
     """
@@ -84,23 +130,32 @@ def sans_les_ilots(opaque: np.ndarray, part_minimale: float = 0.02) -> np.ndarra
     d'ombre portée trop sombre pour passer le filtre du fond — sont effacés.
     Est un îlot toute tache dont l'aire tombe sous une part de la plus grande.
     """
-    travail = Image.fromarray(np.where(opaque, 255, 0).astype(np.uint8), 'L').copy()
-    aires: list[tuple[int, int]] = []  # (aire, marque)
-    marque = 1
-    while marque < 60:
-        restant = np.asarray(travail) == 255
-        if not restant.any():
-            break
-        ligne, colonne = np.argwhere(restant)[0]
-        ImageDraw.floodfill(travail, (int(colonne), int(ligne)), marque, thresh=0)
-        aires.append((int((np.asarray(travail) == marque).sum()), marque))
-        marque += 1
-    if not aires:
+    trouvees = taches(opaque)
+    if not trouvees:
         return np.ones_like(opaque, dtype=np.float32)
-    plus_grande = max(aire for aire, _ in aires)
-    gardees = {m for aire, m in aires if aire >= plus_grande * part_minimale}
-    etiquettes = np.asarray(travail)
-    return np.isin(etiquettes, list(gardees)).astype(np.float32)
+    plus_grande = int(trouvees[0].sum())
+    gardees = np.zeros(opaque.shape, dtype=bool)
+    for tache in trouvees:
+        if int(tache.sum()) >= plus_grande * part_minimale:
+            gardees |= tache
+    return gardees.astype(np.float32)
+
+
+def poches_de_fond(candidat: np.ndarray, dehors: np.ndarray, distance: np.ndarray) -> np.ndarray:
+    """
+    Le fond ENCLAVÉ : les taches couleur de fond que le remplissage venu du bord
+    n'a pas atteintes, et qui sont assez franchement du fond pour ne pas être un
+    blanc d'œil ou une étoffe claire.
+    """
+    aire_minimale = max(1, round(candidat.size * AIRE_MINIMALE_POCHE))
+    poches = np.zeros(candidat.shape, dtype=bool)
+    for tache in taches(candidat & ~dehors):
+        if int(tache.sum()) < aire_minimale:
+            continue
+        if float((distance[tache] < ECART_FOND_STRICT).mean()) < PART_FOND_MINIMALE:
+            continue
+        poches |= tache
+    return poches
 
 
 def detourer(image: Image.Image) -> Image.Image:
@@ -122,7 +177,7 @@ def detourer(image: Image.Image) -> Image.Image:
 
     # Candidat au fond : soit la couleur du fond, soit un gris clair sans
     # couleur — c'est l'ombre portée, qui n'appartient pas au personnage.
-    candidat = (distance < 26) | ((saturation <= 14) & (clair >= 205))
+    candidat = (distance < 26) | ((saturation <= 14) & (clair >= OMBRE_CLAIR_MIN))
 
     # Seul ce qui TOUCHE le bord est du fond : le blanc des yeux, la chemise
     # crème ou un outil gris restent au personnage.
@@ -132,6 +187,11 @@ def detourer(image: Image.Image) -> Image.Image:
     masque = Image.fromarray(np.where(candidat, 255, 0).astype(np.uint8), 'L').copy()
     ImageDraw.floodfill(masque, (0, 0), 128, thresh=0)
     dehors = np.asarray(masque) == 128
+
+    # Le remplissage progresse de proche en proche depuis le coin : il ne peut
+    # pas entrer dans un trou entièrement ceinturé par le personnage. Ces poches
+    # se reprennent donc une à une, sur leur couleur et sur leur taille.
+    dehors = dehors | poches_de_fond(candidat, dehors, distance)
 
     # DEDANS ou DEHORS, franchement : l'alpha ne se DÉDUIT PAS de la distance à
     # la couleur du fond. Le rendu 3D pose autour du personnage un halo BLANC —

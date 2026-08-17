@@ -326,6 +326,106 @@ async function passe(navigateur, viewport, etiquette) {
   }
 }
 
+/**
+ * PLUS UN SEUL PIXEL DE FOND, VU SUR FOND SOMBRE — le défaut ne se voit que là.
+ *
+ * Le détourage part des bords et progresse de proche en proche : il n'atteignait
+ * pas les POCHES ENCLAVÉES (l'espace entre les jambes, la boucle d'un bras
+ * replié), et laissait sa part la plus sombre de l'ombre entre les chaussures.
+ * On repose donc chaque silhouette sur le fond du thème sombre et on cherche la
+ * plus grosse tache PÂLE ET SANS COULEUR : c'est la signature du fond, jamais
+ * celle de la pâte à modeler, colorée.
+ *
+ * Ce qui reste et doit rester : le blanc des yeux et les reflets, quelques
+ * pixels épars en haut du personnage. Avant correction, la tache la plus grosse
+ * pesait 84 à 258 pixels sur les sept ; après, 4 à 23. Le seuil est posé entre
+ * les deux, avec de la marge des deux côtés.
+ *
+ * Le PORTRAIT rond n'est pas jugé ici : il repose sur un disque crème plein, où
+ * une poche de fond oubliée se confondrait avec le disque — invisible par
+ * construction, donc rien à mesurer.
+ */
+const TACHE_PALE_MAX = 30;
+
+async function fondVisible(page) {
+  const vus = await page.evaluate(
+    async ({ colonnes }) => {
+      // Le fond du thème sombre : c'est là, et seulement là, qu'un reste de fond
+      // clair se voit.
+      const FOND = [17, 20, 26];
+      const mesurer = (image) => {
+        const toile = document.createElement('canvas');
+        toile.width = image.naturalWidth;
+        toile.height = image.naturalHeight;
+        const ctx = toile.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(image, 0, 0);
+        const { data, width, height } = ctx.getImageData(0, 0, toile.width, toile.height);
+        const pale = new Uint8Array(width * height);
+        for (let i = 0; i < width * height; i += 1) {
+          const a = data[i * 4 + 3] / 255;
+          const c = [0, 1, 2].map((k) => data[i * 4 + k] * a + FOND[k] * (1 - a));
+          const clair = Math.max(...c);
+          const saturation = clair - Math.min(...c);
+          pale[i] = clair >= 150 && saturation <= 25 ? 1 : 0;
+        }
+        // La plus grosse tache d'un seul tenant : une poche de fond est une
+        // FLAQUE, un reflet d'œil quelques pixels épars.
+        let pire = 0;
+        let pireY = 0;
+        for (let depart = 0; depart < pale.length; depart += 1) {
+          if (pale[depart] !== 1) continue;
+          const pile = [depart];
+          pale[depart] = 2;
+          let aire = 0;
+          let hautY = height;
+          while (pile.length) {
+            const p = pile.pop();
+            aire += 1;
+            const x = p % width;
+            const y = (p - x) / width;
+            hautY = Math.min(hautY, y);
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+              const q = ny * width + nx;
+              if (pale[q] === 1) {
+                pale[q] = 2;
+                pile.push(q);
+              }
+            }
+          }
+          if (aire > pire) {
+            pire = aire;
+            pireY = hautY;
+          }
+        }
+        return { pire, pireY, hauteur: height };
+      };
+      const lues = [];
+      for (const colonne of colonnes) {
+        const image = new Image();
+        image.src = `/personnages/${colonne}.png`;
+        // eslint-disable-next-line no-await-in-loop
+        await image.decode();
+        lues.push({ colonne, ...mesurer(image) });
+      }
+      return lues;
+    },
+    { colonnes: COLONNES },
+  );
+
+  for (const vu of vus) {
+    noter(
+      `« ${vu.colonne} » : aucune flaque de fond sur le thème sombre`,
+      vu.pire <= TACHE_PALE_MAX,
+      `plus grosse tache pâle ${vu.pire} px (seuil ${TACHE_PALE_MAX}), à ${Math.round(
+        (vu.pireY / vu.hauteur) * 100,
+      )} % de la hauteur`,
+    );
+  }
+}
+
 /** Les portraits ronds sont servis : c'est eux que porteront les notifications. */
 async function portraits() {
   for (const colonne of COLONNES) {
@@ -357,6 +457,12 @@ async function main() {
   try {
     await passe(navigateur, { width: 1400, height: 900 }, 'ordinateur');
     await passe(navigateur, { width: 390, height: 844 }, 'téléphone');
+    const { page } = await ouvrir(navigateur, { width: 1400, height: 900 });
+    try {
+      await fondVisible(page);
+    } finally {
+      await page.context().close();
+    }
   } finally {
     await navigateur.close();
   }

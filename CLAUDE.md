@@ -970,7 +970,13 @@ le nom, là-bas le texte).
   (`avatarDeLAlerte` ; un motif sans colonne — quota, redémarrage — garde l'image de son genre). La
   colonne compte donc DEUX enveloppes : `data-column`, le cadre et le fond restent sur l'extérieure
   (`offsetLeft`, couleur de colonne), seule la découpe descend d'un cran, et l'image ne prend AUCUN
-  clic (le dépôt d'une carte vise `closest('[data-column]')`). Verrouillé par
+  clic (le dépôt d'une carte vise `closest('[data-column]')`). **Le détourage va chercher les POCHES
+  ENCLAVÉES** (`poches_de_fond`, `OMBRE_CLAIR_MIN`, `scripts/personnages-colonnes.py`) : le
+  remplissage part du coin et n'entre jamais dans un trou ceinturé par le personnage — entre les
+  jambes, dans la boucle d'un bras —, et le seuil de l'ombre laissait un coin pâle entre les
+  chaussures. Une poche est reprise si 60 % de ses pixels sont vraiment la couleur du fond (un blanc
+  d'œil plafonne à 47 %) et qu'elle pèse plus de 0,003 % de l'image. Le contrôle juge SUR FOND
+  SOMBRE, seul endroit où le défaut se voit. Verrouillé par
   `server/src/test/personnages-colonnes.test.ts` et `scripts/verif-personnages-colonnes.mjs`.
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
