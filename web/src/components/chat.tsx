@@ -103,9 +103,15 @@ export function Chat({
    * « Réflexion en cours… » restait alors allumé indéfiniment sur un agent en
    * échec. La règle est partagée avec le démon, qui éteint la marque de son
    * côté (`temoinDeTravail`, `shared/src/travail-en-cours.ts`).
+   *
+   * Et il suit d'abord le TOUR VIVANT (`tourVivantDepuis`) : un agent qui
+   * enchaîne des commandes n'écrit rien, et le démon range encore son tour
+   * après la réponse rendue. Tant que ce tour est là, l'agent travaille et
+   * peut être arrêté.
    */
   const busy = temoinDeTravail({
     statut: agent?.status,
+    tourVivantDepuis: agent?.tourVivantDepuis,
     finDuTour: agent?.endedAt,
     messageEnEcritureA: messages.find((m) => m.streaming)?.createdAt,
   });
@@ -508,11 +514,21 @@ function TravailEnCours({
    /* Une fois le tour refermé, il n'y a plus d'étape en cours à nommer : le
       repère dit alors le BILAN de la liste, exactement comme le faisait
       l'ancienne barre pleine largeur. */
+  /*
+   * LA RÉPONSE EST RENDUE, MAIS LE TOUR VIT ENCORE : le démon range (constat du
+   * dépôt, fusion de la branche, compression du fil). Dire « Réflexion en
+   * cours » serait faux — le moteur ne réfléchit plus —, et se taire ferait
+   * croire que tout est fini alors que des commandes tournent.
+   */
+  const rangeLeTour =
+    busy && agent?.tourVivantDepuis !== undefined && agent?.status !== 'running' && agent?.status !== 'starting';
   const quoi = !busy
     ? resumeDesTaches(todos!)
     : agent?.attendReponse
       ? TEXTE_BARRE_EN_ATTENTE
-      : (todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…');
+      : rangeLeTour
+        ? 'L’agent termine son tour…'
+        : (todoEnCours?.label ?? etapeEnCours?.label ?? 'Réflexion en cours…');
 
   // Le chronomètre et le compte « n/N » ne parlent que d'un travail EN COURS :
   // une fois le tour refermé, le compte est déjà dans la phrase ci-dessus, et

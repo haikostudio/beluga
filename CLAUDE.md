@@ -1040,8 +1040,16 @@ le nom, là-bas le texte).
   de base se relit défensivement** (`purgerContexteEnvoyeAncien`, `server/src/store.ts`) — écrite par
   une version plus ancienne du modèle, elle peut manquer un champ que le schéma remplirait. Vérifié
   par `server/src/test/purge-contexte-envoye.test.ts`.
-- **Le témoin « réflexion en cours » suit l'AGENT, pas le message** (`temoinDeTravail` /
-  `ecritureOrpheline`, `shared/src/travail-en-cours.ts`) : un message resté marqué « en écriture »
+- **Le témoin « réflexion en cours » suit l'AGENT, pas le message, et d'abord son TOUR VIVANT**
+  (`temoinDeTravail` / `ecritureOrpheline`, `shared/src/travail-en-cours.ts` ;
+  `Agent.tourVivantDepuis`, posé et retiré par `marquerLeTourVivant` / `retirerLeTourVivant`,
+  `server/src/runtime.ts`) : un agent travaille aussi quand il enchaîne des COMMANDES sans écrire un
+  mot, et le démon range encore son tour après la réponse rendue — statut et marque d'écriture ont
+  chacun leur fenêtre aveugle. Tant que le tour vit, le témoin est allumé et la flèche d'envoi reste
+  un carré d'ARRÊT ; le tour refermé l'éteint, par quelque chemin que ce soit, et le redémarrage
+  efface la marque comme `attendReponse`. Verrouillé par
+  `server/src/test/travail-en-cours.test.ts` et `scripts/verif-temoin-pendant-commandes.mjs`.
+  Un message resté marqué « en écriture »
   après la fin de son tour est ORPHELIN et n'allume plus rien. `pushMessage` refuse de reposer la
   marque une fois le tour retiré des tours vivants, `recoverAfterRestart` l'éteint sur TOUS les agents
   au redémarrage, et `veilleDesToursBloques` l'éteint au fil de l'eau — le bandeau s'éteint donc sans

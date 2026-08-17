@@ -608,6 +608,19 @@ export const Agent = z.object({
    * ne survivant à un redémarrage, il est effacé au démarrage.
    */
   attendReponse: z.boolean().optional(),
+  /**
+   * L'INSTANT OÙ LE TOUR EN COURS A ÉTÉ LANCÉ — présent tant que ce tour vit,
+   * effacé dès qu'il se referme, quelle qu'en soit la façon.
+   *
+   * C'est le signal le plus DIRECT du travail : un agent travaille aussi quand
+   * il enchaîne des commandes sans écrire une ligne, et ni le statut enregistré
+   * ni la marque d'écriture d'un message ne le disent alors (le message est
+   * figé dès la réponse rendue, et le statut retombe à « terminé » avant que le
+   * démon n'ait fini de ranger le tour). Le témoin de travail le lit en premier
+   * (`shared/src/travail-en-cours.ts`). Aucun moteur ne survivant à un
+   * redémarrage, il est effacé au démarrage comme `attendReponse`.
+   */
+  tourVivantDepuis: z.number().optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */

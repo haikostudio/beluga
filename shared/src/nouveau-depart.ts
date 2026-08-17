@@ -29,6 +29,8 @@ export interface AgentOccupable {
   status?: string;
   /** L'instant de la dernière fin de tour : il démasque une écriture orpheline. */
   endedAt?: number;
+  /** Un tour vit-il encore ? (`Agent.tourVivantDepuis`) — le signal le plus direct. */
+  tourVivantDepuis?: number;
 }
 
 export interface Verdict {
@@ -52,6 +54,7 @@ export function peutRepartir(agent: AgentOccupable | null | undefined, messages:
   if (
     temoinDeTravail({
       statut: agent.status as StatutDAgentSuivi | undefined,
+      tourVivantDepuis: agent.tourVivantDepuis,
       finDuTour: agent.endedAt,
       messageEnEcritureA: messages.find((m) => m.streaming)?.createdAt,
     })
