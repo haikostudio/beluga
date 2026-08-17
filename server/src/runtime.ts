@@ -2444,6 +2444,15 @@ async function startTurn(
     }
   }
 
+  /*
+   * CE QUE LE RANGEMENT A COÛTÉ, écrit une fois pour toutes sur la réponse.
+   * Entre la réponse figée et cette ligne, le démon a comprimé le fil, constaté
+   * le dépôt, refermé le dossier de la carte et fusionné sa branche — du
+   * travail invisible, qui explique pourquoi l'agent tenait encore son tour
+   * alors que sa réponse était là depuis un moment.
+   */
+  noterLeRangement(runState);
+
   retirerLeTourVivant(agent.id);
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
@@ -2714,6 +2723,24 @@ async function resumeSemantique(agent: Agent, options: OptionsCompression): Prom
   });
   const resultat = await handle.finished;
   return resultat.ok && !erreur ? texte.trim() : '';
+}
+
+/**
+ * LE RANGEMENT D'APRÈS-RÉPONSE SE MESURE, IL NE SE DEVINE PAS.
+ *
+ * `pushMessage` refuse d'écrire sur un tour déjà refermé : cette note-ci part
+ * donc directement au magasin, à l'instant où le tour se termine pour de bon.
+ * Rien n'est écrit si la réponse n'a jamais été figée (tour tombé avant), ni si
+ * le rangement a été instantané — une durée nulle n'apprend rien.
+ */
+function noterLeRangement(run: LiveRun): void {
+  if (!run.reponseFigeeA) return;
+  const rangementMs = Date.now() - run.reponseFigeeA;
+  if (rangementMs < 1_000) return;
+  const message = store.getMessage(run.messageId);
+  if (!message || message.rangementMs !== undefined) return;
+  const maj = store.saveMessage({ ...message, rangementMs });
+  bus.emit({ type: 'message.upsert', message: maj });
 }
 
 function pushMessage(run: LiveRun, patch: Partial<Message>): void {

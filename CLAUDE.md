@@ -982,7 +982,11 @@ le nom, là-bas le texte).
   mot, et le démon range encore son tour après la réponse rendue — statut et marque d'écriture ont
   chacun leur fenêtre aveugle. Tant que le tour vit, le témoin est allumé et la flèche d'envoi reste
   un carré d'ARRÊT ; le tour refermé l'éteint, par quelque chemin que ce soit, et le redémarrage
-  efface la marque comme `attendReponse`. Verrouillé par
+  efface la marque comme `attendReponse`. Le TABLEAU lit la même règle
+  (`agentTientSonTour`) : le personnage de « En cours » pioche jusqu'à la fin RÉELLE du tour, et le
+  temps du rangement d'après-réponse — constat du dépôt, dossier refermé, branche fusionnée — se lit
+  sous la réponse dans le tiroir de la carte (`Message.rangementMs`, écrit par `noterLeRangement`,
+  jamais sous une seconde). Verrouillé par
   `server/src/test/travail-en-cours.test.ts` et `scripts/verif-temoin-pendant-commandes.mjs`.
   Un message resté marqué « en écriture »
   après la fin de son tour est ORPHELIN et n'allume plus rien. `pushMessage` refuse de reposer la
