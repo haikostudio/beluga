@@ -7,14 +7,11 @@ import {
   ChevronDown,
   CircleDollarSign,
   Cpu,
-  ExternalLink,
   FileText,
   GitBranch,
-  GitMerge,
   Loader2,
   Lock,
   Play,
-  RefreshCw,
   Rocket,
   RotateCcw,
   Sparkles,
@@ -36,6 +33,7 @@ import {
   phraseDesFichiers,
   resumeDeBranche,
   resumeDesFichiers,
+  totalDesLignes,
   colonneDeReprise,
   libelleDeLancement,
   libelleDeReprise,
@@ -1224,6 +1222,45 @@ function dureeEtape(debut?: number, fin?: number): string {
   return `${Math.round(secondes / 60)} min`;
 }
 
+/** « +12 −3 », comme git. Un binaire n'a pas de compte : il rend rien. */
+function lignesDuFichier(fichier: { ajoutees?: number; supprimees?: number }): React.ReactNode {
+  if (fichier.ajoutees === undefined && fichier.supprimees === undefined) return null;
+  return (
+    <span className="shrink-0 font-mono text-[12.5px]" data-github-lignes>
+      {fichier.ajoutees ? <span className="text-success">+{fichier.ajoutees}</span> : null}
+      {fichier.ajoutees && fichier.supprimees ? ' ' : null}
+      {fichier.supprimees ? <span className="text-danger">−{fichier.supprimees}</span> : null}
+    </span>
+  );
+}
+
+/**
+ * UN NŒUD DE LA LIGNE DE TEMPS : sa pastille, son trait, puis son contenu.
+ *
+ * Le trait vertical est porté par le NŒUD lui-même (une bordure à gauche du
+ * contenu), pas par un trait posé derrière toute la colonne : il s'arrête donc
+ * tout seul sur le dernier nœud, quelle que soit sa hauteur.
+ */
+function NoeudDeTemps({
+  ton,
+  dernier,
+  repere,
+  children,
+}: {
+  ton: string;
+  dernier?: boolean;
+  repere?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <li className="relative pb-4 pl-5 last:pb-0" data-github-noeud={repere ?? 'branche'}>
+      {!dernier ? <span className="absolute bottom-0 left-[3px] top-3 w-px bg-border" aria-hidden /> : null}
+      <span className={cn('absolute left-0 top-[5px] h-[7px] w-[7px] rounded-full', ton)} aria-hidden />
+      {children}
+    </li>
+  );
+}
+
 /** La couleur d'un fichier touché suit son sort : ajouté, modifié, supprimé. */
 const TON_DU_FICHIER: Record<EtatDeFichier, string> = {
   ajoute: 'text-success',
@@ -1239,22 +1276,43 @@ const LETTRE_DU_FICHIER: Record<EtatDeFichier, string> = {
   renomme: 'R',
 };
 
+
+/**
+ * L'ONGLET « GITHUB » : LA VIE DE LA BRANCHE, DE HAUT EN BAS.
+ *
+ * Il portait tout ce que GitHub sait dire — enregistrements, demande de fusion,
+ * contrôles d'intégration, commentaires de revue — et l'essentiel s'y perdait.
+ * Il ne garde donc que DEUX choses, dans l'ordre où elles arrivent : les
+ * fichiers que la branche a changés, avec leurs lignes ajoutées et supprimées
+ * comme le dit git, puis le déroulé de son déploiement.
+ *
+ * Tout se charge À L'OUVERTURE : le bouton « Actualiser » est retiré, on ne
+ * demande plus à l'utilisateur de réclamer ce qu'il vient d'ouvrir.
+ */
 function GithubTab({ card }: { card: Card }) {
   const [deploiements, setDeploiements] = React.useState<DeployRun[]>([]);
   const tracking = card.github;
 
-  /*
-   * LE DÉROULÉ DU DÉPLOIEMENT SE DEMANDE À L'OUVERTURE. C'est une lecture en
-   * base seule — aucun appel à git ni à GitHub —, elle ne coûte donc rien et
-   * n'attend pas le bouton « Actualiser ». L'onglet DIT cette attente : sur une
-   * liaison lente, on ne savait pas s'il n'y avait rien ou si ça arrivait.
-   */
   const [charge, setCharge] = React.useState(true);
   useChargementOnglet('github', charge);
 
+  /*
+   * LE RELEVÉ DE LA BRANCHE SE FAIT À L'OUVERTURE, UNE FOIS PAR CARTE. Il lit
+   * git et GitHub, donc on ne le rejoue pas à chaque rendu : la marque `releve`
+   * garde la trace de la carte déjà relevée (elle protège aussi du double
+   * montage du mode développement). Quand il rend, `fetchedAt` change et
+   * l'effet ci-dessous recharge le déroulé.
+   */
+  const releve = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (releve.current === card.id) return;
+    releve.current = card.id;
+    setCharge(true);
+    client.call({ type: 'github.refresh', cardId: card.id }).catch(() => undefined);
+  }, [card.id]);
+
   React.useEffect(() => {
     let vivant = true;
-    setCharge(true);
     client
       .call({ type: 'github.deploiements', cardId: card.id })
       .then((res: any) => {
@@ -1269,64 +1327,47 @@ function GithubTab({ card }: { card: Card }) {
     };
   }, [card.id, card.column, card.github?.fetchedAt]);
 
-  /*
-   * Ces deux gestes RENDENT leur requête : le bouton pose lui-même sa roue,
-   * sa coche et son retour à l'état initial (`shared/src/bouton-en-attente.ts`).
-   * Le `busy` maison qu'ils portaient chacun de leur côté a disparu — une seule
-   * façon de faire dans toute l'application, et un refus qui ne peut plus
-   * passer pour une réussite (l'erreur est dite PUIS relancée).
-   */
-  const refresh = async () => {
-    try {
-      await client.call({ type: 'github.refresh', cardId: card.id });
-      const res: any = await client.call({ type: 'github.deploiements', cardId: card.id });
-      setDeploiements(res?.deploiements ?? []);
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'lecture impossible');
-      throw err;
-    }
-  };
-
-  const merge = async (method: 'merge' | 'squash' | 'rebase', auto = false) => {
-    try {
-      await client.call({ type: 'github.merge', cardId: card.id, method, auto });
-      client.pushToast('success', auto ? 'Fusion automatique activée' : 'Fusion demandée');
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'fusion impossible');
-      throw err;
-    }
-  };
-
   const fichiers = tracking?.fichiers ?? [];
   const resume = resumeDesFichiers(fichiers);
+  const lignes = totalDesLignes(fichiers);
   const etatBranche = resumeDeBranche(tracking ?? {});
+
+  if (!tracking?.branch) {
+    return (
+      <div className="px-4 py-3">
+        <p className="text-[13.5px] text-faint">Cette carte n'a pas encore de branche : elle n'a jamais été lancée.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3 px-4 py-3">
-      <div className="flex items-center gap-2">
-        <GitBranch className="h-3.5 w-3.5 text-faint" />
-        <span className="min-w-0 flex-1 truncate text-[14px] text-text">{tracking?.branch ?? 'aucune branche'}</span>
-        <Button size="sm" variant="ghost" onClick={refresh}>
-          <RefreshCw className="h-3 w-3" />
-          Actualiser
-        </Button>
+      <div className="flex items-center gap-2" data-github-branche>
+        <GitBranch className="h-3.5 w-3.5 shrink-0 text-faint" />
+        <span className="min-w-0 flex-1 truncate text-[14px] text-text texte-copiable">{tracking.branch}</span>
+        <Badge tone={etatBranche.etat === 'fusionnee' ? 'success' : 'neutral'}>{etatBranche.phrase}</Badge>
       </div>
 
-      {/* LA BRANCHE DE CETTE CARTE : sa naissance, ce qu'elle a changé, où elle en est. */}
-      {tracking?.branch ? (
-        <div className="rounded-md border border-border bg-surface px-2.5 py-2" data-github-branche>
-          <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
-            <Badge tone={etatBranche.etat === 'fusionnee' ? 'success' : 'neutral'}>{etatBranche.phrase}</Badge>
-            {tracking.creeLe ? <span className="text-faint">créée le {dateHeure(tracking.creeLe)}</span> : null}
-          </div>
-
-          <p className="mt-2 text-[13.5px] text-text" data-github-fichiers>
+      <ul data-github-timeline>
+        {/* 1. CE QUE LA BRANCHE A CHANGÉ : les fichiers, avec leurs lignes. */}
+        <NoeudDeTemps ton={fichiers.length ? 'bg-termine' : 'bg-border'} dernier={!deploiements.length}>
+          <p className="text-[13.5px] text-text" data-github-fichiers>
             {resume.total
-              ? `${resume.total} fichier${resume.total > 1 ? 's' : ''} touché${resume.total > 1 ? 's' : ''} — ${phraseDesFichiers(resume)}`
+              ? `${resume.total} fichier${resume.total > 1 ? 's' : ''} — ${phraseDesFichiers(resume)}`
               : tracking.fetchedAt
                 ? "Aucun fichier touché par cette branche pour l'instant."
-                : 'Fichiers pas encore relevés — « Actualiser » les lit.'}
+                : 'Fichiers en cours de lecture…'}
+            {lignes.ajoutees || lignes.supprimees ? (
+              <span className="ml-1.5 font-mono text-[12.5px]">
+                <span className="text-success">+{lignes.ajoutees}</span>{' '}
+                <span className="text-danger">−{lignes.supprimees}</span>
+              </span>
+            ) : null}
           </p>
+
+          {tracking.creeLe ? (
+            <p className="mt-0.5 text-[12.5px] text-faint">branche créée le {dateHeure(tracking.creeLe)}</p>
+          ) : null}
 
           {fichiers.length ? (
             <ul className="mt-1.5 space-y-0.5">
@@ -1336,110 +1377,38 @@ function GithubTab({ card }: { card: Card }) {
                     {LETTRE_DU_FICHIER[fichier.etat]}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-muted texte-copiable">{fichier.chemin}</span>
+                  {lignesDuFichier(fichier)}
                 </li>
               ))}
             </ul>
           ) : null}
+        </NoeudDeTemps>
 
-          {tracking.commits.length ? (
-            <ul className="mt-2 space-y-0.5 border-t border-border pt-2">
-              {tracking.commits.map((commit) => (
-                <li key={commit.sha} className="flex gap-2 text-[13px]">
-                  <code className="shrink-0 text-faint">{commit.sha.slice(0, 7)}</code>
-                  <span className="min-w-0 flex-1 truncate text-muted texte-copiable">{commit.message}</span>
-                  <span className="shrink-0 text-faint">{dateHeure(commit.date)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : (
-        <p className="text-[13.5px] text-faint">Cette carte n'a pas encore de branche : elle n'a jamais été lancée.</p>
-      )}
+        {/* 2. LE DÉROULÉ DU DÉPLOIEMENT, étape par étape. */}
+        {deploiements.length
+          ? deploiements.map((run, rang) => (
+              <NoeudDeTemps
+                key={run.id}
+                repere="deploiement"
+                dernier={rang === deploiements.length - 1}
+                ton={
+                  run.state === 'success'
+                    ? 'bg-termine'
+                    : run.state === 'failed'
+                      ? 'bg-danger'
+                      : run.state === 'running'
+                        ? 'bg-en-cours'
+                        : 'bg-border'
+                }
+              >
+                <p className="text-[13.5px] text-text">
+                  {libelleCibleDeploiement(run.cible)}
+                  <span className="ml-1.5 text-[12.5px] text-faint">
+                    {dateHeure(new Date(run.startedAt).toISOString())}
+                  </span>
+                </p>
 
-      {tracking?.prNumber ? (
-        <div className="rounded-md border border-border bg-surface px-2.5 py-2">
-          <div className="flex items-center gap-2">
-            <Badge tone={tracking.prState === 'merged' ? 'success' : tracking.prState === 'closed' ? 'neutral' : 'strong'}>
-              #{tracking.prNumber} {tracking.prState}
-            </Badge>
-            <span className="min-w-0 flex-1 truncate text-[14px] text-text">{tracking.prTitle}</span>
-            {tracking.prUrl ? (
-              <a href={tracking.prUrl} target="_blank" rel="noreferrer" className="text-faint hover:text-text">
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            ) : null}
-          </div>
-
-          <div className="mt-2 flex flex-wrap gap-1.5 text-[12.5px]">
-            {tracking.reviewDecision ? <Badge>revue : {tracking.reviewDecision}</Badge> : null}
-            {tracking.mergeable ? <Badge>fusion : {tracking.mergeable}</Badge> : null}
-          </div>
-
-          {tracking.checks.length ? (
-            <ul className="mt-2 space-y-0.5">
-              {tracking.checks.slice(0, 8).map((check, index) => (
-                <li key={index} className="flex items-center gap-1.5 text-[13px]">
-                  <span
-                    className={cn(
-                      'h-1.5 w-1.5 rounded-full',
-                      check.conclusion === 'SUCCESS'
-                        ? 'bg-success'
-                        : check.conclusion === 'FAILURE'
-                          ? 'bg-danger'
-                          : 'bg-warning',
-                    )}
-                  />
-                  <span className="flex-1 truncate text-muted">{check.name}</span>
-                  <span className="text-faint">{check.conclusion ?? check.status}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          {tracking.prState === 'open' ? (
-            <div className="mt-2 flex flex-wrap gap-1">
-              <Button size="sm" variant="outline" onClick={() => merge('squash')}>
-                <GitMerge className="h-3 w-3" /> Fusionner (écrasée)
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => merge('merge')}>
-                Fusion simple
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => merge('squash', true)}>
-                Auto dès que les tests passent
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <p className="text-[13.5px] text-faint">Aucune demande de fusion liée pour l'instant.</p>
-      )}
-
-      {/* LE DÉROULÉ DU DÉPLOIEMENT DE CETTE CARTE, étape par étape, jusqu'à la fusion. */}
-      {deploiements.length ? (
-        <div data-github-deploiements>
-          <p className="mb-1 text-[12.5px] uppercase tracking-wide text-faint">Déploiement</p>
-          <div className="space-y-2">
-            {deploiements.map((run) => (
-              <div key={run.id} className="rounded-md border border-border bg-surface px-2.5 py-2">
-                <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
-                  <Badge
-                    tone={
-                      run.state === 'success'
-                        ? 'success'
-                        : run.state === 'failed'
-                          ? 'danger'
-                          : run.state === 'running'
-                            ? 'strong'
-                            : 'neutral'
-                    }
-                  >
-                    {libelleCibleDeploiement(run.cible)}
-                  </Badge>
-                  <span className="text-faint">{dateHeure(new Date(run.startedAt).toISOString())}</span>
-                </div>
-
-                <ul className="mt-1.5 space-y-0.5">
+                <ul className="mt-1 space-y-0.5">
                   {etapesAMontrer(run).map((etape) => (
                     <li key={etape.key} className="flex items-center gap-1.5 text-[13px]">
                       <span
@@ -1465,28 +1434,13 @@ function GithubTab({ card }: { card: Card }) {
                 </ul>
 
                 {run.error ? <p className="mt-1 text-[13px] text-danger texte-copiable">{run.error}</p> : null}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <p className="text-[13.5px] text-faint">Cette carte n'a encore été emportée par aucun déploiement.</p>
-      )}
+              </NoeudDeTemps>
+            ))
+          : null}
+      </ul>
 
-      {tracking?.activity.length ? (
-        <div>
-          <p className="mb-1 text-[12.5px] uppercase tracking-wide text-faint">Sur la demande de fusion</p>
-          <ul className="space-y-1.5">
-            {tracking.activity.slice(0, 10).map((event, index) => (
-              <li key={index} className="rounded border border-border bg-surface px-2 py-1.5 text-[13px]">
-                <span className="text-text">{event.author}</span>{' '}
-                <span className="text-faint">— {event.kind}</span>
-                <span className="text-faint"> · {dateHeure(event.date)}</span>
-                {event.body ? <p className="mt-0.5 line-clamp-3 text-muted">{event.body}</p> : null}
-              </li>
-            ))}
-          </ul>
-        </div>
+      {!deploiements.length ? (
+        <p className="text-[13.5px] text-faint">Cette carte n'a encore été emportée par aucun déploiement.</p>
       ) : null}
     </div>
   );

@@ -119,7 +119,7 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
       data-bulle-isolee={bulle.isole ? '' : undefined}
       className={cn(
         'min-w-0 max-w-full overflow-hidden px-3 py-2',
-        bulle.isole ? 'flex-1' : 'w-[min(78%,520px)]',
+        bulle.isole ? 'w-full' : 'w-[min(78%,520px)]',
         encadre,
       )}
     >
@@ -158,20 +158,14 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
       ) : null}
 
       {/* CE QUI EST PARTI EN MÊME TEMPS : briefing, mémoire, carte, pièces
-          jointes. Leurs NOMS se lisent sans rien dérouler ; leur texte est
-          dans la bulle, à sa place. Jamais un chiffre de jetons. */}
+          jointes. Leurs NOMS se lisent sans rien dérouler, en texte normal —
+          des pastilles arrondies ne se lisaient pas sur le fond sombre et
+          n'ajoutaient rien qu'une simple liste ne dise aussi bien. Leur texte
+          est dans la bulle, à sa place. Jamais un chiffre de jetons. */}
       {bulle.noms?.length ? (
-        <div data-donnees-paralleles className="mb-1.5 flex flex-wrap items-center gap-1">
-          <span className="text-[11.5px] text-faint">Transmis en même temps :</span>
-          {bulle.noms.map((nom) => (
-            <span
-              key={nom}
-              className="rounded-full border border-border bg-surface px-1.5 py-0.5 text-[11px] text-muted"
-            >
-              {nom}
-            </span>
-          ))}
-        </div>
+        <p data-donnees-paralleles className="mb-1.5 break-words text-[11.5px] text-faint [overflow-wrap:anywhere]">
+          Transmis en même temps : {bulle.noms.join(', ')}
+        </p>
       ) : null}
 
       <pre
@@ -220,12 +214,22 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
    * GAUCHE, à l'extérieur, seulement pour la bulle isolée (les autres n'en
    * portent pas) ; « Copier » se pose EN DESSOUS, à l'extérieur, pour les
    * trois.
+   *
+   * L'icône est posée en POSITION ABSOLUE, décalée hors du conteneur : mise
+   * dans un `flex` classique, elle mangeait sa largeur au texte, et la bulle
+   * de mémoire se retrouvait plus étroite que les deux autres bulles du fil
+   * pour une même largeur affichée. Le conteneur garde donc la MÊME largeur
+   * (`w-[min(78%,520px)]`) que les bulles ordinaires, l'icône flottant devant
+   * lui, plus à gauche qu'avant.
    */
   return (
     <div data-bulle-groupe={bulle.cle} className="flex flex-col items-end gap-1">
       {bulle.isole ? (
-        <div className="flex w-[min(78%,520px)] min-w-0 max-w-full items-start gap-2">
-          <BookOpen className="mt-2 h-3.5 w-3.5 shrink-0 text-faint" aria-hidden="true" />
+        <div className="relative w-[min(78%,520px)] min-w-0 max-w-full">
+          <BookOpen
+            className="absolute -left-6 top-2 h-3.5 w-3.5 shrink-0 text-faint"
+            aria-hidden="true"
+          />
           {boite}
         </div>
       ) : (

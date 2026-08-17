@@ -130,6 +130,7 @@ export * from './travail-en-cours.js';
 export * from './travail-hors-tache.js';
 export * from './travail-rendu.js';
 export * from './suggestions-de-plan.js';
+export * from './veille-du-demon.js';
 export * from './versions-plan.js';
 export * from './voix-annonce.js';
 export * from './voix-vitesse.js';
