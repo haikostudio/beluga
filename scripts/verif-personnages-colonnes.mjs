@@ -355,16 +355,22 @@ async function passe(navigateur, viewport, etiquette) {
  */
 const TACHE_PALE_MAX = 30;
 
-async function fondVisible(page) {
-  const vus = await page.evaluate(
-    async ({ colonnes }) => {
+/**
+ * LA MESURE, écrite une seule fois et injectée dans la page : les silhouettes
+ * fixes et les images de la BOUCLE ANIMÉE se jugent exactement pareil, sinon
+ * l'une des deux dériverait sans qu'on le voie. Elle prend tout ce que
+ * `drawImage` accepte — une `Image` ou une image décodée d'une animation.
+ */
+const SOURCE_DE_LA_MESURE = `(image) => {
       // Le fond du thème sombre : c'est là, et seulement là, qu'un reste de fond
       // clair se voit.
       const FOND = [17, 20, 26];
-      const mesurer = (image) => {
+      {
         const toile = document.createElement('canvas');
-        toile.width = image.naturalWidth;
-        toile.height = image.naturalHeight;
+        // Une image de page porte \`naturalWidth\`, une image DÉCODÉE d'une
+        // animation porte \`displayWidth\` ou \`width\` : on prend ce qui existe.
+        toile.width = image.naturalWidth || image.displayWidth || image.width;
+        toile.height = image.naturalHeight || image.displayHeight || image.height;
         const ctx = toile.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(image, 0, 0);
         const { data, width, height } = ctx.getImageData(0, 0, toile.width, toile.height);
@@ -409,7 +415,13 @@ async function fondVisible(page) {
           }
         }
         return { pire, pireY, hauteur: height };
-      };
+      }
+    }`;
+
+async function fondVisible(page) {
+  const vus = await page.evaluate(
+    async ({ colonnes, sourceMesure }) => {
+      const mesurer = eval(sourceMesure);
       const lues = [];
       for (const colonne of colonnes) {
         const image = new Image();
@@ -420,7 +432,7 @@ async function fondVisible(page) {
       }
       return lues;
     },
-    { colonnes: COLONNES },
+    { colonnes: COLONNES, sourceMesure: SOURCE_DE_LA_MESURE },
   );
 
   for (const vu of vus) {
@@ -432,6 +444,120 @@ async function fondVisible(page) {
       )} % de la hauteur`,
     );
   }
+}
+
+/**
+ * LA BOUCLE ANIMÉE DE « EN COURS » — le mineur qui pioche pendant qu'un agent
+ * travaille. Cinq choses se vérifient, et aucune ne dépend d'un agent qui
+ * tournerait vraiment (le plafond est à zéro ici) :
+ *
+ *  - elle est SERVIE, et c'est bien un WebP animé de plusieurs images : un
+ *    fichier d'une seule image passerait inaperçu et le mineur resterait figé
+ *    pendant tout le travail ;
+ *  - elle PÈSE peu : cette image part à chaque affichage du tableau ;
+ *  - elle a EXACTEMENT la boîte des silhouettes fixes, donc rien ne saute ni ne
+ *    change de taille à la bascule ;
+ *  - TOUTES ses images sont détourées — pas seulement la première : le fond
+ *    clair d'une seule image clignoterait une fois par tour ;
+ *  - posée sur la vraie tête de colonne, elle n'y déplace RIEN et n'attrape
+ *    toujours aucun clic (le dépôt d'une carte vise la colonne).
+ *
+ * QUAND elle est posée (agent au travail, personnage non remplacé, animations
+ * non réduites) se vérifie sans navigateur, par `gesteDuPersonnage`.
+ */
+const POIDS_MAX_BOUCLE = 120 * 1024;
+
+async function boucleAnimee(page) {
+  const reponse = await fetch(`${BASE}/personnages/running-anime.webp`, {
+    headers: { cookie: `haikodev_session=${jeton}` },
+  });
+  const octets = reponse.ok ? Buffer.from(await reponse.arrayBuffer()) : Buffer.alloc(0);
+  // Un WebP est un conteneur RIFF : chaque image d'une animation y est un
+  // morceau « ANMF ». Les compter dit si le fichier est vraiment animé.
+  const images = octets.toString('latin1').split('ANMF').length - 1;
+  noter(
+    'la boucle animée de « En cours » est servie, et vraiment animée',
+    reponse.ok && images >= 2,
+    reponse.ok ? `${images} image(s) · ${Math.round(octets.length / 1024)} Ko` : `HTTP ${reponse.status}`,
+  );
+  noter(
+    'elle reste légère : le tableau la redemande à chaque affichage',
+    octets.length > 0 && octets.length <= POIDS_MAX_BOUCLE,
+    `${Math.round(octets.length / 1024)} Ko (seuil ${Math.round(POIDS_MAX_BOUCLE / 1024)} Ko)`,
+  );
+
+  const vu = await page.evaluate(
+    async ({ sourceMesure }) => {
+      const mesurer = eval(sourceMesure);
+      const fixe = new Image();
+      fixe.src = '/personnages/running.png';
+      await fixe.decode();
+
+      // TOUTES les images de la boucle, une à une. `ImageDecoder` est le seul
+      // moyen d'atteindre autre chose que la première : un `<img>` posé sur une
+      // toile ne rend jamais que celle-là.
+      const flux = await fetch('/personnages/running-anime.webp');
+      const decodeur = new ImageDecoder({ data: await flux.arrayBuffer(), type: 'image/webp' });
+      // DEUX attentes, et pas une : `completed` dit que les octets sont lus,
+      // `tracks.ready` que la piste est décrite. Sans la seconde, la piste
+      // choisie est encore nulle et le compte d'images est introuvable.
+      await decodeur.completed;
+      await decodeur.tracks.ready;
+      const nombre = decodeur.tracks.selectedTrack.frameCount;
+      const flaques = [];
+      let taille = null;
+      for (let index = 0; index < nombre; index += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const { image } = await decodeur.decode({ frameIndex: index });
+        flaques.push(mesurer(image).pire);
+        taille = { largeur: image.displayWidth, hauteur: image.displayHeight };
+        image.close();
+      }
+
+      // Posée sur la VRAIE tête de colonne, à la place de l'image fixe.
+      const posee = document.querySelector('[data-personnage-colonne="running"]');
+      const avant = posee.getBoundingClientRect();
+      const teteAvant = document.querySelector('[data-tete-colonne="running"]').getBoundingClientRect();
+      posee.src = '/personnages/running-anime.webp';
+      await posee.decode();
+      const apres = posee.getBoundingClientRect();
+      const teteApres = document.querySelector('[data-tete-colonne="running"]').getBoundingClientRect();
+      const milieu = document.elementFromPoint(apres.left + apres.width / 2, apres.top + apres.height / 2);
+
+      return {
+        nombre,
+        taille,
+        flaques,
+        fixe: { largeur: fixe.naturalWidth, hauteur: fixe.naturalHeight },
+        immobile:
+          Math.abs(avant.left - apres.left) < 0.5 &&
+          Math.abs(avant.top - apres.top) < 0.5 &&
+          Math.abs(avant.width - apres.width) < 0.5 &&
+          Math.abs(avant.height - apres.height) < 0.5 &&
+          Math.abs(teteAvant.left - teteApres.left) < 0.5 &&
+          Math.abs(teteAvant.height - teteApres.height) < 0.5,
+        transparente: !!milieu?.closest('[data-column="running"]') && milieu !== posee,
+      };
+    },
+    { sourceMesure: SOURCE_DE_LA_MESURE },
+  );
+
+  noter(
+    'elle a exactement la boîte des personnages fixes',
+    vu.taille?.largeur === vu.fixe.largeur && vu.taille?.hauteur === vu.fixe.hauteur,
+    `boucle ${vu.taille?.largeur}×${vu.taille?.hauteur} · fixe ${vu.fixe.largeur}×${vu.fixe.hauteur}`,
+  );
+  const pire = Math.max(0, ...vu.flaques);
+  noter(
+    `aucune flaque de fond sur les ${vu.nombre} images de la boucle`,
+    vu.flaques.length === vu.nombre && vu.nombre >= 2 && pire <= TACHE_PALE_MAX,
+    `plus grosse tache pâle ${pire} px (seuil ${TACHE_PALE_MAX})`,
+  );
+  noter(
+    'posée en tête de colonne, elle ne déplace rien et n’attrape aucun clic',
+    vu.immobile && vu.transparente,
+    `${vu.immobile ? 'rien ne bouge' : 'la mise en page a bougé'} · ${vu.transparente ? 'clic transmis à la colonne' : 'clic intercepté'}`,
+  );
 }
 
 /** Les portraits ronds sont servis : c'est eux que porteront les notifications. */
@@ -720,6 +846,9 @@ async function main() {
     const { page } = await ouvrir(navigateur, { width: 1400, height: 900 });
     try {
       await fondVisible(page);
+      // La boucle se pose sur la vraie tête de colonne : elle passe APRÈS les
+      // mesures des images fixes, qui lisent cette même image.
+      await boucleAnimee(page);
     } finally {
       await page.context().close();
     }

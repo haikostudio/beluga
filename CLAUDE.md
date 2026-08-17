@@ -587,6 +587,22 @@ le nom, là-bas le texte).
   passage à « starting » rafraîchit `startedAt` (d'où les durées de milliers d'heures), et l'arrêt
   s'atteint aussi depuis la PILE d'agents de la colonne de gauche. Verrouillé par
   `server/src/test/arret-de-secours.test.ts` et `scripts/verif-arret-agent-bloque.mjs`.
+- **…ET IL MORD SUR UN MOTEUR QUI FAIT LA SOURDE OREILLE** (`tourACouper`, `arretAAchever`,
+  `DELAI_CONFIRMATION_ARRET_MS`, `MESSAGE_ARRET_SERVICE`, `shared/src/arret-de-secours.ts` ;
+  `moteurRepondEncore`, `acheverLArretSiBesoin`, `suivreLeService`, `server/src/runtime.ts` ;
+  `arreterProcessus`, `server/src/engines/fin-de-processus.ts`) : répondre quand il n'y a RIEN à
+  couper ne suffisait pas — le clic restait muet quand il y avait quelque chose à couper qui ne se
+  laissait pas faire. QUATRE trous. Un tour vivant SANS moteur (le tour reste inscrit tout le temps
+  du service d'après-réponse) se REFERME au lieu de se « couper » : on constate le processus
+  (`processusVivant` sur `handle.pid`, jamais `child.killed`) et la réponse figée, un numéro inconnu
+  valant « supposé vivant ». Les moteurs de SERVICE — compression, relance de plan — s'inscrivent
+  par `EngineRunOptions.surLancement` (les TROIS adaptateurs) et tombent avec le reste. Le SIGNAL
+  n'étant qu'une demande, on revient constater 6 s plus tard et on referme d'autorité si le MÊME
+  tour est encore là. Et le coup de grâce emporte la DESCENDANCE, lue dans
+  `/proc/<pid>/task/*/children` à partir du seul numéro du moteur — **jamais un groupe de
+  processus** (les moteurs n'étant pas `detached`, ils portent le groupe du DÉMON). Tous les gestes
+  se disent à l'écran, « coupe » compris (`ws.ts`). Verrouillé par
+  `server/src/test/arret-de-secours.test.ts` et `scripts/verif-arret-moteur-recalcitrant.mjs`.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
@@ -611,11 +627,27 @@ le nom, là-bas le texte).
   (`alerteServeurInjoignable`, `shared/src/panne-serveur.ts` ; `Client.signalerRefus`) : canal coupé
   depuis plus de 15 s, ou deux requêtes d'affilée sans réponse. Une requête isolée qui expire est
   rendue à l'appelant, jamais affichée en bulle rouge — un lancement ne répond qu'à la FIN du tour.
-- **Pas de code modifié dans le dépôt, pas de « Terminé ».** C'est le CONSTAT du dépôt qui clôt une
-  carte, jamais le fait que le moteur ait répondu. Le constat rend QUATRE réponses
-  (`TraceDuTravail`, `shared/src/carte-interrompue.ts`) : oui, non, « je n'ai pas pu regarder », et
-  « ça a bougé AILLEURS » — seul « oui » ferme la carte, un dépôt muet ne vaut plus une preuve de
-  travail.
+- **UN RAPPORT RENDU FERME LA CARTE, avec ou sans code modifié** (`colonneEnFinDeTour`,
+  `shared/src/suivi-colonne.ts`) : la clôture attendait un CONSTAT de fichiers modifiés, et plantait
+  en « En cours » les cartes de vérification, celles dont l'agent conclut qu'il n'y avait rien à
+  faire, celles dont tout le travail tenait dans le rapport — le tableau démentait la conversation.
+  Le constat du dépôt rend toujours QUATRE réponses (`TraceDuTravail`,
+  `shared/src/carte-interrompue.ts` : oui, non, « je n'ai pas pu regarder », « ça a bougé AILLEURS »)
+  mais il ne décide plus de la COLONNE, seulement de la PHRASE portée par la carte close. Deux
+  garde-fous inchangés : un tour en ÉCHEC ou INTERROMPU n'est pas un rapport rendu, un rôle qui
+  n'exécute pas ne déplace rien. CONSÉQUENCE ASSUMÉE, dite en clair sur la carte
+  (`RAISON_RENDU_SANS_CODE`) : « Terminé » sans qu'aucun code n'ait changé — rien n'est promis à la
+  livraison. Rien ne change après « Terminé » : déployer reste un geste de l'utilisateur.
+- **UNE CARTE RESTÉE EN « EN COURS » DIT CE QUI TOURNE ENCORE** (`travailRestant`,
+  `phraseDuTravailRestant`, `dureeDite`, `shared/src/travail-restant.ts` ; `data-travail-restant`,
+  `web/src/components/board.tsx`) : pendant obligé de la règle ci-dessus — une carte qui RESTE là a
+  forcément une raison, et elle se lit sans ouvrir la carte. Une ligne, trois choses : l'ÉTAPE que
+  l'agent vient de nommer, DEPUIS QUAND, et CE QU'ON ATTEND. Quatre situations, dans cet ordre : une
+  QUESTION attend (seul cas où l'on attend l'utilisateur, elle passe devant), un AGENT travaille
+  (avec ce qui reste de sa liste), un TOUR se range (`tourEnVolDepuis`), PLUS PERSONNE — anomalie que
+  le balayage corrige en quinze secondes, écrite quand même. Règle PURE, `null` hors de « En cours ».
+  Verrouillé par `server/src/test/travail-restant.test.ts` et
+  `scripts/verif-carte-rangee-sans-changement.mjs`.
 - **LE CONSTAT REGARDE LES DEUX DOSSIERS : la copie de la carte ET le dossier PARTAGÉ du projet**
   (`traceDuTravailDuTour` / `fichiersRemues`, `server/src/hors-tache.ts` ; `RAISON_TRAVAIL_HORS_COPIE`,
   `shared/src/carte-interrompue.ts`). Un agent est censé rester dans sa copie, rien ne l'y oblige : un
@@ -623,8 +655,8 @@ le nom, là-bas le texte).
   à côté. La copie restait alors vierge, le dossier du projet portait pourtant ses fichiers modifiés,
   et la carte s'entendait dire « aucun fichier n'a changé » — phrase que l'utilisateur démentait d'un
   `git status`. On note donc ce qui remue DÉJÀ dans le dossier partagé AVANT le tour, et ce qui s'y
-  ajoute pendant vaut trace `ailleurs` : la carte revient en « Planifié » RETENUE (rien n'est
-  récoltable sur sa branche), mais sa phrase dit ce qui a été vu et où le chercher. Le dossier partagé
+  ajoute pendant vaut trace `ailleurs` : la carte se ferme comme les autres, mais sa phrase dit ce
+  qui a été vu et où le chercher, et reste une ATTENTE (rien n'est récoltable sur sa branche). Le dossier partagé
   étant aussi celui du chef, de l'analyse et de la publication, on ne compare JAMAIS son état absolu —
   seulement le delta du tour ; et une carte qui travaille à même le dossier du projet n'a qu'un
   dossier, donc rien de plus à demander. Verrouillé par `server/src/test/travail-hors-copie.test.ts`
@@ -634,23 +666,26 @@ le nom, là-bas le texte).
   `server/src/deplacement-carte.ts`). Dépôt qui a bougé → « Terminé ». Rien changé mais code DÉJÀ
   livré (`card.codeDejaEnregistre`) → « Terminé » avec sa raison : il n'y avait rien à refaire, le
   travail est constaté sur un tour antérieur. Rien changé et rien jamais enregistré, ou dépôt non
-  consultable → « Planifié », RETENUE (`suspendu` + `waitingReason`, sinon l'ordonnanceur relance le
-  même tour vide toutes les quinze secondes), raison écrite dessus. Un tour en ÉCHEC ne bouge rien :
-  l'incident est déjà dit en rouge, là où on relance. Verrouillé par
+  consultable → « Terminé » aussi, avec la raison écrite dessus (`RAISON_RENDU_SANS_CODE`,
+  `RAISON_TRACE_INCONNUE`). PLUS AUCUNE issue ne RETIENT la carte : `retenue` a disparu de la règle,
+  et une carte close ne garde ni `suspendu` ni `waitingReason` d'un tour précédent. Un tour en ÉCHEC
+  ne bouge rien : l'incident est déjà dit en rouge, là où on relance. Verrouillé par
   `server/src/test/suivi-colonne.test.ts` et `scripts/verif-carte-rangee-sans-changement.mjs`.
 - **…et les cartes DÉJÀ coincées sont rattrapées par un BALAYAGE** (`issueDeCarteOubliee`,
   `shared/src/suivi-colonne.ts` ; `rangerLesCartesOubliees`, `server/src/deplacement-carte.ts`, appelé
   par `tick`) : une fin de tour ne range que SA carte, et celles bloquées avant cette règle n'attendent
   plus aucune fin de tour. Toutes les quinze secondes — donc aussi au démarrage —, le démon relit
   « En cours » (`store.cartesEnCours`) et applique la MÊME issue : code déjà livré → « Terminé »,
-  sinon → « Planifié » RETENUE avec `RAISON_TOUR_SANS_ISSUE`. Trois refus rendent le balayage sûr : un
+  sinon → « Terminé » aussi avec `RAISON_TOUR_SANS_ISSUE` (leur tour avait rendu la main, c'est le
+  rangement qui a manqué). Trois refus rendent le balayage sûr : un
   tour qui TIENT encore la carte (marque `tourEnVolDepuis`), un agent au travail, un dernier tour en
   ÉCHEC ou arrêté à la main.
 - **Une PHRASE de carte ne dit JAMAIS le contraire de ce qui s'est passé**
   (`RAISON_DEJA_LIVRE`, `RAISON_TRAVAIL_SAUVE`, `natureDeLaMention`, `shared/src/suivi-colonne.ts` ;
   migration 25) : une carte dont le code était enregistré ET fusionné affichait « Rien à changer »
   dans un encadré JAUNE, à côté de la coche du travail rendu. La phrase commence désormais par le
-  FAIT (« Travail déjà enregistré : le code de cette carte est bien sur sa branche… »), les phrases
+  FAIT (« Travail déjà enregistré : le code de cette carte est bien sur sa branche… »), un troisième
+  ton existe (« information », gris : carte close, rien livré, personne n'attend), les phrases
   déjà en base sont réécrites, et le TON suit la règle : une phrase de TRAVAIL acquis s'affiche en
   BLEU avec une coche, une phrase d'ATTENTE garde son jaune. Le travail sauvé d'office par le ménage
   du démarrage le DIT tout de suite sur la carte, et la carte derrière une branche se reconnaît à son
@@ -987,13 +1022,29 @@ le nom, là-bas le texte).
   d'œil plafonne à 47 %) et qu'elle pèse plus de 0,003 % de l'image. Le contrôle juge SUR FOND
   SOMBRE, seul endroit où le défaut se voit. Verrouillé par
   `server/src/test/personnages-colonnes.test.ts` et `scripts/verif-personnages-colonnes.mjs`.
-  **CELUI DE « EN COURS » BOUGE QUAND UN AGENT TRAVAILLE, ET LUI SEUL** (`COLONNE_VIVANTE`,
-  `personnageEnMouvement` ; classe `animate-personnage-au-travail`, `web/tailwind.config.js`) : un
-  balancement d'1,5 px sur 2,6 s, pieds au sol — une TRANSFORMATION seule, donc rien qui clignote,
-  aucune carte poussée d'un pixel, le glisser-déposer intact. Au repos, la classe n'est même pas
-  posée : l'immobilité est TOTALE, et c'est ce contraste qui porte l'information. On compte les
-  AGENTS de la colonne, jamais l'avancement (un agent sans liste de tâches y pèse zéro et figerait un
-  tableau pourtant occupé) ; « réduire les animations » coupe le mouvement, jamais le personnage.
+  **CELUI DE « EN COURS » PIOCHE QUAND UN AGENT TRAVAILLE, ET LUI SEUL** (`COLONNE_VIVANTE`,
+  `gesteDuPersonnage`, `COLONNES_ANIMEES`, `animeDuPersonnage` ; fabrique
+  `scripts/personnages-colonnes.py --anime`) : ce n'est plus un balancement mais une BOUCLE ANIMÉE du
+  même mineur donnant de vrais coups de pioche — un geste de TRAVAIL, qui se reconnaît d'un coup
+  d'œil. Elle vit dans la MÊME boîte que les images fixes (126×168, proportion 3:4, appui au sol),
+  donc rien ne saute à la bascule et l'image n'attrape toujours aucun clic. Trois gestes et pas un de
+  plus : « immobile », « pioche », « balancement ». Au repos on redemande l'image FIXE :
+  l'immobilité est TOTALE, et c'est ce contraste qui porte l'information. On compte les AGENTS de la
+  colonne, jamais l'avancement (un agent sans liste de tâches y pèse zéro et figerait un tableau
+  pourtant occupé). DEUX REPLIS sur le balancement d'avant (classe
+  `animate-personnage-au-travail`), aucun n'étant un échec : un personnage REMPLACÉ depuis les
+  réglages (l'image déposée est fixe, servir la boucle livrée montrerait le mineur d'origine) et une
+  colonne sans boucle — l'information « ça travaille » n'est jamais perdue, seule sa forme change.
+  Un WEBP animé et non un GIF : le GIF ne connaît qu'une transparence tout-ou-rien, qui redonnerait
+  au personnage détouré le contour en escalier que l'alpha progressif lui évite, et il pèse plusieurs
+  fois plus lourd pour une image que le tableau redemande à chaque affichage (138 Ko sans perte,
+  57 Ko à `quality=82`, le canal alpha restant intact). Chaque image de la boucle passe par le MÊME
+  détourage que les images fixes, mais dans une boîte COMMUNE (`boite_commune`) : recadrer chacune au
+  plus juste ferait sautiller le personnage. Le filigrane d'un site de montage n'est pas traité à
+  part — il ne touche pas le personnage, donc `sans_les_ilots` l'emporte. Enfin « réduire les
+  animations » ne coupe une IMAGE animée par AUCUNE règle de style : c'est le seul motif pour lequel
+  cette préférence remonte jusqu'au code (`REQUETE_ANIMATIONS_REDUITES`,
+  `web/src/lib/animations-reduites.ts`), et elle rend alors le personnage parfaitement immobile.
   **ET N'IMPORTE LEQUEL SE REMPLACE DEPUIS LES RÉGLAGES, sans carte ni agent**
   (`server/src/personnages.ts` ; onglet « Personnages » des réglages ; `POST` et
   `DELETE /api/personnage`) : l'image déposée passe par la MÊME fabrique que les sept d'origine
@@ -1002,32 +1053,39 @@ le nom, là-bas le texte).
   fichiers, rien de plus. Tout ou rien (les deux découpes ou aucune), et TOUT refus est dit avec sa
   raison. Verrouillé par `server/src/test/personnages-colonnes.test.ts` et
   `scripts/verif-personnages-colonnes.mjs`.
-- **QUATRE THÈMES AU CHOIX DANS LES RÉGLAGES, DONT TROIS SANS UNE BORDURE**
+- **SEPT THÈMES AU CHOIX DANS LES RÉGLAGES, DONT SIX SANS UNE BORDURE**
   (`shared/src/themes.ts` pour le catalogue ; `web/src/lib/theme.ts` pour la pose ;
-  `web/src/styles.css` pour les quatre blocs de jetons ; onglet « Apparence » de `settings-view.tsx`).
-  « sombre » et « clair » sont les thèmes d'ORIGINE ; « sable » (beiges chauds) et « ardoise » (gris
-  bleutés) sont deux thèmes FLAT DESIGN. Le SOMBRE a rejoint les thèmes plats le 17.08.2026
-  (`plat: true`, `--border: 0 0% 9%` — un point du fond d'un bloc, `--controle: 0 0% 100% / 0.06`) :
-  il gardait seul un trait gris franc à 24 %, et seules ces DEUX valeurs ont bougé. **Le CLAIR est
-  désormais le seul thème à bordures**, et c'est voulu — `verif-themes.mjs` juge la bordure et le
-  fond d'un bouton sur `plat`, plus sur `origine`, les deux qualités étant distinctes. SIX
-  invariants. Le catalogue ne
+  `web/src/styles.css` pour les sept blocs de jetons ; onglet « Apparence » de `settings-view.tsx`).
+  « sombre » et « clair » sont les thèmes d'ORIGINE ; « sable » (beiges chauds), « ardoise » (gris
+  bleutés froids), « givre » (blancs bleutés froids, ce qui manquait au clair), « sapin » (verts
+  profonds chauds, ce qui manquait au sombre) et « contraste » (clair, très marqué — texte quasi noir
+  sur fond quasi blanc, états saturés, pour lire en plein soleil ou les yeux fatigués) sont cinq
+  thèmes FLAT DESIGN. Le SOMBRE les a rejoints le 17.08.2026 (`plat: true`, `--border: 0 0% 9%` — un
+  point du fond d'un bloc, `--controle: 0 0% 100% / 0.06`) : il gardait seul un trait gris franc à
+  24 %, et seules ces DEUX valeurs ont bougé, aucune autre de ses teintes. **Le CLAIR est donc le
+  seul thème à bordures**, et c'est voulu — `verif-themes.mjs` juge la bordure et le fond d'un bouton
+  sur `plat`, plus sur `origine`, les deux qualités étant distinctes. SIX invariants. Le catalogue ne
   connaît AUCUNE teinte de l'interface — seulement un APERÇU de quatre pastilles, qui doit s'afficher
   pendant qu'un AUTRE thème est actif, d'où les seules couleurs posées en style direct de toute
   l'application. Le thème s'applique en UN endroit, depuis la RACINE (`useTheme` dans `app.tsx`) et
   jamais depuis un panneau chargé à la demande : `data-theme`, la classe `dark` et `color-scheme`
   partent ensemble, avec la couleur du bandeau du téléphone. Le thème « sombre » n'a PAS de sélecteur
   à lui — c'est `:root`, donc le défaut avant le premier affichage — et le clair reste accroché à
-  `html:not(.dark)`, que plusieurs contrôles retirent pour basculer ; les deux thèmes plats passent
-  APRÈS et déclarent CHAQUE jeton, un oubli y retombant en silence sur une valeur du thème clair. Un
-  thème PLAT n'a pas ses bordures retirées du code (ce serait redessiner tous les écrans) : `--border`
-  est amené à moins de deux points d'un fond, le trait existe et ne se voit plus, la mise en page ne
-  bouge pas. D'où deux conséquences NOMMÉES : l'ascenseur ne prend plus sa couleur dans `--border`
-  (il y disparaîtrait) et un bouton « contour » reçoit un fond translucide (`--controle`, la
-  transparence dans le seul thème CLAIR). Enfin les anciens réglages « dark » / « light » sont
-  REPRIS (`themeValide`), et aucune teinte des deux thèmes neufs n'est recopiée d'un autre. Verrouillé
-  par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
-- **…ET LES CINQ CHOIX TIENNENT DERRIÈRE UNE SEULE ENTRÉE « THÈME » DU MENU**
+  `html:not(.dark)`, que plusieurs contrôles retirent pour basculer ; les cinq thèmes posés par
+  `data-theme` passent APRÈS et déclarent CHAQUE jeton, un oubli y retombant en silence sur une
+  valeur du thème clair. Un thème PLAT n'a pas ses bordures retirées du code (ce serait redessiner
+  tous les écrans) : `--border` est amené à moins de deux points d'un fond, le trait existe et ne se
+  voit plus, la mise en page ne bouge pas. D'où deux conséquences NOMMÉES : l'ascenseur ne prend plus
+  sa couleur dans `--border` (il y disparaîtrait) et un bouton « contour » reçoit un fond translucide
+  (`--controle`, la transparence dans le seul thème CLAIR). Chaque nouveau thème garde par ailleurs
+  des paliers de fond (bg / surface / raised) réguliers (3 à 8 points d'écart) et AUCUNE valeur
+  exacte recopiée d'un autre thème, y compris entre les thèmes plats eux-mêmes — piège rencontré en
+  ajoutant « givre » : un blanc de bouton (`--record-fg`, `--actif-fg`) recopié tel quel du thème
+  sombre/clair (`0 0% 100%`) se fait refuser par le contrôle. Enfin les anciens réglages « dark » /
+  « light » sont REPRIS (`themeValide`), et `CHOIX_DE_THEME` porte la CLARTÉ de chaque thème
+  (`item.clarte`) pour qu'un écran choisisse son icône (soleil/lune) sans lister les identifiants un
+  par un. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
+- **…ET LES HUIT CHOIX TIENNENT DERRIÈRE UNE SEULE ENTRÉE « THÈME » DU MENU**
   (`DropdownMenuSub` / `DropdownMenuSubTrigger` / `DropdownMenuSubContent`, `web/src/components/ui/index.tsx` ;
   entrée `data-theme-menu` de `web/src/components/quota-bar.tsx`) : alignés les uns sous les autres,
   ils occupaient la moitié du menu à trois points pour un réglage qu'on change une fois par mois.
@@ -1044,7 +1102,7 @@ le nom, là-bas le texte).
   ce projet » de `project-settings.tsx`). CE QU'ON CHOISIT N'EST PLUS TOUJOURS UN THÈME : « systeme »
   est une CONSIGNE — suivre le réglage clair / sombre de la machine — et désigne l'un des deux thèmes
   d'ORIGINE (`themeDuSysteme`) ; il n'a donc AUCUN bloc de jetons, et le contrôle refuse qu'on lui en
-  écrive un. D'où deux types séparés, `ThemeId` (les 4 palettes) et `ThemeChoisi` (5 choix). UNE SEULE
+  écrive un. D'où deux types séparés, `ThemeId` (les 7 palettes) et `ThemeChoisi` (8 choix). UNE SEULE
   règle décide : thème du PROJET OUVERT > réglage GÉNÉRAL > réglage de la machine, et changer de projet
   rhabille l'application ENTIÈRE — d'où le crochet appelé à la RACINE, seul endroit qui voit les trois
   sources. `themeChoisiValide` rend `null` et non le défaut : c'est ce qui distingue « ce projet
@@ -1056,6 +1114,17 @@ le nom, là-bas le texte).
   paraissait cassé. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`
   (qui pose le projet par `window.haikodevEssai.projet`, le démon en service pouvant précéder le champ
   et le retirer — Zod écarte les clés qu'il ne connaît pas).
+- **LE FLAT DESIGN NE RETIRE PAS UN CONTRASTE QUI PORTAIT UNE INFORMATION** — deux jetons DÉDIÉS,
+  déclarés dans les QUATRE thèmes (`--ligne-active`, `--bandeau-etape`, `web/src/styles.css` ; noms
+  Tailwind `bg-ligne-active` / `bg-bandeau-etape`, `web/tailwind.config.js`) : la ligne du projet
+  OUVERT (colonne de gauche, `LigneEspaceDev` et `ProjectRow` de `web/src/components/sidebar.tsx`)
+  et le bandeau d'étape sous une carte (`web/src/components/board.tsx`) empruntaient `--raised` ou
+  `bg-border/30` — des jetons qui, dans certains thèmes, valent quasiment `--bg` ou `--surface` (le
+  thème « clair » d'origine a `--raised` STRICTEMENT ÉGAL à `--bg`, 0 0% 100% des deux côtés) ou sont
+  volontairement proches des fonds (les thèmes plats effacent `--border`). Le repère devenait donc
+  invisible, pas seulement discret. Aucune bordure n'est réintroduite : chaque jeton porte une
+  valeur SOLIDE, propre à chaque thème, choisie pour rester à distance visible du fond de page, du
+  survol ET du corps de la carte — jamais recopiée d'un autre jeton ni d'un autre thème.
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
   `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de

@@ -45,6 +45,12 @@ export default {
         // bordure ne dessine plus rien. Son alpha vit DANS le jeton : on n'écrit
         // jamais `bg-controle/50`, qui produirait un `hsl()` invalide.
         controle: 'hsl(var(--controle))',
+        // Le fond de la ligne du projet OUVERT, colonne de gauche : distinct du
+        // fond de page et du survol dans les quatre thèmes (styles.css).
+        'ligne-active': 'hsl(var(--ligne-active))',
+        // Le fond du bandeau d'étape sous une carte (chronomètre, étape en
+        // cours) : distinct du corps de la carte et de la colonne, sans trait.
+        'bandeau-etape': 'hsl(var(--bandeau-etape))',
       },
       borderRadius: {
         lg: '10px',

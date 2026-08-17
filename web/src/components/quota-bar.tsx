@@ -354,7 +354,7 @@ export function QuotaBar({
           </DropdownMenuItem>
           {/* Le bouton « Muet » a quitté ce menu : il vit désormais dans le
               panneau du module de voix, à côté de la voix qu'il commande. */}
-          {/* LES CINQ THÈMES TIENNENT DERRIÈRE UNE SEULE ENTRÉE. Alignés les uns
+          {/* TOUS LES THÈMES TIENNENT DERRIÈRE UNE SEULE ENTRÉE. Alignés les uns
               sous les autres, ils occupaient la moitié du menu pour un réglage
               qu'on change une fois par mois. L'entrée « Thème » rappelle le
               choix en cours et déplie la liste au survol comme au clic ; la
@@ -373,7 +373,7 @@ export function QuotaBar({
                 <DropdownMenuItem key={item.id} onSelect={() => setTheme(item.id)} data-theme-choix={item.id}>
                   {item.id === 'systeme' ? (
                     <MonitorCog className="h-3.5 w-3.5" />
-                  ) : item.id === 'clair' || item.id === 'sable' ? (
+                  ) : item.clarte === 'clair' ? (
                     <Sun className="h-3.5 w-3.5" />
                   ) : (
                     <Moon className="h-3.5 w-3.5" />

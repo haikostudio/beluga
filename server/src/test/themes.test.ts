@@ -15,18 +15,18 @@ import {
   themeValide,
 } from '@haikodev/shared';
 
-test('quatre thèmes, deux clairs et deux sombres, trois plats', () => {
-  assert.equal(THEMES.length, 4);
+test('sept thèmes, quatre clairs et trois sombres, six plats', () => {
+  assert.equal(THEMES.length, 7);
   assert.deepEqual(
     THEMES.map((theme) => theme.id),
-    ['sombre', 'clair', 'sable', 'ardoise'],
+    ['sombre', 'clair', 'sable', 'ardoise', 'givre', 'sapin', 'contraste'],
   );
-  assert.equal(THEMES.filter((theme) => theme.clarte === 'sombre').length, 2);
-  assert.equal(THEMES.filter((theme) => theme.clarte === 'clair').length, 2);
-  // Le CLAIR est le dernier thème à bordures : les trois autres se lisent au fond.
+  assert.equal(THEMES.filter((theme) => theme.clarte === 'sombre').length, 3);
+  assert.equal(THEMES.filter((theme) => theme.clarte === 'clair').length, 4);
+  // Le CLAIR est le dernier thème à bordures : les six autres se lisent au fond.
   assert.deepEqual(
     THEMES.filter((theme) => theme.plat).map((theme) => theme.id),
-    ['sombre', 'sable', 'ardoise'],
+    ['sombre', 'sable', 'ardoise', 'givre', 'sapin', 'contraste'],
   );
   assert.deepEqual(
     THEMES.filter((theme) => !theme.plat).map((theme) => theme.id),
@@ -68,11 +68,11 @@ test('les quatre noms se reconnaissent eux-mêmes', () => {
 });
 
 test('« Système » se choisit sans être un thème : il n’a pas de palette', () => {
-  // Cinq choix au menu, quatre palettes derrière : c'est toute la nuance.
-  assert.equal(CHOIX_DE_THEME.length, 5);
+  // Huit choix au menu, sept palettes derrière : c'est toute la nuance.
+  assert.equal(CHOIX_DE_THEME.length, 8);
   assert.deepEqual(
     CHOIX_DE_THEME.map((choix) => choix.id),
-    ['sombre', 'clair', 'sable', 'ardoise', 'systeme'],
+    ['sombre', 'clair', 'sable', 'ardoise', 'givre', 'sapin', 'contraste', 'systeme'],
   );
   assert.equal(
     THEMES.some((theme) => (theme.id as string) === THEME_SYSTEME),
@@ -142,8 +142,11 @@ test('rien de réglé nulle part : le défaut, jamais un vide', () => {
 test('la clarté décide de la classe « dark » et du bandeau du téléphone', () => {
   assert.equal(estThemeSombre('sombre'), true);
   assert.equal(estThemeSombre('ardoise'), true);
+  assert.equal(estThemeSombre('sapin'), true);
   assert.equal(estThemeSombre('clair'), false);
   assert.equal(estThemeSombre('sable'), false);
+  assert.equal(estThemeSombre('givre'), false);
+  assert.equal(estThemeSombre('contraste'), false);
   // Le bandeau prend le FOND DE PAGE du thème, jamais une couleur choisie à part.
   for (const theme of THEMES) assert.equal(couleurDeBandeau(theme.id), theme.apercu[0]);
 });

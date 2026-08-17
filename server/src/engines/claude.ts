@@ -183,11 +183,15 @@ export const claudeAdapter: EngineAdapter = {
       },
     });
 
-    return {
+    const handle: EngineHandle = {
       pid: child.pid,
       stop: () => arreterProcessus(child, 'claude'),
       finished,
     };
+    // Le moteur se fait connaître de son appelant : c'est ce qui permet au
+    // bouton d'arrêt de couper aussi un appel de service (compression, relance).
+    options.surLancement?.(handle);
+    return handle;
   },
 
   async compact(options: EngineRunOptions) {

@@ -846,7 +846,16 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       const decision = arreterLAgent(cmd.agentId);
       const stopped = decision.travaillait;
-      if (decision.geste !== 'coupe') bus.toast('info', decision.message, cmd.cardId);
+      /*
+       * TOUS LES CAS SE DISENT, « coupé » COMPRIS. On se taisait sur le chemin
+       * ordinaire, en pariant que la disparition du témoin « au travail » se
+       * verrait d'elle-même. Or c'est justement là que le clic paraissait
+       * glisser : un moteur pendu met plusieurs secondes à lâcher prise (et
+       * jusqu'à la fermeture d'autorité), pendant lesquelles l'écran ne bougeait
+       * pas d'un cheveu. Le geste s'annonce donc toujours ; si la coupe ne
+       * suffit pas, un second message le dira (`MESSAGE_ARRET_ACHEVE`).
+       */
+      bus.toast('info', decision.message, cmd.cardId);
 
       /*
        * L'arrêt coupe aussi ce qui attendait DERRIÈRE : les demandes en file

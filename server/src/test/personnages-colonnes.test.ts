@@ -16,6 +16,9 @@ import {
   fichierDuPersonnage,
   jugerImageDePersonnage,
   personnageEnMouvement,
+  gesteDuPersonnage,
+  animeDuPersonnage,
+  COLONNES_ANIMEES,
   colonneDuMotif,
   imageDeLAlerte,
   imageDuPersonnage,
@@ -107,6 +110,48 @@ test('seul le personnage de « En cours » bouge, et seulement quand ça travail
   for (const colonne of COLUMN_KEYS.filter((c) => c !== 'running')) {
     assert.equal(personnageEnMouvement(colonne, 3), false, `${colonne} ne doit pas bouger`);
   }
+});
+
+test('le mineur de « En cours » pioche pendant le travail, et se fige le reste du temps', () => {
+  // Le geste de travail, le cas qu'on veut voir : une boucle animée, pas un
+  // balancement à deviner.
+  assert.equal(gesteDuPersonnage('running', 1), 'pioche');
+  assert.equal(gesteDuPersonnage('running', 5), 'pioche');
+  // L'immobilité est TOTALE dès que plus rien ne travaille — c'est elle qui
+  // donne son sens au geste.
+  assert.equal(gesteDuPersonnage('running', 0), 'immobile');
+  for (const colonne of COLUMN_KEYS.filter((c) => c !== 'running')) {
+    assert.equal(gesteDuPersonnage(colonne, 3), 'immobile', `${colonne} ne doit rien faire`);
+  }
+  // Une image animée ne s'arrête par aucune règle de style : « je préfère moins
+  // d'animations » doit donc être lu ICI, et rend le personnage immobile.
+  assert.equal(gesteDuPersonnage('running', 2, { animationsReduites: true }), 'immobile');
+  // Un personnage REMPLACÉ depuis les réglages est une image FIXE : servir la
+  // boucle livrée montrerait le mineur d'origine à la place de celui qu'on
+  // vient de choisir. On retombe sur le balancement — l'information « ça
+  // travaille » n'est jamais perdue, seule sa forme change.
+  assert.equal(gesteDuPersonnage('running', 2, { remplace: true }), 'balancement');
+  assert.equal(gesteDuPersonnage('running', 0, { remplace: true }), 'immobile');
+  // Une colonne sans boucle livrée ferait de même — aujourd'hui il n'y en a
+  // qu'une, et c'est la table qui le dit, jamais un nom écrit à la main.
+  assert.deepEqual(COLONNES_ANIMEES, ['running']);
+});
+
+test('la boucle animée est un WebP, servi à côté des images fixes', () => {
+  // Un WebP et pas un GIF : le GIF n'a qu'une transparence tout-ou-rien, qui
+  // rendrait au personnage détouré son contour en escalier.
+  assert.equal(fichierDuPersonnage('running', 'anime'), 'running-anime.webp');
+  assert.equal(animeDuPersonnage('running'), '/personnages/running-anime.webp');
+  // Elle est LIVRÉE avec l'application : aucun dépôt ne la remplace, donc
+  // aucun repère de cache à poser.
+  assert.ok(!animeDuPersonnage('running').includes('?'));
+  const fichier = path.join(PUBLIC, animeDuPersonnage('running'));
+  assert.ok(fs.existsSync(fichier), 'la boucle animée de « En cours » manque dans le dépôt');
+  const octets = fs.readFileSync(fichier);
+  // Un WebP est un conteneur RIFF ; chaque image d'une animation y est un
+  // morceau « ANMF ». Une seule image, et le mineur resterait figé au travail.
+  assert.equal(octets.subarray(0, 4).toString('latin1'), 'RIFF');
+  assert.ok(octets.toString('latin1').split('ANMF').length - 1 >= 2, 'ce fichier n’est pas animé');
 });
 
 test('un personnage remplacé garde son adresse, avec un repère qui casse le cache', () => {

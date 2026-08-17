@@ -27,16 +27,30 @@ import type { AgentRole } from './models.js';
  * Le passage de « Planifié » à « En cours » (lancement) reste le travail de
  * l'ordonnanceur : ces règles ne le doublent pas.
  *
- * Second piège, le plus coûteux : un tour d'exécution qui RÉPOND sans rien
- * changer posait quand même la carte en « Terminé ». Une analyse écrite, une
- * question traitée, un tour qui n'a fait que lire suffisaient — la carte partait
- * ensuite dans le lot à publier alors qu'aucune ligne n'avait bougé. D'où la
- * règle : c'est le CONSTAT du dépôt qui clôt une carte, pas le fait que le
- * moteur ait rendu sa réponse.
+ * CE QUI CLÔT UNE CARTE : LE RAPPORT RENDU, PLUS LE CONSTAT DU DÉPÔT.
+ *
+ * Pendant longtemps, la clôture attendait un CONSTAT : des fichiers modifiés
+ * dans le dépôt. L'intention était juste — ne pas annoncer terminé un travail
+ * qui n'a rien produit — mais le résultat mentait dans l'autre sens : une carte
+ * de vérification, une carte dont l'agent conclut qu'il n'y avait rien à faire,
+ * une carte dont tout le travail tenait dans son rapport restaient plantées en
+ * « En cours » alors que l'utilisateur avait le compte rendu complet sous les
+ * yeux, liste de tâches cochée 5/5. Le tableau démentait la conversation.
+ *
+ * La règle est donc renversée, et c'est une décision de l'utilisateur : DÈS QUE
+ * L'AGENT A RENDU SON RAPPORT, LA CARTE EST TERMINÉE — qu'un fichier ait changé
+ * ou non. Deux garde-fous seulement, inchangés : un tour en ÉCHEC ou INTERROMPU
+ * n'est pas un rapport rendu (la carte reste là où on la relance), et un rôle
+ * qui n'exécute pas ne déplace jamais rien.
+ *
+ * Conséquence ASSUMÉE, et qui doit se lire sur la carte : une carte peut être
+ * « Terminée » sans qu'aucun code n'ait changé. Elle le DIT alors en clair
+ * (`RAISON_RENDU_SANS_CODE`), plutôt que de laisser croire à une livraison.
  *
  * Les règles sont PURES : elles ne connaissent ni la base ni le moteur, elles
  * disent seulement où la carte devrait être. Le démon observe le dépôt (le même
- * repère avant / après que le travail hors tâche) et leur passe le constat ; les
+ * repère avant / après que le travail hors tâche) et leur passe le constat — qui
+ * ne décide plus de la clôture, mais de la PHRASE portée par la carte ; les
  * tests les rejouent.
  */
 
@@ -261,11 +275,27 @@ export function tourDeLaCarte(carte: { agentId?: string }, agentId: string): boo
 }
 
 /**
- * La phrase affichée sur une carte sortie de « En cours » faute de code
- * modifié. Elle est écrite pour être lue telle quelle sur le tableau.
+ * ANCIENNE phrase : celle des cartes renvoyées en « Planifié » faute de code
+ * modifié, du temps où le constat du dépôt décidait de la clôture. Elle n'est
+ * plus jamais écrite — mais elle dort encore sur les cartes rangées avant ce
+ * changement, et `origineDeReprise` la reconnaît. On la garde pour LIRE le
+ * passé, jamais pour écrire.
  */
 export const RAISON_SANS_MODIFICATION =
   "Réponse rendue, mais aucun fichier du projet n'a changé : la carte revient en « Planifié » plutôt que d'être annoncée terminée.";
+
+/**
+ * La phrase d'une carte CLOSE alors qu'aucun fichier n'a changé — le cas neuf,
+ * et celui qu'il faut dire sans ambiguïté.
+ *
+ * C'est la conséquence assumée de la règle : le rapport rendu ferme la carte.
+ * Une carte de vérification, une carte dont l'agent conclut qu'il n'y avait
+ * rien à faire arrivent donc dans « Terminé » sans une ligne de code. La carte
+ * ne doit surtout pas laisser croire à une livraison : elle annonce le rapport
+ * ET l'absence de code, dans la même phrase.
+ */
+export const RAISON_RENDU_SANS_CODE =
+  'Rapport rendu, aucun fichier du projet modifié : la carte est terminée, mais rien n’a été livré — il n’y a donc rien à déployer.';
 
 /**
  * La phrase affichée sur une carte rangée alors que ce tour n'a rien changé —
@@ -306,44 +336,57 @@ export const RAISON_TRAVAIL_SAUVE =
  *
  * La règle est PURE et se juge sur la phrase elle-même : l'interface n'a rien à
  * deviner, et les deux mondes ne peuvent pas se contredire.
+ *
+ * TROISIÈME TON depuis que le rapport rendu ferme la carte : l'INFORMATION.
+ * « Rapport rendu, aucun fichier modifié » n'est ni un travail acquis (il n'y a
+ * pas de code) ni une attente (la carte est close, personne n'a rien à faire) :
+ * c'est un fait à connaître, écrit en gris. L'afficher en alerte jaune ferait
+ * lire un problème là où il n'y en a pas ; en bleu, il ferait croire à une
+ * livraison — exactement ce que la phrase dit ne pas avoir eu lieu.
  */
-export type NatureDeLaMention = 'travail' | 'attente';
+export type NatureDeLaMention = 'travail' | 'attente' | 'information';
 
 /** Les phrases qui annoncent un travail ACQUIS, et non une attente. */
 const MENTIONS_DE_TRAVAIL: string[] = [RAISON_DEJA_LIVRE, RAISON_TRAVAIL_SAUVE];
 
+/**
+ * Les phrases qui CONSTATENT, sans rien demander ni rien promettre. Elle est
+ * lue à l'APPEL et non au chargement du module : `RAISON_TOUR_SANS_ISSUE` est
+ * déclarée plus bas dans ce fichier, et une liste figée ici la trouverait
+ * encore vide.
+ */
+function mentionsDInformation(): string[] {
+  return [RAISON_RENDU_SANS_CODE, RAISON_TRACE_INCONNUE, RAISON_TOUR_SANS_ISSUE];
+}
+
 export function natureDeLaMention(raison?: string | null): NatureDeLaMention {
   const phrase = (raison ?? '').trim();
   if (!phrase) return 'attente';
-  return MENTIONS_DE_TRAVAIL.includes(phrase) ? 'travail' : 'attente';
+  if (MENTIONS_DE_TRAVAIL.includes(phrase)) return 'travail';
+  if (mentionsDInformation().includes(phrase)) return 'information';
+  return 'attente';
 }
 
 /**
  * Où va la carte quand le tour se TERMINE.
  *
- * Un tour réussi d'agent d'EXÉCUTION qui a RÉELLEMENT modifié le dépôt la pose
- * en « Terminé ». Trois cas la laissent où elle est :
- *   - le tour a échoué : le travail n'est pas fait, l'annoncer terminé serait un
- *     mensonge, et la carte doit rester là où on peut la relancer ;
+ * Un tour RENDU par un agent d'EXÉCUTION la pose en « Terminé » — le rapport
+ * est la preuve, le dépôt n'est plus consulté pour en décider. Trois cas la
+ * laissent où elle est :
+ *   - le tour a échoué ou a été interrompu : le travail n'est pas rendu,
+ *     l'annoncer terminé serait un mensonge, et la carte doit rester là où on
+ *     peut la relancer ;
  *   - le rôle n'exécute pas : une étude rendue n'est pas un travail fait ;
- *   - rien n'a changé dans le dépôt : répondre n'est pas travailler.
+ *   - la carte n'était pas en « En cours » : il n'y a rien à clore.
  *
- * `depotModifie` est un CONSTAT, pas une intention : le démon compare le dépôt
- * d'avant le tour à celui d'après (enregistrements ajoutés, fichiers en cours de
- * modification). Quand rien ne peut être constaté — projet hors git —, il vaut
- * `true` : on ne bloque pas une carte sur une observation qu'on n'a pas pu
- * faire.
+ * Le CONSTAT du dépôt (`TraceDuTravail`) n'a pas disparu pour autant : il ne
+ * décide plus de la colonne, il décide de la PHRASE écrite sur la carte
+ * (`issueDeFinDeTour`) — livré, rien livré, ou travail vu ailleurs.
  */
-export function colonneEnFinDeTour(
-  colonne: ColumnKey,
-  reussi: boolean,
-  role: AgentRole,
-  depotModifie: boolean,
-): ColumnKey | null {
+export function colonneEnFinDeTour(colonne: ColumnKey, reussi: boolean, role: AgentRole): ColumnKey | null {
   if (!reussi) return null;
   if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
   if (colonne !== 'running') return null;
-  if (!depotModifie) return null;
   return 'done';
 }
 
@@ -408,54 +451,49 @@ export const RAISON_SUSPENDU =
 /**
  * L'ISSUE D'UN TOUR : où va la carte, et ce qui s'écrit dessus.
  *
- * Le trou d'origine : un tour d'exécution qui RÉUSSISSAIT sans rien changer
- * laissait la carte en « En cours », pour toujours. Aucun agent ne travaillait
- * plus, rien ne devait la reprendre, et — quand la carte avait déjà produit du
- * code lors d'un tour précédent (`dejaEnregistre`) — pas même une phrase
- * n'était écrite : la carte affichait la coche du travail rendu tout en restant
- * comptée dans « EN COURS ». Elle n'en sortait plus jamais.
+ * Un tour d'exécution RENDU ferme la carte, point. Ce qui varie n'est plus la
+ * colonne mais la PHRASE, tirée du constat du dépôt :
  *
- * L'exigence de fond ne bouge pas — une carte n'est close que si le travail est
- * réellement CONSTATÉ — mais elle ne justifie pas de laisser la carte coincée.
- * Chaque fin de tour a donc une issue, et une seule :
- *
- *   - le dépôt a bougé → « Terminé », rien à expliquer ;
- *   - le dépôt n'a pas pu être consulté → « Planifié », RETENUE, le trou dit ;
+ *   - le dépôt a bougé → « Terminé », rien à expliquer : le travail parle ;
  *   - rien n'a bougé mais la carte avait DÉJÀ livré son code → « Terminé »,
- *     avec la raison : il n'y avait rien à refaire. Le travail est bien
- *     constaté, simplement lors d'un tour antérieur (`codeDejaEnregistre`, posé
- *     par un tour qui a produit ou par une relance depuis une fin de travail) ;
- *   - rien n'a bougé et rien n'a jamais été enregistré → « Planifié », RETENUE,
- *     avec la raison : répondre n'est pas travailler, mais la carte redescend
- *     dans la file au lieu de rester en travers du tableau.
+ *     avec la raison : il n'y avait rien à refaire, le travail est constaté sur
+ *     un tour antérieur (`codeDejaEnregistre`) ;
+ *   - du travail a été vu AILLEURS que dans la copie de la carte → « Terminé »,
+ *     en disant où le chercher : sa branche est vide, il n'y a rien à déployer ;
+ *   - le dépôt n'a pas pu être consulté → « Terminé » sur la foi du rapport, le
+ *     trou dit ;
+ *   - rien n'a bougé du tout → « Terminé », en disant qu'aucun code n'a été
+ *     livré. C'est le cas d'une carte de vérification, ou d'un agent qui conclut
+ *     qu'il n'y avait rien à faire.
  *
- * RETENUE veut dire : la carte n'est pas reprise toute seule par l'ordonnanceur
- * (`demarrageAutomatiqueAutorise` la refuse dès qu'elle est suspendue). Sans
- * cela, une carte renvoyée en « Planifié » repartirait à la boucle suivante,
- * ne changerait toujours rien, et tournerait en rond en dépensant du quota.
+ * CE QUI A CHANGÉ, et pourquoi : ces quatre derniers cas renvoyaient la carte en
+ * « Planifié », RETENUE. Une carte dont le rapport était rendu, la liste de
+ * tâches cochée 5/5, se retrouvait donc en travers du tableau avec un triangle
+ * jaune — le tableau démentait la conversation. Plus aucune issue de fin de tour
+ * ne retient une carte : `retenue` a disparu de cette règle avec elle.
  *
- * Trois cas ne bougent rien : un tour en ÉCHEC (l'incident est déjà dit en
- * rouge, la carte reste là où on la relance), un rôle qui n'exécute pas, une
- * carte qui n'était pas en « En cours ».
+ * Trois cas ne bougent rien : un tour en ÉCHEC ou interrompu (l'incident est
+ * déjà dit en rouge, la carte reste là où on la relance), un rôle qui n'exécute
+ * pas, une carte qui n'était pas en « En cours ».
  */
 export interface IssueDeFinDeTour {
   /** Où poser la carte, ou `null` pour la laisser exactement où elle est. */
   colonne: ColumnKey | null;
   /** La phrase écrite sur la carte, ou `null` quand il n'y a rien à dire. */
   raison: string | null;
-  /** La carte ne repart pas toute seule : elle attend un geste. */
-  retenue: boolean;
 }
 
 /** L'issue « on ne touche à rien », rendue par les trois cas qui s'abstiennent. */
-export const CARTE_INCHANGEE: IssueDeFinDeTour = { colonne: null, raison: null, retenue: false };
+export const CARTE_INCHANGEE: IssueDeFinDeTour = { colonne: null, raison: null };
 
 /**
  * La phrase portée par une carte retrouvée en « En cours » alors que plus rien
- * ne la tenait : son tour s'est terminé sans jamais la ranger.
+ * ne la tenait : son tour s'est terminé sans jamais la ranger. Elle ne renvoie
+ * plus la carte en « Planifié » — le tour avait bien rendu la main —, elle la
+ * clôt en disant ce qui s'est passé.
  */
 export const RAISON_TOUR_SANS_ISSUE =
-  'Le tour s’est terminé sans ranger la carte : elle revient en « Planifié » plutôt que de rester bloquée en « En cours ».';
+  'Le tour s’est terminé sans ranger la carte : elle passe en « Terminé » plutôt que de rester bloquée en « En cours ».';
 
 /** Ce qu'il faut savoir d'une carte pour dire si elle est OUBLIÉE. */
 export interface CarteOubliee {
@@ -504,8 +542,8 @@ export function issueDeCarteOubliee(etat: CarteOubliee): IssueDeFinDeTour {
   if (etat.agentAuTravail) return CARTE_INCHANGEE;
   if (etat.dernierTourEnEchec) return CARTE_INCHANGEE;
 
-  if (etat.dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE, retenue: false };
-  return { colonne: 'planned', raison: RAISON_TOUR_SANS_ISSUE, retenue: true };
+  if (etat.dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE };
+  return { colonne: 'done', raison: RAISON_TOUR_SANS_ISSUE };
 }
 
 export function issueDeFinDeTour(
@@ -515,29 +553,31 @@ export function issueDeFinDeTour(
   trace: TraceDuTravail,
   dejaEnregistre: boolean,
 ): IssueDeFinDeTour {
-  if (!reussi) return CARTE_INCHANGEE;
-  if (!ROLES_QUI_DEPLACENT.includes(role)) return CARTE_INCHANGEE;
-  if (colonne !== 'running') return CARTE_INCHANGEE;
+  const cloture = colonneEnFinDeTour(colonne, reussi, role);
+  if (!cloture) return CARTE_INCHANGEE;
 
-  const cloture = colonneEnFinDeTour(colonne, reussi, role, traceAcquise(trace));
-  if (cloture) return { colonne: cloture, raison: null, retenue: false };
+  // Le dépôt a bougé : le travail parle tout seul, aucune phrase à ajouter.
+  if (traceAcquise(trace)) return { colonne: cloture, raison: null };
+
+  /*
+   * Le code est DÉJÀ sur la branche, livré par un tour antérieur : cette
+   * réponse passe devant les deux suivantes, qui diraient toutes les deux
+   * qu'il n'y a rien eu.
+   */
+  if (dejaEnregistre) return { colonne: cloture, raison: RAISON_DEJA_LIVRE };
+
+  /*
+   * « J'ai vu changer, mais ailleurs » : l'agent est sorti de sa copie et a
+   * écrit dans le dossier partagé du projet. Sa branche est vide, donc rien ne
+   * partira au déploiement — mais lui reprocher de n'avoir rien fait est FAUX,
+   * et c'est précisément ce que l'utilisateur démentait d'un `git status`. La
+   * carte se ferme et dit où chercher le travail.
+   */
+  if (trace === 'ailleurs') return { colonne: cloture, raison: RAISON_TRAVAIL_HORS_COPIE };
 
   // « Je n'ai pas pu regarder » n'est pas « rien n'a bougé » : c'est l'absence
   // d'observation, et elle se dit autrement.
-  if (trace === 'inconnue') return { colonne: 'planned', raison: RAISON_TRACE_INCONNUE, retenue: true };
+  if (trace === 'inconnue') return { colonne: cloture, raison: RAISON_TRACE_INCONNUE };
 
-  /*
-   * « J'ai vu changer, mais ailleurs » n'est pas « rien n'a bougé » non plus.
-   * L'agent est sorti de sa copie et a écrit dans le dossier partagé du projet :
-   * sa branche est vide, donc la carte ne se ferme pas — mais lui reprocher de
-   * n'avoir rien fait est FAUX, et c'est précisément ce que l'utilisateur
-   * démentait d'un `git status`. La phrase dit ce qui a été vu et où le
-   * chercher. Elle passe APRÈS `dejaEnregistre` : une carte dont le code est
-   * DÉJÀ sur sa branche reste close, quoi qu'un agent ait touché à côté.
-   */
-  if (dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE, retenue: false };
-
-  if (trace === 'ailleurs') return { colonne: 'planned', raison: RAISON_TRAVAIL_HORS_COPIE, retenue: true };
-
-  return { colonne: 'planned', raison: RAISON_SANS_MODIFICATION, retenue: true };
+  return { colonne: cloture, raison: RAISON_RENDU_SANS_CODE };
 }
