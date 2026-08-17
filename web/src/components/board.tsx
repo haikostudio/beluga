@@ -24,6 +24,9 @@ import {
   cleColonneTableau,
   colonneAReprendre,
   colonneAffichee,
+  compteurDeColonne,
+  phraseDeColonneVide,
+  TravailSansCarte,
   decisionsParCarte,
   etapeDeLaColonne,
   etatVisuelCarte,
@@ -79,7 +82,12 @@ import { useSurvol } from '@/lib/pointeur';
 import { useAnimationsReduites } from '@/lib/animations-reduites';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
-import { DeployPanel, BoutonInfosPublication, InfosPublication } from '@/components/deploy-panel';
+import {
+  DeployPanel,
+  BoutonInfosPublication,
+  InfosPublication,
+  AlerteTravailSansCarte,
+} from '@/components/deploy-panel';
 import { BoutonReglagesProcedure, TiroirProcedure } from '@/components/procedure-panel';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 
@@ -415,13 +423,17 @@ export function Board({
   >({});
 
   /*
-   * Le compte EXACT du bouton « Tout <verbe> (n) », remonté par le bloc de
-   * publication : pour « À déployer » et « En production », le lot embarque
-   * aussi le travail enregistré sans carte (`enAttente`) — le chiffre de
-   * l'en-tête doit donc dire le MÊME total, jamais seulement les cartes
-   * physiquement posées dans la colonne.
+   * LE TRAVAIL ENREGISTRÉ SANS CARTE POUR LE PORTER, remonté par le bloc de
+   * publication de chaque colonne qui publie.
+   *
+   * Il servait à GONFLER le chiffre de la tête de colonne — « À DÉPLOYER 1 »
+   * pendant que la colonne écrivait dessous « Rien à mettre en ligne pour
+   * l'instant », puisqu'il n'y avait justement aucune carte à afficher. Le
+   * compteur est rendu à la liste (`columnCards.length`, et rien d'autre) et
+   * ce travail s'écrit désormais EN CLAIR dans la colonne, au-dessus des
+   * cartes. Règle et textes : `shared/src/colonne-a-deployer.ts`.
    */
-  const [deployCounts, setDeployCounts] = React.useState<Partial<Record<ColumnKey, number>>>({});
+  const [sansCarte, setSansCarte] = React.useState<Partial<Record<ColumnKey, TravailSansCarte | null>>>({});
 
   /*
    * LA COLONNE DONT LA FENÊTRE DE CRÉATION EST OUVERTE. La fenêtre est posée en
@@ -476,7 +488,9 @@ export function Board({
     let travaille = 0;
     // Le NOMBRE de cartes de la colonne, compté sur la même liste que la colonne
     // elle-même (`byColumn`) : l'onglet et la tête de colonne ne peuvent donc
-    // pas afficher deux chiffres différents.
+    // pas afficher deux chiffres différents. AUCUNE colonne n'y ajoute quoi que
+    // ce soit — le travail sans carte a son propre encart, il ne se compte pas
+    // ici (`shared/src/colonne-a-deployer.ts`).
     let total = 0;
     for (const card of byColumn(column)) {
       total += 1;
@@ -489,14 +503,7 @@ export function Board({
       // `repereVisible` — il n'y a rien à trancher, on montre les deux.
       if (etat === 'travaille') travaille += 1;
     }
-    // « À déployer » et « En production » embarquent aussi le travail enregistré
-    // sans carte : le total remonté par le bloc de publication (`deployCounts`)
-    // remplace alors le compte de cartes, pour dire le MÊME chiffre que le
-    // bouton « Tout <verbe> (n) » et que la tête de colonne.
-    if ((column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null) {
-      total = deployCounts[column]!;
-    }
-    return { attention, rendus, travaille, total };
+    return { attention, rendus, travaille, total: compteurDeColonne(total) };
   };
 
   /*
@@ -1269,10 +1276,12 @@ export function Board({
                 ) : null;
               })()}
               <h2 className="relative text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
-              <span className="relative text-[12.5px] text-faint">
-                {(column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null
-                  ? deployCounts[column]
-                  : columnCards.length}
+              {/* LE COMPTEUR COMPTE CE QUE LA LISTE MONTRE, sans exception :
+                  pas de carte affichée qui ne soit comptée, pas de compte sans
+                  carte. « À déployer » y ajoutait le travail enregistré sans
+                  carte et annonçait « 1 » au-dessus d'une colonne vide. */}
+              <span className="relative text-[12.5px] text-faint" data-compteur-colonne={column}>
+                {compteurDeColonne(columnCards.length)}
               </span>
               {/* En haut à droite : le bouton « + » des colonnes qui créent,
                   l'avancement global de « En cours », le bouton « ! » des
@@ -1341,7 +1350,7 @@ export function Board({
                   cards={columnCards}
                   colonne={column}
                   onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, [column]: infos }))}
-                  onCount={(n) => setDeployCounts((prev) => (prev[column] === n ? prev : { ...prev, [column]: n }))}
+                  onSansCarte={(travail) => setSansCarte((prev) => ({ ...prev, [column]: travail }))}
                   onInitier={() => {
                     const etapeCol = etapeDeLaColonne(column);
                     if (etapeCol) setProcedureOuverte(etapeCol.cible);
@@ -1354,6 +1363,17 @@ export function Board({
                   colonneEnLot === column && 'pl-[15px] pt-[15px]',
                 )}
               >
+              {/* CE QUI N'A PAS DE CARTE SE DIT ICI, au-dessus des cartes et
+                  jamais derrière un bouton : du travail prêt à partir que rien
+                  ne montre expose à le mettre en ligne — ou à l'oublier — sans
+                  l'avoir jamais vu. */}
+              {column === 'to_deploy' || column === 'in_production' ? (
+                <AlerteTravailSansCarte
+                  colonne={column}
+                  travail={sansCarte[column] ?? null}
+                  verbe={etapeDeLaColonne(column)?.verbe ?? 'déployer'}
+                />
+              ) : null}
               {cartesPosees.map((card) => {
                 const cochable = colonneEnLot === column;
                 return (
@@ -1400,7 +1420,11 @@ export function Board({
                         : column === 'done'
                           ? 'Aucun travail terminé pour l’instant.'
                           : column === 'to_deploy'
-                            ? 'Rien à mettre en ligne pour l’instant.'
+                            ? /* « Rien à mettre en ligne » était le mensonge le
+                                 plus direct : écrit alors que du travail
+                                 attendait juste au-dessus. Tant qu'il en
+                                 reste, la colonne ne dit plus « rien ». */
+                              phraseDeColonneVide(sansCarte.to_deploy ?? null)
                             : column === 'in_production'
                               ? 'Aucune carte en attente de mise en production.'
                               : 'Aucune carte rangée ici pour l’instant.'}
