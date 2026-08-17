@@ -1777,84 +1777,6 @@ async function startTurn(
     (runState.usage?.cachedTokens ?? 0) +
     (runState.usage?.outputTokens ?? 0);
 
-  /*
-   * Le repère appartient au COMPTE, pas à chaque tour. Une fin ne répartit que
-   * la hausse depuis le relevé précédent et la cumule sur les tours présents.
-   * Le tour fini est ensuite écarté du quota partagé, mais reste dans `live`
-   * jusqu'à la fin de la compression : une nouvelle demande doit encore
-   * s'empiler pendant cette frontière sûre.
-   */
-  const parts = await enSerieSurCompte(account.id, async () => {
-    const quotaApres = await relireQuotaDuCompte(account.id).catch(() => null);
-    if (quotaApres) {
-      const maintenant = Date.now();
-      const tours = [...live.values()]
-        .filter((run) => run.account === account.id && !run.quotaTermine)
-        .map((run) => ({
-          id: run.agentId,
-          poids: poidsDeTour(
-            (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
-            (maintenant - run.startedAt) / 1000,
-          ),
-          quota5h: run.quota5h,
-          quotaSemaine: run.quotaSemaine,
-        }));
-      const cumuls = cumulerPartsQuota(dernierQuotaReparti.get(account.id) ?? quotaAvant, quotaApres, tours);
-      for (const cumul of cumuls) {
-        const run = live.get(cumul.id);
-        if (!run) continue;
-        run.quota5h = cumul.quota5h;
-        run.quotaSemaine = cumul.quotaSemaine;
-      }
-      dernierQuotaReparti.set(account.id, quotaApres);
-    }
-
-    const resultat = {
-      quota5h: runState.quota5h,
-      quotaSemaine: runState.quotaSemaine,
-      quota5hMesurable: quotaApres?.session !== undefined,
-      quotaSemaineMesurable: quotaApres?.weekly !== undefined,
-    };
-    runState.quotaTermine = true;
-    if (![...live.values()].some((run) => run.account === account.id && !run.quotaTermine)) {
-      dernierQuotaReparti.delete(account.id);
-    }
-    return resultat;
-  });
-
-  store.recordUsage({
-    projectId: agent.projectId,
-    cardId: agent.cardId,
-    agentId: agent.id,
-    account: account.id,
-    engine: agent.run.engine,
-    // Le DÉTAIL du tour, pour que l'historique puisse dire ce qui est parti et
-    // ce qui est revenu — et le chiffrer quand le tarif du modèle est connu.
-    model: agent.run.model ?? adapter.defaultModel,
-    inputTokens: runState.usage?.inputTokens,
-    cachedTokens: runState.usage?.cachedTokens,
-    outputTokens: runState.usage?.outputTokens,
-    tokens,
-    tokensIn: runState.usage ? (runState.usage.inputTokens ?? 0) + (runState.usage.cachedTokens ?? 0) : undefined,
-    tokensOut: runState.usage ? (runState.usage.outputTokens ?? 0) : undefined,
-    quota5h: parts.quota5h,
-    quotaSemaine: parts.quotaSemaine,
-    seconds: elapsedSeconds,
-  });
-
-  const measurement: TurnMeasurement = {
-    usage: {
-      inputTokens: runState.usage?.inputTokens ?? 0,
-      cachedInputTokens: runState.usage?.cachedTokens,
-      outputTokens: runState.usage?.outputTokens ?? 0,
-    },
-    quota: {
-      quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
-      quotaWeekly:
-        quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
-    },
-    composition,
-  };
 
   // Contrôle de forme : un moteur qui ignore le gabarit se fait rattraper.
   let finalText = runState.text.trim();
@@ -2005,7 +1927,26 @@ async function startTurn(
           state: 'running',
           startedAt: Date.now(),
         });
-        pushMessage(runState, { steps: [...runState.steps.values()] });
+        /*
+         * LE CADRE S'OUVRE AVANT LA REPRISE, PAS APRÈS. La forme est acquise :
+         * les quatre parties sont là, le texte est fini d'écrire, le plan est
+         * donc DÉCIDABLE — et cette exigence-ci ne retire jamais le drapeau
+         * `plan`. Attendre la reprise pour poser le cadre laissait pourtant le
+         * plan en TEXTE BRUT pendant tout un tour de moteur (soixante à cent
+         * vingt secondes mesurées) : on croyait la réponse incomplète, on
+         * relançait, on attendait pour rien. On pose donc le plan rendu tout de
+         * suite ; si la reprise l'améliore, le texte se remplace DANS le cadre,
+         * qui ne disparaît à aucun moment.
+         */
+        pushMessage(runState, {
+          content: finalText,
+          steps: [...runState.steps.values()],
+          streaming: false,
+          plan: true,
+        });
+        // La colonne de gauche pose son icône « un plan attend » en même temps
+        // que le cadre : les deux disent la même chose, ils ne se décalent pas.
+        bus.emit({ type: 'plans', ...store.signalPlans() });
         const fouille = await rendreLePlanEntier({
           adapter,
           cwd,
@@ -2030,9 +1971,6 @@ async function startTurn(
     }
   }
 
-  if (!failed && agent.role === 'orchestrator') {
-    finaliserPropositionsDuChef(runState.messageId, agent.projectId, measurement);
-  }
   // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
   // session RÉUSSI. Une session créée puis refusée doit pouvoir le renvoyer.
   if (nouvelleSession) {
@@ -2120,6 +2058,100 @@ async function startTurn(
    * continu pendant le streaming).
    */
   bus.emit({ type: 'plans', ...store.signalPlans() });
+
+  /*
+   * LA COMPTABILITÉ DU TOUR VIENT APRÈS L'AFFICHAGE, JAMAIS AVANT.
+   *
+   * Relire le quota du compte est un appel RÉSEAU au fournisseur, mis en file
+   * derrière les autres tours du même compte (`enSerieSurCompte`) : quelques
+   * secondes, douze au plus par lecture. Il était fait AVANT le dernier
+   * `pushMessage`, donc le message restait « en écriture » — et un plan restait
+   * du TEXTE — pendant une opération qui ne regarde que les chiffres. La
+   * réponse est désormais rendue d'abord ; la mesure suit, dans la même
+   * frontière sûre (l'agent est encore dans `live`).
+   */
+  /*
+   * Le repère appartient au COMPTE, pas à chaque tour. Une fin ne répartit que
+   * la hausse depuis le relevé précédent et la cumule sur les tours présents.
+   * Le tour fini est ensuite écarté du quota partagé, mais reste dans `live`
+   * jusqu'à la fin de la compression : une nouvelle demande doit encore
+   * s'empiler pendant cette frontière sûre.
+   */
+  const parts = await enSerieSurCompte(account.id, async () => {
+    const quotaApres = await relireQuotaDuCompte(account.id).catch(() => null);
+    if (quotaApres) {
+      const maintenant = Date.now();
+      const tours = [...live.values()]
+        .filter((run) => run.account === account.id && !run.quotaTermine)
+        .map((run) => ({
+          id: run.agentId,
+          poids: poidsDeTour(
+            (run.usage?.inputTokens ?? 0) + (run.usage?.outputTokens ?? 0),
+            (maintenant - run.startedAt) / 1000,
+          ),
+          quota5h: run.quota5h,
+          quotaSemaine: run.quotaSemaine,
+        }));
+      const cumuls = cumulerPartsQuota(dernierQuotaReparti.get(account.id) ?? quotaAvant, quotaApres, tours);
+      for (const cumul of cumuls) {
+        const run = live.get(cumul.id);
+        if (!run) continue;
+        run.quota5h = cumul.quota5h;
+        run.quotaSemaine = cumul.quotaSemaine;
+      }
+      dernierQuotaReparti.set(account.id, quotaApres);
+    }
+
+    const resultat = {
+      quota5h: runState.quota5h,
+      quotaSemaine: runState.quotaSemaine,
+      quota5hMesurable: quotaApres?.session !== undefined,
+      quotaSemaineMesurable: quotaApres?.weekly !== undefined,
+    };
+    runState.quotaTermine = true;
+    if (![...live.values()].some((run) => run.account === account.id && !run.quotaTermine)) {
+      dernierQuotaReparti.delete(account.id);
+    }
+    return resultat;
+  });
+
+  store.recordUsage({
+    projectId: agent.projectId,
+    cardId: agent.cardId,
+    agentId: agent.id,
+    account: account.id,
+    engine: agent.run.engine,
+    // Le DÉTAIL du tour, pour que l'historique puisse dire ce qui est parti et
+    // ce qui est revenu — et le chiffrer quand le tarif du modèle est connu.
+    model: agent.run.model ?? adapter.defaultModel,
+    inputTokens: runState.usage?.inputTokens,
+    cachedTokens: runState.usage?.cachedTokens,
+    outputTokens: runState.usage?.outputTokens,
+    tokens,
+    tokensIn: runState.usage ? (runState.usage.inputTokens ?? 0) + (runState.usage.cachedTokens ?? 0) : undefined,
+    tokensOut: runState.usage ? (runState.usage.outputTokens ?? 0) : undefined,
+    quota5h: parts.quota5h,
+    quotaSemaine: parts.quotaSemaine,
+    seconds: elapsedSeconds,
+  });
+
+  const measurement: TurnMeasurement = {
+    usage: {
+      inputTokens: runState.usage?.inputTokens ?? 0,
+      cachedInputTokens: runState.usage?.cachedTokens,
+      outputTokens: runState.usage?.outputTokens ?? 0,
+    },
+    quota: {
+      quota5h: quotaAvant.session !== undefined && parts.quota5hMesurable ? parts.quota5h : undefined,
+      quotaWeekly:
+        quotaAvant.weekly !== undefined && parts.quotaSemaineMesurable ? parts.quotaSemaine : undefined,
+    },
+    composition,
+  };
+
+  if (!failed && agent.role === 'orchestrator') {
+    finaliserPropositionsDuChef(runState.messageId, agent.projectId, measurement);
+  }
 
   /*
    * FRONTIÈRE SÛRE : la réponse visible est finie, mais l'agent reste dans

@@ -219,9 +219,47 @@ function puces(corps: string): number {
   return corps.split('\n').filter((l) => /^\s*[-*•]\s+\S/.test(l)).length;
 }
 
+/**
+ * UNE ÉTAPE NUMÉROTÉE SE RECONNAÎT À SON NUMÉRO, PAS À SA PONCTUATION.
+ *
+ * Le compteur n'acceptait que « 1. » ou « 1) » en tout début de ligne. Or un
+ * chemin bien écrit ne ressemble jamais à cela : le chef donne un titre à
+ * chaque étape, donc il écrit « **Étape 1 — Réparer le raccordement** » ou
+ * « ### 2. Poser le fond ». Le compteur voyait alors ZÉRO étape sur un chemin
+ * qui en portait cinq, le reproche `chemin-sans-etapes` partait à CHAQUE plan,
+ * et le démon relançait un tour de moteur entier — soixante à cent vingt
+ * secondes — qui ne pouvait rien y changer, puisque la relance redemandait
+ * exactement ce qui était déjà là. Mesuré le 17/08/2026 sur les douze derniers
+ * plans du projet : douze relances, douze fois le même reproche encore présent
+ * APRÈS la relance.
+ *
+ * On enlève donc l'habillage (titre Markdown, puce, gras) avant de chercher le
+ * numéro, et l'on accepte le mot qui le précède souvent (« Étape », « Phase »).
+ * Le numéro reste à DEUX chiffres au plus : sans cela « 2026-08-17 : … » ou
+ * « 1000 signes : … » passeraient pour des étapes.
+ */
+const DEBUT_D_ETAPE = /^(?:etape|phase|partie|lot)?\s*\d{1,2}\s*(?:[.):]|[—–-])\s*\S/;
+
+function estUneEtapeNumerotee(ligne: string): boolean {
+  const nue = ligne
+    .trim()
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^[-*•]\s+/, '')
+    .replace(/^\*+\s*/, '');
+  return DEBUT_D_ETAPE.test(sansAccent(nue));
+}
+
+/** Minuscules et sans accent, mais la PONCTUATION gardée — `aplati` l'efface. */
+function sansAccent(texte: string): string {
+  return texte
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 /** Les étapes numérotées d'un corps de partie. */
 function etapes(corps: string): number {
-  return corps.split('\n').filter((l) => /^\s*\d+[.)]\s+\S/.test(l)).length;
+  return corps.split('\n').filter((ligne) => estUneEtapeNumerotee(ligne)).length;
 }
 
 /**

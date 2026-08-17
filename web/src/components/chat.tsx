@@ -262,6 +262,10 @@ export function Chat({
                   onToggleAll={toggleAll}
                   etatPlan={etatDuPlan(messages, index) ?? 'courant'}
                   onEcrireDansLeChamp={ecrireDansLeChamp}
+                  /* Seul le DERNIER message peut porter une étape qui tourne
+                     pour de vrai : ailleurs, une étape restée « en cours » est
+                     le reliquat d'un tour coupé, et ne doit rien animer. */
+                  agentAuTravail={busy && index === messages.length - 1}
                 />
               </React.Fragment>
             ))
