@@ -579,7 +579,7 @@ function TravailEnCours({
         // (tiroir d'une carte), et un dégradé qui finit transparent se
         // confondait avec l'un comme avec l'autre. Un jeton DÉDIÉ, SOLIDE du
         // haut jusqu'en bas (entête et liste dépliée comprises), qui
-        // contraste avec les deux fonds dans les sept thèmes.
+        // contraste avec les deux fonds dans les douze palettes.
         'border border-b-0 border-border bg-bloc-etapes',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}

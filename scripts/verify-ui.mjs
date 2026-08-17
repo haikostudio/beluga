@@ -217,12 +217,9 @@ async function main() {
   await page.waitForTimeout(400);
 
   /* ---------- 12. Le choix du thème ----------
-     Ce n'est plus un INTERRUPTEUR clair / sombre, et ce n'est plus une liste
-     déroulée non plus : les cinq choix (`data-theme-choix`) tiennent derrière
-     une seule entrée « Thème » (`data-theme-menu`), qu'il faut donc SURVOLER
-     avant de pouvoir cliquer l'un d'eux. Cliquer le thème déjà en cours ne
-     changerait rien : on visite un thème de l'autre clarté, puis on revient. Le
-     détail des thèmes se vérifie à part, dans `scripts/verif-themes.mjs`. */
+     Le menu sépare désormais trois choses : le suivi automatique, le mode
+     clair/sombre et les six ambiances. Le détail des douze palettes se vérifie
+     à part, dans `scripts/verif-themes.mjs`. */
   const themeAuDepart = await page.evaluate(() => document.documentElement.dataset.theme ?? 'sombre');
   /* Les entrées d'un menu déroulant n'existent dans la page que MENU OUVERT : on
      le rouvre avant chaque clic, le choix le refermant. */
@@ -232,7 +229,7 @@ async function main() {
     await page.hover('[data-theme-menu]');
     await page.waitForTimeout(600);
   };
-  const choisirLeTheme = async (id) => {
+  const choisirAmbiance = async (id) => {
     await ouvrirLeMenu();
     await page.evaluate((cible) => {
       document.querySelector(`[data-theme-choix="${cible}"]`)?.click();
@@ -243,17 +240,41 @@ async function main() {
   const themesOfferts = await page.$$eval('[data-theme-choix]', (noeuds) =>
     noeuds.map((noeud) => noeud.dataset.themeChoix),
   );
+  const commandesTheme = await page.evaluate(() => ({
+    automatique: !!document.querySelector('[data-theme-auto-menu]'),
+    manuel: !!document.querySelector('[data-theme-mode-menu]'),
+  }));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
   record(
-    'Thème : les quatre thèmes et « Système » tiennent derrière une seule entrée du menu',
-    themesOfferts.length === 5,
+    'Thème : les six ambiances et les deux interrupteurs tiennent derrière une seule entrée du menu',
+    themesOfferts.length === 6 && commandesTheme.automatique && commandesTheme.manuel,
     themesOfferts.join(', ') || 'aucun',
   );
 
-  await choisirLeTheme('clair');
+  await ouvrirLeMenu();
+  const autoActif = await page.locator('[data-theme-auto-menu] button[role="switch"]').getAttribute('data-state');
+  if (autoActif === 'checked') {
+    await page.click('[data-theme-auto-menu]');
+    await page.waitForTimeout(500);
+  } else {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Escape');
+  }
+  await ouvrirLeMenu();
+  const sombreActif = await page.locator('[data-theme-mode-menu] button[role="switch"]').getAttribute('data-state');
+  if (sombreActif === 'checked') {
+    await page.click('[data-theme-mode-menu]');
+    await page.waitForTimeout(500);
+  } else {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Escape');
+  }
+  await choisirAmbiance('origine');
   const enClair = await page.evaluate(() => ({
     nom: document.documentElement.dataset.theme,
     sombre: document.documentElement.classList.contains('dark'),
@@ -261,7 +282,8 @@ async function main() {
   record('Thème : passer en clair éteint le thème sombre', enClair.nom === 'clair' && !enClair.sombre, enClair.nom);
   await shot(page, '07-theme-clair');
 
-  await choisirLeTheme(themeAuDepart);
+  const ambianceInitiale = themeAuDepart.replace(/-(?:clair|sombre)$/, '');
+  await choisirAmbiance(['sombre', 'clair'].includes(ambianceInitiale) ? 'origine' : ambianceInitiale);
 
   /* ---------- 13. Application installable ---------- */
   const pwa = await page.evaluate(async () => {

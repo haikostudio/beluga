@@ -27,12 +27,13 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  Switch,
   Tooltip,
 } from '@/components/ui';
 import { MemoryView } from '@/components/memory-view';
 import { QuestionsEnAttente } from '@/components/questions-en-attente';
 import { QuotaBadge } from '@/components/quota-badge';
-import { CHOIX_DE_THEME, LANGUES, choixParId, langueParId } from '@haikodev/shared';
+import { AMBIANCES, LANGUES, ambianceParId, langueParId } from '@haikodev/shared';
 import { useThemeGeneral } from '@/lib/theme';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -71,7 +72,7 @@ export function QuotaBar({
     Object.values(state.agents).find((agent) => agent.status === 'running')?.run.engine ??
     projetOuvert?.defaultEngine ??
     'claude';
-  const [theme, setTheme] = useThemeGeneral();
+  const [apparence, setApparence] = useThemeGeneral();
   const [langue, setLangue] = useLangueGenerale();
   const [speaking, setSpeaking] = React.useState(false);
   const [memoireOuverte, setMemoireOuverte] = React.useState(false);
@@ -368,32 +369,51 @@ export function QuotaBar({
 </DropdownMenuItem>
           {/* Le bouton « Muet » a quitté ce menu : il vit désormais dans le
               panneau du module de voix, à côté de la voix qu'il commande. */}
-          {/* TOUS LES THÈMES TIENNENT DERRIÈRE UNE SEULE ENTRÉE. Alignés les uns
-              sous les autres, ils occupaient la moitié du menu pour un réglage
-              qu'on change une fois par mois. L'entrée « Thème » rappelle le
-              choix en cours et déplie la liste au survol comme au clic ; la
-              coche du thème actif ne bouge pas. Ce choix est le réglage
-              GÉNÉRAL — un projet qui impose son thème passe devant, et l'onglet
-              « Apparence » des réglages le dit. */}
+          {/* Le menu rapide reprend les deux axes du réglage général : suivre le
+              système, puis clair/sombre, puis l'ambiance. Le projet ouvert peut
+              toujours recouvrir ce réglage ; l'onglet Apparence le dit. */}
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger data-theme-menu>
               <Palette className="h-3.5 w-3.5" />
               <span className="flex-1">{t('Thème')}</span>
-              <span className="text-faint">{t(choixParId(theme)?.libelle ?? '')}</span>
+              <span className="text-faint">{t(ambianceParId(apparence.ambiance).libelle)}</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              {CHOIX_DE_THEME.map((item) => (
-                <DropdownMenuItem key={item.id} onSelect={() => setTheme(item.id)} data-theme-choix={item.id}>
-                  {item.id === 'systeme' ? (
-                    <MonitorCog className="h-3.5 w-3.5" />
-                  ) : item.clarte === 'clair' ? (
-                    <Sun className="h-3.5 w-3.5" />
-                  ) : (
-                    <Moon className="h-3.5 w-3.5" />
-                  )}
+              <DropdownMenuItem
+                onSelect={() => setApparence({ ...apparence, automatique: !apparence.automatique })}
+                data-theme-auto-menu
+              >
+                <MonitorCog className="h-3.5 w-3.5" />
+                <span className="flex-1">{t('Suivre le système')}</span>
+                <Switch checked={apparence.automatique} className="pointer-events-none" aria-label="Suivre le système" />
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={apparence.automatique}
+                onSelect={() =>
+                  setApparence({ ...apparence, clarte: apparence.clarte === 'sombre' ? 'clair' : 'sombre' })
+                }
+                data-theme-mode-menu
+              >
+                {apparence.clarte === 'sombre' ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+                <span className="flex-1">{t('Mode sombre')}</span>
+                <Switch
+                  checked={apparence.clarte === 'sombre'}
+                  disabled={apparence.automatique}
+                  className="pointer-events-none"
+                  aria-label="Mode sombre"
+                />
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {AMBIANCES.map((item) => (
+                <DropdownMenuItem
+                  key={item.id}
+                  onSelect={() => setApparence({ ...apparence, ambiance: item.id })}
+                  data-theme-choix={item.id}
+                >
+                  <Palette className="h-3.5 w-3.5" />
                   <span className="flex-1">{t(item.libelle)}</span>
-                  {item.id === theme ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
+                  {item.id === apparence.ambiance ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuSubContent>

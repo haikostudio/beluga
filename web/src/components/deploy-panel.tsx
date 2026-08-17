@@ -785,7 +785,7 @@ export function AlerteTravailSansCarte({
         onFiche?.();
       })
       .catch((err: any) => {
-        client.pushToast('error', err?.message ?? 'carte impossible à créer');
+        client.pushToast('error', err?.message ?? t('Carte impossible à créer'));
         throw err;
       });
   return (

@@ -65,7 +65,7 @@ node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait d�
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
 node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
 node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
-HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : aucun jeton oublié, aucune couleur en dur, puis le NAVIGATEUR — thème d'un projet, entrée « Thème » du menu (survol ET clic), choix « Système »
+HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : 6 ambiances × clair/sombre, aucun jeton oublié, réglage général/projet, automatique et menu
 HAIKO_LANGUES_URL=http://localhost:7099 node scripts/verif-langues.mjs # les cinq langues : catalogue, dictionnaire complet, aucun texte en dur, repères techniques intacts, puis le NAVIGATEUR — entrée « Langue » du menu (survol ET clic), colonnes traduites, choix retenu
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
@@ -1154,73 +1154,21 @@ le nom, là-bas le texte).
   fichiers, rien de plus. Tout ou rien (les deux découpes ou aucune), et TOUT refus est dit avec sa
   raison. Verrouillé par `server/src/test/personnages-colonnes.test.ts` et
   `scripts/verif-personnages-colonnes.mjs`.
-- **SEPT THÈMES AU CHOIX DANS LES RÉGLAGES, DONT SIX SANS UNE BORDURE**
-  (`shared/src/themes.ts` pour le catalogue ; `web/src/lib/theme.ts` pour la pose ;
-  `web/src/styles.css` pour les sept blocs de jetons ; onglet « Apparence » de `settings-view.tsx`).
-  « sombre » et « clair » sont les thèmes d'ORIGINE ; « sable » (beiges chauds), « ardoise » (gris
-  bleutés froids), « givre » (blancs bleutés froids, ce qui manquait au clair), « sapin » (verts
-  profonds chauds, ce qui manquait au sombre) et « contraste » (clair, très marqué — texte quasi noir
-  sur fond quasi blanc, états saturés, pour lire en plein soleil ou les yeux fatigués) sont cinq
-  thèmes FLAT DESIGN. Le SOMBRE les a rejoints le 17.08.2026 (`plat: true`, `--border: 0 0% 9%` — un
-  point du fond d'un bloc, `--controle: 0 0% 100% / 0.06`) : il gardait seul un trait gris franc à
-  24 %, et seules ces DEUX valeurs ont bougé, aucune autre de ses teintes. **Le CLAIR est donc le
-  seul thème à bordures**, et c'est voulu — `verif-themes.mjs` juge la bordure et le fond d'un bouton
-  sur `plat`, plus sur `origine`, les deux qualités étant distinctes. SIX invariants. Le catalogue ne
-  connaît AUCUNE teinte de l'interface — seulement un APERÇU de quatre pastilles, qui doit s'afficher
-  pendant qu'un AUTRE thème est actif, d'où les seules couleurs posées en style direct de toute
-  l'application. Le thème s'applique en UN endroit, depuis la RACINE (`useTheme` dans `app.tsx`) et
-  jamais depuis un panneau chargé à la demande : `data-theme`, la classe `dark` et `color-scheme`
-  partent ensemble, avec la couleur du bandeau du téléphone. Le thème « sombre » n'a PAS de sélecteur
-  à lui — c'est `:root`, donc le défaut avant le premier affichage — et le clair reste accroché à
-  `html:not(.dark)`, que plusieurs contrôles retirent pour basculer ; les cinq thèmes posés par
-  `data-theme` passent APRÈS et déclarent CHAQUE jeton, un oubli y retombant en silence sur une
-  valeur du thème clair. Un thème PLAT n'a pas ses bordures retirées du code (ce serait redessiner
-  tous les écrans) : `--border` est amené à moins de deux points d'un fond, le trait existe et ne se
-  voit plus, la mise en page ne bouge pas. D'où deux conséquences NOMMÉES : l'ascenseur ne prend plus
-  sa couleur dans `--border` (il y disparaîtrait) et un bouton « contour » reçoit un fond translucide
-  (`--controle`, la transparence dans le seul thème CLAIR). Chaque nouveau thème garde par ailleurs
-  des paliers de fond (bg / surface / raised) réguliers (3 à 8 points d'écart) et AUCUNE valeur
-  exacte recopiée d'un autre thème, y compris entre les thèmes plats eux-mêmes — piège rencontré en
-  ajoutant « givre » : un blanc de bouton (`--record-fg`, `--actif-fg`) recopié tel quel du thème
-  sombre/clair (`0 0% 100%`) se fait refuser par le contrôle. Enfin les anciens réglages « dark » /
-  « light » sont REPRIS (`themeValide`), et `CHOIX_DE_THEME` porte la CLARTÉ de chaque thème
-  (`item.clarte`) pour qu'un écran choisisse son icône (soleil/lune) sans lister les identifiants un
-  par un. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
-- **LES TROIS GRANDES ZONES (colonne des projets, tableau, conversation) SONT ÉTAGÉES, DANS LES
-  SEPT THÈMES** (`data-zone` sur `sidebar.tsx` et `app.tsx` ; règles `html[data-theme='…']
-  [data-zone='…']` — et `html:not(.dark)` pour « clair » — dans `web/src/styles.css`, 17.08.2026,
-  étendu aux six autres le même jour) : les trois régions empruntaient toutes `--bg` sans fond à
-  elles, donc se fondaient dans le même fond — né dans le thème sombre dès que sa bordure a disparu,
-  le défaut touchait déjà les six autres. `racine.dataset.theme` porte TOUJOURS le nom du thème,
-  « sombre » compris, même si son bloc de jetons reste `:root` — un sélecteur `html[data-theme='…']`
-  cible donc CHAQUE thème SEUL, sans figurer dans les jetons que `verif-themes.mjs` compare entre
-  thèmes (il ne lit que les sept blocs connus, pas ces sélecteurs annexes). Palier du sombre : page
-  0 %, colonne des projets 3 %, tableau 5 %, colonnes du tableau (`--surface`) 8 %, conversation
-  11 %, cartes et bulles (`--raised`, monté à 15 % à cette occasion) 15 %. Les six autres suivent
-  leur PROPRE sens d'élévation (`--surface` plus clair que `--bg` dans cinq thèmes, plus sombre dans
-  « clair » et « givre »), par la même proportion (35 %, 65 % puis 45 % de l'écart vers le jeton
-  suivant). Cette technique — un sélecteur `[data-theme='…']` scopé plutôt qu'un nouveau jeton
-  partagé — est la manière de retoucher UN SEUL thème sans devoir en déclarer la valeur dans les
-  autres, si on ne le fait que pour un seul.
-- **« GIVRE », « SAPIN » ET « CONTRASTE » DÉCLARENT MAINTENANT `--ligne-active` ET
-  `--bandeau-etape`** (`web/src/styles.css`, 17.08.2026) : ces deux jetons manquaient depuis
-  l'arrivée de ces trois thèmes, retombant en silence sur les valeurs du thème clair —
-  `verif-themes.mjs` aurait dû le refuser mais ne le mesure qu'en repli, sans navigateur en face ;
-  toujours relancer avec `HAIKO_THEMES_URL` pointé sur le dev pour voir la vraie liste de refus.
-  Le compte de choix attendu dans le sous-menu « Thème » (`scripts/verif-themes.mjs`) n'est plus
-  recopié à la main (« 5 », périmé depuis l'ajout de ces trois thèmes) : il se déduit de
-  `BLOCS.length + 1`.
-- **…ET LES HUIT CHOIX TIENNENT DERRIÈRE UNE SEULE ENTRÉE « THÈME » DU MENU**
-  (`DropdownMenuSub` / `DropdownMenuSubTrigger` / `DropdownMenuSubContent`, `web/src/components/ui/index.tsx` ;
-  entrée `data-theme-menu` de `web/src/components/quota-bar.tsx`) : alignés les uns sous les autres,
-  ils occupaient la moitié du menu à trois points pour un réglage qu'on change une fois par mois.
-  L'entrée rappelle le choix en cours (`choixParId(theme).libelle`) et déplie la liste AU SURVOL
-  comme AU CLIC — les deux gestes comptent, le téléphone et le clavier n'ayant pas de survol ; la
-  coche du thème actif ne bouge pas. Le sous-menu reste un panneau FLOTTANT même sur téléphone, où le
-  tiroir du bas appartient au menu de premier niveau — d'où son `z-index` plus haut que ce tiroir.
-  Conséquence pour les CONTRÔLES : `[data-theme-choix]` n'existe plus au premier niveau, il faut
-  survoler ou cliquer `[data-theme-menu]` d'abord (`scripts/verif-themes.mjs`,
-  `scripts/verify-ui.mjs`).
+- **L'APPARENCE SÉPARE L'AMBIANCE DE LA CLARTÉ** (`AMBIANCES`, `ReglageApparence`,
+  `themeAAppliquer`, `shared/src/themes.ts` ; `AppearancePicker`,
+  `web/src/components/appearance-picker.tsx`). Six ambiances — origine, sable, ardoise, givre,
+  sapin, contraste — ont chacune une palette CLAIRE et SOMBRE, soit douze blocs complets dans
+  `web/src/styles.css`. Le premier interrupteur active le suivi du système ; il ne change jamais
+  l'ambiance et désactive les six interrupteurs manuels clair/sombre. Les anciens choix `dark`,
+  `light`, `systeme` et les sept anciens identifiants sont repris à la lecture. La variante claire
+  d'origine reste la seule à bordures ; les onze autres sont plates. Chaque palette déclare tous les
+  jetons et ses trois fonds de zone. Vérifié par `server/src/test/themes.test.ts` et
+  `scripts/verif-themes.mjs`.
+- **LE MENU « THÈME » GARDE LES TROIS COMMANDES SÉPARÉES** (`data-theme-menu`,
+  `web/src/components/quota-bar.tsx`) : interrupteur automatique, interrupteur sombre inerte en
+  automatique, puis les six ambiances. Il s'ouvre au survol comme au clic. Les réglages généraux et
+  ceux d'un projet emploient le même `AppearancePicker` ; un projet sans apparence propre rend la
+  main au général.
 - **L'INTERFACE EXISTE EN CINQ LANGUES, ET LE CHOIX VIT SOUS CELUI DU THÈME**
   (`shared/src/langues.ts` le catalogue, `shared/src/traduire.ts` la mécanique,
   `shared/src/traductions.ts` le dictionnaire ; `web/src/lib/langue.ts` la pose ; entrée
@@ -1255,24 +1203,12 @@ le nom, là-bas le texte).
   `scripts/passer-les-textes-en-traduction.mjs` fait passer d'un coup des écrans neufs par le
   dictionnaire (il lit le VRAI arbre TypeScript, jamais des expressions régulières, et se rejoue sans
   dégât). Verrouillé par `server/src/test/langues.test.ts` et `scripts/verif-langues.mjs`.
-- **…ET CHAQUE PROJET PEUT IMPOSER LE SIEN, plus un choix qui suit l'ORDINATEUR**
-  (`themeAAppliquer`, `CHOIX_DE_THEME`, `THEME_SYSTEME`, `themeChoisiValide`, `shared/src/themes.ts` ;
-  `Project.theme` ; `useThemeApplique` / `useSystemeSombre`, `web/src/lib/theme.ts` ; ligne « Thème de
-  ce projet » de `project-settings.tsx`). CE QU'ON CHOISIT N'EST PLUS TOUJOURS UN THÈME : « systeme »
-  est une CONSIGNE — suivre le réglage clair / sombre de la machine — et désigne l'un des deux thèmes
-  d'ORIGINE (`themeDuSysteme`) ; il n'a donc AUCUN bloc de jetons, et le contrôle refuse qu'on lui en
-  écrive un. D'où deux types séparés, `ThemeId` (les 7 palettes) et `ThemeChoisi` (8 choix). UNE SEULE
-  règle décide : thème du PROJET OUVERT > réglage GÉNÉRAL > réglage de la machine, et changer de projet
-  rhabille l'application ENTIÈRE — d'où le crochet appelé à la RACINE, seul endroit qui voit les trois
-  sources. `themeChoisiValide` rend `null` et non le défaut : c'est ce qui distingue « ce projet
-  n'impose rien » de « il impose le sombre », et `Project.theme` est `nullish` pour que `null` puisse
-  RETIRER un thème (un `undefined` disparaîtrait du bloc envoyé). Le réglage de la machine est ÉCOUTÉ
-  (`prefers-color-scheme` change tout seul à la tombée du jour) et ne se lit que dans
-  `web/src/lib/theme.ts` — le contrôle refuse un second lecteur comme un second poseur. Enfin l'onglet
-  « Apparence » DIT quand un projet recouvre le choix général (`data-theme-recouvert`), sinon ce choix
-  paraissait cassé. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`
-  (qui pose le projet par `window.haikodevEssai.projet`, le démon en service pouvant précéder le champ
-  et le retirer — Zod écarte les clés qu'il ne connaît pas).
+- **CHAQUE PROJET PEUT IMPOSER SON APPARENCE COMPLÈTE** (`Project.theme` ; `themeAAppliquer`,
+  `shared/src/themes.ts` ; `useThemeApplique`, `web/src/lib/theme.ts` ; `project-settings.tsx`).
+  Priorité : apparence du projet ouvert > réglage général ; le système ne tranche ensuite que la
+  clarté. Le projet garde donc lui aussi ambiance, clarté manuelle et interrupteur automatique.
+  `null` retire l'apparence propre et rend la main au général. Une seule pose à la racine applique
+  ensemble `data-theme`, la classe `dark`, `color-scheme` et la couleur du bandeau du téléphone.
 - **LE CHOIX EST DÉJÀ PARTAGÉ ENTRE APPAREILS — LE PROBLÈME ÉTAIT LE FLASH DE PREMIER AFFICHAGE, PRIS
   POUR UN THÈME QUI « CHANGE TOUT SEUL »** (`CLE_REPERE_PREMIER_AFFICHAGE`, `appliquerLeTheme`,
   `useThemeApplique`, `web/src/lib/theme.ts` ; script inline de `web/index.html`). Constaté le
@@ -1290,9 +1226,9 @@ le nom, là-bas le texte).
   que `state.pret` est faux. Un appareil déjà vu n'a donc plus aucun flash ; un appareil neuf garde le
   flash « sombre » unique, inévitable sans rendu côté serveur. Table de clarté DUPLIQUÉE dans
   `index.html`, à la manière de `web/public/sw.js` : un script qui doit rester synchrone ne peut rien
-  importer.
+  importer ; elle énumère les douze palettes et leur clarté.
 - **LE FLAT DESIGN NE RETIRE PAS UN CONTRASTE QUI PORTAIT UNE INFORMATION** — trois jetons DÉDIÉS,
-  déclarés dans les SEPT thèmes (`--ligne-active`, `--bandeau-etape`, `--bloc-etapes`,
+  déclarés dans les DOUZE palettes (`--ligne-active`, `--bandeau-etape`, `--bloc-etapes`,
   `web/src/styles.css` ; noms Tailwind `bg-ligne-active` / `bg-bandeau-etape` / `bg-bloc-etapes`,
   `web/tailwind.config.js`) : la ligne du projet OUVERT (colonne de gauche, `LigneEspaceDev` et
   `ProjectRow` de `web/src/components/sidebar.tsx`), le bandeau d'étape sous une carte

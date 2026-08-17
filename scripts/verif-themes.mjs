@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * LES SEPT THÈMES, VÉRIFIÉS SUR LEUR SOURCE PUIS DANS UN VRAI NAVIGATEUR.
+ * LES SIX AMBIANCES EN CLAIR ET EN SOMBRE, VÉRIFIÉES À LA SOURCE ET AU NAVIGATEUR.
  *
  * La première moitié ne LIT que du texte : les blocs de jetons de
  * `web/src/styles.css`, le catalogue de `shared/src/themes.ts` et les écrans de
@@ -9,10 +9,10 @@
  *  1. un jeton MANQUANT dans un thème — les thèmes plats passent après le
  *     thème clair et ont la même force de sélecteur : un oubli y retomberait en
  *     silence sur une valeur du thème clair, et personne ne le verrait ;
- *  2. une teinte RECOPIÉE d'un thème à l'autre pour les cinq thèmes NEUFS — la
- *     demande le dit en toutes lettres. Les deux thèmes d'ORIGINE sont exemptés :
+ *  2. une teinte RECOPIÉE d'une palette à l'autre pour les dix palettes AJOUTÉES.
+ *     Les deux palettes d'ORIGINE sont exemptées :
  *     leurs valeurs ne doivent justement pas changer ;
- *  3. dans un thème PLAT — « sombre », « sable » et « ardoise » —, une bordure
+ *  3. dans une palette PLATE, une bordure
  *     encore VISIBLE (elle doit se confondre avec un des fonds) ou des fonds mal
  *     étagés (il faut un contraste léger MAIS net) ;
  *  4. dans le seul thème À BORDURES, le clair, une bordure devenue invisible —
@@ -20,15 +20,15 @@
  *  5. un texte illisible sur son fond ;
  *  6. une couleur écrite EN DUR dans un écran ;
  *  7. un aperçu du catalogue qui ne dit pas la vérité sur les jetons du thème ;
- *  8. un nom de couleur de Tailwind sans jeton derrière lui dans les sept thèmes ;
- *  9. un bloc de jetons pour « systeme », qui n'est pas un thème mais une consigne,
+ *  8. un nom de couleur de Tailwind sans jeton derrière lui dans les douze palettes ;
+ *  9. un bloc de jetons pour le mode automatique, qui n'est pas une palette,
  *     ou un second endroit qui pose le thème.
  *
  * La seconde moitié demande au NAVIGATEUR ce qu'il affiche vraiment — trois
  * promesses qu'aucune relecture ne peut tenir : les couleurs CALCULÉES de chaque
  * thème, le thème d'un PROJET qui habille l'application entière quand on change de
- * projet, et « Système » qui suit le réglage clair / sombre de l'ordinateur, y
- * compris quand il change sans recharger la page. Elle fabrique une session d'une
+ * projet, et l'interrupteur automatique qui suit le réglage clair / sombre de
+ * l'ordinateur sans changer l'ambiance. Elle fabrique une session d'une
  * heure, la retire en partant, et n'écrit rien d'autre en base.
  *
  *   HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs
@@ -54,19 +54,24 @@ const constater = (message) => constats.push(message);
 /* Lire les blocs de jetons                                           */
 /* ------------------------------------------------------------------ */
 
-/** Les sept thèmes et le sélecteur qui les porte, dans leur ordre d'écriture. */
+/** Les douze palettes et le sélecteur qui les porte, dans leur ordre d'écriture. */
 const BLOCS = [
   /* « sombre » est un thème d'ORIGINE — ses teintes ne se comparent donc pas aux
      autres — mais il est PLAT depuis le 17.08.2026 : sa bordure doit se
      confondre avec un de ses fonds, et son bouton « contour » porter un voile.
      Les deux qualités sont bien séparées, c'est ce qui permet ce cas. */
-  { id: 'sombre', selecteur: ':root', origine: true, plat: true },
-  { id: 'clair', selecteur: 'html:not(.dark)', origine: true, plat: false },
-  { id: 'sable', selecteur: "html[data-theme='sable']", origine: false, plat: true },
-  { id: 'ardoise', selecteur: "html[data-theme='ardoise']", origine: false, plat: true },
-  { id: 'givre', selecteur: "html[data-theme='givre']", origine: false, plat: true },
-  { id: 'sapin', selecteur: "html[data-theme='sapin']", origine: false, plat: true },
-  { id: 'contraste', selecteur: "html[data-theme='contraste']", origine: false, plat: true },
+  { id: 'sombre', selecteur: ':root', origine: true, plat: true, sombre: true },
+  { id: 'clair', selecteur: 'html:not(.dark)', origine: true, plat: false, sombre: false },
+  { id: 'sable', selecteur: "html[data-theme='sable']", origine: false, plat: true, sombre: false },
+  { id: 'ardoise', selecteur: "html[data-theme='ardoise']", origine: false, plat: true, sombre: true },
+  { id: 'givre', selecteur: "html[data-theme='givre']", origine: false, plat: true, sombre: false },
+  { id: 'sapin', selecteur: "html[data-theme='sapin']", origine: false, plat: true, sombre: true },
+  { id: 'contraste', selecteur: "html[data-theme='contraste']", origine: false, plat: true, sombre: false },
+  { id: 'sable-sombre', selecteur: "html[data-theme='sable-sombre']", origine: false, plat: true, sombre: true },
+  { id: 'ardoise-clair', selecteur: "html[data-theme='ardoise-clair']", origine: false, plat: true, sombre: false },
+  { id: 'givre-sombre', selecteur: "html[data-theme='givre-sombre']", origine: false, plat: true, sombre: true },
+  { id: 'sapin-clair', selecteur: "html[data-theme='sapin-clair']", origine: false, plat: true, sombre: false },
+  { id: 'contraste-sombre', selecteur: "html[data-theme='contraste-sombre']", origine: false, plat: true, sombre: true },
 ];
 
 const css = fs.readFileSync(CSS, 'utf8');
@@ -117,7 +122,7 @@ for (const bloc of BLOCS.slice(1)) {
 constater(`${attendus.length} jetons déclarés par chacun des ${BLOCS.length} thèmes`);
 
 /* ------------------------------------------------------------------ */
-/* 2. Aucune teinte recopiée pour les cinq thèmes NEUFS               */
+/* 2. Aucune teinte recopiée pour les dix palettes ajoutées           */
 /* ------------------------------------------------------------------ */
 
 for (const bloc of BLOCS.filter((item) => !item.origine)) {
@@ -131,7 +136,7 @@ for (const bloc of BLOCS.filter((item) => !item.origine)) {
     }
   }
 }
-constater('aucune teinte des cinq thèmes plats n’est recopiée d’un autre thème');
+constater('aucune teinte des dix palettes ajoutées n’est recopiée d’une autre palette');
 
 /* ------------------------------------------------------------------ */
 /* 3 et 4. Les bordures : effacées dans les thèmes plats, visibles ailleurs */
@@ -185,7 +190,7 @@ for (const bloc of BLOCS) {
     );
   }
 }
-constater('bordures effacées dans les six thèmes plats, intactes dans le seul « clair »');
+constater('bordures effacées dans les onze palettes plates, intactes dans le seul « clair »');
 
 /* ------------------------------------------------------------------ */
 /* 5. Le texte reste lisible sur ses fonds                            */
@@ -206,7 +211,7 @@ for (const bloc of BLOCS) {
     }
   }
 }
-constater('texte, texte discret et texte pâle lisibles sur les trois fonds des sept thèmes');
+constater('texte, texte discret et texte pâle lisibles sur les trois fonds des douze palettes');
 
 /* ------------------------------------------------------------------ */
 /* 6. Aucune couleur écrite en dur dans un écran                      */
@@ -241,7 +246,7 @@ for (const fichier of ecrans(ECRANS)) {
     const ligne = texte.slice(0, trouve.index).split('\n').length;
     refuser(
       `${path.relative(RACINE, fichier)}:${ligne} : couleur écrite en dur « ${trouve[0]} » — ` +
-        `elle ne suivra aucun des sept thèmes`,
+        `elle ne suivra aucune des douze palettes`,
     );
   }
 }
@@ -302,24 +307,25 @@ constater(`${new Set(noms).size} noms de couleur de Tailwind adossés à un jeto
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
-/* 8 bis. « Système » se choisit, mais n'a PAS de bloc de jetons       */
+/* 8 bis. L'automatique choisit une CLARTÉ, jamais une palette         */
 /* ------------------------------------------------------------------ */
 
 /*
- * Le piège à éviter : croire que « systeme » est un cinquième thème. Ce n'est
- * qu'une CONSIGNE — suivre le réglage de l'ordinateur —, elle désigne l'un des
- * sept. Un bloc `[data-theme='systeme']` dans la feuille de style signalerait
- * que quelqu'un a cru le contraire, et l'attribut serait alors posé sur un nom
- * qui n'habille rien.
+ * Le piège à éviter : refaire du mode automatique un thème à côté des autres.
+ * Il garde l'ambiance et ne choisit que sa variante claire ou sombre.
  */
-if (css.includes("data-theme='systeme'") || css.includes('data-theme="systeme"')) {
+if (
+  css.includes("data-theme='systeme'") ||
+  css.includes('data-theme="systeme"') ||
+  css.includes("data-theme='automatique'") ||
+  css.includes('data-theme="automatique"')
+) {
   refuser(
-    "web/src/styles.css : un bloc de jetons pour « systeme » — or ce n'est pas un thème mais une " +
-      'consigne, qui désigne l’un des sept (voir `themeDuSysteme`)',
+    "web/src/styles.css : un bloc de jetons pour le mode automatique — il doit seulement choisir la variante d'une ambiance",
   );
 }
-if (!/CHOIX_DE_THEME/.test(catalogue) || !/THEME_SYSTEME/.test(catalogue)) {
-  refuser('shared/src/themes.ts : le choix « Système » n’est plus déclaré');
+if (!/AMBIANCES/.test(catalogue) || !/reglageApparenceValide/.test(catalogue) || !/themeChoisiDepuisReglage/.test(catalogue)) {
+  refuser('shared/src/themes.ts : ambiance, clarté et automatique ne sont plus séparés dans le catalogue');
 }
 /* Et la règle de priorité ne doit pas se recopier dans un écran : un seul juge. */
 for (const fichier of ecrans(ECRANS)) {
@@ -333,7 +339,7 @@ for (const fichier of ecrans(ECRANS)) {
     refuser(`${nom} : le thème se POSE dans web/src/lib/theme.ts seulement — deux poseurs finissent par se contredire`);
   }
 }
-constater('« Système » est un choix sans palette, et un seul fichier pose le thème');
+constater('le mode automatique n’est pas une palette, et un seul fichier pose le thème');
 
 /* ------------------------------------------------------------------ */
 /* 9. LE NAVIGATEUR : les jetons compilés donnent bien ces couleurs    */
@@ -449,7 +455,7 @@ async function dansLaPage(page, navigateur) {
         }
         return lu;
       },
-      { id: bloc.id, sombre: bloc.id === 'sombre' || bloc.id === 'ardoise' || bloc.id === 'sapin' },
+      { id: bloc.id, sombre: bloc.sombre },
     );
 
     /* Une couleur que le navigateur n'a pas comprise ne rend rien du tout, ou le
@@ -481,9 +487,8 @@ async function dansLaPage(page, navigateur) {
    * LE THÈME D'UN PROJET, ET LE THÈME « SYSTÈME », POUR DE VRAI.
    *
    * Deux promesses qu'aucune lecture de texte ne peut tenir : changer de projet
-   * doit habiller l'application ENTIÈRE, et « Système » doit suivre le réglage
-   * clair / sombre de l'ordinateur — y compris quand il change en cours de
-   * route, sans recharger la page.
+   * doit habiller l'application ENTIÈRE, et l'automatique doit suivre le
+   * réglage clair / sombre de l'ordinateur sans changer l'ambiance.
    *
    * Le projet est posé par le POINT D'ESSAI de l'interface
    * (`window.haikodevEssai.projet`), jamais par le serveur : le démon en service
@@ -493,8 +498,8 @@ async function dansLaPage(page, navigateur) {
   const point = await page.evaluate(() => typeof window.haikodevEssai?.projet === 'function');
   if (!point) {
     anomalies.push(
-      "le point d'essai de l'interface est absent : sans lui, ni le thème d'un projet ni le thème " +
-        '« Système » ne peuvent être jugés (attendu sur le serveur de développement)',
+      "le point d'essai de l'interface est absent : sans lui, ni l'apparence d'un projet ni " +
+        "l'automatique ne peuvent être jugés (attendu sur le serveur de développement)",
     );
     await navigateur.close();
     return anomalies;
@@ -530,13 +535,13 @@ async function dansLaPage(page, navigateur) {
     };
 
     /* Deux projets, deux thèmes : passer de l'un à l'autre change tout. */
-    const surLePremier = await habiller(premier.id, 'sable');
-    if (surLePremier !== 'sable') {
+    const surLePremier = await habiller(premier.id, 'sable-sombre');
+    if (surLePremier !== 'sable-sombre') {
       anomalies.push(`le thème du projet « ${premier.name} » n'habille pas l'application (vu « ${surLePremier} »)`);
     }
-    const surLeSecond = await habiller(second.id, 'ardoise');
-    if (surLeSecond !== 'ardoise') {
-      anomalies.push(`changer de projet ne change pas l'apparence (vu « ${surLeSecond} » au lieu de « ardoise »)`);
+    const surLeSecond = await habiller(second.id, 'ardoise-clair');
+    if (surLeSecond !== 'ardoise-clair') {
+      anomalies.push(`changer de projet ne change pas l'apparence (vu « ${surLeSecond} » au lieu de « ardoise-clair »)`);
     }
 
     /* Le thème couvre TOUTE l'application, pas la seule colonne du milieu. */
@@ -559,9 +564,30 @@ async function dansLaPage(page, navigateur) {
 
     /* Un projet qui n'impose RIEN rend la main au réglage général. */
     const rendu = await habiller(second.id, null);
-    if (rendu === 'ardoise') {
+    if (rendu === 'ardoise-clair') {
       anomalies.push("un projet sans thème garde l'apparence qu'il imposait : le réglage général ne reprend pas la main");
     }
+
+    /* L'automatique garde l'ambiance du projet et ne change que sa variante. */
+    await page.evaluate(
+      ({ id }) => {
+        window.haikodevEssai.projet(id, { theme: 'auto-sable-clair' });
+        window.haikodevEssai.ouvrirProjet(id);
+      },
+      { id: premier.id },
+    );
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForTimeout(600);
+    const sableSombre = await page.evaluate(() => document.documentElement.dataset.theme);
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.waitForTimeout(600);
+    const sableClair = await page.evaluate(() => document.documentElement.dataset.theme);
+    if (sableSombre !== 'sable-sombre' || sableClair !== 'sable') {
+      anomalies.push(
+        `l'automatique change l'ambiance au lieu de sa seule variante : sombre → « ${sableSombre} », clair → « ${sableClair} »`,
+      );
+    }
+    await page.emulateMedia({ colorScheme: null });
     await page.evaluate((id) => window.haikodevEssai.projet(id, { theme: null }), premier.id);
   }
 
@@ -584,18 +610,23 @@ async function dansLaPage(page, navigateur) {
     );
   }
 
-  /* Le sous-menu porte les sept thèmes PLUS « Système » — jamais un compte
-     recopié à la main, qui retomberait périmé au premier thème ajouté ou
-     retiré (constaté le 17.08.2026 : bloqué à 5 depuis l'ajout de givre,
-     sapin et contraste). */
-  const CHOIX_ATTENDUS = BLOCS.length + 1;
+  /* Six AMBIANCES seulement : clair, sombre et automatique sont des réglages
+     indépendants, ils ne reviennent plus comme trois faux thèmes dans la liste. */
+  const CHOIX_ATTENDUS = BLOCS.length / 2;
 
   /* 1) LE SURVOL. C'est le geste attendu à la souris. */
   await page.hover('[data-theme-menu]');
   await page.waitForTimeout(600);
   const auSurvol = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
   if (auSurvol.length !== CHOIX_ATTENDUS) {
-    anomalies.push(`le sous-menu ne s'ouvre pas au SURVOL (${auSurvol.length} thèmes vus, ${CHOIX_ATTENDUS} attendus)`);
+    anomalies.push(`le sous-menu ne s'ouvre pas au SURVOL (${auSurvol.length} ambiances vues, ${CHOIX_ATTENDUS} attendues)`);
+  }
+  const commandesAuSurvol = await page.evaluate(() => ({
+    automatique: !!document.querySelector('[data-theme-auto-menu]'),
+    manuel: !!document.querySelector('[data-theme-mode-menu]'),
+  }));
+  if (!commandesAuSurvol.automatique || !commandesAuSurvol.manuel) {
+    anomalies.push("le menu ne sépare pas l'interrupteur automatique de l'interrupteur clair / sombre");
   }
 
   /* 2) LE CLIC, pour qui n'a pas de souris. On referme d'abord tout. */
@@ -609,28 +640,52 @@ async function dansLaPage(page, navigateur) {
   await page.waitForTimeout(600);
   const auClic = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
   if (auClic.length !== CHOIX_ATTENDUS) {
-    anomalies.push(`le sous-menu ne s'ouvre pas au CLIC (${auClic.length} thèmes vus, ${CHOIX_ATTENDUS} attendus)`);
+    anomalies.push(`le sous-menu ne s'ouvre pas au CLIC (${auClic.length} ambiances vues, ${CHOIX_ATTENDUS} attendues)`);
   }
 
-  /* « Système » suit l'ordinateur, et le suit EN DIRECT. */
-  const menuOuvert = await page.evaluate(() => !!document.querySelector('[data-theme-choix="systeme"]'));
-  if (!menuOuvert) {
-    anomalies.push("le choix « Système » n'est pas au menu du bandeau");
+  /* Dans les réglages, chaque ambiance montre bien ses DEUX palettes et son
+     interrupteur ; l'automatique désactive les six interrupteurs manuels. */
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  await page.click('button[title="Menu"]');
+  await page.waitForTimeout(500);
+  const entreeReglages = page.getByRole('menuitem').filter({ hasText: 'Réglages' }).first();
+  if ((await entreeReglages.count()) === 0) {
+    anomalies.push("l'entrée « Réglages » est introuvable pour vérifier l'écran Apparence");
   } else {
-    await page.evaluate(() => document.querySelector('[data-theme-choix="systeme"]')?.click());
-    await page.waitForTimeout(900);
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.waitForTimeout(600);
-    const surSombre = await page.evaluate(() => document.documentElement.dataset.theme);
-    await page.emulateMedia({ colorScheme: 'light' });
-    await page.waitForTimeout(600);
-    const surClair = await page.evaluate(() => document.documentElement.dataset.theme);
-    if (surSombre !== 'sombre' || surClair !== 'clair') {
+    await entreeReglages.click();
+    await page.waitForTimeout(700);
+    await page.getByRole('tab', { name: 'Apparence' }).click();
+    await page.waitForTimeout(500);
+    const cartes = await page.$$eval('[data-theme-carte]', (noeuds) =>
+      noeuds.map((noeud) => ({
+        apercus: noeud.querySelectorAll('[data-theme-apercu]').length,
+        interrupteurs: noeud.querySelectorAll('[data-theme-mode]').length,
+      })),
+    );
+    if (cartes.length !== CHOIX_ATTENDUS || cartes.some((carte) => carte.apercus !== 2 || carte.interrupteurs !== 1)) {
       anomalies.push(
-        `« Système » ne suit pas le réglage de l'ordinateur : sombre → « ${surSombre} », clair → « ${surClair} »`,
+        `l'écran Apparence ne montre pas deux variantes et un interrupteur par ambiance (${cartes.length} cartes lues)`,
       );
     }
-    await page.emulateMedia({ colorScheme: null });
+
+    const interrupteurAuto = page.locator('[data-theme-auto] button[role="switch"]');
+    const etaitAutomatique = (await interrupteurAuto.getAttribute('data-state')) === 'checked';
+    if (!etaitAutomatique) {
+      await interrupteurAuto.click();
+      await page.waitForTimeout(400);
+    }
+    const manuelsDesactives = await page.$$eval('[data-theme-mode]', (noeuds) =>
+      noeuds.length === 6 && noeuds.every((noeud) => noeud.disabled),
+    );
+    if (!manuelsDesactives) anomalies.push("le mode automatique ne désactive pas les six interrupteurs clair / sombre");
+    if (!etaitAutomatique) {
+      await interrupteurAuto.click();
+      await page.waitForTimeout(300);
+    }
+    await page.keyboard.press('Escape');
   }
 
   await navigateur.close();
@@ -651,13 +706,13 @@ if (typeof mesureNavigateur === 'string') {
   constater(
     `dans un vrai navigateur : couleurs calculées des ${BLOCS.length} thèmes, thème d'un PROJET qui habille ` +
       `toute l'application, une SEULE entrée « Thème » au menu qui s'ouvre au survol comme au clic, ` +
-      `et « Système » qui suit le réglage de l'ordinateur`,
+      `et l'automatique qui suit l'ordinateur sans changer l'ambiance`,
   );
 }
 
 /* ------------------------------------------------------------------ */
 
-console.log('\nLES SEPT THÈMES\n');
+console.log('\nLES SIX AMBIANCES, CLAIRES ET SOMBRES\n');
 for (const message of constats) console.log(`  ✓ ${message}`);
 if (echecs.length) {
   console.error('');
