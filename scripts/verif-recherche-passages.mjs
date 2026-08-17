@@ -93,6 +93,40 @@ verifier(
 const INDEX = { texte: memory.blocMemoire(RACINE), faits: memory.memoryFacts(RACINE).length };
 const jetonsIndex = Math.round(INDEX.texte.length / 4);
 
+/*
+ * UN CONTRÔLE NE SE MESURE PAS LUI-MÊME.
+ *
+ * Les quatre demandes ci-dessous sont écrites EN TOUTES LETTRES dans ce
+ * fichier, et le même quatuor est recopié dans `scripts/mesure-jetons.mjs`. Or
+ * le CODE du projet est indexé depuis qu'on ne se limite plus à `docs/` : ces
+ * deux scripts contiennent donc, mot pour mot, la question posée, et sortent en
+ * tête. Ils ne répondent à rien — ils la CITENT —, mais ils prennent une des
+ * deux places réservées au code (`PASSAGES_CODE_MAX`) et une bonne part du
+ * plafond de jetons, si bien que la page de documentation qui répond vraiment
+ * ne rentre plus. Constaté sur « Reprendre un déploiement interrompu par un
+ * conflit de fusion » : `docs/regles/publication.md` (« Une CONSTRUCTION qui
+ * échoue est réparée sur place, comme un conflit ou un contrôle tombé »)
+ * arrivait derrière deux citations de la question par ces deux scripts.
+ *
+ * Même piège, même remède que `scripts/audit-memoire-rag.mjs`, qui retire du
+ * corpus tout passage venu de lui-même. Ici on ne peut pas filtrer l'index —
+ * `rechercherPourLaTache` le relit lui-même — alors on lui donne un corpus
+ * PROPRE : le dépôt tel quel, ses deux miroirs en moins. Rien d'autre ne
+ * change : mêmes fichiers, mêmes chemins, même documentation.
+ */
+const MIROIRS = new Set(['scripts/verif-recherche-passages.mjs', 'scripts/mesure-jetons.mjs']);
+const SANS_COPIE = new Set(['node_modules', '.git', '.worktrees', 'dist', 'data', 'coverage']);
+const CORPUS_REEL = path.join(BASE, 'corpus-sans-miroir');
+fs.cpSync(RACINE, CORPUS_REEL, {
+  recursive: true,
+  filter: (source) => {
+    const relatif = path.relative(RACINE, source);
+    if (!relatif) return true;
+    if (relatif.split(path.sep).some((part) => SANS_COPIE.has(part))) return false;
+    return !MIROIRS.has(relatif.split(path.sep).join('/'));
+  },
+});
+
 const DEMANDES = [
   { question: "Changer le mot de réveil de l'écoute vocale", attendu: /voix/ },
   { question: 'Reprendre un déploiement interrompu par un conflit de fusion', attendu: /publication|memoire/ },
@@ -103,7 +137,7 @@ const DEMANDES = [
 console.log('\n2. Une demande réelle retrouve les passages qui y répondent');
 let total = 0;
 for (const { question, attendu } of DEMANDES) {
-  const trouve = await passages.rechercherPourLaTache('verif', RACINE, question, INDEX);
+  const trouve = await passages.rechercherPourLaTache('verif-sans-miroir', CORPUS_REEL, question, INDEX);
   if (!trouve) {
     verifier(false, `« ${question} » — aucun passage retrouvé`);
     continue;
@@ -210,7 +244,11 @@ if (!moteurLocal) {
       '# Publication\n\n' +
       "- **La mise en ligne appartient à l'utilisateur** : le démon fusionne le lot, enregistre et " +
       "pousse la branche, mais il n'envoie jamais rien vers le serveur public de sa propre " +
-      "initiative. Les deux étapes attendent un clic, et la colonne « En production » les sépare.\n",
+      "initiative. Les deux étapes attendent un clic, et la colonne « En production » les sépare. " +
+      "Personne d'autre que l'humain ne franchit la dernière porte : ce qui a été produit reste en " +
+      "attente, visible, tant que la main n'a pas tranché. Une intelligence qui pousserait " +
+      "d'elle-même jusqu'au bout priverait son propriétaire du seul pouvoir qui compte, celui de " +
+      'choisir le moment.\n',
     'voix.md':
       '# Voix\n\n' +
       "- **Le mot de réveil de l'écoute permanente** se compare sans accent ni ponctuation, et " +
@@ -226,20 +264,35 @@ if (!moteurLocal) {
     fs.writeFileSync(path.join(CORPUS, 'docs', 'regles', nom), texte);
   }
 
-  /* La question ne partage AUCUN mot porteur avec la règle visée : ni
-     « publication », ni « mise en ligne », ni « déployer ».
-
-     ELLE PASSE LE SEUIL DE JUSTESSE, ET C'EST NORMAL : sans un seul mot commun,
-     la part de MOTS EXACTS du score mixte est presque nulle, si bien que la
-     bonne règle sort à ~0,39 pour un seuil à 0,38 (`SCORE_MINIMUM_VECTEUR`).
-     C'est le cas le plus difficile qui soit — un corpus de trois règles, aucun
-     mot partagé —, très en dessous de ce que donne la vraie base (les quatre
-     demandes de `verif-recherche-par-le-sens.mjs` sortent entre 0,41 et 0,59).
-     Si ce contrôle tombe un jour ici, la question n'est donc PAS « le seuil
-     est-il trop haut ? » mais « le corpus fabriqué a-t-il changé ? » : le seuil,
-     lui, se rejuge par le balayage de `scripts/audit-memoire-rag.mjs`, sur 120
-     vraies cartes. */
-  const REFORMULEE = 'est-ce que le programme peut décider tout seul d’envoyer le site chez le client ?';
+  /*
+   * LA QUESTION NE PARTAGE AUCUN MOT PORTEUR avec la règle visée : ni
+   * « publication », ni « mise en ligne », ni « déployer », ni « démon ». Sa
+   * part de MOTS EXACTS est donc nulle par construction, et tout son score
+   * vient du SENS — c'est exactement ce qu'on veut éprouver.
+   *
+   * ELLE EST AUSSI LONGUE QU'UN VRAI MESSAGE, et ce n'est pas un détail. La
+   * version d'avant tenait en 81 signes ; mesurée sur 67 vrais messages
+   * d'utilisateur, la longueur médiane sur ce terrain est de 174 signes
+   * (`scripts/audit-memoire-rag.mjs`, section 4bis). Une question deux fois
+   * plus courte que la vraie population n'éprouve pas le terrain qu'elle
+   * prétend représenter : le cosinus d'un modèle de sens monte avec ce qu'on
+   * lui donne à lire, et l'ancienne question sortait à 0,38 — sous le seuil,
+   * donc « le sens ne retrouve pas sa règle », alors que le sens la classait
+   * bien PREMIÈRE. Ce contrôle mesurait une question trop maigre, pas le moteur.
+   *
+   * CE QUE LE MODÈLE PERMET, ÉCRIT NOIR SUR BLANC : sans un seul mot commun, le
+   * score plafonne à `POIDS_SENS_VECTEUR × cosinus + BONUS_PRIORITE`, et bge-m3
+   * rend 0,55 à 0,59 sur une vraie reformulation — soit 0,42 à 0,45 au plus.
+   * C'est la LIMITE du moteur, et c'est elle qui a fait remesurer le seuil de
+   * ce terrain (`SEUIL_VECTEUR_CONVERSATION`, 0,42, balayé sur les messages).
+   * Si ce contrôle tombe un jour ici, la question est donc « le corpus fabriqué
+   * a-t-il changé ? » ou « le modèle a-t-il changé ? » — le seuil, lui, se
+   * rejuge par le balayage de `scripts/audit-memoire-rag.mjs` (section 5 ter).
+   */
+  const REFORMULEE =
+    'dis-moi, quand un agent a fini son travail, est-ce qu’il peut de lui-même faire passer le ' +
+    'résultat chez le client, ou est-ce que ça reste bloqué tant que je n’ai pas donné mon accord ? ' +
+    'je ne veux surtout pas d’une machine qui décide toute seule à ma place.';
   const INDEX_CORPUS = {
     texte: Array.from({ length: 40 }, (_, i) => `  ${i + 1}. Une ligne d’index qui résume un fait durable du projet.`).join('\n'),
     faits: 40,
@@ -311,6 +364,12 @@ if (!moteurLocal) {
   );
 
   console.log(`  → moteur : ${vecteurs.etatDesVecteurs().moteur}, modèle ${vecteurs.etatDesVecteurs().modele}`);
+  /* LA MARGE SE LIT, elle ne se devine pas : sans un seul mot commun, tout le
+     score vient du sens, et on veut voir de combien il dépasse la barre. */
+  console.log(
+    `  → la règle reformulée sort à ${(parLeSens?.passages[0]?.score ?? 0).toFixed(2)} ` +
+      `pour un seuil de ${partage.SEUIL_VECTEUR_CONVERSATION} en conversation`,
+  );
 
   /* Le même corpus, la même question, mais SANS moteur de sens : c'est là que se
      voit ce qu'il apporte. On ne juge pas le repli — il a le droit de rater —,

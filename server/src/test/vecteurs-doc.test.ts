@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BONUS_PRIORITE,
   BORNES_DE_VECTORISATION,
   COUVERTURE_VECTEURS_MIN,
   DIMENSIONS_LOCAL,
@@ -11,8 +12,10 @@ import {
   RAISON_TERRAIN_SANS_SENS,
   TRANCHES_MAX_PAR_NUIT,
   PLAFOND_PASSAGE_SIGNES,
+  POIDS_SENS_VECTEUR,
   PRIORITE,
   SCORE_MINIMUM_VECTEUR,
+  SEUIL_VECTEUR_CONVERSATION,
   attenteAvantEssai,
   choisirPassages,
   classerPassages,
@@ -28,6 +31,7 @@ import {
   raisonSansVectorisationDite,
   reponseRejouable,
   sensUtileSur,
+  seuilDeSuite,
   texteAVectoriser,
   vecteurUtilisable,
   type PassageClasse,
@@ -233,6 +237,42 @@ test('le seuil du mode sens refuse une question hors sujet sans couper une vraie
     { minimum: SCORE_MINIMUM_VECTEUR, plafond: 1000 },
   );
   assert.equal(vraieDemande.gardes.length, 3);
+});
+
+/*
+ * LE SEUIL DE LA CONVERSATION EST MESURÉ SUR SES PROPRES MESSAGES
+ * (section « 5 ter » de `scripts/audit-memoire-rag.mjs`, relevé du 18/08/2026,
+ * 67 vrais messages d'utilisateur). Il ne se déduit plus de celui des cartes :
+ * le mode sens a quitté le terrain des cartes, et la marge de suite l'y
+ * poussait à 0,44, où trois messages sur 67 perdaient leur page pour rien.
+ *
+ * Deux bornes le tiennent, et elles viennent du relevé, pas de l'intuition :
+ * au-dessus de ce qu'atteint une question hors sujet (0,33), et sous le plafond
+ * que le modèle permet à une question REFORMULÉE sans un seul mot commun. Ce
+ * plafond se calcule : `POIDS_SENS_VECTEUR × cosinus + BONUS_PRIORITE`, avec le
+ * cosinus mesuré de bge-m3 sur une vraie reformulation — 0,55, mesuré sur le
+ * corpus fabriqué de `scripts/verif-recherche-passages.mjs`.
+ */
+const COSINUS_D_UNE_REFORMULATION = 0.55;
+
+test('le seuil de la conversation tient entre le hors sujet et ce qu’une reformulation peut atteindre', () => {
+  assert.ok(SEUIL_VECTEUR_CONVERSATION > 0.33, 'au-dessus du meilleur score mesuré d’une question hors sujet');
+  const plafondDuSens = POIDS_SENS_VECTEUR * COSINUS_D_UNE_REFORMULATION + BONUS_PRIORITE;
+  assert.ok(
+    SEUIL_VECTEUR_CONVERSATION <= plafondDuSens,
+    'sous le plafond d’une question reformulée sans un mot commun : sinon le mode sens s’interdit lui-même',
+  );
+
+  /* Ce que la marge de suite donnait : au-dessus de ce plafond, donc muet. */
+  assert.ok(
+    seuilDeSuite(SCORE_MINIMUM_VECTEUR) > plafondDuSens,
+    'c’est bien cette valeur-là qui rendait une reformulation pure introuvable',
+  );
+
+  /* Une reformulation qui sort à 0,43 est SERVIE ; une question étrangère, non. */
+  const bornes = { minimum: SEUIL_VECTEUR_CONVERSATION, plafond: 1000 };
+  assert.equal(choisirPassages([classe('docs/regles/publication.md', PRIORITE.regle, 0.43)], bornes).gardes.length, 1);
+  assert.equal(choisirPassages([classe('docs/regles/interface.md', PRIORITE.regle, 0.33)], bornes).gardes.length, 0);
 });
 
 /* ------------------------------------------------------------------ */

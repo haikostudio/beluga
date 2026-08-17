@@ -93,6 +93,7 @@ const {
   POIDS_SENS_VECTEUR,
   SCORE_MINIMUM,
   SCORE_MINIMUM_VECTEUR,
+  SEUIL_VECTEUR_CONVERSATION,
   choisirPassages,
   classerPassages,
   jetonsApproches,
@@ -579,6 +580,25 @@ const duelConv = {
   sensSansRebond: 0,
   sensSansRebondStrict: 0,
 };
+
+/*
+ * LE BALAYAGE DES SEUILS, SUR CE TERRAIN-CI AUSSI.
+ *
+ * Le balayage de la section « 5 bis » juge chaque seuil candidat sur des
+ * CARTES — et c'est de là que vient `SCORE_MINIMUM_VECTEUR`. Or le mode sens a
+ * été retiré du lancement d'une carte : ce seuil ne s'applique plus, en
+ * pratique, que sur le terrain de la CONVERSATION, relevé d'un cran
+ * (`seuilDeSuite`). Une valeur mesurée là où elle ne sert plus, appliquée là
+ * où elle n'a jamais été mesurée : c'est exactement ce qu'il faut refermer.
+ *
+ * On rejoue donc les mêmes messages, aux BORNES DU TOUR DE SUITE, à chaque
+ * seuil candidat. `seuil` désigne ici le seuil RÉELLEMENT appliqué, marge
+ * comprise — c'est lui qu'on lit dans le tableau, pas la valeur d'avant marge.
+ */
+const balayageConv = new Map(
+  SEUILS_ESSAYES.map((seuil) => [seuil, { touche: 0, toucheStrict: 0, vides: 0, passages: [], horsSujet: [] }]),
+);
+
 const messagesRejoues = messages.slice(0, Math.max(0, MESSAGES_VOULUS));
 if (messagesRejoues.length) {
   for (const message of messagesRejoues) {
@@ -595,12 +615,12 @@ if (messagesRejoues.length) {
     {
       /* LE REBOND EN CONVERSATION : il doit gagner là aussi, ou au moins ne rien coûter. */
       const brut = new Set(
-        choisirPassages(classesSensBrut, { ...bornes, minimum: seuilDeSuite(SCORE_MINIMUM_VECTEUR) }).gardes.map((p) => p.source),
+        choisirPassages(classesSensBrut, { ...bornes, minimum: SEUIL_VECTEUR_CONVERSATION }).gardes.map((p) => p.source),
       );
       if ([...brut].some((s) => message.carte.fichiers.has(s))) duelConv.sensSansRebond += 1;
       if ([...brut].some((s) => message.carte.propres.has(s))) duelConv.sensSansRebondStrict += 1;
     }
-    const parLeSens = choisirPassages(classesSens, { ...bornes, minimum: seuilDeSuite(SCORE_MINIMUM_VECTEUR) });
+    const parLeSens = choisirPassages(classesSens, { ...bornes, minimum: SEUIL_VECTEUR_CONVERSATION });
     const parLesMots = choisirPassages(classesMots, { ...bornes, minimum: seuilDeSuite(SCORE_MINIMUM) });
 
     const sourcesSens = new Set(parLeSens.gardes.map((p) => p.source));
@@ -621,6 +641,17 @@ if (messagesRejoues.length) {
     const communs = [...sourcesSens].filter((s) => sourcesMots.has(s)).length;
     duelConv.communs += sourcesSens.size ? communs / sourcesSens.size : 0;
     duelConv.rangs.push(rangDuBon(classesSens, message.carte.fichiers));
+
+    /* Le même classement, aux bornes du tour de suite, jugé par chaque seuil. */
+    for (const seuil of SEUILS_ESSAYES) {
+      const essai = choisirPassages(classesSens, { ...bornes, minimum: seuil });
+      const releve = balayageConv.get(seuil);
+      const sources = new Set(essai.gardes.map((p) => p.source));
+      if (!essai.gardes.length) releve.vides += 1;
+      if ([...sources].some((s) => message.carte.fichiers.has(s))) releve.touche += 1;
+      if ([...sources].some((s) => message.carte.propres.has(s))) releve.toucheStrict += 1;
+      releve.passages.push(essai.gardes.length);
+    }
   }
 }
 
@@ -630,7 +661,10 @@ if (!duelConv.total) {
   console.log('   aucun message exploitable : rien à comparer sur ce terrain\n');
 } else {
   console.log(`   messages rejoués : ${duelConv.total} (${messagesEcartes} écartés : trop courts, ou carte sans vérité de terrain) · longueur médiane ${mediane(duelConv.signes)} signes`);
-  console.log(`   bornes appliquées : celles d’un tour de SUITE — ${PASSAGES_SUITE_MAX} passages au plus, ${PLAFOND_PASSAGES_SUITE_JETONS} jetons, seuil relevé de ${MARGE_SEUIL_SUITE}`);
+  console.log(
+    `   bornes appliquées : celles d’un tour de SUITE — ${PASSAGES_SUITE_MAX} passages au plus, ${PLAFOND_PASSAGES_SUITE_JETONS} jetons,` +
+      ` seuil ${SEUIL_VECTEUR_CONVERSATION} par le SENS (mesuré ici même, section 5 ter) et ${seuilDeSuite(SCORE_MINIMUM).toFixed(2)} par les MOTS (relevé de ${MARGE_SEUIL_SUITE})`,
+  );
   console.log(`   un fichier réellement modifié remonte — par le SENS : ${partConv(duelConv.sens)} · par les MOTS : ${partConv(duelConv.mots)}`);
   console.log(`   en vérité STRICTE — par le SENS : ${partConv(duelConv.sensStrict)} · par les MOTS : ${partConv(duelConv.motsStrict)}`);
   console.log(`   recherches qui ne rendent RIEN — par le SENS : ${partConv(duelConv.sensVides)} · par les MOTS : ${partConv(duelConv.motsVides)}`);
@@ -673,9 +707,20 @@ for (const question of HORS_SUJET) {
     `   « ${question.slice(0, 46)}… » → ${choix.gardes.length} passages retenus, ` +
       `le mieux placé à ${(classes[0]?.score ?? 0).toFixed(2)} : ${choix.gardes[0]?.source ?? '—'}`,
   );
-  /* La même question, jugée par chaque seuil candidat. */
+  /* La même question, jugée par chaque seuil candidat — au LANCEMENT, puis aux
+     bornes du tour de SUITE, qui sont les seules où le mode sens tourne encore. */
   for (const seuil of SEUILS_ESSAYES) {
     balayage.get(seuil).horsSujet.push(choisir(classes, seuil).gardes.length);
+    balayageConv
+      .get(seuil)
+      .horsSujet.push(
+        choisirPassages(classes, {
+          plafond: PLAFOND_PASSAGES_SUITE_JETONS,
+          max: PASSAGES_SUITE_MAX,
+          maxCode: PASSAGES_CODE_MAX,
+          minimum: seuil,
+        }).gardes.length,
+      );
   }
 }
 console.log('');
@@ -734,6 +779,62 @@ console.log(
     : '   → aucun seuil essayé ne tient les deux conditions : la fourchette est à élargir.',
 );
 console.log('');
+
+/* ------------------------------------------------------------------ */
+/* 5 ter. LE MÊME BALAYAGE, SUR LE TERRAIN OÙ LE SEUIL SERT ENCORE     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LE BALAYAGE DU DESSUS MESURE UN TERRAIN QUE LE MODE SENS A QUITTÉ.
+ *
+ * Depuis `SENS_PAR_TERRAIN`, le lancement d'une carte est classé par les MOTS :
+ * `SCORE_MINIMUM_VECTEUR` n'y est plus jamais appliqué. Le seul endroit où il
+ * décide encore de quelque chose, c'est la CONVERSATION — et il y arrive relevé
+ * de `MARGE_SEUIL_SUITE`. Un seuil mesuré sur les cartes, appliqué aux messages,
+ * avec une marge en plus : trois raisons de le remesurer ICI.
+ *
+ * Mêmes trois critères qu'en « 5 bis », mêmes seuils candidats, même vérité de
+ * terrain — mais les messages, les bornes du tour de suite, et le seuil lu tel
+ * qu'il s'applique (marge comprise).
+ */
+console.log('5 ter. LE BALAYAGE DES SEUILS EN CONVERSATION — le seul terrain où le mode sens tourne encore');
+if (!duelConv.total) {
+  console.log('   aucun message exploitable : rien à balayer sur ce terrain\n');
+} else {
+  const referenceConv = balayageConv.get(SEUILS_ESSAYES[0]).touche;
+  const lignesConv = SEUILS_ESSAYES.map((seuil) => {
+    const releve = balayageConv.get(seuil);
+    return {
+      seuil,
+      pertinence: releve.touche / Math.max(1, duelConv.total),
+      pertinenceStricte: releve.toucheStrict / Math.max(1, duelConv.total),
+      perdus: referenceConv - releve.touche,
+      passages: moyenne(releve.passages),
+      vides: releve.vides,
+      horsSujet: Math.max(0, ...releve.horsSujet),
+    };
+  });
+  for (const ligne of lignesConv) {
+    console.log(
+      `   seuil appliqué ${ligne.seuil.toFixed(2)} · bonne page retrouvée ${Math.round(ligne.pertinence * 100)} %` +
+        ` (stricte ${Math.round(ligne.pertinenceStricte * 100)} %, ${ligne.perdus >= 0 ? `${ligne.perdus} message(s) perdu(s)` : `${-ligne.perdus} gagné(s)`})` +
+        ` · ${ligne.passages.toFixed(1)} passages servis · ${ligne.vides} tour(s) sans rien` +
+        ` · hors sujet : ${ligne.horsSujet} passage(s)`,
+    );
+  }
+  const tenables = lignesConv.filter((l) => l.perdus <= 0 && l.horsSujet === 0);
+  const premierConv = tenables[0];
+  const recommandeConv = tenables[tenables.length - 1];
+  const enPlace = SEUIL_VECTEUR_CONVERSATION;
+  console.log(
+    recommandeConv
+      ? `   → sans perdre un seul message, le seuil appliqué tient de ${premierConv.seuil.toFixed(2)}` +
+          ` à ${recommandeConv.seuil.toFixed(2)} · VALEUR RETENUE : ${recommandeConv.seuil.toFixed(2)}, la plus haute à coût nul` +
+          ` (seuil appliqué aujourd’hui : ${enPlace.toFixed(2)})`
+      : `   → aucun seuil essayé ne tient les deux conditions sur ce terrain (seuil appliqué aujourd’hui : ${enPlace.toFixed(2)}).`,
+  );
+  console.log('');
+}
 
 /* ------------------------------------------------------------------ */
 /* 6. Ce que coûte la recherche elle-même                              */

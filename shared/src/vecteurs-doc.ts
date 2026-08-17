@@ -390,6 +390,43 @@ export const POIDS_MOTS_VECTEUR = 0.3;
  */
 export const SCORE_MINIMUM_VECTEUR = 0.38;
 
+/**
+ * LE SEUIL DU MODE SENS EN CONVERSATION — MESURÉ SUR SON PROPRE TERRAIN.
+ *
+ * `SCORE_MINIMUM_VECTEUR` a été balayé sur 120 CARTES. Or depuis
+ * `SENS_PAR_TERRAIN`, le lancement d'une carte est classé par les MOTS : ce
+ * seuil-là n'y est plus jamais appliqué. Le SEUL endroit où il décidait encore
+ * de quelque chose, c'est la CONVERSATION — et il y arrivait relevé de
+ * `MARGE_SEUIL_SUITE`, soit 0,44. Une valeur mesurée là où elle ne sert plus,
+ * plus une marge, appliquée là où elle n'a jamais été mesurée.
+ *
+ * Le balayage a donc été refait SUR LES MESSAGES (section « 5 ter » de
+ * `scripts/audit-memoire-rag.mjs`), sur 67 vrais messages d'utilisateur, aux
+ * bornes du tour de suite, avec la même vérité de terrain venue de git.
+ * Relevé du 18/08/2026 — le seuil est lu tel qu'il s'APPLIQUE, marge comprise :
+ *
+ *   seuil   bonne page retrouvée   passages servis   tours sans rien   hors sujet
+ *   0,34         27 % (18/67)            2,6               0               0
+ *   0,42         27 % (18/67)            2,1               0               0
+ *   0,44         22 % (15/67)            1,9               3               0
+ *   0,50         18 % (12/67)            1,3              14               0
+ *
+ * De 0,34 à 0,42, la pertinence ne bouge pas d'un message et rien de hors sujet
+ * ne passe ; à 0,44 — la valeur qui s'appliquait —, trois messages perdent leur
+ * page et trois tours repartent les mains vides, pour aucun gain. On retient
+ * donc la plus haute valeur à coût nul : 0,42.
+ *
+ * C'est aussi ce que le modèle permet. Une question REFORMULÉE qui ne partage
+ * AUCUN mot avec sa règle n'a pas de part « mots exacts » : son score plafonne
+ * à `POIDS_SENS_VECTEUR × cosinus + BONUS_PRIORITE`, et bge-m3 rend 0,55 à 0,59
+ * sur une vraie reformulation — soit 0,42 à 0,45. Un seuil à 0,44 interdisait
+ * donc, en pratique, ce que le mode sens existe pour faire.
+ *
+ * Refaire la mesure avant de retoucher ce nombre :
+ *   node scripts/audit-memoire-rag.mjs --cartes=120 --messages=120
+ */
+export const SEUIL_VECTEUR_CONVERSATION = 0.42;
+
 /* ------------------------------------------------------------------ */
 /* LE RENDEZ-VOUS DE LA NUIT                                           */
 /* ------------------------------------------------------------------ */

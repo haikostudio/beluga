@@ -19,6 +19,7 @@ import {
   POIDS_SENS_VECTEUR,
   PRIORITE,
   SCORE_MINIMUM_VECTEUR,
+  SEUIL_VECTEUR_CONVERSATION,
   PROFONDEUR_CODE_MAX,
   SIGNES_MAX_PAR_FICHIER,
   DOSSIERS_HORS_INDEX,
@@ -971,7 +972,15 @@ export async function rechercherPourLaSuite(
     const choix = choisirPassages(candidats, {
       plafond: PLAFOND_PASSAGES_SUITE_JETONS,
       max: PASSAGES_SUITE_MAX,
-      minimum: seuilDeSuite(classement.mode.vecteurs ? SCORE_MINIMUM_VECTEUR : SCORE_MINIMUM),
+      /*
+       * EN MODE SENS, LE SEUIL EST CELUI QU'ON A MESURÉ ICI — pas celui des
+       * cartes relevé d'un cran. `SCORE_MINIMUM_VECTEUR` a été balayé sur 120
+       * cartes, terrain que le mode sens a depuis quitté ; la marge de suite
+       * l'y poussait à 0,44, où trois messages sur 67 perdaient leur page pour
+       * aucun gain. `SEUIL_VECTEUR_CONVERSATION` est balayé sur les MESSAGES.
+       * Par les MOTS, rien ne change : la marge reste ce qu'elle était.
+       */
+      minimum: classement.mode.vecteurs ? SEUIL_VECTEUR_CONVERSATION : seuilDeSuite(SCORE_MINIMUM),
       maxCode: PASSAGES_CODE_MAX,
     });
     if (!choix.gardes.length) return undefined;
