@@ -359,7 +359,7 @@ export function QuotaBar({
             <DropdownMenuItem key={item.id} onSelect={() => setTheme(item.id)} data-theme-choix={item.id}>
               {item.id === 'systeme' ? (
                 <MonitorCog className="h-3.5 w-3.5" />
-              ) : item.id === 'clair' || item.id === 'sable' ? (
+              ) : item.clarte === 'clair' ? (
                 <Sun className="h-3.5 w-3.5" />
               ) : (
                 <Moon className="h-3.5 w-3.5" />
