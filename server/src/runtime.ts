@@ -3334,6 +3334,32 @@ function direLeBlocage(agentId: string, raison: string): void {
   }
 }
 
+/**
+ * DIRE QUELQUE CHOSE DANS LA CONVERSATION D'UN AGENT — sans que ce soit une
+ * panne.
+ *
+ * `direLeBlocage` pose un message d'ERREUR, et se tait quand une réponse est
+ * déjà là. Ce n'est pas ce qu'il faut pour annoncer un travail SAUVÉ : ce n'est
+ * pas un incident, et cela doit se dire même après une réponse rendue — c'est
+ * justement la dernière chose écrite dans un fil qu'on vient de couper.
+ */
+export function annoncerDansLaConversation(agentId: string, texte: string): void {
+  try {
+    const message = store.saveMessage(
+      Message.parse({
+        id: store.newId(),
+        agentId,
+        role: 'assistant',
+        content: texte,
+        createdAt: store.now(),
+      }),
+    );
+    bus.emit({ type: 'message.upsert', message });
+  } catch (err) {
+    log.warn(`annonce non écrite (agent ${agentId}) : ${(err as Error).message}`);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Consignes de rôle                                                   */
 /* ------------------------------------------------------------------ */

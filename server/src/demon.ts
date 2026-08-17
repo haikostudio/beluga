@@ -4,6 +4,8 @@ import {
   EtatDemon,
   MESSAGE_REDEMARRAGE_FORCE,
   cheminDossierDeCarte,
+  messageDuTravailSauve,
+  nomDeBranche,
   decisionSurSignalDArret,
   raisonSignalRetenu,
   redemarrageNecessaire,
@@ -93,6 +95,9 @@ export function diffuserEtatDemon(force = false): void {
  */
 let redemarrageEnAttente = false;
 
+/** Ce qui est écrit en tête du message posé dans la conversation de l'agent coupé. */
+const MOTIF_REDEMARRAGE_FORCE = 'Redémarrage forcé du serveur';
+
 /** Un redémarrage demandé attend-il la fin d'une publication ? */
 export function redemarrageEstEnAttente(): boolean {
   return redemarrageEnAttente;
@@ -173,8 +178,23 @@ async function sauverPuisToutArreter(): Promise<void> {
     if (!carte || !projet) continue;
     try {
       const dossier = cheminDossierDeCarte(projet.path, carte.title, carte.id);
+      /*
+       * On relève CE QUI traîne avant de l'enregistrer : après le geste, le
+       * dossier est propre et ne dit plus rien. C'est cette liste qui part dans
+       * la conversation — un « votre travail est sauvegardé » sans dire quoi ni
+       * où n'apprend rien à celui qui vient de perdre son agent.
+       */
+      const fichiers = await dossierDeCarte.fichiersNonEnregistres(dossier);
       const enregistre = await dossierDeCarte.enregistrerLeTravailEnCours(dossier);
       if (enregistre) log.info(`travail de la carte « ${carte.title} » enregistré avant le redémarrage forcé`);
+      runtime.annoncerDansLaConversation(
+        agentId,
+        messageDuTravailSauve({
+          fichiers: enregistre ? fichiers : [],
+          branche: nomDeBranche(carte.title, carte.id),
+          motif: MOTIF_REDEMARRAGE_FORCE,
+        }),
+      );
     } catch (err) {
       log.warn(`travail de la carte « ${carte.title} » impossible à enregistrer avant le redémarrage forcé`, err);
     }

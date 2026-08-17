@@ -12,6 +12,8 @@ import {
   DELAI_CONFIRMATION_ARRET_MS,
   DELAI_COUP_DE_GRACE_MS,
   bilanDesArrets,
+  messageDuTravailSauve,
+  FICHIERS_SAUVES_MONTRES_MAX,
 } from '@haikodev/shared';
 
 test('un moteur en marche se coupe, comme avant', () => {
@@ -149,4 +151,47 @@ test('un bouton qui n’a rien trouvé le DIT, au lieu d’annoncer une réussit
   const bilan = bilanDesArrets([]);
   assert.equal(bilan.total, 0);
   assert.match(bilan.message, /rien à arrêter/i);
+});
+
+/*
+ * CE QUI A ÉTÉ SAUVÉ AVANT LA COUPURE SE DIT DANS LA CONVERSATION — c'est la
+ * dernière chose écrite dans un fil qu'on vient de couper.
+ */
+
+test('le message nomme les fichiers sauvés ET la branche où les retrouver', () => {
+  const texte = messageDuTravailSauve({
+    fichiers: ['server/src/runtime.ts', 'web/src/app.tsx'],
+    branche: 'tache/refonte-1234',
+    motif: 'Redémarrage forcé du serveur',
+  });
+  assert.match(texte, /Redémarrage forcé du serveur/);
+  assert.match(texte, /tache\/refonte-1234/);
+  assert.match(texte, /2 fichiers/);
+  assert.match(texte, /- server\/src\/runtime\.ts/);
+  assert.match(texte, /- web\/src\/app\.tsx/);
+  // Sauver n'est pas publier : la distinction doit rester lisible.
+  assert.match(texte, /rien n’est publié/i);
+});
+
+test('une longue liste se coupe et DIT combien reste', () => {
+  const fichiers = Array.from({ length: FICHIERS_SAUVES_MONTRES_MAX + 3 }, (_, i) => `fichier-${i}.ts`);
+  const texte = messageDuTravailSauve({ fichiers, branche: 'tache/x-1' });
+  assert.match(texte, /et 3 autres fichiers/);
+  assert.match(texte, new RegExp(`${FICHIERS_SAUVES_MONTRES_MAX + 3} fichiers`));
+});
+
+test('rien à sauver se dit aussi, et ne se confond pas avec un travail perdu', () => {
+  const texte = messageDuTravailSauve({ fichiers: [], branche: 'tache/x-1' });
+  assert.match(texte, /rien à enregistrer/i);
+  assert.match(texte, /y était déjà/);
+});
+
+test('sans branche connue, le message reste vrai au lieu d’inventer un nom', () => {
+  const texte = messageDuTravailSauve({ fichiers: ['a.ts'] });
+  assert.match(texte, /la branche de cette carte/);
+  assert.doesNotMatch(texte, /undefined/);
+});
+
+test('un seul fichier se dit au singulier', () => {
+  assert.match(messageDuTravailSauve({ fichiers: ['a.ts'] }), /1 fichier\./);
 });

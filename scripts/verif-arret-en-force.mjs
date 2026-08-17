@@ -36,7 +36,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.HAIKODEV_ARRET_PORT || 7196);
@@ -180,10 +180,20 @@ async function attendre(condition, limiteMs = 20000, pasMs = 300) {
   return false;
 }
 
+const { cheminDossierDeCarte, nomDeBranche } = await import(
+  pathToFileURL(path.join(RACINE, 'shared', 'dist', 'index.js')).href
+);
+
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const jeton = crypto.randomBytes(32).toString('hex');
 const PROJET_ID = 'p-essai';
 const AGENTS = ['ag-un', 'ag-deux'];
+/* Le troisième porte une CARTE, une branche et une copie de travail : c'est le
+   seul qui a du travail à sauver avant la coupure. */
+const AGENT_CARTE = 'ag-carte';
+const CARTE_ID = 'c-essai';
+const CARTE_TITRE = 'Carte coupée en vol';
+const FICHIER_EN_COURS = 'travail-en-cours.txt';
 
 function poserLeDecor() {
   const db = new Database(path.join(DATA, 'haikodev.db'));
@@ -227,6 +237,41 @@ function poserLeDecor() {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(id, PROJET_ID, null, 'orchestrator', 'idle', JSON.stringify(agent), maintenant, maintenant);
   }
+
+  /*
+   * LA CARTE QUI A DU TRAVAIL À SAUVER. Sa copie de travail est un VRAI
+   * `git worktree` sur une VRAIE branche, avec un fichier écrit et pas encore
+   * enregistré — exactement l'état d'un agent qu'on coupe en plein vol.
+   */
+  const carte = {
+    id: CARTE_ID,
+    projectId: PROJET_ID,
+    title: CARTE_TITRE,
+    description: 'Une carte dont le travail ne doit pas se perdre.',
+    column: 'running',
+    createdAt: maintenant,
+    updatedAt: maintenant,
+  };
+  db.prepare(
+    `INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(carte.id, PROJET_ID, 'running', 1, carte.title, JSON.stringify(carte), maintenant, maintenant);
+
+  const agentDeCarte = {
+    id: AGENT_CARTE,
+    projectId: PROJET_ID,
+    cardId: CARTE_ID,
+    role: 'task',
+    title: CARTE_TITRE,
+    run: { engine: 'claude', thinking: 'none', mode: 'direct' },
+    status: 'idle',
+    createdAt: maintenant,
+    updatedAt: maintenant,
+  };
+  db.prepare(
+    `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(AGENT_CARTE, PROJET_ID, CARTE_ID, 'task', 'idle', JSON.stringify(agentDeCarte), maintenant, maintenant);
 
   db.prepare('INSERT INTO accounts (id, engine, data, updated_at) VALUES (?, ?, ?, ?)').run(
     'compte-essai',
@@ -277,6 +322,12 @@ async function main() {
     process.exit(1);
   }
   poserLeDecor();
+
+  /* La copie de travail de la carte, avec du travail NON enregistré dedans. */
+  const COPIE = cheminDossierDeCarte(DEPOT, CARTE_TITRE, CARTE_ID);
+  const BRANCHE = nomDeBranche(CARTE_TITRE, CARTE_ID);
+  execFileSync('git', ['worktree', 'add', '-q', '-b', BRANCHE, COPIE], { cwd: DEPOT });
+  fs.writeFileSync(path.join(COPIE, FICHIER_EN_COURS), 'du travail que personne ne doit perdre\n');
 
   /* ---------------- 1. Le bouton d'arrêt D'UN agent ---------------- */
 
@@ -363,6 +414,12 @@ async function main() {
   noter('et il dit pourquoi', /agent/i.test(ordinaire.data?.raison ?? ''), ordinaire.data?.raison ?? '(aucune)');
   noter('le serveur n’a PAS quitté', !sorti);
 
+  /*
+   * L'agent de la CARTE part lui aussi : c'est son travail non enregistré qui
+   * doit être sauvé — et DIT dans sa conversation — avant la coupure.
+   */
+  await lancerUnTour(AGENT_CARTE, moteursLances().length + 1);
+
   const force = await commande({ type: 'daemon.restart', force: true });
   noter('le redémarrage FORCÉ est accepté', force.data?.ok === true, JSON.stringify(force.data ?? {}));
 
@@ -374,6 +431,36 @@ async function main() {
     'le moteur qui le retenait ne lui survit pas',
     tenaceParti,
     tenace ? `moteur ${tenace.moteur}` : '(aucun)',
+  );
+
+  /* ------- Le travail sauvé, et DIT dans la conversation de l'agent ------- */
+
+  const surLaBranche = execFileSync('git', ['show', '--name-only', '--format=%s', BRANCHE], {
+    cwd: DEPOT,
+    encoding: 'utf8',
+  });
+  noter(
+    'le travail non enregistré de la carte est bien sauvé sur SA branche avant la coupure',
+    surLaBranche.includes(FICHIER_EN_COURS),
+    surLaBranche.split('\n').slice(0, 2).join(' · '),
+  );
+
+  const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
+  const dits = db
+    .prepare('SELECT data FROM messages WHERE agent_id = ?')
+    .all(AGENT_CARTE)
+    .map((ligne) => JSON.parse(ligne.data).content ?? '');
+  db.close();
+  const annonce = dits.find((texte) => texte.includes(FICHIER_EN_COURS));
+  noter(
+    'et la CONVERSATION de l’agent dit ce qui a été enregistré, fichier par fichier',
+    !!annonce,
+    (annonce ?? dits.join(' | ')).slice(0, 140),
+  );
+  noter(
+    'elle nomme aussi la branche où le retrouver',
+    !!annonce && annonce.includes(BRANCHE),
+    BRANCHE,
   );
 
   /* ---------------- Le refus de sûreté ---------------- */
