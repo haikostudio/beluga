@@ -37,6 +37,28 @@ function imageDeLAlerte(motif) {
   return nom ? `/notif/${nom}.png` : '/icon-192.png';
 }
 
+/**
+ * La COLONNE dont l'alerte parle : son personnage sert alors d'avatar, en rond.
+ * Table recopiée de `shared/src/personnages-colonnes.ts`, pour la même raison
+ * que celle des icônes — un service worker ne partage rien avec l'application.
+ * Un motif qui ne se passe dans aucune colonne (quota, redémarrage) n'y figure
+ * pas : il garde l'image de son genre plutôt qu'un visage pris au hasard.
+ */
+const PERSONNAGES = {
+  'tache-terminee': 'done',
+  'travail-sans-carte': 'done',
+  'liste-taches': 'done',
+  'tache-echec': 'running',
+  'decision-attendue': 'running',
+  'publication-terminee': 'in_production',
+  'publication-echec': 'to_deploy',
+};
+
+function avatarDeLAlerte(motif) {
+  const colonne = PERSONNAGES[motif];
+  return colonne ? `/personnages/${colonne}-rond.png` : imageDeLAlerte(motif);
+}
+
 self.addEventListener('install', (event) => {
   // On ne fait pas la queue derrière l'ancienne version : elle sert du périmé.
   self.skipWaiting();
@@ -82,7 +104,7 @@ self.addEventListener('push', (event) => {
       // Même étiquette = une seule notification affichée, pas une avalanche.
       tag: payload.tag || 'haikodev',
       renotify: true,
-      icon: imageDeLAlerte(payload.motif),
+      icon: avatarDeLAlerte(payload.motif),
       // La pastille est minuscule et monochrome : l'icône de l'application y
       // reste plus lisible qu'un dessin de plus.
       badge: '/icon-192.png',

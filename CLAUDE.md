@@ -962,6 +962,16 @@ le nom, là-bas le texte).
 
 ### Interface et code
 
+- **CHAQUE COLONNE A SON PERSONNAGE, DÉTOURÉ** (`shared/src/personnages-colonnes.ts` ; images dans
+  `web/public/personnages/`, refaites par `scripts/personnages-colonnes.py`) : sept personnages en
+  pâte à modeler sur fond TRANSPARENT, en DEUX découpes — la SILHOUETTE entière en tête de colonne
+  (boîte de proportion fixe, elle dépasse d'un cheveu en haut et à gauche, le libellé se décalant
+  d'autant), le PORTRAIT rond dans les notifications, où l'alerte porte le visage de SA colonne
+  (`avatarDeLAlerte` ; un motif sans colonne — quota, redémarrage — garde l'image de son genre). La
+  colonne compte donc DEUX enveloppes : `data-column`, le cadre et le fond restent sur l'extérieure
+  (`offsetLeft`, couleur de colonne), seule la découpe descend d'un cran, et l'image ne prend AUCUN
+  clic (le dépôt d'une carte vise `closest('[data-column]')`). Verrouillé par
+  `server/src/test/personnages-colonnes.test.ts` et `scripts/verif-personnages-colonnes.mjs`.
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
   `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de
