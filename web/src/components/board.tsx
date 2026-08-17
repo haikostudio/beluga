@@ -2099,7 +2099,7 @@ export function CardTile({
           // copier le titre d'une carte, et ce qui est marqué
           // `data-carte-texte` le repasse en `select-text`.
           'relative z-10 cursor-pointer touch-manipulation select-none rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint',
-          (statut || travailActuel) && 'rounded-b-none',
+          (statut || travailActuel || restant) && 'rounded-b-none',
         )}
       >
         {/*
@@ -2280,39 +2280,6 @@ export function CardTile({
         ) : null}
 
         {/*
-         * CE QUI TOURNE ENCORE, écrit en toutes lettres. Une carte de « En
-         * cours » ne peut plus rester muette : l'étape, depuis quand, et ce
-         * qu'on attend. Le ton suit la nature — orange quand VOUS êtes
-         * attendu, la couleur des travaux en cours quand ça travaille, gris
-         * pâle pour le reste. La phrase est tronquée à l'écran, jamais dans
-         * l'infobulle.
-         */}
-        {restant ? (
-          <div
-            title={phraseDuTravailRestant(restant)}
-            className={cn(
-              'mt-1.5 flex items-start gap-1.5 rounded px-1.5 py-1 text-[12px] leading-snug',
-              restant.nature === 'question'
-                ? 'border border-warning/30 bg-warning/10 text-warning'
-                : restant.nature === 'travaille'
-                  ? 'border border-en-cours/30 bg-en-cours/10 text-en-cours'
-                  : 'text-faint',
-            )}
-          >
-            {restant.nature === 'question' ? (
-              <MessageSquare className="mt-[2px] h-3 w-3 shrink-0" />
-            ) : restant.nature === 'travaille' ? (
-              <Loader2 className="mt-[2px] h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />
-            ) : (
-              <Clock className="mt-[2px] h-3 w-3 shrink-0" />
-            )}
-            <span className="min-w-0 truncate" data-travail-restant={card.id}>
-              {phraseDuTravailRestant(restant)}
-            </span>
-          </div>
-        ) : null}
-
-        {/*
          * Une carte ressortie d'« Archivé » ne fait pas semblant de n'y être
          * jamais allée : elle porte la date de son passage, en gris pâle. Dans
          * la colonne « Archivé » elle-même, la mention ne s'affiche pas — la
@@ -2391,6 +2358,35 @@ export function CardTile({
             alterner
           />
         </div>
+      ) : restant ? (
+        /*
+         * CE QUI TOURNE ENCORE, quand ni la roue de l'agent ni une autre
+         * mention ne le disent déjà — le rangement d'un tour fini, ou
+         * l'anomalie « plus personne » que l'ordonnanceur corrige sous
+         * quinze secondes. Sans agent actif, `travailActuel` est vide et la
+         * carte resterait muette : ce même bandeau prend le relais, avec la
+         * MÊME phrase que portait l'ancien encadré à l'intérieur de la carte.
+         */
+        <Tooltip label={phraseDuTravailRestant(restant)}>
+          <div
+            onClick={ouvrir}
+            data-travail-restant={card.id}
+            className={cn(
+              'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-bandeau-etape px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
+              'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
+              restant.nature === 'question' ? 'text-warning' : 'text-faint',
+            )}
+          >
+            <span className="flex items-center gap-1">
+              {restant.nature === 'question' ? (
+                <MessageSquare className="h-3 w-3 shrink-0" />
+              ) : (
+                <Clock className="h-3 w-3 shrink-0" />
+              )}
+              <span className="min-w-0 flex-1 truncate">{phraseDuTravailRestant(restant)}</span>
+            </span>
+          </div>
+        </Tooltip>
       ) : null}
     </div>
   );
