@@ -39,7 +39,7 @@ const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { fichiersRemues, repereAvant, traceDuTravailDuTour } = await import(
   path.join(RACINE, 'server/dist/hors-tache.js')
 );
-const { issueDeFinDeTour, natureDeLaMention, RAISON_SANS_MODIFICATION, RAISON_TRAVAIL_HORS_COPIE } =
+const { issueDeFinDeTour, natureDeLaMention, RAISON_RENDU_SANS_CODE, RAISON_TRAVAIL_HORS_COPIE } =
   await import(path.join(RACINE, 'shared/dist/index.js'));
 
 const echecs = [];
@@ -87,9 +87,9 @@ console.log('\n1. L’agent sort de sa copie et écrit dans le dossier du projet
 
   const issue = issueDeFinDeTour('running', true, 'task', trace, false);
   verifier(issue.raison === RAISON_TRAVAIL_HORS_COPIE, 'la carte porte la phrase du travail fait hors de sa copie');
-  verifier(issue.raison !== RAISON_SANS_MODIFICATION, 'elle ne dit PLUS « aucun fichier n’a changé »');
-  verifier(issue.colonne === 'planned' && issue.retenue, 'elle revient en « Planifié », retenue — rien à livrer sur sa branche');
-  verifier(natureDeLaMention(issue.raison) === 'attente', 'la phrase reste une attente, donc en jaune');
+  verifier(issue.raison !== RAISON_RENDU_SANS_CODE, 'elle ne dit PLUS « aucun fichier n’a changé »');
+  verifier(issue.colonne === 'done', 'le rapport est rendu : la carte se ferme');
+  verifier(natureDeLaMention(issue.raison) === 'attente', 'mais la phrase reste une attente — le travail est à récupérer');
 }
 
 /* ------------------------------------------------------------------ */
@@ -113,13 +113,15 @@ console.log('\n3. Le travail rangé dans la copie de la carte reste la première
 }
 
 /* ------------------------------------------------------------------ */
-console.log('\n4. Rien nulle part se dit toujours « rien n’a changé »');
+console.log('\n4. Rien nulle part : la carte se ferme en disant qu’elle n’a rien livré');
 {
   const { projet, copie } = depotJetable('rien');
   const trace = await constater(projet, copie, () => {});
   verifier(trace === 'non', `aucun des deux dossiers n’a bougé (rendu : « ${trace} »)`);
   const issue = issueDeFinDeTour('running', true, 'task', trace, false);
-  verifier(issue.raison === RAISON_SANS_MODIFICATION, 'la phrase d’origine est intacte');
+  verifier(issue.raison === RAISON_RENDU_SANS_CODE, 'la carte dit son rapport rendu ET l’absence de code');
+  verifier(issue.colonne === 'done', 'et elle ne reste pas coincée en « En cours »');
+  verifier(natureDeLaMention(issue.raison) === 'information', 'un constat, ni alerte ni promesse de livraison');
 }
 
 /* ------------------------------------------------------------------ */

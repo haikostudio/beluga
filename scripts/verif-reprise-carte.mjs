@@ -341,9 +341,16 @@ const reperes = await page.evaluate(() => {
 verifier(reperes[TITRE_REPRISE] === true, 'la carte coupée porte le repère « reprise » sur le tableau');
 verifier(reperes[TITRE_NEUVE] === false, 'la carte jamais lancée ne le porte pas');
 
+/*
+ * Le pied se cherche par son TEXTE, jamais par sa place dans l'arbre : depuis
+ * que le personnage de la colonne impose DEUX enveloppes, `lastElementChild`
+ * de `[data-column]` n'est plus le pied mais la boîte intérieure — et le
+ * premier bouton qu'on y trouvait était une icône sans texte.
+ */
 const piedPlanifie = await page.evaluate(() => {
   const col = document.querySelector('[data-column="planned"]');
-  return col?.lastElementChild?.querySelector('button')?.textContent?.trim() ?? '';
+  const boutons = [...(col?.querySelectorAll('button') ?? [])].map((b) => b.textContent?.trim() ?? '');
+  return boutons.find((t) => /^Tout /.test(t)) ?? '';
 });
 verifier(
   piedPlanifie.includes('Tout lancer'),
