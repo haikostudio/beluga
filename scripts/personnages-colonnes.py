@@ -29,6 +29,7 @@ fond blanc uni, avec son ombre douce) :
 Usage :
     python3 scripts/personnages-colonnes.py [dossier-des-images-brutes]
     python3 scripts/personnages-colonnes.py --une <colonne> <image> <dossier-de-sortie>
+    python3 scripts/personnages-colonnes.py --anime <colonne> <gif> <dossier-de-sortie>
 
 Sans argument, il lit les pièces jointes du projet (`data/attachments`) et prend,
 pour chaque colonne, le fichier le PLUS RÉCENT dont le nom finit par le nom
@@ -41,6 +42,17 @@ les deux découpes sont exactement les mêmes que pour les sept d'origine — il
 a qu'une seule fabrique, sinon un personnage déposé à la main aurait un cadrage
 et une taille à lui. Elle rend 0 si tout s'est bien passé, et écrit sur la
 sortie d'erreur une phrase EN CLAIR sinon (l'appelant la montre telle quelle).
+
+La forme `--anime` fabrique la TROISIÈME découpe d'un personnage : sa boucle
+animée, à partir d'un GIF où le même personnage RÉPÈTE un geste de travail.
+Chaque image du GIF passe par le MÊME détourage que les images fixes, mais la
+mise en boîte est commune à toutes (`boite_commune`) : recadrer chaque image au
+plus juste ferait sautiller le personnage d'une image à l'autre, exactement
+l'inverse du geste calme qu'on veut voir. La sortie est un WebP ANIMÉ et non un
+GIF : le GIF ne connaît qu'une transparence tout-ou-rien, qui redonnerait au
+personnage détouré le contour en escalier que l'alpha progressif évite — et il
+pèse plusieurs fois plus lourd, alors que cette image part à chaque affichage du
+tableau.
 """
 
 from __future__ import annotations
@@ -49,7 +61,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageSequence
 
 RACINE = Path(__file__).resolve().parent.parent
 SORTIE = RACINE / 'web' / 'public' / 'personnages'
@@ -276,6 +288,92 @@ def portrait(image: Image.Image, part: float) -> Image.Image:
     return toile
 
 
+def boite_commune(images: list[Image.Image]) -> tuple[int, int, int, int]:
+    """
+    LA MÊME BOÎTE POUR TOUTES LES IMAGES d'une boucle : l'union de leurs boîtes.
+    Un personnage qui pioche change de hauteur et de largeur à chaque image (bras
+    levé, dos courbé) ; recadrer chacune au plus juste le ferait grandir et
+    rétrécir sur place, un tremblement là où l'on attend un geste. On prend donc
+    l'enveloppe de tout le mouvement, et chaque image y garde sa place exacte.
+    """
+    boites = [boite(image) for image in images]
+    return (
+        min(b[0] for b in boites),
+        min(b[1] for b in boites),
+        max(b[2] for b in boites),
+        max(b[3] for b in boites),
+    )
+
+
+def boucle(images: list[Image.Image]) -> list[Image.Image]:
+    """
+    Les images d'une boucle animée, mises dans la boîte de la silhouette — même
+    proportion, même échelle et même appui au sol que les personnages fixes, de
+    sorte que l'interface les pose au même endroit sans rien mesurer.
+    """
+    cadre = boite_commune(images)
+    largeur, hauteur = cadre[2] - cadre[0], cadre[3] - cadre[1]
+    echelle = min(SILHOUETTE_L / largeur, SILHOUETTE_H / hauteur)
+    taille = (max(1, round(largeur * echelle)), max(1, round(hauteur * echelle)))
+    posees: list[Image.Image] = []
+    for image in images:
+        reduit = image.crop(cadre).resize(taille, Image.LANCZOS)
+        toile = Image.new('RGBA', (SILHOUETTE_L, SILHOUETTE_H), (0, 0, 0, 0))
+        toile.alpha_composite(reduit, ((SILHOUETTE_L - taille[0]) // 2, SILHOUETTE_H - taille[1]))
+        posees.append(toile)
+    return posees
+
+
+def fabriquer_anime(colonne: str, source: Path, sortie: Path) -> None:
+    """
+    La boucle animée d'UN personnage, écrite dans `sortie`. Comme `fabriquer`,
+    elle lève une exception dont le MESSAGE est destiné à être lu par un humain.
+    """
+    try:
+        anime = Image.open(source)
+        anime.load()
+    except Exception:
+        raise ValueError("Ce fichier n'a pas pu être ouvert comme une image animée.")
+
+    durees: list[int] = []
+    detourees: list[Image.Image] = []
+    for image in ImageSequence.Iterator(anime):
+        # Le FILIGRANE d'un site de montage — « imgflip.com » posé dans un coin —
+        # n'a pas à être traité à part : il ne touche pas le personnage, donc le
+        # détourage le laisse en ÎLOT, et `sans_les_ilots` l'emporte avec les
+        # autres. Les quelques éclats de pierre détachés du geste partent de la
+        # même façon : à la taille d'une tête de colonne, ils ne pèseraient pas
+        # un pixel.
+        durees.append(int(image.info.get('duration') or anime.info.get('duration') or 100))
+        detourees.append(detourer(image.convert('RGB')))
+
+    if len(detourees) < 2:
+        raise ValueError("Cette image n'est pas animée : il faut un GIF (ou un WebP) de plusieurs images.")
+    if not all((np.asarray(image)[:, :, 3] > 24).any() for image in detourees):
+        raise ValueError(
+            "Le personnage n'a pas été retrouvé sur toutes les images : il faut un sujet posé sur un fond clair et uni."
+        )
+
+    posees = boucle(detourees)
+    sortie.mkdir(parents=True, exist_ok=True)
+    posees[0].save(
+        sortie / f'{colonne}-anime.webp',
+        save_all=True,
+        append_images=posees[1:],
+        duration=durees,
+        loop=0,
+        # Avec une perte MESURÉE, et un canal alpha gardé INTACT : cette image
+        # part à chaque affichage du tableau. Relevé sur le mineur de « En
+        # cours » — huit images : 138 Ko sans perte, 58 Ko ici, 51 Ko à 70 où le
+        # dégradé de la pâte à modeler commence à se marbrer. Le CONTOUR, lui,
+        # ne se négocie pas (`alpha_quality`) : c'est lui qui tient le détourage
+        # sur un thème sombre.
+        quality=82,
+        alpha_quality=100,
+        method=6,
+    )
+
+
 def sources(dossier: Path) -> dict[str, Path]:
     """Pour chaque colonne, l'image la plus récente qui porte son nom."""
     trouve: dict[str, Path] = {}
@@ -315,16 +413,17 @@ def fabriquer(colonne: str, source: Path, sortie: Path) -> None:
     portrait(detoure, CADRAGES.get(colonne, 0.60)).save(sortie / f'{colonne}-rond.png', optimize=True)
 
 
-def une_seule(arguments: list[str]) -> int:
+def une_seule(arguments: list[str], anime: bool = False) -> int:
+    drapeau = '--anime' if anime else '--une'
     if len(arguments) != 3:
-        print('Usage : --une <colonne> <image> <dossier-de-sortie>', file=sys.stderr)
+        print(f'Usage : {drapeau} <colonne> <image> <dossier-de-sortie>', file=sys.stderr)
         return 2
     colonne, source, sortie = arguments[0], Path(arguments[1]), Path(arguments[2])
     if colonne not in COLONNES.values():
         print(f"« {colonne} » n'est pas une colonne du tableau.", file=sys.stderr)
         return 2
     try:
-        fabriquer(colonne, source, sortie)
+        (fabriquer_anime if anime else fabriquer)(colonne, source, sortie)
     except ValueError as souci:
         print(str(souci), file=sys.stderr)
         return 1
@@ -335,6 +434,8 @@ def une_seule(arguments: list[str]) -> int:
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == '--une':
         return une_seule(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == '--anime':
+        return une_seule(sys.argv[2:], anime=True)
 
     dossier = Path(sys.argv[1]) if len(sys.argv) > 1 else RACINE.parent / 'data' / 'attachments'
     if not dossier.is_dir():

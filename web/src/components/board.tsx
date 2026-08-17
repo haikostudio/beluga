@@ -37,7 +37,9 @@ import {
   phraseDepartProgramme,
   RAISON_ATTENTE_LANCEMENT,
   imageDuPersonnage,
-  personnageEnMouvement,
+  animeDuPersonnage,
+  gesteDuPersonnage,
+  COLONNES_ANIMEES,
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
@@ -74,6 +76,7 @@ import { readPref, writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
 import { useSurvol } from '@/lib/pointeur';
+import { useAnimationsReduites } from '@/lib/animations-reduites';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
 import { DeployPanel, BoutonInfosPublication, InfosPublication } from '@/components/deploy-panel';
@@ -380,6 +383,20 @@ export function Board({
     return index;
   }, [state.agents]);
   const agentTacheActif = (card: Card) => agentsTacheParCarte.get(card.id);
+
+  /*
+   * Le geste du personnage se décide plus bas, colonne par colonne ; ce qu'il
+   * faut savoir de l'ÉCRAN se lit une seule fois ici. Et la boucle animée est
+   * DEMANDÉE D'AVANCE : sans cela, le premier coup de pioche attendrait le
+   * réseau, et la tête de colonne resterait vide juste au moment où l'on veut
+   * voir que ça démarre. Une image demandée et jamais montrée ne coûte que son
+   * entrée dans le cache du navigateur.
+   */
+  const animationsReduites = useAnimationsReduites();
+  React.useEffect(() => {
+    if (animationsReduites) return;
+    for (const colonne of COLONNES_ANIMEES) new Image().src = animeDuPersonnage(colonne);
+  }, [animationsReduites]);
   const avancementDeCesCartes = (cartes: Card[]) =>
     avancementDeLaColonne(
       cartes.map((card) => {
@@ -1112,14 +1129,18 @@ export function Board({
         const action = actionDeLot(column, columnCards);
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
         /*
-         * LE PERSONNAGE BOUGE-T-IL ? On compte les cartes de CETTE colonne dont
+         * QUE FAIT LE PERSONNAGE ? On compte les cartes de CETTE colonne dont
          * un agent de tâche travaille — le même index que l'avancement, déjà
          * construit une fois pour tout le rendu. La règle (une seule colonne
-         * vivante, et seulement quand ça travaille) vit dans
-         * `personnageEnMouvement` ; ici on ne fait que compter.
+         * vivante, quel geste, et quand il retombe sur le balancement) vit dans
+         * `gesteDuPersonnage` ; ici on ne fait que compter et lui dire ce qu'on
+         * sait de l'écran.
          */
         const auTravail = columnCards.reduce((n, card) => n + (agentsTacheParCarte.has(card.id) ? 1 : 0), 0);
-        const personnageVivant = personnageEnMouvement(column, auTravail);
+        const geste = gesteDuPersonnage(column, auTravail, {
+          remplace: state.personnages[column] !== undefined,
+          animationsReduites,
+        });
         return (
           /*
             DEUX enveloppes, et c'est le PERSONNAGE qui l'impose. Il déborde du
@@ -1161,26 +1182,34 @@ export function Board({
                 le geste. Sa boîte est de proportion fixe (voir
                 `shared/src/personnages-colonnes.ts`), donc la même hauteur vaut
                 pour les sept.
-                QUAND UN AGENT TRAVAILLE, celui de « En cours » se BALANCE : une
-                animation de TRANSFORMATION seulement, pieds au sol
-                (`origin-bottom`), qui ne déplace aucune carte et n'attrape
-                toujours aucun clic. Au repos, la classe n'est pas posée du tout
-                — l'immobilité est totale, c'est elle qui donne son sens au
-                mouvement. Le réglage système « réduire les animations » la
-                neutralise dans `styles.css`.
+                QUAND UN AGENT TRAVAILLE, celui de « En cours » PIOCHE : ce
+                n'est plus la même image, c'est une boucle animée du même mineur
+                donnant de vrais coups de pioche. Elle occupe exactement la même
+                boîte que l'image fixe (même proportion, même appui au sol) :
+                rien ne bouge autour, et le dépôt d'une carte reste insensible
+                (`pointer-events-none`). Au repos, on redemande l'image FIXE —
+                l'immobilité est alors totale, et c'est elle qui donne son sens
+                au geste. Quand la boucle ne peut pas servir (personnage
+                remplacé depuis les réglages), on retombe sur le BALANCEMENT
+                d'avant : une animation de transformation, pieds au sol
+                (`origin-bottom`), neutralisée par « réduire les animations »
+                dans `styles.css` — préférence qui, pour une image animée, se lit
+                en amont dans `gesteDuPersonnage`.
                 Le personnage REMPLACÉ, lui, se sert à la MÊME adresse : seul le
                 repère `?v=` change, pour que le navigateur redemande l'image au
-                lieu de ressortir l'ancienne de son cache. */}
+                lieu de ressortir l'ancienne de son cache. La boucle livrée n'a
+                pas ce repère : aucun dépôt ne la remplace jamais. */}
             <img
-              src={imageDuPersonnage(column, state.personnages[column])}
+              src={geste === 'pioche' ? animeDuPersonnage(column) : imageDuPersonnage(column, state.personnages[column])}
               alt=""
               aria-hidden
               draggable={false}
               data-personnage-colonne={column}
-              data-personnage-vivant={personnageVivant ? 'oui' : 'non'}
+              data-personnage-vivant={geste === 'immobile' ? 'non' : 'oui'}
+              data-personnage-geste={geste}
               className={cn(
                 'pointer-events-none absolute -left-1.5 -top-2 z-10 h-[42px] w-[31.5px] select-none object-contain',
-                personnageVivant && 'origin-bottom animate-personnage-au-travail',
+                geste === 'balancement' && 'origin-bottom animate-personnage-au-travail',
               )}
             />
             {/* La DÉCOUPE, et rien d'autre : ce qui défile ne doit pas sortir
