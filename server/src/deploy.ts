@@ -2671,12 +2671,60 @@ async function checkOnline(url: string): Promise<{ ok: boolean; status: string }
   }
 }
 
+/*
+ * UN ARRÊT AGIT TOUJOURS — même quand la publication n'est plus portée par rien.
+ *
+ * `handle.stop()` ne lève qu'un DRAPEAU que la boucle de publication relit entre
+ * deux étapes. Une étape pendue pour de bon (un agent de dépannage dont la
+ * préparation n'a jamais rendu la main) ne le relit jamais : la boucle ne se
+ * termine pas, son `finally` ne retire donc pas l'entrée de `active`, et ce
+ * fantôme REFUSE ensuite toute publication du projet — « une publication est
+ * déjà en cours » — sans que rien ne tourne ni ne le dise. Le bouton « Arrêter »
+ * répondait alors « faux » en silence, et seul un redémarrage du démon
+ * débloquait le projet. Constaté le 17/08/2026 sur HaikoDev : dix publications
+ * dans la journée, toutes refusées après la première.
+ *
+ * Faute de boucle vivante à interrompre, on referme donc ce que l'on peut
+ * ATTEINDRE : le drapeau est levé quand il y a encore quelqu'un pour le lire,
+ * l'entrée `active` est retirée, la file d'attente du projet est vidée — sinon
+ * elle rejouerait le blocage — et la publication est marquée arrêtée en base si
+ * elle s'y croit encore en cours. On ne rend « faux » que sur une publication
+ * introuvable : c'est le seul cas où il n'y a vraiment rien à arrêter.
+ */
 export function stopDeploy(runId: string): boolean {
   const run = store.getDeploy(runId);
   if (!run) return false;
+
   const handle = active.get(run.projectId);
-  if (!handle) return false;
-  handle.stop();
+  if (handle) handle.stop();
+
+  // Une publication DÉJÀ terminée n'a rien à reprendre : on s'arrête là, sans
+  // réécrire son issue ni toucher à ce qui tourne peut-être pour un autre run.
+  if (run.state !== 'running') return Boolean(handle);
+
+  /*
+   * On libère sans chercher à deviner si la boucle respire encore : rien ne le
+   * dit de façon sûre depuis ici, et un arrêt DEMANDÉ doit aboutir. Une boucle
+   * vivante lira son drapeau à la vérification suivante et s'arrêtera d'
+   * elle-même ; son `finally` refait les mêmes retraits, qui ne coûtent rien
+   * une seconde fois, et réécrit sa propre issue par-dessus celle-ci.
+   */
+  active.delete(run.projectId);
+  waiting.delete(run.projectId);
+  emit({
+    ...run,
+    state: 'stopped',
+    error: "Publication arrêtée : plus rien ne la portait — l'étape en cours ne rendait plus la main.",
+    endedAt: Date.now(),
+    steps: run.steps.map((etape) =>
+      etape.state === 'running'
+        ? { ...etape, state: 'failed' as const, progress: undefined }
+        : etape,
+    ),
+  });
+  log.warn(
+    `publication ${runId} (projet ${run.projectId}) arrêtée alors que plus rien ne la portait : le verrou du projet est levé`,
+  );
   return true;
 }
 
