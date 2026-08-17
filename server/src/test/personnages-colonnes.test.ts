@@ -10,7 +10,12 @@ import {
   type ColumnKey,
   type MotifNotification,
   PROPORTION_SILHOUETTE,
+  COLONNE_VIVANTE,
+  TAILLE_MAX_PERSONNAGE,
   avatarDeLAlerte,
+  fichierDuPersonnage,
+  jugerImageDePersonnage,
+  personnageEnMouvement,
   colonneDuMotif,
   imageDeLAlerte,
   imageDuPersonnage,
@@ -90,4 +95,50 @@ test('le service worker garde la MÊME table de personnages que la règle', () =
     assert.ok(ligne, `${motif} manque au service worker`);
     assert.equal(ligne![1], attendue, motif);
   }
+});
+
+test('seul le personnage de « En cours » bouge, et seulement quand ça travaille', () => {
+  assert.equal(COLONNE_VIVANTE, 'running');
+  // Le contraste est TOUT : sans carte au travail, immobilité complète.
+  assert.equal(personnageEnMouvement('running', 0), false);
+  assert.equal(personnageEnMouvement('running', 1), true);
+  assert.equal(personnageEnMouvement('running', 4), true);
+  // Les six autres ne bougent jamais, même si des cartes y sont comptées.
+  for (const colonne of COLUMN_KEYS.filter((c) => c !== 'running')) {
+    assert.equal(personnageEnMouvement(colonne, 3), false, `${colonne} ne doit pas bouger`);
+  }
+});
+
+test('un personnage remplacé garde son adresse, avec un repère qui casse le cache', () => {
+  // L'adresse ne change JAMAIS : c'est le démon qui décide, à cette adresse,
+  // s'il sert l'image d'origine ou celle qu'on a déposée. Le repère `?v=` ne
+  // sert qu'à faire redemander l'image au navigateur.
+  assert.equal(imageDuPersonnage('running'), '/personnages/running.png');
+  assert.equal(imageDuPersonnage('running', 1_700_000_000_000), '/personnages/running.png?v=1700000000000');
+  assert.equal(portraitDuPersonnage('done', 42), '/personnages/done-rond.png?v=42');
+  // Un instant absent ou nul ne pose aucun repère : l'adresse reste nue.
+  assert.equal(portraitDuPersonnage('done', 0), '/personnages/done-rond.png');
+  for (const colonne of COLUMN_KEYS) {
+    assert.equal(fichierDuPersonnage(colonne, 'silhouette'), `${colonne}.png`);
+    assert.equal(fichierDuPersonnage(colonne, 'portrait'), `${colonne}-rond.png`);
+  }
+});
+
+test('un remplacement refusé dit sa raison, jamais un échec muet', () => {
+  const png = { mime: 'image/png', nom: 'perso.png', taille: 120_000 };
+  assert.equal(jugerImageDePersonnage({ colonne: 'running', ...png }).ok, true);
+  // Un navigateur qui n'envoie pas de type : l'extension suffit, et l'inverse aussi.
+  assert.equal(jugerImageDePersonnage({ colonne: 'notes', nom: 'x.JPEG', taille: 10 }).ok, true);
+  assert.equal(jugerImageDePersonnage({ colonne: 'notes', mime: 'image/webp', taille: 10 }).ok, true);
+
+  const refus = (depot: Parameters<typeof jugerImageDePersonnage>[0]) => {
+    const juge = jugerImageDePersonnage(depot);
+    assert.equal(juge.ok, false, 'ce dépôt aurait dû être refusé');
+    assert.ok(!juge.ok && juge.raison.length > 10, 'un refus sans raison lisible');
+    return !juge.ok ? juge.raison : '';
+  };
+  assert.match(refus({ colonne: 'inconnue', ...png }), /colonne/);
+  assert.match(refus({ colonne: 'running', ...png, taille: 0 }), /vide/);
+  assert.match(refus({ colonne: 'running', ...png, taille: TAILLE_MAX_PERSONNAGE + 1 }), /Mo/);
+  assert.match(refus({ colonne: 'running', mime: 'application/pdf', nom: 'notice.pdf', taille: 500 }), /image/);
 });

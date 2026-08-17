@@ -699,6 +699,14 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * repères — jamais à leur place.
    */
   z.object({ type: z.literal('plans'), byProject: z.record(z.boolean()) }),
+  /**
+   * LES PERSONNAGES REMPLACÉS À LA MAIN : pour chaque colonne dont on a déposé
+   * une autre image dans les réglages, l'INSTANT du remplacement. Une colonne
+   * absente garde son personnage d'origine. L'adresse de l'image ne change
+   * jamais (le démon décide, à cette adresse, laquelle il sert) : cet instant
+   * ne sert qu'à faire redemander l'image au navigateur.
+   */
+  z.object({ type: z.literal('personnages'), remplaces: z.record(z.number()) }),
   z.object({
     type: z.literal('project.snapshot'),
     projectId: z.string(),

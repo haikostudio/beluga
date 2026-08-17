@@ -970,8 +970,22 @@ le nom, là-bas le texte).
   (`avatarDeLAlerte` ; un motif sans colonne — quota, redémarrage — garde l'image de son genre). La
   colonne compte donc DEUX enveloppes : `data-column`, le cadre et le fond restent sur l'extérieure
   (`offsetLeft`, couleur de colonne), seule la découpe descend d'un cran, et l'image ne prend AUCUN
-  clic (le dépôt d'une carte vise `closest('[data-column]')`). Verrouillé par
-  `server/src/test/personnages-colonnes.test.ts` et `scripts/verif-personnages-colonnes.mjs`.
+  clic (le dépôt d'une carte vise `closest('[data-column]')`).
+  **CELUI DE « EN COURS » BOUGE QUAND UN AGENT TRAVAILLE, ET LUI SEUL** (`COLONNE_VIVANTE`,
+  `personnageEnMouvement` ; classe `animate-personnage-au-travail`, `web/tailwind.config.js`) : un
+  balancement d'1,5 px sur 2,6 s, pieds au sol — une TRANSFORMATION seule, donc rien qui clignote,
+  aucune carte poussée d'un pixel, le glisser-déposer intact. Au repos, la classe n'est même pas
+  posée : l'immobilité est TOTALE, et c'est ce contraste qui porte l'information. On compte les
+  AGENTS de la colonne, jamais l'avancement (un agent sans liste de tâches y pèse zéro et figerait un
+  tableau pourtant occupé) ; « réduire les animations » coupe le mouvement, jamais le personnage.
+  **ET N'IMPORTE LEQUEL SE REMPLACE DEPUIS LES RÉGLAGES, sans carte ni agent**
+  (`server/src/personnages.ts` ; onglet « Personnages » des réglages ; `POST` et
+  `DELETE /api/personnage`) : l'image déposée passe par la MÊME fabrique que les sept d'origine
+  (`personnages-colonnes.py --une`), vit dans les DONNÉES (`data/personnages/`, jamais dans le dépôt)
+  et se sert à la MÊME adresse que l'originale, qui reste intacte — revenir en arrière efface deux
+  fichiers, rien de plus. Tout ou rien (les deux découpes ou aucune), et TOUT refus est dit avec sa
+  raison. Verrouillé par `server/src/test/personnages-colonnes.test.ts` et
+  `scripts/verif-personnages-colonnes.mjs`.
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
   `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de

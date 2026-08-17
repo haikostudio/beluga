@@ -26,10 +26,19 @@ fond blanc uni, avec son ombre douce) :
 
 Usage :
     python3 scripts/personnages-colonnes.py [dossier-des-images-brutes]
+    python3 scripts/personnages-colonnes.py --une <colonne> <image> <dossier-de-sortie>
 
 Sans argument, il lit les pièces jointes du projet (`data/attachments`) et prend,
 pour chaque colonne, le fichier le PLUS RÉCENT dont le nom finit par le nom
 attendu (« …-notes.PNG »).
+
+La forme `--une` refait UN SEUL personnage, à partir d'une image quelconque, et
+l'écrit dans le dossier demandé : c'est par elle que passe le REMPLACEMENT d'un
+personnage depuis les réglages (`server/src/personnages.ts`). Le détourage et
+les deux découpes sont exactement les mêmes que pour les sept d'origine — il n'y
+a qu'une seule fabrique, sinon un personnage déposé à la main aurait un cadrage
+et une taille à lui. Elle rend 0 si tout s'est bien passé, et écrit sur la
+sortie d'erreur une phrase EN CLAIR sinon (l'appelant la montre telle quelle).
 """
 
 from __future__ import annotations
@@ -221,7 +230,52 @@ def sources(dossier: Path) -> dict[str, Path]:
     return trouve
 
 
+def fabriquer(colonne: str, source: Path, sortie: Path) -> None:
+    """
+    Les deux découpes d'UN personnage, écrites dans `sortie`. Lève une exception
+    dont le MESSAGE est destiné à être lu par un humain : c'est lui qui remonte
+    jusqu'à l'écran des réglages quand un remplacement est refusé.
+    """
+    try:
+        image = Image.open(source)
+        image.load()
+    except Exception:
+        raise ValueError("Ce fichier n'a pas pu être ouvert comme une image.")
+
+    detoure = detourer(image)
+    # Un fond qui n'est pas uni, ou une image entièrement transparente : le
+    # détourage n'a rien laissé. On le DIT, au lieu d'écrire une image vide.
+    if not (np.asarray(detoure)[:, :, 3] > 24).any():
+        raise ValueError(
+            "Aucun personnage n'a été trouvé sur cette image : il faut un sujet posé sur un fond clair et uni."
+        )
+
+    sortie.mkdir(parents=True, exist_ok=True)
+    silhouette(detoure).save(sortie / f'{colonne}.png', optimize=True)
+    portrait(detoure, CADRAGES.get(colonne, 0.60)).save(sortie / f'{colonne}-rond.png', optimize=True)
+
+
+def une_seule(arguments: list[str]) -> int:
+    if len(arguments) != 3:
+        print('Usage : --une <colonne> <image> <dossier-de-sortie>', file=sys.stderr)
+        return 2
+    colonne, source, sortie = arguments[0], Path(arguments[1]), Path(arguments[2])
+    if colonne not in COLONNES.values():
+        print(f"« {colonne} » n'est pas une colonne du tableau.", file=sys.stderr)
+        return 2
+    try:
+        fabriquer(colonne, source, sortie)
+    except ValueError as souci:
+        print(str(souci), file=sys.stderr)
+        return 1
+    print(f'{colonne} ← {source.name}')
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == '--une':
+        return une_seule(sys.argv[2:])
+
     dossier = Path(sys.argv[1]) if len(sys.argv) > 1 else RACINE.parent / 'data' / 'attachments'
     if not dossier.is_dir():
         # Lancé depuis le dépôt principal, les pièces jointes vivent à côté.

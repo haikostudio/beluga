@@ -311,13 +311,17 @@
 }
 
 /* Réglage système « réduire les animations » : la secousse d'un projet qui
-   attend une réponse ne joue pas, et le badge du travail rendu cesse de
-   clignoter. Le triangle d'alerte et le badge, eux, restent — le signal ne
-   disparaît jamais, seul son mouvement s'efface. */
+   attend une réponse ne joue pas, le badge du travail rendu cesse de clignoter,
+   et le personnage de « En cours » reste immobile même pendant un travail. Le
+   triangle d'alerte, le badge et le personnage, eux, restent — le signal ne
+   disparaît jamais, seul son mouvement s'efface. Ici, l'état « ça travaille »
+   se lit toujours ailleurs : le pourcentage en tête de colonne, les cartes et
+   leur roue. */
 @media (prefers-reduced-motion: reduce) {
   .animate-secousse,
   .animate-pulse-soft,
-  .animate-silhouette {
+  .animate-silhouette,
+  .animate-personnage-au-travail {
     animation: none !important;
   }
 }
