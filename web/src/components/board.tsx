@@ -42,6 +42,8 @@ import {
   mentionProgressionTaches,
   mentionSansSuite,
   natureDeLaMention,
+  phraseDuTravailRestant,
+  travailRestant,
   repereVisible,
   sortieAutorisee,
 } from '@haikodev/shared';
@@ -1939,6 +1941,34 @@ export function CardTile({
     maintenant,
   );
 
+  /*
+   * « QU'EST-CE QUI TOURNE ENCORE ? » Depuis qu'un rapport rendu ferme la carte,
+   * une carte RESTÉE dans « En cours » a forcément une raison — et elle doit se
+   * lire sans ouvrir la carte : l'étape, depuis quand, ce qu'on attend. La règle
+   * est partagée et testée (`travailRestant`) ; ici on ne fait que l'afficher.
+   * Elle se tait quand la vieille mention « tour terminé sans suite » parle déjà
+   * : deux phrases pour le même silence ne diraient rien de plus.
+   */
+  const restant = sansSuite
+    ? null
+    : travailRestant(
+        {
+          colonne: card.column,
+          agentActif: agentActif
+            ? {
+                etapeEnCours: agentActif.etapeEnCours,
+                startedAt: agentActif.startedAt,
+                todos: agentActif.todos,
+                attendReponse: agentActif.attendReponse,
+              }
+            : undefined,
+          decisionEnAttente: decisions > 0,
+          tourEnVolDepuis: card.scheduling?.tourEnVolDepuis,
+          finDuDernierTour: agentsDeLaCarte.reduce((fin, a) => Math.max(fin, a.endedAt ?? 0), 0) || undefined,
+        },
+        maintenant,
+      );
+
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
     analyseEnCours: agentAuTravail,
@@ -2179,6 +2209,39 @@ export function CardTile({
             <Clock className="mt-[2px] h-3 w-3 shrink-0" />
             <span className="min-w-0 truncate" data-mention-sans-suite>
               {sansSuite}
+            </span>
+          </div>
+        ) : null}
+
+        {/*
+         * CE QUI TOURNE ENCORE, écrit en toutes lettres. Une carte de « En
+         * cours » ne peut plus rester muette : l'étape, depuis quand, et ce
+         * qu'on attend. Le ton suit la nature — orange quand VOUS êtes
+         * attendu, la couleur des travaux en cours quand ça travaille, gris
+         * pâle pour le reste. La phrase est tronquée à l'écran, jamais dans
+         * l'infobulle.
+         */}
+        {restant ? (
+          <div
+            title={phraseDuTravailRestant(restant)}
+            className={cn(
+              'mt-1.5 flex items-start gap-1.5 rounded px-1.5 py-1 text-[12px] leading-snug',
+              restant.nature === 'question'
+                ? 'border border-warning/30 bg-warning/10 text-warning'
+                : restant.nature === 'travaille'
+                  ? 'border border-en-cours/30 bg-en-cours/10 text-en-cours'
+                  : 'text-faint',
+            )}
+          >
+            {restant.nature === 'question' ? (
+              <MessageSquare className="mt-[2px] h-3 w-3 shrink-0" />
+            ) : restant.nature === 'travaille' ? (
+              <Loader2 className="mt-[2px] h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Clock className="mt-[2px] h-3 w-3 shrink-0" />
+            )}
+            <span className="min-w-0 truncate" data-travail-restant={card.id}>
+              {phraseDuTravailRestant(restant)}
             </span>
           </div>
         ) : null}
