@@ -1085,19 +1085,30 @@ le nom, là-bas le texte).
   « light » sont REPRIS (`themeValide`), et `CHOIX_DE_THEME` porte la CLARTÉ de chaque thème
   (`item.clarte`) pour qu'un écran choisisse son icône (soleil/lune) sans lister les identifiants un
   par un. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
-- **LES TROIS GRANDES ZONES (colonne des projets, tableau, conversation) SONT ÉTAGÉES, SOMBRE
-  SEULEMENT** (`data-zone` sur `sidebar.tsx` et `app.tsx` ; règles `html[data-theme='sombre']
-  [data-zone='…']` dans `web/src/styles.css`, 17.08.2026) : les trois régions empruntaient toutes
-  `--bg` sans fond à elles, donc se fondaient dans le même noir dès que la bordure du thème plat a
-  disparu. `racine.dataset.theme` porte TOUJOURS le nom du thème, « sombre » compris, même si son
-  bloc de jetons reste `:root` — un sélecteur `html[data-theme='sombre']` cible donc ce thème SEUL,
-  sans toucher aux six autres (ils n'ont jamais cet attribut, la règle ne les concerne jamais) et
-  sans figurer dans les jetons que `verif-themes.mjs` compare entre thèmes (il ne lit que les sept
-  blocs connus). Palier complet : page 0 %, colonne des projets 3 %, tableau 5 %, colonnes du
-  tableau (`--surface`) 8 %, conversation 11 %, cartes et bulles (`--raised`, monté à 15 % à cette
-  occasion) 15 %. Cette technique — un sélecteur `[data-theme='…']` scopé plutôt qu'un nouveau jeton
-  partagé — est la manière de retoucher UN SEUL thème sans devoir en déclarer la valeur dans les six
-  autres.
+- **LES TROIS GRANDES ZONES (colonne des projets, tableau, conversation) SONT ÉTAGÉES, DANS LES
+  SEPT THÈMES** (`data-zone` sur `sidebar.tsx` et `app.tsx` ; règles `html[data-theme='…']
+  [data-zone='…']` — et `html:not(.dark)` pour « clair » — dans `web/src/styles.css`, 17.08.2026,
+  étendu aux six autres le même jour) : les trois régions empruntaient toutes `--bg` sans fond à
+  elles, donc se fondaient dans le même fond — né dans le thème sombre dès que sa bordure a disparu,
+  le défaut touchait déjà les six autres. `racine.dataset.theme` porte TOUJOURS le nom du thème,
+  « sombre » compris, même si son bloc de jetons reste `:root` — un sélecteur `html[data-theme='…']`
+  cible donc CHAQUE thème SEUL, sans figurer dans les jetons que `verif-themes.mjs` compare entre
+  thèmes (il ne lit que les sept blocs connus, pas ces sélecteurs annexes). Palier du sombre : page
+  0 %, colonne des projets 3 %, tableau 5 %, colonnes du tableau (`--surface`) 8 %, conversation
+  11 %, cartes et bulles (`--raised`, monté à 15 % à cette occasion) 15 %. Les six autres suivent
+  leur PROPRE sens d'élévation (`--surface` plus clair que `--bg` dans cinq thèmes, plus sombre dans
+  « clair » et « givre »), par la même proportion (35 %, 65 % puis 45 % de l'écart vers le jeton
+  suivant). Cette technique — un sélecteur `[data-theme='…']` scopé plutôt qu'un nouveau jeton
+  partagé — est la manière de retoucher UN SEUL thème sans devoir en déclarer la valeur dans les
+  autres, si on ne le fait que pour un seul.
+- **« GIVRE », « SAPIN » ET « CONTRASTE » DÉCLARENT MAINTENANT `--ligne-active` ET
+  `--bandeau-etape`** (`web/src/styles.css`, 17.08.2026) : ces deux jetons manquaient depuis
+  l'arrivée de ces trois thèmes, retombant en silence sur les valeurs du thème clair —
+  `verif-themes.mjs` aurait dû le refuser mais ne le mesure qu'en repli, sans navigateur en face ;
+  toujours relancer avec `HAIKO_THEMES_URL` pointé sur le dev pour voir la vraie liste de refus.
+  Le compte de choix attendu dans le sous-menu « Thème » (`scripts/verif-themes.mjs`) n'est plus
+  recopié à la main (« 5 », périmé depuis l'ajout de ces trois thèmes) : il se déduit de
+  `BLOCS.length + 1`.
 - **…ET LES HUIT CHOIX TIENNENT DERRIÈRE UNE SEULE ENTRÉE « THÈME » DU MENU**
   (`DropdownMenuSub` / `DropdownMenuSubTrigger` / `DropdownMenuSubContent`, `web/src/components/ui/index.tsx` ;
   entrée `data-theme-menu` de `web/src/components/quota-bar.tsx`) : alignés les uns sous les autres,
