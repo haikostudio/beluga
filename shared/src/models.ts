@@ -1136,6 +1136,31 @@ export const DeployRun = z.object({
          * constater soi-même qu'une publication était bloquée.
          */
         enRetard: z.boolean().optional(),
+        /**
+         * LE FIL HISTORIQUE DE L'ÉTAPE : chaque moment, horodaté, dans l'ordre
+         * où il est arrivé — le début, chaque branche fusionnée, chaque commande
+         * lancée, le passage d'un agent de dépannage, l'issue.
+         *
+         * C'est ce que `progress` ne pouvait pas garder : la progression est
+         * TRANSITOIRE (« Branche 10 sur 10 » efface les neuf précédentes, et
+         * disparaît quand l'étape se termine). Le fil, lui, reste avec la
+         * publication : il se lit en direct comme des semaines plus tard, sans
+         * ouvrir le journal du serveur.
+         *
+         * OPTIONNEL, jamais `default([])` — même raison que `reparations` : une
+         * valeur par défaut le rendrait obligatoire dans le type rendu, et toute
+         * publication d'avant cette règle cesserait de se relire. Les règles
+         * pures vivent dans `shared/src/journal-publication.ts`.
+         */
+        journal: z
+          .array(
+            z.object({
+              at: z.number(),
+              genre: z.enum(['debut', 'progression', 'commande', 'depannage', 'issue']),
+              texte: z.string(),
+            }),
+          )
+          .optional(),
         startedAt: z.number().optional(),
         endedAt: z.number().optional(),
       }),

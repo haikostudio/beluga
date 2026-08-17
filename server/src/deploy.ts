@@ -60,6 +60,9 @@ import {
   recitSansReparation,
   recitDepanneurEnEchec,
   journalDesReprises,
+  ajouterAuJournal,
+  type EvenementDEtape,
+  type GenreDEvenement,
   avertissementCartesNonRangees,
   PERIODE_DE_VEILLE_MS,
   PLAFOND_TOUR_D_AGENT_MS,
@@ -846,10 +849,115 @@ export const STEP_LABELS: Record<DeployStepKey, string> = {
   restart: 'Redémarrage du serveur',
 };
 
+/* ------------------------------------------------------------------ */
+/* LE FIL HISTORIQUE DE CHAQUE ÉTAPE                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE JOURNAL VIT À CÔTÉ DE LA PUBLICATION, PAS DEDANS — et c'est ce qui le rend
+ * increvable.
+ *
+ * Le fil principal de `startDeploy` promène une COPIE de la publication
+ * (`current`) qu'il réassigne à chaque étape. Si le journal ne vivait que dans
+ * cette copie, toute écriture venue d'ailleurs — la veille des durées, un
+ * dépannage, une note posée depuis une fonction qui n'a pas `current` sous la
+ * main — serait effacée au prochain `emit`, exactement comme le prévient le
+ * commentaire de la veille.
+ *
+ * Il est donc gardé ICI, par publication et par étape, et `emit` le RECOLLE
+ * systématiquement sur les étapes avant d'enregistrer : peu importe la
+ * fraîcheur de la copie qu'on lui passe, le fil complet repart en base.
+ */
+const journaux = new Map<string, Map<DeployStepKey, EvenementDEtape[]>>();
+
+/**
+ * Le journal d'une publication, repris de la BASE la première fois : une
+ * publication reprise après un redémarrage du serveur ne recommence pas son fil
+ * à zéro.
+ */
+function journalDuRun(run: DeployRun): Map<DeployStepKey, EvenementDEtape[]> {
+  const connu = journaux.get(run.id);
+  if (connu) return connu;
+  const fil = new Map<DeployStepKey, EvenementDEtape[]>();
+  for (const step of run.steps) if (step.journal?.length) fil.set(step.key, [...step.journal]);
+  journaux.set(run.id, fil);
+  return fil;
+}
+
+/** Une publication rangée n'a plus rien à noter : on rend la mémoire. */
+function oublierLeJournal(runId: string): void {
+  journaux.delete(runId);
+}
+
 function emit(run: DeployRun): DeployRun {
-  const saved = store.saveDeploy(run);
+  const fil = journalDuRun(run);
+  const steps = fil.size
+    ? run.steps.map((step) => {
+        const evenements = fil.get(step.key);
+        return evenements?.length ? { ...step, journal: evenements } : step;
+      })
+    : run.steps;
+  const saved = store.saveDeploy({ ...run, steps });
   bus.emit({ type: 'deploy.upsert', run: saved });
   return saved;
+}
+
+/**
+ * NOTER UN MOMENT DANS LE FIL D'UNE ÉTAPE, et le faire voir tout de suite.
+ *
+ * L'appelant passe la publication qu'il a en main : elle ne sert qu'à savoir
+ * QUI on est en train de raconter. Le fil, lui, ne dépend pas d'elle — c'est
+ * tout l'intérêt.
+ *
+ * CE QUI EST RÉÉMIS EST TOUJOURS LA VERSION EN BASE, jamais la copie reçue :
+ * une note peut partir d'une closure (l'envoi rejoué, un redémarrage de
+ * service) qui a capturé une copie d'avant le dépannage, et réémettre celle-là
+ * ferait reculer la publication à l'écran. La copie ne sert donc qu'à
+ * l'identifier ; sans elle en base (contrôle qui fabrique un run à la main), on
+ * retombe sur ce qu'on nous a passé.
+ *
+ * Ce qui n'apporte rien n'est pas noté (texte vide, même ligne répétée) : la
+ * règle pure s'en charge, et rend alors le fil inchangé.
+ */
+function noterAuJournal(
+  run: DeployRun,
+  etape: DeployStepKey,
+  texte: string,
+  genre: GenreDEvenement,
+): DeployRun {
+  const fil = journalDuRun(run);
+  const avant = fil.get(etape);
+  const apres = ajouterAuJournal(avant, { at: Date.now(), genre, texte });
+  if (apres === avant) return run;
+  fil.set(etape, apres);
+  emit(store.getDeploy(run.id) ?? run);
+  return run;
+}
+
+/**
+ * UNE COMMANDE RÉELLEMENT LANCÉE, ÉCRITE DANS LE FIL AVANT DE PARTIR.
+ *
+ * On note la commande TELLE QU'ELLE EST LANCÉE — pas une paraphrase —, puis son
+ * issue en une ligne. Ce qu'elle a écrit sur sa sortie reste dans le détail de
+ * l'étape ; le fil dit ce qui a été tenté et ce que ça a donné.
+ */
+async function commandeDuFil(
+  run: DeployRun,
+  etape: DeployStepKey,
+  cwd: string,
+  command: string,
+  timeout?: number,
+): Promise<{ ok: boolean; out: string; delaiDepasse?: boolean }> {
+  noterAuJournal(run, etape, `$ ${command}`, 'commande');
+  const res = await runCommand(cwd, command, timeout);
+  const premiere = res.out.trim().split('\n').find((ligne) => ligne.trim()) ?? '';
+  noterAuJournal(
+    run,
+    etape,
+    res.ok ? '→ terminée sans erreur' : `→ échec : ${premiere || 'aucune sortie'}`,
+    'commande',
+  );
+  return res;
 }
 
 function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' | 'failed' | 'skipped', logText = ''): DeployRun {
@@ -870,7 +978,31 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
         }
       : step,
   );
-  const rendu = emit({ ...run, steps, currentStep: state === 'running' ? key : run.currentStep });
+  /*
+   * LE FIL RETIENT LE DÉBUT ET L'ISSUE DE CHAQUE ÉTAPE, ici et nulle part
+   * ailleurs : `setStep` est le passage obligé des sept étapes des deux
+   * publications, donc aucune ne peut être oubliée — pas même une étape
+   * ajoutée demain.
+   */
+  const rendu0 = { ...run, steps, currentStep: state === 'running' ? key : run.currentStep };
+  const fil = journalDuRun(run);
+  const raconte =
+    state === 'running'
+      ? `L’étape « ${STEP_LABELS[key]} » commence.`
+      : state === 'done'
+        ? `Étape terminée.${logText.trim() ? ` ${premiereLigne(logText)}` : ''}`
+        : state === 'skipped'
+          ? `Étape sautée${logText.trim() ? ` : ${premiereLigne(logText)}` : ''}.`
+          : `Étape tombée${logText.trim() ? ` : ${premiereLigne(logText)}` : ''}.`;
+  fil.set(
+    key,
+    ajouterAuJournal(fil.get(key), {
+      at: Date.now(),
+      genre: state === 'running' ? 'debut' : 'issue',
+      texte: raconte,
+    }),
+  );
+  const rendu = emit(rendu0);
   /*
    * LA SURVEILLANCE DU TEMPS SE POSE ICI, ET NULLE PART AILLEURS.
    *
@@ -888,9 +1020,31 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
  * la branche en cours de fusion, le contrôle lancé, la commande de construction.
  * L'étape reste « en cours » — on ne fait qu'écrire sa ligne de progression.
  */
-function progresserEtape(run: DeployRun, key: DeployStepKey, progress: string): DeployRun {
+function progresserEtape(
+  run: DeployRun,
+  key: DeployStepKey,
+  progress: string,
+  /* Le genre du moment ainsi écrit dans le fil. Une progression ordinaire est
+     une « progression » ; les mentions d'un dépannage disent qu'elles en sont
+     un, pour se distinguer d'un coup d'œil dans le tiroir. */
+  genre: GenreDEvenement = 'progression',
+): DeployRun {
   const steps = run.steps.map((step) => (step.key === key ? { ...step, progress } : step));
+  /*
+   * LA PROGRESSION EST TRANSITOIRE, LE FIL NE L'EST PAS.
+   *
+   * « Branche 10 sur 10 » effaçait les neuf précédentes, et disparaissait avec
+   * l'étape : c'est exactement ce que l'utilisateur venait chercher et ne
+   * trouvait plus. Chaque progression laisse donc sa trace, dans l'ordre.
+   */
+  const fil = journalDuRun(run);
+  fil.set(key, ajouterAuJournal(fil.get(key), { at: Date.now(), genre, texte: progress }));
   return emit({ ...run, steps });
+}
+
+/** La première ligne parlante d'une sortie : de quoi raconter sans tout recopier. */
+function premiereLigne(texte: string): string {
+  return texte.trim().split('\n').find((ligne) => ligne.trim())?.trim().slice(0, 200) ?? '';
 }
 
 /* ------------------------------------------------------------------ */
@@ -1255,10 +1409,13 @@ export async function rejouerAvecDepannage(
     const panne = contexte.panne ?? issue.panne ?? reconnaitrePanneDePublication(contexte.etape, issue.sortie);
     if (!panne || !panne.reparable) {
       reparations.push(recitSansReparation(panne));
+      /* Le REFUS de bricoler se lit dans le fil comme le reste : c'est une
+         décision, pas un silence. */
+      courant = noterAuJournal(courant, contexte.etape, recitSansReparation(panne), 'depannage');
       break;
     }
     const mention = mentionDeDepannage(panne, passe, REPARATIONS_MAX);
-    courant = progresserEtape(courant, contexte.etape, mention);
+    courant = progresserEtape(courant, contexte.etape, mention, 'depannage');
     reparations.push(mention);
 
     /*
@@ -1275,13 +1432,21 @@ export async function rejouerAvecDepannage(
     }
     if (!depanne.tente) {
       reparations.push(depanne.recit);
+      courant = noterAuJournal(courant, contexte.etape, depanne.recit, 'depannage');
       break;
     }
 
     reprises += 1;
-    courant = progresserEtape(courant, contexte.etape, `Reprise ${passe} de l’étape après réparation…`);
+    courant = progresserEtape(
+      courant,
+      contexte.etape,
+      `Reprise ${passe} de l’étape après réparation…`,
+      'depannage',
+    );
     issue = await jouer();
-    reparations.push(issue.ok ? recitEtapeRejouee(passe) : recitEtapeRetombee(passe));
+    const issueDite = issue.ok ? recitEtapeRejouee(passe) : recitEtapeRetombee(passe);
+    reparations.push(issueDite);
+    courant = noterAuJournal(courant, contexte.etape, issueDite, 'depannage');
   }
 
   /*
@@ -1933,13 +2098,23 @@ export async function startDeploy(
           const exists = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
           if (!exists.ok || !exists.out.trim()) {
             mergeLog += `\n${branch} : branche absente, carte ignorée`;
+            current = noterAuJournal(
+              current,
+              'merge',
+              `${branch} : branche absente, carte « ${card.title} » ignorée.`,
+              'issue',
+            );
             continue;
           }
 
-          const result = await runCommand(cwd, `git merge --no-edit ${branch}`);
+          /* LE SUIVI BRANCHE PAR BRANCHE : la commande de fusion et son issue
+             sont écrites dans le fil, carte nommée. C'est ce qui manquait le
+             plus — « Branche 10 sur 10 » n'apprenait rien des neuf autres. */
+          const result = await commandeDuFil(current, 'merge', cwd, `git merge --no-edit ${branch}`);
           if (result.ok) {
             fusionnees += 1;
             mergeLog += `\n${branch} : fusionnée`;
+            current = noterAuJournal(current, 'merge', `${branch} : fusionnée (« ${card.title} »).`, 'issue');
             continue;
           }
 
@@ -1953,15 +2128,28 @@ export async function startDeploy(
           // valider, chiffrer et lancer pour un geste de plomberie.
           mergeLog += `\n${branch} : CONFLIT${enConflit.length ? ` (${enConflit.join(', ')})` : ''} — résolution en cours…`;
           current = setStep(current, 'merge', 'running', mergeLog.trim());
+          current = noterAuJournal(
+            current,
+            'merge',
+            `${branch} : CONFLIT${enConflit.length ? ` sur ${enConflit.join(', ')}` : ''} — un agent de dépannage est appelé.`,
+            'depannage',
+          );
 
           const issue = await resoudreConflit(projectId, cwd, card, branch, mainBranch, enConflit);
           if (issue.fusionnee) {
             fusionnees += 1;
             mergeLog += `\n${branch} : ${issue.recit}`;
+            current = noterAuJournal(current, 'merge', `${branch} : ${issue.recit}`, 'depannage');
             continue;
           }
           ecartees.add(card.id);
           mergeLog += `\n${branch} : ${issue.recit} — carte écartée de cette publication`;
+          current = noterAuJournal(
+            current,
+            'merge',
+            `${branch} : ${issue.recit} — carte « ${card.title} » écartée de cette publication.`,
+            'depannage',
+          );
         }
 
         if (ecartees.size) {
@@ -1985,7 +2173,9 @@ export async function startDeploy(
         const status = await runCommand(cwd, 'git status --porcelain');
         if (status.out.trim()) {
           await runCommand(cwd, 'git add -A');
-          const commit = await runCommand(
+          const commit = await commandeDuFil(
+            current,
+            'commit',
             cwd,
             `git commit -m "Publication : ${cards.length} tâche(s)" -m "HaikoDev"`,
           );
@@ -2021,7 +2211,7 @@ export async function startDeploy(
             const commande = suivie.includes('/')
               ? `git push ${suivie.slice(0, suivie.indexOf('/'))} HEAD:${suivie.slice(suivie.indexOf('/') + 1)}`
               : `git push -u origin ${locale}`;
-            const push = await runCommand(cwd, commande);
+            const push = await commandeDuFil(current, 'push', cwd, commande);
             // Un envoi qui n'a jamais rendu la main (dépôt distant muet, clé qui
             // attend une phrase de passe) est une panne NOMMÉE, pas une sortie
             // illisible : sans cela, elle repartait en « non reconnue ».
@@ -2604,6 +2794,13 @@ export async function startDeploy(
       // l'issue : réussie, tombée, arrêtée à la main. Un minuteur laissé
       // derrière écrirait dans une publication finie.
       arreterLesVeilles(current.id);
+      /*
+       * Le fil, lui, est DÉJÀ en base — c'est `emit` qui l'y recolle à chaque
+       * pas. On ne garde donc plus sa copie de travail en mémoire : la
+       * publication est finie, elle se relira depuis la base comme toutes les
+       * anciennes.
+       */
+      oublierLeJournal(current.id);
       active.delete(projectId);
       const relance = waiting.has(projectId);
       if (relance) {
