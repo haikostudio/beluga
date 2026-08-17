@@ -426,6 +426,32 @@ le nom, là-bas le texte).
   rangement des cartes est de la COMPTABILITÉ : il vient APRÈS et ne peut plus démentir ce qui est en
   ligne. Chaque carte est rangée sous son propre filet, l'incident s'écrit en avertissement ORANGE
   sous le compte rendu, et le `catch` général passe par `raisonEchecAgent` — plus jamais un dump.
+- **CHAQUE ÉTAPE D'UNE PUBLICATION PORTE SON FIL HISTORIQUE, ET IL SE LIT DANS UN VRAI TIROIR**
+  (`shared/src/journal-publication.ts` ; `DeployRun.steps[].journal` ; `journaux`, `noterAuJournal`,
+  `commandeDuFil`, `server/src/deploy.ts` ; `web/src/components/tiroir-deploiement.tsx`) : le déroulé
+  disait sept lignes et un état chacune, et sa progression était TRANSITOIRE — « Branche 10 sur 10 »
+  effaçait les neuf précédentes, un agent de dépannage ne laissait qu'un compte de reprises, et il
+  fallait ouvrir le journal du service pour savoir ce qui s'était passé. Chaque étape garde donc ses
+  MOMENTS horodatés (`debut`, `progression`, `commande`, `depannage`, `issue`), écrits par le code
+  qui fait le geste — `setStep` étant le passage OBLIGÉ, aucune étape ne peut être oubliée. Le fil
+  est BORNÉ (200 moments, les plus ANCIENS partent ; ni texte vide, ni même ligne réémise), il vit à
+  CÔTÉ de la publication (jamais dans la copie que `startDeploy` promène, sinon toute note venue
+  d'ailleurs serait effacée au prochain `emit`), et `noterAuJournal` réémet toujours la version en
+  BASE. UN FIL VIDE N'EST PAS UNE PANNE : le champ reste optionnel et `filDeLEtape` recolle les
+  récits de réparation d'avant cette règle. Verrouillé par
+  `server/src/test/journal-publication.test.ts` et `scripts/verif-tiroir-deploiement.mjs`.
+- **…ET LES CARTES MISES EN LIGNE ENSEMBLE RESTENT ENSEMBLE, AVEC UN BOUTON VERS LEUR HISTORIQUE**
+  (`shared/src/groupes-de-production.ts` ; `web/src/components/groupes-production.tsx` ; commande
+  `deploy.historique` ; `EtapeDePublication.titreCourt`) : « En production » range ses cartes par
+  GROUPE — un groupe = une publication —, chaque bandeau NOMMANT son déploiement (« Déploiement du
+  17 août, 14:32 ») et rouvrant son fil dans le MÊME tiroir, en LECTURE (aucun « Relancer », aucun
+  « Arrêter »). Une carte suit la publication la PLUS RÉCENTE qui l'a embarquée ; une publication
+  TOMBÉE ou ARRÊTÉE ne revendique RIEN ; ce qui n'est rattaché à rien forme un groupe SANS
+  publication, dit en clair. Les cartes sortent groupe après groupe (un groupe éclaté entre deux
+  paquets de vingt afficherait un bandeau sans ses cartes), et on ne groupe que si cela APPREND
+  quelque chose. `deploy.historique` est une lecture EN BASE seule : rien ne peut être publié au
+  passage. Verrouillé par `server/src/test/groupes-de-production.test.ts` et
+  `scripts/verif-tiroir-deploiement.mjs`.
 - **Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL** (`niveauDAccueil`,
   `shared/src/accueil-agent.ts` — le chef d'orchestre, lui, reçoit le palier `tri`) : conflit de fusion, contrôles tombés, construction cassée n'emportent
   ni index de mémoire, ni compétences, ni fichiers d'instructions — seulement le projet, son dossier et
