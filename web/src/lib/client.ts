@@ -10,6 +10,7 @@ import {
   CiblePublication,
   DeployRun,
   EngineInfo,
+  EtatDuPool,
   EtatProcedure,
   FileNode,
   Message,
@@ -72,6 +73,12 @@ export interface AppState {
   /** Projets où un plan proposé (mode plan) attend encore une décision. */
   plans: Record<string, boolean>;
   engines: EngineInfo[];
+  /**
+   * LE POOL DE COMPÉTENCES, quand le démon vient de le diffuser (une fiche
+   * écrite, complétée, dépréciée). Nul tant que rien n'a changé : l'écran des
+   * réglages le demande lui-même à l'ouverture.
+   */
+  pool: EtatDuPool | null;
   quotas: AccountQuota[];
   /** Les connexions de comptes en cours ou tout juste finies. */
   connexions: ConnexionCompte[];
@@ -125,6 +132,7 @@ const initialState: AppState = {
   rendus: {},
   plans: {},
   engines: [],
+  pool: null,
   quotas: [],
   connexions: [],
   capacity: null,
@@ -464,6 +472,10 @@ class Client {
       // complète sans qu'on ait à recharger la page.
       case 'engines':
         this.set({ engines: event.engines });
+        break;
+
+      case 'competences':
+        this.set({ pool: event.pool });
         break;
 
       case 'connexion-compte':

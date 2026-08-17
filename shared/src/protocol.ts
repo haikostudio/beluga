@@ -28,6 +28,50 @@ import {
 export const PROTOCOL_VERSION = 1;
 
 /* ------------------------------------------------------------------ */
+/* Le pool de compétences, tel qu'il s'affiche                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UNE FICHE, VUE DE L'ÉCRAN. On y met ce qui se DÉCIDE et ce qui se JUGE — état,
+ * confiance, usage, provenance, anomalies —, jamais le texte du mode d'emploi :
+ * l'écran des réglages liste le pool, il ne le lit pas à la place des agents.
+ */
+export const FicheDuPool = z.object({
+  nom: z.string(),
+  description: z.string(),
+  etat: z.enum(['active', 'depreciee', 'archivee']),
+  themes: z.array(z.string()).default([]),
+  symptomes: z.array(z.string()).default([]),
+  projets: z.array(z.string()).default([]),
+  /** Les fichiers de DÉTAIL, sous la tête : c'est l'arbre. */
+  annexes: z.array(z.string()).default([]),
+  /** Ce qui cloche sans l'écarter du pool. */
+  anomalies: z.array(z.string()).default([]),
+  confiance: z.number(),
+  servie: z.number().default(0),
+  aidee: z.number().default(0),
+  inutile: z.number().default(0),
+  contredite: z.number().default(0),
+  dernierService: z.number().optional(),
+  provenanceProjet: z.string().optional(),
+  provenanceCarte: z.string().optional(),
+  renforceePar: z.array(z.string()).default([]),
+  creeeLe: z.number().optional(),
+});
+export type FicheDuPool = z.infer<typeof FicheDuPool>;
+
+export const EtatDuPool = z.object({
+  fiches: z.array(FicheDuPool).default([]),
+  /** Ce qui a été écarté du pool, avec sa raison en clair. */
+  refus: z.array(z.object({ nom: z.string(), raison: z.string() })).default([]),
+  /** Le dossier du pool, pour savoir où aller le lire. */
+  dossier: z.string().default(''),
+  /** Le pool est-il sous git — donc sauvegardé ? */
+  versionne: z.boolean().default(false),
+});
+export type EtatDuPool = z.infer<typeof EtatDuPool>;
+
+/* ------------------------------------------------------------------ */
 /* Client → serveur                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -365,6 +409,27 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('cursor.etat'), accountId: z.string().optional() }),
   /**
+   * LE POOL DE COMPÉTENCES, TEL QU'IL EST : l'arbre, l'état et la confiance de
+   * chaque fiche, et ce qui a été ÉCARTÉ avec sa raison. Une lecture seule —
+   * l'écriture d'une fiche passe par l'outil des agents, jamais par l'écran.
+   */
+  z.object({ type: z.literal('competences.etat') }),
+  /**
+   * DÉPRÉCIER ou ARCHIVER une fiche d'un clic. Rien ne se supprime : une fiche
+   * dépréciée apprend encore quelque chose, une fiche effacée n'apprend rien.
+   */
+  z.object({
+    type: z.literal('competences.etatDeLaFiche'),
+    nom: z.string(),
+    etat: z.enum(['active', 'depreciee', 'archivee']),
+  }),
+  /**
+   * CAPITALISER UNE CARTE MAINTENANT, depuis son tiroir. Saute l'ATTENTE de
+   * sept jours, jamais les contrôles : une carte dont les contrôles du projet
+   * n'ont pas été rejoués est refusée, avec sa raison.
+   */
+  z.object({ type: z.literal('card.capitaliser'), cardId: z.string() }),
+  /**
    * DÉCLARER UNE CLÉ CURSOR DE PLUS, sans toucher au serveur. Cursor ne se
    * connecte pas par une page de connexion comme Claude et Codex : il n'a
    * qu'une clé, et il faut bien un endroit pour en poser une seconde.
@@ -656,6 +721,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * sans attendre le rechargement de la page.
    */
   z.object({ type: z.literal('engines'), engines: z.array(EngineInfo) }),
+  /** Le pool de compétences a changé : une fiche écrite, complétée ou dépréciée. */
+  z.object({ type: z.literal('competences'), pool: EtatDuPool }),
   /** Une connexion de compte qui avance : adresse, code, réussite ou échec. */
   z.object({ type: z.literal('connexion-compte'), connexion: ConnexionCompte }),
   z.object({ type: z.literal('capacity'), capacity: CapacitySnapshot }),

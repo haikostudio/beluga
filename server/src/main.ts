@@ -7,7 +7,11 @@ import { ensureCredentials } from './auth.js';
 import { createHttpServer } from './http.js';
 import { attachWebSocket } from './ws.js';
 import { bootstrapAccounts, prochaineTentativeQuota, refreshQuotas } from './accounts.js';
-import { relierCompetencesAuxCoffres } from './competences.js';
+import {
+  adopterLesCompetencesDuCoffre,
+  preparerLeDepotDuPool,
+  relierCompetencesAuxCoffres,
+} from './competences.js';
 import { bus } from './bus.js';
 import { sampleCapacity } from './capacity.js';
 import { startScheduler, startVeille, tick } from './scheduler.js';
@@ -25,6 +29,7 @@ import { amorcerFenetres } from './amorce.js';
 import { envoyerAuCerveau } from './cerveau.js';
 import { planifierAutoAmelioration } from './auto-amelioration.js';
 import { planifierVectorisation } from './vecteurs-nocturne.js';
+import { planifierCapitalisation } from './capitalisation.js';
 import { arretParSignal, diffuserEtatDemon } from './demon.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
@@ -69,6 +74,14 @@ async function main(): Promise<void> {
   bootstrapAccounts();
   // Les compétences partagées entrent dans le coffre de chaque compte : c'est
   // là que le moteur va les chercher, et un coffre neuf n'en a aucune.
+  // Le pool est son propre dépôt git : `data/` est écarté du dépôt du projet,
+  // le pool serait donc hors sauvegarde alors qu'il devient la mémoire commune
+  // de tous les projets. Pousser reste un geste de l'utilisateur.
+  preparerLeDepotDuPool();
+  // Le coffre personnel de l'utilisateur entre DANS le pool : quinze fiches y
+  // vivaient sans qu'une seule, hors « compta », soit raccordée à quoi que ce
+  // soit. Rien n'est copié ni déplacé — un lien, et la source reste la sienne.
+  adopterLesCompetencesDuCoffre();
   relierCompetencesAuxCoffres();
   initPush();
   await ensureSelfProject();
@@ -183,6 +196,14 @@ async function main(): Promise<void> {
    * reporte donc pas.
    */
   const vectorisationTimer = planifierVectorisation();
+  /*
+   * LA CAPITALISATION : vers 5 h, APRÈS l'auto-amélioration de 3 h, un agent
+   * d'analyse relit les cartes qui ont fait leurs preuves — contrôles rejoués,
+   * passage en production, sept jours sans contradiction — et n'écrit dans le
+   * pool de compétences que ce qui vient de la PLATEFORME, pas du seul code
+   * d'un projet. Presque toutes les nuits, il n'a rien à faire et ne coûte rien.
+   */
+  const capitalisationTimer = planifierCapitalisation();
   const faviconTimer = planifierRevisionFavicons();
 
   sampleCapacity();
@@ -213,6 +234,7 @@ async function main(): Promise<void> {
     clearInterval(janitorTimer);
     clearInterval(autoAmeliorationTimer);
     clearInterval(vectorisationTimer);
+    clearInterval(capitalisationTimer);
     clearInterval(faviconTimer);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);

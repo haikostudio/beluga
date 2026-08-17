@@ -8,7 +8,13 @@ import {
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import * as store from './store.js';
-import { couvertureDesVecteurs, indexerDocumentation, vectoriserLIndex } from './passages.js';
+import {
+  PROJET_DU_POOL,
+  couvertureDesVecteurs,
+  indexerDocumentation,
+  indexerLePool,
+  vectoriserLIndex,
+} from './passages.js';
 import { etatDesVecteurs } from './vecteurs.js';
 
 /**
@@ -59,6 +65,19 @@ export async function vectoriserUnProjet(
   saut = 0,
 ): Promise<{ vectorises: number; tranches: number; total: number }> {
   indexerDocumentation(projectId, projectPath);
+  return vectoriserUnCorpus(projectId, tranchesRestantes, finAu, saut);
+}
+
+/**
+ * LA VECTORISATION D'UN CORPUS DÉJÀ INDEXÉ — un projet, ou le POOL de
+ * compétences, qui n'est pas un projet mais se vectorise exactement pareil.
+ */
+export async function vectoriserUnCorpus(
+  projectId: string,
+  tranchesRestantes: number,
+  finAu = Number.POSITIVE_INFINITY,
+  saut = 0,
+): Promise<{ vectorises: number; tranches: number; total: number }> {
   let vectorises = 0;
   let tranches = 0;
   while (tranches < tranchesRestantes && Date.now() < finAu) {
@@ -112,6 +131,28 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
   let vectorises = 0;
   let tranches = 0;
   try {
+    /*
+     * LE POOL DE COMPÉTENCES PASSE EN PREMIER. Ce n'est pas un projet — il n'a
+     * ni dossier de travail ni tableau — mais c'est un corpus servi à TOUS les
+     * projets : préparé une seule fois, il doit être vectorisé une fois aussi,
+     * et avant le reste (il est petit, et une fiche non vectorisée pèse sur
+     * toutes les recherches, pas sur une seule).
+     */
+    try {
+      indexerLePool();
+      const bilanDuPool = await vectoriserUnCorpus(PROJET_DU_POOL, bornes.tranches, finAu);
+      passages += bilanDuPool.total;
+      vectorises += bilanDuPool.vectorises;
+      tranches += bilanDuPool.tranches;
+      if (bilanDuPool.vectorises) {
+        log.info(
+          `vectorisation : pool de compétences — ${bilanDuPool.vectorises} passages vectorisés sur ${bilanDuPool.total}`,
+        );
+      }
+    } catch (err) {
+      log.warn(`vectorisation : pool de compétences sauté — ${(err as Error).message}`);
+    }
+
     for (const projet of store.listProjects()) {
       if (projet.archived) continue;
       if (tranches >= bornes.tranches || Date.now() >= finAu) {

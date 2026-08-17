@@ -7,6 +7,7 @@ import { useChargementOnglet } from '@/lib/chargement-onglet';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, money } from '@/lib/utils';
 import { LecteurPrompt } from '@/components/lecteur-prompt';
+import { Button } from '@/components/ui';
 
 /**
  * LE PARCOURS D'UNE TÂCHE, EN LIGNE DE TEMPS.
@@ -69,10 +70,17 @@ function quandEnClair(instant?: number): string | null {
   });
 }
 
+/** Où en est la carte dans le pool de compétences, et pourquoi. */
+interface Capitalisation {
+  etat: 'sans-preuve' | 'candidate' | 'mure' | 'publiee';
+  raison: string;
+}
+
 export function ParcoursTache({ cardId }: { cardId: string }) {
   const [etapes, setEtapes] = React.useState<EtapeParcours[] | null>(null);
   const [total, setTotal] = React.useState<TotalParcours | null>(null);
   const [quota, setQuota] = React.useState<QuotaParcours | null>(null);
+  const [capitalisation, setCapitalisation] = React.useState<Capitalisation | null>(null);
   const state = useApp();
 
   /* Tant que le parcours n'est pas arrivé, l'onglet « Détails » le DIT : sans
@@ -85,6 +93,7 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
     setEtapes(null);
     setTotal(null);
     setQuota(null);
+    setCapitalisation(null);
     setCharge(true);
     client
       .call({ type: 'card.parcours', cardId })
@@ -93,6 +102,7 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
         setEtapes(data.etapes ?? []);
         setTotal(data.total ?? null);
         setQuota(data.quota ?? null);
+        setCapitalisation(data.capitalisation ?? null);
       })
       .catch(() => {})
       .finally(() => {
@@ -166,6 +176,12 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
         </div>
       ) : null}
 
+      {/* CE QUE CETTE CARTE A APPRIS AU POOL — et, si elle n'a rien appris,
+          POURQUOI. Trois états : candidate (les contrôles sont passés),
+          mûre (elle a tenu sept jours en production), publiée (une compétence
+          en est née). Le bouton saute l'ATTENTE, jamais les contrôles. */}
+      {capitalisation ? <BlocDeCapitalisation cardId={cardId} etat={capitalisation} /> : null}
+
       {/* LE LECTEUR DE PROMPTS : le texte réellement envoyé, tour par tour,
           pour tous les agents de la carte — la même lecture que le tiroir
           « Contexte envoyé » du chef d'orchestre. */}
@@ -176,6 +192,50 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * LA LEÇON DE CETTE CARTE, ET SON ÉTAT. Une carte qui n'a rien donné au pool
+ * partagé DIT pourquoi : contrôles jamais rejoués, jamais mise en production,
+ * contredite par une carte plus récente, ou simplement pas encore mûre.
+ *
+ * Le bouton ne force que l'ATTENTE de sept jours : les contrôles du projet
+ * doivent avoir été rejoués, et la fiche écrite passe le même contrôle de
+ * qualité que celles de la nuit. Il ne s'affiche donc que sur une carte mûre.
+ */
+function BlocDeCapitalisation({ cardId, etat }: { cardId: string; etat: Capitalisation }) {
+  const libelles: Record<Capitalisation['etat'], string> = {
+    'sans-preuve': 'Rien n’est capitalisé',
+    candidate: 'Candidate',
+    mure: 'Mûre',
+    publiee: 'Publiée dans le pool',
+  };
+  return (
+    <div className="rounded-lg border border-border bg-surface px-3 py-2" data-capitalisation={etat.etat}>
+      <p className="text-[12px] font-medium uppercase tracking-wide text-faint">Compétences partagées</p>
+      <p className="mt-1 text-[13px] text-text">{libelles[etat.etat]}</p>
+      <p className="mt-0.5 text-[12.5px] leading-relaxed text-faint">{etat.raison}</p>
+      {etat.etat === 'candidate' || etat.etat === 'mure' ? (
+        <Button
+          className="mt-1.5"
+          variant="secondary"
+          size="sm"
+          onClick={() =>
+            client
+              .call({ type: 'card.capitaliser', cardId })
+              .then(() => client.pushToast('success', 'Capitalisation lancée : un agent relit cette carte.'))
+              .catch((err: any) => {
+                client.pushToast('error', err?.message ?? 'capitalisation impossible');
+                // L'erreur est RELANCÉE : sans cela le bouton croirait avoir réussi.
+                throw err;
+              })
+          }
+        >
+          Capitaliser maintenant
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

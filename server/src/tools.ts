@@ -41,6 +41,8 @@ import {
   rangsApresDeplacement,
   resumeColonneDeGauche,
   retrouverParNom,
+  confianceDeLaFiche,
+  raisonDuRefus,
   type ProjetDeLaColonne,
 } from '@haikodev/shared';
 import * as store from './store.js';
@@ -53,7 +55,25 @@ import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
 import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
-import { listerCompetences } from './competences.js';
+import {
+  compter,
+  compteursDeLaFiche,
+  ecrireLaFiche,
+  etatDuPoolPourLEcran,
+  lirePool,
+  listerCompetences,
+  relierCompetencesAuxCoffres,
+} from './competences.js';
+
+/** Une liste écrite en une ligne : « mobile, interface » → deux entrées. */
+function decouperListe(valeur?: string): string[] | undefined {
+  if (!valeur) return undefined;
+  const propres = valeur
+    .split(/[,;]/)
+    .map((mot) => mot.trim())
+    .filter(Boolean);
+  return propres.length ? propres : undefined;
+}
 import { creneauPourUneCarte } from './heure-de-lancement.js';
 
 const execFileAsync = promisify(execFile);
@@ -501,6 +521,44 @@ export const TOOL_DEFS: ToolDef[] = [
           description:
             "Ce que tu cherches : un numéro de l'index de faits (« 12 »), un nom de sujet (« publication », « cartes », « voix », « quotas »…), ou des mots-clés.",
         },
+      },
+    },
+  },
+  {
+    name: 'competences',
+    description:
+      "Le POOL DE COMPÉTENCES PARTAGÉ, valable pour TOUS les projets. Trois actions. « lister » rend les fiches, " +
+      "leur état et leur confiance. « ecrire » crée ou COMPLÈTE une fiche à partir d'une leçon PROUVÉE — une fiche " +
+      "sans section « Vérification », ou dont la description ne dit pas quand s'en servir, est refusée avec sa raison. " +
+      "« retour » dit ce qu'une compétence servie t'a réellement apporté : c'est ce qui fait monter ou descendre sa " +
+      'confiance. Une leçon qui ne vaut que pour un seul projet ne se capitalise pas.',
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: { type: 'string', enum: ['lister', 'ecrire', 'retour'], description: 'Ce que tu veux faire' },
+        nom: {
+          type: 'string',
+          description: 'Le nom de la fiche, en minuscules avec des traits d’union (« barre-detat-pwa »)',
+        },
+        description: {
+          type: 'string',
+          description: "À quoi elle sert et QUAND s'en servir : c'est cette phrase qui la déclenche",
+        },
+        themes: { type: 'string', description: 'Thèmes, séparés par des virgules (« mobile, interface »)' },
+        symptomes: { type: 'string', description: 'Ce qu’on CONSTATE, séparé par des virgules' },
+        projets: {
+          type: 'string',
+          description: 'Les projets concernés, séparés par des virgules. VIDE = tous (le cas normal)',
+        },
+        symptome: { type: 'string', description: 'Section « Symptôme »' },
+        cause: { type: 'string', description: 'Section « Cause »' },
+        procedure: { type: 'string', description: 'Section « Procédure », pas à pas' },
+        verification: { type: 'string', description: 'Section « Vérification » — OBLIGATOIRE' },
+        pieges: { type: 'string', description: 'Section « Pièges »' },
+        echecs: { type: 'string', description: 'Section « Ce qui ne marche pas »' },
+        carte: { type: 'string', description: "L'identifiant de la carte d'origine, pour la provenance" },
+        utile: { type: 'boolean', description: 'Pour « retour » : la fiche a-t-elle servi (vrai) ou pas (faux) ?' },
       },
     },
   },
@@ -1128,6 +1186,88 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const servi = detailProjet(project.path, String(args.sujet ?? ''), store.sujetsMemoireServis(ctx.agentId));
       store.marquerSujetsMemoireServis(ctx.agentId, servi.servis);
       return { ok: true, text: servi.texte };
+    }
+
+    case 'competences': {
+      /*
+       * LE SEUL CHEMIN D'ÉCRITURE DU POOL. Il passe par `ecrireLaFiche`, donc
+       * par le contrôle de qualité : la nuit, le forçage et un agent de tâche
+       * qui veut capitaliser franchissent tous la même porte, et un refus
+       * revient toujours avec sa raison.
+       */
+      const action = String(args.action ?? '').trim();
+      const liste = () => {
+        const { fiches, refus } = lirePool();
+        const lignes = fiches.map((fiche) => {
+          const compteurs = compteursDeLaFiche(fiche.nom);
+          const confiance = confianceDeLaFiche(compteurs);
+          const anomalies = fiche.anomalies.length ? ` — à revoir : ${fiche.anomalies.join(' ; ')}` : '';
+          return (
+            `- ${fiche.nom} [${fiche.etat}, confiance ${confiance.toFixed(2)}, servie ${compteurs.servie}×] : ` +
+            `${fiche.description}${anomalies}`
+          );
+        });
+        const ecartes = refus.map((r) => `- écarté : ${raisonDuRefus(r)}`);
+        return [`POOL DE COMPÉTENCES (${fiches.length}) :`, ...lignes, ...ecartes].join('\n');
+      };
+
+      if (action === 'lister' || !action) return { ok: true, text: liste() };
+
+      const nom = String(args.nom ?? '').trim();
+      if (!nom) return { ok: false, text: 'Le nom de la fiche est requis.' };
+
+      if (action === 'retour') {
+        const utile = args.utile !== false;
+        compter(nom, utile ? 'aidee' : 'inutile');
+        return {
+          ok: true,
+          text: utile
+            ? `Merci : « ${nom} » gagne en confiance.`
+            : `Noté : « ${nom} » n'a rien apporté ici, sa confiance baisse.`,
+        };
+      }
+
+      if (action !== 'ecrire') return { ok: false, text: `Action inconnue : « ${action} ».` };
+
+      const texteOuVide = (cle: string) => {
+        const valeur = args[cle];
+        return typeof valeur === 'string' && valeur.trim() ? valeur.trim() : undefined;
+      };
+      const listeOuVide = (cle: string) => decouperListe(texteOuVide(cle));
+      const ecriture = ecrireLaFiche(
+        {
+          nom,
+          description: String(args.description ?? '').trim(),
+          themes: listeOuVide('themes'),
+          symptomes: listeOuVide('symptomes'),
+          projets: listeOuVide('projets'),
+          symptome: texteOuVide('symptome'),
+          cause: texteOuVide('cause'),
+          procedure: texteOuVide('procedure'),
+          verification: texteOuVide('verification'),
+          pieges: texteOuVide('pieges'),
+          echecs: texteOuVide('echecs'),
+          provenance: {
+            projet: project.name,
+            carte: texteOuVide('carte') ?? ctx.cardId,
+          },
+        },
+        { carte: { id: texteOuVide('carte') ?? ctx.cardId ?? '', projet: project.name } },
+      );
+      if (!ecriture.ok) {
+        return { ok: false, text: `Fiche refusée :\n- ${(ecriture.raisons ?? []).join('\n- ')}` };
+      }
+      // Le pool change : les coffres des comptes Claude suivent tout de suite,
+      // sinon la fiche n'existerait pour le moteur qu'au prochain démarrage.
+      relierCompetencesAuxCoffres();
+      bus.emit({ type: 'competences', pool: etatDuPoolPourLEcran() });
+      return {
+        ok: true,
+        text:
+          ecriture.geste === 'creee'
+            ? `Compétence « ${nom} » créée dans le pool partagé.`
+            : `Compétence « ${nom} » complétée : sa provenance d'origine est gardée.`,
+      };
     }
 
     case 'remember': {
