@@ -513,8 +513,20 @@ async function dansLaPage(page, navigateur) {
         },
         { id: projectId, valeur: theme },
       );
-      await page.waitForTimeout(500);
-      return page.evaluate(() => document.documentElement.dataset.theme);
+      /* Ce contrôle vise parfois le démon RÉEL, avec d'autres agents actifs en
+         même temps : un délai FIXE de 500 ms suffit sur une machine calme mais
+         se révèle trop court sous charge, avant que React n'ait rattrapé le
+         changement d'état — d'où des refus qui n'en sont pas. On attend plutôt
+         que la valeur affichée se STABILISE (deux lectures identiques d'affilée),
+         plafonné à 3 s. */
+      let precedente = null;
+      for (let tentative = 0; tentative < 20; tentative += 1) {
+        await page.waitForTimeout(150);
+        const courante = await page.evaluate(() => document.documentElement.dataset.theme);
+        if (courante === precedente) return courante;
+        precedente = courante;
+      }
+      return precedente;
     };
 
     /* Deux projets, deux thèmes : passer de l'un à l'autre change tout. */

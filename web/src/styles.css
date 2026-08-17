@@ -126,39 +126,6 @@
     color-scheme: dark;
   }
 
-  /**
-   * L'ÉTAGEMENT DES TROIS GRANDES ZONES, SOMBRE SEULEMENT (17.08.2026).
-   *
-   * La colonne des projets, le tableau et la conversation empruntaient tous
-   * `--bg` (0 %) sans le moindre fond à eux : trois régions peintes de la
-   * même main, qui se fondaient dans le même noir — aucune bordure ne les
-   * séparait plus depuis que le thème est devenu plat. Trois fonds DÉDIÉS,
-   * posés en repère (`data-zone`, `sidebar.tsx` et `app.tsx`), viennent les
-   * étager sans qu'aucun écran ne bouge d'un pixel.
-   *
-   * SCOPÉ À `html[data-theme='sombre']`, jamais à `:root` : ce sélecteur est
-   * plus fort qu'un pseudo-classe et n'a donc pas besoin de venir après —
-   * surtout, il n'est JAMAIS lu par `scripts/verif-themes.mjs` (qui ne scanne
-   * que les sept blocs connus) et ne s'applique à AUCUN autre thème, qui n'a
-   * jamais cet attribut. Les six autres thèmes n'ont donc ni ce jeton à
-   * déclarer, ni un pixel qui bouge.
-   *
-   * Palier complet, du plus sombre au plus clair, à peu près régulier (2 à
-   * 4 points) : bg 0, colonne des projets 3, tableau 5, colonnes du tableau
-   * (`--surface`) 8, conversation 11, cartes et bulles (`--raised`) 15. Les
-   * colonnes du tableau se détachent ainsi doucement de son propre fond, et
-   * les trois grandes zones ne sont plus jamais la même teinte.
-   */
-  html[data-theme='sombre'] [data-zone='gauche'] {
-    background-color: hsl(0 0% 3%);
-  }
-  html[data-theme='sombre'] [data-zone='centre'] {
-    background-color: hsl(0 0% 5%);
-  }
-  html[data-theme='sombre'] [data-zone='droite'] {
-    background-color: hsl(0 0% 11%);
-  }
-
   html:not(.dark) {
     --bg: 0 0% 100%;
     --surface: 0 0% 95%;
@@ -362,14 +329,14 @@
     /* Un bleu-marine à 6 % : il assombrit très légèrement le bloc qui porte le
        bouton, quel que soit ce bloc — ce qui remplace la bordure effacée. */
     --controle: 215 40% 20% / 0.06;
-    /* LA LIGNE DU PROJET OUVERT : ce thème ne déclarait pas encore ce jeton —
-       il retombait en silence sur la valeur du thème clair, un gris neutre
-       hors de la famille bleutée de « givre ». Un gris nettement plus sombre
-       que `--bg` (94 %) ET que `--surface` (88 %), même famille froide. */
-    --ligne-active: 210 25% 78%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, dédié, distinct de
-       la ligne active ci-dessus. */
-    --bandeau-etape: 210 23% 81%;
+    /* LA LIGNE DU PROJET OUVERT : nettement plus sombre que le fond de page ET
+       que le survol, même famille bleutée — piège rencontré en l'ajoutant
+       (17.08.2026) : ces jetons manquaient depuis l'arrivée de ce thème,
+       ce que `verif-themes.mjs` n'avait jamais refusé faute d'être rejoué avec
+       un navigateur en face. */
+    --ligne-active: 210 22% 80%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, dédié. */
+    --bandeau-etape: 210 20% 81%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
        distinct des deux jetons ci-dessus. */
     --bloc-etapes: 210 21% 76%;
@@ -415,14 +382,12 @@
     /* Sur fond sombre, l'inverse de « givre » : un voile chaud et clair à 6 %,
        qui relève le bouton. */
     --controle: 60 30% 95% / 0.06;
-    /* LA LIGNE DU PROJET OUVERT : ce thème ne déclarait pas encore ce jeton —
-       il retombait en silence sur la valeur du thème sombre, un gris neutre
-       hors de la famille verte de « sapin ». Nettement plus clair que `--bg`
-       (9 %) ET que `--surface` (14 %), même famille chaude. */
-    --ligne-active: 150 15% 26%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, dédié, distinct de
-       la ligne active ci-dessus. */
-    --bandeau-etape: 148 14% 29%;
+    /* LA LIGNE DU PROJET OUVERT : nettement plus claire que le fond de page ET
+       que le survol, même famille verte — jeton manquant, ajouté le
+       17.08.2026 en même temps que « givre » et « contraste ». */
+    --ligne-active: 148 16% 26%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, éclairci, dédié. */
+    --bandeau-etape: 148 15% 29%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
        distinct des deux jetons ci-dessus. */
     --bloc-etapes: 148 13% 32%;
@@ -467,18 +432,116 @@
     /* Un voile plus marqué que les autres thèmes plats (10 % contre 6-7 %) :
        la lisibilité prime ici sur la discrétion. */
     --controle: 45 20% 10% / 0.1;
-    /* LA LIGNE DU PROJET OUVERT : ce thème ne déclarait pas encore ce jeton —
-       il retombait en silence sur la valeur du thème clair. Nettement plus
-       sombre que `--bg` (92 %) ET que `--surface` (97 %), même hiérarchie de
-       lisibilité marquée que le reste de ce thème. */
-    --ligne-active: 45 7% 80%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, dédié, distinct de
-       la ligne active ci-dessus. */
-    --bandeau-etape: 45 6% 83%;
+    /* LA LIGNE DU PROJET OUVERT : nettement plus sombre que le fond de page ET
+       que le survol, même famille neutre chaude — jeton manquant, ajouté le
+       17.08.2026. */
+    --ligne-active: 45 10% 78%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, dédié. */
+    --bandeau-etape: 45 9% 79%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
        distinct des deux jetons ci-dessus. */
     --bloc-etapes: 45 6% 77%;
     color-scheme: light;
+  }
+
+  /**
+   * L'ÉTAGEMENT DES TROIS GRANDES ZONES, DANS LES SEPT THÈMES (17.08.2026,
+   * étendu aux six autres le même jour).
+   *
+   * La colonne des projets, le tableau et la conversation empruntaient tous
+   * `--bg` sans le moindre fond à eux : trois régions peintes de la même
+   * main, qui se fondaient dans le même fond — la faiblesse est née dans le
+   * thème sombre (aucune bordure ne les séparait plus depuis qu'il est
+   * devenu plat), mais elle touchait déjà les six autres, borderless ou pas
+   * : rien ne distinguait ces trois zones avant cette règle. Trois fonds
+   * DÉDIÉS, posés en repère (`data-zone`, `sidebar.tsx` et `app.tsx`),
+   * viennent les étager sans qu'aucun écran ne bouge d'un pixel.
+   *
+   * SCOPÉ à chaque thème par `html[data-theme='…']` (ou `html:not(.dark)`
+   * pour « clair », qui suit la même détection que son propre bloc de
+   * jetons), jamais posé comme un jeton CSS partagé dans un des sept blocs
+   * ci-dessus : ces règles ne sont donc JAMAIS lues par le comparateur de
+   * jetons de `scripts/verif-themes.mjs` (qui ne scanne que les sept blocs
+   * connus), et aucun thème ne peut retomber en silence sur la valeur d'un
+   * autre faute de les avoir déclarées.
+   *
+   * Chaque théme suit son PROPRE sens d'élévation : `--surface` est plus
+   * CLAIR que `--bg` dans cinq thèmes (colonne des projets → tableau, vers
+   * `--surface`), plus SOMBRE dans « clair » et « givre » (`--surface` sous
+   * `--bg`, un choix déjà pris à leur création) — la colonne des projets et
+   * le tableau se placent donc entre les deux, dans le même sens, et la
+   * conversation se place entre `--surface` et `--raised`. Valeurs choisies
+   * par PROPORTION du même écart (35 %, 65 % puis 45 % du suivant), jamais
+   * recopiées d'un thème à l'autre.
+   */
+  html[data-theme='sombre'] [data-zone='gauche'] {
+    background-color: hsl(0 0% 3%);
+  }
+  html[data-theme='sombre'] [data-zone='centre'] {
+    background-color: hsl(0 0% 5%);
+  }
+  html[data-theme='sombre'] [data-zone='droite'] {
+    background-color: hsl(0 0% 11%);
+  }
+
+  html:not(.dark) [data-zone='gauche'] {
+    background-color: hsl(0 0% 98%);
+  }
+  html:not(.dark) [data-zone='centre'] {
+    background-color: hsl(0 0% 96%);
+  }
+  html:not(.dark) [data-zone='droite'] {
+    background-color: hsl(0 0% 99%);
+  }
+
+  html[data-theme='sable'] [data-zone='gauche'] {
+    background-color: hsl(40 26% 93%);
+  }
+  html[data-theme='sable'] [data-zone='centre'] {
+    background-color: hsl(40 28% 94%);
+  }
+  html[data-theme='sable'] [data-zone='droite'] {
+    background-color: hsl(41 30% 97%);
+  }
+
+  html[data-theme='ardoise'] [data-zone='gauche'] {
+    background-color: hsl(220 14% 13%);
+  }
+  html[data-theme='ardoise'] [data-zone='centre'] {
+    background-color: hsl(220 13% 14%);
+  }
+  html[data-theme='ardoise'] [data-zone='droite'] {
+    background-color: hsl(220 12% 18%);
+  }
+
+  html[data-theme='givre'] [data-zone='gauche'] {
+    background-color: hsl(210 26% 92%);
+  }
+  html[data-theme='givre'] [data-zone='centre'] {
+    background-color: hsl(210 28% 90%);
+  }
+  html[data-theme='givre'] [data-zone='droite'] {
+    background-color: hsl(210 24% 93%);
+  }
+
+  html[data-theme='sapin'] [data-zone='gauche'] {
+    background-color: hsl(148 16% 11%);
+  }
+  html[data-theme='sapin'] [data-zone='centre'] {
+    background-color: hsl(148 15% 12%);
+  }
+  html[data-theme='sapin'] [data-zone='droite'] {
+    background-color: hsl(148 14% 16%);
+  }
+
+  html[data-theme='contraste'] [data-zone='gauche'] {
+    background-color: hsl(45 8% 94%);
+  }
+  html[data-theme='contraste'] [data-zone='centre'] {
+    background-color: hsl(45 7% 95%);
+  }
+  html[data-theme='contraste'] [data-zone='droite'] {
+    background-color: hsl(45 6% 98%);
   }
 
   * {

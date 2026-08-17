@@ -27,6 +27,9 @@ import {
   phraseDEchecConstruction,
   estPlomberie,
   exclusionsDesBranchesDeCartes,
+  titreHorsTache,
+  descriptionCartePorteuse,
+  type CommitObserve,
   messageEchecPublication,
   natureDePublication,
   miseEnLigneReelle,
@@ -60,6 +63,7 @@ import {
   avertissementCartesNonRangees,
   PERIODE_DE_VEILLE_MS,
   PLAFOND_TOUR_D_AGENT_MS,
+  alerteDeRetard,
   constatDeDuree,
   dureeDite,
   mentionEtapeQuiTraine,
@@ -917,6 +921,13 @@ interface VeilleDEtape {
   suspendueDepuis?: number;
   /** La dernière ligne écrite, pour ne pas réémettre le même texte. */
   derniereMention?: string;
+  /**
+   * L'alerte de retard est-elle DÉJÀ partie pour cette étape ?
+   *
+   * Un retard qui dure ne se répète pas toutes les trente secondes : on
+   * prévient une fois, au constat, et le déroulé porte la suite.
+   */
+  alerteEnvoyee?: boolean;
 }
 
 const veilles = new Map<string, VeilleDEtape>();
@@ -1017,6 +1028,33 @@ function passageDeVeille(runId: string): void {
 
   const constat = constatDeLEtape(runId, veille.etape);
   if (!constat.depasse) return;
+
+  /*
+   * ON PRÉVIENT AU CONSTAT, PAS AU DÉPANNAGE.
+   *
+   * Le dépanneur ne part qu'une fois l'étape RETOMBÉE — et pour une étape
+   * pendue, cela peut vouloir dire jamais, ou seulement au bout de son plafond.
+   * La ligne orange du déroulé, elle, ne se voit que par qui regarde déjà
+   * l'écran. Prévenir ici est donc le seul moment qui tienne la promesse : ne
+   * plus avoir à venir surveiller une publication soi-même. Une seule fois par
+   * étape, et l'alerte DIT que rien n'est attendu de l'utilisateur.
+   */
+  if (!veille.alerteEnvoyee) {
+    veille.alerteEnvoyee = true;
+    const projet = store.getProject(run.projectId);
+    const alerte = alerteDeRetard({ projet: projet?.name, libelleEtape: STEP_LABELS[veille.etape], constat });
+    notify({
+      motif: 'publication-en-retard',
+      title: alerte.titre,
+      body: alerte.corps,
+      // Une étape d'une publication donnée ne prévient qu'une fois, même si le
+      // démon redémarre et rouvre la veille.
+      reference: `${run.projectId}:retard:${run.id}:${veille.etape}`,
+      element: alerte.element,
+      projectId: run.projectId,
+    });
+  }
+
   const mention = mentionEtapeQuiTraine(STEP_LABELS[veille.etape], constat);
   // Deux passages rendent souvent la même phrase (la durée s'arrondit à la
   // minute) : on ne réémet que ce qui a changé.
@@ -1570,8 +1608,10 @@ async function redemarrerService(
  * quand la colonne « À déployer » est vide, et plus rien ne pouvait partir en
  * ligne. Rencontré le 03/08/2026 — plusieurs heures de travail bloquées.
  */
-export async function commitsEnAttente(projectId: string): Promise<{ nombre: number; titres: string[] }> {
-  const vide = { nombre: 0, titres: [] as string[] };
+export async function commitsEnAttente(
+  projectId: string,
+): Promise<{ nombre: number; titres: string[]; commits: CommitObserve[]; branche?: string }> {
+  const vide = { nombre: 0, titres: [] as string[], commits: [] as CommitObserve[] };
   const project = store.getProject(projectId);
   if (!project) return vide;
   const cwd = project.path;
@@ -1624,7 +1664,7 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
    * même travail était annoncé deux fois.
    */
   const couverts = new Set(store.shasCouverts(projectId));
-  const titres: string[] = [];
+  const commits: CommitObserve[] = [];
   for (const ligne of journal.out.split('\n')) {
     if (!ligne.trim()) continue;
     const [sha, titre] = ligne.split('\u001f');
@@ -1636,9 +1676,75 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
      * annonçait « 2 changements sans carte » juste après une mise en ligne.
      */
     if (estPlomberie(titre)) continue;
-    titres.push(titre.trim());
+    commits.push({ sha: sha?.trim() ?? '', titre: titre.trim(), branche: principale });
   }
-  return { nombre: titres.length, titres: titres.slice(0, 6) };
+  /* Les six premiers TITRES suffisent à l'affichage ; les enregistrements
+     entiers servent à FICHER ce travail dans une carte, si on le demande. */
+  return {
+    nombre: commits.length,
+    titres: commits.slice(0, 6).map((commit) => commit.titre),
+    commits,
+    branche: principale,
+  };
+}
+
+/**
+ * FICHER LE TRAVAIL SANS CARTE, sur demande de l'utilisateur.
+ *
+ * L'avertissement de la colonne « À déployer » nomme ce qui attend sans fiche ;
+ * ce geste lui en donne une. La carte est posée dans « À déployer » — le travail
+ * est FAIT, il n'y a rien à valider et rien à lancer — et porte les empreintes
+ * trouvées, si bien que l'avertissement s'éteint de lui-même au contrôle
+ * suivant : le même travail n'est jamais annoncé deux fois.
+ *
+ * RIEN N'EST PUBLIÉ NI FUSIONNÉ, aucune branche n'est touchée : les
+ * enregistrements sont déjà là où ils sont, on ne fait qu'écrire leur fiche.
+ * Tout refus est rendu en clair.
+ */
+export async function ficherLeTravailSansCarte(
+  projectId: string,
+): Promise<{ ok: boolean; error?: string; card?: Card }> {
+  const project = store.getProject(projectId);
+  if (!project) return { ok: false, error: 'projet introuvable' };
+
+  const attente = await commitsEnAttente(projectId);
+  if (!attente.commits.length) {
+    return { ok: false, error: 'plus aucune modification sans carte : il n’y a rien à ficher' };
+  }
+
+  const maintenant = Date.now();
+  const card = store.saveCard(
+    Card.parse({
+      id: store.newId(),
+      projectId,
+      title: titreHorsTache(attente.commits),
+      description: descriptionCartePorteuse(attente.commits, attente.branche),
+      /* Ce travail vit sur la principale : on le DIT sur la carte, comme le
+         fait déjà le fichage automatique quand il ne peut pas isoler. */
+      labels: ['hors tâche', 'sur la principale'],
+      column: 'to_deploy',
+      position: store.nextPosition(projectId, 'to_deploy'),
+      origin: 'user',
+      /* Rien ne sera exécuté depuis cette carte, mais le modèle en exige un :
+         on prend le moteur par défaut du projet, jamais un moteur inventé. */
+      run: { engine: project.defaultEngine },
+      horsTache: true,
+      /* Le CODE est déjà enregistré : la carte ne promet aucun travail à faire,
+         et rien ne partira au moteur. */
+      codeDejaEnregistre: true,
+      github: {
+        branch: attente.branche ?? '',
+        checks: [],
+        activity: [],
+        commits: attente.commits.map((commit) => ({ sha: commit.sha, message: commit.titre })),
+      },
+      createdAt: maintenant,
+      updatedAt: maintenant,
+    }),
+  );
+  bus.emit({ type: 'card.upsert', card });
+  log.info(`carte porteuse créée pour ${attente.commits.length} enregistrement(s) sans carte (${projectId})`);
+  return { ok: true, card };
 }
 
 export async function startDeploy(
@@ -2565,12 +2671,60 @@ async function checkOnline(url: string): Promise<{ ok: boolean; status: string }
   }
 }
 
+/*
+ * UN ARRÊT AGIT TOUJOURS — même quand la publication n'est plus portée par rien.
+ *
+ * `handle.stop()` ne lève qu'un DRAPEAU que la boucle de publication relit entre
+ * deux étapes. Une étape pendue pour de bon (un agent de dépannage dont la
+ * préparation n'a jamais rendu la main) ne le relit jamais : la boucle ne se
+ * termine pas, son `finally` ne retire donc pas l'entrée de `active`, et ce
+ * fantôme REFUSE ensuite toute publication du projet — « une publication est
+ * déjà en cours » — sans que rien ne tourne ni ne le dise. Le bouton « Arrêter »
+ * répondait alors « faux » en silence, et seul un redémarrage du démon
+ * débloquait le projet. Constaté le 17/08/2026 sur HaikoDev : dix publications
+ * dans la journée, toutes refusées après la première.
+ *
+ * Faute de boucle vivante à interrompre, on referme donc ce que l'on peut
+ * ATTEINDRE : le drapeau est levé quand il y a encore quelqu'un pour le lire,
+ * l'entrée `active` est retirée, la file d'attente du projet est vidée — sinon
+ * elle rejouerait le blocage — et la publication est marquée arrêtée en base si
+ * elle s'y croit encore en cours. On ne rend « faux » que sur une publication
+ * introuvable : c'est le seul cas où il n'y a vraiment rien à arrêter.
+ */
 export function stopDeploy(runId: string): boolean {
   const run = store.getDeploy(runId);
   if (!run) return false;
+
   const handle = active.get(run.projectId);
-  if (!handle) return false;
-  handle.stop();
+  if (handle) handle.stop();
+
+  // Une publication DÉJÀ terminée n'a rien à reprendre : on s'arrête là, sans
+  // réécrire son issue ni toucher à ce qui tourne peut-être pour un autre run.
+  if (run.state !== 'running') return Boolean(handle);
+
+  /*
+   * On libère sans chercher à deviner si la boucle respire encore : rien ne le
+   * dit de façon sûre depuis ici, et un arrêt DEMANDÉ doit aboutir. Une boucle
+   * vivante lira son drapeau à la vérification suivante et s'arrêtera d'
+   * elle-même ; son `finally` refait les mêmes retraits, qui ne coûtent rien
+   * une seconde fois, et réécrit sa propre issue par-dessus celle-ci.
+   */
+  active.delete(run.projectId);
+  waiting.delete(run.projectId);
+  emit({
+    ...run,
+    state: 'stopped',
+    error: "Publication arrêtée : plus rien ne la portait — l'étape en cours ne rendait plus la main.",
+    endedAt: Date.now(),
+    steps: run.steps.map((etape) =>
+      etape.state === 'running'
+        ? { ...etape, state: 'failed' as const, progress: undefined }
+        : etape,
+    ),
+  });
+  log.warn(
+    `publication ${runId} (projet ${run.projectId}) arrêtée alors que plus rien ne la portait : le verrou du projet est levé`,
+  );
   return true;
 }
 

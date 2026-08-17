@@ -62,6 +62,7 @@ export type MotifNotification =
   | 'decision-attendue'
   | 'publication-terminee'
   | 'publication-echec'
+  | 'publication-en-retard'
   | 'redemarrage-serveur'
   | 'quota-seuil'
   | 'quota-surconsommation'
@@ -131,6 +132,16 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
   // on croit son travail en ligne alors que rien n'est parti. Sujet à part, pour
   // qu'un échec ne soit jamais avalé par la réussite du même lot.
   'publication-echec': { famille: 'deploy', genre: 'erreur', sujet: 'publication-echec', icone: 'erreur' },
+  /*
+   * UNE ÉTAPE QUI TRAÎNE PRÉVIENT TOUT DE SUITE, sans attendre qu'un dépanneur
+   * parte. Un blocage EST une erreur au sens de cette règle — comme un compte à
+   * sa limite ou un geste sans réponse : le travail n'avance plus. Or c'est
+   * précisément le moment où l'on veut être averti, puisque le but est de ne
+   * plus jamais avoir à venir surveiller une publication soi-même. Sujet à
+   * part, pour qu'un retard ne soit jamais avalé par l'échec ou la réussite du
+   * même lot ; icône du BLOCAGE, pas de la publication.
+   */
+  'publication-en-retard': { famille: 'deploy', genre: 'erreur', sujet: 'publication-retard', icone: 'erreur' },
   /*
    * UN BLOCAGE EST UNE ERREUR. Un compte dont la limite est atteinte et un
    * amorçage refusé trois fois de suite (identifiant qui ne répond plus)

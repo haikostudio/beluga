@@ -63,7 +63,9 @@ process.env.HAIKODEV_DATA = path.join(racine, 'data');
 fs.mkdirSync(process.env.HAIKODEV_DATA, { recursive: true });
 
 const store = await import(path.join(racineDuDepot, 'server/dist/store.js'));
-const { commitsEnAttente } = await import(path.join(racineDuDepot, 'server/dist/deploy.js'));
+const { commitsEnAttente, ficherLeTravailSansCarte } = await import(
+  path.join(racineDuDepot, 'server/dist/deploy.js'),
+);
 const { compteurEtListeDAccord, alerteTravailSansCarte } = await import(
   path.join(racineDuDepot, 'shared/dist/index.js')
 );
@@ -166,6 +168,49 @@ dire(
 
 const alerte = alerteTravailSansCarte(attente);
 dire(!!alerte && /1 modification sans carte/.test(alerte.titre), `l’encart le dit : « ${alerte?.titre} »`);
+
+/* --- Le GESTE : donner une fiche à ce travail ------------------------ */
+
+console.log('\nA bis. Le bouton de l’encart : créer la carte qui le porte');
+
+const avant = store.listCards(projet.id).length;
+const fiche = await ficherLeTravailSansCarte(projet.id);
+dire(fiche.ok === true, `la carte est créée (${fiche.error ?? 'sans refus'})`);
+dire(
+  store.listCards(projet.id).length === avant + 1,
+  'UNE seule carte est posée, pas une par enregistrement',
+);
+const posee = fiche.card;
+dire(posee?.column === 'to_deploy', `elle est posée dans « À déployer » (${posee?.column})`);
+dire(posee?.title === 'Corriger le calcul de TVA', `elle porte le titre du travail : « ${posee?.title} »`);
+dire(
+  posee?.codeDejaEnregistre === true,
+  'elle dit que le code est DÉJÀ enregistré : rien ne partira au moteur',
+);
+dire(
+  (posee?.github?.commits ?? []).length === 1,
+  `elle porte l’empreinte trouvée (${(posee?.github?.commits ?? []).length})`,
+);
+dire(
+  /DÉJÀ enregistré/.test(posee?.description ?? ''),
+  'sa description dit où vit ce travail et ce que la supprimer ne fait pas',
+);
+
+/* Le dépôt n'a PAS bougé : ficher n'est pas publier. */
+const apresGeste = git(cwd, 'rev-parse', 'main').trim();
+const branchesApres = git(cwd, 'for-each-ref', '--format=%(refname:short)', 'refs/heads').trim().split('\n');
+dire(apresGeste === git(cwd, 'rev-parse', 'main').trim(), 'la branche principale n’a pas bougé');
+dire(
+  branchesApres.includes('tache/le-travail-dune-carte') && branchesApres.includes('main'),
+  `aucune branche n’a été effacée (${branchesApres.length})`,
+);
+dire(!store.latestDeploy(projet.id) || store.latestDeploy(projet.id).state !== 'running', 'rien n’a été publié');
+
+/* Et le même travail n'est plus annoncé deux fois. */
+const apres = await commitsEnAttente(projet.id);
+dire(apres.nombre === 0, `l’avertissement s’éteint de lui-même (${apres.nombre} restant)`);
+const refus = await ficherLeTravailSansCarte(projet.id);
+dire(refus.ok === false, `un second clic est refusé EN CLAIR : « ${refus.error} »`);
 
 fs.rmSync(racine, { recursive: true, force: true });
 
@@ -272,6 +317,206 @@ try {
       /* la session expire d'elle-même dans l'heure */
     }
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* C. LE GESTE, EN VRAI : cliquer le bouton de l'encart                 */
+/* ------------------------------------------------------------------ */
+
+console.log('\nC. Le bouton « Créer la carte qui le porte », cliqué pour de vrai');
+
+/* Un démon À SOI, jetable : sa base, ses dossiers, son port. On ne touche ni la
+   base ni le dépôt du serveur en service — et le plafond d'agents est mis à
+   ZÉRO, si bien que rien ne peut se lancer pendant l'essai. */
+const PORT = Number(process.env.HAIKO_COLONNE_PORT || 7213);
+const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-colonne-demon-'));
+const DATA = path.join(bac, 'data');
+const DEPOT = path.join(bac, 'depot');
+fs.mkdirSync(DATA, { recursive: true });
+fs.mkdirSync(DEPOT, { recursive: true });
+
+let demon = null;
+let navC = null;
+try {
+  const { spawn } = await import('node:child_process');
+  const net = await import('node:net');
+  const Database = (await import('better-sqlite3')).default;
+  const { chromium } = await import('playwright');
+
+  /* Le décor du dépôt : un point de départ DÉPLOYÉ, puis un travail enregistré
+     droit sur la principale — exactement le cas de la capture. */
+  git(DEPOT, 'init', '-q', '-b', 'main');
+  git(DEPOT, 'config', 'user.email', 'essai@haikodev');
+  git(DEPOT, 'config', 'user.name', 'Essai');
+  fs.writeFileSync(path.join(DEPOT, 'README.md'), '# essai\n');
+  git(DEPOT, 'add', 'README.md');
+  git(DEPOT, 'commit', '-q', '-m', 'départ');
+  const base = git(DEPOT, 'rev-parse', 'HEAD').trim();
+  fs.writeFileSync(path.join(DEPOT, 'anonyme.txt'), 'une correction menée sans carte\n');
+  git(DEPOT, 'add', 'anonyme.txt');
+  git(DEPOT, 'commit', '-q', '-m', 'Corriger le calcul de TVA');
+
+  demon = spawn('node', [path.join(racineDuDepot, 'server', 'dist', 'main.js')], {
+    env: {
+      ...process.env,
+      HAIKODEV_PORT: String(PORT),
+      HAIKODEV_HOST: '127.0.0.1',
+      HAIKODEV_DATA: DATA,
+      HAIKODEV_PROJECTS_ROOT: path.join(bac, 'projets'),
+      HAIKODEV_WEB: path.join(racineDuDepot, 'web', 'dist'),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const journal = [];
+  demon.stdout.on('data', (d) => journal.push(String(d)));
+  demon.stderr.on('data', (d) => journal.push(String(d)));
+
+  const attendrePort = async (limiteMs = 60000) => {
+    const fin = Date.now() + limiteMs;
+    while (Date.now() < fin) {
+      const ouvert = await new Promise((resolve) => {
+        const prise = net.connect(PORT, '127.0.0.1');
+        prise.on('connect', () => (prise.end(), resolve(true)));
+        prise.on('error', () => resolve(false));
+      });
+      if (ouvert) return true;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return false;
+  };
+  if (!(await attendrePort())) throw new Error(`démon d'essai injoignable : ${journal.join('').slice(-400)}`);
+
+  const jeton = crypto.randomBytes(32).toString('hex');
+  const PROJET = 'p-colonne-essai';
+  {
+    const db = new Database(path.join(DATA, 'haikodev.db'));
+    const t = Date.now();
+    db.prepare('INSERT INTO sessions (token, created_at, expires_at, label) VALUES (?, ?, ?, ?)').run(
+      crypto.createHash('sha256').update(jeton).digest('hex'),
+      t,
+      t + 3600_000,
+      'vérification carte porteuse',
+    );
+    const reglages = JSON.parse(db.prepare("SELECT value FROM meta WHERE key = 'settings'").get()?.value ?? '{}');
+    db.prepare(
+      "INSERT INTO meta (key, value) VALUES ('settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(JSON.stringify({ ...reglages, maxAgents: 0 }));
+    const projet = {
+      id: PROJET,
+      name: 'Essai colonne',
+      path: DEPOT,
+      defaultEngine: 'claude',
+      isSelf: false,
+      rank: 1,
+      archived: false,
+      /* Le marqueur des projets d'avant : sans lui, la colonne proposerait
+         d'initier la procédure au lieu d'afficher son bloc. */
+      deploiement: { constate: true },
+      createdAt: t,
+      updatedAt: t,
+    };
+    db.prepare(
+      'INSERT INTO projects (id, name, path, archived, data, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)',
+    ).run(PROJET, projet.name, DEPOT, JSON.stringify(projet), t, t);
+    const run = {
+      id: 'd-colonne-essai',
+      projectId: PROJET,
+      state: 'success',
+      cible: 'dev',
+      targetCommit: base,
+      cardIds: [],
+      steps: [],
+      startedAt: t - 60_000,
+      endedAt: t - 50_000,
+    };
+    db.prepare(
+      'INSERT INTO deploys (id, project_id, state, data, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(run.id, PROJET, 'success', JSON.stringify(run), run.startedAt, run.endedAt);
+    db.close();
+  }
+
+  navC = await chromium.launch({ channel: 'chrome' });
+  const ctx = await navC.newContext({ viewport: { width: 1400, height: 900 } });
+  await ctx.addCookies([{ name: 'haikodev_session', value: jeton, domain: '127.0.0.1', path: '/' }]);
+  const page = await ctx.newPage();
+  const erreurs = [];
+  page.on('pageerror', (err) => erreurs.push(String(err)));
+  await page.goto(`http://127.0.0.1:${PORT}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('[data-column="to_deploy"]', { timeout: 30000 });
+  /* Le contrôle d'avant-clic (`deploy.check`) part à l'affichage du bloc : c'est
+     lui qui découvre le travail sans carte. */
+  await page.waitForSelector('[data-travail-sans-carte="to_deploy"]', { timeout: 30000 });
+
+  const lire = () =>
+    page.evaluate(() => {
+      const col = document.querySelector('[data-column="to_deploy"]');
+      return {
+        compteur: Number(col?.querySelector('[data-compteur-colonne="to_deploy"]')?.textContent?.trim() ?? -1),
+        cartes: col?.querySelectorAll('[data-carte]').length ?? 0,
+        encart: !!col?.querySelector('[data-travail-sans-carte="to_deploy"]'),
+        bouton: col?.querySelector('[data-ficher-sans-carte="to_deploy"]')?.textContent?.trim() ?? null,
+      };
+    });
+
+  const avantClic = await lire();
+  dire(avantClic.encart, 'l’avertissement s’affiche dans la colonne');
+  dire(
+    compteurEtListeDAccord(avantClic.compteur, avantClic.cartes),
+    `le compteur reste celui de la liste : ${avantClic.compteur} = ${avantClic.cartes} carte(s)`,
+  );
+  dire(
+    avantClic.bouton === 'Créer la carte qui le porte',
+    `le bouton dit ce qu’il crée : « ${avantClic.bouton} »`,
+  );
+
+  await page.click('[data-ficher-sans-carte="to_deploy"]');
+  await page.waitForSelector('[data-column="to_deploy"] [data-carte]', { timeout: 30000 });
+  await page.waitForTimeout(1500);
+
+  const apresClic = await lire();
+  dire(apresClic.cartes === 1, `une carte est apparue dans la colonne (${apresClic.cartes})`);
+  dire(
+    compteurEtListeDAccord(apresClic.compteur, apresClic.cartes),
+    `et elle est COMPTÉE : ${apresClic.compteur} = ${apresClic.cartes}`,
+  );
+
+  const enBase = (() => {
+    const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
+    const ligne = db.prepare('SELECT title, column_key, data FROM cards').get();
+    db.close();
+    return ligne;
+  })();
+  dire(enBase?.title === 'Corriger le calcul de TVA', `la carte porte le travail trouvé : « ${enBase?.title} »`);
+  dire(enBase?.column_key === 'to_deploy', `elle est bien dans « À déployer » (${enBase?.column_key})`);
+
+  /* Le dépôt n'a PAS bougé : ficher n'est pas publier. */
+  dire(
+    git(DEPOT, 'rev-parse', 'main').trim() !== base,
+    'le travail est toujours là où il était (aucun enregistrement annulé)',
+  );
+  const runs = (() => {
+    const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
+    const n = db.prepare('SELECT COUNT(*) AS n FROM deploys').get().n;
+    db.close();
+    return n;
+  })();
+  dire(runs === 1, `aucune publication n’a été lancée au passage (${runs} run connu, celui du décor)`);
+  dire(!erreurs.length, `aucune erreur de page${erreurs.length ? ` — ${erreurs[0]}` : ''}`);
+} catch (err) {
+  console.log(`  (volet du geste non joué : ${err?.message ?? err})`);
+  echecs += 1;
+} finally {
+  if (navC) await navC.close().catch(() => {});
+  if (demon) {
+    /* On ne vise QUE le numéro de NOTRE démon d'essai : jamais un `pkill` dont
+       le motif pourrait désigner le démon en service. */
+    try {
+      demon.kill('SIGKILL');
+    } catch {
+      /* déjà parti */
+    }
+  }
+  fs.rmSync(bac, { recursive: true, force: true });
 }
 
 console.log(echecs ? `\n${echecs} vérification(s) en échec.` : '\nTout est vérifié.');

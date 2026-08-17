@@ -409,7 +409,13 @@ le nom, là-bas le texte).
   DEUX PRÉCAUTIONS : le temps d'un dépannage NE COMPTE PAS (sinon un dépannage naîtrait du précédent,
   sans fin — la veille est suspendue pendant), et les durées sont LARGES à dessein (on reconnaît un
   blocage, on ne mesure pas une lenteur). Une étape en retard le DIT à l'écran (`steps[].enRetard`,
-  ligne de progression en orange) au lieu d'obliger à venir constater. Le minuteur du plafond n'est
+  ligne de progression en orange) **et PRÉVIENT au CONSTAT, sans attendre qu'un dépanneur parte**
+  (`alerteDeRetard` ; motif `publication-en-retard`, genre « erreur » — un blocage en est un) : le
+  dépanneur ne part qu'une fois l'étape RETOMBÉE, ce qui pour une étape pendue peut vouloir dire
+  jamais, et la ligne orange ne se voit que par qui regarde déjà l'écran. UNE SEULE alerte par étape,
+  qui dit qu'il n'y a RIEN à faire ; sujet à part (jamais avalée par l'échec ni la réussite du même
+  lot) et AUCUN personnage de colonne — un retard tombe sur les deux étapes, il garde l'image de son
+  genre. Le minuteur du plafond n'est
   PAS `unref` — un minuteur détaché ne réveille pas le processus et le plafond ne serait jamais
   atteint. Verrouillé par `server/src/test/duree-des-etapes.test.ts` et
   `scripts/verif-garde-fou-duree.mjs`.
@@ -479,6 +485,17 @@ le nom, là-bas le texte).
   donc du bouton « ! », où il fallait savoir qu'il existait pour aller le lire. Le bouton d'action,
   lui, garde le compte du LOT qui partira et NOMME ses deux parts (`libelleCompteLot`) — ce n'est pas
   le même objet. Rien n'est publié ni fusionné pour « régler » l'affichage.
+- **…ET L'ENCART PROPOSE DE LUI DONNER SA FICHE, D'UN CLIC** (`libelleCartePorteuse`,
+  `descriptionCartePorteuse`, `shared/src/colonne-a-deployer.ts` ; `ficherLeTravailSansCarte`,
+  `server/src/deploy.ts` ; commande `deploy.ficherSansCarte` ; bouton `data-ficher-sans-carte`) :
+  nommer le problème sans offrir de le régler laissait devant un encart qu'on ne pouvait que subir.
+  Le bouton pose UNE carte dans « À déployer » qui porte TOUS les enregistrements trouvés
+  (`github.commits`), avec `codeDejaEnregistre` — le travail est fait, rien ne partira au moteur — et
+  les étiquettes « hors tâche » / « sur la principale ». L'avertissement s'éteint alors de lui-même :
+  le contrôle suivant retrouve ces empreintes couvertes, et le même travail n'est jamais annoncé deux
+  fois. TROIS refus tenus : rien n'est publié, aucune branche n'est touchée, et un second clic sans
+  rien à ficher est refusé en clair. `commitsEnAttente` rend donc aussi les enregistrements entiers
+  (`commits`, `branche`) — mais `deploy.check` n'envoie au navigateur que le compte et les titres.
 - **…ET CE QUI EST PORTÉ PAR LA BRANCHE D'UNE CARTE N'EST PAS « SANS CARTE »**
   (`exclusionsDesBranchesDeCartes`, `shared/src/travail-hors-tache.ts` ; `commitsEnAttente`,
   `server/src/deploy.ts`). Le compte des modifications anonymes se lisait sur les seules empreintes
@@ -1054,7 +1071,11 @@ le nom, là-bas le texte).
   mot, et le démon range encore son tour après la réponse rendue — statut et marque d'écriture ont
   chacun leur fenêtre aveugle. Tant que le tour vit, le témoin est allumé et la flèche d'envoi reste
   un carré d'ARRÊT ; le tour refermé l'éteint, par quelque chemin que ce soit, et le redémarrage
-  efface la marque comme `attendReponse`. Verrouillé par
+  efface la marque comme `attendReponse`. Le TABLEAU lit la même règle
+  (`agentTientSonTour`) : le personnage de « En cours » pioche jusqu'à la fin RÉELLE du tour, et le
+  temps du rangement d'après-réponse — constat du dépôt, dossier refermé, branche fusionnée — se lit
+  sous la réponse dans le tiroir de la carte (`Message.rangementMs`, écrit par `noterLeRangement`,
+  jamais sous une seconde). Verrouillé par
   `server/src/test/travail-en-cours.test.ts` et `scripts/verif-temoin-pendant-commandes.mjs`.
   Un message resté marqué « en écriture »
   après la fin de son tour est ORPHELIN et n'allume plus rien. `pushMessage` refuse de reposer la
@@ -1165,19 +1186,30 @@ le nom, là-bas le texte).
   « light » sont REPRIS (`themeValide`), et `CHOIX_DE_THEME` porte la CLARTÉ de chaque thème
   (`item.clarte`) pour qu'un écran choisisse son icône (soleil/lune) sans lister les identifiants un
   par un. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`.
-- **LES TROIS GRANDES ZONES (colonne des projets, tableau, conversation) SONT ÉTAGÉES, SOMBRE
-  SEULEMENT** (`data-zone` sur `sidebar.tsx` et `app.tsx` ; règles `html[data-theme='sombre']
-  [data-zone='…']` dans `web/src/styles.css`, 17.08.2026) : les trois régions empruntaient toutes
-  `--bg` sans fond à elles, donc se fondaient dans le même noir dès que la bordure du thème plat a
-  disparu. `racine.dataset.theme` porte TOUJOURS le nom du thème, « sombre » compris, même si son
-  bloc de jetons reste `:root` — un sélecteur `html[data-theme='sombre']` cible donc ce thème SEUL,
-  sans toucher aux six autres (ils n'ont jamais cet attribut, la règle ne les concerne jamais) et
-  sans figurer dans les jetons que `verif-themes.mjs` compare entre thèmes (il ne lit que les sept
-  blocs connus). Palier complet : page 0 %, colonne des projets 3 %, tableau 5 %, colonnes du
-  tableau (`--surface`) 8 %, conversation 11 %, cartes et bulles (`--raised`, monté à 15 % à cette
-  occasion) 15 %. Cette technique — un sélecteur `[data-theme='…']` scopé plutôt qu'un nouveau jeton
-  partagé — est la manière de retoucher UN SEUL thème sans devoir en déclarer la valeur dans les six
-  autres.
+- **LES TROIS GRANDES ZONES (colonne des projets, tableau, conversation) SONT ÉTAGÉES, DANS LES
+  SEPT THÈMES** (`data-zone` sur `sidebar.tsx` et `app.tsx` ; règles `html[data-theme='…']
+  [data-zone='…']` — et `html:not(.dark)` pour « clair » — dans `web/src/styles.css`, 17.08.2026,
+  étendu aux six autres le même jour) : les trois régions empruntaient toutes `--bg` sans fond à
+  elles, donc se fondaient dans le même fond — né dans le thème sombre dès que sa bordure a disparu,
+  le défaut touchait déjà les six autres. `racine.dataset.theme` porte TOUJOURS le nom du thème,
+  « sombre » compris, même si son bloc de jetons reste `:root` — un sélecteur `html[data-theme='…']`
+  cible donc CHAQUE thème SEUL, sans figurer dans les jetons que `verif-themes.mjs` compare entre
+  thèmes (il ne lit que les sept blocs connus, pas ces sélecteurs annexes). Palier du sombre : page
+  0 %, colonne des projets 3 %, tableau 5 %, colonnes du tableau (`--surface`) 8 %, conversation
+  11 %, cartes et bulles (`--raised`, monté à 15 % à cette occasion) 15 %. Les six autres suivent
+  leur PROPRE sens d'élévation (`--surface` plus clair que `--bg` dans cinq thèmes, plus sombre dans
+  « clair » et « givre »), par la même proportion (35 %, 65 % puis 45 % de l'écart vers le jeton
+  suivant). Cette technique — un sélecteur `[data-theme='…']` scopé plutôt qu'un nouveau jeton
+  partagé — est la manière de retoucher UN SEUL thème sans devoir en déclarer la valeur dans les
+  autres, si on ne le fait que pour un seul.
+- **« GIVRE », « SAPIN » ET « CONTRASTE » DÉCLARENT MAINTENANT `--ligne-active` ET
+  `--bandeau-etape`** (`web/src/styles.css`, 17.08.2026) : ces deux jetons manquaient depuis
+  l'arrivée de ces trois thèmes, retombant en silence sur les valeurs du thème clair —
+  `verif-themes.mjs` aurait dû le refuser mais ne le mesure qu'en repli, sans navigateur en face ;
+  toujours relancer avec `HAIKO_THEMES_URL` pointé sur le dev pour voir la vraie liste de refus.
+  Le compte de choix attendu dans le sous-menu « Thème » (`scripts/verif-themes.mjs`) n'est plus
+  recopié à la main (« 5 », périmé depuis l'ajout de ces trois thèmes) : il se déduit de
+  `BLOCS.length + 1`.
 - **…ET LES HUIT CHOIX TIENNENT DERRIÈRE UNE SEULE ENTRÉE « THÈME » DU MENU**
   (`DropdownMenuSub` / `DropdownMenuSubTrigger` / `DropdownMenuSubContent`, `web/src/components/ui/index.tsx` ;
   entrée `data-theme-menu` de `web/src/components/quota-bar.tsx`) : alignés les uns sous les autres,

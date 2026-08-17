@@ -163,6 +163,35 @@ export function mentionEtapeQuiTraine(libelleEtape: string, constat: ConstatDeDu
 }
 
 /**
+ * L'ALERTE D'UNE ÉTAPE EN RETARD — envoyée AU CONSTAT, pas au dépannage.
+ *
+ * La ligne orange du déroulé ne se voit que par qui regarde déjà l'écran, et le
+ * dépanneur ne part qu'une fois l'étape RETOMBÉE — pour une étape pendue, cela
+ * peut vouloir dire jamais. Prévenir au constat est donc le seul moment qui
+ * tienne la promesse : ne plus avoir à venir surveiller une publication.
+ *
+ * Elle dit ce qu'on veut savoir sans ouvrir l'écran : quel projet, quelle
+ * étape, depuis combien de temps, et ce qui va se passer tout seul. Elle ne
+ * part qu'UNE FOIS par étape (`reference`) — un retard qui dure ne se répète
+ * pas toutes les trente secondes.
+ */
+export function alerteDeRetard(input: {
+  projet?: string;
+  libelleEtape: string;
+  constat: ConstatDeDuree;
+}): { titre: string; corps: string; element: string } {
+  const ou = input.projet?.trim() ? ` de « ${input.projet.trim()} »` : '';
+  return {
+    titre: `Publication en retard${ou}`,
+    corps:
+      `L’étape « ${input.libelleEtape} » dure depuis ${dureeDite(input.constat.ecouleMs)}, ` +
+      `pour ${dureeDite(input.constat.attenduMs)} attendues. ` +
+      'Rien à faire : la publication tente de se débloquer seule, et dira ce qu’elle a essayé.',
+    element: `« ${input.libelleEtape} » en retard (${dureeDite(input.constat.ecouleMs)})`,
+  };
+}
+
+/**
  * LA PANNE D'UNE ÉTAPE QUI NE REND PAS LA MAIN.
  *
  * Comme l'adresse muette (`panneDAdresseMuette`), elle ne se reconnaît à aucun

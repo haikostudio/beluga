@@ -42,6 +42,7 @@ import {
   imageDuPersonnage,
   animeDuPersonnage,
   gesteDuPersonnage,
+  agentTientSonTour,
   COLONNES_ANIMEES,
   runDeLEtape,
   mentionProgressionTaches,
@@ -381,10 +382,18 @@ export function Board({
    * `avancementDeLaColonne` ; ici on ne fait que rassembler la matière, et elle
    * se remet à jour toute seule puisque les agents sont diffusés en direct.
    */
+  /*
+   * …et « au travail » se lit avec la MÊME règle que le témoin d'une
+   * conversation (`agentTientSonTour`, `shared/src/travail-en-cours.ts`) : le TOUR
+   * VIVANT d'abord, le statut ensuite. Sans lui, le personnage de « En cours »
+   * cessait de piocher dès la réponse rendue, alors que le démon rangeait encore
+   * le tour (constat du dépôt, branche fusionnée) — l'immobilité disait « c'est
+   * fini » avant que ce le soit.
+   */
   const agentsTacheParCarte = React.useMemo(() => {
     const index = new Map<string, (typeof state.agents)[string]>();
     for (const agent of Object.values(state.agents)) {
-      if (agent.cardId && agent.role === 'task' && (agent.status === 'running' || agent.status === 'starting')) {
+      if (agent.cardId && agent.role === 'task' && agentTientSonTour(agent)) {
         if (!index.has(agent.cardId)) index.set(agent.cardId, agent);
       }
     }
@@ -1370,8 +1379,10 @@ export function Board({
               {column === 'to_deploy' || column === 'in_production' ? (
                 <AlerteTravailSansCarte
                   colonne={column}
+                  projectId={projectId}
                   travail={sansCarte[column] ?? null}
                   verbe={etapeDeLaColonne(column)?.verbe ?? 'déployer'}
+                  onFiche={() => setSansCarte((prev) => ({ ...prev, [column]: null }))}
                 />
               ) : null}
               {cartesPosees.map((card) => {
@@ -1548,6 +1559,28 @@ function ComposerInline({
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+
+  /*
+   * CE BROUILLON APPARTIENT À SA COLONNE DE SON PROJET, PAS À L'APPLICATION.
+   * Ce composant n'est jamais démonté quand on change de projet (le tableau
+   * l'est, pas lui) : sans ceci, un titre ou une pièce jointe préparés pour
+   * une note du projet A restaient dans le formulaire en ouvrant celui du
+   * projet B — même défaut que le composeur de conversation, ici sans le
+   * geste d'envoi pour le vider. Un vrai changement de projet ou de colonne
+   * referme la fenêtre et vide tout ce qui n'a pas été créé.
+   */
+  const cleComposeur = `${projectId}:${column}`;
+  const cleComposeurPrecedente = React.useRef(cleComposeur);
+  React.useEffect(() => {
+    if (cleComposeurPrecedente.current === cleComposeur) return;
+    cleComposeurPrecedente.current = cleComposeur;
+    setOpen(false);
+    setTitle('');
+    setDescription('');
+    setDepart(maintenantEnChamp());
+    setAttachments([]);
+    setApercu(null);
+  }, [cleComposeur]);
 
   /*
    * La colonne doit savoir que sa fenêtre est ouverte : c'est elle, et non

@@ -924,6 +924,15 @@ export const Message = z.object({
   /** Ce que HaikoDev a réellement transmis pour cette demande utilisateur. */
   sentContext: SentContextSnapshot.optional(),
   durationMs: z.number().optional(),
+  /**
+   * LE RANGEMENT D'APRÈS-RÉPONSE, en millisecondes : le temps passé entre la
+   * réponse figée et la fermeture réelle du tour — compression du fil, constat
+   * du dépôt, dossier de carte refermé et branche fusionnée. Ce travail-là ne
+   * se voyait nulle part : la conversation semblait finie, et l'agent tenait
+   * pourtant encore son tour. Écrit une seule fois, à la fermeture ; absent sur
+   * un tour d'avant cette règle, ou refermé d'autorité.
+   */
+  rangementMs: z.number().optional(),
   account: z.string().optional(),
   error: z.string().optional(),
   createdAt: z.number(),

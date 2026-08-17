@@ -52,6 +52,9 @@ test('chaque motif qui alerte entre dans l’un des trois genres, nommément', (
     'compte-sature',
     'geste-lent',
     'publication-echec',
+    // Une étape de publication qui traîne : le travail n'avance plus, donc un
+    // blocage, donc une erreur (`shared/src/duree-des-etapes.ts`).
+    'publication-en-retard',
     'tache-echec',
   ]);
 });

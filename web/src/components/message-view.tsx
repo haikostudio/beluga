@@ -307,6 +307,14 @@ export function MessageView({
             message.durationMs && message.durationMs >= 1000
               ? `${duration(message.durationMs / 1000)} de travail`
               : null,
+            /* LE RANGEMENT D'APRÈS-RÉPONSE, quand il a duré. La réponse est là,
+               mais l'agent tient encore son tour : constat du dépôt, dossier de
+               la carte refermé, branche fusionnée. Ce temps n'était visible
+               nulle part, et c'est lui qui explique un agent « occupé » sur une
+               conversation qui paraît finie (`Message.rangementMs`). */
+            message.rangementMs && message.rangementMs >= 1000
+              ? `puis ${duration(message.rangementMs / 1000)} de rangement`
+              : null,
           ]}
           texte={message.content}
           cle={message.id}
