@@ -10,6 +10,10 @@ import {
   MESSAGE_ARRET_INACTIF,
   MESSAGE_ARRET_SERVICE,
   DELAI_CONFIRMATION_ARRET_MS,
+  DELAI_COUP_DE_GRACE_MS,
+  bilanDesArrets,
+  messageDuTravailSauve,
+  FICHIERS_SAUVES_MONTRES_MAX,
 } from '@haikodev/shared';
 
 test('un moteur en marche se coupe, comme avant', () => {
@@ -111,8 +115,83 @@ test("on n'achève l'arrêt que si le MÊME tour est encore là", () => {
   assert.equal(arretAAchever({ memeTourEncoreVivant: false }), false);
 });
 
-test("le délai de confirmation laisse passer le coup de grâce du signal (4 s)", () => {
-  assert.ok(DELAI_CONFIRMATION_ARRET_MS > 4_000);
+test('le délai de confirmation laisse toujours passer le coup de grâce', () => {
+  // L'ordre compte : on ne referme jamais d'autorité par-dessus un moteur qu'on
+  // vient d'achever et dont la fin n'est pas encore remontée.
+  assert.ok(DELAI_CONFIRMATION_ARRET_MS > DELAI_COUP_DE_GRACE_MS);
   // …sans faire attendre l'utilisateur devant un écran immobile.
   assert.ok(DELAI_CONFIRMATION_ARRET_MS <= 10_000);
+});
+
+test('un arrêt DEMANDÉ n’attend plus quatre secondes avant d’achever', () => {
+  // C'est ce qui faisait croire que le bouton ne mordait pas : quatre secondes
+  // d'écran immobile après un clic explicite.
+  assert.ok(DELAI_COUP_DE_GRACE_MS <= 2_000);
+  // Mais on laisse quand même au moteur le temps de partir de lui-même.
+  assert.ok(DELAI_COUP_DE_GRACE_MS >= 500);
+});
+
+test('le bilan d’un arrêt groupé NOMME chaque geste', () => {
+  const bilan = bilanDesArrets(['coupe', 'coupe', 'secours', 'inactif']);
+  assert.equal(bilan.total, 4);
+  assert.equal(bilan.coupes, 2);
+  assert.equal(bilan.secours, 1);
+  assert.equal(bilan.inactifs, 1);
+  assert.match(bilan.message, /2 moteurs coupés/);
+  assert.match(bilan.message, /1 tour refermé d’autorité/);
+  assert.match(bilan.message, /1 agent déjà inactif/);
+});
+
+test('un seul agent coupé se dit au singulier, sans « (s) »', () => {
+  const bilan = bilanDesArrets(['coupe']);
+  assert.match(bilan.message, /^1 agent arrêté : 1 moteur coupé\.$/);
+});
+
+test('un bouton qui n’a rien trouvé le DIT, au lieu d’annoncer une réussite vide', () => {
+  const bilan = bilanDesArrets([]);
+  assert.equal(bilan.total, 0);
+  assert.match(bilan.message, /rien à arrêter/i);
+});
+
+/*
+ * CE QUI A ÉTÉ SAUVÉ AVANT LA COUPURE SE DIT DANS LA CONVERSATION — c'est la
+ * dernière chose écrite dans un fil qu'on vient de couper.
+ */
+
+test('le message nomme les fichiers sauvés ET la branche où les retrouver', () => {
+  const texte = messageDuTravailSauve({
+    fichiers: ['server/src/runtime.ts', 'web/src/app.tsx'],
+    branche: 'tache/refonte-1234',
+    motif: 'Redémarrage forcé du serveur',
+  });
+  assert.match(texte, /Redémarrage forcé du serveur/);
+  assert.match(texte, /tache\/refonte-1234/);
+  assert.match(texte, /2 fichiers/);
+  assert.match(texte, /- server\/src\/runtime\.ts/);
+  assert.match(texte, /- web\/src\/app\.tsx/);
+  // Sauver n'est pas publier : la distinction doit rester lisible.
+  assert.match(texte, /rien n’est publié/i);
+});
+
+test('une longue liste se coupe et DIT combien reste', () => {
+  const fichiers = Array.from({ length: FICHIERS_SAUVES_MONTRES_MAX + 3 }, (_, i) => `fichier-${i}.ts`);
+  const texte = messageDuTravailSauve({ fichiers, branche: 'tache/x-1' });
+  assert.match(texte, /et 3 autres fichiers/);
+  assert.match(texte, new RegExp(`${FICHIERS_SAUVES_MONTRES_MAX + 3} fichiers`));
+});
+
+test('rien à sauver se dit aussi, et ne se confond pas avec un travail perdu', () => {
+  const texte = messageDuTravailSauve({ fichiers: [], branche: 'tache/x-1' });
+  assert.match(texte, /rien à enregistrer/i);
+  assert.match(texte, /y était déjà/);
+});
+
+test('sans branche connue, le message reste vrai au lieu d’inventer un nom', () => {
+  const texte = messageDuTravailSauve({ fichiers: ['a.ts'] });
+  assert.match(texte, /la branche de cette carte/);
+  assert.doesNotMatch(texte, /undefined/);
+});
+
+test('un seul fichier se dit au singulier', () => {
+  assert.match(messageDuTravailSauve({ fichiers: ['a.ts'] }), /1 fichier\./);
 });

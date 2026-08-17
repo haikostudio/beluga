@@ -15,7 +15,8 @@
  *   1. tant que le faux moteur tourne, une demande de redémarrage — au clic
  *      dans un vrai navigateur comme par commande brute — est REFUSÉE et
  *      RETENUE, jamais exécutée ;
- *   2. le bouton passe sur « Redémarrage requis » ;
+ *   2. le bouton passe sur « Redémarrage requis », et la fenêtre NOMME ce
+ *      qu'elle va interrompre avant d'offrir de FORCER ;
  *   3. dès que le faux moteur se termine, le redémarrage retenu part tout
  *      seul, sans neuf geste.
  */
@@ -245,15 +246,50 @@ async function main() {
   );
   noter('le processus du démon n’a PAS quitté', !sorti);
 
-  await page.click('button:has-text("Redémarrer le serveur"), button:has-text("Redémarrage")');
+  /*
+   * ON VISE LE BOUTON PAR SON REPÈRE, JAMAIS PAR SON TEXTE. `:has-text()` ignore
+   * la casse : « Essai redémarrage », le nom du projet de ce décor, matchait
+   * « Redémarrage » et recevait le clic à sa place. La fenêtre ne s'ouvrait donc
+   * jamais, et le bloc qui la vérifiait — muet — n'en disait rien.
+   */
+  await page.click('[data-bouton-redemarrage]');
   await page.waitForTimeout(600);
   const dialogue = page.getByRole('dialog').filter({ hasText: 'Redémarrer le serveur ?' });
-  if ((await dialogue.count()) > 0) {
-    await dialogue.getByRole('button', { name: 'Redémarrer' }).click();
+
+  /*
+   * LA FENÊTRE DIT CE QU'ELLE VA INTERROMPRE, ET OFFRE DE FORCER.
+   *
+   * Forcer est un geste de dernier recours, pris les yeux ouverts : le second
+   * bouton n'a de sens que si la fenêtre a d'abord nommé ce qui sera coupé. Les
+   * deux se vérifient ici, sur un agent RÉELLEMENT au travail — c'est la seule
+   * situation où ils s'affichent.
+   */
+  const ouverte = (await dialogue.count()) > 0;
+  noter('le clic ouvre bien la fenêtre du redémarrage', ouverte);
+
+  if (ouverte) {
+    const annonce = await dialogue.locator('[data-redemarrage-interrompu]').innerText().catch(() => '');
+    noter(
+      'la fenêtre NOMME ce qui va être interrompu avant de confirmer',
+      /interrompus/i.test(annonce) && /agent/i.test(annonce),
+      annonce.slice(0, 120),
+    );
+    noter(
+      'elle offre un bouton « Forcer le redémarrage », distinct de « Redémarrer »',
+      (await dialogue.locator('[data-redemarrage-force]').count()) === 1,
+    );
+    noter(
+      'et ce bouton ne part JAMAIS tout seul : le serveur est toujours là',
+      !sorti,
+    );
+
+    // « Redémarrer dès que possible » quand un travail retient : le geste pose
+    // la demande retenue, il ne force rien.
+    await dialogue.getByRole('button', { name: /^Redémarrer/ }).click();
     await page.waitForTimeout(1200);
   }
 
-  const libelleApresClic = await boutonRedemarrage.first().innerText().catch(() => '');
+  const libelleApresClic = await page.locator('[data-bouton-redemarrage]').innerText().catch(() => '');
   noter(
     'après le clic, le bouton affiche « Redémarrage requis »',
     /Redémarrage requis/i.test(libelleApresClic),

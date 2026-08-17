@@ -28,6 +28,9 @@ const ICONES = {
   'decision-attendue': 'attention',
   'publication-terminee': 'publication',
   'publication-echec': 'erreur',
+  // Une étape qui traîne prévient AU CONSTAT, sans attendre qu'un dépanneur
+  // parte : c'est un blocage, donc l'image d'un blocage.
+  'publication-en-retard': 'erreur',
   // Les deux BLOCAGES : une limite atteinte, un identifiant qui ne répond plus.
   // Le redémarrage du serveur et les paliers 70 % / 90 % du quota n'alertent
   // plus — ils n'ont donc plus rien à traduire ici.
@@ -55,6 +58,10 @@ const PERSONNAGES = {
   'decision-attendue': 'running',
   'publication-terminee': 'in_production',
   'publication-echec': 'to_deploy',
+  // « publication-en-retard » n'y figure PAS à dessein : un retard peut tomber
+  // sur un déploiement comme sur une mise en production, donc sur deux colonnes
+  // différentes. Il garde l'image de son genre plutôt qu'un visage pris au
+  // hasard — exactement la règle de cette table.
 };
 
 function avatarDeLAlerte(motif) {

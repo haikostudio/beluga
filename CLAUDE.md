@@ -328,7 +328,10 @@ le nom, là-bas le texte).
 - **Ne JAMAIS redémarrer le serveur tant qu'une publication OU une tâche tourne**
   (`shared/src/demon.ts`) : le démon porte toutes les publications et tous les agents, le couper en
   tranche un en plein vol. Un redémarrage demandé est retenu — le bouton affiche « Redémarrage
-  requis » — et rejoué tout seul dès le dernier travail fini ; même le clic ne passe jamais outre.
+  requis » — et rejoué tout seul dès le dernier travail fini. Un SECOND bouton de la fenêtre,
+  « Forcer le redémarrage », passe outre : geste EXPLICITE, jamais automatique, offert seulement
+  après que la fenêtre a NOMMÉ ce qui sera interrompu, et le travail en cours est enregistré sur la
+  branche de sa carte avant la coupure (règle « TOUT ARRÊT EST UN GESTE EN FORCE », plus bas).
   **EXCEPTION : le chef d'orchestre peut arrêter TOUS les agents, puis redémarrer le serveur**
   (`chefArreteTousEtRedémarre`, `shared/src/demon.ts`) : le chef envoie `agents.stop-all` pour
   liquider immédiatement tout ce qui tourne, puis demande le redémarrage. Le verrou lâche prise. La
@@ -390,6 +393,31 @@ le nom, là-bas le texte).
   colonne (`steps[].reprises` et `.reparations`, « fait · 4 s · réparée · 1 reprise »), pas dans un
   journal. Verrouillé par `server/src/test/reparation-publication.test.ts` et
   `scripts/verif-reparation-publication.mjs`.
+- **…ET UNE ÉTAPE QUI NE REND PAS LA MAIN EST UNE PANNE, PAS UN TRAVAIL LENT**
+  (`shared/src/duree-des-etapes.ts` — `DUREE_ATTENDUE_MS`, `PLAFOND_TOUR_D_AGENT_MS`,
+  `constatDeDuree`, `panneDeLenteur` ; `tourDAgentSousPlafond`, veille posée dans `setStep`,
+  `server/src/deploy.ts`) : la réparation ne relevait que ce qui TOMBE. L'étape qui ne finit JAMAIS
+  restait « en cours » avec sa roue, indistinguable d'une étape qui travaille, indéfiniment. DEUX
+  TROUS, de nature différente. Une COMMANDE était déjà bornée par son délai mais tombait sur un
+  message que personne ne reconnaît (« Command failed … SIGTERM ») : `runCommand` rend désormais
+  `delaiDepasse`, et l'étape NOMME sa panne au lieu de repartir en « non reconnue ». Un TOUR D'AGENT
+  n'avait AUCUNE borne — les QUATRE (mise en production confiée, dépanneur, réparation des contrôles,
+  réparation de la construction) passent par `tourDAgentSousPlafond`, qui coupe par `arreterLAgent`.
+  Le dépassement entre par le MÊME chemin qu'une erreur : `jouer()` peut nommer sa panne
+  (`{ok, sortie, panne}`), donc dépanneur puis reprise, avec les mêmes bornes et le même journal.
+  DEUX PRÉCAUTIONS : le temps d'un dépannage NE COMPTE PAS (sinon un dépannage naîtrait du précédent,
+  sans fin — la veille est suspendue pendant), et les durées sont LARGES à dessein (on reconnaît un
+  blocage, on ne mesure pas une lenteur). Une étape en retard le DIT à l'écran (`steps[].enRetard`,
+  ligne de progression en orange) **et PRÉVIENT au CONSTAT, sans attendre qu'un dépanneur parte**
+  (`alerteDeRetard` ; motif `publication-en-retard`, genre « erreur » — un blocage en est un) : le
+  dépanneur ne part qu'une fois l'étape RETOMBÉE, ce qui pour une étape pendue peut vouloir dire
+  jamais, et la ligne orange ne se voit que par qui regarde déjà l'écran. UNE SEULE alerte par étape,
+  qui dit qu'il n'y a RIEN à faire ; sujet à part (jamais avalée par l'échec ni la réussite du même
+  lot) et AUCUN personnage de colonne — un retard tombe sur les deux étapes, il garde l'image de son
+  genre. Le minuteur du plafond n'est
+  PAS `unref` — un minuteur détaché ne réveille pas le processus et le plafond ne serait jamais
+  atteint. Verrouillé par `server/src/test/duree-des-etapes.test.ts` et
+  `scripts/verif-garde-fou-duree.mjs`.
 - **RANGER LES CARTES NE PEUT PLUS FAIRE ÉCHOUER UNE MISE EN LIGNE RÉUSSIE**
   (`DeployRun.avertissement`, `avertissementCartesNonRangees` ; fin de `startDeploy`) : le
   17/08/2026, un déploiement a tout mené à bien puis s'est déclaré en ÉCHEC sur une carte de la base
@@ -440,6 +468,44 @@ le nom, là-bas le texte).
   `rangerLaCarte`, `server/src/deplacement-carte.ts` ; migration 20). Sans cela, une carte revenue
   dans le lot en était écartée à jamais et « Tout déployer (0) » ne partait nulle part, sans un mot.
   Tant que le bouton refuse de partir, la cause s'écrit sous lui.
+- **LE COMPTEUR D'UNE COLONNE COMPTE CE QUE SA LISTE MONTRE, ET CE QUI N'A PAS DE CARTE SE DIT EN
+  CLAIR** (`compteurDeColonne`, `compteurEtListeDAccord`, `alerteTravailSansCarte`,
+  `phraseDeColonneVide`, `shared/src/colonne-a-deployer.ts` ; `AlerteTravailSansCarte`,
+  `web/src/components/deploy-panel.tsx` ; tête de colonne et encart posés par
+  `web/src/components/board.tsx`). La tête annonçait « À DÉPLOYER 1 » pendant que la colonne écrivait
+  dessous « Rien à mettre en ligne pour l'instant » : le CHIFFRE venait du bloc de publication
+  (cartes du lot + travail enregistré sans carte, `onCount`), la LISTE des cartes réellement posées —
+  deux lectures pour une seule colonne, et un travail prêt à partir que rien ne montrait. Le
+  compteur ne connaît donc plus qu'une source, `columnCards.length` (`data-compteur-colonne`), sur
+  la tête comme sur l'onglet du téléphone : pas de carte affichée qui ne soit comptée, pas de compte
+  sans carte. Le travail SANS CARTE ne se soustrait pas pour autant : il remonte à la colonne
+  (`onSansCarte`) et s'écrit dans un ENCART ORANGE posé au-dessus des cartes
+  (`data-travail-sans-carte`), qui NOMME les enregistrements trouvés et dit où ils sont ; il sort
+  donc du bouton « ! », où il fallait savoir qu'il existait pour aller le lire. Le bouton d'action,
+  lui, garde le compte du LOT qui partira et NOMME ses deux parts (`libelleCompteLot`) — ce n'est pas
+  le même objet. Rien n'est publié ni fusionné pour « régler » l'affichage.
+- **…ET L'ENCART PROPOSE DE LUI DONNER SA FICHE, D'UN CLIC** (`libelleCartePorteuse`,
+  `descriptionCartePorteuse`, `shared/src/colonne-a-deployer.ts` ; `ficherLeTravailSansCarte`,
+  `server/src/deploy.ts` ; commande `deploy.ficherSansCarte` ; bouton `data-ficher-sans-carte`) :
+  nommer le problème sans offrir de le régler laissait devant un encart qu'on ne pouvait que subir.
+  Le bouton pose UNE carte dans « À déployer » qui porte TOUS les enregistrements trouvés
+  (`github.commits`), avec `codeDejaEnregistre` — le travail est fait, rien ne partira au moteur — et
+  les étiquettes « hors tâche » / « sur la principale ». L'avertissement s'éteint alors de lui-même :
+  le contrôle suivant retrouve ces empreintes couvertes, et le même travail n'est jamais annoncé deux
+  fois. TROIS refus tenus : rien n'est publié, aucune branche n'est touchée, et un second clic sans
+  rien à ficher est refusé en clair. `commitsEnAttente` rend donc aussi les enregistrements entiers
+  (`commits`, `branche`) — mais `deploy.check` n'envoie au navigateur que le compte et les titres.
+- **…ET CE QUI EST PORTÉ PAR LA BRANCHE D'UNE CARTE N'EST PAS « SANS CARTE »**
+  (`exclusionsDesBranchesDeCartes`, `shared/src/travail-hors-tache.ts` ; `commitsEnAttente`,
+  `server/src/deploy.ts`). Le compte des modifications anonymes se lisait sur les seules empreintes
+  relevées sur les cartes (`shasCouverts`) — or ce relevé n'existe QUE si l'onglet « GitHub » de la
+  carte a été ouvert une fois. Onze enregistrements du 17/08/2026, tous issus de cartes bien réelles,
+  étaient donc annoncés comme du travail anonyme. On demande désormais au DÉPÔT d'écarter tout ce que
+  les branches de cartes contiennent (`--not --branches=tache/*`, plus les rares branches nommées
+  autrement, filtrées sur celles que git connaît vraiment), et `--no-merges` écarte les FUSIONS —
+  une fusion n'apporte pas de travail à elle seule, ce qu'elle réunit est déjà dans la plage. Même
+  règle que `commitsSansCarte`. Verrouillé par `server/src/test/colonne-a-deployer.test.ts` et
+  `scripts/verif-colonne-a-deployer.mjs`.
 - **La BRANCHE de chaque étape se choisit dans les réglages du projet**
   (`brancheDePublication`, `shared/src/branche-de-publication.ts` ; `Project.branchesDePublication`) :
   une pour le déploiement, une pour la mise en production, prises dans la liste des branches du
@@ -603,6 +669,28 @@ le nom, là-bas le texte).
   processus** (les moteurs n'étant pas `detached`, ils portent le groupe du DÉMON). Tous les gestes
   se disent à l'écran, « coupe » compris (`ws.ts`). Verrouillé par
   `server/src/test/arret-de-secours.test.ts` et `scripts/verif-arret-moteur-recalcitrant.mjs`.
+- **TOUT ARRÊT EST UN GESTE EN FORCE, ET LE REDÉMARRAGE AUSSI** (`DELAI_COUP_DE_GRACE_MS`,
+  `bilanDesArrets`, `shared/src/arret-de-secours.ts` ; `decisionDeRedemarrage` avec `force`,
+  `resumeDeCeQuiSeraInterrompu`, `shared/src/demon.ts` ; `agentsQuiTournentEncore`,
+  `acheverTousLesMoteurs`, `server/src/runtime.ts` ; `acheverLArbre`,
+  `server/src/engines/fin-de-processus.ts` ; `sauverPuisToutArreter`, `server/src/demon.ts` ;
+  `DialogueDeRedemarrage`, `web/src/components/sidebar.tsx`) : le serveur coupe le PROCESSUS
+  lui-même — passer par l'agent ne marche pas quand c'est justement lui qui est bloqué. Coup de
+  grâce à 1,5 s au lieu de 4 ; le bouton de TOUS les agents balaie l'UNION du statut, des tours
+  vivants, des préparations et des moteurs de service (le seul statut ment quand rien n'avance),
+  vide les files et rend un BILAN qui NOMME les gestes. Le REDÉMARRAGE se FORCE par un SECOND
+  bouton, jamais tout seul : la fenêtre nomme d'abord ce qui sera interrompu, le travail de chaque
+  copie de carte est enregistré sur sa branche, puis tout est coupé — et ACHEVÉ SUR-LE-CHAMP
+  (`acheverLArbre`, numéro EXACT et descendance lue dans `/proc`, jamais un motif ni un groupe), le
+  démon quittant avant le délai de grâce, ce qui laissait sinon le moteur têtu ORPHELIN. « Redémarrer »
+  garde son sens à côté (demande RETENUE), et un SIGNAL du dehors ne force JAMAIS. **Et ce qui a été
+  sauvé se DIT dans la conversation de l'agent coupé** (`messageDuTravailSauve`,
+  `shared/src/arret-de-secours.ts` ; `fichiersNonEnregistres`, `server/src/dossier-de-carte.ts` ;
+  `annoncerDansLaConversation`, `server/src/runtime.ts`) : la liste est relevée AVANT le geste (après,
+  le dossier est propre et ne dit plus rien), et le message nomme les fichiers et la branche — « rien
+  à enregistrer » se dit aussi, il ne se confond pas avec un travail perdu. Verrouillé par
+  `server/src/test/demon.test.ts`, `server/src/test/arret-de-secours.test.ts` et
+  `scripts/verif-arret-en-force.mjs`.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
@@ -975,8 +1063,20 @@ le nom, là-bas le texte).
   de base se relit défensivement** (`purgerContexteEnvoyeAncien`, `server/src/store.ts`) — écrite par
   une version plus ancienne du modèle, elle peut manquer un champ que le schéma remplirait. Vérifié
   par `server/src/test/purge-contexte-envoye.test.ts`.
-- **Le témoin « réflexion en cours » suit l'AGENT, pas le message** (`temoinDeTravail` /
-  `ecritureOrpheline`, `shared/src/travail-en-cours.ts`) : un message resté marqué « en écriture »
+- **Le témoin « réflexion en cours » suit l'AGENT, pas le message, et d'abord son TOUR VIVANT**
+  (`temoinDeTravail` / `ecritureOrpheline`, `shared/src/travail-en-cours.ts` ;
+  `Agent.tourVivantDepuis`, posé et retiré par `marquerLeTourVivant` / `retirerLeTourVivant`,
+  `server/src/runtime.ts`) : un agent travaille aussi quand il enchaîne des COMMANDES sans écrire un
+  mot, et le démon range encore son tour après la réponse rendue — statut et marque d'écriture ont
+  chacun leur fenêtre aveugle. Tant que le tour vit, le témoin est allumé et la flèche d'envoi reste
+  un carré d'ARRÊT ; le tour refermé l'éteint, par quelque chemin que ce soit, et le redémarrage
+  efface la marque comme `attendReponse`. Le TABLEAU lit la même règle
+  (`agentTientSonTour`) : le personnage de « En cours » pioche jusqu'à la fin RÉELLE du tour, et le
+  temps du rangement d'après-réponse — constat du dépôt, dossier refermé, branche fusionnée — se lit
+  sous la réponse dans le tiroir de la carte (`Message.rangementMs`, écrit par `noterLeRangement`,
+  jamais sous une seconde). Verrouillé par
+  `server/src/test/travail-en-cours.test.ts` et `scripts/verif-temoin-pendant-commandes.mjs`.
+  Un message resté marqué « en écriture »
   après la fin de son tour est ORPHELIN et n'allume plus rien. `pushMessage` refuse de reposer la
   marque une fois le tour retiré des tours vivants, `recoverAfterRestart` l'éteint sur TOUS les agents
   au redémarrage, et `veilleDesToursBloques` l'éteint au fil de l'eau — le bandeau s'éteint donc sans
@@ -1138,17 +1238,43 @@ le nom, là-bas le texte).
   paraissait cassé. Verrouillé par `server/src/test/themes.test.ts` et `scripts/verif-themes.mjs`
   (qui pose le projet par `window.haikodevEssai.projet`, le démon en service pouvant précéder le champ
   et le retirer — Zod écarte les clés qu'il ne connaît pas).
-- **LE FLAT DESIGN NE RETIRE PAS UN CONTRASTE QUI PORTAIT UNE INFORMATION** — deux jetons DÉDIÉS,
-  déclarés dans les QUATRE thèmes (`--ligne-active`, `--bandeau-etape`, `web/src/styles.css` ; noms
-  Tailwind `bg-ligne-active` / `bg-bandeau-etape`, `web/tailwind.config.js`) : la ligne du projet
-  OUVERT (colonne de gauche, `LigneEspaceDev` et `ProjectRow` de `web/src/components/sidebar.tsx`)
-  et le bandeau d'étape sous une carte (`web/src/components/board.tsx`) empruntaient `--raised` ou
-  `bg-border/30` — des jetons qui, dans certains thèmes, valent quasiment `--bg` ou `--surface` (le
-  thème « clair » d'origine a `--raised` STRICTEMENT ÉGAL à `--bg`, 0 0% 100% des deux côtés) ou sont
-  volontairement proches des fonds (les thèmes plats effacent `--border`). Le repère devenait donc
-  invisible, pas seulement discret. Aucune bordure n'est réintroduite : chaque jeton porte une
-  valeur SOLIDE, propre à chaque thème, choisie pour rester à distance visible du fond de page, du
-  survol ET du corps de la carte — jamais recopiée d'un autre jeton ni d'un autre thème.
+- **LE CHOIX EST DÉJÀ PARTAGÉ ENTRE APPAREILS — LE PROBLÈME ÉTAIT LE FLASH DE PREMIER AFFICHAGE, PRIS
+  POUR UN THÈME QUI « CHANGE TOUT SEUL »** (`CLE_REPERE_PREMIER_AFFICHAGE`, `appliquerLeTheme`,
+  `useThemeApplique`, `web/src/lib/theme.ts` ; script inline de `web/index.html`). Constaté le
+  17.08.2026 par un essai à deux navigateurs sur le même compte : le réglage général et celui d'un
+  projet vivent DÉJÀ en base (`usePref`, table `preferences`) et se propagent EN DIRECT à tous les
+  écrans ouverts (`bus.emit({ type: 'prefs', … })` sur `prefs.set`, `server/src/ws.ts`) — aucun
+  `localStorage` ne les double. Le vrai défaut : `index.html` posait TOUJOURS un flash « sombre »
+  avant que React ne connaisse le vrai thème, quel qu'il soit — un clignotement à CHAQUE chargement,
+  sur CHAQUE appareil, pour quiconque n'a pas choisi le sombre. Pire, l'effet qui pose le thème
+  tournait aussi AVANT que le serveur ait répondu (`state.pret` encore faux), avec les valeurs par
+  DÉFAUT (`prefs` et `projects` encore vides) : il réappliquait « sombre » par-dessus une bonne
+  devinette, produisant DEUX bascules au lieu d'une. Le script de `index.html` lit désormais un
+  REPÈRE local — jamais la source de vérité, seulement une devinette de premier instant — écrit par
+  `appliquerLeTheme` à chaque pose RÉELLE ; et `useThemeApplique` n'applique ni n'écrit plus rien tant
+  que `state.pret` est faux. Un appareil déjà vu n'a donc plus aucun flash ; un appareil neuf garde le
+  flash « sombre » unique, inévitable sans rendu côté serveur. Table de clarté DUPLIQUÉE dans
+  `index.html`, à la manière de `web/public/sw.js` : un script qui doit rester synchrone ne peut rien
+  importer.
+- **LE FLAT DESIGN NE RETIRE PAS UN CONTRASTE QUI PORTAIT UNE INFORMATION** — trois jetons DÉDIÉS,
+  déclarés dans les SEPT thèmes (`--ligne-active`, `--bandeau-etape`, `--bloc-etapes`,
+  `web/src/styles.css` ; noms Tailwind `bg-ligne-active` / `bg-bandeau-etape` / `bg-bloc-etapes`,
+  `web/tailwind.config.js`) : la ligne du projet OUVERT (colonne de gauche, `LigneEspaceDev` et
+  `ProjectRow` de `web/src/components/sidebar.tsx`), le bandeau d'étape sous une carte
+  (`web/src/components/board.tsx`) et le bloc des étapes collé au-dessus du composeur (étape en
+  cours, décompte des tâches, temps — `TravailEnCours`, `web/src/components/chat.tsx`)
+  empruntaient `--raised`, `bg-border/30` ou un dégradé finissant en `surface/0` — des jetons qui,
+  dans certains thèmes, valent quasiment `--bg` ou `--surface` (le thème « clair » d'origine a
+  `--raised` STRICTEMENT ÉGAL à `--bg`, 0 0% 100% des deux côtés) ou sont volontairement proches des
+  fonds (les thèmes plats effacent `--border`), et un dégradé transparent se confond forcément avec
+  ce qu'il y a DERRIÈRE, quel que soit ce fond. Le repère devenait donc invisible, pas seulement
+  discret. Aucune bordure n'est réintroduite : chaque jeton porte une valeur SOLIDE, propre à
+  chaque thème, choisie pour rester à distance visible du fond de page, du survol ET du corps de la
+  carte — jamais recopiée d'un autre jeton ni d'un autre thème. `--ligne-active` et
+  `--bandeau-etape` ne couvraient en réalité que QUATRE thèmes (sombre, clair, sable, ardoise) :
+  « givre », « sapin » et « contraste » retombaient en silence sur les valeurs du thème sombre ou
+  clair faute de les déclarer, une omission que `scripts/verif-themes.mjs` aurait dû refuser et que
+  cette même tâche a comblée en même temps que `--bloc-etapes`.
 - **ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ**, partout dans l'application
   (jetons `--en-cours` / `--termine`, `web/src/styles.css`, nommés `en-cours` et `termine` dans
   `web/tailwind.config.js`). Colonnes du tableau, cartes, colonne de gauche, conversations, listes de
@@ -1396,6 +1522,14 @@ le nom, là-bas le texte).
   98 ms par touche sur 400 cartes, contre 0,7 ms depuis (`scripts/mesure-fluidite.mjs`, qui MESURE
   sans juger). La copie locale part dans la même temporisation de 600 ms que l'envoi au serveur, et
   le tableau range ses cartes par colonne UNE fois par rendu.
+- **LES PIÈCES JOINTES EN ATTENTE SUIVENT L'AGENT, COMME LE BROUILLON — PAS LE COMPOSANT**
+  (`cleJointes`, `jointesEnregistrees`, `composer.tsx`) : la liste des fichiers joints mais pas
+  encore envoyés était un simple état LOCAL du composant, jamais réinitialisé ni rechargé au
+  changement d'agent ou de projet — changer de conversation gardait les pièces jointes de la
+  précédente, avec le risque de les envoyer au mauvais destinataire. Retenues côté serveur par
+  conversation (`prefs`, clé `draftAttachments.<agentId>`), même mécanique de chargement et de
+  sauvegarde différée (600 ms) que le brouillon de texte ; effacées ensemble à l'envoi. Vérifié par
+  `scripts/verif-jointes-suivent-agent.mjs`.
 - **LES CARTES D'UN PROJET QU'ON NE CONSULTE PLUS SE DÉCHARGENT — APRÈS QUINZE MINUTES, PAS AVANT**
   (`DELAI_DECHARGEMENT_MS`, `projetsADecharger`, `shared/src/decharge-projets.ts` ;
   `dechargerLesProjetsOublies`, `web/src/lib/client.ts`) : le projet AFFICHÉ n'est jamais déchargé, et

@@ -565,6 +565,53 @@ export function Composer({
     return () => window.clearTimeout(timer);
   }, [text, agentId, cleBrouillon]);
 
+  /*
+   * LES FICHIERS JOINTS SUIVENT LA MÊME CONVERSATION QUE LE BROUILLON, PAS
+   * L'APPLICATION. Sans ceci, `attachments` restait un état local de ce
+   * composant : changer de projet ou d'agent gardait les pièces jointes
+   * préparées pour l'agent précédent, avec le risque de les envoyer au
+   * mauvais destinataire. Même mécanique que le brouillon — retenu côté
+   * serveur, par conversation — pour qu'on les retrouve depuis n'importe
+   * quel écran, et jamais depuis une autre.
+   */
+  const cleJointes = agentId ? `draftAttachments.${agentId}` : 'draftAttachments.aucun';
+  const [jointesEnregistrees, setJointesEnregistrees] = usePref<Attachment[]>(cleJointes, []);
+  const jointesChargeesPour = React.useRef<string | undefined>(undefined);
+  const jointesPosees = React.useRef<string | undefined>(undefined);
+  const jointesIgnorerProchaineSauvegarde = React.useRef(true);
+
+  React.useEffect(() => {
+    if (!agentId) return;
+
+    if (jointesChargeesPour.current !== agentId) {
+      // Vraie ouverture d'une autre conversation : on affiche SES pièces jointes.
+      jointesChargeesPour.current = agentId;
+      jointesPosees.current = jointesEnregistrees.length ? agentId : undefined;
+      jointesIgnorerProchaineSauvegarde.current = true;
+      setAttachments(jointesEnregistrees);
+      return;
+    }
+
+    // Même conversation : les pièces jointes peuvent arriver du serveur juste
+    // après l'ouverture, on les pose alors une seule fois.
+    if (jointesPosees.current === agentId) return;
+    if (!jointesEnregistrees.length) return;
+    jointesPosees.current = agentId;
+    jointesIgnorerProchaineSauvegarde.current = true;
+    setAttachments((current) => (current.length ? current : jointesEnregistrees));
+  }, [agentId, jointesEnregistrees]);
+
+  React.useEffect(() => {
+    if (!agentId || jointesChargeesPour.current !== agentId) return;
+    // Le premier passage est l'affichage des pièces déjà retenues, pas un ajout.
+    if (jointesIgnorerProchaineSauvegarde.current) {
+      jointesIgnorerProchaineSauvegarde.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => setJointesEnregistrees(attachments), 600);
+    return () => window.clearTimeout(timer);
+  }, [attachments, agentId]);
+
   React.useEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
@@ -676,23 +723,35 @@ export function Composer({
       return;
     }
 
+    // Gardées pour un éventuel échec : l'envoi les vide tout de suite, mais
+    // elles ne doivent pas se perdre pour autant.
+    const jointesEnvoyees = attachments;
+
     oublierBrouillon();
     setText('');
     onClearPicked();
     setAttachments([]);
+    jointesIgnorerProchaineSauvegarde.current = true;
+    setJointesEnregistrees([]);
     curseur.current = null;
     try {
       await client.call({
         type: 'agent.prompt',
         agentId: agent.id,
         text: body,
-        attachments: attachments.map((a) => a.id),
+        attachments: jointesEnvoyees.map((a) => a.id),
       });
     } catch (err: any) {
-      // L'envoi a échoué : là, on rend le texte, sinon il serait perdu.
+      // L'envoi a échoué : là, on rend le texte ET les pièces jointes, sinon
+      // elles seraient perdues.
       client.pushToast('error', err?.message ?? 'envoi impossible');
       dejaEnvoye.current = null;
       setText(body);
+      if (jointesEnvoyees.length) {
+        setAttachments(jointesEnvoyees);
+        jointesIgnorerProchaineSauvegarde.current = true;
+        setJointesEnregistrees(jointesEnvoyees);
+      }
     }
   };
 

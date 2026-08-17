@@ -105,6 +105,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
 import { adapterFor, contextWindowFor, EngineAdapter, EngineEvent, EngineHandle } from './engines/index.js';
+import { acheverLArbre } from './engines/fin-de-processus.js';
 import { agentLog, log } from './logger.js';
 import { getInternalToken } from './auth.js';
 import {
@@ -290,6 +291,36 @@ export function agentsActifsDetail(): string[] {
 
 export function liveRun(agentId: string): LiveRun | undefined {
   return live.get(agentId);
+}
+
+/**
+ * LE TOUR VIVANT SE DIT À L'ÉCRAN, IL NE SE DEVINE PLUS.
+ *
+ * Le témoin de travail se lisait sur deux indices INDIRECTS — le statut
+ * enregistré et la marque d'écriture d'un message — et chacun a sa fenêtre
+ * aveugle : le message est figé dès la réponse rendue, le statut retombe à
+ * « terminé » alors que le démon range encore le tour (compression, constat du
+ * dépôt, fusion de la branche). Un agent qui enchaîne des commandes en silence
+ * passait donc pour au repos, et l'on croyait pouvoir écrire.
+ *
+ * Ces deux fonctions publient le FAIT lui-même sur l'agent : un tour est là, ou
+ * il n'y est plus. Elles encadrent chaque `live.set` / `live.delete`, et
+ * n'écrivent que sur un vrai changement (aucune diffusion inutile).
+ */
+function marquerLeTourVivant(agentId: string, depuis: number): void {
+  const frais = store.getAgent(agentId);
+  if (!frais || frais.tourVivantDepuis === depuis) return;
+  const maj = store.saveAgent({ ...frais, tourVivantDepuis: depuis });
+  bus.emit({ type: 'agent.upsert', agent: maj });
+}
+
+/** Le tour est refermé : le témoin s'éteint, quel que soit le chemin pris. */
+function retirerLeTourVivant(agentId: string): void {
+  live.delete(agentId);
+  const frais = store.getAgent(agentId);
+  if (!frais || frais.tourVivantDepuis === undefined) return;
+  const maj = store.saveAgent({ ...frais, tourVivantDepuis: undefined });
+  bus.emit({ type: 'agent.upsert', agent: maj });
 }
 
 export function runningCount(): number {
@@ -1731,6 +1762,9 @@ async function startTurn(
 
   runState.handle = handle;
   live.set(agent.id, runState);
+  // …et l'écran l'apprend tout de suite : le témoin de travail suit ce tour, pas
+  // ce qui s'écrit (`shared/src/travail-en-cours.ts`).
+  marquerLeTourVivant(agent.id, runState.startedAt);
 
   /*
    * Seulement après que l'adaptateur a accepté et lancé le tour : une demande
@@ -2411,7 +2445,16 @@ async function startTurn(
     }
   }
 
-  live.delete(agent.id);
+  /*
+   * CE QUE LE RANGEMENT A COÛTÉ, écrit une fois pour toutes sur la réponse.
+   * Entre la réponse figée et cette ligne, le démon a comprimé le fil, constaté
+   * le dépôt, refermé le dossier de la carte et fusionné sa branche — du
+   * travail invisible, qui explique pourquoi l'agent tenait encore son tour
+   * alors que sa réponse était là depuis un moment.
+   */
+  noterLeRangement(runState);
+
+  retirerLeTourVivant(agent.id);
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
@@ -2681,6 +2724,24 @@ async function resumeSemantique(agent: Agent, options: OptionsCompression): Prom
   });
   const resultat = await handle.finished;
   return resultat.ok && !erreur ? texte.trim() : '';
+}
+
+/**
+ * LE RANGEMENT D'APRÈS-RÉPONSE SE MESURE, IL NE SE DEVINE PAS.
+ *
+ * `pushMessage` refuse d'écrire sur un tour déjà refermé : cette note-ci part
+ * donc directement au magasin, à l'instant où le tour se termine pour de bon.
+ * Rien n'est écrit si la réponse n'a jamais été figée (tour tombé avant), ni si
+ * le rangement a été instantané — une durée nulle n'apprend rien.
+ */
+function noterLeRangement(run: LiveRun): void {
+  if (!run.reponseFigeeA) return;
+  const rangementMs = Date.now() - run.reponseFigeeA;
+  if (rangementMs < 1_000) return;
+  const message = store.getMessage(run.messageId);
+  if (!message || message.rangementMs !== undefined) return;
+  const maj = store.saveMessage({ ...message, rangementMs });
+  bus.emit({ type: 'message.upsert', message: maj });
 }
 
 function pushMessage(run: LiveRun, patch: Partial<Message>): void {
@@ -3035,23 +3096,90 @@ export function stopAgent(agentId: string): boolean {
   return arreterLAgent(agentId).travaillait;
 }
 
-/** Arrêter TOUS les agents en cours (running ou starting), sur tous les projets. */
-export function stopAllAgents(): Array<{ agentId: string; cardId?: string }> {
-  const allAgents = store.listAgents();
-  const activeStatuses = ['running', 'starting'] as const;
-  const stoppedAgents: Array<{ agentId: string; cardId?: string }> = [];
+/**
+ * TOUT CE QUI TOURNE ENCORE, quelle que soit la façon dont ça tourne.
+ *
+ * On ne se fiait qu'au STATUT enregistré (« running », « starting »), donc à ce
+ * que la base croit savoir. C'est précisément ce qui est faux quand rien
+ * n'avance : un tour vivant sur un agent que la base dit au repos, une
+ * préparation coincée avant même que le statut ne soit posé, un moteur de
+ * SERVICE (compression du fil, relance d'un plan) qui n'apparaît nulle part.
+ * Ces trois-là survivaient au bouton « tout arrêter » — et retenaient ensuite le
+ * redémarrage sans que personne ne comprenne pourquoi.
+ *
+ * On part donc de l'UNION de quatre sources : le statut, les tours vivants, les
+ * préparations en route, les moteurs de service.
+ */
+function agentsQuiTournentEncore(): string[] {
+  const identifiants = new Set<string>();
+  for (const agent of store.listAgents()) {
+    if (agent.status === 'running' || agent.status === 'starting') identifiants.add(agent.id);
+  }
+  for (const agentId of live.keys()) identifiants.add(agentId);
+  for (const agentId of demarrant.keys()) identifiants.add(agentId);
+  for (const [agentId, ouverts] of moteursDeService) {
+    if (ouverts.size) identifiants.add(agentId);
+  }
+  return [...identifiants];
+}
 
-  for (const agent of allAgents) {
-    if (activeStatuses.includes(agent.status as any)) {
-      stopAgent(agent.id);
-      stoppedAgents.push({
-        agentId: agent.id,
-        cardId: agent.cardId,
-      });
-    }
+/**
+ * ARRÊTER TOUS LES AGENTS, SUR TOUS LES PROJETS — ET RENDRE LE GESTE FAIT SUR
+ * CHACUN.
+ *
+ * Même geste EN FORCE que le bouton d'un agent seul, appliqué un par un :
+ * moteur coupé puis achevé s'il fait la sourde oreille, descendance emportée,
+ * tour refermé d'autorité quand il n'y a plus de moteur à couper. Ce qui change
+ * ici, c'est le compte rendu : chaque agent rapporte SON geste, et l'écran peut
+ * enfin dire ce qui s'est passé au lieu d'un nombre sans contenu.
+ */
+export function stopAllAgents(): Array<{
+  agentId: string;
+  cardId?: string;
+  geste: DecisionDArret['geste'];
+  message: string;
+}> {
+  const arretes: Array<{
+    agentId: string;
+    cardId?: string;
+    geste: DecisionDArret['geste'];
+    message: string;
+  }> = [];
+
+  for (const agentId of agentsQuiTournentEncore()) {
+    const decision = arreterLAgent(agentId);
+    arretes.push({
+      agentId,
+      cardId: store.getAgent(agentId)?.cardId,
+      geste: decision.geste,
+      message: decision.message,
+    });
   }
 
-  return stoppedAgents;
+  return arretes;
+}
+
+/**
+ * ACHEVER TOUT CE QUI TOURNE, TOUT DE SUITE — le geste du redémarrage FORCÉ.
+ *
+ * `stopAllAgents` demande d'abord et n'achève qu'au bout du délai de grâce : très
+ * bien tant que le serveur reste là pour tenir sa promesse. Au redémarrage
+ * forcé, il quitte avant — le minuteur meurt avec lui et le moteur récalcitrant
+ * survit, orphelin, à tourner sur la machine (constaté par
+ * `scripts/verif-arret-en-force.mjs`). On repasse donc derrière, sans rien
+ * demander : chaque moteur encore inscrit est achevé par son NUMÉRO EXACT, sa
+ * descendance avec lui — jamais un motif de nom, jamais un groupe de processus,
+ * qui emporteraient le démon.
+ */
+export function acheverTousLesMoteurs(): number {
+  let acheves = 0;
+  for (const [agentId, run] of live) {
+    acheves += acheverLArbre(run.handle.pid, `tour de ${agentId}`);
+  }
+  for (const [agentId, ouverts] of moteursDeService) {
+    for (const handle of ouverts) acheves += acheverLArbre(handle.pid, `service de ${agentId}`);
+  }
+  return acheves;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3083,7 +3211,12 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
   if (!agent) return false;
   const run = live.get(agentId);
   const enCours = agent.status === 'running' || agent.status === 'starting';
-  if (!run && !enCours) return false;
+  if (!run && !enCours) {
+    // Rien à refermer — mais si une marque de tour vivant traînait encore, elle
+    // ferait tourner le témoin dans le vide : on l'éteint au passage.
+    if (agent.tourVivantDepuis !== undefined) retirerLeTourVivant(agentId);
+    return false;
+  }
 
   if (run) {
     try {
@@ -3112,7 +3245,7 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
     effacerEtapeEnCours(agentId);
   }
 
-  live.delete(agentId);
+  retirerLeTourVivant(agentId);
   // Un tour refermé d'autorité peut être arrêté sur une question : son attente
   // tombe avec lui, sinon le drapeau « attend une réponse » resterait gravé sur
   // un agent que plus personne ne fait travailler.
@@ -3225,6 +3358,32 @@ function direLeBlocage(agentId: string, raison: string): void {
     bus.emit({ type: 'message.upsert', message });
   } catch (err) {
     log.warn(`blocage non annoncé (agent ${agentId}) : ${(err as Error).message}`);
+  }
+}
+
+/**
+ * DIRE QUELQUE CHOSE DANS LA CONVERSATION D'UN AGENT — sans que ce soit une
+ * panne.
+ *
+ * `direLeBlocage` pose un message d'ERREUR, et se tait quand une réponse est
+ * déjà là. Ce n'est pas ce qu'il faut pour annoncer un travail SAUVÉ : ce n'est
+ * pas un incident, et cela doit se dire même après une réponse rendue — c'est
+ * justement la dernière chose écrite dans un fil qu'on vient de couper.
+ */
+export function annoncerDansLaConversation(agentId: string, texte: string): void {
+  try {
+    const message = store.saveMessage(
+      Message.parse({
+        id: store.newId(),
+        agentId,
+        role: 'assistant',
+        content: texte,
+        createdAt: store.now(),
+      }),
+    );
+    bus.emit({ type: 'message.upsert', message });
+  } catch (err) {
+    log.warn(`annonce non écrite (agent ${agentId}) : ${(err as Error).message}`);
   }
 }
 
@@ -3525,6 +3684,17 @@ export function recoverAfterRestart(
     if (!agent.attendReponse) continue;
     const frais = store.saveAgent({ ...agent, attendReponse: undefined });
     bus.emit({ type: 'agent.upsert', agent: frais });
+  }
+  /*
+   * AUCUN TOUR NE SURVIT NON PLUS. La marque « un tour vit » est ce qui allume
+   * le témoin de travail : un moteur étant parti avec le démon, une marque
+   * encore là désigne un tour mort, et un tour mort ne rallume jamais rien.
+   */
+  for (const agent of tous) {
+    if (agent.tourVivantDepuis === undefined) continue;
+    // Relu en base : la boucle du dessus vient peut-être de réécrire ce même
+    // agent, et repartir de la copie d'avant lui rendrait son ancien drapeau.
+    retirerLeTourVivant(agent.id);
   }
   /*
    * AUCUN MESSAGE NE SURVIT « EN ÉCRITURE » À UN REDÉMARRAGE. Le nettoyage

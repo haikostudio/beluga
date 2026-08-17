@@ -513,8 +513,20 @@ async function dansLaPage(page, navigateur) {
         },
         { id: projectId, valeur: theme },
       );
-      await page.waitForTimeout(500);
-      return page.evaluate(() => document.documentElement.dataset.theme);
+      /* Ce contrôle vise parfois le démon RÉEL, avec d'autres agents actifs en
+         même temps : un délai FIXE de 500 ms suffit sur une machine calme mais
+         se révèle trop court sous charge, avant que React n'ait rattrapé le
+         changement d'état — d'où des refus qui n'en sont pas. On attend plutôt
+         que la valeur affichée se STABILISE (deux lectures identiques d'affilée),
+         plafonné à 3 s. */
+      let precedente = null;
+      for (let tentative = 0; tentative < 20; tentative += 1) {
+        await page.waitForTimeout(150);
+        const courante = await page.evaluate(() => document.documentElement.dataset.theme);
+        if (courante === precedente) return courante;
+        precedente = courante;
+      }
+      return precedente;
     };
 
     /* Deux projets, deux thèmes : passer de l'un à l'autre change tout. */
@@ -572,20 +584,18 @@ async function dansLaPage(page, navigateur) {
     );
   }
 
-  /* Le compte attendu se déduit des blocs RÉELLEMENT lus plus haut, jamais
-     recopié à la main : figé à « 5 » il valait encore juste avant l'arrivée de
-     « givre », « sapin » et « contraste » (BLOCS.length passait de 4 à 7), et
-     personne ne l'a revu depuis — ce contrôle ne tournait qu'en repli, sans
-     navigateur en face, et son échec ne se voyait donc jamais. Le sous-menu
-     porte les SEPT thèmes plus « Système ». */
-  const attendusAuMenu = BLOCS.length + 1;
+  /* Le sous-menu porte les sept thèmes PLUS « Système » — jamais un compte
+     recopié à la main, qui retomberait périmé au premier thème ajouté ou
+     retiré (constaté le 17.08.2026 : bloqué à 5 depuis l'ajout de givre,
+     sapin et contraste). */
+  const CHOIX_ATTENDUS = BLOCS.length + 1;
 
   /* 1) LE SURVOL. C'est le geste attendu à la souris. */
   await page.hover('[data-theme-menu]');
   await page.waitForTimeout(600);
   const auSurvol = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
-  if (auSurvol.length !== attendusAuMenu) {
-    anomalies.push(`le sous-menu ne s'ouvre pas au SURVOL (${auSurvol.length} thèmes vus, ${attendusAuMenu} attendus)`);
+  if (auSurvol.length !== CHOIX_ATTENDUS) {
+    anomalies.push(`le sous-menu ne s'ouvre pas au SURVOL (${auSurvol.length} thèmes vus, ${CHOIX_ATTENDUS} attendus)`);
   }
 
   /* 2) LE CLIC, pour qui n'a pas de souris. On referme d'abord tout. */
@@ -598,8 +608,8 @@ async function dansLaPage(page, navigateur) {
   await page.click('[data-theme-menu]');
   await page.waitForTimeout(600);
   const auClic = await page.$$eval('[data-theme-choix]', (noeuds) => noeuds.map((n) => n.dataset.themeChoix));
-  if (auClic.length !== attendusAuMenu) {
-    anomalies.push(`le sous-menu ne s'ouvre pas au CLIC (${auClic.length} thèmes vus, ${attendusAuMenu} attendus)`);
+  if (auClic.length !== CHOIX_ATTENDUS) {
+    anomalies.push(`le sous-menu ne s'ouvre pas au CLIC (${auClic.length} thèmes vus, ${CHOIX_ATTENDUS} attendus)`);
   }
 
   /* « Système » suit l'ordinateur, et le suit EN DIRECT. */

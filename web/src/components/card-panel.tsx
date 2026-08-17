@@ -333,17 +333,18 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           data-barre-onglets
           data-cachee={telephone && !barreVisible ? '' : undefined}
           className={cn(
-            'flex-none overflow-hidden transition-all duration-200',
+            'mx-4 mt-1 flex-none overflow-hidden rounded-md bg-raised transition-all duration-200',
             telephone && !barreVisible && 'max-h-0 opacity-0',
           )}
         >
+        {/* La barre d'onglets flottait sur le fond du tiroir (`bg-surface`
+            des deux côtés) : plus aucune limite visible depuis que la
+            bordure des thèmes plats s'efface. Elle pose maintenant son
+            propre fond — le même `bg-raised` que le champ de description,
+            plus bas — pour se détacher du tiroir comme un bloc à part ; la
+            piste de la pilule (`bg-surface`, posée par `TabsList`) et
+            l'onglet actif (`bg-raised`) gardent leur écart d'avant. */}
         <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-1.5 py-1">
-          {/* Même présentation en pilule que la barre « Chef / Fichiers /
-              Pièces jointes » : le tiroir porte déjà le même fond
-              (`bg-surface`) que la piste de la pilule, qui se détache donc
-              par un LISERÉ plutôt qu'un fond différent — `bg-bg` aurait
-              collé à `bg-raised` de l'onglet actif en thème clair, où les
-              deux valent blanc pur. */}
           <TabsList className="w-full border border-border">
             {/* La décision se prend DANS ce fil : l'onglet porte le même
                 triangle que la carte du tableau, sinon le tiroir ouvert
@@ -703,7 +704,7 @@ function ReglagesAgent({ card }: { card: Card }) {
   };
 
   return (
-    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+    <div className="rounded-md border border-border bg-raised px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
         <Cpu className="h-3 w-3" />
         {vu.modifiable ? "Réglages de l'agent" : 'Réglages qui ont servi'}
@@ -794,7 +795,7 @@ function DepartProgramme({ card }: { card: Card }) {
   };
 
   return (
-    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+    <div className="rounded-md border border-border bg-raised px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
         <CalendarClock className="h-3 w-3" />
         Départ programmé
@@ -940,7 +941,7 @@ function CeQuiEtaitPrevu({ card }: { card: Card }) {
   const debordement = prevue && reelle ? reelle > prevue * 1.3 : false;
 
   return (
-    <section className="space-y-2 rounded-lg border border-border bg-surface px-3 py-3" data-ce-qui-etait-prevu>
+    <section className="space-y-2 rounded-lg border border-border bg-raised px-3 py-3" data-ce-qui-etait-prevu>
       <div>
         <h3 className="text-[14px] font-semibold text-text">Ce qui était prévu</h3>
         <p className="mt-0.5 text-[12.5px] text-faint">
@@ -1018,7 +1019,7 @@ function Metric({
 }) {
   return (
     <Tooltip label={hint}>
-      <div className="rounded-md border border-border bg-surface px-2 py-1.5">
+      <div className="rounded-md border border-border bg-raised px-2 py-1.5">
         <p className="text-[11.5px] uppercase tracking-wide text-faint">{label}</p>
         <p className={cn('mt-0.5 text-[14.5px] font-medium', tone === 'warning' ? 'text-warning' : 'text-text')}>
           {value}
@@ -1137,7 +1138,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
       </Champ>
 
       {/* Le calcul est fait par l'outil de facturation : ici on ne fait que le montrer. */}
-      <div className="flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
+      <div className="flex items-center justify-between rounded-md border border-border bg-raised px-3 py-2">
         <span className="text-[13.5px] text-muted">
           {hours || '—'} h × {rate} CHF
         </span>
@@ -1175,7 +1176,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
           </Champ>
 
           {!defaut && !documentId ? (
-            <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
+            <label className="flex items-start gap-2 rounded-md border border-border bg-raised px-2.5 py-2 text-[13px] text-muted">
               <input
                 type="checkbox"
                 checked={confirmeNouveau}

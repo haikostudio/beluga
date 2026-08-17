@@ -117,6 +117,12 @@
        fond solide, un cran plus clair que le corps de la carte — jamais un
        trait, un fond qui se voit. */
     --bandeau-etape: 0 0% 22%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur (étape en cours, décompte
+       des tâches, temps) : un dégradé vers `surface/0` le rendait transparent
+       en bas, donc confondu avec ce qu'il y a DERRIÈRE — `--bg` (fond de
+       conversation du chef) ou `--surface` (tiroir d'une carte). Un fond
+       SOLIDE, dédié, nettement au-dessus des deux. */
+    --bloc-etapes: 0 0% 24%;
     color-scheme: dark;
   }
 
@@ -158,6 +164,10 @@
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, distinct
        du corps de la carte. */
     --bandeau-etape: 0 0% 87%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : distinct de `--bg`
+       (100 %) et de `--surface` (95 %), sans se confondre avec les deux autres
+       jetons dédiés ci-dessus. */
+    --bloc-etapes: 0 0% 84%;
     color-scheme: light;
   }
 
@@ -222,6 +232,9 @@
        fond de la colonne, la bordure de ce thème étant volontairement proche
        des fonds. Un fond SOLIDE, assombri, dédié à ce pied de carte. */
     --bandeau-etape: 40 22% 85%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : plus sombre encore,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 40 23% 82%;
     color-scheme: light;
   }
 
@@ -270,6 +283,9 @@
        bordure de ce thème est volontairement proche des fonds, elle ne peut
        plus servir de repère ici. */
     --bandeau-etape: 220 12% 31%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 220 12% 33%;
     color-scheme: dark;
   }
 
@@ -315,12 +331,15 @@
     --controle: 215 40% 20% / 0.06;
     /* LA LIGNE DU PROJET OUVERT : nettement plus sombre que le fond de page ET
        que le survol, même famille bleutée — piège rencontré en l'ajoutant
-       (17.08.2026) : ces deux jetons manquaient depuis l'arrivée de ce thème,
+       (17.08.2026) : ces jetons manquaient depuis l'arrivée de ce thème,
        ce que `verif-themes.mjs` n'avait jamais refusé faute d'être rejoué avec
        un navigateur en face. */
     --ligne-active: 210 22% 80%;
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, dédié. */
     --bandeau-etape: 210 20% 81%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 210 21% 76%;
     color-scheme: light;
   }
 
@@ -369,6 +388,9 @@
     --ligne-active: 148 16% 26%;
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, éclairci, dédié. */
     --bandeau-etape: 148 15% 29%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 148 13% 32%;
     color-scheme: dark;
   }
 
@@ -416,6 +438,9 @@
     --ligne-active: 45 10% 78%;
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, dédié. */
     --bandeau-etape: 45 9% 79%;
+    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
+       distinct des deux jetons ci-dessus. */
+    --bloc-etapes: 45 6% 77%;
     color-scheme: light;
   }
 

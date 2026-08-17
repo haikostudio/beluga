@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
-import { DELAI_VIDAGE_SORTIE_MS } from '@haikodev/shared';
+import { DELAI_COUP_DE_GRACE_MS, DELAI_VIDAGE_SORTIE_MS } from '@haikodev/shared';
 import { log } from '../logger.js';
 
 export interface OptionsDeFin {
@@ -88,8 +88,12 @@ export function finDuProcessus(
   });
 }
 
-/** Le délai laissé au moteur pour quitter proprement avant d'être achevé. */
-const DELAI_ARRET_FORCE_MS = 4000;
+/**
+ * Le délai laissé au moteur pour quitter proprement avant d'être achevé. Il vit
+ * dans `shared` avec la règle qui l'explique : un arrêt demandé est un geste EN
+ * FORCE, il n'attend pas quatre secondes qu'on veuille bien lui répondre.
+ */
+const DELAI_ARRET_FORCE_MS = DELAI_COUP_DE_GRACE_MS;
 
 /**
  * LES DESCENDANTS D'UN PROCESSUS, LUS DANS `/proc`.
@@ -137,6 +141,31 @@ function acheverLeProcessus(pid: number | undefined): void {
   } catch {
     /* déjà parti */
   }
+}
+
+/**
+ * ACHEVER UN MOTEUR TOUT DE SUITE, SANS LUI DEMANDER SON AVIS.
+ *
+ * `arreterProcessus` demande d'abord (SIGTERM) et n'achève qu'après un délai de
+ * grâce : c'est le bon geste tant que le serveur sera encore là pour le donner.
+ * Il ne l'est plus au REDÉMARRAGE FORCÉ — mesuré par
+ * `scripts/verif-arret-en-force.mjs` : le démon quittait avant l'échéance, le
+ * minuteur mourait avec lui, et le moteur récalcitrant survivait en orphelin,
+ * un `sleep` sans père qui continuait de tourner sur la machine.
+ *
+ * Ici on ne demande donc rien : la descendance est relevée d'abord (un parent
+ * mort ne dit plus qui étaient ses enfants), puis tout le monde est achevé. Les
+ * deux refus de sûreté d'`acheverLeProcessus` valent toujours — jamais le démon
+ * lui-même, jamais un numéro qui n'en est pas un — et on ne vise JAMAIS un
+ * groupe de processus, qui emporterait le serveur.
+ */
+export function acheverLArbre(pid: number | undefined, moteur: string): number {
+  if (!pid || !Number.isInteger(pid) || pid <= 1 || pid === process.pid) return 0;
+  const suite = descendants(pid);
+  acheverLeProcessus(pid);
+  for (const enfant of suite) acheverLeProcessus(enfant);
+  log.warn(`moteur ${moteur} achevé sur-le-champ (${1 + suite.length} processus)`);
+  return 1 + suite.length;
 }
 
 /**

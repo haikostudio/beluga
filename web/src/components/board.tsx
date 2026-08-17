@@ -24,6 +24,9 @@ import {
   cleColonneTableau,
   colonneAReprendre,
   colonneAffichee,
+  compteurDeColonne,
+  phraseDeColonneVide,
+  TravailSansCarte,
   decisionsParCarte,
   etapeDeLaColonne,
   etatVisuelCarte,
@@ -39,6 +42,7 @@ import {
   imageDuPersonnage,
   animeDuPersonnage,
   gesteDuPersonnage,
+  agentTientSonTour,
   COLONNES_ANIMEES,
   runDeLEtape,
   mentionProgressionTaches,
@@ -79,7 +83,12 @@ import { useSurvol } from '@/lib/pointeur';
 import { useAnimationsReduites } from '@/lib/animations-reduites';
 import { useMinute } from '@/lib/horloge';
 import { cn, relativeTime } from '@/lib/utils';
-import { DeployPanel, BoutonInfosPublication, InfosPublication } from '@/components/deploy-panel';
+import {
+  DeployPanel,
+  BoutonInfosPublication,
+  InfosPublication,
+  AlerteTravailSansCarte,
+} from '@/components/deploy-panel';
 import { BoutonReglagesProcedure, TiroirProcedure } from '@/components/procedure-panel';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 
@@ -373,10 +382,18 @@ export function Board({
    * `avancementDeLaColonne` ; ici on ne fait que rassembler la matière, et elle
    * se remet à jour toute seule puisque les agents sont diffusés en direct.
    */
+  /*
+   * …et « au travail » se lit avec la MÊME règle que le témoin d'une
+   * conversation (`agentTientSonTour`, `shared/src/travail-en-cours.ts`) : le TOUR
+   * VIVANT d'abord, le statut ensuite. Sans lui, le personnage de « En cours »
+   * cessait de piocher dès la réponse rendue, alors que le démon rangeait encore
+   * le tour (constat du dépôt, branche fusionnée) — l'immobilité disait « c'est
+   * fini » avant que ce le soit.
+   */
   const agentsTacheParCarte = React.useMemo(() => {
     const index = new Map<string, (typeof state.agents)[string]>();
     for (const agent of Object.values(state.agents)) {
-      if (agent.cardId && agent.role === 'task' && (agent.status === 'running' || agent.status === 'starting')) {
+      if (agent.cardId && agent.role === 'task' && agentTientSonTour(agent)) {
         if (!index.has(agent.cardId)) index.set(agent.cardId, agent);
       }
     }
@@ -415,13 +432,17 @@ export function Board({
   >({});
 
   /*
-   * Le compte EXACT du bouton « Tout <verbe> (n) », remonté par le bloc de
-   * publication : pour « À déployer » et « En production », le lot embarque
-   * aussi le travail enregistré sans carte (`enAttente`) — le chiffre de
-   * l'en-tête doit donc dire le MÊME total, jamais seulement les cartes
-   * physiquement posées dans la colonne.
+   * LE TRAVAIL ENREGISTRÉ SANS CARTE POUR LE PORTER, remonté par le bloc de
+   * publication de chaque colonne qui publie.
+   *
+   * Il servait à GONFLER le chiffre de la tête de colonne — « À DÉPLOYER 1 »
+   * pendant que la colonne écrivait dessous « Rien à mettre en ligne pour
+   * l'instant », puisqu'il n'y avait justement aucune carte à afficher. Le
+   * compteur est rendu à la liste (`columnCards.length`, et rien d'autre) et
+   * ce travail s'écrit désormais EN CLAIR dans la colonne, au-dessus des
+   * cartes. Règle et textes : `shared/src/colonne-a-deployer.ts`.
    */
-  const [deployCounts, setDeployCounts] = React.useState<Partial<Record<ColumnKey, number>>>({});
+  const [sansCarte, setSansCarte] = React.useState<Partial<Record<ColumnKey, TravailSansCarte | null>>>({});
 
   /*
    * LA COLONNE DONT LA FENÊTRE DE CRÉATION EST OUVERTE. La fenêtre est posée en
@@ -476,7 +497,9 @@ export function Board({
     let travaille = 0;
     // Le NOMBRE de cartes de la colonne, compté sur la même liste que la colonne
     // elle-même (`byColumn`) : l'onglet et la tête de colonne ne peuvent donc
-    // pas afficher deux chiffres différents.
+    // pas afficher deux chiffres différents. AUCUNE colonne n'y ajoute quoi que
+    // ce soit — le travail sans carte a son propre encart, il ne se compte pas
+    // ici (`shared/src/colonne-a-deployer.ts`).
     let total = 0;
     for (const card of byColumn(column)) {
       total += 1;
@@ -489,14 +512,7 @@ export function Board({
       // `repereVisible` — il n'y a rien à trancher, on montre les deux.
       if (etat === 'travaille') travaille += 1;
     }
-    // « À déployer » et « En production » embarquent aussi le travail enregistré
-    // sans carte : le total remonté par le bloc de publication (`deployCounts`)
-    // remplace alors le compte de cartes, pour dire le MÊME chiffre que le
-    // bouton « Tout <verbe> (n) » et que la tête de colonne.
-    if ((column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null) {
-      total = deployCounts[column]!;
-    }
-    return { attention, rendus, travaille, total };
+    return { attention, rendus, travaille, total: compteurDeColonne(total) };
   };
 
   /*
@@ -1269,10 +1285,12 @@ export function Board({
                 ) : null;
               })()}
               <h2 className="relative text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
-              <span className="relative text-[12.5px] text-faint">
-                {(column === 'to_deploy' || column === 'in_production') && deployCounts[column] != null
-                  ? deployCounts[column]
-                  : columnCards.length}
+              {/* LE COMPTEUR COMPTE CE QUE LA LISTE MONTRE, sans exception :
+                  pas de carte affichée qui ne soit comptée, pas de compte sans
+                  carte. « À déployer » y ajoutait le travail enregistré sans
+                  carte et annonçait « 1 » au-dessus d'une colonne vide. */}
+              <span className="relative text-[12.5px] text-faint" data-compteur-colonne={column}>
+                {compteurDeColonne(columnCards.length)}
               </span>
               {/* En haut à droite : le bouton « + » des colonnes qui créent,
                   l'avancement global de « En cours », le bouton « ! » des
@@ -1341,7 +1359,7 @@ export function Board({
                   cards={columnCards}
                   colonne={column}
                   onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, [column]: infos }))}
-                  onCount={(n) => setDeployCounts((prev) => (prev[column] === n ? prev : { ...prev, [column]: n }))}
+                  onSansCarte={(travail) => setSansCarte((prev) => ({ ...prev, [column]: travail }))}
                   onInitier={() => {
                     const etapeCol = etapeDeLaColonne(column);
                     if (etapeCol) setProcedureOuverte(etapeCol.cible);
@@ -1354,6 +1372,19 @@ export function Board({
                   colonneEnLot === column && 'pl-[15px] pt-[15px]',
                 )}
               >
+              {/* CE QUI N'A PAS DE CARTE SE DIT ICI, au-dessus des cartes et
+                  jamais derrière un bouton : du travail prêt à partir que rien
+                  ne montre expose à le mettre en ligne — ou à l'oublier — sans
+                  l'avoir jamais vu. */}
+              {column === 'to_deploy' || column === 'in_production' ? (
+                <AlerteTravailSansCarte
+                  colonne={column}
+                  projectId={projectId}
+                  travail={sansCarte[column] ?? null}
+                  verbe={etapeDeLaColonne(column)?.verbe ?? 'déployer'}
+                  onFiche={() => setSansCarte((prev) => ({ ...prev, [column]: null }))}
+                />
+              ) : null}
               {cartesPosees.map((card) => {
                 const cochable = colonneEnLot === column;
                 return (
@@ -1400,7 +1431,11 @@ export function Board({
                         : column === 'done'
                           ? 'Aucun travail terminé pour l’instant.'
                           : column === 'to_deploy'
-                            ? 'Rien à mettre en ligne pour l’instant.'
+                            ? /* « Rien à mettre en ligne » était le mensonge le
+                                 plus direct : écrit alors que du travail
+                                 attendait juste au-dessus. Tant qu'il en
+                                 reste, la colonne ne dit plus « rien ». */
+                              phraseDeColonneVide(sansCarte.to_deploy ?? null)
                             : column === 'in_production'
                               ? 'Aucune carte en attente de mise en production.'
                               : 'Aucune carte rangée ici pour l’instant.'}
@@ -1525,6 +1560,28 @@ function ComposerInline({
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+
+  /*
+   * CE BROUILLON APPARTIENT À SA COLONNE DE SON PROJET, PAS À L'APPLICATION.
+   * Ce composant n'est jamais démonté quand on change de projet (le tableau
+   * l'est, pas lui) : sans ceci, un titre ou une pièce jointe préparés pour
+   * une note du projet A restaient dans le formulaire en ouvrant celui du
+   * projet B — même défaut que le composeur de conversation, ici sans le
+   * geste d'envoi pour le vider. Un vrai changement de projet ou de colonne
+   * referme la fenêtre et vide tout ce qui n'a pas été créé.
+   */
+  const cleComposeur = `${projectId}:${column}`;
+  const cleComposeurPrecedente = React.useRef(cleComposeur);
+  React.useEffect(() => {
+    if (cleComposeurPrecedente.current === cleComposeur) return;
+    cleComposeurPrecedente.current = cleComposeur;
+    setOpen(false);
+    setTitle('');
+    setDescription('');
+    setDepart(maintenantEnChamp());
+    setAttachments([]);
+    setApercu(null);
+  }, [cleComposeur]);
 
   /*
    * La colonne doit savoir que sa fenêtre est ouverte : c'est elle, et non
@@ -2075,7 +2132,7 @@ export function CardTile({
           // copier le titre d'une carte, et ce qui est marqué
           // `data-carte-texte` le repasse en `select-text`.
           'relative z-10 cursor-pointer touch-manipulation select-none rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint',
-          (statut || travailActuel) && 'rounded-b-none',
+          (statut || travailActuel || restant) && 'rounded-b-none',
         )}
       >
         {/*
@@ -2256,39 +2313,6 @@ export function CardTile({
         ) : null}
 
         {/*
-         * CE QUI TOURNE ENCORE, écrit en toutes lettres. Une carte de « En
-         * cours » ne peut plus rester muette : l'étape, depuis quand, et ce
-         * qu'on attend. Le ton suit la nature — orange quand VOUS êtes
-         * attendu, la couleur des travaux en cours quand ça travaille, gris
-         * pâle pour le reste. La phrase est tronquée à l'écran, jamais dans
-         * l'infobulle.
-         */}
-        {restant ? (
-          <div
-            title={phraseDuTravailRestant(restant)}
-            className={cn(
-              'mt-1.5 flex items-start gap-1.5 rounded px-1.5 py-1 text-[12px] leading-snug',
-              restant.nature === 'question'
-                ? 'border border-warning/30 bg-warning/10 text-warning'
-                : restant.nature === 'travaille'
-                  ? 'border border-en-cours/30 bg-en-cours/10 text-en-cours'
-                  : 'text-faint',
-            )}
-          >
-            {restant.nature === 'question' ? (
-              <MessageSquare className="mt-[2px] h-3 w-3 shrink-0" />
-            ) : restant.nature === 'travaille' ? (
-              <Loader2 className="mt-[2px] h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />
-            ) : (
-              <Clock className="mt-[2px] h-3 w-3 shrink-0" />
-            )}
-            <span className="min-w-0 truncate" data-travail-restant={card.id}>
-              {phraseDuTravailRestant(restant)}
-            </span>
-          </div>
-        ) : null}
-
-        {/*
          * Une carte ressortie d'« Archivé » ne fait pas semblant de n'y être
          * jamais allée : elle porte la date de son passage, en gris pâle. Dans
          * la colonne « Archivé » elle-même, la mention ne s'affiche pas — la
@@ -2367,6 +2391,35 @@ export function CardTile({
             alterner
           />
         </div>
+      ) : restant ? (
+        /*
+         * CE QUI TOURNE ENCORE, quand ni la roue de l'agent ni une autre
+         * mention ne le disent déjà — le rangement d'un tour fini, ou
+         * l'anomalie « plus personne » que l'ordonnanceur corrige sous
+         * quinze secondes. Sans agent actif, `travailActuel` est vide et la
+         * carte resterait muette : ce même bandeau prend le relais, avec la
+         * MÊME phrase que portait l'ancien encadré à l'intérieur de la carte.
+         */
+        <Tooltip label={phraseDuTravailRestant(restant)}>
+          <div
+            onClick={ouvrir}
+            data-travail-restant={card.id}
+            className={cn(
+              'relative -mt-1 cursor-pointer overflow-hidden rounded-b-md bg-bandeau-etape px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
+              'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
+              restant.nature === 'question' ? 'text-warning' : 'text-faint',
+            )}
+          >
+            <span className="flex items-center gap-1">
+              {restant.nature === 'question' ? (
+                <MessageSquare className="h-3 w-3 shrink-0" />
+              ) : (
+                <Clock className="h-3 w-3 shrink-0" />
+              )}
+              <span className="min-w-0 flex-1 truncate">{phraseDuTravailRestant(restant)}</span>
+            </span>
+          </div>
+        </Tooltip>
       ) : null}
     </div>
   );

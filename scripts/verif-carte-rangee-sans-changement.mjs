@@ -307,8 +307,16 @@ async function lireLeTableau(page) {
             // l'encadré reste jaune à l'écran.
             couleur: mention ? getComputedStyle(mention).color : null,
             // CE QUI TOURNE ENCORE : le second volet de la règle. Une carte
-            // restée en « En cours » ne peut plus être muette.
-            restant: noeud.querySelector(`[data-travail-restant]`)?.textContent?.trim() ?? null,
+            // restée en « En cours » ne peut plus être muette — le bandeau qui
+            // le dit est un FRÈRE de la carte (comme celui de l'agent au
+            // travail), pas un descendant : on cherche depuis le conteneur
+            // commun, jamais depuis la seule carte.
+            restant: (noeud.parentElement ?? noeud).querySelector(`[data-travail-restant]`)?.textContent?.trim() ?? null,
+            // Quand un agent travaille VRAIMENT, ce qui tourne se lit dans le
+            // même bandeau décroché que le chronomètre et le décompte — plus
+            // dans un encadré séparé À L'INTÉRIEUR de la carte (retiré : il
+            // répétait, sans rien de plus, ce que ce bandeau dit déjà).
+            barreTravail: (noeud.parentElement ?? noeud).querySelector(`[data-barre-travail]`)?.textContent?.trim() ?? null,
           }
         : null;
     }
@@ -435,24 +443,25 @@ async function main() {
   );
   /*
    * SECOND VOLET DE LA RÈGLE : s'il reste vraiment quelque chose en train de
-   * tourner, la carte doit le DIRE — l'étape, depuis quand, ce qu'on attend.
-   * Plus jamais une carte qui a l'air finie et qui reste là sans un mot.
+   * tourner, la carte doit le DIRE. Un agent qui travaille encore le dit dans
+   * le bandeau décroché du bas (chronomètre et décompte compris) ; sans agent
+   * — rangement du tour, anomalie « plus personne » —, c'est le même bandeau
+   * qui prend le relais via `data-travail-restant`. Plus jamais une carte qui
+   * a l'air finie et qui reste là sans un mot, et plus jamais deux fois la
+   * même phrase dans la carte.
    */
   const enTravail = apres.cartes['c-au-travail'];
-  noter(
-    'et elle DIT ce qui tourne, au lieu de rester muette',
-    !!enTravail?.restant,
-    `phrase=${enTravail?.restant ?? '(rien)'}`,
-  );
+  const ceQuiTourne = enTravail?.barreTravail || enTravail?.restant;
+  noter('et elle DIT ce qui tourne, au lieu de rester muette', !!ceQuiTourne, `phrase=${ceQuiTourne ?? '(rien)'}`);
   noter(
     '…avec le temps écoulé, en toutes lettres',
-    /depuis /.test(enTravail?.restant ?? ''),
-    `phrase=${enTravail?.restant ?? '(rien)'}`,
+    /\d+\s*(s|min)\b/.test(ceQuiTourne ?? ''),
+    `phrase=${ceQuiTourne ?? '(rien)'}`,
   );
   noter(
     '…et une carte CLOSE, elle, ne dit plus rien de ce genre',
-    !neuve?.restant && !dejaLivre?.restant,
-    `neuve=${neuve?.restant ?? '(rien)'} · déjà livrée=${dejaLivre?.restant ?? '(rien)'}`,
+    !neuve?.restant && !neuve?.barreTravail && !dejaLivre?.restant && !dejaLivre?.barreTravail,
+    `neuve=${neuve?.restant ?? neuve?.barreTravail ?? '(rien)'} · déjà livrée=${dejaLivre?.restant ?? dejaLivre?.barreTravail ?? '(rien)'}`,
   );
 
   /*

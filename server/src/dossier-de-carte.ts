@@ -554,6 +554,26 @@ export const MESSAGE_TRAVAIL_SAUVE = 'Travaux en cours enregistrés (tâche inte
  *
  * Rend `true` s'il y avait quelque chose à sauver et que c'est fait.
  */
+/**
+ * CE QUI TRAÎNE ENCORE DANS LA COPIE, avant de l'enregistrer.
+ *
+ * `enregistrerLeTravailEnCours` ne rend qu'un oui/non : suffisant pour le
+ * journal, muet pour l'utilisateur, à qui l'on veut dire CE QUI a été sauvé. On
+ * relève donc la liste avant le geste — après, le dossier est propre et ne dit
+ * plus rien. Rend une liste vide quand il n'y a rien, ou qu'on n'a pas pu lire.
+ */
+export async function fichiersNonEnregistres(dossier: string): Promise<string[]> {
+  if (!fs.existsSync(dossier)) return [];
+  const sale = await git(dossier, ['status', '--porcelain'], 60000);
+  if (!sale.ok) return [];
+  return sale.out
+    .split('\n')
+    .map((ligne) => ligne.slice(3).trim())
+    // Un renommage s'écrit « ancien -> nouveau » : on garde le nom d'arrivée.
+    .map((chemin) => chemin.split(' -> ').pop()?.trim() ?? '')
+    .filter(Boolean);
+}
+
 export async function enregistrerLeTravailEnCours(dossier: string): Promise<boolean> {
   if (!fs.existsSync(dossier)) return false;
   const sale = await git(dossier, ['status', '--porcelain'], 60000);

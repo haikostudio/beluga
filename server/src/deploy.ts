@@ -26,6 +26,10 @@ import {
   detailDEchecConstruction,
   phraseDEchecConstruction,
   estPlomberie,
+  exclusionsDesBranchesDeCartes,
+  titreHorsTache,
+  descriptionCartePorteuse,
+  type CommitObserve,
   messageEchecPublication,
   natureDePublication,
   miseEnLigneReelle,
@@ -57,6 +61,18 @@ import {
   recitDepanneurEnEchec,
   journalDesReprises,
   avertissementCartesNonRangees,
+  PERIODE_DE_VEILLE_MS,
+  PLAFOND_TOUR_D_AGENT_MS,
+  alerteDeRetard,
+  constatDeDuree,
+  dureeDite,
+  mentionEtapeQuiTraine,
+  panneDeLenteur,
+  recitDepassementNonResolu,
+  recitTourCoupe,
+  sortieDuDepassement,
+  type ConstatDeDuree,
+  type MotifDeTourDePublication,
   type PanneDePublication,
   type AvertissementSelection,
 } from '@haikodev/shared';
@@ -66,7 +82,7 @@ import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
-import { createAgent, sendPrompt, agentsActifs } from './runtime.js';
+import { createAgent, sendPrompt, agentsActifs, arreterLAgent } from './runtime.js';
 import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from './demon.js';
 import { executerCibleMiseEnProduction } from './cible-mise-en-production.js';
 
@@ -621,10 +637,16 @@ async function reparerLesControles(
 
   bus.toast('info', `Publication bloquée : l’agent de publication répare les contrôles (passe ${passe}).`);
 
-  try {
-    await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'controles' });
-  } catch (err) {
-    return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(err)})` };
+  // Borné comme tous les tours de publication : un agent qui ne rend plus la
+  // main tenait l'étape « Vérification » ouverte sans fin.
+  const tour = await tourDAgentSousPlafond(agent.id, 'controles', () =>
+    sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'controles' }),
+  );
+  if (tour.depasse) {
+    return { tente: false, recit: `passe ${passe} : ${recitTourCoupe('controles', tour.ecouleMs)}` };
+  }
+  if (tour.erreur) {
+    return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(tour.erreur)})` };
   }
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
@@ -662,10 +684,14 @@ async function reparerLaConstruction(
 
   bus.toast('info', `Publication bloquée : l’agent de publication répare la construction (passe ${passe}).`);
 
-  try {
-    await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'construction' });
-  } catch (err) {
-    return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(err)})` };
+  const tour = await tourDAgentSousPlafond(agent.id, 'construction', () =>
+    sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'construction' }),
+  );
+  if (tour.depasse) {
+    return { tente: false, recit: `passe ${passe} : ${recitTourCoupe('construction', tour.ecouleMs)}` };
+  }
+  if (tour.erreur) {
+    return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(tour.erreur)})` };
   }
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
@@ -736,7 +762,8 @@ function derniereReponse(agentId: string): { texte?: string; erreur?: string } {
 async function confierLaMiseEnLigne(
   projectId: string,
   ctx: ContexteDePublication,
-): Promise<{ ok: boolean; recit: string; raison?: string }> {
+  constat?: ConstatDeDuree,
+): Promise<{ ok: boolean; recit: string; raison?: string; panne?: PanneDePublication }> {
   const agent = createAgent({
     projectId,
     role: 'deploy',
@@ -745,19 +772,44 @@ async function confierLaMiseEnLigne(
 
   bus.toast('info', `Mise en production de « ${ctx.projet} » : l’agent suit le prompt du projet.`);
 
-  try {
+  /*
+   * LA MISE EN PRODUCTION EST BORNÉE DANS LE TEMPS, ELLE AUSSI.
+   *
+   * C'était le plus long silence possible de toute la publication : un seul
+   * tour d'agent, mené de bout en bout d'après le prompt du projet, sans
+   * aucune borne. Un moteur qui se taisait laissait l'étape « Mise en ligne »
+   * tourner indéfiniment, avec sa petite roue, sans que rien ne distingue ce
+   * blocage d'un transfert en cours.
+   *
+   * Le plafond dépassé, le tour est ARRÊTÉ et la panne est NOMMÉE : l'étape
+   * repart alors par le chemin ordinaire — un dépanneur, puis une reprise —
+   * au lieu de s'arrêter en rouge. Rien n'est mis en ligne de plus : c'est
+   * l'étape que l'utilisateur a lancée qui est rejouée.
+   */
+  const tour = await tourDAgentSousPlafond(agent.id, 'mise-en-ligne', () =>
     /*
      * Motif ANNONCÉ, mais accueil COMPLET : la mise en production agit sur le
      * projet entier d'après son prompt réglé, elle n'est pas un dépannage
      * (`niveauDAccueil`, `shared/src/accueil-agent.ts`).
      */
-    await sendPrompt(agent.id, promptDeLAgentDeProduction(ctx), {
+    sendPrompt(agent.id, promptDeLAgentDeProduction(ctx), {
       template: 'free',
       silent: true,
       motif: 'mise-en-ligne',
-    });
-  } catch (err: any) {
-    const raison = err?.message ?? 'raison inconnue';
+    }),
+  );
+  if (tour.depasse) {
+    const mesure = constat ?? { depasse: true, ecouleMs: tour.ecouleMs, attenduMs: tour.ecouleMs };
+    const raison = recitTourCoupe('mise-en-ligne', tour.ecouleMs);
+    return {
+      ok: false,
+      recit: `${phraseDEchecConfie(raison)}\n\n${sortieDuDepassement(STEP_LABELS.publish, mesure, true)}`,
+      raison,
+      panne: panneDeLenteur(STEP_LABELS.publish, mesure),
+    };
+  }
+  if (tour.erreur) {
+    const raison = (tour.erreur as any)?.message ?? 'raison inconnue';
     return { ok: false, recit: phraseDEchecConfie(raison), raison };
   }
 
@@ -810,12 +862,25 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
           // La progression n'a de sens que le temps de l'étape : dès qu'elle
           // s'achève, c'est la durée qui la remplace à l'écran.
           progress: state === 'running' ? step.progress : undefined,
+          // Le retard n'a de sens que PENDANT l'étape : une fois terminée,
+          // c'est sa durée qui parle.
+          enRetard: state === 'running' ? step.enRetard : undefined,
           startedAt: step.startedAt ?? Date.now(),
           endedAt: state === 'running' ? undefined : Date.now(),
         }
       : step,
   );
-  return emit({ ...run, steps, currentStep: state === 'running' ? key : run.currentStep });
+  const rendu = emit({ ...run, steps, currentStep: state === 'running' ? key : run.currentStep });
+  /*
+   * LA SURVEILLANCE DU TEMPS SE POSE ICI, ET NULLE PART AILLEURS.
+   *
+   * `setStep` est le SEUL passage obligé de toutes les étapes des deux
+   * publications : y accrocher la veille garantit qu'aucune n'est oubliée, et
+   * qu'une étape ajoutée demain sera surveillée sans qu'on ait à y penser.
+   */
+  if (state === 'running') ouvrirLaVeille(rendu.id, key);
+  else fermerLaVeille(rendu.id, key);
+  return rendu;
 }
 
 /**
@@ -826,6 +891,246 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
 function progresserEtape(run: DeployRun, key: DeployStepKey, progress: string): DeployRun {
   const steps = run.steps.map((step) => (step.key === key ? { ...step, progress } : step));
   return emit({ ...run, steps });
+}
+
+/* ------------------------------------------------------------------ */
+/* Une étape qui TRAÎNE est constatée, dite, puis traitée comme une panne */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LA VEILLE D'UNE ÉTAPE EN COURS.
+ *
+ * Elle ne fait qu'une chose : compter le temps et le DIRE quand il dépasse ce
+ * qu'on attendait. Elle ne coupe rien — couper une commande en plein
+ * `npm install` ferait plus de dégâts que l'attente elle-même, et `runCommand`
+ * borne déjà chaque commande. Ce qu'elle apporte est ce qui manquait vraiment :
+ * une étape en retard cesse d'être indistinguable d'une étape qui travaille.
+ *
+ * Elle relit la publication DANS LA BASE à chaque passage, jamais une copie
+ * gardée de côté : le fil principal réassigne `current` en permanence, et une
+ * veille qui écrirait par-dessus une copie périmée effacerait le travail des
+ * étapes suivantes.
+ */
+interface VeilleDEtape {
+  etape: DeployStepKey;
+  debutMs: number;
+  minuteur: NodeJS.Timeout;
+  /** Le temps déjà passé en dépannage, qui ne compte pas comme du travail. */
+  depannageMs: number;
+  /** Depuis quand un dépannage est en cours, quand il y en a un. */
+  suspendueDepuis?: number;
+  /** La dernière ligne écrite, pour ne pas réémettre le même texte. */
+  derniereMention?: string;
+  /**
+   * L'alerte de retard est-elle DÉJÀ partie pour cette étape ?
+   *
+   * Un retard qui dure ne se répète pas toutes les trente secondes : on
+   * prévient une fois, au constat, et le déroulé porte la suite.
+   */
+  alerteEnvoyee?: boolean;
+}
+
+const veilles = new Map<string, VeilleDEtape>();
+
+function ouvrirLaVeille(runId: string, etape: DeployStepKey): void {
+  const enCours = veilles.get(runId);
+  if (enCours?.etape === etape) return;
+  if (enCours) clearInterval(enCours.minuteur);
+  const minuteur = setInterval(() => passageDeVeille(runId), PERIODE_DE_VEILLE_MS);
+  // Une veille ne doit jamais retenir le processus à elle seule.
+  minuteur.unref?.();
+  veilles.set(runId, { etape, debutMs: Date.now(), minuteur, depannageMs: 0 });
+}
+
+function fermerLaVeille(runId: string, etape?: DeployStepKey): void {
+  const veille = veilles.get(runId);
+  if (!veille) return;
+  if (etape && veille.etape !== etape) return;
+  clearInterval(veille.minuteur);
+  veilles.delete(runId);
+}
+
+/** Toutes les veilles d'une publication, à sa fin — réussie, tombée ou arrêtée. */
+function arreterLesVeilles(runId: string): void {
+  fermerLaVeille(runId);
+}
+
+/**
+ * Le temps de l'étape en cours, dépannages déduits.
+ *
+ * Rendu même sans veille ouverte (une étape jouée hors publication, un
+ * contrôle) : le constat retombe alors sur un temps nul, jamais sur une panne
+ * inventée.
+ */
+function constatDeLEtape(runId: string, etape: DeployStepKey): ConstatDeDuree {
+  const veille = veilles.get(runId);
+  const enCours = veille && veille.etape === etape ? veille : undefined;
+  return constatDeDuree({
+    etape,
+    debutMs: enCours?.debutMs,
+    maintenantMs: Date.now(),
+    tempsDeDepannageMs: (enCours?.depannageMs ?? 0) + (enCours?.suspendueDepuis ? Date.now() - enCours.suspendueDepuis : 0),
+  });
+}
+
+/**
+ * LA PANNE À NOMMER QUAND UNE COMMANDE A ÉTÉ COUPÉE PAR SON DÉLAI.
+ *
+ * Rend `undefined` dans tous les autres cas — c'est-à-dire chaque fois que la
+ * sortie parle d'elle-même et que la reconnaissance au message doit garder la
+ * main. Une commande tuée par son minuteur, elle, ne dit rien qu'on sache lire :
+ * sans cette phrase, elle repartait en « panne non reconnue » et personne
+ * n'était appelé.
+ */
+function panneSiDelaiDepasse(
+  runId: string,
+  etape: DeployStepKey,
+  delaiDepasse?: boolean,
+): PanneDePublication | undefined {
+  if (!delaiDepasse) return undefined;
+  return panneDeLenteur(STEP_LABELS[etape], constatDeLEtape(runId, etape));
+}
+
+/**
+ * SUSPENDRE LA VEILLE PENDANT QU'UN DÉPANNEUR TRAVAILLE.
+ *
+ * Sans cela, l'étape tombée à la cinquième minute puis confiée vingt minutes à
+ * un agent serait déclarée « en retard » à l'instant même où elle est rejouée,
+ * et un second dépannage partirait sur le dos du premier — la boucle exacte que
+ * le plafond de reprises cherche à éviter.
+ */
+function suspendreLaVeille(runId: string): void {
+  const veille = veilles.get(runId);
+  if (!veille || veille.suspendueDepuis) return;
+  veille.suspendueDepuis = Date.now();
+}
+
+function reprendreLaVeille(runId: string): void {
+  const veille = veilles.get(runId);
+  if (!veille?.suspendueDepuis) return;
+  veille.depannageMs += Date.now() - veille.suspendueDepuis;
+  veille.suspendueDepuis = undefined;
+  veille.derniereMention = undefined;
+}
+
+function passageDeVeille(runId: string): void {
+  const veille = veilles.get(runId);
+  if (!veille || veille.suspendueDepuis) return;
+
+  const run = store.getDeploy(runId);
+  const etape = run?.steps.find((step) => step.key === veille.etape);
+  // La publication est finie, ou l'étape a tourné la page sans passer par
+  // `setStep` : on ne tient pas un minuteur sur du vide.
+  if (!run || run.state !== 'running' || etape?.state !== 'running') {
+    fermerLaVeille(runId);
+    return;
+  }
+
+  const constat = constatDeLEtape(runId, veille.etape);
+  if (!constat.depasse) return;
+
+  /*
+   * ON PRÉVIENT AU CONSTAT, PAS AU DÉPANNAGE.
+   *
+   * Le dépanneur ne part qu'une fois l'étape RETOMBÉE — et pour une étape
+   * pendue, cela peut vouloir dire jamais, ou seulement au bout de son plafond.
+   * La ligne orange du déroulé, elle, ne se voit que par qui regarde déjà
+   * l'écran. Prévenir ici est donc le seul moment qui tienne la promesse : ne
+   * plus avoir à venir surveiller une publication soi-même. Une seule fois par
+   * étape, et l'alerte DIT que rien n'est attendu de l'utilisateur.
+   */
+  if (!veille.alerteEnvoyee) {
+    veille.alerteEnvoyee = true;
+    const projet = store.getProject(run.projectId);
+    const alerte = alerteDeRetard({ projet: projet?.name, libelleEtape: STEP_LABELS[veille.etape], constat });
+    notify({
+      motif: 'publication-en-retard',
+      title: alerte.titre,
+      body: alerte.corps,
+      // Une étape d'une publication donnée ne prévient qu'une fois, même si le
+      // démon redémarre et rouvre la veille.
+      reference: `${run.projectId}:retard:${run.id}:${veille.etape}`,
+      element: alerte.element,
+      projectId: run.projectId,
+    });
+  }
+
+  const mention = mentionEtapeQuiTraine(STEP_LABELS[veille.etape], constat);
+  // Deux passages rendent souvent la même phrase (la durée s'arrondit à la
+  // minute) : on ne réémet que ce qui a changé.
+  if (mention === veille.derniereMention) return;
+  veille.derniereMention = mention;
+  const steps = run.steps.map((step) =>
+    step.key === veille.etape ? { ...step, progress: mention, enRetard: true } : step,
+  );
+  emit({ ...run, steps });
+}
+
+/**
+ * UN TOUR D'AGENT QUI NE REND PAS LA MAIN EST ARRÊTÉ, PROPREMENT.
+ *
+ * C'est le seul endroit de la publication où l'on COUPE quelque chose, et c'est
+ * le seul qui en avait besoin : une commande a son délai, un tour d'agent n'en
+ * avait aucun. Un moteur qui se tait tenait donc l'étape ouverte pour toujours.
+ *
+ * L'arrêt passe par `arreterLAgent` — la règle d'arrêt du démon, qui sait
+ * couper un moteur vivant, refermer un tour sans moteur et n'a jamais touché au
+ * service du démon. On ne réattend PAS le tour coupé : un moteur pendu dans un
+ * appel réseau peut ne jamais rendre la main, et l'attendre reviendrait à
+ * remplacer un blocage par un autre.
+ *
+ * Rien n'est perdu : le travail déjà écrit par l'agent est sur le disque, et
+ * l'étape sera rejouée par-dessus.
+ *
+ * `reglages` n'est là que pour le contrôle du projet
+ * (`scripts/verif-garde-fou-duree.mjs`) : il rejoue le mécanisme entier sans
+ * attendre vingt minutes ni dépenser un tour de moteur. La publication, elle,
+ * passe toujours par le plafond réel et par `arreterLAgent` — même convention
+ * que `rejouerAvecDepannage`.
+ */
+export async function tourDAgentSousPlafond(
+  agentId: string,
+  motif: MotifDeTourDePublication,
+  lancer: () => Promise<void>,
+  reglages: { plafondMs?: number; arreter?: (agentId: string) => void } = {},
+): Promise<{ depasse: boolean; ecouleMs: number; erreur?: unknown }> {
+  const plafondMs = reglages.plafondMs ?? PLAFOND_TOUR_D_AGENT_MS[motif];
+  const couper = reglages.arreter ?? arreterLAgent;
+  const debut = Date.now();
+  let erreur: unknown;
+
+  const tour = lancer().then(
+    () => 'fini' as const,
+    (err) => {
+      erreur = err;
+      return 'fini' as const;
+    },
+  );
+
+  /*
+   * CE MINUTEUR-CI N'EST PAS `unref` — contrairement à celui de la veille, qui
+   * ne fait qu'écrire une ligne. C'est LUI qui porte la garantie : un minuteur
+   * détaché ne réveille pas le processus, et un tour d'agent qui ne rend jamais
+   * la main n'atteindrait donc jamais son plafond dès que plus rien d'autre ne
+   * tourne. Il est toujours désarmé sur le chemin normal, juste en dessous.
+   */
+  let minuteur: NodeJS.Timeout | undefined;
+  const delai = new Promise<'delai'>((resolve) => {
+    minuteur = setTimeout(() => resolve('delai'), plafondMs);
+  });
+
+  const issue = await Promise.race([tour, delai]);
+  if (minuteur) clearTimeout(minuteur);
+
+  if (issue === 'delai') {
+    try {
+      couper(agentId);
+    } catch (err) {
+      log.error(`publication : l’arrêt de l’agent ${agentId} a échoué — ${raisonEchecAgent(err)}`);
+    }
+    return { depasse: true, ecouleMs: Date.now() - debut };
+  }
+  return { depasse: false, ecouleMs: Date.now() - debut, erreur };
 }
 
 /* ------------------------------------------------------------------ */
@@ -874,14 +1179,25 @@ async function appelerLeDepanneur(
 
   bus.toast('info', `Publication bloquée (${libelleEtape}) : un agent de dépannage intervient — reprise ${passe} sur ${REPARATIONS_MAX}.`);
 
-  try {
-    await sendPrompt(
+  /*
+   * LE DÉPANNEUR EST BORNÉ LUI AUSSI, et c'est le cas le plus important : un
+   * agent appelé au secours d'une étape pendue qui se pend à son tour laissait
+   * la publication arrêtée pour toujours, avec en prime l'apparence d'un
+   * travail en cours. Il est donc arrêté au bout de son plafond, et son
+   * abandon se DIT au lieu de disparaître.
+   */
+  const tour = await tourDAgentSousPlafond(agent.id, 'depannage', () =>
+    sendPrompt(
       agent.id,
       consigneDeReparationDEtape({ libelleEtape, panne, sortie, passe, passesMax: REPARATIONS_MAX }),
       { template: 'free', silent: true, motif: 'depannage' },
-    );
-  } catch (err) {
-    return { tente: false, recit: recitDepanneurEnEchec(passe, raisonEchecAgent(err)) };
+    ),
+  );
+  if (tour.depasse) {
+    return { tente: false, recit: recitDepanneurEnEchec(passe, recitTourCoupe('depannage', tour.ecouleMs)) };
+  }
+  if (tour.erreur) {
+    return { tente: false, recit: recitDepanneurEnEchec(passe, raisonEchecAgent(tour.erreur)) };
   }
   return { tente: true, recit: '' };
 }
@@ -908,11 +1224,19 @@ async function appelerLeDepanneur(
  * (`scripts/verif-reparation-publication.mjs`) : il rejoue le mécanisme entier
  * sans dépenser un tour de moteur. La publication, elle, passe toujours par
  * l'agent — même convention que `construireAvecReparation`.
+ *
+ * UN DÉPASSEMENT DE DURÉE ENTRE PAR LE MÊME CHEMIN QU'UNE ERREUR, et c'est tout
+ * l'intérêt : `jouer` peut NOMMER sa panne dans ce qu'il rend (`panne`), ce que
+ * fait toute étape coupée par son délai — une commande tuée par son minuteur,
+ * un tour d'agent arrêté par son plafond. Sans ce chemin, ces pannes-là
+ * tombaient en « non reconnues », donc sans secours : exactement le cas que la
+ * surveillance du temps devait couvrir. Le reste ne bouge pas — mêmes reprises
+ * bornées, mêmes deux refus, même journal.
  */
 export async function rejouerAvecDepannage(
   run: DeployRun,
   contexte: { projectId: string; etape: DeployStepKey; panne?: PanneDePublication },
-  jouer: () => Promise<{ ok: boolean; sortie: string }>,
+  jouer: () => Promise<{ ok: boolean; sortie: string; panne?: PanneDePublication }>,
   depanneur = appelerLeDepanneur,
 ): Promise<{ run: DeployRun; ok: boolean; sortie: string; reprises: number; reparations: string[] }> {
   let courant = run;
@@ -921,7 +1245,14 @@ export async function rejouerAvecDepannage(
   let reprises = 0;
 
   for (let passe = 1; !issue.ok && passe <= REPARATIONS_MAX; passe++) {
-    const panne = contexte.panne ?? reconnaitrePanneDePublication(contexte.etape, issue.sortie);
+    /*
+     * Trois sources, dans cet ordre : la panne IMPOSÉE par l'appelant (l'adresse
+     * muette), celle que `jouer` a NOMMÉE lui-même (un délai dépassé, qu'aucun
+     * message ne trahit), puis la reconnaissance au message. La dernière reste
+     * la seule qui puisse rendre `null` — et `null` veut toujours dire « on ne
+     * bricole pas ».
+     */
+    const panne = contexte.panne ?? issue.panne ?? reconnaitrePanneDePublication(contexte.etape, issue.sortie);
     if (!panne || !panne.reparable) {
       reparations.push(recitSansReparation(panne));
       break;
@@ -930,7 +1261,18 @@ export async function rejouerAvecDepannage(
     courant = progresserEtape(courant, contexte.etape, mention);
     reparations.push(mention);
 
-    const depanne = await depanneur(contexte.projectId, contexte.etape, panne, issue.sortie, passe);
+    /*
+     * Le temps du dépanneur n'est pas du temps d'étape : la veille est
+     * suspendue le temps qu'il travaille, sans quoi l'étape serait déclarée en
+     * retard à l'instant où elle repart, et un dépannage naîtrait du précédent.
+     */
+    suspendreLaVeille(courant.id);
+    let depanne: { tente: boolean; recit: string };
+    try {
+      depanne = await depanneur(contexte.projectId, contexte.etape, panne, issue.sortie, passe);
+    } finally {
+      reprendreLaVeille(courant.id);
+    }
     if (!depanne.tente) {
       reparations.push(depanne.recit);
       break;
@@ -940,6 +1282,15 @@ export async function rejouerAvecDepannage(
     courant = progresserEtape(courant, contexte.etape, `Reprise ${passe} de l’étape après réparation…`);
     issue = await jouer();
     reparations.push(issue.ok ? recitEtapeRejouee(passe) : recitEtapeRetombee(passe));
+  }
+
+  /*
+   * Au bout des reprises, une étape encore bloquée PAR LE TEMPS le dit avec ses
+   * chiffres — sinon le déroulé rendrait « l'étape a été rejouée et elle est
+   * retombée », sans jamais nommer ce qui n'a pas fini.
+   */
+  if (!issue.ok && issue.panne && reprises >= REPARATIONS_MAX) {
+    reparations.push(recitDepassementNonResolu(constatDeLEtape(courant.id, contexte.etape), reprises));
   }
 
   return { run: courant, ok: issue.ok, sortie: issue.sortie, reprises, reparations };
@@ -1040,7 +1391,7 @@ async function runCommand(
   command: string,
   timeout = 15 * 60 * 1000,
   signesGardes = 3000,
-): Promise<{ ok: boolean; out: string }> {
+): Promise<{ ok: boolean; out: string; delaiDepasse?: boolean }> {
   const garder = (texte: string) => (signesGardes === Infinity ? texte : texte.slice(-signesGardes));
   try {
     const { stdout, stderr } = await execFileAsync('bash', ['-lc', command], {
@@ -1050,7 +1401,25 @@ async function runCommand(
     });
     return { ok: true, out: garder(stdout + stderr) };
   } catch (err: any) {
-    return { ok: false, out: garder((err?.stdout ?? '') + (err?.stderr ?? '') + (err?.message ?? '')) };
+    /*
+     * UNE COMMANDE TUÉE PAR SON DÉLAI SE DIT, ELLE NE SE DEVINE PAS.
+     *
+     * `execFile` coupe au bout du délai et rend « Command failed … » avec le
+     * signal en prime — un message que personne ne reconnaît, si bien qu'aucune
+     * panne n'était nommée et que la publication s'arrêtait rouge sur du texte
+     * brut. On le CONSTATE ici, au seul endroit qui le sait (`err.killed` posé
+     * par Node quand c'est lui qui a coupé), et l'appelant peut alors nommer la
+     * panne de lenteur au lieu de laisser passer une panne « inconnue ».
+     */
+    const delaiDepasse = err?.killed === true || err?.signal === 'SIGTERM';
+    const entete = delaiDepasse
+      ? `La commande a été coupée : elle n’avait toujours pas rendu la main après ${dureeDite(timeout)}.\n`
+      : '';
+    return {
+      ok: false,
+      out: entete + garder((err?.stdout ?? '') + (err?.stderr ?? '') + (err?.message ?? '')),
+      delaiDepasse,
+    };
   }
 }
 
@@ -1128,7 +1497,11 @@ export function motifSystemctl(sortie: string): string {
   return texte.slice(-400) || 'raison non précisée par le système';
 }
 
-async function systemctlRoot(cwd: string, args: string, timeout = 60000): Promise<{ ok: boolean; out: string }> {
+async function systemctlRoot(
+  cwd: string,
+  args: string,
+  timeout = 60000,
+): Promise<{ ok: boolean; out: string; delaiDepasse?: boolean }> {
   const direct = await runCommand(cwd, `systemctl ${args}`, timeout);
   if (direct.ok) return direct;
   if (!manqueDeDroits(direct.out)) return direct;
@@ -1175,10 +1548,19 @@ async function attendreReponse(port: number, secondes: number): Promise<{ ok: bo
  * FINI de repartir. Beaucoup de projets se reconstruisent à leur démarrage :
  * les regarder cinq secondes après la relance ne prouvait rien.
  */
-async function redemarrerService(cwd: string, service: string): Promise<{ ok: boolean; recit: string }> {
+async function redemarrerService(
+  cwd: string,
+  service: string,
+): Promise<{ ok: boolean; recit: string; lent?: boolean }> {
   const relance = await systemctlRoot(cwd, `restart ${service}`, 3 * 60 * 1000);
   if (!relance.ok) {
-    return { ok: false, recit: `Le service ${service} n’a pas pu être relancé : ${motifSystemctl(relance.out)}` };
+    return {
+      ok: false,
+      recit: `Le service ${service} n’a pas pu être relancé : ${motifSystemctl(relance.out)}`,
+      // `systemctl restart` qui ne rend pas la main en trois minutes n'est pas
+      // un refus : c'est un blocage, et il se nomme comme tel.
+      lent: relance.delaiDepasse,
+    };
   }
 
   // On attend qu'il ait fini de s'installer : « activating » n'est pas un échec.
@@ -1195,7 +1577,14 @@ async function redemarrerService(cwd: string, service: string): Promise<{ ok: bo
         : etat === 'activating'
           ? 'il n’a pas fini de démarrer après deux minutes'
           : `état inattendu « ${etat || 'inconnu'} »`;
-    return { ok: false, recit: `Le service ${service} n’est pas reparti : ${lisible}.${await journalDuService(cwd, service)}` };
+    return {
+      ok: false,
+      recit: `Le service ${service} n’est pas reparti : ${lisible}.${await journalDuService(cwd, service)}`,
+      // Un service coincé en « activating » depuis deux minutes n'a pas
+      // échoué — il ne finit pas. Le journal ne dit alors rien qu'une
+      // signature sache reconnaître : c'est le TEMPS qui nomme la panne.
+      lent: etat === 'activating',
+    };
   }
 
   const port = portDuService(service);
@@ -1219,8 +1608,10 @@ async function redemarrerService(cwd: string, service: string): Promise<{ ok: bo
  * quand la colonne « À déployer » est vide, et plus rien ne pouvait partir en
  * ligne. Rencontré le 03/08/2026 — plusieurs heures de travail bloquées.
  */
-export async function commitsEnAttente(projectId: string): Promise<{ nombre: number; titres: string[] }> {
-  const vide = { nombre: 0, titres: [] as string[] };
+export async function commitsEnAttente(
+  projectId: string,
+): Promise<{ nombre: number; titres: string[]; commits: CommitObserve[]; branche?: string }> {
+  const vide = { nombre: 0, titres: [] as string[], commits: [] as CommitObserve[] };
   const project = store.getProject(projectId);
   if (!project) return vide;
   const cwd = project.path;
@@ -1234,7 +1625,37 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
   // Le travail « déjà enregistré, pas encore en ligne » se lit sur la branche
   // où le DÉPLOIEMENT fusionne — celle réglée sur le projet, le cas échéant.
   const principale = (await brancheDeLEtape(project, 'dev')).branche;
-  const journal = await runCommand(cwd, `git log --format=%H%x1f%s ${depuis}..${principale}`, 30000);
+
+  /*
+   * CE QUI EST PORTÉ PAR LA BRANCHE D'UNE CARTE N'EST PAS ANONYME.
+   *
+   * Les empreintes relevées sur les cartes (`shasCouverts`) ne suffisent pas :
+   * ce relevé n'existe que si l'onglet « GitHub » de la carte a été ouvert une
+   * fois. On demande donc au dépôt lui-même d'écarter tout ce que les branches
+   * de cartes contiennent. Une branche inconnue de git ferait tomber la
+   * commande entière : on ne garde que celles qui existent, et dont le nom ne
+   * porte rien qui puisse s'échapper vers le shell.
+   */
+  const existantes = await runCommand(cwd, 'git for-each-ref --format=%(refname:short) refs/heads', 20000);
+  const connues = new Set(
+    existantes.ok ? existantes.out.split('\n').map((l) => l.trim()).filter(Boolean) : [],
+  );
+  const branches = store
+    .branchesDeCartes(projectId)
+    .filter((branche) => /^[A-Za-z0-9._\/-]+$/.test(branche) && connues.has(branche));
+  const exclusions = exclusionsDesBranchesDeCartes(branches).join(' ');
+
+  /*
+   * `--no-merges` : une fusion n'apporte pas de travail à elle seule — ce
+   * qu'elle réunit est déjà dans la plage, sous ses propres enregistrements.
+   * Les compter annonçait « 2 modifications sans carte » qui n'étaient que les
+   * fusions du déploiement précédent. Même règle que `commitsSansCarte`.
+   */
+  const journal = await runCommand(
+    cwd,
+    `git log --no-merges --format=%H%x1f%s ${depuis}..${principale} ${exclusions}`,
+    30000,
+  );
   if (!journal.ok) return vide;
 
   /*
@@ -1243,7 +1664,7 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
    * même travail était annoncé deux fois.
    */
   const couverts = new Set(store.shasCouverts(projectId));
-  const titres: string[] = [];
+  const commits: CommitObserve[] = [];
   for (const ligne of journal.out.split('\n')) {
     if (!ligne.trim()) continue;
     const [sha, titre] = ligne.split('\u001f');
@@ -1255,9 +1676,75 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
      * annonçait « 2 changements sans carte » juste après une mise en ligne.
      */
     if (estPlomberie(titre)) continue;
-    titres.push(titre.trim());
+    commits.push({ sha: sha?.trim() ?? '', titre: titre.trim(), branche: principale });
   }
-  return { nombre: titres.length, titres: titres.slice(0, 6) };
+  /* Les six premiers TITRES suffisent à l'affichage ; les enregistrements
+     entiers servent à FICHER ce travail dans une carte, si on le demande. */
+  return {
+    nombre: commits.length,
+    titres: commits.slice(0, 6).map((commit) => commit.titre),
+    commits,
+    branche: principale,
+  };
+}
+
+/**
+ * FICHER LE TRAVAIL SANS CARTE, sur demande de l'utilisateur.
+ *
+ * L'avertissement de la colonne « À déployer » nomme ce qui attend sans fiche ;
+ * ce geste lui en donne une. La carte est posée dans « À déployer » — le travail
+ * est FAIT, il n'y a rien à valider et rien à lancer — et porte les empreintes
+ * trouvées, si bien que l'avertissement s'éteint de lui-même au contrôle
+ * suivant : le même travail n'est jamais annoncé deux fois.
+ *
+ * RIEN N'EST PUBLIÉ NI FUSIONNÉ, aucune branche n'est touchée : les
+ * enregistrements sont déjà là où ils sont, on ne fait qu'écrire leur fiche.
+ * Tout refus est rendu en clair.
+ */
+export async function ficherLeTravailSansCarte(
+  projectId: string,
+): Promise<{ ok: boolean; error?: string; card?: Card }> {
+  const project = store.getProject(projectId);
+  if (!project) return { ok: false, error: 'projet introuvable' };
+
+  const attente = await commitsEnAttente(projectId);
+  if (!attente.commits.length) {
+    return { ok: false, error: 'plus aucune modification sans carte : il n’y a rien à ficher' };
+  }
+
+  const maintenant = Date.now();
+  const card = store.saveCard(
+    Card.parse({
+      id: store.newId(),
+      projectId,
+      title: titreHorsTache(attente.commits),
+      description: descriptionCartePorteuse(attente.commits, attente.branche),
+      /* Ce travail vit sur la principale : on le DIT sur la carte, comme le
+         fait déjà le fichage automatique quand il ne peut pas isoler. */
+      labels: ['hors tâche', 'sur la principale'],
+      column: 'to_deploy',
+      position: store.nextPosition(projectId, 'to_deploy'),
+      origin: 'user',
+      /* Rien ne sera exécuté depuis cette carte, mais le modèle en exige un :
+         on prend le moteur par défaut du projet, jamais un moteur inventé. */
+      run: { engine: project.defaultEngine },
+      horsTache: true,
+      /* Le CODE est déjà enregistré : la carte ne promet aucun travail à faire,
+         et rien ne partira au moteur. */
+      codeDejaEnregistre: true,
+      github: {
+        branch: attente.branche ?? '',
+        checks: [],
+        activity: [],
+        commits: attente.commits.map((commit) => ({ sha: commit.sha, message: commit.titre })),
+      },
+      createdAt: maintenant,
+      updatedAt: maintenant,
+    }),
+  );
+  bus.emit({ type: 'card.upsert', card });
+  log.info(`carte porteuse créée pour ${attente.commits.length} enregistrement(s) sans carte (${projectId})`);
+  return { ok: true, card };
 }
 
 export async function startDeploy(
@@ -1535,7 +2022,14 @@ export async function startDeploy(
               ? `git push ${suivie.slice(0, suivie.indexOf('/'))} HEAD:${suivie.slice(suivie.indexOf('/') + 1)}`
               : `git push -u origin ${locale}`;
             const push = await runCommand(cwd, commande);
-            return { ok: push.ok, sortie: push.out };
+            // Un envoi qui n'a jamais rendu la main (dépôt distant muet, clé qui
+            // attend une phrase de passe) est une panne NOMMÉE, pas une sortie
+            // illisible : sans cela, elle repartait en « non reconnue ».
+            return {
+              ok: push.ok,
+              sortie: push.out,
+              panne: panneSiDelaiDepasse(current.id, 'push', push.delaiDepasse),
+            };
           };
           const envoi = await rejouerAvecDepannage(current, { projectId: project.id, etape: 'push' }, envoyer);
           current = envoi.run;
@@ -1648,21 +2142,31 @@ export async function startDeploy(
         let dernierRecit = '';
         let derniereRaison: string | undefined;
         const confiee = await rejouerAvecDepannage(current, { projectId: project.id, etape: 'publish' }, async () => {
-          const menee = await confierLaMiseEnLigne(project.id, {
-            projet: project.name,
-            dossier: cwd,
-            branche: brancheDuLot,
-            // Pas d'adresse imposée : l'adresse de dev n'est pas celle d'une mise
-            // en production, et c'est le prompt qui dit quoi contrôler.
-            url: undefined,
-            prompt,
-            cartes: cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
-            enregistrement: current.targetCommit,
-            clot: etape.clot,
-          });
+          const menee = await confierLaMiseEnLigne(
+            project.id,
+            {
+              projet: project.name,
+              dossier: cwd,
+              branche: brancheDuLot,
+              // Pas d'adresse imposée : l'adresse de dev n'est pas celle d'une mise
+              // en production, et c'est le prompt qui dit quoi contrôler.
+              url: undefined,
+              prompt,
+              cartes: cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
+              enregistrement: current.targetCommit,
+              clot: etape.clot,
+            },
+            constatDeLEtape(current.id, 'publish'),
+          );
           dernierRecit = menee.recit;
           derniereRaison = menee.raison;
-          return { ok: menee.ok, sortie: menee.raison ?? menee.recit };
+          /*
+           * Un agent qui S'ARRÊTE sur une cause qu'on ne sait pas nommer n'est
+           * toujours pas renvoyé à l'aveugle. Mais un agent qui ne RÉPOND PLUS
+           * est une panne nommée : elle repart en dépannage puis en reprise, au
+           * lieu de laisser la publication rouge sur un silence.
+           */
+          return { ok: menee.ok, sortie: menee.raison ?? menee.recit, panne: menee.panne };
         });
         current = confiee.run;
         current = setStep(
@@ -1892,7 +2396,11 @@ export async function startDeploy(
           const relance = await rejouerAvecDepannage(current, { projectId: project.id, etape: 'restart' }, async () => {
             const bilan = await redemarrerService(cwd, service);
             recitRedemarrage = bilan.recit;
-            return { ok: bilan.ok, sortie: bilan.recit };
+            return {
+              ok: bilan.ok,
+              sortie: bilan.recit,
+              panne: panneSiDelaiDepasse(current.id, 'restart', bilan.lent),
+            };
           });
           current = relance.run;
           current = setStep(
@@ -2041,7 +2549,7 @@ export async function startDeploy(
       // règle : il part si plus rien ne publie, sinon il est retenu et repartira
       // à la fin de la dernière publication. Cette publication-ci est déjà
       // « réussie » en base, donc elle ne se compte plus.
-      if (redemarrageDemande) setTimeout(() => demanderRedemarrage(), 2000);
+      if (redemarrageDemande) setTimeout(() => void demanderRedemarrage(), 2000);
     } catch (err: any) {
       /*
        * La raison passe par `raisonEchecAgent` : une exception de VALIDATION
@@ -2092,6 +2600,10 @@ export async function startDeploy(
         });
       }
     } finally {
+      // La surveillance du temps meurt avec la publication, quelle qu'en soit
+      // l'issue : réussie, tombée, arrêtée à la main. Un minuteur laissé
+      // derrière écrirait dans une publication finie.
+      arreterLesVeilles(current.id);
       active.delete(projectId);
       const relance = waiting.has(projectId);
       if (relance) {
@@ -2159,12 +2671,60 @@ async function checkOnline(url: string): Promise<{ ok: boolean; status: string }
   }
 }
 
+/*
+ * UN ARRÊT AGIT TOUJOURS — même quand la publication n'est plus portée par rien.
+ *
+ * `handle.stop()` ne lève qu'un DRAPEAU que la boucle de publication relit entre
+ * deux étapes. Une étape pendue pour de bon (un agent de dépannage dont la
+ * préparation n'a jamais rendu la main) ne le relit jamais : la boucle ne se
+ * termine pas, son `finally` ne retire donc pas l'entrée de `active`, et ce
+ * fantôme REFUSE ensuite toute publication du projet — « une publication est
+ * déjà en cours » — sans que rien ne tourne ni ne le dise. Le bouton « Arrêter »
+ * répondait alors « faux » en silence, et seul un redémarrage du démon
+ * débloquait le projet. Constaté le 17/08/2026 sur HaikoDev : dix publications
+ * dans la journée, toutes refusées après la première.
+ *
+ * Faute de boucle vivante à interrompre, on referme donc ce que l'on peut
+ * ATTEINDRE : le drapeau est levé quand il y a encore quelqu'un pour le lire,
+ * l'entrée `active` est retirée, la file d'attente du projet est vidée — sinon
+ * elle rejouerait le blocage — et la publication est marquée arrêtée en base si
+ * elle s'y croit encore en cours. On ne rend « faux » que sur une publication
+ * introuvable : c'est le seul cas où il n'y a vraiment rien à arrêter.
+ */
 export function stopDeploy(runId: string): boolean {
   const run = store.getDeploy(runId);
   if (!run) return false;
+
   const handle = active.get(run.projectId);
-  if (!handle) return false;
-  handle.stop();
+  if (handle) handle.stop();
+
+  // Une publication DÉJÀ terminée n'a rien à reprendre : on s'arrête là, sans
+  // réécrire son issue ni toucher à ce qui tourne peut-être pour un autre run.
+  if (run.state !== 'running') return Boolean(handle);
+
+  /*
+   * On libère sans chercher à deviner si la boucle respire encore : rien ne le
+   * dit de façon sûre depuis ici, et un arrêt DEMANDÉ doit aboutir. Une boucle
+   * vivante lira son drapeau à la vérification suivante et s'arrêtera d'
+   * elle-même ; son `finally` refait les mêmes retraits, qui ne coûtent rien
+   * une seconde fois, et réécrit sa propre issue par-dessus celle-ci.
+   */
+  active.delete(run.projectId);
+  waiting.delete(run.projectId);
+  emit({
+    ...run,
+    state: 'stopped',
+    error: "Publication arrêtée : plus rien ne la portait — l'étape en cours ne rendait plus la main.",
+    endedAt: Date.now(),
+    steps: run.steps.map((etape) =>
+      etape.state === 'running'
+        ? { ...etape, state: 'failed' as const, progress: undefined }
+        : etape,
+    ),
+  });
+  log.warn(
+    `publication ${runId} (projet ${run.projectId}) arrêtée alors que plus rien ne la portait : le verrou du projet est levé`,
+  );
   return true;
 }
 

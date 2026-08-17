@@ -10,6 +10,7 @@ import {
   X,
   MinusCircle,
   AlertTriangle,
+  FilePlus2,
 } from 'lucide-react';
 import {
   Card,
@@ -18,6 +19,9 @@ import {
   DeployStepKey,
   EtapeDePublication,
   PlanDeMiseEnLigne,
+  TravailSansCarte,
+  alerteTravailSansCarte,
+  libelleCartePorteuse,
   etapeDePublication,
   etapeDeLaColonne,
   libelleCompteLot,
@@ -135,15 +139,18 @@ function motifLisible(log: string): string {
  */
 /**
  * Les textes INFORMATIFS de la publication, réunis pour le bouton « ! » de la
- * tête de colonne : comment l'instance sera rafraîchie, ce qui attend sans
- * carte, et l'éventuelle publication déjà en cours ailleurs. Rien d'alarmant —
- * les alertes orange (agent au travail, conflits) restent sous le bouton.
+ * tête de colonne : comment l'instance sera rafraîchie et l'éventuelle
+ * publication déjà en cours ailleurs. Rien d'alarmant — les alertes orange
+ * (agent au travail, conflits) restent sous le bouton.
+ *
+ * LE TRAVAIL SANS CARTE N'EST PLUS ICI : rangé derrière ce bouton, il fallait
+ * savoir qu'il existait pour aller le lire. Il s'affiche désormais en clair
+ * DANS la colonne (`AlerteTravailSansCarte`), là où on cherche ce qui va
+ * partir.
  */
 export type InfosPublication = {
   /** Comment l'instance de dev sera rafraîchie (« HaikoDev se construit… »). */
   moyen?: string;
-  /** Du travail enregistré sans carte, embarqué dans le lot. */
-  enAttente?: { nombre: number; titres: string[] };
   /** Une autre publication de ce projet tourne déjà. */
   autrePublication?: boolean;
   /** Une mise en production sans prompt réglé : elle ne peut pas partir. */
@@ -165,7 +172,7 @@ export function DeployPanel({
   cards,
   colonne = 'to_deploy',
   onInfos,
-  onCount,
+  onSansCarte,
   onInitier,
 }: {
   projectId: string;
@@ -176,10 +183,11 @@ export function DeployPanel({
   onInitier?: () => void;
   /** Remonte à la tête de colonne ce qui va derrière le bouton « ! ». */
   onInfos?: (infos: InfosPublication | null) => void;
-  /** Remonte à la tête de colonne le compte EXACT du bouton « Tout <verbe> (n) »,
-   *  pour que le chiffre de l'en-tête ne raconte plus autre chose que le lot qui
-   *  partira vraiment (cartes ET travail enregistré sans carte). */
-  onCount?: (n: number) => void;
+  /** Remonte à la COLONNE le travail enregistré sans carte pour le porter, afin
+   *  qu'elle l'affiche en clair au-dessus des cartes. Il ne compte JAMAIS dans
+   *  le chiffre de la tête : celui-ci compte les cartes affichées, et rien
+   *  d'autre (voir `shared/src/colonne-a-deployer.ts`). */
+  onSansCarte?: (travail: TravailSansCarte | null) => void;
 }) {
   const state = useApp();
   const run = state.deploys[projectId];
@@ -389,7 +397,6 @@ export function DeployPanel({
     // Une mise en production sans prompt réglé : on l'explique dès qu'un lot
     // attend et ne peut pas partir. Le déploiement ne connaît jamais ce cas.
     if (productionBloquee && aPublier) infos.productionBloquee = productionBloquee;
-    if (enAttente.nombre) infos.enAttente = enAttente;
     // La raison du bouton éteint ne se répète pas : quand elle recouvre déjà
     // une mise en production bloquée ou une autre publication en cours, ces
     // deux champs dédiés suffisent — le texte serait identique deux fois.
@@ -399,7 +406,6 @@ export function DeployPanel({
     }
     if (conflicts.length) infos.conflicts = conflicts;
     return infos.moyen ||
-      infos.enAttente ||
       infos.autrePublication ||
       infos.productionBloquee ||
       infos.raison ||
@@ -418,15 +424,22 @@ export function DeployPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signatureInfos]);
 
-  /* Même règle pour le compte : la tête de colonne affichait le nombre de
-     cartes PHYSIQUEMENT posées dans la colonne, quand le bouton affichait en
-     plus le travail enregistré sans carte (`enAttente`) — deux chiffres pour
-     une seule réalité. On remonte ici le total EXACT que le bouton annonce. */
-  const onCountRef = React.useRef(onCount);
-  onCountRef.current = onCount;
+  /*
+   * LE TRAVAIL SANS CARTE REMONTE À LA COLONNE, pour y être VU.
+   *
+   * Il gonflait le compteur de la tête sans pouvoir s'afficher nulle part : la
+   * tête annonçait « À DÉPLOYER 1 » et la colonne, dessous, « Rien à mettre en
+   * ligne pour l'instant ». Le compteur est rendu à la liste (board.tsx compte
+   * ses cartes, un point c'est tout) et ce qui n'a pas de carte s'écrit en
+   * clair DANS la colonne, avec ce qui a été trouvé.
+   */
+  const onSansCarteRef = React.useRef(onSansCarte);
+  onSansCarteRef.current = onSansCarte;
+  const signatureSansCarte = `${enAttente.nombre}|${enAttente.titres.join('|')}`;
   React.useEffect(() => {
-    onCountRef.current?.(aPublier);
-  }, [aPublier]);
+    onSansCarteRef.current?.(enAttente.nombre ? enAttente : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signatureSansCarte]);
 
   /*
    * Le bloc reste TOUJOURS en tête de la colonne « À déployer », même sans rien
@@ -732,9 +745,91 @@ function SelectionDeploiementDialog({
 }
 
 /**
+ * L'AVERTISSEMENT « du travail attend sans carte », posé DANS la colonne, juste
+ * au-dessus des cartes.
+ *
+ * C'est le second volet de la règle : le compteur ne compte plus que ce que la
+ * liste montre, donc ce qui n'a pas de carte doit se voir quelque part — sinon
+ * on l'a simplement rendu invisible au lieu de le rendre honnête. Il NOMME ce
+ * qui a été trouvé (les titres réels des enregistrements) et où c'est (la
+ * branche principale), et il ne propose rien : mettre en ligne reste un geste
+ * de l'utilisateur.
+ *
+ * Le texte entier vient de la règle pure (`alerteTravailSansCarte`) : cet
+ * écran ne fait que le dessiner.
+ */
+export function AlerteTravailSansCarte({
+  colonne,
+  projectId,
+  travail,
+  verbe,
+  onFiche,
+}: {
+  colonne: ColumnKey;
+  projectId: string;
+  travail: TravailSansCarte | null;
+  verbe: string;
+  /** La carte a été créée : la colonne oublie son avertissement, le contrôle
+   *  suivant confirmera qu'il n'y a plus rien d'anonyme. */
+  onFiche?: () => void;
+}) {
+  const alerte = alerteTravailSansCarte(travail, verbe);
+  if (!alerte) return null;
+  /*
+   * DONNER UNE FICHE À CE TRAVAIL, d'un clic. Le bouton part en requête et le
+   * dit tout seul (roue, puis coche) — c'est le socle `Button` qui s'en charge,
+   * à condition qu'on lui RENDE la promesse et qu'on RELANCE l'erreur, sinon il
+   * croirait avoir réussi. Rien n'est publié : la carte est simplement posée
+   * dans la colonne, où elle devient visible et comptée comme les autres.
+   */
+  const ficher = () =>
+    client
+      .call({ type: 'deploy.ficherSansCarte', projectId })
+      .then(() => {
+        onFiche?.();
+      })
+      .catch((err: any) => {
+        client.pushToast('error', err?.message ?? 'carte impossible à créer');
+        throw err;
+      });
+  return (
+    <div
+      data-travail-sans-carte={colonne}
+      data-sans-carte-nombre={travail?.nombre ?? 0}
+      className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-[12px] leading-snug"
+    >
+      <p className="flex items-start gap-1.5 font-medium text-warning">
+        <AlertTriangle className="mt-[3px] h-3 w-3 shrink-0" />
+        <span>{alerte.titre}</span>
+      </p>
+      <p className="mt-1 text-muted">{alerte.phrase}</p>
+      {alerte.titres.length ? (
+        <ul className="mt-1 space-y-0.5 text-faint">
+          {alerte.titres.map((titre, i) => (
+            <li key={`${i}-${titre}`} className="truncate" title={titre}>
+              • {titre}
+            </li>
+          ))}
+          {alerte.tronquee ? <li className="text-faint">• …</li> : null}
+        </ul>
+      ) : null}
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-1.5 h-7 w-full text-[12px]"
+        data-ficher-sans-carte={colonne}
+        onClick={ficher}
+      >
+        <FilePlus2 className="h-3 w-3" /> {libelleCartePorteuse(travail?.nombre ?? 0)}
+      </Button>
+    </div>
+  );
+}
+
+/**
  * Le bouton « ! » de la tête de colonne : il range les textes INFORMATIFS de la
- * publication (rafraîchissement de l'instance, travail sans carte, autre
- * publication en cours) qui poussaient les cartes vers le bas. Un clic les ouvre
+ * publication (rafraîchissement de l'instance, autre publication en cours) qui
+ * poussaient les cartes vers le bas. Un clic les ouvre
  * dans un menu par-dessus le contenu ; il ne paraît que s'il y a quelque chose à
  * lire, et dit au survol ce qu'il fait. Les alertes orange, elles, restent sous
  * le bouton de publication.
@@ -795,14 +890,6 @@ export function BoutonInfosPublication({
           {infos.moyen ? (
             <p className="text-faint" data-moyen-mise-en-ligne>
               {infos.moyen}
-            </p>
-          ) : null}
-
-          {infos.enAttente ? (
-            <p className="text-muted" data-enattente-publication>
-              Dont {infos.enAttente.nombre} changement{infos.enAttente.nombre > 1 ? 's' : ''} enregistré
-              {infos.enAttente.nombre > 1 ? 's' : ''} sans carte :{' '}
-              <span className="text-faint">{infos.enAttente.titres.join(' · ')}</span>
             </p>
           ) : null}
 
@@ -903,8 +990,16 @@ function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.
 
               {/* PENDANT qu'une étape tourne, ce qu'elle est en train de faire :
                   la branche en cours de fusion, le contrôle lancé, la commande. */}
+              {/* UNE ÉTAPE EN RETARD NE SE LIT PAS COMME UNE ÉTAPE QUI
+                  TRAVAILLE : sa ligne passe en orange d'attente, sinon il faut
+                  la lire en entier pour s'apercevoir que rien n'avance — ce qui
+                  obligeait à venir surveiller la publication soi-même. */}
               {etat === 'running' && etape?.progress ? (
-                <p className="ml-[22px] mt-0.5 text-[12px] text-muted" data-progress-etape={key}>
+                <p
+                  className={cn('ml-[22px] mt-0.5 text-[12px]', etape.enRetard ? 'text-warning' : 'text-muted')}
+                  data-progress-etape={key}
+                  data-etape-en-retard={etape.enRetard ? 'oui' : undefined}
+                >
                   {etape.progress}
                 </p>
               ) : null}
