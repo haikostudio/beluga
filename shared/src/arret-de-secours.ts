@@ -227,6 +227,57 @@ export interface BilanDesArrets {
   message: string;
 }
 
+/*
+ * CE QUI A ÉTÉ SAUVÉ AVANT LA COUPURE SE DIT DANS LA CONVERSATION.
+ *
+ * Le démon enregistre d'office, sur la branche de la carte, ce que l'agent avait
+ * écrit sans le commiter — sinon ce travail n'entrerait dans aucun déploiement.
+ * Mais il le faisait EN SILENCE : la conversation s'arrêtait net, et rien ne
+ * disait si le travail des dernières minutes avait survécu. On le dit donc là où
+ * l'utilisateur regarde — dans le fil de l'agent —, avec les fichiers concernés
+ * et la branche où les retrouver.
+ *
+ * Deux cas, et le second compte autant : quand RIEN ne traînait, on le dit
+ * aussi. « Rien n'a été enregistré » et « il n'y avait rien à enregistrer » ne
+ * veulent pas dire la même chose pour qui vient de perdre son agent.
+ */
+
+/** Au-delà, on ne cite plus : la liste devient un pavé illisible. */
+export const FICHIERS_SAUVES_MONTRES_MAX = 8;
+
+export interface TravailSauve {
+  /** Les fichiers qui traînaient et qui viennent d'être enregistrés. */
+  fichiers: string[];
+  /** La branche de la carte, celle où les retrouver. */
+  branche?: string;
+  /** Pourquoi la coupure a eu lieu, en une poignée de mots. */
+  motif?: string;
+}
+
+/**
+ * Le message posé dans la conversation d'un agent coupé en force. Il nomme les
+ * fichiers (jusqu'à `FICHIERS_SAUVES_MONTRES_MAX`, au-delà il dit combien
+ * restent) et la branche — jamais un « votre travail est sauvegardé » sans dire
+ * où, qui n'apprend rien à personne.
+ */
+export function messageDuTravailSauve(travail: TravailSauve): string {
+  const motif = travail.motif?.trim() || 'Agent coupé en force';
+  const ou = travail.branche ? ` sur la branche « ${travail.branche} »` : ' sur la branche de cette carte';
+
+  const fichiers = travail.fichiers.map((f) => f.trim()).filter(Boolean);
+  if (!fichiers.length) {
+    return `${motif} : il n’y avait rien à enregistrer${ou} — tout ce qui avait été écrit y était déjà.`;
+  }
+
+  const montres = fichiers.slice(0, FICHIERS_SAUVES_MONTRES_MAX);
+  const reste = fichiers.length - montres.length;
+  const liste = montres.map((f) => `- ${f}`).join('\n');
+  const fin = reste > 0 ? `\n- …et ${reste} ${accord(reste, 'autre fichier', 'autres fichiers')}` : '';
+  const combien = `${fichiers.length} ${accord(fichiers.length, 'fichier', 'fichiers')}`;
+
+  return `${motif} : le travail en cours a été enregistré${ou} avant la coupure — ${combien}. Rien n’est perdu, et rien n’est publié.\n\n${liste}${fin}`;
+}
+
 /** Le mot juste au singulier comme au pluriel, sans « (s) ». */
 function accord(n: number, singulier: string, pluriel: string): string {
   return n > 1 ? pluriel : singulier;

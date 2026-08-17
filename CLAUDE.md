@@ -647,8 +647,14 @@ le nom, là-bas le texte).
   copie de carte est enregistré sur sa branche, puis tout est coupé — et ACHEVÉ SUR-LE-CHAMP
   (`acheverLArbre`, numéro EXACT et descendance lue dans `/proc`, jamais un motif ni un groupe), le
   démon quittant avant le délai de grâce, ce qui laissait sinon le moteur têtu ORPHELIN. « Redémarrer »
-  garde son sens à côté (demande RETENUE), et un SIGNAL du dehors ne force JAMAIS. Verrouillé par
-  `server/src/test/demon.test.ts` et `scripts/verif-arret-en-force.mjs`.
+  garde son sens à côté (demande RETENUE), et un SIGNAL du dehors ne force JAMAIS. **Et ce qui a été
+  sauvé se DIT dans la conversation de l'agent coupé** (`messageDuTravailSauve`,
+  `shared/src/arret-de-secours.ts` ; `fichiersNonEnregistres`, `server/src/dossier-de-carte.ts` ;
+  `annoncerDansLaConversation`, `server/src/runtime.ts`) : la liste est relevée AVANT le geste (après,
+  le dossier est propre et ne dit plus rien), et le message nomme les fichiers et la branche — « rien
+  à enregistrer » se dit aussi, il ne se confond pas avec un travail perdu. Verrouillé par
+  `server/src/test/demon.test.ts`, `server/src/test/arret-de-secours.test.ts` et
+  `scripts/verif-arret-en-force.mjs`.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une
