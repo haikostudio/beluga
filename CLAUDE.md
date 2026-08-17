@@ -66,6 +66,7 @@ node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seu
 node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
 node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
 HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : aucun jeton oublié, aucune couleur en dur, puis le NAVIGATEUR — thème d'un projet, entrée « Thème » du menu (survol ET clic), choix « Système »
+HAIKO_LANGUES_URL=http://localhost:7099 node scripts/verif-langues.mjs # les cinq langues : catalogue, dictionnaire complet, aucun texte en dur, repères techniques intacts, puis le NAVIGATEUR — entrée « Langue » du menu (survol ET clic), colonnes traduites, choix retenu
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
 ```
@@ -1188,6 +1189,40 @@ le nom, là-bas le texte).
   Conséquence pour les CONTRÔLES : `[data-theme-choix]` n'existe plus au premier niveau, il faut
   survoler ou cliquer `[data-theme-menu]` d'abord (`scripts/verif-themes.mjs`,
   `scripts/verify-ui.mjs`).
+- **L'INTERFACE EXISTE EN CINQ LANGUES, ET LE CHOIX VIT SOUS CELUI DU THÈME**
+  (`shared/src/langues.ts` le catalogue, `shared/src/traduire.ts` la mécanique,
+  `shared/src/traductions.ts` le dictionnaire ; `web/src/lib/langue.ts` la pose ; entrée
+  `data-langue-menu` de `web/src/components/quota-bar.tsx`) : le FRANÇAIS reste la langue
+  d'ORIGINE, plus l'ANGLAIS, l'ESPAGNOL, l'ALLEMAND et le CHINOIS. Même sous-menu que le thème,
+  juste en dessous et au-dessus de « Réglages », dépliable AU SURVOL COMME AU CLIC ; le réglage vit
+  EN BASE (`usePref('langue')`), donc il suit d'un appareil à l'autre et ne change JAMAIS tout seul —
+  sans réglage, c'est le français, jamais une devinette tirée du navigateur.
+  SEPT INVARIANTS. **La CLÉ d'une traduction est son TEXTE FRANÇAIS** : une traduction manquante
+  retombe donc sur du français LISIBLE, jamais sur un vide ni sur un nom de clé — le prix assumé
+  étant que deux textes français identiques partagent leur traduction. **Les quatre traductions sont
+  CÔTE À CÔTE** (`[en, es, de, zh]`), la clé écrite une seule fois : une langue oubliée se voit dans
+  la ligne. **Une PHRASE part entière au dictionnaire**, les valeurs devenant des TROUS `{ainsi}`
+  (`{n} agents travaillent`) — un morceau de phrase collé bout à bout donnerait une bouillie en
+  allemand comme en chinois ; le contrôle refuse un trou perdu en route. **Aucun PLURIEL automatique**
+  : un écran qui distingue « 1 agent » de « 3 agents » écrit ses deux phrases, comme il le faisait
+  déjà. **`t` n'est PAS un crochet** mais une fonction de module, tenue à jour PENDANT le rendu par
+  `useLangueAppliquee()` appelé une seule fois depuis `app.tsx` : n'importe quelle fonction peut
+  écrire un mot sans devenir un composant, et changer de langue rend la racine, donc tout l'arbre.
+  **Un NOM DE LANGUE ne se traduit jamais** (« Deutsch », « 中文 ») : c'est la seule façon de
+  retrouver la sienne dans un écran qu'on ne lit pas. **Les REPÈRES TECHNIQUES ne changent JAMAIS de
+  langue** — `aria-label`, `data-…`, `key`, `className`, `id`, `role` : ce sont eux que les scripts
+  de contrôle emploient pour désigner un bouton, et le contrôle refuse qu'un seul passe par `t(`.
+  Les DATES et les NOMBRES suivent aussi (`formatRegional()`, `Langue.formatRegional`) ; en français
+  la valeur reste `fr-CH`, rien ne bouge pour qui n'a pas changé de langue.
+  **CE QUI NE SE TRADUIT PAS, et ne doit pas l'être** : tout ce que les AGENTS produisent — leurs
+  réponses, les titres et descriptions de cartes, la mémoire du projet, les documents. Ce sont des
+  MATIÈRES DE TRAVAIL. La frontière est mécanique : seul ce qui passe par `t()` change de langue.
+  LIMITE CONNUE, à lever plus tard : les phrases COMPOSÉES PAR LE SERVEUR (`shared/src/*`, règles de
+  publication, phrases d'état d'une carte) restent en français — elles ne passent pas par `t()` et
+  voyagent aussi dans les archives et les prompts.
+  `scripts/passer-les-textes-en-traduction.mjs` fait passer d'un coup des écrans neufs par le
+  dictionnaire (il lit le VRAI arbre TypeScript, jamais des expressions régulières, et se rejoue sans
+  dégât). Verrouillé par `server/src/test/langues.test.ts` et `scripts/verif-langues.mjs`.
 - **…ET CHAQUE PROJET PEUT IMPOSER LE SIEN, plus un choix qui suit l'ORDINATEUR**
   (`themeAAppliquer`, `CHOIX_DE_THEME`, `THEME_SYSTEME`, `themeChoisiValide`, `shared/src/themes.ts` ;
   `Project.theme` ; `useThemeApplique` / `useSystemeSombre`, `web/src/lib/theme.ts` ; ligne « Thème de

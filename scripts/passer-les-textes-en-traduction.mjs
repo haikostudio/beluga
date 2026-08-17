@@ -73,12 +73,29 @@ function fichiers(dossier) {
  * identifiant technique ne le sont pas. On demande donc au moins une LETTRE, et
  * on écarte tout ce qui ressemble à du code.
  */
+/**
+ * LES QUELQUES TEXTES QUI RESSEMBLENT À DU FRANÇAIS SANS EN ÊTRE. Aucune règle
+ * générale ne les distingue d'un libellé — « Chris » a exactement la forme de
+ * « Réglages » —, alors on les NOMME. La liste est courte et le restera : elle
+ * ne sert qu'aux cas où la forme ne dit rien.
+ */
+const PAS_DU_TEXTE = new Set([
+  'Chris', // un PRÉNOM d'exemple, dans un champ où l'on tape le sien
+]);
+
 export function texteLisible(valeur) {
   const texte = valeur.trim();
   if (texte.length < 2) return false;
   if (!/[a-zA-ZÀ-ÿ]/.test(texte)) return false;
+  if (PAS_DU_TEXTE.has(texte)) return false;
   // Un seul mot tout en minuscules sans accent : une clé, pas une phrase.
   if (/^[a-z0-9]+([-_.][a-z0-9]+)*$/.test(texte)) return false;
+  // Un identifiant en dos de chameau (« notifyOnDone ») : du code, pas un mot.
+  if (/^[a-z][a-z0-9]*([A-Z][a-z0-9]*)+$/.test(texte)) return false;
+  // Un préfixe technique fini par « / » ou « : » (« image/ », « voix:{v0} »).
+  if (/\/$/.test(texte) || /^[a-z]+\s*:/.test(texte)) return false;
+  // Un gabarit qui n'est QUE des trous et de la ponctuation : une clé d'affichage.
+  if (!/[a-zA-ZÀ-ÿ]{3}/.test(texte.replace(/\{\w+\}/g, ' '))) return false;
   // Un code de langue régionale (« fr-CH », « zh-Hans ») : un FORMAT, pas un mot.
   if (/^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(texte)) return false;
   // Chemins, adresses, sélecteurs.
@@ -372,9 +389,167 @@ function poserLImport(chemin, texte) {
   return lignes.join('\n');
 }
 
+/**
+ * LES TEXTES DÉJÀ DONNÉS À `t(…)` dans un fichier — ce que l'interface DEMANDE
+ * au dictionnaire. C'est la liste que le contrôle des langues compare aux
+ * dictionnaires : elle est lue dans le VRAI arbre du code, pas devinée.
+ */
+function appelsDeTraduction(chemin, source) {
+  const arbre = ts.createSourceFile(chemin, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const trouves = [];
+  const visiter = (noeud) => {
+    if (
+      ts.isCallExpression(noeud) &&
+      noeud.expression.getText() === 't' &&
+      noeud.arguments.length &&
+      ts.isStringLiteral(noeud.arguments[0]) &&
+      noeud.arguments[0].text.trim()
+    ) {
+      trouves.push(noeud.arguments[0].text);
+    }
+    ts.forEachChild(noeud, visiter);
+  };
+  ts.forEachChild(arbre, visiter);
+  return trouves;
+}
+
+/**
+ * LA CHASSE AU FRANÇAIS RESTÉ EN DUR — le filet, là où la bascule ne va pas.
+ *
+ * La bascule ne touche que trois endroits sûrs. Mais un libellé peut se poser
+ * AILLEURS : rangé dans une variable au bout d'un `? :` puis affiché plus bas,
+ * mis dans un tableau d'options, rendu par une petite fonction. Aucun de ces
+ * cas ne se réécrit sans risque à la machine — mais tous se REPÈRENT.
+ *
+ * On relève donc TOUT littéral qui ressemble à du FRANÇAIS et qui n'est pas
+ * déjà passé au dictionnaire. « Ressembler à du français », ici, c'est porter un
+ * accent ou l'un des mots outils de la langue : un identifiant anglais, un nom
+ * de classe ou une clé technique n'en portent jamais.
+ */
+/**
+ * CE QUI RESSEMBLE À DU FRANÇAIS D'INTERFACE SANS EN ÊTRE, et qu'on laisse donc
+ * en place. Trois familles, toutes vérifiées une par une :
+ *
+ *  - le texte ENVOYÉ À UN AGENT (« Vas-y, lance ce plan. ») : c'est un message
+ *    de l'utilisateur au moteur, pas un mot de l'écran — le traduire changerait
+ *    ce que l'agent reçoit ;
+ *  - une CLÉ de React ou un identifiant interne (`préambule-…`, l'usage passé à
+ *    `ouvrirMicro`) : du code déguisé en mot ;
+ *  - le titre d'un message d'ESSAI, sur lequel des scripts de contrôle
+ *    s'appuient pour se reconnaître.
+ */
+const A_LAISSER_EN_FRANCAIS = new Set([
+  'Vas-y, lance ce plan.',
+  'dictée',
+  'mot de réveil',
+  'Vérification',
+]);
+
+const ACCENTS = /[àâäéèêëîïôöùûüÿçœÀÂÄÉÈÊËÎÏÔÖÙÛÜŸÇŒ’]/;
+const MOTS_FRANCAIS =
+  /(^|[\s'’(«"])(le|la|les|un|une|des|du|de|au|aux|et|ou|en|dans|sur|pour|par|avec|sans|ce|cet|cette|qui|que|est|sont|pas|plus|tout|tous|toute|toutes|aucun|aucune|votre|vos|son|sa|ses|leur|encore|jamais|toujours|puis|donc|mais|quand|avant|entre|chaque|autre|autres|rien|peut|doit|vers|ici|déjà|elle|il|on|ne|se|si)([\s'’),.…:;!?»"]|$)/i;
+
+function ressembleAuFrancais(texte) {
+  if (A_LAISSER_EN_FRANCAIS.has(texte.trim())) return false;
+  return ACCENTS.test(texte) || MOTS_FRANCAIS.test(texte);
+}
+
+/** Ce littéral est-il du CODE plutôt qu'un mot ? Un import, un nom de propriété. */
+function positionDeCode(noeud) {
+  const parent = noeud.parent;
+  if (!parent) return true;
+  if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) return true;
+  if (ts.isPropertyAssignment(parent) && parent.name === noeud) return true;
+  if (ts.isTemplateSpan(parent) || ts.isTemplateHead(noeud) || ts.isTemplateMiddle(noeud)) return true;
+  /* Une CLÉ de React (`key={…}`) n'est pas lue par un humain. */
+  if (ts.isJsxExpression(parent) && ts.isJsxAttribute(parent.parent) && parent.parent.name.getText() === 'key') {
+    return true;
+  }
+  return false;
+}
+
+/** Les littéraux français d'un fichier qui ne passent PAS encore par `t(…)`. */
+function francaisResteEnDur(chemin, source) {
+  const arbre = ts.createSourceFile(chemin, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const restes = [];
+  const visiter = (noeud) => {
+    if (ts.isStringLiteral(noeud) || ts.isNoSubstitutionTemplateLiteral(noeud) || ts.isJsxText(noeud)) {
+      const texte = ts.isJsxText(noeud) ? texteJsx(noeud.text) : noeud.text;
+      /* Un `aria-label`, un `data-…`, une `key` : ce sont les REPÈRES que les
+         scripts de contrôle emploient pour désigner un bouton. Ils restent en
+         français À DESSEIN et ne sont donc pas des oublis. */
+      if (contexteDuLitteral(noeud) === 'attribut-technique') return;
+      if (positionDeCode(noeud)) return;
+      if (texteLisible(texte) && ressembleAuFrancais(texte) && !dejaPrisEnCharge(noeud)) {
+        const { line } = arbre.getLineAndCharacterOfPosition(noeud.getStart(arbre));
+        restes.push({
+          ligne: line + 1,
+          texte,
+          debut: noeud.getStart(arbre),
+          fin: noeud.end,
+          code: ts.isJsxText(noeud) ? `{${appelDeTraduction(texte)}}` : appelDeTraduction(texte),
+        });
+      }
+      return;
+    }
+    if (ts.isTemplateExpression(noeud) && !dejaPrisEnCharge(noeud) && !positionDeCode(noeud)) {
+      const { texte, valeurs } = gabaritEnTexteATrous(noeud, source);
+      const nu = texte.replace(/\{\w+\}/g, ' ');
+      if (texteLisible(nu) && ressembleAuFrancais(nu)) {
+        const { line } = arbre.getLineAndCharacterOfPosition(noeud.getStart(arbre));
+        restes.push({
+          ligne: line + 1,
+          texte,
+          debut: noeud.getStart(arbre),
+          fin: noeud.end,
+          code: appelDeTraduction(texte, valeurs),
+        });
+      }
+      return;
+    }
+    ts.forEachChild(noeud, visiter);
+  };
+  ts.forEachChild(arbre, visiter);
+  return restes;
+}
+
 const options = new Set(process.argv.slice(2));
 const ecrire = options.has('--ecrire');
 const sortirLesCles = options.has('--cles');
+const sortirLesAppels = options.has('--appels');
+const chasser = options.has('--reste');
+
+if (chasser) {
+  const poser = options.has('--ecrire');
+  let total = 0;
+  for (const chemin of fichiers(SOURCE)) {
+    const court = relative(SOURCE, chemin).replace(/\\/g, '/');
+    if (HORS_JEU.has(court)) continue;
+    const source = readFileSync(chemin, 'utf8');
+    const restes = francaisResteEnDur(chemin, source);
+    total += restes.length;
+    for (const reste of restes) {
+      console.log(`${court}:${reste.ligne}  ${reste.texte.replace(/\s+/g, ' ').slice(0, 110)}`);
+    }
+    if (!poser || !restes.length) continue;
+    let resultat = source;
+    for (const reste of [...restes].sort((a, b) => b.debut - a.debut)) {
+      resultat = resultat.slice(0, reste.debut) + reste.code + resultat.slice(reste.fin);
+    }
+    writeFileSync(chemin, poserLImport(chemin, resultat));
+  }
+  console.log(`\n${total} texte(s) français hors dictionnaire.`);
+  process.exit(0);
+}
+
+if (sortirLesAppels) {
+  const demandes = new Set();
+  for (const chemin of fichiers(SOURCE)) {
+    for (const texte of appelsDeTraduction(chemin, readFileSync(chemin, 'utf8'))) demandes.add(texte);
+  }
+  console.log(JSON.stringify([...demandes].sort((a, b) => a.localeCompare(b, 'fr')), null, 1));
+  process.exit(0);
+}
 
 const toutesLesCles = new Set();
 let touches = 0;
