@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import { DELAI_VIDAGE_SORTIE_MS } from '@haikodev/shared';
 import { log } from '../logger.js';
 
@@ -91,6 +92,54 @@ export function finDuProcessus(
 const DELAI_ARRET_FORCE_MS = 4000;
 
 /**
+ * LES DESCENDANTS D'UN PROCESSUS, LUS DANS `/proc`.
+ *
+ * Un moteur n'est pas seul : il lance son pont d'outils, des commandes, parfois
+ * un sous-agent. Ces petits-enfants ne reçoivent PAS le signal envoyé à leur
+ * parent — `child.kill()` ne vise qu'un seul numéro de processus — et l'un
+ * d'eux qui survit garde le tuyau de sortie ouvert. On les retrouve donc pour
+ * les emporter avec lui.
+ *
+ * On ne passe JAMAIS par un groupe de processus : les moteurs sont lancés sans
+ * `detached`, ils portent donc le groupe du DÉMON lui-même, et un signal de
+ * groupe couperait le serveur. On descend l'arbre à partir du seul numéro du
+ * moteur, jamais plus haut.
+ */
+function descendants(pid: number, vus = new Set<number>()): number[] {
+  if (vus.has(pid)) return [];
+  vus.add(pid);
+  let enfants: number[] = [];
+  try {
+    const taches = readdirSync(`/proc/${pid}/task`);
+    for (const tache of taches) {
+      const brut = readFileSync(`/proc/${pid}/task/${tache}/children`, 'utf8');
+      for (const morceau of brut.trim().split(/\s+/)) {
+        const enfant = Number(morceau);
+        if (Number.isInteger(enfant) && enfant > 1) enfants.push(enfant);
+      }
+    }
+  } catch {
+    // Pas de `/proc` (ou processus déjà parti) : on ne connaît aucun descendant.
+    return [];
+  }
+  enfants = [...new Set(enfants)];
+  return enfants.flatMap((enfant) => [enfant, ...descendants(enfant, vus)]);
+}
+
+/**
+ * Achever un numéro de processus, avec deux refus qui rendent le geste sûr : on
+ * ne signale jamais le démon lui-même, ni un numéro qui n'en est pas un.
+ */
+function acheverLeProcessus(pid: number | undefined): void {
+  if (!pid || !Number.isInteger(pid) || pid <= 1 || pid === process.pid) return;
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    /* déjà parti */
+  }
+}
+
+/**
  * ARRÊTER UN PROCESSUS DE MOTEUR — POUR DE VRAI.
  *
  * Le bouton d'arrêt envoyait SIGTERM puis vérifiait `child.killed` avant de
@@ -102,12 +151,21 @@ const DELAI_ARRET_FORCE_MS = 4000;
  * continuait exactement où il en était. On suit ici la fin RÉELLE du
  * processus (l'événement « exit », comme `finDuProcessus`), et c'est son
  * absence après le délai qui déclenche SIGKILL — jamais `child.killed`.
+ *
+ * ET LE COUP DE GRÂCE EMPORTE TOUTE LA DESCENDANCE. Le signal ne visait que
+ * l'enfant direct : le pont d'outils et les commandes lancées par le moteur lui
+ * survivaient, gardant la sortie ouverte et parfois une construction en cours
+ * sur une copie de travail qu'on s'apprête à refermer. Un arrêt demandé arrête
+ * tout ce que le moteur avait mis en route.
  */
 export function arreterProcessus(child: ChildProcess, moteur: string, delaiMs = DELAI_ARRET_FORCE_MS): void {
   let termine = false;
   child.once('exit', () => {
     termine = true;
   });
+  // Relevés AVANT le signal : un moteur qui s'en va emporte ses enfants dans sa
+  // chute, et `/proc` ne dirait plus rien d'eux au moment de les achever.
+  const suite = child.pid ? descendants(child.pid) : [];
   try {
     child.kill('SIGTERM');
   } catch (err) {
@@ -115,12 +173,8 @@ export function arreterProcessus(child: ChildProcess, moteur: string, delaiMs = 
     return;
   }
   const forcer = setTimeout(() => {
-    if (termine) return;
-    try {
-      child.kill('SIGKILL');
-    } catch {
-      /* déjà parti */
-    }
+    if (!termine) acheverLeProcessus(child.pid);
+    for (const pid of suite) acheverLeProcessus(pid);
   }, delaiMs);
   forcer.unref?.();
 }

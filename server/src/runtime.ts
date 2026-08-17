@@ -301,6 +301,56 @@ export function pidFor(agentId: string): number | undefined {
   return live.get(agentId)?.handle.pid;
 }
 
+/**
+ * LES MOTEURS DE SERVICE D'UN AGENT — ceux que l'arrêt ne voyait pas.
+ *
+ * Autour du tour, le démon lance d'autres moteurs : la compression du fil, la
+ * relance d'un plan incomplet, le résumé de continuité. Ce ne sont pas des
+ * tours — ils n'écrivent rien à l'écran — mais ce sont de vrais processus, et
+ * `run.handle` ne désigne pas les leurs. Un agent arrêté pendant sa compression
+ * gardait donc un moteur en marche, invisible et sans personne pour l'attendre.
+ *
+ * Ils s'inscrivent ici le temps de leur vie, et le bouton d'arrêt les coupe avec
+ * le reste.
+ */
+const moteursDeService = new Map<string, Set<EngineHandle>>();
+
+/**
+ * Suivre un moteur de service pour la durée de son appel. Rendu à passer en
+ * `surLancement` ; le retrait se fait tout seul quand le moteur a fini.
+ */
+function suivreLeService(agentId: string): (handle: EngineHandle) => void {
+  return (handle) => {
+    const ouverts = moteursDeService.get(agentId) ?? new Set<EngineHandle>();
+    ouverts.add(handle);
+    moteursDeService.set(agentId, ouverts);
+    const oublier = () => {
+      const encore = moteursDeService.get(agentId);
+      if (!encore) return;
+      encore.delete(handle);
+      if (!encore.size) moteursDeService.delete(agentId);
+    };
+    handle.finished.then(oublier, oublier);
+  };
+}
+
+/** Couper tous les moteurs de service d'un agent. Rendu : combien ont été visés. */
+function couperLesServices(agentId: string): number {
+  const ouverts = moteursDeService.get(agentId);
+  if (!ouverts?.size) return 0;
+  let vises = 0;
+  for (const handle of ouverts) {
+    try {
+      handle.stop();
+      vises += 1;
+    } catch {
+      /* déjà parti */
+    }
+  }
+  moteursDeService.delete(agentId);
+  return vises;
+}
+
 /* ------------------------------------------------------------------ */
 /* Création d'agents                                                   */
 /* ------------------------------------------------------------------ */
