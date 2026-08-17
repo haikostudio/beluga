@@ -16,6 +16,14 @@
  *  - amener une colonne au bord marche toujours : l'enveloppe ajoutée pour le
  *    personnage pourrait fausser `offsetLeft`, dont dépend ce geste.
  *
+ * Puis DEUX ajouts qui ne dépendent d'aucun agent :
+ *  - le MOUVEMENT : immobilité totale au repos, animation lente et pieds au sol
+ *    quand la classe du travail est posée, plus rien du tout sous « réduire les
+ *    animations » ;
+ *  - le REMPLACEMENT depuis les réglages : image déposée, détourée, servie à la
+ *    même adresse dans ses deux découpes, refus dits en clair, retour à
+ *    l'original à l'octet près.
+ *
  *   node scripts/verif-personnages-colonnes.mjs
  */
 import { chromium } from 'playwright';
@@ -342,6 +350,257 @@ async function portraits() {
   }
 }
 
+/**
+ * L'IMAGE D'ESSAI : un sujet coloré posé sur un fond clair uni — exactement ce
+ * que l'écran des réglages demande à l'utilisateur. Fabriquée une fois, elle
+ * sert au geste dans le navigateur comme à l'appel direct.
+ */
+const IMAGE_D_ESSAI = path.join(TMP, 'depot.png');
+function fabriquerLImageDEssai() {
+  try {
+    execFileSync('python3', [
+      '-c',
+      [
+        'from PIL import Image, ImageDraw',
+        'im = Image.new("RGB", (400, 500), (250, 249, 247))',
+        'd = ImageDraw.Draw(im)',
+        'd.ellipse((150, 60, 250, 170), fill=(210, 120, 90))',
+        'd.rounded_rectangle((140, 170, 260, 400), 20, fill=(80, 130, 190))',
+        `im.save(${JSON.stringify(IMAGE_D_ESSAI)})`,
+      ].join('\n'),
+    ]);
+    return true;
+  } catch (err) {
+    noter('une image d’essai a pu être fabriquée (Pillow présent)', false, String(err?.message ?? err));
+    return false;
+  }
+}
+
+/**
+ * LE MOUVEMENT DU PERSONNAGE DE « EN COURS ». Aucun agent ne tourne ici (le
+ * plafond est à zéro), donc on contrôle deux choses complémentaires :
+ *  - AU REPOS, les sept sont parfaitement immobiles — c'est ce contraste qui
+ *    porte l'information ;
+ *  - la classe du mouvement, POSÉE À LA MAIN sur la vraie image, anime bien ;
+ *    et sous « réduire les animations », elle n'anime plus rien.
+ * Quand la classe est posée (donc quand un agent travaille) est vérifié à part,
+ * sans navigateur, par `personnageEnMouvement`.
+ */
+async function mouvement(navigateur) {
+  for (const reduit of [false, true]) {
+    const contexte = await navigateur.newContext({
+      viewport: { width: 1400, height: 900 },
+      locale: 'fr-CH',
+      serviceWorkers: 'block',
+      reducedMotion: reduit ? 'reduce' : 'no-preference',
+    });
+    await contexte.addCookies([
+      { name: 'haikodev_session', value: jeton, url: BASE, httpOnly: true, sameSite: 'Lax' },
+    ]);
+    const page = await contexte.newPage();
+    try {
+      await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForSelector('[data-personnage-colonne="running"]', { timeout: 30000 });
+      const vu = await page.evaluate(() => {
+        const images = Array.from(document.querySelectorAll('[data-personnage-colonne]'));
+        const auRepos = images.map((img) => ({
+          colonne: img.getAttribute('data-personnage-colonne'),
+          vivant: img.getAttribute('data-personnage-vivant'),
+          animation: getComputedStyle(img).animationName,
+        }));
+        const enCours = document.querySelector('[data-personnage-colonne="running"]');
+        enCours.classList.add('origin-bottom', 'animate-personnage-au-travail');
+        const style = getComputedStyle(enCours);
+        const boite = enCours.getBoundingClientRect();
+        // `transform-origin` est rendu en PIXELS par le navigateur : « pieds au
+        // sol » se lit donc à la hauteur de l'image, pas au mot « bottom ».
+        const [x, y] = style.transformOrigin.split(' ').map(parseFloat);
+        return {
+          auRepos,
+          anime: style.animationName,
+          duree: style.animationDuration,
+          origine: style.transformOrigin,
+          piedsAuSol: Math.abs(y - boite.height) < 1 && Math.abs(x - boite.width / 2) < 1,
+        };
+      });
+
+      if (!reduit) {
+        const remuants = vu.auRepos.filter((v) => v.animation !== 'none' || v.vivant !== 'non');
+        noter(
+          'au repos, les sept personnages sont parfaitement immobiles',
+          remuants.length === 0,
+          remuants.map((v) => `${v.colonne} : ${v.animation}`).join(' ; ') || `${vu.auRepos.length} colonnes muettes`,
+        );
+        noter(
+          'la classe du travail anime « En cours », lentement et pieds au sol',
+          vu.anime === 'personnage-au-travail' && parseFloat(vu.duree) >= 1.5 && vu.piedsAuSol,
+          `${vu.anime} · ${vu.duree} · origine ${vu.origine}`,
+        );
+      } else {
+        noter(
+          '« réduire les animations » coupe le mouvement, sans faire disparaître le personnage',
+          vu.anime === 'none',
+          vu.anime,
+        );
+      }
+    } finally {
+      await contexte.close();
+    }
+  }
+}
+
+/**
+ * REMPLACER UN PERSONNAGE DEPUIS LES RÉGLAGES, bout en bout et sans navigateur :
+ * l'image part par la même porte que celle de l'écran, le démon la détoure, la
+ * sert à la place de l'original, puis la rend à l'original quand on l'efface.
+ * Les refus doivent être DITS, avec leur raison.
+ */
+async function remplacement() {
+  const colonne = 'notes';
+  const adresse = (chemin) => `${BASE}${chemin}`;
+  const entetes = { cookie: `haikodev_session=${jeton}` };
+  const lire = async (chemin) => {
+    const reponse = await fetch(adresse(chemin), { headers: entetes });
+    return reponse.ok ? Buffer.from(await reponse.arrayBuffer()) : Buffer.alloc(0);
+  };
+
+  const origine = await lire(`/personnages/${colonne}.png`);
+
+  const source = IMAGE_D_ESSAI;
+  const depot = await fetch(adresse(`/api/personnage?colonne=${colonne}`), {
+    method: 'POST',
+    headers: { ...entetes, 'content-type': 'image/png', 'x-file-name': 'depot.png' },
+    body: fs.readFileSync(source),
+  });
+  const issue = await depot.json().catch(() => ({}));
+  noter('une image déposée remplace le personnage de sa colonne', depot.ok && issue.ok === true, issue.error ?? '');
+
+  const remplacant = await lire(`/personnages/${colonne}.png`);
+  const rond = await lire(`/personnages/${colonne}-rond.png`);
+  noter(
+    'la silhouette servie est bien la nouvelle, à la même adresse et au même gabarit',
+    remplacant.length > 0 && !remplacant.equals(origine) && remplacant.readUInt32BE(16) === 126 && remplacant.readUInt32BE(20) === 168,
+    remplacant.length ? `${remplacant.readUInt32BE(16)}×${remplacant.readUInt32BE(20)}` : 'rien servi',
+  );
+  noter(
+    'le portrait rond suit : les notifications ne gardent pas l’ancien visage',
+    rond.length > 0 && rond.readUInt32BE(16) === rond.readUInt32BE(20) && rond.readUInt32BE(16) === 192,
+    rond.length ? `${rond.readUInt32BE(16)}×${rond.readUInt32BE(20)}` : 'rien servi',
+  );
+
+  for (const [nom, requete] of [
+    [
+      'une colonne inconnue',
+      () =>
+        fetch(adresse('/api/personnage?colonne=nulle-part'), {
+          method: 'POST',
+          headers: { ...entetes, 'content-type': 'image/png', 'x-file-name': 'x.png' },
+          body: Buffer.from('peu importe'),
+        }),
+    ],
+    [
+      'un fichier qui n’est pas une image',
+      () =>
+        fetch(adresse(`/api/personnage?colonne=${colonne}`), {
+          method: 'POST',
+          headers: { ...entetes, 'content-type': 'text/plain', 'x-file-name': 'notes.txt' },
+          body: Buffer.from('bonjour'),
+        }),
+    ],
+    [
+      'une image sans personnage dessus',
+      () =>
+        fetch(adresse(`/api/personnage?colonne=${colonne}`), {
+          method: 'POST',
+          headers: { ...entetes, 'content-type': 'image/png', 'x-file-name': 'blanc.png' },
+          body: execFileSync('python3', [
+            '-c',
+            'import sys\nfrom PIL import Image\nImage.new("RGB",(80,80),(255,255,255)).save(sys.stdout.buffer, "PNG")',
+          ], { maxBuffer: 1 << 20 }),
+        }),
+    ],
+  ]) {
+    const reponse = await requete();
+    const dit = await reponse.json().catch(() => ({}));
+    noter(
+      `refus dit en clair : ${nom}`,
+      !reponse.ok && dit.ok === false && typeof dit.error === 'string' && dit.error.length > 10,
+      dit.error ?? `HTTP ${reponse.status}`,
+    );
+  }
+
+  // Le refus n'a rien abîmé : le remplaçant déposé plus haut est toujours là.
+  const apresRefus = await lire(`/personnages/${colonne}.png`);
+  noter('un dépôt refusé laisse le personnage précédent intact', apresRefus.equals(remplacant));
+
+  const retour = await fetch(adresse(`/api/personnage?colonne=${colonne}`), { method: 'DELETE', headers: entetes });
+  const ditRetour = await retour.json().catch(() => ({}));
+  const revenu = await lire(`/personnages/${colonne}.png`);
+  noter(
+    'revenir au personnage d’origine rend exactement l’image livrée',
+    retour.ok && ditRetour.ok === true && revenu.equals(origine),
+    ditRetour.error ?? `${revenu.length} octets`,
+  );
+
+  const deuxiemeRetour = await fetch(adresse(`/api/personnage?colonne=${colonne}`), { method: 'DELETE', headers: entetes });
+  const ditDeux = await deuxiemeRetour.json().catch(() => ({}));
+  noter(
+    'revenir deux fois de suite le dit, au lieu de faire semblant',
+    !deuxiemeRetour.ok && typeof ditDeux.error === 'string',
+    ditDeux.error ?? '',
+  );
+}
+
+/**
+ * LE GESTE RÉEL, DANS L'ÉCRAN DES RÉGLAGES : on ouvre l'onglet « Personnages »,
+ * on dépose une image sur une colonne, le personnage change sous les yeux et le
+ * retour à l'original est proposé — puis rendu. Un fichier refusé écrit sa
+ * raison sous la colonne concernée, au lieu de ne rien faire.
+ */
+async function ecranDesReglages(navigateur) {
+  const colonne = 'planned';
+  const contexte = await navigateur.newContext({ viewport: { width: 1400, height: 900 }, locale: 'fr-CH', serviceWorkers: 'block' });
+  await contexte.addCookies([{ name: 'haikodev_session', value: jeton, url: BASE, httpOnly: true, sameSite: 'Lax' }]);
+  const page = await contexte.newPage();
+  try {
+    await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForSelector('[data-column="planned"]', { timeout: 30000 });
+    await page.click('button:has-text("places")');
+    // Par son RÔLE et son nom EXACT : « has-text » attrape aussi la ligne du
+    // projet d'essai, dont le nom contient le mot.
+    await page.getByRole('tab', { name: 'Personnages', exact: true }).click();
+    await page.waitForSelector('[data-personnage-reglage]', { timeout: 15000 });
+
+    const lignes = await page.locator('[data-personnage-reglage]').count();
+    noter('les réglages proposent les sept colonnes', lignes === COLONNES.length, `${lignes}`);
+
+    const source = path.join(TMP, 'depot.png');
+    await page.setInputFiles(`[data-personnage-fichier="${colonne}"]`, source);
+    await page.waitForSelector(`[data-personnage-retablir="${colonne}"]`, { timeout: 30000 });
+    const apercu = await page.getAttribute(`[data-personnage-apercu="${colonne}"]`, 'src');
+    const surLeTableau = await page.getAttribute(`[data-personnage-colonne="${colonne}"]`, 'src');
+    noter(
+      'le personnage déposé se voit aussitôt, dans les réglages comme sur le tableau',
+      /\?v=\d+/.test(apercu ?? '') && /\?v=\d+/.test(surLeTableau ?? ''),
+      `${apercu} · ${surLeTableau}`,
+    );
+
+    const refuse = path.join(TMP, 'refuse.txt');
+    fs.writeFileSync(refuse, 'ceci n’est pas une image');
+    await page.setInputFiles(`[data-personnage-fichier="${colonne}"]`, refuse);
+    await page.waitForSelector(`[data-personnage-refus="${colonne}"]`, { timeout: 20000 });
+    const raison = (await page.textContent(`[data-personnage-refus="${colonne}"]`)) ?? '';
+    noter('un dépôt refusé écrit sa raison sous la colonne', raison.length > 10, raison);
+
+    await page.click(`[data-personnage-retablir="${colonne}"]`);
+    await page.waitForSelector(`[data-personnage-retablir="${colonne}"]`, { state: 'detached', timeout: 20000 });
+    const rendu = await page.getAttribute(`[data-personnage-apercu="${colonne}"]`, 'src');
+    noter("« Revenir à l'original » remet l'image livrée", !/\?v=/.test(rendu ?? ''), rendu ?? '');
+  } finally {
+    await contexte.close();
+  }
+}
+
 async function main() {
   if (!(await attendrePort())) {
     console.error('Le démon d’essai n’a pas démarré :\n' + journal.join(''));
@@ -352,15 +611,19 @@ async function main() {
     process.exit(1);
   }
   poserLeProjet();
+  const imagePrete = fabriquerLImageDEssai();
 
   const navigateur = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox'] });
   try {
     await passe(navigateur, { width: 1400, height: 900 }, 'ordinateur');
     await passe(navigateur, { width: 390, height: 844 }, 'téléphone');
+    await mouvement(navigateur);
+    if (imagePrete) await ecranDesReglages(navigateur);
   } finally {
     await navigateur.close();
   }
   await portraits();
+  if (imagePrete) await remplacement();
 
   const echecs = resultats.filter((r) => !r.ok);
   console.log('');

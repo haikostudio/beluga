@@ -37,6 +37,7 @@ import {
   phraseDepartProgramme,
   RAISON_ATTENTE_LANCEMENT,
   imageDuPersonnage,
+  personnageEnMouvement,
   runDeLEtape,
   mentionProgressionTaches,
   mentionSansSuite,
@@ -1108,6 +1109,15 @@ export function Board({
         const cartesPosees = cartesDuPaquet(columnCards, paquets[column] ?? 1);
         const action = actionDeLot(column, columnCards);
         const allowed = !carteTiree || canMove('user', carteTiree.column, column).allowed;
+        /*
+         * LE PERSONNAGE BOUGE-T-IL ? On compte les cartes de CETTE colonne dont
+         * un agent de tâche travaille — le même index que l'avancement, déjà
+         * construit une fois pour tout le rendu. La règle (une seule colonne
+         * vivante, et seulement quand ça travaille) vit dans
+         * `personnageEnMouvement` ; ici on ne fait que compter.
+         */
+        const auTravail = columnCards.reduce((n, card) => n + (agentsTacheParCarte.has(card.id) ? 1 : 0), 0);
+        const personnageVivant = personnageEnMouvement(column, auTravail);
         return (
           /*
             DEUX enveloppes, et c'est le PERSONNAGE qui l'impose. Il déborde du
@@ -1148,14 +1158,28 @@ export function Board({
                 sous le doigt, et une image qui l'intercepterait ferait échouer
                 le geste. Sa boîte est de proportion fixe (voir
                 `shared/src/personnages-colonnes.ts`), donc la même hauteur vaut
-                pour les sept. */}
+                pour les sept.
+                QUAND UN AGENT TRAVAILLE, celui de « En cours » se BALANCE : une
+                animation de TRANSFORMATION seulement, pieds au sol
+                (`origin-bottom`), qui ne déplace aucune carte et n'attrape
+                toujours aucun clic. Au repos, la classe n'est pas posée du tout
+                — l'immobilité est totale, c'est elle qui donne son sens au
+                mouvement. Le réglage système « réduire les animations » la
+                neutralise dans `styles.css`.
+                Le personnage REMPLACÉ, lui, se sert à la MÊME adresse : seul le
+                repère `?v=` change, pour que le navigateur redemande l'image au
+                lieu de ressortir l'ancienne de son cache. */}
             <img
-              src={imageDuPersonnage(column)}
+              src={imageDuPersonnage(column, state.personnages[column])}
               alt=""
               aria-hidden
               draggable={false}
               data-personnage-colonne={column}
-              className="pointer-events-none absolute -left-1.5 -top-2 z-10 h-[42px] w-[31.5px] select-none object-contain"
+              data-personnage-vivant={personnageVivant ? 'oui' : 'non'}
+              className={cn(
+                'pointer-events-none absolute -left-1.5 -top-2 z-10 h-[42px] w-[31.5px] select-none object-contain',
+                personnageVivant && 'origin-bottom animate-personnage-au-travail',
+              )}
             />
             {/* La DÉCOUPE, et rien d'autre : ce qui défile ne doit pas sortir
                 des coins arrondis. Un cheveu de moins que l'enveloppe, pour

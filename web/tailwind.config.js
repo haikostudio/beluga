@@ -82,6 +82,17 @@ export default {
         // lente et faible, qui dit « ça arrive » sans attirer l'œil comme une
         // alerte. Jamais un balayage brillant, qui trancherait sur un fond noir.
         silhouette: { '0%,100%': { opacity: '0.5' }, '50%': { opacity: '0.85' } },
+        // LE PERSONNAGE DE « EN COURS » QUAND UN AGENT TRAVAILLE : un
+        // balancement d'un pixel et demi, pieds au sol (`origin-bottom`). Une
+        // seule TRANSFORMATION, donc aucune mise en page à refaire et aucune
+        // carte poussée d'un pixel ; aucune opacité, donc rien qui clignote.
+        // L'amplitude est volontairement sous le seuil de ce qui attire l'œil
+        // de loin : on la remarque quand on regarde la colonne, jamais quand on
+        // lit une carte à côté.
+        'personnage-au-travail': {
+          '0%,100%': { transform: 'translateY(0) rotate(0deg)' },
+          '50%': { transform: 'translateY(-1.5px) rotate(-1.5deg)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 140ms ease-out',
@@ -101,6 +112,9 @@ export default {
         onde: 'onde 900ms ease-in-out infinite',
         'barre-message': 'barre-message 10000ms linear forwards',
         silhouette: 'silhouette 1.4s ease-in-out infinite',
+        // Lent : 2,6 s l'aller-retour. Un rythme rapide se lirait comme une
+        // alerte, et le tableau doit seulement avoir l'air VIVANT.
+        'personnage-au-travail': 'personnage-au-travail 2.6s ease-in-out infinite',
       },
     },
   },

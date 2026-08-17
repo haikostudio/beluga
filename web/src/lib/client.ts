@@ -72,6 +72,13 @@ export interface AppState {
   rendus: Record<string, number>;
   /** Projets où un plan proposé (mode plan) attend encore une décision. */
   plans: Record<string, boolean>;
+  /**
+   * Les colonnes dont le personnage a été REMPLACÉ dans les réglages, et
+   * l'instant de ce remplacement. Une colonne absente garde le personnage
+   * d'origine. Le tableau s'en sert pour redemander l'image au serveur au lieu
+   * de ressortir celle de son cache.
+   */
+  personnages: Record<string, number>;
   engines: EngineInfo[];
   /**
    * LE POOL DE COMPÉTENCES, quand le démon vient de le diffuser (une fiche
@@ -131,6 +138,7 @@ const initialState: AppState = {
   decisions: [],
   rendus: {},
   plans: {},
+  personnages: {},
   engines: [],
   pool: null,
   quotas: [],
@@ -346,6 +354,10 @@ class Client {
 
       case 'plans':
         this.set({ plans: event.byProject });
+        break;
+
+      case 'personnages':
+        this.set({ personnages: event.remplaces });
         break;
 
       case 'project.upsert':
