@@ -45,6 +45,48 @@ export function mesurerContexte(
 
 export const SEUIL_COMPRESSION_CONTEXTE = 0.5;
 
+/**
+ * LE SEUIL NE PEUT PLUS DÉPENDRE DE LA SEULE FENÊTRE ANNONCÉE.
+ *
+ * Une PART de fenêtre paraissait raisonnable tant que les modèles annonçaient
+ * 200 000 jetons : la moitié faisait 100 000, et la compression partait. Le
+ * jour où les modèles sont passés à UN MILLION, le même 0,5 a mis le seuil à
+ * 500 000 — hors de portée. Relevé du 17/08/2026 : sur 376 agents en fenêtre
+ * d'un million, UNE seule compression en sept jours, pour des contextes qui
+ * tournent entre 148 000 et 190 000 jetons de moyenne. La compression n'avait
+ * pas été retirée ; elle s'était éteinte toute seule, en silence.
+ *
+ * Le seuil est donc le PLUS PETIT des deux : la part de la fenêtre (qui protège
+ * les petites fenêtres) et un plafond en JETONS (qui survit au prochain modèle
+ * à deux millions). 100 000 est la valeur que la règle visait à l'origine.
+ */
+export const PLAFOND_CONTEXTE_JETONS = 100_000;
+
+/**
+ * Le chef d'orchestre a son propre plafond, plus bas : sa conversation ne meurt
+ * jamais et il ne fait que trier. Un chef mesuré portait 107 155 jetons de fil
+ * accumulé, relus À CHAQUE message pour reformuler une phrase — 28,8 % de tout
+ * le quota du serveur. Compresser lui coûte un appel ; ne pas compresser lui
+ * coûte ce fil entier, à chaque tri.
+ */
+export const PLAFOND_CONTEXTE_PAR_ROLE: Record<string, number> = {
+  orchestrator: 60_000,
+};
+
+/** Le plafond en jetons qui s'applique à un rôle. */
+export function plafondDeContexte(role?: string): number {
+  return (role && PLAFOND_CONTEXTE_PAR_ROLE[role]) || PLAFOND_CONTEXTE_JETONS;
+}
+
+/**
+ * Le seuil RÉEL de compression, en jetons. Jamais au-dessus du plafond, jamais
+ * au-dessus de la moitié de la fenêtre.
+ */
+export function seuilDeCompression(window: number, plafond = PLAFOND_CONTEXTE_JETONS): number {
+  const fenetre = Number.isFinite(window) && window > 0 ? window : 0;
+  return Math.min(fenetre * SEUIL_COMPRESSION_CONTEXTE, plafond);
+}
+
 export interface EtatContexteAgent {
   tokens: number;
   window: number;
@@ -82,16 +124,19 @@ export function observerContexte(
   precedent: EtatContexteAgent | undefined,
   tokens: number,
   window: number,
+  plafond = PLAFOND_CONTEXTE_JETONS,
 ): ObservationContexte | null {
   const remplissage = remplissageContexte(tokens, window);
   if (!remplissage) return null;
 
+  // Le seuil se compte en JETONS, pas en part de fenêtre : sinon un modèle qui
+  // annonce un million éteint la compression sans que personne ne le voie.
+  const seuil = seuilDeCompression(remplissage.window, plafond);
+
   // Après une compression, il faut d'abord VOIR le contexte sous le seuil
   // avant de pouvoir en déclencher une autre. C'est le garde-fou anti-boucle.
-  const armed = precedent?.armed === false
-    ? remplissage.ratio < SEUIL_COMPRESSION_CONTEXTE
-    : true;
-  const shouldCompress = armed && remplissage.ratio >= SEUIL_COMPRESSION_CONTEXTE;
+  const armed = precedent?.armed === false ? remplissage.tokens < seuil : true;
+  const shouldCompress = armed && remplissage.tokens >= seuil;
 
   return {
     shouldCompress,

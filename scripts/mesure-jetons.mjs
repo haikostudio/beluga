@@ -31,8 +31,14 @@ process.env.HAIKODEV_DATA = BASE_JETABLE;
 process.on('exit', () => fs.rmSync(BASE_JETABLE, { recursive: true, force: true }));
 const REFERENCE = process.argv[2] ?? 'tache/economiser-le-quota-reponses-plus-courte-02fac6';
 
-/** Estimation maison, la même que le démon : environ quatre signes par jeton. */
-const jetons = (texte) => Math.round(texte.length / 4);
+/**
+ * Estimation maison, la même que le démon (`SIGNES_PAR_JETON`,
+ * `shared/src/couches-tokens.ts`). Elle valait QUATRE signes par jeton, ce qui
+ * sous-évaluait de 45 % : mesuré le 17/08/2026 sur `CLAUDE.md` par deux tours
+ * réels du moteur, le rapport de cette documentation est de 2,16.
+ */
+const SIGNES_PAR_JETON = 2.2;
+const jetons = (texte) => Math.round(texte.length / SIGNES_PAR_JETON);
 
 function git(...args) {
   return execFileSync('git', args, {
@@ -305,8 +311,8 @@ for (const demande of DEMANDES) {
     return total + texte.length;
   }, 0);
   const apresSignes = memory.detailProjet(RACINE, demande).texte.length;
-  const a = Math.round(avantSignes / 4);
-  const b = Math.round(apresSignes / 4);
+  const a = Math.round(avantSignes / SIGNES_PAR_JETON);
+  const b = Math.round(apresSignes / SIGNES_PAR_JETON);
   memAvant += a;
   memApres += b;
   console.log(

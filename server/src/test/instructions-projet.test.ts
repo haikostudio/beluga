@@ -101,15 +101,21 @@ test('le briefing de Codex nomme CLAUDE.md, et dit que AGENTS.md n’est qu’un
   const codex = briefing(dossier, 'Root', true, 'codex');
 
   assert.match(codex, /AGENTS\.md ne fait que RENVOYER à CLAUDE\.md/);
-  // La consigne de fin de tâche désigne le fichier qui porte le contenu.
-  assert.match(codex, /mets CLAUDE\.md à jour avant de finir/);
-  assert.doesNotMatch(codex, /mets AGENTS\.md à jour/);
+  /*
+   * La consigne de fin de tâche désigne le fichier qui porte le contenu — mais
+   * pour dire de NE PAS y toucher : ce fichier est relu à chaque aller-retour,
+   * et le modifier fait repayer son contenu entier aux agents qui suivent. La
+   * règle durable s'écrit dans le fichier d'attente, rangé la nuit.
+   */
+  assert.match(codex, /NE TOUCHE PAS à CLAUDE\.md/);
+  assert.match(codex, /docs\/instructions-en-attente\.md/);
+  assert.doesNotMatch(codex, /NE TOUCHE PAS à AGENTS\.md/);
 });
 
 test('le briefing de Claude est inchangé : pas de renvoi à signaler', () => {
   const dossier = projetAvecRenvoi();
   const claude = briefing(dossier, 'Root', true, 'claude');
-  assert.match(claude, /mets CLAUDE\.md à jour avant de finir/);
+  assert.match(claude, /NE TOUCHE PAS à CLAUDE\.md/);
   assert.doesNotMatch(claude, /ne fait que RENVOYER/);
 });
 
@@ -122,7 +128,7 @@ test('un projet dont AGENTS.md porte ses propres règles garde AGENTS.md pour Co
       '## Règles\n\n- Ne jamais publier de sa propre initiative.\n- Committer un fichier à la fois.\n',
   );
   assert.equal(instructionsDuProjet(dossier, 'codex').fichier, 'AGENTS.md');
-  assert.match(briefing(dossier, 'Essai', true, 'codex'), /mets AGENTS\.md à jour avant de finir/);
+  assert.match(briefing(dossier, 'Essai', true, 'codex'), /NE TOUCHE PAS à AGENTS\.md/);
 });
 
 test('un projet sans aucun fichier d’instructions garde le nom natif du moteur', () => {

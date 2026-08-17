@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  FICHIER_D_ATTENTE,
   chercherFaits,
   classerRegles,
   decouperRegles,
@@ -788,8 +789,12 @@ export function briefingSepare(
 
   const memoire = [
     memoireRemplacee?.trim() || blocMemoire(projectPath),
-    `FICHIER D'INSTRUCTIONS DU MOTEUR : si ta tâche change une règle durable, une architecture ou une commande, mets ${quiFaitFoi} à jour avant de finir (crée-le s'il n'existe pas). ` +
-      `Court et factuel : comment lancer, comment vérifier, où vivent les choses, les règles à ne pas enfreindre. Aucun journal dedans, aucune trace de tâche.`,
+    `RÈGLE DURABLE APPRISE : si ta tâche change une règle durable, une architecture ou une commande, NE TOUCHE PAS à ${quiFaitFoi} — ` +
+      `écris-la à la fin de « ${FICHIER_D_ATTENTE} », et le démon la rangera cette nuit dans le fichier de son sujet. ` +
+      `Ce fichier est chargé par le MOTEUR à chaque session : le modifier fait repayer aux agents suivants tout ce qu'il contient, au plein tarif. ` +
+      `Le fichier d'attente, lui, n'est lu par aucun moteur et ne coûte rien.\n` +
+      `Format d'une entrée : un titre en « ## », puis « - sujet : <un sujet de docs/regles/> », puis « - contrat : <une ligne> » seulement si l'invariant doit être NOMMÉ dans ${quiFaitFoi}, ` +
+      `puis le texte entier de la règle. Court et factuel : comment lancer, comment vérifier, où vivent les choses, ce qu'on n'enfreint pas. Aucun journal, aucune trace de tâche.`,
   ].join('\n\n');
 
   return { sansMemoire, memoire };
