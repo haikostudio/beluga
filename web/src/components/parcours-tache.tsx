@@ -163,7 +163,7 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
           parcours, pour ne jamais se lire comme une des étapes ci-dessus. */}
       {quotaVu ? (
         <div
-          className="rounded-lg border border-border bg-surface px-3 py-2"
+          className="rounded-lg border border-border bg-raised px-3 py-2"
           data-quota-reel-parcours
         >
           <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
@@ -212,7 +212,7 @@ function BlocDeCapitalisation({ cardId, etat }: { cardId: string; etat: Capitali
     publiee: 'Publiée dans le pool',
   };
   return (
-    <div className="rounded-lg border border-border bg-surface px-3 py-2" data-capitalisation={etat.etat}>
+    <div className="rounded-lg border border-border bg-raised px-3 py-2" data-capitalisation={etat.etat}>
       <p className="text-[12px] font-medium uppercase tracking-wide text-faint">Compétences partagées</p>
       <p className="mt-1 text-[13px] text-text">{libelles[etat.etat]}</p>
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-faint">{etat.raison}</p>
@@ -256,7 +256,7 @@ function Etape({ etape }: { etape: EtapeParcours }) {
       <div
         className={cn(
           'rounded-lg border px-3 py-2 transition-colors',
-          etape.etat === 'a-venir' ? 'border-border/60 bg-surface/50' : 'border-border bg-surface',
+          etape.etat === 'a-venir' ? 'border-border/60 bg-raised/50' : 'border-border bg-raised',
         )}
       >
         <button
