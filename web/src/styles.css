@@ -96,6 +96,14 @@
        les deux thèmes d'origine, il vaut la transparence : rien ne change.
        L'alpha vit DANS le jeton, on n'écrit donc jamais `bg-controle/50`. */
     --controle: 0 0% 0% / 0;
+    /* LA LIGNE DU PROJET OUVERT, colonne de gauche : `--raised` (13 %) restait
+       trop proche du fond de page dans les autres thèmes ; un jeton dédié,
+       nettement plus clair que le fond ET que le survol. */
+    --ligne-active: 0 0% 18%;
+    /* LE BANDEAU D'ÉTAPE sous une carte (chronomètre, étape en cours) : un
+       fond solide, un cran plus clair que le corps de la carte — jamais un
+       trait, un fond qui se voit. */
+    --bandeau-etape: 0 0% 22%;
     color-scheme: dark;
   }
 
@@ -130,6 +138,13 @@
     --actif: 16 88% 54%;
     --actif-fg: 0 0% 100%;
     --controle: 0 0% 0% / 0;
+    /* LA LIGNE DU PROJET OUVERT : `--raised` (100 %) vaut exactement `--bg`
+       dans ce thème — la ligne active devenait invisible. Un gris nettement
+       plus sombre que le fond de page ET que le survol. */
+    --ligne-active: 0 0% 88%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, distinct
+       du corps de la carte. */
+    --bandeau-etape: 0 0% 87%;
     color-scheme: light;
   }
 
@@ -186,6 +201,14 @@
     /* Un brun chaud à 7 % : il ASSOMBRIT très légèrement le bloc qui porte le
        bouton, quel que soit ce bloc. C'est ce qui remplace la bordure effacée. */
     --controle: 32 25% 25% / 0.07;
+    /* LA LIGNE DU PROJET OUVERT, colonne de gauche : un fond nettement plus
+       sombre que le fond de page ET que le survol (`--surface`), puisque
+       `--raised` (99 %) frôle le blanc et s'y confondait. Même famille chaude. */
+    --ligne-active: 40 24% 84%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : `bg-border/30` s'y fondait avec le
+       fond de la colonne, la bordure de ce thème étant volontairement proche
+       des fonds. Un fond SOLIDE, assombri, dédié à ce pied de carte. */
+    --bandeau-etape: 40 22% 85%;
     color-scheme: light;
   }
 
@@ -227,6 +250,13 @@
     --actif-fg: 210 30% 99%;
     /* Sur fond sombre, l'inverse : un voile CLAIR à 7 %, qui relève le bouton. */
     --controle: 210 30% 100% / 0.07;
+    /* LA LIGNE DU PROJET OUVERT : nettement plus claire que le fond de page ET
+       que le survol, même famille bleutée. */
+    --ligne-active: 220 13% 28%;
+    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, éclairci, dédié — la
+       bordure de ce thème est volontairement proche des fonds, elle ne peut
+       plus servir de repère ici. */
+    --bandeau-etape: 220 12% 31%;
     color-scheme: dark;
   }
 
