@@ -169,7 +169,7 @@ export function CorpsListeTaches({
                 le tour a laissée en plan le DIT, à la place de son temps. */}
             {todo.state === 'unfinished' ? (
               <span data-tache="non-faite" className="mt-[1px] shrink-0 text-[12px] text-faint">
-                non faite
+                {t('non faite')}
               </span>
             ) : todo.startedAt ? (
               <span className="mt-[1px] shrink-0 text-[12px] text-faint">

@@ -125,7 +125,7 @@ function Courbe({
         ) : null}
       </svg>
       <p className="mt-0.5 text-[10.5px] text-faint">
-        {jours} jour{jours > 1 ? 's' : ''}
+        {jours === 1 ? t('{jours} jour', { jours }) : t('{jours} jours', { jours })}
         {showWeekly ? t(' · trait épais : la semaine') : ''}
         {showSession ? t(' · trait fin : la fenêtre courte') : ''}
         {prevision
@@ -254,7 +254,10 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
         client.pushToast('error', t('{label} : le serveur n\'a pas pu {v0} ce compte.', { label, v0: actif ? 'remettre en service' : 'couper' }));
       }
     } catch (err) {
-      client.pushToast('error', `${label} : ${err instanceof Error ? err.message : 'commande refusée'}`);
+      client.pushToast(
+        'error',
+        t('{label} : {raison}', { label, raison: err instanceof Error ? err.message : t('commande refusée') }),
+      );
     } finally {
       // Le voyant s'éteint dans TOUS les cas : réussite, refus du serveur,
       // panne de liaison. Sans ce `finally`, un refus le laisserait tourner.
@@ -342,7 +345,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                     <Badge tone="neutral">{t('désactivé')}</Badge>
                   ) : (
                     <>
-                      {quota.active ? <Badge tone="success">actif</Badge> : null}
+                      {quota.active ? <Badge tone="success">{t('actif')}</Badge> : null}
                       {!quota.available ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
                     </>
                   )}
@@ -627,7 +630,7 @@ function Window({
         // La question qui suit « ça va manquer » est toujours « on bascule sur
         // quoi ? » : la réponse est posée juste dessous, du même moteur et
         // choisie parmi les comptes qui, eux, tiennent jusqu'au bout.
-        <p className="mt-0.5 text-[11px] text-faint">bascule possible sur {secours}</p>
+        <p className="mt-0.5 text-[11px] text-faint">{t('bascule possible sur {secours}', { secours })}</p>
       ) : null}
     </div>
   );

@@ -130,30 +130,32 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // le lot n'a donc rien à inventer, il rejoue ce même déplacement carte après
   // carte et le serveur passe par `startCard` — portes dures comprises. Une
   // carte refusée revient à sa colonne avec sa raison, et le lot continue.
-  planned: { libelle: t('Tout lancer'), icone: Play, verbe: 'Lancer', cible: 'running', participe: t('lancée'), parallele: true },
+  planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running', participe: 'lancée', parallele: true },
   // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
-  done: { libelle: t('Tout déployer'), icone: Rocket, verbe: t('Déployer'), cible: 'to_deploy', participe: t('déployée') },
+  done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy', participe: 'déployée' },
   // La mise en ligne compte désormais DEUX étapes : « À déployer » pousse vers
   // « En production », et c'est de là seulement qu'on archive. Un pied suit le
   // parcours de la carte — on n'archive jamais par-dessus une étape.
   to_deploy: {
-    libelle: t('Tout mettre en production'),
+    libelle: 'Tout mettre en production',
     icone: Globe,
-    verbe: t('Mettre en production'),
+    verbe: 'Mettre en production',
     cible: 'in_production',
     participe: 'mise en production',
   },
   // Dernière colonne du parcours, où le ménage se fait en lot.
   in_production: {
-    libelle: t('Tout archiver'),
+    libelle: 'Tout archiver',
     icone: Archive,
     verbe: 'Archiver',
     cible: 'archived',
-    participe: t('archivée'),
+    participe: 'archivée',
   },
 };
+
+const CLE_TOUT_REPRENDRE = 'Tout reprendre';
 
 /**
  * LE PIED DE COLONNE, ADAPTÉ À CE QU'IL Y A DEDANS.
@@ -165,11 +167,13 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
  * reprise à des cartes qui partent de zéro.
  */
 function actionDeLot(colonne: ColumnKey, cartes: Card[]): ActionDeLot | undefined {
-  const action = ACTIONS_DE_LOT[colonne];
-  if (!action || colonne !== 'planned') return action;
+  const brut = ACTIONS_DE_LOT[colonne];
+  if (!brut) return undefined;
+  const action = { ...brut, libelle: t(brut.libelle), verbe: t(brut.verbe) };
+  if (colonne !== 'planned') return action;
   const libelle = libelleDuLotDeLancement(cartes);
-  if (libelle !== t('Tout reprendre')) return action;
-  return { ...action, libelle, verbe: 'Reprendre', icone: RotateCcw };
+  if (libelle !== CLE_TOUT_REPRENDRE) return { ...action, libelle: t(libelle) };
+  return { ...action, libelle: t(libelle), verbe: t('Reprendre'), icone: RotateCcw };
 }
 
 /**
@@ -1984,7 +1988,7 @@ export function CardTile({
       : estimateFailed
         ? {
             icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,
-            texte: card.estimate?.failureReason ?? 'chiffrage sans chiffres',
+            texte: card.estimate?.failureReason ?? t('chiffrage sans chiffres'),
             ton: 'text-danger',
           }
         : progression
@@ -2145,14 +2149,14 @@ export function CardTile({
             {card.deployedAt ? (
               <Tooltip label={t('En ligne depuis le {v0}', { v0: new Date(card.deployedAt).toLocaleString(formatRegional()) })}>
                 <Badge tone="success">
-                  <Rocket className="h-2.5 w-2.5" /> en ligne
+                  <Rocket className="h-2.5 w-2.5" /> {t('en ligne')}
                 </Badge>
               </Tooltip>
             ) : null}
             {agentPlanActif ? (
               <Tooltip label={t('L\'agent prépare un plan : il ne modifie rien tant que ce mode est actif')}>
                 <Badge tone="strong" data-mode-plan-actif={card.id}>
-                  <Route className="h-2.5 w-2.5" /> plan
+                  <Route className="h-2.5 w-2.5" /> {t('plan')}
                 </Badge>
               </Tooltip>
             ) : null}

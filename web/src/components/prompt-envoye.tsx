@@ -200,7 +200,7 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
           )}
         >
           <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', deroule && 'rotate-180')} />
-          {deroule ? 'voir moins' : 'voir plus'}
+          {deroule ? t('voir moins') : t('voir plus')}
         </button>
       ) : null}
     </div>

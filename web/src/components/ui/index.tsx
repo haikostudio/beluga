@@ -1143,7 +1143,7 @@ export function PromptDialog({
   description,
   placeholder,
   defaultValue = '',
-  confirmLabel = 'Valider',
+  confirmLabel = t('Valider'),
   onConfirm,
   onClose,
 }: {
@@ -1203,7 +1203,7 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = 'Confirmer',
+  confirmLabel = t('Confirmer'),
   danger,
   onConfirm,
   onClose,

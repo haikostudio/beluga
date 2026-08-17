@@ -110,16 +110,16 @@ export function SettingsView({ open, onClose }: { open: boolean; onClose: () => 
   );
 }
 
-const ONGLETS = [
-  { cle: 'systeme', titre: t('Système') },
+const CLES_ONGLETS = [
+  { cle: 'systeme', titre: 'Système' },
   { cle: 'apparence', titre: 'Apparence' },
   { cle: 'fonctionnement', titre: 'Fonctionnement' },
   { cle: 'comptes', titre: 'Comptes' },
   { cle: 'voix', titre: 'Voix' },
   { cle: 'consommation', titre: 'Consommation' },
   { cle: 'sauvegardes', titre: 'Sauvegardes' },
-  { cle: 'acces-api', titre: t('Accès API') },
-  { cle: 'competences', titre: t('Compétences') },
+  { cle: 'acces-api', titre: 'Accès API' },
+  { cle: 'competences', titre: 'Compétences' },
   { cle: 'personnages', titre: 'Personnages' },
 ] as const;
 
@@ -150,9 +150,9 @@ function SettingsBody({ open }: { open: boolean }) {
             défile horizontalement plutôt que de se replier en deux lignes. */}
         <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-4 py-2">
           <TabsList>
-            {ONGLETS.map((item) => (
+            {CLES_ONGLETS.map((item) => (
               <TabsTrigger key={item.cle} value={item.cle} className="whitespace-nowrap">
-                {item.titre}
+                {t(item.titre)}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -484,10 +484,10 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
 /* Les accès à la machine (le VPS)                                      */
 /* ------------------------------------------------------------------ */
 
-const MOYENS_ACCES_VPS: { id: 'agent' | 'cle' | 'mot-de-passe'; libelle: string }[] = [
-  { id: 'agent', libelle: t('Clés SSH déjà en place') },
-  { id: 'cle', libelle: t('Fichier de clé privée') },
-  { id: 'mot-de-passe', libelle: t('Mot de passe') },
+const CLES_MOYENS_ACCES_VPS: { id: 'agent' | 'cle' | 'mot-de-passe'; libelle: string }[] = [
+  { id: 'agent', libelle: 'Clés SSH déjà en place' },
+  { id: 'cle', libelle: 'Fichier de clé privée' },
+  { id: 'mot-de-passe', libelle: 'Mot de passe' },
 ];
 
 /**
@@ -599,7 +599,7 @@ function SectionAccesVps() {
               onChange={(e) => setMoyen(e.target.value as any)}
               className="h-7 w-full rounded-md border border-border bg-bg px-2 text-[12.5px] text-text"
             >
-              {MOYENS_ACCES_VPS.map((m) => (
+              {CLES_MOYENS_ACCES_VPS.map((m) => (
                 <option key={m.id} value={m.id}>
                   {t(m.libelle)}
                 </option>
@@ -718,7 +718,7 @@ function SectionCerveau() {
             : t('Rien de nouveau à envoyer : le cerveau est déjà à jour'),
         );
       } else {
-        client.pushToast('error', data.resultat?.raison ?? 'envoi impossible');
+        client.pushToast('error', data.resultat?.raison ?? t('envoi impossible'));
       }
     } finally {
       setEnCours(false);
@@ -942,7 +942,7 @@ function SectionFonctionnement({
       <Groupe titre={t('Combien d\'agents en même temps')}>
         <Champ
           label={t('Plafond d\'agents')}
-          aide="Nombre maximum d'agents qui peuvent travailler en parallèle. La mémoire disponible peut abaisser ce chiffre, jamais l'augmenter."
+          aide={t("Nombre maximum d'agents qui peuvent travailler en parallèle. La mémoire disponible peut abaisser ce chiffre, jamais l'augmenter.")}
         >
           <Input
             type="number"
@@ -954,7 +954,7 @@ function SectionFonctionnement({
         </Champ>
         <Champ
           label={t('Une tâche est dite « lourde » au-delà de (minutes)')}
-          aide="Au-delà de cette durée prévue, une tâche est repoussée aux heures creuses plutôt que lancée tout de suite."
+          aide={t('Au-delà de cette durée prévue, une tâche est repoussée aux heures creuses plutôt que lancée tout de suite.')}
         >
           <Input
             type="number"
@@ -967,9 +967,9 @@ function SectionFonctionnement({
 
       <Groupe
         titre={t('Heures creuses')}
-        aide="La plage où les tâches lourdes sont lancées. Elle peut passer minuit : 22 puis 7 signifie « de 22 h à 7 h »."
+        aide={t('La plage où les tâches lourdes sont lancées. Elle peut passer minuit : 22 puis 7 signifie « de 22 h à 7 h ».')}
       >
-        <Champ label={t('Début (heure)')} aide="De 0 à 23.">
+        <Champ label={t('Début (heure)')} aide={t('De 0 à 23.')}>
           <Input
             type="number"
             min={0}
@@ -978,7 +978,7 @@ function SectionFonctionnement({
             onBlur={(event) => update({ offPeakStart: Number(event.target.value) })}
           />
         </Champ>
-        <Champ label={t('Fin (heure)')} aide="De 0 à 23.">
+        <Champ label={t('Fin (heure)')} aide={t('De 0 à 23.')}>
           <Input
             type="number"
             min={0}
@@ -989,8 +989,8 @@ function SectionFonctionnement({
         </Champ>
       </Groupe>
 
-      <Groupe titre={t('Alerte de surcharge')} aide="Prévenir quand la machine reste tendue trop longtemps.">
-        <Champ label={t('Prévenir quand la charge dépasse (%)')} aide="Entre 50 et 100.">
+      <Groupe titre={t('Alerte de surcharge')} aide={t('Prévenir quand la machine reste tendue trop longtemps.')}>
+        <Champ label={t('Prévenir quand la charge dépasse (%)')} aide={t('Entre 50 et 100.')}>
           <Input
             type="number"
             min={50}
@@ -1001,7 +1001,7 @@ function SectionFonctionnement({
         </Champ>
         <Champ
           label={t('…et qu\'elle y reste au moins (minutes)')}
-          aide="Une pointe passagère ne réveille personne : il faut que la charge tienne pendant cette durée."
+          aide={t('Une pointe passagère ne réveille personne : il faut que la charge tienne pendant cette durée.')}
         >
           <Input
             type="number"
@@ -1014,9 +1014,9 @@ function SectionFonctionnement({
 
       <Groupe
         titre={t('Heures de silence')}
-        aide="Aucune notification pendant cette plage, et aucune fenêtre de quota amorcée. Laissez les deux champs vides pour ne jamais faire silence."
+        aide={t('Aucune notification pendant cette plage, et aucune fenêtre de quota amorcée. Laissez les deux champs vides pour ne jamais faire silence.')}
       >
-        <Champ label={t('Début (heure)')} aide="Vide = pas de silence.">
+        <Champ label={t('Début (heure)')} aide={t('Vide = pas de silence.')}>
           <Input
             type="number"
             min={0}
@@ -1025,7 +1025,7 @@ function SectionFonctionnement({
             onBlur={(event) => update({ quietHoursStart: nombre(event.target.value) })}
           />
         </Champ>
-        <Champ label={t('Fin (heure)')} aide="Vide = pas de silence.">
+        <Champ label={t('Fin (heure)')} aide={t('Vide = pas de silence.')}>
           <Input
             type="number"
             min={0}
@@ -1037,7 +1037,7 @@ function SectionFonctionnement({
       </Groupe>
 
       <Groupe titre={t('Sauvegarde automatique')}>
-        <Champ label={t('Heure de la sauvegarde de nuit')} aide="De 0 à 23. La sauvegarde est vérifiée juste après.">
+        <Champ label={t('Heure de la sauvegarde de nuit')} aide={t('De 0 à 23. La sauvegarde est vérifiée juste après.')}>
           <Input
             type="number"
             min={0}
@@ -1223,7 +1223,7 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
         </div>
         {!edite ? (
           <>
-            {quota.active ? <Badge tone="success">actif</Badge> : null}
+            {quota.active ? <Badge tone="success">{t('actif')}</Badge> : null}
             {!quota.available ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
             {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
                 un compte qui marche n'a pas besoin d'un badge de plus. */}
@@ -1972,7 +1972,7 @@ function UsageSection({ open }: { open: boolean }) {
           <div className="flex flex-wrap gap-1">
             {usage.byMonth.map((row) => (
               <span key={row.month} className="rounded border border-border px-1.5 py-0.5 text-[12px] text-muted">
-                {moisEnClair(row.month)} · {Math.round(row.seconds / 60)} min
+                {t('{v0} · {v1} min', { v0: moisEnClair(row.month), v1: Math.round(row.seconds / 60) })}
               </span>
             ))}
           </div>
@@ -2211,7 +2211,7 @@ function SectionClesApi({ open }: { open: boolean }) {
               {cle.revoqueeLe ? (
                 <Badge tone="danger">{t('révoquée {v0}', { v0: relativeTime(cle.revoqueeLe) })}</Badge>
               ) : (
-                <Badge tone="success">active</Badge>
+                <Badge tone="success">{t('active')}</Badge>
               )}
               <span className="text-[12px] text-faint">{t('créée {v0}', { v0: relativeTime(cle.creeeLe) })}</span>
               <span className="text-[12px] text-faint">
@@ -2369,17 +2369,17 @@ function SectionCompetences({ open }: { open: boolean }) {
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-[13px] text-text">{fiche.nom}</span>
                 {fiche.etat === 'active' ? (
-                  <Badge tone="success">active</Badge>
+                  <Badge tone="success">{t('active')}</Badge>
                 ) : fiche.etat === 'depreciee' ? (
                   <Badge tone="warning">{t('dépréciée')}</Badge>
                 ) : (
                   <Badge tone="neutral">{t('archivée')}</Badge>
                 )}
-                <span className="text-[12px] text-faint">confiance {Math.round(fiche.confiance * 100)} %</span>
+                <span className="text-[12px] text-faint">{t('confiance {v0} %', { v0: Math.round(fiche.confiance * 100) })}</span>
                 <span className="text-[12px] text-faint">
                   {fiche.servie
                     ? t('servie {v0}× · {v1} utile(s) · {v2} contradiction(s)', { v0: fiche.servie, v1: fiche.aidee, v2: fiche.contredite })
-                    : 'jamais servie'}
+                    : t('jamais servie')}
                 </span>
                 <div className="ml-auto flex items-center gap-1">
                   {fiche.etat !== 'depreciee' && fiche.etat !== 'archivee' ? (
@@ -2404,7 +2404,7 @@ function SectionCompetences({ open }: { open: boolean }) {
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-faint">
                 {fiche.themes.length ? <span>{t('thèmes : {v0}', { v0: fiche.themes.join(', ') })}</span> : null}
                 {fiche.annexes.length ? <span>{t('{v0} fichier(s) de détail', { v0: fiche.annexes.length })}</span> : null}
-                {fiche.provenanceProjet ? <span>venue de {fiche.provenanceProjet}</span> : null}
+                {fiche.provenanceProjet ? <span>{t('venue de {v0}', { v0: fiche.provenanceProjet })}</span> : null}
                 {fiche.renforceePar.length ? <span>{t('renforcée {v0}×', { v0: fiche.renforceePar.length })}</span> : null}
               </div>
 
