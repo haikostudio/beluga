@@ -1103,6 +1103,17 @@ export const DeployRun = z.object({
          * ou de se relire.
          */
         reparations: z.array(z.string()).optional(),
+        /**
+         * Cette étape a DÉPASSÉ sa durée attendue et n'a pas encore rendu la
+         * main (`shared/src/duree-des-etapes.ts`). Vrai seulement PENDANT
+         * l'étape : une étape terminée affiche sa durée, qui dit déjà tout.
+         *
+         * Le drapeau existe parce que la phrase ne suffit pas — une ligne de
+         * progression en retard se lit exactement comme une ligne de
+         * progression ordinaire, et c'est précisément ce qui obligeait à venir
+         * constater soi-même qu'une publication était bloquée.
+         */
+        enRetard: z.boolean().optional(),
         startedAt: z.number().optional(),
         endedAt: z.number().optional(),
       }),

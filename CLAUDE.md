@@ -390,6 +390,25 @@ le nom, là-bas le texte).
   colonne (`steps[].reprises` et `.reparations`, « fait · 4 s · réparée · 1 reprise »), pas dans un
   journal. Verrouillé par `server/src/test/reparation-publication.test.ts` et
   `scripts/verif-reparation-publication.mjs`.
+- **…ET UNE ÉTAPE QUI NE REND PAS LA MAIN EST UNE PANNE, PAS UN TRAVAIL LENT**
+  (`shared/src/duree-des-etapes.ts` — `DUREE_ATTENDUE_MS`, `PLAFOND_TOUR_D_AGENT_MS`,
+  `constatDeDuree`, `panneDeLenteur` ; `tourDAgentSousPlafond`, veille posée dans `setStep`,
+  `server/src/deploy.ts`) : la réparation ne relevait que ce qui TOMBE. L'étape qui ne finit JAMAIS
+  restait « en cours » avec sa roue, indistinguable d'une étape qui travaille, indéfiniment. DEUX
+  TROUS, de nature différente. Une COMMANDE était déjà bornée par son délai mais tombait sur un
+  message que personne ne reconnaît (« Command failed … SIGTERM ») : `runCommand` rend désormais
+  `delaiDepasse`, et l'étape NOMME sa panne au lieu de repartir en « non reconnue ». Un TOUR D'AGENT
+  n'avait AUCUNE borne — les QUATRE (mise en production confiée, dépanneur, réparation des contrôles,
+  réparation de la construction) passent par `tourDAgentSousPlafond`, qui coupe par `arreterLAgent`.
+  Le dépassement entre par le MÊME chemin qu'une erreur : `jouer()` peut nommer sa panne
+  (`{ok, sortie, panne}`), donc dépanneur puis reprise, avec les mêmes bornes et le même journal.
+  DEUX PRÉCAUTIONS : le temps d'un dépannage NE COMPTE PAS (sinon un dépannage naîtrait du précédent,
+  sans fin — la veille est suspendue pendant), et les durées sont LARGES à dessein (on reconnaît un
+  blocage, on ne mesure pas une lenteur). Une étape en retard le DIT à l'écran (`steps[].enRetard`,
+  ligne de progression en orange) au lieu d'obliger à venir constater. Le minuteur du plafond n'est
+  PAS `unref` — un minuteur détaché ne réveille pas le processus et le plafond ne serait jamais
+  atteint. Verrouillé par `server/src/test/duree-des-etapes.test.ts` et
+  `scripts/verif-garde-fou-duree.mjs`.
 - **RANGER LES CARTES NE PEUT PLUS FAIRE ÉCHOUER UNE MISE EN LIGNE RÉUSSIE**
   (`DeployRun.avertissement`, `avertissementCartesNonRangees` ; fin de `startDeploy`) : le
   17/08/2026, un déploiement a tout mené à bien puis s'est déclaré en ÉCHEC sur une carte de la base

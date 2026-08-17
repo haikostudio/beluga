@@ -956,8 +956,16 @@ function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.
 
               {/* PENDANT qu'une étape tourne, ce qu'elle est en train de faire :
                   la branche en cours de fusion, le contrôle lancé, la commande. */}
+              {/* UNE ÉTAPE EN RETARD NE SE LIT PAS COMME UNE ÉTAPE QUI
+                  TRAVAILLE : sa ligne passe en orange d'attente, sinon il faut
+                  la lire en entier pour s'apercevoir que rien n'avance — ce qui
+                  obligeait à venir surveiller la publication soi-même. */}
               {etat === 'running' && etape?.progress ? (
-                <p className="ml-[22px] mt-0.5 text-[12px] text-muted" data-progress-etape={key}>
+                <p
+                  className={cn('ml-[22px] mt-0.5 text-[12px]', etape.enRetard ? 'text-warning' : 'text-muted')}
+                  data-progress-etape={key}
+                  data-etape-en-retard={etape.enRetard ? 'oui' : undefined}
+                >
                   {etape.progress}
                 </p>
               ) : null}
