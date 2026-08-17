@@ -2072,7 +2072,7 @@ export async function startDeploy(
       // règle : il part si plus rien ne publie, sinon il est retenu et repartira
       // à la fin de la dernière publication. Cette publication-ci est déjà
       // « réussie » en base, donc elle ne se compte plus.
-      if (redemarrageDemande) setTimeout(() => demanderRedemarrage(), 2000);
+      if (redemarrageDemande) setTimeout(() => void demanderRedemarrage(), 2000);
     } catch (err: any) {
       /*
        * La raison passe par `raisonEchecAgent` : une exception de VALIDATION

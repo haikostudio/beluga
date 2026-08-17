@@ -142,6 +142,21 @@ export const RAISON_ARRET_DE_SECOURS =
   "Arrêté à la main alors que plus aucun moteur ne tournait : le tour a été refermé pour libérer l'agent.";
 
 /**
+ * LE COUP DE GRÂCE, ET COMBIEN DE TEMPS ON ATTEND AVANT DE LE DONNER.
+ *
+ * Arrêter, c'est d'abord DEMANDER (SIGTERM) : un moteur qui obéit range ses
+ * affaires et s'en va en une fraction de seconde. Ce n'est pas lui le problème.
+ * Le problème, c'est celui qui n'obéit pas — pendu dans un appel qui ne revient
+ * jamais, ou occupé à ignorer le signal. On lui laissait QUATRE secondes avant
+ * de l'achever : quatre secondes d'un écran qui ne bouge pas, après un clic
+ * explicite, c'est exactement ce qui fait croire que le bouton ne marche pas.
+ *
+ * Une seconde et demie suffit : un moteur qui allait partir est déjà parti, et
+ * celui qui reste n'avait aucune intention de s'en aller.
+ */
+export const DELAI_COUP_DE_GRACE_MS = 1_500;
+
+/**
  * LE DÉLAI LAISSÉ AU MOTEUR APRÈS LE SIGNAL, avant de refermer d'autorité.
  *
  * Un moteur qui reçoit son coup d'arrêt rend la main en une seconde ou deux : le
@@ -151,11 +166,11 @@ export const RAISON_ARRET_DE_SECOURS =
  * donc cette fenêtre, puis on constate : si le tour est toujours là, on le
  * referme sans lui demander son avis.
  *
- * Six secondes : c'est un peu plus que le délai de grâce du signal lui-même
- * (SIGTERM, puis SIGKILL au bout de quatre secondes), pour ne pas refermer
- * par-dessus un moteur qui s'apprêtait à rendre la main.
+ * Toujours un cran de plus que le coup de grâce ci-dessus, pour ne pas refermer
+ * par-dessus un moteur qu'on vient tout juste d'achever et dont la fin n'est pas
+ * encore remontée.
  */
-export const DELAI_CONFIRMATION_ARRET_MS = 6_000;
+export const DELAI_CONFIRMATION_ARRET_MS = 3_000;
 
 /** La raison écrite sur un tour que le signal d'arrêt n'a pas suffi à refermer. */
 export const RAISON_ARRET_SANS_REPONSE =
@@ -184,4 +199,59 @@ export function arretAAchever(constat: {
   memeTourEncoreVivant: boolean;
 }): boolean {
   return constat.memeTourEncoreVivant;
+}
+
+/*
+ * ARRÊTER TOUT LE MONDE — ET DIRE CE QUI A ÉTÉ FAIT, AGENT PAR AGENT.
+ *
+ * Le bouton du haut ne rendait qu'un NOMBRE : « 3 agents arrêtés ». Or les trois
+ * n'ont pas forcément subi le même sort — l'un avait un moteur qu'on a coupé,
+ * l'autre se disait au travail sans que rien ne tourne et a été refermé
+ * d'autorité, le troisième n'avait déjà plus rien. Un compte anonyme laisse
+ * exactement le doute que ce bouton doit lever : est-ce que ça a mordu ?
+ *
+ * La règle est pure : on lui donne les gestes réellement faits, elle rend la
+ * phrase. Le démon compte, elle rédige.
+ */
+
+export interface BilanDesArrets {
+  /** Combien d'agents ont été touchés, tous gestes confondus. */
+  total: number;
+  /** Combien de moteurs ont été coupés. */
+  coupes: number;
+  /** Combien de tours ont été refermés d'autorité, faute de moteur à couper. */
+  secours: number;
+  /** Combien ne travaillaient déjà plus. */
+  inactifs: number;
+  /** La phrase à afficher, jamais vide. */
+  message: string;
+}
+
+/** Le mot juste au singulier comme au pluriel, sans « (s) ». */
+function accord(n: number, singulier: string, pluriel: string): string {
+  return n > 1 ? pluriel : singulier;
+}
+
+/**
+ * Le compte rendu d'un arrêt groupé. Chaque geste est nommé — coupé, refermé
+ * d'autorité, déjà inactif — et rien n'est passé sous silence : un bouton qui
+ * n'a rien trouvé à arrêter le DIT, au lieu d'annoncer une réussite vide.
+ */
+export function bilanDesArrets(gestes: GesteDArret[]): BilanDesArrets {
+  const coupes = gestes.filter((g) => g === 'coupe').length;
+  const secours = gestes.filter((g) => g === 'secours').length;
+  const inactifs = gestes.filter((g) => g === 'inactif').length;
+  const total = gestes.length;
+
+  if (!total) {
+    return { total, coupes, secours, inactifs, message: 'Aucun agent ne travaillait : il n’y avait rien à arrêter.' };
+  }
+
+  const parts: string[] = [];
+  if (coupes) parts.push(`${coupes} ${accord(coupes, 'moteur coupé', 'moteurs coupés')}`);
+  if (secours) parts.push(`${secours} ${accord(secours, 'tour refermé d’autorité', 'tours refermés d’autorité')}`);
+  if (inactifs) parts.push(`${inactifs} ${accord(inactifs, 'agent déjà inactif', 'agents déjà inactifs')}`);
+
+  const tete = `${total} ${accord(total, 'agent arrêté', 'agents arrêtés')}`;
+  return { total, coupes, secours, inactifs, message: `${tete} : ${parts.join(', ')}.` };
 }

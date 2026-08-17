@@ -10,6 +10,8 @@ import {
   MESSAGE_ARRET_INACTIF,
   MESSAGE_ARRET_SERVICE,
   DELAI_CONFIRMATION_ARRET_MS,
+  DELAI_COUP_DE_GRACE_MS,
+  bilanDesArrets,
 } from '@haikodev/shared';
 
 test('un moteur en marche se coupe, comme avant', () => {
@@ -111,8 +113,40 @@ test("on n'achève l'arrêt que si le MÊME tour est encore là", () => {
   assert.equal(arretAAchever({ memeTourEncoreVivant: false }), false);
 });
 
-test("le délai de confirmation laisse passer le coup de grâce du signal (4 s)", () => {
-  assert.ok(DELAI_CONFIRMATION_ARRET_MS > 4_000);
+test('le délai de confirmation laisse toujours passer le coup de grâce', () => {
+  // L'ordre compte : on ne referme jamais d'autorité par-dessus un moteur qu'on
+  // vient d'achever et dont la fin n'est pas encore remontée.
+  assert.ok(DELAI_CONFIRMATION_ARRET_MS > DELAI_COUP_DE_GRACE_MS);
   // …sans faire attendre l'utilisateur devant un écran immobile.
   assert.ok(DELAI_CONFIRMATION_ARRET_MS <= 10_000);
+});
+
+test('un arrêt DEMANDÉ n’attend plus quatre secondes avant d’achever', () => {
+  // C'est ce qui faisait croire que le bouton ne mordait pas : quatre secondes
+  // d'écran immobile après un clic explicite.
+  assert.ok(DELAI_COUP_DE_GRACE_MS <= 2_000);
+  // Mais on laisse quand même au moteur le temps de partir de lui-même.
+  assert.ok(DELAI_COUP_DE_GRACE_MS >= 500);
+});
+
+test('le bilan d’un arrêt groupé NOMME chaque geste', () => {
+  const bilan = bilanDesArrets(['coupe', 'coupe', 'secours', 'inactif']);
+  assert.equal(bilan.total, 4);
+  assert.equal(bilan.coupes, 2);
+  assert.equal(bilan.secours, 1);
+  assert.equal(bilan.inactifs, 1);
+  assert.match(bilan.message, /2 moteurs coupés/);
+  assert.match(bilan.message, /1 tour refermé d’autorité/);
+  assert.match(bilan.message, /1 agent déjà inactif/);
+});
+
+test('un seul agent coupé se dit au singulier, sans « (s) »', () => {
+  const bilan = bilanDesArrets(['coupe']);
+  assert.match(bilan.message, /^1 agent arrêté : 1 moteur coupé\.$/);
+});
+
+test('un bouton qui n’a rien trouvé le DIT, au lieu d’annoncer une réussite vide', () => {
+  const bilan = bilanDesArrets([]);
+  assert.equal(bilan.total, 0);
+  assert.match(bilan.message, /rien à arrêter/i);
 });

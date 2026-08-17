@@ -110,19 +110,25 @@ export function QuotaBar({
     });
   };
 
-  const arreterTousLesAgents = () => {
+  /*
+   * L'ARRÊT DE TOUS LES AGENTS DIT CE QU'IL A FAIT, geste par geste. Le serveur
+   * rend le bilan rédigé (`bilanDesArrets`) : combien de moteurs coupés,
+   * combien de tours refermés d'autorité, combien d'agents ne travaillaient
+   * déjà plus. On ne recompose donc rien ici — et surtout, on n'annonce plus
+   * une réussite sur un nombre qui ne disait pas si le clic avait mordu.
+   */
+  const arreterTousLesAgents = () =>
     client
-      .call({ type: 'agents.stop-all' })
-      .then((response: any) => {
-        client.pushToast(
-          'success',
-          response?.count > 0
-            ? `${response.count} agent${response.count > 1 ? 's' : ''} arrêté${response.count > 1 ? 's' : ''}.`
-            : 'Aucun agent à arrêter.',
-        );
+      .call<{ count?: number; bilan?: { message?: string } }>({ type: 'agents.stop-all' })
+      .then((response) => {
+        const message = response?.bilan?.message;
+        if (message) client.pushToast('info', message);
       })
-      .catch((err: any) => client.pushToast('error', err?.message ?? 'Arrêt refusé'));
-  };
+      .catch((err: any) => {
+        client.pushToast('error', err?.message ?? 'Arrêt refusé');
+        // Relancée : sans cela le bouton en attente croirait avoir réussi.
+        throw err;
+      });
 
   const listen = async () => {
     setSpeaking(true);
@@ -420,10 +426,10 @@ export function QuotaBar({
             ? `Arrêter les ${enCours.length} agents en cours sur tous les projets ?`
             : `Arrêter l’agent en cours ?`
         }
-        description="Le travail en cours sera perdu sur tous les projets."
+        description="Chaque moteur est coupé sur-le-champ, sur tous les projets. Le travail déjà écrit reste sur la branche de sa carte ; c’est la réflexion en cours qui s’arrête."
         confirmLabel="Arrêter tous les agents"
         onConfirm={() => {
-          arreterTousLesAgents();
+          void arreterTousLesAgents();
           setArretTous(false);
         }}
         onClose={() => setArretTous(false)}

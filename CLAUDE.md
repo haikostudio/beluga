@@ -328,7 +328,10 @@ le nom, là-bas le texte).
 - **Ne JAMAIS redémarrer le serveur tant qu'une publication OU une tâche tourne**
   (`shared/src/demon.ts`) : le démon porte toutes les publications et tous les agents, le couper en
   tranche un en plein vol. Un redémarrage demandé est retenu — le bouton affiche « Redémarrage
-  requis » — et rejoué tout seul dès le dernier travail fini ; même le clic ne passe jamais outre.
+  requis » — et rejoué tout seul dès le dernier travail fini. Un SECOND bouton de la fenêtre,
+  « Forcer le redémarrage », passe outre : geste EXPLICITE, jamais automatique, offert seulement
+  après que la fenêtre a NOMMÉ ce qui sera interrompu, et le travail en cours est enregistré sur la
+  branche de sa carte avant la coupure (règle « TOUT ARRÊT EST UN GESTE EN FORCE », plus bas).
   **EXCEPTION : le chef d'orchestre peut arrêter TOUS les agents, puis redémarrer le serveur**
   (`chefArreteTousEtRedémarre`, `shared/src/demon.ts`) : le chef envoie `agents.stop-all` pour
   liquider immédiatement tout ce qui tourne, puis demande le redémarrage. Le verrou lâche prise. La
@@ -630,6 +633,22 @@ le nom, là-bas le texte).
   processus** (les moteurs n'étant pas `detached`, ils portent le groupe du DÉMON). Tous les gestes
   se disent à l'écran, « coupe » compris (`ws.ts`). Verrouillé par
   `server/src/test/arret-de-secours.test.ts` et `scripts/verif-arret-moteur-recalcitrant.mjs`.
+- **TOUT ARRÊT EST UN GESTE EN FORCE, ET LE REDÉMARRAGE AUSSI** (`DELAI_COUP_DE_GRACE_MS`,
+  `bilanDesArrets`, `shared/src/arret-de-secours.ts` ; `decisionDeRedemarrage` avec `force`,
+  `resumeDeCeQuiSeraInterrompu`, `shared/src/demon.ts` ; `agentsQuiTournentEncore`,
+  `acheverTousLesMoteurs`, `server/src/runtime.ts` ; `acheverLArbre`,
+  `server/src/engines/fin-de-processus.ts` ; `sauverPuisToutArreter`, `server/src/demon.ts` ;
+  `DialogueDeRedemarrage`, `web/src/components/sidebar.tsx`) : le serveur coupe le PROCESSUS
+  lui-même — passer par l'agent ne marche pas quand c'est justement lui qui est bloqué. Coup de
+  grâce à 1,5 s au lieu de 4 ; le bouton de TOUS les agents balaie l'UNION du statut, des tours
+  vivants, des préparations et des moteurs de service (le seul statut ment quand rien n'avance),
+  vide les files et rend un BILAN qui NOMME les gestes. Le REDÉMARRAGE se FORCE par un SECOND
+  bouton, jamais tout seul : la fenêtre nomme d'abord ce qui sera interrompu, le travail de chaque
+  copie de carte est enregistré sur sa branche, puis tout est coupé — et ACHEVÉ SUR-LE-CHAMP
+  (`acheverLArbre`, numéro EXACT et descendance lue dans `/proc`, jamais un motif ni un groupe), le
+  démon quittant avant le délai de grâce, ce qui laissait sinon le moteur têtu ORPHELIN. « Redémarrer »
+  garde son sens à côté (demande RETENUE), et un SIGNAL du dehors ne force JAMAIS. Verrouillé par
+  `server/src/test/demon.test.ts` et `scripts/verif-arret-en-force.mjs`.
 - **Une carte peut porter une DATE de départ** (`scheduling.departPrevu`, `shared/src/depart-programme.ts`) :
   elle attend dans « Planifié », dit quand elle partira, et part à l'heure dite par le même
   `startCard` que le bouton. Troisième autorisation explicite à côté de « Dès que possible » ; une

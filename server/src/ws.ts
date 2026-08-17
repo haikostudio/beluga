@@ -27,6 +27,7 @@ import {
   RAISON_SUSPENDU,
   RAISON_ARRETE_A_LA_MAIN,
   arretDeCarteAutorise,
+  bilanDesArrets,
   agentApresNouveauDepart,
   comptePrecedents,
   messagesDepuis,
@@ -892,8 +893,27 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { stopped, geste: decision.geste, message: decision.message };
     }
 
+    /*
+     * ARRÊTER TOUT LE MONDE, EN FORCE ET EN LE DISANT. Le même geste que le
+     * bouton d'un agent seul, appliqué à tout ce qui tourne encore — statut
+     * enregistré, tour vivant, préparation coincée, moteur de service — et non
+     * plus au seul statut, qui est justement ce qui ment quand rien n'avance.
+     * Le compte rendu nomme les gestes faits (`bilanDesArrets`), au lieu d'un
+     * nombre qui ne dit pas si le clic a mordu.
+     */
     case 'agents.stop-all': {
       const stoppedAgents = stopAllAgents();
+      const bilan = bilanDesArrets(stoppedAgents.map((a) => a.geste));
+
+      /*
+       * Ce qui attendait DERRIÈRE tombe aussi : sans cela, les demandes en file
+       * repartaient toutes seules quelques secondes après l'arrêt — un bouton
+       * « tout arrêter » qui laisse repartir le travail n'arrête rien.
+       */
+      for (const { agentId } of stoppedAgents) {
+        const vides = store.clearQueue(agentId);
+        if (vides) bus.emit({ type: 'queue.snapshot', agentId, queue: [] });
+      }
 
       /*
        * Mettre à jour les cartes : les agents arrêtés reviennent en suspension
@@ -923,12 +943,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         bus.emit({ type: 'capacity', capacity: capacity.snapshot() }),
       );
 
-      bus.toast(
-        'success',
-        `${stoppedAgents.length} agent${stoppedAgents.length > 1 ? 's' : ''} arrêté${stoppedAgents.length > 1 ? 's' : ''}.`,
-      );
+      /*
+       * Le motif `agent-interrompu` est celui du tri des alertes : sans lui, un
+       * message de confirmation se tairait, et ce clic-ci est justement celui
+       * dont on veut voir l'effet.
+       */
+      bus.toast('info', bilan.message, undefined, 'agent-interrompu');
 
-      return { count: stoppedAgents.length, stoppedAgents };
+      return { count: stoppedAgents.length, bilan, stoppedAgents };
     }
 
     case 'agent.config': {
@@ -1594,12 +1616,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'daemon.restart': {
       // On répond AVANT de couper : sinon le navigateur ne voit qu'une
       // déconnexion, sans savoir si sa demande est passée. Un agent au travail
-      // ou une publication en cours REFUSENT le redémarrage et disent
+      // ou une publication en cours REFUSENT le redémarrage ordinaire et disent
       // pourquoi — la demande est retenue et partira toute seule dès le
-      // dernier travail fini. Même un clic, geste humain, ne passe jamais
-      // outre : un redémarrage en plein travail est exactement ce qu'on veut
-      // empêcher.
-      return demanderRedemarrage();
+      // dernier travail fini.
+      //
+      // `force` est l'autre chemin, et le seul qui passe outre : le travail en
+      // cours est enregistré, tout est coupé en force, puis le serveur repart.
+      // Il ne vient que du second bouton de la fenêtre, après que celle-ci a
+      // nommé ce qui allait être interrompu.
+      return await demanderRedemarrage({ force: cmd.force === true });
     }
 
     case 'backup.now': {

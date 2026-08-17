@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   EtatDemon,
+  MESSAGE_REDEMARRAGE_FORCE,
+  cheminDossierDeCarte,
   decisionSurSignalDArret,
   raisonSignalRetenu,
   redemarrageNecessaire,
@@ -98,15 +100,20 @@ export function redemarrageEstEnAttente(): boolean {
 
 /**
  * Rejoue la règle : redémarre, reste en attente, ou ne fait rien. Ni un agent
- * au travail ni une publication en cours ne se laissent jamais contourner —
- * pas même par le bouton, geste humain compris : passer outre couperait un
- * travail en plein vol, exactement ce qu'on veut empêcher.
+ * au travail ni une publication en cours ne se laissent contourner par le
+ * chemin ORDINAIRE : passer outre couperait un travail en plein vol.
+ *
+ * Une seule sortie, et elle se réclame en toutes lettres : `force`, posé par le
+ * second bouton de la fenêtre du redémarrage, après que celle-ci a nommé ce qui
+ * sera interrompu. C'est le geste de dernier recours du jour où plus rien
+ * n'avance — sans lui, il fallait ouvrir un terminal.
  */
-function evaluerRedemarrage(): { ok: boolean; raison?: string; enAttente: boolean } {
+function evaluerRedemarrage(force = false): { ok: boolean; raison?: string; enAttente: boolean } {
   const suite = suiteDuRedemarrage(redemarrageEnAttente, {
     publications: publicationsEnCours(),
     agents: agentsActifs().length,
     agentsDetail: agentsActifsDetail(),
+    force,
   });
   redemarrageEnAttente = suite.enAttente;
   if (suite.redemarrer) {
@@ -121,10 +128,71 @@ function evaluerRedemarrage(): { ok: boolean; raison?: string; enAttente: boolea
  * Demande un redémarrage. S'il peut partir, il part ; sinon il est retenu — le
  * bouton passe alors sur « Redémarrage requis » — et la raison (agent au
  * travail ou nom du projet qui publie) est rendue à qui l'a demandé.
+ *
+ * FORCÉ, il passe outre — mais jamais brutalement : le travail déjà écrit dans
+ * chaque copie de carte est ENREGISTRÉ sur sa branche, puis tous les agents sont
+ * arrêtés en force (moteur coupé, achevé s'il fait la sourde oreille,
+ * descendance emportée), et seulement ensuite le serveur repart. C'est le geste
+ * de dernier recours quand plus rien n'avance : sans lui, il fallait ouvrir un
+ * terminal.
  */
-export function demanderRedemarrage(): { ok: boolean; raison?: string; enAttente: boolean } {
+export async function demanderRedemarrage(options: { force?: boolean } = {}): Promise<{
+  ok: boolean;
+  raison?: string;
+  enAttente: boolean;
+  force?: boolean;
+}> {
   redemarrageEnAttente = true;
-  return evaluerRedemarrage();
+  if (!options.force) return evaluerRedemarrage();
+
+  log.warn('redémarrage FORCÉ demandé : tout ce qui tourne va être coupé');
+  await sauverPuisToutArreter();
+  const issue = evaluerRedemarrage(true);
+  return { ...issue, force: true };
+}
+
+/**
+ * AVANT DE COUPER, ON SAUVE — PUIS ON COUPE POUR DE BON.
+ *
+ * Deux gestes, dans cet ordre, et l'ordre compte. Le travail écrit par un agent
+ * vit dans la copie de sa carte : tant qu'il n'est pas enregistré sur la
+ * branche, il n'est visible nulle part et ne partira jamais au déploiement. On
+ * l'enregistre donc d'office, carte par carte, sous son propre filet — une copie
+ * qui refuse ne doit pas retenir le redémarrage que l'utilisateur vient de
+ * réclamer. Ensuite seulement, les moteurs tombent.
+ */
+async function sauverPuisToutArreter(): Promise<void> {
+  const runtime = await import('./runtime.js');
+  const dossierDeCarte = await import('./dossier-de-carte.js');
+
+  for (const agentId of runtime.agentsActifs()) {
+    const agent = store.getAgent(agentId);
+    if (!agent?.cardId) continue;
+    const carte = store.getCard(agent.cardId);
+    const projet = carte ? store.getProject(carte.projectId) : undefined;
+    if (!carte || !projet) continue;
+    try {
+      const dossier = cheminDossierDeCarte(projet.path, carte.title, carte.id);
+      const enregistre = await dossierDeCarte.enregistrerLeTravailEnCours(dossier);
+      if (enregistre) log.info(`travail de la carte « ${carte.title} » enregistré avant le redémarrage forcé`);
+    } catch (err) {
+      log.warn(`travail de la carte « ${carte.title} » impossible à enregistrer avant le redémarrage forcé`, err);
+    }
+  }
+
+  const arretes = runtime.stopAllAgents();
+  /*
+   * Puis on repasse derrière SANS RIEN DEMANDER. Le geste ordinaire envoie un
+   * signal et programme le coup de grâce quelques instants plus tard — mais
+   * nous, nous n'existerons plus dans quelques instants : le minuteur mourrait
+   * avec le processus et laisserait un moteur récalcitrant orphelin sur la
+   * machine. Chaque moteur encore inscrit est donc achevé par son NUMÉRO EXACT.
+   */
+  const acheves = runtime.acheverTousLesMoteurs();
+  log.warn(
+    `redémarrage forcé : ${arretes.length} agent(s) coupé(s) — ${arretes.map((a) => a.geste).join(', ') || 'aucun'} ; ${acheves} processus achevé(s)`,
+  );
+  bus.toast('warning', MESSAGE_REDEMARRAGE_FORCE);
 }
 
 /**
