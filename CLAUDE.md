@@ -440,6 +440,33 @@ le nom, là-bas le texte).
   `rangerLaCarte`, `server/src/deplacement-carte.ts` ; migration 20). Sans cela, une carte revenue
   dans le lot en était écartée à jamais et « Tout déployer (0) » ne partait nulle part, sans un mot.
   Tant que le bouton refuse de partir, la cause s'écrit sous lui.
+- **LE COMPTEUR D'UNE COLONNE COMPTE CE QUE SA LISTE MONTRE, ET CE QUI N'A PAS DE CARTE SE DIT EN
+  CLAIR** (`compteurDeColonne`, `compteurEtListeDAccord`, `alerteTravailSansCarte`,
+  `phraseDeColonneVide`, `shared/src/colonne-a-deployer.ts` ; `AlerteTravailSansCarte`,
+  `web/src/components/deploy-panel.tsx` ; tête de colonne et encart posés par
+  `web/src/components/board.tsx`). La tête annonçait « À DÉPLOYER 1 » pendant que la colonne écrivait
+  dessous « Rien à mettre en ligne pour l'instant » : le CHIFFRE venait du bloc de publication
+  (cartes du lot + travail enregistré sans carte, `onCount`), la LISTE des cartes réellement posées —
+  deux lectures pour une seule colonne, et un travail prêt à partir que rien ne montrait. Le
+  compteur ne connaît donc plus qu'une source, `columnCards.length` (`data-compteur-colonne`), sur
+  la tête comme sur l'onglet du téléphone : pas de carte affichée qui ne soit comptée, pas de compte
+  sans carte. Le travail SANS CARTE ne se soustrait pas pour autant : il remonte à la colonne
+  (`onSansCarte`) et s'écrit dans un ENCART ORANGE posé au-dessus des cartes
+  (`data-travail-sans-carte`), qui NOMME les enregistrements trouvés et dit où ils sont ; il sort
+  donc du bouton « ! », où il fallait savoir qu'il existait pour aller le lire. Le bouton d'action,
+  lui, garde le compte du LOT qui partira et NOMME ses deux parts (`libelleCompteLot`) — ce n'est pas
+  le même objet. Rien n'est publié ni fusionné pour « régler » l'affichage.
+- **…ET CE QUI EST PORTÉ PAR LA BRANCHE D'UNE CARTE N'EST PAS « SANS CARTE »**
+  (`exclusionsDesBranchesDeCartes`, `shared/src/travail-hors-tache.ts` ; `commitsEnAttente`,
+  `server/src/deploy.ts`). Le compte des modifications anonymes se lisait sur les seules empreintes
+  relevées sur les cartes (`shasCouverts`) — or ce relevé n'existe QUE si l'onglet « GitHub » de la
+  carte a été ouvert une fois. Onze enregistrements du 17/08/2026, tous issus de cartes bien réelles,
+  étaient donc annoncés comme du travail anonyme. On demande désormais au DÉPÔT d'écarter tout ce que
+  les branches de cartes contiennent (`--not --branches=tache/*`, plus les rares branches nommées
+  autrement, filtrées sur celles que git connaît vraiment), et `--no-merges` écarte les FUSIONS —
+  une fusion n'apporte pas de travail à elle seule, ce qu'elle réunit est déjà dans la plage. Même
+  règle que `commitsSansCarte`. Verrouillé par `server/src/test/colonne-a-deployer.test.ts` et
+  `scripts/verif-colonne-a-deployer.mjs`.
 - **La BRANCHE de chaque étape se choisit dans les réglages du projet**
   (`brancheDePublication`, `shared/src/branche-de-publication.ts` ; `Project.branchesDePublication`) :
   une pour le déploiement, une pour la mise en production, prises dans la liste des branches du

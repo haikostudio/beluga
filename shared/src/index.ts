@@ -68,6 +68,7 @@ export * from './heure-message.js';
 export * from './images-reponse.js';
 export * from './instructions-projet.js';
 export * from './lecture-message.js';
+export * from './colonne-a-deployer.js';
 export * from './lot-a-deployer.js';
 export * from './lot-colonne.js';
 export * from './memoire.js';

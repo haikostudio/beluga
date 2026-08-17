@@ -26,6 +26,7 @@ import {
   detailDEchecConstruction,
   phraseDEchecConstruction,
   estPlomberie,
+  exclusionsDesBranchesDeCartes,
   messageEchecPublication,
   natureDePublication,
   miseEnLigneReelle,
@@ -1234,7 +1235,37 @@ export async function commitsEnAttente(projectId: string): Promise<{ nombre: num
   // Le travail « déjà enregistré, pas encore en ligne » se lit sur la branche
   // où le DÉPLOIEMENT fusionne — celle réglée sur le projet, le cas échéant.
   const principale = (await brancheDeLEtape(project, 'dev')).branche;
-  const journal = await runCommand(cwd, `git log --format=%H%x1f%s ${depuis}..${principale}`, 30000);
+
+  /*
+   * CE QUI EST PORTÉ PAR LA BRANCHE D'UNE CARTE N'EST PAS ANONYME.
+   *
+   * Les empreintes relevées sur les cartes (`shasCouverts`) ne suffisent pas :
+   * ce relevé n'existe que si l'onglet « GitHub » de la carte a été ouvert une
+   * fois. On demande donc au dépôt lui-même d'écarter tout ce que les branches
+   * de cartes contiennent. Une branche inconnue de git ferait tomber la
+   * commande entière : on ne garde que celles qui existent, et dont le nom ne
+   * porte rien qui puisse s'échapper vers le shell.
+   */
+  const existantes = await runCommand(cwd, 'git for-each-ref --format=%(refname:short) refs/heads', 20000);
+  const connues = new Set(
+    existantes.ok ? existantes.out.split('\n').map((l) => l.trim()).filter(Boolean) : [],
+  );
+  const branches = store
+    .branchesDeCartes(projectId)
+    .filter((branche) => /^[A-Za-z0-9._\/-]+$/.test(branche) && connues.has(branche));
+  const exclusions = exclusionsDesBranchesDeCartes(branches).join(' ');
+
+  /*
+   * `--no-merges` : une fusion n'apporte pas de travail à elle seule — ce
+   * qu'elle réunit est déjà dans la plage, sous ses propres enregistrements.
+   * Les compter annonçait « 2 modifications sans carte » qui n'étaient que les
+   * fusions du déploiement précédent. Même règle que `commitsSansCarte`.
+   */
+  const journal = await runCommand(
+    cwd,
+    `git log --no-merges --format=%H%x1f%s ${depuis}..${principale} ${exclusions}`,
+    30000,
+  );
   if (!journal.ok) return vide;
 
   /*

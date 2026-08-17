@@ -83,6 +83,38 @@ export function commitsSansCarte(commits: CommitObserve[], ctx: ContexteHorsTach
 }
 
 /**
+ * CE QUI EST DÉJÀ PORTÉ PAR UNE CARTE N'EST PAS « SANS CARTE ».
+ *
+ * Le compte des modifications en attente se lisait sur les seules empreintes
+ * rattachées à une carte (`card.github.commits`) — or ce relevé n'existe que
+ * si quelqu'un a ouvert l'onglet « GitHub » de la carte. Onze enregistrements
+ * du 17/08/2026, tous issus de cartes bien réelles, étaient donc annoncés
+ * comme du travail anonyme.
+ *
+ * Le dépôt, lui, sait toujours répondre : un commit accessible depuis la
+ * BRANCHE d'une carte appartient à cette carte, relevé ou pas. On demande donc
+ * à git d'écarter d'un coup tout ce que ces branches contiennent — une seule
+ * exclusion par motif pour les branches « tache/… », plus les rares branches
+ * nommées autrement par une carte.
+ *
+ * Rend les arguments à coller derrière `git rev-list <plage>` : la règle est
+ * pure, c'est l'appelant qui lance la commande.
+ */
+export function exclusionsDesBranchesDeCartes(branches: string[] = []): string[] {
+  const args = ['--not', '--branches=tache/*'];
+  const vues = new Set<string>();
+  for (const branche of branches) {
+    const propre = (branche ?? '').trim();
+    // Les « tache/… » sont déjà prises par le motif ; une branche inconnue de
+    // git ferait tomber toute la commande, c'est à l'appelant de la filtrer.
+    if (!propre || brancheDeTache(propre) || vues.has(propre)) continue;
+    vues.add(propre);
+    args.push(propre);
+  }
+  return args;
+}
+
+/**
  * Un enregistrement qui n'apporte pas une fonctionnalité à lui seul : il
  * termine celle d'avant. On les reconnaît à leur première ligne — le style de
  * la maison veut un message par fonctionnalité, alors une suite se signale.
