@@ -46,6 +46,7 @@ import {
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, elapsed } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /** L'ordre des sept étapes de la mise en ligne — le même que côté serveur. */
 const ORDRE_ETAPES: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
@@ -462,8 +463,7 @@ export function DeployPanel({
       <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
         <BoutonInitierProcedure cible={etape.cible} onOuvrir={() => onInitier?.()} />
         <p className="mt-1.5 text-[12px] text-faint" data-procedure-absente={colonne}>
-          Aucune procédure n’est définie pour cette étape : rien ne peut partir tant qu’elle n’existe pas.
-        </p>
+          {t('Aucune procédure n’est définie pour cette étape : rien ne peut partir tant qu’elle n’existe pas.')}</p>
       </div>
     );
   }
@@ -505,8 +505,7 @@ export function DeployPanel({
                   Les deux parts (cartes, travail sans carte) sont NOMMÉES dès
                   qu'elles coexistent : un chiffre seul ne s'explique pas. */}
               <span className="truncate">
-                Tout {etape.verbe} ({libelleCompteLot(embarked.length, enAttente.nombre)})
-              </span>
+                {t('Tout {v0} ({v1})', { v0: etape.verbe, v1: libelleCompteLot(embarked.length, enAttente.nombre) })}</span>
             </>
           )}
         </Button>
@@ -540,8 +539,9 @@ export function DeployPanel({
                 data-publication-terminee
               >
                 <Check className="h-3 w-3 shrink-0 text-success" />
-                Publié ({libelleEtape(run.cible)}) : {run.cardIds.length} tâche(s)
-              </div>
+                
+{t('Publié (')}{libelleEtape(run.cible)}) : {run.cardIds.length}  {t('tâche(s)')}
+</div>
             ) : (
               <ProcessusEtapes
                 run={mienne ? run : undefined}
@@ -563,7 +563,7 @@ export function DeployPanel({
           {erreurControle ? (
             <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-danger" data-erreur-controle-publication>
               <X className="mt-[3px] h-2.5 w-2.5 shrink-0" />
-              <span>Le contrôle d’avant-clic a échoué : {erreurControle}</span>
+              <span>{t('Le contrôle d’avant-clic a échoué : {erreurControle}', { erreurControle })}</span>
             </p>
           ) : null}
         </>
@@ -575,17 +575,17 @@ export function DeployPanel({
           « Publier » lance seul la publication ; « Annuler » ne touche à rien. */}
       <ConfirmDialog
         open={confirmation}
-        title="Mise en production"
+        title={t('Mise en production')}
         description={
           aPublier > 1 ? (
             <>
-              {aPublier} tâches vont partir chez le client. Une fois publiées, elles seront closes puis archivées.
-            </>
+              {aPublier}  {t('tâches vont partir chez le client. Une fois publiées, elles seront closes puis archivées.')}
+</>
           ) : (
-            <>Une tâche va partir chez le client. Une fois publiée, elle sera close puis archivée.</>
+            <>{t('Une tâche va partir chez le client. Une fois publiée, elle sera close puis archivée.')}</>
           )
         }
-        confirmLabel="Publier"
+        confirmLabel={t('Publier')}
         danger
         onConfirm={() => void start()}
         onClose={() => setConfirmation(false)}
@@ -673,10 +673,9 @@ function SelectionDeploiementDialog({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent data-selection-deploiement>
-        <DialogTitle>Tâches à déployer</DialogTitle>
+        <DialogTitle>{t('Tâches à déployer')}</DialogTitle>
         <DialogDescription>
-          Décochez les tâches à laisser de côté : elles resteront dans « À déployer » pour la prochaine fois.
-        </DialogDescription>
+          {t('Décochez les tâches à laisser de côté : elles resteront dans « À déployer » pour la prochaine fois.')}</DialogDescription>
 
         <ul className="mt-3 space-y-1.5">
           {cards.map((card) => {
@@ -710,22 +709,18 @@ function SelectionDeploiementDialog({
 
         {enAttente.nombre ? (
           <p className="mt-2 text-[12px] text-faint">
-            + {enAttente.nombre} changement{enAttente.nombre > 1 ? 's' : ''} enregistré
-            {enAttente.nombre > 1 ? 's' : ''} sans carte, toujours embarqué{enAttente.nombre > 1 ? 's' : ''}.
-          </p>
+            {t('+ {v0} changement{v1} enregistré {v2} sans carte, toujours embarqué{v3}.', { v0: enAttente.nombre, v1: enAttente.nombre > 1 ? 's' : '', v2: enAttente.nombre > 1 ? 's' : '', v3: enAttente.nombre > 1 ? 's' : '' })}</p>
         ) : null}
 
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onClose}>
-            Annuler
-          </Button>
+            {t('Annuler')}</Button>
           {/* Tout décocher n'est pas forcément une impasse : le travail
               enregistré sans carte part quand même. Le bouton ne s'éteint donc
               que si RIEN ne partirait — et il le dit alors juste au-dessus. */}
           {selection.size === 0 && !enAttente.nombre ? (
             <p className="flex-1 self-center text-[12px] text-warning" data-raison-selection-vide>
-              Aucune tâche cochée : il n’y aurait rien à déployer.
-            </p>
+              {t('Aucune tâche cochée : il n’y aurait rien à déployer.')}</p>
           ) : null}
           <Button
             size="sm"
@@ -734,7 +729,8 @@ function SelectionDeploiementDialog({
             data-bouton-deployer-selection
           >
             {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-            Déployer ({libelleCompteLot(selection.size, enAttente.nombre)})
+            
+{t('Déployer (')}{libelleCompteLot(selection.size, enAttente.nombre)})
           </Button>
         </div>
       </DialogContent>
@@ -810,7 +806,7 @@ export function BoutonInfosPublication({
   if (!infos) return null;
   return (
     <DropdownMenu>
-      <Tooltip label="À propos de la mise en ligne">
+      <Tooltip label={t('À propos de la mise en ligne')}>
         <DropdownMenuTrigger asChild>
           <Button
             size="sm"
@@ -835,7 +831,7 @@ export function BoutonInfosPublication({
           {infos.autrePublication ? (
             <p className="flex items-start gap-1.5 text-muted" data-publication-ailleurs>
               <Loader2 className="mt-[3px] h-2.5 w-2.5 shrink-0 animate-spin" />
-              <span>Une autre publication de ce projet est en cours : attendez qu’elle finisse.</span>
+              <span>{t('Une autre publication de ce projet est en cours : attendez qu’elle finisse.')}</span>
             </p>
           ) : null}
 
@@ -865,10 +861,7 @@ export function BoutonInfosPublication({
                 <li key={conflict.cardId} className="flex items-start gap-1.5 text-warning" data-conflit-publication>
                   <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
                   <span>
-                    Conflit prévu sur « {conflict.title} »
-                    {conflict.files.length ? ` (${conflict.files.slice(0, 3).join(', ')})` : ''} — l'agent de
-                    publication le résoudra en route. Sans succès, la carte restera ici pour le prochain coup.
-                  </span>
+                    {t('Conflit prévu sur « {v0} » {v1} — l\'agent de publication le résoudra en route. Sans succès, la carte restera ici pour le prochain coup.', { v0: conflict.title, v1: conflict.files.length ? ` (${conflict.files.slice(0, 3).join(', ')})` : '' })}</span>
                 </li>
               ))}
             </ul>
@@ -1024,13 +1017,14 @@ function DeployControls({ run }: { run: DeployRun }) {
           pas comme une mise en production. */}
       {run.state === 'running' ? (
         <p className="flex items-center gap-1.5 text-[12px] text-faint">
-          <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" /> En cours depuis {elapsed(run.startedAt)}
+          <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />  {t('En cours depuis')} {elapsed(run.startedAt)}
         </p>
       ) : run.state === 'success' ? (
         <p className="flex items-center gap-1.5 text-[13px] text-muted">
-          <Check className="h-3 w-3 shrink-0 text-success" /> Publié ({libelleEtape(run.cible)}) : {run.cardIds.length}{' '}
-          tâche(s)
-        </p>
+          <Check className="h-3 w-3 shrink-0 text-success" />  {t('Publié (')}{libelleEtape(run.cible)}) : {run.cardIds.length}{' '}
+          
+{t('tâche(s)')}
+</p>
       ) : (
         (() => {
           /* CASSÉE ou seulement INTERROMPUE ? Le rouge d'alerte est réservé au
@@ -1046,7 +1040,7 @@ function DeployControls({ run }: { run: DeployRun }) {
               ) : (
                 <AlertTriangle className="mt-[3px] h-3 w-3 shrink-0" />
               )}{' '}
-              {cassee ? 'Échec' : 'Interrompue'} ({libelleEtape(run.cible)}) : {run.error ?? 'étape interrompue'}
+              {cassee ? t('Échec') : t('Interrompue')} ({libelleEtape(run.cible)}) : {run.error ?? t('étape interrompue')}
             </p>
           );
         })()
@@ -1054,8 +1048,7 @@ function DeployControls({ run }: { run: DeployRun }) {
 
       {run.repriseApresCoupure ? (
         <p className="mt-1 text-[12px] text-faint" data-reprise-coupure>
-          Reprise après une coupure du serveur.
-        </p>
+          {t('Reprise après une coupure du serveur.')}</p>
       ) : null}
 
       {/* Ce qui a bronché SANS empêcher la mise en ligne — une carte qu'on n'a
@@ -1068,7 +1061,7 @@ function DeployControls({ run }: { run: DeployRun }) {
       ) : null}
 
       {run.queued ? (
-        <p className="mt-1 text-[12px] text-warning">Une publication est en attente : elle partira ensuite.</p>
+        <p className="mt-1 text-[12px] text-warning">{t('Une publication est en attente : elle partira ensuite.')}</p>
       ) : null}
 
       {run.url ? (
@@ -1091,8 +1084,8 @@ function DeployControls({ run }: { run: DeployRun }) {
             className="w-full"
             onClick={() => client.send({ type: 'deploy.stop', runId: run.id })}
           >
-            <Square className="h-2.5 w-2.5 fill-current" /> Arrêter
-          </Button>
+            <Square className="h-2.5 w-2.5 fill-current" />  {t('Arrêter')}
+</Button>
         ) : run.state !== 'success' ? (
           <Button
             size="sm"
@@ -1100,8 +1093,8 @@ function DeployControls({ run }: { run: DeployRun }) {
             className="w-full"
             onClick={() => client.send({ type: 'deploy.retry', runId: run.id })}
           >
-            <RotateCcw className="h-2.5 w-2.5" /> Relancer
-          </Button>
+            <RotateCcw className="h-2.5 w-2.5" />  {t('Relancer')}
+</Button>
         ) : null}
       </div>
     </div>

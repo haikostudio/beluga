@@ -17,6 +17,7 @@
 import * as React from 'react';
 import { COLUMN_KEYS, COLUMN_LABELS } from '@haikodev/shared';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * La brique de base : un bloc gris qui respire. Elle emprunte la couleur des
@@ -43,7 +44,7 @@ function Bloc({
 }) {
   return (
     <div data-silhouette={zone} role="status" aria-busy="true" aria-label="Chargement en cours" className={className}>
-      <span className="sr-only">Chargement en cours…</span>
+      <span className="sr-only">{t('Chargement en cours…')}</span>
       {children}
     </div>
   );
@@ -113,7 +114,7 @@ export function SilhouetteTableau() {
           {/* La tête de colonne garde son VRAI libellé : la mise en page est
               connue d'avance, seul son contenu manque. */}
           <div className="flex shrink-0 items-center gap-1.5 px-2 py-1.5">
-            <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
+            <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{t(COLUMN_LABELS[column])}</h2>
             <Silhouette className="h-2.5 w-3 rounded-sm" />
           </div>
           <div className="flex flex-col gap-1.5 px-1.5 pb-2">

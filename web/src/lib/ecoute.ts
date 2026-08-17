@@ -15,6 +15,7 @@ import {
 } from '@haikodev/shared';
 import { client } from './client';
 import { ouvrirMicro, type PriseMicro } from './micro';
+import { t } from '@/lib/langue';
 
 /**
  * L'ÉCOUTE PERMANENTE — le micro ouvert, mais seulement si on l'a demandé.
@@ -99,7 +100,7 @@ export function publierDictee(texte: string): void {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(EVENEMENT_DICTEE, { detail: { texte } }));
   }
-  client.pushToast('info', `Dicté : ${texte}`);
+  client.pushToast('info', t('Dicté : {texte}', { texte }));
 }
 
 /** S'abonner aux phrases dictées. Rend la fonction qui désabonne. */

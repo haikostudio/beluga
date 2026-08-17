@@ -4,6 +4,7 @@ import { Attachment } from '@haikodev/shared';
 import { Button, Dialog, DialogContent, DialogTitle, Tooltip, ZoneDefilement } from '@/components/ui';
 import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
 import { bytes, cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * L'aperçu d'une pièce jointe, en grand : image, PDF, ou bouton de
@@ -39,7 +40,7 @@ export function AttachmentPreview({ item, onClose }: { item: Attachment | null; 
         <div className="flex items-center gap-2 pr-6">
           <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{item.name}</DialogTitle>
           {markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
-          <Tooltip label="Télécharger">
+          <Tooltip label={t('Télécharger')}>
             <Button variant="ghost" size="icon-sm" asChild>
               <a href={`${source}&download=1`} download={item.name}>
                 <Download className="h-3 w-3" />
@@ -54,7 +55,7 @@ export function AttachmentPreview({ item, onClose }: { item: Attachment | null; 
         >
           {markdown ? (
             texte === null ? (
-              <p className="p-4 text-[13.5px] text-faint">Lecture…</p>
+              <p className="p-4 text-[13.5px] text-faint">{t('Lecture…')}</p>
             ) : (
               <ContenuTexte contenu={texte} format={format} />
             )
@@ -65,12 +66,11 @@ export function AttachmentPreview({ item, onClose }: { item: Attachment | null; 
           ) : (
             <div className="p-6 text-center">
               <p className="mb-3 text-[13.5px] text-faint">
-                Ce type de fichier ne s'affiche pas ici ({bytes(item.size)}).
-              </p>
+                {t('Ce type de fichier ne s\'affiche pas ici ({v0}).', { v0: bytes(item.size) })}</p>
               <Button variant="outline" size="sm" asChild>
                 <a href={`${source}&download=1`} download={item.name}>
-                  <Download className="h-3 w-3" /> Télécharger
-                </a>
+                  <Download className="h-3 w-3" />  {t('Télécharger')}
+</a>
               </Button>
             </div>
           )}

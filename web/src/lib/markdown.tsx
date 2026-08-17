@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Lightbulb, Info, AlertTriangle, ChevronRight, OctagonAlert, Plus, Check } from 'lucide-react';
 import { paragraphBreakAfter } from '@haikodev/shared';
 import { cn } from './utils';
+import { t } from '@/lib/langue';
 
 /**
  * Rendu Markdown maison : titres numérotés (l'application ajoute les icônes),
@@ -236,8 +237,7 @@ export function Markdown({
       {titres.length ? (
         <nav className="mb-4 overflow-hidden rounded-md border border-border bg-raised/60">
           <p className="border-b border-border/70 px-3 py-1.5 text-[12px] uppercase tracking-wide text-faint">
-            Sommaire
-          </p>
+            {t('Sommaire')}</p>
           {titres.map((titre) => (
             <button
               key={titre.index}
@@ -295,7 +295,7 @@ export function Markdown({
                   onClick={() => onToggleAll(items)}
                   className="ml-auto rounded border border-border px-1.5 py-0.5 text-[12px] font-normal text-muted hover:bg-raised hover:text-text"
                 >
-                  {allPicked ? 'Tout retirer' : 'Tout ajouter'}
+                  {allPicked ? t('Tout retirer') : t('Tout ajouter')}
                 </button>
               ) : null}
             </h2>

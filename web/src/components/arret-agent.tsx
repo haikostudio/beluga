@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Agent, arretDeCarteAutorise } from '@haikodev/shared';
 import { ConfirmDialog } from '@/components/ui';
 import { client } from '@/lib/client';
+import { t } from '@/lib/langue';
 
 /**
  * LE GESTE D'ARRÊT, ÉCRIT UNE SEULE FOIS.
@@ -80,9 +81,9 @@ export function useArretAgent({ agent, cardId }: { agent: Agent | null; cardId?:
     <ConfirmDialog
       open={aConfirmer !== null}
       danger
-      title="Arrêter cet agent ?"
-      description={`Il travaille depuis ${aConfirmer ?? 'un moment'}. Tout ce qu'il n'a pas encore enregistré sera perdu.`}
-      confirmLabel="Arrêter quand même"
+      title={t('Arrêter cet agent ?')}
+      description={t('Il travaille depuis {v0}. Tout ce qu\'il n\'a pas encore enregistré sera perdu.', { v0: aConfirmer ?? 'un moment' })}
+      confirmLabel={t('Arrêter quand même')}
       onConfirm={arreter}
       onClose={() => setAConfirmer(null)}
     />

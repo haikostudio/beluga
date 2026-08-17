@@ -3,6 +3,7 @@ import {
   LANGUE_DORIGINE,
   TRADUCTIONS,
   etiquetteDeLangue,
+  formatDeLangue,
   langueValide,
   traduire,
   type LangueId,
@@ -64,6 +65,18 @@ export function t(texte: string, valeurs?: ValeursDeTexte): string {
 /** La langue en vigueur, hors composant (le client, la voix, les erreurs). */
 export function langueEnCours(): LangueId {
   return langueCourante;
+}
+
+/**
+ * LE FORMAT DES DATES, DES HEURES ET DES NOMBRES, dans la langue en vigueur.
+ *
+ * Traduire les mots sans traduire les chiffres laisserait « 17.08.2026 » et
+ * « 1 234,50 » au milieu d'une page anglaise. Tout ce qui passait par
+ * `toLocaleDateString('fr-CH')` passe donc par ici — et en français, la valeur
+ * rendue EST `fr-CH` : rien ne change pour qui n'a pas changé de langue.
+ */
+export function formatRegional(): string {
+  return formatDeLangue(langueCourante);
 }
 
 /**

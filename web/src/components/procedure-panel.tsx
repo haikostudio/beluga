@@ -16,6 +16,7 @@ import { Button, Drawer, Textarea, Tooltip, ZoneDefilement } from '@/components/
 import { Markdown } from '@/lib/markdown';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { t } from '@/lib/langue';
 
 /**
  * LE TIROIR QUI DÉFINIT UNE PROCÉDURE DE MISE EN LIGNE.
@@ -192,18 +193,16 @@ export function TiroirProcedure({
     <Drawer open={open} onClose={onClose}>
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4" data-tiroir-procedure={cible}>
         <h2 className="shrink-0 text-[15px] font-medium text-text">
-          {titreDeLaProcedure(cible)} — {actuelle ? 'modifier la procédure' : 'définir la procédure'}
+          {titreDeLaProcedure(cible)} — {actuelle ? t('modifier la procédure') : t('définir la procédure')}
         </h2>
         <p className="mt-1 shrink-0 text-[12.5px] text-faint">
-          Un agent lit le projet, demande comment cette étape doit se passer, puis écrit la procédure. Elle ne
-          vaut que pour cette colonne.
-        </p>
+          {t('Un agent lit le projet, demande comment cette étape doit se passer, puis écrit la procédure. Elle ne vaut que pour cette colonne.')}</p>
 
         <ZoneDefilement classeEnveloppe="mt-3 min-h-0 flex-1" className="space-y-2 pr-1">
           {/* La procédure DÉJÀ en place, quand on rouvre pour la modifier. */}
           {actuelle && !ecrite ? (
             <div className="rounded-md border border-border bg-raised p-2.5" data-procedure-actuelle>
-              <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">Procédure en place</p>
+              <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">{t('Procédure en place')}</p>
               <div className="whitespace-pre-wrap text-[13px] text-muted">{actuelle}</div>
             </div>
           ) : null}
@@ -231,8 +230,8 @@ export function TiroirProcedure({
               data-question-procedure={question.questionId}
             >
               <p className="mb-1 flex items-center gap-1.5 text-[12px] uppercase tracking-wide text-warning">
-                <MessageCircleQuestion className="h-3 w-3" /> L’agent attend votre réponse
-              </p>
+                <MessageCircleQuestion className="h-3 w-3" />  {t('L’agent attend votre réponse')}
+</p>
               <div className="text-[13px] text-text">
                 <Markdown content={question.texte} />
               </div>
@@ -285,16 +284,17 @@ export function TiroirProcedure({
               {/* Un échec ne se rejoue jamais tout seul : un tour coûte. */}
               <Button size="sm" variant="outline" onClick={() => void lancer()} data-relancer-procedure>
                 <RotateCw className="h-3 w-3" />
-                Relancer la question
-              </Button>
+                
+{t('Relancer la question')}
+</Button>
             </div>
           ) : null}
 
           {ecrite ? (
             <div className="rounded-md border border-success/40 bg-raised p-2.5" data-procedure-ecrite>
               <p className="mb-1 flex items-center gap-1.5 text-[12px] uppercase tracking-wide text-success">
-                <Check className="h-3 w-3" /> Enregistrée
-              </p>
+                <Check className="h-3 w-3" />  {t('Enregistrée')}
+</p>
               <div className="whitespace-pre-wrap text-[13px] text-muted">{ecrite}</div>
             </div>
           ) : null}
@@ -307,10 +307,10 @@ export function TiroirProcedure({
             rows={3}
             placeholder={
               question
-                ? 'Répondez à la question de l’agent…'
+                ? t('Répondez à la question de l’agent…')
                 : actuelle
-                  ? 'Que voulez-vous changer à cette procédure ?'
-                  : 'Répondez à l’agent : comment cette mise en ligne doit-elle se passer ?'
+                  ? t('Que voulez-vous changer à cette procédure ?')
+                  : t('Répondez à l’agent : comment cette mise en ligne doit-elle se passer ?')
             }
             data-reponse-procedure
             onKeyDown={(e) => {
@@ -319,8 +319,7 @@ export function TiroirProcedure({
           />
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>
-              Fermer
-            </Button>
+              {t('Fermer')}</Button>
             {/* Un tour qui tourne bloque l'envoi — SAUF s'il est arrêté sur une
                 question : c'est justement de sa réponse qu'il a besoin. */}
             <Button
@@ -330,7 +329,7 @@ export function TiroirProcedure({
               data-envoyer-procedure
             >
               {enCours && !question ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              {question ? 'Répondre' : 'Envoyer'}
+              {question ? t('Répondre') : t('Envoyer')}
             </Button>
           </div>
         </div>

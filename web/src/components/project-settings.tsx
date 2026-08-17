@@ -43,6 +43,7 @@ import { Filet } from '@/components/filet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, money } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 interface ClientEntry {
   id: string;
@@ -90,7 +91,7 @@ function ChoixDeBranche({
         disabled={enCours}
         className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
       >
-        <option value="">{enCours ? 'Lecture des branches du dépôt…' : 'Branche par défaut'}</option>
+        <option value="">{enCours ? t('Lecture des branches du dépôt…') : t('Branche par défaut')}</option>
         {proposees.map((branche) => (
           <option key={branche} value={branche}>
             {branche}
@@ -98,7 +99,7 @@ function ChoixDeBranche({
         ))}
       </select>
       <p className="mt-1 text-[11.5px] leading-snug text-faint">
-        {valeur ? `Le lot sera fusionné, enregistré et poussé sur « ${valeur} ».` : mention}
+        {valeur ? t('Le lot sera fusionné, enregistré et poussé sur « {valeur} ».', { valeur }) : mention}
         {raison ? ` ${raison}` : ''}
       </p>
     </div>
@@ -121,36 +122,36 @@ function FormulaireAccesSSH({
     <div className="mt-2 space-y-2" data-acces-ssh>
       <div className="grid grid-cols-[1fr,90px] gap-2">
         <div>
-          <Label>Adresse du serveur</Label>
+          <Label>{t('Adresse du serveur')}</Label>
           <Input value={acces.hote ?? ''} onChange={(e) => champ('hote')(e.target.value)} disabled={disabled} className="mt-1" data-hote-ssh placeholder="serveur.exemple.com" />
         </div>
         <div>
-          <Label>Port</Label>
+          <Label>{t('Port')}</Label>
           <Input value={acces.port ?? ''} onChange={(e) => champ('port')(e.target.value)} disabled={disabled} className="mt-1" data-port-ssh placeholder="22" />
         </div>
       </div>
       <div>
-        <Label>Identifiant</Label>
+        <Label>{t('Identifiant')}</Label>
         <Input value={acces.utilisateur ?? ''} onChange={(e) => champ('utilisateur')(e.target.value)} disabled={disabled} className="mt-1" data-utilisateur-ssh />
       </div>
       <div>
-        <Label>Mot de passe</Label>
+        <Label>{t('Mot de passe')}</Label>
         <Input type="password" value={acces.motDePasse ?? ''} onChange={(e) => champ('motDePasse')(e.target.value)} disabled={disabled} className="mt-1" data-motdepasse-ssh />
       </div>
       <div>
-        <Label>Ou clé privée (laisser le mot de passe vide)</Label>
+        <Label>{t('Ou clé privée (laisser le mot de passe vide)')}</Label>
         <Textarea value={acces.cle ?? ''} onChange={(e) => champ('cle')(e.target.value)} disabled={disabled} className="mt-1 min-h-[70px] font-mono text-[12px]" data-cle-ssh />
       </div>
       <div>
-        <Label>Dossier de destination</Label>
+        <Label>{t('Dossier de destination')}</Label>
         <Input value={acces.dossierDistant ?? ''} onChange={(e) => champ('dossierDistant')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-distant-ssh placeholder="/var/www/mon-projet" />
       </div>
       <div>
-        <Label>Dossier construit à transférer (facultatif)</Label>
-        <Input value={acces.dossierConstruit ?? ''} onChange={(e) => champ('dossierConstruit')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-construit-ssh placeholder="dist (deviné si laissé vide)" />
+        <Label>{t('Dossier construit à transférer (facultatif)')}</Label>
+        <Input value={acces.dossierConstruit ?? ''} onChange={(e) => champ('dossierConstruit')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-construit-ssh placeholder={t('dist (deviné si laissé vide)')} />
       </div>
       <div>
-        <Label>Commande de fin, sur le serveur (facultatif)</Label>
+        <Label>{t('Commande de fin, sur le serveur (facultatif)')}</Label>
         <Input value={acces.commandeFin ?? ''} onChange={(e) => champ('commandeFin')(e.target.value)} disabled={disabled} className="mt-1" data-commande-fin-ssh placeholder="systemctl restart mon-service" />
       </div>
     </div>
@@ -173,29 +174,29 @@ function FormulaireAccesFTP({
     <div className="mt-2 space-y-2" data-acces-ftp>
       <div className="grid grid-cols-[1fr,90px] gap-2">
         <div>
-          <Label>Adresse du serveur</Label>
+          <Label>{t('Adresse du serveur')}</Label>
           <Input value={acces.hote ?? ''} onChange={(e) => champ('hote')(e.target.value)} disabled={disabled} className="mt-1" data-hote-ftp placeholder="ftp.exemple.com" />
         </div>
         <div>
-          <Label>Port</Label>
+          <Label>{t('Port')}</Label>
           <Input value={acces.port ?? ''} onChange={(e) => champ('port')(e.target.value)} disabled={disabled} className="mt-1" data-port-ftp placeholder="21" />
         </div>
       </div>
       <div>
-        <Label>Identifiant</Label>
+        <Label>{t('Identifiant')}</Label>
         <Input value={acces.utilisateur ?? ''} onChange={(e) => champ('utilisateur')(e.target.value)} disabled={disabled} className="mt-1" data-utilisateur-ftp />
       </div>
       <div>
-        <Label>Mot de passe</Label>
+        <Label>{t('Mot de passe')}</Label>
         <Input type="password" value={acces.motDePasse ?? ''} onChange={(e) => champ('motDePasse')(e.target.value)} disabled={disabled} className="mt-1" data-motdepasse-ftp />
       </div>
       <div>
-        <Label>Dossier de destination</Label>
+        <Label>{t('Dossier de destination')}</Label>
         <Input value={acces.dossierDistant ?? ''} onChange={(e) => champ('dossierDistant')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-distant-ftp placeholder="/www/mon-projet" />
       </div>
       <div>
-        <Label>Dossier construit à transférer (facultatif)</Label>
-        <Input value={acces.dossierConstruit ?? ''} onChange={(e) => champ('dossierConstruit')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-construit-ftp placeholder="dist (deviné si laissé vide)" />
+        <Label>{t('Dossier construit à transférer (facultatif)')}</Label>
+        <Input value={acces.dossierConstruit ?? ''} onChange={(e) => champ('dossierConstruit')(e.target.value)} disabled={disabled} className="mt-1" data-dossier-construit-ftp placeholder={t('dist (deviné si laissé vide)')} />
       </div>
       <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
         <input
@@ -206,7 +207,7 @@ function FormulaireAccesFTP({
           className="mt-0.5 h-3.5 w-3.5 shrink-0"
           data-securise-ftp
         />
-        <span>FTPS (chiffré) plutôt que le FTP en clair — à cocher quand le serveur l'accepte.</span>
+        <span>{t('FTPS (chiffré) plutôt que le FTP en clair — à cocher quand le serveur l\'accepte.')}</span>
       </label>
     </div>
   );
@@ -408,7 +409,7 @@ export function ProjectSettings({
             : undefined,
         },
       });
-      client.pushToast('success', 'Réglages du projet enregistrés');
+      client.pushToast('success', t('Réglages du projet enregistrés'));
       onClose();
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'enregistrement impossible');
@@ -424,7 +425,7 @@ export function ProjectSettings({
    */
   const genererPrompt = async () => {
     if (!baseProduction.trim()) {
-      client.pushToast('error', 'Écrivez d’abord ce que vous attendez de la mise en production.');
+      client.pushToast('error', t('Écrivez d’abord ce que vous attendez de la mise en production.'));
       return;
     }
     setGeneration(true);
@@ -436,7 +437,7 @@ export function ProjectSettings({
       );
       if (res.ok && res.prompt) {
         setPromptProduction(res.prompt);
-        client.pushToast('success', 'Prompt rédigé. Relisez-le, puis enregistrez.');
+        client.pushToast('success', t('Prompt rédigé. Relisez-le, puis enregistrez.'));
       } else {
         client.pushToast('error', res.raison ?? 'la génération n’a rien rendu');
       }
@@ -460,17 +461,17 @@ export function ProjectSettings({
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
       <DialogContent className="sm:w-[min(560px,100%)]">
-        <DialogTitle>Réglages du projet</DialogTitle>
+        <DialogTitle>{t('Réglages du projet')}</DialogTitle>
         <Filet zone="Réglages du projet" onReprendre={onClose}>
 
         <div className="mt-4 space-y-3">
           <div>
-            <Label>Nom</Label>
+            <Label>{t('Nom')}</Label>
             <Input value={name} onChange={(event) => setName(event.target.value)} className="mt-1" />
           </div>
 
           <div>
-            <Label>Moteur par défaut de ce projet</Label>
+            <Label>{t('Moteur par défaut de ce projet')}</Label>
             <select
               value={engine}
               onChange={(event) => setEngine(event.target.value)}
@@ -485,8 +486,7 @@ export function ProjectSettings({
                 ))}
             </select>
             <p className="mt-1 text-[12.5px] text-faint">
-              Les nouvelles cartes et le chef de ce projet partiront sur ce moteur.
-            </p>
+              {t('Les nouvelles cartes et le chef de ce projet partiront sur ce moteur.')}</p>
           </div>
 
           {/*
@@ -496,13 +496,11 @@ export function ProjectSettings({
            * choix par défaut, et le seul qui rende la main au thème général.
            */}
           <div data-theme-projet>
-            <Label>Thème de ce projet</Label>
+            <Label>{t('Thème de ce projet')}</Label>
             <p className="mt-0.5 text-[12.5px] leading-snug text-faint">
-              Un thème propre à ce projet habille toute l'application dès qu'on l'ouvre — c'est le repère le plus
-              rapide pour savoir où l'on est.
-            </p>
+              {t('Un thème propre à ce projet habille toute l\'application dès qu\'on l\'ouvre — c\'est le repère le plus rapide pour savoir où l\'on est.')}</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {[{ id: null, libelle: 'Comme le réglage général', apercu: null }, ...CHOIX_DE_THEME].map((item) => {
+              {[{ id: null, libelle: t('Comme le réglage général'), apercu: null }, ...CHOIX_DE_THEME].map((item) => {
                 const actif = (item.id ?? null) === themeProjet;
                 return (
                   <button
@@ -531,11 +529,13 @@ export function ProjectSettings({
           </div>
 
           <div className="rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-faint">
-            Dossier sur le serveur : <span className="text-muted">{project.path}</span>
+            
+{t('Dossier sur le serveur :')} <span className="text-muted">{project.path}</span>
             {project.gitRemote ? (
               <>
                 <br />
-                Dépôt : <span className="text-muted">{project.gitRemote}</span>
+                
+{t('Dépôt :')} <span className="text-muted">{project.gitRemote}</span>
               </>
             ) : null}
           </div>
@@ -543,16 +543,13 @@ export function ProjectSettings({
           {/* ---------- Publication ---------- */}
           <div data-deploiement>
             <h3 className="mb-1.5 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-              <Rocket className="h-3.5 w-3.5 text-faint" /> Déploiement
-            </h3>
+              <Rocket className="h-3.5 w-3.5 text-faint" />  {t('Déploiement')}
+</h3>
             <p className="mb-2 text-[12.5px] leading-snug text-faint">
-              Déployer fusionne les branches des cartes, enregistre, envoie sur le dépôt, puis rafraîchit l'instance de
-              dev de ce projet sur le serveur. Rien d'autre à régler : HaikoDev reconnaît tout seul la construction et
-              le service à relancer.
-            </p>
+              {t('Déployer fusionne les branches des cartes, enregistre, envoie sur le dépôt, puis rafraîchit l\'instance de dev de ce projet sur le serveur. Rien d\'autre à régler : HaikoDev reconnaît tout seul la construction et le service à relancer.')}</p>
 
             <div>
-              <Label>Adresse à contrôler</Label>
+              <Label>{t('Adresse à contrôler')}</Label>
               <div className="mt-1 flex items-center gap-1.5">
                 <Input
                   value={devUrl}
@@ -566,7 +563,7 @@ export function ProjectSettings({
                     type="button"
                     data-favicon-retry
                     disabled={faviconEnCours}
-                    title="Aller rechercher l'icône du site : sur cette adresse, ou dans le dépôt du projet"
+                    title={t('Aller rechercher l\'icône du site : sur cette adresse, ou dans le dépôt du projet')}
                     onClick={() => {
                       setFaviconEnCours(true);
                       client
@@ -577,23 +574,19 @@ export function ProjectSettings({
                     className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-surface px-2 py-1.5 text-[12.5px] text-muted hover:text-text disabled:opacity-50"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${faviconEnCours ? 'animate-spin' : ''}`} />
-                    Icône
-                  </button>
+                    
+{t('Icône')}
+</button>
                 ) : null}
               </div>
               <p className="mt-1 text-[11.5px] text-faint">
-                Elle est remplie toute seule à la création du projet, et se corrige ici à la main. Elle est ouverte à la
-                fin de chaque déploiement : si elle ne répond pas, le déploiement est déclaré en échec. Laissée vide,
-                aucune adresse n'est contrôlée. Le bouton « Icône » relance la récupération du favicon de la colonne de
-                gauche, sans attendre la révision automatique : sur cette adresse quand elle est remplie, et sinon dans
-                le dépôt du projet (public/favicon.svg, favicon.ico…).
-              </p>
+                {t('Elle est remplie toute seule à la création du projet, et se corrige ici à la main. Elle est ouverte à la fin de chaque déploiement : si elle ne répond pas, le déploiement est déclaré en échec. Laissée vide, aucune adresse n\'est contrôlée. Le bouton « Icône » relance la récupération du favicon de la colonne de gauche, sans attendre la révision automatique : sur cette adresse quand elle est remplie, et sinon dans le dépôt du projet (public/favicon.svg, favicon.ico…).')}</p>
             </div>
 
             <div className="mt-2">
               <ChoixDeBranche
                 repere="data-branche-dev"
-                titre="Branche du déploiement"
+                titre={t('Branche du déploiement')}
                 valeur={brancheDev}
                 onChange={setBrancheDev}
                 branches={branches}
@@ -617,18 +610,15 @@ export function ProjectSettings({
               <Rocket className="h-3.5 w-3.5 text-faint" /> {TITRE_MISE_EN_PRODUCTION}
             </h3>
             <p className="mb-2 text-[12.5px] leading-snug text-faint">
-              Choisissez comment le code part chez le client : un projet local n'a nulle part où
-              l'envoyer, la plupart des hébergements se déposent par SSH ou par FTP, et « Consigne
-              libre » confie le travail à un agent qui suit un texte écrit à la main.
-            </p>
+              {t('Choisissez comment le code part chez le client : un projet local n\'a nulle part où l\'envoyer, la plupart des hébergements se déposent par SSH ou par FTP, et « Consigne libre » confie le travail à un agent qui suit un texte écrit à la main.')}</p>
 
             <div className="mb-2 grid grid-cols-2 gap-1.5" data-type-cible-production>
               {(
                 [
-                  ['aucune', 'Aucune (projet local)'],
-                  ['ssh', 'Serveur SSH'],
-                  ['ftp', 'Serveur FTP'],
-                  ['consigne', 'Consigne libre'],
+                  ['aucune', t('Aucune (projet local)')],
+                  ['ssh', t('Serveur SSH')],
+                  ['ftp', t('Serveur FTP')],
+                  ['consigne', t('Consigne libre')],
                 ] as [TypeCibleMiseEnProduction, string][]
               ).map(([valeur, libelle]) => (
                 <button
@@ -661,7 +651,7 @@ export function ProjectSettings({
             <div className="mt-2">
               <ChoixDeBranche
                 repere="data-branche-production"
-                titre="Branche de la mise en production"
+                titre={t('Branche de la mise en production')}
                 valeur={brancheProduction}
                 onChange={setBrancheProduction}
                 branches={branches}
@@ -673,10 +663,7 @@ export function ProjectSettings({
 
             {typeCible === 'aucune' ? (
               <p className="mt-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[12.5px] leading-snug text-faint" data-cible-aucune>
-                Projet local : la mise en production fusionne, enregistre et envoie le lot sur le dépôt,
-                mais rien n'est transféré ailleurs. Le bouton « Tout publier » n'est jamais bloqué par ce
-                type.
-              </p>
+                {t('Projet local : la mise en production fusionne, enregistre et envoie le lot sur le dépôt, mais rien n\'est transféré ailleurs. Le bouton « Tout publier » n\'est jamais bloqué par ce type.')}</p>
             ) : null}
 
             {typeCible === 'ssh' ? (
@@ -689,7 +676,7 @@ export function ProjectSettings({
 
             {typeCible === 'ssh' || typeCible === 'ftp' ? (
               <div className="mt-2">
-                <Label>Adresse à contrôler après le transfert</Label>
+                <Label>{t('Adresse à contrôler après le transfert')}</Label>
                 <Input
                   value={prodUrl}
                   onChange={(event) => setProdUrl(event.target.value)}
@@ -698,16 +685,14 @@ export function ProjectSettings({
                   placeholder="https://mon-projet.exemple.com"
                 />
                 <p className="mt-1 text-[11.5px] text-faint">
-                  Ouverte à la fin du transfert, comme l'adresse de dev en fin de déploiement. Laissée
-                  vide, aucune adresse n'est contrôlée.
-                </p>
+                  {t('Ouverte à la fin du transfert, comme l\'adresse de dev en fin de déploiement. Laissée vide, aucune adresse n\'est contrôlée.')}</p>
               </div>
             ) : null}
 
             {typeCible === 'consigne' ? (
               <>
                 <div className="mt-2">
-                  <Label>Ce que vous attendez, dans vos mots</Label>
+                  <Label>{t('Ce que vous attendez, dans vos mots')}</Label>
                   <Textarea
                     data-base-production
                     value={baseProduction}
@@ -715,16 +700,14 @@ export function ProjectSettings({
                     disabled={generation || saving}
                     onChange={(event) => setBaseProduction(event.target.value)}
                     placeholder={
-                      'Sans soigner la formulation : où le site tourne, comment le code y arrive, ce qu’il faut relancer, à quoi on voit que c’est en ligne.\n' +
-                      'Dites aussi ce qu’il ne faut PAS faire.'
+                      t('Sans soigner la formulation : où le site tourne, comment le code y arrive, ce qu’il faut relancer, à quoi on voit que c’est en ligne.\n') +
+                      t('Dites aussi ce qu’il ne faut PAS faire.')
                     }
                     className="mt-1 min-h-[120px]"
                   />
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <p className="text-[12.5px] leading-snug text-faint">
-                      Générer confie ce texte à un agent qui rédige le prompt final. C’est un tour d’agent :
-                      cela consomme du quota, mais ne déploie rien.
-                    </p>
+                      {t('Générer confie ce texte à un agent qui rédige le prompt final. C’est un tour d’agent : cela consomme du quota, mais ne déploie rien.')}</p>
                     <Button
                       data-generer-production
                       variant="subtle"
@@ -733,13 +716,13 @@ export function ProjectSettings({
                       className="shrink-0 gap-1.5"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
-                      {generation ? 'Génération…' : 'Générer'}
+                      {generation ? t('Génération…') : t('Générer')}
                     </Button>
                   </div>
                 </div>
 
                 <div className="mt-2">
-                  <Label>Prompt donné à l’agent de mise en production</Label>
+                  <Label>{t('Prompt donné à l’agent de mise en production')}</Label>
                   <Textarea
                     data-prompt-production
                     value={promptProduction}
@@ -748,16 +731,13 @@ export function ProjectSettings({
                     onChange={(event) => setPromptProduction(event.target.value)}
                     placeholder={
                       generation
-                        ? 'Rédaction en cours…'
-                        : 'Le prompt rédigé apparaîtra ici. Vous pouvez aussi l’écrire ou le corriger à la main.'
+                        ? t('Rédaction en cours…')
+                        : t('Le prompt rédigé apparaîtra ici. Vous pouvez aussi l’écrire ou le corriger à la main.')
                     }
                     className="mt-1 min-h-[150px]"
                   />
                   <p className="mt-1 text-[12.5px] leading-snug text-faint" data-mention-production>
-                    {mentionMiseEnProduction(promptProduction)} Laissé vide, aucune mise en production ne part :
-                    le bouton « Tout publier » de la colonne « En production » reste éteint et renvoie ici. Le
-                    déploiement sur l’instance de dev, lui, n’a jamais besoin de ce prompt.
-                  </p>
+                    {t('{v0} Laissé vide, aucune mise en production ne part : le bouton « Tout publier » de la colonne « En production » reste éteint et renvoie ici. Le déploiement sur l’instance de dev, lui, n’a jamais besoin de ce prompt.', { v0: mentionMiseEnProduction(promptProduction) })}</p>
                 </div>
               </>
             ) : null}
@@ -766,29 +746,27 @@ export function ProjectSettings({
           {/* ---------- Client ---------- */}
           <div>
             <h3 className="mb-1.5 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-              <CircleDollarSign className="h-3.5 w-3.5 text-faint" /> Client et tarif
-            </h3>
+              <CircleDollarSign className="h-3.5 w-3.5 text-faint" />  {t('Client et tarif')}
+</h3>
 
             {ecartChiffrage ? (
               <p className="mb-2 text-[12.5px] leading-snug text-faint">
-                Sur les {ecartChiffrage.count} dernières cartes mesurées, le travail réel a pris en moyenne{' '}
-                {Math.round(ecartChiffrage.ratioMoyen * 100)} % du temps annoncé au chiffrage.
-              </p>
+                {t('Sur les {v0} dernières cartes mesurées, le travail réel a pris en moyenne{v1} {v2} % du temps annoncé au chiffrage.', { v0: ecartChiffrage.count, v1: ' ', v2: Math.round(ecartChiffrage.ratioMoyen * 100) })}</p>
             ) : null}
 
             {loading ? (
               <p className="flex items-center gap-1.5 text-[13.5px] text-faint">
-                <Loader2 className="h-3 w-3 animate-spin" /> Lecture des clients…
-              </p>
+                <Loader2 className="h-3 w-3 animate-spin" />  {t('Lecture des clients…')}
+</p>
             ) : available ? (
               <>
-                <Label>Client facturé</Label>
+                <Label>{t('Client facturé')}</Label>
                 <select
                   value={clientId}
                   onChange={(event) => setClientId(event.target.value)}
                   className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
                 >
-                  <option value="">Aucun client relié</option>
+                  <option value="">{t('Aucun client relié')}</option>
                   {clients.map((entry) => (
                     <option key={entry.id} value={entry.id}>
                       {entry.name} {entry.companyName ? `— ${entry.companyName}` : ''}
@@ -797,7 +775,7 @@ export function ProjectSettings({
                 </select>
 
                 <div className="mt-2">
-                  <Label className="block">Tarif horaire</Label>
+                  <Label className="block">{t('Tarif horaire')}</Label>
                   <Input
                     value={rate}
                     onChange={(event) => setRate(event.target.value.replace(',', '.'))}
@@ -805,31 +783,30 @@ export function ProjectSettings({
                     inputMode="decimal"
                   />
                   <p className="mt-1 text-[12.5px] text-faint">
-                    Trois heures de travail seraient facturées {money((Number(rate) || 0) * 3)}.
-                  </p>
+                    {t('Trois heures de travail seraient facturées {v0}.', { v0: money((Number(rate) || 0) * 3) })}</p>
                 </div>
 
                 {clientId ? (
                   <div className="mt-3 space-y-3">
                     <div>
-                      <Label className="block">Document par défaut</Label>
+                      <Label className="block">{t('Document par défaut')}</Label>
                       <select
                         value={documentType}
                         onChange={(event) => setDocumentType(event.target.value as 'offer' | 'invoice')}
                         className="mt-1.5 h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
                       >
-                        <option value="invoice">Facture</option>
-                        <option value="offer">Offre</option>
+                        <option value="invoice">{t('Facture')}</option>
+                        <option value="offer">{t('Offre')}</option>
                       </select>
                     </div>
                     <div>
-                      <Label className="block">Lequel</Label>
+                      <Label className="block">{t('Lequel')}</Label>
                       <select
                         value={documentId}
                         onChange={(event) => setDocumentId(event.target.value)}
                         className="mt-1.5 h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
                       >
-                        <option value="">Nouveau à chaque fois</option>
+                        <option value="">{t('Nouveau à chaque fois')}</option>
                         {documents
                           .filter((doc) => doc.type === documentType)
                           .map((doc) => (
@@ -843,12 +820,10 @@ export function ProjectSettings({
                 ) : null}
 
                 <p className="mt-1.5 text-[12.5px] leading-snug text-faint">
-                  Une fois le client relié, chaque carte propose d'ajouter sa ligne au document en un clic. Les montants
-                  restent calculés par l'outil de facturation, jamais ici.
-                </p>
+                  {t('Une fois le client relié, chaque carte propose d\'ajouter sa ligne au document en un clic. Les montants restent calculés par l\'outil de facturation, jamais ici.')}</p>
               </>
             ) : (
-              <p className="text-[13.5px] text-faint">L'outil de facturation n'est pas joignable depuis ce serveur.</p>
+              <p className="text-[13.5px] text-faint">{t('L\'outil de facturation n\'est pas joignable depuis ce serveur.')}</p>
             )}
           </div>
         </div>
@@ -856,28 +831,28 @@ export function ProjectSettings({
         <div className="mt-4 flex items-center gap-1.5">
           <Button variant="ghost" size="sm" onClick={archive}>
             <Archive className="h-3 w-3" />
-            {project.archived ? 'Remettre en service' : 'Mettre de côté'}
+            {project.archived ? t('Remettre en service') : t('Mettre de côté')}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setConfirmSuppression(true)} className="text-danger hover:text-danger">
-            <Trash2 className="h-3 w-3" /> Effacer
-          </Button>
+            <Trash2 className="h-3 w-3" />  {t('Effacer')}
+</Button>
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Annuler
-          </Button>
+            {t('Annuler')}</Button>
           <Button variant="default" size="sm" onClick={save} disabled={saving}>
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-            Enregistrer
-          </Button>
+            
+{t('Enregistrer')}
+</Button>
         </div>
         </Filet>
       </DialogContent>
 
       <ConfirmDialog
         open={confirmSuppression}
-        title={`Effacer « ${project.name} » de HaikoDev ?`}
-        description="Son tableau et ses conversations partent avec. Le dossier sur le serveur, lui, n'est pas touché. Pour simplement le ranger de côté, utilisez « Mettre de côté »."
-        confirmLabel="Effacer"
+        title={t('Effacer « {v0} » de HaikoDev ?', { v0: project.name })}
+        description={t('Son tableau et ses conversations partent avec. Le dossier sur le serveur, lui, n\'est pas touché. Pour simplement le ranger de côté, utilisez « Mettre de côté ».')}
+        confirmLabel={t('Effacer')}
         danger
         onConfirm={remove}
         onClose={() => setConfirmSuppression(false)}

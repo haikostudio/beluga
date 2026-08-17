@@ -33,6 +33,7 @@ import { direVoix, lireNiveaux, taireVoix, useVoix } from '@/lib/voix';
 import { lireNiveauxMicro, useEcoutePermanente } from '@/lib/ecoute';
 import { lireNiveauxConversation, useConversationVocale } from '@/lib/conversation-vocale';
 import { signalerEcouteVoulue } from '@/lib/micro';
+import { t } from '@/lib/langue';
 
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
@@ -648,7 +649,7 @@ export function VoixAssistant() {
         attenteReponseRef.current = { agentId: res.agentId, depuis };
       }
     } catch {
-      client.pushToast('error', "La demande vocale n’a pas pu partir.");
+      client.pushToast('error', t('La demande vocale n’a pas pu partir.'));
     }
   }, [ajouterAuFil]);
 
@@ -1079,7 +1080,7 @@ export function VoixAssistant() {
             ? 'L’assistant parle'
             : `Voix de l’assistant — ${nb} message${nb > 1 ? 's' : ''} à réécouter — tirer pour le déplacer`
         }
-        title="Voix de l’assistant — tirer pour le déplacer"
+        title={t('Voix de l’assistant — tirer pour le déplacer')}
         // AU DOIGT SEULEMENT, le bouton porte le glissement : le même appui sert
         // à déplier (immobile) et à déplacer (qui glisse). À la souris, ce bouton
         // s'efface au survol (l'ouverture le rend `pointer-events-none`) et ne
@@ -1114,7 +1115,7 @@ export function VoixAssistant() {
         }}
       >
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-[11.5px] font-medium text-muted">
-          <span>{enConversation ? 'Conversation' : 'Derniers messages'}</span>
+          <span>{enConversation ? t('Conversation') : t('Derniers messages')}</span>
           {/* LE MODE CONVERSATION VOCALE, à côté de l'écoute et du Muet. Allumé,
               on parle SANS mot de réveil, l'agent répond à la voix, et reparler
               coupe sa parole. Bleu quand il écoute (les ondes le sont aussi),
@@ -1136,10 +1137,10 @@ export function VoixAssistant() {
             }`}
             title={
               conversation.etat === 'refusee'
-                ? 'Micro refusé — cliquer pour réessayer la conversation'
+                ? t('Micro refusé — cliquer pour réessayer la conversation')
                 : conversationAllumee
-                  ? 'Arrêter la conversation vocale'
-                  : 'Parler à l’assistant : il écoute, répond à la voix, et reparler le coupe'
+                  ? t('Arrêter la conversation vocale')
+                  : t('Parler à l’assistant : il écoute, répond à la voix, et reparler le coupe')
             }
             aria-label={
               conversationAllumee ? 'Arrêter la conversation vocale' : 'Démarrer la conversation vocale'
@@ -1167,10 +1168,10 @@ export function VoixAssistant() {
             }`}
             title={
               ecoute.etat === 'refusee'
-                ? 'Micro refusé — cliquer pour réessayer l’écoute'
+                ? t('Micro refusé — cliquer pour réessayer l’écoute')
                 : ecouteAllumee
-                  ? 'Couper l’écoute permanente'
-                  : `Écouter en permanence, et se réveiller sur « ${state.settings?.voixReveil || 'Dis Haiko'} »`
+                  ? t('Couper l’écoute permanente')
+                  : t('Écouter en permanence, et se réveiller sur « {v0} »', { v0: state.settings?.voixReveil || 'Dis Haiko' })
             }
             aria-label={
               ecouteAllumee ? 'Couper l’écoute permanente' : 'Allumer l’écoute permanente'
@@ -1194,7 +1195,7 @@ export function VoixAssistant() {
             className={`flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
               muet ? 'text-muted' : 'text-success'
             }`}
-            title={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
+            title={muet ? t('Rétablir la voix automatique') : t('Couper la voix automatique')}
             aria-label={muet ? 'Rétablir la voix automatique' : 'Couper la voix automatique'}
           >
             {muet ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
@@ -1222,7 +1223,7 @@ export function VoixAssistant() {
             className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-2"
           >
             {fil.length === 0 ? (
-              <li className="text-[12px] text-faint">Je vous écoute…</li>
+              <li className="text-[12px] text-faint">{t('Je vous écoute…')}</li>
             ) : (
               fil.map((tour) => (
                 <li
@@ -1243,7 +1244,7 @@ export function VoixAssistant() {
             )}
           </ul>
         ) : nb === 0 ? (
-          <p className="flex-1 px-3 py-3 text-[12px] text-faint">Aucune annonce pour l’instant.</p>
+          <p className="flex-1 px-3 py-3 text-[12px] text-faint">{t('Aucune annonce pour l’instant.')}</p>
         ) : (
           <ul className="min-h-0 flex-1 overflow-y-auto py-1">
             {messages.slice(0, VOIX_MESSAGES_MAX).map((m) => {
@@ -1318,7 +1319,7 @@ export function VoixAssistant() {
             e.stopPropagation();
             ecoute.annuler();
           }}
-          title="Cliquer pour jeter la phrase"
+          title={t('Cliquer pour jeter la phrase')}
           aria-label={`Phrase entendue : ${ecoute.dictee || '…'} — cliquer pour la jeter`}
           className={`absolute inset-x-0 flex items-center gap-2 border-t border-border bg-surface px-3 py-2 text-left text-[12.5px] text-text ${
             ecoute.etat === 'relit' ? 'border-t-danger' : ''
@@ -1327,7 +1328,7 @@ export function VoixAssistant() {
         >
           <span className="h-2 w-2 shrink-0 animate-pulse-soft rounded-full bg-danger" aria-hidden />
           <span className="min-w-0 flex-1 line-clamp-2">
-            {ecoute.dictee || <span className="text-faint">Je vous écoute…</span>}
+            {ecoute.dictee || <span className="text-faint">{t('Je vous écoute…')}</span>}
           </span>
         </button>
       )}
@@ -1383,8 +1384,8 @@ export function VoixAssistant() {
             }}
             title={
               conversationAllumee
-                ? 'Arrêter la conversation vocale'
-                : 'Cliquer pour parler à l’assistant : il écoute et répond'
+                ? t('Arrêter la conversation vocale')
+                : t('Cliquer pour parler à l’assistant : il écoute et répond')
             }
             aria-label={
               conversationAllumee ? 'Arrêter la conversation vocale' : 'Démarrer la conversation vocale'
@@ -1429,7 +1430,7 @@ export function VoixAssistant() {
           type="button"
           data-poignee-voix
           aria-label="Déplacer la voix de l’assistant"
-          title="Tirer pour déplacer"
+          title={t('Tirer pour déplacer')}
           onPointerDown={commencerGlissement}
           className="fixed bottom-20 left-1/2 z-30 grid h-6 w-6 cursor-grab place-items-center text-faint transition-transform ease-out hover:text-muted active:cursor-grabbing sm:bottom-6"
           style={{

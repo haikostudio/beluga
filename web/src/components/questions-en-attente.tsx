@@ -11,6 +11,7 @@ import {
 } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { t } from '@/lib/langue';
 
 /**
  * Le triangle de la colonne de gauche dit qu'il y a des décisions attendues,
@@ -62,7 +63,7 @@ export function QuestionsEnAttente() {
             onSelect={() => aller(decision)}
           >
             <span className="flex w-full items-center gap-1 text-[11.5px] text-faint">
-              <span className="truncate">{decision.projectName ?? 'Projet'}</span>
+              <span className="truncate">{decision.projectName ?? t('Projet')}</span>
               {decision.lieuTitre ? (
                 <>
                   <span aria-hidden>·</span>
@@ -71,7 +72,7 @@ export function QuestionsEnAttente() {
               ) : null}
             </span>
             <span className="line-clamp-2 text-left text-[13.5px] text-text">
-              {decision.texte ?? 'Une décision est attendue.'}
+              {decision.texte ?? t('Une décision est attendue.')}
             </span>
           </DropdownMenuItem>
         ))}

@@ -1,30 +1,40 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { formatRegional, t } from './langue';
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
+/*
+ * CES QUATRE MISES EN FORME SONT DU TEXTE D'INTERFACE, pas des données. Elles
+ * étaient écrites en français dans le code — « il y a 3 min », « 12 ko » — et
+ * seraient restées telles quelles au milieu d'une page anglaise. Elles passent
+ * donc par le dictionnaire comme le reste, et leurs chiffres par le format
+ * régional de la langue en vigueur.
+ */
+
 export function relativeTime(timestamp?: number): string {
   if (!timestamp) return '—';
   const seconds = Math.round((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return "à l'instant";
+  if (seconds < 60) return t('à l’instant');
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `il y a ${minutes} min`;
+  if (minutes < 60) return t('il y a {n} min', { n: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `il y a ${hours} h`;
+  if (hours < 24) return t('il y a {n} h', { n: hours });
   const days = Math.round(hours / 24);
-  if (days < 30) return `il y a ${days} j`;
-  return new Date(timestamp).toLocaleDateString('fr-CH');
+  if (days < 30) return t('il y a {n} j', { n: days });
+  return new Date(timestamp).toLocaleDateString(formatRegional());
 }
 
 export function duration(seconds?: number): string {
   if (!seconds || seconds < 1) return '—';
-  if (seconds < 60) return `${Math.round(seconds)} s`;
+  if (seconds < 60) return t('{n} s', { n: Math.round(seconds) });
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 60) return t('{n} min', { n: minutes });
   const hours = Math.floor(minutes / 60);
-  return `${hours} h ${minutes % 60 ? `${minutes % 60} min` : ''}`.trim();
+  const reste = minutes % 60;
+  return reste ? t('{h} h {m} min', { h: hours, m: reste }) : t('{n} h', { n: hours });
 }
 
 export function elapsed(since?: number): string {
@@ -34,12 +44,12 @@ export function elapsed(since?: number): string {
 
 export function bytes(size?: number): string {
   if (!size) return '—';
-  if (size < 1024) return `${size} o`;
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} ko`;
-  return `${(size / 1024 / 1024).toFixed(1)} Mo`;
+  if (size < 1024) return t('{n} o', { n: size });
+  if (size < 1024 * 1024) return t('{n} ko', { n: Math.round(size / 1024) });
+  return t('{n} Mo', { n: (size / 1024 / 1024).toFixed(1) });
 }
 
 export function money(amount?: number, currency = 'CHF'): string {
   if (amount === undefined) return '—';
-  return `${amount.toLocaleString('fr-CH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${currency}`;
+  return `${amount.toLocaleString(formatRegional(), { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${currency}`;
 }

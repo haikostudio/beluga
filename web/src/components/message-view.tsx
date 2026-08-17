@@ -60,6 +60,7 @@ import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors'
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, relativeTime } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * La ligne de repères sous un message : l'ancienneté, ce qui est propre à ce
@@ -241,7 +242,7 @@ export function MessageView({
             />
           )
         ) : message.streaming && !etapes.length ? (
-          <p className="text-[14px] text-faint">L'agent réfléchit…</p>
+          <p className="text-[14px] text-faint">{t('L\'agent réfléchit…')}</p>
         ) : null}
 
         {/* Seules les propositions DÉCIDÉES restent ici : celles qui attendent
@@ -453,9 +454,9 @@ function PlanBlock({
       >
         <ChevronRight className="h-3.5 w-3.5 shrink-0" />
         <Route className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">{courant ? 'Plan proposé' : 'Version précédente'}</span>
+        <span className="truncate">{courant ? t('Plan proposé') : t('Version précédente')}</span>
         {numero ? (
-          <span className="shrink-0 whitespace-nowrap normal-case tracking-normal text-faint">· version {numero}</span>
+          <span className="shrink-0 whitespace-nowrap normal-case tracking-normal text-faint">{t('· version {numero}', { numero })}</span>
         ) : null}
       </button>
     );
@@ -485,24 +486,23 @@ function PlanBlock({
       <div data-entete-plan className="mb-2 flex flex-nowrap items-center justify-between gap-2 overflow-hidden">
         <div className="flex min-w-0 flex-nowrap items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
           <Route className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{courant ? 'Plan proposé' : 'Version précédente'}</span>
+          <span className="truncate">{courant ? t('Plan proposé') : t('Version précédente')}</span>
           {numero ? (
-          <span className="shrink-0 whitespace-nowrap normal-case tracking-normal text-faint">· version {numero}</span>
+          <span className="shrink-0 whitespace-nowrap normal-case tracking-normal text-faint">{t('· version {numero}', { numero })}</span>
         ) : null}
         </div>
         {courant && precedentes.length ? (
           <button
             type="button"
             data-versions-plan
-            title={`${precedentes.length} version${precedentes.length > 1 ? 's' : ''} précédente${precedentes.length > 1 ? 's' : ''}`}
+            title={t('{v0} version{v1} précédente{v2}', { v0: precedentes.length, v1: precedentes.length > 1 ? 's' : '', v2: precedentes.length > 1 ? 's' : '' })}
             onClick={() => setVersionsOuvertes((v) => !v)}
             className="flex shrink-0 flex-nowrap items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-1 text-[12px] text-faint transition-colors hover:bg-surface hover:text-text"
           >
             <History className="h-3 w-3 shrink-0" />
             {precedentes.length} version{precedentes.length > 1 ? 's' : ''}
             <span className="hidden sm:inline">
-              précédente{precedentes.length > 1 ? 's' : ''}
-            </span>
+              {t('précédente{v0}', { v0: precedentes.length > 1 ? 's' : '' })}</span>
             <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', versionsOuvertes && 'rotate-90')} />
           </button>
         ) : null}
@@ -512,8 +512,7 @@ function PlanBlock({
             onClick={() => setReplie(true)}
             className="shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:text-text"
           >
-            Replier
-          </button>
+            {t('Replier')}</button>
         )}
       </div>
 
@@ -521,7 +520,7 @@ function PlanBlock({
         <ul data-liste-versions-plan className="mb-3 space-y-1 rounded-md border border-border bg-raised px-2 py-1.5">
           {precedentes.map((v) => (
             <li key={v.id} className="flex items-center justify-between gap-2 text-[12.5px] text-muted">
-              <span>Version {numeroDeVersion(allMessages, v.id)}</span>
+              <span>{t('Version {v0}', { v0: numeroDeVersion(allMessages, v.id) })}</span>
               <span className="text-faint" title={heureExacte(v.createdAt)}>
                 {relativeTime(v.createdAt)}
               </span>
@@ -549,8 +548,7 @@ function PlanBlock({
       {!courant && diff ? (
         <div className="mt-3 border-t border-border pt-3">
           <p className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-            Différences avec la version suivante
-          </p>
+            {t('Différences avec la version suivante')}</p>
           <DiffPlan lignes={diff} />
         </div>
       ) : null}
@@ -573,8 +571,9 @@ function PlanBlock({
         {courant ? (
           <>
             <div className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted">
-              Niveau de la carte :
-              <div className="flex flex-1 gap-1">
+              
+{t('Niveau de la carte :')}
+<div className="flex flex-1 gap-1">
                 {NIVEAUX_AGENT.map((id) => (
                   <button
                     key={id}
@@ -611,8 +610,9 @@ function PlanBlock({
                 ) : (
                   <Check className="h-3.5 w-3.5" />
                 )}
-                Valider
-              </Button>
+                
+{t('Valider')}
+</Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -621,14 +621,14 @@ function PlanBlock({
                 className="w-full justify-center gap-1.5 text-muted hover:text-danger sm:w-auto"
               >
                 <X className="h-3.5 w-3.5" />
-                Refuser
-              </Button>
+                
+{t('Refuser')}
+</Button>
               {/* Le refus est ÉCRIT, pas parti : on le dit là où l'on vient de
                   cliquer, sinon rien ne se passe à l'écran et l'on reclique. */}
               {refusPrepare ? (
                 <span data-refus-prepare className="text-[12.5px] text-warning sm:ml-1">
-                  Refus écrit dans la barre — complétez-le, puis envoyez.
-                </span>
+                  {t('Refus écrit dans la barre — complétez-le, puis envoyez.')}</span>
               ) : null}
             </div>
           </>
@@ -645,8 +645,9 @@ function PlanBlock({
             ) : (
               <RotateCcw className="h-3.5 w-3.5" />
             )}
-            Repartir de cette version
-          </Button>
+            
+{t('Repartir de cette version')}
+</Button>
         )}
       </div>
     </div>
@@ -694,7 +695,7 @@ function BoutonEcoute({ texte, cle }: { texte: string; cle: string }) {
     <button
       type="button"
       onClick={() => (enCours ? taireVoix() : direVoix(aLire, cle))}
-      title={enCours ? 'Arrêter la lecture' : 'Écouter le message'}
+      title={enCours ? t('Arrêter la lecture') : t('Écouter le message')}
       aria-label={enCours ? 'Arrêter la lecture' : 'Écouter le message'}
       className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
     >
@@ -703,7 +704,7 @@ function BoutonEcoute({ texte, cle }: { texte: string; cle: string }) {
       ) : (
         <Volume2 className="h-2.5 w-2.5" />
       )}
-      {enCours ? 'Arrêter' : 'Écouter'}
+      {enCours ? t('Arrêter') : t('Écouter')}
     </button>
   );
 }
@@ -858,7 +859,7 @@ function BoutonCopier({
       className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
     >
       {copie ? <Check className="h-2.5 w-2.5 text-success" /> : <Copy className="h-2.5 w-2.5" />}
-      {copie ? 'Copié' : libelle}
+      {copie ? t('Copié') : libelle}
     </button>
   );
 }
@@ -888,8 +889,8 @@ function PiecesJointes({ ids, projectId }: { ids: string[]; projectId?: string }
           ? items.map((item) => <AttachmentThumb key={item.id} item={item} onOpen={() => setApercu(item)} />)
           : ids.map((id) => (
               <Badge key={id}>
-                <Paperclip className="h-2.5 w-2.5" /> pièce jointe
-              </Badge>
+                <Paperclip className="h-2.5 w-2.5" />  {t('pièce jointe')}
+</Badge>
             ))}
       </div>
       <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
@@ -928,8 +929,9 @@ function QuestionCard({
         <p className="text-[13px] text-faint">{question.question}</p>
         <p className="mt-1 flex min-w-0 items-start gap-1.5 text-[14px] text-faint">
           <X className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
-          Question annulée
-        </p>
+          
+{t('Question annulée')}
+</p>
       </div>
     );
   }
@@ -962,7 +964,7 @@ function QuestionCard({
       Array.from(fichiers).map((file) => ({ file, name: file.name, mime: file.type })),
     );
     if (refusees.length) {
-      client.pushToast('warning', 'Seules les images peuvent être jointes à une réponse.');
+      client.pushToast('warning', t('Seules les images peuvent être jointes à une réponse.'));
     }
     if (!gardees.length) return;
     setEnvoiFichier(true);
@@ -986,7 +988,7 @@ function QuestionCard({
         setImages((current) => (current.some((a) => a.id === jointe.id) ? current : [...current, jointe]));
       }
     } catch {
-      client.pushToast('error', "Envoi de l'image impossible");
+      client.pushToast('error', t('Envoi de l\'image impossible'));
     } finally {
       setEnvoiFichier(false);
     }
@@ -1085,7 +1087,7 @@ function QuestionCard({
             );
           })}
           {question.kind === 'multiple' ? (
-            <p className="px-1 text-[12px] text-faint">Plusieurs réponses possibles.</p>
+            <p className="px-1 text-[12px] text-faint">{t('Plusieurs réponses possibles.')}</p>
           ) : null}
         </div>
       ) : null}
@@ -1102,7 +1104,7 @@ function QuestionCard({
           void joindre(fichiers);
         }}
         rows={2}
-        placeholder={question.options.length ? 'Précision (facultative)…' : 'Votre réponse…'}
+        placeholder={question.options.length ? t('Précision (facultative)…') : t('Votre réponse…')}
         className="mt-2"
       />
 
@@ -1115,7 +1117,7 @@ function QuestionCard({
               <AttachmentThumb item={image} compact onOpen={() => setApercu(image)} />
               <button
                 type="button"
-                title="Retirer cette image"
+                title={t('Retirer cette image')}
                 aria-label={`Retirer l'image ${image.name}`}
                 onClick={() => setImages((liste) => liste.filter((a) => a.id !== image.id))}
                 className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-faint hover:border-danger/40 hover:text-danger"
@@ -1131,8 +1133,7 @@ function QuestionCard({
 
       <div className="mt-2 flex items-center gap-1.5">
         <Button variant="default" size="sm" disabled={!pret} onClick={envoyer}>
-          Répondre
-        </Button>
+          {t('Répondre')}</Button>
         <input
           ref={fileRef}
           type="file"
@@ -1148,7 +1149,7 @@ function QuestionCard({
         <Button
           variant="ghost"
           size="sm"
-          title="Joindre une image"
+          title={t('Joindre une image')}
           aria-label="Joindre une image à la réponse"
           disabled={envoiFichier}
           onClick={() => fileRef.current?.click()}
@@ -1158,18 +1159,20 @@ function QuestionCard({
           ) : (
             <Paperclip className="h-3 w-3" />
           )}
-          Image
-        </Button>
+          
+{t('Image')}
+</Button>
         <Button
           variant="ghost"
           size="sm"
-          title="Fermer la question sans répondre"
+          title={t('Fermer la question sans répondre')}
           onClick={annuler}
           className="text-faint hover:text-danger"
         >
           <X className="h-3 w-3" />
-          Annuler
-        </Button>
+          
+{t('Annuler')}
+</Button>
       </div>
     </div>
   );
@@ -1225,9 +1228,7 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
         <p className="flex min-w-0 items-start gap-1.5 text-[13.5px] text-muted">
           <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
           <span className="min-w-0">
-            Le compte « {reprise.compteEpuiseLabel} » avait atteint sa limite : le travail a repris sur
-            « {reprise.choisiLabel ?? reprise.choisi} ».
-          </span>
+            {t('Le compte « {v0} » avait atteint sa limite : le travail a repris sur « {v1} ».', { v0: reprise.compteEpuiseLabel, v1: reprise.choisiLabel ?? reprise.choisi })}</span>
         </p>
       </div>
     );
@@ -1251,13 +1252,11 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
     >
       <p className="flex items-start gap-1.5 text-[14px] font-medium text-text">
         <BatteryLow className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-        Avec quel compte poursuivre ?
-      </p>
+        
+{t('Avec quel compte poursuivre ?')}
+</p>
       <p className="mt-1 text-[13px] leading-relaxed text-muted">
-        Le compte « {reprise.compteEpuiseLabel} » a atteint sa limite en plein travail
-        {tempsRestant(reprise.resetsAt) ? ` (${tempsRestant(reprise.resetsAt)})` : ''}. Le travail
-        n’est pas perdu : il repart où il s’est arrêté, avec le même agent et la même branche.
-      </p>
+        {t('Le compte « {v0} » a atteint sa limite en plein travail {v1}. Le travail n’est pas perdu : il repart où il s’est arrêté, avec le même agent et la même branche.', { v0: reprise.compteEpuiseLabel, v1: tempsRestant(reprise.resetsAt) ? ` (${tempsRestant(reprise.resetsAt)})` : '' })}</p>
 
       {possible ? (
         <div className="mt-2 space-y-1">
@@ -1280,17 +1279,14 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
                 <span className="min-w-0 flex-1 truncate text-[14px] text-text">{compte.label}</span>
                 {typeof compte.consommePct === 'number' ? (
                   <span className="shrink-0 text-[12px] text-faint">
-                    {Math.round(compte.consommePct)} % consommés
-                  </span>
+                    {t('{v0} % consommés', { v0: Math.round(compte.consommePct) })}</span>
                 ) : null}
               </button>
             ))}
         </div>
       ) : (
         <p className="mt-2 text-[13px] text-warning" data-reprise-attente>
-          Aucun autre compte n’est libre pour l’instant. Ce choix reste ouvert et s’actualise tout
-          seul : dès qu’un compte retrouve du quota, il apparaît ici.
-        </p>
+          {t('Aucun autre compte n’est libre pour l’instant. Ce choix reste ouvert et s’actualise tout seul : dès qu’un compte retrouve du quota, il apparaît ici.')}</p>
       )}
 
       {/* Les comptes du même moteur encore à sec : les nommer vaut mieux qu'un
@@ -1302,7 +1298,7 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
             .map((compte) => (
               <li key={compte.id} className="flex items-center gap-2 px-2 text-[12.5px] text-faint">
                 <span className="min-w-0 flex-1 truncate">{compte.label}</span>
-                <span className="shrink-0">{tempsRestant(compte.resetsAt) ?? 'à sec'}</span>
+                <span className="shrink-0">{tempsRestant(compte.resetsAt) ?? t('à sec')}</span>
               </li>
             ))}
         </ul>
@@ -1342,8 +1338,9 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
       >
         <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-success">
           <Check className="h-3 w-3" />
-          Carte créée dans « Planifié »
-        </div>
+          
+{t('Carte créée dans « Planifié »')}
+</div>
         <p className="text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
         {proposal.description ? (
           <p className="mt-1 line-clamp-2 text-[13.5px] leading-relaxed text-muted">{proposal.description}</p>
@@ -1364,7 +1361,7 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
       <div className="flex items-center gap-2 rounded-md border border-accent/30 bg-surface/60 px-3 py-2 text-[13.5px] text-muted">
         <GitMerge className="h-3 w-3 shrink-0 text-accent" />
         <span className="min-w-0 flex-1 truncate">{proposal.title}</span>
-        <span className="text-[12px]">réunie dans une autre proposition</span>
+        <span className="text-[12px]">{t('réunie dans une autre proposition')}</span>
       </div>
     );
   }
@@ -1373,7 +1370,7 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
     <div className="flex items-center gap-2 rounded-md border border-border bg-surface/60 px-3 py-2 text-[13.5px] text-faint">
       <X className="h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1 truncate line-through">{proposal.title}</span>
-      <span className="text-[12px]">carte refusée</span>
+      <span className="text-[12px]">{t('carte refusée')}</span>
     </div>
   );
 }

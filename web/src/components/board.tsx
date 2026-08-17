@@ -90,6 +90,7 @@ import {
 } from '@/components/deploy-panel';
 import { BoutonReglagesProcedure, TiroirProcedure } from '@/components/procedure-panel';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
+import { t, formatRegional } from '@/lib/langue';
 
 /**
  * Ce qu'un pied de colonne sait faire en lot. UN SEUL mécanisme, en deux temps :
@@ -203,8 +204,8 @@ function MenuTeteColonne({ colonne, cartesNonLues }: { colonne: ColumnKey; carte
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={toutMarquerLu}>
-          <CheckCheck className="h-3.5 w-3.5" /> Marquer tout comme lu
-        </DropdownMenuItem>
+          <CheckCheck className="h-3.5 w-3.5" />  {t('Marquer tout comme lu')}
+</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -223,7 +224,7 @@ function RepereAvancement({ avancement }: { avancement: AvancementColonne | null
   if (!avancement) return null;
   const { done, total, pourcent, termine } = avancement;
   return (
-    <Tooltip label={`${done} étape${done > 1 ? 's' : ''} faite${done > 1 ? 's' : ''} sur ${total}`}>
+    <Tooltip label={t('{done} étape{v0} faite{v1} sur {total}', { done, v0: done > 1 ? 's' : '', v1: done > 1 ? 's' : '', total })}>
       <span
         data-avancement-colonne="running"
         className={cn(
@@ -286,8 +287,7 @@ function PalierDeChargement({
       data-cartes-restantes={restant}
       className="px-1.5 py-2 text-center text-[12px] text-faint"
     >
-      {restant} carte{restant > 1 ? 's' : ''} de plus…
-    </div>
+      {t('{restant} carte{v0} de plus…', { restant, v0: restant > 1 ? 's' : '' })}</div>
   );
 }
 
@@ -1039,7 +1039,7 @@ export function Board({
                   aria-current={colonneActive === cle ? 'true' : undefined}
                 >
                   <span className="inline-flex items-center gap-1">
-                    {COLUMN_LABELS[cle]}
+                    {t(COLUMN_LABELS[cle])}
                     {/* Le NOMBRE de cartes, juste après le libellé et dans la
                         même tenue discrète que la tête de colonne : petit et
                         `text-faint`, jamais une pastille. Il est TOUJOURS écrit,
@@ -1061,7 +1061,7 @@ export function Board({
                         label={
                           signal.travaille > 1
                             ? `${signal.travaille} agents au travail`
-                            : 'Un agent au travail'
+                            : t('Un agent au travail')
                         }
                       >
                         <span
@@ -1085,7 +1085,7 @@ export function Board({
                     {repere === 'attention' ? (
                       <RepereAttention compte={signal.attention} data-onglet-attention={cle} />
                     ) : repere === 'rendus' ? (
-                      <Tooltip label="Travail rendu, pas encore lu">
+                      <Tooltip label={t('Travail rendu, pas encore lu')}>
                         <span
                           data-onglet-non-lu={cle}
                           aria-label="Travail rendu, pas encore lu"
@@ -1275,7 +1275,7 @@ export function Board({
                   <Loader2 className="h-3 w-3 shrink-0 animate-spin text-publie" data-publication-en-cours={column} />
                 ) : null;
               })()}
-              <h2 className="relative text-[13px] font-medium uppercase tracking-wide text-faint">{COLUMN_LABELS[column]}</h2>
+              <h2 className="relative text-[13px] font-medium uppercase tracking-wide text-faint">{t(COLUMN_LABELS[column])}</h2>
               {/* LE COMPTEUR COMPTE CE QUE LA LISTE MONTRE, sans exception :
                   pas de carte affichée qui ne soit comptée, pas de compte sans
                   carte. « À déployer » y ajoutait le travail enregistré sans
@@ -1412,13 +1412,13 @@ export function Board({
               {!columnCards.length ? (
                 <p className="px-1.5 py-3 text-[13px] text-faint">
                   {column === 'notes'
-                    ? 'Idées en vrac.'
+                    ? t('Idées en vrac.')
                     : column === 'planned'
-                      ? 'Rien à faire pour l’instant : ajoutez une carte avec « + ».'
+                      ? t('Rien à faire pour l’instant : ajoutez une carte avec « + ».')
                       : column === 'running'
-                        ? 'Glissez ici pour lancer le travail.'
+                        ? t('Glissez ici pour lancer le travail.')
                         : column === 'done'
-                          ? 'Aucun travail terminé pour l’instant.'
+                          ? t('Aucun travail terminé pour l’instant.')
                           : column === 'to_deploy'
                             ? /* « Rien à mettre en ligne » était le mensonge le
                                  plus direct : écrit alors que du travail
@@ -1426,8 +1426,8 @@ export function Board({
                                  reste, la colonne ne dit plus « rien ». */
                               phraseDeColonneVide(sansCarte.to_deploy ?? null)
                             : column === 'in_production'
-                              ? 'Aucune carte en attente de mise en production.'
-                              : 'Aucune carte rangée ici pour l’instant.'}
+                              ? t('Aucune carte en attente de mise en production.')
+                              : t('Aucune carte rangée ici pour l’instant.')}
                 </p>
               ) : null}
               </div>
@@ -1454,8 +1454,7 @@ export function Board({
                       disabled={colonneQuiTravaille === column}
                       onClick={() => fermerLot()}
                     >
-                      Annuler
-                    </Button>
+                      {t('Annuler')}</Button>
                     <Button
                       variant="default"
                       size="sm"
@@ -1588,7 +1587,7 @@ function ComposerInline({
         );
       }
     } catch {
-      client.pushToast('error', 'Envoi du fichier impossible');
+      client.pushToast('error', t('Envoi du fichier impossible'));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -1634,7 +1633,7 @@ function ComposerInline({
 
   if (!open) {
     return (
-      <Tooltip label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}>
+      <Tooltip label={column === 'notes' ? t('Nouvelle note') : t('Nouvelle tâche')}>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -1660,7 +1659,7 @@ function ComposerInline({
       <Input
         autoFocus
         value={title}
-        placeholder={column === 'notes' ? 'Titre de la note…' : 'Titre de la tâche…'}
+        placeholder={column === 'notes' ? t('Titre de la note…') : t('Titre de la tâche…')}
         onChange={(event) => setTitle(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void create();
@@ -1669,7 +1668,7 @@ function ComposerInline({
       />
       <Textarea
         value={description}
-        placeholder="Description (facultative)…"
+        placeholder={t('Description (facultative)…')}
         rows={3}
         className="mt-1.5"
         onChange={(event) => setDescription(event.target.value)}
@@ -1685,8 +1684,9 @@ function ComposerInline({
         <div className="mt-1.5" data-depart-nouvelle-carte>
           <label className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
             <CalendarClock className="h-3 w-3" />
-            Départ
-          </label>
+            
+{t('Départ')}
+</label>
           <Input
             type="datetime-local"
             aria-label="Date et heure de départ"
@@ -1697,7 +1697,7 @@ function ComposerInline({
           <p className="mt-1 text-[12.5px] text-faint">
             {departPrevu
               ? phraseDepartProgramme(departPrevu, minute)
-              : 'Heure déjà passée : la carte attendra votre lancement. Poussez la date pour programmer un départ.'}
+              : t('Heure déjà passée : la carte attendra votre lancement. Poussez la date pour programmer un départ.')}
           </p>
         </div>
       ) : null}
@@ -1708,7 +1708,7 @@ function ComposerInline({
               <AttachmentThumb item={item} compact onOpen={() => setApercu(item)} />
               <button
                 type="button"
-                title="Retirer ce fichier"
+                title={t('Retirer ce fichier')}
                 onClick={() => setAttachments((current) => current.filter((file) => file.id !== item.id))}
                 className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-faint hover:border-danger/40 hover:text-danger"
               >
@@ -1722,7 +1722,7 @@ function ComposerInline({
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <Button variant="default" size="sm" disabled={!title.trim() || busy || uploading} onClick={create}>
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-          {column === 'notes' ? 'Ajouter la note' : 'Ajouter la tâche'}
+          {column === 'notes' ? t('Ajouter la note') : t('Ajouter la tâche')}
         </Button>
         {column === 'notes' ? (
           <>
@@ -1741,13 +1741,13 @@ function ComposerInline({
               onClick={() => fileRef.current?.click()}
             >
               {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
-              Joindre
-            </Button>
+              
+{t('Joindre')}
+</Button>
           </>
         ) : null}
         <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
-          Annuler
-        </Button>
+          {t('Annuler')}</Button>
       </div>
     </div>
   );
@@ -2110,14 +2110,14 @@ export function CardTile({
         {card.deployedAt || agentPlanActif ? (
           <div className="mb-1 flex gap-1">
             {card.deployedAt ? (
-              <Tooltip label={`En ligne depuis le ${new Date(card.deployedAt).toLocaleString('fr-CH')}`}>
+              <Tooltip label={t('En ligne depuis le {v0}', { v0: new Date(card.deployedAt).toLocaleString(formatRegional()) })}>
                 <Badge tone="success">
                   <Rocket className="h-2.5 w-2.5" /> en ligne
                 </Badge>
               </Tooltip>
             ) : null}
             {agentPlanActif ? (
-              <Tooltip label="L'agent prépare un plan : il ne modifie rien tant que ce mode est actif">
+              <Tooltip label={t('L\'agent prépare un plan : il ne modifie rien tant que ce mode est actif')}>
                 <Badge tone="strong" data-mode-plan-actif={card.id}>
                   <Route className="h-2.5 w-2.5" /> plan
                 </Badge>
@@ -2147,7 +2147,7 @@ export function CardTile({
             // Le point bleu : le travail est rendu mais sa conversation n'a pas
             // encore été ouverte. Même sens et même couleur que sur la ligne du
             // projet ; l'ouvrir laisse place à la coche bleue.
-            <Tooltip label="Travail rendu, pas encore lu">
+            <Tooltip label={t('Travail rendu, pas encore lu')}>
               <span
                 data-carte-non-lue={card.id}
                 className="mt-[3px] h-2 w-2 shrink-0 rounded-full bg-termine animate-pulse-soft motion-reduce:animate-none"
@@ -2156,7 +2156,7 @@ export function CardTile({
           ) : etat === 'termine' ? (
             // La coche BLEUE : l'agent a rendu son travail, la carte attend
             // votre clôture. Une relance la remplace aussitôt par la roue orange.
-            <Tooltip label="Travail rendu — la carte attend votre clôture">
+            <Tooltip label={t('Travail rendu — la carte attend votre clôture')}>
               <span className="mt-[2px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-termine/15 text-termine">
                 <Check className="h-2.5 w-2.5" strokeWidth={3} />
               </span>
@@ -2181,7 +2181,7 @@ export function CardTile({
             {card.labels.slice(0, 3).map((label) => (
               <Badge key={label}>{label}</Badge>
             ))}
-            {card.billing ? <Badge tone="success">déjà facturée</Badge> : null}
+            {card.billing ? <Badge tone="success">{t('déjà facturée')}</Badge> : null}
           </div>
         ) : null}
 
@@ -2204,7 +2204,7 @@ export function CardTile({
             className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded border border-warning/40 bg-warning/10 px-1.5 py-1 text-[12px] font-medium leading-snug text-warning transition-colors hover:bg-warning/20"
           >
             <MessageSquare className="h-3 w-3 shrink-0" />
-            {decisions > 1 ? `Répondre (${decisions})` : 'Répondre'}
+            {decisions > 1 ? t('Répondre ({decisions})', { decisions }) : t('Répondre')}
           </button>
         ) : null}
 

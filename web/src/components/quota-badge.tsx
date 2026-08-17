@@ -25,6 +25,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Gauge, Badge, Switch, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
+import { t, formatRegional } from '@/lib/langue';
 
 /**
  * Le bouton de quota : une jauge ronde qui montre le moteur ACTUELLEMENT
@@ -64,7 +65,7 @@ function Courbe({
 }) {
   if (!showSession && !showWeekly) return null;
   if (points.length < 2) {
-    return <p className="mt-1 text-[11px] text-faint">Pas encore assez de relevés pour tracer la courbe.</p>;
+    return <p className="mt-1 text-[11px] text-faint">{t('Pas encore assez de relevés pour tracer la courbe.')}</p>;
   }
 
   const largeur = 250;
@@ -125,12 +126,12 @@ function Courbe({
       </svg>
       <p className="mt-0.5 text-[10.5px] text-faint">
         {jours} jour{jours > 1 ? 's' : ''}
-        {showWeekly ? ' · trait épais : la semaine' : ''}
-        {showSession ? ' · trait fin : la fenêtre courte' : ''}
+        {showWeekly ? t(' · trait épais : la semaine') : ''}
+        {showSession ? t(' · trait fin : la fenêtre courte') : ''}
         {prevision
           ? prevision.heuresCreuses
-            ? ' · pointillé : la suite, heures creuses comprises'
-            : ' · pointillé : la suite au rythme observé'
+            ? t(' · pointillé : la suite, heures creuses comprises')
+            : t(' · pointillé : la suite au rythme observé')
           : ''}
       </p>
     </div>
@@ -169,8 +170,7 @@ function CourbeCredit({ points }: { points: { at: number; credit?: number }[] })
         />
       </svg>
       <p className="mt-0.5 text-[10.5px] text-faint">
-        {jours} jour{jours > 1 ? 's' : ''} · trait : la dépense relevée
-      </p>
+        {t('{jours} jour{v0} · trait : la dépense relevée', { jours, v0: jours > 1 ? 's' : '' })}</p>
     </div>
   );
 }
@@ -251,7 +251,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
     try {
       const reponse = await client.call<{ ok: boolean }>({ type: 'account.disable', id, disabled: !actif });
       if (!reponse?.ok) {
-        client.pushToast('error', `${label} : le serveur n'a pas pu ${actif ? 'remettre en service' : 'couper'} ce compte.`);
+        client.pushToast('error', t('{label} : le serveur n\'a pas pu {v0} ce compte.', { label, v0: actif ? 'remettre en service' : 'couper' }));
       }
     } catch (err) {
       client.pushToast('error', `${label} : ${err instanceof Error ? err.message : 'commande refusée'}`);
@@ -277,7 +277,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
       <DropdownMenuTrigger asChild>
         <button
           className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text"
-          title="Quotas des moteurs"
+          title={t('Quotas des moteurs')}
         >
           <span className="relative flex h-[22px] w-[22px] items-center justify-center">
             <svg viewBox="0 0 24 24" className="absolute inset-0 -rotate-90">
@@ -301,11 +301,11 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
 
       <DropdownMenuContent align="end" className="p-2 sm:w-[310px]">
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[12px] uppercase tracking-wide text-faint">Quotas</span>
+          <span className="text-[12px] uppercase tracking-wide text-faint">{t('Quotas')}</span>
           <button
             onClick={() => client.send({ type: 'quota.refresh' })}
             className="rounded p-1 text-faint hover:bg-raised hover:text-text"
-            title="Actualiser"
+            title={t('Actualiser')}
           >
             <RefreshCw className="h-3 w-3" />
           </button>
@@ -339,17 +339,17 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   />
                   <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{quota.label}</span>
                   {quota.disabled ? (
-                    <Badge tone="neutral">désactivé</Badge>
+                    <Badge tone="neutral">{t('désactivé')}</Badge>
                   ) : (
                     <>
                       {quota.active ? <Badge tone="success">actif</Badge> : null}
-                      {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
+                      {!quota.available ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
                     </>
                   )}
                   {/* L'interrupteur coupe ou rallume le compte. Coupé, il n'est
                       plus choisi par l'ordonnanceur et sa fenêtre de 5 h n'est
                       plus amorcée ; il reste dans la liste, éteint. */}
-                  <Tooltip label={quota.disabled ? 'Compte désactivé — le remettre en service' : 'Désactiver ce compte'}>
+                  <Tooltip label={quota.disabled ? t('Compte désactivé — le remettre en service') : t('Désactiver ce compte')}>
                     <Switch
                       data-interrupteur-compte={quota.id}
                       attente={enAttente.includes(quota.id)}
@@ -409,7 +409,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
             ))}
           </div>
         ) : (
-          <p className="px-1 py-2 text-[13px] text-faint">Aucun compte connecté.</p>
+          <p className="px-1 py-2 text-[13px] text-faint">{t('Aucun compte connecté.')}</p>
         )}
 
         <JournalDesAmorces ouvertMenu={open} />
@@ -430,12 +430,12 @@ function CreditCursorCarte({ quota }: { quota: AccountQuota }) {
           <p className="text-[14.5px] font-medium text-text">{montantCursorEnClair(credit.centimes)}</p>
           <p className="mt-0.5 text-[11px] text-faint">
             {periodeDuCreditCursor(credit.debutDuCycle)}
-            {credit.membres ? ` · ${credit.membres} membres` : ''}
+            {credit.membres ? t(' · {v0} membres', { v0: credit.membres }) : ''}
           </p>
         </>
       ) : (
         <p className="text-[11.5px] leading-relaxed text-faint">
-          {credit?.indisponible ?? 'Lecture du montant dépensé…'}
+          {credit?.indisponible ?? t('Lecture du montant dépensé…')}
         </p>
       )}
       {usage ? <p className="mt-1 text-[11px] text-faint">{usage}</p> : null}
@@ -453,7 +453,7 @@ function ReleveAncien({ erreur, fetchedAt }: { erreur: string; fetchedAt?: numbe
   return (
     <div className="mt-1 text-[11.5px] text-warning">
       <p>{erreur}</p>
-      {fraicheur ? <p>Chiffres anciens — {fraicheur}</p> : null}
+      {fraicheur ? <p>{t('Chiffres anciens — {fraicheur}', { fraicheur })}</p> : null}
     </div>
   );
 }
@@ -474,8 +474,8 @@ function TrancheDePointe({ releves }: { releves?: ReleveQuota[] }) {
 function heureCourte(at: number): string {
   const date = new Date(at);
   const aujourdhui = date.toDateString() === new Date().toDateString();
-  const heure = date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
-  return aujourdhui ? heure : `${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} ${heure}`;
+  const heure = date.toLocaleTimeString(formatRegional(), { hour: '2-digit', minute: '2-digit' });
+  return aujourdhui ? heure : `${date.toLocaleDateString(formatRegional(), { day: '2-digit', month: '2-digit' })} ${heure}`;
 }
 
 /**
@@ -487,8 +487,8 @@ function DerniereAmorce({ amorce }: { amorce?: AccountQuota['derniereAmorce'] })
   return (
     <p className={cn('mt-1 text-[11px]', amorce.ok ? 'text-faint' : 'text-warning')}>
       {amorce.ok
-        ? `fenêtre amorcée par le serveur à ${heureCourte(amorce.at)}`
-        : `amorce refusée à ${heureCourte(amorce.at)}${amorce.error ? ` (${amorce.error})` : ''}`}
+        ? t('fenêtre amorcée par le serveur à {v0}', { v0: heureCourte(amorce.at) })
+        : t('amorce refusée à {v0}{v1}', { v0: heureCourte(amorce.at), v1: amorce.error ? ` (${amorce.error})` : '' })}
     </p>
   );
 }
@@ -521,7 +521,7 @@ function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
         className="flex w-full items-center gap-1.5 text-left text-[12px] text-faint hover:text-text"
       >
         <ChevronDown className={cn('h-2.5 w-2.5 shrink-0 transition-transform', !ouvert && '-rotate-90')} />
-        <span>Journal des amorces</span>
+        <span>{t('Journal des amorces')}</span>
       </button>
 
       {ouvert ? (
@@ -538,7 +538,7 @@ function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
             ))}
           </ul>
         ) : (
-          <p className="mt-1 text-[11px] text-faint">Aucune amorce enregistrée pour l’instant.</p>
+          <p className="mt-1 text-[11px] text-faint">{t('Aucune amorce enregistrée pour l’instant.')}</p>
         )
       ) : null}
     </div>

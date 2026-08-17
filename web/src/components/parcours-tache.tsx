@@ -8,6 +8,7 @@ import { useApp } from '@/lib/use-app';
 import { cn, duration, money } from '@/lib/utils';
 import { LecteurPrompt } from '@/components/lecteur-prompt';
 import { Button } from '@/components/ui';
+import { t, formatRegional } from '@/lib/langue';
 
 /**
  * LE PARCOURS D'UNE TÂCHE, EN LIGNE DE TEMPS.
@@ -56,13 +57,13 @@ interface QuotaParcours {
  */
 function partQuota(part: number): string {
   if (part > 0 && part < 0.1) return 'moins de 0,1 %';
-  return `${part.toLocaleString('fr-CH', { maximumFractionDigits: 1 })} %`;
+  return `${part.toLocaleString(formatRegional(), { maximumFractionDigits: 1 })} %`;
 }
 
 /** La date d'une étape, courte : « 10 août, 14:05 ». */
 function quandEnClair(instant?: number): string | null {
   if (!instant) return null;
-  return new Date(instant).toLocaleString('fr-CH', {
+  return new Date(instant).toLocaleString(formatRegional(), {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
@@ -130,13 +131,13 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
   return (
     <section data-parcours-tache className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="text-[14px] font-semibold text-text">Le parcours de cette tâche</h3>
+        <h3 className="text-[14px] font-semibold text-text">{t('Le parcours de cette tâche')}</h3>
         {total ? (
           <p className="text-[12.5px] text-faint">
             {total.cout !== undefined ? <span className="font-medium text-text">{money(total.cout)}</span> : null}
             {total.cout !== undefined ? ' · ' : null}
-            {total.tours} {total.tours === 1 ? 'tour' : 'tours'} de moteur réellement mesurés
-          </p>
+            {total.tours} {total.tours === 1 ? 'tour' : 'tours'}  {t('de moteur réellement mesurés')}
+</p>
         ) : null}
       </div>
 
@@ -150,11 +151,9 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
 
       {total && total.etapesSansMesure ? (
         <p className="text-[12.5px] text-faint">
-          {total.etapesSansMesure === 1
+          {t('{v0}{v1} Le total ci-dessus ne les compte donc pas.', { v0: total.etapesSansMesure === 1
             ? 'Une étape n’a pas de mesure rattachée : elle le dit sur sa ligne.'
-            : `${total.etapesSansMesure} étapes n’ont pas de mesure rattachée : chacune le dit sur sa ligne.`}{' '}
-          Le total ci-dessus ne les compte donc pas.
-        </p>
+            : `${total.etapesSansMesure} étapes n’ont pas de mesure rattachée : chacune le dit sur sa ligne.`, v1: ' ' })}</p>
       ) : null}
 
       {/* La part de quota RÉELLEMENT consommée par cette carte — jamais une
@@ -167,8 +166,7 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
           data-quota-reel-parcours
         >
           <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
-            Part de quota réellement consommée
-          </p>
+            {t('Part de quota réellement consommée')}</p>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
             <Part nom="Fenêtre de 5 h" valeur={partQuota(quotaVu.quota5h)} />
             <Part nom="Fenêtre de la semaine" valeur={partQuota(quotaVu.quotaSemaine)} />
@@ -187,7 +185,7 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
           « Contexte envoyé » du chef d'orchestre. */}
       {tours.length ? (
         <div data-prompts-de-la-carte>
-          <h3 className="mb-1.5 text-[14px] font-semibold text-text">Prompts envoyés</h3>
+          <h3 className="mb-1.5 text-[14px] font-semibold text-text">{t('Prompts envoyés')}</h3>
           <LecteurPrompt tours={tours} />
         </div>
       ) : null}
@@ -213,7 +211,7 @@ function BlocDeCapitalisation({ cardId, etat }: { cardId: string; etat: Capitali
   };
   return (
     <div className="rounded-lg border border-border bg-raised px-3 py-2" data-capitalisation={etat.etat}>
-      <p className="text-[12px] font-medium uppercase tracking-wide text-faint">Compétences partagées</p>
+      <p className="text-[12px] font-medium uppercase tracking-wide text-faint">{t('Compétences partagées')}</p>
       <p className="mt-1 text-[13px] text-text">{libelles[etat.etat]}</p>
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-faint">{etat.raison}</p>
       {etat.etat === 'candidate' || etat.etat === 'mure' ? (
@@ -224,7 +222,7 @@ function BlocDeCapitalisation({ cardId, etat }: { cardId: string; etat: Capitali
           onClick={() =>
             client
               .call({ type: 'card.capitaliser', cardId })
-              .then(() => client.pushToast('success', 'Capitalisation lancée : un agent relit cette carte.'))
+              .then(() => client.pushToast('success', t('Capitalisation lancée : un agent relit cette carte.')))
               .catch((err: any) => {
                 client.pushToast('error', err?.message ?? 'capitalisation impossible');
                 // L'erreur est RELANCÉE : sans cela le bouton croirait avoir réussi.
@@ -232,8 +230,7 @@ function BlocDeCapitalisation({ cardId, etat }: { cardId: string; etat: Capitali
               })
           }
         >
-          Capitaliser maintenant
-        </Button>
+          {t('Capitaliser maintenant')}</Button>
       ) : null}
     </div>
   );
@@ -287,7 +284,7 @@ function Etape({ etape }: { etape: EtapeParcours }) {
                   {etape.mesure.cout !== undefined ? (
                     <span className="font-medium">{money(etape.mesure.cout)}</span>
                   ) : (
-                    <span className="text-faint">coût en francs indisponible</span>
+                    <span className="text-faint">{t('coût en francs indisponible')}</span>
                   )}
                   <span className="text-faint">
                     {' '}
@@ -315,7 +312,7 @@ function Etape({ etape }: { etape: EtapeParcours }) {
 
             {etape.cherche.length ? (
               <div>
-                <p className="text-[11.5px] uppercase tracking-wide text-faint">Ce qu’elle est allée chercher</p>
+                <p className="text-[11.5px] uppercase tracking-wide text-faint">{t('Ce qu’elle est allée chercher')}</p>
                 <ul className="mt-1 space-y-0.5 text-[12.5px] text-text">
                   {etape.cherche.map((ligne) => (
                     <li key={ligne} className="flex gap-1.5">

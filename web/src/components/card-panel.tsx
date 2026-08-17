@@ -78,6 +78,7 @@ import { useMinute } from '@/lib/horloge';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
+import { t, formatRegional } from '@/lib/langue';
 
 export function CardPanel({ cardId, onClose }: { cardId: string | null; onClose: () => void }) {
   const state = useApp();
@@ -256,7 +257,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
             <DialogTitle className="leading-snug">{card.title}</DialogTitle>
             {tagsVisibles ? (
             <div data-tags-carte className="mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px] text-faint">
-              <Badge>{COLUMN_LABELS[card.column]}</Badge>
+              <Badge>{t(COLUMN_LABELS[card.column])}</Badge>
               {card.deployedAt ? (
                 <Badge tone="success">
                   <Rocket className="h-2.5 w-2.5" /> en ligne
@@ -265,7 +266,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               {/* Une carte ressortie garde sa trace : on doit voir qu'elle
                   était passée par « Archivé », et quand. */}
               {mentionArchivage(card) ? (
-                <Tooltip label={`Archivée le ${new Date(card.archivedAt!).toLocaleString('fr-CH')}`}>
+                <Tooltip label={t('Archivée le {v0}', { v0: new Date(card.archivedAt!).toLocaleString(formatRegional()) })}>
                   <Badge>
                     <Archive className="h-2.5 w-2.5" /> {mentionArchivage(card)}
                   </Badge>
@@ -283,7 +284,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               {card.labels.map((label) => (
                 <Badge key={label}>{label}</Badge>
               ))}
-              <span>modifiée {relativeTime(card.updatedAt)}</span>
+              <span>{t('modifiée {v0}', { v0: relativeTime(card.updatedAt) })}</span>
             </div>
             ) : null}
           </div>
@@ -350,20 +351,23 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                 triangle que la carte du tableau, sinon le tiroir ouvert
                 n'apprendrait plus rien. */}
             <TabsTrigger value="chat" className="flex-1 gap-1">
-              Conversation
-              <RepereAttention compte={decisions} data-attention-carte={card.id} />
+              
+{t('Conversation')}
+<RepereAttention compte={decisions} data-attention-carte={card.id} />
             </TabsTrigger>
             {/* Ces deux onglets vont CHERCHER leurs données : tant qu'elles ne
                 sont pas là, une petite roue le dit — sinon on ne sait pas si
                 l'onglet est vide ou s'il arrive. */}
             <TabsTrigger value="details" className="flex-1 gap-1">
-              Détails
-              <RoueDOnglet visible={!!chargement.details} />
+              
+{t('Détails')}
+<RoueDOnglet visible={!!chargement.details} />
             </TabsTrigger>
-            <TabsTrigger value="billing" className="flex-1">Facturation</TabsTrigger>
+            <TabsTrigger value="billing" className="flex-1">{t('Facturation')}</TabsTrigger>
             <TabsTrigger value="github" className="flex-1 gap-1">
-              GitHub
-              <RoueDOnglet visible={!!chargement.github} />
+              
+{t('GitHub')}
+<RoueDOnglet visible={!!chargement.github} />
             </TabsTrigger>
           </TabsList>
         </ZoneDefilement>
@@ -451,8 +455,8 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                   variant={card.scheduling?.asap ? 'subtle' : 'outline'}
                   onClick={() => client.call({ type: 'card.asap', id: card.id, value: !card.scheduling?.asap })}
                 >
-                  <Zap className="h-3 w-3" /> Dès que possible
-                </Button>
+                  <Zap className="h-3 w-3" />  {t('Dès que possible')}
+</Button>
               </>
             ) : null}
             {peut('terminer').affiche ? (
@@ -473,14 +477,14 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                     })
                   }
                 >
-                  <Check className="h-3 w-3" /> Terminer la tâche
-                </Button>
+                  <Check className="h-3 w-3" />  {t('Terminer la tâche')}
+</Button>
               </Geste>
             ) : null}
             {peut('publier').affiche ? (
               <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
-                <Rocket className="h-3 w-3" /> Mettre en file de publication
-              </Button>
+                <Rocket className="h-3 w-3" />  {t('Mettre en file de publication')}
+</Button>
             ) : null}
             {/*
                 Le seul chemin volontaire pour ressortir une carte d'une fin de
@@ -497,14 +501,14 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                 <ArchiveRestore className="h-3 w-3" />
                 {libelleDeReprise(card.column)}
                 {' → '}
-                {COLUMN_LABELS[colonneDeReprise(card.column)!]}
+                {t(COLUMN_LABELS[colonneDeReprise(card.column)!])}
               </Button>
             ) : null}
             {card.closureDoc ? (
               <Button size="sm" variant="outline" asChild>
                 <a href={`/api/document?card=${card.id}&download=1`}>
-                  <FileText className="h-3 w-3" /> Document de clôture
-                </a>
+                  <FileText className="h-3 w-3" />  {t('Document de clôture')}
+</a>
               </Button>
             ) : null}
           </div>
@@ -595,29 +599,27 @@ function PreparationChef({ card }: { card: Card }) {
     >
       <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-text">
         <Sparkles className="h-3.5 w-3.5 text-accent" />
-        Préparé depuis la proposition du chef d’orchestre
-      </div>
+        
+{t('Préparé depuis la proposition du chef d’orchestre')}
+</div>
       <p className="mt-0.5 text-[12.5px] text-faint">
-        Ces éléments étaient déjà dans la carte avant son exécution.
-      </p>
+        {t('Ces éléments étaient déjà dans la carte avant son exécution.')}</p>
 
       <div className="mt-2 space-y-1.5 text-[13px]">
         <div>
-          <span className="text-faint">Réglages repris </span>
+          <span className="text-faint">{t('Réglages repris')}</span>
           <span className="text-text">
             {reglages.moteur} · {reglages.modele} · {reglages.reflexion}
           </span>
         </div>
         <div>
-          <span className="text-faint">Contenu transmis </span>
+          <span className="text-faint">{t('Contenu transmis')}</span>
           <span className="text-text">
-            consigne de la carte · {etiquettes} {etiquettes === 1 ? 'étiquette' : 'étiquettes'} · {pieces}{' '}
-            {pieces === 1 ? 'image' : 'images'}
-          </span>
+            {t('consigne de la carte · {etiquettes} {v0} · {pieces}{v1} {v2}', { etiquettes, v0: etiquettes === 1 ? 'étiquette' : 'étiquettes', pieces, v1: ' ', v2: pieces === 1 ? 'image' : 'images' })}</span>
         </div>
         <div>
-          <span className="text-faint">Préparation avant exécution </span>
-          <span className="text-text">{estimation} · analyse et exécution dans la même conversation</span>
+          <span className="text-faint">{t('Préparation avant exécution')}</span>
+          <span className="text-text">{t('{estimation} · analyse et exécution dans la même conversation', { estimation })}</span>
         </div>
       </div>
     </div>
@@ -707,7 +709,7 @@ function ReglagesAgent({ card }: { card: Card }) {
     <div className="rounded-md border border-border bg-raised px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
         <Cpu className="h-3 w-3" />
-        {vu.modifiable ? "Réglages de l'agent" : 'Réglages qui ont servi'}
+        {vu.modifiable ? t('Réglages de l\'agent') : t('Réglages qui ont servi')}
         {vu.modifiable ? null : <Lock className="h-2.5 w-2.5" title={vu.raison} />}
       </div>
 
@@ -750,7 +752,7 @@ function ReglagesAgent({ card }: { card: Card }) {
  */
 function partQuota(part: number): string {
   if (part > 0 && part < 0.1) return 'moins de 0,1 %';
-  return `${part.toLocaleString('fr-CH', { maximumFractionDigits: 1 })} %`;
+  return `${part.toLocaleString(formatRegional(), { maximumFractionDigits: 1 })} %`;
 }
 
 /** Une étiquette courte : le nom en gris pâle, la valeur juste après. */
@@ -798,8 +800,9 @@ function DepartProgramme({ card }: { card: Card }) {
     <div className="rounded-md border border-border bg-raised px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
         <CalendarClock className="h-3 w-3" />
-        Départ programmé
-      </div>
+        
+{t('Départ programmé')}
+</div>
 
       <div className="mt-1.5 flex flex-wrap items-center gap-2">
         <Input
@@ -815,13 +818,12 @@ function DepartProgramme({ card }: { card: Card }) {
             variant="outline"
             onClick={() => client.call({ type: 'card.schedule', id: card.id, at: null })}
           >
-            Retirer la date
-          </Button>
+            {t('Retirer la date')}</Button>
         ) : null}
       </div>
 
       <p className="mt-1.5 text-[13px] text-faint">
-        {mention ?? 'Sans date, la carte attend votre lancement : rien ne démarre tout seul.'}
+        {mention ?? t('Sans date, la carte attend votre lancement : rien ne démarre tout seul.')}
       </p>
 
       {conseil && heureConseillee ? (
@@ -835,8 +837,7 @@ function DepartProgramme({ card }: { card: Card }) {
             variant="outline"
             onClick={() => client.call({ type: 'card.schedule', id: card.id, at: heureConseillee })}
           >
-            Retenir cette heure
-          </Button>
+            {t('Retenir cette heure')}</Button>
         </div>
       ) : null}
     </div>
@@ -893,7 +894,7 @@ function CardSummary({ card }: { card: Card }) {
       <ParcoursTache cardId={card.id} />
 
       <div>
-        <Label htmlFor="carte-description">Description</Label>
+        <Label htmlFor="carte-description">{t('Description')}</Label>
         <Textarea
           id="carte-description"
           value={description}
@@ -905,7 +906,7 @@ function CardSummary({ card }: { card: Card }) {
           }}
           ref={zone}
           rows={8}
-          placeholder="Ce qu'il faut faire…"
+          placeholder={t('Ce qu\'il faut faire…')}
           className="mt-1.5 max-h-[55vh] min-h-[160px] resize-none text-[14px]"
         />
       </div>
@@ -943,23 +944,21 @@ function CeQuiEtaitPrevu({ card }: { card: Card }) {
   return (
     <section className="space-y-2 rounded-lg border border-border bg-surface px-3 py-3" data-ce-qui-etait-prevu>
       <div>
-        <h3 className="text-[14px] font-semibold text-text">Ce qui était prévu</h3>
+        <h3 className="text-[14px] font-semibold text-text">{t('Ce qui était prévu')}</h3>
         <p className="mt-0.5 text-[12.5px] text-faint">
-          Annoncé avant le travail. Ce ne sont pas des mesures : les chiffres réels sont dans le parcours,
-          au-dessus.
-        </p>
+          {t('Annoncé avant le travail. Ce ne sont pas des mesures : les chiffres réels sont dans le parcours, au-dessus.')}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <Metric
-          label="Durée machine prévue"
+          label={t('Durée machine prévue')}
           value={duration(prevue)}
-          hint="Sert à l'ordonnanceur, jamais à la facture"
+          hint={t('Sert à l\'ordonnanceur, jamais à la facture')}
         />
         <Metric
-          label="Heures développeur senior"
+          label={t('Heures développeur senior')}
           value={card.estimate.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
-          hint="Base de la facture, jamais la durée machine"
+          hint={t('Base de la facture, jamais la durée machine')}
         />
       </div>
 
@@ -967,8 +966,7 @@ function CeQuiEtaitPrevu({ card }: { card: Card }) {
           travail fait. Rien à dire tant que l'un des deux manque. */}
       {prevue && reelle ? (
         <p className={cn('text-[13px]', debordement ? 'text-warning' : 'text-faint')}>
-          Durée réelle {duration(reelle)} — {debordement ? 'nettement au-delà' : 'dans l’ordre'} de la prévision.
-        </p>
+          {t('Durée réelle {v0} — {v1} de la prévision.', { v0: duration(reelle), v1: debordement ? 'nettement au-delà' : 'dans l’ordre' })}</p>
       ) : null}
 
       {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
@@ -976,8 +974,7 @@ function CeQuiEtaitPrevu({ card }: { card: Card }) {
           même chose, et moins bien. */}
       {card.estimate.summary ? (
         <p className="text-[13px] text-faint">
-          Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».
-        </p>
+          {t('Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».')}</p>
       ) : null}
     </section>
   );
@@ -1099,21 +1096,22 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
       {card.billing ? (
         <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-[13.5px] text-success">
           <Check className="h-3.5 w-3.5" />
-          Déjà facturée — {card.billing.documentType === 'offer' ? 'offre' : 'facture'}{' '}
+          
+{t('Déjà facturée —')} {card.billing.documentType === 'offer' ? 'offre' : 'facture'}{' '}
           {card.billing.documentNumber ?? card.billing.documentId} · {money(card.billing.amount)}
         </div>
       ) : null}
 
-      <Champ label="Titre de la ligne">
+      <Champ label={t('Titre de la ligne')}>
         <Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} />
       </Champ>
 
-      <Champ label="Description">
+      <Champ label={t('Description')}>
         <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} />
       </Champ>
 
       <Champ
-        label="Explication client"
+        label={t('Explication client')}
         aide="Ce que le client lira sur son devis ou sa facture — simple et ludique, sans jargon ni nom de fichier."
       >
         <Textarea
@@ -1124,7 +1122,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
       </Champ>
 
       <Champ
-        label="Heures (développeur senior)"
+        label={t('Heures (développeur senior)')}
         aide={`Les heures qu'un développeur senior mettrait à la main — jamais la durée machine de l'agent (${duration(
           card.consumption?.machineSeconds,
         )}).`}
@@ -1140,31 +1138,30 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
       {/* Le calcul est fait par l'outil de facturation : ici on ne fait que le montrer. */}
       <div className="flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
         <span className="text-[13.5px] text-muted">
-          {hours || '—'} h × {rate} CHF
-        </span>
+          {t('{v0} h × {rate} CHF', { v0: hours || '—', rate })}</span>
         <span className="text-[15.5px] font-semibold text-text">{hours ? money(amount) : '—'}</span>
       </div>
 
       {available ? (
         <>
-          <Champ label="Type de document">
+          <Champ label={t('Type de document')}>
             <select
               value={type}
               onChange={(event) => setType(event.target.value as 'offer' | 'invoice')}
               className="h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
             >
-              <option value="invoice">Facture</option>
-              <option value="offer">Offre</option>
+              <option value="invoice">{t('Facture')}</option>
+              <option value="offer">{t('Offre')}</option>
             </select>
           </Champ>
 
-          <Champ label="Document">
+          <Champ label={t('Document')}>
             <select
               value={documentId}
               onChange={(event) => setDocumentId(event.target.value)}
               className="h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
             >
-              <option value="">Nouveau document</option>
+              <option value="">{t('Nouveau document')}</option>
               {documents
                 .filter((doc) => doc.type === type)
                 .map((doc) => (
@@ -1184,20 +1181,18 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
                 className="mt-0.5 h-3.5 w-3.5 shrink-0"
               />
               <span>
-                Ce projet n'a pas de document attitré : cochez pour créer une nouvelle{' '}
-                {type === 'offer' ? 'offre' : 'facture'} pour {project?.billing?.clientName ?? 'ce client'}, ou
-                choisissez un document existant ci-dessus.
-              </span>
+                {t('Ce projet n\'a pas de document attitré : cochez pour créer une nouvelle{v0} {v1} pour {v2}, ou choisissez un document existant ci-dessus.', { v0: ' ', v1: type === 'offer' ? 'offre' : 'facture', v2: project?.billing?.clientName ?? 'ce client' })}</span>
             </label>
           ) : null}
 
           <Button variant="default" size="sm" className="w-full" onClick={push}>
             <CircleDollarSign className="h-3 w-3" />
-            Ajouter la ligne
-          </Button>
+            
+{t('Ajouter la ligne')}
+</Button>
         </>
       ) : (
-        <p className="text-[13.5px] text-faint">L'outil de facturation n'est pas joignable depuis ce serveur.</p>
+        <p className="text-[13.5px] text-faint">{t('L\'outil de facturation n\'est pas joignable depuis ce serveur.')}</p>
       )}
     </div>
   );
@@ -1212,7 +1207,7 @@ function dateHeure(valeur?: string): string {
   if (!valeur) return '—';
   const date = new Date(valeur);
   if (Number.isNaN(date.getTime())) return valeur;
-  return `${date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${date.toLocaleDateString(formatRegional(), { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString(formatRegional(), { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 /** Une durée d'étape de publication : « 12 s », « 3 min ». */
@@ -1336,7 +1331,7 @@ function GithubTab({ card }: { card: Card }) {
   if (!tracking?.branch) {
     return (
       <div className="px-4 py-3">
-        <p className="text-[13.5px] text-faint">Cette carte n'a pas encore de branche : elle n'a jamais été lancée.</p>
+        <p className="text-[13.5px] text-faint">{t('Cette carte n\'a pas encore de branche : elle n\'a jamais été lancée.')}</p>
       </div>
     );
   }
@@ -1354,10 +1349,10 @@ function GithubTab({ card }: { card: Card }) {
         <NoeudDeTemps ton={fichiers.length ? 'bg-termine' : 'bg-border'} dernier={!deploiements.length}>
           <p className="text-[13.5px] text-text" data-github-fichiers>
             {resume.total
-              ? `${resume.total} fichier${resume.total > 1 ? 's' : ''} — ${phraseDesFichiers(resume)}`
+              ? t('{v0} fichier{v1} — {v2}', { v0: resume.total, v1: resume.total > 1 ? 's' : '', v2: phraseDesFichiers(resume) })
               : tracking.fetchedAt
-                ? "Aucun fichier touché par cette branche pour l'instant."
-                : 'Fichiers en cours de lecture…'}
+                ? t('Aucun fichier touché par cette branche pour l\'instant.')
+                : t('Fichiers en cours de lecture…')}
             {lignes.ajoutees || lignes.supprimees ? (
               <span className="ml-1.5 font-mono text-[12.5px]">
                 <span className="text-success">+{lignes.ajoutees}</span>{' '}
@@ -1367,7 +1362,7 @@ function GithubTab({ card }: { card: Card }) {
           </p>
 
           {tracking.creeLe ? (
-            <p className="mt-0.5 text-[12.5px] text-faint">branche créée le {dateHeure(tracking.creeLe)}</p>
+            <p className="mt-0.5 text-[12.5px] text-faint">{t('branche créée le {v0}', { v0: dateHeure(tracking.creeLe) })}</p>
           ) : null}
 
           {fichiers.length ? (
@@ -1427,7 +1422,7 @@ function GithubTab({ card }: { card: Card }) {
                       <span className="min-w-0 flex-1 truncate text-muted">{libelleEtapeDeploiement(etape.key)}</span>
                       <span className="shrink-0 text-faint">
                         {etape.state === 'skipped'
-                          ? 'ignorée'
+                          ? t('ignorée')
                           : etape.progress || dureeEtape(etape.startedAt, etape.endedAt)}
                       </span>
                     </li>
@@ -1441,7 +1436,7 @@ function GithubTab({ card }: { card: Card }) {
       </ul>
 
       {!deploiements.length ? (
-        <p className="text-[13.5px] text-faint">Cette carte n'a encore été emportée par aucun déploiement.</p>
+        <p className="text-[13.5px] text-faint">{t('Cette carte n\'a encore été emportée par aucun déploiement.')}</p>
       ) : null}
     </div>
   );

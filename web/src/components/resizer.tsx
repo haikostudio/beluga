@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { usePref } from '@/lib/prefs';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * Une poignée pour élargir ou rétrécir un panneau. La largeur choisie est
@@ -70,7 +71,7 @@ export function ResizeHandle({
     <div
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
-      title="Glisser pour redimensionner · double-clic pour revenir à la largeur d'origine"
+      title={t('Glisser pour redimensionner · double-clic pour revenir à la largeur d\'origine')}
       className={cn('group relative w-1 shrink-0 cursor-col-resize touch-none select-none', className)}
     >
       {/*

@@ -55,15 +55,24 @@ export type Langue = {
    * d'attendre une espace qui ne viendra jamais.
    */
   sansEspaces: boolean;
+  /**
+   * LE FORMAT DES DATES, DES HEURES ET DES NOMBRES. Traduire les mots sans
+   * traduire les chiffres laisse « 17.08.2026 » au milieu d'une page anglaise,
+   * là où on attend « 17/08/2026 ». La RÉGION compte autant que la langue :
+   * le français d'ici est SUISSE (`fr-CH`, virgule décimale, date en points),
+   * pas celui de France — c'est le format que l'application employait déjà
+   * partout, et il ne bouge pas d'un cheveu pour qui reste en français.
+   */
+  formatRegional: string;
 };
 
 /** Les cinq langues, dans l'ordre où elles s'affichent dans le menu. */
 export const LANGUES: readonly Langue[] = [
-  { id: 'fr', libelle: 'Français', etiquette: 'fr', sansEspaces: false },
-  { id: 'en', libelle: 'English', etiquette: 'en', sansEspaces: false },
-  { id: 'es', libelle: 'Español', etiquette: 'es', sansEspaces: false },
-  { id: 'de', libelle: 'Deutsch', etiquette: 'de', sansEspaces: false },
-  { id: 'zh', libelle: '中文', etiquette: 'zh-Hans', sansEspaces: true },
+  { id: 'fr', libelle: 'Français', etiquette: 'fr', sansEspaces: false, formatRegional: 'fr-CH' },
+  { id: 'en', libelle: 'English', etiquette: 'en', sansEspaces: false, formatRegional: 'en-GB' },
+  { id: 'es', libelle: 'Español', etiquette: 'es', sansEspaces: false, formatRegional: 'es-ES' },
+  { id: 'de', libelle: 'Deutsch', etiquette: 'de', sansEspaces: false, formatRegional: 'de-CH' },
+  { id: 'zh', libelle: '中文', etiquette: 'zh-Hans', sansEspaces: true, formatRegional: 'zh-CN' },
 ];
 
 /**
@@ -96,4 +105,9 @@ export function langueParId(valeur: unknown): Langue {
 /** Le code de l'attribut `lang` de la page, pour la langue en vigueur. */
 export function etiquetteDeLangue(valeur: unknown): string {
   return langueParId(valeur).etiquette;
+}
+
+/** Le format à donner à `toLocaleDateString` et compagnie, pour cette langue. */
+export function formatDeLangue(valeur: unknown): string {
+  return langueParId(valeur).formatRegional;
 }

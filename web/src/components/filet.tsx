@@ -2,6 +2,7 @@ import * as React from 'react';
 import { RotateCw, TriangleAlert } from 'lucide-react';
 import { ZoneDefilement } from '@/components/ui';
 import { detailErreur, signalerErreur } from '@/lib/erreurs';
+import { t } from '@/lib/langue';
 
 /**
  * Le filet de sécurité.
@@ -63,14 +64,13 @@ export class Filet extends React.Component<
         <div className="max-w-[440px]">
           <TriangleAlert className="mx-auto h-6 w-6 text-warning" />
           <p className="mt-2 text-[15px] font-medium text-text">
-            {this.props.zone ? `« ${this.props.zone} » n'a pas pu s'afficher` : "L'affichage s'est interrompu"}
+            {this.props.zone ? t('« {v0} » n\'a pas pu s\'afficher', { v0: this.props.zone }) : t('L\'affichage s\'est interrompu')}
           </p>
           <p className="mt-1.5 text-[13.5px] leading-snug text-muted">
-            Rien n'est perdu : le travail en cours continue sur le serveur. Vous pouvez réessayer tout de suite.
-          </p>
+            {t('Rien n\'est perdu : le travail en cours continue sur le serveur. Vous pouvez réessayer tout de suite.')}</p>
 
           <details className="mt-3 text-left">
-            <summary className="cursor-pointer text-[12.5px] text-faint">Détail technique</summary>
+            <summary className="cursor-pointer text-[12.5px] text-faint">{t('Détail technique')}</summary>
             <ZoneDefilement
               fond="hsl(var(--surface))"
               classeEnveloppe="mt-1.5 max-h-40 flex-none rounded-md border border-border bg-surface"
@@ -86,8 +86,8 @@ export class Filet extends React.Component<
             onClick={this.reprendre}
             className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border bg-raised px-3 py-1.5 text-[13.5px] text-text hover:bg-surface"
           >
-            <RotateCw className="h-3.5 w-3.5" /> Réessayer
-          </button>
+            <RotateCw className="h-3.5 w-3.5" />  {t('Réessayer')}
+</button>
         </div>
       </div>
     );

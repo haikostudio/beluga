@@ -79,6 +79,8 @@ export function texteLisible(valeur) {
   if (!/[a-zA-ZÀ-ÿ]/.test(texte)) return false;
   // Un seul mot tout en minuscules sans accent : une clé, pas une phrase.
   if (/^[a-z0-9]+([-_.][a-z0-9]+)*$/.test(texte)) return false;
+  // Un code de langue régionale (« fr-CH », « zh-Hans ») : un FORMAT, pas un mot.
+  if (/^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(texte)) return false;
   // Chemins, adresses, sélecteurs.
   if (/^[./#]|^https?:|^\w+:\/\//.test(texte)) return false;
   if (/^[\w-]+\/[\w-]+/.test(texte)) return false;
@@ -93,7 +95,13 @@ function texteJsx(brut) {
 }
 
 function guillemets(texte) {
-  return `'${texte.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  /* Les retours à la ligne s'ÉCHAPPENT : un vrai saut de ligne dans une chaîne
+     entre apostrophes ne compile pas, et c'est ce qui cassait la bascule. */
+  return `'${texte
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')}'`;
 }
 
 /**
@@ -122,24 +130,48 @@ function appelDeTraduction(texte, valeurs) {
   return `t(${guillemets(texte)}, { ${corps} })`;
 }
 
-/** Le nom de l'attribut qui porte ce nœud, en remontant les `? :`. */
-function attributPorteur(noeud) {
+/**
+ * OÙ CE TEXTE EST-IL POSÉ ? C'est le PREMIER ancêtre qui compte qui décide, et
+ * lui seul — remonter plus haut ferait passer pour un libellé le nom de classe
+ * d'une balise imbriquée dans une expression.
+ *
+ *  - « attribut-texte » : la valeur d'un attribut de la liste blanche, même à
+ *    travers un `? :` — c'est un libellé, il se traduit ;
+ *  - « attribut-technique » : tout autre attribut (`className`, `aria-label`,
+ *    `key`, `data-…`) — on n'y touche JAMAIS ;
+ *  - « enfant » : une expression posée ENTRE deux balises
+ *    (`{enregistre ? 'Enregistré' : 'Enregistrer'}`) — c'est du texte affiché.
+ */
+function contexteDuLitteral(noeud) {
   let courant = noeud.parent;
   while (courant) {
-    if (ts.isJsxAttribute(courant)) return courant.name.getText();
-    if (ts.isJsxElement(courant) || ts.isJsxSelfClosingElement(courant) || ts.isFunctionLike(courant)) return null;
+    if (ts.isJsxAttribute(courant)) {
+      return ATTRIBUTS_DE_TEXTE.has(courant.name.getText()) ? 'attribut-texte' : 'attribut-technique';
+    }
+    if (
+      ts.isJsxExpression(courant) &&
+      courant.parent &&
+      (ts.isJsxElement(courant.parent) || ts.isJsxFragment(courant.parent))
+    ) {
+      return 'enfant';
+    }
     courant = courant.parent;
   }
   return null;
 }
 
-/** Ce littéral est-il un argument de `cn(…)` ? Alors ce sont des classes. */
-function dansUnAppelDeClasses(noeud) {
+/**
+ * Ce littéral est-il DÉJÀ pris en charge ? Deux cas, et le second est vital :
+ * un argument de `cn(…)` est une suite de classes, et un argument de `t(…)` est
+ * un texte DÉJÀ traduit — le repasser à la moulinette écrirait `t(t('…'))`.
+ * C'est ce qui rend l'outil rejouable sans dégât.
+ */
+function dejaPrisEnCharge(noeud) {
   let courant = noeud.parent;
   while (courant) {
     if (ts.isCallExpression(courant)) {
       const appele = courant.expression.getText();
-      return appele === 'cn' || appele === 'clsx' || appele.endsWith('.cn');
+      return appele === 'cn' || appele === 'clsx' || appele.endsWith('.cn') || appele === 't' || appele.endsWith('.t');
     }
     if (ts.isJsxAttribute(courant)) return false;
     courant = courant.parent;
@@ -180,8 +212,23 @@ function remplacements(chemin, source) {
       const enfants = noeud.children;
       const lisibles = enfants.filter((enfant) => ts.isJsxText(enfant) && texteLisible(texteJsx(enfant.text)));
       if (lisibles.length) {
-        const melange = enfants.some((enfant) => ts.isJsxElement(enfant) || ts.isJsxSelfClosingElement(enfant));
-        if (melange) {
+        /*
+         * ON NE MET JAMAIS UNE BALISE DANS UN TROU. Un trou reçoit une VALEUR
+         * qu'on lit — un compte, un nom —, pas une icône : `{v0}` rempli par un
+         * `<Loader2/>` afficherait « [object Object] ». Un enfant qui contient
+         * du JSX vaut donc une balise, et fait basculer l'élément entier dans
+         * le traitement morceau par morceau.
+         */
+        const balisePresente = enfants.some(
+          (enfant) =>
+            ts.isJsxElement(enfant) ||
+            ts.isJsxSelfClosingElement(enfant) ||
+            ts.isJsxFragment(enfant) ||
+            (ts.isJsxExpression(enfant) &&
+              enfant.expression &&
+              /<[A-Za-z/]/.test(source.slice(enfant.expression.pos, enfant.expression.end))),
+        );
+        if (balisePresente) {
           /*
            * Une balise au milieu, c'est presque toujours une ICÔNE posée à côté
            * d'un libellé entier (`<Button><Archive/>Archiver</Button>`) : le
@@ -215,9 +262,12 @@ function remplacements(chemin, source) {
           const debut = enfants[0].getStart(arbre);
           const fin = enfants[enfants.length - 1].end;
           noter(debut, fin, `{${appelDeTraduction(texte, valeurs)}}`, texte);
-          for (const enfant of enfants) {
-            if (!ts.isJsxText(enfant)) ts.forEachChild(enfant, visiter);
-          }
+          /*
+           * ON NE DESCEND PAS DANS LES ENFANTS QU'ON VIENT D'ABSORBER : ils sont
+           * déjà dans la phrase, et un second geste posé DEDANS chevaucherait le
+           * premier — c'est ce qui coupait une expression en deux. Les ATTRIBUTS
+           * de la balise, eux, restent à visiter : ils ne sont pas absorbés.
+           */
           ts.forEachChild(noeud.openingElement, visiter);
           return;
         }
@@ -243,22 +293,21 @@ function remplacements(chemin, source) {
       }
     }
 
-    /* 2 bis. Les littéraux nichés dans l'expression d'un tel attribut. */
+    /* 2 bis. Les littéraux nichés dans un tel attribut, ou posés entre balises. */
+    const contexte = contexteDuLitteral(noeud);
+    const traduisible = contexte === 'attribut-texte' || contexte === 'enfant';
+
     if (
       (ts.isStringLiteral(noeud) || ts.isNoSubstitutionTemplateLiteral(noeud)) &&
-      ATTRIBUTS_DE_TEXTE.has(attributPorteur(noeud) ?? '') &&
-      !dansUnAppelDeClasses(noeud) &&
+      traduisible &&
+      !dejaPrisEnCharge(noeud) &&
       texteLisible(noeud.text)
     ) {
       noter(noeud.getStart(arbre), noeud.end, appelDeTraduction(noeud.text), noeud.text);
       return;
     }
 
-    if (
-      ts.isTemplateExpression(noeud) &&
-      ATTRIBUTS_DE_TEXTE.has(attributPorteur(noeud) ?? '') &&
-      !dansUnAppelDeClasses(noeud)
-    ) {
+    if (ts.isTemplateExpression(noeud) && traduisible && !dejaPrisEnCharge(noeud)) {
       const { texte, valeurs } = gabaritEnTexteATrous(noeud, source);
       if (texteLisible(texte.replace(/\{\w+\}/g, ' '))) {
         noter(noeud.getStart(arbre), noeud.end, appelDeTraduction(texte, valeurs), texte);
@@ -287,8 +336,22 @@ function remplacements(chemin, source) {
   };
 
   ts.forEachChild(arbre, visiter);
-  gestes.sort((a, b) => b.debut - a.debut);
-  return { gestes, cles };
+
+  /*
+   * DEUX GESTES NE SE CHEVAUCHENT JAMAIS. Le plus ENGLOBANT gagne : c'est lui
+   * qui porte la phrase entière, celui de dedans n'en serait qu'un morceau. Un
+   * chevauchement laissé passer découpe le code au milieu d'une expression.
+   */
+  gestes.sort((a, b) => a.debut - b.debut || b.fin - a.fin);
+  const retenus = [];
+  let finPrecedente = -1;
+  for (const geste of gestes) {
+    if (geste.debut < finPrecedente) continue;
+    retenus.push(geste);
+    finPrecedente = geste.fin;
+  }
+  retenus.sort((a, b) => b.debut - a.debut);
+  return { gestes: retenus, cles };
 }
 
 /** Pose l'import de `t` en tête d'un fichier qui vient d'en gagner l'usage. */

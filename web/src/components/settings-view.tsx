@@ -94,6 +94,7 @@ import { client } from '@/lib/client';
 import { useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, elapsed, relativeTime } from '@/lib/utils';
+import { t, formatRegional } from '@/lib/langue';
 
 /**
  * Les réglages s'ouvrent en TIROIR, comme les cartes : même geste pour
@@ -141,7 +142,7 @@ function SettingsBody({ open }: { open: boolean }) {
   return (
     <>
       <header className="shrink-0 border-b border-border px-4 pb-2">
-        <DialogTitle>Réglages</DialogTitle>
+        <DialogTitle>{t('Réglages')}</DialogTitle>
       </header>
 
       <Tabs value={onglet} onValueChange={setOnglet} className="flex min-h-0 flex-1 flex-col">
@@ -247,13 +248,10 @@ function SectionApparence() {
   return (
     <section>
       <h3 className="mb-1 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Palette className="h-3.5 w-3.5 text-faint" /> Thème général
-      </h3>
+        <Palette className="h-3.5 w-3.5 text-faint" />  {t('Thème général')}
+</h3>
       <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
-        Le thème choisi vaut partout : sur l'ordinateur comme sur le téléphone, et il ne se perd pas en vidant un
-        cache. « Sombre », « Sable » et « Ardoise » sont sans bordures — un bloc s'y délimite par son fond. Chaque
-        projet peut en imposer un autre, dans ses propres réglages.
-      </p>
+        {t('Le thème choisi vaut partout : sur l\'ordinateur comme sur le téléphone, et il ne se perd pas en vidant un cache. « Sombre », « Sable » et « Ardoise » sont sans bordures — un bloc s\'y délimite par son fond. Chaque projet peut en imposer un autre, dans ses propres réglages.')}</p>
 
       {/* UN PROJET QUI IMPOSE SON THÈME PASSE DEVANT, ET ON LE DIT ICI. Sans
           cette phrase, choisir un thème dans cet onglet ne changeait rien à
@@ -263,15 +261,11 @@ function SectionApparence() {
           data-theme-recouvert
           className="mb-3 rounded-md border border-termine/30 bg-termine/5 px-2.5 py-1.5 text-[12.5px] leading-relaxed text-muted"
         >
-          « {projetOuvert?.name} » impose son propre thème ({choixParId(projetOuvert?.theme)?.libelle}) : c'est celui
-          que vous voyez en ce moment. Le choix ci-dessous s'applique aux projets qui n'en imposent aucun.
-        </p>
+          {t('« {v0} » impose son propre thème ({v1}) : c\'est celui que vous voyez en ce moment. Le choix ci-dessous s\'applique aux projets qui n\'en imposent aucun.', { v0: projetOuvert?.name, v1: t(choixParId(projetOuvert?.theme)?.libelle ?? '') })}</p>
       ) : null}
       {enVigueur.parLeSysteme && enVigueur.source === 'general' ? (
         <p data-theme-par-le-systeme className="mb-3 text-[12.5px] leading-relaxed text-muted">
-          Votre ordinateur est réglé en {enVigueur.theme === 'sombre' ? 'sombre' : 'clair'} : c'est donc le thème
-          « {themeParId(enVigueur.theme).libelle} » qui s'affiche, et il changera tout seul si vous changez ce réglage.
-        </p>
+          {t('Votre ordinateur est réglé en {v0} : c\'est donc le thème « {v1} » qui s\'affiche, et il changera tout seul si vous changez ce réglage.', { v0: enVigueur.theme === 'sombre' ? 'sombre' : 'clair', v1: t(themeParId(enVigueur.theme).libelle) })}</p>
       ) : null}
 
       <div className="grid gap-2 sm:grid-cols-2">
@@ -302,10 +296,10 @@ function SectionApparence() {
 
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className="text-[14px] font-medium text-text">{item.libelle}</span>
+                  <span className="text-[14px] font-medium text-text">{t(item.libelle)}</span>
                   {actif ? <Check className="h-3.5 w-3.5 shrink-0 text-termine" /> : null}
                 </span>
-                <span className="mt-0.5 block text-[12.5px] leading-relaxed text-faint">{item.description}</span>
+                <span className="mt-0.5 block text-[12.5px] leading-relaxed text-faint">{t(item.description)}</span>
               </span>
             </button>
           );
@@ -352,8 +346,8 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
     <>
       <section>
         <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-          <Activity className="h-3.5 w-3.5 text-faint" /> Capacité du système
-        </h3>
+          <Activity className="h-3.5 w-3.5 text-faint" />  {t('Capacité du système')}
+</h3>
 
         {capacity ? (
           <>
@@ -361,22 +355,17 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
             <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-[17px] font-semibold text-text">{phraseCapacite(capacity)}</span>
               <span className="text-[12.5px] text-faint">
-                {detailDesAgents(capacity)} · plafond {capacity.maxAgents} · mémoire moyenne mesurée{' '}
-                {capacity.avgAgentMemMb} Mo
-              </span>
+                {t('{v0} · plafond {v1} · mémoire moyenne mesurée{v2} {v3} Mo', { v0: detailDesAgents(capacity), v1: capacity.maxAgents, v2: ' ', v3: capacity.avgAgentMemMb })}</span>
             </div>
             <p className="mt-1 text-[12.5px] leading-relaxed text-faint">
-              La barre montre les places d'agents occupées, rien d'autre : elle ne devient rouge que lorsqu'aucun agent
-              ne peut plus démarrer, faute de mémoire ou de place sous le plafond.
-            </p>
+              {t('La barre montre les places d\'agents occupées, rien d\'autre : elle ne devient rouge que lorsqu\'aucun agent ne peut plus démarrer, faute de mémoire ou de place sous le plafond.')}</p>
 
             {/* Le manque de place et le frein processeur sont DEUX choses : on
                 ne dit plus « plus aucun agent ne peut démarrer » pour une
                 pointe de charge d'une minute. */}
             {ton === 'tendu' && !capacity.loadHoldReason ? (
               <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
-                Il ne reste presque plus de place : les prochaines tâches attendront leur tour.
-              </p>
+                {t('Il ne reste presque plus de place : les prochaines tâches attendront leur tour.')}</p>
             ) : null}
             {capacity.loadHoldReason ? (
               <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
@@ -394,12 +383,12 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
                 place, la charge ne fait que freiner au-delà d'une vraie file. */}
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Mesure
-                titre="Mémoire utilisée"
+                titre={t('Mémoire utilisée')}
                 valeur={`${memoire} %`}
                 detail={`${gigas(capacity.memUsedMb)} sur ${gigas(capacity.memTotalMb)}`}
               />
               <Mesure
-                titre="Charge processeur"
+                titre={t('Charge processeur')}
                 valeur={`${Math.round(capacity.cpuLoadPct ?? capacity.loadPct)} %`}
                 detail={
                   capacity.cpuLoadSustainedPct === undefined
@@ -417,7 +406,7 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
       </section>
 
       <section className="mt-4">
-        <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">Ce qui tourne en ce moment</p>
+        <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">{t('Ce qui tourne en ce moment')}</p>
         <div className="space-y-0.5">
           {state.processes.map((process) => (
             <div
@@ -438,7 +427,7 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
                   {process.since ? ` · ${elapsed(process.since)}` : ''}
                 </p>
               </div>
-              <span className="shrink-0 text-[12.5px] text-muted">{process.memMb} Mo</span>
+              <span className="shrink-0 text-[12.5px] text-muted">{t('{v0} Mo', { v0: process.memMb })}</span>
               {process.canStop ? (
                 <Button
                   variant="ghost"
@@ -455,7 +444,7 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
                   )}
                 </Button>
               ) : (
-                <Tooltip label="HaikoDev ne peut pas s'éteindre depuis sa propre interface">
+                <Tooltip label={t('HaikoDev ne peut pas s\'éteindre depuis sa propre interface')}>
                   <span className="px-1.5 text-faint">
                     <ShieldCheck className="h-3 w-3" />
                   </span>
@@ -474,13 +463,13 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
 
       <ConfirmDialog
         open={!!aConfirmer}
-        title={aConfirmer?.running ? `Arrêter « ${aConfirmer.label} » ?` : `Démarrer « ${aConfirmer?.label} » ?`}
+        title={aConfirmer?.running ? t('Arrêter « {v0} » ?', { v0: aConfirmer.label }) : t('Démarrer « {v0} » ?', { v0: aConfirmer?.label })}
         description={
           aConfirmer?.running
-            ? 'Le service s’arrête tout de suite. Ce qu’il servait devient injoignable jusqu’au redémarrage.'
-            : 'Le service redémarre avec sa commande habituelle.'
+            ? t('Le service s’arrête tout de suite. Ce qu’il servait devient injoignable jusqu’au redémarrage.')
+            : t('Le service redémarre avec sa commande habituelle.')
         }
-        confirmLabel={aConfirmer?.running ? 'Arrêter' : 'Démarrer'}
+        confirmLabel={aConfirmer?.running ? t('Arrêter') : t('Démarrer')}
         danger={aConfirmer?.running}
         onConfirm={async () => {
           if (aConfirmer) await appliquer(aConfirmer);
@@ -564,18 +553,16 @@ function SectionAccesVps() {
   return (
     <section className="mt-4" data-bloc-vps>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Server className="h-3.5 w-3.5 text-faint" /> Accès au VPS
-      </h3>
+        <Server className="h-3.5 w-3.5 text-faint" />  {t('Accès au VPS')}
+</h3>
 
       <p className="mb-2 text-[12.5px] leading-relaxed text-faint">
-        La machine sur laquelle tourne HaikoDev. Renseignés, ces accès servent à créer une adresse publique ; laissés
-        vides, la création d'adresse reste locale, comme aujourd'hui.
-      </p>
+        {t('La machine sur laquelle tourne HaikoDev. Renseignés, ces accès servent à créer une adresse publique ; laissés vides, la création d\'adresse reste locale, comme aujourd\'hui.')}</p>
 
       <div className="rounded-md border border-border bg-surface px-2.5 py-2.5">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-0.5 block text-[12px] text-faint">Adresse de la machine</span>
+            <span className="mb-0.5 block text-[12px] text-faint">{t('Adresse de la machine')}</span>
             <Input
               value={hote}
               onChange={(e) => setHote(e.target.value)}
@@ -585,7 +572,7 @@ function SectionAccesVps() {
             />
           </label>
           <label className="block">
-            <span className="mb-0.5 block text-[12px] text-faint">Port</span>
+            <span className="mb-0.5 block text-[12px] text-faint">{t('Port')}</span>
             <Input
               value={port}
               onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))}
@@ -596,7 +583,7 @@ function SectionAccesVps() {
             />
           </label>
           <label className="block">
-            <span className="mb-0.5 block text-[12px] text-faint">Utilisateur</span>
+            <span className="mb-0.5 block text-[12px] text-faint">{t('Utilisateur')}</span>
             <Input
               value={utilisateur}
               onChange={(e) => setUtilisateur(e.target.value)}
@@ -606,7 +593,7 @@ function SectionAccesVps() {
             />
           </label>
           <label className="block">
-            <span className="mb-0.5 block text-[12px] text-faint">Moyen de connexion</span>
+            <span className="mb-0.5 block text-[12px] text-faint">{t('Moyen de connexion')}</span>
             <select
               value={moyen}
               onChange={(e) => setMoyen(e.target.value as any)}
@@ -614,7 +601,7 @@ function SectionAccesVps() {
             >
               {MOYENS_ACCES_VPS.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.libelle}
+                  {t(m.libelle)}
                 </option>
               ))}
             </select>
@@ -623,11 +610,11 @@ function SectionAccesVps() {
 
         {moyen === 'cle' ? (
           <label className="mt-2 block">
-            <span className="mb-0.5 block text-[12px] text-faint">Chemin du fichier de clé privée</span>
+            <span className="mb-0.5 block text-[12px] text-faint">{t('Chemin du fichier de clé privée')}</span>
             <Input
               value={cle}
               onChange={(e) => setCle(e.target.value)}
-              placeholder="ex. /root/.ssh/id_ed25519"
+              placeholder={t('ex. /root/.ssh/id_ed25519')}
               className="h-7 w-full text-[12.5px]"
               autoComplete="off"
             />
@@ -636,12 +623,12 @@ function SectionAccesVps() {
 
         {moyen === 'mot-de-passe' ? (
           <label className="mt-2 block">
-            <span className="mb-0.5 block text-[12px] text-faint">Mot de passe</span>
+            <span className="mb-0.5 block text-[12px] text-faint">{t('Mot de passe')}</span>
             <Input
               type="password"
               value={motDePasse}
               onChange={(e) => setMotDePasse(e.target.value)}
-              placeholder="Mot de passe de la machine"
+              placeholder={t('Mot de passe de la machine')}
               className="h-7 w-full text-[12.5px]"
               autoComplete="off"
             />
@@ -651,12 +638,13 @@ function SectionAccesVps() {
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           <Button variant="secondary" size="sm" onClick={enregistrer}>
             {enregistre ? <ShieldCheck className="h-3 w-3 text-success" /> : <Save className="h-3 w-3" />}
-            {enregistre ? 'Enregistré' : 'Enregistrer'}
+            {enregistre ? t('Enregistré') : t('Enregistrer')}
           </Button>
           <Button variant="secondary" size="sm" onClick={tester} disabled={testEnCours}>
             {testEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
-            Tester la connexion
-          </Button>
+            
+{t('Tester la connexion')}
+</Button>
         </div>
 
         {resultat ? (
@@ -705,7 +693,7 @@ function SectionCerveau() {
       setEtat(data.etat ?? null);
       if (data.pose?.ok) {
         setCle('');
-        client.pushToast('success', 'Clé posée : les envois peuvent partir.');
+        client.pushToast('success', t('Clé posée : les envois peuvent partir.'));
       } else {
         client.pushToast('error', data.pose?.raison ?? 'clé non enregistrée');
       }
@@ -743,12 +731,11 @@ function SectionCerveau() {
   return (
     <section className="mt-4">
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Brain className="h-3.5 w-3.5 text-faint" /> Mémoire envoyée au cerveau
-      </h3>
+        <Brain className="h-3.5 w-3.5 text-faint" />  {t('Mémoire envoyée au cerveau')}
+</h3>
 
       <p className="mb-2 text-[12.5px] leading-relaxed text-faint">
-        Chaque nuit, chaque projet vivant envoie sa mémoire et ses instructions à {etat?.adresse ?? 'ce service'}.
-      </p>
+        {t('Chaque nuit, chaque projet vivant envoie sa mémoire et ses instructions à {v0}.', { v0: etat?.adresse ?? 'ce service' })}</p>
 
       <div className="rounded-md border border-border bg-surface px-2.5 py-2">
         <p
@@ -771,20 +758,22 @@ function SectionCerveau() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void poserLaCle();
               }}
-              placeholder="Clé du cerveau"
+              placeholder={t('Clé du cerveau')}
               className="h-7 w-56 text-[12.5px]"
               autoComplete="off"
             />
             <Button variant="secondary" size="sm" onClick={poserLaCle} disabled={pose || !cle.trim()}>
               {pose ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              Enregistrer
-            </Button>
+              
+{t('Enregistrer')}
+</Button>
           </div>
         ) : (
           <Button variant="secondary" size="sm" className="mt-2" onClick={envoyer} disabled={enCours}>
             {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-            Envoyer maintenant
-          </Button>
+            
+{t('Envoyer maintenant')}
+</Button>
         )}
 
         {erreurs.length ? (
@@ -837,9 +826,9 @@ function SectionErreursInterface() {
       if (data.ok) {
         setErreurs([]);
         setTotal(0);
-        client.pushToast('success', 'Journal des erreurs vidé.');
+        client.pushToast('success', t('Journal des erreurs vidé.'));
       } else {
-        client.pushToast('error', "Le journal n'a pas pu être vidé.");
+        client.pushToast('error', t('Le journal n\'a pas pu être vidé.'));
       }
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'effacement refusé');
@@ -851,13 +840,11 @@ function SectionErreursInterface() {
   return (
     <section className="mt-4" data-bloc-erreurs>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Bug className="h-3.5 w-3.5 text-faint" /> Dernières erreurs de l'interface
-      </h3>
+        <Bug className="h-3.5 w-3.5 text-faint" />  {t('Dernières erreurs de l\'interface')}
+</h3>
 
       <p className="mb-2 text-[12.5px] leading-relaxed text-faint">
-        Ce qui a planté dans la page, sur cet ordinateur comme sur un téléphone. Rien du contenu des projets n'est
-        remonté : seulement l'erreur, l'adresse de la page et l'appareil.
-      </p>
+        {t('Ce qui a planté dans la page, sur cet ordinateur comme sur un téléphone. Rien du contenu des projets n\'est remonté : seulement l\'erreur, l\'adresse de la page et l\'appareil.')}</p>
 
       {erreurs.length ? (
         <>
@@ -877,7 +864,7 @@ function SectionErreursInterface() {
                 <p className="mt-0.5 break-words text-[13px] text-danger">{erreur.message}</p>
                 {erreur.pile || erreur.url ? (
                   <details className="mt-1">
-                    <summary className="cursor-pointer text-[11.5px] text-faint">Détail technique</summary>
+                    <summary className="cursor-pointer text-[11.5px] text-faint">{t('Détail technique')}</summary>
                     {erreur.url ? <p className="mt-1 break-all text-[11.5px] text-muted">{erreur.url}</p> : null}
                     {erreur.pile ? (
                       <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11.5px] text-muted">
@@ -893,17 +880,17 @@ function SectionErreursInterface() {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" onClick={effacer} disabled={enCours} data-effacer-erreurs>
               {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-              Tout effacer
-            </Button>
+              
+{t('Tout effacer')}
+</Button>
             {total > erreurs.length ? (
-              <span className="text-[12px] text-faint">{total} erreurs au journal, {erreurs.length} affichées.</span>
+              <span className="text-[12px] text-faint">{t('{total} erreurs au journal, {v0} affichées.', { total, v0: erreurs.length })}</span>
             ) : null}
           </div>
         </>
       ) : (
         <p className="rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
-          Aucune erreur remontée : l'interface n'a rien cassé depuis le dernier effacement.
-        </p>
+          {t('Aucune erreur remontée : l\'interface n\'a rien cassé depuis le dernier effacement.')}</p>
       )}
     </section>
   );
@@ -918,7 +905,7 @@ function gigas(mo: number): string {
 function moisEnClair(mois: string): string {
   const [annee, numero] = mois.split('-').map(Number);
   if (!annee || !numero) return mois;
-  return new Date(annee, numero - 1, 1).toLocaleDateString('fr-CH', { month: 'long', year: 'numeric' });
+  return new Date(annee, numero - 1, 1).toLocaleDateString(formatRegional(), { month: 'long', year: 'numeric' });
 }
 
 function Mesure({ titre, valeur, detail }: { titre: string; valeur: string; detail: string }) {
@@ -952,9 +939,9 @@ function SectionFonctionnement({
 
   return (
     <div className="space-y-5">
-      <Groupe titre="Combien d'agents en même temps">
+      <Groupe titre={t('Combien d\'agents en même temps')}>
         <Champ
-          label="Plafond d'agents"
+          label={t('Plafond d\'agents')}
           aide="Nombre maximum d'agents qui peuvent travailler en parallèle. La mémoire disponible peut abaisser ce chiffre, jamais l'augmenter."
         >
           <Input
@@ -966,7 +953,7 @@ function SectionFonctionnement({
           />
         </Champ>
         <Champ
-          label="Une tâche est dite « lourde » au-delà de (minutes)"
+          label={t('Une tâche est dite « lourde » au-delà de (minutes)')}
           aide="Au-delà de cette durée prévue, une tâche est repoussée aux heures creuses plutôt que lancée tout de suite."
         >
           <Input
@@ -979,10 +966,10 @@ function SectionFonctionnement({
       </Groupe>
 
       <Groupe
-        titre="Heures creuses"
+        titre={t('Heures creuses')}
         aide="La plage où les tâches lourdes sont lancées. Elle peut passer minuit : 22 puis 7 signifie « de 22 h à 7 h »."
       >
-        <Champ label="Début (heure)" aide="De 0 à 23.">
+        <Champ label={t('Début (heure)')} aide="De 0 à 23.">
           <Input
             type="number"
             min={0}
@@ -991,7 +978,7 @@ function SectionFonctionnement({
             onBlur={(event) => update({ offPeakStart: Number(event.target.value) })}
           />
         </Champ>
-        <Champ label="Fin (heure)" aide="De 0 à 23.">
+        <Champ label={t('Fin (heure)')} aide="De 0 à 23.">
           <Input
             type="number"
             min={0}
@@ -1002,8 +989,8 @@ function SectionFonctionnement({
         </Champ>
       </Groupe>
 
-      <Groupe titre="Alerte de surcharge" aide="Prévenir quand la machine reste tendue trop longtemps.">
-        <Champ label="Prévenir quand la charge dépasse (%)" aide="Entre 50 et 100.">
+      <Groupe titre={t('Alerte de surcharge')} aide="Prévenir quand la machine reste tendue trop longtemps.">
+        <Champ label={t('Prévenir quand la charge dépasse (%)')} aide="Entre 50 et 100.">
           <Input
             type="number"
             min={50}
@@ -1013,7 +1000,7 @@ function SectionFonctionnement({
           />
         </Champ>
         <Champ
-          label="…et qu'elle y reste au moins (minutes)"
+          label={t('…et qu\'elle y reste au moins (minutes)')}
           aide="Une pointe passagère ne réveille personne : il faut que la charge tienne pendant cette durée."
         >
           <Input
@@ -1026,10 +1013,10 @@ function SectionFonctionnement({
       </Groupe>
 
       <Groupe
-        titre="Heures de silence"
+        titre={t('Heures de silence')}
         aide="Aucune notification pendant cette plage, et aucune fenêtre de quota amorcée. Laissez les deux champs vides pour ne jamais faire silence."
       >
-        <Champ label="Début (heure)" aide="Vide = pas de silence.">
+        <Champ label={t('Début (heure)')} aide="Vide = pas de silence.">
           <Input
             type="number"
             min={0}
@@ -1038,7 +1025,7 @@ function SectionFonctionnement({
             onBlur={(event) => update({ quietHoursStart: nombre(event.target.value) })}
           />
         </Champ>
-        <Champ label="Fin (heure)" aide="Vide = pas de silence.">
+        <Champ label={t('Fin (heure)')} aide="Vide = pas de silence.">
           <Input
             type="number"
             min={0}
@@ -1049,8 +1036,8 @@ function SectionFonctionnement({
         </Champ>
       </Groupe>
 
-      <Groupe titre="Sauvegarde automatique">
-        <Champ label="Heure de la sauvegarde de nuit" aide="De 0 à 23. La sauvegarde est vérifiée juste après.">
+      <Groupe titre={t('Sauvegarde automatique')}>
+        <Champ label={t('Heure de la sauvegarde de nuit')} aide="De 0 à 23. La sauvegarde est vérifiée juste après.">
           <Input
             type="number"
             min={0}
@@ -1061,14 +1048,14 @@ function SectionFonctionnement({
         </Champ>
       </Groupe>
 
-      <Groupe titre="Ce dont on vous prévient">
+      <Groupe titre={t('Ce dont on vous prévient')}>
         <div className="space-y-2">
           {(
             [
-              ['notifyOnDone', 'Quand une tâche se termine'],
-              ['notifyOnFailed', 'Quand une tâche échoue'],
-              ['notifyOnProposal', 'Quand une tâche est proposée par un agent'],
-              ['notifyOnDeploy', 'Quand une publication est finie'],
+              ['notifyOnDone', t('Quand une tâche se termine')],
+              ['notifyOnFailed', t('Quand une tâche échoue')],
+              ['notifyOnProposal', t('Quand une tâche est proposée par un agent')],
+              ['notifyOnDeploy', t('Quand une publication est finie')],
             ] as const
           ).map(([key, label]) => (
             <label key={key} className="flex items-center gap-2 text-[14px] text-muted">
@@ -1116,7 +1103,7 @@ function SectionComptes() {
   return (
     <section>
       <div className="mb-2 flex items-center gap-1.5">
-        <h3 className="flex-1 text-[13.5px] font-medium text-text">Comptes et quotas</h3>
+        <h3 className="flex-1 text-[13.5px] font-medium text-text">{t('Comptes et quotas')}</h3>
         <Button variant="ghost" size="icon-sm" onClick={() => client.send({ type: 'quota.refresh' })}>
           <RefreshCw className="h-3 w-3" />
         </Button>
@@ -1131,9 +1118,7 @@ function SectionComptes() {
       <ConnecterUnCompte />
 
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
-        L'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en premier,
-        la relève ne sert qu'en cas d'épuisement.
-      </p>
+        {t('L\'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en premier, la relève ne sert qu\'en cas d\'épuisement.')}</p>
 
       {/* Les réglages n'arrivent qu'avec la réponse du serveur : avant, il
           n'y a rien à cocher — et les lire trop tôt vidait la page. */}
@@ -1142,12 +1127,11 @@ function SectionComptes() {
           checked={settings?.primeClaudeWindow ?? false}
           onCheckedChange={(checked) => update({ primeClaudeWindow: checked })}
         />
-        Lancer la fenêtre de 5 h dès qu'elle repart à zéro
-      </label>
+        
+{t('Lancer la fenêtre de 5 h dès qu\'elle repart à zéro')}
+</label>
       <p className="mt-1 text-[12.5px] leading-relaxed text-faint">
-        Sur Claude, la fenêtre de cinq heures ne démarre qu'au premier message. HaikoDev en envoie un minuscule dès
-        qu'un compte revient à zéro, pour que le décompte tourne déjà quand le travail arrive.
-      </p>
+        {t('Sur Claude, la fenêtre de cinq heures ne démarre qu\'au premier message. HaikoDev en envoie un minuscule dès qu\'un compte revient à zéro, pour que le décompte tourne déjà quand le travail arrive.')}</p>
     </section>
   );
 }
@@ -1179,7 +1163,7 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
     setEnvoi(true);
     try {
       const rendu = await client.call<{ ok: boolean }>({ type: 'account.rename', id: quota.id, label: propre });
-      if (!rendu.ok) client.pushToast('error', 'nom refusé');
+      if (!rendu.ok) client.pushToast('error', t('nom refusé'));
       setEdite(false);
     } catch {
       client.pushToast('error', 'renommage impossible');
@@ -1210,8 +1194,9 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
               />
               <Button size="sm" disabled={envoi} onClick={valider}>
                 {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                Valider
-              </Button>
+                
+{t('Valider')}
+</Button>
             </div>
           ) : (
             <p className="truncate text-[13.5px] text-text">
@@ -1231,15 +1216,15 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
               {quota.session ? `${libelleFenetreCompte(quota.session, 'session')} ${Math.round(quota.session.usedPct ?? 0)} %` : null}
               {quota.session && quota.weekly ? ' · ' : null}
               {quota.weekly ? `${libelleFenetreCompte(quota.weekly, 'weekly')} ${Math.round(quota.weekly.usedPct ?? 0)} %` : null}
-              {!quota.session && !quota.weekly ? 'Aucune fenêtre de quota publiée' : null}
-              {quota.weekly && tempsRestant(quota.weekly.resetsAt) ? ` · remise à zéro : ${tempsRestant(quota.weekly.resetsAt)}` : ''}
+              {!quota.session && !quota.weekly ? t('Aucune fenêtre de quota publiée') : null}
+              {quota.weekly && tempsRestant(quota.weekly.resetsAt) ? t(' · remise à zéro : {v0}', { v0: tempsRestant(quota.weekly.resetsAt) }) : ''}
             </p>
           ) : null}
         </div>
         {!edite ? (
           <>
             {quota.active ? <Badge tone="success">actif</Badge> : null}
-            {!quota.available ? <Badge tone="danger">épuisé</Badge> : null}
+            {!quota.available ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
             {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
                 un compte qui marche n'a pas besoin d'un badge de plus. */}
             {quota.connexion?.doitReconnecter ? <Badge tone="warning">{quota.connexion.libelle}</Badge> : null}
@@ -1250,8 +1235,9 @@ function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: Co
                 onClick={() => client.send({ type: 'account.connect', engine: quota.engine, accountId: quota.id })}
               >
                 <LogIn className="h-3 w-3" />
-                Reconnecter
-              </Button>
+                
+{t('Reconnecter')}
+</Button>
             ) : null}
             <Tooltip content="Renommer ce compte">
               <Button variant="ghost" size="icon-sm" onClick={() => setEdite(true)}>
@@ -1310,21 +1296,20 @@ function EtatCursor({ accountId }: { accountId: string }) {
   }, [accountId]);
 
   if (erreur) return <p className="text-[11.5px] text-danger">{erreur}</p>;
-  if (!etat) return <p className="text-[11.5px] text-faint">lecture de la clé…</p>;
+  if (!etat) return <p className="text-[11.5px] text-faint">{t('lecture de la clé…')}</p>;
 
   return (
     <div className="text-[11.5px] text-faint">
       {etat.cleAcceptee ? (
-        <p>clé « {etat.nomDeLaCle ?? 'sans nom'} » acceptée</p>
+        <p>{t('clé « {v0} » acceptée', { v0: etat.nomDeLaCle ?? 'sans nom' })}</p>
       ) : (
-        <p className="text-danger">clé refusée — {etat.erreur ?? 'raison inconnue'}</p>
+        <p className="text-danger">{t('clé refusée — {v0}', { v0: etat.erreur ?? 'raison inconnue' })}</p>
       )}
       {etat.cliInstalle ? (
-        <p>outil « cursor-agent » installé{etat.versionDuCli ? ` (version ${etat.versionDuCli})` : ''}</p>
+        <p>{t('outil « cursor-agent » installé{v0}', { v0: etat.versionDuCli ? ` (version ${etat.versionDuCli})` : '' })}</p>
       ) : (
         <p className="text-warning">
-          outil « cursor-agent » absent du serveur — {etat.erreurDuCli ?? 'aucun tour ne peut partir'}
-        </p>
+          {t('outil « cursor-agent » absent du serveur — {v0}', { v0: etat.erreurDuCli ?? 'aucun tour ne peut partir' })}</p>
       )}
     </div>
   );
@@ -1385,8 +1370,7 @@ function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
       {connexion.lien ? (
         <>
           <p className="text-[12.5px] leading-relaxed text-muted">
-            Ouvrez cette adresse sur votre appareil et connectez-vous :
-          </p>
+            {t('Ouvrez cette adresse sur votre appareil et connectez-vous :')}</p>
           <a
             href={connexion.lien}
             target="_blank"
@@ -1398,13 +1382,14 @@ function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
         </>
       ) : (
         <p className="flex items-center gap-1.5 text-[12.5px] text-faint">
-          <Loader2 className="h-3 w-3 animate-spin" /> Le moteur prépare la connexion…
-        </p>
+          <Loader2 className="h-3 w-3 animate-spin" />  {t('Le moteur prépare la connexion…')}
+</p>
       )}
 
       {connexion.code ? (
         <p className="text-[12.5px] leading-relaxed text-muted">
-          Puis saisissez ce code sur la page : <span className="font-mono text-[14px] text-text">{connexion.code}</span>
+          
+{t('Puis saisissez ce code sur la page :')} <span className="font-mono text-[14px] text-text">{connexion.code}</span>
         </p>
       ) : null}
 
@@ -1413,7 +1398,7 @@ function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
           <Input
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            placeholder="Collez ici le code rendu par la page"
+            placeholder={t('Collez ici le code rendu par la page')}
             className="h-7 flex-1 text-[12.5px]"
           />
           <Button
@@ -1435,14 +1420,14 @@ function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
             }}
           >
             {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-            Valider
-          </Button>
+            
+{t('Valider')}
+</Button>
         </div>
       ) : null}
 
       <Button variant="ghost" size="sm" onClick={() => client.send({ type: 'account.cancel', id: connexion.id })}>
-        Abandonner
-      </Button>
+        {t('Abandonner')}</Button>
     </div>
   );
 }
@@ -1480,7 +1465,8 @@ function ConnecterUnCompte() {
                 onClick={() => client.send({ type: 'account.connect', engine })}
               >
                 <LogIn className="h-3 w-3" />
-                Connecter un compte {engine === 'codex' ? 'Codex' : 'Claude'}
+                
+{t('Connecter un compte {moteur}', { moteur: engine === 'codex' ? 'Codex' : 'Claude' })}
               </Button>
             ))}
           </div>
@@ -1521,7 +1507,7 @@ function AjouterCleCursor() {
         setErreur(rendu.erreur ?? 'clé refusée');
         return;
       }
-      client.pushToast('success', 'compte Cursor ajouté');
+      client.pushToast('success', t('compte Cursor ajouté'));
       setOuvert(false);
       setNom('');
       setCle('');
@@ -1536,8 +1522,9 @@ function AjouterCleCursor() {
     return (
       <Button variant="outline" size="sm" className="mt-1.5" onClick={() => setOuvert(true)}>
         <KeyRound className="h-3 w-3" />
-        Ajouter une clé Cursor
-      </Button>
+        
+{t('Ajouter une clé Cursor')}
+</Button>
     );
   }
 
@@ -1547,14 +1534,14 @@ function AjouterCleCursor() {
         <Input
           autoFocus
           value={nom}
-          placeholder="Nom du compte"
+          placeholder={t('Nom du compte')}
           disabled={envoi}
           onChange={(event) => setNom(event.target.value)}
           className="h-7 w-40 text-[13.5px]"
         />
         <Input
           value={cle}
-          placeholder="Clé d'accès Cursor"
+          placeholder={t('Clé d\'accès Cursor')}
           disabled={envoi}
           onChange={(event) => setCle(event.target.value)}
           onKeyDown={(event) => {
@@ -1564,17 +1551,15 @@ function AjouterCleCursor() {
         />
         <Button size="sm" disabled={envoi || !nom.trim() || !cle.trim()} onClick={valider}>
           {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-          Ajouter
-        </Button>
+          
+{t('Ajouter')}
+</Button>
         <Button variant="ghost" size="sm" disabled={envoi} onClick={() => setOuvert(false)}>
-          Annuler
-        </Button>
+          {t('Annuler')}</Button>
       </div>
       {erreur ? <p className="mt-1 text-[12.5px] text-danger">{erreur}</p> : null}
       <p className="mt-1 text-[12.5px] leading-relaxed text-faint">
-        La clé se crée sur cursor.com, dans le tableau de bord. Elle est éprouvée avant d'être retenue : un compte
-        n'apparaît que s'il répond vraiment.
-      </p>
+        {t('La clé se crée sur cursor.com, dans le tableau de bord. Elle est éprouvée avant d\'être retenue : un compte n\'apparaît que s\'il répond vraiment.')}</p>
     </div>
   );
 }
@@ -1598,8 +1583,8 @@ function SectionSauvegardes({ open }: { open: boolean }) {
   return (
     <section>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Database className="h-3.5 w-3.5 text-faint" /> Sauvegardes
-      </h3>
+        <Database className="h-3.5 w-3.5 text-faint" />  {t('Sauvegardes')}
+</h3>
       <Button
         variant="outline"
         size="sm"
@@ -1621,8 +1606,9 @@ function SectionSauvegardes({ open }: { open: boolean }) {
         }}
       >
         {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-        Sauvegarder maintenant (et vérifier la restauration)
-      </Button>
+        
+{t('Sauvegarder maintenant (et vérifier la restauration)')}
+</Button>
 
       <div className="mt-2 space-y-0.5">
         {backups.map((backup) => (
@@ -1631,7 +1617,7 @@ function SectionSauvegardes({ open }: { open: boolean }) {
             <span>{bytes(backup.size)}</span>
           </div>
         ))}
-        {!backups.length ? <p className="text-[12.5px] text-faint">Aucune sauvegarde pour l'instant.</p> : null}
+        {!backups.length ? <p className="text-[12.5px] text-faint">{t('Aucune sauvegarde pour l\'instant.')}</p> : null}
       </div>
     </section>
   );
@@ -1710,7 +1696,7 @@ function VoiceSection({ open }: { open: boolean }) {
     audio.addEventListener('ended', fini);
     audio.addEventListener('error', () => {
       fini();
-      client.pushToast('error', 'Extrait impossible à jouer.');
+      client.pushToast('error', t('Extrait impossible à jouer.'));
     });
     void audio.play().catch(fini);
   };
@@ -1723,11 +1709,11 @@ function VoiceSection({ open }: { open: boolean }) {
   return (
     <section>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Volume2 className="h-3.5 w-3.5 text-faint" /> La voix du point du jour
-      </h3>
+        <Volume2 className="h-3.5 w-3.5 text-faint" />  {t('La voix du point du jour')}
+</h3>
 
       <div className="mb-3">
-        <label className="mb-1 block text-[12.5px] text-muted">Le prénom que la voix emploie</label>
+        <label className="mb-1 block text-[12.5px] text-muted">{t('Le prénom que la voix emploie')}</label>
         <Input
           defaultValue={state.settings?.voixNom ?? 'Chris'}
           placeholder="Chris"
@@ -1740,15 +1726,14 @@ function VoiceSection({ open }: { open: boolean }) {
           }}
         />
         <p className="mt-1 text-[11.5px] text-faint">
-          La voix s'adresse à vous par ce prénom (« Ça y est, {state.settings?.voixNom || 'Chris'}, c'est fait. »).
-        </p>
+          {t('La voix s\'adresse à vous par ce prénom (« Ça y est, {v0}, c\'est fait. »).', { v0: state.settings?.voixNom || 'Chris' })}</p>
       </div>
 
       <div className="mb-3">
-        <label className="mb-1 block text-[12.5px] text-muted">Le mot qui réveille l'écoute</label>
+        <label className="mb-1 block text-[12.5px] text-muted">{t('Le mot qui réveille l\'écoute')}</label>
         <Input
           defaultValue={state.settings?.voixReveil ?? 'Dis Haiko'}
-          placeholder="Dis Haiko"
+          placeholder={t('Dis Haiko')}
           maxLength={40}
           // Un mot vide retomberait sur « Dis Haiko » côté écoute ; on n'envoie
           // que ce qui a du texte, une fois débarrassé de ses espaces.
@@ -1758,12 +1743,11 @@ function VoiceSection({ open }: { open: boolean }) {
           }}
         />
         <p className="mt-1 text-[11.5px] text-faint">
-          Quand l'écoute permanente est allumée, dites ce mot pour commencer à dicter (« {state.settings?.voixReveil || 'Dis Haiko'} range les cartes »).
-        </p>
+          {t('Quand l\'écoute permanente est allumée, dites ce mot pour commencer à dicter (« {v0} range les cartes »).', { v0: state.settings?.voixReveil || 'Dis Haiko' })}</p>
       </div>
 
       <div className="mb-3">
-        <label className="mb-1 block text-[12.5px] text-muted">Le raccourci clavier qui allume l'écoute</label>
+        <label className="mb-1 block text-[12.5px] text-muted">{t('Le raccourci clavier qui allume l\'écoute')}</label>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1785,10 +1769,10 @@ function VoiceSection({ open }: { open: boolean }) {
             )}
           >
             {captureRaccourci
-              ? 'Appuyez sur la combinaison…'
+              ? t('Appuyez sur la combinaison…')
               : raccourci
                 ? libelleDeRaccourci(raccourci)
-                : 'Aucun — cliquer pour régler'}
+                : t('Aucun — cliquer pour régler')}
           </button>
           {raccourci && !captureRaccourci ? (
             <Button
@@ -1796,21 +1780,19 @@ function VoiceSection({ open }: { open: boolean }) {
               size="sm"
               onClick={() => client.send({ type: 'settings.update', patch: { voixRaccourci: '' } })}
             >
-              Retirer
-            </Button>
+              {t('Retirer')}</Button>
           ) : null}
         </div>
         {refusRaccourci ? (
           <p className="mt-1 text-[11.5px] text-danger">{refusRaccourci}</p>
         ) : (
           <p className="mt-1 text-[11.5px] text-faint">
-            Cette combinaison allume et éteint l'écoute permanente, où que vous soyez — jamais pendant que vous tapez dans un champ. Utilisez Alt ou Ctrl + Maj avec une lettre.
-          </p>
+            {t('Cette combinaison allume et éteint l\'écoute permanente, où que vous soyez — jamais pendant que vous tapez dans un champ. Utilisez Alt ou Ctrl + Maj avec une lettre.')}</p>
         )}
       </div>
 
       {!voices.length ? (
-        <p className="text-[13px] text-faint">Aucune voix installée sur le serveur.</p>
+        <p className="text-[13px] text-faint">{t('Aucune voix installée sur le serveur.')}</p>
       ) : (
         <div className="space-y-1">
           {voices.map((voice) => {
@@ -1830,7 +1812,7 @@ function VoiceSection({ open }: { open: boolean }) {
                 >
                   <p className="truncate text-[13.5px] text-text">
                     {voice.label}
-                    {active ? <span className="ml-1.5 text-[12px] text-faint">· choisie</span> : null}
+                    {active ? <span className="ml-1.5 text-[12px] text-faint">{t('· choisie')}</span> : null}
                   </p>
                   <p className="truncate text-[11.5px] text-faint">{voice.description}</p>
                 </button>
@@ -1846,8 +1828,9 @@ function VoiceSection({ open }: { open: boolean }) {
                   ) : (
                     <Play className="h-3 w-3" />
                   )}
-                  Écouter
-                </Button>
+                  
+{t('Écouter')}
+</Button>
               </div>
             );
           })}
@@ -1855,12 +1838,10 @@ function VoiceSection({ open }: { open: boolean }) {
       )}
 
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
-        L'extrait est dit avec la voix de la ligne, sans rien changer à votre choix. Touchez le nom pour l'adopter :
-        c'est cette voix qui lira le point du jour et le bouton haut-parleur.
-      </p>
+        {t('L\'extrait est dit avec la voix de la ligne, sans rien changer à votre choix. Touchez le nom pour l\'adopter : c\'est cette voix qui lira le point du jour et le bouton haut-parleur.')}</p>
 
       <div className="mt-4">
-        <label className="mb-1.5 block text-[12.5px] text-muted">La vitesse de la voix</label>
+        <label className="mb-1.5 block text-[12.5px] text-muted">{t('La vitesse de la voix')}</label>
         <div className="space-y-1">
           {CRANS_DE_VITESSE.map((cran) => {
             const active = vitesse === cran.id;
@@ -1879,7 +1860,7 @@ function VoiceSection({ open }: { open: boolean }) {
                 >
                   <p className="truncate text-[13.5px] text-text">
                     {cran.label}
-                    {active ? <span className="ml-1.5 text-[12px] text-faint">· choisie</span> : null}
+                    {active ? <span className="ml-1.5 text-[12px] text-faint">{t('· choisie')}</span> : null}
                   </p>
                   <p className="truncate text-[11.5px] text-faint">{cran.description}</p>
                 </button>
@@ -1902,15 +1883,15 @@ function VoiceSection({ open }: { open: boolean }) {
                   ) : (
                     <Play className="h-3 w-3" />
                   )}
-                  Écouter
-                </Button>
+                  
+{t('Écouter')}
+</Button>
               </div>
             );
           })}
         </div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
-          La vitesse s'applique à toutes les paroles — point du jour, annonces, réécoutes.
-        </p>
+          {t('La vitesse s\'applique à toutes les paroles — point du jour, annonces, réécoutes.')}</p>
       </div>
     </section>
   );
@@ -1966,12 +1947,10 @@ function UsageSection({ open }: { open: boolean }) {
   return (
     <section>
       <h3 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Activity className="h-3.5 w-3.5 text-faint" /> Ce qui a été consommé
-      </h3>
+        <Activity className="h-3.5 w-3.5 text-faint" />  {t('Ce qui a été consommé')}
+</h3>
       <p className="mb-2 mt-0.5 text-[12.5px] leading-relaxed text-faint">
-        Le total de ce que les agents ont dépensé depuis le début, projet par projet : nombre de tâches et temps de
-        travail des agents. C'est une mesure d'usage, pas une facture — rien ici n'est facturé à personne.
-      </p>
+        {t('Le total de ce que les agents ont dépensé depuis le début, projet par projet : nombre de tâches et temps de travail des agents. C\'est une mesure d\'usage, pas une facture — rien ici n\'est facturé à personne.')}</p>
 
       {usage?.byProject?.length ? (
         <div className="space-y-0.5">
@@ -1979,18 +1958,17 @@ function UsageSection({ open }: { open: boolean }) {
             <div key={row.projectId ?? 'hors-projet'} className="rounded-md border border-border bg-surface px-2 py-1.5">
               <p className="truncate text-[13.5px] text-text">{nomDuProjet(row)}</p>
               <p className="mt-0.5 text-[11.5px] text-faint">
-                {row.tasks} tâche{row.tasks > 1 ? 's' : ''} · {Math.round(row.seconds / 60)} min
-              </p>
+                {t('{v0} tâche{v1} · {v2} min', { v0: row.tasks, v1: row.tasks > 1 ? 's' : '', v2: Math.round(row.seconds / 60) })}</p>
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-[13px] text-faint">Aucune consommation relevée pour l'instant.</p>
+        <p className="text-[13px] text-faint">{t('Aucune consommation relevée pour l\'instant.')}</p>
       )}
 
       {usage?.byMonth?.length ? (
         <div className="mt-3">
-          <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">Par mois</p>
+          <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">{t('Par mois')}</p>
           <div className="flex flex-wrap gap-1">
             {usage.byMonth.map((row) => (
               <span key={row.month} className="rounded border border-border px-1.5 py-0.5 text-[12px] text-muted">
@@ -2003,11 +1981,9 @@ function UsageSection({ open }: { open: boolean }) {
 
       {cursor?.length ? (
         <div className="mt-4" data-essai="credit-cursor">
-          <p className="text-[12px] uppercase tracking-wide text-faint">Crédit dépensé chez Cursor</p>
+          <p className="text-[12px] uppercase tracking-wide text-faint">{t('Crédit dépensé chez Cursor')}</p>
           <p className="mb-1.5 mt-0.5 text-[12.5px] leading-relaxed text-faint">
-            Cursor facture à la dépense. Le même montant se lit aussi sur la carte du compte, dans le volet
-            des quotas. Ici, le détail du cycle.
-          </p>
+            {t('Cursor facture à la dépense. Le même montant se lit aussi sur la carte du compte, dans le volet des quotas. Ici, le détail du cycle.')}</p>
           <div className="space-y-0.5">
             {cursor.map((compte) => (
               <div key={compte.id} className="rounded-md border border-border bg-surface px-2 py-1.5">
@@ -2019,12 +1995,12 @@ function UsageSection({ open }: { open: boolean }) {
                     </p>
                     <p className="mt-0.5 text-[11.5px] text-faint">
                       {periodeDuCreditCursor(compte.credit.debutDuCycle)}
-                      {compte.credit.membres ? ` · ${compte.credit.membres} membres` : ''}
+                      {compte.credit.membres ? t(' · {v0} membres', { v0: compte.credit.membres }) : ''}
                     </p>
                   </>
                 ) : (
                   <p className="mt-0.5 text-[11.5px] leading-relaxed text-faint">
-                    {compte.credit?.indisponible ?? "Le montant dépensé n'a pas pu être lu."}
+                    {compte.credit?.indisponible ?? t('Le montant dépensé n\'a pas pu être lu.')}
                   </p>
                 )}
               </div>
@@ -2035,22 +2011,20 @@ function UsageSection({ open }: { open: boolean }) {
 
       {summary && !summary.error ? (
         <div className="mt-4">
-          <p className="text-[12px] uppercase tracking-wide text-faint">Facturation du mois</p>
+          <p className="text-[12px] uppercase tracking-wide text-faint">{t('Facturation du mois')}</p>
           <p className="mb-1.5 mt-0.5 text-[12.5px] leading-relaxed text-faint">
-            Ce que l'application de facturation a enregistré ce mois-ci. Lecture seule : HaikoDev n'y écrit rien tout
-            seul.
-          </p>
+            {t('Ce que l\'application de facturation a enregistré ce mois-ci. Lecture seule : HaikoDev n\'y écrit rien tout seul.')}</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
-              ['Facturé', summary.invoiced ?? summary.total_invoiced],
-              ['Encaissé', summary.paid ?? summary.total_paid],
-              ['En attente', summary.outstanding ?? summary.total_outstanding],
-              ['En retard', summary.overdue ?? summary.total_overdue],
+              [t('Facturé'), summary.invoiced ?? summary.total_invoiced],
+              [t('Encaissé'), summary.paid ?? summary.total_paid],
+              [t('En attente'), summary.outstanding ?? summary.total_outstanding],
+              [t('En retard'), summary.overdue ?? summary.total_overdue],
             ].map(([label, value]) => (
               <div key={String(label)} className="rounded-md border border-border bg-surface px-2 py-1.5">
                 <p className="text-[11.5px] uppercase tracking-wide text-faint">{label}</p>
                 <p className="mt-0.5 text-[14.5px] font-medium text-text">
-                  {typeof value === 'number' ? `${value.toLocaleString('fr-CH')} CHF` : '—'}
+                  {typeof value === 'number' ? t('{v0} CHF', { v0: value.toLocaleString(formatRegional()) }) : '—'}
                 </p>
               </div>
             ))}
@@ -2078,7 +2052,7 @@ function Sparkline({ points }: { points: { at: number; loadPct: number }[] }) {
 
   return (
     <>
-      <p className="mt-3 text-[12px] uppercase tracking-wide text-faint">Charge des dernières heures</p>
+      <p className="mt-3 text-[12px] uppercase tracking-wide text-faint">{t('Charge des dernières heures')}</p>
       <svg viewBox={`0 0 ${width} ${height}`} className="mt-1 h-10 w-full" preserveAspectRatio="none">
         <path d={path} fill="none" stroke="hsl(var(--muted))" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
       </svg>
@@ -2154,7 +2128,7 @@ function SectionClesApi({ open }: { open: boolean }) {
   const revoquer = async (cle: CleApiPublique) => {
     const data = await client.call<{ cles: CleApiPublique[] }>({ type: 'cleApi.revoquer', id: cle.id });
     setCles(data.cles ?? []);
-    client.pushToast('success', `Clé « ${cle.nom} » révoquée : les appels suivants sont refusés.`);
+    client.pushToast('success', t('Clé « {v0} » révoquée : les appels suivants sont refusés.', { v0: cle.nom }));
   };
 
   const oublier = async (cle: CleApiPublique) => {
@@ -2171,14 +2145,11 @@ function SectionClesApi({ open }: { open: boolean }) {
   return (
     <section>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <KeyRound className="h-3.5 w-3.5 text-faint" /> Clés des services extérieurs
-      </h3>
+        <KeyRound className="h-3.5 w-3.5 text-faint" />  {t('Clés des services extérieurs')}
+</h3>
 
       <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
-        Une clé permet à un service du dehors — une boîte mail, un formulaire, un automate — de poser une carte
-        dans un projet, sans ouvrir cette application. La carte arrive dans « Planifié » et attend son lancement,
-        comme n'importe quelle autre.
-      </p>
+        {t('Une clé permet à un service du dehors — une boîte mail, un formulaire, un automate — de poser une carte dans un projet, sans ouvrir cette application. La carte arrive dans « Planifié » et attend son lancement, comme n\'importe quelle autre.')}</p>
 
       {/* Fabriquer une clé */}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -2188,23 +2159,23 @@ function SectionClesApi({ open }: { open: boolean }) {
           onKeyDown={(e) => {
             if (e.key === 'Enter') void creer();
           }}
-          placeholder="Nom du service (« boîte mail »…)"
+          placeholder={t('Nom du service (« boîte mail »…)')}
           className="h-7 w-56 text-[12.5px]"
           maxLength={NOM_CLE_MAX}
           autoComplete="off"
         />
         <Button variant="secondary" size="sm" onClick={creer} disabled={enCours || !nom.trim()}>
           {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-          Générer une clé
-        </Button>
+          
+{t('Générer une clé')}
+</Button>
       </div>
 
       {/* La clé en clair : une seule fois, ici et jamais plus */}
       {secret ? (
         <div className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2">
           <p className="text-[12.5px] font-medium text-warning">
-            Clé de « {secret.nom} » — copiez-la maintenant, elle ne sera plus jamais affichée.
-          </p>
+            {t('Clé de « {v0} » — copiez-la maintenant, elle ne sera plus jamais affichée.', { v0: secret.nom })}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <code className="min-w-0 flex-1 break-all rounded bg-raised px-2 py-1 text-[12px] text-text">
               {secret.valeur}
@@ -2214,14 +2185,13 @@ function SectionClesApi({ open }: { open: boolean }) {
               size="sm"
               onClick={() => {
                 void navigator.clipboard?.writeText(secret.valeur);
-                client.pushToast('success', 'Clé copiée');
+                client.pushToast('success', t('Clé copiée'));
               }}
             >
-              <Copy className="h-3 w-3" /> Copier
-            </Button>
+              <Copy className="h-3 w-3" />  {t('Copier')}
+</Button>
             <Button variant="ghost" size="sm" onClick={() => setSecret(null)}>
-              J'ai noté
-            </Button>
+              {t('J\'ai noté')}</Button>
           </div>
         </div>
       ) : null}
@@ -2229,7 +2199,7 @@ function SectionClesApi({ open }: { open: boolean }) {
       {/* La liste */}
       <div className="mt-3 space-y-1">
         {cles.length === 0 ? (
-          <p className="text-[12.5px] text-faint">Aucune clé pour l'instant.</p>
+          <p className="text-[12.5px] text-faint">{t('Aucune clé pour l\'instant.')}</p>
         ) : (
           cles.map((cle) => (
             <div
@@ -2239,25 +2209,25 @@ function SectionClesApi({ open }: { open: boolean }) {
               <span className="text-[13px] text-text">{cle.nom}</span>
               <code className="rounded bg-raised px-1.5 py-0.5 text-[11.5px] text-faint">{cle.apercu}…</code>
               {cle.revoqueeLe ? (
-                <Badge tone="danger">révoquée {relativeTime(cle.revoqueeLe)}</Badge>
+                <Badge tone="danger">{t('révoquée {v0}', { v0: relativeTime(cle.revoqueeLe) })}</Badge>
               ) : (
                 <Badge tone="success">active</Badge>
               )}
-              <span className="text-[12px] text-faint">créée {relativeTime(cle.creeeLe)}</span>
+              <span className="text-[12px] text-faint">{t('créée {v0}', { v0: relativeTime(cle.creeeLe) })}</span>
               <span className="text-[12px] text-faint">
                 {cle.cartesCreees
-                  ? `${cle.cartesCreees} carte(s) · dernier appel ${relativeTime(cle.dernierUsageLe ?? cle.creeeLe)}`
-                  : 'jamais utilisée'}
+                  ? t('{v0} carte(s) · dernier appel {v1}', { v0: cle.cartesCreees, v1: relativeTime(cle.dernierUsageLe ?? cle.creeeLe) })
+                  : t('jamais utilisée')}
               </span>
               <div className="ml-auto flex items-center gap-1">
                 {cle.revoqueeLe ? (
                   <Button variant="ghost" size="sm" onClick={() => oublier(cle)}>
-                    <Trash2 className="h-3 w-3" /> Retirer
-                  </Button>
+                    <Trash2 className="h-3 w-3" />  {t('Retirer')}
+</Button>
                 ) : (
                   <Button variant="ghost" size="sm" onClick={() => setARevoquer(cle)}>
-                    <ShieldOff className="h-3 w-3" /> Révoquer
-                  </Button>
+                    <ShieldOff className="h-3 w-3" />  {t('Révoquer')}
+</Button>
                 )}
               </div>
             </div>
@@ -2267,21 +2237,20 @@ function SectionClesApi({ open }: { open: boolean }) {
 
       {/* Le mode d'emploi, avec l'adresse réelle de cette application */}
       <div className="mt-4 rounded-md border border-border bg-surface px-2.5 py-2">
-        <p className="text-[12.5px] font-medium text-text">Comment s'en servir</p>
+        <p className="text-[12.5px] font-medium text-text">{t('Comment s\'en servir')}</p>
         <p className="mt-1 text-[12.5px] leading-relaxed text-faint">
-          Le service envoie un POST à l'adresse ci-dessous, avec sa clé dans l'en-tête et, dans le corps, le projet
-          visé (son nom suffit), un titre et une description.
-        </p>
+          {t('Le service envoie un POST à l\'adresse ci-dessous, avec sa clé dans l\'en-tête et, dans le corps, le projet visé (son nom suffit), un titre et une description.')}</p>
         <pre className="mt-1.5 overflow-x-auto rounded bg-raised px-2 py-1.5 text-[11.5px] leading-relaxed text-muted">
           {exempleDAppel()}
         </pre>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
           {vivantes.length
-            ? `${vivantes.length} clé(s) active(s). Une clé révoquée fait refuser l'appel aussitôt.`
-            : 'Aucune clé active : tout appel extérieur est refusé.'}
+            ? t('{v0} clé(s) active(s). Une clé révoquée fait refuser l\'appel aussitôt.', { v0: vivantes.length })
+            : t('Aucune clé active : tout appel extérieur est refusé.')}
         </p>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-faint">
-          Le mode d'emploi complet — champs acceptés, réponses, refus — est publié à l'adresse{' '}
+          
+{t('Le mode d\'emploi complet — champs acceptés, réponses, refus — est publié à l\'adresse')}{' '}
           <a
             href={ROUTE_DOC_API}
             target="_blank"
@@ -2290,15 +2259,16 @@ function SectionClesApi({ open }: { open: boolean }) {
           >
             {ROUTE_DOC_API}
           </a>
-          , lisible sans compte : c'est la page à donner au service qu'on branche.
-        </p>
+          
+{t(', lisible sans compte : c\'est la page à donner au service qu\'on branche.')}
+</p>
       </div>
 
       <ConfirmDialog
         open={!!aRevoquer}
-        title={`Révoquer « ${aRevoquer?.nom} » ?`}
-        description="Le service qui s’en sert ne pourra plus créer de carte. Les cartes déjà créées restent en place."
-        confirmLabel="Révoquer"
+        title={t('Révoquer « {v0} » ?', { v0: aRevoquer?.nom })}
+        description={t('Le service qui s’en sert ne pourra plus créer de carte. Les cartes déjà créées restent en place.')}
+        confirmLabel={t('Révoquer')}
         danger
         onConfirm={async () => {
           if (aRevoquer) await revoquer(aRevoquer);
@@ -2358,28 +2328,22 @@ function SectionCompetences({ open }: { open: boolean }) {
   return (
     <section>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <GraduationCap className="h-3.5 w-3.5 text-faint" /> Compétences partagées
-      </h3>
+        <GraduationCap className="h-3.5 w-3.5 text-faint" />  {t('Compétences partagées')}
+</h3>
 
       <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
-        Des modes d'emploi valables pour TOUS les projets. Une leçon apprise sur un projet sert aux autres, et une
-        fiche n'est écrite qu'à partir d'un travail qui a fait ses preuves. La confiance monte quand un agent dit
-        qu'elle l'a aidé, et descend quand une carte la contredit.
-      </p>
+        {t('Des modes d\'emploi valables pour TOUS les projets. Une leçon apprise sur un projet sert aux autres, et une fiche n\'est écrite qu\'à partir d\'un travail qui a fait ses preuves. La confiance monte quand un agent dit qu\'elle l\'a aidé, et descend quand une carte la contredit.')}</p>
 
       {pool ? (
         <p className="mb-3 text-[12px] text-faint">
-          {servies.length} fiche(s) en service · {pool.dossier}
-          {pool.versionne ? ' · sauvegardé (dépôt git)' : ' · pas encore sous git'}
-        </p>
+          {t('{v0} fiche(s) en service · {v1} {v2}', { v0: servies.length, v1: pool.dossier, v2: pool.versionne ? ' · sauvegardé (dépôt git)' : ' · pas encore sous git' })}</p>
       ) : null}
 
       {/* Ce qui a été ÉCARTÉ, avec sa raison : plus aucun refus muet. */}
       {pool?.refus.length ? (
         <div className="mb-3 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2">
           <p className="text-[12.5px] font-medium text-warning">
-            {pool.refus.length} entrée(s) écartée(s) du pool
-          </p>
+            {t('{v0} entrée(s) écartée(s) du pool', { v0: pool.refus.length })}</p>
           <ul className="mt-1 space-y-0.5">
             {pool.refus.map((refus) => (
               <li key={refus.nom} className="text-[12px] text-faint">
@@ -2392,9 +2356,9 @@ function SectionCompetences({ open }: { open: boolean }) {
 
       <div className="space-y-1">
         {!pool ? (
-          <p className="text-[12.5px] text-faint">Lecture du pool…</p>
+          <p className="text-[12.5px] text-faint">{t('Lecture du pool…')}</p>
         ) : fiches.length === 0 ? (
-          <p className="text-[12.5px] text-faint">Aucune compétence dans le pool pour l'instant.</p>
+          <p className="text-[12.5px] text-faint">{t('Aucune compétence dans le pool pour l\'instant.')}</p>
         ) : (
           fiches.map((fiche) => (
             <div
@@ -2407,30 +2371,30 @@ function SectionCompetences({ open }: { open: boolean }) {
                 {fiche.etat === 'active' ? (
                   <Badge tone="success">active</Badge>
                 ) : fiche.etat === 'depreciee' ? (
-                  <Badge tone="warning">dépréciée</Badge>
+                  <Badge tone="warning">{t('dépréciée')}</Badge>
                 ) : (
-                  <Badge tone="neutral">archivée</Badge>
+                  <Badge tone="neutral">{t('archivée')}</Badge>
                 )}
                 <span className="text-[12px] text-faint">confiance {Math.round(fiche.confiance * 100)} %</span>
                 <span className="text-[12px] text-faint">
                   {fiche.servie
-                    ? `servie ${fiche.servie}× · ${fiche.aidee} utile(s) · ${fiche.contredite} contradiction(s)`
+                    ? t('servie {v0}× · {v1} utile(s) · {v2} contradiction(s)', { v0: fiche.servie, v1: fiche.aidee, v2: fiche.contredite })
                     : 'jamais servie'}
                 </span>
                 <div className="ml-auto flex items-center gap-1">
                   {fiche.etat !== 'depreciee' && fiche.etat !== 'archivee' ? (
                     <Button variant="ghost" size="sm" onClick={() => changerEtat(fiche.nom, 'depreciee')}>
-                      <ArrowDownCircle className="h-3 w-3" /> Déprécier
-                    </Button>
+                      <ArrowDownCircle className="h-3 w-3" />  {t('Déprécier')}
+</Button>
                   ) : null}
                   {fiche.etat !== 'archivee' ? (
                     <Button variant="ghost" size="sm" onClick={() => changerEtat(fiche.nom, 'archivee')}>
-                      <Archive className="h-3 w-3" /> Archiver
-                    </Button>
+                      <Archive className="h-3 w-3" />  {t('Archiver')}
+</Button>
                   ) : (
                     <Button variant="ghost" size="sm" onClick={() => changerEtat(fiche.nom, 'active')}>
-                      <RefreshCw className="h-3 w-3" /> Remettre en service
-                    </Button>
+                      <RefreshCw className="h-3 w-3" />  {t('Remettre en service')}
+</Button>
                   )}
                 </div>
               </div>
@@ -2438,14 +2402,14 @@ function SectionCompetences({ open }: { open: boolean }) {
               <p className="mt-1 text-[12.5px] leading-relaxed text-faint">{fiche.description}</p>
 
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-faint">
-                {fiche.themes.length ? <span>thèmes : {fiche.themes.join(', ')}</span> : null}
-                {fiche.annexes.length ? <span>{fiche.annexes.length} fichier(s) de détail</span> : null}
+                {fiche.themes.length ? <span>{t('thèmes : {v0}', { v0: fiche.themes.join(', ') })}</span> : null}
+                {fiche.annexes.length ? <span>{t('{v0} fichier(s) de détail', { v0: fiche.annexes.length })}</span> : null}
                 {fiche.provenanceProjet ? <span>venue de {fiche.provenanceProjet}</span> : null}
-                {fiche.renforceePar.length ? <span>renforcée {fiche.renforceePar.length}×</span> : null}
+                {fiche.renforceePar.length ? <span>{t('renforcée {v0}×', { v0: fiche.renforceePar.length })}</span> : null}
               </div>
 
               {fiche.anomalies.length ? (
-                <p className="mt-1 text-[12px] text-warning">À revoir : {fiche.anomalies.join(' ; ')}</p>
+                <p className="mt-1 text-[12px] text-warning">{t('À revoir : {v0}', { v0: fiche.anomalies.join(' ; ') })}</p>
               ) : null}
             </div>
           ))
@@ -2495,7 +2459,7 @@ function SectionPersonnages() {
         setRefus((avant) => ({ ...avant, [colonne]: data?.error ?? "Le remplacement a échoué." }));
         return;
       }
-      client.pushToast('success', `Le personnage de « ${COLUMN_LABELS[colonne]} » a été remplacé.`);
+      client.pushToast('success', t('Le personnage de « {v0} » a été remplacé.', { v0: t(COLUMN_LABELS[colonne]) }));
     } catch (err: any) {
       setRefus((avant) => ({ ...avant, [colonne]: err?.message ?? "Le remplacement a échoué." }));
     } finally {
@@ -2516,20 +2480,17 @@ function SectionPersonnages() {
       // Le bouton doit se savoir en échec : sans cela il montrerait sa coche.
       throw new Error(data?.error ?? 'échec');
     }
-    client.pushToast('success', `« ${COLUMN_LABELS[colonne]} » a retrouvé son personnage d'origine.`);
+    client.pushToast('success', t('« {v0} » a retrouvé son personnage d\'origine.', { v0: t(COLUMN_LABELS[colonne]) }));
   };
 
   return (
     <section>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <ImageIcon className="h-3.5 w-3.5 text-faint" /> Personnages des colonnes
-      </h3>
+        <ImageIcon className="h-3.5 w-3.5 text-faint" />  {t('Personnages des colonnes')}
+</h3>
 
       <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
-        Chaque colonne du tableau a son personnage. Déposez une image — un sujet sur un fond clair et uni — et elle
-        prend la place de l'ancien : détourée et recadrée pour la tête de colonne comme pour les notifications. Le
-        personnage d'origine n'est jamais perdu.
-      </p>
+        {t('Chaque colonne du tableau a son personnage. Déposez une image — un sujet sur un fond clair et uni — et elle prend la place de l\'ancien : détourée et recadrée pour la tête de colonne comme pour les notifications. Le personnage d\'origine n\'est jamais perdu.')}</p>
 
       <div className="space-y-2">
         {COLUMN_KEYS.map((colonne) => {
@@ -2552,9 +2513,9 @@ function SectionPersonnages() {
                   data-personnage-apercu={colonne}
                 />
                 <div className="min-w-0">
-                  <div className="text-[13px] text-text">{COLUMN_LABELS[colonne]}</div>
+                  <div className="text-[13px] text-text">{t(COLUMN_LABELS[colonne])}</div>
                   <div className="text-[12px] text-faint">
-                    {remplaceLe ? `remplacé ${relativeTime(remplaceLe)}` : "personnage d'origine"}
+                    {remplaceLe ? t('remplacé {v0}', { v0: relativeTime(remplaceLe) }) : t('personnage d\'origine')}
                   </div>
                 </div>
 
@@ -2584,7 +2545,7 @@ function SectionPersonnages() {
                     ) : (
                       <ImageIcon className="h-3 w-3" />
                     )}{' '}
-                    {enCours === colonne ? 'Détourage…' : 'Remplacer'}
+                    {enCours === colonne ? t('Détourage…') : t('Remplacer')}
                   </Button>
                   {remplaceLe ? (
                     <Button
@@ -2593,8 +2554,8 @@ function SectionPersonnages() {
                       data-personnage-retablir={colonne}
                       onClick={() => retablir(colonne)}
                     >
-                      <RefreshCw className="h-3 w-3" /> Revenir à l'original
-                    </Button>
+                      <RefreshCw className="h-3 w-3" />  {t('Revenir à l\'original')}
+</Button>
                   ) : null}
                 </div>
               </div>

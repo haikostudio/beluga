@@ -24,6 +24,7 @@ import {
 } from '@haikodev/shared';
 import { cn } from '@/lib/utils';
 import { useSurvol } from '@/lib/pointeur';
+import { t } from '@/lib/langue';
 
 /**
  * Le socle visuel, posé AVANT les écrans (PLAN §17, §30). Les composants sont
@@ -1180,8 +1181,7 @@ export function PromptDialog({
         />
         <div className="mt-4 flex justify-end gap-1.5">
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Annuler
-          </Button>
+            {t('Annuler')}</Button>
           <Button
             variant="default"
             size="sm"
@@ -1223,8 +1223,7 @@ export function ConfirmDialog({
         {description ? <DialogDescription>{description}</DialogDescription> : null}
         <div className="mt-4 flex justify-end gap-1.5">
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Annuler
-          </Button>
+            {t('Annuler')}</Button>
           <Button
             variant={danger ? 'danger' : 'default'}
             size="sm"

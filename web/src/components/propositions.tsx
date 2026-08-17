@@ -11,6 +11,7 @@ import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors'
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 type Proposition = Message['proposals'][number];
 
@@ -82,7 +83,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
       <div className="flex items-center gap-1.5 px-3 pt-1.5 text-[12px] text-muted">
         <LayoutGrid className="h-3 w-3 shrink-0 text-accent" />
         <span className="min-w-0 flex-1 truncate">
-          {attente.length > 1 ? `${attente.length} cartes à valider` : 'Carte à valider'}
+          {attente.length > 1 ? t('{v0} cartes à valider', { v0: attente.length }) : t('Carte à valider')}
         </span>
         {!selectionActive && attente.length > 1 ? (
           <button
@@ -90,8 +91,8 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
             onClick={ouvrirSelection}
             className="flex shrink-0 items-center gap-1 text-[12px] text-accent hover:text-text"
           >
-            <GitMerge className="h-3 w-3" /> Fusionner
-          </button>
+            <GitMerge className="h-3 w-3" />  {t('Fusionner')}
+</button>
         ) : null}
       </div>
 
@@ -117,8 +118,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
       {selectionActive ? (
         <div data-fusion-propositions="actions" className="flex items-center gap-1.5 border-t border-border px-3 py-1.5">
           <Button size="sm" variant="ghost" className="flex-1" disabled={fusionEnCours} onClick={fermerSelection}>
-            Annuler
-          </Button>
+            {t('Annuler')}</Button>
           <Button
             size="sm"
             variant="default"
@@ -127,7 +127,8 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
             onClick={fusionner}
           >
             {fusionEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitMerge className="h-3 w-3" />}
-            Fusionner ({selection.length})
+            
+{t('Fusionner (')}{selection.length})
           </Button>
         </div>
       ) : null}
@@ -260,13 +261,13 @@ function VignetteProposition({
           </button>
         ) : null}
         <span className="min-w-0 flex-1 truncate">
-          {proposal.sourceProposalIds.length ? 'Proposition réunie' : 'À valider'}
+          {proposal.sourceProposalIds.length ? t('Proposition réunie') : t('À valider')}
         </span>
         <button
           onClick={() => setEditing((current) => !current)}
           className="shrink-0 text-[12px] text-faint hover:text-text"
         >
-          {editing ? 'Terminer' : 'Modifier'}
+          {editing ? t('Terminer') : t('Modifier')}
         </button>
       </div>
 
@@ -314,7 +315,7 @@ function VignetteProposition({
                 className="mt-1 flex items-center gap-1 text-[12px] text-faint hover:text-text"
               >
                 <ChevronDown className={cn('h-3 w-3 transition-transform', ouverte && 'rotate-180')} />
-                {ouverte ? 'Replier la description' : 'Lire la description'}
+                {ouverte ? t('Replier la description') : t('Lire la description')}
               </button>
             ) : null}
           </>
@@ -341,11 +342,10 @@ function VignetteProposition({
       <div className="mt-auto flex flex-col gap-1 border-t border-border px-2 py-1.5">
         <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} pleineLargeur />
         <Button size="sm" variant="default" disabled={busy || selectionActive} onClick={() => decide(true)} className="w-full">
-          <Check className="h-3 w-3" /> Créer la carte
-        </Button>
+          <Check className="h-3 w-3" />  {t('Créer la carte')}
+</Button>
         <Button size="sm" variant="ghost" disabled={busy || selectionActive} onClick={() => decide(false)} className="w-full">
-          Refuser
-        </Button>
+          {t('Refuser')}</Button>
       </div>
     </div>
   );

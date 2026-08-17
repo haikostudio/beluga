@@ -3,6 +3,7 @@ import { AlertTriangle, Check, Loader2, Mic, RotateCw, Trash2 } from 'lucide-rea
 import { client } from '@/lib/client';
 import { ouvrirMicro, type PriseMicro } from '@/lib/micro';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * La dictée (PLAN §21). Au repos : un simple bouton micro, juste à gauche du
@@ -132,7 +133,7 @@ export function useRecorder(onText: (text: string) => void) {
       // Rien ne reste ouvert derrière un démarrage raté.
       prise?.fermer();
       priseRef.current = null;
-      client.pushToast('error', 'Micro indisponible dans ce navigateur');
+      client.pushToast('error', t('Micro indisponible dans ce navigateur'));
     } finally {
       ouvertureRef.current = false;
     }
@@ -253,7 +254,7 @@ export function MicButton({
       type="button"
       onClick={onStart}
       disabled={working || disabled}
-      title="Dicter"
+      title={t('Dicter')}
       className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-raised hover:text-text disabled:opacity-40"
     >
       {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
@@ -302,7 +303,7 @@ export function RecordingBar({
         <button
           type="button"
           onClick={onValidate}
-          title="Valider et transcrire"
+          title={t('Valider et transcrire')}
           className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-record-fg/15 transition-colors hover:bg-record-fg/30"
         >
           <Check className="h-3.5 w-3.5" />
@@ -310,7 +311,7 @@ export function RecordingBar({
         <button
           type="button"
           onClick={onDiscard}
-          title="Jeter l'enregistrement"
+          title={t('Jeter l\'enregistrement')}
           className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-record-fg/20"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -342,16 +343,17 @@ export function RecorderErrorBar({
         <button
           type="button"
           onClick={onRetry}
-          title="Réessayer l'envoi"
+          title={t('Réessayer l\'envoi')}
           className="inline-flex h-7 items-center gap-1 rounded-md border border-danger/30 px-2 text-[12.5px] transition-colors hover:bg-danger/10"
         >
           <RotateCw className="h-3.5 w-3.5" />
-          Réessayer
-        </button>
+          
+{t('Réessayer')}
+</button>
         <button
           type="button"
           onClick={onDiscard}
-          title="Jeter l'enregistrement"
+          title={t('Jeter l\'enregistrement')}
           className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-danger/10"
         >
           <Trash2 className="h-3.5 w-3.5" />

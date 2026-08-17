@@ -14,6 +14,7 @@ import {
   Settings2,
   Sun,
   Moon,
+  Languages,
 } from 'lucide-react';
 import {
   Button,
@@ -31,12 +32,13 @@ import {
 import { MemoryView } from '@/components/memory-view';
 import { QuestionsEnAttente } from '@/components/questions-en-attente';
 import { QuotaBadge } from '@/components/quota-badge';
-import { CHOIX_DE_THEME, choixParId } from '@haikodev/shared';
+import { CHOIX_DE_THEME, LANGUES, choixParId, langueParId } from '@haikodev/shared';
 import { useThemeGeneral } from '@/lib/theme';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
+import { t, formatRegional, useLangueGenerale } from '@/lib/langue';
 
 /** Le bandeau des quotas (PLAN §19) : où en sont les moteurs installés. */
 export function QuotaBar({
@@ -70,6 +72,7 @@ export function QuotaBar({
     projetOuvert?.defaultEngine ??
     'claude';
   const [theme, setTheme] = useThemeGeneral();
+  const [langue, setLangue] = useLangueGenerale();
   const [speaking, setSpeaking] = React.useState(false);
   const [memoireOuverte, setMemoireOuverte] = React.useState(false);
   const [arretGroupe, setArretGroupe] = React.useState(false);
@@ -159,7 +162,7 @@ export function QuotaBar({
         const data = await client.call<{ text: string }>({ type: 'digest.speak', projectId: state.activeProjectId ?? undefined });
         if ('speechSynthesis' in window && data?.text) {
           const utterance = new SpeechSynthesisUtterance(data.text);
-          utterance.lang = 'fr-FR';
+          utterance.lang = formatRegional();
           speechSynthesis.speak(utterance);
         }
       });
@@ -220,7 +223,7 @@ export function QuotaBar({
           son coin haut droit, DANS le cadre — il ne déborde pas et ne prend
           aucune place au nom du projet. */}
       {onOpenProjects ? (
-        <Tooltip label={`Projets · ${pointEtat.texte}`}>
+        <Tooltip label={t('Projets · {v0}', { v0: pointEtat.texte })}>
           <Button
             variant="outline"
             size="icon"
@@ -282,9 +285,9 @@ export function QuotaBar({
 
       {capacity ? (
         <Tooltip
-          label={`${capacity.runningAgents} agent(s) en cours · ${capacity.slotsFree} peuvent encore démarrer · mémoire ${Math.round(
+          label={t('{v0} agent(s) en cours · {v1} peuvent encore démarrer · mémoire {v2}/{v3} Go', { v0: capacity.runningAgents, v1: capacity.slotsFree, v2: Math.round(
             capacity.memUsedMb / 1024,
-          )}/${Math.round(capacity.memTotalMb / 1024)} Go`}
+          ), v3: Math.round(capacity.memTotalMb / 1024) })}
         >
           <button
             onClick={onOpenSettings}
@@ -300,7 +303,7 @@ export function QuotaBar({
           à sa place : posé en flottant par-dessus, il recouvrait les trois
           points et le menu devenait inatteignable sur ordinateur. */}
       {onToggleRight ? (
-        <Tooltip label={rightOpen ? 'Replier le chef d’orchestre' : 'Ouvrir le chef d’orchestre'}>
+        <Tooltip label={rightOpen ? t('Replier le chef d’orchestre') : t('Ouvrir le chef d’orchestre')}>
           <Button
             variant="outline"
             size="icon"
@@ -317,7 +320,7 @@ export function QuotaBar({
           points (menu sur ordinateur, tiroir en bas sur téléphone). */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" aria-label="Menu" title="Menu">
+          <Button variant="outline" size="icon" aria-label="Menu" title={t('Menu')}>
             <MoreVertical className="h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
@@ -329,8 +332,9 @@ export function QuotaBar({
             <>
               <DropdownMenuItem onSelect={onOpenDashboard}>
                 <BarChart3 className="h-3.5 w-3.5" />
-                Tableau de bord
-              </DropdownMenuItem>
+                
+{t('Tableau de bord')}
+</DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
           ) : null}
@@ -339,25 +343,29 @@ export function QuotaBar({
             onSelect={() => setMemoireOuverte(true)}
           >
             <BookOpen className="h-3.5 w-3.5" />
-            Mémoire du projet
-          </DropdownMenuItem>
+            
+{t('Mémoire du projet')}
+</DropdownMenuItem>
           {duProjet.length ? (
             <DropdownMenuItem className="text-danger" onSelect={() => setArretGroupe(true)}>
               <Square className="h-3.5 w-3.5 fill-current" />
-              Arrêter les agents du projet ({duProjet.length})
+              
+{t('Arrêter les agents du projet (')}{duProjet.length})
             </DropdownMenuItem>
           ) : null}
           {enCours.length ? (
             <DropdownMenuItem className="text-danger" onSelect={() => setArretTous(true)}>
               <Square className="h-3.5 w-3.5 fill-current" />
-              Arrêter tous les agents ({enCours.length})
+              
+{t('Arrêter tous les agents (')}{enCours.length})
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
             <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
-            Écouter le point
-          </DropdownMenuItem>
+            
+{t('Écouter le point')}
+</DropdownMenuItem>
           {/* Le bouton « Muet » a quitté ce menu : il vit désormais dans le
               panneau du module de voix, à côté de la voix qu'il commande. */}
           {/* TOUS LES THÈMES TIENNENT DERRIÈRE UNE SEULE ENTRÉE. Alignés les uns
@@ -371,8 +379,8 @@ export function QuotaBar({
           <DropdownMenuSub>
             <DropdownMenuSubTrigger data-theme-menu>
               <Palette className="h-3.5 w-3.5" />
-              <span className="flex-1">Thème</span>
-              <span className="text-faint">{choixParId(theme)?.libelle ?? ''}</span>
+              <span className="flex-1">{t('Thème')}</span>
+              <span className="text-faint">{t(choixParId(theme)?.libelle ?? '')}</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {CHOIX_DE_THEME.map((item) => (
@@ -384,8 +392,35 @@ export function QuotaBar({
                   ) : (
                     <Moon className="h-3.5 w-3.5" />
                   )}
-                  <span className="flex-1">{item.libelle}</span>
+                  <span className="flex-1">{t(item.libelle)}</span>
                   {item.id === theme ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
+          {/* LA LANGUE SE CHOISIT JUSTE SOUS LE THÈME, ET DE LA MÊME FAÇON.
+              Même sous-menu, même rappel du choix en cours à droite, même
+              dépliage AU SURVOL COMME AU CLIC — le téléphone et le clavier
+              n'ont pas de survol, et un réglage qu'on ne peut pas atteindre
+              sans souris n'existe pas sur la moitié des appareils. Une
+              différence, voulue : le nom d'une langue est écrit DANS cette
+              langue (« Deutsch », « 中文 ») et ne passe donc PAS par le
+              dictionnaire — c'est ce qui permet de retrouver la sienne quand
+              l'écran est dans une langue qu'on ne lit pas. */}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-langue-menu>
+              <Languages className="h-3.5 w-3.5" />
+              <span className="flex-1">{t('Langue')}</span>
+              <span className="text-faint">{langueParId(langue).libelle}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {LANGUES.map((item) => (
+                <DropdownMenuItem key={item.id} onSelect={() => setLangue(item.id)} data-langue-choix={item.id}>
+                  <span className="flex-1" lang={item.etiquette}>
+                    {item.libelle}
+                  </span>
+                  {item.id === langue ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuSubContent>
@@ -393,8 +428,9 @@ export function QuotaBar({
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onOpenSettings}>
             <Settings2 className="h-3.5 w-3.5" />
-            Réglages
-          </DropdownMenuItem>
+            
+{t('Réglages')}
+</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -409,11 +445,11 @@ export function QuotaBar({
         danger
         title={
           duProjet.length > 1
-            ? `Arrêter les ${duProjet.length} agents de ce projet ?`
-            : `Arrêter l’agent de ce projet ?`
+            ? t('Arrêter les {v0} agents de ce projet ?', { v0: duProjet.length })
+            : t('Arrêter l’agent de ce projet ?')
         }
-        description="Le travail en cours sera perdu. Les agents des autres projets continuent."
-        confirmLabel="Tout arrêter"
+        description={t('Le travail en cours sera perdu. Les agents des autres projets continuent.')}
+        confirmLabel={t('Tout arrêter')}
         onConfirm={arreterLeProjet}
         onClose={() => setArretGroupe(false)}
       />
@@ -423,11 +459,11 @@ export function QuotaBar({
         danger
         title={
           enCours.length > 1
-            ? `Arrêter les ${enCours.length} agents en cours sur tous les projets ?`
-            : `Arrêter l’agent en cours ?`
+            ? t('Arrêter les {v0} agents en cours sur tous les projets ?', { v0: enCours.length })
+            : t('Arrêter l’agent en cours ?')
         }
-        description="Chaque moteur est coupé sur-le-champ, sur tous les projets. Le travail déjà écrit reste sur la branche de sa carte ; c’est la réflexion en cours qui s’arrête."
-        confirmLabel="Arrêter tous les agents"
+        description={t('Chaque moteur est coupé sur-le-champ, sur tous les projets. Le travail déjà écrit reste sur la branche de sa carte ; c’est la réflexion en cours qui s’arrête.')}
+        confirmLabel={t('Arrêter tous les agents')}
         onConfirm={() => {
           void arreterTousLesAgents();
           setArretTous(false);

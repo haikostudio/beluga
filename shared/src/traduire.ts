@@ -29,19 +29,31 @@ import { LANGUE_DORIGINE, langueValide, type LangueId } from './langues.js';
 /** Le dictionnaire d'UNE langue : le texte français, puis sa traduction. */
 export type Dictionnaire = Readonly<Record<string, string>>;
 
-/** Ce que les écrans glissent dans les trous d'un texte. */
-export type ValeursDeTexte = Readonly<Record<string, string | number>>;
+/**
+ * Ce que les écrans glissent dans les trous d'un texte.
+ *
+ * `null` et `undefined` sont ACCEPTÉS à dessein : dans une page, `{projet?.nom}`
+ * n'affiche rien quand le projet manque, et une phrase qui passe par le
+ * dictionnaire doit se comporter exactement pareil. Interdire ces deux valeurs
+ * obligerait chaque écran à écrire un `?? ''` de plus, sans rien y gagner.
+ */
+export type ValeursDeTexte = Readonly<Record<string, string | number | null | undefined>>;
 
 /**
- * Remplace les trous `{nom}` par leur valeur. Un trou sans valeur est LAISSÉ TEL
- * QUEL : mieux vaut voir « {n} » à l'écran — le défaut saute aux yeux et se
+ * Remplace les trous `{nom}` par leur valeur.
+ *
+ * DEUX SITUATIONS QUI N'ONT RIEN À VOIR, et qu'on ne confond pas. Une valeur
+ * FOURNIE mais vide (`null`, `undefined`) n'écrit rien — c'est ce que fait déjà
+ * une page. Un trou dont personne n'a donné la valeur est en revanche LAISSÉ
+ * TEL QUEL : mieux vaut voir « {n} » à l'écran — le défaut saute aux yeux et se
  * corrige — qu'un blanc qui passerait inaperçu.
  */
 export function remplirLesTrous(texte: string, valeurs?: ValeursDeTexte): string {
   if (!valeurs) return texte;
   return texte.replace(/\{(\w+)\}/g, (entier, nom: string) => {
+    if (!Object.prototype.hasOwnProperty.call(valeurs, nom)) return entier;
     const valeur = valeurs[nom];
-    return valeur === undefined || valeur === null ? entier : String(valeur);
+    return valeur === undefined || valeur === null ? '' : String(valeur);
   });
 }
 

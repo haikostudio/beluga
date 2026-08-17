@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { formatRegional } from '@/lib/langue';
 
 /**
  * LA VOIX PARTAGÉE — un seul son à la fois, d'où qu'il vienne.
@@ -298,7 +299,7 @@ export function direVoix(texte: string, cle: string | null = null): void {
       publier({ parle: true, cle, avancement: 'indetermine' });
       const synthese = window.speechSynthesis;
       const parole = new SpeechSynthesisUtterance(texte);
-      parole.lang = 'fr-FR';
+      parole.lang = formatRegional();
       parole.onend = fin;
       parole.onerror = fin;
       synthese.speak(parole);

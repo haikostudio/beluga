@@ -3,6 +3,7 @@ import { BookOpen, Loader2 } from 'lucide-react';
 import { Drawer, DialogTitle, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { t } from '@/lib/langue';
 
 /**
  * La mémoire du projet, lisible à tout moment depuis le menu du haut. C'est le
@@ -39,8 +40,7 @@ export function MemoryView({
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
         <BookOpen className="h-3.5 w-3.5 shrink-0 text-accent" />
         <DialogTitle className="min-w-0 flex-1 truncate">
-          Mémoire {projet ? `de ${projet.name}` : 'du projet'}
-        </DialogTitle>
+          {t('Mémoire {v0}', { v0: projet ? `de ${projet.name}` : 'du projet' })}</DialogTitle>
         <span className="shrink-0 text-[12.5px] text-faint">
           {faits.length} fait{faits.length > 1 ? 's' : ''}
         </span>
@@ -49,8 +49,8 @@ export function MemoryView({
       <ZoneDefilement className="px-3 py-3">
         {texte === undefined ? (
           <p className="flex items-center gap-2 text-[14px] text-faint">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Lecture…
-          </p>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />  {t('Lecture…')}
+</p>
         ) : faits.length ? (
           <ul className="space-y-1.5">
             {faits.map((fait, index) => (
@@ -64,8 +64,7 @@ export function MemoryView({
           </ul>
         ) : (
           <p className="text-[14px] text-faint">
-            Ce projet n'a encore aucun fait en mémoire. Les agents en ajoutent au fil de leur travail.
-          </p>
+            {t('Ce projet n\'a encore aucun fait en mémoire. Les agents en ajoutent au fil de leur travail.')}</p>
         )}
       </ZoneDefilement>
     </Drawer>

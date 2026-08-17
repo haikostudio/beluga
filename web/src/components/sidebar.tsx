@@ -79,6 +79,7 @@ import { usePointerDrag } from '@/lib/dnd';
 import { usePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /** Un élément de la colonne : un projet hors groupe, ou un groupe entier. */
 type Entry =
@@ -257,7 +258,7 @@ export function Sidebar({
       try {
         await client.call({ type: 'sidebar.reorder', items: plat });
       } catch {
-        client.pushToast('error', 'Rangement non enregistré');
+        client.pushToast('error', t('Rangement non enregistré'));
       }
     },
     [],
@@ -318,7 +319,7 @@ export function Sidebar({
     try {
       await client.call({ type: 'sidebar.reorder', items: ordre });
     } catch {
-      client.pushToast('error', 'Rangement non enregistré');
+      client.pushToast('error', t('Rangement non enregistré'));
     }
   };
 
@@ -410,8 +411,8 @@ export function Sidebar({
               onChoose?.();
             }}
           >
-            <LayoutDashboard className="h-3.5 w-3.5" /> Tableau de bord
-          </Button>
+            <LayoutDashboard className="h-3.5 w-3.5" />  {t('Tableau de bord')}
+</Button>
         </div>
       ) : null}
 
@@ -436,13 +437,13 @@ export function Sidebar({
       ) : null}
 
       <div className="flex items-center gap-1 px-2 py-2">
-        <span className="text-[12px] uppercase tracking-wide text-faint">Projets</span>
-        <Tooltip label="Nouveau groupe">
+        <span className="text-[12px] uppercase tracking-wide text-faint">{t('Projets')}</span>
+        <Tooltip label={t('Nouveau groupe')}>
           <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setCreatingGroup(true)}>
             <FolderPlus className="h-3 w-3" />
           </Button>
         </Tooltip>
-        <Tooltip label="Ajouter ou créer un projet">
+        <Tooltip label={t('Ajouter ou créer un projet')}>
           <Button variant="ghost" size="icon-sm" data-ouvrir-projets onClick={() => setAdding(true)}>
             <Plus className="h-3 w-3" />
           </Button>
@@ -519,7 +520,7 @@ export function Sidebar({
               >
                 <span
                   {...poigneeProps(entry.id, 'group', entry.group.name)}
-                  title="Glisser pour ranger"
+                  title={t('Glisser pour ranger')}
                   className={cn(
                     '-m-1 shrink-0 touch-none overflow-hidden p-1',
                     'transition-[max-width,padding,margin] duration-150 motion-reduce:transition-none',
@@ -587,7 +588,7 @@ export function Sidebar({
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => setRenaming(entry.group)}
                   className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover/g:opacity-100"
-                  title="Renommer le groupe"
+                  title={t('Renommer le groupe')}
                 >
                   <Pencil className="h-2.5 w-2.5" />
                 </button>
@@ -595,7 +596,7 @@ export function Sidebar({
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => setDeleting(entry.group)}
                   className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-danger group-hover/g:opacity-100"
-                  title="Supprimer le groupe"
+                  title={t('Supprimer le groupe')}
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -605,7 +606,7 @@ export function Sidebar({
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => toggle(entry.id)}
                   className="shrink-0 text-faint hover:text-text"
-                  title={replie ? 'Déplier le groupe' : 'Replier le groupe'}
+                  title={replie ? t('Déplier le groupe') : t('Replier le groupe')}
                 >
                   <ChevronRight
                     className={cn('h-2.5 w-2.5 transition-transform', !replie && 'rotate-90')}
@@ -639,7 +640,7 @@ export function Sidebar({
                       />
                     ))
                   ) : (
-                    <p className="px-2 pb-1.5 text-[12px] text-faint">Glissez un projet ici.</p>
+                    <p className="px-2 pb-1.5 text-[12px] text-faint">{t('Glissez un projet ici.')}</p>
                   )}
                 </div>
               ) : null}
@@ -654,7 +655,7 @@ export function Sidebar({
             chargement. */}
         {!state.pret ? <SilhouetteProjets /> : null}
         {state.pret && !entries.length ? (
-          <p className="px-2 py-3 text-[13px] text-faint">Aucun projet inscrit.</p>
+          <p className="px-2 py-3 text-[13px] text-faint">{t('Aucun projet inscrit.')}</p>
         ) : null}
 
         <button
@@ -662,8 +663,9 @@ export function Sidebar({
           className="mt-2 flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-[12.5px] text-faint hover:text-muted"
         >
           <Archive className="h-2.5 w-2.5" />
-          Mis de côté
-          <ChevronRight className={cn('ml-auto h-2.5 w-2.5 transition-transform', showArchived && 'rotate-90')} />
+          
+{t('Mis de côté')}
+<ChevronRight className={cn('ml-auto h-2.5 w-2.5 transition-transform', showArchived && 'rotate-90')} />
         </button>
 
         {showArchived ? (
@@ -678,14 +680,14 @@ export function Sidebar({
                 <button
                   onClick={() => client.call({ type: 'project.archive', id: project.id, archived: false })}
                   className="shrink-0 opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
-                  title="Remettre en service"
+                  title={t('Remettre en service')}
                 >
                   <ArchiveRestore className="h-3 w-3" />
                 </button>
               </div>
             ))
           ) : (
-            <p className="px-2 pb-2 text-[12.5px] text-faint">Aucun projet mis de côté.</p>
+            <p className="px-2 pb-2 text-[12.5px] text-faint">{t('Aucun projet mis de côté.')}</p>
           )
         ) : null}
       </ZoneDefilement>
@@ -707,29 +709,29 @@ export function Sidebar({
 
       <PromptDialog
         open={creatingGroup}
-        title="Nouveau groupe"
-        description="Un rangement pour vous y retrouver : « Clients », « Mes projets », « Capitaux »…"
-        placeholder="Nom du groupe"
-        confirmLabel="Créer"
+        title={t('Nouveau groupe')}
+        description={t('Un rangement pour vous y retrouver : « Clients », « Mes projets », « Capitaux »…')}
+        placeholder={t('Nom du groupe')}
+        confirmLabel={t('Créer')}
         onConfirm={(nom) => client.call({ type: 'group.create', name: nom })}
         onClose={() => setCreatingGroup(false)}
       />
 
       <PromptDialog
         open={!!renaming}
-        title="Renommer le groupe"
+        title={t('Renommer le groupe')}
         defaultValue={renaming?.name ?? ''}
-        placeholder="Nom du groupe"
-        confirmLabel="Renommer"
+        placeholder={t('Nom du groupe')}
+        confirmLabel={t('Renommer')}
         onConfirm={(nom) => renaming && client.call({ type: 'group.update', id: renaming.id, name: nom })}
         onClose={() => setRenaming(null)}
       />
 
       <ConfirmDialog
         open={!!deleting}
-        title={`Supprimer le groupe « ${deleting?.name ?? ''} » ?`}
-        description="Les projets qu'il contient ne sont pas supprimés : ils remontent simplement hors groupe."
-        confirmLabel="Supprimer le groupe"
+        title={t('Supprimer le groupe « {v0} » ?', { v0: deleting?.name ?? '' })}
+        description={t('Les projets qu\'il contient ne sont pas supprimés : ils remontent simplement hors groupe.')}
+        confirmLabel={t('Supprimer le groupe')}
         danger
         onConfirm={() => deleting && client.call({ type: 'group.delete', id: deleting.id })}
         onClose={() => setDeleting(null)}
@@ -792,10 +794,10 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
       <button
         onClick={() => setOpen((value) => !value)}
         className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-faint transition-colors hover:bg-surface hover:text-muted"
-        title={running ? `${running} agent${running > 1 ? 's' : ''} au travail` : 'Agents'}
+        title={running ? `${running} agent${running > 1 ? 's' : ''} au travail` : t('Agents')}
       >
         <Bot className={cn('h-3 w-3 shrink-0', running ? 'text-en-cours' : 'text-faint')} />
-        <span className="min-w-0 flex-1 truncate">{agents.length > 1 ? `${agents.length} agents` : 'Un agent'}</span>
+        <span className="min-w-0 flex-1 truncate">{agents.length > 1 ? `${agents.length} agents` : t('Un agent')}</span>
         {running ? <Dot tone="running" pulse /> : null}
       </button>
 
@@ -854,12 +856,12 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                     <p className="truncate text-[11.5px] text-faint">
                       {project?.name} · {agent.run.engine} ·{' '}
                       {agent.status === 'starting'
-                        ? 'démarre…'
+                        ? t('démarre…')
                         : runningAgent
                           ? elapsed(agent.startedAt)
                           : agent.status === 'failed'
-                            ? 'échec'
-                            : 'terminé'}
+                            ? t('échec')
+                            : t('terminé')}
                     </p>
                   </button>
                   {runningAgent ? <Dot tone="running" pulse /> : null}
@@ -882,7 +884,7 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                       // 11 px vers la gauche et recouvrait ce bouton — le clic
                       // destiné à l'arrêt masquait la vignette à la place.
                       className="relative z-10 -m-[9px] flex shrink-0 items-center justify-center p-[9px] text-faint hover:text-danger"
-                      title="Arrêter cet agent"
+                      title={t('Arrêter cet agent')}
                     >
                       <Square className="h-2.5 w-2.5 fill-current" />
                     </button>
@@ -899,7 +901,7 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                     // Sa zone tactile ne déborde plus vers la GAUCHE : elle y
                     // recouvrait le carré d'arrêt posé à côté.
                     className="-my-[11px] -mr-[11px] flex shrink-0 items-center justify-center p-[11px] text-faint hover:text-text"
-                    title="Retirer la vignette (l'agent continue)"
+                    title={t('Retirer la vignette (l\'agent continue)')}
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
@@ -916,8 +918,7 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                   }}
                   className="self-end rounded border border-border bg-bg px-1.5 py-0.5 text-[11.5px] text-text"
                 >
-                  Annuler
-                </button>
+                  {t('Annuler')}</button>
               ) : null}
               {/* Un seul bouton, sur toute la largeur : plus de « Replier »,
                   le repli se fait tout seul quand le pointeur s'en va. */}
@@ -925,8 +926,7 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                 onClick={clearAll}
                 className="w-full rounded border border-border bg-bg px-1.5 py-1 text-[11.5px] text-faint hover:text-text"
               >
-                Tout effacer
-              </button>
+                {t('Tout effacer')}</button>
             </div>
           </div>
         </div>
@@ -1094,7 +1094,7 @@ function DialogueDeRedemarrage({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:w-[min(480px,100%)]">
-        <DialogTitle>Redémarrer le serveur ?</DialogTitle>
+        <DialogTitle>{t('Redémarrer le serveur ?')}</DialogTitle>
         <DialogDescription>{avertissementRedemarrage(etat)}</DialogDescription>
         {quelqueChoseTourne ? (
           <p className="mt-2 text-[13px] leading-relaxed text-warning" data-redemarrage-interrompu>
@@ -1103,8 +1103,7 @@ function DialogueDeRedemarrage({
         ) : null}
         <div className="mt-4 flex flex-wrap justify-end gap-1.5">
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Annuler
-          </Button>
+            {t('Annuler')}</Button>
           {quelqueChoseTourne ? (
             <Button
               variant="danger"
@@ -1115,8 +1114,7 @@ function DialogueDeRedemarrage({
                 onClose();
               }}
             >
-              Forcer le redémarrage
-            </Button>
+              {t('Forcer le redémarrage')}</Button>
           ) : null}
           {/*
             « Redémarrer » reste ACTIF même quand un travail tourne : il pose
@@ -1129,7 +1127,7 @@ function DialogueDeRedemarrage({
             size="sm"
             title={
               retenu
-                ? 'Le redémarrage sera retenu et partira tout seul dès la fin du travail en cours.'
+                ? t('Le redémarrage sera retenu et partira tout seul dès la fin du travail en cours.')
                 : undefined
             }
             onClick={() => {
@@ -1137,7 +1135,7 @@ function DialogueDeRedemarrage({
               onClose();
             }}
           >
-            {retenu ? 'Redémarrer dès que possible' : 'Redémarrer'}
+            {retenu ? t('Redémarrer dès que possible') : t('Redémarrer')}
           </Button>
         </div>
       </DialogContent>
@@ -1163,7 +1161,7 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
           // sur la palette est avalé par le déplacement du groupe.
           onPointerDown={(event) => event.stopPropagation()}
           className="shrink-0 text-faint opacity-40 hover:text-text group-hover/g:opacity-100"
-          title="Couleur du groupe"
+          title={t('Couleur du groupe')}
         >
           {value ? (
             <span className="block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: value }} />
@@ -1197,8 +1195,7 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
           }}
           className="mt-2 w-full rounded border border-border px-2 py-1 text-[12px] text-muted hover:bg-raised hover:text-text"
         >
-          Aucune couleur
-        </button>
+          {t('Aucune couleur')}</button>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1333,7 +1330,7 @@ function RepereRobot({
 }) {
   if (publie) {
     return (
-      <Tooltip label="Publication en cours">
+      <Tooltip label={t('Publication en cours')}>
         <span className="flex shrink-0 items-center gap-0.5" data-repere-robot aria-label="Publication en cours">
           <UploadCloud className="h-[15px] w-[15px] shrink-0 text-publie animate-pulse-soft motion-reduce:animate-none" />
         </span>
@@ -1354,7 +1351,7 @@ function RepereRobot({
   if (planEnAttente) return <RepereDePlan />;
   if (termine) {
     return (
-      <Tooltip label="Travail terminé, pas encore consulté — ouvrez le projet pour l'éteindre">
+      <Tooltip label={t('Travail terminé, pas encore consulté — ouvrez le projet pour l\'éteindre')}>
         <span
           data-repere-termine
           aria-label="Travail terminé, pas encore consulté"
@@ -1428,7 +1425,7 @@ function PastilleSite({ project }: { project: Project }) {
 function RepereePublication({ publie }: { publie: boolean }) {
   if (!publie) return null;
   return (
-    <Tooltip label="Publication en cours">
+    <Tooltip label={t('Publication en cours')}>
       <span
         aria-label="Publication en cours"
         data-repere-publication
@@ -1450,7 +1447,7 @@ function RepereePublication({ publie }: { publie: boolean }) {
  */
 function RepereDePlan() {
   return (
-    <Tooltip label="Un plan attend votre décision">
+    <Tooltip label={t('Un plan attend votre décision')}>
       <span
         aria-label="Un plan attend votre décision"
         data-repere-plan
@@ -1491,7 +1488,7 @@ function RepereAvancementProjet({
   if (!avancement) return null;
   const { done, total, pourcent, termine } = avancement;
   return (
-    <Tooltip label={`${done} étape${done > 1 ? 's' : ''} faite${done > 1 ? 's' : ''} sur ${total}`}>
+    <Tooltip label={t('{done} étape{v0} faite{v1} sur {total}', { done, v0: done > 1 ? 's' : '', v1: done > 1 ? 's' : '', total })}>
       <span
         data-avancement-projet
         className={cn(
@@ -1736,7 +1733,7 @@ function LigneEspaceDev({
         <button
           data-ouvrir-espace-dev
           onClick={ouvrir}
-          title={`${project.name} — l’espace où l’application elle-même est développée`}
+          title={t('{v0} — l’espace où l’application elle-même est développée', { v0: project.name })}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           {/* Le loader prend la place de l'outil tant qu'un agent écrit ; une
@@ -1757,7 +1754,7 @@ function LigneEspaceDev({
           {/* Un libellé COURT : la colonne fait moins de 200 px, et la ligne
               porte déjà l'outil, un repère et l'engrenage. « Développement de
               l'application » y finissait en points de suspension. */}
-          <span className="min-w-0 flex-1 truncate">Développement</span>
+          <span className="min-w-0 flex-1 truncate">{t('Développement')}</span>
         </button>
         {/* Hors du bouton : le repère de décision porte son propre geste, et un
             bouton n'en contient pas un autre. Le travail rendu ne s'y affiche
@@ -1788,7 +1785,7 @@ function LigneEspaceDev({
           onClick={onSettings}
           data-reglages-projet={project.id}
           className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover:opacity-100"
-          title="Réglages de l’espace de développement"
+          title={t('Réglages de l’espace de développement')}
         >
           <Settings2 className="h-3 w-3" />
         </button>
@@ -1870,7 +1867,7 @@ function ProjectRow({
       <RepereDemiRond active={active} couleur={groupColor} emboite={emboite} />
       <span
         {...poigneeProps}
-        title="Glisser pour ranger"
+        title={t('Glisser pour ranger')}
         className={cn(
           '-m-1 shrink-0 touch-none overflow-hidden p-1',
           'transition-[max-width,padding,margin] duration-150 motion-reduce:transition-none',
@@ -1914,7 +1911,7 @@ function ProjectRow({
         ) : null}
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.billing?.clientId ? (
-          <Tooltip label={`Facturé à ${project.billing.clientName ?? 'un client'} · ${project.billing.hourlyRate} CHF/h`}>
+          <Tooltip label={t('Facturé à {v0} · {v1} CHF/h', { v0: project.billing.clientName ?? 'un client', v1: project.billing.hourlyRate })}>
             {/* À la suite du nom (le nom prend toute la place, ce repère est
                 poussé à droite). Caché au repos sur pointeur qui survole, révélé
                 au survol de la ligne — comme la poignée. Sur téléphone (pas de
@@ -1954,7 +1951,7 @@ function ProjectRow({
         onClick={onSettings}
         data-reglages-projet={project.id}
         className="shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover:opacity-100"
-        title="Réglages du projet"
+        title={t('Réglages du projet')}
       >
         <Settings2 className="h-3 w-3" />
       </button>
@@ -2056,7 +2053,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
       });
       client.setActiveProject(data.project.id);
       setFound((current) => current.filter((f) => f.path !== entry.path));
-      client.pushToast('success', `« ${entry.name} » ajouté`);
+      client.pushToast('success', t('« {v0} » ajouté', { v0: entry.name }));
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'inscription impossible');
     } finally {
@@ -2166,13 +2163,13 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
       <DialogContent className="sm:w-[min(600px,100%)]">
-        <DialogTitle>Projets du serveur</DialogTitle>
+        <DialogTitle>{t('Projets du serveur')}</DialogTitle>
 
         <Tabs value={onglet} onValueChange={setOnglet} className="mt-3">
           <TabsList>
-            <TabsTrigger value="existing">Déjà sur le serveur</TabsTrigger>
-            <TabsTrigger value="github">Depuis GitHub</TabsTrigger>
-            <TabsTrigger value="new">Nouveau projet</TabsTrigger>
+            <TabsTrigger value="existing">{t('Déjà sur le serveur')}</TabsTrigger>
+            <TabsTrigger value="github">{t('Depuis GitHub')}</TabsTrigger>
+            <TabsTrigger value="new">{t('Nouveau projet')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="existing" className="mt-3">
@@ -2181,21 +2178,19 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
               <Input
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
-                placeholder="Chercher un projet…"
+                placeholder={t('Chercher un projet…')}
                 className="pl-7"
               />
             </div>
 
             {loading ? (
               <p className="mt-3 flex items-center gap-1.5 text-[13.5px] text-faint">
-                <Loader2 className="h-3 w-3 animate-spin" /> Lecture des dossiers du serveur…
-              </p>
+                <Loader2 className="h-3 w-3 animate-spin" />  {t('Lecture des dossiers du serveur…')}
+</p>
             ) : visible.length ? (
               <>
                 <p className="mt-2 text-[12.5px] text-faint">
-                  {visible.length} projet{visible.length > 1 ? 's' : ''} trouvé{visible.length > 1 ? 's' : ''} et pas
-                  encore suivi{visible.length > 1 ? 's' : ''}.
-                </p>
+                  {t('{v0} projet{v1} trouvé{v2} et pas encore suivi{v3}.', { v0: visible.length, v1: visible.length > 1 ? 's' : '', v2: visible.length > 1 ? 's' : '', v3: visible.length > 1 ? 's' : '' })}</p>
                 <ZoneDefilement classeEnveloppe="mt-1.5 max-h-[340px] flex-none" className="space-y-0.5">
                   {visible.map((entry) => (
                     <div
@@ -2207,7 +2202,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                         <p className="truncate text-[14px] text-text">{entry.name}</p>
                         <p className="truncate text-[11.5px] text-faint">
                           {entry.path}
-                          {entry.git ? ' · suivi par git' : ''}
+                          {entry.git ? t(' · suivi par git') : ''}
                         </p>
                       </div>
                       <Button
@@ -2217,21 +2212,22 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                         onClick={() => addExisting(entry)}
                       >
                         {busy === entry.path ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                        Suivre
-                      </Button>
+                        
+{t('Suivre')}
+</Button>
                     </div>
                   ))}
                 </ZoneDefilement>
               </>
             ) : (
-              <p className="mt-3 text-[13.5px] text-faint">Tous les projets du serveur sont déjà dans votre liste.</p>
+              <p className="mt-3 text-[13.5px] text-faint">{t('Tous les projets du serveur sont déjà dans votre liste.')}</p>
             )}
           </TabsContent>
 
           <TabsContent value="github" className="mt-3 space-y-2.5">
             {/* L'adresse publique se demande AVANT le montage, ici comme pour un projet neuf. */}
             <div data-adresse-depuis-github>
-              <Label>Adresse publique du projet (facultatif)</Label>
+              <Label>{t('Adresse publique du projet (facultatif)')}</Label>
               <div className="mt-1 flex items-center gap-1.5">
                 <Input
                   value={ghSousDomaine}
@@ -2250,19 +2246,17 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                 />
               </div>
               <p className="mt-1 text-[12px] leading-snug text-faint">
-                Le nom et le port sur lequel le projet écoutera. Ils sont demandés avant le montage : c'est cette adresse
-                qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est ajouté sans adresse.
-              </p>
+                {t('Le nom et le port sur lequel le projet écoutera. Ils sont demandés avant le montage : c\'est cette adresse qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est ajouté sans adresse.')}</p>
             </div>
 
             <div className="border-t border-border pt-2.5">
-              <Label>Vos dépôts GitHub{compteGithub ? ` (compte ${compteGithub})` : ''}</Label>
+              <Label>{t('Vos dépôts GitHub{v0}', { v0: compteGithub ? ` (compte ${compteGithub})` : '' })}</Label>
               <div className="relative mt-1">
                 <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
                 <Input
                   value={chercheDepot}
                   onChange={(event) => setChercheDepot(event.target.value)}
-                  placeholder="Chercher un dépôt…"
+                  placeholder={t('Chercher un dépôt…')}
                   className="pl-7"
                   data-recherche-depot
                 />
@@ -2270,8 +2264,8 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
               {loading && !depots.length ? (
                 <p className="mt-2 flex items-center gap-1.5 text-[13.5px] text-faint">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Lecture des dépôts du compte GitHub…
-                </p>
+                  <Loader2 className="h-3 w-3 animate-spin" />  {t('Lecture des dépôts du compte GitHub…')}
+</p>
               ) : depotsErreur ? (
                 <p className="mt-2 text-[13px] text-warning">{depotsErreur}</p>
               ) : depotsVisibles.length ? (
@@ -2286,8 +2280,8 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[14px] text-text">{depot.slug}</p>
                         <p className="truncate text-[11.5px] text-faint">
-                          {depot.prive ? 'privé' : 'public'}
-                          {depot.vide ? ' · vide' : ''}
+                          {depot.prive ? t('privé') : 'public'}
+                          {depot.vide ? t(' · vide') : ''}
                           {depot.description ? ` · ${depot.description}` : ''}
                         </p>
                       </div>
@@ -2302,20 +2296,21 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                         ) : (
                           <Plus className="h-3 w-3" />
                         )}
-                        Ajouter
-                      </Button>
+                        
+{t('Ajouter')}
+</Button>
                     </div>
                   ))}
                 </ZoneDefilement>
               ) : (
                 <p className="mt-2 text-[13.5px] text-faint">
-                  {depots.length ? 'Aucun dépôt ne correspond à cette recherche.' : 'Aucun dépôt trouvé sur ce compte.'}
+                  {depots.length ? t('Aucun dépôt ne correspond à cette recherche.') : t('Aucun dépôt trouvé sur ce compte.')}
                 </p>
               )}
             </div>
 
             <div className="border-t border-border pt-2.5">
-              <Label>Ou collez le lien d'un dépôt</Label>
+              <Label>{t('Ou collez le lien d\'un dépôt')}</Label>
               <div className="mt-1 flex items-center gap-1.5">
                 <Input
                   value={lienGithub}
@@ -2331,13 +2326,12 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                   onClick={() => ajouterDepuisGithub(lienGithub, 'lien')}
                 >
                   {busy === 'lien' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                  Ajouter
-                </Button>
+                  
+{t('Ajouter')}
+</Button>
               </div>
               <p className="mt-1 text-[12px] leading-snug text-faint">
-                Pour un dépôt qui n'appartient pas à ce compte. Le dépôt est récupéré sur le serveur et le projet
-                apparaît dans la liste de gauche. Rien n'est publié ni mis en ligne au passage.
-              </p>
+                {t('Pour un dépôt qui n\'appartient pas à ce compte. Le dépôt est récupéré sur le serveur et le projet apparaît dans la liste de gauche. Rien n\'est publié ni mis en ligne au passage.')}</p>
             </div>
 
             {etapesGithub ? <DerouleDesEtapes etapes={etapesGithub} /> : null}
@@ -2345,39 +2339,38 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
           <TabsContent value="new" className="mt-3 space-y-2.5">
             <div>
-              <Label>Nom du projet</Label>
+              <Label>{t('Nom du projet')}</Label>
               <Input
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
                 className="mt-1"
-                placeholder="Mon nouveau site"
+                placeholder={t('Mon nouveau site')}
                 autoFocus
               />
             </div>
             <div>
-              <Label>Nom du dossier (facultatif)</Label>
+              <Label>{t('Nom du dossier (facultatif)')}</Label>
               <Input
                 value={newFolder}
                 onChange={(event) => setNewFolder(event.target.value)}
                 className="mt-1"
-                placeholder="déduit du nom"
+                placeholder={t('déduit du nom')}
               />
             </div>
             <div>
-              <Label>En une phrase, à quoi sert ce projet ? (facultatif)</Label>
+              <Label>{t('En une phrase, à quoi sert ce projet ? (facultatif)')}</Label>
               <Input
                 value={newResume}
                 onChange={(event) => setNewResume(event.target.value)}
                 className="mt-1"
-                placeholder="Le site vitrine de l'atelier"
+                placeholder={t('Le site vitrine de l\'atelier')}
               />
               <p className="mt-1 text-[12px] leading-snug text-faint">
-                Cette phrase ouvre la documentation du projet et décrit le dépôt sur GitHub.
-              </p>
+                {t('Cette phrase ouvre la documentation du projet et décrit le dépôt sur GitHub.')}</p>
             </div>
             {/* L'adresse publique : demandée ici, créée pendant le montage. */}
             <div data-adresse-nouveau-projet>
-              <Label>Adresse publique du projet (facultatif)</Label>
+              <Label>{t('Adresse publique du projet (facultatif)')}</Label>
               <div className="mt-1 flex items-center gap-1.5">
                 <Input
                   value={newSousDomaine}
@@ -2396,42 +2389,40 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                 />
               </div>
               <p className="mt-1 text-[12px] leading-snug text-faint">
-                Le nom et le port sur lequel le projet écoutera. HaikoDev crée l'adresse pendant le montage : c'est elle
-                qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est monté sans adresse.
-              </p>
+                {t('Le nom et le port sur lequel le projet écoutera. HaikoDev crée l\'adresse pendant le montage : c\'est elle qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est monté sans adresse.')}</p>
             </div>
             <div>
-              <Label>Dépôt distant existant (facultatif)</Label>
+              <Label>{t('Dépôt distant existant (facultatif)')}</Label>
               <Input
                 value={newRemote}
                 onChange={(event) => setNewRemote(event.target.value)}
                 className="mt-1"
-                placeholder="laisser vide pour en créer un sur GitHub"
+                placeholder={t('laisser vide pour en créer un sur GitHub')}
               />
             </div>
             <label className="flex items-center gap-2 text-[14px] text-muted">
               <Switch checked={withGit} onCheckedChange={setWithGit} />
-              Démarrer un dépôt git dans le dossier
-            </label>
+              
+{t('Démarrer un dépôt git dans le dossier')}
+</label>
             <label className="flex items-center gap-2 text-[14px] text-muted">
               <Switch
                 checked={withGithub && withGit && !newRemote.trim()}
                 disabled={!withGit || !!newRemote.trim()}
                 onCheckedChange={setWithGithub}
               />
-              Créer aussi le dépôt privé sur GitHub
-            </label>
+              
+{t('Créer aussi le dépôt privé sur GitHub')}
+</label>
 
             <p className="text-[12.5px] leading-snug text-faint">
-              Le dossier est créé pour de vrai sur le serveur, sur la branche « main », avec les fichiers d'instructions
-              des moteurs, la mémoire, l'historique et une documentation de départ. Le projet apparaît ensuite dans la
-              liste de gauche.
-            </p>
+              {t('Le dossier est créé pour de vrai sur le serveur, sur la branche « main », avec les fichiers d\'instructions des moteurs, la mémoire, l\'historique et une documentation de départ. Le projet apparaît ensuite dans la liste de gauche.')}</p>
 
             <Button variant="default" size="sm" disabled={!newName.trim() || busy === 'new'} onClick={createNew}>
               {busy === 'new' ? <Loader2 className="h-3 w-3 animate-spin" /> : <FolderPlus className="h-3 w-3" />}
-              Créer le projet
-            </Button>
+              
+{t('Créer le projet')}
+</Button>
 
             {etapes ? <DerouleDesEtapes etapes={etapes} /> : null}
           </TabsContent>

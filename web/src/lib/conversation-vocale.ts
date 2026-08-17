@@ -6,6 +6,7 @@ import {
 } from '@haikodev/shared';
 import { client } from './client';
 import { ouvrirMicro, type PriseMicro } from './micro';
+import { t } from '@/lib/langue';
 
 /**
  * LE MODE CONVERSATION VOCALE, côté navigateur — le micro et sa boucle.
@@ -200,7 +201,7 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
         if (!vivant) return;
         setEtat('refusee');
         setErreur('Micro refusé — cliquer pour réessayer.');
-        client.pushToast('error', 'Micro refusé — la conversation vocale ne peut pas écouter.');
+        client.pushToast('error', t('Micro refusé — la conversation vocale ne peut pas écouter.'));
         return;
       }
       // L'interrupteur s'est éteint pendant que le micro s'ouvrait : on le rend.

@@ -34,6 +34,7 @@ import { RepereAttention } from '@/components/repere-attention';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, relativeTime } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 export function RightPanel({ projectId }: { projectId: string }) {
   const state = useApp();
@@ -58,15 +59,14 @@ export function RightPanel({ projectId }: { projectId: string }) {
         <div className="px-2 py-1.5">
           <TabsList className="w-full">
             <TabsTrigger value="chat" className="flex-1 gap-1">
-              Chef
-              <RepereAttention compte={decisions} data-attention-conversation={projectId} />
+              
+{t('Chef')}
+<RepereAttention compte={decisions} data-attention-conversation={projectId} />
             </TabsTrigger>
             <TabsTrigger value="files" className="flex-1">
-              Fichiers
-            </TabsTrigger>
+              {t('Fichiers')}</TabsTrigger>
             <TabsTrigger value="attachments" className="flex-1">
-              Pièces jointes
-            </TabsTrigger>
+              {t('Pièces jointes')}</TabsTrigger>
           </TabsList>
         </div>
 
@@ -173,7 +173,7 @@ function FilesTab({ projectId }: { projectId: string }) {
             className="h-7 pl-6 text-[13.5px]"
           />
         </div>
-        <Tooltip label={selection.size ? `Télécharger ${selection.size} élément(s)` : 'Télécharger ce dossier'}>
+        <Tooltip label={selection.size ? t('Télécharger {v0} élément(s)', { v0: selection.size }) : t('Télécharger ce dossier')}>
           <Button variant="ghost" size="icon-sm" onClick={downloadSelection}>
             <Download className="h-3 w-3" />
           </Button>
@@ -213,7 +213,7 @@ function FilesTab({ projectId }: { projectId: string }) {
             </button>
           </div>
         ))}
-        {!visible.length ? <EmptyState title="Dossier vide" /> : null}
+        {!visible.length ? <EmptyState title={t('Dossier vide')} /> : null}
       </ZoneDefilement>
 
       <FilePreview projectId={projectId} preview={preview} onClose={() => setPreview(null)} />
@@ -246,7 +246,7 @@ function FilePreview({
               changerait rien. */}
           {data.kind === 'text' && markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
           {/* Le fichier se récupère tel quel, sans passer par une archive. */}
-          <Tooltip label="Télécharger">
+          <Tooltip label={t('Télécharger')}>
             <Button variant="ghost" size="icon-sm" asChild>
               <a href={href} download>
                 <Download className="h-3 w-3" />
@@ -271,10 +271,9 @@ function FilePreview({
             />
           ) : data.kind === 'too_big' ? (
             <p className="p-4 text-center text-[14px] text-faint">
-              Fichier trop lourd pour l'aperçu ({bytes(data.size)}). Téléchargez-le pour le consulter.
-            </p>
+              {t('Fichier trop lourd pour l\'aperçu ({v0}). Téléchargez-le pour le consulter.', { v0: bytes(data.size) })}</p>
           ) : (
-            <p className="p-4 text-center text-[14px] text-faint">Fichier binaire ({bytes(data.size)}).</p>
+            <p className="p-4 text-center text-[14px] text-faint">{t('Fichier binaire ({v0}).', { v0: bytes(data.size) })}</p>
           )}
         </ZoneDefilement>
       </DialogContent>
@@ -299,8 +298,8 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
     return (
       <EmptyState
         icon={<Paperclip className="h-5 w-5" />}
-        title="Aucune pièce jointe"
-        hint="Tout ce qui transite par les conversations du projet apparaît ici."
+        title={t('Aucune pièce jointe')}
+        hint={t('Tout ce qui transite par les conversations du projet apparaît ici.')}
       />
     );
   }
@@ -335,7 +334,7 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
                   <a
                     href={`/api/attachment?id=${item.id}&download=1`}
                     className="ml-auto hover:text-text"
-                    title="Télécharger"
+                    title={t('Télécharger')}
                   >
                     <Download className="h-2.5 w-2.5" />
                   </a>

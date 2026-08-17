@@ -4,6 +4,7 @@ import { DUREE_MESSAGE_MS, heureEtDate } from '@haikodev/shared';
 import { client, Toast } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /** À partir de combien de pixels glissés vers la gauche, on relâche pour masquer. */
 const SEUIL_GLISSEMENT_PX = 80;
@@ -99,7 +100,7 @@ function BoutonCopier({ texte }: { texte: string }) {
       type="button"
       data-toast-copier
       onClick={copier}
-      title={copie ? 'Message copié' : 'Copier ce message'}
+      title={copie ? t('Message copié') : t('Copier ce message')}
       className="flex items-center justify-center p-[11px] opacity-60 transition-opacity hover:opacity-100"
     >
       {copie ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
@@ -208,7 +209,7 @@ function ToastItem({ toast, enPause }: { toast: Toast; enPause: boolean }) {
               event.stopPropagation();
               client.dismissToast(toast.id);
             }}
-            title="Retirer ce message"
+            title={t('Retirer ce message')}
             className="flex items-center justify-center p-[11px] opacity-60 hover:opacity-100"
           >
             <X className="h-2.5 w-2.5" />

@@ -28,6 +28,7 @@ import {
   type EcranNavigateur,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
+import { t, useLangueAppliquee } from '@/lib/langue';
 
 /*
  * LES ÉCRANS QU'ON OUVRE PAR UN BOUTON SONT DES MORCEAUX À PART
@@ -87,6 +88,16 @@ export function App() {
    * projet.
    */
   useThemeApplique();
+  /*
+   * LA LANGUE SE POSE ICI AUSSI, ET POUR LA MÊME RAISON. `t` lit une variable de
+   * module, tenue à jour par ce crochet PENDANT le rendu de la racine : tout ce
+   * qui s'affiche en dessous — colonne de gauche, tableau, conversation,
+   * fenêtres, panneaux chargés à la demande — voit donc la bonne langue au
+   * PREMIER rendu, sans qu'aucun écran n'ait à s'abonner à quoi que ce soit.
+   * Changer de langue rend la racine, donc rend tout l'arbre : aucun mot ne
+   * reste en arrière.
+   */
+  useLangueAppliquee();
   const [openCardId, setOpenCardId] = React.useState<string | null>(null);
   const [openAgentId, setOpenAgentId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -500,7 +511,7 @@ export function App() {
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-5 w-5 animate-spin text-faint" />
           <p className="text-[14px] text-faint">
-            {state.connecting ? 'Connexion au serveur…' : 'Serveur injoignable — nouvelle tentative…'}
+            {state.connecting ? t('Connexion au serveur…') : t('Serveur injoignable — nouvelle tentative…')}
           </p>
         </div>
       </div>
@@ -533,9 +544,9 @@ export function App() {
             setDropTarget(false);
             // Sans conversation ouverte, le dépôt est refusé avec un message clair.
             if (!openAgent && !openCardId && !rightOpen) {
-              client.pushToast('warning', "Ouvrez d'abord une conversation pour y déposer un fichier.");
+              client.pushToast('warning', t('Ouvrez d\'abord une conversation pour y déposer un fichier.'));
             } else {
-              client.pushToast('info', 'Déposez le fichier directement dans la barre d\'écriture de la conversation.');
+              client.pushToast('info', t('Déposez le fichier directement dans la barre d\'écriture de la conversation.'));
             }
           }
         }}
@@ -593,8 +604,8 @@ export function App() {
             ) : (
               <EmptyState
                 icon={<LayoutGrid className="h-5 w-5" />}
-                title="Aucun projet sélectionné"
-                hint="Ajoutez un projet depuis la colonne de gauche pour commencer."
+                title={t('Aucun projet sélectionné')}
+                hint={t('Ajoutez un projet depuis la colonne de gauche pour commencer.')}
               />
             )}
           </main>
@@ -637,7 +648,7 @@ export function App() {
 
         {/* La liste des projets, en panneau qui glisse depuis la gauche : un
             choix qu'on fait au passage, pas une destination. */}
-        <SidePanel open={projetsOuverts} onClose={() => setProjetsOuverts(false)} title="Projets">
+        <SidePanel open={projetsOuverts} onClose={() => setProjetsOuverts(false)} title={t('Projets')}>
           <Filet zone="Liste des projets">
             <Sidebar
               onOpenAgent={setOpenAgentId}
@@ -680,8 +691,8 @@ export function App() {
                 setMobileView('board');
               }}
             >
-              <Columns3 className="h-3.5 w-3.5 shrink-0" /> Tableau
-            </Button>
+              <Columns3 className="h-3.5 w-3.5 shrink-0" />  {t('Tableau')}
+</Button>
             {/* La colonne du milieu est laissée VIDE, juste assez large pour le
                 rond du module de voix (fixe, par-dessus) qui vient s'y poser et
                 déborde un peu en haut et en bas, comme un bouton d'action. Les
@@ -701,8 +712,8 @@ export function App() {
                 setMobileView('chat');
               }}
             >
-              <MessageSquare className="h-3.5 w-3.5 shrink-0" /> Chef
-              {/* Sur téléphone, la conversation est derrière ce bouton : sans le
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />  {t('Chef')}
+{/* Sur téléphone, la conversation est derrière ce bouton : sans le
                   triangle ici, une décision en attente resterait invisible. */}
               <RepereAttention
                 compte={activeProject ? decisionsHorsCarte(state.decisions, activeProject.id) : 0}
@@ -752,8 +763,7 @@ export function App() {
               <header className="flex items-center gap-2 border-b border-border px-3 py-2">
                 <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{openAgent.title}</span>
                 <Button variant="ghost" size="sm" onClick={() => setOpenAgentId(null)}>
-                  Fermer
-                </Button>
+                  {t('Fermer')}</Button>
               </header>
               <div className="min-h-0 flex-1">
                 <Filet zone="Conversation">

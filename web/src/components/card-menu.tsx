@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui';
 import { client } from '@/lib/client';
+import { t } from '@/lib/langue';
 
 /**
  * Le menu des gestes rares d'une carte : rouvrir, archiver, supprimer, et le
@@ -110,30 +111,30 @@ export function MenuCarte({
           {reprise ? (
             <DropdownMenuItem onSelect={() => client.moveCard(card, reprise)}>
               <RotateCcw className="h-3.5 w-3.5" />
-              {`${libelleDeReprise(card.column)} → ${COLUMN_LABELS[reprise]}`}
+              {`${libelleDeReprise(card.column)} → ${t(COLUMN_LABELS[reprise])}`}
             </DropdownMenuItem>
           ) : null}
 
           {archivable ? (
             <DropdownMenuItem onSelect={() => client.moveCard(card, 'archived')}>
-              <Archive className="h-3.5 w-3.5" /> Archiver la carte
-            </DropdownMenuItem>
+              <Archive className="h-3.5 w-3.5" />  {t('Archiver la carte')}
+</DropdownMenuItem>
           ) : null}
 
           <DropdownMenuItem
             className="text-danger data-[highlighted]:text-danger"
             onSelect={() => setConfirmSuppression(true)}
           >
-            <Trash2 className="h-3.5 w-3.5" /> Supprimer la carte
-          </DropdownMenuItem>
+            <Trash2 className="h-3.5 w-3.5" />  {t('Supprimer la carte')}
+</DropdownMenuItem>
 
           {cibles.length ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel>Déplacer vers</DropdownMenuLabel>
+              <DropdownMenuLabel>{t('Déplacer vers')}</DropdownMenuLabel>
               {cibles.map((column) => (
                 <DropdownMenuItem key={column} onSelect={() => client.moveCard(card, column)}>
-                  <ArrowRight className="h-3.5 w-3.5 text-faint" /> {COLUMN_LABELS[column]}
+                  <ArrowRight className="h-3.5 w-3.5 text-faint" /> {t(COLUMN_LABELS[column])}
                 </DropdownMenuItem>
               ))}
             </>
@@ -143,9 +144,9 @@ export function MenuCarte({
 
       <ConfirmDialog
         open={confirmSuppression}
-        title={`Supprimer « ${card.title} » ?`}
-        description="La carte et sa conversation partent définitivement. Le travail déjà fait dans le projet, lui, reste."
-        confirmLabel="Supprimer la carte"
+        title={t('Supprimer « {v0} » ?', { v0: card.title })}
+        description={t('La carte et sa conversation partent définitivement. Le travail déjà fait dans le projet, lui, reste.')}
+        confirmLabel={t('Supprimer la carte')}
         danger
         onConfirm={async () => {
           await client.call({ type: 'card.delete', id: card.id });

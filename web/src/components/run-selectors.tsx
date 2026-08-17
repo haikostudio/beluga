@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-reac
 import { EngineInfo, RunConfig, messageDeRepli } from '@haikodev/shared';
 import { Button, DialogTitle, Drawer } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { t, formatRegional } from '@/lib/langue';
 
 /**
  * Les trois réglages d'un agent — moteur, modèle, niveau de réflexion — dans
@@ -110,7 +111,7 @@ export function RunSelectors({
       >
         <SlidersHorizontal className="h-3 w-3 shrink-0" />
         <span className={cn('truncate', pleineLargeur ? '' : 'max-w-[130px] sm:max-w-[220px]')}>
-          {resume || 'Réglages'}
+          {resume || t('Réglages')}
         </span>
         <ChevronDown className="h-2.5 w-2.5 shrink-0" />
       </Button>
@@ -119,7 +120,7 @@ export function RunSelectors({
       <Drawer open={ouvert} onClose={fermerTout}>
         <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
           <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="min-w-0 flex-1 truncate">Réglages de l'agent</DialogTitle>
+          <DialogTitle className="min-w-0 flex-1 truncate">{t('Réglages de l\'agent')}</DialogTitle>
         </header>
         <div
           role="menu"
@@ -131,14 +132,14 @@ export function RunSelectors({
           className="flex flex-col gap-1 px-2 pb-3"
         >
           <LigneApercu
-            titre="Moteur"
+            titre={t('Moteur')}
             valeur={nomCourtMoteur(engine)}
             repere="moteur"
             menuitem={sousVue === null}
             onClick={() => setSousVue('moteur')}
           />
           <LigneApercu
-            titre="Modèle"
+            titre={t('Modèle')}
             valeur={model?.label ?? '—'}
             repere="modele"
             alerte={!!avertissementModele}
@@ -147,7 +148,7 @@ export function RunSelectors({
           />
           {thinkingOptions.length > 1 ? (
             <LigneApercu
-              titre="Réflexion"
+              titre={t('Réflexion')}
               valeur={thinking?.label ?? '—'}
               repere="reflexion"
               menuitem={sousVue === null}
@@ -191,7 +192,7 @@ export function RunSelectors({
                 const note =
                   m.note ??
                   (m.releasedAt
-                    ? new Date(m.releasedAt).toLocaleDateString('fr-CH', { month: '2-digit', year: '2-digit' })
+                    ? new Date(m.releasedAt).toLocaleDateString(formatRegional(), { month: '2-digit', year: '2-digit' })
                     : undefined);
                 return (
                   <ItemListe key={m.id} actif={m.id === model?.id} onSelect={() => choisir({ model: m.id })}>
@@ -258,7 +259,7 @@ function LigneApercu({
         <span className="max-w-[220px] truncate text-[14px] text-text">{valeur}</span>
       </span>
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
-        {alerte ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title="Liste de secours" /> : null}
+        {alerte ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title={t('Liste de secours')} /> : null}
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
       </span>
     </button>

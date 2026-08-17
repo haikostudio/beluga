@@ -6,6 +6,7 @@ import { useApp } from '@/lib/use-app';
 import { ZoneDefilement } from '@/components/ui';
 import { estTelephone } from '@/lib/telephone';
 import { cn, duration } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * Le premier repère de chaque réponse (PLAN §26) : l'agent a relu la mémoire du
@@ -40,14 +41,14 @@ export function MemoryNote({ step, projectId }: { step: RunStep; projectId?: str
       </button>
       {open ? (
         <div className="mx-2 mb-2">
-          <p className="px-1 pb-1 text-[12px] text-faint">La mémoire du projet, telle qu'elle est aujourd'hui :</p>
+          <p className="px-1 pb-1 text-[12px] text-faint">{t('La mémoire du projet, telle qu\'elle est aujourd\'hui :')}</p>
           <ZoneDefilement
             fond="hsl(var(--raised))"
             classeEnveloppe="max-h-64 flex-none rounded bg-raised"
             className="p-2"
           >
             <pre className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-muted">
-              {texte ?? 'Lecture…'}
+              {texte ?? t('Lecture…')}
             </pre>
           </ZoneDefilement>
         </div>
@@ -121,9 +122,9 @@ export function CorpsListeTaches({
             className="flex items-start gap-2 px-1 py-1"
             title={
               todo.closedByTurnEnd
-                ? "Cochée à la fin du tour : l'agent ne l'a pas marquée lui-même."
+                ? t('Cochée à la fin du tour : l\'agent ne l\'a pas marquée lui-même.')
                 : todo.state === 'unfinished'
-                  ? "Le tour s'est terminé sans que cette étape soit menée à bout."
+                  ? t('Le tour s\'est terminé sans que cette étape soit menée à bout.')
                   : undefined
             }
           >

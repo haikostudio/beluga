@@ -3,6 +3,7 @@ import { Check, ChevronDown, Copy, Search } from 'lucide-react';
 import { SentContextSnapshot, TourEnvoye } from '@haikodev/shared';
 import { Input } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { t, formatRegional } from '@/lib/langue';
 
 /**
  * LE LECTEUR DE PROMPTS — la SEULE façon de lire un tour envoyé au moteur
@@ -53,7 +54,7 @@ function BoutonCopierBloc({ texte, titre = 'Copier' }: { texte: string; titre?: 
       className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
     >
       {copie ? <Check className="h-2.5 w-2.5 text-success" /> : <Copy className="h-2.5 w-2.5" />}
-      {copie ? 'Copié' : 'Copier'}
+      {copie ? t('Copié') : t('Copier')}
     </button>
   );
 }
@@ -61,7 +62,7 @@ function BoutonCopierBloc({ texte, titre = 'Copier' }: { texte: string; titre?: 
 function texteDunTour(tour: TourEnvoye): string {
   const { contexte } = tour;
   const parties = [
-    `Tour ${tour.numero} — ${new Date(contexte.sentAt).toLocaleString('fr-CH')}`,
+    `Tour ${tour.numero} — ${new Date(contexte.sentAt).toLocaleString(formatRegional())}`,
     `${nomMoteur(contexte.engine)}${contexte.model ? ` — ${contexte.model}` : ''} · ${nomSession(contexte.session)}`,
     ...contexte.blocks
       .filter((b) => b.text)
@@ -112,7 +113,7 @@ function BlocDePrompt({
             relu au cache
           </span>
         ) : null}
-        {texte ? <BoutonCopierBloc texte={texte} titre={`Copier « ${label} »`} /> : null}
+        {texte ? <BoutonCopierBloc texte={texte} titre={t('Copier « {label} »', { label })} /> : null}
       </button>
       {ouvert ? (
         texte ? (
@@ -121,8 +122,7 @@ function BlocDePrompt({
           </pre>
         ) : (
           <p className="mt-1.5 text-[12px] text-faint">
-            Texte non conservé (tour ancien, retiré pour borner le disque).
-          </p>
+            {t('Texte non conservé (tour ancien, retiré pour borner le disque).')}</p>
         )
       ) : null}
     </div>
@@ -164,17 +164,15 @@ function TourDuLecteur({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-[13px] font-medium text-text">
-                Tour {tour.numero}
-                {actuel ? ' · ce tour' : ''}
-              </span>
-              <span className="text-[12px] text-faint">{new Date(contexte.sentAt).toLocaleString('fr-CH')}</span>
+                {t('Tour {v0} {v1}', { v0: tour.numero, v1: actuel ? ' · ce tour' : '' })}</span>
+              <span className="text-[12px] text-faint">{new Date(contexte.sentAt).toLocaleString(formatRegional())}</span>
             </div>
             <p className="mt-0.5 text-[12px] text-faint">
               {nomMoteur(contexte.engine)}
               {contexte.model ? ` · ${contexte.model}` : ''} · {nomSession(contexte.session)} ·{' '}
               {contexte.history === 'retained_by_engine'
-                ? 'historique conservé par le moteur'
-                : "pas d'historique (nouvelle session)"}
+                ? t('historique conservé par le moteur')
+                : t('pas d\'historique (nouvelle session)')}
             </p>
           </div>
           <ChevronDown
@@ -187,9 +185,7 @@ function TourDuLecteur({
           <div className="mt-2 space-y-1.5 border-t border-border pt-2">
             {contexte.passages.length ? (
               <div className="mb-1.5 text-[12px] text-faint">
-                Passages retrouvés dans la documentation ({contexte.passages.length}) :{' '}
-                {contexte.passages.map((p) => p.source).join(', ')}
-              </div>
+                {t('Passages retrouvés dans la documentation ({v0}) :{v1} {v2}', { v0: contexte.passages.length, v1: ' ', v2: contexte.passages.map((p) => p.source).join(', ') })}</div>
             ) : contexte.passagesRaison ? (
               <p className="mb-1.5 text-[12px] text-faint">{contexte.passagesRaison}</p>
             ) : null}
@@ -208,7 +204,7 @@ function TourDuLecteur({
                   contientLaRecherche(passage.texte, requete) || contientLaRecherche(passage.source, requete) ? (
                     <BlocDePrompt
                       key={`passage-${index}`}
-                      label={`Passage retrouvé — ${passage.source}${passage.titre ? ` › ${passage.titre}` : ''}`}
+                      label={t('Passage retrouvé — {v0}{v1}', { v0: passage.source, v1: passage.titre ? ` › ${passage.titre}` : '' })}
                       texte={passage.texte}
                       cached={false}
                       ouvertParDefaut={Boolean(requete)}
@@ -243,7 +239,7 @@ export function LecteurPrompt({
   const [requete, setRequete] = React.useState('');
 
   if (!tours.length) {
-    return <p className="text-[12.5px] text-faint">Aucun tour envoyé pour l'instant.</p>;
+    return <p className="text-[12.5px] text-faint">{t('Aucun tour envoyé pour l\'instant.')}</p>;
   }
 
   return (
@@ -253,7 +249,7 @@ export function LecteurPrompt({
         <Input
           value={requete}
           onChange={(e) => setRequete(e.target.value)}
-          placeholder="Rechercher dans les prompts envoyés…"
+          placeholder={t('Rechercher dans les prompts envoyés…')}
           className="pl-7 text-[13px]"
           data-recherche-prompt
         />

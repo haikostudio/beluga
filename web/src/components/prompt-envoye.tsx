@@ -9,6 +9,7 @@ import {
   bullesDuPromptEnvoye,
 } from '@haikodev/shared';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 /**
  * LE PROMPT ENVOYÉ, EN BULLES DE MESSAGE — plus aucun tiroir.
@@ -58,11 +59,11 @@ function BoutonCopier({ texte }: { texte: string }) {
     <button
       type="button"
       onClick={copier}
-      title="Copier ce texte"
+      title={t('Copier ce texte')}
       className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
     >
       {copie ? <Check className="h-2.5 w-2.5 text-success" /> : <Copy className="h-2.5 w-2.5" />}
-      {copie ? 'Copié' : 'Copier'}
+      {copie ? t('Copié') : t('Copier')}
     </button>
   );
 }
@@ -136,7 +137,7 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
             data-bulle-entete
             onClick={basculer}
             aria-expanded={deroule}
-            title={deroule ? 'Replier cette mémoire' : 'Déplier cette mémoire'}
+            title={deroule ? t('Replier cette mémoire') : t('Déplier cette mémoire')}
             className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-raised"
           >
             <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
@@ -164,8 +165,7 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
           est dans la bulle, à sa place. Jamais un chiffre de jetons. */}
       {bulle.noms?.length ? (
         <p data-donnees-paralleles className="mb-1.5 break-words text-[11.5px] text-faint [overflow-wrap:anywhere]">
-          Transmis en même temps : {bulle.noms.join(', ')}
-        </p>
+          {t('Transmis en même temps : {v0}', { v0: bulle.noms.join(', ') })}</p>
       ) : null}
 
       <pre

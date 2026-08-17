@@ -33,6 +33,7 @@ import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 export function Chat({
   agent,
@@ -283,8 +284,8 @@ export function Chat({
           ) : (
             <EmptyState
               icon={<MessageSquare className="h-5 w-5" />}
-              title={vide?.titre ?? 'Aucun échange pour le moment'}
-              hint={vide?.indice ?? 'Posez une question ou demandez une action.'}
+              title={vide?.titre ?? t('Aucun échange pour le moment')}
+              hint={vide?.indice ?? t('Posez une question ou demandez une action.')}
             />
           )}
           <div ref={bottomRef} />
@@ -385,11 +386,11 @@ function BarreNouveauDepart({
           className="pointer-events-auto flex min-w-0 items-center gap-1 rounded border border-border bg-bg/85 px-1.5 py-0.5 text-[12.5px] text-faint backdrop-blur transition-colors hover:text-text"
         >
           <ChevronUp className={cn('h-3 w-3 shrink-0 transition-transform', tout && 'rotate-180')} />
-          <span className="truncate">{tout ? 'Replier les échanges précédents' : libellePrecedents(precedents)}</span>
+          <span className="truncate">{tout ? t('Replier les échanges précédents') : libellePrecedents(precedents)}</span>
         </button>
       ) : null}
 
-      <Tooltip label={verdict.ok ? 'Repartir sur une conversation neuve' : verdict.raison}>
+      <Tooltip label={verdict.ok ? t('Repartir sur une conversation neuve') : verdict.raison}>
         <button
           type="button"
           // Inactif, mais pas « désactivé » au sens du navigateur : un bouton
@@ -403,15 +404,16 @@ function BarreNouveauDepart({
           )}
         >
           <RotateCcw className="h-3 w-3" />
-          Repartir de zéro
-        </button>
+          
+{t('Repartir de zéro')}
+</button>
       </Tooltip>
 
       <ConfirmDialog
         open={aConfirmer}
-        title="Repartir sur une conversation neuve ?"
-        description="Le chef d'orchestre oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés, ils restent consultables d'un clic."
-        confirmLabel="Repartir de zéro"
+        title={t('Repartir sur une conversation neuve ?')}
+        description={t('Le chef d\'orchestre oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés, ils restent consultables d\'un clic.')}
+        confirmLabel={t('Repartir de zéro')}
         onConfirm={repartir}
         onClose={() => setAConfirmer(false)}
       />
@@ -429,7 +431,7 @@ function RepereReponseTexte() {
   return (
     <div className="flex shrink-0 items-center gap-2 border-t border-warning/40 bg-warning/10 px-3 py-1.5 text-[12.5px] text-muted">
       <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-warning" />
-      <span className="min-w-0">L'agent attend votre réponse — écrivez-la ci-dessous.</span>
+      <span className="min-w-0">{t('L\'agent attend votre réponse — écrivez-la ci-dessous.')}</span>
     </div>
   );
 }
@@ -617,7 +619,7 @@ function TravailEnCours({
             d'arrêter un agent qui ne fait plus rien (`arretDeCarteAutorise` ne
             juge que l'appartenance de l'agent à la carte, pas son activité). */}
         {busy && arret.possible ? (
-          <Tooltip label="Arrêter l'action en cours">
+          <Tooltip label={t('Arrêter l\'action en cours')}>
             <button
               type="button"
               aria-label="Arrêter l'action en cours"

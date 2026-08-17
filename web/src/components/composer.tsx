@@ -37,6 +37,7 @@ import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/langue';
 
 export interface ComposerProps {
   agent: Agent | null;
@@ -372,7 +373,7 @@ export function Composer({
           key={`fichier-${trouve.index}`}
           role="button"
           data-prompt-file-flag
-          title="Glisser pour déplacer, cliquer pour retirer"
+          title={t('Glisser pour déplacer, cliquer pour retirer')}
           onPointerDown={(event) => gestesDrapeau.current.poserDrapeau(event, nom, position)}
           onPointerMove={(event) => gestesDrapeau.current.suivreDrapeau(event)}
           onPointerUp={(event) => gestesDrapeau.current.lacherDrapeau(event)}
@@ -416,7 +417,7 @@ export function Composer({
             <span
               role="button"
               data-prompt-file-close
-              title="Retirer ce fichier"
+              title={t('Retirer ce fichier')}
               onPointerDown={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -661,7 +662,7 @@ export function Composer({
         poseAncre(jointe.name);
       }
     } catch {
-      client.pushToast('error', "Envoi du fichier impossible");
+      client.pushToast('error', t('Envoi du fichier impossible'));
     } finally {
       setUploading(false);
     }
@@ -841,8 +842,8 @@ export function Composer({
           ))}
           <p className="px-1 text-[12px] text-faint">
             {queue.length === 1
-              ? "Votre message part dès que l'agent a fini."
-              : `${queue.length} messages en attente : ils partiront l'un après l'autre.`}
+              ? t('Votre message part dès que l\'agent a fini.')
+              : t('{v0} messages en attente : ils partiront l\'un après l\'autre.', { v0: queue.length })}
           </p>
         </div>
       ) : null}
@@ -922,7 +923,7 @@ export function Composer({
               </button>
               <button
                 type="button"
-                title="Retirer ce fichier"
+                title={t('Retirer ce fichier')}
                 onClick={() => retirerJointe(file)}
                 className="shrink-0 text-faint hover:text-danger"
               >
@@ -952,16 +953,13 @@ export function Composer({
         <div className="mb-1.5 flex items-center gap-2 rounded-md border border-accent/50 bg-surface px-2.5 py-1.5">
           <Pencil className="h-3 w-3 shrink-0 text-accent" />
           <span className="min-w-0 flex-1 truncate text-[13px] text-muted">
-            Modification d'un message en attente
-            {edition.texteMisDeCote ? ' — ce que vous écriviez revient juste après' : ''}
-          </span>
+            {t('Modification d\'un message en attente {v0}', { v0: edition.texteMisDeCote ? ' — ce que vous écriviez revient juste après' : '' })}</span>
           <button
             type="button"
             onClick={() => terminerEdition(false)}
             className="shrink-0 text-[12.5px] text-faint hover:text-text"
           >
-            Annuler
-          </button>
+            {t('Annuler')}</button>
         </div>
       ) : null}
 
@@ -1128,7 +1126,7 @@ export function Composer({
           }}
           placeholder={
             edition
-              ? 'Modifiez le message en attente…'
+              ? t('Modifiez le message en attente…')
               : /*
                  * UN AGENT ARRÊTÉ SUR SA QUESTION N'EST PAS « EN TRAIN DE
                  * TRAVAILLER » : son appel d'outil attend la réponse, et il ne
@@ -1139,8 +1137,8 @@ export function Composer({
                 agent?.attendReponse
                 ? TEXTE_BARRE_EN_ATTENTE
                 : busy
-                  ? "L'agent travaille — votre message attendra son tour…"
-                  : 'Écrivez votre demande…'
+                  ? t('L\'agent travaille — votre message attendra son tour…')
+                  : t('Écrivez votre demande…')
           }
           rows={1}
           className={cn(
@@ -1162,7 +1160,7 @@ export function Composer({
             className="hidden"
             onChange={(event) => event.target.files && upload(event.target.files)}
           />
-          <Tooltip label="Joindre un fichier">
+          <Tooltip label={t('Joindre un fichier')}>
             <Button
               variant="ghost"
               size="icon"
@@ -1179,7 +1177,7 @@ export function Composer({
           {/* Bascule direct / plan : l'agent réfléchit sans agir tant qu'elle
               est allumée. Placée à gauche du choix de moteur, elle reste un
               réglage à part — pas un quatrième maillon de la cascade. */}
-          <Tooltip label={modePlan ? 'Mode plan activé : repasser en exécution directe' : "Passer en mode plan : l'agent prépare sans exécuter"}>
+          <Tooltip label={modePlan ? t('Mode plan activé : repasser en exécution directe') : t('Passer en mode plan : l\'agent prépare sans exécuter')}>
             <Button
               variant="ghost"
               size="sm"
@@ -1192,8 +1190,9 @@ export function Composer({
               data-mode-plan={modePlan ? 'actif' : 'inactif'}
             >
               <Route className="h-3 w-3 shrink-0" />
-              Plan
-            </Button>
+              
+{t('Plan')}
+</Button>
           </Tooltip>
 
           <div className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" />
@@ -1204,14 +1203,13 @@ export function Composer({
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {onProposeTask && !edition && (text.trim() || picked.length) ? (
               <Button variant="ghost" size="sm" onClick={() => submit(true)}>
-                En faire une tâche
-              </Button>
+                {t('En faire une tâche')}</Button>
             ) : null}
             <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
             {/* Le carré d'arrêt : seul quand rien n'est écrit, à côté de la
                 flèche dès qu'une phrase attend d'être envoyée. */}
             {boutons.arret ? (
-              <Tooltip label="Arrêter l'agent">
+              <Tooltip label={t('Arrêter l\'agent')}>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1227,7 +1225,7 @@ export function Composer({
               <Button
                 variant="default"
                 size="icon"
-                title={edition ? 'Enregistrer la modification' : 'Envoyer'}
+                title={edition ? t('Enregistrer la modification') : t('Envoyer')}
                 disabled={edition ? !text.trim() : !agent || (!text.trim() && !picked.length)}
                 onClick={() => submit()}
               >
@@ -1279,12 +1277,12 @@ function QueuedItem({
       >
         {apercu}
       </button>
-      <button type="button" title="Modifier" onClick={onEdit} className="shrink-0 text-faint hover:text-text">
+      <button type="button" title={t('Modifier')} onClick={onEdit} className="shrink-0 text-faint hover:text-text">
         <Pencil className="h-3 w-3" />
       </button>
       <button
         type="button"
-        title="Retirer de la file"
+        title={t('Retirer de la file')}
         onClick={() => client.send({ type: 'queue.remove', id: item.id })}
         className="shrink-0 text-faint hover:text-danger"
       >
