@@ -962,6 +962,14 @@ le nom, là-bas le texte).
 
 ### Interface et code
 
+- **LE COIN HAUT GAUCHE DU BANDEAU RÉPOND AU COIN HAUT DROIT** (`pointEtat`,
+  `web/src/components/quota-bar.tsx`) : le bouton des projets porte l'icône HAMBURGER et l'habillage
+  commun des boutons de droite (`variant="outline"`, `size="icon"`), sans changer ce qu'il ouvre ni
+  son `aria-label="Projets"` — six scripts le désignent par là. L'icône « réseau » est RETIRÉE ; son
+  information tient dans un POINT (`data-point-etat`) posé DANS le coin haut droit du bouton, avec
+  une priorité écrite (liaison rompue > un autre projet attend > liaison qui tient), le nombre
+  d'agents gardant sa propre pastille. Sur ORDINATEUR, où ce bouton n'existe pas, le même point seul
+  tient la place de l'ancienne icône. Vérifié par `scripts/verif-panneau-projets.mjs`.
 - **CHAQUE COLONNE A SON PERSONNAGE, DÉTOURÉ** (`shared/src/personnages-colonnes.ts` ; images dans
   `web/public/personnages/`, refaites par `scripts/personnages-colonnes.py`) : sept personnages en
   pâte à modeler sur fond TRANSPARENT, en DEUX découpes — la SILHOUETTE entière en tête de colonne
