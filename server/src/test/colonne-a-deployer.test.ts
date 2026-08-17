@@ -6,7 +6,9 @@ import {
   brancheDeTache,
   compteurDeColonne,
   compteurEtListeDAccord,
+  descriptionCartePorteuse,
   exclusionsDesBranchesDeCartes,
+  libelleCartePorteuse,
   phraseDeColonneVide,
 } from '@haikodev/shared';
 
@@ -93,6 +95,40 @@ test('la colonne vide ne dit plus « rien » quand du travail attend', () => {
   assert.equal(phraseDeColonneVide({ nombre: 0, titres: [] }), 'Rien à mettre en ligne pour l’instant.');
   assert.match(phraseDeColonneVide({ nombre: 1, titres: ['x'] }), /attend d’être mise en ligne/);
   assert.match(phraseDeColonneVide({ nombre: 2, titres: ['x', 'y'] }), /attendent d’être mises en ligne/);
+});
+
+/* ------------------------------------------------------------------ */
+/* …ET ON PEUT LUI DONNER UNE FICHE D'UN CLIC                           */
+/* ------------------------------------------------------------------ */
+
+test('le bouton dit ce qu’il crée, au singulier comme au pluriel', () => {
+  assert.equal(libelleCartePorteuse(1), 'Créer la carte qui le porte');
+  assert.equal(libelleCartePorteuse(3), 'Créer la carte qui les porte');
+});
+
+test('la description de la carte porteuse reprend les enregistrements trouvés', () => {
+  const texte = descriptionCartePorteuse(
+    [
+      { sha: 'abcdef1234567', titre: 'Corriger le calcul de TVA' },
+      { sha: '9876543210abc', titre: 'Renommer le bouton d’export' },
+    ],
+    'main',
+  );
+  assert.match(texte, /sans fiche/);
+  assert.match(texte, /- Corriger le calcul de TVA \(abcdef1\)/);
+  assert.match(texte, /- Renommer le bouton d’export \(9876543\)/);
+});
+
+test('elle dit que le code est DÉJÀ là, et que la supprimer ne le retire pas', () => {
+  const texte = descriptionCartePorteuse([{ sha: 'aaa1111', titre: 'x' }], 'main');
+  assert.match(texte, /DÉJÀ enregistré sur la branche « main »/);
+  assert.match(texte, /rien à exécuter/);
+  assert.match(texte, /Supprimer cette carte ne retire pas ce travail/);
+});
+
+test('sans branche connue, elle parle quand même de la principale', () => {
+  const texte = descriptionCartePorteuse([{ sha: 'aaa1111', titre: 'x' }]);
+  assert.match(texte, /la branche principale/);
 });
 
 /* ------------------------------------------------------------------ */

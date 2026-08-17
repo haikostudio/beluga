@@ -98,6 +98,42 @@ export function alerteTravailSansCarte(
 }
 
 /**
+ * LE BOUTON DE L'AVERTISSEMENT : donner une fiche à ce travail.
+ *
+ * Nommer le problème sans offrir de le régler laissait l'utilisateur devant un
+ * encart qu'il ne pouvait que subir. Le libellé dit ce qui va se passer — une
+ * CARTE, pas une publication — et suit le nombre trouvé.
+ */
+export function libelleCartePorteuse(nombre: number): string {
+  return nombre > 1 ? 'Créer la carte qui les porte' : 'Créer la carte qui le porte';
+}
+
+/**
+ * La DESCRIPTION de cette carte : d'où elle vient, ce qu'elle embarque, et ce
+ * qu'elle ne promet pas.
+ *
+ * Elle est proche de `descriptionHorsTache` mais ne dit pas la même chose : ce
+ * travail-ci n'a pas été fiché automatiquement à la fin d'un tour, il a été
+ * TROUVÉ dans la colonne et fiché d'un clic. Rien n'a été déplacé pour autant —
+ * la carte le dit, pour qu'on ne croie pas pouvoir l'écarter en la supprimant.
+ */
+export function descriptionCartePorteuse(
+  commits: { sha: string; titre: string }[],
+  branche?: string,
+): string {
+  const lignes = commits.map((commit) => `- ${commit.titre.trim()} (${commit.sha.slice(0, 7)})`);
+  const ou = branche ? `la branche « ${branche} »` : 'la branche principale';
+  return [
+    `Cette carte a été créée depuis la colonne « À déployer » pour porter du travail qui y attendait sans fiche : il était enregistré, prêt à partir en ligne, et aucune carte ne le montrait.`,
+    '',
+    `Le code est DÉJÀ enregistré sur ${ou} — il n'y a rien à exécuter. Supprimer cette carte ne retire pas ce travail : il faudrait annuler les enregistrements eux-mêmes.`,
+    '',
+    'Enregistrements repris :',
+    ...lignes,
+  ].join('\n');
+}
+
+/**
  * LA PHRASE D'UNE COLONNE VIDE.
  *
  * « Rien à mettre en ligne pour l'instant » était le mensonge le plus direct :

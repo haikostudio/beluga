@@ -365,6 +365,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     source: ColumnKey.optional(),
     selectedCardIds: z.array(z.string()),
   }),
+  /**
+   * FICHER le travail enregistré sans carte pour le porter : une carte est
+   * posée dans « À déployer », reprenant les enregistrements trouvés.
+   *
+   * C'est un GESTE de l'utilisateur, depuis l'avertissement de la colonne — rien
+   * n'est publié ni fusionné au passage, aucune branche n'est touchée. Le
+   * travail était déjà enregistré : la carte lui donne seulement la fiche qui
+   * lui manquait.
+   */
+  z.object({ type: z.literal('deploy.ficherSansCarte'), projectId: z.string() }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),
