@@ -325,3 +325,111 @@ export function deplacerJointe<T>(jointes: readonly T[], depuis: number, vers: n
   copie.splice(vers, 0, item as T);
   return copie;
 }
+
+/**
+ * UN TAG OCCUPE DANS LE CHAMP LA LARGEUR DE SA PASTILLE, PAS CELLE DE SA
+ * SYNTAXE.
+ *
+ * Le champ de saisie est un vrai `textarea` : il ne sait pas rétrécir une
+ * partie de son texte. « [fichier: IMG_6458.jpeg] » y prenait donc la place de
+ * ses vingt-cinq caractères — la moitié d'une ligne de téléphone — alors que
+ * la pastille dessinée par-dessus n'en couvrait que les deux tiers. D'où les
+ * deux défauts vus à l'écran : chaque tag tombait seul sur sa ligne, et la
+ * sélection (double-clic, glissement du doigt) surlignait une bande plus large
+ * que l'étiquette affichée.
+ *
+ * Le champ affiche donc les tags MASQUÉS : l'enrobage « [fichier: » et « ] »
+ * est remplacé, CARACTÈRE POUR CARACTÈRE, par des caractères invisibles —
+ * quelques cadratins (` `, un em de large) pour réserver la place du
+ * trombone et de la croix, le reste en liants de largeur nulle (U+2060) qui
+ * interdisent aussi la coupure en fin de ligne. Le NOM du fichier, lui, reste
+ * écrit tel quel : c'est lui qui donne au tag la largeur du mot.
+ *
+ * LE NOMBRE DE CARACTÈRES NE CHANGE PAS, jamais : le masque compte autant de
+ * signes que le tag qu'il remplace. Curseur, sélection, retours à la ligne et
+ * index des ancres restent donc valables des deux côtés — le champ, le calque
+ * et l'état du composeur parlent des mêmes positions.
+ *
+ * Tout ce qui SORT du champ (frappe, copie, envoi) repasse par
+ * `tagsDemasques`, qui rend le tag à sa syntaxe exacte, à la longueur près.
+ */
+const CADRATIN = '\u2003';
+/** Liant de largeur nulle : il ne se voit pas et interdit la coupure. */
+const LIANT = '\u2060';
+/** Les deux bornes invisibles d'un tag masqué, jamais tapées par personne. */
+export const MASQUE_DEBUT = '\u2062';
+export const MASQUE_FIN = '\u2063';
+/** La place réservée au dessin de la pastille (trombone, croix, marges). */
+const CADRATINS_DU_DESSIN = 3;
+
+const TAG_MASQUE = /\u2062([\u2060\u2003]*)([^\u2062\u2063\n]*)\u2063/g;
+/** Ce qui n'a rien à faire dans un texte rendu au dehors. */
+const SIGNES_DE_MASQUE = /[\u2060\u2062\u2063]/g;
+
+/**
+ * Le masque d'un tag : autant de caractères que l'enrobage qu'il remplace,
+ * dont trois cadratins pour la place du dessin. Deux cadratins ne se touchent
+ * jamais — un liant les sépare, sinon la ligne pourrait se couper entre eux.
+ */
+function masqueDuTag(nom: string, prefixe: number): string {
+  const remplissage: string[] = [];
+  let cadratins = 0;
+  for (let i = 0; i < Math.max(0, prefixe - 2); i += 1) {
+    if (cadratins < CADRATINS_DU_DESSIN && i % 2 === 0) {
+      remplissage.push(CADRATIN);
+      cadratins += 1;
+    } else {
+      remplissage.push(LIANT);
+    }
+  }
+  return `${MASQUE_DEBUT}${remplissage.join('')}${LIANT}${nom}${MASQUE_FIN}`;
+}
+
+/** Le texte tel que le CHAMP l'affiche : ses tags masqués, à longueur égale. */
+export function tagsMasques(texte: string): string {
+  TAG_FICHIER.lastIndex = 0;
+  return texte.replace(TAG_FICHIER, (brut, nomBrut: string) => {
+    const prefixe = brut.length - nomBrut.length - 1;
+    return masqueDuTag(insecable(nomBrut), prefixe);
+  });
+}
+
+/** L'inverse : ce que le champ affiche redevient un vrai « [fichier: …] ». */
+export function tagsDemasques(texte: string): string {
+  TAG_MASQUE.lastIndex = 0;
+  return texte.replace(TAG_MASQUE, (_brut, bourre: string, nom: string) => {
+    const prefixe = bourre.length + 1;
+    const espaces = Math.max(0, prefixe - '[fichier:'.length);
+    return `[fichier:${ESPACE_INSECABLE.repeat(espaces)}${nom}]`;
+  });
+}
+
+/**
+ * Un texte qui QUITTE le champ (copie, envoi) : ses tags redeviennent lisibles
+ * et rien d'invisible ne part avec. Une sélection peut couper un masque en
+ * deux — un demi-masque ne se relit pas, il se jette.
+ */
+export function sansMasque(texte: string): string {
+  return tagsDemasques(texte).replace(SIGNES_DE_MASQUE, '');
+}
+
+export interface TagMasqueDuTexte extends TagDuTexte {
+  /** Le masque lui-même, à écrire tel quel dans le calque. */
+  brut: string;
+}
+
+/** Tous les tags masqués du texte affiché, dans l'ordre. */
+export function masquesDuTexte(texte: string): TagMasqueDuTexte[] {
+  TAG_MASQUE.lastIndex = 0;
+  const tags: TagMasqueDuTexte[] = [];
+  let trouve: RegExpExecArray | null;
+  while ((trouve = TAG_MASQUE.exec(texte))) {
+    tags.push({
+      nom: nomDuTag(trouve[2] ?? ''),
+      brut: trouve[0],
+      debut: trouve.index,
+      fin: trouve.index + trouve[0].length,
+    });
+  }
+  return tags;
+}

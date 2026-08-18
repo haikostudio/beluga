@@ -20,11 +20,13 @@ import {
   insereAncre,
   jointesApresFrappe,
   jointesDesTags,
+  masquesDuTexte,
   nomDuTag,
   retireAncre,
   retireOccurrence,
+  sansMasque,
   tagsEnEspacesOrdinaires,
-  tagsInsecables,
+  tagsMasques,
   texteApresInsertion,
   TEXTE_BARRE_EN_ATTENTE,
 } from '@haikodev/shared';
@@ -98,15 +100,18 @@ export function Composer({
 }: ComposerProps) {
   const [text, setText] = React.useState('');
   /*
-   * CE QUE LE CHAMP AFFICHE : le même texte, aux espaces des tags près, rendus
-   * INSÉCABLES pour qu'une étiquette « [fichier: …] » ne se coupe jamais en fin
-   * de ligne (`tagsInsecables`, shared/src/ancres.ts). Un texte collé, un
-   * brouillon rechargé ou une phrase dictée passent tous par ici. La longueur
-   * ne change pas d'un caractère, donc rien ne bouge : ni le curseur, ni les
-   * retours à la ligne. Le CALQUE lit la MÊME chaîne que le champ — deux
+   * CE QUE LE CHAMP AFFICHE : le même texte, tags MASQUÉS (`tagsMasques`,
+   * shared/src/ancres.ts). L'enrobage « [fichier: » et « ] » y est remplacé,
+   * caractère pour caractère, par des signes invisibles qui réservent juste la
+   * place du dessin : le tag occupe alors la LARGEUR DE SA PASTILLE, plus celle
+   * de sa syntaxe. Un texte collé, un brouillon rechargé ou une phrase dictée
+   * passent tous par ici. La longueur ne change pas d'un caractère, donc rien
+   * ne bouge : ni le curseur, ni les index des ancres, ni les positions de
+   * sélection — l'état du composeur (`text`) et ce que le champ montre se
+   * lisent aux mêmes numéros. Le CALQUE lit la MÊME chaîne que le champ — deux
    * chaînes différentes, et les tags dessinés tomberaient à côté.
    */
-  const texteDuChamp = React.useMemo(() => tagsInsecables(text), [text]);
+  const texteDuChamp = React.useMemo(() => tagsMasques(text), [text]);
   /** Message en attente en cours de modification, et le texte mis de côté. */
   const [edition, setEdition] = React.useState<{ id: string; texteMisDeCote: string } | null>(null);
   const [attachments, setAttachments] = React.useState<Attachment[]>([]);
@@ -245,7 +250,10 @@ export function Composer({
   const viserDrapeau = (zone: HTMLTextAreaElement, x: number, y: number, pointerType: string) => {
     const brut = indexAuPoint(zone, x, y, pointerType === 'touch' ? MARGE_DOIGT : 0);
     if (brut === null) return null;
-    return accrocheAuMot(zone.value, brut);
+    // Sur le texte RÉEL, jamais sur ce que le champ affiche : les tags y sont
+    // masqués et ne se reconnaîtraient plus. Les deux se lisent aux mêmes
+    // index, la position visée reste donc la bonne.
+    return accrocheAuMot(text, brut);
   };
 
   const suivreDrapeau = (event: React.PointerEvent<HTMLElement>) => {
@@ -356,21 +364,19 @@ export function Composer({
 
   const texteAvecDrapeaux = React.useMemo(() => {
     if (!aDesDrapeaux) return [];
-    MARQUE_FICHIER.lastIndex = 0;
     const morceaux: React.ReactNode[] = [];
     const vus: Record<string, number> = {};
     let fin = 0;
-    let trouve: RegExpExecArray | null;
-    while ((trouve = MARQUE_FICHIER.exec(texteDuChamp))) {
-      if (trouve.index > fin)
-        morceaux.push(<React.Fragment key={`texte-${fin}`}>{texteDuChamp.slice(fin, trouve.index)}</React.Fragment>);
-      const nom = nomDuTag(trouve[1]!);
+    for (const tag of masquesDuTexte(texteDuChamp)) {
+      if (tag.debut > fin)
+        morceaux.push(<React.Fragment key={`texte-${fin}`}>{texteDuChamp.slice(fin, tag.debut)}</React.Fragment>);
+      const nom = tag.nom;
       const position = vus[nom] ?? 0;
       vus[nom] = position + 1;
-      const brut = trouve[0];
+      const brut = tag.brut;
       morceaux.push(
         <span
-          key={`fichier-${trouve.index}`}
+          key={`fichier-${tag.debut}`}
           role="button"
           data-prompt-file-flag
           title={t('Glisser pour déplacer, cliquer pour retirer')}
@@ -380,25 +386,30 @@ export function Composer({
           onPointerCancel={() => gestesDrapeau.current.annulerDrapeau()}
           className="group pointer-events-auto relative cursor-grab touch-none align-baseline text-accent active:cursor-grabbing"
         >
-          {/* LE TEXTE BRUT GARDE SA PLACE, IL NE SE VOIT PLUS. La largeur du
+          {/* LE TEXTE MASQUÉ GARDE SA PLACE, IL NE SE VOIT PLUS. La largeur du
               tag reste EXACTEMENT celle des caractères réellement écrits dans
               le champ — c'est elle qui décide des retours à la ligne et de
-              l'endroit du curseur, qu'aucun habillage ne doit déplacer. Les
-              caractères sont seulement rendus invisibles ; la pastille est
-              dessinée par-dessus, HORS FLUX, donc elle ne prend aucune place.
-              Le texte brut réapparaît quand le tag est coupé en fin de ligne
+              l'endroit du curseur, qu'aucun habillage ne doit déplacer. Ces
+              caractères-là sont désormais ceux du MASQUE (`tagsMasques`) : le
+              nom du fichier, plus la place du trombone et de la croix. Le tag
+              fait donc la largeur d'un mot, et non celle de sa syntaxe. Ils
+              sont seulement rendus invisibles ; la pastille est dessinée
+              par-dessus, HORS FLUX, donc elle ne prend aucune place. Le texte
+              masqué réapparaît si le tag venait à être coupé en fin de ligne
               (`data-tag="coupe"`), cas où un dessin posé par-dessus tomberait
-              à côté. */}
+              à côté — le nom du fichier y reste lisible. */}
           <span className="invisible rounded-[3px] group-data-[tag=coupe]:visible group-data-[tag=coupe]:bg-accent/20 group-data-[tag=coupe]:ring-1 group-data-[tag=coupe]:ring-inset group-data-[tag=coupe]:ring-accent/40 [box-decoration-break:clone] [-webkit-box-decoration-break:clone]">
             {brut}
           </span>
           {/* LA PASTILLE DESSINÉE : trombone, nom, croix. Elle est CENTRÉE
-              dans la largeur du texte brut, toujours plus large qu'elle
-              (« [fichier: » et « ] » comptent onze signes) : la croix ne
-              touche donc jamais le mot qui suit, même quand aucun espace ne
-              sépare le tag du texte. Sa hauteur ne DÉPASSE PAS celle des
-              caractères recouverts : plus haute, elle mordrait sur la ligne
-              voisine et volerait le clic qui vise le champ.
+              dans la largeur du texte masqué, calculé pour rester un peu plus
+              large qu'elle : le nom occupe une pleine largeur de caractère
+              dans le champ contre 0,82 em dans la pastille, et trois cadratins
+              couvrent le trombone, la croix et les marges. La croix ne touche
+              donc jamais le mot qui suit, même quand aucun espace ne sépare le
+              tag du texte. Sa hauteur ne DÉPASSE PAS celle des caractères
+              recouverts : plus haute, elle mordrait sur la ligne voisine et
+              volerait le clic qui vise le champ.
 
               SON TEXTE EST PLUS PETIT QUE CELUI DU CHAMP (0,82 em) : à taille
               égale, le nom remplissait la pastille bord à bord, sans un pixel
@@ -434,7 +445,7 @@ export function Composer({
           </span>
         </span>,
       );
-      fin = trouve.index + trouve[0].length;
+      fin = tag.fin;
     }
     if (fin < texteDuChamp.length)
       morceaux.push(<React.Fragment key={`texte-${fin}`}>{texteDuChamp.slice(fin)}</React.Fragment>);
@@ -803,7 +814,9 @@ export function Composer({
     if (event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
     const zone = event.currentTarget;
     const coupe = effacementDeTag(
-      zone.value,
+      // Le texte RÉEL, pas celui du champ : les tags y sont masqués. Les deux
+      // se lisent aux mêmes index, la sélection reste donc valable.
+      text,
       zone.selectionStart,
       zone.selectionEnd,
       event.key === 'Backspace' ? 'arriere' : 'avant',
@@ -1050,7 +1063,11 @@ export function Composer({
           ref={textareaRef}
           value={texteDuChamp}
           onChange={(event) => {
-            majTexte(event.target.value);
+            // CE QUI SORT DU CHAMP REDEVIENT UN VRAI TEXTE : les tags
+            // retrouvent leur « [fichier: …] », et rien d'invisible ne reste
+            // dans l'état du composeur — pas même la moitié d'un masque
+            // qu'une frappe aurait coupé.
+            majTexte(sansMasque(event.target.value));
             curseur.current = event.target.selectionStart;
           }}
           onKeyDown={onKeyDown}
@@ -1066,7 +1083,7 @@ export function Composer({
             if (debut === fin) return;
             // Ce qui SORT du champ retrouve des espaces ordinaires : l'insécable
             // n'est là que pour empêcher un tag de se couper en fin de ligne.
-            const selection = tagsEnEspacesOrdinaires(texteDuChamp.slice(debut, fin));
+            const selection = tagsEnEspacesOrdinaires(sansMasque(texteDuChamp.slice(debut, fin)));
             MARQUE_FICHIER.lastIndex = 0;
             const noms = new Set<string>();
             let trouve: RegExpExecArray | null;

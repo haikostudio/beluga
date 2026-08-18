@@ -9,12 +9,16 @@ import {
   effacementDeTag,
   insereAncre,
   jointesApresFrappe,
+  masquesDuTexte,
   nomDuTag,
   retireAncre,
   retireOccurrence,
   tagsDuTexte,
+  sansMasque,
+  tagsDemasques,
   tagsEnEspacesOrdinaires,
   tagsInsecables,
+  tagsMasques,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
@@ -46,6 +50,58 @@ test("un texte qui entre dans le champ voit ses tags rendus insécables, sans ch
   const suite = tagsInsecables(ancien);
   assert.equal(suite, `Regarde ${ancre('ma photo.png')} ici`);
   assert.equal(suite.length, ancien.length);
+});
+
+/* -------- Le masque du champ de saisie -------- */
+
+test('le champ affiche un tag masqué, exactement aussi long que le tag lui-même', () => {
+  const ecrit = `Regarde ${ancre('capture.png')} ici`;
+  const affiche = tagsMasques(ecrit);
+  assert.equal(affiche.length, ecrit.length);
+  // Le NOM reste écrit tel quel : c'est lui qui donne sa largeur au tag.
+  assert.ok(affiche.includes('capture.png'));
+  // Sa syntaxe, elle, a disparu de ce que le champ montre.
+  assert.ok(!affiche.includes('[fichier:'));
+  assert.ok(!affiche.includes(']'));
+});
+
+test('ce qui sort du champ retrouve son tag, au caractère près', () => {
+  for (const ecrit of [
+    `Regarde ${ancre('capture.png')} ici`,
+    `${ancre('ma photo.png')}`,
+    'deux [fichier: a.png] tags [fichier: b.png] dans la phrase',
+    '[fichier:sans-espace.png] tolere aussi',
+  ]) {
+    const affiche = tagsMasques(ecrit);
+    assert.equal(affiche.length, ecrit.length, ecrit);
+    assert.equal(tagsEnEspacesOrdinaires(tagsDemasques(affiche)), tagsEnEspacesOrdinaires(ecrit), ecrit);
+  }
+});
+
+test('un texte sans tag traverse le masque sans bouger', () => {
+  const nu = 'aucun tag ici, juste [des] crochets';
+  assert.equal(tagsMasques(nu), nu);
+  assert.equal(tagsDemasques(nu), nu);
+});
+
+test('le calque retrouve chaque tag masqué à sa place', () => {
+  const ecrit = `avant ${ancre('capture.png')} apres`;
+  const affiche = tagsMasques(ecrit);
+  const tags = masquesDuTexte(affiche);
+  assert.equal(tags.length, 1);
+  assert.equal(tags[0].nom, 'capture.png');
+  assert.equal(affiche.slice(tags[0].debut, tags[0].fin), tags[0].brut);
+  // Les mêmes bornes que dans le texte réel : les deux se lisent aux mêmes index.
+  assert.deepEqual(
+    { debut: tags[0].debut, fin: tags[0].fin },
+    { debut: tagsDuTexte(ecrit)[0].debut, fin: tagsDuTexte(ecrit)[0].fin },
+  );
+});
+
+test('une sélection qui coupe un masque en deux n’emporte rien d’invisible', () => {
+  const affiche = tagsMasques(`voici ${ancre('capture.png')} la`);
+  const moitie = sansMasque(affiche.slice(0, affiche.length - 4));
+  assert.ok(!/[\u2060\u2062\u2063]/.test(moitie), moitie);
 });
 
 /* -------- Poser l'ancre -------- */
