@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   Check,
   ChevronRight,
+  Dot,
   Loader2,
   MinusCircle,
   RotateCcw,
@@ -137,16 +138,28 @@ function dateSousLeRond(etape?: EtapeRun): string | null {
 }
 
 /**
- * L'icône d'un moment du fil. Elle ne dit qu'une chose : de quelle NATURE est
- * ce moment — une commande lancée, un dépannage, une issue. Le texte, lui, a
- * été écrit par celui qui a fait le geste et n'est jamais reformulé ici.
+ * L'icône posée dans le (petit) rond d'un moment du fil. Elle ne dit qu'une
+ * chose : de quelle NATURE est ce moment — une commande lancée, un dépannage,
+ * une issue, une simple avancée. Le texte, lui, a été écrit par celui qui a
+ * fait le geste et n'est jamais reformulé ici.
  */
 function IconeMoment({ genre }: { genre: GenreDEvenement }) {
-  if (genre === 'commande') return <Terminal className="h-3 w-3 text-faint" />;
-  if (genre === 'depannage') return <Wrench className="h-3 w-3 text-warning" />;
-  if (genre === 'issue') return <Check className="h-3 w-3 text-muted" />;
-  if (genre === 'debut') return <ChevronRight className="h-3 w-3 text-faint" />;
-  return <span className="mt-[5px] block h-1 w-1 rounded-full bg-faint" />;
+  if (genre === 'commande') return <Terminal className="h-2.5 w-2.5 text-faint" />;
+  if (genre === 'depannage') return <Wrench className="h-2.5 w-2.5 text-warning" />;
+  if (genre === 'issue') return <Check className="h-2.5 w-2.5 text-success" />;
+  if (genre === 'debut') return <ChevronRight className="h-2.5 w-2.5 text-faint" />;
+  return <Dot className="h-3 w-3 text-faint" />;
+}
+
+/**
+ * La COULEUR de bordure du (petit) rond d'un moment — la même logique que
+ * celle d'une étape, à son échelle : le dépannage en orange, une issue en
+ * bleu (la couleur du terminé), tout le reste en gris neutre.
+ */
+function bordureRondMoment(genre: GenreDEvenement): string {
+  if (genre === 'depannage') return 'border-warning/60';
+  if (genre === 'issue') return 'border-success/60';
+  return 'border-border';
 }
 
 /**
@@ -228,14 +241,116 @@ function TachesDuLot({ taches }: { taches: TacheDuLot[] }) {
 }
 
 /**
- * UNE ÉTAPE DU TIROIR : son ROND sur la ligne centrale, sa ligne de titre, et
- * dessous son fil quand elle est ouverte.
+ * UNE LIGNE DE LA TIMELINE : son rond sur la ligne centrale, relié au suivant
+ * par un trait continu, et à droite ce qu'elle porte.
  *
- * La timeline verticale tient en deux colonnes : à gauche, le rond-icône de
- * l'étape avec sa date dessous, relié au rond suivant par un trait continu ;
- * à droite, le titre, l'état et le temps, puis le fil déplié. Les événements
- * du fil restent DANS cette colonne de droite, indentés sous leur étape — ils
- * ne rejoignent jamais la ligne centrale, réservée aux étapes majeures.
+ * Sert aux ÉTAPES (grand rond) COMME aux MOMENTS de leur fil une fois ouvert
+ * (petit rond) : c'est la MÊME ligne verticale qui les traverse tous, du
+ * premier au dernier événement de la publication — plus seulement les sept
+ * étapes majeures. Un « Enregistrement… » ou une « Branche 1 sur 1… » porte
+ * donc, lui aussi, son rond coloré et son icône sur cette ligne.
+ */
+function LigneTimeline({
+  taille,
+  bordure,
+  icone,
+  dateSous,
+  dernier,
+  attrs,
+  children,
+}: {
+  taille: 'grande' | 'petite';
+  bordure: string;
+  icone: React.ReactNode;
+  dateSous?: string | null;
+  /** La dernière ligne affichée ne tire plus de trait vers le bas. */
+  dernier: boolean;
+  attrs?: Record<string, string | undefined>;
+  children: React.ReactNode;
+}) {
+  const grande = taille === 'grande';
+  return (
+    <li className="relative flex gap-3" {...attrs}>
+      <div className="relative flex w-7 shrink-0 flex-col items-center">
+        {!dernier ? (
+          <span
+            className={cn(
+              'absolute left-1/2 bottom-[-1rem] w-px -translate-x-1/2 bg-border',
+              grande ? 'top-7' : 'top-5',
+            )}
+            aria-hidden="true"
+          />
+        ) : null}
+        <span
+          className={cn(
+            'relative z-10 flex shrink-0 items-center justify-center rounded-full border-2 bg-surface',
+            grande ? 'h-7 w-7' : 'h-5 w-5',
+            bordure,
+          )}
+        >
+          {icone}
+        </span>
+        {dateSous ? <span className="mt-1 text-[10px] tabular-nums text-faint">{dateSous}</span> : null}
+      </div>
+      <div className={cn('min-w-0 flex-1 overflow-hidden rounded-md', !dernier && (grande ? 'pb-4' : 'pb-2'))}>
+        {children}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * UN MOMENT DU FIL, une fois l'étape ouverte : son propre rond, petit, sur la
+ * même ligne que les étapes. L'HEURE et l'ÉCART depuis le début restent
+ * alignés dans une colonne fixe à droite, quelle que soit la longueur du
+ * texte ; la COMMANDE se lit à part, dans un encart.
+ */
+function MomentDuFil({
+  moment,
+  depuis,
+  dernier,
+}: {
+  moment: { evenement: { at: number } | null; texte: string; genre: GenreDEvenement };
+  depuis?: number;
+  dernier: boolean;
+}) {
+  const ecart = moment.evenement ? ecartDepuisLeDebut(moment.evenement.at, depuis) : null;
+  return (
+    <LigneTimeline
+      taille="petite"
+      bordure={bordureRondMoment(moment.genre)}
+      icone={<IconeMoment genre={moment.genre} />}
+      dernier={dernier}
+      attrs={{ 'data-moment-fil': moment.genre }}
+    >
+      <div className="flex items-start gap-2 px-1.5 py-0.5 text-[12px] leading-snug">
+        <span
+          className={cn(
+            'min-w-0 flex-1 whitespace-pre-wrap texte-copiable',
+            moment.genre === 'commande'
+              ? 'rounded bg-raised px-1.5 py-1 font-mono text-[11.5px] text-muted'
+              : moment.genre === 'depannage'
+                ? 'text-warning'
+                : 'text-muted',
+          )}
+        >
+          {moment.texte}
+        </span>
+        {moment.evenement ? (
+          <span className="mt-[1px] flex w-[58px] shrink-0 flex-col items-end tabular-nums text-faint">
+            <span data-heure-moment>{heureDeLEvenement(moment.evenement.at)}</span>
+            {ecart ? <span>{ecart}</span> : null}
+          </span>
+        ) : null}
+      </div>
+    </LigneTimeline>
+  );
+}
+
+/**
+ * UNE ÉTAPE DU TIROIR : son grand rond sur la ligne centrale, sa ligne de
+ * titre, et — une fois ouverte — chacun de ses moments à la suite, sur la
+ * MÊME ligne, avec son propre petit rond.
  *
  * Une étape s'ouvre d'un clic sur toute sa ligne — pas sur un « ? » minuscule.
  * Celle qui TRAVAILLE est ouverte d'office : c'est celle qu'on vient regarder.
@@ -259,36 +374,22 @@ function EtapeDuTiroir({
   const fil = etape ? filDeLEtape(etape) : [];
   const resume = resumeDuFil(etape?.journal);
   const date = dateSousLeRond(etape);
+  /* Une fois ouverte, l'étape traîne ses moments — et, si elle est tombée,
+     son motif — comme autant de LIGNES qui continuent la même timeline. La
+     dernière de ces lignes hérite du trait de l'étape elle-même. */
+  const avecLog = ouverte && etat === 'failed' && !!etape?.log;
+  const totalSuite = ouverte ? fil.length + (avecLog ? 1 : 0) : 0;
 
   return (
-    <li className="relative flex gap-3" data-etape-process={cle} data-etat-process={etat}>
-      {/* LA COLONNE DU ROND : l'icône dans son cercle, la date dessous, et le
-          trait qui continue vers le rond suivant — la ligne centrale de la
-          timeline. */}
-      <div className="relative flex w-7 shrink-0 flex-col items-center">
-        {!dernier ? (
-          <span
-            className="absolute left-1/2 top-7 bottom-[-1rem] w-px -translate-x-1/2 bg-border"
-            aria-hidden="true"
-          />
-        ) : null}
-        <span
-          className={cn(
-            'relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 bg-surface',
-            bordureRond(etat),
-          )}
-          data-rond-etape={cle}
-        >
-          <IconeEtape etat={etat} />
-        </span>
-        {date ? (
-          <span className="mt-1 text-[10px] tabular-nums text-faint" data-date-etape={cle}>
-            {date}
-          </span>
-        ) : null}
-      </div>
-
-      <div className={cn('min-w-0 flex-1 overflow-hidden rounded-md', !dernier && 'pb-4')}>
+    <>
+      <LigneTimeline
+        taille="grande"
+        bordure={bordureRond(etat)}
+        icone={<IconeEtape etat={etat} />}
+        dateSous={date}
+        dernier={totalSuite === 0 ? dernier : false}
+        attrs={{ 'data-etape-process': cle, 'data-etat-process': etat }}
+      >
         <button
           type="button"
           onClick={onBasculer}
@@ -337,75 +438,55 @@ function EtapeDuTiroir({
         ) : null}
 
         {ouverte ? (
-          <div className="mt-1 rounded-md border border-border bg-raised/40 px-2.5 py-2.5" data-fil-etape={cle}>
+          <div className="mt-1 rounded-md border border-border bg-raised/40 px-2.5 py-2">
             <p className="text-[12px] text-faint" data-description-etape={cle}>
               {STEP_DESCRIPTIONS[cle]}
             </p>
-
-          {/* LE FIL : chaque moment, à son heure, dans l'ordre. C'est ce qu'on
-              vient chercher — le journal du serveur n'a plus à être ouvert. Les
-              moments sont GROUPÉS avec un trait vertical (l'indentation de
-              l'étape) et chaque HEURE est alignée dans une même colonne à
-              droite, lisible même en défilant loin de son titre. */}
-          {fil.length ? (
-            <ul className="mt-2 space-y-1.5 border-l-2 border-border pl-2.5">
-              {fil.map((moment, i) => {
-                const ecart = moment.evenement ? ecartDepuisLeDebut(moment.evenement.at, etape?.startedAt) : null;
-                return (
-                  <li
-                    key={i}
-                    className="flex items-start gap-2 text-[12px] leading-snug"
-                    data-moment-fil={moment.genre}
-                  >
-                    <span className="mt-[3px] shrink-0">
-                      <IconeMoment genre={moment.genre} />
-                    </span>
-                    {/* La COMMANDE se lit à part, dans un encart — jamais mêlée
-                        au texte courant du résultat ou de la progression. */}
-                    <span
-                      className={cn(
-                        'min-w-0 flex-1 whitespace-pre-wrap texte-copiable',
-                        moment.genre === 'commande'
-                          ? 'rounded bg-raised px-1.5 py-1 font-mono text-[11.5px] text-muted'
-                          : moment.genre === 'depannage'
-                            ? 'text-warning'
-                            : 'text-muted',
-                      )}
-                    >
-                      {moment.texte}
-                    </span>
-                    {/* L'HEURE et l'ÉCART depuis le début, dans une colonne de
-                        largeur fixe : ils restent alignés d'un moment à
-                        l'autre, quelle que soit la longueur du texte. */}
-                    {moment.evenement ? (
-                      <span className="mt-[1px] flex w-[58px] shrink-0 flex-col items-end tabular-nums text-faint">
-                        <span data-heure-moment>{heureDeLEvenement(moment.evenement.at)}</span>
-                        {ecart ? <span>{ecart}</span> : null}
-                      </span>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="mt-2 text-[12px] text-faint" data-fil-vide={cle}>
-              {etat === 'todo'
-                ? t('Cette étape n’a pas encore commencé.')
-                : t('Cette étape n’a rien eu à raconter.')}
-            </p>
-          )}
-
-          {/* Un échec garde son motif, en entier ou presque : c'est là qu'on
-              lit ce qui a bloqué. */}
-          {etat === 'failed' && etape?.log ? (
-            <p className="mt-2 whitespace-pre-wrap rounded-md bg-raised p-2 text-[11.5px] leading-snug text-faint texte-copiable">
-              {motifLisible(etape.log)}
-            </p>
-          ) : null}
+            {!fil.length ? (
+              <p className="mt-1 text-[12px] text-faint" data-fil-vide={cle}>
+                {etat === 'todo'
+                  ? t('Cette étape n’a pas encore commencé.')
+                  : t('Cette étape n’a rien eu à raconter.')}
+              </p>
+            ) : null}
           </div>
         ) : null}
-      </div>
-    </li>
+      </LigneTimeline>
+
+      {/* LE FIL : chaque moment, à son heure, dans l'ordre, avec son propre
+          rond sur la même ligne verticale que l'étape — c'est ce qu'on vient
+          chercher, le journal du serveur n'a plus à être ouvert. Le repère
+          `data-fil-etape` enveloppe le groupe sans occuper de place
+          (`display: contents`) : les ronds restent alignés sur la colonne
+          commune de toute la timeline. */}
+      {ouverte && fil.length ? (
+        <div className="contents" data-fil-etape={cle}>
+          {fil.map((moment, i) => (
+            <MomentDuFil
+              key={i}
+              moment={moment}
+              depuis={etape?.startedAt}
+              dernier={i === fil.length - 1 && !avecLog ? dernier : false}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {/* Un échec garde son motif, en entier ou presque, comme dernière ligne
+          de la timeline de cette étape : c'est là qu'on lit ce qui a bloqué. */}
+      {avecLog ? (
+        <LigneTimeline
+          taille="petite"
+          bordure="border-danger/60"
+          icone={<X className="h-2.5 w-2.5 text-danger" />}
+          dernier={dernier}
+        >
+          <p className="whitespace-pre-wrap rounded-md bg-raised px-1.5 py-1 text-[11.5px] leading-snug text-faint texte-copiable">
+            {motifLisible(etape!.log!)}
+          </p>
+        </LigneTimeline>
+      ) : null}
+    </>
   );
 }
 
