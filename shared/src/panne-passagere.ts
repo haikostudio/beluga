@@ -218,19 +218,63 @@ export function libelleDeLaReprise(essai: number): string {
   return `Travail repris après la panne du moteur (essai ${essai}/${ESSAIS_MAX})`;
 }
 
+/** L'intitulé qui sépare l'en-tête de reprise de la demande recopiée. */
+export const SEPARATEUR_DEMANDE = '----- DEMANDE DE CE TOUR (à traiter) -----';
+
+/** Ce qu'il faut savoir du tour pour écrire la demande d'un nouvel essai. */
+export interface RepriseApresPanne {
+  /** Comment la panne a été reconnue. */
+  motif: MotifDePanne;
+  /** Le numéro du nouvel essai (1, 2, 3). */
+  essai: number;
+  /**
+   * LE PROMPT ENTIER DU TOUR, tel qu'il est parti au premier essai — briefing,
+   * contexte et demande comprises. C'est lui qui repart, TOUJOURS : sans lui, le
+   * moteur ne reçoit qu'une consigne de reprise et va chercher tout seul « ce
+   * qu'il faisait », c'est-à-dire la demande PRÉCÉDENTE de la conversation.
+   */
+  promptDuTour: string;
+  /** Le moteur avait-il déjà écrit ou franchi une étape avant de tomber ? */
+  travailCommence: boolean;
+  /** Le fil du moteur repart-il à neuf (session oubliée) ? Il ne sait alors plus rien. */
+  filNeuf: boolean;
+}
+
 /**
- * La demande envoyée à l'agent qui repart. Elle ne redit PAS le travail :
- * l'agent garde son fil, sa branche, ses fichiers et sa liste de tâches. Elle
- * dit seulement pourquoi il s'est arrêté et qu'il CONTINUE — jamais qu'il
- * recommence.
+ * LA DEMANDE D'UN NOUVEL ESSAI EMPORTE TOUJOURS CELLE DE SON TOUR.
+ *
+ * Elle ne disait que « continue exactement où tu t'es arrêté ». Sur un fil
+ * VIVANT dont le moteur était tombé AVANT d'avoir lu la demande de ce tour-là,
+ * la dernière chose que le moteur voyait était la demande PRÉCÉDENTE : il la
+ * reprenait donc, et proposait une carte pour elle. Sur un fil NEUF (session
+ * expirée, oubliée pour ne pas retomber sur le même refus), il ne voyait plus
+ * rien du tout et répondait « je continue, en attente de ta demande ».
+ *
+ * Le prompt du tour est donc RECOPIÉ à chaque essai, sous un intitulé qui le
+ * désigne comme LA demande à traiter. Seul l'en-tête change : ce qui est déjà
+ * fait ne se refait pas, mais ce qui est demandé ne se devine plus.
  */
-export function demandeDeRepriseApresPanne(motif: MotifDePanne, essai: number): string {
-  return (
+export function demandeDeRepriseApresPanne(reprise: RepriseApresPanne): string {
+  const { motif, essai, promptDuTour, travailCommence, filNeuf } = reprise;
+  const entete =
     `REPRISE APRÈS UNE PANNE DU MOTEUR (essai ${essai}/${ESSAIS_MAX}). Ton tour précédent a été coupé net : ` +
-    `${causeEnClair(motif)}. La panne vient du fournisseur, pas de ton travail : rien de ce que tu as fait n'est perdu.\n\n` +
-    `CONTINUE EXACTEMENT OÙ TU T'ES ARRÊTÉ : reprends ta liste de tâches là où elle en était et finis les étapes ` +
-    `qui restent. Ne recommence pas ce qui est déjà fait, ne repars pas de zéro, ne refais pas la lecture du projet ` +
-    `que tu as déjà faite. Si tu ne sais plus où tu en étais, relis le dépôt et ta liste de tâches avant de reprendre.`
+    `${causeEnClair(motif)}. La panne vient du fournisseur, pas de ton travail : rien de ce que tu as fait n'est perdu.`;
+
+  const consigne = filNeuf
+    ? "TON FIL PRÉCÉDENT N'EXISTE PLUS : tu repars sur une conversation vide et tu ne te souviens de rien. " +
+      'Tout ce dont tu as besoin est recopié ci-dessous, en entier — traite-le comme un premier tour, ' +
+      'et va chercher dans le projet ce qui te manque.'
+    : travailCommence
+      ? "CONTINUE EXACTEMENT OÙ TU T'ES ARRÊTÉ : reprends ta liste de tâches là où elle en était et finis les étapes " +
+        'qui restent. Ne recommence pas ce qui est déjà fait, ne refais pas la lecture du projet que tu as déjà faite.'
+      : "TU ES TOMBÉ AVANT D'AVOIR TRAITÉ LA DEMANDE : il n'y a donc rien à reprendre, tout est à faire. " +
+        'Traite-la depuis le début.';
+
+  return (
+    `${entete}\n\n${consigne}\n\n` +
+    'LA DEMANDE DE CE TOUR EST CELLE RECOPIÉE CI-DESSOUS, ET AUCUNE AUTRE. Ne reprends jamais une demande PLUS ' +
+    "ANCIENNE de la conversation, même si c'est la dernière dont tu te souviennes : elle a déjà eu sa réponse.\n\n" +
+    `${SEPARATEUR_DEMANDE}\n${promptDuTour}`
   );
 }
 

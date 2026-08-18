@@ -88,9 +88,16 @@ process.env.TEMOIN_PANNE = TEMOIN;
 
 const { claudeAdapter } = await import(path.join(RACINE, 'server/dist/engines/claude.js'));
 const { lancerAvecRelances } = await import(path.join(RACINE, 'server/dist/relance-moteur.js'));
-const { ESSAIS_MAX, attenteAvantNouvelEssai, demandeDeRepriseApresPanne, messageDePanneDefinitive } = await import(
-  path.join(RACINE, 'shared/dist/index.js')
-);
+const {
+  ESSAIS_MAX,
+  SEPARATEUR_DEMANDE,
+  attenteAvantNouvelEssai,
+  demandeDeRepriseApresPanne,
+  messageDePanneDefinitive,
+} = await import(path.join(RACINE, 'shared/dist/index.js'));
+
+/** Le prompt du tour : c'est lui qui doit repartir à CHAQUE essai. */
+const PROMPT_DU_TOUR = 'Fais le travail.';
 
 /**
  * Un tour du démon, réduit à ce que la relance a besoin de savoir : le texte
@@ -108,7 +115,16 @@ async function tourAvecRelances({ pannes, banniere, arretApresAttente = false })
       etat.erreur = undefined;
       return claudeAdapter.run({
         cwd: BASE_JETABLE,
-        prompt: essai === 0 ? 'Fais le travail.' : demandeDeRepriseApresPanne(motif, essai),
+        prompt:
+          essai === 0
+            ? PROMPT_DU_TOUR
+            : demandeDeRepriseApresPanne({
+                motif,
+                essai,
+                promptDuTour: PROMPT_DU_TOUR,
+                travailCommence: etat.texte.trim().length > 0,
+                filNeuf: false,
+              }),
         fullAccess: true,
         env: { TEMOIN_PANNE: TEMOIN },
         onEvent: (event) => {
@@ -144,6 +160,10 @@ try {
   noter(
     'la reprise dit de continuer, jamais de repartir de zéro',
     un.moteur.demandes.slice(1).every((d) => /CONTINUE EXACTEMENT OÙ TU T'ES ARRÊTÉ/.test(d)),
+  );
+  noter(
+    'chaque essai emporte la demande de SON tour, jamais la précédente',
+    un.moteur.demandes.slice(1).every((d) => d.includes(SEPARATEUR_DEMANDE) && d.includes(PROMPT_DU_TOUR)),
   );
   noter(
     'le fil est repris, pas rouvert',
