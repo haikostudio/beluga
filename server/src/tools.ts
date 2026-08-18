@@ -1485,6 +1485,12 @@ export const ORCHESTRATOR_DENIED_NATIVE = [
   'TaskStop',
   'TaskOutput',
   'ScheduleWakeup',
+  // « ListAgents » est le CARNET D'ADRESSES de « SendMessage » : il liste les
+  // agents joignables, dans cette session comme sur les autres. Il ne lance
+  // rien, mais il n'existe que pour parler à un travail en arrière-plan —
+  // interdit comme le reste de cette famille (apparu le 18/08/2026, repéré par
+  // le test de complétude).
+  'ListAgents',
   'SendMessage',
   'Monitor',
   'PushNotification',
