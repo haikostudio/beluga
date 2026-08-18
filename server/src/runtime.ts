@@ -12,6 +12,8 @@ import {
   EXTENSIONS_DOCUMENT,
   Card,
   DeployRun,
+  ETAPE_CARTE,
+  ETAPE_CARTE_ID,
   ETAPE_FOND,
   ETAPE_FOND_ID,
   ETAPE_PLAN,
@@ -70,6 +72,9 @@ import {
   dernierPlanRedige,
   jugerLePlan,
   jugerLeFond,
+  AVERTISSEMENT_SANS_CARTE,
+  carteAnnonceeSansOutil,
+  consigneDeCarteReelle,
   consigneDePlanEntier,
   consigneDePlanPlusFouille,
   nomDeBranche,
@@ -2138,6 +2143,65 @@ async function startTurn(
     }
   }
 
+  /*
+   * LA CARTE A-T-ELLE ÉTÉ APPELÉE, OU SEULEMENT RACONTÉE ?
+   *
+   * Le tri du chef dit en toutes lettres qu'une demande de programmation passe
+   * par `board_create_card`. Un petit modèle (Haiku) préfère pourtant RACONTER
+   * l'action : « J'ai créé la tâche… », tour rendu, aucune proposition née,
+   * aucun bouton « Valider » — l'utilisateur attend une carte qui n'arrivera
+   * jamais. Sonnet, lui, appelle l'outil : le défaut tient au modèle, donc rien
+   * dans la consigne ne le règlera à coup sûr.
+   *
+   * On regarde donc le RÉSULTAT (`carteAnnonceeSansOutil`,
+   * `shared/src/carte-en-texte.ts`) : une annonce de carte sans proposition
+   * attachée au message vaut relance. Un seul tour court, dans la MÊME session,
+   * outils ouverts — la proposition qui en naît se rattache toute seule au
+   * message de ce tour (`attachToCurrentMessage`). Si elle ne vient toujours
+   * pas, la réponse le DIT plutôt que de laisser la phrase du moteur faire
+   * croire le contraire.
+   */
+  const phraseDeCarte = carteAnnonceeSansOutil({
+    role: agent.role,
+    mode: agent.run.mode,
+    echec: failed || Boolean(reprise) || Boolean(panneDefinitive),
+    propositions: store.getMessage(runState.messageId)?.proposals.length ?? 0,
+    texte: finalText,
+  });
+  if (phraseDeCarte) {
+    runState.steps.set(ETAPE_CARTE_ID, {
+      id: ETAPE_CARTE_ID,
+      label: `${ETAPE_CARTE} — annoncée en texte, sans appel d'outil`,
+      state: 'running',
+      startedAt: Date.now(),
+    });
+    pushMessage(runState, { steps: [...runState.steps.values()] });
+    log.warn(`carte annoncée sans outil par l'agent ${agent.id} : relance`);
+    await exigerLappelDeLoutil({
+      adapter,
+      cwd,
+      projectRoot,
+      agent,
+      sessionId: store.getSessionId(agent.id, cleSession),
+      mcpConfigPath,
+      mcpBridgePath: bridgePath,
+      fullAccess,
+      env,
+      allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
+      disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+      consigne: consigneDeCarteReelle(phraseDeCarte),
+    }).catch(() => {});
+    const nee = (store.getMessage(runState.messageId)?.proposals.length ?? 0) > 0;
+    runState.steps.set(ETAPE_CARTE_ID, {
+      id: ETAPE_CARTE_ID,
+      label: nee ? `${ETAPE_CARTE} — carte posée après reprise` : `${ETAPE_CARTE} — aucune carte, même après reprise`,
+      state: nee ? 'done' : 'failed',
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+    });
+    if (!nee) finalText += AVERTISSEMENT_SANS_CARTE;
+  }
+
   // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
   // session RÉUSSI. Une session créée puis refusée doit pouvoir le renvoyer.
   if (nouvelleSession) {
@@ -2742,6 +2806,52 @@ async function rendreLePlanEntier(options: {
   });
   const resultat = await handle.finished;
   return resultat.ok && !erreur ? texte.trim() : '';
+}
+
+/**
+ * LA RELANCE QUI EXIGE L'APPEL DE L'OUTIL.
+ *
+ * Même principe que `rendreLePlanEntier` — un second passage dans la MÊME
+ * session, borné —, à une différence près : ici les outils RESTENT OUVERTS,
+ * puisque c'est justement l'appel qui manque. La configuration du pont est
+ * celle du tour (même identifiant de tour), donc la proposition qui naît se
+ * rattache au message déjà affiché.
+ */
+async function exigerLappelDeLoutil(options: {
+  adapter: EngineAdapter;
+  cwd: string;
+  projectRoot?: string;
+  agent: Agent;
+  sessionId?: string | null;
+  mcpConfigPath: string;
+  mcpBridgePath?: string;
+  fullAccess: boolean;
+  env?: Record<string, string>;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  consigne: string;
+}): Promise<void> {
+  const handle = options.adapter.run({
+    cwd: options.cwd,
+    projectRoot: options.projectRoot,
+    prompt: options.consigne,
+    model: options.agent.run.model ?? undefined,
+    thinking: options.agent.run.thinking,
+    sessionId: options.sessionId,
+    fullAccess: options.fullAccess,
+    role: options.agent.role,
+    mcpConfigPath: options.mcpConfigPath,
+    mcpBridgePath: options.mcpBridgePath,
+    allowedTools: options.allowedTools,
+    disallowedTools: options.disallowedTools,
+    env: options.env,
+    // Un rattrapage ne retient pas l'agent : au plafond, on garde la réponse
+    // d'origine et son avertissement.
+    plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
+    surLancement: suivreLeService(options.agent.id),
+    onEvent: () => {},
+  });
+  await handle.finished;
 }
 
 /** Tout ce que la relance n'a pas à toucher : elle ne rend qu'un texte. */
@@ -3602,6 +3712,7 @@ export const TRI_DU_CHEF = `TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS
 4. Cas ambigu → tu réponds d'abord, puis tu appelles propose_task. Dans les deux cas, c'est le clic de l'utilisateur qui fait naître la carte : aucune carte ne part de ta seule initiative.
 5. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
 
+UNE CARTE N'EXISTE QUE PAR L'APPEL DE L'OUTIL : écrire « j'ai créé la tâche » sans appeler board_create_card n'affiche RIEN, et l'utilisateur attend une carte qui ne viendra jamais. Le démon le vérifie à chaque tour et te relance pour l'appel manquant.
 NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche déjà, entière, dans la conversation. Une phrase courte suffit.`;
 
 /**
