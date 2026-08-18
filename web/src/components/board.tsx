@@ -1350,6 +1350,9 @@ export function Board({
                     }
                   />
                 ) : null}
+                {column === 'running' ? (
+                  <RepereAttention compte={state.plans[projectId] ? 1 : 0} data-attention-plan-colonne={column} />
+                ) : null}
                 {column === 'running' ? <RepereAvancement avancement={avancementDeCesCartes(columnCards)} /> : null}
                 {column === 'to_deploy' || column === 'in_production' ? (
                   <BoutonInfosPublication colonne={column} infos={infosPublication[column] ?? null} />
