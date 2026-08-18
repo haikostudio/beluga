@@ -20,9 +20,9 @@ Codex) : aucune clé facturée à l'appel.
 
 ## Les règles qui ne bougent pas
 
-- Une carte **naît toujours dans « À faire »** ; c'est vous qui la faites passer en « Validé », et
+- Une carte **naît toujours dans « Planifié »** ; c'est vous qui lancez son exécution, et
   ce geste seul autorise la dépense.
-- Les agents ne peuvent déplacer une carte que vers **Notes** ou **À faire** — l'outil refuse le
+- Les agents ne peuvent déplacer une carte que vers **Notes** ou **Planifié** — l'outil refuse le
   reste, ce n'est pas une consigne polie.
 - Un agent de tâche travaille en **accès complet**, mais **ne publie jamais** de lui-même.
 - Le chef d'orchestre **ne modifie aucun fichier existant** (sauf sur le dépôt HaikoDev lui-même).
