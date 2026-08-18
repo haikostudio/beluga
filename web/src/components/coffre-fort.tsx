@@ -4,8 +4,8 @@ import {
   Copy,
   Eye,
   EyeOff,
+  Key,
   Loader2,
-  LockKeyhole,
   Plus,
   Search,
   Trash2,
@@ -108,7 +108,7 @@ export function CoffreFort({ open, onClose }: { open: boolean; onClose: () => vo
     <>
       <Drawer open={open} onClose={onClose}>
         <header className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-2">
-          <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <Key className="h-3.5 w-3.5 shrink-0 text-accent" />
           <DialogTitle className="min-w-0 flex-1 truncate">{t('Coffre-fort')}</DialogTitle>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

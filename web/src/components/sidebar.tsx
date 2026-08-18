@@ -11,6 +11,7 @@ import {
   FolderPlus,
   Github,
   GripVertical,
+  Key,
   LayoutDashboard,
   Loader2,
   Microscope,
@@ -74,12 +75,17 @@ import {
 import { Filet } from '@/components/filet';
 import { ProjectSettings } from '@/components/project-settings';
 import { SilhouetteProjets } from '@/components/silhouettes';
+import { PanneauALaDemande } from '@/lib/panneau-a-la-demande';
 import { client } from '@/lib/client';
 import { usePointerDrag } from '@/lib/dnd';
 import { usePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
+
+const CoffreFort = React.lazy(() =>
+  import('@/components/coffre-fort').then((m) => ({ default: m.CoffreFort })),
+);
 
 /** Un élément de la colonne : un projet hors groupe, ou un groupe entier. */
 type Entry =
@@ -110,6 +116,7 @@ export function Sidebar({
   const [settingsFor, setSettingsFor] = React.useState<string | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
   const [archived, setArchived] = React.useState<Project[]>([]);
+  const [coffreOuvert, setCoffreOuvert] = React.useState(false);
 
   // Ce qui est replié est enregistré côté serveur, comme le reste.
   const [collapsed, setCollapsed] = usePref<string[]>('sidebar.collapsed', []);
@@ -415,6 +422,24 @@ export function Sidebar({
 </Button>
         </div>
       ) : null}
+
+      {/* Juste en dessous du tableau de bord : le coffre-fort, tous les
+          identifiants au même endroit, quel que soit le projet ouvert. */}
+      <div className="px-1.5 pt-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          data-ouvrir-coffre
+          className="w-full justify-start gap-2"
+          onClick={() => setCoffreOuvert(true)}
+        >
+          <Key className="h-3.5 w-3.5" />  {t('Coffre-fort')}
+</Button>
+      </div>
+
+      <PanneauALaDemande monte={coffreOuvert}>
+        <CoffreFort open={coffreOuvert} onClose={() => setCoffreOuvert(false)} />
+      </PanneauALaDemande>
 
       {/* Juste en dessous, toujours AU-DESSUS des projets : l'espace de
           développement de l'application elle-même. Ce n'est pas un projet

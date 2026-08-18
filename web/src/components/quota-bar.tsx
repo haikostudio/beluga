@@ -4,7 +4,6 @@ import {
   BarChart3,
   BookOpen,
   Check,
-  LockKeyhole,
   Menu,
   MonitorCog,
   MoreVertical,
@@ -32,7 +31,6 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { MemoryView } from '@/components/memory-view';
-import { PanneauALaDemande } from '@/lib/panneau-a-la-demande';
 import { QuestionsEnAttente } from '@/components/questions-en-attente';
 import { QuotaBadge } from '@/components/quota-badge';
 import { AMBIANCES, LANGUES, ambianceParId, langueParId } from '@haikodev/shared';
@@ -42,10 +40,6 @@ import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
 import { t, formatRegional, useLangueGenerale } from '@/lib/langue';
-
-const CoffreFort = React.lazy(() =>
-  import('@/components/coffre-fort').then((m) => ({ default: m.CoffreFort })),
-);
 
 /** Le bandeau des quotas (PLAN §19) : où en sont les moteurs installés. */
 export function QuotaBar({
@@ -82,7 +76,6 @@ export function QuotaBar({
   const [langue, setLangue] = useLangueGenerale();
   const [speaking, setSpeaking] = React.useState(false);
   const [memoireOuverte, setMemoireOuverte] = React.useState(false);
-  const [coffreOuvert, setCoffreOuvert] = React.useState(false);
   const [arretGroupe, setArretGroupe] = React.useState(false);
   const [arretTous, setArretTous] = React.useState(false);
 
@@ -291,22 +284,6 @@ export function QuotaBar({
           mais il n'est plus le seul chemin. */}
       <QuestionsEnAttente />
 
-      {/* Le coffre-fort : tous les identifiants au même endroit, quel que soit
-          le projet ouvert. Il vit dans le bandeau, à côté de la cloche, parce
-          qu'on vient y chercher un accès depuis n'importe quel écran — pas
-          seulement depuis les réglages d'un projet. */}
-      <Tooltip label={t('Coffre-fort')}>
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="Coffre-fort"
-          onClick={() => setCoffreOuvert(true)}
-          data-ouvrir-coffre
-        >
-          <LockKeyhole className="h-3.5 w-3.5" />
-        </Button>
-      </Tooltip>
-
       {capacity ? (
         <Tooltip
           label={t('{v0} agent(s) en cours · {v1} peuvent encore démarrer · mémoire {v2}/{v3} Go', { v0: capacity.runningAgents, v1: capacity.slotsFree, v2: Math.round(
@@ -482,11 +459,6 @@ export function QuotaBar({
         projectId={state.activeProjectId ?? undefined}
         onClose={() => setMemoireOuverte(false)}
       />
-
-      {/* Le coffre n'est téléchargé qu'au premier clic sur son bouton. */}
-      <PanneauALaDemande monte={coffreOuvert}>
-        <CoffreFort open={coffreOuvert} onClose={() => setCoffreOuvert(false)} />
-      </PanneauALaDemande>
 
       <ConfirmDialog
         open={arretGroupe}
