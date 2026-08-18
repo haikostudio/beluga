@@ -13,6 +13,7 @@ import {
   colonneEnFinDeTour,
   demarrageAutomatiqueAutorise,
   issueDeCarteOubliee,
+  SEUIL_VOL_BLOQUE_MS,
   effetDuDepot,
   etatVisuelCarte,
   gesteCarte,
@@ -412,45 +413,64 @@ test('la raison du moteur injoignable est écrite en toutes lettres', () => {
 /** Une carte oubliée ordinaire : plus rien ne la tient, rien n'a jamais été livré. */
 const OUBLIEE = {
   colonne: 'running' as const,
-  tourEnVol: false,
+  tourEnVolDepuis: undefined as number | undefined,
   agentAuTravail: false,
   dernierTourEnEchec: false,
   dejaEnregistre: false,
 };
+const MAINTENANT = 10_000_000;
 
 test('une carte oubliée en « En cours », sans code livré, est CLOSE et le dit', () => {
   // Son tour avait bien rendu la main : le rapport existe, c'est le rangement
   // qui a manqué. La renvoyer en « Planifié » la faisait recommencer pour rien.
-  const issue = issueDeCarteOubliee(OUBLIEE);
+  const issue = issueDeCarteOubliee(OUBLIEE, MAINTENANT);
   assert.equal(issue.colonne, 'done');
   assert.equal(issue.raison, RAISON_TOUR_SANS_ISSUE);
 });
 
 test('une carte oubliée dont le code était DÉJÀ livré est rangée dans « Terminé », avec sa raison', () => {
-  const issue = issueDeCarteOubliee({ ...OUBLIEE, dejaEnregistre: true });
+  const issue = issueDeCarteOubliee({ ...OUBLIEE, dejaEnregistre: true }, MAINTENANT);
   assert.equal(issue.colonne, 'done');
   assert.equal(issue.raison, RAISON_DEJA_LIVRE);
 });
 
-test('un tour qui TIENT encore la carte (marque de vol) interdit de la ranger', () => {
-  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, tourEnVol: true }).colonne, null);
-  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, tourEnVol: true, dejaEnregistre: true }).colonne, null);
+test('un tour qui TIENT encore la carte DEPUIS PEU (marque de vol récente) interdit de la ranger', () => {
+  const recente = MAINTENANT - 1000;
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, tourEnVolDepuis: recente }, MAINTENANT).colonne, null);
+  assert.equal(
+    issueDeCarteOubliee({ ...OUBLIEE, tourEnVolDepuis: recente, dejaEnregistre: true }, MAINTENANT).colonne,
+    null,
+  );
 });
 
-test('un agent au travail interdit de la ranger : l’agent fait foi, pas la colonne', () => {
-  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, agentAuTravail: true }).colonne, null);
+test('une marque de vol plus vieille que le seuil ne protège plus la carte : le tour est mort, pas en train de ranger', () => {
+  const vieille = MAINTENANT - SEUIL_VOL_BLOQUE_MS - 1;
+  const issue = issueDeCarteOubliee({ ...OUBLIEE, tourEnVolDepuis: vieille }, MAINTENANT);
+  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.raison, RAISON_TOUR_SANS_ISSUE);
+});
+
+test('un agent au travail interdit de la ranger, même avec une vieille marque de vol : l’agent fait foi, pas la colonne', () => {
+  const vieille = MAINTENANT - SEUIL_VOL_BLOQUE_MS - 1;
+  assert.equal(
+    issueDeCarteOubliee({ ...OUBLIEE, agentAuTravail: true, tourEnVolDepuis: vieille }, MAINTENANT).colonne,
+    null,
+  );
 });
 
 test('un dernier tour en échec laisse la carte là où on la relance', () => {
-  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, dernierTourEnEchec: true }).colonne, null);
-  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, dernierTourEnEchec: true, dejaEnregistre: true }).colonne, null);
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, dernierTourEnEchec: true }, MAINTENANT).colonne, null);
+  assert.equal(
+    issueDeCarteOubliee({ ...OUBLIEE, dernierTourEnEchec: true, dejaEnregistre: true }, MAINTENANT).colonne,
+    null,
+  );
 });
 
 test('hors « En cours », le balayage ne touche à rien', () => {
   for (const colonne of COLUMN_KEYS.filter((c) => c !== 'running')) {
-    assert.equal(issueDeCarteOubliee({ ...OUBLIEE, colonne }).colonne, null, `depuis « ${colonne} »`);
+    assert.equal(issueDeCarteOubliee({ ...OUBLIEE, colonne }, MAINTENANT).colonne, null, `depuis « ${colonne} »`);
     assert.equal(
-      issueDeCarteOubliee({ ...OUBLIEE, colonne, dejaEnregistre: true }).colonne,
+      issueDeCarteOubliee({ ...OUBLIEE, colonne, dejaEnregistre: true }, MAINTENANT).colonne,
       null,
       `depuis « ${colonne} », code livré`,
     );
@@ -460,7 +480,7 @@ test('hors « En cours », le balayage ne touche à rien', () => {
 test('le balayage ne RETIENT plus rien : une carte close n’a rien à reprendre', () => {
   // La retenue servait à ne pas relancer en boucle un tour vide. Une carte
   // posée en « Terminé » n'est plus reprise par l'ordonnanceur du tout.
-  const issue = issueDeCarteOubliee(OUBLIEE);
+  const issue = issueDeCarteOubliee(OUBLIEE, MAINTENANT);
   assert.equal(issue.colonne, 'done');
   assert.equal(demarrageAutomatiqueAutorise({ asap: true, attempts: 1, restarts: 1, suspendu: true }), false);
 });

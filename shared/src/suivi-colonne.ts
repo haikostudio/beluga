@@ -498,8 +498,14 @@ export const RAISON_TOUR_SANS_ISSUE =
 /** Ce qu'il faut savoir d'une carte pour dire si elle est OUBLIÉE. */
 export interface CarteOubliee {
   colonne: ColumnKey;
-  /** Un tour d'exécution la tient encore (marque `tourEnVolDepuis`). */
-  tourEnVol: boolean;
+  /**
+   * Depuis quand un tour d'exécution la tient encore, `undefined` si aucun ne
+   * la tient. La marque (`tourEnVolDepuis`) est censée disparaître en
+   * quelques secondes, le temps de fusionner la branche et de clore la carte —
+   * si elle ne bouge plus depuis `SEUIL_VOL_BLOQUE_MS`, ce n'est plus un
+   * rangement en cours, c'est un tour mort qui a oublié d'éteindre sa marque.
+   */
+  tourEnVolDepuis?: number;
   /** Un agent — quel que soit son rôle — travaille en ce moment dessus. */
   agentAuTravail: boolean;
   /** Son dernier tour s'est mal terminé : échec, ou arrêt à la main. */
@@ -507,6 +513,16 @@ export interface CarteOubliee {
   /** Elle a déjà produit du code, ce tour-ci ou avant. */
   dejaEnregistre: boolean;
 }
+
+/**
+ * Passé ce délai sans qu'aucun agent ne soit au travail, une marque de vol
+ * encore posée n'est plus le signe d'un rangement en cours : plus rien ne
+ * viendra jamais la retirer, et la carte resterait bloquée en « En cours »
+ * jusqu'au prochain redémarrage du démon. Cinq minutes, très large au regard
+ * des « quelques secondes » qu'un rangement normal (fusion de branche,
+ * clôture) est censé prendre.
+ */
+export const SEUIL_VOL_BLOQUE_MS = 5 * 60 * 1000;
 
 /**
  * LA CARTE OUBLIÉE EN « EN COURS » — le rattrapage de celles qui étaient DÉJÀ
@@ -523,10 +539,15 @@ export interface CarteOubliee {
  * Quatre situations n'y touchent PAS, et c'est ce qui rend le balayage sûr :
  *
  *   - la carte n'est pas en « En cours » : il n'y a rien à débloquer ;
- *   - un tour la TIENT encore (`tourEnVolDepuis`, posée au démarrage du tour et
- *     retirée seulement une fois la carte rangée) : le ranger maintenant, ce
- *     serait la ranger en plein vol ;
  *   - un agent travaille dessus : l'agent fait foi, pas la colonne ;
+ *   - un tour la TIENT encore depuis MOINS de `SEUIL_VOL_BLOQUE_MS`
+ *     (`tourEnVolDepuis`, posée au démarrage du tour et retirée seulement une
+ *     fois la carte rangée) : le ranger maintenant, ce serait la ranger en
+ *     plein vol. Passé ce délai sans agent au travail, la marque ne dit plus
+ *     rien d'un rangement en cours — c'est un tour mort dont la fermeture
+ *     d'autorité (`refermerLeTour`) a éteint l'agent SANS jamais y toucher :
+ *     sans cette porte de sortie, la carte restait bloquée jusqu'au prochain
+ *     redémarrage du démon (`server/src/store.ts`, `cartesEnVol`) ;
  *   - son dernier tour a ÉCHOUÉ ou a été ARRÊTÉ à la main : la règle est déjà
  *     écrite, l'incident est dit en rouge et la carte reste là où on la relance.
  *
@@ -536,10 +557,11 @@ export interface CarteOubliee {
  * constater le dépôt d'un tour terminé il y a des heures : le drapeau
  * `codeDejaEnregistre` est le seul témoin qui reste, et il suffit.
  */
-export function issueDeCarteOubliee(etat: CarteOubliee): IssueDeFinDeTour {
+export function issueDeCarteOubliee(etat: CarteOubliee, maintenant: number): IssueDeFinDeTour {
   if (etat.colonne !== 'running') return CARTE_INCHANGEE;
-  if (etat.tourEnVol) return CARTE_INCHANGEE;
   if (etat.agentAuTravail) return CARTE_INCHANGEE;
+  const volRecent = etat.tourEnVolDepuis !== undefined && maintenant - etat.tourEnVolDepuis < SEUIL_VOL_BLOQUE_MS;
+  if (volRecent) return CARTE_INCHANGEE;
   if (etat.dernierTourEnEchec) return CARTE_INCHANGEE;
 
   if (etat.dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE };
