@@ -119,7 +119,10 @@ test('la publication passe toujours par l’agent, jamais par la réparation d�
   const debut = SOURCE.indexOf('async function reparerLaConstruction');
   assert.notEqual(debut, -1);
   const corps = SOURCE.slice(debut, SOURCE.indexOf('\n}\n', debut));
-  assert.match(corps, /role: 'deploy'/, 'le secours est un agent de rôle « deploy »');
+  // Le rôle « deploy » est posé par la fabrique commune, qui choisit AUSSI le
+  // moteur : c'est elle qui garantit qu'aucun secours ne part sur un compte à sec.
+  assert.match(corps, /await agentDePublication\(/, 'le secours passe par la fabrique de publication');
+  assert.match(SOURCE, /async function agentDePublication\([\s\S]*?role: 'deploy'/, 'la fabrique pose le rôle « deploy »');
   assert.match(corps, /consigneDeReparationConstruction\(commande, sortie, passe, REPARATIONS_MAX\)/);
   assert.match(SOURCE, /reparer = reparerLaConstruction/, 'la réparation par défaut est le vrai agent');
 });

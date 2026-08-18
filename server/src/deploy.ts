@@ -4,9 +4,11 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { ZodError } from 'zod';
 import {
+  Agent,
   Card,
   CiblePublication,
   ColumnKey,
+  RunConfig,
   ContexteDePublication,
   DeployRun,
   DeployStepKey,
@@ -88,6 +90,7 @@ import { archiveCard } from './archive.js';
 import { createAgent, sendPrompt, agentsActifs, arreterLAgent } from './runtime.js';
 import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from './demon.js';
 import { executerCibleMiseEnProduction } from './cible-mise-en-production.js';
+import { moteurPourPublier } from './moteur-de-publication.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -486,6 +489,73 @@ function raisonEchecAgent(err: unknown): string {
   return texte || 'raison inconnue';
 }
 
+/* ------------------------------------------------------------------ */
+/* L'AGENT DE PUBLICATION PART SUR UN MOTEUR QUI A ENCORE DU QUOTA      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * TOUS LES AGENTS QUE LA PUBLICATION LANCE PASSENT PAR ICI.
+ *
+ * Ils partaient sur le moteur par défaut du projet, et `pickAccount` ne
+ * cherchait un compte que dans CE moteur. Tous ses comptes saturés, le tour ne
+ * partait pas : `sendPrompt` écrivait « Aucun compte n'a de quota disponible »
+ * et rendait la main SANS erreur, si bien que la publication croyait l'agent
+ * intervenu et rejouait l'étape indéfiniment — le blocage silencieux.
+ *
+ * Le moteur se choisit donc AVANT la création de l'agent, sur la place
+ * réellement restante de tous les moteurs installés
+ * (`server/src/moteur-de-publication.ts`). Deux issues, jamais une troisième :
+ * un agent posé sur un moteur qui a de quoi finir, ou une PHRASE qui nomme ce
+ * qui manque. Rien n'est mis en ligne ici.
+ *
+ * Le `run` transmis (celui d'une carte, pour un conflit de fusion) garde son
+ * modèle TANT QU'ON RESTE sur son moteur : un modèle Claude n'existe pas chez
+ * Codex, et l'emporter dans une bascule ferait échouer le tour au lancement.
+ */
+async function agentDePublication(
+  projectId: string,
+  title: string,
+  run?: RunConfig,
+): Promise<{ agent: Agent; raison: string } | { manque: string }> {
+  const prefere = run?.engine ?? store.getProject(projectId)?.defaultEngine;
+  const resultat = await moteurPourPublier(prefere);
+  if ('manque' in resultat) return { manque: resultat.manque };
+
+  const { engine, bascule, raison } = resultat.choix;
+  const agent = createAgent({
+    projectId,
+    role: 'deploy',
+    title,
+    // Sur bascule, le modèle de la carte ne suit pas : il appartient à l'autre
+    // moteur. L'adaptateur retenu posera le sien.
+    run: bascule || !run ? { engine } : { ...run, engine },
+  });
+  return { agent, raison };
+}
+
+/** Ce qui s'écrit quand aucun moteur n'a le quota nécessaire : la raison, en clair. */
+function recitFauteDeQuota(manque: string): string {
+  return `Publication interrompue faute de quota. ${manque}`;
+}
+
+/**
+ * LE TOUR N'A PAS EU LIEU FAUTE DE QUOTA — LE FILET, APRÈS COUP.
+ *
+ * Le moteur est choisi avant l'agent, mais rien n'empêche le compte de saturer
+ * entre ce choix et le départ du tour : `sendPrompt` pose alors un message
+ * marqué « quota » et rend la main SANS erreur. Sans ce contrôle, la
+ * publication écrirait « l'agent de publication est intervenu » alors qu'aucun
+ * moteur n'a rien reçu — le mensonge exact qu'on cherche à faire disparaître.
+ *
+ * Rend la raison à afficher, ou `null` quand le tour a bien eu lieu.
+ */
+function tourRefusePourQuota(agentId: string): string | null {
+  const messages = store.listMessages(agentId, 10).filter((m) => m.role === 'assistant');
+  const dernier = messages[messages.length - 1];
+  if (dernier?.error !== 'quota') return null;
+  return dernier.content?.trim() || 'aucun compte n’a de quota disponible';
+}
+
 /**
  * Un conflit se résout DANS la publication, pas dans une nouvelle tâche.
  *
@@ -514,12 +584,9 @@ async function resoudreConflit(
   files: string[],
 ): Promise<{ fusionnee: boolean; recit: string }> {
   const liste = files.length ? files.map((file) => `- ${file}`).join('\n') : '- (fichiers non identifiés)';
-  const agent = createAgent({
-    projectId,
-    role: 'deploy',
-    title: `Conflit de fusion — ${card.title}`,
-    run: card.run,
-  });
+  const pose = await agentDePublication(projectId, `Conflit de fusion — ${card.title}`, card.run);
+  if ('manque' in pose) return { fusionnee: false, recit: recitFauteDeQuota(pose.manque) };
+  const { agent } = pose;
 
   const prompt = [
     `La publication est EN COURS et bloque : la branche \`${branch}\` ne se fusionne plus sur \`${mainBranch}\`.`,
@@ -544,6 +611,9 @@ async function resoudreConflit(
   } catch (err) {
     return { fusionnee: false, recit: `agent de résolution en échec (${raisonEchecAgent(err)})` };
   }
+
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) return { fusionnee: false, recit: recitFauteDeQuota(sansQuota) };
 
   /*
    * L'agent a pu laisser le dossier sur SA branche : on revient sur la
@@ -607,11 +677,12 @@ async function reparerLesControles(
   echec: { etape: 'compilation' | 'controles'; out: string },
   passe: number,
 ): Promise<{ tente: boolean; recit: string }> {
-  const agent = createAgent({
+  const pose = await agentDePublication(
     projectId,
-    role: 'deploy',
-    title: echec.etape === 'compilation' ? 'Publication — le code ne compile pas' : 'Publication — contrôles en échec',
-  });
+    echec.etape === 'compilation' ? 'Publication — le code ne compile pas' : 'Publication — contrôles en échec',
+  );
+  if ('manque' in pose) return { tente: false, recit: `passe ${passe} : ${recitFauteDeQuota(pose.manque)}` };
+  const { agent } = pose;
 
   const tombes = controlesTombes(echec.out);
   const liste = tombes.length
@@ -651,6 +722,8 @@ async function reparerLesControles(
   if (tour.erreur) {
     return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(tour.erreur)})` };
   }
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) return { tente: false, recit: `passe ${passe} : ${recitFauteDeQuota(sansQuota)}` };
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
 
@@ -677,11 +750,9 @@ async function reparerLaConstruction(
   sortie: string,
   passe: number,
 ): Promise<{ tente: boolean; recit: string }> {
-  const agent = createAgent({
-    projectId,
-    role: 'deploy',
-    title: 'Publication — la construction échoue',
-  });
+  const pose = await agentDePublication(projectId, 'Publication — la construction échoue');
+  if ('manque' in pose) return { tente: false, recit: `passe ${passe} : ${recitFauteDeQuota(pose.manque)}` };
+  const { agent } = pose;
 
   const prompt = consigneDeReparationConstruction(commande, sortie, passe, REPARATIONS_MAX);
 
@@ -696,6 +767,8 @@ async function reparerLaConstruction(
   if (tour.erreur) {
     return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(tour.erreur)})` };
   }
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) return { tente: false, recit: `passe ${passe} : ${recitFauteDeQuota(sansQuota)}` };
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
 
@@ -767,13 +840,17 @@ async function confierLaMiseEnLigne(
   ctx: ContexteDePublication,
   constat?: ConstatDeDuree,
 ): Promise<{ ok: boolean; recit: string; raison?: string; panne?: PanneDePublication }> {
-  const agent = createAgent({
-    projectId,
-    role: 'deploy',
-    title: `Mise en production — ${ctx.projet}`,
-  });
+  const pose = await agentDePublication(projectId, `Mise en production — ${ctx.projet}`);
+  if ('manque' in pose) {
+    // La raison est DITE, et l'étape échoue franchement : rien n'est mis en
+    // ligne, et surtout rien ne reste à tourner en silence.
+    const raison = recitFauteDeQuota(pose.manque);
+    return { ok: false, recit: phraseDEchecConfie(raison), raison };
+  }
+  const { agent, raison: choixDuMoteur } = pose;
 
   bus.toast('info', `Mise en production de « ${ctx.projet} » : l’agent suit le prompt du projet.`);
+  log.info(`publication : mise en production de « ${ctx.projet} » — ${choixDuMoteur}`);
 
   /*
    * LA MISE EN PRODUCTION EST BORNÉE DANS LE TEMPS, ELLE AUSSI.
@@ -813,6 +890,12 @@ async function confierLaMiseEnLigne(
   }
   if (tour.erreur) {
     const raison = (tour.erreur as any)?.message ?? 'raison inconnue';
+    return { ok: false, recit: phraseDEchecConfie(raison), raison };
+  }
+
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) {
+    const raison = recitFauteDeQuota(sansQuota);
     return { ok: false, recit: phraseDEchecConfie(raison), raison };
   }
 
@@ -1329,7 +1412,11 @@ async function appelerLeDepanneur(
   passe: number,
 ): Promise<{ tente: boolean; recit: string }> {
   const libelleEtape = STEP_LABELS[etape];
-  const agent = createAgent({ projectId, role: 'deploy', title: titreDuDepanneur(libelleEtape) });
+  const pose = await agentDePublication(projectId, titreDuDepanneur(libelleEtape));
+  if ('manque' in pose) {
+    return { tente: false, recit: recitDepanneurEnEchec(passe, recitFauteDeQuota(pose.manque)) };
+  }
+  const { agent } = pose;
 
   bus.toast('info', `Publication bloquée (${libelleEtape}) : un agent de dépannage intervient — reprise ${passe} sur ${REPARATIONS_MAX}.`);
 
@@ -1352,6 +1439,10 @@ async function appelerLeDepanneur(
   }
   if (tour.erreur) {
     return { tente: false, recit: recitDepanneurEnEchec(passe, raisonEchecAgent(tour.erreur)) };
+  }
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) {
+    return { tente: false, recit: recitDepanneurEnEchec(passe, recitFauteDeQuota(sansQuota)) };
   }
   return { tente: true, recit: '' };
 }
