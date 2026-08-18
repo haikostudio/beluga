@@ -105,13 +105,35 @@ export function dureeEtape(etape?: EtapeRun): string | null {
   return secondes < 1 ? '< 1 s' : duration(secondes);
 }
 
-/** La pastille d'état posée devant une étape, la même partout. */
+/** L'icône posée dans le rond d'une étape, la même partout. */
 export function IconeEtape({ etat }: { etat: EtatEtape }) {
-  if (etat === 'running') return <Loader2 className="h-3 w-3 animate-spin text-en-cours" />;
-  if (etat === 'done') return <Check className="h-3 w-3 text-success" />;
-  if (etat === 'failed') return <X className="h-3 w-3 text-danger" />;
-  if (etat === 'skipped') return <MinusCircle className="h-3 w-3 text-faint" />;
-  return <span className="block h-3 w-3 rounded-full border border-border" />;
+  if (etat === 'running') return <Loader2 className="h-3.5 w-3.5 animate-spin text-en-cours" />;
+  if (etat === 'done') return <Check className="h-3.5 w-3.5 text-success" />;
+  if (etat === 'failed') return <X className="h-3.5 w-3.5 text-danger" />;
+  if (etat === 'skipped') return <MinusCircle className="h-3.5 w-3.5 text-faint" />;
+  return <span className="block h-1.5 w-1.5 rounded-full bg-faint" />;
+}
+
+/**
+ * La COULEUR de bordure du rond, selon l'état de l'étape — la même convention
+ * que le reste de l'application (orange pour ce qui est en cours, bleu pour ce
+ * qui est terminé, rouge pour l'échec).
+ */
+function bordureRond(etat: EtatEtape): string {
+  if (etat === 'running') return 'border-en-cours';
+  if (etat === 'done') return 'border-success/60';
+  if (etat === 'failed') return 'border-danger/60';
+  if (etat === 'skipped') return 'border-border';
+  return 'border-border';
+}
+
+/**
+ * La DATE sous le rond : l'heure à laquelle l'étape a commencé, en quatre
+ * chiffres — « 12:58 ». Une étape pas encore commencée n'en porte aucune.
+ */
+function dateSousLeRond(etape?: EtapeRun): string | null {
+  if (!etape?.startedAt) return null;
+  return heureDeLEvenement(etape.startedAt).slice(0, 5);
 }
 
 /**
@@ -206,7 +228,14 @@ function TachesDuLot({ taches }: { taches: TacheDuLot[] }) {
 }
 
 /**
- * UNE ÉTAPE DU TIROIR : sa ligne, et dessous son fil quand elle est ouverte.
+ * UNE ÉTAPE DU TIROIR : son ROND sur la ligne centrale, sa ligne de titre, et
+ * dessous son fil quand elle est ouverte.
+ *
+ * La timeline verticale tient en deux colonnes : à gauche, le rond-icône de
+ * l'étape avec sa date dessous, relié au rond suivant par un trait continu ;
+ * à droite, le titre, l'état et le temps, puis le fil déplié. Les événements
+ * du fil restent DANS cette colonne de droite, indentés sous leur étape — ils
+ * ne rejoignent jamais la ligne centrale, réservée aux étapes majeures.
  *
  * Une étape s'ouvre d'un clic sur toute sa ligne — pas sur un « ? » minuscule.
  * Celle qui TRAVAILLE est ouverte d'office : c'est celle qu'on vient regarder.
@@ -216,79 +245,102 @@ function EtapeDuTiroir({
   etape,
   ouverte,
   onBasculer,
+  dernier,
 }: {
   cle: DeployStepKey;
   etape?: EtapeRun;
   ouverte: boolean;
   onBasculer: () => void;
+  /** La dernière étape affichée ne tire plus de trait vers le bas. */
+  dernier: boolean;
 }) {
   const etat: EtatEtape = etape?.state ?? 'todo';
   const duree = dureeEtape(etape);
   const fil = etape ? filDeLEtape(etape) : [];
   const resume = resumeDuFil(etape?.journal);
+  const date = dateSousLeRond(etape);
 
   return (
-    <li
-      className={cn(
-        'overflow-hidden rounded-md border border-border',
-        etat === 'failed' ? 'border-danger/40' : ouverte ? 'border-border' : 'border-transparent',
-      )}
-      data-etape-process={cle}
-      data-etat-process={etat}
-    >
-      <button
-        type="button"
-        onClick={onBasculer}
-        aria-expanded={ouverte}
-        data-ouvrir-etape={cle}
-        className={cn(
-          'flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-raised',
-          ouverte && 'bg-raised',
-        )}
-      >
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', ouverte && 'rotate-90')} />
-        <span className="shrink-0">
+    <li className="relative flex gap-3" data-etape-process={cle} data-etat-process={etat}>
+      {/* LA COLONNE DU ROND : l'icône dans son cercle, la date dessous, et le
+          trait qui continue vers le rond suivant — la ligne centrale de la
+          timeline. */}
+      <div className="relative flex w-7 shrink-0 flex-col items-center">
+        {!dernier ? (
+          <span
+            className="absolute left-1/2 top-7 bottom-[-1rem] w-px -translate-x-1/2 bg-border"
+            aria-hidden="true"
+          />
+        ) : null}
+        <span
+          className={cn(
+            'relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 bg-surface',
+            bordureRond(etat),
+          )}
+          data-rond-etape={cle}
+        >
           <IconeEtape etat={etat} />
         </span>
-        <span className={cn('flex-1 truncate text-[13.5px] font-medium', etat === 'failed' ? 'text-danger' : 'text-text')}>
-          {STEP_LABELS[cle]}
-        </span>
-        {/* Ce que l'étape a à raconter, avant même de l'ouvrir : sans ce
-            compte, rien ne dit qu'il y a quelque chose derrière la ligne. */}
-        {resume ? (
-          <span className="shrink-0 text-[11px] text-faint" data-fil-compte={cle}>
-            {resume}
+        {date ? (
+          <span className="mt-1 text-[10px] tabular-nums text-faint" data-date-etape={cle}>
+            {date}
           </span>
         ) : null}
-        <span className="shrink-0 text-right text-[11px] tabular-nums text-faint" data-etat-etape={etat}>
-          {ETAT_LABELS[etat]}
-          {duree && (etat === 'done' || etat === 'failed') ? (
-            <span data-duree-etape={cle}> · {duree}</span>
-          ) : null}
-          {mentionDesReprises(etape?.reprises) ? (
-            <span data-reprises-etape={cle}> · {mentionDesReprises(etape?.reprises)}</span>
-          ) : null}
-        </span>
-      </button>
+      </div>
 
-      {/* PENDANT qu'une étape tourne, ce qu'elle fait à l'instant reste posé
-          sous sa ligne, ouverte ou non : c'est le seul texte qu'on veut voir
-          sans rien déplier. Une étape EN RETARD le dit en orange. */}
-      {etat === 'running' && etape?.progress ? (
-        <p
-          className={cn('px-2 pb-2 pl-[34px] text-[12px]', etape.enRetard ? 'text-warning' : 'text-muted')}
-          data-progress-etape={cle}
-          data-etape-en-retard={etape.enRetard ? 'oui' : undefined}
+      <div className={cn('min-w-0 flex-1 overflow-hidden rounded-md', !dernier && 'pb-4')}>
+        <button
+          type="button"
+          onClick={onBasculer}
+          aria-expanded={ouverte}
+          data-ouvrir-etape={cle}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-raised',
+            ouverte && 'bg-raised',
+          )}
         >
-          {etape.progress}
-        </p>
-      ) : null}
+          <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', ouverte && 'rotate-90')} />
+          <span className={cn('flex-1 truncate text-[13.5px] font-medium', etat === 'failed' ? 'text-danger' : 'text-text')}>
+            {STEP_LABELS[cle]}
+          </span>
+          {/* Ce que l'étape a à raconter, avant même de l'ouvrir : sans ce
+              compte, rien ne dit qu'il y a quelque chose derrière la ligne. */}
+          {resume ? (
+            <span className="shrink-0 text-[11px] text-faint" data-fil-compte={cle}>
+              {resume}
+            </span>
+          ) : null}
+          {/* LE TEMPS, à droite : l'état, puis la durée une fois l'étape
+              passée. */}
+          <span className="shrink-0 text-right text-[11px] tabular-nums text-faint" data-etat-etape={etat}>
+            {ETAT_LABELS[etat]}
+            {duree && (etat === 'done' || etat === 'failed') ? (
+              <span data-duree-etape={cle}> · {duree}</span>
+            ) : null}
+            {mentionDesReprises(etape?.reprises) ? (
+              <span data-reprises-etape={cle}> · {mentionDesReprises(etape?.reprises)}</span>
+            ) : null}
+          </span>
+        </button>
 
-      {ouverte ? (
-        <div className="border-t border-border bg-raised/40 px-2.5 py-2.5 pl-[34px]" data-fil-etape={cle}>
-          <p className="text-[12px] text-faint" data-description-etape={cle}>
-            {STEP_DESCRIPTIONS[cle]}
+        {/* PENDANT qu'une étape tourne, ce qu'elle fait à l'instant reste posé
+            sous sa ligne, ouverte ou non : c'est le seul texte qu'on veut voir
+            sans rien déplier. Une étape EN RETARD le dit en orange. */}
+        {etat === 'running' && etape?.progress ? (
+          <p
+            className={cn('px-1.5 pb-1 pt-0.5 text-[12px]', etape.enRetard ? 'text-warning' : 'text-muted')}
+            data-progress-etape={cle}
+            data-etape-en-retard={etape.enRetard ? 'oui' : undefined}
+          >
+            {etape.progress}
           </p>
+        ) : null}
+
+        {ouverte ? (
+          <div className="mt-1 rounded-md border border-border bg-raised/40 px-2.5 py-2.5" data-fil-etape={cle}>
+            <p className="text-[12px] text-faint" data-description-etape={cle}>
+              {STEP_DESCRIPTIONS[cle]}
+            </p>
 
           {/* LE FIL : chaque moment, à son heure, dans l'ordre. C'est ce qu'on
               vient chercher — le journal du serveur n'a plus à être ouvert. Les
@@ -350,8 +402,9 @@ function EtapeDuTiroir({
               {motifLisible(etape.log)}
             </p>
           ) : null}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -434,14 +487,15 @@ export function TiroirDeploiement({
               Une publication d'avant cette liste n'en a pas — on n'en invente
               alors aucune, et le tiroir s'ouvre sur ses étapes comme avant. */}
           {run?.taches?.length ? <TachesDuLot taches={run.taches} /> : null}
-          <ul className="space-y-1.5" data-processus-etapes>
-            {affichees.map((cle) => (
+          <ul data-processus-etapes>
+            {affichees.map((cle, i) => (
               <EtapeDuTiroir
                 key={cle}
                 cle={cle}
                 etape={run?.steps.find((step) => step.key === cle)}
                 ouverte={ouvertes.has(cle)}
                 onBasculer={() => basculer(cle)}
+                dernier={i === affichees.length - 1}
               />
             ))}
           </ul>
