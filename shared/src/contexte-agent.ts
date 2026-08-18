@@ -190,17 +190,20 @@ export interface MemoireDeReprise {
 }
 
 /**
- * POURQUOI le fil du moteur repart à neuf. Les deux causes ne se disent pas de
+ * POURQUOI le fil du moteur repart à neuf. Les trois causes ne se disent pas de
  * la même façon : après une compression, l'agent a « oublié » un contexte trop
  * lourd ; après un changement de compte, il n'a rien oublié du tout — son fil
  * est simplement resté dans le coffre de l'autre compte, et le travail, lui,
- * n'a pas bougé d'un pouce.
+ * n'a pas bougé d'un pouce ; « fil-neuf » couvre tout le reste (session expirée
+ * côté moteur, changement de modèle ou de moteur, démon relancé sans fil
+ * repris) — la conversation VISIBLE, elle, n'a pas bougé d'une ligne.
  */
-export type MotifDeContinuite = 'compression' | 'changement-de-compte';
+export type MotifDeContinuite = 'compression' | 'changement-de-compte' | 'fil-neuf';
 
 const TITRE_DE_CONTINUITE: Record<MotifDeContinuite, string> = {
   compression: 'RÉSUMÉ DE CONTINUITÉ APRÈS COMPRESSION',
   'changement-de-compte': 'RÉSUMÉ DE CONTINUITÉ — TU REPARS SUR UN AUTRE COMPTE',
+  'fil-neuf': "RÉSUMÉ DE CONTINUITÉ — CE QUI A DÉJÀ ÉTÉ DIT DANS CETTE CONVERSATION",
 };
 
 const CLOTURE_DE_CONTINUITE: Record<MotifDeContinuite, string> = {
@@ -208,7 +211,40 @@ const CLOTURE_DE_CONTINUITE: Record<MotifDeContinuite, string> = {
     "Poursuis depuis cet état. La conversation visible reste intacte dans HaikoDev ; ce résumé remplace seulement l'ancien contexte interne du moteur.",
   'changement-de-compte':
     "POURSUIS EXACTEMENT OÙ TU T'ES ARRÊTÉ. Le compte précédent avait atteint sa limite : seul le fil interne du moteur repart à neuf, car il appartenait au coffre de ce compte. Ton travail, lui, n'a pas bougé — même branche, mêmes fichiers, mêmes étapes. Reprends la liste de tâches ci-dessus là où elle en était, ne recommence rien de ce qui est déjà fait, ne relis pas ce que tu as déjà lu et ne repose pas une question déjà tranchée.",
+  'fil-neuf':
+    "CE RÉSUMÉ EST LE SUJET EN COURS, PAS UNE ARCHIVE. Ton fil interne repart à neuf, mais la conversation ci-dessus est celle que l'utilisateur a sous les yeux : pour lui, rien n'a été coupé. Le message qui suit peut donc s'y référer sans la nommer — « ça », « cette idée », « ce qu'on vient de dire », « fais-en une carte », « vas-y ». Va CHERCHER le sujet dans les échanges ci-dessus au lieu de demander de quoi il s'agit, et nomme-le en toutes lettres dans ta réponse comme dans toute carte que tu proposes. Ne redis pas bonjour, ne recommence pas la conversation, et ne traite pas comme un sujet neuf ce qui a déjà été discuté.",
 };
+
+/**
+ * FAUT-IL RAPPELER LE FIL À UN AGENT DONT LA SESSION REPART À NEUF ?
+ *
+ * Le défaut constaté sur le chef d'orchestre : sa conversation ne meurt jamais,
+ * mais le fil du MOTEUR, lui, meurt souvent (session expirée côté fournisseur,
+ * modèle changé, moteur changé). Le tour suivant repartait alors avec le seul
+ * message qu'on venait d'écrire — « fais-en une carte » n'a plus aucun sujet —,
+ * et le chef demandait de quoi on parlait alors que l'écran l'affichait juste
+ * au-dessus.
+ *
+ * Deux cas ont déjà leur résumé et passent avant : la compression
+ * (`resumeDeCompression`) et le changement de compte (`filSurUnAutreCompte`).
+ * Ce troisième couvre le reste — et il se TAIT sur une conversation réellement
+ * neuve : sans échange visible d'avant, il n'y a rien à rappeler.
+ */
+export function filARappeler(etat: {
+  /** Le fil du moteur repart-il de zéro sur ce tour ? */
+  nouvelleSession: boolean;
+  /** Le résumé posé par une compression, s'il y en a un. */
+  resumeDeCompression?: string;
+  /** Un fil du même moteur existe-t-il dans le coffre d'un autre compte ? */
+  filSurUnAutreCompte?: boolean;
+  /** Les échanges déjà visibles dans la conversation, hors demande du tour. */
+  echangesVisibles: number;
+}): boolean {
+  if (!etat.nouvelleSession) return false;
+  if (etat.resumeDeCompression?.trim()) return false;
+  if (etat.filSurUnAutreCompte) return false;
+  return etat.echangesVisibles > 0;
+}
 
 export interface EntreeResumeContinuite {
   project: string;

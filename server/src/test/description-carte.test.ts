@@ -13,6 +13,7 @@ import {
   contientRepereConcret,
   jugerDescription,
   partiesTrouvees,
+  renvoieAuFil,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
@@ -268,4 +269,66 @@ test('une carte courte trop maigre est refusée, même en exigence « courte »'
 
 test('une description complète reste acceptée en exigence « courte »', () => {
   assert.equal(jugerDescription(BONNE_DESCRIPTION, 'courte').ok, true);
+});
+
+/* ------------------------------------------------------------------ */
+/* Une carte qui RENVOIE au fil ne dit pas son sujet                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Le chef a la conversation sous les yeux ; l'agent qui exécutera la carte ne
+ * l'a pas. Une carte qui dit « corriger ce qui a été discuté » part donc vers
+ * quelqu'un pour qui ces mots ne désignent rien. Le refus vit dans la règle
+ * pure, pour valoir sous les deux moteurs.
+ */
+
+const RENVOIS_REFUSES = [
+  "Corriger ce qui a été discuté juste avant dans la conversation, en gardant le reste de l'écran intact.",
+  "Reprendre ce dont on a parlé et l'appliquer à la colonne du tableau, sans toucher au reste.",
+  'Mettre en place le point évoqué plus haut, tel que le chef vient de le reformuler pour cette carte.',
+  "Comme convenu ci-dessus, renommer le bouton du bandeau du haut et vérifier qu'il reste lisible.",
+  "Voir la conversation pour le détail de ce qu'il faut changer sur l'écran des réglages du projet.",
+  "Faire ce qu'on vient de dire sur la barre d'écriture, sans rien changer d'autre dans l'interface.",
+];
+
+for (const texte of RENVOIS_REFUSES) {
+  test(`une carte qui renvoie au fil est refusée : « ${texte.slice(0, 40)}… »`, () => {
+    assert.equal(renvoieAuFil(texte), true);
+    const verdict = jugerDescription(texte, 'courte');
+    assert.equal(verdict.ok, false);
+    assert.ok(verdict.manques.includes('renvoi-au-fil'));
+    assert.match(verdict.message, /RENVOIE à la conversation/);
+  });
+}
+
+const RENVOIS_ACCEPTES = [
+  CARTE_COURTE,
+  BONNE_DESCRIPTION,
+  "Constat : le bouton « Publier » ne réagit plus, comme prévu depuis le passage à la nouvelle barre du haut de l'écran.",
+  "Vérification : ouvrir la conversation de la carte et regarder la réponse s'afficher jusqu'au bout.",
+];
+
+for (const texte of RENVOIS_ACCEPTES) {
+  test(`une carte qui NOMME son sujet passe : « ${texte.slice(0, 40)}… »`, () => {
+    assert.equal(renvoieAuFil(texte), false);
+    assert.ok(!jugerDescription(texte, 'courte').manques.includes('renvoi-au-fil'));
+  });
+}
+
+test('le refus vaut aussi pour une description complète, quatre parties comprises', () => {
+  const complete = [
+    "Constat : le tableau se fabrique dans `web/src/components/board.tsx`, et le défaut est celui dont on a parlé.",
+    'Attendu : le comportement décrit devient celui de la colonne.',
+    'Limites : on ne touche à rien d’autre.',
+    'Vérification : rejouer `npm test`.',
+  ].join('\n');
+  const verdict = jugerDescription(complete, 'complete');
+  assert.equal(verdict.ok, false);
+  assert.ok(verdict.manques.includes('renvoi-au-fil'));
+});
+
+test('la consigne du chef lui dit d’aller chercher le sujet dans le fil', () => {
+  assert.match(CONSIGNE_CARTE_COURTE, /SE LIT SANS TA CONVERSATION/);
+  assert.match(CONSIGNE_CARTE_COURTE, /REMONTE LE FIL/);
+  assert.match(CONSIGNE_CARTE_COURTE, /NOMME-LE en toutes lettres/);
 });
