@@ -77,24 +77,35 @@ function BlocDePrompt({
   texte,
   cached,
   ouvertParDefaut,
+  kind,
 }: {
   label: string;
   texte: string | undefined;
   cached: boolean;
   ouvertParDefaut: boolean;
+  kind?: string;
 }) {
   const [ouvert, setOuvert] = React.useState(ouvertParDefaut);
   React.useEffect(() => {
     if (ouvertParDefaut) setOuvert(true);
   }, [ouvertParDefaut]);
 
+  const styleClasse =
+    kind === 'memory' ? 'border-info bg-info/10' :
+    kind === 'request' ? 'border-record bg-record/10' :
+    kind === 'briefing' ? 'border-warning bg-warning/10' :
+    kind === 'card' ? 'border-success bg-success/10' :
+    kind === 'system' ? 'border-danger bg-danger/10' :
+    'border-border bg-surface';
+
   return (
     <div
       data-bloc-prompt
+      data-bloc-kind={kind}
       data-cache={cached ? 'relu' : 'neuf'}
       className={cn(
         'rounded-md border px-2.5 py-1.5',
-        cached ? 'border-border/60 bg-raised/50 opacity-70' : 'border-border bg-surface',
+        cached ? `${styleClasse} opacity-70` : styleClasse,
       )}
     >
       <button
@@ -196,6 +207,7 @@ function TourDuLecteur({
                 texte={bloc.text}
                 cached={Boolean(bloc.cached)}
                 ouvertParDefaut={Boolean(requete)}
+                kind={bloc.kind}
               />
             ))}
             {contexte.passages.length ? (
@@ -208,6 +220,7 @@ function TourDuLecteur({
                       texte={passage.texte}
                       cached={false}
                       ouvertParDefaut={Boolean(requete)}
+                      kind="extra"
                     />
                   ) : null,
                 )}
