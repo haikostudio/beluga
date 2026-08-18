@@ -5,18 +5,23 @@ import type { SentContextSnapshot } from './models.js';
  *
  * Il n'y a plus ni pastille à cliquer, ni tiroir à ouvrir : ce qui est parti au
  * moteur se lit COMME DES MESSAGES de l'utilisateur, alignés à droite, dans le
- * même encadré gris que ses demandes. Trois bulles, toujours dans cet ordre :
- * sa demande, ce que la recherche est allée chercher dans la mémoire, puis le
- * prompt COMPLET tel qu'il est parti. Une bulle trop longue ne montre que ses
- * cinq premières lignes, avec « voir plus » en bas.
+ * même encadré gris que ses demandes. DEUX bulles, toujours dans cet ordre :
+ * sa demande, puis « Mémoire transmise » — TOUT ce qui est parti à côté d'elle,
+ * mémoire du projet et prompt complet réunis. Une bulle trop longue ne montre
+ * que ses premières lignes, avec « voir plus » en bas.
  *
- * Les PASSAGES retrouvés par la recherche (le « RAG ») ont leur bulle à eux :
- * ils sont ce que la machine est allée chercher toute seule, donc ce qu'on vient
- * justement vérifier. Ils restent aussi DANS le prompt complet, à leur place —
- * la deuxième bulle les met en avant, elle ne les déplace pas. Cette bulle-là est
- * ISOLÉE (`isole`) et repliée plus court que les autres
- * (`LIGNES_VISIBLES_MEMOIRE`) : elle porte son propre encadré, sans quoi elle se
- * lisait comme la première moitié du prompt complet posé juste dessous.
+ * CES DEUX VOLETS ÉTAIENT AUPARAVANT DEUX BULLES SÉPARÉES (« Mémoire
+ * retrouvée » puis « Prompt complet envoyé à l'agent ») : la même information
+ * — ce que la recherche est allée chercher — s'y lisait déjà deux fois (une
+ * fois mise en avant, une fois à sa place dans le prompt complet), et deux
+ * pavés gris collés l'un à l'autre se lisaient comme un seul texte coupé en
+ * deux, sans qu'on comprenne pourquoi. Une seule bulle les regroupe
+ * maintenant : ce qui est retrouvé par la recherche en tête, suivi du prompt
+ * complet — SÉPARÉS PAR DEUX LABELS COLORÉS (`data-label-cache`,
+ * `data-label-ajoutee`, `web/src/components/prompt-envoye.tsx`), qui
+ * reprennent les deux couleurs déjà posées ligne à ligne dans le texte : gris
+ * (`text-faint`) pour ce qui est relu au cache du moteur — DÉJÀ là, pas
+ * refacturé — jaune (`text-nouveau`) pour ce qui est écrit neuf pour ce tour.
  *
  * Aucune mesure, aucun compteur de jetons : seulement du texte.
  */
@@ -170,7 +175,8 @@ export function donneesParallelesDuPrompt(contexte: SentContextSnapshot): string
 
 /**
  * Le tour entier en texte brut : l'en-tête, puis chaque morceau nommé. C'est le
- * PROMPT COMPLET de la troisième bulle, et c'est aussi ce que la copie rend.
+ * PROMPT COMPLET de la bulle « Mémoire transmise », et c'est aussi ce que la
+ * copie rend.
  */
 export function texteDuPromptEnvoye(contexte: SentContextSnapshot): string {
   const entete = `${nomDuMoteurEnvoye(contexte.engine)}${contexte.model ? ` — ${contexte.model}` : ''}`;
@@ -243,14 +249,14 @@ export function texteDesPassagesRetrouves(contexte: SentContextSnapshot): string
 /** Une bulle du prompt envoyé, prête à être posée dans la conversation. */
 export interface BulleDePrompt {
   /** Repère stable, pour la clé de rendu et les contrôles d'écran. */
-  cle: 'demande' | 'memoire' | 'complet';
+  cle: 'demande' | 'memoire';
   /** Le titre lisible, en tête de la bulle. */
   titre: string;
   /** Une précision courte à côté du titre (le compte des passages, la raison). */
   mention?: string;
   /** Le texte de la bulle, tel qu'il est parti au moteur. */
   texte: string;
-  /** Les NOMS des morceaux partis en même temps (troisième bulle seulement). */
+  /** Les NOMS des morceaux partis en même temps (bulle « Mémoire transmise » seulement). */
   noms?: string[];
   /**
    * Une bulle ISOLÉE : son propre encadré, détaché des messages du fil.
@@ -266,18 +272,45 @@ export interface BulleDePrompt {
   lignesVisibles?: number;
   /**
    * Le texte, ligne par ligne, avec ce qui est déjà là et ce qui est neuf —
-   * posé seulement sur la bulle « Prompt complet » (`lignesDuPromptEnvoye`).
-   * Les autres bulles n'en ont pas besoin : rien n'y est jamais relu au cache.
+   * posé seulement sur la bulle « Mémoire transmise »
+   * (`lignesDeLaMemoireTransmise`). La bulle « Votre demande » n'en a pas
+   * besoin : rien n'y est jamais relu au cache.
    */
   lignes?: LigneDePrompt[];
 }
 
 /**
- * LES TROIS BULLES DU PROMPT ENVOYÉ, DANS L'ORDRE DEMANDÉ.
+ * TOUT CE QUI EST PARTI, MÉMOIRE COMPRISE, EN UNE SEULE SUITE DE LIGNES.
+ *
+ * La mémoire retrouvée par la recherche (`texteDesPassagesRetrouves`) vient EN
+ * TÊTE — c'est ce qui est AJOUTÉ pour ce tour, jamais relu au cache — suivie
+ * du prompt complet, dont les lignes portent déjà leur propre statut
+ * (`lignesDuPromptEnvoye`) : gris pour un morceau relu au cache, jaune pour un
+ * morceau neuf.
+ */
+export function lignesDeLaMemoireTransmise(contexte: SentContextSnapshot): LigneDePrompt[] {
+  const memoire = texteDesPassagesRetrouves(contexte);
+  const suite = lignesDuPromptEnvoye(contexte);
+  if (!memoire) return suite;
+  const entete: LigneDePrompt[] = memoire.split('\n').map((texte) => ({ texte, cached: false }));
+  return [
+    ...entete,
+    { texte: '', cached: false },
+    { texte: '---', cached: false },
+    { texte: '', cached: false },
+    ...suite,
+  ];
+}
+
+/**
+ * LES DEUX BULLES DU PROMPT ENVOYÉ, DANS L'ORDRE DEMANDÉ.
  *
  * 1. la demande de l'utilisateur, telle qu'elle est réellement partie ;
- * 2. ce que la recherche est allée chercher dans la mémoire du projet ;
- * 3. le prompt COMPLET, briefing et consigne système compris.
+ * 2. « Mémoire transmise » : ce que la recherche est allée chercher dans la
+ *    mémoire du projet, PUIS le prompt COMPLET, briefing et consigne système
+ *    compris — deux volets qui formaient auparavant deux bulles séparées,
+ *    réunis en une seule (`mention`, `texte` et `lignes` portent les deux à
+ *    la fois).
  *
  * `demandeDejaAffichee` vaut vrai quand l'utilisateur a TAPÉ sa demande : sa
  * bulle existe déjà, juste au-dessus, avec son heure et son bouton de copie —
@@ -299,7 +332,8 @@ export function bullesDuPromptEnvoye(
   }
 
   const memoire = texteDesPassagesRetrouves(contexte);
-  if (memoire) {
+  const complet = texteDuPromptEnvoye(contexte);
+  if (complet.trim()) {
     bulles.push({
       cle: 'memoire',
       /*
@@ -308,22 +342,13 @@ export function bullesDuPromptEnvoye(
        * qui vit dans `mention`, affichée SOUS le titre plutôt qu'à sa suite —
        * sinon le titre s'allonge de toute la phrase et déborde de la bulle.
        */
-      titre: 'Mémoire retrouvée',
+      titre: 'Mémoire transmise',
       mention: mentionDesPassages(contexte),
-      texte: memoire,
+      texte: memoire ? `${memoire}\n\n---\n\n${complet}` : complet,
+      noms: donneesParallelesDuPrompt(contexte),
       isole: true,
       lignesVisibles: LIGNES_VISIBLES_MEMOIRE,
-    });
-  }
-
-  const complet = texteDuPromptEnvoye(contexte);
-  if (complet.trim()) {
-    bulles.push({
-      cle: 'complet',
-      titre: 'Prompt complet envoyé à l’agent',
-      texte: complet,
-      noms: donneesParallelesDuPrompt(contexte),
-      lignes: lignesDuPromptEnvoye(contexte),
+      lignes: lignesDeLaMemoireTransmise(contexte),
     });
   }
 

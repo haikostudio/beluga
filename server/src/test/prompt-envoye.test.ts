@@ -165,12 +165,13 @@ test('la conversation ne pose plus ni pastille ni tiroir : des bulles, dans le f
 });
 
 /*
- * LES TROIS BULLES. Ce qui est parti au moteur se lit comme des messages de
- * l'utilisateur, alignés à droite : sa demande, la mémoire retrouvée, puis le
- * prompt complet — dans cet ordre, jamais un autre.
+ * LES DEUX BULLES. Ce qui est parti au moteur se lit comme des messages de
+ * l'utilisateur, alignés à droite : sa demande, puis « Mémoire transmise »
+ * — qui regroupe la mémoire retrouvée ET le prompt complet — dans cet ordre,
+ * jamais un autre.
  */
 
-test('les trois bulles sortent dans l’ordre demandé', () => {
+test('les deux bulles sortent dans l’ordre demandé', () => {
   const bulles = bullesDuPromptEnvoye(
     tourEssai({
       passages: [{ source: 'docs/regles/cartes.md', titre: 'Cartes', score: 0.6, tokens: 12, texte: 'une règle' }],
@@ -179,12 +180,12 @@ test('les trois bulles sortent dans l’ordre demandé', () => {
 
   assert.deepEqual(
     bulles.map((b) => b.cle),
-    ['demande', 'memoire', 'complet'],
+    ['demande', 'memoire'],
   );
   assert.equal(bulles[0].texte, 'DEMANDE : montre le prompt réel.');
   assert.match(bulles[1].texte, /docs\/regles\/cartes\.md/);
   assert.match(bulles[1].texte, /une règle/);
-  assert.match(bulles[2].texte, /Claude Code — claude-sonnet-5/);
+  assert.match(bulles[1].texte, /Claude Code — claude-sonnet-5/);
 });
 
 test('une demande déjà écrite par l’utilisateur n’est pas redite en bulle', () => {
@@ -193,25 +194,27 @@ test('une demande déjà écrite par l’utilisateur n’est pas redite en bulle
   });
   assert.deepEqual(
     bulles.map((b) => b.cle),
-    ['memoire', 'complet'],
+    ['memoire'],
   );
 });
 
-test('sans aucun passage, la bulle de mémoire dit la raison plutôt que de disparaître', () => {
+test('sans aucun passage, la bulle de mémoire transmise dit quand même la raison', () => {
   const bulles = bullesDuPromptEnvoye(
     tourEssai({ passagesRaison: 'Reprise de session : la mémoire est déjà là.' }),
   );
   const memoire = bulles.find((b) => b.cle === 'memoire');
-  assert.equal(memoire?.texte, 'Reprise de session : la mémoire est déjà là.');
+  assert.match(memoire?.texte ?? '', /Reprise de session : la mémoire est déjà là\./);
 });
 
-test('sans passage ET sans raison, aucune bulle de mémoire n’est posée', () => {
+test('sans aucun passage ni raison, la bulle « Mémoire transmise » reste posée sur le seul prompt', () => {
   assert.equal(texteDesPassagesRetrouves(tourEssai()), undefined);
   const bulles = bullesDuPromptEnvoye(tourEssai());
-  assert.ok(!bulles.some((b) => b.cle === 'memoire'));
+  const memoire = bulles.find((b) => b.cle === 'memoire');
+  assert.ok(memoire, 'le prompt complet, lui, part toujours');
+  assert.match(memoire?.texte ?? '', /Claude Code — claude-sonnet-5/);
 });
 
-test('la bulle du prompt complet nomme ce qui est parti en même temps', () => {
+test('la bulle « Mémoire transmise » nomme ce qui est parti en même temps', () => {
   const bulles = bullesDuPromptEnvoye(
     tourEssai({
       blocks: [
@@ -220,8 +223,22 @@ test('la bulle du prompt complet nomme ce qui est parti en même temps', () => {
       ],
     }),
   );
-  const complet = bulles.find((b) => b.cle === 'complet');
-  assert.deepEqual(complet?.noms, ['Briefing du projet']);
+  const memoire = bulles.find((b) => b.cle === 'memoire');
+  assert.deepEqual(memoire?.noms, ['Briefing du projet']);
+});
+
+test('la bulle « Mémoire transmise » combine le texte des deux volets qu’elle remplace', () => {
+  const bulles = bullesDuPromptEnvoye(
+    tourEssai({
+      passages: [{ source: 'docs/regles/cartes.md', titre: 'Cartes', score: 0.6, tokens: 12, texte: 'une règle' }],
+    }),
+  );
+  const memoire = bulles.find((b) => b.cle === 'memoire');
+  assert.equal(memoire?.titre, 'Mémoire transmise');
+  // Le texte réuni contient bien ce que rendaient les deux anciennes bulles :
+  // le passage retrouvé (mémoire) ET le prompt complet.
+  assert.match(memoire?.texte ?? '', /une règle/);
+  assert.match(memoire?.texte ?? '', /Claude Code — claude-sonnet-5/);
 });
 
 /*
@@ -364,10 +381,34 @@ test('les passages retrouvés comptent pour une seule entrée, et un nom répét
   assert.ok(!noms.some((nom) => /jetons?|tokens?/i.test(nom)));
 });
 
-test('la conversation affiche ces données parallèles dans la bulle du prompt complet', () => {
+test('la conversation affiche ces données parallèles dans la bulle « Mémoire transmise »', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
   assert.ok(vue.includes('bulle.noms'), 'la bulle rend les noms venus de la règle partagée');
   assert.ok(vue.includes('data-donnees-paralleles'), 'et les pose sous un repère d’écran');
+});
+
+/*
+ * LES DEUX LABELS COLORÉS. La bulle unique regroupe deux volets qui portaient
+ * chacun leur propre couleur de ligne (gris relu au cache, jaune neuf) : un
+ * petit repère dit ce que chaque couleur veut dire, une fois pour la bulle.
+ */
+
+test('les deux labels « Mémoire cache » et « Mémoire ajoutée » sont posés, chacun sa couleur', () => {
+  const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
+  assert.ok(vue.includes('data-label-cache'), 'le label du cache porte son repère d’écran');
+  assert.ok(vue.includes('data-label-ajoutee'), 'le label du neuf porte son repère d’écran');
+  assert.ok(/Mémoire cache/.test(vue));
+  assert.ok(/Mémoire ajoutée/.test(vue));
+  const zoneCache = vue.slice(vue.indexOf('data-label-cache') - 40, vue.indexOf('data-label-cache') + 200);
+  assert.ok(/text-faint/.test(zoneCache), 'le label du cache reprend le gris déjà utilisé pour le cache');
+  const zoneAjoutee = vue.slice(vue.indexOf('data-label-ajoutee') - 40, vue.indexOf('data-label-ajoutee') + 200);
+  assert.ok(/text-nouveau/.test(zoneAjoutee), 'le label du neuf reprend le jaune déjà utilisé pour le neuf');
+});
+
+test('la fusion réunit ce que rendaient les deux anciennes bulles, sous un titre changé', () => {
+  const partage = fs.readFileSync(path.join(RACINE, 'shared', 'src', 'prompt-envoye.ts'), 'utf8');
+  assert.ok(!/'complet'/.test(partage), 'la clé « complet » a disparu, absorbée par « memoire »');
+  assert.ok(partage.includes("titre: 'Mémoire transmise'"), 'le titre est changé');
 });
 
 test('le prompt envoyé est conservé même quand aucun message utilisateur n’est écrit', () => {

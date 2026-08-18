@@ -3,8 +3,9 @@
  * LE PROMPT ENVOYÉ se lit-il SANS RIEN OUVRIR ? Il n'y a plus ni pastille ni
  * tiroir : sous chaque demande réellement partie, des BULLES de message se
  * posent dans le fil, alignées à droite dans le même encadré gris — la demande,
- * la mémoire retrouvée, puis le prompt complet. Une bulle trop longue ne montre
- * que ses cinq premières lignes, avec « voir plus » en bas.
+ * puis « Mémoire transmise » (mémoire retrouvée et prompt complet réunis, avec
+ * ses deux labels colorés). Une bulle trop longue ne montre que ses premières
+ * lignes, avec « voir plus » en bas.
  * Démon et base d'essai à soi, aucun moteur appelé, téléphone + ordinateur.
  */
 import { chromium } from 'playwright';
@@ -385,61 +386,56 @@ try {
 
       /*
        * LA DEMANDE TAPÉE N'EST PAS REDITE : sa bulle est déjà juste au-dessus.
-       * Restent la mémoire retrouvée, puis le prompt complet — dans cet ordre.
+       * Reste une seule bulle : « Mémoire transmise » — mémoire retrouvée et
+       * prompt complet réunis.
        */
       const premier = groupes.first();
       const ordre = await premier.locator('[data-bulle-prompt]').evaluateAll((els) =>
         els.map((el) => el.getAttribute('data-bulle-prompt')),
       );
-      noter(`${cas.nom} : les bulles sortent dans l’ordre, sans redire la demande tapée`, JSON.stringify(ordre) === JSON.stringify(['memoire', 'complet']), ordre.join(' → '));
+      noter(`${cas.nom} : une seule bulle sort, sans redire la demande tapée`, JSON.stringify(ordre) === JSON.stringify(['memoire']), ordre.join(' → '));
 
       /*
-       * ALIGNÉES À DROITE, DANS LE MÊME ENCADRÉ GRIS QUE LES DEMANDES : c'est ce
-       * qui les fait lire comme des messages de l'utilisateur.
+       * ISOLÉE, DANS SON PROPRE ENCADRÉ — jamais le gris des messages : elle
+       * n'est pas un message de l'utilisateur, c'est ce que la machine a
+       * transmis à côté de lui.
        */
-      const place = await premier.locator('[data-bulle-prompt="complet"]').first().evaluate((el) => {
-        const parent = el.parentElement;
-        const p = parent.getBoundingClientRect();
-        const b = el.getBoundingClientRect();
+      const memoire1 = premier.locator('[data-bulle-prompt="memoire"]').first();
+      const encadre1 = await memoire1.evaluate((el) => {
         const sonde = document.createElement('div');
         sonde.style.background = 'hsl(var(--raised))';
         document.body.appendChild(sonde);
-        const grisAttendu = getComputedStyle(sonde).backgroundColor;
+        const gris = getComputedStyle(sonde).backgroundColor;
         sonde.remove();
-        return {
-          aDroite: b.left > p.left + 8 && Math.abs(b.right - p.right) < 2,
-          gris: getComputedStyle(el).backgroundColor === grisAttendu,
-        };
+        return { memeGris: getComputedStyle(el).backgroundColor === gris };
       });
-      noter(`${cas.nom} : la bulle est alignée à droite`, place.aDroite);
-      noter(`${cas.nom} : la bulle porte le même encadré gris que les demandes`, place.gris);
-
-      const memoire1 = premier.locator('[data-bulle-prompt="memoire"]').first();
+      noter(`${cas.nom} : la bulle ne reprend pas le gris des messages`, !encadre1.memeGris);
       noter(
-        `${cas.nom} : la bulle de mémoire dit pourquoi rien n’a été retrouvé`,
+        `${cas.nom} : la bulle dit pourquoi rien n’a été retrouvé de neuf`,
         /Reprise de session/.test(await memoire1.innerText()),
       );
-      const complet1 = premier.locator('[data-bulle-prompt="complet"]').first();
-      const texteComplet1 = await complet1.innerText();
+      const texteMemoire1 = await memoire1.innerText();
       noter(
-        `${cas.nom} : la bulle du prompt complet nomme ce qui est parti à côté`,
-        /Transmis en même temps/.test(texteComplet1) && /mémoire/i.test(texteComplet1),
+        `${cas.nom} : elle nomme ce qui est parti à côté`,
+        /Transmis en même temps/.test(texteMemoire1) && /mémoire/i.test(texteMemoire1),
       );
-      noter(`${cas.nom} : aucun compteur de jetons dans les bulles`, !/\d[\s ]*tokens?\b/i.test(texteComplet1));
+      noter(`${cas.nom} : aucun compteur de jetons dans la bulle`, !/\d[\s ]*tokens?\b/i.test(texteMemoire1));
+      noter(
+        `${cas.nom} : le titre est bien « Mémoire transmise », avec ses deux labels`,
+        /Mémoire transmise/.test(texteMemoire1) &&
+          (await memoire1.locator('[data-label-cache]').count()) === 1 &&
+          (await memoire1.locator('[data-label-ajoutee]').count()) === 1,
+      );
 
       /*
-       * LA COUPE À CINQ LIGNES. Le prompt complet fait des dizaines de lignes :
-       * replié il tient dans la conversation, « voir plus » le déroule.
+       * LA COUPE À TROIS LIGNES. La bulle réunit mémoire et prompt complet,
+       * donc plusieurs dizaines de lignes : repliée elle tient dans la
+       * conversation, « voir plus » la déroule.
        */
-      const texte1 = complet1.locator('[data-texte-bulle]').first();
+      const texte1 = memoire1.locator('[data-texte-bulle]').first();
       const replie = await texte1.boundingBox();
-      const voirPlus = complet1.locator('[data-voir-plus]').first();
-      noter(`${cas.nom} : le prompt complet est replié derrière « voir plus »`, (await voirPlus.count()) === 1);
-      noter(
-        `${cas.nom} : replié, il ne montre que cinq lignes`,
-        !!replie && replie.height <= 5 * 1.6 * 13.5 + 2,
-        replie ? `${Math.round(replie.height)} px` : '(introuvable)',
-      );
+      const voirPlus = memoire1.locator('[data-voir-plus]').first();
+      noter(`${cas.nom} : la bulle est repliée derrière « voir plus »`, (await voirPlus.count()) === 1);
       await voirPlus.click();
       await page.waitForTimeout(400);
       const deroule = await texte1.boundingBox();
@@ -448,40 +444,25 @@ try {
         !!deroule && !!replie && deroule.height > replie.height,
       );
       noter(
-        `${cas.nom} : déroulé, il rend le texte réel du prompt`,
-        (await complet1.innerText()).includes(MEMOIRE_SUIVI.slice(0, 40)),
+        `${cas.nom} : déroulée, elle rend le texte réel du prompt`,
+        (await memoire1.innerText()).includes(MEMOIRE_SUIVI.slice(0, 40)),
       );
-      await complet1.locator('[data-voir-plus]').first().click();
+      await memoire1.locator('[data-voir-plus]').first().click();
       await page.waitForTimeout(300);
 
       // Le SECOND tour porte SES propres passages, jamais ceux du premier.
       const second = groupes.nth(1);
 
-      /*
-       * LA MÉMOIRE RETROUVÉE FAIT BANDE À PART : son propre encadré (jamais le
-       * gris des messages), repliée sur trois lignes, ouverte d'un clic sur son
-       * entête. Collée au prompt complet dans le même gris, elle se lisait comme
-       * sa première moitié et poussait la réponse hors de l'écran.
-       */
       const memoire2 = second.locator('[data-bulle-prompt="memoire"]').first();
       noter(
         `${cas.nom} : la bulle de mémoire porte son propre encadré`,
         (await second.locator('[data-bulle-prompt="memoire"][data-bulle-isolee]').count()) === 1,
       );
-      const encadre = await memoire2.evaluate((el) => {
-        const sonde = document.createElement('div');
-        sonde.style.background = 'hsl(var(--raised))';
-        document.body.appendChild(sonde);
-        const gris = getComputedStyle(sonde).backgroundColor;
-        sonde.remove();
-        return { memeGris: getComputedStyle(el).backgroundColor === gris };
-      });
-      noter(`${cas.nom} : elle ne reprend pas le gris des messages`, !encadre.memeGris);
 
       const texteMemoire2 = memoire2.locator('[data-texte-bulle]').first();
       const memRepliee = await texteMemoire2.boundingBox();
       noter(
-        `${cas.nom} : repliée, la mémoire ne montre que trois lignes`,
+        `${cas.nom} : repliée, elle ne montre que trois lignes`,
         !!memRepliee && memRepliee.height <= 3 * 1.6 * 13.5 + 2,
         memRepliee ? `${Math.round(memRepliee.height)} px` : '(introuvable)',
       );
@@ -500,7 +481,7 @@ try {
         !!memRefermee && !!memDepliee && memRefermee.height < memDepliee.height,
       );
 
-      // Déroulé d'abord : replié, un texte long ne rend que ses cinq lignes.
+      // Déroulé d'abord : replié, un texte long ne rend que ses premières lignes.
       const aDerouler = second.locator('[data-voir-plus]');
       for (let i = 0; i < (await aDerouler.count()); i += 1) {
         await aDerouler.nth(i).click().catch(() => {});
@@ -527,7 +508,7 @@ try {
       // « Copier » vit maintenant SOUS la bulle, hors de son encadré : on le
       // cherche dans le groupe entier (icône + bulle + bouton), pas dans le
       // seul encadré coloré.
-      await second.locator('[data-bulle-groupe="complet"]').getByRole('button', { name: /Copier/ }).first().click();
+      await second.locator('[data-bulle-groupe="memoire"]').getByRole('button', { name: /Copier/ }).first().click();
       const copie = await page.evaluate(() => window.__contexteCopie);
       noter(
         `${cas.nom} : la copie contient le texte réel de ce tour`,
@@ -569,15 +550,15 @@ try {
 
       /*
        * UNE CARTE LANCÉE PAR UN BOUTON n'a aucune bulle de demande : la
-       * PREMIÈRE bulle porte donc la demande elle-même, puis la mémoire
-       * retrouvée, puis le prompt complet.
+       * PREMIÈRE bulle porte donc la demande elle-même, puis « Mémoire
+       * transmise » (mémoire retrouvée et prompt complet réunis).
        */
       const ordre = await bloc.locator('[data-bulle-prompt]').evaluateAll((els) =>
         els.map((el) => el.getAttribute('data-bulle-prompt')),
       );
       noter(
-        'carte : les trois bulles sont là, dans l’ordre',
-        JSON.stringify(ordre) === JSON.stringify(['demande', 'memoire', 'complet']),
+        'carte : les deux bulles sont là, dans l’ordre',
+        JSON.stringify(ordre) === JSON.stringify(['demande', 'memoire']),
         ordre.join(' → '),
       );
       noter(
@@ -593,16 +574,16 @@ try {
       );
 
       /*
-       * LES PASSAGES RETROUVÉS ont leur bulle à eux : source, titre — et leur
-       * texte réel, pas un coût en tokens. Un contexte choisi par la machine
-       * doit rester lisible, sinon personne ne peut dire pourquoi l'agent a lu
-       * ceci plutôt que cela.
+       * LES PASSAGES RETROUVÉS se lisent dans la même bulle : source, titre —
+       * et leur texte réel, pas un coût en tokens. Un contexte choisi par la
+       * machine doit rester lisible, sinon personne ne peut dire pourquoi
+       * l'agent a lu ceci plutôt que cela.
        */
       const memoire = bloc.locator('[data-bulle-prompt="memoire"]').first();
       await memoire.locator('[data-voir-plus]').first().click().catch(() => {});
       await page.waitForTimeout(300);
       const texteMemoire = await memoire.innerText();
-      noter('carte : la bulle de mémoire compte les passages retrouvés', /2 passages retrouvés/.test(texteMemoire));
+      noter('carte : la bulle « Mémoire transmise » compte les passages retrouvés', /2 passages retrouvés/.test(texteMemoire));
       noter(
         'carte : elle nomme les deux passages retrouvés',
         /docs\/regles\/cartes\.md/.test(texteMemoire) && /ajouter-une-colonne\.md/.test(texteMemoire),
@@ -611,14 +592,9 @@ try {
         'carte : le texte du premier passage est affiché en clair',
         /Une carte NAÎT dans « Planifié »/.test(texteMemoire),
       );
-
-      const complet = bloc.locator('[data-bulle-prompt="complet"]').first();
-      await complet.locator('[data-voir-plus]').first().click().catch(() => {});
-      await page.waitForTimeout(300);
-      const texteComplet = await complet.innerText();
       noter(
-        'carte : le prompt complet rend le texte réel du briefing',
-        texteComplet.includes('BRIEFING DU PROJET — Essai contexte envoyé.'),
+        'carte : la même bulle rend aussi le texte réel du briefing (prompt complet)',
+        texteMemoire.includes('BRIEFING DU PROJET — Essai contexte envoyé.'),
       );
       noter('carte : aucun compteur de jetons dans les bulles', !/\d[\s ]*tokens?\b/i.test(await bloc.innerText()));
       noter('carte : aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');

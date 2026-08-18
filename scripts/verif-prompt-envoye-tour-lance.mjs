@@ -421,11 +421,12 @@ async function main() {
         !!placeBloc && !!placeReponse && placeBloc.y < placeReponse.y,
       );
 
-      /* LA BULLE DU PROMPT COMPLET : ce qui est parti en entier, avec les NOMS
-         de ce qui l'accompagnait, lisibles sans rien ouvrir. */
-      const complet = bloc.locator('[data-bulle-prompt="complet"]').first();
-      noter('la dernière bulle porte le prompt complet', (await complet.count()) === 1);
-      const paralleles = complet.locator('[data-donnees-paralleles]').first();
+      /* LA BULLE « MÉMOIRE TRANSMISE » : mémoire retrouvée ET prompt complet
+         réunis, avec les NOMS de ce qui l'accompagnait, lisibles sans rien
+         ouvrir. */
+      const memoire = bloc.locator('[data-bulle-prompt="memoire"]').first();
+      noter('la dernière bulle porte la mémoire transmise', (await memoire.count()) === 1);
+      const paralleles = memoire.locator('[data-donnees-paralleles]').first();
       const texteParalleles = (await paralleles.count()) ? await paralleles.innerText() : '';
       noter(
         'ce qui est parti en même temps se lit sans rien ouvrir',
@@ -436,26 +437,23 @@ async function main() {
         'aucun compteur de jetons dans ces repères',
         !/\d+\s*(jetons?|tokens?)/i.test(texteParalleles),
       );
+      noter(
+        'les deux labels colorés (cache, ajoutée) sont posés',
+        (await memoire.locator('[data-label-cache]').count()) === 1 &&
+          (await memoire.locator('[data-label-ajoutee]').count()) === 1,
+      );
 
-      /* LA COUPE À CINQ LIGNES : le prompt complet est long, il ne peut pas
+      /* LA COUPE À CINQ LIGNES : la bulle est longue, elle ne peut pas
          s'étaler dans le fil — « voir plus » le déroule. */
-      const voirPlus = complet.locator('[data-voir-plus]').first();
-      noter('le prompt complet est replié derrière « voir plus »', (await voirPlus.count()) === 1);
-      const hauteurRepliee = await complet.locator('[data-texte-bulle]').boundingBox();
+      const voirPlus = memoire.locator('[data-voir-plus]').first();
+      noter('la bulle est repliée derrière « voir plus »', (await voirPlus.count()) === 1);
+      const hauteurRepliee = await memoire.locator('[data-texte-bulle]').boundingBox();
       await voirPlus.click().catch(() => {});
       await page.waitForTimeout(400);
-      const hauteurDeroulee = await complet.locator('[data-texte-bulle]').boundingBox();
+      const hauteurDeroulee = await memoire.locator('[data-texte-bulle]').boundingBox();
       noter(
         '« voir plus » déroule réellement le reste du texte',
         !!hauteurRepliee && !!hauteurDeroulee && hauteurDeroulee.height > hauteurRepliee.height,
-      );
-
-      /* LES PASSAGES DE MÉMOIRE ont leur propre bulle, entre les deux autres. */
-      const memoire = bloc.locator('[data-bulle-prompt="memoire"]');
-      noter(
-        'les passages de mémoire ont leur bulle quand il y en a',
-        passages.length === 0 || (await memoire.count()) === 1,
-        `${await memoire.count()} bulle(s) pour ${passages.length} passage(s) enregistré(s)`,
       );
     }
 
