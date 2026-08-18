@@ -30,6 +30,26 @@
  *     `/home/paseo` EN DUR : ils suivent le déménagement mais pointent encore
  *     l'ancien chemin.
  *
+ * LES CINQ POINTS QUE LA BASCULE DU 18/08/2026 A LAISSÉS DERRIÈRE ELLE, et que
+ * ce script reprend désormais tout seul (aucun ne se voit dans `git grep`) :
+ *   – `~/.ssh/config` écrit `IdentityFile` en chemin ABSOLU. Le fichier suit le
+ *     dossier personnel, son contenu non : plus aucune clé n'est trouvée et TOUT
+ *     `git push` par SSH échoue, y compris l'étape « Envoi sur le dépôt » d'une
+ *     publication (`no such identity: /home/paseo/.ssh/id_ed25519`).
+ *   – `data/accounts/<id>/meta.json` porte `configDir` SUR LE DISQUE, à côté de
+ *     la même valeur en base. `bootstrapAccounts` relit ce FICHIER
+ *     (`server/src/accounts.ts`) : corriger la base seule tient jusqu'au premier
+ *     redémarrage, où le compte moteur repart sur un dossier disparu.
+ *   – `data/competences/*` sont des LIENS SYMBOLIQUES vers `~/.claude/skills/*`.
+ *     `usermod` déplace la cible, jamais le lien : les compétences partagées
+ *     deviennent des liens morts et le pool entier sort du service, sans une
+ *     seule erreur visible.
+ *   – `/etc/subuid` et `/etc/subgid` nomment le compte en tête de ligne et
+ *     `usermod` ne les touche pas : sans reprise, le compte perd ses plages
+ *     d'identifiants subordonnés, de quoi casser le bac à sable du chef.
+ *   – les `Description=` des units et les commentaires du crontab nomment le
+ *     compte. Cosmétique, mais c'est ce qu'un audit lit en premier.
+ *
  * CE QU'IL NE TOUCHE PAS, VOLONTAIREMENT : toute mention de « Paseo »
  * l'ANCIENNE APPLICATION — PLAN.md, les commentaires « piège Paseo »,
  * `reprise-paseo.mjs` qui lit son vrai dossier `/home/paseo/.paseo/tasks`.
@@ -50,7 +70,12 @@ const ANCIEN_HOME = `/home/${ANCIEN}`;
 const NOUVEAU_HOME = `/home/${NOUVEAU}`;
 // Même convention que les autres scripts du projet : HAIKODEV_DATA désigne le
 // dossier de données. Sert aussi à éprouver ce script sur une base jetable.
-const BASE = `${process.env.HAIKODEV_DATA ?? '/root/haikodev/data'}/haikodev.db`;
+const DOSSIER_DONNEES = process.env.HAIKODEV_DATA ?? '/root/haikodev/data';
+const BASE = `${DOSSIER_DONNEES}/haikodev.db`;
+/** Les fiches d'identité des comptes moteurs, SUR LE DISQUE (doublon de la base). */
+const DOSSIER_COMPTES = `${DOSSIER_DONNEES}/accounts`;
+/** Les compétences partagées : un dossier de LIENS vers `~/.claude/skills/*`. */
+const DOSSIER_COMPETENCES = `${DOSSIER_DONNEES}/competences`;
 const SQLITE = '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 
 /** Les services à coucher avant la bascule, dans cet ordre. */
@@ -73,6 +98,13 @@ const FICHIERS_HORS_HOME = [
   '/etc/systemd/system/cerveau-cli-memory-watch-root.service',
   '/etc/systemd/system/cerveau-whatsapp.service',
 ];
+
+/**
+ * Les plages d'identifiants subordonnés : elles nomment le compte EN TÊTE DE
+ * LIGNE et `usermod` ne les touche pas. Sans reprise, le compte les perd, et
+ * avec elles le bac à sable qui garde le projet en lecture seule pour le chef.
+ */
+const FICHIERS_SUBID = ['/etc/subuid', '/etc/subgid'];
 
 const SUDOERS_ANCIEN = `/etc/sudoers.d/${ANCIEN}`;
 const SUDOERS_NOUVEAU = `/etc/sudoers.d/${NOUVEAU}`;
@@ -99,7 +131,17 @@ const ZONES_DU_HOME = [
 ];
 
 /** Les fichiers isolés du dossier personnel, nommés un par un. */
-const FICHIERS_DU_HOME = ['.bashrc', '.profile', '.bash_profile', '.bash_aliases', '.claude/settings.json'];
+const FICHIERS_DU_HOME = [
+  '.bashrc',
+  '.profile',
+  '.bash_profile',
+  '.bash_aliases',
+  '.claude/settings.json',
+  // Le fichier qui a fait tomber la publication du 18/08/2026 : `IdentityFile`
+  // y est écrit en chemin ABSOLU. Il déménage avec le dossier personnel, son
+  // contenu continue de nommer l'ancien, et plus aucune clé SSH n'est trouvée.
+  '.ssh/config',
+];
 
 /**
  * Les scripts du dossier personnel qui portent l'ancien nom DANS LEUR NOM.
@@ -127,6 +169,20 @@ function reecrire(texte) {
   let t = texte.split(ANCIEN_HOME).join(NOUVEAU_HOME);
   for (const [avant, apres] of SCRIPTS_RENOMMES) t = t.split(avant).join(apres);
   return t;
+}
+
+/**
+ * Le nom du compte écrit EN CLAIR, hors chemin : la `Description=` d'une unit,
+ * un commentaire de crontab. Purement cosmétique — mais c'est ce qu'un audit
+ * lit en premier. Volontairement ÉTROIT : un « paseo → haiko » lâché partout
+ * réécrirait les mentions de l'ANCIENNE APPLICATION Paseo, qui sont des faits.
+ */
+function nommeLeCompteEnClair(texte) {
+  const mot = new RegExp(`\\b${ANCIEN}\\b`, 'g');
+  return texte
+    .split('\n')
+    .map((l) => (/^(Description=|\s*#)/.test(l) ? l.replace(mot, NOUVEAU) : l))
+    .join('\n');
 }
 
 const dit = (...a) => console.log(...a);
@@ -271,6 +327,7 @@ dit(`  2. couper les ${processus.length} processus restants du compte`);
 dit(`  3. usermod -l ${NOUVEAU} -d ${NOUVEAU_HOME} -m ${ANCIEN}  +  groupmod -n ${NOUVEAU} ${ANCIEN}`);
 dit(`  3b. renommer ${SCRIPTS_RENOMMES.length} scripts du dossier personnel (paseo-… → haiko-…)`);
 dit(`  4. ${SUDOERS_ANCIEN} → ${SUDOERS_NOUVEAU} (sudo du compte), vérifié par visudo`);
+dit(`  4b. ${FICHIERS_SUBID.join(', ')} : le compte en tête de ligne`);
 dit(`  5. ${CRON_ANCIEN} → ${CRON_NOUVEAU} (tâches planifiées du compte)`);
 dit(`  6. réécrire ${ANCIEN_HOME} → ${NOUVEAU_HOME} dans :`);
 for (const f of FICHIERS_HORS_HOME) dit(`       ${f}`);
@@ -278,6 +335,8 @@ dit('       la crontab de root');
 dit(`       ${FICHIER_DU_DEPOT} (le dépôt suit, s’il est là)`);
 dit('       les hooks, réglages et exécutables du dossier personnel');
 dit('  7. en base : le dossier de configuration des comptes moteurs (accounts.configDir)');
+dit(`  7b. sur le disque : ${DOSSIER_COMPTES}/*/meta.json (le MÊME configDir, relu au démarrage)`);
+dit(`  7c. ${DOSSIER_COMPETENCES}/* : refaire les liens des compétences partagées`);
 dit(`  8. chown -R ${NOUVEAU}:${NOUVEAU} /root/haikodev`);
 dit('  9. daemon-reload, puis rallumer les services');
 dit(' 10. recenser ce qui cite ENCORE l’ancien chemin, sans y toucher');
@@ -346,11 +405,28 @@ if (fs.existsSync(SUDOERS_ANCIEN)) {
   dit(`  – absent : ${SUDOERS_ANCIEN}`);
 }
 
+titre('4b. Les plages d’identifiants subordonnés');
+for (const f of FICHIERS_SUBID) {
+  if (!fs.existsSync(f)) {
+    dit(`  – absent : ${f}`);
+    continue;
+  }
+  const avant = fs.readFileSync(f, 'utf8');
+  const apres = avant.replace(new RegExp(`^${ANCIEN}:`, 'gm'), `${NOUVEAU}:`);
+  if (avant === apres) {
+    dit(`  – rien à changer : ${f}`);
+    continue;
+  }
+  fs.copyFileSync(f, `${f}.avant-haiko`);
+  fs.writeFileSync(f, apres);
+  dit(`  ✓ ${f}`);
+}
+
 titre('5. Les tâches planifiées du compte');
 {
   const source = fs.existsSync(CRON_NOUVEAU) ? CRON_NOUVEAU : CRON_ANCIEN;
   if (fs.existsSync(source)) {
-    const texte = reecrire(fs.readFileSync(source, 'utf8'));
+    const texte = nommeLeCompteEnClair(reecrire(fs.readFileSync(source, 'utf8')));
     fs.writeFileSync(CRON_NOUVEAU, texte, { mode: 0o600 });
     essaie('chown', [`${NOUVEAU}:crontab`, CRON_NOUVEAU]);
     fs.chmodSync(CRON_NOUVEAU, 0o600);
@@ -374,24 +450,29 @@ const remplace = (chemin) => {
 for (const f of FICHIERS_HORS_HOME) remplace(f);
 remplace(FICHIER_DU_DEPOT);
 
-// Les units nomment aussi le compte, pas seulement son dossier.
+// Les units nomment aussi le compte, pas seulement son dossier — dans
+// `User=`/`Group=`, qui comptent, et dans leur `Description=`, qui ne compte
+// que pour l'œil d'un auditeur. Les deux sont repris.
 const nommeLeCompte = (f) => {
   if (!fs.existsSync(f)) return;
-  const t = fs
-    .readFileSync(f, 'utf8')
-    .replace(/^User=paseo$/m, `User=${NOUVEAU}`)
-    .replace(/^Group=paseo$/m, `Group=${NOUVEAU}`);
+  const t = nommeLeCompteEnClair(
+    fs
+      .readFileSync(f, 'utf8')
+      .replace(new RegExp(`^User=${ANCIEN}$`, 'm'), `User=${NOUVEAU}`)
+      .replace(new RegExp(`^Group=${ANCIEN}$`, 'm'), `Group=${NOUVEAU}`),
+  );
   fs.writeFileSync(f, t);
 };
 for (const f of FICHIERS_HORS_HOME) nommeLeCompte(f);
 nommeLeCompte(FICHIER_DU_DEPOT);
 
 const cron = essaie('crontab', ['-l']);
-if (cron && cron !== reecrire(cron)) {
-  fs.writeFileSync('/tmp/crontab-haiko', `${reecrire(cron)}\n`);
+const cronRevu = cron === null ? null : nommeLeCompteEnClair(reecrire(cron));
+if (cron && cron !== cronRevu) {
+  fs.writeFileSync('/tmp/crontab-haiko', `${cronRevu}\n`);
   fait('crontab', ['/tmp/crontab-haiko']);
 } else {
-  dit('  – la crontab de root ne cite pas l’ancien chemin');
+  dit('  – la crontab de root ne cite pas l’ancien compte');
 }
 
 titre('6b. La configuration du dossier personnel');
@@ -430,6 +511,55 @@ try {
   dit('    (table accounts, champ data, clé configDir).');
 }
 
+titre('7b. Sur le disque : les fiches d’identité des comptes moteurs');
+{
+  let n = 0;
+  let vus = 0;
+  for (const e of fs.existsSync(DOSSIER_COMPTES) ? fs.readdirSync(DOSSIER_COMPTES) : []) {
+    const meta = path.join(DOSSIER_COMPTES, e, 'meta.json');
+    if (!fs.existsSync(meta)) continue;
+    vus += 1;
+    const avant = fs.readFileSync(meta, 'utf8');
+    if (!avant.includes(ANCIEN_HOME)) continue;
+    fs.copyFileSync(meta, `${meta}.avant-haiko`);
+    fs.writeFileSync(meta, avant.split(ANCIEN_HOME).join(NOUVEAU_HOME));
+    dit(`  ✓ ${meta}`);
+    n += 1;
+  }
+  if (!vus) dit(`  – aucune fiche dans ${DOSSIER_COMPTES}`);
+  else if (!n) dit(`  – ${vus} fiche(s) lue(s), aucune ne cite l’ancien dossier`);
+}
+
+titre('7c. Les liens des compétences partagées');
+{
+  let n = 0;
+  let morts = 0;
+  for (const e of fs.existsSync(DOSSIER_COMPETENCES) ? fs.readdirSync(DOSSIER_COMPETENCES) : []) {
+    const lien = path.join(DOSSIER_COMPETENCES, e);
+    let cible;
+    try {
+      if (!fs.lstatSync(lien).isSymbolicLink()) continue;
+      cible = fs.readlinkSync(lien);
+    } catch {
+      continue;
+    }
+    if (!cible.startsWith(`${ANCIEN_HOME}/`)) continue;
+    const neuve = NOUVEAU_HOME + cible.slice(ANCIEN_HOME.length);
+    if (!fs.existsSync(neuve)) {
+      dit(`  ✗ ${e} : la cible ${neuve} n’existe pas — lien laissé tel quel`);
+      morts += 1;
+      continue;
+    }
+    fs.unlinkSync(lien);
+    fs.symlinkSync(neuve, lien);
+    essaie('chown', ['-h', `${NOUVEAU}:${NOUVEAU}`, lien]);
+    dit(`  ✓ ${e} → ${neuve}`);
+    n += 1;
+  }
+  if (!n && !morts) dit('  – aucun lien à refaire');
+  if (morts) dit(`  ${morts} lien(s) sans cible : le pool des compétences est incomplet, à reprendre à la main`);
+}
+
 titre('8. Propriété du projet');
 fait('chown', ['-R', `${NOUVEAU}:${NOUVEAU}`, '/root/haikodev']);
 
@@ -439,8 +569,19 @@ for (const s of [...SERVICES].reverse()) essaie('systemctl', ['start', s]);
 execFileSync('sleep', ['5']);
 for (const s of SERVICES) dit(`  ${s} : ${essaie('systemctl', ['is-active', s]) ?? 'inconnu'}`);
 
-titre('10. Ce qui cite ENCORE l’ancien chemin (à regarder à la main)');
+titre('10. Ce qui cite ENCORE l’ancien compte (à regarder à la main)');
 const reste = essaie('grep', ['-rIl', ANCIEN_HOME, '/etc', '--exclude=*.avant-haiko']);
 dit(reste || '  (rien dans /etc)');
+const liensMorts = (fs.existsSync(DOSSIER_COMPETENCES) ? fs.readdirSync(DOSSIER_COMPETENCES) : []).filter(
+  (e) => {
+    const l = path.join(DOSSIER_COMPETENCES, e);
+    try {
+      return fs.lstatSync(l).isSymbolicLink() && !fs.existsSync(l);
+    } catch {
+      return false;
+    }
+  },
+);
+dit(liensMorts.length ? `  compétences en lien mort : ${liensMorts.join(', ')}` : '  (aucune compétence en lien mort)');
 
 titre('Terminé');
