@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Le CRÉNEAU CONSEILLÉ : chaque carte posée dit QUAND il serait opportun de la
- * lancer, et personne n'a payé un jeton pour cela.
+ * lancer — et depuis peu, cette heure est déjà le VRAI départ programmé de la
+ * carte, sans qu'un clic de plus soit nécessaire.
  *
  *   node scripts/verif-creneau-conseille.mjs
  *
@@ -12,14 +13,17 @@
  *
  * Ce qui est prouvé, bout en bout :
  *   1. une carte créée par la porte extérieure (donc par le chemin `createCard`,
- *      celui du chef d'orchestre) NAÎT avec son créneau en base ;
+ *      celui du chef d'orchestre) NAÎT avec son créneau en base, ET ce créneau
+ *      est déjà recopié dans `departPrevu` — exactement comme une date posée à
+ *      la main (`creneauAutomatique: true`) ;
  *   2. le créneau gardé ne porte NI date NI phrase — seulement une plage, sa
  *      source et, le cas échéant, la reprise du quota : c'est ce qui le rend
  *      encore vrai trois jours plus tard ;
  *   3. une carte créée AVEC une date de départ n'en reçoit pas : elle a déjà
  *      une réponse ferme ;
- *   4. la carte du tableau AFFICHE le conseil, et le tiroir propose le bouton
- *      qui pose vraiment la date en base ;
+ *   4. la carte du tableau affiche ce départ programmé, avec la mention qui
+ *      explique qu'il vient du créneau conseillé, et un geste (« Retirer la
+ *      date ») permet toujours de l'annuler ou de le changer ;
  *   5. aucun agent n'a été créé : rien n'a été dépensé.
  */
 import { chromium } from 'playwright';
@@ -263,7 +267,7 @@ async function main() {
   poserLeDecor();
   await new Promise((r) => setTimeout(r, 1500));
 
-  /* ---------------- 1. La carte naît avec son créneau ---------------- */
+  /* ---------------- 1. La carte naît avec son créneau DÉJÀ appliqué -------- */
 
   const sansDate = await poserUneCarte(SANS_DATE);
   noter(
@@ -275,6 +279,8 @@ async function main() {
 
   const enBase = ordonnancementsEnBase();
   const creneau = enBase[SANS_DATE]?.creneauConseille;
+  const departAuto = enBase[SANS_DATE]?.departPrevu;
+  const heureAuto = typeof departAuto === 'number' ? new Date(departAuto).getHours() : null;
 
   noter(
     'une carte posée NAÎT avec son créneau conseillé',
@@ -294,27 +300,43 @@ async function main() {
       ),
     Object.keys(creneau ?? {}).join(', ') || '(vide)',
   );
+  noter(
+    'le créneau est DÉJÀ le départ programmé : une carte sans date part quand même toute seule',
+    typeof departAuto === 'number' && heureAuto === 22 && new Date(departAuto).getMinutes() === 0,
+    departAuto ? new Date(departAuto).toLocaleString('fr-CH') : 'aucun départ posé',
+  );
+  noter(
+    'l’origine automatique est tracée, pour que l’écran l’explique',
+    enBase[SANS_DATE]?.creneauAutomatique === true,
+    `creneauAutomatique = ${JSON.stringify(enBase[SANS_DATE]?.creneauAutomatique)}`,
+  );
 
   /* ---------------- 2. Ce que l'écran en montre ---------------- */
 
   const navigateur = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox'] });
   const { page, erreurs } = await ouvrirLeTableau(navigateur);
 
-  const mention = page.locator('[data-creneau-conseille]');
-  const nombre = await mention.count();
-  const texte = nombre ? await mention.first().innerText() : '';
+  const mentionDepart = page.locator('[data-depart-programme]');
+  const nombreDepart = await mentionDepart.count();
+  const texteDepart = nombreDepart ? await mentionDepart.first().innerText() : '';
   noter(
-    'la carte du tableau affiche le conseil',
-    nombre > 0 && /Lancement conseillé|Bon moment pour la lancer/.test(texte),
-    texte.replace(/\n/g, ' ') || 'aucune mention à l’écran',
+    'la carte du tableau affiche déjà un DÉPART PROGRAMMÉ, pas une simple suggestion',
+    nombreDepart > 0 && /Départ programmé/.test(texteDepart),
+    texteDepart.replace(/\n/g, ' ') || 'aucune mention à l’écran',
   );
   noter(
-    'une carte DÉJÀ datée n’en porte pas : une seule mention pour deux cartes',
-    nombre === 1,
-    `${nombre} mention(s)`,
+    'une carte DÉJÀ datée à la main affiche aussi son départ : deux mentions en tout',
+    nombreDepart === 2,
+    `${nombreDepart} mention(s)`,
+  );
+  noter(
+    'aucune carte n’affiche plus la case « créneau conseillé » : elle est déjà devenue le départ',
+    (await page.locator('[data-creneau-conseille]').count()) === 0,
+    `${await page.locator('[data-creneau-conseille]').count()} case(s) restante(s)`,
   );
 
-  /* Le tiroir : la même phrase, plus le bouton qui pose vraiment la date. */
+  /* Le tiroir : la date déjà posée, l'explication de son origine, et le geste
+     qui permet toujours de l'annuler ou de la changer. */
   const carteVue = page.locator('article').filter({ hasText: SANS_DATE.slice(0, 30) }).first();
   await carteVue.scrollIntoViewIfNeeded().catch(() => {});
   await carteVue.click();
@@ -323,27 +345,28 @@ async function main() {
   await tiroir.getByRole('tab', { name: 'Détails' }).click();
   await page.waitForTimeout(900);
 
-  const bloc = tiroir.locator('[data-creneau-conseille]').first();
-  noter('le tiroir porte le conseil', (await bloc.count()) > 0);
-
-  const bouton = tiroir.getByRole('button', { name: /Retenir cette heure/ });
-  noter('il propose de retenir cette heure', (await bouton.count()) > 0);
-
-  await bouton.first().click();
-  await page.waitForTimeout(2500);
-
-  const apres = ordonnancementsEnBase()[SANS_DATE];
-  const pose = apres?.departPrevu;
-  const heurePosee = pose ? new Date(pose).getHours() : null;
+  const origine = tiroir.locator('[data-creneau-applique]').first();
   noter(
-    'le clic pose vraiment la date, à l’heure ronde du créneau',
-    typeof pose === 'number' && heurePosee === 22 && new Date(pose).getMinutes() === 0,
-    pose ? new Date(pose).toLocaleString('fr-CH') : 'aucune date posée',
+    'le tiroir explique que cette date vient du créneau conseillé',
+    (await origine.count()) > 0 && /retenue automatiquement/.test((await origine.innerText()).toLowerCase()),
+    (await origine.count()) > 0 ? await origine.innerText() : 'aucune explication affichée',
+  );
+
+  const retirer = tiroir.getByRole('button', { name: /Retirer la date/ });
+  noter('l’utilisateur peut toujours retirer ce départ automatique', (await retirer.count()) > 0);
+
+  await retirer.first().click();
+  await page.waitForTimeout(2000);
+
+  const apresRetrait = ordonnancementsEnBase()[SANS_DATE];
+  noter(
+    'retirer la date l’efface VRAIMENT en base, et efface le drapeau automatique',
+    apresRetrait?.departPrevu === undefined && apresRetrait?.creneauAutomatique !== true,
+    JSON.stringify({ departPrevu: apresRetrait?.departPrevu, creneauAutomatique: apresRetrait?.creneauAutomatique }),
   );
   noter(
-    'la date posée fait taire le conseil : une seule réponse à l’écran',
-    (await page.locator('[data-creneau-conseille]').count()) === 0,
-    `${await page.locator('[data-creneau-conseille]').count()} mention(s) restante(s)`,
+    'la carte revient à la case « créneau conseillé », prête à être reposée',
+    (await tiroir.getByRole('button', { name: /Retenir cette heure/ }).count()) > 0,
   );
 
   /* ---------------- 3. Rien n'a été dépensé ---------------- */

@@ -19,6 +19,7 @@ import {
   creneauDeLancement,
   creneauOuvert,
   dansLaPlage,
+  mentionCreneauApplique,
   mentionCreneauConseille,
   momentDuCreneau,
   phraseDuCreneau,
@@ -217,4 +218,32 @@ test('la mention se tait sur une carte suspendue et hors des colonnes d’avant 
 
 test('sans créneau, rien à dire — le tableau reste celui d’avant', () => {
   assert.equal(mentionCreneauConseille({ column: 'planned', scheduling: {} }, APRES_MIDI), null);
+});
+
+/* ------------------------------------------------------------------ */
+/* La mention d'une date posée automatiquement                         */
+/* ------------------------------------------------------------------ */
+
+test('la mention d’origine paraît quand le créneau a posé la date tout seul', () => {
+  const carte = {
+    scheduling: { creneauAutomatique: true, creneauConseille: CRENEAU_NUIT, departPrevu: APRES_MIDI + HEURE },
+  };
+  const texte = mentionCreneauApplique(carte);
+  assert.match(texte ?? '', /retenue automatiquement/);
+  assert.match(texte ?? '', /entre 0 h et 5 h/);
+});
+
+test('la mention d’origine se tait sans le drapeau, sans date ou sans créneau', () => {
+  assert.equal(
+    mentionCreneauApplique({ scheduling: { creneauConseille: CRENEAU_NUIT, departPrevu: APRES_MIDI } }),
+    null,
+  );
+  assert.equal(
+    mentionCreneauApplique({ scheduling: { creneauAutomatique: true, creneauConseille: CRENEAU_NUIT } }),
+    null,
+  );
+  assert.equal(
+    mentionCreneauApplique({ scheduling: { creneauAutomatique: true, departPrevu: APRES_MIDI } }),
+    null,
+  );
 });

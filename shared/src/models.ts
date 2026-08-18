@@ -413,8 +413,8 @@ export const SchedulingState = z.object({
    * On garde une PLAGE et ses raisons, jamais une date ni une phrase : rien de
    * ce qui est écrit ici ne dépend de l'heure du calcul, sinon une carte créée
    * en pleine nuit répéterait « c'est le bon moment » tout le lendemain. Le
-   * moment réel se recalcule à l'affichage, et c'est un CLIC qui le recopie
-   * dans `departPrevu`.
+   * moment réel se recalcule à l'affichage. Il reste sur la carte même une
+   * fois `creneauAutomatique` posé : c'est lui qui explique la date retenue.
    */
   creneauConseille: z
     .object({
@@ -425,6 +425,16 @@ export const SchedulingState = z.object({
       pasAvant: z.number().optional(),
     })
     .optional(),
+  /**
+   * `departPrevu` vient-il du créneau conseillé, posé tout seul à la
+   * naissance de la carte — plutôt que d'une date choisie à la main ? Ce
+   * drapeau ne change rien à l'ordonnancement (une date reste une date, quelle
+   * que soit son origine) : il ne sert qu'à l'écran, pour expliquer d'où vient
+   * l'heure affichée. Tout geste de l'utilisateur sur `card.schedule` —
+   * changer la date ou la retirer — l'efface : la carte a alors sa propre
+   * réponse, qui n'a plus besoin d'être expliquée.
+   */
+  creneauAutomatique: z.boolean().optional(),
   /**
    * L'instant où un tour d'EXÉCUTION a pris cette carte en main, retiré quand
    * ce tour a fini de tout ranger (dépôt constaté, branche fusionnée, colonne

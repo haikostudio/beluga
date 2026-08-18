@@ -7,7 +7,6 @@ import {
   finaliserAnalyseDeProposition,
   heritageAnalyseDeProposition,
   contexteHeritePourExecution,
-  RAISON_ATTENTE_LANCEMENT,
 } from '@haikodev/shared';
 
 /* Une base jetable : le test suit réellement proposition → carte → planification. */
@@ -125,7 +124,11 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
 
   const planifiee = store.getCard(validee.id)!;
   assert.equal(planifiee.column, 'planned');
-  assert.equal(planifiee.scheduling?.waitingReason, RAISON_ATTENTE_LANCEMENT);
+  // Le créneau conseillé est déjà devenu le départ à la naissance de la carte
+  // (`createCard`) : elle n'attend donc plus un clic, elle a sa date.
+  assert.equal(planifiee.scheduling?.waitingReason, undefined);
+  assert.equal(typeof planifiee.scheduling?.departPrevu, 'number');
+  assert.equal(planifiee.scheduling?.creneauAutomatique, true);
   assert.equal(store.getLastAgentByCard(validee.id), null, 'aucun second agent d’analyse ne doit naître');
 });
 
@@ -166,7 +169,10 @@ test('une édition du sujet ou une carte ordinaire garde le chiffrage habituel',
   assert.equal(validerCarte(ordinaire.id).ok, true);
   const validee = store.getCard(ordinaire.id)!;
   assert.equal(validee.column, 'planned');
-  assert.equal(validee.scheduling?.waitingReason, RAISON_ATTENTE_LANCEMENT);
+  // Là aussi, le créneau conseillé a déjà posé sa date à la naissance de la
+  // carte : plus rien n'attend un clic.
+  assert.equal(validee.scheduling?.waitingReason, undefined);
+  assert.equal(typeof validee.scheduling?.departPrevu, 'number');
   assert.equal(validee.estimate, undefined, 'aucun chiffrage n’est fabriqué avant le lancement');
   assert.equal(store.getLastAgentByCard(ordinaire.id), null, 'aucun agent ne naît à la validation');
 });

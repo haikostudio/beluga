@@ -26,9 +26,14 @@
  *     l'AFFICHAGE, jamais une réponse écrite en base.
  *
  * La règle est pure : ni base, ni disque, ni horloge cachée — l'instant est
- * toujours passé en argument. Elle CONSEILLE et ne décide de rien : rien n'est
- * lancé, rien n'est programmé, aucune carte ne bouge. Seul un geste de
- * l'utilisateur transforme le conseil en `scheduling.departPrevu`.
+ * toujours passé en argument. Elle CONSEILLE et ne décide de rien : rien
+ * n'est lancé ici, aucune carte ne bouge. C'est `createCard`
+ * (`server/src/tools.ts`) qui, une fois ce conseil obtenu, le recopie tout
+ * seul dans `scheduling.departPrevu` — la carte part alors à l'heure dite
+ * exactement comme si cette date avait été posée à la main. Le geste humain
+ * garde le dernier mot : changer ou retirer cette date reste un clic
+ * (`card.schedule`), et une carte qui naît déjà datée n'a jamais de créneau à
+ * appliquer par-dessus sa date.
  */
 
 import { momentDeDepart } from './depart-programme.js';
@@ -291,6 +296,11 @@ export function phraseDuCreneau(creneau: CreneauConseille, maintenant: number): 
  * travail, sans créneau, sur une carte suspendue — et surtout dès qu'une DATE
  * de départ est posée, car la carte a alors une réponse ferme et le conseil
  * n'aurait plus qu'à la contredire.
+ *
+ * Une carte fraîchement posée porte presque toujours DÉJÀ sa date — c'est
+ * `createCard` qui l'y a mise (voir l'en-tête du fichier) : cette mention ne
+ * reparaît donc que si l'utilisateur a lui-même retiré cette date, sans en
+ * choisir une autre.
  */
 export function mentionCreneauConseille(
   carte: {
@@ -305,4 +315,26 @@ export function mentionCreneauConseille(
   const creneau = carte.scheduling?.creneauConseille;
   if (!creneau) return null;
   return phraseDuCreneau(creneau, maintenant);
+}
+
+/**
+ * La mention qui explique une date posée TOUTE SEULE : « pourquoi cette
+ * heure ? » pour une carte dont le départ vient du créneau conseillé
+ * (`scheduling.creneauAutomatique`), et non d'un choix fait à la main. Rend
+ * `null` dès que ce lien n'existe plus — carte sans date, sans créneau
+ * d'origine, ou date reposée/retirée par un geste de l'utilisateur, qui
+ * efface `creneauAutomatique` (`card.schedule`).
+ */
+export function mentionCreneauApplique(carte: {
+  scheduling?: { creneauAutomatique?: boolean; creneauConseille?: CreneauConseille; departPrevu?: number };
+}): string | null {
+  if (!carte.scheduling?.creneauAutomatique) return null;
+  if (!carte.scheduling?.departPrevu) return null;
+  const creneau = carte.scheduling.creneauConseille;
+  if (!creneau) return null;
+  const pourquoi =
+    creneau.source === 'creux-mesure'
+      ? `la plage la plus calme mesurée sur vos quotas (${plageEnClair(creneau)})`
+      : `les heures creuses réglées (${plageEnClair(creneau)})`;
+  return `Heure retenue automatiquement d'après ${pourquoi}. Changez-la ou retirez-la si elle ne convient pas.`;
 }

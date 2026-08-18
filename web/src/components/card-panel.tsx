@@ -43,6 +43,7 @@ import {
   lireDateDeDepart,
   mentionArchivage,
   mentionDeReprise,
+  mentionCreneauApplique,
   mentionCreneauConseille,
   mentionDepartProgramme,
   momentDuCreneau,
@@ -790,6 +791,7 @@ function DepartProgramme({ card }: { card: Card }) {
   const creneau = card.scheduling?.creneauConseille;
   const conseil = mentionCreneauConseille(card, maintenant);
   const heureConseillee = creneau ? momentDuCreneau(creneau, maintenant) : null;
+  const origineAutomatique = mentionCreneauApplique(card);
 
   const poser = (valeur: string) => {
     const date = lireDateDeDepart(valeur);
@@ -825,6 +827,12 @@ function DepartProgramme({ card }: { card: Card }) {
       <p className="mt-1.5 text-[13px] text-faint">
         {mention ?? t('Sans date, la carte attend votre lancement : rien ne démarre tout seul.')}
       </p>
+
+      {origineAutomatique ? (
+        <p className="mt-1 text-[12px] text-muted" data-creneau-applique={card.id}>
+          {origineAutomatique}
+        </p>
+      ) : null}
 
       {conseil && heureConseillee ? (
         <div
