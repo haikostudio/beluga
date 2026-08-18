@@ -1815,6 +1815,13 @@ async function startTurn(
       // nouvel essai ne rende son propre usage : le tour les additionne.
       usageDesEssaisPrecedents = runState.usage;
       sawError = undefined;
+      if (motif === 'session-morte') {
+        // Le fil que le moteur connaissait a expiré de son côté : le garder
+        // ferait retomber sur le même refus (« No conversation found »). On
+        // l'oublie ICI pour que l'essai suivant reparte sur un fil neuf, sans
+        // attendre d'intervention humaine.
+        store.clearSession(agent.id, cleSession);
+      }
       const suivant = lancerLeMoteur(
         demandeDeRepriseApresPanne(motif, essai),
         store.getSessionId(agent.id, cleSession),

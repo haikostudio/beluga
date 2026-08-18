@@ -38,6 +38,17 @@ test('les bannières vues sur de vraies tâches sont reconnues', () => {
   }
 });
 
+test('une session expirée côté fournisseur (« No conversation found ») est reconnue, et pas comme un refus définitif', () => {
+  const cas = [
+    'No conversation found with session ID: 3f1a2c4e-…',
+    'Error: conversation not found',
+    'session not found for the given id',
+  ];
+  for (const ligne of cas) {
+    assert.equal(motifDePannePassagere({ ok: false, erreur: ligne }), 'session-morte', `« ${ligne} » devrait être reconnue`);
+  }
+});
+
 test('un tour réussi, un arrêt demandé et une limite de quota ne sont jamais des pannes', () => {
   const bannier = 'API Error: 500 Internal server error.';
   assert.equal(motifDePannePassagere({ ok: true, texte: bannier }), null);
@@ -190,4 +201,9 @@ test('le tour du démon passe par la relance, et n’affiche la panne qu’au bo
     'une tâche interrompue par le fournisseur n’est pas marquée en échec',
   );
   assert.match(runtime, /usageDesEssaisPrecedents = runState\.usage/, 'les essais s’additionnent dans la mesure');
+  assert.match(
+    runtime,
+    /motif === 'session-morte'[\s\S]{0,400}store\.clearSession\(agent\.id, cleSession\)/,
+    'une session morte est oubliée avant le nouvel essai, pour repartir sur un fil neuf',
+  );
 });
