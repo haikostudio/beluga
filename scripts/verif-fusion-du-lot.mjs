@@ -56,21 +56,21 @@ const git = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: 'pipe' }).
  * `heurte` dit si la branche réécrit la MÊME ligne du même fichier que la
  * principale — le cas des 74 % de conflits mesurés (`CLAUDE.md`, `MEMOIRE.md`).
  */
-function monterDepot(nom, branches) {
+function monterDepot(nom, branches, partage = 'PARTAGE.md') {
   const cwd = path.join(racine, nom);
   fs.mkdirSync(cwd, { recursive: true });
   git(cwd, 'init', '-q', '-b', 'main');
   git(cwd, 'config', 'user.email', 'essai@haikodev');
   git(cwd, 'config', 'user.name', 'Essai');
-  fs.writeFileSync(path.join(cwd, 'PARTAGE.md'), 'ligne commune\n');
-  git(cwd, 'add', 'PARTAGE.md');
+  fs.writeFileSync(path.join(cwd, partage), 'ligne commune\n');
+  git(cwd, 'add', partage);
   git(cwd, 'commit', '-q', '-m', 'départ');
 
   for (const { branche, heurte } of branches) {
     git(cwd, 'checkout', '-q', '-b', branche, 'main');
     if (heurte) {
-      fs.writeFileSync(path.join(cwd, 'PARTAGE.md'), `réécrit par ${branche}\n`);
-      git(cwd, 'add', 'PARTAGE.md');
+      fs.writeFileSync(path.join(cwd, partage), `réécrit par ${branche}\n`);
+      git(cwd, 'add', partage);
     } else {
       fs.writeFileSync(path.join(cwd, `${branche.replace(/\//g, '-')}.txt`), `le travail de ${branche}\n`);
       git(cwd, 'add', '.');
@@ -80,10 +80,61 @@ function monterDepot(nom, branches) {
   }
   // La principale bouge à son tour : c'est CE commit que la branche « heurte »
   // ne pourra pas fusionner sans arbitrage.
-  fs.writeFileSync(path.join(cwd, 'PARTAGE.md'), 'ligne commune, revue sur la principale\n');
-  git(cwd, 'add', 'PARTAGE.md');
+  fs.writeFileSync(path.join(cwd, partage), 'ligne commune, revue sur la principale\n');
+  git(cwd, 'add', partage);
   git(cwd, 'commit', '-q', '-m', 'revue sur la principale');
   return cwd;
+}
+
+/** Un projet d'essai posé sur un dépôt, avec une carte par branche. */
+function monterProjet(nom, cwd, branches) {
+  const maintenant = Date.now();
+  const projet = store.saveProject({
+    id: store.newId(),
+    name: nom,
+    path: cwd,
+    defaultEngine: 'claude',
+    isSelf: false,
+    rank: 1000,
+    archived: false,
+    // « Aucune » : le seul type qui n'appelle NI agent NI transfert.
+    miseEnProduction: { type: 'aucune' },
+    deploiement: { constate: true },
+    createdAt: maintenant,
+    updatedAt: maintenant,
+  });
+  branches.forEach((branche, i) =>
+    store.saveCard({
+      id: store.newId(),
+      projectId: projet.id,
+      title: `Carte d'essai — ${branche}`,
+      description: '',
+      labels: [],
+      column: 'to_deploy',
+      position: i + 1,
+      origin: 'user',
+      run: { engine: 'claude' },
+      excludedFromDeploy: false,
+      horsTache: false,
+      github: { branch: branche },
+      createdAt: maintenant + i,
+      updatedAt: maintenant + i,
+    }),
+  );
+  return projet;
+}
+
+/** Lancer une publication et attendre qu'elle rende la main. */
+async function publierEtAttendre(projetId) {
+  const lance = await startDeploy(projetId);
+  const fin = Date.now() + 180000;
+  let run = null;
+  while (Date.now() < fin) {
+    run = store.latestDeploy(projetId);
+    if (run && run.state !== 'running') break;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return { lance, run };
 }
 
 /* ------------------------------------------------------------------ */
@@ -150,50 +201,9 @@ const cwd = monterDepot(
   branches.map((branche) => ({ branche, heurte: false })),
 );
 
-const maintenant = Date.now();
-const projet = store.saveProject({
-  id: store.newId(),
-  name: 'essai-fusion-du-lot',
-  path: cwd,
-  defaultEngine: 'claude',
-  isSelf: false,
-  rank: 1000,
-  archived: false,
-  // « Aucune » : le seul type qui n'appelle NI agent NI transfert.
-  miseEnProduction: { type: 'aucune' },
-  deploiement: { constate: true },
-  createdAt: maintenant,
-  updatedAt: maintenant,
-});
-branches.forEach((branche, i) =>
-  store.saveCard({
-    id: store.newId(),
-    projectId: projet.id,
-    title: `Carte d'essai — ${branche}`,
-    description: '',
-    labels: [],
-    column: 'to_deploy',
-    position: i + 1,
-    origin: 'user',
-    run: { engine: 'claude' },
-    excludedFromDeploy: false,
-    horsTache: false,
-    github: { branch: branche },
-    createdAt: maintenant + i,
-    updatedAt: maintenant + i,
-  }),
-);
-
-const lance = await startDeploy(projet.id);
+const projet = monterProjet('essai-fusion-du-lot', cwd, branches);
+const { lance, run } = await publierEtAttendre(projet.id);
 dire(lance.ok, 'la publication démarre', lance.error ?? '');
-
-const fin = Date.now() + 180000;
-let run = null;
-while (Date.now() < fin) {
-  run = store.latestDeploy(projet.id);
-  if (run && run.state !== 'running') break;
-  await new Promise((r) => setTimeout(r, 300));
-}
 
 const etape = run?.steps.find((s) => s.key === 'merge');
 const detail = etape?.log ?? '';
@@ -235,6 +245,81 @@ dire(long.length <= DETAIL_ETAPE_MAX, 'le détail reste sous son plafond', `${lo
 dire(long.startsWith('PREMIÈRE'), 'la TÊTE du détail est gardée : les premières branches du lot');
 dire(long.endsWith('DERNIÈRE'), 'la FIN du détail est gardée : où l’on en est');
 dire(long.includes('milieu a été retiré'), 'et ce qui manque est DIT, jamais retiré en silence');
+
+/* ------------------------------------------------------------------ */
+/* 4. Un heurt de DOCUMENTATION se recolle SANS appeler d'agent        */
+/* ------------------------------------------------------------------ */
+
+console.log('\n4. Un vrai conflit sur CLAUDE.md, recollé sans moteur');
+
+/*
+ * C'est le cas le plus fréquent de tous : 44 des 78 conflits mesurés portaient
+ * sur `CLAUDE.md`, 14 sur `MEMOIRE.md`. Ici la branche réécrit la même ligne du
+ * même fichier que la principale — un VRAI conflit git, pas une simulation. Le
+ * contrôle est probant parce qu'AUCUN moteur n'est joignable dans ce bac à
+ * sable : si un agent était appelé, la carte serait écartée du lot.
+ */
+const doc = ['tache/doc-a', 'tache/doc-b'];
+const cwdDoc = monterDepot(
+  'documentation',
+  [
+    { branche: doc[0], heurte: false },
+    { branche: doc[1], heurte: true },
+  ],
+  'CLAUDE.md',
+);
+const projetDoc = monterProjet('essai-recollage', cwdDoc, doc);
+const { run: runDoc } = await publierEtAttendre(projetDoc.id);
+const etapeDoc = runDoc?.steps.find((s) => s.key === 'merge');
+const filDoc = etapeDoc?.journal ?? [];
+const detailDoc = etapeDoc?.log ?? '';
+
+dire(etapeDoc?.state === 'done', 'l’étape « Fusion des branches » est menée à terme', etapeDoc?.state ?? '—');
+dire(
+  /recollé sans agent/.test(detailDoc),
+  'le heurt sur CLAUDE.md est recollé mécaniquement',
+  detailDoc.split('\n').find((l) => /CLAUDE\.md|recollé/.test(l)) ?? '—',
+);
+dire(
+  filDoc.some((m) => /aucun agent appelé/.test(m.texte)),
+  'et le fil DIT qu’aucun agent n’a été appelé : pas un jeton dépensé',
+);
+dire(
+  !/carte écartée/.test(detailDoc),
+  'aucune carte n’est écartée du lot pour un simple heurt de documentation',
+);
+
+const recolle = fs.readFileSync(path.join(cwdDoc, 'CLAUDE.md'), 'utf8');
+dire(
+  recolle.includes('revue sur la principale') && recolle.includes(`réécrit par ${doc[1]}`),
+  'LES DEUX INTENTIONS sont gardées dans le fichier recollé',
+  recolle.trim().replaceAll('\n', ' | '),
+);
+dire(!/<{7}|={7}|>{7}/.test(recolle), 'et il ne reste AUCUN marqueur de conflit dans le fichier');
+
+/* ------------------------------------------------------------------ */
+/* 5. Où en est chaque tâche du lot                                    */
+/* ------------------------------------------------------------------ */
+
+console.log('\n5. La liste des tâches du lot, portée par la publication');
+
+const taches = runDoc?.taches ?? [];
+dire(taches.length === doc.length, 'chaque carte du lot a sa ligne', `${taches.length} ligne(s)`);
+dire(
+  taches.every((t) => t.titre && t.branche),
+  'chaque ligne porte son titre et sa branche',
+  taches.map((t) => `${t.titre} (${t.branche})`).join(', '),
+);
+dire(
+  runDoc?.state !== 'success' || taches.every((t) => t.etat === 'en-ligne'),
+  'une publication réussie laisse toutes ses tâches « en ligne »',
+  taches.map((t) => `${t.branche} → ${t.etat}`).join(', '),
+);
+dire(
+  taches.some((t) => t.detail?.includes('CLAUDE.md')),
+  'et la tâche recollée garde le NOM du fichier qui avait heurté',
+  taches.map((t) => t.detail ?? '—').join(' | '),
+);
 
 fs.rmSync(racine, { recursive: true, force: true });
 console.log(echecs ? `\n${echecs} refus.` : '\nTout est vérifié.');

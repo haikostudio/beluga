@@ -67,6 +67,13 @@ import {
   mentionDeLOrdre,
   detailDeLEtape,
   lignesNouvelles,
+  conflitPurementDocumentaire,
+  recollerLesDeuxIntentions,
+  mentionDuRecollage,
+  avecEtatDeTache,
+  lotMisEnLigne,
+  type EtatDeTache,
+  type TacheDuLot,
   ajouterAuJournal,
   type EvenementDEtape,
   type GenreDEvenement,
@@ -564,6 +571,56 @@ function tourRefusePourQuota(agentId: string): string | null {
 }
 
 /**
+ * RECOLLER UN HEURT DE DOCUMENTATION SANS APPELER PERSONNE.
+ *
+ * 58 des 78 conflits mesurés par l'audit du 18/08/2026 portaient sur
+ * `CLAUDE.md` et `MEMOIRE.md` : deux fichiers de TEXTE que le briefing demande
+ * à chaque agent de compléter en fin de tâche. Chacun coûtait un agent, un tour
+ * de moteur et trois minutes d'attente — pour faire ce que la consigne dit en
+ * une phrase : garder les deux intentions.
+ *
+ * On le fait donc ici, mécaniquement. La fusion est LAISSÉE EN COURS par
+ * l'appelant : les fichiers en conflit portent leurs marqueurs, on les recolle,
+ * on les enregistre, et `git commit --no-edit` referme la fusion.
+ *
+ * TROIS REFUS, et chacun rend la main à l'agent plutôt que de bricoler : un
+ * fichier hors de la liste fermée (donc du code, ou une prose dont l'ordre a un
+ * sens), un fichier illisible sur le disque, un texte dont les marqueurs ne
+ * sont pas exactement ceux qu'on attend. Rien n'est jamais écrasé : le
+ * recollage AJOUTE, il ne choisit pas de camp.
+ */
+async function recollerLaDocumentation(
+  cwd: string,
+  fichiers: string[],
+): Promise<{ recollee: boolean; recit: string }> {
+  if (!conflitPurementDocumentaire(fichiers)) return { recollee: false, recit: '' };
+
+  for (const fichier of fichiers) {
+    const chemin = path.join(cwd, fichier);
+    let avant: string;
+    try {
+      avant = await fs.promises.readFile(chemin, 'utf8');
+    } catch {
+      return { recollee: false, recit: `fichier illisible (${fichier})` };
+    }
+    const apres = recollerLesDeuxIntentions(avant);
+    if (apres === null) return { recollee: false, recit: `marqueurs inattendus dans ${fichier}` };
+    await fs.promises.writeFile(chemin, apres, 'utf8');
+  }
+
+  // On n'ajoute QUE les fichiers recollés : le dossier est partagé, et un
+  // `git add -A` emporterait ce qu'un autre y a laissé.
+  for (const fichier of fichiers) {
+    const ajout = await runCommand(cwd, `git add -- ${JSON.stringify(fichier)}`);
+    if (!ajout.ok) return { recollee: false, recit: `enregistrement impossible (${fichier})` };
+  }
+  const commit = await runCommand(cwd, 'git commit --no-edit');
+  if (!commit.ok) return { recollee: false, recit: 'la fusion recollée n’a pas pu être enregistrée' };
+
+  return { recollee: true, recit: mentionDuRecollage(fichiers) };
+}
+
+/**
  * Un conflit se résout DANS la publication, pas dans une nouvelle tâche.
  *
  * Avant, une branche en conflit produisait une carte « Résoudre le conflit de
@@ -641,10 +698,27 @@ async function resoudreConflit(
     if ('manque' in pose) return { fusionnee: false, recit: recitFauteDeQuota(pose.manque) };
     const { agent } = pose;
 
-    try {
-      await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'conflit' });
-    } catch (err) {
-      dernierRecit = `agent de résolution en échec (${raisonEchecAgent(err)})`;
+    /*
+     * ET CE TOUR-LÀ EST BORNÉ, comme les quatre autres de la publication.
+     * `sendPrompt` était appelé NU ici, et c'était le SEUL endroit à ne pas
+     * l'être : un agent dont la préparation restait pendue voyait bien son tour
+     * refermé par la veille des tours bloqués, mais refermer un tour dans la
+     * base ne dénoue pas la promesse que cette fusion attend. La fusion restait
+     * « en cours » pour toujours, et seul un clic humain sur « Arrêter »
+     * débloquait la publication (trois cas en vingt-quatre heures dans l'audit
+     * du 18/08/2026, dont un de 27 minutes). Un dépassement devient désormais
+     * un échec de passe ordinaire : la passe suivante prend la main, et à
+     * défaut la carte est écartée du lot — la publication continue.
+     */
+    const tour = await tourDAgentSousPlafond(agent.id, 'conflit', () =>
+      sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'conflit' }),
+    );
+    if (tour.depasse) {
+      dernierRecit = recitTourCoupe('conflit', tour.ecouleMs);
+      continue;
+    }
+    if (tour.erreur) {
+      dernierRecit = `agent de résolution en échec (${raisonEchecAgent(tour.erreur)})`;
       continue;
     }
 
@@ -1028,6 +1102,19 @@ function emit(run: DeployRun): DeployRun {
   const saved = store.saveDeploy({ ...run, steps });
   bus.emit({ type: 'deploy.upsert', run: saved });
   return saved;
+}
+
+/**
+ * OÙ EN EST CETTE TÂCHE-LÀ, dit tout de suite à l'écran.
+ *
+ * La liste des tâches du lot vit sur la publication (`taches`) et se remplit au
+ * fil de la fusion : c'est elle que le tiroir montre en tête, avant les sept
+ * étapes. Une publication d'avant cette règle n'a pas de liste — on ne lui en
+ * invente pas une, et l'écran retombe alors sur le simple compte de cartes.
+ */
+function marquerLaTache(run: DeployRun, cardId: string, etat: EtatDeTache, detail?: string): DeployRun {
+  if (!run.taches?.length) return run;
+  return emit({ ...run, taches: avecEtatDeTache(run.taches, cardId, etat, detail) });
 }
 
 /**
@@ -2152,6 +2239,19 @@ export async function startDeploy(
     state: 'running',
     steps: STEP_ORDER.map((key) => ({ key, state: 'todo' as const, log: '' })),
     cardIds: cards.map((c) => c.id),
+    /*
+     * LA LISTE DES TÂCHES DU LOT, posée dès le départ avec toutes ses cartes
+     * « en attente ». Elle se remplit ensuite au fil de la fusion, et c'est
+     * elle qu'on lit en tête du tiroir : laquelle est passée, laquelle se fait
+     * recoller, laquelle vient d'être écartée. Le compte de `cardIds`, lui, ne
+     * disait qu'un nombre.
+     */
+    taches: cards.map((c) => ({
+      cardId: c.id,
+      titre: c.title,
+      branche: c.github?.branch,
+      etat: 'attente' as const,
+    })),
     // L'étape voyage avec la publication : c'est elle qui dit dans quel bloc le
     // déroulé s'affiche, et d'où le lot repartira en cas de relance.
     cible: etape.cible,
@@ -2289,12 +2389,14 @@ export async function startDeploy(
           if (!branch) continue;
           rang += 1;
           current = progresserEtape(current, 'merge', `Branche ${rang} sur ${aFusionner} : ${branch}`);
+          current = marquerLaTache(current, card.id, 'fusion');
 
           // Une branche déjà nettoyée (carte ancienne, dépôt réinitialisé) ne
           // doit pas faire échouer tout le lot : on le dit et on continue.
           const exists = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
           if (!exists.ok || !exists.out.trim()) {
             lignesDeFusion.push(`${branch} : branche absente, carte ignorée`);
+            current = marquerLaTache(current, card.id, 'absente');
             current = noterAuJournal(
               current,
               'merge',
@@ -2311,6 +2413,7 @@ export async function startDeploy(
           if (result.ok) {
             fusionnees += 1;
             lignesDeFusion.push(`${branch} : fusionnée`);
+            current = marquerLaTache(current, card.id, 'fusionnee');
             current = noterAuJournal(current, 'merge', `${branch} : fusionnée (« ${card.title} »).`, 'issue');
             continue;
           }
@@ -2319,6 +2422,41 @@ export async function startDeploy(
             .trim()
             .split('\n')
             .filter(Boolean);
+
+          /*
+           * UN HEURT DE PURE DOCUMENTATION SE RECOLLE ICI, SANS MOTEUR.
+           *
+           * 74 % des conflits mesurés ne portaient que sur `CLAUDE.md` et
+           * `MEMOIRE.md` — des fichiers de texte que chaque agent complète en
+           * fin de tâche. Chacun coûtait un agent, un tour de moteur et trois
+           * minutes. La fusion est donc laissée EN COURS le temps de l'essai :
+           * réussi, elle est enregistrée telle quelle ; refusé, on annule et
+           * l'agent prend la main exactement comme avant.
+           */
+          if (conflitPurementDocumentaire(enConflit)) {
+            const recollage = await recollerLaDocumentation(cwd, enConflit);
+            if (recollage.recollee) {
+              fusionnees += 1;
+              lignesDeFusion.push(`${branch} : ${recollage.recit}`);
+              current = marquerLaTache(current, card.id, 'recollee', enConflit.join(', '));
+              current = noterAuJournal(
+                current,
+                'merge',
+                `${branch} : ${recollage.recit} — aucun agent appelé.`,
+                'issue',
+              );
+              continue;
+            }
+            if (recollage.recit) {
+              current = noterAuJournal(
+                current,
+                'merge',
+                `${branch} : recollage automatique refusé (${recollage.recit}) — un agent prend la main.`,
+                'depannage',
+              );
+            }
+          }
+
           await runCommand(cwd, 'git merge --abort');
 
           // Le conflit se règle ICI, pendant la publication : plus de carte à
@@ -2326,6 +2464,7 @@ export async function startDeploy(
           lignesDeFusion.push(
             `${branch} : CONFLIT${enConflit.length ? ` (${enConflit.join(', ')})` : ''} — résolution en cours…`,
           );
+          current = marquerLaTache(current, card.id, 'conflit', enConflit.join(', '));
           // Seule la SUITE part au détail : le journal entier s'y recopiait.
           current = setStep(current, 'merge', 'running', aVerser());
           current = noterAuJournal(
@@ -2339,10 +2478,12 @@ export async function startDeploy(
           if (issue.fusionnee) {
             fusionnees += 1;
             lignesDeFusion.push(`${branch} : ${issue.recit}`);
+            current = marquerLaTache(current, card.id, 'fusionnee', issue.recit);
             current = noterAuJournal(current, 'merge', `${branch} : ${issue.recit}`, 'depannage');
             continue;
           }
           ecartees.add(card.id);
+          current = marquerLaTache(current, card.id, 'ecartee', issue.recit);
           lignesDeFusion.push(`${branch} : ${issue.recit} — carte écartée de cette publication`);
           current = noterAuJournal(
             current,
@@ -2860,7 +3001,18 @@ export async function startDeploy(
         );
       }
 
-      current = emit({ ...current, state: 'success', endedAt: Date.now(), currentStep: undefined });
+      /*
+       * TOUT CE QUI EST PASSÉ EST EN LIGNE : le dernier mot de chaque tâche du
+       * lot. Ce qui a été ÉCARTÉ garde son état — la carte est restée dans « À
+       * déployer », et lui écrire « en ligne » serait un mensonge.
+       */
+      current = emit({
+        ...current,
+        state: 'success',
+        endedAt: Date.now(),
+        currentStep: undefined,
+        taches: current.taches?.length ? lotMisEnLigne(current.taches) : current.taches,
+      });
 
       /*
        * Ce qui se passe quand une carte est vraiment en ligne (PLAN §11).

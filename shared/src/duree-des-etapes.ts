@@ -92,19 +92,32 @@ export const DUREE_ATTENDUE_MS: Record<DeployStepKey, number> = {
  * une demi-heure n'est pas en train de réfléchir — c'est le moteur qui s'est tu
  * ou le tour qui est pendu.
  *
- * Le dépannage est le plus court des quatre : sa consigne tient en cinq gestes
- * précis, sur une panne déjà nommée. La mise en production est la plus longue :
- * elle suit le prompt du projet de bout en bout, construction comprise.
+ * Le conflit et le dépannage sont les plus courts : leur consigne tient en cinq
+ * gestes précis, sur une panne déjà nommée. La mise en production est la plus
+ * longue : elle suit le prompt du projet de bout en bout, construction comprise.
+ *
+ * LE CONFLIT EST LE PLUS IMPORTANT DES CINQ, et c'est le dernier arrivé.
+ * `resoudreConflit` appelait `sendPrompt` NU : un agent dont la préparation
+ * restait pendue (10 des 99 agents de conflit de l'audit du 18/08/2026 n'ont
+ * jamais lancé leur moteur) laissait la fusion « en cours » POUR TOUJOURS —
+ * refermer le tour dans la base ne dénoue pas la promesse que la fusion attend.
+ * Seul un clic humain sur « Arrêter » débloquait la publication.
  */
 export const PLAFOND_TOUR_D_AGENT_MS: Record<MotifDeTourDePublication, number> = {
+  conflit: 15 * MINUTE,
   depannage: 20 * MINUTE,
   controles: 30 * MINUTE,
   construction: 30 * MINUTE,
   'mise-en-ligne': 40 * MINUTE,
 };
 
-/** Les quatre raisons pour lesquelles une publication appelle un agent. */
-export type MotifDeTourDePublication = 'depannage' | 'controles' | 'construction' | 'mise-en-ligne';
+/** Les cinq raisons pour lesquelles une publication appelle un agent. */
+export type MotifDeTourDePublication =
+  | 'conflit'
+  | 'depannage'
+  | 'controles'
+  | 'construction'
+  | 'mise-en-ligne';
 
 /** Tous les combien on revient constater qu'une étape avance encore. */
 export const PERIODE_DE_VEILLE_MS = 30 * 1000;
@@ -251,7 +264,9 @@ export function recitTourCoupe(motif: MotifDeTourDePublication, ecouleMs: number
       ? 'l’agent de mise en production'
       : motif === 'depannage'
         ? 'l’agent de dépannage'
-        : 'l’agent de réparation';
+        : motif === 'conflit'
+          ? 'l’agent de résolution du conflit'
+          : 'l’agent de réparation';
   return `${quoi} ne rendait plus la main après ${dureeDite(ecouleMs)} : son tour a été arrêté, rien n’a été perdu`;
 }
 

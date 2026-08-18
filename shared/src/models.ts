@@ -1178,6 +1178,44 @@ export const DeployRun = z.object({
     .default([]),
   cardIds: z.array(z.string()).default([]),
   /**
+   * OÙ EN EST CHAQUE TÂCHE DU LOT, une ligne par carte embarquée.
+   *
+   * `cardIds` ne dit qu'un NOMBRE, et les sept étapes racontent le PARCOURS :
+   * ni l'un ni l'autre ne répond à la question qu'on se pose devant un lot de
+   * dix cartes — laquelle est passée, laquelle se fait recoller, laquelle vient
+   * d'être écartée. Il fallait déplier l'étape de fusion et lire son fil ligne
+   * à ligne pour le reconstituer.
+   *
+   * Les états et leurs libellés sont des règles PURES
+   * (`shared/src/fusion-du-lot.ts`) : l'écran ne fabrique aucun texte.
+   *
+   * OPTIONNEL, jamais `default([])` — même raison que `journal` : une valeur
+   * par défaut le rendrait obligatoire dans le type rendu, et toute
+   * publication d'avant cette règle cesserait de se relire.
+   */
+  taches: z
+    .array(
+      z.object({
+        cardId: z.string(),
+        titre: z.string().default(''),
+        branche: z.string().optional(),
+        etat: z.enum([
+          'attente',
+          'fusion',
+          'conflit',
+          'recollee',
+          'fusionnee',
+          'ecartee',
+          'absente',
+          'en-ligne',
+        ]),
+        /** Ce qui est arrivé à CETTE tâche, quand ce n'est pas évident : les
+         *  fichiers recollés, la raison de l'écart. */
+        detail: z.string().optional(),
+      }),
+    )
+    .optional(),
+  /**
    * L'ÉTAPE du parcours d'où part cette publication : le déploiement sur
    * l'instance de dev, ou la mise en production. Absente, c'est une publication
    * d'avant les deux étapes — donc celle du lot de « À déployer », le seul qui

@@ -33,15 +33,20 @@ import {
 import {
   DeployRun,
   DeployStepKey,
+  LIBELLE_ETAT_TACHE,
   ecartDepuisLeDebut,
   etapeDePublication,
   filDeLEtape,
   heureDeLEvenement,
   mentionDesReprises,
+  natureDeLEtat,
   natureDePublication,
   resumeDuFil,
+  resumeDuLot,
   titreDeLaPublication,
+  type EtatDeTache,
   type GenreDEvenement,
+  type TacheDuLot,
 } from '@haikodev/shared';
 import { Button, Drawer, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -131,6 +136,73 @@ function motifLisible(log: string): string {
   const texte = log.trim();
   if (texte.length <= 1200) return texte;
   return `${texte.slice(0, 400)}\n…\n${texte.slice(-700)}`;
+}
+
+/**
+ * LA PASTILLE D'UNE TÂCHE DU LOT. Elle ne dit qu'une chose : ce qui a ABOUTI,
+ * ce qui TRAVAILLE, ce qui est resté au bord — la convention de toute
+ * l'application (orange pour ce qui est en cours, bleu pour ce qui est
+ * terminé), jamais une nuance de plus.
+ */
+function IconeTache({ etat }: { etat: EtatDeTache }) {
+  const nature = natureDeLEtat(etat);
+  if (nature === 'encours') return <Loader2 className="h-3 w-3 animate-spin text-en-cours" />;
+  if (nature === 'fait') return <Check className="h-3 w-3 text-success" />;
+  if (nature === 'ecart') return <MinusCircle className="h-3 w-3 text-warning" />;
+  return <span className="block h-3 w-3 rounded-full border border-border" />;
+}
+
+/**
+ * OÙ EN EST CHAQUE TÂCHE DU LOT — en tête du tiroir, avant les sept étapes.
+ *
+ * Le déroulé racontait le PARCOURS et le compte de cartes ne disait qu'un
+ * NOMBRE : devant un lot de dix, il fallait déplier la fusion et lire son fil
+ * ligne à ligne pour savoir laquelle était passée et laquelle venait d'être
+ * écartée. C'est désormais la première chose qu'on voit, une ligne par tâche.
+ *
+ * Rien à déplier, rien à cliquer : cette liste MONTRE, elle ne décide de rien.
+ */
+function TachesDuLot({ taches }: { taches: TacheDuLot[] }) {
+  const resume = resumeDuLot(taches);
+
+  return (
+    <section className="mb-2 rounded-md border border-border bg-raised p-2" data-taches-du-lot>
+      <div className="flex items-baseline justify-between gap-2 px-0.5 pb-1">
+        <h3 className="text-[12px] font-medium text-muted">{t('Les tâches du lot')}</h3>
+        {resume ? (
+          <span className="shrink-0 text-[11px] text-faint" data-resume-du-lot>
+            {resume}
+          </span>
+        ) : null}
+      </div>
+      <ul className="space-y-0.5">
+        {taches.map((tache) => (
+          <li
+            key={tache.cardId}
+            className="flex items-center gap-2 px-0.5 py-[3px]"
+            data-tache-du-lot={tache.cardId}
+            data-etat-tache={tache.etat}
+          >
+            <span className="shrink-0">
+              <IconeTache etat={tache.etat} />
+            </span>
+            <span className="flex-1 truncate text-[12.5px] text-text" title={tache.titre}>
+              {tache.titre}
+            </span>
+            <span
+              className={cn(
+                'shrink-0 text-[11px]',
+                natureDeLEtat(tache.etat) === 'ecart' ? 'text-warning' : 'text-faint',
+              )}
+              data-libelle-tache={tache.etat}
+            >
+              {t(LIBELLE_ETAT_TACHE[tache.etat])}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 /**
@@ -342,6 +414,10 @@ export function TiroirDeploiement({
         </div>
 
         <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-2 pb-4">
+          {/* CE QU'ON VIENT VOIR EN PREMIER : où en est chaque tâche du lot.
+              Une publication d'avant cette liste n'en a pas — on n'en invente
+              alors aucune, et le tiroir s'ouvre sur ses étapes comme avant. */}
+          {run?.taches?.length ? <TachesDuLot taches={run.taches} /> : null}
           <ul className="space-y-0.5" data-processus-etapes>
             {affichees.map((cle) => (
               <EtapeDuTiroir

@@ -265,6 +265,31 @@ function poserLeDecor() {
     cible: 'dev',
     cardIds: ['c-1', 'c-2'],
     steps: etapesAvecFil(),
+    /*
+     * OÙ EN EST CHAQUE TÂCHE DU LOT. Le compte de cartes ne disait qu'un
+     * NOMBRE, et les sept étapes racontaient le PARCOURS : devant un lot, il
+     * fallait déplier la fusion et lire son fil ligne à ligne pour savoir
+     * laquelle était passée et laquelle était restée au bord. Le décor porte
+     * les trois cas qui comptent : une passée, une recollée toute seule (sans
+     * qu'aucun agent n'ait été appelé), une écartée du lot.
+     */
+    taches: [
+      { cardId: 'c-1', titre: 'Première carte', branche: 'tache/premiere', etat: 'en-ligne' },
+      {
+        cardId: 'c-2',
+        titre: 'Seconde carte',
+        branche: 'tache/seconde',
+        etat: 'recollee',
+        detail: 'CLAUDE.md',
+      },
+      {
+        cardId: 'c-9',
+        titre: 'Carte laissée de côté',
+        branche: 'tache/ecartee',
+        etat: 'ecartee',
+        detail: 'conflit toujours présent après passage de l’agent',
+      },
+    ],
     queued: false,
     startedAt: DEPLOYE_LE,
     endedAt: DEPLOYE_LE + 21000,
@@ -382,6 +407,48 @@ async function voletDeLEcran() {
 
       const ouvert = page.locator('[data-tiroir-deploiement]');
       noter('le clic ouvre un vrai TIROIR', (await ouvert.count()) === 1);
+
+      /* ---------------------------------------------------------------- */
+      /* OÙ EN EST CHAQUE TÂCHE DU LOT — la première chose qu'on voit      */
+      /* ---------------------------------------------------------------- */
+      const lignesDuLot = page.locator('[data-tache-du-lot]');
+      const combienDeTaches = await lignesDuLot.count();
+      noter(
+        'le tiroir montre UNE LIGNE PAR TÂCHE du lot, sans rien déplier',
+        combienDeTaches === 3,
+        `${combienDeTaches} ligne(s)`,
+      );
+
+      const titresDuLot = (await page.locator('[data-taches-du-lot]').first().textContent()) ?? '';
+      noter(
+        'chaque tâche est nommée par son TITRE, pas par un identifiant',
+        /Première carte/.test(titresDuLot) &&
+          /Seconde carte/.test(titresDuLot) &&
+          /Carte laissée de côté/.test(titresDuLot),
+        titresDuLot.replace(/\s+/g, ' ').slice(0, 120),
+      );
+
+      noter(
+        'et chaque tâche DIT où elle en est, en français simple',
+        /en ligne/.test(titresDuLot) && /recollée toute seule/.test(titresDuLot) && /écartée du lot/.test(titresDuLot),
+        titresDuLot.replace(/\s+/g, ' ').slice(0, 160),
+      );
+
+      const ecartee = page.locator('[data-etat-tache="ecartee"]');
+      noter(
+        'ce qui est resté au bord se distingue des tâches passées',
+        (await ecartee.count()) === 1 &&
+          (await page.locator('[data-etat-tache="en-ligne"]').count()) === 1 &&
+          (await page.locator('[data-etat-tache="recollee"]').count()) === 1,
+      );
+
+      const resumeLot = page.locator('[data-resume-du-lot]');
+      const texteResume = (await resumeLot.count()) ? ((await resumeLot.first().textContent()) ?? '').trim() : '';
+      noter(
+        'un résumé compte, en tête, ce que la liste montre',
+        /2 passées/.test(texteResume) && /1 écartée/.test(texteResume),
+        texteResume,
+      );
 
       /* L'étape de fusion s'ouvre à la main : son fil doit s'y lire. */
       const ligneFusion = page.locator('[data-ouvrir-etape="merge"]').first();
