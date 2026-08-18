@@ -18,6 +18,11 @@ export default {
         'accent-fg': 'hsl(var(--accent-fg))',
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
+        // Le contenu NEUF d'un prompt envoyé (facturé), face au gris du
+        // contenu déjà présent (`--faint`) — un jaune franc, distinct de
+        // l'orange d'avertissement (`warning`) et de l'orange d'avancement
+        // (`en-cours`), pour ne pas emprunter leur sens.
+        nouveau: 'hsl(var(--nouveau))',
         danger: 'hsl(var(--danger))',
         info: 'hsl(var(--info))',
         publie: 'hsl(var(--publie))',
