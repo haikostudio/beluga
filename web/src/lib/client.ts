@@ -180,6 +180,18 @@ class Client {
    */
   private coupeDepuis: number | null = null;
   private echecsReseau = 0;
+  /**
+   * UN CANAL ZOMBIE NE FERME JAMAIS TOUT SEUL. Le navigateur peut garder une
+   * connexion WebSocket « ouverte » (veille, changement de réseau, bascule
+   * Wi-Fi/4G) sans jamais déclencher `onclose` — le signal de fin de tour
+   * (`agent.upsert` qui éteint `tourVivantDepuis`) part bien du serveur mais
+   * n'arrive plus jamais : le témoin « Réflexion en cours » reste bloqué à
+   * l'écran, même une fois le tour réellement refermé. Un ping réclamé au
+   * serveur toutes les BATTEMENT_MS force la preuve que le canal répond
+   * encore ; sans réponse sous BATTEMENT_TIMEOUT_MS, on referme nous-mêmes le
+   * socket pour déclencher la reconnexion déjà prévue par `onclose`.
+   */
+  private battement: number | null = null;
   private openCardHandlers = new Set<(cardId: string) => void>();
   private openConversationHandlers = new Set<(lieu: { projectId: string; agentId: string }) => void>();
 
@@ -255,9 +267,11 @@ class Client {
       this.echecsReseau = 0;
       this.set({ connected: true, connecting: false });
       this.send({ type: 'hello', protocol: 1 });
+      this.lancerLeBattement(socket);
     };
 
     socket.onclose = () => {
+      this.arreterLeBattement();
       // L'HEURE de la coupure, posée une seule fois : c'est sa DURÉE qui
       // distingue une reconnexion ordinaire d'une vraie panne.
       if (this.coupeDepuis == null) this.coupeDepuis = Date.now();
@@ -290,6 +304,24 @@ class Client {
    */
   handleEssai(event: ServerEvent): void {
     this.handle(event);
+  }
+
+  private lancerLeBattement(socket: WebSocket): void {
+    this.battement = window.setInterval(() => {
+      if (this.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      this.call({ type: 'ping' }, 8000).catch(() => {
+        // Pas de réponse en 8 s sur un canal qui se dit pourtant ouvert : un
+        // canal zombie. Le fermer nous-mêmes déclenche `onclose`, donc la
+        // reconnexion déjà prévue — sans ce geste, plus aucun événement
+        // (dont la fin d'un tour) n'atteindra jamais ce client.
+        if (this.socket === socket) socket.close();
+      });
+    }, 20000);
+  }
+
+  private arreterLeBattement(): void {
+    if (this.battement != null) window.clearInterval(this.battement);
+    this.battement = null;
   }
 
   private handle(event: ServerEvent): void {
