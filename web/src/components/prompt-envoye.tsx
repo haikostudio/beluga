@@ -19,19 +19,23 @@ import { t } from '@/lib/langue';
  * qu'on avait sous les yeux. Ce qui est parti au moteur se lit maintenant DANS
  * la conversation, comme des messages de l'utilisateur — alignés à droite, dans
  * le même encadré gris que ses demandes — et dans l'ordre fixé par
- * `bullesDuPromptEnvoye` (`shared/src/prompt-envoye.ts`) : sa demande, la
- * mémoire retrouvée par la recherche, puis le prompt complet.
+ * `bullesDuPromptEnvoye` (`shared/src/prompt-envoye.ts`) : sa demande, puis
+ * « Mémoire transmise ».
  *
- * Une bulle longue ne montre que ses CINQ premières lignes ; « voir plus », en
+ * Une bulle longue ne montre que ses premières lignes ; « voir plus », en
  * bas, déroule le reste. Le LECTEUR DE PROMPTS complet, avec tous les tours,
  * reste dans l'onglet « Détails » d'une carte.
  *
- * LA MÉMOIRE RETROUVÉE FAIT BANDE À PART. Les trois bulles portaient le même
- * encadré gris : posée juste au-dessus du prompt complet, la mémoire se lisait
- * comme sa première moitié, et ses passages cités en entier repoussaient la
- * réponse de l'agent hors de l'écran. Elle a désormais son propre fond, son
- * propre écart, un repli plus court (trois lignes) et un entête cliquable qui
- * l'ouvre et la referme.
+ * « MÉMOIRE TRANSMISE » FAIT BANDE À PART, ET REGROUPE DEUX VOLETS EN UN.
+ * Elle réunit ce que la recherche a retrouvé dans la mémoire du projet ET le
+ * prompt complet — auparavant deux bulles séparées, qui portaient le même
+ * encadré gris et disaient en partie la même chose (les passages retrouvés
+ * apparaissaient déjà dans le prompt complet, à leur place). Posées l'une
+ * sous l'autre, elles se lisaient comme un seul texte coupé en deux sans
+ * frontière claire. La bulle unique porte son propre fond, son propre écart,
+ * un repli court et un entête cliquable qui l'ouvre et la referme ; deux
+ * labels colorés (« Mémoire cache », gris, « Mémoire ajoutée », jaune)
+ * rappellent ce que la coloration ligne par ligne du texte veut dire.
  */
 
 function BoutonCopier({ texte }: { texte: string }) {
@@ -87,10 +91,11 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
     [bulle.texte, lignes],
   );
 
-  // LE PROMPT COMPLET SEUL porte `bulle.lignes` : gris pour un morceau relu au
-  // cache (déjà présent), jaune pour un morceau écrit pour ce tour (facturé).
-  // Ses lignes reconstruisent EXACTEMENT `bulle.texte` (même découpe par
-  // `\n`) : la coupe à « voir plus » (`tronque`, ci-dessus) reste donc valable.
+  // LA BULLE « MÉMOIRE TRANSMISE » SEULE porte `bulle.lignes` : gris pour un
+  // morceau relu au cache (déjà présent), jaune pour un morceau écrit pour ce
+  // tour (facturé). Ses lignes reconstruisent EXACTEMENT `bulle.texte` (même
+  // découpe par `\n`) : la coupe à « voir plus » (`tronque`, ci-dessus) reste
+  // donc valable.
   const lignesAAfficher = bulle.lignes;
 
   React.useLayoutEffect(() => {
@@ -162,6 +167,31 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
 
       {detailUtile ? (
         <p className="-mt-0.5 mb-1.5 break-words text-[11.5px] text-faint [overflow-wrap:anywhere]">{detailUtile}</p>
+      ) : null}
+
+      {/*
+        LES DEUX LABELS COLORÉS : un repère, pas un compte. Cette bulle
+        regroupe deux volets qui formaient auparavant deux bulles séparées
+        (« Mémoire retrouvée » puis « Prompt complet ») ; le texte plus bas
+        reprend déjà la coloration ligne par ligne (`ligne.cached`) — ces deux
+        pastilles disent simplement ce que chaque couleur veut dire, une fois
+        pour toute la bulle plutôt que répétée à chaque ligne.
+      */}
+      {bulle.lignes ? (
+        <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+          <span
+            data-label-cache
+            className="rounded-full border border-border px-1.5 py-0.5 text-[10.5px] text-faint"
+          >
+            {t('Mémoire cache')}
+          </span>
+          <span
+            data-label-ajoutee
+            className="rounded-full border border-nouveau/40 bg-nouveau/10 px-1.5 py-0.5 text-[10.5px] text-nouveau"
+          >
+            {t('Mémoire ajoutée')}
+          </span>
+        </div>
       ) : null}
 
       {/* CE QUI EST PARTI EN MÊME TEMPS : briefing, mémoire, carte, pièces

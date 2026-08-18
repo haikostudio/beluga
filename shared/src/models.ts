@@ -885,7 +885,7 @@ export const SentContextSnapshot = z.object({
   /**
    * LA RECHERCHE A-T-ELLE TROUVÉ QUELQUE CHOSE DE CONVAINCANT ?
    *
-   * La bulle « Mémoire retrouvée » disait le NOMBRE de passages, le MODE et la
+   * La bulle « Mémoire transmise » disait le NOMBRE de passages, le MODE et la
    * COUVERTURE — jamais la QUALITÉ du résultat. Mesuré sur 120 cartes réelles
    * (`docs/audit-memoire-rag.md`) : 34 % des demandes reçoivent le même volume
    * de passages sans qu'aucun ne se détache vraiment du reste — rien à
