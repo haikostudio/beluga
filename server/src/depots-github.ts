@@ -185,14 +185,17 @@ export async function monterDepuisGithub(
   const noter = (titre: string, fait: boolean, detail?: string) => etapes.push({ titre, fait, detail });
 
   // Le dossier des projets appartient à l'administrateur : même convention que
-  // pour un projet neuf, on crée avec élévation puis on se donne le dossier.
+  // pour un projet neuf (voir createProjectFolder), on crée avec élévation puis
+  // on se donne le dossier CIBLE — jamais son PARENT (souvent /root lui-même),
+  // dont un chown -R récursif touchait tous les autres projets et fichiers du
+  // système qui y vivent, et échouait sur ceux que paseo ne peut pas toucher.
   const parent = path.dirname(cible);
   try {
     fs.accessSync(parent, fs.constants.W_OK);
   } catch {
     const user = process.env.USER?.trim() || os.userInfo().username;
-    await execFileAsync('sudo', ['-n', 'mkdir', '-p', parent], { timeout: 20000 });
-    await execFileAsync('sudo', ['-n', 'chown', '-R', `${user}:${user}`, parent], { timeout: 20000 });
+    await execFileAsync('sudo', ['-n', 'mkdir', '-p', cible], { timeout: 20000 });
+    await execFileAsync('sudo', ['-n', 'chown', '-R', `${user}:${user}`, cible], { timeout: 20000 });
   }
 
   /*
