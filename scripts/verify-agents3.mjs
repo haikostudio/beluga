@@ -102,9 +102,11 @@ async function main() {
   /* ---------- 1. Suivi GitHub sur une vraie branche ---------- */
   const branch = `essai/suivi-github-${Date.now().toString(36)}`;
   execSync(`git checkout -qb ${branch}`, { cwd: SELF });
-  fs.appendFileSync(`${SELF}/README.md`, '\n<!-- essai de suivi GitHub -->\n');
+  const FICHIER_ESSAI = `${SELF}/docs/essais/suivi-github.txt`;
+  fs.mkdirSync(`${SELF}/docs/essais`, { recursive: true });
+  fs.writeFileSync(FICHIER_ESSAI, `essai de suivi GitHub — ${branch}\n`);
   execSync(
-    `git add README.md && git -c user.email=essai@haikodev.local -c user.name=haikostudio commit -qm "Essai : vérifier le suivi GitHub" && git push -q -u origin ${branch}`,
+    `git add docs/essais/suivi-github.txt && git -c user.email=essai@haikodev.local -c user.name=haikostudio commit -qm "Essai : vérifier le suivi GitHub" && git push -q -u origin ${branch}`,
     { cwd: SELF },
   );
   const pr = execSync(
