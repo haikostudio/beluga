@@ -52,6 +52,7 @@ const {
   PLAFOND_TOUR_D_AGENT_MS,
   constatDeDuree,
   panneDeLenteur,
+  recitTourCoupe,
 } = await import(path.join(racineDuDepot, 'shared/dist/index.js'));
 
 const resultats = [];
@@ -262,11 +263,59 @@ try {
     noter('les gestes interdisent de toucher au service du démon HaikoDev', /démon HaikoDev/.test(gestes), '');
     noter('les gestes interdisent d’effacer une branche : aucun travail n’est perdu', /n’efface aucune branche/.test(gestes), '');
     noter(
-      'les quatre tours d’agent d’une publication sont tous bornés',
-      ['depannage', 'controles', 'construction', 'mise-en-ligne'].every((m) => PLAFOND_TOUR_D_AGENT_MS[m] > 0),
+      'les cinq tours d’agent d’une publication sont tous bornés',
+      ['conflit', 'depannage', 'controles', 'construction', 'mise-en-ligne'].every(
+        (m) => PLAFOND_TOUR_D_AGENT_MS[m] > 0,
+      ),
       Object.entries(PLAFOND_TOUR_D_AGENT_MS)
         .map(([m, ms]) => `${m}=${Math.round(ms / 60_000)} min`)
         .join(', '),
+    );
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 7. LE CHEMIN DU CONFLIT DE FUSION, celui qui immobilisait         */
+  /* ---------------------------------------------------------------- */
+  {
+    /*
+     * C'est le trou que l'audit du 18/08/2026 a nommé : `resoudreConflit`
+     * appelait `sendPrompt` NU, et ce contrôle n'exerçait jamais ce chemin. Un
+     * agent de conflit qui ne démarrait pas laissait la fusion « en cours »
+     * pour toujours — seul un clic humain sur « Arrêter » la débloquait.
+     */
+    const arretes = [];
+    const debut = Date.now();
+    const tour = await tourDAgentSousPlafond('agent-conflit-essai', 'conflit', jamais, {
+      plafondMs: 120,
+      arreter: (id) => arretes.push(id),
+    });
+    const ecoule = Date.now() - debut;
+    noter(
+      'un agent de résolution de conflit qui ne démarre jamais est arrêté à son plafond',
+      tour.depasse === true && arretes.length === 1 && arretes[0] === 'agent-conflit-essai' && ecoule < 5000,
+      `arrêté après ${ecoule} ms, ${arretes.length} arrêt(s)`,
+    );
+
+    const recit = recitTourCoupe('conflit', 15 * 60_000);
+    noter(
+      'et ce qui s’écrit au fil nomme l’agent du conflit, pas « l’agent de réparation »',
+      /résolution du conflit/.test(recit) && /rien n’a été perdu/.test(recit),
+      recit,
+    );
+
+    // Une résolution de conflit qui aboutit dans les temps n'est jamais coupée :
+    // on ne casse pas une fusion en train de se recoller.
+    const paisibles = [];
+    const bref = await tourDAgentSousPlafond(
+      'agent-conflit-essai',
+      'conflit',
+      () => new Promise((resolve) => setTimeout(resolve, 20)),
+      { plafondMs: 5000, arreter: (id) => paisibles.push(id) },
+    );
+    noter(
+      'une résolution de conflit qui aboutit à temps n’est jamais coupée',
+      bref.depasse === false && paisibles.length === 0,
+      `${paisibles.length} arrêt(s)`,
     );
   }
 } finally {

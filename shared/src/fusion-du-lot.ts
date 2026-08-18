@@ -33,6 +33,17 @@
  * 4. UN GROS LOT SE DIT AVANT D'ÊTRE LANCÉ. Ce qui se heurte est déjà connu
  *    avant le clic (`conflitsPrevus`, `git merge-tree` en mémoire) : on
  *    l'annonce, et on propose de publier en deux fois.
+ *
+ * 5. UN HEURT DE DOCUMENTATION SE RECOLLE SANS APPELER PERSONNE. 58 des 78
+ *    conflits mesurés portaient sur `CLAUDE.md` et `MEMOIRE.md` — deux fichiers
+ *    de TEXTE que chaque agent complète en fin de tâche, jamais du code. Les
+ *    recoller, c'est exactement ce qu'on demandait à l'agent de faire (« garde
+ *    les deux intentions ») : on le fait donc mécaniquement, sans moteur, sans
+ *    tour et sans attente.
+ *
+ * 6. ON VOIT OÙ EN EST CHAQUE TÂCHE DU LOT. Le déroulé racontait les ÉTAPES ;
+ *    il ne disait pas, d'un coup d'œil, laquelle des dix cartes était passée,
+ *    laquelle se faisait recoller et laquelle venait d'être écartée.
  */
 
 import type { IdMoteur, MoteurCatalogue, ModeleCatalogue } from './reglages-proposition.js';
@@ -213,4 +224,227 @@ export function selectionSansHeurts(
   const heurtent = new Set(cartesQuiHeurtent);
   const propres = toutes.filter((carte) => !heurtent.has(carte.id));
   return new Set(propres.map((carte) => carte.id));
+}
+
+/* ------------------------------------------------------------------ */
+/* 5. Les heurts de DOCUMENTATION se recollent sans moteur             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES FICHIERS QUE TOUS LES AGENTS ÉCRIVENT, ET QUI SE HEURTENT POUR ÇA.
+ *
+ * 44 conflits sur `CLAUDE.md`, 14 sur `MEMOIRE.md`, 8 sur `docs/memoire/…` :
+ * 74 % du total, pour des fichiers de TEXTE que le briefing demande à chaque
+ * agent de compléter en fin de tâche. Dix cartes lancées le même jour écrivent
+ * dix versions des mêmes lignes.
+ *
+ * La liste est FERMÉE et elle ne contient QUE de la documentation en LISTE —
+ * de la prose qu'on ajoute, jamais de code, jamais un réglage, jamais un
+ * fichier dont l'ordre des lignes porte un sens exécutable. Un `.md` qui n'y
+ * figure pas (un README de projet, une page de spécification) suit le chemin
+ * ordinaire : un agent le lit et tranche.
+ */
+export const DOCUMENTS_RECOLLABLES: readonly string[] = [
+  'CLAUDE.md',
+  'AGENTS.md',
+  'MEMOIRE.md',
+  'HISTORIQUE.md',
+  'docs/instructions-en-attente.md',
+  'docs/regles-du-moteur.md',
+  'docs/verifications.md',
+];
+
+/** Les dossiers dont TOUT le contenu Markdown est de la documentation en liste. */
+const DOSSIERS_RECOLLABLES: readonly string[] = ['docs/memoire/', 'docs/regles/', 'docs/mecaniques/'];
+
+/** Ce fichier-là peut-il se recoller mécaniquement, sans qu'un agent tranche ? */
+export function documentRecollable(chemin: string): boolean {
+  const propre = chemin.trim().replace(/^\.\//, '');
+  if (DOCUMENTS_RECOLLABLES.includes(propre)) return true;
+  return DOSSIERS_RECOLLABLES.some((dossier) => propre.startsWith(dossier) && propre.endsWith('.md'));
+}
+
+/** Tous les fichiers en conflit sont-ils de la documentation recollable ? */
+export function conflitPurementDocumentaire(fichiers: readonly string[]): boolean {
+  return fichiers.length > 0 && fichiers.every((fichier) => documentRecollable(fichier));
+}
+
+const DEBUT_CONFLIT = /^<{7}(\s|$)/;
+const BASE_CONFLIT = /^\|{7}(\s|$)/;
+const MILIEU_CONFLIT = /^={7}(\s|$)/;
+const FIN_CONFLIT = /^>{7}(\s|$)/;
+
+/**
+ * RECOLLER UN FICHIER EN GARDANT LES DEUX INTENTIONS — le geste exact qu'on
+ * demandait à l'agent, fait sans lui.
+ *
+ * Pour chaque bloc en conflit : d'abord les lignes de la branche d'ACCUEIL,
+ * puis celles de la branche de la CARTE qui n'y figurent pas déjà. L'ordre
+ * d'accueil est donc préservé, et rien n'est perdu — c'est la propriété qui
+ * compte pour un sommaire de mémoire ou une liste d'instructions en attente.
+ *
+ * La comparaison ignore les espaces de bord : deux agents qui ajoutent la MÊME
+ * ligne ne la font pas apparaître deux fois. Une ligne vide, elle, n'est jamais
+ * dédoublonnée — elle sépare des paragraphes, elle n'est pas un contenu.
+ *
+ * Rend `null` — et l'agent reprend la main — dès que le texte n'est pas
+ * exactement ce qu'on attend : marqueurs mal formés, imbriqués, ou aucun
+ * conflit à recoller. On ne bricole pas un fichier qu'on ne comprend pas.
+ */
+export function recollerLesDeuxIntentions(texte: string): string | null {
+  const lignes = texte.split('\n');
+  const rendu: string[] = [];
+  let accueil: string[] | null = null;
+  let carte: string[] | null = null;
+  // `base` n'est gardée que pour être JETÉE : le style de conflit « diff3 »
+  // intercale l'ancêtre commun, qui n'est l'intention de personne.
+  let dansLaBase = false;
+  let blocs = 0;
+
+  for (const ligne of lignes) {
+    if (DEBUT_CONFLIT.test(ligne)) {
+      // Un conflit dans un conflit ne se recolle pas : on rend la main.
+      if (accueil) return null;
+      accueil = [];
+      carte = null;
+      dansLaBase = false;
+      continue;
+    }
+    if (accueil && BASE_CONFLIT.test(ligne)) {
+      if (carte) return null;
+      dansLaBase = true;
+      continue;
+    }
+    if (accueil && MILIEU_CONFLIT.test(ligne)) {
+      if (carte) return null;
+      dansLaBase = false;
+      carte = [];
+      continue;
+    }
+    if (FIN_CONFLIT.test(ligne)) {
+      if (!accueil || !carte) return null;
+      const vues = new Set(accueil.map((l) => l.trim()).filter(Boolean));
+      rendu.push(...accueil);
+      rendu.push(...carte.filter((l) => !l.trim() || !vues.has(l.trim())));
+      accueil = null;
+      carte = null;
+      dansLaBase = false;
+      blocs += 1;
+      continue;
+    }
+
+    if (dansLaBase) continue;
+    if (carte) carte.push(ligne);
+    else if (accueil) accueil.push(ligne);
+    else rendu.push(ligne);
+  }
+
+  // Un marqueur ouvert et jamais refermé, ou rien à recoller du tout.
+  if (accueil || carte || !blocs) return null;
+  return rendu.join('\n');
+}
+
+/** Ce qui s'écrit au fil quand un heurt de documentation a été recollé seul. */
+export function mentionDuRecollage(fichiers: readonly string[]): string {
+  const combien = fichiers.length > 1 ? `${fichiers.length} fichiers de documentation` : fichiers[0];
+  return `heurt de documentation recollé sans agent (${combien}) : les deux intentions ont été gardées`;
+}
+
+/* ------------------------------------------------------------------ */
+/* 6. Où en est chaque tâche du lot                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * L'ÉTAT D'UNE TÂCHE DU LOT DANS LA MISE EN LIGNE. Sept états, et pas un de
+ * plus : chacun correspond à une issue réellement possible de la fusion, plus
+ * l'arrivée en ligne.
+ */
+export type EtatDeTache =
+  | 'attente'
+  | 'fusion'
+  | 'conflit'
+  | 'recollee'
+  | 'fusionnee'
+  | 'ecartee'
+  | 'absente'
+  | 'en-ligne';
+
+/** Ce que chaque état veut dire, en français simple — le texte de l'écran. */
+export const LIBELLE_ETAT_TACHE: Record<EtatDeTache, string> = {
+  attente: 'en attente',
+  fusion: 'fusion en cours',
+  conflit: 'conflit, résolution en cours',
+  recollee: 'recollée toute seule',
+  fusionnee: 'fusionnée',
+  ecartee: 'écartée du lot',
+  absente: 'branche absente',
+  'en-ligne': 'en ligne',
+};
+
+/**
+ * L'état qui compte quand on regarde la liste de loin : ce qui a ABOUTI, ce
+ * qui TRAVAILLE, ce qui a MAL TOURNÉ. C'est ce qui donne sa couleur à la ligne
+ * — la même convention que partout : orange pour ce qui est en cours, bleu pour
+ * ce qui est terminé.
+ */
+export function natureDeLEtat(etat: EtatDeTache): 'attente' | 'encours' | 'fait' | 'ecart' {
+  if (etat === 'attente') return 'attente';
+  if (etat === 'fusion' || etat === 'conflit') return 'encours';
+  if (etat === 'ecartee' || etat === 'absente') return 'ecart';
+  return 'fait';
+}
+
+export interface TacheDuLot {
+  cardId: string;
+  titre: string;
+  branche?: string;
+  etat: EtatDeTache;
+  detail?: string;
+}
+
+/**
+ * LE RÉSUMÉ DU LOT, en une ligne : ce qui est passé, ce qui travaille, ce qui
+ * est resté au bord. Rendu vide quand il n'y a rien à résumer — un lot d'une
+ * tâche se lit tout seul dans la liste juste dessous.
+ */
+export function resumeDuLot(taches: readonly TacheDuLot[]): string {
+  if (taches.length < 2) return '';
+  const parts: string[] = [];
+  const compte = (predicat: (t: TacheDuLot) => boolean) => taches.filter(predicat).length;
+  const faites = compte((t) => natureDeLEtat(t.etat) === 'fait');
+  const enCours = compte((t) => natureDeLEtat(t.etat) === 'encours');
+  const ecarts = compte((t) => natureDeLEtat(t.etat) === 'ecart');
+  const attente = compte((t) => t.etat === 'attente');
+  if (faites) parts.push(`${faites} passée${faites > 1 ? 's' : ''}`);
+  if (enCours) parts.push(`${enCours} en cours`);
+  if (attente) parts.push(`${attente} en attente`);
+  if (ecarts) parts.push(`${ecarts} écartée${ecarts > 1 ? 's' : ''}`);
+  return parts.join(' · ');
+}
+
+/**
+ * POSER UN ÉTAT SUR UNE TÂCHE, sans jamais toucher aux autres. Une liste vide
+ * ou un identifiant inconnu rend la liste telle quelle : la fusion ne s'arrête
+ * pas parce qu'une carte a disparu du lot entre-temps.
+ */
+export function avecEtatDeTache(
+  taches: readonly TacheDuLot[],
+  cardId: string,
+  etat: EtatDeTache,
+  detail?: string,
+): TacheDuLot[] {
+  return taches.map((tache) =>
+    tache.cardId === cardId ? { ...tache, etat, detail: detail ?? tache.detail } : tache,
+  );
+}
+
+/**
+ * TOUT CE QUI EST PASSÉ EST EN LIGNE — le dernier mot du lot, écrit une fois la
+ * publication réussie. Ce qui a été écarté ne change pas d'état : la carte est
+ * restée dans « À déployer », et le dire autrement serait un mensonge.
+ */
+export function lotMisEnLigne(taches: readonly TacheDuLot[]): TacheDuLot[] {
+  return taches.map((tache) =>
+    natureDeLEtat(tache.etat) === 'ecart' ? tache : { ...tache, etat: 'en-ligne' as EtatDeTache },
+  );
 }

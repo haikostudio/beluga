@@ -63,6 +63,7 @@ const {
   TYPES_ACCES,
   LIBELLE_TYPE_ACCES,
   CHAMPS_PAR_TYPE,
+  LIBELLE_ETAT_TACHE,
 } = partage;
 
 /* ------------------------------------------------------------------ */
@@ -143,6 +144,9 @@ const catalogues = [
      eux aussi d'un catalogue partagé, affiché tel quel. */
   ...TYPES_ACCES.map((type) => LIBELLE_TYPE_ACCES[type]),
   ...TYPES_ACCES.flatMap((type) => CHAMPS_PAR_TYPE[type].map((champ) => champ.libelle)),
+  /* Où en est chaque tâche du lot : les huit états d'une carte dans une mise
+     en ligne viennent eux aussi d'un catalogue partagé, affiché tel quel. */
+  ...Object.values(LIBELLE_ETAT_TACHE),
 ];
 const aTraduire = [...new Set([...textes, ...catalogues])];
 

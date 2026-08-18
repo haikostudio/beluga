@@ -1918,6 +1918,22 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '从 0 到 23。备份完成后会立即检查。',
   ],
   'en ligne': ['online', 'en línea', 'online', '已上线'],
+
+  /* ---- Où en est chaque tâche du lot d'une mise en ligne ----------- */
+  'Les tâches du lot': ['The batch tasks', 'Las tareas del lote', 'Die Aufgaben des Stapels', '本批任务'],
+  'en attente': ['waiting', 'en espera', 'wartet', '等待中'],
+  'fusion en cours': ['merging', 'fusionando', 'wird zusammengeführt', '合并中'],
+  'conflit, résolution en cours': [
+    'conflict, being resolved',
+    'conflicto, resolviéndose',
+    'Konflikt, wird gelöst',
+    '冲突，正在解决',
+  ],
+  'recollée toute seule': ['merged back on its own', 'reunida por sí sola', 'von selbst zusammengefügt', '自动合并'],
+  'fusionnée': ['merged', 'fusionada', 'zusammengeführt', '已合并'],
+  'écartée du lot': ['left out of the batch', 'apartada del lote', 'aus dem Stapel genommen', '已移出本批'],
+  'branche absente': ['branch missing', 'rama ausente', 'Branch fehlt', '分支缺失'],
+
   'Entre 50 et 100.': ['Between 50 and 100.', 'Entre 50 y 100.', 'Zwischen 50 und 100.', '介于 50 和 100 之间。'],
   'envoi impossible': ['unable to send', 'no se puede enviar', 'Senden nicht möglich', '无法发送'],
   'erreur sans message': ['error without a message', 'error sin mensaje', 'Fehler ohne Meldung', '没有说明的错误'],

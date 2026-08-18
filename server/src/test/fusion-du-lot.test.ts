@@ -2,16 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DETAIL_ETAPE_MAX,
+  LIBELLE_ETAT_TACHE,
   REFLEXION_DE_FUSION,
   annonceDeHeurts,
+  avecEtatDeTache,
+  conflitPurementDocumentaire,
   detailDeLEtape,
+  documentRecollable,
   lignesNouvelles,
+  lotMisEnLigne,
   mentionDeLOrdre,
+  mentionDuRecollage,
+  natureDeLEtat,
   ordreDeFusion,
   passesDeResolution,
+  recollerLesDeuxIntentions,
+  resumeDuLot,
   runDeFusionLegere,
   selectionSansHeurts,
   type MoteurCatalogue,
+  type TacheDuLot,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
@@ -158,4 +168,141 @@ test('publier en deux fois ne garde que les tâches qui ne heurtent rien', () =>
   assert.deepEqual([...selectionSansHeurts(lot, ['b'])], ['a', 'c']);
   assert.deepEqual([...selectionSansHeurts(lot, [])], ['a', 'b', 'c']);
   assert.equal(selectionSansHeurts(lot, ['a', 'b', 'c']).size, 0);
+});
+
+/* 5. Les heurts de DOCUMENTATION se recollent sans moteur -------------- */
+
+test('la liste des documents recollables est FERMÉE : jamais du code', () => {
+  assert.ok(documentRecollable('CLAUDE.md'));
+  assert.ok(documentRecollable('MEMOIRE.md'));
+  assert.ok(documentRecollable('docs/memoire/quotas.md'));
+  assert.ok(documentRecollable('docs/regles/publication.md'));
+  assert.ok(documentRecollable('./docs/instructions-en-attente.md'));
+  // Du code, un réglage, une prose dont l'ordre a un sens : l'agent tranche.
+  assert.equal(documentRecollable('server/src/ws.ts'), false);
+  assert.equal(documentRecollable('web/src/styles.css'), false);
+  assert.equal(documentRecollable('README.md'), false);
+  assert.equal(documentRecollable('docs/plans/plan.md'), false);
+  assert.equal(documentRecollable('package.json'), false);
+});
+
+test('un conflit MIXTE (documentation + code) part chez l’agent, entier', () => {
+  assert.equal(conflitPurementDocumentaire(['CLAUDE.md', 'MEMOIRE.md']), true);
+  assert.equal(conflitPurementDocumentaire(['CLAUDE.md', 'server/src/ws.ts']), false);
+  assert.equal(conflitPurementDocumentaire([]), false);
+});
+
+test('recoller garde les DEUX intentions, celle d’accueil d’abord', () => {
+  const texte = [
+    '# Sommaire',
+    '<<<<<<< HEAD',
+    '- carte A',
+    '=======',
+    '- carte B',
+    '>>>>>>> tache/b',
+    'fin',
+  ].join('\n');
+  assert.equal(recollerLesDeuxIntentions(texte), '# Sommaire\n- carte A\n- carte B\nfin');
+});
+
+test('une ligne écrite des DEUX côtés n’apparaît pas deux fois', () => {
+  const texte = ['<<<<<<< HEAD', '- commun', '- carte A', '=======', '- commun', '- carte B', '>>>>>>> tache/b'].join(
+    '\n',
+  );
+  assert.equal(recollerLesDeuxIntentions(texte), '- commun\n- carte A\n- carte B');
+});
+
+test('le style « diff3 » : l’ancêtre commun est jeté, il n’est l’intention de personne', () => {
+  const texte = [
+    '<<<<<<< HEAD',
+    '- carte A',
+    '||||||| base',
+    '- ancien',
+    '=======',
+    '- carte B',
+    '>>>>>>> tache/b',
+  ].join('\n');
+  assert.equal(recollerLesDeuxIntentions(texte), '- carte A\n- carte B');
+});
+
+test('plusieurs blocs dans le même fichier se recollent tous', () => {
+  const texte = [
+    '<<<<<<< HEAD',
+    'a1',
+    '=======',
+    'b1',
+    '>>>>>>> t',
+    'milieu',
+    '<<<<<<< HEAD',
+    'a2',
+    '=======',
+    'b2',
+    '>>>>>>> t',
+  ].join('\n');
+  assert.equal(recollerLesDeuxIntentions(texte), 'a1\nb1\nmilieu\na2\nb2');
+});
+
+test('on ne bricole JAMAIS un texte qu’on ne comprend pas', () => {
+  // Rien à recoller : aucun marqueur.
+  assert.equal(recollerLesDeuxIntentions('# Sommaire\n- carte A'), null);
+  // Un marqueur ouvert et jamais refermé.
+  assert.equal(recollerLesDeuxIntentions('<<<<<<< HEAD\n- carte A\n=======\n- carte B'), null);
+  // Un conflit dans un conflit.
+  assert.equal(
+    recollerLesDeuxIntentions('<<<<<<< HEAD\na\n<<<<<<< HEAD\nb\n=======\nc\n>>>>>>> t\n=======\nd\n>>>>>>> t'),
+    null,
+  );
+  // Une fin sans début.
+  assert.equal(recollerLesDeuxIntentions('- carte A\n>>>>>>> tache/b'), null);
+});
+
+test('le recollage se DIT au fil, et il dit qu’aucun agent n’a été appelé', () => {
+  assert.match(mentionDuRecollage(['CLAUDE.md']), /CLAUDE\.md/);
+  assert.match(mentionDuRecollage(['CLAUDE.md']), /sans agent/);
+  assert.match(mentionDuRecollage(['CLAUDE.md', 'MEMOIRE.md']), /2 fichiers de documentation/);
+});
+
+/* 6. Où en est chaque tâche du lot ------------------------------------- */
+
+const LOT: TacheDuLot[] = [
+  { cardId: 'a', titre: 'Carte A', etat: 'fusionnee' },
+  { cardId: 'b', titre: 'Carte B', etat: 'conflit' },
+  { cardId: 'c', titre: 'Carte C', etat: 'attente' },
+  { cardId: 'd', titre: 'Carte D', etat: 'ecartee' },
+];
+
+test('chaque état a son libellé en français simple, et sa nature', () => {
+  for (const etat of Object.keys(LIBELLE_ETAT_TACHE) as (keyof typeof LIBELLE_ETAT_TACHE)[]) {
+    assert.ok(LIBELLE_ETAT_TACHE[etat].length > 2, `l’état ${etat} n’a pas de libellé`);
+  }
+  assert.equal(natureDeLEtat('attente'), 'attente');
+  assert.equal(natureDeLEtat('conflit'), 'encours');
+  assert.equal(natureDeLEtat('fusion'), 'encours');
+  assert.equal(natureDeLEtat('recollee'), 'fait');
+  assert.equal(natureDeLEtat('en-ligne'), 'fait');
+  assert.equal(natureDeLEtat('ecartee'), 'ecart');
+  assert.equal(natureDeLEtat('absente'), 'ecart');
+});
+
+test('le résumé du lot compte ce que la liste montre', () => {
+  assert.equal(resumeDuLot(LOT), '1 passée · 1 en cours · 1 en attente · 1 écartée');
+  // Un lot d'une tâche se lit tout seul dans la liste juste dessous.
+  assert.equal(resumeDuLot([LOT[0]]), '');
+});
+
+test('poser un état ne touche QUE sa tâche', () => {
+  const apres = avecEtatDeTache(LOT, 'c', 'fusionnee');
+  assert.equal(apres[2].etat, 'fusionnee');
+  assert.equal(apres[0].etat, 'fusionnee');
+  assert.equal(apres[1].etat, 'conflit');
+  // Une carte inconnue ne casse rien : la fusion ne s'arrête pas pour ça.
+  assert.deepEqual(avecEtatDeTache(LOT, 'inconnue', 'fusionnee'), LOT);
+});
+
+test('la mise en ligne ne ment pas sur ce qui a été écarté', () => {
+  const apres = lotMisEnLigne(LOT);
+  assert.equal(apres[0].etat, 'en-ligne');
+  assert.equal(apres[1].etat, 'en-ligne');
+  assert.equal(apres[2].etat, 'en-ligne');
+  assert.equal(apres[3].etat, 'ecartee', 'une carte écartée est restée dans « À déployer »');
 });
