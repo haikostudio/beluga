@@ -140,25 +140,32 @@ export function BandeauDeGroupe({
  * dessine pas une tour. Purement visuel (`aria-hidden`, aucun clic) : le
  * geste d'ouverture vit sur le titre du bandeau, la carte du dessus garde le
  * sien (l'ouvrir elle-même).
+ *
+ * Avec la carte de devant (posée à 80% par `envelopper`), les trois
+ * épaisseurs de la pile suivent le même dégradé progressif : 80 % → 50 % →
+ * 20 %, chacune un peu plus reculée et un peu plus effacée que la
+ * précédente.
  */
+const PROFONDEURS_PILE = [
+  { decalage: 6, echelle: 0.985, opacite: 0.5 },
+  { decalage: 12, echelle: 0.97, opacite: 0.2 },
+];
+
 export function PileDeGroupe({ nombre }: { nombre: number }) {
   const couches = Math.min(Math.max(nombre - 1, 1), 2);
   return (
     <div className="pointer-events-none absolute inset-x-1.5 top-0" data-pile-groupe={nombre} aria-hidden>
-      {Array.from({ length: couches }).map((_, i) => {
-        const profondeur = couches - i;
-        return (
-          <span
-            key={i}
-            className="absolute inset-x-0 top-0 h-full rounded-md border border-border bg-raised transition-all duration-200 ease-out"
-            style={{
-              transform: `translateY(${profondeur * 6}px) scale(${1 - profondeur * 0.03})`,
-              zIndex: -profondeur,
-              opacity: 1 - profondeur * 0.3,
-            }}
-          />
-        );
-      })}
+      {PROFONDEURS_PILE.slice(0, couches).map(({ decalage, echelle, opacite }, i) => (
+        <span
+          key={i}
+          className="absolute inset-x-0 top-0 h-full rounded-md border border-border bg-raised transition-all duration-200 ease-out"
+          style={{
+            transform: `translateY(${decalage}px) scale(${echelle})`,
+            zIndex: -(i + 1),
+            opacity: opacite,
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -286,10 +293,16 @@ export function useGroupesDeProduction(projectId: string, cartes: Card[], actif:
       if (premiere) {
         const clef = clefDuGroupe(premiere);
         const plie = !depliés.has(clef);
+        const enPile = plie && premiere.cartes.length > 1;
         return (
           <div className="relative">
-            {plie && premiere.cartes.length > 1 ? <PileDeGroupe nombre={premiere.cartes.length} /> : null}
-            {node}
+            {enPile ? <PileDeGroupe nombre={premiere.cartes.length} /> : null}
+            <div
+              className="transition-opacity duration-200 ease-out"
+              style={{ opacity: enPile ? 0.8 : 1 }}
+            >
+              {node}
+            </div>
           </div>
         );
       }
