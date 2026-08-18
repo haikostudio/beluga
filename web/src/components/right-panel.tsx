@@ -51,7 +51,7 @@ export function RightPanel({ projectId }: { projectId: string }) {
    * question du chef — se prennent DANS ce fil : l'onglet le dit, sinon le
    * chiffre de la colonne de gauche resterait sans destination.
    */
-  const decisions = decisionsHorsCarte(state.decisions, projectId);
+  const decisions = decisionsHorsCarte(state.decisions, projectId) + (state.plans[projectId] ? 1 : 0);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

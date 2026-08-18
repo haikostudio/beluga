@@ -716,7 +716,12 @@ export function App() {
 {/* Sur téléphone, la conversation est derrière ce bouton : sans le
                   triangle ici, une décision en attente resterait invisible. */}
               <RepereAttention
-                compte={activeProject ? decisionsHorsCarte(state.decisions, activeProject.id) : 0}
+                compte={
+                  activeProject
+                    ? decisionsHorsCarte(state.decisions, activeProject.id) +
+                      (state.plans[activeProject.id] ? 1 : 0)
+                    : 0
+                }
                 data-attention-conversation={activeProject?.id}
               />
             </Button>
