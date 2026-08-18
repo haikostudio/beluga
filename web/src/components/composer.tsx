@@ -503,10 +503,16 @@ export function Composer({
   const [draft] = usePref<string>(cleBrouillon, '');
   const chargePour = React.useRef<string | undefined>(undefined);
   const premierPassage = React.useRef(true);
-  /** Le brouillon n'est posé qu'UNE fois par conversation ouverte. */
-  const brouillonPose = React.useRef<string | undefined>(undefined);
   /** Le dernier texte parti : il ne doit JAMAIS revenir tout seul dans le champ. */
   const dejaEnvoye = React.useRef<string | null>(null);
+  /**
+   * Le dernier brouillon reçu du serveur (ce que CE champ reflète tant que
+   * la personne n'a rien tapé de différent). Sert à distinguer, quand le
+   * brouillon change à distance, « je n'ai pas touché au champ, je peux le
+   * suivre » de « j'ai écrit autre chose, on ne touche à rien » — y compris
+   * quand il redevient vide parce qu'un AUTRE écran vient d'envoyer.
+   */
+  const dernierBrouillonDistant = React.useRef<string>('');
 
   React.useEffect(() => {
     // Agent absent l'espace d'un instant : on ne touche surtout à rien.
@@ -516,22 +522,21 @@ export function Composer({
       // Vraie ouverture d'une autre conversation : on affiche SON brouillon.
       chargePour.current = agentId;
       premierPassage.current = true;
-      brouillonPose.current = draft ? agentId : undefined;
+      dernierBrouillonDistant.current = draft;
       dejaEnvoye.current = null;
       setText(draft);
       return;
     }
 
-    /*
-     * Même conversation. Le brouillon peut arriver du serveur juste après
-     * l'ouverture : on le pose alors UNE seule fois. Passé ce moment, plus
-     * rien ne réécrit le champ tout seul — surtout pas un message déjà parti,
-     * dont l'écho tardif remettait le texte envoyé sous les yeux.
-     */
-    if (brouillonPose.current === agentId) return;
-    if (!draft || draft === dejaEnvoye.current) return;
-    brouillonPose.current = agentId;
-    setText((current) => current || draft);
+    if (draft === dernierBrouillonDistant.current) return;
+    const brouillonPrecedent = dernierBrouillonDistant.current;
+    dernierBrouillonDistant.current = draft;
+    // L'écho tardif de notre propre envoi : déjà traité localement.
+    if (draft === dejaEnvoye.current) return;
+    // Le champ ne suit QUE s'il reflétait encore l'ancien brouillon : une
+    // personne qui a déjà écrit autre chose n'est jamais recouverte — mais un
+    // envoi fait ailleurs (le brouillon redevient vide) vide bien SON champ.
+    setText((current) => (current === brouillonPrecedent ? draft : current));
   }, [agentId, draft]);
 
   React.useEffect(() => {
@@ -578,8 +583,16 @@ export function Composer({
   const cleJointes = agentId ? `draftAttachments.${agentId}` : 'draftAttachments.aucun';
   const [jointesEnregistrees, setJointesEnregistrees] = usePref<Attachment[]>(cleJointes, []);
   const jointesChargeesPour = React.useRef<string | undefined>(undefined);
-  const jointesPosees = React.useRef<string | undefined>(undefined);
   const jointesIgnorerProchaineSauvegarde = React.useRef(true);
+  /**
+   * Les dernières pièces jointes reçues du serveur — même logique que
+   * `dernierBrouillonDistant` : on ne suit un changement à distance que si
+   * rien n'a divergé localement depuis, et ça vaut AUSSI quand la liste
+   * redevient vide parce qu'un autre écran vient d'envoyer.
+   */
+  const dernieresJointesDistantes = React.useRef<Attachment[]>([]);
+  const memeJointes = (a: Attachment[], b: Attachment[]) =>
+    a.length === b.length && a.every((jointe, index) => jointe.id === b[index]?.id);
 
   React.useEffect(() => {
     if (!agentId) return;
@@ -587,19 +600,17 @@ export function Composer({
     if (jointesChargeesPour.current !== agentId) {
       // Vraie ouverture d'une autre conversation : on affiche SES pièces jointes.
       jointesChargeesPour.current = agentId;
-      jointesPosees.current = jointesEnregistrees.length ? agentId : undefined;
+      dernieresJointesDistantes.current = jointesEnregistrees;
       jointesIgnorerProchaineSauvegarde.current = true;
       setAttachments(jointesEnregistrees);
       return;
     }
 
-    // Même conversation : les pièces jointes peuvent arriver du serveur juste
-    // après l'ouverture, on les pose alors une seule fois.
-    if (jointesPosees.current === agentId) return;
-    if (!jointesEnregistrees.length) return;
-    jointesPosees.current = agentId;
+    if (memeJointes(jointesEnregistrees, dernieresJointesDistantes.current)) return;
+    const jointesPrecedentes = dernieresJointesDistantes.current;
+    dernieresJointesDistantes.current = jointesEnregistrees;
     jointesIgnorerProchaineSauvegarde.current = true;
-    setAttachments((current) => (current.length ? current : jointesEnregistrees));
+    setAttachments((current) => (memeJointes(current, jointesPrecedentes) ? jointesEnregistrees : current));
   }, [agentId, jointesEnregistrees]);
 
   React.useEffect(() => {
@@ -711,7 +722,7 @@ export function Composer({
      */
     const oublierBrouillon = () => {
       dejaEnvoye.current = text;
-      brouillonPose.current = agentId;
+      dernierBrouillonDistant.current = '';
       client.setPrefLocally(cleBrouillon, '');
       client.send({ type: 'prefs.set', key: cleBrouillon, value: '' });
     };
@@ -732,6 +743,7 @@ export function Composer({
     setText('');
     onClearPicked();
     setAttachments([]);
+    dernieresJointesDistantes.current = [];
     jointesIgnorerProchaineSauvegarde.current = true;
     setJointesEnregistrees([]);
     curseur.current = null;
@@ -750,6 +762,7 @@ export function Composer({
       setText(body);
       if (jointesEnvoyees.length) {
         setAttachments(jointesEnvoyees);
+        dernieresJointesDistantes.current = jointesEnvoyees;
         jointesIgnorerProchaineSauvegarde.current = true;
         setJointesEnregistrees(jointesEnvoyees);
       }
