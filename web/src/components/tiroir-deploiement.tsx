@@ -488,7 +488,7 @@ function EtapeDuTiroir({
           elles dans l'axe des ronds d'étape : il dit à quelle étape ce bloc
           appartient, et rejoint l'étape suivante quand il y en a une. */}
       {ouverte && (fil.length || avecLog) ? (
-        <li className="relative pl-8" data-sous-actions={cle}>
+        <li className={cn('relative pl-8', !dernier && 'pb-4')} data-sous-actions={cle}>
           <span
             className={cn('absolute left-[13.5px] top-0 w-px bg-faint/30', dernier ? 'bottom-0' : 'bottom-[-1rem]')}
             aria-hidden="true"
