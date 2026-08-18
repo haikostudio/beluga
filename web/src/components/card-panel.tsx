@@ -606,21 +606,21 @@ function PreparationChef({ card }: { card: Card }) {
       <p className="mt-0.5 text-[12.5px] text-faint">
         {t('Ces éléments étaient déjà dans la carte avant son exécution.')}</p>
 
-      <div className="mt-2 space-y-1.5 text-[13px]">
+      <div className="mt-3 space-y-2.5 text-[13px]">
         <div>
-          <span className="text-faint">{t('Réglages repris')}</span>
-          <span className="text-text">
+          <p className="text-[11.5px] text-faint">{t('Réglages repris')}</p>
+          <p className="mt-0.5 font-medium text-text">
             {reglages.moteur} · {reglages.modele} · {reglages.reflexion}
-          </span>
+          </p>
         </div>
         <div>
-          <span className="text-faint">{t('Contenu transmis')}</span>
-          <span className="text-text">
-            {t('consigne de la carte · {etiquettes} {v0} · {pieces}{v1} {v2}', { etiquettes, v0: etiquettes === 1 ? 'étiquette' : 'étiquettes', pieces, v1: ' ', v2: pieces === 1 ? 'image' : 'images' })}</span>
+          <p className="text-[11.5px] text-faint">{t('Contenu transmis')}</p>
+          <p className="mt-0.5 font-medium text-text">
+            {t('consigne de la carte · {etiquettes} {v0} · {pieces}{v1} {v2}', { etiquettes, v0: etiquettes === 1 ? 'étiquette' : 'étiquettes', pieces, v1: ' ', v2: pieces === 1 ? 'image' : 'images' })}</p>
         </div>
         <div>
-          <span className="text-faint">{t('Préparation avant exécution')}</span>
-          <span className="text-text">{t('{estimation} · analyse et exécution dans la même conversation', { estimation })}</span>
+          <p className="text-[11.5px] text-faint">{t('Préparation avant exécution')}</p>
+          <p className="mt-0.5 font-medium text-text">{t('{estimation} · analyse et exécution dans la même conversation', { estimation })}</p>
         </div>
       </div>
     </div>
