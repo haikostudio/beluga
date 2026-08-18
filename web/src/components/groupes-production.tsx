@@ -102,6 +102,7 @@ export function BandeauDeGroupe({
     <div
       className="flex w-full items-center gap-1.5 px-1.5 pt-2 pb-1 text-[11.5px] text-muted"
       data-groupe-production={groupe.runId ?? 'aucun'}
+      data-carte-flip={`bandeau-${clefDuGroupe(groupe)}`}
     >
       <button
         type="button"
@@ -187,49 +188,88 @@ export function PileDeGroupe({ cartes }: { cartes: Card[] }) {
 }
 
 /**
- * UN MEMBRE (NON PREMIER) D'UN GROUPE : plié, replié — dans les deux sens,
- * animé.
+ * LE VRAI GLISSEMENT — technique FLIP (First / Last / Invert / Play).
  *
- * La technique : une ligne de grille dont la hauteur (`grid-template-rows`)
- * passe de `0fr` à `1fr`, ce que les navigateurs savent transitionner en
- * douceur même quand le contenu a une hauteur inconnue à l'avance (titre,
- * étiquettes… qui varient d'une carte à l'autre). Au-dessus, un `translateY`
- * sur le contenu fait GLISSER la carte vers le bas pendant qu'elle se révèle,
- * plutôt qu'un simple agrandissement de boîte.
+ * L'ancienne version animait une HAUTEUR (`grid-template-rows` de `0fr` à
+ * `1fr`) : ça ressemble à une boîte qui s'agrandit, pas à une pile qui glisse.
+ * Ici, la carte apparaît ou disparaît d'un coup dans la mise en page (aucune
+ * hauteur animée) ; c'est CE hook, posé sur le conteneur de la colonne, qui
+ * fait tout le travail visuel : il mesure la position de chaque ligne AVANT
+ * le rendu suivant, la compare à sa position APRÈS, et rejoue la différence
+ * comme une simple translation. Toutes les cartes en dessous du groupe qui
+ * s'ouvre ou se referme glissent donc réellement, poussées par lui.
  *
- * Le contenu reste MONTÉ pendant la fermeture (l'animation a besoin de le
- * voir), et ne se démonte qu'une fois la transition FINIE — sinon un script
- * qui compte les cartes visibles verrait un groupe "replié" qui en garde
- * encore une pleine liste dans la page.
+ * Chaque ligne suivie porte l'attribut `data-carte-flip` (un identifiant
+ * stable) — bandeau de groupe, première carte, carte membre, carte hors
+ * groupe : toutes, sinon elles sautent d'un coup au lieu de glisser.
  */
-function MembreDeGroupe({ plie, children }: { plie: boolean; children: React.ReactNode }) {
-  const [monte, setMonte] = React.useState(!plie);
+export function useFlipColonne(
+  conteneur: React.RefObject<HTMLElement | null>,
+  deps: React.DependencyList,
+) {
+  const positionsAvant = React.useRef<Map<string, number>>(new Map());
+
+  React.useLayoutEffect(() => {
+    const racine = conteneur.current;
+    if (!racine) return;
+    const noeuds = racine.querySelectorAll<HTMLElement>('[data-carte-flip]');
+    const positionsApres = new Map<string, number>();
+    noeuds.forEach((noeud) => {
+      const id = noeud.dataset.carteFlip;
+      if (id) positionsApres.set(id, noeud.getBoundingClientRect().top);
+    });
+    noeuds.forEach((noeud) => {
+      const id = noeud.dataset.carteFlip;
+      if (!id) return;
+      const avant = positionsAvant.current.get(id);
+      const apres = positionsApres.get(id);
+      if (avant === undefined || apres === undefined) return;
+      const delta = avant - apres;
+      if (Math.abs(delta) < 1) return;
+      noeud.style.transition = 'none';
+      noeud.style.transform = `translateY(${delta}px)`;
+      /* Force le reflow avant de relâcher, sinon le navigateur fusionne les
+         deux affectations et ne voit jamais l'état de départ. */
+      void noeud.getBoundingClientRect();
+      requestAnimationFrame(() => {
+        noeud.style.transition = 'transform 260ms ease';
+        noeud.style.transform = 'translateY(0)';
+      });
+    });
+    positionsAvant.current = positionsApres;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
+/** UN MEMBRE (NON PREMIER) D'UN GROUPE : présent ou absent, sans animation de
+ *  hauteur — c'est `useFlipColonne` qui fait glisser tout ce qu'il y a
+ *  autour. Un léger fondu accompagne sa propre apparition. */
+function MembreDeGroupe({
+  flipId,
+  plie,
+  children,
+}: {
+  flipId: string;
+  plie: boolean;
+  children: React.ReactNode;
+}) {
+  const [visible, setVisible] = React.useState(!plie);
   React.useEffect(() => {
-    if (!plie) setMonte(true);
+    if (plie) {
+      setVisible(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
   }, [plie]);
+  if (plie) return null;
   return (
     <div
-      style={{
-        display: 'grid',
-        gridTemplateRows: !plie && monte ? '1fr' : '0fr',
-        marginTop: !plie ? '0.375rem' : '0px',
-        transition: 'grid-template-rows 220ms ease, margin-top 220ms ease',
-      }}
-      onTransitionEnd={(event) => {
-        if (event.propertyName === 'grid-template-rows' && plie) setMonte(false);
-      }}
+      data-carte-flip={flipId}
+      className="mt-1.5"
+      style={{ opacity: visible ? 1 : 0, transition: 'opacity 200ms ease' }}
     >
-      <div className="overflow-hidden">
-        <div
-          style={{
-            transform: !plie ? 'translateY(0)' : 'translateY(-8px)',
-            opacity: !plie ? 1 : 0,
-            transition: 'transform 220ms ease, opacity 220ms ease',
-          }}
-        >
-          {monte ? children : null}
-        </div>
-      </div>
+      {children}
     </div>
   );
 }
@@ -292,6 +332,8 @@ export function useGroupesDeProduction(projectId: string, cartes: Card[], actif:
   return {
     /** Les cartes de la colonne, un groupe après l'autre. */
     cartes: rangees,
+    /** Change à chaque pli/dépli — la dépendance qui déclenche `useFlipColonne`. */
+    depliesKey: Array.from(depliés).sort().join('|'),
     /** Le bandeau à poser devant cette carte, s'il y en a un. */
     bandeau: (cardId: string) => {
       const groupe = bandeaux.get(cardId);
@@ -323,10 +365,12 @@ export function useGroupesDeProduction(projectId: string, cartes: Card[], actif:
         const enPile = plie && premiere.cartes.length > 1;
         return (
           <div
-            style={{
-              paddingBottom: enPile ? `${DEBORD_PILE}px` : '0px',
-              transition: 'padding-bottom 200ms ease',
-            }}
+            data-carte-flip={`premiere-${clef}`}
+            /* Le décalage réservé sous la pile change d'un coup — pas
+               d'animation ici : `useFlipColonne` traduit lui-même l'écart de
+               position que ce changement provoque sur tout ce qu'il y a
+               dessous, en une vraie translation. */
+            style={{ paddingBottom: enPile ? `${DEBORD_PILE}px` : '0px' }}
           >
             <div className="relative">
               {enPile ? <PileDeGroupe cartes={premiere.cartes.slice(1)} /> : null}
@@ -343,9 +387,15 @@ export function useGroupesDeProduction(projectId: string, cartes: Card[], actif:
       const groupe = groupeDeLaCarte.get(cardId);
       if (groupe && groupe.cartes[0]?.id !== cardId) {
         const clef = clefDuGroupe(groupe);
-        return <MembreDeGroupe plie={!depliés.has(clef)}>{node}</MembreDeGroupe>;
+        return (
+          <MembreDeGroupe flipId={`membre-${cardId}`} plie={!depliés.has(clef)}>
+            {node}
+          </MembreDeGroupe>
+        );
       }
-      return node;
+      return (
+        <div data-carte-flip={`carte-${cardId}`}>{node}</div>
+      );
     },
     /** Le tiroir d'historique, monté une seule fois pour toute la colonne. */
     tiroir: (
