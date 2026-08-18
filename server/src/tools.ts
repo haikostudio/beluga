@@ -44,6 +44,7 @@ import {
   confianceDeLaFiche,
   raisonDuRefus,
   type ProjetDeLaColonne,
+  momentDuCreneau,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { createProjectFolder } from './projects.js';
@@ -1360,6 +1361,16 @@ export function createCard(
   const creneauConseille = input.departPrevu
     ? undefined
     : creneauPourUneCarte({ moteur, ampleurSecondes: input.estimate?.machineSeconds });
+  /*
+   * LE CONSEIL DEVIENT LE DÉPART : une carte qui propose un créneau précis le
+   * recopie aussitôt dans `departPrevu`, exactement comme une date posée à la
+   * main — elle part donc TOUTE SEULE à l'heure dite, sans attendre un clic
+   * de plus. `creneauAutomatique` garde la trace de cette origine, pour que
+   * l'écran l'explique ; le premier geste de l'utilisateur sur cette date
+   * (la changer, la retirer) efface le drapeau, jamais la date elle-même.
+   */
+  const maintenant = store.now();
+  const departPrevu = input.departPrevu ?? (creneauConseille ? momentDuCreneau(creneauConseille, maintenant) : undefined);
   const card = Card.parse({
     id: store.newId(),
     projectId,
@@ -1387,15 +1398,19 @@ export function createCard(
       asap: false,
       attempts: 0,
       restarts: 0,
-      departPrevu: input.departPrevu,
-      ...(creneauConseille ? { creneauConseille } : {}),
+      departPrevu,
+      ...(creneauConseille ? { creneauConseille, creneauAutomatique: true } : {}),
       /*
        * Une carte qui naît DÉJÀ chiffrée (l'analyse du chef d'orchestre voyage
        * avec sa proposition) attend son lancement, et le DIT — exactement comme
        * une carte qui sort de son analyse. Sans chiffrage, rien à annoncer : la
-       * carte vient d'être posée.
+       * carte vient d'être posée. Une carte qui porte déjà une date — donnée à
+       * la main ou retenue du créneau — n'attend plus un clic : c'est la date
+       * qui répond, pas la phrase.
        */
-      ...(input.estimate && !input.estimate.failed ? { waitingReason: RAISON_ATTENTE_LANCEMENT } : {}),
+      ...(input.estimate && !input.estimate.failed && !departPrevu
+        ? { waitingReason: RAISON_ATTENTE_LANCEMENT }
+        : {}),
     },
     excludedFromDeploy: false,
     createdAt: store.now(),

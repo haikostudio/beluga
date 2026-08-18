@@ -229,7 +229,10 @@ test('la publication confie la mise en production à un agent de rôle « deploy
   const debut = SOURCE.indexOf('async function confierLaMiseEnLigne');
   assert.notEqual(debut, -1, 'la fonction qui confie doit exister');
   const corps = SOURCE.slice(debut, SOURCE.indexOf('\n}\n', debut));
-  assert.match(corps, /role: 'deploy'/);
+  // Le rôle est posé par la fabrique commune, qui choisit aussi le moteur au
+  // quota suffisant : la mise en production ne part plus sur un compte à sec.
+  assert.match(corps, /await agentDePublication\(/, 'la mise en production passe par la fabrique');
+  assert.match(SOURCE, /async function agentDePublication\([\s\S]*?role: 'deploy'/, 'la fabrique pose le rôle « deploy »');
   assert.match(corps, /promptDeLAgentDeProduction\(ctx\)/, 'le prompt pur est celui qui part');
   // Les options peuvent tenir sur une ligne ou plusieurs (le motif d'appel s'y
   // est ajouté) : c'est leur CONTENU qui compte, pas leur mise en page.

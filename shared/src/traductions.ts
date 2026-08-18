@@ -929,6 +929,13 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Konflikt erwartet bei „{v0}“ {v1} — der Veröffentlichungsagent löst ihn unterwegs. Ohne Erfolg bleibt die Karte für das nächste Mal hier.',
     '预计在“{v0}”{v1} 上会有冲突 —— 发布智能体会在过程中处理。若未成功，卡片会留到下一次。',
   ],
+  'Publier en deux fois ({v0} sans heurt maintenant)': [
+    'Publish in two rounds ({v0} conflict-free now)',
+    'Publicar en dos veces ({v0} sin choque ahora)',
+    'In zwei Durchgängen veröffentlichen (jetzt {v0} ohne Konflikt)',
+    '分两次发布（现在 {v0} 项无冲突）',
+  ],
+  'se heurte': ['conflicts', 'choca', 'kollidiert', '有冲突'],
   "+ {v0} changement{v1} enregistré {v2} sans carte, toujours embarqué{v3}.": [
     '+ {v0} change{v1} committed {v2} without a card, carried along anyway{v3}.',
     '+ {v0} cambio{v1} registrado {v2} sin tarjeta, incluido igualmente{v3}.',

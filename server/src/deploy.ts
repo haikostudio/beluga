@@ -4,9 +4,11 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { ZodError } from 'zod';
 import {
+  Agent,
   Card,
   CiblePublication,
   ColumnKey,
+  RunConfig,
   ContexteDePublication,
   DeployRun,
   DeployStepKey,
@@ -60,6 +62,11 @@ import {
   recitSansReparation,
   recitDepanneurEnEchec,
   journalDesReprises,
+  passesDeResolution,
+  ordreDeFusion,
+  mentionDeLOrdre,
+  detailDeLEtape,
+  lignesNouvelles,
   ajouterAuJournal,
   type EvenementDEtape,
   type GenreDEvenement,
@@ -86,8 +93,10 @@ import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
 import { createAgent, sendPrompt, agentsActifs, arreterLAgent } from './runtime.js';
+import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from './demon.js';
 import { executerCibleMiseEnProduction } from './cible-mise-en-production.js';
+import { moteurPourPublier } from './moteur-de-publication.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -486,6 +495,74 @@ function raisonEchecAgent(err: unknown): string {
   return texte || 'raison inconnue';
 }
 
+/* ------------------------------------------------------------------ */
+/* L'AGENT DE PUBLICATION PART SUR UN MOTEUR QUI A ENCORE DU QUOTA      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * TOUS LES AGENTS QUE LA PUBLICATION LANCE PASSENT PAR ICI.
+ *
+ * Ils partaient sur le moteur par défaut du projet, et `pickAccount` ne
+ * cherchait un compte que dans CE moteur. Tous ses comptes saturés, le tour ne
+ * partait pas : `sendPrompt` écrivait « Aucun compte n'a de quota disponible »
+ * et rendait la main SANS erreur, si bien que la publication croyait l'agent
+ * intervenu et rejouait l'étape indéfiniment — le blocage silencieux.
+ *
+ * Le moteur se choisit donc AVANT la création de l'agent, sur la place
+ * réellement restante de tous les moteurs installés
+ * (`server/src/moteur-de-publication.ts`). Deux issues, jamais une troisième :
+ * un agent posé sur un moteur qui a de quoi finir, ou une PHRASE qui nomme ce
+ * qui manque. Rien n'est mis en ligne ici.
+ *
+ * Le `run` transmis (celui d'une carte, pour un conflit de fusion) garde son
+ * modèle TANT QU'ON RESTE sur son moteur : un modèle Claude n'existe pas chez
+ * Codex, et l'emporter dans une bascule ferait échouer le tour au lancement.
+ */
+async function agentDePublication(
+  projectId: string,
+  title: string,
+  // Partiel : une passe de fusion ne porte qu'un moteur, un modèle et un cran.
+  run?: Partial<RunConfig>,
+): Promise<{ agent: Agent; raison: string } | { manque: string }> {
+  const prefere = run?.engine ?? store.getProject(projectId)?.defaultEngine;
+  const resultat = await moteurPourPublier(prefere);
+  if ('manque' in resultat) return { manque: resultat.manque };
+
+  const { engine, bascule, raison } = resultat.choix;
+  const agent = createAgent({
+    projectId,
+    role: 'deploy',
+    title,
+    // Sur bascule, le modèle de la carte ne suit pas : il appartient à l'autre
+    // moteur. L'adaptateur retenu posera le sien.
+    run: bascule || !run ? { engine } : { ...run, engine },
+  });
+  return { agent, raison };
+}
+
+/** Ce qui s'écrit quand aucun moteur n'a le quota nécessaire : la raison, en clair. */
+function recitFauteDeQuota(manque: string): string {
+  return `Publication interrompue faute de quota. ${manque}`;
+}
+
+/**
+ * LE TOUR N'A PAS EU LIEU FAUTE DE QUOTA — LE FILET, APRÈS COUP.
+ *
+ * Le moteur est choisi avant l'agent, mais rien n'empêche le compte de saturer
+ * entre ce choix et le départ du tour : `sendPrompt` pose alors un message
+ * marqué « quota » et rend la main SANS erreur. Sans ce contrôle, la
+ * publication écrirait « l'agent de publication est intervenu » alors qu'aucun
+ * moteur n'a rien reçu — le mensonge exact qu'on cherche à faire disparaître.
+ *
+ * Rend la raison à afficher, ou `null` quand le tour a bien eu lieu.
+ */
+function tourRefusePourQuota(agentId: string): string | null {
+  const messages = store.listMessages(agentId, 10).filter((m) => m.role === 'assistant');
+  const dernier = messages[messages.length - 1];
+  if (dernier?.error !== 'quota') return null;
+  return dernier.content?.trim() || 'aucun compte n’a de quota disponible';
+}
+
 /**
  * Un conflit se résout DANS la publication, pas dans une nouvelle tâche.
  *
@@ -503,6 +580,14 @@ function raisonEchecAgent(err: unknown): string {
  * SA session, au lieu de celle du travail réel, par `startCard` ou par
  * l'onglet Conversation de la carte.
  *
+ * ET IL NE PART PLUS SUR LE MODÈLE DE LA CARTE. Recoller deux versions d'un
+ * même fichier est de la plomberie : la PREMIÈRE passe se fait sur le modèle
+ * léger du même moteur, réflexion moyenne (`passesDeResolution`,
+ * `shared/src/fusion-du-lot.ts`), et le modèle de la carte ne reprend la main
+ * qu'en SECONDE passe, si la légère n'a pas suffi. Mesure qui l'impose : 59
+ * des 99 résolutions de la période ont été faites par Opus 5, pour 102
+ * millions de jetons (`docs/audit-fusion-deploiement.md`).
+ *
  * Rend vrai si la branche a fini par se fusionner.
  */
 async function resoudreConflit(
@@ -514,12 +599,7 @@ async function resoudreConflit(
   files: string[],
 ): Promise<{ fusionnee: boolean; recit: string }> {
   const liste = files.length ? files.map((file) => `- ${file}`).join('\n') : '- (fichiers non identifiés)';
-  const agent = createAgent({
-    projectId,
-    role: 'deploy',
-    title: `Conflit de fusion — ${card.title}`,
-    run: card.run,
-  });
+  const passes = passesDeResolution(card.run, await catalogueMoteurs());
 
   const prompt = [
     `La publication est EN COURS et bloque : la branche \`${branch}\` ne se fusionne plus sur \`${mainBranch}\`.`,
@@ -539,24 +619,59 @@ async function resoudreConflit(
 
   bus.toast('info', `Conflit sur « ${card.title} » : l’agent de publication le résout.`);
 
-  try {
-    await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'conflit' });
-  } catch (err) {
-    return { fusionnee: false, recit: `agent de résolution en échec (${raisonEchecAgent(err)})` };
-  }
-
   /*
-   * L'agent a pu laisser le dossier sur SA branche : on revient sur la
-   * principale avant de retenter, sinon la fusion partirait à l'envers.
+   * LES PASSES SE SUIVENT, DE LA PLUS ÉCONOME À LA PLUS FORTE, et la boucle
+   * s'arrête à la première qui fusionne. Chaque passe crée son agent : un
+   * changement de modèle ne se glisse pas dans une session déjà ouverte.
    */
-  const retour = await runCommand(cwd, `git checkout ${mainBranch}`);
-  if (!retour.ok) return { fusionnee: false, recit: 'retour sur la branche principale impossible' };
+  let dernierRecit = 'conflit non résolu';
+  for (const passe of passes) {
+    const legere = passe.nom === 'legere';
+    /*
+     * Le moteur se choisit ICI, sur la place restante : une passe posée sur un
+     * moteur saturé ne partirait pas, et la publication tournerait sur place.
+     * Faute de quota, on s'arrête et on le DIT — la passe suivante se
+     * heurterait au même mur.
+     */
+    const pose = await agentDePublication(
+      projectId,
+      `Conflit de fusion — ${card.title}${legere ? '' : ' (seconde passe)'}`,
+      passe.run,
+    );
+    if ('manque' in pose) return { fusionnee: false, recit: recitFauteDeQuota(pose.manque) };
+    const { agent } = pose;
 
-  const seconde = await runCommand(cwd, `git merge --no-edit ${branch}`);
-  if (seconde.ok) return { fusionnee: true, recit: 'conflit résolu par l’agent, branche fusionnée' };
+    try {
+      await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'conflit' });
+    } catch (err) {
+      dernierRecit = `agent de résolution en échec (${raisonEchecAgent(err)})`;
+      continue;
+    }
 
-  await runCommand(cwd, 'git merge --abort');
-  return { fusionnee: false, recit: 'conflit toujours présent après passage de l’agent' };
+    const sansQuota = tourRefusePourQuota(agent.id);
+    if (sansQuota) return { fusionnee: false, recit: recitFauteDeQuota(sansQuota) };
+
+    /*
+     * L'agent a pu laisser le dossier sur SA branche : on revient sur la
+     * principale avant de retenter, sinon la fusion partirait à l'envers.
+     */
+    const retour = await runCommand(cwd, `git checkout ${mainBranch}`);
+    if (!retour.ok) return { fusionnee: false, recit: 'retour sur la branche principale impossible' };
+
+    const seconde = await runCommand(cwd, `git merge --no-edit ${branch}`);
+    if (seconde.ok) {
+      return {
+        fusionnee: true,
+        recit: `conflit résolu par l’agent${legere ? ' (modèle léger)' : ' (modèle de la carte)'}, branche fusionnée`,
+      };
+    }
+
+    await runCommand(cwd, 'git merge --abort');
+    dernierRecit = legere
+      ? 'conflit toujours présent après le modèle léger'
+      : 'conflit toujours présent après passage de l’agent';
+  }
+  return { fusionnee: false, recit: dernierRecit };
 }
 
 /* ------------------------------------------------------------------ */
@@ -607,11 +722,12 @@ async function reparerLesControles(
   echec: { etape: 'compilation' | 'controles'; out: string },
   passe: number,
 ): Promise<{ tente: boolean; recit: string }> {
-  const agent = createAgent({
+  const pose = await agentDePublication(
     projectId,
-    role: 'deploy',
-    title: echec.etape === 'compilation' ? 'Publication — le code ne compile pas' : 'Publication — contrôles en échec',
-  });
+    echec.etape === 'compilation' ? 'Publication — le code ne compile pas' : 'Publication — contrôles en échec',
+  );
+  if ('manque' in pose) return { tente: false, recit: `passe ${passe} : ${recitFauteDeQuota(pose.manque)}` };
+  const { agent } = pose;
 
   const tombes = controlesTombes(echec.out);
   const liste = tombes.length
@@ -651,6 +767,8 @@ async function reparerLesControles(
   if (tour.erreur) {
     return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(tour.erreur)})` };
   }
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) return { tente: false, recit: `passe ${passe} : ${recitFauteDeQuota(sansQuota)}` };
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
 
@@ -677,11 +795,9 @@ async function reparerLaConstruction(
   sortie: string,
   passe: number,
 ): Promise<{ tente: boolean; recit: string }> {
-  const agent = createAgent({
-    projectId,
-    role: 'deploy',
-    title: 'Publication — la construction échoue',
-  });
+  const pose = await agentDePublication(projectId, 'Publication — la construction échoue');
+  if ('manque' in pose) return { tente: false, recit: `passe ${passe} : ${recitFauteDeQuota(pose.manque)}` };
+  const { agent } = pose;
 
   const prompt = consigneDeReparationConstruction(commande, sortie, passe, REPARATIONS_MAX);
 
@@ -696,6 +812,8 @@ async function reparerLaConstruction(
   if (tour.erreur) {
     return { tente: false, recit: `agent de réparation en échec (${raisonEchecAgent(tour.erreur)})` };
   }
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) return { tente: false, recit: `passe ${passe} : ${recitFauteDeQuota(sansQuota)}` };
   return { tente: true, recit: `passe ${passe} : l’agent de publication est intervenu` };
 }
 
@@ -767,13 +885,17 @@ async function confierLaMiseEnLigne(
   ctx: ContexteDePublication,
   constat?: ConstatDeDuree,
 ): Promise<{ ok: boolean; recit: string; raison?: string; panne?: PanneDePublication }> {
-  const agent = createAgent({
-    projectId,
-    role: 'deploy',
-    title: `Mise en production — ${ctx.projet}`,
-  });
+  const pose = await agentDePublication(projectId, `Mise en production — ${ctx.projet}`);
+  if ('manque' in pose) {
+    // La raison est DITE, et l'étape échoue franchement : rien n'est mis en
+    // ligne, et surtout rien ne reste à tourner en silence.
+    const raison = recitFauteDeQuota(pose.manque);
+    return { ok: false, recit: phraseDEchecConfie(raison), raison };
+  }
+  const { agent, raison: choixDuMoteur } = pose;
 
   bus.toast('info', `Mise en production de « ${ctx.projet} » : l’agent suit le prompt du projet.`);
+  log.info(`publication : mise en production de « ${ctx.projet} » — ${choixDuMoteur}`);
 
   /*
    * LA MISE EN PRODUCTION EST BORNÉE DANS LE TEMPS, ELLE AUSSI.
@@ -813,6 +935,12 @@ async function confierLaMiseEnLigne(
   }
   if (tour.erreur) {
     const raison = (tour.erreur as any)?.message ?? 'raison inconnue';
+    return { ok: false, recit: phraseDEchecConfie(raison), raison };
+  }
+
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) {
+    const raison = recitFauteDeQuota(sansQuota);
     return { ok: false, recit: phraseDEchecConfie(raison), raison };
   }
 
@@ -966,7 +1094,19 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
       ? {
           ...step,
           state,
-          log: (step.log + (logText ? `\n${logText}` : '')).slice(-4000),
+          /*
+           * LE DÉTAIL S'AJOUTE — c'est voulu, une étape se raconte au fil de
+           * l'eau — MAIS IL NE SE COUPE PLUS PAR LA TÊTE. Il ne gardait que
+           * ses 4 000 derniers signes, donc un lot de dix branches perdait les
+           * premières, celles qu'on venait justement relire
+           * (`detailDeLEtape`, `shared/src/fusion-du-lot.ts`).
+           *
+           * L'appelant, lui, ne passe QUE la suite : lui repasser son journal
+           * entier à chaque conflit le recopiait autant de fois qu'il y avait
+           * eu de conflits (175 lignes « CONFLIT » relevées pour 78 conflits
+           * réels, audit du 18/08/2026).
+           */
+          log: detailDeLEtape(step.log, logText),
           // La progression n'a de sens que le temps de l'étape : dès qu'elle
           // s'achève, c'est la durée qui la remplace à l'écran.
           progress: state === 'running' ? step.progress : undefined,
@@ -1329,7 +1469,11 @@ async function appelerLeDepanneur(
   passe: number,
 ): Promise<{ tente: boolean; recit: string }> {
   const libelleEtape = STEP_LABELS[etape];
-  const agent = createAgent({ projectId, role: 'deploy', title: titreDuDepanneur(libelleEtape) });
+  const pose = await agentDePublication(projectId, titreDuDepanneur(libelleEtape));
+  if ('manque' in pose) {
+    return { tente: false, recit: recitDepanneurEnEchec(passe, recitFauteDeQuota(pose.manque)) };
+  }
+  const { agent } = pose;
 
   bus.toast('info', `Publication bloquée (${libelleEtape}) : un agent de dépannage intervient — reprise ${passe} sur ${REPARATIONS_MAX}.`);
 
@@ -1352,6 +1496,10 @@ async function appelerLeDepanneur(
   }
   if (tour.erreur) {
     return { tente: false, recit: recitDepanneurEnEchec(passe, raisonEchecAgent(tour.erreur)) };
+  }
+  const sansQuota = tourRefusePourQuota(agent.id);
+  if (sansQuota) {
+    return { tente: false, recit: recitDepanneurEnEchec(passe, recitFauteDeQuota(sansQuota)) };
   }
   return { tente: true, recit: '' };
 }
@@ -2043,7 +2191,22 @@ export async function startDeploy(
       // 1. Fusion des branches des cartes du lot
       current = setStep(current, 'merge', 'running');
       if (isGit && cards.length) {
-        let mergeLog = '';
+        /*
+         * LE DÉTAIL DE L'ÉTAPE S'ÉCRIT UNE FOIS, ET UNE SEULE.
+         *
+         * `setStep` AJOUTE ce qu'on lui donne à `step.log` : cette boucle lui
+         * repassait son journal ENTIER à chaque conflit, d'où des lignes
+         * répétées autant de fois qu'il y avait eu de conflits. Les lignes
+         * sont donc gardées ici, et seule la SUITE part à `setStep`
+         * (`lignesNouvelles`, `shared/src/fusion-du-lot.ts`).
+         */
+        const lignesDeFusion: string[] = [];
+        let dejaEcrites = 0;
+        const aVerser = () => {
+          const suite = lignesNouvelles(lignesDeFusion, dejaEcrites);
+          dejaEcrites = lignesDeFusion.length;
+          return suite;
+        };
 
         /*
          * Le dossier de travail est PARTAGÉ : un agent peut avoir laissé des
@@ -2061,14 +2224,14 @@ export async function startDeploy(
             cwd,
             `git commit -m "Travaux en cours enregistrés avant publication" -m "Branche ${branche}"`,
           );
-          mergeLog += `\n${branche} : travaux en cours enregistrés${enregistre.ok ? '' : ' (échec)'}`;
+          lignesDeFusion.push(`${branche} : travaux en cours enregistrés${enregistre.ok ? '' : ' (échec)'}`);
           // La branche doit exister à distance pour être fusionnée plus tard.
           await runCommand(cwd, `git push -u origin ${branche}`, 60000).catch(() => undefined);
         }
 
         // Toutes les branches du lot vont sur la branche DE CETTE ÉTAPE.
         const mainBranch = brancheDuLot;
-        mergeLog += `\n${cibleBranche.raison}`;
+        lignesDeFusion.push(cibleBranche.raison);
         const checkout = await seposerSurLaBranche(cwd, mainBranch);
         if (!checkout.ok) {
           throw new Error(
@@ -2086,8 +2249,42 @@ export async function startDeploy(
         // « sur N » de la progression, jamais le total des cartes (certaines
         // n'ont pas de branche).
         const aFusionner = cards.filter((card) => card.github?.branch).length;
+
+        /*
+         * LES BRANCHES QUI NE SE HEURTENT À RIEN PASSENT D'ABORD.
+         *
+         * Fusionnées dans l'ordre des cartes, chacune se heurtait au cumul de
+         * toutes les précédentes : 0,11 conflit en moyenne pour un lot d'une
+         * branche, 2,00 pour un lot de dix (audit du 18/08/2026). La
+         * prévision se lit avec `git merge-tree`, qui fusionne EN MÉMOIRE —
+         * ni le dossier de travail ni la branche courante ne bougent. Une
+         * prévision illisible ne réordonne rien : `heurte` reste faux et
+         * l'ordre d'origine tient.
+         */
+        current = progresserEtape(current, 'merge', 'Prévision des heurts sur le lot…');
+        const prevision = await Promise.all(
+          cards.map(async (card) => {
+            const branche = card.github?.branch;
+            if (!branche) return { cardId: card.id, heurte: false, card };
+            const essai = await runCommand(
+              cwd,
+              `git merge-tree --write-tree --name-only ${mainBranch} ${branche}`,
+              60000,
+            );
+            const fichiers = essai.ok ? [] : fichiersEnConflit(essai.out);
+            const heurte = !essai.ok && (fichiers.length > 0 || essai.out.includes('CONFLICT'));
+            return { cardId: card.id, heurte, card };
+          }),
+        );
+        const heurts = prevision.filter((p) => p.heurte).length;
+        const mention = mentionDeLOrdre(heurts, aFusionner);
+        if (mention) {
+          lignesDeFusion.push(mention);
+          current = noterAuJournal(current, 'merge', mention, 'progression');
+        }
+
         let rang = 0;
-        for (const card of cards) {
+        for (const { card } of ordreDeFusion(prevision)) {
           const branch = card.github?.branch;
           if (!branch) continue;
           rang += 1;
@@ -2097,7 +2294,7 @@ export async function startDeploy(
           // doit pas faire échouer tout le lot : on le dit et on continue.
           const exists = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
           if (!exists.ok || !exists.out.trim()) {
-            mergeLog += `\n${branch} : branche absente, carte ignorée`;
+            lignesDeFusion.push(`${branch} : branche absente, carte ignorée`);
             current = noterAuJournal(
               current,
               'merge',
@@ -2113,7 +2310,7 @@ export async function startDeploy(
           const result = await commandeDuFil(current, 'merge', cwd, `git merge --no-edit ${branch}`);
           if (result.ok) {
             fusionnees += 1;
-            mergeLog += `\n${branch} : fusionnée`;
+            lignesDeFusion.push(`${branch} : fusionnée`);
             current = noterAuJournal(current, 'merge', `${branch} : fusionnée (« ${card.title} »).`, 'issue');
             continue;
           }
@@ -2126,8 +2323,11 @@ export async function startDeploy(
 
           // Le conflit se règle ICI, pendant la publication : plus de carte à
           // valider, chiffrer et lancer pour un geste de plomberie.
-          mergeLog += `\n${branch} : CONFLIT${enConflit.length ? ` (${enConflit.join(', ')})` : ''} — résolution en cours…`;
-          current = setStep(current, 'merge', 'running', mergeLog.trim());
+          lignesDeFusion.push(
+            `${branch} : CONFLIT${enConflit.length ? ` (${enConflit.join(', ')})` : ''} — résolution en cours…`,
+          );
+          // Seule la SUITE part au détail : le journal entier s'y recopiait.
+          current = setStep(current, 'merge', 'running', aVerser());
           current = noterAuJournal(
             current,
             'merge',
@@ -2138,12 +2338,12 @@ export async function startDeploy(
           const issue = await resoudreConflit(projectId, cwd, card, branch, mainBranch, enConflit);
           if (issue.fusionnee) {
             fusionnees += 1;
-            mergeLog += `\n${branch} : ${issue.recit}`;
+            lignesDeFusion.push(`${branch} : ${issue.recit}`);
             current = noterAuJournal(current, 'merge', `${branch} : ${issue.recit}`, 'depannage');
             continue;
           }
           ecartees.add(card.id);
-          mergeLog += `\n${branch} : ${issue.recit} — carte écartée de cette publication`;
+          lignesDeFusion.push(`${branch} : ${issue.recit} — carte écartée de cette publication`);
           current = noterAuJournal(
             current,
             'merge',
@@ -2161,7 +2361,12 @@ export async function startDeploy(
             `Toutes les branches du lot sont en conflit (${ecartees.size}). Rien n'a pu être fusionné : résolvez les conflits puis relancez.`,
           );
         }
-        current = setStep(current, 'merge', 'done', mergeLog.trim() || 'aucune branche à fusionner');
+        current = setStep(
+          current,
+          'merge',
+          'done',
+          aVerser() || (lignesDeFusion.length ? '' : 'aucune branche à fusionner'),
+        );
       } else {
         current = setStep(current, 'merge', 'skipped', isGit ? 'aucune carte à embarquer' : 'projet sans dépôt git');
       }

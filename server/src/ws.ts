@@ -678,6 +678,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (!card) throw new Error('carte introuvable');
       const scheduling = { ...(card.scheduling ?? { attempts: 0, restarts: 0, asap: false }) };
       scheduling.departPrevu = cmd.at ?? undefined;
+      // Le geste de l'utilisateur — poser SA date, ou la retirer — l'emporte
+      // sur le créneau conseillé : cette date-là n'a plus besoin d'être
+      // expliquée, elle est déjà la réponse de l'utilisateur.
+      scheduling.creneauAutomatique = false;
       // La phrase d'attente suit ce qui retient VRAIMENT la carte : sans date,
       // elle attend de nouveau un clic ; avec une date, elle n'attend personne.
       scheduling.waitingReason = raisonDattente(scheduling);
