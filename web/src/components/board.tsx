@@ -54,6 +54,8 @@ import {
   sortieAutorisee,
 } from '@haikodev/shared';
 import { RepereAttention } from '@/components/repere-attention';
+import { IconeMoteur } from '@/components/icone-moteur';
+import { nomCourtMoteur } from '@/components/run-selectors';
 import { SilhouetteTableau } from '@/components/silhouettes';
 import { InfoTravail } from '@/components/info-travail';
 import { dureeLisible } from '@/components/arret-agent';
@@ -2203,11 +2205,18 @@ export function CardTile({
           {/* Le titre est le texte que l'on cherche à COPIER, et le seul de la
               carte qui ne soit pas tronqué : il revient donc à la ligne, y
               compris au milieu d'un mot interminable (une adresse, un chemin),
-              plutôt que de sortir du cadre. */}
+              plutôt que de sortir du cadre. L'icône du moteur ouvre son fil,
+              à la taille d'une lettre : elle ne prend pas de ligne à elle
+              seule, et ne bouge donc rien d'autre sur la carte. */}
           <h3
             data-carte-texte
             className="texte-copiable min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text"
           >
+            <Tooltip label={t(nomCourtMoteur(state.engines.find((e) => e.id === card.run.engine)))}>
+              <span className="inline-block" data-icone-moteur={card.id}>
+                <IconeMoteur engine={card.run.engine} className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle" />
+              </span>
+            </Tooltip>
             {card.title}
           </h3>
           {/* Le triangle passe AVANT le voyant : une décision attendue prime
