@@ -228,14 +228,21 @@ function EtapeDuTiroir({
   const resume = resumeDuFil(etape?.journal);
 
   return (
-    <li data-etape-process={cle} data-etat-process={etat}>
+    <li
+      className={cn(
+        'overflow-hidden rounded-md border border-border',
+        etat === 'failed' ? 'border-danger/40' : ouverte ? 'border-border' : 'border-transparent',
+      )}
+      data-etape-process={cle}
+      data-etat-process={etat}
+    >
       <button
         type="button"
         onClick={onBasculer}
         aria-expanded={ouverte}
         data-ouvrir-etape={cle}
         className={cn(
-          'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-raised',
+          'flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-raised',
           ouverte && 'bg-raised',
         )}
       >
@@ -243,7 +250,7 @@ function EtapeDuTiroir({
         <span className="shrink-0">
           <IconeEtape etat={etat} />
         </span>
-        <span className={cn('flex-1 truncate text-[13.5px]', etat === 'failed' ? 'text-danger' : 'text-text')}>
+        <span className={cn('flex-1 truncate text-[13.5px] font-medium', etat === 'failed' ? 'text-danger' : 'text-text')}>
           {STEP_LABELS[cle]}
         </span>
         {/* Ce que l'étape a à raconter, avant même de l'ouvrir : sans ce
@@ -253,7 +260,7 @@ function EtapeDuTiroir({
             {resume}
           </span>
         ) : null}
-        <span className="shrink-0 text-[11px] text-faint" data-etat-etape={etat}>
+        <span className="shrink-0 text-right text-[11px] tabular-nums text-faint" data-etat-etape={etat}>
           {ETAT_LABELS[etat]}
           {duree && (etat === 'done' || etat === 'failed') ? (
             <span data-duree-etape={cle}> · {duree}</span>
@@ -269,7 +276,7 @@ function EtapeDuTiroir({
           sans rien déplier. Une étape EN RETARD le dit en orange. */}
       {etat === 'running' && etape?.progress ? (
         <p
-          className={cn('ml-[30px] mt-0.5 text-[12px]', etape.enRetard ? 'text-warning' : 'text-muted')}
+          className={cn('px-2 pb-2 pl-[34px] text-[12px]', etape.enRetard ? 'text-warning' : 'text-muted')}
           data-progress-etape={cle}
           data-etape-en-retard={etape.enRetard ? 'oui' : undefined}
         >
@@ -278,49 +285,58 @@ function EtapeDuTiroir({
       ) : null}
 
       {ouverte ? (
-        <div className="ml-[30px] mt-1 space-y-2 pb-2" data-fil-etape={cle}>
+        <div className="border-t border-border bg-raised/40 px-2.5 py-2.5 pl-[34px]" data-fil-etape={cle}>
           <p className="text-[12px] text-faint" data-description-etape={cle}>
             {STEP_DESCRIPTIONS[cle]}
           </p>
 
           {/* LE FIL : chaque moment, à son heure, dans l'ordre. C'est ce qu'on
-              vient chercher — le journal du serveur n'a plus à être ouvert. */}
+              vient chercher — le journal du serveur n'a plus à être ouvert. Les
+              moments sont GROUPÉS avec un trait vertical (l'indentation de
+              l'étape) et chaque HEURE est alignée dans une même colonne à
+              droite, lisible même en défilant loin de son titre. */}
           {fil.length ? (
-            <ul className="space-y-1 border-l border-border pl-2.5">
-              {fil.map((moment, i) => (
-                <li key={i} className="flex items-start gap-1.5 text-[12px] leading-snug" data-moment-fil={moment.genre}>
-                  <span className="mt-[3px] shrink-0">
-                    <IconeMoment genre={moment.genre} />
-                  </span>
-                  {moment.evenement ? (
-                    <span className="mt-[1px] shrink-0 tabular-nums text-faint" data-heure-moment>
-                      {heureDeLEvenement(moment.evenement.at)}
-                    </span>
-                  ) : null}
-                  <span
-                    className={cn(
-                      'flex-1 whitespace-pre-wrap texte-copiable',
-                      moment.genre === 'commande'
-                        ? 'font-mono text-[11.5px] text-muted'
-                        : moment.genre === 'depannage'
-                          ? 'text-warning'
-                          : 'text-muted',
-                    )}
+            <ul className="mt-2 space-y-1.5 border-l-2 border-border pl-2.5">
+              {fil.map((moment, i) => {
+                const ecart = moment.evenement ? ecartDepuisLeDebut(moment.evenement.at, etape?.startedAt) : null;
+                return (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 text-[12px] leading-snug"
+                    data-moment-fil={moment.genre}
                   >
-                    {moment.texte}
-                  </span>
-                  {/* Le temps écoulé depuis le début de l'étape : c'est lui qui
-                      répond à « où est passé le temps ? ». */}
-                  {moment.evenement && ecartDepuisLeDebut(moment.evenement.at, etape?.startedAt) ? (
-                    <span className="mt-[1px] shrink-0 tabular-nums text-faint">
-                      {ecartDepuisLeDebut(moment.evenement.at, etape?.startedAt)}
+                    <span className="mt-[3px] shrink-0">
+                      <IconeMoment genre={moment.genre} />
                     </span>
-                  ) : null}
-                </li>
-              ))}
+                    {/* La COMMANDE se lit à part, dans un encart — jamais mêlée
+                        au texte courant du résultat ou de la progression. */}
+                    <span
+                      className={cn(
+                        'min-w-0 flex-1 whitespace-pre-wrap texte-copiable',
+                        moment.genre === 'commande'
+                          ? 'rounded bg-raised px-1.5 py-1 font-mono text-[11.5px] text-muted'
+                          : moment.genre === 'depannage'
+                            ? 'text-warning'
+                            : 'text-muted',
+                      )}
+                    >
+                      {moment.texte}
+                    </span>
+                    {/* L'HEURE et l'ÉCART depuis le début, dans une colonne de
+                        largeur fixe : ils restent alignés d'un moment à
+                        l'autre, quelle que soit la longueur du texte. */}
+                    {moment.evenement ? (
+                      <span className="mt-[1px] flex w-[58px] shrink-0 flex-col items-end tabular-nums text-faint">
+                        <span data-heure-moment>{heureDeLEvenement(moment.evenement.at)}</span>
+                        {ecart ? <span>{ecart}</span> : null}
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           ) : (
-            <p className="text-[12px] text-faint" data-fil-vide={cle}>
+            <p className="mt-2 text-[12px] text-faint" data-fil-vide={cle}>
               {etat === 'todo'
                 ? t('Cette étape n’a pas encore commencé.')
                 : t('Cette étape n’a rien eu à raconter.')}
@@ -330,7 +346,7 @@ function EtapeDuTiroir({
           {/* Un échec garde son motif, en entier ou presque : c'est là qu'on
               lit ce qui a bloqué. */}
           {etat === 'failed' && etape?.log ? (
-            <p className="whitespace-pre-wrap rounded-md bg-raised p-2 text-[11.5px] leading-snug text-faint texte-copiable">
+            <p className="mt-2 whitespace-pre-wrap rounded-md bg-raised p-2 text-[11.5px] leading-snug text-faint texte-copiable">
               {motifLisible(etape.log)}
             </p>
           ) : null}
@@ -418,7 +434,7 @@ export function TiroirDeploiement({
               Une publication d'avant cette liste n'en a pas — on n'en invente
               alors aucune, et le tiroir s'ouvre sur ses étapes comme avant. */}
           {run?.taches?.length ? <TachesDuLot taches={run.taches} /> : null}
-          <ul className="space-y-0.5" data-processus-etapes>
+          <ul className="space-y-1.5" data-processus-etapes>
             {affichees.map((cle) => (
               <EtapeDuTiroir
                 key={cle}
