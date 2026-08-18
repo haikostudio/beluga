@@ -169,13 +169,16 @@ const STATUTS_EN_ECHEC = ['failed', 'stopped'];
 export function rangerLesCartesOubliees(): void {
   const agents = store.listAgents();
   for (const card of store.cartesEnCours()) {
-    const issue = issueDeCarteOubliee({
-      colonne: card.column,
-      tourEnVol: !!card.scheduling?.tourEnVolDepuis,
-      agentAuTravail: agents.some((a) => a.cardId === card.id && STATUTS_AU_TRAVAIL.includes(a.status)),
-      dernierTourEnEchec: dernierTourEnEchec(card, agents),
-      dejaEnregistre: !!card.codeDejaEnregistre,
-    });
+    const issue = issueDeCarteOubliee(
+      {
+        colonne: card.column,
+        tourEnVolDepuis: card.scheduling?.tourEnVolDepuis,
+        agentAuTravail: agents.some((a) => a.cardId === card.id && STATUTS_AU_TRAVAIL.includes(a.status)),
+        dernierTourEnEchec: dernierTourEnEchec(card, agents),
+        dejaEnregistre: !!card.codeDejaEnregistre,
+      },
+      Date.now(),
+    );
     if (!issue.colonne) continue;
 
     const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
@@ -186,6 +189,10 @@ export function rangerLesCartesOubliees(): void {
       ...(issue.colonne === 'done' ? { doneAt: card.doneAt ?? Date.now() } : {}),
       scheduling: {
         ...scheduling,
+        // Une marque de vol trop vieille pour être crue (§ `issueDeCarteOubliee`)
+        // n'a plus lieu d'être une fois la carte rangée : sinon la prochaine
+        // relecture continuerait de raconter un tour toujours en vol.
+        tourEnVolDepuis: undefined,
         // Même règle que `carteApresFinDeTour` : une carte qui se ferme ne
         // garde pas l'attente d'un tour précédent.
         ...(issue.colonne === 'done' ? { suspendu: false, waitingReason: undefined } : {}),
