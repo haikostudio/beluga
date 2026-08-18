@@ -906,6 +906,34 @@ const MIGRATIONS: {
       );
     `,
   },
+  {
+    id: 31,
+    name: 'coffre-fort-des-identifiants',
+    // UN SEUL ENDROIT POUR TOUS LES IDENTIFIANTS.
+    //
+    // Une fiche par accès : son nom, son type, le projet auquel elle est
+    // rattachée (vide = HaikoDev lui-même) et ses champs, rangés en JSON parce
+    // qu'ils DÉPENDENT du type — une clé d'API n'a pas de port, un accès SSH
+    // n'a pas d'adresse web. Des colonnes fixes auraient obligé à toucher au
+    // schéma à chaque nouveau type.
+    //
+    // Le projet est effacé, pas la fiche, quand un projet disparaît
+    // (ON DELETE SET NULL) : l'accès reste retrouvable au lieu de s'évaporer
+    // avec le projet qui l'utilisait.
+    sql: `
+      CREATE TABLE IF NOT EXISTS secrets (
+        id TEXT PRIMARY KEY,
+        nom TEXT NOT NULL,
+        type TEXT NOT NULL,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        champs TEXT NOT NULL DEFAULT '{}',
+        note TEXT NOT NULL DEFAULT '',
+        cree_le INTEGER NOT NULL,
+        modifie_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_secrets_projet ON secrets(project_id);
+    `,
+  },
 ];
 
 export function openDb(): DB {

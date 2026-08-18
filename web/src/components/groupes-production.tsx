@@ -147,7 +147,11 @@ export function PileDeGroupe({ nombre, onOuvrir }: { nombre: number; onOuvrir: (
       type="button"
       onClick={onOuvrir}
       data-pile-groupe={nombre}
-      aria-label={t('Déplier ce groupe')}
+      // Le repère d'accessibilité ne change JAMAIS de langue — c'est par lui que
+      // les scripts de contrôle retrouvent le bouton. La bulle de survol, elle,
+      // suit la langue choisie.
+      aria-label="Déplier ce groupe"
+      title={t('Déplier ce groupe')}
       className="relative mb-1.5 block w-full pb-1"
       style={{ height: `${30 + (couches - 1) * 5}px` }}
     >

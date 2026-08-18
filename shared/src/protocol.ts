@@ -534,6 +534,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('cleApi.revoquer'), id: z.string() }),
   z.object({ type: z.literal('cleApi.oublier'), id: z.string() }),
   /**
+   * LE COFFRE-FORT DES IDENTIFIANTS (`shared/src/coffre-fort.ts`). Lister rend
+   * les fiches ENTIÈRES, valeurs comprises : le coffre sert à relire un accès,
+   * pas seulement à en vérifier l'existence. La fiche des accès SSH centraux
+   * (`reglages:vps`) est LUE dans les réglages et s'y écrit — elle ne s'efface
+   * pas, elle se vide.
+   */
+  z.object({ type: z.literal('coffre.lister') }),
+  z.object({ type: z.literal('coffre.enregistrer'), acces: z.any() }),
+  z.object({ type: z.literal('coffre.supprimer'), id: z.string() }),
+  /**
    * Les dernières erreurs remontées par l'interface, pour le bloc des réglages.
    * Elles arrivent par `POST /api/erreur` et vivent dans un fichier de journal.
    */

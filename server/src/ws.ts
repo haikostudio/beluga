@@ -91,6 +91,7 @@ import { etatDemon, demanderRedemarrage } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
 import { enregistrerCleCerveau } from './cle-cerveau.js';
 import { creerCleApi, listerClesApi, oublierCleApi, revoquerCleApi } from './cles-api.js';
+import { enregistrerAcces, listerAcces, supprimerAcces } from './coffre-fort.js';
 import {
   compterErreursInterface,
   dernieresErreursInterface,
@@ -1627,6 +1628,23 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const resultat = oublierCleApi(cmd.id);
       if (!resultat.ok) throw new Error(resultat.raison ?? 'clé introuvable');
       return { ok: true, cles: listerClesApi() };
+    }
+
+    /* -------- Coffre-fort des identifiants -------- */
+
+    case 'coffre.lister':
+      return { acces: listerAcces() };
+
+    case 'coffre.enregistrer': {
+      const resultat = enregistrerAcces(cmd.acces);
+      if (!resultat.ok) throw new Error(resultat.raison);
+      return { acces: resultat.acces, liste: listerAcces() };
+    }
+
+    case 'coffre.supprimer': {
+      const resultat = supprimerAcces(String(cmd.id ?? ''));
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'accès introuvable');
+      return { ok: true, liste: listerAcces() };
     }
 
     case 'erreurs.liste':

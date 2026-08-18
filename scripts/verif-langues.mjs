@@ -51,8 +51,19 @@ const refuser = (message) => echecs.push(message);
 const constater = (message) => constats.push(message);
 
 const partage = await import(path.join(RACINE, 'shared/dist/index.js'));
-const { LANGUES, LANGUE_DORIGINE, TRADUCTIONS, langueValide, manquesDeLaLangue, traduire, COLUMN_LABELS, THEMES } =
-  partage;
+const {
+  LANGUES,
+  LANGUE_DORIGINE,
+  TRADUCTIONS,
+  langueValide,
+  manquesDeLaLangue,
+  traduire,
+  COLUMN_LABELS,
+  THEMES,
+  TYPES_ACCES,
+  LIBELLE_TYPE_ACCES,
+  CHAMPS_PAR_TYPE,
+} = partage;
 
 /* ------------------------------------------------------------------ */
 /* 1. Le catalogue                                                     */
@@ -128,6 +139,10 @@ const catalogues = [
   ...Object.values(COLUMN_LABELS),
   ...THEMES.map((theme) => theme.libelle),
   ...THEMES.map((theme) => theme.description),
+  /* Le coffre-fort : ses types d'accès et les libellés de leurs champs viennent
+     eux aussi d'un catalogue partagé, affiché tel quel. */
+  ...TYPES_ACCES.map((type) => LIBELLE_TYPE_ACCES[type]),
+  ...TYPES_ACCES.flatMap((type) => CHAMPS_PAR_TYPE[type].map((champ) => champ.libelle)),
 ];
 const aTraduire = [...new Set([...textes, ...catalogues])];
 
