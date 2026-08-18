@@ -328,14 +328,16 @@ async function voletDeLEcran() {
     if (await ligne.count()) await ligne.click();
     await page.waitForTimeout(2500);
 
-    /* Le décor est-il bien à l'écran ? Sans cartes affichées, tout ce qui suit
-       échouerait sans qu'on sache pourquoi. */
-    const cartes = await page.locator('[data-carte]').count();
-    noter('les trois cartes d’essai sont à l’écran', cartes === 3, `${cartes} carte(s)`);
-
     const bandeaux = page.locator('[data-groupe-production]');
     const nombre = await bandeaux.count();
     noter('la colonne « En production » range ses cartes par groupe', nombre >= 2, `${nombre} bandeau(x)`);
+
+    /* REPLIÉS PAR DÉFAUT : aucune des trois cartes d'essai ne se montre, chaque
+       groupe dessine sa pile à la place. */
+    const cartesRepliees = await page.locator('[data-carte]').count();
+    noter('les groupes démarrent REPLIÉS : aucune carte à l’écran', cartesRepliees === 0, `${cartesRepliees} carte(s)`);
+    const piles = await page.locator('[data-pile-groupe]').count();
+    noter('chaque groupe replié montre sa pile', piles === nombre, `${piles} pile(s)`);
 
     const titre = nombre ? ((await bandeaux.first().textContent()) ?? '').trim() : '';
     noter(
@@ -354,7 +356,25 @@ async function voletDeLEcran() {
        groupe de la publication réussie, donc il n'y a bien que DEUX groupes. */
     noter('une publication tombée ne revendique aucune carte', nombre === 2, `${nombre} groupes`);
 
-    const bouton = page.locator(`[data-groupe-production="${RUN_ID}"]`).first();
+    /* CLIQUER LE TITRE DÉPLIE LE GROUPE, RECLIQUER LE REPLIE. */
+    const titreDuGroupe = page.locator(`[data-basculer-groupe="${RUN_ID}"]`).first();
+    await titreDuGroupe.click();
+    await page.waitForTimeout(300);
+    const carteApresDepliage = await page.locator('[data-carte]').count();
+    noter(
+      'cliquer le titre DÉPLIE le groupe : ses deux cartes apparaissent',
+      carteApresDepliage === 2,
+      `${carteApresDepliage} carte(s)`,
+    );
+    const pileApresDepliage = await page.locator('[data-pile-groupe]').count();
+    noter('la pile du groupe déplié s’efface', pileApresDepliage === nombre - 1, `${pileApresDepliage} pile(s)`);
+
+    await titreDuGroupe.click();
+    await page.waitForTimeout(300);
+    const carteApresRepli = await page.locator('[data-carte]').count();
+    noter('recliquer REPLIE le groupe : ses cartes s’effacent à nouveau', carteApresRepli === 0, `${carteApresRepli} carte(s)`);
+
+    const bouton = page.locator(`[data-historique-groupe="${RUN_ID}"]`).first();
     noter('le groupe porte un bouton vers son historique', (await bouton.count()) === 1);
     if (await bouton.count()) {
       await bouton.click();
