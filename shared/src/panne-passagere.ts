@@ -39,7 +39,7 @@ export interface PanneAJuger {
 }
 
 /** Comment la panne a été reconnue — c'est ce qui sera dit en clair à l'écran. */
-export type MotifDePanne = 'erreur-serveur' | 'moteur-surcharge' | 'lien-coupe';
+export type MotifDePanne = 'erreur-serveur' | 'moteur-surcharge' | 'lien-coupe' | 'session-morte';
 
 /**
  * Les tournures par lesquelles un moteur annonce une panne de SON fournisseur.
@@ -56,6 +56,22 @@ const TOURNURES_DE_PANNE: { motif: MotifDePanne; regex: RegExp }[] = [
   { motif: 'moteur-surcharge', regex: /server is (temporarily )?(overloaded|busy)/ },
   { motif: 'lien-coupe', regex: /(socket hang up|econnreset|etimedout|enetunreach|fetch failed)/ },
   { motif: 'lien-coupe', regex: /(connection (reset|closed) by peer|premature close)/ },
+];
+
+/**
+ * Le fil que le moteur connaissait a expiré CÔTÉ FOURNISSEUR — la compression
+ * qui l'aurait remplacé n'a pas pu tourner, ou une purge est arrivée entre deux
+ * tours. Le `--resume` retombe alors sur ce refus précis, à distinguer d'un
+ * « not found » ordinaire (jeton, adresse) : celui-ci se retente, mais sur un
+ * fil NEUF — retenter sur le même identifiant répéterait le même refus.
+ */
+const TOURNURES_SESSION_MORTE: { motif: MotifDePanne; regex: RegExp }[] = [
+  { motif: 'session-morte', regex: /no conversation found/ },
+  { motif: 'session-morte', regex: /conversation not found/ },
+  { motif: 'session-morte', regex: /no session found/ },
+  { motif: 'session-morte', regex: /session not found/ },
+  { motif: 'session-morte', regex: /unknown conversation/ },
+  { motif: 'session-morte', regex: /unknown session/ },
 ];
 
 /**
@@ -96,6 +112,12 @@ export function ligneDePanne(ligne: string): MotifDePanne | null {
   // Une ligne qui cite (guillemets, code) parle d'une panne, elle n'en est pas une.
   if (SIGNES_DE_CITATION.some((signe) => propre.includes(signe))) return null;
   const plat = aplati(propre);
+  // Vérifiée AVANT l'exclusion générale : « no conversation found » matche
+  // aussi le motif générique `/not found/`, qui écarterait sinon ce cas précis.
+  for (const { motif, regex } of TOURNURES_SESSION_MORTE) {
+    const trouve = plat.match(regex);
+    if (trouve?.index !== undefined && trouve.index <= DEBUT_DE_BANNIERE) return motif;
+  }
   if (TOURNURES_DEFINITIVES.some((motif) => plat.match(motif))) return null;
   for (const { motif, regex } of TOURNURES_DE_PANNE) {
     const trouve = plat.match(regex);
@@ -180,6 +202,8 @@ export function causeEnClair(motif: MotifDePanne): string {
       return 'le moteur était surchargé chez le fournisseur';
     case 'lien-coupe':
       return 'le lien avec le moteur a été coupé en cours de route';
+    case 'session-morte':
+      return 'la session de conversation avec le moteur avait expiré';
   }
 }
 
