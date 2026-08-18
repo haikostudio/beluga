@@ -65,6 +65,7 @@ export type ManqueDescription =
   | 'trop-courte'
   | 'trop-longue'
   | 'sans-repere'
+  | 'renvoi-au-fil'
   | PartieDescription;
 
 export interface PartiesCarte {
@@ -145,6 +146,42 @@ export function contientRepereConcret(texte: string): boolean {
   return REPERES.some((r) => r.test(texte));
 }
 
+/*
+ * LE RENVOI AU FIL : une carte qui ne dit pas son sujet.
+ *
+ * Le chef d'orchestre a la conversation sous les yeux ; l'agent qui exécutera
+ * la carte, LUI, ne l'a pas — il ne reçoit que le titre et la description. Une
+ * carte qui dit « corriger ce qui a été discuté » ou « voir la conversation »
+ * part donc vers quelqu'un pour qui ces mots ne désignent rien. Ces tournures
+ * sont refusées telles quelles : le sujet se nomme en toutes lettres.
+ *
+ * La liste est VOLONTAIREMENT étroite — seulement des renvois qui n'ont aucun
+ * sens hors du fil. Un « comme prévu » ou un « voir plus bas » ordinaire passe.
+ */
+const RENVOIS_AU_FIL: RegExp[] = [
+  // « ce qui a été discuté », « celui dont on a parlé », « ce qu'on vient de dire »
+  /\b(?:ce|celui|celle|ceux|celles) (?:qui|dont|qu'?on|que l'?on)\s+(?:a été |vient d'?être |on a |vient de |a )?(?:discut|évoqu|parl[ée]|dit\b|dire\b|d[ée]crit ci-dessus)/i,
+  // « le point / le sujet / la demande évoqué(e) plus haut / ci-dessus / dans la conversation »
+  /\b(?:le point|le sujet|la demande|le probl[èe]me|le besoin)\s+(?:[^.\n]{0,20}\s)?(?:évoqué|discuté|mentionné|abordé|décrit|cité)e?s?\s+(?:plus haut|ci-dessus|au-dessus|dans la conversation|dans le fil)/i,
+  // « comme discuté / convenu ci-dessus / dans la conversation »
+  /\bcomme (?:discut|évoqu|convenu|vu|indiqué)[a-zé]*\s+(?:plus haut|ci-dessus|dans (?:la|notre) (?:conversation|échange|discussion))/i,
+  // « voir la conversation », « cf. notre échange », « se reporter au fil »
+  /\b(?:voir|cf\.?|se reporter (?:à|au)|reprendre)\s+(?:la |notre |le |l'?)?(?:conversation|échange|discussion|fil)\b(?!\s+(?:de|d'|du|des)\b)/i,
+  // « la conversation ci-dessus », « notre échange précédent »
+  /\b(?:la|notre|cette)\s+(?:conversation|échange|discussion)\s+(?:ci-dessus|précédente?|au-dessus|plus haut)/i,
+  // « d'après la conversation », « selon notre échange »
+  /\b(?:d'?après|selon)\s+(?:la|notre)\s+(?:conversation|échange|discussion)/i,
+];
+
+/**
+ * Vrai quand la description se contente de RENVOYER au fil au lieu de nommer
+ * son sujet. C'est un refus à part entière : ni la longueur ni les quatre
+ * parties ne le rattrapent.
+ */
+export function renvoieAuFil(texte: string): boolean {
+  return RENVOIS_AU_FIL.some((r) => r.test(texte));
+}
+
 /** Le nombre de signes utiles : les blancs en série ne comptent que pour un. */
 export function signesUtiles(texte: string): number {
   return texte.replace(/\s+/g, ' ').trim().length;
@@ -168,6 +205,8 @@ const LIBELLE_MANQUE: Record<ManqueDescription, string> = {
   attendu: "ce qui est ATTENDU n'est pas dit",
   limites: 'les LIMITES à ne pas franchir manquent',
   verification: "la manière de VÉRIFIER que c'est fait manque",
+  'renvoi-au-fil':
+    "la carte RENVOIE à la conversation au lieu de nommer son sujet : l'agent qui l'exécutera n'a pas ton fil sous les yeux. Remplace « ce qui a été discuté », « le point ci-dessus », « voir la conversation » par le sujet lui-même, écrit en toutes lettres",
 };
 
 /** Les mêmes manques, dits autrement quand on n'attend qu'une carte de tri. */
@@ -198,6 +237,9 @@ export function jugerDescription(
   } else {
     if (signes < plancher) manques.push('trop-courte');
     if (signes > MAX_SIGNES_DESCRIPTION) manques.push('trop-longue');
+    // Vaut pour les DEUX exigences : une carte courte qui renvoie au fil est
+    // aussi illisible pour l'agent d'exécution qu'une carte complète.
+    if (renvoieAuFil(texte)) manques.push('renvoi-au-fil');
     if (exigence === 'complete') {
       const trouvees = partiesTrouvees(texte);
       for (const partie of PARTIES_DESCRIPTION) if (!trouvees.has(partie)) manques.push(partie);
@@ -213,6 +255,7 @@ export function jugerDescription(
         `Ce qui manque : ${manques.map((m) => LIBELLE_MANQUE_COURT[m] ?? LIBELLE_MANQUE[m]).join(' ; ')}.\n\n` +
         `Reprends l'outil avec deux ou trois phrases (entre ${MIN_SIGNES_CARTE_COURTE} et ${MAX_SIGNES_DESCRIPTION} signes) : ` +
         "ce que l'utilisateur demande, dans tes mots, assez précisément pour qu'il reconnaisse sa demande avant de cliquer. " +
+        "NOMME LE SUJET : si la demande renvoyait à ce qui venait d'être dit, va le chercher dans la conversation et écris-le en toutes lettres — l'agent qui exécutera la carte n'a pas ton fil. " +
         "N'invente aucun constat sur le projet : tu ne l'as pas ouvert, et l'agent de la carte s'en chargera."
       : 'Proposition REFUSÉE — elle ne part pas dans la conversation tant que sa description ne tient pas debout.\n' +
         `Ce qui manque : ${manques.map((m) => LIBELLE_MANQUE[m]).join(' ; ')}.\n\n` +
@@ -261,4 +304,7 @@ export const CONSIGNE_CARTE_COURTE =
   `Longueur : entre ${MIN_SIGNES_CARTE_COURTE} et ${MAX_SIGNES_DESCRIPTION} signes.\n` +
   "TU N'OUVRES PAS LE PROJET POUR ÉCRIRE CETTE CARTE et tu n'inventes AUCUN constat sur le code : l'étude, le chiffrage et " +
   "les contrôles à rejouer sont le travail de l'agent qui exécutera la carte, une fois qu'elle sera validée. " +
-  "Une description vide ou réduite au titre est refusée et t'est rendue à réécrire.";
+  "Une description vide ou réduite au titre est refusée et t'est rendue à réécrire.\n" +
+  "LA CARTE SE LIT SANS TA CONVERSATION : l'agent qui l'exécutera reçoit le titre et la description, RIEN D'AUTRE — ni le fil, ni ce qui vient d'être dit. " +
+  "Quand la demande renvoie à ce qui précède (« ça », « cette idée », « fais-en une carte », « comme on vient d'en parler »), REMONTE LE FIL, retrouve le sujet et NOMME-LE en toutes lettres dans le titre comme dans la description. " +
+  "« Corriger ce qui a été discuté », « le point ci-dessus », « voir la conversation » sont refusés par l'outil : ces mots ne désignent rien pour qui n'était pas là.";

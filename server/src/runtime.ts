@@ -44,6 +44,8 @@ import {
   libelleDeLaReprise,
   messageDePanneDefinitive,
   MotifDeContinuite,
+  filARappeler,
+  messagesDepuis,
   tachesAPoursuivre,
   cloturerLesTaches,
   progressionDesTaches,
@@ -1027,6 +1029,42 @@ async function preparerLeTour(
       });
       log.info(
         `agent ${agent.id} : fil neuf sur le compte ${account.label} (le précédent appartient à un autre coffre) — résumé de continuité de ${resume.length} signes`,
+      );
+    } else if (
+      /*
+       * LE FIL DU MOTEUR MEURT, LA CONVERSATION NON.
+       *
+       * Le chef d'orchestre garde une conversation qui ne s'arrête jamais, mais
+       * son fil côté moteur repart à neuf pour trois fois rien : une session
+       * expirée chez le fournisseur (« No conversation found »), un modèle ou
+       * un moteur changé dans les réglages. Le tour suivant partait alors avec
+       * le SEUL message qu'on venait d'écrire — et « fais-en une carte » ne
+       * désigne plus rien. Le chef redemandait de quoi on parlait, ou pire,
+       * proposait une carte au hasard, alors que le sujet s'affichait deux
+       * lignes plus haut à l'écran.
+       *
+       * On lui rend donc ce que l'utilisateur voit : les échanges VISIBLES de
+       * la conversation, résumés comme après une compression. La compression et
+       * le changement de compte passent avant (ils ont déjà leur résumé), et
+       * une conversation réellement neuve n'en reçoit aucun.
+       */
+      filARappeler({
+        nouvelleSession,
+        resumeDeCompression: agent.context?.continuitySummary,
+        filSurUnAutreCompte: Boolean(filDuCompteDavant),
+        echangesVisibles: messagesDepuis(store.listMessages(agent.id), store.nouveauDepart(agent.id)).filter(
+          (message) => message.id !== userMessageId && message.content.trim(),
+        ).length,
+      })
+    ) {
+      const resume = resumePourAgent(agent, 'fil-neuf', userMessageId);
+      contextParts.push({
+        label: 'Ce qui a déjà été dit dans cette conversation',
+        kind: 'extra',
+        content: resume,
+      });
+      log.info(
+        `agent ${agent.id} : fil du moteur reparti à neuf — rappel de la conversation visible (${resume.length} signes)`,
       );
     }
   } else {
@@ -2631,10 +2669,23 @@ function tachesReprises(agentId: string): TodoItem[] {
   return tachesAPoursuivre(dernier.todos).map((todo) => TodoItem.parse(todo));
 }
 
-function resumePourAgent(agent: Agent, motif: MotifDeContinuite = 'compression'): string {
+/**
+ * LE RÉSUMÉ NE REMONTE PAS AVANT LE DERNIER DÉPART. « Repartir de zéro » range
+ * l'ancien fil derrière un lien (`messagesDepuis`, [[nouveau-depart]]) : le
+ * renvoyer ici en résumé annulerait le geste. On borne donc le résumé aux
+ * messages VISIBLES, et l'on peut en écarter un — la demande du tour en cours,
+ * qui part déjà en clair juste à côté.
+ */
+function resumePourAgent(
+  agent: Agent,
+  motif: MotifDeContinuite = 'compression',
+  sauf?: string | null,
+): string {
   const project = store.getProject(agent.projectId)!;
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
-  const messages = store.listMessages(agent.id);
+  const messages = messagesDepuis(store.listMessages(agent.id), store.nouveauDepart(agent.id)).filter(
+    (message) => message.id !== sauf,
+  );
   const dernierAvecTaches = [...messages].reverse().find((message) => message.todos.length);
   const decisions = messages.flatMap((message) => [
     ...message.questions.map((question) =>
@@ -3709,8 +3760,16 @@ export const TRI_DU_CHEF = `TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS
    REGROUPE AVANT DE COMPTER : plusieurs demandes qui servent le MÊME résultat, concernent le MÊME chantier ou doivent être réalisées dans un ordre logique forment UNE SEULE carte. Sa description énumère alors les étapes successives. Ne crée plusieurs cartes que pour des objectifs réellement indépendants, qui peuvent être menés et validés séparément sans perdre leur sens.
 3. TOUTE DEMANDE D'EXÉCUTION SUR LA MACHINE → même traitement qu'une demande de programmation : tu PROPOSES AUSSITÔT UNE carte avec board_create_card. Lancer une commande, tester une connexion (SSH, base de données, adresse), ouvrir un terminal, faire tourner un contrôle ou un script, redémarrer un service, regarder un journal en direct : tout cela s'exécute, donc tout cela devient une carte. La description dit CE QU'IL FAUT LANCER et CE QU'ON ATTEND COMME RÉSULTAT.
    Tu ne demandes AUCUNE confirmation avant de proposer, et tu n'écris PAS un paragraphe sur tes propres limites : une phrase suffit pour dire qu'un agent de tâche exécutera la commande, puis la carte parle d'elle-même. Une limite expliquée sans carte proposée est une demande perdue.
-4. Cas ambigu → tu réponds d'abord, puis tu appelles propose_task. Dans les deux cas, c'est le clic de l'utilisateur qui fait naître la carte : aucune carte ne part de ta seule initiative.
+4. Cas ambigu → TU NE TRANCHES PAS SEUL, TU PROPOSES LES DEUX CHEMINS.
+   Quand tu hésites sur la NATURE de la demande — la faire tout de suite toi-même, ou en faire une carte —, tu poses la question avec « ask_user » et tu ATTENDS la réponse : deux options nommées, une ligne chacune. « Je le fais maintenant, dans la conversation » (une réponse, un document écrit avec write_document, un rangement du tableau ou de la colonne de gauche : c'est fait à la seconde, mais rien n'en reste sur le tableau) ou « J'en fais une carte » (un agent de tâche l'exécute, l'avancement se suit d'un bout à l'autre, et le travail est enregistré). Tu dis ce que chacun implique, sans conseiller à demi-mot, et tu fais ENSUITE ce qui a été choisi.
+   Quand le doute ne porte QUE sur l'opportunité — c'est bien de la programmation, mais tu ne sais pas si l'utilisateur le veut vraiment maintenant —, tu réponds d'abord puis tu appelles propose_task : le clic tranche, sans question à poser.
+   Ce cas ne s'applique JAMAIS à une demande claire : programmer ou exécuter, c'est une carte (cas 2 et 3), sans question et sans confirmation.
+   Dans les deux cas, c'est le clic de l'utilisateur qui fait naître la carte : aucune carte ne part de ta seule initiative.
 5. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
+
+LE SUJET D'UN MESSAGE EST SOUVENT PLUS HAUT DANS LA CONVERSATION. « Fais-en une carte », « corrige ça », « vas-y », « comme on vient d'en parler », « celui-là aussi » ne disent PAS de quoi il s'agit. AVANT d'écrire quoi que ce soit, tu REMONTES LE FIL : tu retrouves ce dont il était question juste avant, et c'est CE sujet-là que tu traites — jamais la dernière carte proposée par défaut, jamais un sujet voisin.
+TA CARTE SE LIT SANS TA CONVERSATION : l'agent qui l'exécutera reçoit un titre et une description, rien d'autre. Le sujet retrouvé s'y écrit donc EN TOUTES LETTRES, avec ce qui comptait pour l'utilisateur dans l'échange (l'écran, le comportement, la contrainte qu'il a dite). « Corriger ce qui a été discuté » ou « voir la conversation » ne désignent rien pour qui n'était pas là : l'outil refuse ces cartes et te les rend à réécrire.
+SI LE FIL NE SUFFIT PAS à retrouver le sujet, demande-le avec « ask_user » — jamais une carte au hasard. Ce n'est pas une confirmation (celles-là, tu ne les demandes jamais) : c'est l'information qui te manque pour écrire la carte.
 
 UNE CARTE N'EXISTE QUE PAR L'APPEL DE L'OUTIL : écrire « j'ai créé la tâche » sans appeler board_create_card n'affiche RIEN, et l'utilisateur attend une carte qui ne viendra jamais. Le démon le vérifie à chaque tour et te relance pour l'appel manquant.
 NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche déjà, entière, dans la conversation. Une phrase courte suffit.`;

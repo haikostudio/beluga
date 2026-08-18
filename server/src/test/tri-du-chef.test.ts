@@ -58,6 +58,53 @@ test('le doute garde son clic : propose_task reste la voie des cas ambigus', () 
   assert.match(chef, /propose_task/);
 });
 
+/* ------------------------------------------------------------------ */
+/* Le doute se partage : les deux chemins, et le sujet retrouvé         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Deux défauts constatés sur le chef : devant une demande ambiguë il tranchait
+ * seul, et devant un « fais-en une carte » il ne remontait pas le fil pour
+ * savoir de quoi on parlait. Le tri porte donc les deux consignes, et ces
+ * contrôles les retiennent.
+ */
+
+test('un cas ambigu ne se tranche plus seul : les deux chemins sont proposés', () => {
+  assert.match(chef, /TU NE TRANCHES PAS SEUL, TU PROPOSES LES DEUX CHEMINS/);
+  assert.match(chef, /ask_user/);
+  assert.match(chef, /Je le fais maintenant, dans la conversation/);
+  assert.match(chef, /J'en fais une carte/);
+});
+
+test('les deux chemins disent ce qu’ils impliquent', () => {
+  assert.match(chef, /rien n'en reste sur le tableau/);
+  assert.match(chef, /l'avancement se suit d'un bout à l'autre/);
+});
+
+test('une demande CLAIRE ne déclenche aucune question', () => {
+  assert.match(chef, /Ce cas ne s'applique JAMAIS à une demande claire/);
+  assert.match(chef, /Tu ne demandes AUCUNE confirmation avant de proposer/);
+});
+
+test('le sujet se cherche PLUS HAUT dans la conversation', () => {
+  assert.match(chef, /LE SUJET D'UN MESSAGE EST SOUVENT PLUS HAUT DANS LA CONVERSATION/);
+  assert.match(chef, /tu REMONTES LE FIL/);
+  for (const mot of ['« Fais-en une carte »', '« corrige ça »', '« vas-y »']) {
+    assert.ok(chef.includes(mot), `« ${mot} » manque au rappel du fil`);
+  }
+});
+
+test('la carte porte le sujet en toutes lettres, faute de quoi elle est refusée', () => {
+  assert.match(chef, /TA CARTE SE LIT SANS TA CONVERSATION/);
+  assert.match(chef, /EN TOUTES LETTRES/);
+  assert.match(chef, /l'outil refuse ces cartes/);
+});
+
+test('un sujet introuvable se demande, il ne s’invente pas', () => {
+  assert.match(chef, /SI LE FIL NE SUFFIT PAS/);
+  assert.match(chef, /jamais une carte au hasard/);
+});
+
 test('sur HaikoDev, les outils d’écriture ne dispensent PAS de la carte', () => {
   assert.match(chefIci, /HAIKODEV LUI-MÊME/);
   assert.match(chefIci, /NE SONT PAS UNE PERMISSION DE COURT-CIRCUITER LE TABLEAU/);
