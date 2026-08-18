@@ -372,6 +372,78 @@ async function voletDeLEcran() {
     const piles = await page.locator('[data-pile-groupe]').count();
     noter('le groupe replié de plusieurs cartes montre un décor de pile', piles === 1, `${piles} pile(s)`);
 
+    /* LA PILE SE VOIT VRAIMENT : ses épaisseurs ont la hauteur de la carte de
+       devant, elles DÉPASSENT sous elle (bords visibles), et chacune est plus
+       effacée que la précédente. Sans cette mesure, un décor de hauteur nulle
+       ou glissé sous le fond de la colonne passerait pour posé. */
+    const decor = await page.locator('[data-pile-groupe]').first().evaluate((n) => {
+      const carte = n.parentElement?.querySelector('[data-carte]');
+      const boite = carte?.getBoundingClientRect();
+      return {
+        cartesDuGroupe: Number(n.getAttribute('data-pile-groupe')),
+        basCarte: boite ? boite.bottom : 0,
+        hauteurCarte: boite ? boite.height : 0,
+        couches: [...n.children].map((c) => {
+          const r = c.getBoundingClientRect();
+          return { bas: r.bottom, hauteur: r.height, opacite: Number(getComputedStyle(c).opacity) };
+        }),
+      };
+    });
+    const couches = decor.couches;
+    const cartesDuGroupe = decor.cartesDuGroupe;
+    /* Le groupe d'essai porte DEUX cartes : une carte de devant, donc UNE
+       épaisseur derrière. La table des profondeurs, elle, en déclare deux (à
+       partir de trois cartes) — c'est le contrôle de code juste en dessous qui
+       le verrouille, l'écran ne peut montrer que ce que ses cartes permettent. */
+    const attendues = Math.min(Math.max(cartesDuGroupe - 1, 1), 2);
+    noter(
+      'la pile pose une épaisseur par carte cachée, jamais une tour',
+      couches.length === attendues,
+      `${couches.length} pour ${cartesDuGroupe} cartes`,
+    );
+    noter(
+      'chaque épaisseur a la hauteur d’une carte, pas une ligne plate',
+      decor.hauteurCarte > 20 && couches.length > 0 && couches.every((c) => c.hauteur > decor.hauteurCarte * 0.8),
+      `carte ${Math.round(decor.hauteurCarte)}px, couches ${couches.map((c) => Math.round(c.hauteur)).join('/')}px`,
+    );
+    noter(
+      'les épaisseurs DÉPASSENT vers le BAS, de plus en plus loin',
+      couches.length > 0 &&
+        couches[0].bas > decor.basCarte + 2 &&
+        couches.every((c, i) => i === 0 || c.bas > couches[i - 1].bas + 2),
+      `carte ${Math.round(decor.basCarte)} < ${couches.map((c) => Math.round(c.bas)).join(' < ')}`,
+    );
+    /* La carte de devant est posée à 80 % : chaque épaisseur derrière elle est
+       plus effacée que la précédente, sans jamais disparaître tout à fait. */
+    const opacites = [0.8, ...couches.map((c) => c.opacite)];
+    noter(
+      'le dégradé d’opacité décroît d’une épaisseur à l’autre',
+      couches.length > 0 &&
+        opacites.every((o, i) => i === 0 || (o < opacites[i - 1] && o > 0)),
+      opacites.join(' → '),
+    );
+
+    /* TROIS ÉPAISSEURS QUAND LES CARTES SUIVENT : la table des profondeurs
+       porte la carte de devant + deux couches, chacune plus reculée et plus
+       effacée. Lu dans le code, faute de groupe à trois cartes à l'écran. */
+    const sourcePile = fs.readFileSync(path.join(RACINE, 'web/src/components/groupes-production.tsx'), 'utf8');
+    const table = sourcePile.match(/const PROFONDEURS_PILE = \[([\s\S]*?)\];/)?.[1] ?? '';
+    const profondeurs = [...table.matchAll(/decalage: ([\d.]+), echelle: ([\d.]+), opacite: ([\d.]+)/g)].map((m) =>
+      m.slice(1).map(Number),
+    );
+    noter(
+      'la pile prévoit DEUX épaisseurs derrière la carte, de plus en plus reculées et effacées',
+      profondeurs.length === 2 &&
+        profondeurs[1][0] > profondeurs[0][0] &&
+        profondeurs[1][1] < profondeurs[0][1] &&
+        profondeurs[1][2] < profondeurs[0][2],
+      profondeurs.map((p) => p.join('/')).join(' puis '),
+    );
+    noter(
+      'la pile ne plonge pas sous le fond de la colonne : c’est la carte qui est relevée',
+      !/zIndex: -/.test(sourcePile) && /z-10/.test(sourcePile),
+    );
+
     const titre = nombre ? ((await bandeaux.first().textContent()) ?? '').trim() : '';
     noter(
       'le groupe porte le titre daté de sa publication et son compte',
