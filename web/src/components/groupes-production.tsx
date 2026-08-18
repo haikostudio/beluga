@@ -133,45 +133,70 @@ export function BandeauDeGroupe({
 }
 
 /**
- * LA PILE : ce que montre un groupe REPLIÉ, à la place de ses cartes.
- *
- * Un empilement décalé façon jeu de cartes — jusqu'à trois épaisseurs, jamais
- * plus, pour qu'un groupe de vingt cartes ne dessine pas une tour. Elle ne
- * porte aucun contenu de carte (titre, étiquettes…) : ce n'est qu'un repère
- * visuel du nombre, le détail vit derrière le clic sur le titre.
+ * LE DÉCOR DE PILE : posé DERRIÈRE la vraie première carte d'un groupe
+ * REPLIÉ, jamais à sa place — un groupe replié montre sa première carte, pas
+ * une barre vide. Ce décor ne fait que suggérer les cartes qui suivent :
+ * jusqu'à deux épaisseurs, jamais plus, pour qu'un groupe de vingt cartes ne
+ * dessine pas une tour. Purement visuel (`aria-hidden`, aucun clic) : le
+ * geste d'ouverture vit sur le titre du bandeau, la carte du dessus garde le
+ * sien (l'ouvrir elle-même).
  */
-export function PileDeGroupe({ nombre, onOuvrir }: { nombre: number; onOuvrir: () => void }) {
-  const couches = Math.min(Math.max(nombre, 1), 3);
+export function PileDeGroupe({ nombre }: { nombre: number }) {
+  const couches = Math.min(Math.max(nombre - 1, 1), 2);
   return (
-    <button
-      type="button"
-      onClick={onOuvrir}
-      data-pile-groupe={nombre}
-      // Le repère d'accessibilité ne change JAMAIS de langue — c'est par lui que
-      // les scripts de contrôle retrouvent le bouton. La bulle de survol, elle,
-      // suit la langue choisie.
-      aria-label="Déplier ce groupe"
-      title={t('Déplier ce groupe')}
-      className="relative mb-1.5 block w-full pb-1"
-      style={{ height: `${30 + (couches - 1) * 5}px` }}
-    >
+    <div className="pointer-events-none absolute inset-x-1.5 top-0" data-pile-groupe={nombre} aria-hidden>
       {Array.from({ length: couches }).map((_, i) => {
-        const profondeur = couches - 1 - i;
+        const profondeur = couches - i;
         return (
           <span
             key={i}
-            aria-hidden
-            className="absolute inset-x-0 top-0 rounded-md border border-border bg-raised transition-colors hover:border-faint"
+            className="absolute inset-x-0 top-0 h-full rounded-md border border-border bg-raised transition-all duration-200 ease-out"
             style={{
-              height: '30px',
-              transform: `translateY(${profondeur * 5}px) scale(${1 - profondeur * 0.035})`,
-              zIndex: i,
-              opacity: 1 - profondeur * 0.22,
+              transform: `translateY(${profondeur * 6}px) scale(${1 - profondeur * 0.03})`,
+              zIndex: -profondeur,
+              opacity: 1 - profondeur * 0.3,
             }}
           />
         );
       })}
-    </button>
+    </div>
+  );
+}
+
+/**
+ * UN MEMBRE (NON PREMIER) D'UN GROUPE : plié, replié — dans les deux sens,
+ * animé.
+ *
+ * La technique : une ligne de grille dont la hauteur (`grid-template-rows`)
+ * passe de `0fr` à `1fr`, ce que les navigateurs savent transitionner en
+ * douceur même quand le contenu a une hauteur inconnue à l'avance (titre,
+ * étiquettes… qui varient d'une carte à l'autre).
+ *
+ * Le contenu reste MONTÉ pendant la fermeture (l'animation a besoin de le
+ * voir), et ne se démonte qu'une fois la transition FINIE — sinon un script
+ * qui compte les cartes visibles verrait un groupe "replié" qui en garde
+ * encore une pleine liste dans la page.
+ */
+function MembreDeGroupe({ plie, children }: { plie: boolean; children: React.ReactNode }) {
+  const [monte, setMonte] = React.useState(!plie);
+  React.useEffect(() => {
+    if (!plie) setMonte(true);
+  }, [plie]);
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateRows: !plie && monte ? '1fr' : '0fr',
+        marginTop: !plie ? '0.375rem' : '0px',
+        transition: 'grid-template-rows 220ms ease, margin-top 220ms ease, opacity 220ms ease',
+        opacity: !plie ? 1 : 0,
+      }}
+      onTransitionEnd={(event) => {
+        if (event.propertyName === 'grid-template-rows' && plie) setMonte(false);
+      }}
+    >
+      <div className="overflow-hidden">{monte ? children : null}</div>
+    </div>
   );
 }
 
@@ -247,22 +272,33 @@ export function useGroupesDeProduction(projectId: string, cartes: Card[], actif:
         />
       );
     },
-    /* LA PILE : posée devant la première carte d'un groupe REPLIÉ, à la place
-       de ses cartes. Un groupe déplié n'en a pas besoin — ses cartes se
-       montrent normalement. */
-    pile: (cardId: string) => {
-      const groupe = bandeaux.get(cardId);
-      if (!groupe) return null;
-      const clef = clefDuGroupe(groupe);
-      if (depliés.has(clef)) return null;
-      return <PileDeGroupe nombre={groupe.cartes.length} onOuvrir={() => basculer(clef)} />;
-    },
-    /** Cette carte appartient-elle à un groupe REPLIÉ ? Si oui, on ne la
-        montre pas : sa pile la remplace. */
-    masquee: (cardId: string) => {
+    /**
+     * CE QU'IL FAUT AUTOUR DE CETTE CARTE POUR QU'ELLE VIVE DANS SON GROUPE.
+     *
+     * La PREMIÈRE carte d'un groupe reste TOUJOURS visible, repliée ou non —
+     * un groupe replié montre sa première carte, pas une barre vide. Repliée,
+     * elle porte juste un décor de pile derrière elle. Les cartes SUIVANTES,
+     * elles, se plient et se déplient avec une animation, dans les deux sens.
+     * Une carte hors de tout groupe traverse sans y toucher.
+     */
+    envelopper: (cardId: string, node: React.ReactNode) => {
+      const premiere = bandeaux.get(cardId);
+      if (premiere) {
+        const clef = clefDuGroupe(premiere);
+        const plie = !depliés.has(clef);
+        return (
+          <div className="relative">
+            {plie && premiere.cartes.length > 1 ? <PileDeGroupe nombre={premiere.cartes.length} /> : null}
+            {node}
+          </div>
+        );
+      }
       const groupe = groupeDeLaCarte.get(cardId);
-      if (!groupe) return false;
-      return !depliés.has(clefDuGroupe(groupe));
+      if (groupe && groupe.cartes[0]?.id !== cardId) {
+        const clef = clefDuGroupe(groupe);
+        return <MembreDeGroupe plie={!depliés.has(clef)}>{node}</MembreDeGroupe>;
+      }
+      return node;
     },
     /** Le tiroir d'historique, monté une seule fois pour toute la colonne. */
     tiroir: (
