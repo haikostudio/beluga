@@ -357,12 +357,20 @@ async function voletDeLEcran() {
     const nombre = await bandeaux.count();
     noter('la colonne « En production » range ses cartes par groupe', nombre >= 2, `${nombre} bandeau(x)`);
 
-    /* REPLIÉS PAR DÉFAUT : aucune des trois cartes d'essai ne se montre, chaque
-       groupe dessine sa pile à la place. */
+    /* REPLIÉS PAR DÉFAUT : chaque groupe montre sa PREMIÈRE carte (pas une
+       barre vide), les suivantes restent cachées. Ici : « c-1 » (groupe
+       RUN_ID) et « c-3 » (groupe sans publication, seul dans le sien) — deux
+       cartes, une par groupe. Seul le groupe RUN_ID (2 cartes) dessine un
+       décor de pile derrière sa première carte ; le groupe sans publication
+       (1 carte) n'en a pas besoin. */
     const cartesRepliees = await page.locator('[data-carte]').count();
-    noter('les groupes démarrent REPLIÉS : aucune carte à l’écran', cartesRepliees === 0, `${cartesRepliees} carte(s)`);
+    noter(
+      'les groupes démarrent REPLIÉS : leur première carte seule à l’écran',
+      cartesRepliees === nombre,
+      `${cartesRepliees} carte(s)`,
+    );
     const piles = await page.locator('[data-pile-groupe]').count();
-    noter('chaque groupe replié montre sa pile', piles === nombre, `${piles} pile(s)`);
+    noter('le groupe replié de plusieurs cartes montre un décor de pile', piles === 1, `${piles} pile(s)`);
 
     const titre = nombre ? ((await bandeaux.first().textContent()) ?? '').trim() : '';
     noter(
@@ -381,23 +389,28 @@ async function voletDeLEcran() {
        groupe de la publication réussie, donc il n'y a bien que DEUX groupes. */
     noter('une publication tombée ne revendique aucune carte', nombre === 2, `${nombre} groupes`);
 
-    /* CLIQUER LE TITRE DÉPLIE LE GROUPE, RECLIQUER LE REPLIE. */
+    /* CLIQUER LE TITRE DÉPLIE LE GROUPE (animé), RECLIQUER LE REPLIE (animé
+       aussi) — le délai laisse le temps à la transition de finir. */
     const titreDuGroupe = page.locator(`[data-basculer-groupe="${RUN_ID}"]`).first();
     await titreDuGroupe.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(400);
     const carteApresDepliage = await page.locator('[data-carte]').count();
     noter(
-      'cliquer le titre DÉPLIE le groupe : ses deux cartes apparaissent',
-      carteApresDepliage === 2,
+      'cliquer le titre DÉPLIE le groupe : sa carte cachée rejoint la première',
+      carteApresDepliage === 3,
       `${carteApresDepliage} carte(s)`,
     );
     const pileApresDepliage = await page.locator('[data-pile-groupe]').count();
-    noter('la pile du groupe déplié s’efface', pileApresDepliage === nombre - 1, `${pileApresDepliage} pile(s)`);
+    noter('la pile du groupe déplié s’efface', pileApresDepliage === 0, `${pileApresDepliage} pile(s)`);
 
     await titreDuGroupe.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(400);
     const carteApresRepli = await page.locator('[data-carte]').count();
-    noter('recliquer REPLIE le groupe : ses cartes s’effacent à nouveau', carteApresRepli === 0, `${carteApresRepli} carte(s)`);
+    noter(
+      'recliquer REPLIE le groupe : seule sa première carte reste à l’écran',
+      carteApresRepli === nombre,
+      `${carteApresRepli} carte(s)`,
+    );
 
     const bouton = page.locator(`[data-historique-groupe="${RUN_ID}"]`).first();
     noter('le groupe porte un bouton vers son historique', (await bouton.count()) === 1);
