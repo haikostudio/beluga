@@ -262,7 +262,7 @@ function LigneTimeline({
   taille: 'grande' | 'petite';
   bordure: string;
   icone: React.ReactNode;
-  dateSous?: string | null;
+  dateSous?: React.ReactNode;
   /** La dernière ligne affichée ne tire plus de trait vers le bas. */
   dernier: boolean;
   attrs?: Record<string, string | undefined>;
@@ -315,18 +315,25 @@ function MomentDuFil({
   dernier: boolean;
 }) {
   const ecart = moment.evenement ? ecartDepuisLeDebut(moment.evenement.at, depuis) : null;
+  const dateSous = moment.evenement ? (
+    <span className="flex flex-col items-center leading-tight">
+      <span data-heure-moment>{heureDeLEvenement(moment.evenement.at)}</span>
+      {ecart ? <span>{ecart}</span> : null}
+    </span>
+  ) : null;
   return (
     <LigneTimeline
       taille="petite"
       bordure={bordureRondMoment(moment.genre)}
       icone={<IconeMoment genre={moment.genre} />}
+      dateSous={dateSous}
       dernier={dernier}
       attrs={{ 'data-moment-fil': moment.genre }}
     >
-      <div className="flex items-start gap-2 px-1.5 py-0.5 text-[12px] leading-snug">
+      <div className="px-1.5 py-0.5 text-[12px] leading-snug">
         <span
           className={cn(
-            'min-w-0 flex-1 whitespace-pre-wrap texte-copiable',
+            'block whitespace-pre-wrap texte-copiable',
             moment.genre === 'commande'
               ? 'rounded bg-raised px-1.5 py-1 font-mono text-[11.5px] text-muted'
               : moment.genre === 'depannage'
@@ -336,12 +343,6 @@ function MomentDuFil({
         >
           {moment.texte}
         </span>
-        {moment.evenement ? (
-          <span className="mt-[1px] flex w-[58px] shrink-0 flex-col items-end tabular-nums text-faint">
-            <span data-heure-moment>{heureDeLEvenement(moment.evenement.at)}</span>
-            {ecart ? <span>{ecart}</span> : null}
-          </span>
-        ) : null}
       </div>
     </LigneTimeline>
   );
@@ -459,32 +460,38 @@ function EtapeDuTiroir({
           `data-fil-etape` enveloppe le groupe sans occuper de place
           (`display: contents`) : les ronds restent alignés sur la colonne
           commune de toute la timeline. */}
-      {ouverte && fil.length ? (
-        <div className="contents" data-fil-etape={cle}>
-          {fil.map((moment, i) => (
-            <MomentDuFil
-              key={i}
-              moment={moment}
-              depuis={etape?.startedAt}
-              dernier={i === fil.length - 1 && !avecLog ? dernier : false}
-            />
-          ))}
-        </div>
-      ) : null}
+      {/* Les moments d'une étape sont ses SOUS-ACTIONS : un retrait net à
+          gauche les distingue d'un coup d'œil des étapes principales, sur
+          leur propre ligne verticale. */}
+      {ouverte && (fil.length || avecLog) ? (
+        <li className="pl-8">
+          <ul data-fil-etape={cle}>
+            {fil.map((moment, i) => (
+              <MomentDuFil
+                key={i}
+                moment={moment}
+                depuis={etape?.startedAt}
+                dernier={i === fil.length - 1 && !avecLog ? dernier : false}
+              />
+            ))}
 
-      {/* Un échec garde son motif, en entier ou presque, comme dernière ligne
-          de la timeline de cette étape : c'est là qu'on lit ce qui a bloqué. */}
-      {avecLog ? (
-        <LigneTimeline
-          taille="petite"
-          bordure="border-danger/60"
-          icone={<X className="h-2.5 w-2.5 text-danger" />}
-          dernier={dernier}
-        >
-          <p className="whitespace-pre-wrap rounded-md bg-raised px-1.5 py-1 text-[11.5px] leading-snug text-faint texte-copiable">
-            {motifLisible(etape!.log!)}
-          </p>
-        </LigneTimeline>
+            {/* Un échec garde son motif, en entier ou presque, comme
+                dernière ligne de la timeline de cette étape : c'est là qu'on
+                lit ce qui a bloqué. */}
+            {avecLog ? (
+              <LigneTimeline
+                taille="petite"
+                bordure="border-danger/60"
+                icone={<X className="h-2.5 w-2.5 text-danger" />}
+                dernier={dernier}
+              >
+                <p className="whitespace-pre-wrap rounded-md bg-raised px-1.5 py-1 text-[11.5px] leading-snug text-faint texte-copiable">
+                  {motifLisible(etape!.log!)}
+                </p>
+              </LigneTimeline>
+            ) : null}
+          </ul>
+        </li>
       ) : null}
     </>
   );
