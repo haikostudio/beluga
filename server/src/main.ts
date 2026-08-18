@@ -30,6 +30,7 @@ import { envoyerAuCerveau } from './cerveau.js';
 import { planifierAutoAmelioration } from './auto-amelioration.js';
 import { planifierVectorisation } from './vecteurs-nocturne.js';
 import { planifierCapitalisation } from './capitalisation.js';
+import { planifierRangementDesInstructions } from './instructions-en-attente.js';
 import { arretParSignal, diffuserEtatDemon } from './demon.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
@@ -204,6 +205,15 @@ async function main(): Promise<void> {
    * d'un projet. Presque toutes les nuits, il n'a rien à faire et ne coûte rien.
    */
   const capitalisationTimer = planifierCapitalisation();
+  /*
+   * LE RANGEMENT DES INSTRUCTIONS : entre 2 h et 5 h, ce que les agents ont
+   * déposé dans `docs/instructions-en-attente.md` rejoint le fichier de son
+   * sujet, et seule une ligne de contrat rejoint `CLAUDE.md`. Le fichier
+   * d'instructions ne bouge donc plus qu'une fois par nuit, au lieu de trente à
+   * soixante fois par jour — chaque réécriture faisant repayer aux agents qui
+   * démarrent ensuite les 73 000 jetons du fichier, au plein tarif.
+   */
+  const instructionsTimer = planifierRangementDesInstructions();
   const faviconTimer = planifierRevisionFavicons();
 
   sampleCapacity();
@@ -235,6 +245,7 @@ async function main(): Promise<void> {
     clearInterval(autoAmeliorationTimer);
     clearInterval(vectorisationTimer);
     clearInterval(capitalisationTimer);
+    clearInterval(instructionsTimer);
     clearInterval(faviconTimer);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);

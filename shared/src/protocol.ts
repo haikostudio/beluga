@@ -375,6 +375,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * lui manquait.
    */
   z.object({ type: z.literal('deploy.ficherSansCarte'), projectId: z.string() }),
+  /**
+   * LES DERNIÈRES PUBLICATIONS D'UN PROJET, avec leur fil historique.
+   *
+   * Lecture seule, en base uniquement : ni git, ni GitHub, ni la moindre
+   * commande — donc rien n'est publié ni modifié au passage. Elle sert deux
+   * choses, et seulement deux : regrouper les cartes d'« En production » sous
+   * la publication qui les a mises en ligne, et rouvrir le fil complet d'un
+   * déploiement passé.
+   */
+  z.object({ type: z.literal('deploy.historique'), projectId: z.string(), limite: z.number().optional() }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),

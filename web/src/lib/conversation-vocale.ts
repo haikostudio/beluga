@@ -220,7 +220,7 @@ export function useConversationVocale(actif: boolean, opts: OptionsConversation)
         const Ctx =
           window.AudioContext ||
           (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!Ctx) throw new Error('aucun contexte audio');
+        if (!Ctx) throw new Error(t('aucun contexte audio'));
         const contexte = new Ctx();
         const source = contexte.createMediaStreamSource(flux);
         // Le contexte est confié à la PRISE : il se fermera avec le micro.

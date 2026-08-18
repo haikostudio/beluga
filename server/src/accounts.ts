@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {
+  compteQuiRecoitLeTravail,
+  raisonDuChoix,
   API_CURSOR,
   AccountQuota,
   EngineId,
@@ -1002,7 +1004,21 @@ function markActive(list: AccountQuota[]): void {
     const candidates = list
       .filter((q) => q.engine === engine && !q.disabled)
       .sort((a, b) => a.priority - b.priority);
-    const chosen = candidates.find((q) => q.available) ?? candidates[0];
+    // « Celui qui sert » doit être celui que `pickAccount` retiendra vraiment,
+    // sinon l'écran désigne un compte et le travail part sur un autre.
+    const aPlace = candidates.filter((q) => q.available);
+    const chosen =
+      compteQuiRecoitLeTravail(
+        aPlace.map((q) => ({
+          id: q.id,
+          plan: q.plan,
+          priority: q.priority,
+          sessionPct: q.session?.usedPct,
+          weeklyPct: q.weekly?.usedPct,
+        })),
+      ) ??
+      aPlace[0] ??
+      candidates[0];
     for (const quota of candidates) quota.active = quota.id === chosen?.id;
   }
 }
@@ -1018,33 +1034,58 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
   if (!accounts.length) return null;
 
   const quotas = await refreshQuotas(false);
-  for (const account of accounts) {
-    const quota = quotas.find((q) => q.id === account.id);
-    if (!quota || quota.available) {
-      if (quota && !quota.active) {
-        log.info(`bascule de compte : ${account.label} prend le relais`);
-        bus.toast('info', `Bascule de compte : ${account.label}`);
-      }
-      return account;
+
+  /*
+   * LE TRAVAIL PART OÙ IL Y A LE PLUS DE PLACE, pas au premier compte pas
+   * encore à 100 %. La règle est pure (`shared/src/choix-de-compte.ts`) : elle
+   * compare la taille du plan multipliée par ce qu'il reste de sa fenêtre —
+   * seule quantité comparable d'un plan à l'autre. Un compte sans quota lu du
+   * tout garde sa place : on ne l'écarte pas sur une lecture manquante.
+   */
+  const disponibles = accounts
+    .map((account) => ({ account, quota: quotas.find((q) => q.id === account.id) }))
+    .filter(({ quota }) => !quota || quota.available)
+    .map(({ account, quota }) => ({
+      id: account.id,
+      plan: quota?.plan ?? account.plan,
+      priority: account.priority,
+      sessionPct: quota?.session?.usedPct,
+      weeklyPct: quota?.weekly?.usedPct,
+      disabled: quota?.disabled,
+      account,
+    }));
+
+  const retenu = compteQuiRecoitLeTravail(disponibles);
+  if (retenu) {
+    const quota = quotas.find((q) => q.id === retenu.id);
+    if (quota && !quota.active) {
+      log.info(`bascule de compte : ${retenu.account.label} prend le relais (${raisonDuChoix(retenu)})`);
+      bus.toast('info', `Bascule de compte : ${retenu.account.label}`);
     }
+    return retenu.account;
   }
   // Aucun compte n'est marqué disponible. Avant de faire attendre la carte, on
   // regarde s'il en reste un qui n'est pas réellement à 100 % : mieux vaut
   // travailler sur le compte le moins consommé que de refuser à tort.
-  const restant = accounts
-    .map((account) => ({ account, quota: quotas.find((q) => q.id === account.id) }))
-    .filter(({ quota }) => {
-      const pire = Math.max(quota?.session?.usedPct ?? 0, quota?.weekly?.usedPct ?? 0);
-      return pire < 100;
-    })
-    .sort(
-      (a, b) =>
-        Math.max(a.quota?.session?.usedPct ?? 0, a.quota?.weekly?.usedPct ?? 0) -
-        Math.max(b.quota?.session?.usedPct ?? 0, b.quota?.weekly?.usedPct ?? 0),
-    )[0];
+  const restant = compteQuiRecoitLeTravail(
+    accounts.map((account) => {
+      const quota = quotas.find((q) => q.id === account.id);
+      return {
+        id: account.id,
+        plan: quota?.plan ?? account.plan,
+        priority: account.priority,
+        sessionPct: quota?.session?.usedPct,
+        weeklyPct: quota?.weekly?.usedPct,
+        disabled: quota?.disabled,
+        account,
+      };
+    }),
+  );
 
   if (restant) {
-    log.info(`aucun compte marqué disponible : on retient ${restant.account.label}, qui a encore du quota`);
+    log.info(
+      `aucun compte marqué disponible : on retient ${restant.account.label}, qui a encore du quota (${raisonDuChoix(restant)})`,
+    );
     return restant.account;
   }
 

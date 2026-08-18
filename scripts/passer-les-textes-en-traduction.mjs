@@ -53,6 +53,11 @@ const ATTRIBUTS_DE_TEXTE = new Set([
   'hint',
   'emptyLabel',
   'labelArret',
+  /* Les aides et petits repères passés à nos composants : ils sont lus à
+     l'écran comme un attribut natif `title`, même s'ils ne sont pas posés sur
+     une balise HTML. */
+  'aide',
+  'nom',
 ]);
 
 /** Les fichiers qui n'ont rien à traduire : ce sont eux qui traduisent. */
@@ -104,6 +109,19 @@ export function texteLisible(valeur) {
   // Suites de classes utilitaires (« flex items-center gap-2 »).
   if (/^[a-z0-9:[\]/.%-]+(\s+[a-z0-9:[\]/.%-]+)+$/.test(texte)) return false;
   return true;
+}
+
+/**
+ * Un texte posé dans une bulle, un bouton ou un attribut à destination d'une
+ * personne est un libellé dès qu'il porte des lettres. Ici, il ne peut pas
+ * être une classe, une clé ou un identifiant : les trois chemins appelants ont
+ * déjà vérifié sa place dans l'arbre TypeScript. On accepte donc aussi les
+ * mots courts et sans accent (« fait », « active »), que `texteLisible` écarte
+ * à juste titre ailleurs car ils peuvent ressembler à du code.
+ */
+function texteAffichable(valeur) {
+  const texte = valeur.trim();
+  return texte.length >= 2 && /[a-zA-ZÀ-ÿ]/.test(texte);
 }
 
 /** Le texte d'un morceau de JSX, espaces de mise en forme retirés. */
@@ -206,7 +224,7 @@ function remplacements(chemin, source) {
   const cles = new Set();
 
   const noter = (debut, fin, code, texte) => {
-    gestes.push({ debut, fin, code });
+    gestes.push({ debut, fin, code, texte });
     cles.add(texte);
   };
 
@@ -227,7 +245,7 @@ function remplacements(chemin, source) {
      */
     if (ts.isJsxElement(noeud)) {
       const enfants = noeud.children;
-      const lisibles = enfants.filter((enfant) => ts.isJsxText(enfant) && texteLisible(texteJsx(enfant.text)));
+      const lisibles = enfants.filter((enfant) => ts.isJsxText(enfant) && texteAffichable(texteJsx(enfant.text)));
       if (lisibles.length) {
         /*
          * ON NE MET JAMAIS UNE BALISE DANS UN TROU. Un trou reçoit une VALEUR
@@ -293,7 +311,7 @@ function remplacements(chemin, source) {
 
     if (ts.isJsxText(noeud)) {
       const texte = texteJsx(noeud.text);
-      if (texteLisible(texte)) {
+      if (texteAffichable(texte)) {
         const avant = noeud.text.match(/^\s*/)[0].includes('\n') ? '\n' : noeud.text.match(/^\s*/)[0];
         const apres = noeud.text.match(/\s*$/)[0].includes('\n') ? '\n' : noeud.text.match(/\s*$/)[0];
         noter(noeud.getStart(arbre), noeud.end, `${avant}{${appelDeTraduction(texte)}}${apres}`, texte);
@@ -484,6 +502,22 @@ function positionDeCode(noeud) {
   return false;
 }
 
+/**
+ * Certaines tables gardent les clés françaises, puis les donnent à `t()` AU
+ * rendu. Leur préfixe rend ce rôle explicite et évite de confondre une clé de
+ * dictionnaire avec un libellé affiché sans traduction.
+ */
+function cleDeTraduction(noeud) {
+  let courant = noeud.parent;
+  while (courant) {
+    if (ts.isVariableDeclaration(courant)) {
+      return ts.isIdentifier(courant.name) && (/^CLES?_/.test(courant.name.text) || courant.name.text === 'ACTIONS_DE_LOT');
+    }
+    courant = courant.parent;
+  }
+  return false;
+}
+
 /** Les littéraux français d'un fichier qui ne passent PAS encore par `t(…)`. */
 function francaisResteEnDur(chemin, source) {
   const arbre = ts.createSourceFile(chemin, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -495,7 +529,7 @@ function francaisResteEnDur(chemin, source) {
          scripts de contrôle emploient pour désigner un bouton. Ils restent en
          français À DESSEIN et ne sont donc pas des oublis. */
       if (contexteDuLitteral(noeud) === 'attribut-technique') return;
-      if (positionDeCode(noeud)) return;
+      if (positionDeCode(noeud) || cleDeTraduction(noeud)) return;
       if (texteLisible(texte) && ressembleAuFrancais(texte) && !dejaPrisEnCharge(noeud)) {
         const { line } = arbre.getLineAndCharacterOfPosition(noeud.getStart(arbre));
         restes.push({
@@ -512,6 +546,7 @@ function francaisResteEnDur(chemin, source) {
       ts.isTemplateExpression(noeud) &&
       !dejaPrisEnCharge(noeud) &&
       !positionDeCode(noeud) &&
+      !cleDeTraduction(noeud) &&
       contexteDuLitteral(noeud) !== 'attribut-technique'
     ) {
       const { texte, valeurs } = gabaritEnTexteATrous(noeud, source);
@@ -538,6 +573,7 @@ function francaisResteEnDur(chemin, source) {
 const options = new Set(process.argv.slice(2));
 const ecrire = options.has('--ecrire');
 const sortirLesCles = options.has('--cles');
+const sortirLesDetails = options.has('--details');
 const sortirLesAppels = options.has('--appels');
 const chasser = options.has('--reste');
 
@@ -586,6 +622,12 @@ for (const chemin of fichiers(SOURCE)) {
   if (!gestes.length) continue;
   touches++;
   changements += gestes.length;
+  if (sortirLesDetails) {
+    for (const geste of [...gestes].sort((a, b) => a.debut - b.debut)) {
+      const ligne = source.slice(0, geste.debut).split('\n').length;
+      console.log(`${court}:${ligne}  ${geste.texte.replace(/\s+/g, ' ')}`);
+    }
+  }
   if (!ecrire) continue;
   let resultat = source;
   for (const geste of gestes) {
@@ -594,7 +636,9 @@ for (const chemin of fichiers(SOURCE)) {
   writeFileSync(chemin, poserLImport(chemin, resultat));
 }
 
-if (sortirLesCles) {
+if (sortirLesDetails) {
+  console.log(`\n${changements} textes dans ${touches} fichiers · ${toutesLesCles.size} textes distincts`);
+} else if (sortirLesCles) {
   console.log(JSON.stringify([...toutesLesCles].sort((a, b) => a.localeCompare(b, 'fr')), null, 1));
 } else {
   console.log(`${changements} textes dans ${touches} fichiers · ${toutesLesCles.size} textes distincts`);

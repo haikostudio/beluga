@@ -745,7 +745,7 @@ export function Composer({
     } catch (err: any) {
       // L'envoi a échoué : là, on rend le texte ET les pièces jointes, sinon
       // elles seraient perdues.
-      client.pushToast('error', err?.message ?? 'envoi impossible');
+      client.pushToast('error', err?.message ?? t('envoi impossible'));
       dejaEnvoye.current = null;
       setText(body);
       if (jointesEnvoyees.length) {

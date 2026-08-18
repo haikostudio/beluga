@@ -5,6 +5,7 @@ import {
   coucheDExecution,
   ecartProjete,
   jetonsApproches,
+  SIGNES_PAR_JETON,
   montantEnFrancs,
   projectionDeLExecution,
   raisonAbsenceDePassages,
@@ -144,10 +145,21 @@ test('l’écart au projeté ne se calcule que sur deux nombres réels', () => {
   assert.equal(ecartProjete(0, 500), undefined);
 });
 
-test('l’estimation maison compte environ quatre signes par jeton', () => {
-  assert.equal(jetonsApproches(400), 100);
+/*
+ * L'ESTIMATION MAISON SUIT LA MESURE, PAS UN CHIFFRE ROND. Elle comptait quatre
+ * signes par jeton — vrai d'un texte anglais ordinaire, faux de cette
+ * documentation. Mesuré le 17/08/2026 sur `CLAUDE.md` par deux tours réels du
+ * moteur : 158 743 signes pour 73 423 jetons, soit 2,16 signes par jeton. Le
+ * compteur sous-évaluait donc de 45 %.
+ */
+test('l’estimation maison suit le rapport MESURÉ, pas quatre signes par jeton', () => {
+  assert.equal(SIGNES_PAR_JETON, 2.2);
+  assert.equal(jetonsApproches(2_200), 1_000);
   assert.equal(jetonsApproches(0), 0);
   assert.equal(jetonsApproches(-10), 0);
+  // Le fichier d'instructions mesuré : l'estimation tombe à 5 % près du réel.
+  const ecart = Math.abs(jetonsApproches(158_743) - 73_423) / 73_423;
+  assert.ok(ecart < 0.05, `écart de ${Math.round(ecart * 100)} % avec la mesure`);
 });
 
 test('la répartition mémoire / envoi ne compte que les blocs de mémoire', () => {
@@ -157,15 +169,15 @@ test('la répartition mémoire / envoi ne compte que les blocs de mémoire', () 
     { kind: 'request' as const, label: 'Demande utilisateur', characters: 200 },
   ];
   const repartition = repartitionMemoireEnvoi(blocks, { inputTokens: 3_000, cachedInputTokens: 1_000 });
-  assert.equal(repartition.memoireTokens, 1_000); // 4 000 signes / 4
+  assert.equal(repartition.memoireTokens, jetonsApproches(4_000)); // les seuls blocs de mémoire
   assert.equal(repartition.envoyeTokens, 4_000);
-  assert.equal(repartition.part, 0.25);
+  assert.equal(repartition.part, repartition.memoireTokens / 4_000);
 });
 
 test('sans mesure d’envoi, la part reste indéfinie — jamais une division par zéro déguisée', () => {
   const blocks = [{ kind: 'memory' as const, label: 'Nouveaux faits de la mémoire', characters: 400 }];
   const repartition = repartitionMemoireEnvoi(blocks);
-  assert.equal(repartition.memoireTokens, 100);
+  assert.equal(repartition.memoireTokens, jetonsApproches(400));
   assert.equal(repartition.envoyeTokens, undefined);
   assert.equal(repartition.part, undefined);
 });

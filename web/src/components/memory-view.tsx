@@ -42,7 +42,7 @@ export function MemoryView({
         <DialogTitle className="min-w-0 flex-1 truncate">
           {t('Mémoire {v0}', { v0: projet ? `de ${projet.name}` : 'du projet' })}</DialogTitle>
         <span className="shrink-0 text-[12.5px] text-faint">
-          {faits.length} fait{faits.length > 1 ? 's' : ''}
+          {faits.length === 1 ? t('{v0} fait', { v0: faits.length }) : t('{v0} faits', { v0: faits.length })}
         </span>
       </header>
 

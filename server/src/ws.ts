@@ -1343,6 +1343,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { avertissements: await avertissementsDeLaSelection(cmd.projectId, cmd.source ?? 'to_deploy', cmd.selectedCardIds) };
     }
 
+    case 'deploy.historique': {
+      /*
+       * LES PUBLICATIONS PASSÉES, avec leur fil : c'est ce qui permet à la
+       * colonne « En production » de dire quelles cartes sont parties ensemble,
+       * et de rouvrir l'historique d'un déploiement des semaines plus tard.
+       *
+       * Lecture EN BASE, rien d'autre — aucune commande, aucun appel au dépôt :
+       * elle ne coûte rien et ne peut rien déclencher. Le plafond est borné
+       * ici, jamais dicté par l'écran seul.
+       */
+      const limite = Math.min(Math.max(cmd.limite ?? 20, 1), 50);
+      return { runs: store.recentDeploys(cmd.projectId, limite) };
+    }
+
     /* -------- Fichiers -------- */
 
     case 'files.list': {

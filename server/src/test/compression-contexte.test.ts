@@ -5,9 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   Agent,
+  PLAFOND_CONTEXTE_JETONS,
   contexteApresCompression,
   observerContexte,
+  plafondDeContexte,
   resumeContinuite,
+  seuilDeCompression,
 } from '@haikodev/shared';
 import {
   contexteDepuisResultatClaude,
@@ -53,6 +56,51 @@ test('après avoir réellement redescendu, un franchissement futur peut recompre
   assert.equal(redescendu.state.armed, true);
   assert.equal(redescendu.shouldCompress, false);
   assert.equal(observerContexte(redescendu.state, 51_000, 100_000)?.shouldCompress, true);
+});
+
+/* ------------------------------------------------------------------ */
+/* UNE FENÊTRE D'UN MILLION N'ÉTEINT PLUS LA COMPRESSION.              */
+/*                                                                     */
+/* Relevé du 17/08/2026 : UNE seule compression en sept jours sur 376  */
+/* agents, pour des contextes qui tournent entre 148 000 et 190 000    */
+/* jetons. Le seuil valait 500 000 — la moitié d'une fenêtre annoncée. */
+/* ------------------------------------------------------------------ */
+
+test('le seuil est le plus petit des deux : part de fenêtre et plafond en jetons', () => {
+  // Petite fenêtre : c'est la part qui commande, comme avant.
+  assert.equal(seuilDeCompression(100_000), 50_000);
+  assert.equal(seuilDeCompression(200_000), 100_000);
+  // Fenêtre d'un million : le plafond commande, et non 500 000.
+  assert.equal(seuilDeCompression(1_000_000), PLAFOND_CONTEXTE_JETONS);
+  assert.equal(seuilDeCompression(2_000_000), PLAFOND_CONTEXTE_JETONS);
+});
+
+test('un contexte de 190 000 jetons en fenêtre d’un million se compresse enfin', () => {
+  const observation = observerContexte(undefined, 190_000, 1_000_000)!;
+  assert.equal(observation.shouldCompress, true);
+  // La part de fenêtre, elle, n'aurait rien vu : 19 % seulement.
+  assert.equal(observation.state.ratio, 0.19);
+});
+
+test('sous le plafond, rien ne part — et le garde-fou anti-boucle compte en jetons', () => {
+  assert.equal(observerContexte(undefined, 99_000, 1_000_000)?.shouldCompress, false);
+
+  const premiere = observerContexte(undefined, 150_000, 1_000_000)!;
+  const apres = contexteApresCompression(premiere.state, { at: 1, method: 'native', tokens: 120_000 });
+  // Une compression qui n'a pas fait redescendre sous le seuil ne repart pas.
+  assert.equal(observerContexte(apres, 120_000, 1_000_000)?.shouldCompress, false);
+  const redescendu = observerContexte(apres, 30_000, 1_000_000)!;
+  assert.equal(redescendu.state.armed, true);
+  assert.equal(observerContexte(redescendu.state, 101_000, 1_000_000)?.shouldCompress, true);
+});
+
+test('le chef d’orchestre a un plafond plus bas que les autres rôles', () => {
+  assert.ok(plafondDeContexte('orchestrator') < plafondDeContexte('task'));
+  assert.equal(plafondDeContexte('task'), PLAFOND_CONTEXTE_JETONS);
+  assert.equal(plafondDeContexte(undefined), PLAFOND_CONTEXTE_JETONS);
+  // Les 107 155 jetons de fil mesurés sur un vrai chef partent en compression.
+  const chef = observerContexte(undefined, 107_155, 1_000_000, plafondDeContexte('orchestrator'));
+  assert.equal(chef?.shouldCompress, true);
 });
 
 test('Claude normalise le dernier appel, pas le total cumulé du tour', () => {

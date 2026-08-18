@@ -32,6 +32,14 @@ export interface EtapeDePublication {
   /** Le nom lisible de l'étape, tel qu'on l'annonce à l'écran. */
   libelle: string;
   /**
+   * LE MÊME NOM, EN DEUX MOTS, pour un titre DATÉ : « Déploiement du 17 août,
+   * 14:32 ». Le libellé entier y devenait une phrase (« Déploiement sur
+   * l'instance de dev du 17 août »), illisible en tête d'un groupe de cartes.
+   * Il vit ici, et pas recopié à l'endroit qui l'affiche, pour qu'une étape
+   * renommée le soit partout d'un coup.
+   */
+  titreCourt: string;
+  /**
    * Le verbe du bouton de cette étape : « Tout déployer » en tête de « À
    * déployer », « Tout publier » en tête de « En production ». Il vit ici, avec
    * l'étape, pour que le bouton ne puisse pas dire autre chose que ce qu'il fait.
@@ -53,6 +61,7 @@ export interface EtapeDePublication {
 const ETAPE_DEV: EtapeDePublication = {
   cible: 'dev',
   libelle: 'Déploiement sur l’instance de dev',
+  titreCourt: 'Déploiement',
   verbe: 'déployer',
   source: 'to_deploy',
   arrivee: 'in_production',
@@ -62,6 +71,7 @@ const ETAPE_DEV: EtapeDePublication = {
 const ETAPE_PRODUCTION: EtapeDePublication = {
   cible: 'production',
   libelle: 'Mise en production',
+  titreCourt: 'Mise en production',
   verbe: 'publier',
   source: 'in_production',
   arrivee: 'archived',

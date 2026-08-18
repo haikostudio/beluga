@@ -295,7 +295,7 @@ export function QuotaBar({
             className="hidden h-7 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text sm:flex"
           >
             <Activity className="h-3 w-3" />
-            {capacity.slotsFree} places
+            {capacity.slotsFree === 1 ? t('{v0} place', { v0: capacity.slotsFree }) : t('{v0} places', { v0: capacity.slotsFree })}
           </button>
         </Tooltip>
       ) : null}

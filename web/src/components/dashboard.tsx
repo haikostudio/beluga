@@ -280,7 +280,7 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                 <p className="mb-2 text-[12.5px] text-text" data-total-quota>
                   
 {t('Total mesuré sur la période :')}{' '}
-                  <span className="font-semibold">{pourcentEnClair(totalSemaine)} du quota de la semaine</span>
+                  <span className="font-semibold">{t('{v0} du quota de la semaine', { v0: pourcentEnClair(totalSemaine) })}</span>
                   {' · '}
                   {pourcentEnClair(total5h)}  {t('de fenêtres de 5 h, sur')} {cartesMesurees.length}  {t('tâche')}
 {cartesMesurees.length > 1 ? 's' : ''}
@@ -302,9 +302,9 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                         </div>
                         <div className="shrink-0 text-right">
                           <span className="rounded bg-raised px-1.5 py-0.5 text-[12px] font-medium text-text">
-                            {pourcentEnClair(carte.quotaSemaine ?? 0)} semaine
+                            {t('{v0} semaine', { v0: pourcentEnClair(carte.quotaSemaine ?? 0) })}
                           </span>
-                          <p className="mt-0.5 text-[11px] text-faint">{pourcentEnClair(carte.quota5h ?? 0)} sur 5 h</p>
+                          <p className="mt-0.5 text-[11px] text-faint">{t('{v0} sur 5 h', { v0: pourcentEnClair(carte.quota5h ?? 0) })}</p>
                         </div>
                       </div>
                       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-raised">

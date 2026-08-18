@@ -168,8 +168,8 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
           <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
             {t('Part de quota réellement consommée')}</p>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
-            <Part nom="Fenêtre de 5 h" valeur={partQuota(quotaVu.quota5h)} />
-            <Part nom="Fenêtre de la semaine" valeur={partQuota(quotaVu.quotaSemaine)} />
+            <Part nom={t('Fenêtre de 5 h')} valeur={partQuota(quotaVu.quota5h)} />
+            <Part nom={t('Fenêtre de la semaine')} valeur={partQuota(quotaVu.quotaSemaine)} />
           </div>
         </div>
       ) : null}

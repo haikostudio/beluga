@@ -422,7 +422,7 @@ function PlanBlock({
         text: texteValidationPlan(niveau),
       });
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'envoi impossible');
+      client.pushToast('error', err?.message ?? t('envoi impossible'));
     } finally {
       setEnCours(null);
     }
@@ -445,7 +445,7 @@ function PlanBlock({
         text: texteRepriseVersion(numero, message.content),
       });
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'envoi impossible');
+      client.pushToast('error', err?.message ?? t('envoi impossible'));
     } finally {
       setEnCours(null);
     }
@@ -503,14 +503,18 @@ function PlanBlock({
           <button
             type="button"
             data-versions-plan
-            title={t('{v0} version{v1} précédente{v2}', { v0: precedentes.length, v1: precedentes.length > 1 ? 's' : '', v2: precedentes.length > 1 ? 's' : '' })}
+            title={
+              precedentes.length === 1
+                ? t('{v0} version précédente', { v0: precedentes.length })
+                : t('{v0} versions précédentes', { v0: precedentes.length })
+            }
             onClick={() => setVersionsOuvertes((v) => !v)}
             className="flex shrink-0 flex-nowrap items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-1 text-[12px] text-faint transition-colors hover:bg-surface hover:text-text"
           >
             <History className="h-3 w-3 shrink-0" />
-            {precedentes.length} version{precedentes.length > 1 ? 's' : ''}
-            <span className="hidden sm:inline">
-              {t('précédente{v0}', { v0: precedentes.length > 1 ? 's' : '' })}</span>
+            {precedentes.length === 1
+              ? t('{v0} version précédente', { v0: precedentes.length })
+              : t('{v0} versions précédentes', { v0: precedentes.length })}
             <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', versionsOuvertes && 'rotate-90')} />
           </button>
         ) : null}

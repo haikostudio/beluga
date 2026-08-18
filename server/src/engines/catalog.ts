@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  choixDuChefSousPlafond,
   dedoublonnerModeles,
   limiterAuxPlusRecents,
   EngineId,
@@ -411,20 +412,30 @@ export function orchestratorModel(engine: EngineId, models: ModelInfo[]): string
   return preferred?.id ?? resolveModel(models, wanted);
 }
 
-/** Les choix manuels l'emportent ; sans eux, les défauts du chef s'appliquent. */
+/**
+ * Les choix manuels l'emportent ; sans eux, les défauts du chef s'appliquent.
+ *
+ * MAIS ILS NE L'EMPORTENT PLUS SANS PLAFOND : un modèle GOURMAND retenu une
+ * fois à l'écran valait ensuite pour tous les projets et pour toujours — 25 %
+ * de la consommation Claude du serveur passait à trier des demandes sur Opus 5
+ * en réflexion haute (relevé du 17/08/2026). La règle est pure et vit dans
+ * `shared/src/chef-econome.ts` : un modèle économe choisi à la main est
+ * respecté, un modèle gourmand est ramené sur l'épinglé.
+ */
 export function orchestratorChoice(
   engine: EngineId,
   models: ModelInfo[],
   memorisedModel?: string,
   memorisedThinking?: string,
-): { model: string | undefined; thinking: string } {
-  const model = memorisedModel
-    ? resolveModel(models, memorisedModel)
-    : orchestratorModel(engine, models);
-  const thinking = normaliseThinking(
-    models,
-    model,
-    memorisedModel ? memorisedThinking : 'medium',
-  );
-  return { model, thinking };
+): { model: string | undefined; thinking: string; ramene?: string } {
+  const epingle = orchestratorModel(engine, models);
+  const retenu = memorisedModel ? resolveModel(models, memorisedModel) : epingle;
+  const sousPlafond = choixDuChefSousPlafond({
+    modeleRetenu: retenu,
+    reflexionRetenue: memorisedModel ? memorisedThinking : 'medium',
+    epingle,
+    catalogue: models,
+  });
+  const thinking = normaliseThinking(models, sousPlafond.model, sousPlafond.thinking);
+  return { model: sousPlafond.model, thinking, ramene: sousPlafond.ramene };
 }

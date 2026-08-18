@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Eye, Code2 } from 'lucide-react';
 import { FormatApercu, estMarkdown, formatParDefaut } from '@haikodev/shared';
 import { Markdown } from '@/lib/markdown';
+import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
 /**
@@ -27,8 +28,8 @@ export function BasculeApercu({
   className?: string;
 }) {
   const choix: { cle: FormatApercu; libelle: string; icone: React.ReactNode }[] = [
-    { cle: 'visuel', libelle: 'Visuel', icone: <Eye className="h-3 w-3" /> },
-    { cle: 'markdown', libelle: 'Markdown', icone: <Code2 className="h-3 w-3" /> },
+    { cle: 'visuel', libelle: t('Visuel'), icone: <Eye className="h-3 w-3" /> },
+    { cle: 'markdown', libelle: t('Markdown'), icone: <Code2 className="h-3 w-3" /> },
   ];
   return (
     <div className={cn('inline-flex shrink-0 items-center gap-0.5 rounded-md bg-surface p-0.5', className)}>

@@ -169,7 +169,7 @@ function FilesTab({ projectId }: { projectId: string }) {
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder={path || 'racine du projet'}
+            placeholder={path || t('racine du projet')}
             className="h-7 pl-6 text-[13.5px]"
           />
         </div>

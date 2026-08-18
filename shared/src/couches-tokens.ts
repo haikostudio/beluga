@@ -144,12 +144,29 @@ export function ecartProjete(projete?: number, mesure?: number): number | undefi
 }
 
 /**
+ * SIGNES PAR JETON — MESURÉ, PAS SUPPOSÉ.
+ *
+ * L'estimation maison comptait QUATRE signes par jeton. C'est à peu près vrai
+ * d'un texte anglais ordinaire ; ça ne l'est pas du tout de la documentation de
+ * ce projet, dense en identifiants, en chemins de fichiers et en accents.
+ * Mesuré le 17/08/2026 sur `CLAUDE.md` par deux tours réels du moteur : 158 743
+ * signes pour 73 423 jetons, soit **2,16 signes par jeton** — le compteur
+ * sous-évaluait donc de 45 %, et toutes les économies annoncées avec lui
+ * étaient d'autant plus optimistes qu'elles portaient sur ce type de texte.
+ *
+ * On prend 2,2, la valeur mesurée arrondie prudemment vers le haut : mieux vaut
+ * annoncer un peu moins d'économie que promettre ce qu'on ne tient pas.
+ * Refaire la mesure (`node scripts/audit-quota-claude.mjs --socle`) avant de
+ * retoucher ce nombre.
+ */
+export const SIGNES_PAR_JETON = 2.2;
+
+/**
  * Estimation maison — la même que `scripts/mesure-jetons.mjs` — quand aucune
- * mesure du moteur n'existe pour une part du contexte : environ quatre signes
- * par jeton.
+ * mesure du moteur n'existe pour une part du contexte.
  */
 export function jetonsApproches(caracteres: number): number {
-  return Math.max(0, Math.round(caracteres / 4));
+  return Math.max(0, Math.round(caracteres / SIGNES_PAR_JETON));
 }
 
 /**

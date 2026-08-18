@@ -800,7 +800,7 @@ export function ProjectSettings({
                           .filter((doc) => doc.type === documentType)
                           .map((doc) => (
                             <option key={doc.id} value={doc.id}>
-                              {doc.number ?? doc.id} — {doc.title ?? 'sans titre'}
+                              {doc.number ?? doc.id} — {doc.title ?? t('sans titre')}
                             </option>
                           ))}
                       </select>

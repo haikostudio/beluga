@@ -260,7 +260,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               <Badge>{t(COLUMN_LABELS[card.column])}</Badge>
               {card.deployedAt ? (
                 <Badge tone="success">
-                  <Rocket className="h-2.5 w-2.5" /> en ligne
+                  <Rocket className="h-2.5 w-2.5" /> {t('en ligne')}
                 </Badge>
               ) : null}
               {/* Une carte ressortie garde sa trace : on doit voir qu'elle
@@ -277,7 +277,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               {mentionDeReprise(card) ? (
                 <Tooltip label={mentionDeReprise(card)!}>
                   <Badge tone="warning">
-                    <RotateCcw className="h-2.5 w-2.5" /> reprise
+                    <RotateCcw className="h-2.5 w-2.5" /> {t('reprise')}
                   </Badge>
                 </Tooltip>
               ) : null}
@@ -718,17 +718,17 @@ function ReglagesAgent({ card }: { card: Card }) {
            s'ouvrent en tiroir pleine largeur. */
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-0.5 sm:gap-x-1">
           <RunSelectors engines={state.engines} choix={card.run} onSelect={choisir} />
-          <span className="px-1 text-[12.5px] text-faint">compte choisi au lancement</span>
+          <span className="px-1 text-[12.5px] text-faint">{t('compte choisi au lancement')}</span>
         </div>
       ) : (
         <div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
-            <Etiquette nom="Moteur" valeur={libelles.moteur} />
-            <Etiquette nom="Modèle" valeur={libelles.modele} />
+            <Etiquette nom={t('Moteur')} valeur={libelles.moteur} />
+            <Etiquette nom={t('Modèle')} valeur={libelles.modele} />
             {/* « Niveau », pas « Réflexion » : le libellé du niveau porte déjà le
                 mot, et « Réflexion — Réflexion poussée » se lisait deux fois. */}
-            <Etiquette nom="Niveau" valeur={libelles.reflexion} />
-            <Etiquette nom="Compte" valeur={vu.compte ?? '—'} />
+            <Etiquette nom={t('Niveau')} valeur={libelles.reflexion} />
+            <Etiquette nom={t('Compte')} valeur={vu.compte ?? '—'} />
           </div>
 
           {/* La part de quota dépensée par cette carte, une seule ligne, en
@@ -736,8 +736,8 @@ function ReglagesAgent({ card }: { card: Card }) {
               une mesure. */}
           {quotaVu ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
-              <Etiquette nom="Quota 5 h consommé" valeur={partQuota(quotaVu.quota5h)} />
-              <Etiquette nom="Quota semaine consommé" valeur={partQuota(quotaVu.quotaSemaine)} />
+              <Etiquette nom={t('Quota 5 h consommé')} valeur={partQuota(quotaVu.quota5h)} />
+              <Etiquette nom={t('Quota semaine consommé')} valeur={partQuota(quotaVu.quotaSemaine)} />
             </div>
           ) : null}
         </div>
@@ -1112,7 +1112,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
 
       <Champ
         label={t('Explication client')}
-        aide="Ce que le client lira sur son devis ou sa facture — simple et ludique, sans jargon ni nom de fichier."
+        aide={t('Ce que le client lira sur son devis ou sa facture — simple et ludique, sans jargon ni nom de fichier.')}
       >
         <Textarea
           value={clientExplanation}
@@ -1166,7 +1166,7 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
                 .filter((doc) => doc.type === type)
                 .map((doc) => (
                   <option key={doc.id} value={doc.id}>
-                    {doc.number ?? doc.id} — {doc.title ?? 'sans titre'}
+                    {doc.number ?? doc.id} — {doc.title ?? t('sans titre')}
                   </option>
                 ))}
             </select>
