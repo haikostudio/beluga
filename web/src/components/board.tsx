@@ -1419,9 +1419,18 @@ export function Board({
                    ailleurs : il nomme la publication qui a mis ces cartes en
                    ligne et rouvre son fil. Hors « En production », rien. */
                 const bandeau = column === 'in_production' ? production.bandeau(card.id) : null;
+                /* Un groupe REPLIÉ (le défaut) montre sa PILE à la place des
+                   cartes : posée devant la première, elle en tient lieu pour
+                   tout le groupe — les autres cartes du groupe s'effacent
+                   (`masquee`). Un groupe déplié n'a ni pile ni carte masquée :
+                   la liste se montre comme avant. */
+                const pile = column === 'in_production' ? production.pile(card.id) : null;
+                const masquee = column === 'in_production' && production.masquee(card.id);
                 return (
                   <React.Fragment key={card.id}>
                   {bandeau}
+                  {pile}
+                  {masquee ? null : (
                   <CardTile
                     card={card}
                     onOpen={(event) => clicCarte(card, column, event)}
@@ -1440,6 +1449,7 @@ export function Board({
                     menuOuvert={menuCarte === card.id}
                     onMenuChange={(ouvert) => setMenuCarte(ouvert ? card.id : null)}
                   />
+                  )}
                   </React.Fragment>
                 );
               })}
