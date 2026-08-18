@@ -145,23 +145,35 @@ export function BandeauDeGroupe({
  * épaisseurs de la pile suivent le même dégradé progressif : 80 % → 50 % →
  * 20 %, chacune un peu plus reculée et un peu plus effacée que la
  * précédente.
+ *
+ * GÉOMÉTRIE — deux pièges déjà payés, à ne pas refaire :
+ * — le décor épouse la boîte ENTIÈRE de la carte de devant (`inset-0`), sinon
+ *   ses épaisseurs ont une hauteur nulle et rien ne se voit ;
+ * — il passe derrière par l'ORDRE des calques (la carte est relevée en
+ *   `z-10`), jamais par un `z-index` négatif, qui la ferait plonger sous le
+ *   fond de la colonne.
+ * Le décalage sort donc sous la carte : `envelopper` réserve la place en bas
+ * pour que la pile ne morde pas sur le groupe suivant.
  */
 const PROFONDEURS_PILE = [
-  { decalage: 6, echelle: 0.985, opacite: 0.5 },
-  { decalage: 12, echelle: 0.97, opacite: 0.2 },
+  { decalage: 7, echelle: 0.98, opacite: 0.5 },
+  { decalage: 14, echelle: 0.96, opacite: 0.2 },
 ];
+
+/** Ce que la pile dépasse sous la carte de devant, en pixels. */
+export const DEBORD_PILE = 16;
 
 export function PileDeGroupe({ nombre }: { nombre: number }) {
   const couches = Math.min(Math.max(nombre - 1, 1), 2);
   return (
-    <div className="pointer-events-none absolute inset-x-1.5 top-0" data-pile-groupe={nombre} aria-hidden>
+    <div className="pointer-events-none absolute inset-0" data-pile-groupe={nombre} aria-hidden>
       {PROFONDEURS_PILE.slice(0, couches).map(({ decalage, echelle, opacite }, i) => (
         <span
           key={i}
-          className="absolute inset-x-0 top-0 h-full rounded-md border border-border bg-raised transition-all duration-200 ease-out"
+          className="absolute inset-0 rounded-lg border border-border bg-raised transition-all duration-200 ease-out"
           style={{
             transform: `translateY(${decalage}px) scale(${echelle})`,
-            zIndex: -(i + 1),
+            transformOrigin: 'top center',
             opacity: opacite,
           }}
         />
@@ -295,13 +307,20 @@ export function useGroupesDeProduction(projectId: string, cartes: Card[], actif:
         const plie = !depliés.has(clef);
         const enPile = plie && premiere.cartes.length > 1;
         return (
-          <div className="relative">
-            {enPile ? <PileDeGroupe nombre={premiere.cartes.length} /> : null}
-            <div
-              className="transition-opacity duration-200 ease-out"
-              style={{ opacity: enPile ? 0.8 : 1 }}
-            >
-              {node}
+          <div
+            style={{
+              paddingBottom: enPile ? `${DEBORD_PILE}px` : '0px',
+              transition: 'padding-bottom 200ms ease',
+            }}
+          >
+            <div className="relative">
+              {enPile ? <PileDeGroupe nombre={premiere.cartes.length} /> : null}
+              <div
+                className="relative z-10 transition-opacity duration-200 ease-out"
+                style={{ opacity: enPile ? 0.8 : 1 }}
+              >
+                {node}
+              </div>
             </div>
           </div>
         );
