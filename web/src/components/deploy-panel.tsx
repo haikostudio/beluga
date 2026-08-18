@@ -5,10 +5,7 @@ import {
   ChevronDown,
   Loader2,
   Rocket,
-  RotateCcw,
-  Square,
   X,
-  MinusCircle,
   AlertTriangle,
   FilePlus2,
 } from 'lucide-react';
@@ -25,14 +22,16 @@ import {
   etapeDePublication,
   etapeDeLaColonne,
   libelleCompteLot,
-  mentionDesReprises,
-  natureDePublication,
   procedureEnPlace,
   raisonLotBloque,
   rapportAGarder,
   runDeLEtape,
 } from '@haikodev/shared';
 import { BoutonInitierProcedure } from '@/components/procedure-panel';
+/* LE DÉROULÉ VIT DANS SON PROPRE TIROIR : les sept étapes, leur fil historique
+   et le compte rendu de la publication ne sont plus dessinés ici. Ce fichier
+   garde ce qui décide (le bouton, la sélection, les alertes de la colonne). */
+import { DeployControls, STEP_LABELS, TiroirDeploiement } from '@/components/tiroir-deploiement';
 import {
   Button,
   ConfirmDialog,
@@ -50,94 +49,11 @@ import { useApp } from '@/lib/use-app';
 import { cn, duration, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
-/** L'ordre des sept étapes de la mise en ligne — le même que côté serveur. */
-const ORDRE_ETAPES: DeployStepKey[] = ['merge', 'commit', 'push', 'verify', 'build', 'publish', 'restart'];
-
-const CLES_ETAPES: Record<DeployStepKey, string> = {
-  merge: 'Fusion des branches',
-  commit: 'Enregistrement',
-  push: 'Envoi sur le dépôt',
-  verify: 'Vérification du code',
-  build: 'Construction',
-  publish: 'Mise en ligne',
-  restart: 'Redémarrage du serveur',
-};
-
-function labelEtape(etape: DeployStepKey): string {
-  return t(CLES_ETAPES[etape]);
-}
-
-/**
- * Une phrase courte qui rappelle à quoi sert chaque étape. Masquée par défaut,
- * révélée au « ? » : elle explique le déroulé sans qu'on ait à le connaître.
- */
-const CLES_DESCRIPTIONS_ETAPES: Record<DeployStepKey, string> = {
-  merge: 'Les branches des cartes du lot sont réunies dans la branche principale.',
-  commit: 'Le résultat de la fusion est inscrit dans l\'historique du dépôt.',
-  push: 'Le code réuni est envoyé sur le dépôt distant.',
-  verify: 'Les contrôles du projet sont rejoués ; le moindre échec arrête la mise en ligne.',
-  build: 'Le projet est recompilé à partir du code réuni.',
-  publish: 'L\'instance de dev de ce serveur est rafraîchie avec la nouvelle version.',
-  restart: 'Le service est relancé pour servir la version fraîche.',
-};
-
-function descriptionEtape(etape: DeployStepKey): string {
-  return t(CLES_DESCRIPTIONS_ETAPES[etape]);
-}
-
-type EtapeRun = DeployRun['steps'][number];
-type EtatEtape = EtapeRun['state'];
-
-/**
- * La DURÉE d'une étape terminée, en une poignée de signes. Les étapes rapides
- * (enregistrement, envoi) tiennent sous la seconde : on le dit plutôt que
- * d'afficher un tiret, qui se lirait comme « durée inconnue ».
- */
-function dureeEtape(etape?: EtapeRun): string | null {
-  if (!etape?.startedAt || !etape.endedAt) return null;
-  const secondes = (etape.endedAt - etape.startedAt) / 1000;
-  return secondes < 1 ? '< 1 s' : duration(secondes);
-}
-
-/** L'état d'une étape, dit en français simple. */
-const CLES_ETATS_ETAPES: Record<EtatEtape, string> = {
-  todo: 'à venir',
-  running: 'en cours',
-  done: 'fait',
-  failed: 'échoué',
-  skipped: 'sauté',
-};
-
-function labelEtat(etat: EtatEtape): string {
-  return t(CLES_ETATS_ETAPES[etat]);
-}
-
-/** La pastille d'état posée devant une étape, la même partout. */
-function IconeEtape({ etat }: { etat: EtatEtape }) {
-  if (etat === 'running') return <Loader2 className="h-2.5 w-2.5 animate-spin text-muted" />;
-  if (etat === 'done') return <Check className="h-2.5 w-2.5 text-success" />;
-  if (etat === 'failed') return <X className="h-2.5 w-2.5 text-danger" />;
-  if (etat === 'skipped') return <MinusCircle className="h-2.5 w-2.5 text-faint" />;
-  return <span className="block h-2.5 w-2.5 rounded-full border border-border" />;
-}
-
 type Conflict = { cardId: string; title: string; branch: string; files: string[] };
 
 /** L'étape d'une publication, nommée comme dans la règle pure. */
 function libelleEtape(cible: DeployRun['cible']): string {
   return t(etapeDePublication(cible).libelle);
-}
-
-/**
- * Le motif d'un échec, lisible. Le serveur écrit d'abord la raison en clair,
- * puis, s'il en a, les dernières lignes techniques : n'afficher que la fin
- * coupait justement la phrase qui explique — une ligne rouge sans explication.
- */
-function motifLisible(log: string): string {
-  const texte = log.trim();
-  if (texte.length <= 300) return texte;
-  const premiere = texte.split('\n')[0].slice(0, 200);
-  return `${premiere}\n…\n${texte.slice(-200)}`;
 }
 
 /**
@@ -217,9 +133,6 @@ export function DeployPanel({
   const [avertissements, setAvertissements] = React.useState<{ cardId: string; message: string }[]>([]);
   /* Le déroulé des sept étapes, replié par défaut : le chevron l'ouvre. */
   const [processOuvert, setProcessOuvert] = React.useState(false);
-  /* La TÊTE (bouton + chevron + déroulé en superposition) : un clic hors d'elle
-     referme le déroulé, comme un menu. */
-  const teteRef = React.useRef<HTMLDivElement>(null);
   /*
    * Les deux étapes existent pour tout projet : la règle est PURE, le bloc la
    * rejoue lui-même et s'affiche tout de suite, sans attendre le serveur.
@@ -320,17 +233,11 @@ export function DeployPanel({
    */
 
   /*
-   * Le déroulé s'ouvre EN SUPERPOSITION au-dessus des cartes : un clic à
-   * l'extérieur le referme, comme un menu — publication en cours ou non.
+   * PLUS DE FERMETURE AU CLIC EXTÉRIEUR : le déroulé n'est plus un panneau posé
+   * sur les cartes mais un TIROIR, avec son propre voile et sa poignée. Guetter
+   * les clics du document le refermerait à la première ligne cliquée DEDANS —
+   * le tiroir vivant dans un portail, il n'est contenu par aucune tête.
    */
-  React.useEffect(() => {
-    if (!processOuvert) return;
-    const surClic = (e: MouseEvent) => {
-      if (teteRef.current && !teteRef.current.contains(e.target as Node)) setProcessOuvert(false);
-    };
-    document.addEventListener('mousedown', surClic);
-    return () => document.removeEventListener('mousedown', surClic);
-  }, [processOuvert]);
 
   const start = async (selectedCardIds?: string[]) => {
     setBusy(true);
@@ -493,7 +400,7 @@ export function DeployPanel({
     <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
       {/* La TÊTE : le bouton d'action à gauche, le chevron du déroulé à droite.
           Pendant une publication, le bouton dit l'étape traitée. */}
-      <div className="relative flex items-stretch gap-1" ref={teteRef}>
+      <div className="relative flex items-stretch gap-1">
         <Button
           variant={publicationEnCours ? 'outline' : aPublier ? 'default' : 'outline'}
           size="sm"
@@ -507,7 +414,7 @@ export function DeployPanel({
           {publicationEnCours ? (
             <>
               <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-              <span className="truncate">{labelEtape(etapeEnCours)}…</span>
+              <span className="truncate">{STEP_LABELS[etapeEnCours]}…</span>
             </>
           ) : (
             <>
@@ -524,7 +431,8 @@ export function DeployPanel({
           )}
         </Button>
 
-        {/* Le chevron ouvre le déroulé des sept étapes, publication ou non. */}
+        {/* Le chevron n'ouvre plus un panneau posé sur les cartes : il ouvre le
+            TIROIR de la publication, où chaque étape porte son fil. */}
         <Button
           variant="outline"
           size="sm"
@@ -536,35 +444,18 @@ export function DeployPanel({
         >
           <ChevronDown className={cn('h-3 w-3 transition-transform', processOuvert && 'rotate-180')} />
         </Button>
-
-        {/* Le déroulé s'ouvre PAR-DESSUS les cartes, ancré sous le chevron : il
-            ne pousse plus la colonne vers le bas. Le texte d'état de la
-            publication (« En cours depuis… », adresse, « Arrêter ») vit ICI,
-            sous les sept étapes — plus jamais étalé dans la colonne. */}
-        {processOuvert ? (
-          <div className="absolute inset-x-0 top-full z-20">
-            {mienne && run?.state === 'success' ? (
-              /* Une réussite tient en une ligne (`derouleOuvert`) : rouvrir le
-                 chevron À LA MAIN ne doit pas refaire apparaître les sept
-                 étapes cochées comme si la publication tournait encore —
-                 seul ce résumé dit qu'elle est TERMINÉE. */
-              <div
-                className="mt-1.5 flex items-center gap-1.5 rounded-md border border-border bg-raised p-2 text-[13px] text-muted shadow-lg"
-                data-publication-terminee
-              >
-                <Check className="h-3 w-3 shrink-0 text-success" />
-                
-{t('Publié (')}{libelleEtape(run.cible)}) : {run.cardIds.length}  {t('tâche(s)')}
-</div>
-            ) : (
-              <ProcessusEtapes
-                run={mienne ? run : undefined}
-                controls={(publicationEnCours || rapport) && run ? <DeployControls run={run} /> : null}
-              />
-            )}
-          </div>
-        ) : null}
       </div>
+
+      {/* LE TIROIR : les sept étapes, leur fil historique, et sous elles le
+          compte rendu de la publication (« En cours depuis… », adresse,
+          « Arrêter »). Il ne montre le déroulé de MA publication que si elle est
+          mienne — celle d'un autre projet n'a rien à raconter ici. */}
+      <TiroirDeploiement
+        open={processOuvert}
+        onClose={() => setProcessOuvert(false)}
+        run={mienne ? run : undefined}
+        controls={(publicationEnCours || rapport) && run ? <DeployControls run={run} /> : null}
+      />
 
       {!publicationEnCours ? (
         <>
@@ -797,7 +688,7 @@ export function AlerteTravailSansCarte({
         onFiche?.();
       })
       .catch((err: any) => {
-        client.pushToast('error', err?.message ?? t('carte impossible à créer'));
+        client.pushToast('error', err?.message ?? t('Carte impossible à créer'));
         throw err;
       });
   return (
@@ -915,234 +806,5 @@ export function BoutonInfosPublication({
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-/**
- * Le déroulé des sept étapes, pleine largeur, ouvert par le chevron de la tête.
- *
- * Il AVANCE À VUE : le serveur réémet l'état à chaque pas, si bien qu'une étape
- * en cours porte sa PROGRESSION (la branche en cours de fusion, le contrôle
- * lancé, la commande de construction) et une étape terminée sa DURÉE. La liste
- * n'annonce QUE ce qui va réellement se faire : une étape SAUTÉE n'y figure pas
- * — le redémarrage du serveur, souvent inutile, disparaît ainsi dès qu'on sait
- * qu'il ne sera pas fait.
- *
- * Sans `run` — chevron ouvert hors publication —, les sept sont « à venir » :
- * c'est l'aperçu du déroulé complet, aucune étape n'étant encore décidée.
- * Chaque libellé cache une courte description, révélée par le « ? » (au survol
- * à la souris, au clic partout ailleurs).
- *
- * `controls` (le texte d'état — « En cours depuis… », adresse, « Arrêter » /
- * « Relancer ») vit DANS le même cadre que les sept étapes, sous la liste :
- * un seul bloc visuel pour tout le suivi du déploiement, jamais deux cadres
- * empilés.
- */
-function ProcessusEtapes({ run, controls }: { run?: DeployRun; controls?: React.ReactNode }) {
-  const [montre, setMontre] = React.useState<DeployStepKey | null>(null);
-
-  // Une étape sautée ne s'affiche pas : la liste ne montre que ce qui va
-  // réellement être fait. Hors publication (aucun run), rien n'est sauté.
-  const affichees = ORDRE_ETAPES.filter((key) => run?.steps.find((step) => step.key === key)?.state !== 'skipped');
-
-  return (
-    <div className="mt-1.5 rounded-md border border-border bg-raised p-2 shadow-lg" data-processus-etapes>
-      <ul className="space-y-1">
-        {affichees.map((key) => {
-          const etape = run?.steps.find((step) => step.key === key);
-          const etat: EtatEtape = etape?.state ?? 'todo';
-          const ouverte = montre === key;
-          const duree = dureeEtape(etape);
-          return (
-            <li key={key} className="text-[13px]" data-etape-process={key} data-etat-process={etat}>
-              <div className="flex items-start gap-1.5">
-                <span className="mt-[3px] shrink-0">
-                  <IconeEtape etat={etat} />
-                </span>
-                <span className={cn('flex-1 truncate', etat === 'failed' ? 'text-danger' : 'text-muted')}>
-                  {labelEtape(key)}
-                </span>
-                {/* L'état, et la DURÉE quand l'étape est terminée : « fait · 4 s ». */}
-                <span className="mt-[1px] shrink-0 text-[11px] text-faint" data-etat-etape={etat}>
-                  {labelEtat(etat)}
-                  {duree && (etat === 'done' || etat === 'failed') ? (
-                    <span data-duree-etape={key}> · {duree}</span>
-                  ) : null}
-                  {/* Une étape relevée par un agent de dépannage le DIT ici :
-                      « fait · 4 s · réparée · 1 reprise ». */}
-                  {mentionDesReprises(etape?.reprises) ? (
-                    <span data-reprises-etape={key}> · {mentionDesReprises(etape?.reprises)}</span>
-                  ) : null}
-                </span>
-                {/* Le « ? » révèle la description : au survol à la souris, au
-                    clic pour un écran tactile qui n'a pas de survol. */}
-                <button
-                  type="button"
-                  data-aide-etape={key}
-                  aria-label={`À quoi sert l'étape « ${CLES_ETAPES[key]} »`}
-                  aria-expanded={ouverte}
-                  className={cn(
-                    'mt-[1px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border text-[10px] leading-none transition-colors',
-                    ouverte ? 'text-text' : 'text-faint hover:text-text',
-                  )}
-                  onMouseEnter={() => setMontre(key)}
-                  onMouseLeave={() => setMontre((v) => (v === key ? null : v))}
-                  onClick={() => setMontre((v) => (v === key ? null : key))}
-                >
-                  ?
-                </button>
-              </div>
-
-              {/* PENDANT qu'une étape tourne, ce qu'elle est en train de faire :
-                  la branche en cours de fusion, le contrôle lancé, la commande. */}
-              {/* UNE ÉTAPE EN RETARD NE SE LIT PAS COMME UNE ÉTAPE QUI
-                  TRAVAILLE : sa ligne passe en orange d'attente, sinon il faut
-                  la lire en entier pour s'apercevoir que rien n'avance — ce qui
-                  obligeait à venir surveiller la publication soi-même. */}
-              {etat === 'running' && etape?.progress ? (
-                <p
-                  className={cn('ml-[22px] mt-0.5 text-[12px]', etape.enRetard ? 'text-warning' : 'text-muted')}
-                  data-progress-etape={key}
-                  data-etape-en-retard={etape.enRetard ? 'oui' : undefined}
-                >
-                  {etape.progress}
-                </p>
-              ) : null}
-
-              {ouverte ? (
-                <p className="ml-[22px] mt-0.5 text-[12px] text-faint" data-description-etape={key}>
-                  {descriptionEtape(key)}
-                </p>
-              ) : null}
-
-              {/* Un échec garde son motif sous l'étape tombée. */}
-              {etat === 'failed' && etape?.log ? (
-                <p className="ml-[22px] mt-0.5 whitespace-pre-wrap text-[12px] text-faint">{motifLisible(etape.log)}</p>
-              ) : null}
-
-              {/* CE QUI A ÉTÉ TENTÉ POUR LA RELEVER, réussite comprise : la
-                  panne reconnue, le passage de l'agent, l'issue de la reprise —
-                  ou le refus de bricoler une panne inconnue. C'est ici qu'on
-                  lit ce qui s'est passé, sans avoir à ouvrir un journal. */}
-              {etape?.reparations?.length ? (
-                <ul className="ml-[22px] mt-0.5 space-y-0.5" data-reparations-etape={key}>
-                  {etape.reparations.map((recit, i) => (
-                    <li key={i} className="text-[12px] leading-snug text-faint">
-                      · {recit}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
-      {controls}
-    </div>
-  );
-}
-
-/**
- * Sous la tête, le compte rendu de la publication et ses commandes : l'issue
- * (réussite / échec), l'attente d'un autre lot, l'adresse contrôlée, et le
- * bouton « Arrêter » ou « Relancer ». Les sept étapes, elles, vivent dans le
- * déroulé du chevron.
- */
-function DeployControls({ run }: { run: DeployRun }) {
-  const [, force] = React.useReducer((value: number) => value + 1, 0);
-
-  React.useEffect(() => {
-    if (run.state !== 'running') return;
-    const timer = setInterval(force, 1000);
-    return () => clearInterval(timer);
-  }, [run.state]);
-
-  return (
-    <div className="mt-2" data-etape-run={run.cible ?? 'dev'}>
-      {/* Le compte rendu NOMME son étape : un déploiement en cours ne se lit
-          pas comme une mise en production. */}
-      {run.state === 'running' ? (
-        <p className="flex items-center gap-1.5 text-[12px] text-faint">
-          <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />  {t('En cours depuis')} {elapsed(run.startedAt)}
-        </p>
-      ) : run.state === 'success' ? (
-        <p className="flex items-center gap-1.5 text-[13px] text-muted">
-          <Check className="h-3 w-3 shrink-0 text-success" />  {t('Publié (')}{libelleEtape(run.cible)}) : {run.cardIds.length}{' '}
-          
-{t('tâche(s)')}
-</p>
-      ) : (
-        (() => {
-          /* CASSÉE ou seulement INTERROMPUE ? Le rouge d'alerte est réservé au
-             code qui ne passe pas ; une coupure (redémarrage, arrêt demandé) se
-             dit en orange avec « Interrompue ». La nature se lit sur une étape
-             RÉELLEMENT tombée, jamais sur `currentStep`. */
-          const etapeTombee = run.steps.find((step) => step.state === 'failed')?.key ?? null;
-          const cassee = natureDePublication({ etat: run.state, etapeTombee, motif: run.error }) === 'cassee';
-          return (
-            <p className={cn('flex items-start gap-1.5 text-[13px]', cassee ? 'text-danger' : 'text-warning')}>
-              {cassee ? (
-                <X className="mt-[3px] h-3 w-3 shrink-0" />
-              ) : (
-                <AlertTriangle className="mt-[3px] h-3 w-3 shrink-0" />
-              )}{' '}
-              {cassee ? t('Échec') : t('Interrompue')} ({libelleEtape(run.cible)}) : {run.error ?? t('étape interrompue')}
-            </p>
-          );
-        })()
-      )}
-
-      {run.repriseApresCoupure ? (
-        <p className="mt-1 text-[12px] text-faint" data-reprise-coupure>
-          {t('Reprise après une coupure du serveur.')}</p>
-      ) : null}
-
-      {/* Ce qui a bronché SANS empêcher la mise en ligne — une carte qu'on n'a
-          pas pu ranger après coup. En orange d'attente, jamais en rouge : le
-          code est bien en ligne, c'est la comptabilité qui a manqué. */}
-      {run.avertissement ? (
-        <p className="mt-1 text-[12px] text-warning texte-copiable" data-avertissement-publication>
-          {run.avertissement}
-        </p>
-      ) : null}
-
-      {run.queued ? (
-        <p className="mt-1 text-[12px] text-warning">{t('Une publication est en attente : elle partira ensuite.')}</p>
-      ) : null}
-
-      {run.url ? (
-        <a
-          href={run.url}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1.5 block truncate text-[12px] text-muted underline underline-offset-2"
-        >
-          {run.url}
-        </a>
-      ) : null}
-
-      {/* Un bouton de décision prend toute la largeur du bloc. */}
-      <div className="mt-2">
-        {run.state === 'running' ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full"
-            onClick={() => client.send({ type: 'deploy.stop', runId: run.id })}
-          >
-            <Square className="h-2.5 w-2.5 fill-current" />  {t('Arrêter')}
-</Button>
-        ) : run.state !== 'success' ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full"
-            onClick={() => client.send({ type: 'deploy.retry', runId: run.id })}
-          >
-            <RotateCcw className="h-2.5 w-2.5" />  {t('Relancer')}
-</Button>
-        ) : null}
-      </div>
-    </div>
   );
 }

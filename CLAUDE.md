@@ -63,9 +63,9 @@ node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-taille-instructions.mjs # le fichier d'instructions tient-il sous son plafond ?
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
-node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages ?
-node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs ?
-HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs   # les thèmes
+node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
+node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
+HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : 6 ambiances × clair/sombre, aucun jeton oublié, réglage général/projet, automatique et menu
 HAIKO_LANGUES_URL=http://localhost:7099 node scripts/verif-langues.mjs # les cinq langues
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
 node scripts/nettoyer-essais.mjs    # À LANCER APRÈS : retire les cartes d'essai
@@ -126,6 +126,8 @@ Texte entier : `docs/regles/publication.md` (`project_memory`, sujet « publicat
 - TOUTE ÉTAPE DE PUBLICATION QUI TOMBE EST RÉPARÉE PUIS REJOUÉE
 - …ET UNE ÉTAPE QUI NE REND PAS LA MAIN EST UNE PANNE, PAS UN TRAVAIL LENT
 - RANGER LES CARTES NE PEUT PLUS FAIRE ÉCHOUER UNE MISE EN LIGNE RÉUSSIE
+- CHAQUE ÉTAPE D'UNE PUBLICATION PORTE SON FIL HISTORIQUE, ET IL SE LIT DANS UN VRAI TIROIR
+- …ET LES CARTES MISES EN LIGNE ENSEMBLE RESTENT ENSEMBLE, AVEC UN BOUTON VERS LEUR HISTORIQUE
 - Un agent appelé pour DÉPANNER une publication reçoit un accueil MINIMAL
 - Déployer, c'est fusionner le lot « À déployer », enregistrer, pousser, puis mettre en ligne selon la PROCÉDURE définie
 - Un projet neuf n'a de procédure pour AUCUNE des deux étapes, et la colonne propose de l'INITIER
@@ -231,12 +233,12 @@ Texte entier : `docs/regles/interface.md` (`project_memory`, sujet « interface 
 
 - LE COIN HAUT GAUCHE DU BANDEAU RÉPOND AU COIN HAUT DROIT
 - CHAQUE COLONNE A SON PERSONNAGE, DÉTOURÉ
-- SEPT THÈMES AU CHOIX DANS LES RÉGLAGES, DONT SIX SANS UNE BORDURE
-- LES TROIS GRANDES ZONES (colonne des projets, tableau, conversation) SONT ÉTAGÉES, DANS LES SEPT THÈMES
-- « GIVRE », « SAPIN » ET « CONTRASTE » DÉCLARENT MAINTENANT `--ligne-active` ET `--bandeau-etape`
-- …ET LES HUIT CHOIX TIENNENT DERRIÈRE UNE SEULE ENTRÉE « THÈME » DU MENU
+- L'APPARENCE SÉPARE SIX AMBIANCES DE LA CLARTÉ, SOIT DOUZE PALETTES, DONT ONZE SANS BORDURE
+- LES TROIS GRANDES ZONES (colonne des projets, tableau, conversation) SONT ÉTAGÉES, DANS LES DOUZE PALETTES
+- CHAQUE PALETTE DÉCLARE TOUS SES JETONS ET SES TROIS FONDS DE ZONE
+- LE MENU « THÈME » GARDE TROIS COMMANDES SÉPARÉES : AUTOMATIQUE, SOMBRE, PUIS AMBIANCE
 - L'INTERFACE EXISTE EN CINQ LANGUES, ET LE CHOIX VIT SOUS CELUI DU THÈME
-- …ET CHAQUE PROJET PEUT IMPOSER LE SIEN, plus un choix qui suit l'ORDINATEUR
+- CHAQUE PROJET PEUT IMPOSER SON APPARENCE COMPLÈTE, AUTOMATIQUE COMPRIS
 - LE CHOIX EST DÉJÀ PARTAGÉ ENTRE APPAREILS — LE PROBLÈME ÉTAIT LE FLASH DE PREMIER AFFICHAGE, PRIS POUR UN THÈME QUI « CHANGE TOUT SEUL »
 - LE FLAT DESIGN NE RETIRE PAS UN CONTRASTE QUI PORTAIT UNE INFORMATION
 - ORANGE pour ce qui est EN COURS, BLEU pour ce qui est TERMINÉ

@@ -4,17 +4,12 @@
 
 @layer base {
   /**
-   * SEPT THÈMES, UN BLOC DE JETONS CHACUN (`shared/src/themes.ts` pour le
-   * catalogue, qui ne connaît lui-même aucune teinte).
+   * SIX AMBIANCES, DEUX VARIANTES CHACUNE (`shared/src/themes.ts`).
    *
-   *  - « sombre » (`:root`) et « clair » (`html:not(.dark)`) : les deux thèmes
-   *    d'origine. Le CLAIR garde toutes ses valeurs ; le SOMBRE a rejoint les
-   *    thèmes plats le 17.08.2026 — seuls sa bordure et le fond d'un bouton au
-   *    repos ont bougé, aucune de ses autres teintes.
-   *  - « sable », « ardoise », « givre », « sapin » et « contraste » : cinq
-   *    thèmes FLAT DESIGN, plus bas.
-   *
-   * TROIS thèmes sont donc PLATS et un seul garde ses traits : le clair.
+   * Les palettes historiques gardent leur nom pour ne perdre aucun choix déjà
+   * enregistré. Leur variante opposée reçoit le suffixe `-clair` ou `-sombre`.
+   * Seule la variante claire d'origine garde ses bordures ; les onze autres
+   * palettes séparent les blocs par leurs paliers de fond.
    *
    * TROIS RÈGLES QUI TIENNENT L'ENSEMBLE.
    *
@@ -23,11 +18,11 @@
    *    l'application clignote au chargement. Et le thème clair reste accroché à
    *    `html:not(.dark)` : plusieurs contrôles basculent en clair en RETIRANT la
    *    classe `dark`, sans toucher à l'attribut.
-   * 2. Les cinq thèmes plats viennent APRÈS `html:not(.dark)` et déclarent CHAQUE
+   * 2. Les dix autres variantes viennent APRÈS `html:not(.dark)` et déclarent CHAQUE
    *    jeton. Leur sélecteur a la même force que `:not(.dark)` : c'est l'ordre qui
    *    tranche, et un jeton oublié retomberait sur la valeur du thème clair.
    *    `scripts/verif-themes.mjs` refuse un jeton manquant.
-   * 3. Aucune teinte ne s'écrit ailleurs que dans ces sept blocs. Un écran ne
+   * 3. Aucune teinte ne s'écrit ailleurs que dans ces douze blocs. Un écran ne
    *    connaît que les NOMS (`web/tailwind.config.js`).
    */
   :root {
@@ -444,8 +439,164 @@
     color-scheme: light;
   }
 
+  /** Les cinq variantes qui manquaient : mêmes ambiances, clarté opposée. */
+  html[data-theme='sable-sombre'] {
+    --bg: 35 18% 9%;
+    --surface: 35 16% 14%;
+    --raised: 34 14% 19%;
+    --border: 35 15% 15%;
+    --text: 40 24% 94%;
+    --muted: 38 14% 72%;
+    --faint: 36 11% 53%;
+    --accent: 38 70% 68%;
+    --accent-fg: 35 22% 10%;
+    --success: 145 44% 57%;
+    --warning: 34 88% 64%;
+    --danger: 6 66% 63%;
+    --record: 210 72% 59%;
+    --record-fg: 40 30% 98%;
+    --info: 203 72% 64%;
+    --publie: 270 62% 72%;
+    --en-cours: 34 88% 64%;
+    --termine: 203 72% 64%;
+    --fond-plan: 34 14% 23%;
+    --voile: 35 28% 4%;
+    --sur-etat: 40 30% 97%;
+    --actif: 20 82% 55%;
+    --actif-fg: 40 30% 97%;
+    --controle: 42 35% 96% / 0.065;
+    --ligne-active: 34 17% 27%;
+    --bandeau-etape: 34 15% 30%;
+    --bloc-etapes: 33 14% 33%;
+    color-scheme: dark;
+  }
+
+  html[data-theme='ardoise-clair'] {
+    --bg: 220 18% 93%;
+    --surface: 220 16% 88%;
+    --raised: 220 22% 98%;
+    --border: 220 16% 89%;
+    --text: 222 24% 13%;
+    --muted: 220 15% 31%;
+    --faint: 218 12% 47%;
+    --accent: 220 45% 28%;
+    --accent-fg: 220 30% 97%;
+    --success: 150 50% 29%;
+    --warning: 31 82% 37%;
+    --danger: 358 66% 43%;
+    --record: 214 78% 41%;
+    --record-fg: 220 32% 99%;
+    --info: 206 76% 36%;
+    --publie: 266 53% 45%;
+    --en-cours: 31 82% 37%;
+    --termine: 206 76% 36%;
+    --fond-plan: 220 17% 83%;
+    --voile: 222 34% 13%;
+    --sur-etat: 220 32% 98%;
+    --actif: 17 80% 45%;
+    --actif-fg: 220 32% 98%;
+    --controle: 222 30% 18% / 0.065;
+    --ligne-active: 220 15% 79%;
+    --bandeau-etape: 220 14% 80%;
+    --bloc-etapes: 220 16% 75%;
+    color-scheme: light;
+  }
+
+  html[data-theme='givre-sombre'] {
+    --bg: 210 24% 8%;
+    --surface: 210 22% 13%;
+    --raised: 210 19% 18%;
+    --border: 210 21% 14%;
+    --text: 205 34% 95%;
+    --muted: 207 20% 72%;
+    --faint: 209 16% 52%;
+    --accent: 198 70% 72%;
+    --accent-fg: 212 30% 9%;
+    --success: 153 46% 59%;
+    --warning: 32 84% 66%;
+    --danger: 354 67% 65%;
+    --record: 206 82% 58%;
+    --record-fg: 202 38% 99%;
+    --info: 198 81% 66%;
+    --publie: 260 67% 73%;
+    --en-cours: 32 84% 66%;
+    --termine: 198 81% 66%;
+    --fond-plan: 210 18% 22%;
+    --voile: 212 40% 3%;
+    --sur-etat: 202 38% 98%;
+    --actif: 18 78% 56%;
+    --actif-fg: 202 38% 98%;
+    --controle: 198 45% 97% / 0.062;
+    --ligne-active: 209 22% 26%;
+    --bandeau-etape: 209 20% 29%;
+    --bloc-etapes: 208 18% 32%;
+    color-scheme: dark;
+  }
+
+  html[data-theme='sapin-clair'] {
+    --bg: 145 20% 92%;
+    --surface: 145 18% 97%;
+    --raised: 145 24% 100%;
+    --border: 145 17% 93%;
+    --text: 150 25% 13%;
+    --muted: 148 16% 31%;
+    --faint: 146 12% 46%;
+    --accent: 150 38% 24%;
+    --accent-fg: 145 30% 98%;
+    --success: 142 58% 27%;
+    --warning: 29 84% 36%;
+    --danger: 4 68% 41%;
+    --record: 208 76% 40%;
+    --record-fg: 145 34% 99%;
+    --info: 202 74% 35%;
+    --publie: 264 51% 44%;
+    --en-cours: 29 84% 36%;
+    --termine: 202 74% 35%;
+    --fond-plan: 145 18% 82%;
+    --voile: 150 32% 12%;
+    --sur-etat: 145 34% 98%;
+    --actif: 15 86% 43%;
+    --actif-fg: 145 34% 98%;
+    --controle: 150 28% 16% / 0.064;
+    --ligne-active: 145 16% 78%;
+    --bandeau-etape: 145 15% 79%;
+    --bloc-etapes: 145 17% 74%;
+    color-scheme: light;
+  }
+
+  html[data-theme='contraste-sombre'] {
+    --bg: 45 8% 4%;
+    --surface: 45 6% 10%;
+    --raised: 45 5% 16%;
+    --border: 45 5% 11%;
+    --text: 45 10% 98%;
+    --muted: 45 8% 78%;
+    --faint: 45 7% 62%;
+    --accent: 45 15% 96%;
+    --accent-fg: 45 12% 5%;
+    --success: 142 76% 64%;
+    --warning: 30 100% 68%;
+    --danger: 0 86% 70%;
+    --record: 212 92% 65%;
+    --record-fg: 45 20% 99%;
+    --info: 201 96% 69%;
+    --publie: 271 80% 76%;
+    --en-cours: 30 100% 68%;
+    --termine: 201 96% 69%;
+    --fond-plan: 45 5% 21%;
+    --voile: 45 26% 1%;
+    --sur-etat: 45 20% 99%;
+    --actif: 19 92% 62%;
+    --actif-fg: 45 20% 99%;
+    --controle: 45 18% 98% / 0.075;
+    --ligne-active: 45 7% 26%;
+    --bandeau-etape: 45 6% 30%;
+    --bloc-etapes: 45 5% 34%;
+    color-scheme: dark;
+  }
+
   /**
-   * L'ÉTAGEMENT DES TROIS GRANDES ZONES, DANS LES SEPT THÈMES (17.08.2026,
+   * L'ÉTAGEMENT DES TROIS GRANDES ZONES, DANS LES DOUZE PALETTES.
    * étendu aux six autres le même jour).
    *
    * La colonne des projets, le tableau et la conversation empruntaient tous
@@ -459,16 +610,14 @@
    *
    * SCOPÉ à chaque thème par `html[data-theme='…']` (ou `html:not(.dark)`
    * pour « clair », qui suit la même détection que son propre bloc de
-   * jetons), jamais posé comme un jeton CSS partagé dans un des sept blocs
+   * jetons), jamais posé comme un jeton CSS partagé dans un des douze blocs
    * ci-dessus : ces règles ne sont donc JAMAIS lues par le comparateur de
-   * jetons de `scripts/verif-themes.mjs` (qui ne scanne que les sept blocs
+   * jetons de `scripts/verif-themes.mjs` (qui ne scanne que les douze blocs
    * connus), et aucun thème ne peut retomber en silence sur la valeur d'un
    * autre faute de les avoir déclarées.
    *
    * Chaque théme suit son PROPRE sens d'élévation : `--surface` est plus
-   * CLAIR que `--bg` dans cinq thèmes (colonne des projets → tableau, vers
-   * `--surface`), plus SOMBRE dans « clair » et « givre » (`--surface` sous
-   * `--bg`, un choix déjà pris à leur création) — la colonne des projets et
+   * CLAIR ou plus SOMBRE que `--bg` selon la palette — la colonne des projets et
    * le tableau se placent donc entre les deux, dans le même sens, et la
    * conversation se place entre `--surface` et `--raised`. Valeurs choisies
    * par PROPORTION du même écart (35 %, 65 % puis 45 % du suivant), jamais
@@ -542,6 +691,56 @@
   }
   html[data-theme='contraste'] [data-zone='droite'] {
     background-color: hsl(45 6% 98%);
+  }
+
+  html[data-theme='sable-sombre'] [data-zone='gauche'] {
+    background-color: hsl(35 17% 11%);
+  }
+  html[data-theme='sable-sombre'] [data-zone='centre'] {
+    background-color: hsl(35 16% 12%);
+  }
+  html[data-theme='sable-sombre'] [data-zone='droite'] {
+    background-color: hsl(34 15% 16%);
+  }
+
+  html[data-theme='ardoise-clair'] [data-zone='gauche'] {
+    background-color: hsl(220 17% 91%);
+  }
+  html[data-theme='ardoise-clair'] [data-zone='centre'] {
+    background-color: hsl(220 16% 90%);
+  }
+  html[data-theme='ardoise-clair'] [data-zone='droite'] {
+    background-color: hsl(220 18% 93%);
+  }
+
+  html[data-theme='givre-sombre'] [data-zone='gauche'] {
+    background-color: hsl(210 23% 10%);
+  }
+  html[data-theme='givre-sombre'] [data-zone='centre'] {
+    background-color: hsl(210 22% 11%);
+  }
+  html[data-theme='givre-sombre'] [data-zone='droite'] {
+    background-color: hsl(210 20% 15%);
+  }
+
+  html[data-theme='sapin-clair'] [data-zone='gauche'] {
+    background-color: hsl(145 19% 94%);
+  }
+  html[data-theme='sapin-clair'] [data-zone='centre'] {
+    background-color: hsl(145 18% 95%);
+  }
+  html[data-theme='sapin-clair'] [data-zone='droite'] {
+    background-color: hsl(145 20% 98%);
+  }
+
+  html[data-theme='contraste-sombre'] [data-zone='gauche'] {
+    background-color: hsl(45 7% 6%);
+  }
+  html[data-theme='contraste-sombre'] [data-zone='centre'] {
+    background-color: hsl(45 6% 8%);
+  }
+  html[data-theme='contraste-sombre'] [data-zone='droite'] {
+    background-color: hsl(45 5% 13%);
   }
 
   * {

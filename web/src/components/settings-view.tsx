@@ -40,9 +40,7 @@ import {
   PREFIXE_CLE_API,
   ROUTE_CARTE_EXTERNE,
   ROUTE_DOC_API,
-  CHOIX_DE_THEME,
-  choixParId,
-  themeParId,
+  ambianceParId,
   ConnexionCompte,
   jugerNomDeCle,
   formeDepuisEvenement,
@@ -90,8 +88,9 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
+import { AppearancePicker } from '@/components/appearance-picker';
 import { client } from '@/lib/client';
-import { useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
+import { useSystemeSombre, useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, elapsed, relativeTime } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
@@ -223,25 +222,17 @@ function SettingsBody({ open }: { open: boolean }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Apparence : le choix du thème                                       */
+/* Apparence : ambiance, clarté et suivi du système                    */
 /* ------------------------------------------------------------------ */
 
 /**
- * LE CHOIX DU THÈME, AVEC SON APERÇU.
- *
- * Il vivait dans le menu trois points du bandeau, sous la forme d'un
- * interrupteur « clair / sombre » : introuvable, et incapable de porter quatre
- * choix. Chaque thème montre ici ses vraies couleurs — fond de page, fond d'un
- * bloc, texte, couleur d'un travail en cours.
- *
- * Ces quatre couleurs viennent du catalogue (`shared/src/themes.ts`) et se posent
- * en style direct : un aperçu doit se voir pendant qu'un AUTRE thème est actif,
- * les jetons de couleur ne valent donc pas ici — ils ne décrivent que le thème
- * en cours. C'est le seul endroit de l'application dans ce cas.
+ * L'ambiance ne décide plus de la clarté. Le suivi du système est le premier
+ * interrupteur, puis chaque ambiance montre et commande ses deux variantes.
  */
 function SectionApparence() {
   const state = useApp();
-  const [theme, setTheme] = useThemeGeneral();
+  const [apparence, setApparence] = useThemeGeneral();
+  const systemeSombre = useSystemeSombre();
   const enVigueur = useThemeEnVigueur();
   const projetOuvert = state.projects.find((projet) => projet.id === state.activeProjectId);
 
@@ -251,7 +242,7 @@ function SectionApparence() {
         <Palette className="h-3.5 w-3.5 text-faint" />  {t('Thème général')}
 </h3>
       <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
-        {t('Le thème choisi vaut partout : sur l\'ordinateur comme sur le téléphone, et il ne se perd pas en vidant un cache. « Sombre », « Sable » et « Ardoise » sont sans bordures — un bloc s\'y délimite par son fond. Chaque projet peut en imposer un autre, dans ses propres réglages.')}</p>
+        {t('Choisissez séparément une ambiance de couleur et un mode clair ou sombre. Le réglage vaut sur l’ordinateur comme sur le téléphone, et chaque projet peut garder sa propre apparence.')}</p>
 
       {/* UN PROJET QUI IMPOSE SON THÈME PASSE DEVANT, ET ON LE DIT ICI. Sans
           cette phrase, choisir un thème dans cet onglet ne changeait rien à
@@ -261,50 +252,24 @@ function SectionApparence() {
           data-theme-recouvert
           className="mb-3 rounded-md border border-termine/30 bg-termine/5 px-2.5 py-1.5 text-[12.5px] leading-relaxed text-muted"
         >
-          {t('« {v0} » impose son propre thème ({v1}) : c\'est celui que vous voyez en ce moment. Le choix ci-dessous s\'applique aux projets qui n\'en imposent aucun.', { v0: projetOuvert?.name, v1: t(choixParId(projetOuvert?.theme)?.libelle ?? '') })}</p>
+          {t('« {v0} » impose sa propre apparence ({v1}, mode {v2}) : c’est celle que vous voyez. Le choix ci-dessous vaut pour les autres projets.', {
+            v0: projetOuvert?.name,
+            v1: t(ambianceParId(enVigueur.ambiance).libelle),
+            v2: enVigueur.automatique
+              ? t('Automatique')
+              : enVigueur.clarteChoisie === 'clair'
+                ? t('Clair')
+                : t('Sombre'),
+          })}</p>
       ) : null}
       {enVigueur.parLeSysteme && enVigueur.source === 'general' ? (
         <p data-theme-par-le-systeme className="mb-3 text-[12.5px] leading-relaxed text-muted">
-          {t('Votre ordinateur est réglé en {v0} : c\'est donc le thème « {v1} » qui s\'affiche, et il changera tout seul si vous changez ce réglage.', { v0: enVigueur.theme === 'sombre' ? 'sombre' : 'clair', v1: t(themeParId(enVigueur.theme).libelle) })}</p>
+          {t('Votre ordinateur est réglé en mode {v0}. L’ambiance « {v1} » garde ses couleurs et passera automatiquement d’une variante à l’autre.', {
+            v0: enVigueur.clarteAppliquee === 'clair' ? t('Clair') : t('Sombre'),
+            v1: t(ambianceParId(enVigueur.ambiance).libelle),
+          })}</p>
       ) : null}
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        {CHOIX_DE_THEME.map((item) => {
-          const actif = item.id === theme;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              data-theme-carte={item.id}
-              aria-pressed={actif}
-              onClick={() => setTheme(item.id)}
-              className={cn(
-                'flex items-start gap-3 rounded-lg border p-3 text-left transition-colors',
-                actif ? 'border-termine bg-raised' : 'border-border bg-surface hover:bg-raised',
-              )}
-            >
-              {/* L'aperçu : quatre bandes, dans l'ordre du catalogue. */}
-              <span
-                aria-hidden
-                data-theme-apercu
-                className="mt-0.5 flex h-9 w-9 shrink-0 flex-wrap overflow-hidden rounded-md"
-              >
-                {item.apercu.map((couleur, rang) => (
-                  <span key={rang} className="h-1/2 w-1/2" style={{ backgroundColor: couleur }} />
-                ))}
-              </span>
-
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5">
-                  <span className="text-[14px] font-medium text-text">{t(item.libelle)}</span>
-                  {actif ? <Check className="h-3.5 w-3.5 shrink-0 text-termine" /> : null}
-                </span>
-                <span className="mt-0.5 block text-[12.5px] leading-relaxed text-faint">{t(item.description)}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <AppearancePicker value={apparence} onChange={setApparence} systemeSombre={systemeSombre} />
     </section>
   );
 }

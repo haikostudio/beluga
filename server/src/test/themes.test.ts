@@ -1,40 +1,45 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  CHOIX_DE_THEME,
+  AMBIANCES,
   THEMES,
-  THEME_SYSTEME,
   APPARENCE_PAR_DEFAUT,
-  choixParId,
+  REGLAGE_APPARENCE_PAR_DEFAUT,
+  ambianceParId,
   couleurDeBandeau,
   estThemeSombre,
+  reglageApparenceValide,
   themeAAppliquer,
+  themeChoisiDepuisReglage,
   themeChoisiValide,
+  themeDeLAmbiance,
   themeDuSysteme,
   themeParId,
   themeValide,
 } from '@haikodev/shared';
 
-test('sept thèmes, quatre clairs et trois sombres, six plats', () => {
-  assert.equal(THEMES.length, 7);
+test('six ambiances ont chacune une variante claire et une variante sombre', () => {
+  assert.equal(AMBIANCES.length, 6);
+  assert.equal(THEMES.length, 12);
   assert.deepEqual(
-    THEMES.map((theme) => theme.id),
-    ['sombre', 'clair', 'sable', 'ardoise', 'givre', 'sapin', 'contraste'],
+    AMBIANCES.map((ambiance) => ambiance.id),
+    ['origine', 'sable', 'ardoise', 'givre', 'sapin', 'contraste'],
   );
-  assert.equal(THEMES.filter((theme) => theme.clarte === 'sombre').length, 3);
-  assert.equal(THEMES.filter((theme) => theme.clarte === 'clair').length, 4);
-  // Le CLAIR est le dernier thème à bordures : les six autres se lisent au fond.
-  assert.deepEqual(
-    THEMES.filter((theme) => theme.plat).map((theme) => theme.id),
-    ['sombre', 'sable', 'ardoise', 'givre', 'sapin', 'contraste'],
-  );
-  assert.deepEqual(
-    THEMES.filter((theme) => !theme.plat).map((theme) => theme.id),
-    ['clair'],
-  );
+  for (const ambiance of AMBIANCES) {
+    const clair = themeParId(ambiance.variantes.clair);
+    const sombre = themeParId(ambiance.variantes.sombre);
+    assert.equal(clair.ambiance, ambiance.id);
+    assert.equal(clair.clarte, 'clair');
+    assert.equal(sombre.ambiance, ambiance.id);
+    assert.equal(sombre.clarte, 'sombre');
+    assert.notEqual(clair.id, sombre.id);
+  }
+  assert.equal(THEMES.filter((theme) => theme.clarte === 'clair').length, 6);
+  assert.equal(THEMES.filter((theme) => theme.clarte === 'sombre').length, 6);
+  assert.deepEqual(THEMES.filter((theme) => !theme.plat).map((theme) => theme.id), ['clair']);
 });
 
-test('chaque thème porte un nom, une phrase et quatre couleurs d’aperçu', () => {
+test('chaque palette porte un nom, une phrase et quatre couleurs d’aperçu', () => {
   for (const theme of THEMES) {
     assert.ok(theme.libelle.length > 2, theme.id);
     assert.ok(theme.description.length > 20, theme.id);
@@ -45,108 +50,88 @@ test('chaque thème porte un nom, une phrase et quatre couleurs d’aperçu', ()
   }
 });
 
-test('les anciens noms enregistrés sont REPRIS, jamais perdus', () => {
-  // Un utilisateur qui avait choisi le clair ne se réveille pas en sombre.
+test('les anciens choix sont repris sans changer leur apparence', () => {
   assert.equal(themeValide('light'), 'clair');
   assert.equal(themeValide('dark'), 'sombre');
-  assert.equal(themeValide('LIGHT'), 'clair');
-  assert.equal(themeValide('  dark  '), 'sombre');
+  assert.deepEqual(reglageApparenceValide('sable'), {
+    ambiance: 'sable',
+    clarte: 'clair',
+    automatique: false,
+  });
+  assert.deepEqual(reglageApparenceValide('ardoise'), {
+    ambiance: 'ardoise',
+    clarte: 'sombre',
+    automatique: false,
+  });
+  assert.deepEqual(reglageApparenceValide('systeme'), {
+    ambiance: 'origine',
+    clarte: 'sombre',
+    automatique: true,
+  });
 });
 
-test('une valeur inconnue, absente ou d’un autre type retombe sur le défaut', () => {
+test('une valeur inconnue retombe sur le défaut seulement quand un thème réel est exigé', () => {
   assert.equal(APPARENCE_PAR_DEFAUT, 'sombre');
-  assert.equal(themeValide(undefined), 'sombre');
-  assert.equal(themeValide(null), 'sombre');
-  assert.equal(themeValide(42), 'sombre');
   assert.equal(themeValide('turquoise'), 'sombre');
-  // Et la fiche rendue n'est JAMAIS indéfinie : un écran ne se garde pas d'un vide.
   assert.equal(themeParId('turquoise').id, 'sombre');
-});
-
-test('les quatre noms se reconnaissent eux-mêmes', () => {
-  for (const theme of THEMES) assert.equal(themeValide(theme.id), theme.id);
-});
-
-test('« Système » se choisit sans être un thème : il n’a pas de palette', () => {
-  // Huit choix au menu, sept palettes derrière : c'est toute la nuance.
-  assert.equal(CHOIX_DE_THEME.length, 8);
-  assert.deepEqual(
-    CHOIX_DE_THEME.map((choix) => choix.id),
-    ['sombre', 'clair', 'sable', 'ardoise', 'givre', 'sapin', 'contraste', 'systeme'],
-  );
-  assert.equal(
-    THEMES.some((theme) => (theme.id as string) === THEME_SYSTEME),
-    false,
-  );
-  // Il désigne les deux thèmes d'ORIGINE, pas un beige surprise.
-  assert.equal(themeDuSysteme(true), 'sombre');
-  assert.equal(themeDuSysteme(false), 'clair');
-});
-
-test('un choix vide rend « rien de choisi », pas le thème par défaut', () => {
-  // C'est ce qui distingue « ce projet n'impose aucun thème » de « il impose le sombre ».
-  assert.equal(themeChoisiValide(undefined), null);
-  assert.equal(themeChoisiValide(null), null);
-  assert.equal(themeChoisiValide(''), null);
+  assert.equal(ambianceParId('turquoise').id, 'origine');
+  assert.equal(reglageApparenceValide('turquoise'), null);
   assert.equal(themeChoisiValide('turquoise'), null);
-  assert.equal(themeChoisiValide('systeme'), 'systeme');
+});
+
+test('le réglage enregistré garde l’ambiance, le choix manuel et l’automatique', () => {
+  const reglage = { ambiance: 'givre', clarte: 'sombre', automatique: true } as const;
+  assert.equal(themeChoisiDepuisReglage(reglage), 'auto-givre-sombre');
+  assert.deepEqual(reglageApparenceValide('auto-givre-sombre'), reglage);
+  assert.equal(themeChoisiValide('systeme'), 'auto-origine-sombre');
   assert.equal(themeChoisiValide('light'), 'clair');
-  assert.equal(choixParId('systeme')?.libelle, 'Système');
-  assert.equal(choixParId('turquoise'), null);
 });
 
-test('LE THÈME DU PROJET OUVERT PASSE DEVANT LE RÉGLAGE GÉNÉRAL', () => {
-  assert.deepEqual(themeAAppliquer({ duProjet: 'sable', general: 'ardoise' }), {
-    theme: 'sable',
-    source: 'projet',
-    choisi: 'sable',
-    parLeSysteme: false,
-  });
-  // Un projet sans thème rend la main au réglage général.
-  assert.deepEqual(themeAAppliquer({ duProjet: null, general: 'ardoise' }), {
-    theme: 'ardoise',
-    source: 'general',
-    choisi: 'ardoise',
-    parLeSysteme: false,
-  });
-  // Et un projet dont le thème est illisible ne bloque pas l'application.
-  assert.equal(themeAAppliquer({ duProjet: 'turquoise', general: 'sable' }).theme, 'sable');
+test('le thème du projet passe devant le réglage général', () => {
+  const applique = themeAAppliquer({ duProjet: 'sable-sombre', general: 'ardoise-clair' });
+  assert.equal(applique.theme, 'sable-sombre');
+  assert.equal(applique.source, 'projet');
+  assert.equal(applique.ambiance, 'sable');
+  assert.equal(applique.clarteAppliquee, 'sombre');
+  assert.equal(applique.automatique, false);
+
+  const general = themeAAppliquer({ duProjet: null, general: 'ardoise-clair' });
+  assert.equal(general.theme, 'ardoise-clair');
+  assert.equal(general.source, 'general');
 });
 
-test('« Système » est tranché par le réglage de l’ordinateur, où qu’il soit choisi', () => {
-  assert.deepEqual(themeAAppliquer({ general: 'systeme', systemeSombre: true }), {
-    theme: 'sombre',
-    source: 'general',
-    choisi: 'systeme',
-    parLeSysteme: true,
-  });
-  assert.equal(themeAAppliquer({ general: 'systeme', systemeSombre: false }).theme, 'clair');
-  // Un PROJET peut lui aussi suivre l'ordinateur, et il passe toujours devant.
-  const parLeProjet = themeAAppliquer({ duProjet: 'systeme', general: 'sable', systemeSombre: true });
-  assert.equal(parLeProjet.theme, 'sombre');
-  assert.equal(parLeProjet.source, 'projet');
-  assert.equal(parLeProjet.parLeSysteme, true);
-  // Réglage de l'ordinateur inconnu : on ne devine pas le sombre.
-  assert.equal(themeAAppliquer({ general: 'systeme' }).theme, 'clair');
+test('le mode automatique change la clarté sans changer l’ambiance', () => {
+  const sombre = themeAAppliquer({ general: 'auto-sable-clair', systemeSombre: true });
+  assert.equal(sombre.theme, 'sable-sombre');
+  assert.equal(sombre.ambiance, 'sable');
+  assert.equal(sombre.clarteChoisie, 'clair');
+  assert.equal(sombre.clarteAppliquee, 'sombre');
+  assert.equal(sombre.parLeSysteme, true);
+
+  const clair = themeAAppliquer({ general: 'auto-sable-clair', systemeSombre: false });
+  assert.equal(clair.theme, 'sable');
+  assert.equal(themeDuSysteme('ardoise', false), 'ardoise-clair');
+  assert.equal(themeDuSysteme('ardoise', true), 'ardoise');
 });
 
-test('rien de réglé nulle part : le défaut, jamais un vide', () => {
-  assert.deepEqual(themeAAppliquer({}), {
-    theme: 'sombre',
-    source: 'general',
-    choisi: 'sombre',
-    parLeSysteme: false,
+test('rien de réglé nulle part conserve le sombre d’origine', () => {
+  assert.deepEqual(REGLAGE_APPARENCE_PAR_DEFAUT, {
+    ambiance: 'origine',
+    clarte: 'sombre',
+    automatique: false,
   });
+  const applique = themeAAppliquer({});
+  assert.equal(applique.theme, 'sombre');
+  assert.equal(applique.source, 'general');
+  assert.equal(applique.automatique, false);
 });
 
-test('la clarté décide de la classe « dark » et du bandeau du téléphone', () => {
-  assert.equal(estThemeSombre('sombre'), true);
-  assert.equal(estThemeSombre('ardoise'), true);
-  assert.equal(estThemeSombre('sapin'), true);
-  assert.equal(estThemeSombre('clair'), false);
-  assert.equal(estThemeSombre('sable'), false);
-  assert.equal(estThemeSombre('givre'), false);
-  assert.equal(estThemeSombre('contraste'), false);
-  // Le bandeau prend le FOND DE PAGE du thème, jamais une couleur choisie à part.
+test('la clarté de chaque variante décide de la classe dark et du bandeau', () => {
+  for (const ambiance of AMBIANCES) {
+    const clair = themeDeLAmbiance(ambiance.id, 'clair');
+    const sombre = themeDeLAmbiance(ambiance.id, 'sombre');
+    assert.equal(estThemeSombre(clair), false, clair);
+    assert.equal(estThemeSombre(sombre), true, sombre);
+  }
   for (const theme of THEMES) assert.equal(couleurDeBandeau(theme.id), theme.apercu[0]);
 });

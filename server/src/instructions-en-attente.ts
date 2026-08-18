@@ -3,13 +3,13 @@ import path from 'node:path';
 import {
   FICHIER_D_ATTENTE,
   PERIODE_DE_FUSION_MS,
-  SUJETS_REGLES,
   decisionDeFusion,
   fichierApresFusion,
   fichierDAttenteVide,
   lireEntrees,
   planDeFusion,
   type PlanDeFusion,
+  type SujetRegles,
 } from '@haikodev/shared';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
@@ -53,6 +53,43 @@ function ajouterALaFin(chemin: string, texte: string, entete: string): void {
   fs.writeFileSync(chemin, `${separe}${texte}`);
 }
 
+/** Le libellé d'un sujet : le premier titre du fichier, sinon son identifiant mis en forme. */
+function libelleDepuisFichier(chemin: string, id: string): string {
+  try {
+    const titre = /^#\s+(.+)$/m.exec(fs.readFileSync(chemin, 'utf8'));
+    if (titre) return titre[1].replace(/\s*—.*$/, '').trim();
+  } catch {
+    // Fichier illisible : on retombe sur l'identifiant.
+  }
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+/**
+ * LES SUJETS QUI EXISTENT VRAIMENT POUR CE PROJET.
+ *
+ * `SUJETS_REGLES` (huit sujets fixes, dans `shared/`) décrit la structure
+ * d'HAIKODEV, pas celle d'un projet quelconque : lui imposer ces huit fichiers
+ * créerait, sur un autre projet, des fichiers de règles sans rapport avec ce
+ * qu'il fait. Le rangement ne vise donc que les fichiers de `docs/regles/`
+ * RÉELLEMENT présents sur le disque du projet traité — pour HaikoDev, ce sont
+ * justement ces huit fichiers ; pour un projet qui n'a pas encore cette
+ * structure, la liste est vide et les entrées restent en attente, avec leur
+ * raison, plutôt que d'inventer un sujet qui n'existe pas.
+ */
+export function sujetsDuProjet(racine: string): SujetRegles[] {
+  const dossier = path.join(racine, 'docs', 'regles');
+  if (!fs.existsSync(dossier)) return [];
+  return fs
+    .readdirSync(dossier)
+    .filter((nom) => nom.endsWith('.md'))
+    .map((nom) => {
+      const id = nom.slice(0, -3);
+      const fichier = path.posix.join('docs', 'regles', nom);
+      return { id, libelle: libelleDepuisFichier(path.join(dossier, nom), id), fichier, mots: [] };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 /**
  * Range ce qu'UN projet a déposé. Rend le plan appliqué — ce qui a été rangé,
  * ce qui reste en attente avec sa cause.
@@ -64,10 +101,11 @@ export function rangerUnProjet(racine: string): PlanDeFusion | undefined {
   const entrees = lireEntrees(fs.readFileSync(attente, 'utf8'));
   if (!entrees.length) return undefined;
 
-  const plan = planDeFusion(entrees, SUJETS_REGLES.map((s) => s.id));
+  const sujets = sujetsDuProjet(racine);
+  const plan = planDeFusion(entrees, sujets.map((s) => s.id));
 
   for (const { sujet, texte } of plan.parSujet) {
-    const cible = SUJETS_REGLES.find((s) => s.id === sujet);
+    const cible = sujets.find((s) => s.id === sujet);
     if (!cible) continue;
     const chemin = path.join(racine, cible.fichier);
     ajouterALaFin(chemin, texte, `# ${cible.libelle} — règles du moteur\n`);

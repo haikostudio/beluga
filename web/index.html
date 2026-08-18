@@ -19,7 +19,7 @@
       /*
        * LE THÈME SE DÉCIDE AVANT LE PREMIER AFFICHAGE, depuis un REPÈRE LOCAL —
        * jamais la source de vérité, qui reste le réglage enregistré côté serveur
-       * (projet, réglage général, « Système » ; `web/src/lib/theme.ts`). Ce repère
+       * (projet, réglage général, mode automatique ; `web/src/lib/theme.ts`). Ce repère
        * est écrit par `appliquerLeTheme` à chaque fois qu'un thème est VRAIMENT
        * posé, et ne sert qu'à deviner juste au tout premier instant : sans lui,
        * l'application flashait toujours en SOMBRE avant de rejoindre le vrai
@@ -38,10 +38,15 @@
           sombre: 'sombre',
           clair: 'clair',
           sable: 'clair',
+          'sable-sombre': 'sombre',
           ardoise: 'sombre',
+          'ardoise-clair': 'clair',
           givre: 'clair',
+          'givre-sombre': 'sombre',
           sapin: 'sombre',
+          'sapin-clair': 'clair',
           contraste: 'clair',
+          'contraste-sombre': 'sombre',
         };
         var repere = null;
         try {

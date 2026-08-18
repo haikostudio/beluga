@@ -1,13 +1,14 @@
 import * as React from 'react';
 import {
-  APPARENCE_PAR_DEFAUT,
   couleurDeBandeau,
   estThemeSombre,
+  REGLAGE_APPARENCE_PAR_DEFAUT,
+  reglageApparenceValide,
   themeAAppliquer,
-  themeChoisiValide,
+  themeChoisiDepuisReglage,
   type ThemeApplique,
-  type ThemeChoisi,
   type ThemeId,
+  type ReglageApparence,
 } from '@haikodev/shared';
 import { usePref } from './prefs';
 import { useApp } from './use-app';
@@ -67,7 +68,7 @@ export function appliquerLeTheme(theme: ThemeId): ThemeId {
  *
  * Le lire une fois ne suffit pas : sur macOS et Windows, ce réglage bascule tout
  * seul à la tombée du jour. Sans écoute, l'application resterait claire jusqu'au
- * prochain rechargement de la page — et le choix « Système » ne tiendrait pas sa
+ * prochain rechargement de la page — et le mode automatique ne tiendrait pas sa
  * promesse. Un navigateur qui ne connaît pas cette question répond « clair », ce
  * qui est le comportement le plus sûr.
  */
@@ -90,15 +91,21 @@ export function useSystemeSombre(): boolean {
 
 /**
  * Le réglage GÉNÉRAL de l'application, et de quoi le changer. Il vit EN BASE
- * comme les autres (`usePref`) : on retrouve son thème sur le téléphone comme sur
- * l'ordinateur, et vider un cache ne le perd pas. Une valeur ancienne
- * (« dark », « light ») est reprise par `themeChoisiValide`.
+ * comme les autres (`usePref`) : on retrouve son ambiance, son mode manuel et
+ * son interrupteur automatique sur le téléphone comme sur l'ordinateur. Les
+ * anciennes valeurs (« dark », « light », « systeme » et les sept anciens
+ * thèmes) sont reprises par `reglageApparenceValide`.
  *
  * Il ne POSE rien : un projet peut le recouvrir. Seul `useThemeApplique` pose.
  */
-export function useThemeGeneral(): [ThemeChoisi, (theme: ThemeChoisi) => void] {
-  const [brut, ecrire] = usePref<string>('theme', APPARENCE_PAR_DEFAUT);
-  return [themeChoisiValide(brut) ?? APPARENCE_PAR_DEFAUT, ecrire];
+export function useThemeGeneral(): [ReglageApparence, (reglage: ReglageApparence) => void] {
+  const [brut, ecrire] = usePref<string>('theme', themeChoisiDepuisReglage(REGLAGE_APPARENCE_PAR_DEFAUT));
+  const reglage = reglageApparenceValide(brut) ?? REGLAGE_APPARENCE_PAR_DEFAUT;
+  const regler = React.useCallback(
+    (suivant: ReglageApparence) => ecrire(themeChoisiDepuisReglage(suivant)),
+    [ecrire],
+  );
+  return [reglage, regler];
 }
 
 /**
@@ -119,7 +126,11 @@ export function useThemeApplique(): ThemeApplique {
   const systemeSombre = useSystemeSombre();
   const projetOuvert = state.projects.find((projet) => projet.id === state.activeProjectId);
 
-  const applique = themeAAppliquer({ duProjet: projetOuvert?.theme, general, systemeSombre });
+  const applique = themeAAppliquer({
+    duProjet: projetOuvert?.theme,
+    general: themeChoisiDepuisReglage(general),
+    systemeSombre,
+  });
 
   /*
    * TANT QUE LE SERVEUR N'A PAS RÉPONDU (`state.pret`), `general` ET
@@ -147,5 +158,9 @@ export function useThemeEnVigueur(): ThemeApplique {
   const [general] = useThemeGeneral();
   const systemeSombre = useSystemeSombre();
   const projetOuvert = state.projects.find((projet) => projet.id === state.activeProjectId);
-  return themeAAppliquer({ duProjet: projetOuvert?.theme, general, systemeSombre });
+  return themeAAppliquer({
+    duProjet: projetOuvert?.theme,
+    general: themeChoisiDepuisReglage(general),
+    systemeSombre,
+  });
 }

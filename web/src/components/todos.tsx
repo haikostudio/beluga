@@ -129,14 +129,17 @@ export function CorpsListeTaches({
             }
           >
             {/* Une vraie case à cocher : vide, en cours, cochée — ou barrée
-                d'une croix quand le tour s'est fini sans elle. */}
+                d'une croix quand le tour s'est fini sans elle. La case de
+                l'étape EN COURS respire (`animate-pulse-soft`) tant que le
+                tour tourne vraiment (`streaming`) — même couleur orange
+                qu'avant, juste vivante plutôt que figée. */}
             <span
               className={cn(
                 'mt-[2px] flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border',
                 todo.state === 'done'
                   ? 'border-termine bg-termine/15'
                   : todo.state === 'running'
-                    ? 'border-en-cours'
+                    ? cn('border-en-cours', streaming && 'animate-pulse-soft')
                     : 'border-border',
               )}
             >
@@ -165,11 +168,29 @@ export function CorpsListeTaches({
               {todo.label}
             </span>
             {/* Le temps passé sur la ligne, exactement comme pour les étapes.
-                Une ligne en cours affiche son temps qui court. Une ligne que
-                le tour a laissée en plan le DIT, à la place de son temps. */}
+                Une ligne en cours affiche son temps qui court, ET la mention
+                « EN COURS » — qui respire au même rythme que la case, tant
+                que le tour tourne vraiment (`streaming`). Une ligne que le
+                tour a laissée en plan le DIT, à la place de son temps. */}
             {todo.state === 'unfinished' ? (
               <span data-tache="non-faite" className="mt-[1px] shrink-0 text-[12px] text-faint">
                 {t('non faite')}
+              </span>
+            ) : todo.state === 'running' ? (
+              <span className="mt-[1px] flex shrink-0 items-center gap-1.5">
+                {streaming ? (
+                  <span
+                    data-tache="en-cours"
+                    className="animate-pulse-soft rounded border border-en-cours/50 px-1 text-[10px] font-semibold uppercase tracking-wide text-en-cours"
+                  >
+                    {t('En cours')}
+                  </span>
+                ) : null}
+                {todo.startedAt ? (
+                  <span className="text-[12px] tabular-nums text-faint">
+                    {duration(((todo.endedAt ?? maintenant) - todo.startedAt) / 1000)}
+                  </span>
+                ) : null}
               </span>
             ) : todo.startedAt ? (
               <span className="mt-[1px] shrink-0 text-[12px] text-faint">

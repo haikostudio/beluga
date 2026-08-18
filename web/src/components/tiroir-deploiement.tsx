@@ -324,14 +324,14 @@ export function TiroirDeploiement({
   const affichees = ORDRE_ETAPES.filter(
     (cle) => run?.steps.find((step) => step.key === cle)?.state !== 'skipped',
   );
-  const etapeLibelle = etapeDePublication(run?.cible).libelle;
+  const etape = etapeDePublication(run?.cible);
 
   return (
     <Drawer open={open} onClose={onClose} empile={empile}>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-deploiement>
         <div className="shrink-0 px-4 pb-2">
           <h2 className="text-[15.5px] font-semibold text-text">
-            {run ? titreDeLaPublication(etapeLibelle, run.startedAt) : etapeLibelle}
+            {run ? titreDeLaPublication(etape.titreCourt, run.startedAt) : etape.libelle}
           </h2>
           <p className="mt-0.5 text-[12.5px] text-faint">
             {sousTitre ??
