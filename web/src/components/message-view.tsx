@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   Loader2,
   Paperclip,
+  Play,
   RotateCcw,
   Route,
   Square,
@@ -1327,7 +1328,30 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
  * pas.
  */
 function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) {
+  const state = useApp();
+  const [lancement, setLancement] = React.useState(false);
+
   if (proposal.decision === 'accepted') {
+    const card = proposal.cardId ? state.cards[proposal.cardId] : undefined;
+    const peutLancer = card && card.column === 'planned';
+
+    const lancer = (event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (!card || lancement) return;
+      const chiffree = !!card.estimate || !!card.analyseDemandee;
+      setLancement(true);
+      Promise.resolve()
+        .then(() => (chiffree ? undefined : client.validerCarte(card)))
+        .then(() =>
+          client.call({ type: 'card.start', id: card.id }).catch((err: any) => {
+            client.signalerRefus(err?.message ?? t('lancement refusé'), card.id);
+            throw err;
+          }),
+        )
+        .catch(() => {})
+        .finally(() => setLancement(false));
+    };
+
     return (
       /* CE N'EST PAS UN `button`, ET C'EST VOULU : sous WebKit (Safari, donc
          tous les navigateurs de l'iPhone), la boîte de contenu d'un `button`
@@ -1363,6 +1387,11 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
               <Badge key={label}>{label}</Badge>
             ))}
           </div>
+        ) : null}
+        {peutLancer ? (
+          <Button size="sm" variant="outline" className="mt-2" disabled={lancement} onClick={lancer}>
+            <Play className="h-3 w-3" /> {lancement ? t('Lancement…') : t('Lancer')}
+          </Button>
         ) : null}
       </div>
     );

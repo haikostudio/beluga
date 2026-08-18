@@ -18,12 +18,13 @@ export function relativeTime(timestamp?: number): string {
   if (!timestamp) return '—';
   const seconds = Math.round((Date.now() - timestamp) / 1000);
   if (seconds < 60) return t('à l’instant');
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return t('il y a {n} min', { n: minutes });
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return t('il y a {n} h', { n: hours });
-  const days = Math.round(hours / 24);
-  if (days < 30) return t('il y a {n} j', { n: days });
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return t('{n}min', { n: minutes });
+  const hours = Math.floor(minutes / 60);
+  const resteMinutes = minutes % 60;
+  if (hours < 24) return resteMinutes ? t('{h}h{m}min', { h: hours, m: resteMinutes }) : t('{n}h', { n: hours });
+  const days = Math.floor(hours / 24);
+  if (days < 30) return t('{n}j', { n: days });
   return new Date(timestamp).toLocaleDateString(formatRegional());
 }
 
