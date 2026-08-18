@@ -91,7 +91,7 @@ import {
   InfosPublication,
   AlerteTravailSansCarte,
 } from '@/components/deploy-panel';
-import { useGroupesDeProduction } from '@/components/groupes-production';
+import { useFlipColonne, useGroupesDeProduction } from '@/components/groupes-production';
 import { BoutonReglagesProcedure, TiroirProcedure } from '@/components/procedure-panel';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { t, formatRegional } from '@/lib/langue';
@@ -374,6 +374,12 @@ export function Board({
     true,
     state.deploys[projectId]?.state,
   );
+  /* Le vrai glissement d'un groupe qui se plie ou se déplie : posé sur la
+     colonne « En production » (seule à grouper), il traduit chaque
+     changement de pli en translation pour toutes les lignes suivies par
+     `data-carte-flip`. */
+  const colonneProductionRef = React.useRef<HTMLDivElement | null>(null);
+  useFlipColonne(colonneProductionRef, [production.depliesKey, production.cartes.map((c) => c.id).join(',')]);
 
   /*
    * COMBIEN DE PAQUETS DE VINGT chaque colonne a déjà posés dans la page.
@@ -1397,6 +1403,7 @@ export function Board({
                 />
               ) : null}
               <div
+                ref={column === 'in_production' ? colonneProductionRef : undefined}
                 className={cn(
                   'space-y-1.5 p-1.5',
                   colonneEnLot === column && 'pl-[15px] pt-[15px]',
