@@ -97,7 +97,9 @@ test('une demande mise en file ne reçoit aucun instantané avant son vrai dépa
   const ici = path.dirname(fileURLToPath(import.meta.url));
   const runtime = fs.readFileSync(path.resolve(ici, '../../src/runtime.ts'), 'utf8');
   const sendPrompt = runtime.split('export async function sendPrompt')[1].split('\n/**\n * Le bloc « carte en cours »')[0];
-  const file = sendPrompt.indexOf('if (live.has(agentId))');
+  // La file s'ouvre dès la PRÉPARATION, pas au seul moteur lancé : deux demandes
+  // trop rapprochées se suivent au lieu de se doubler (`demandes-rapprochees`).
+  const file = sendPrompt.indexOf('if (live.has(agentId) || demarrant.has(agentId))');
   const retour = sendPrompt.indexOf('return;', file);
   const message = sendPrompt.indexOf('let userMessageId');
   const depart = runtime.indexOf('adapter.run({');

@@ -668,6 +668,31 @@ export function replacerCarteAuDemarrage(agent: Agent): void {
 }
 
 /**
+ * LA FILE REPREND SON COURS — UN SEUL ENDROIT DÉCIDE.
+ *
+ * Elle était dépilée en deux endroits, et il en manquait un troisième : une
+ * préparation qui n'a JAMAIS lancé de moteur (aucun compte disponible, panne
+ * interne du démon) ne referme aucun tour, donc ne dépilait rien — la demande
+ * écrite pendant ce temps attendait alors indéfiniment. Le filet de `sendPrompt`
+ * appelle donc cette fonction à chaque fin de tour, quel que soit le chemin.
+ *
+ * Sans effet tant que quelqu'un travaille : le tour en cours dépilera à sa fin.
+ * Et si deux fins de tour se croisaient, la demande partie en second se remet
+ * d'elle-même en file — l'agent est alors occupé — sans perdre son rang.
+ */
+function enchainerLaFile(agentId: string): void {
+  if (live.has(agentId) || demarrant.has(agentId)) return;
+  const next = store.dequeuePrompt(agentId);
+  bus.emit({ type: 'queue.snapshot', agentId, queue: store.listQueue(agentId) });
+  if (!next) return;
+  setTimeout(() => {
+    sendPrompt(agentId, next.text, { attachments: next.attachments }).catch((err) =>
+      log.error('enchaînement de file impossible', err),
+    );
+  }, 400);
+}
+
+/**
  * LE POINT DE PASSAGE UNIQUE (PLAN §9). Toutes les demandes partent d'ici :
  * chat, lancement de tâche, analyse, publication. Le gabarit est appliqué là,
  * donc aucun chemin ne peut y échapper.
@@ -676,8 +701,20 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   const agent = store.getAgent(agentId);
   if (!agent) throw new Error('agent introuvable');
 
-  // Un agent occupé ? La demande s'empile (PLAN §14).
-  if (live.has(agentId)) {
+  /*
+   * Un agent occupé ? La demande s'empile (PLAN §14).
+   *
+   * « OCCUPÉ » COMMENCE À LA PRÉPARATION, PLUS AU LANCEMENT DU MOTEUR. Seul
+   * `live` était consulté : entre l'entrée dans `sendPrompt` et le départ du
+   * moteur, il se passe pourtant plusieurs secondes (choix du compte, recherche
+   * dans la documentation, copie de travail). Une seconde demande écrite dans
+   * cette fenêtre ne s'empilait donc pas — elle ouvrait un tour PAR-DESSUS, et
+   * le jeton de préparation faisait abandonner le premier : sa bulle restait à
+   * l'écran, sans réponse, et personne ne savait qu'elle avait été jetée
+   * (constaté dans le journal du 18/08/2026). Les deux demandes se suivent
+   * désormais, dans leur ordre d'arrivée.
+   */
+  if (live.has(agentId) || demarrant.has(agentId)) {
     const queued = store.enqueuePrompt(agentId, text, options.attachments ?? []);
     if (!queued) {
       bus.toast('warning', "Dix demandes en attente au maximum : celle-ci n'a pas été ajoutée.");
@@ -738,6 +775,14 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
        * personne ne l'attendait.
        */
       refermerLeTour(agentId, "Le tour s'est arrêté sur une panne interne du serveur.");
+      /*
+       * ET LA FILE REPART, MÊME QUAND IL N'Y AVAIT AUCUN TOUR À REFERMER. Une
+       * préparation qui rend la main sans jamais lancer de moteur laisse l'agent
+       * au repos : `refermerLeTour` n'a alors rien à faire et ne dépile rien.
+       * Depuis qu'une demande écrite pendant la préparation s'empile au lieu de
+       * doubler le tour, ce trou l'y laisserait pour toujours.
+       */
+      enchainerLaFile(agentId);
       // Un redémarrage retenu tant qu'un agent travaillait peut désormais
       // repartir — importé au moment de l'appel pour éviter le cycle avec
       // demon.ts, qui lit lui-même `agentsActifs` d'ici.
@@ -1822,9 +1867,31 @@ async function startTurn(
         // attendre d'intervention humaine.
         store.clearSession(agent.id, cleSession);
       }
+      /*
+       * UN NOUVEL ESSAI EMPORTE LA DEMANDE DE SON TOUR (`demandeDeRepriseApresPanne`).
+       * Il ne partait qu'avec « continue où tu t'es arrêté » : le moteur allait
+       * alors chercher tout seul ce qu'il faisait, c'est-à-dire la demande
+       * PRÉCÉDENTE de la conversation — d'où des cartes proposées pour l'avant-
+       * dernier message. Le prompt du tour repart donc en entier, à chaque essai.
+       *
+       * Deux constats l'accompagnent : le moteur avait-il COMMENCÉ (du texte
+       * écrit, une étape franchie — les étapes posées par le démon lui-même ne
+       * comptent pas), et son fil repart-il à NEUF (session oubliée juste
+       * au-dessus, ou jamais annoncée par un moteur coupé trop tôt).
+       */
+      const filDuNouvelEssai = store.getSessionId(agent.id, cleSession);
+      const etapesDuMoteurAvant = [...runState.steps.keys()].filter(
+        (cle) => cle !== MEMORY_STEP_ID && cle !== ETAPE_PANNE_ID,
+      );
       const suivant = lancerLeMoteur(
-        demandeDeRepriseApresPanne(motif, essai),
-        store.getSessionId(agent.id, cleSession),
+        demandeDeRepriseApresPanne({
+          motif,
+          essai,
+          promptDuTour: prompt,
+          travailCommence: runState.text.trim().length > 0 || etapesDuMoteurAvant.length > 0,
+          filNeuf: !filDuNouvelEssai,
+        }),
+        filDuNouvelEssai,
       );
       // L'arrêt manuel doit porter sur le moteur qui tourne VRAIMENT.
       runState.handle = suivant;
@@ -2471,15 +2538,7 @@ async function startTurn(
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
 
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
-  const next = store.dequeuePrompt(agent.id);
-  bus.emit({ type: 'queue.snapshot', agentId: agent.id, queue: store.listQueue(agent.id) });
-  if (next) {
-    setTimeout(() => {
-      sendPrompt(agent.id, next.text, { attachments: next.attachments }).catch((err) =>
-        log.error('enchaînement de file impossible', err),
-      );
-    }, 400);
-  }
+  enchainerLaFile(agent.id);
 }
 
 interface OptionsCompression {
@@ -3273,15 +3332,7 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
   bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
 
   // La file reprend son cours : un message écrit pendant le blocage part enfin.
-  const next = store.dequeuePrompt(agentId);
-  bus.emit({ type: 'queue.snapshot', agentId, queue: store.listQueue(agentId) });
-  if (next) {
-    setTimeout(() => {
-      sendPrompt(agentId, next.text, { attachments: next.attachments }).catch((err) =>
-        log.error('enchaînement de file impossible', err),
-      );
-    }, 400);
-  }
+  enchainerLaFile(agentId);
   return true;
 }
 

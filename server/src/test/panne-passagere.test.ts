@@ -7,6 +7,7 @@ import {
   ESSAIS_MAX,
   attenteAvantNouvelEssai,
   causeEnClair,
+  SEPARATEUR_DEMANDE,
   demandeDeRepriseApresPanne,
   ligneDePanne,
   messageDePanneDefinitive,
@@ -93,6 +94,9 @@ test('l’attente croît, et reste bornée', () => {
 /* 3. LA BOUCLE : retenter, aboutir, et ne rougir qu’au bout.           */
 /* ------------------------------------------------------------------ */
 
+/** Le prompt du tour, tel que `preparerLeTour` l'assemble : c'est lui qui doit repartir. */
+const PROMPT_DU_TOUR = 'Réalise cette tâche.\n\nTITRE : Ranger les tags fichier dans le texte';
+
 /** Un moteur d'essai : il tombe `pannes` fois sur une 500, puis répond. */
 function moteurQuiTombe(pannes: number) {
   const etat = { erreur: undefined as string | undefined, texte: '', appels: 0, prompts: [] as string[] };
@@ -116,7 +120,16 @@ test('un tour coupé par une 500 retente et aboutit, sans erreur rouge', async (
   const attentes: number[] = [];
   const relance = await lancerAvecRelances({
     lancer: (essai, motif) => {
-      if (essai > 0) moteur.etat.prompts.push(demandeDeRepriseApresPanne(motif!, essai));
+      if (essai > 0)
+        moteur.etat.prompts.push(
+          demandeDeRepriseApresPanne({
+            motif: motif!,
+            essai,
+            promptDuTour: PROMPT_DU_TOUR,
+            travailCommence: true,
+            filNeuf: false,
+          }),
+        );
       return moteur.lancer(essai);
     },
     etat: () => ({ erreur: moteur.etat.erreur, texte: moteur.etat.texte }),
@@ -130,7 +143,57 @@ test('un tour coupé par une 500 retente et aboutit, sans erreur rouge', async (
   assert.equal(relance.result.ok, true);
   assert.deepEqual(attentes, [attenteAvantNouvelEssai(1), attenteAvantNouvelEssai(2)], 'attente croissante');
   assert.match(moteur.etat.prompts[0], /CONTINUE EXACTEMENT OÙ TU T'ES ARRÊTÉ/);
-  assert.doesNotMatch(moteur.etat.prompts[0], /repars de zéro(?! )/);
+  assert.ok(
+    moteur.etat.prompts.every((envoi) => envoi.includes(PROMPT_DU_TOUR)),
+    'chaque essai emporte la demande de son tour',
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/* 4. LA DEMANDE DU TOUR REPART À CHAQUE ESSAI.                         */
+/* ------------------------------------------------------------------ */
+
+test('un nouvel essai recopie la demande de SON tour, et interdit de reprendre une plus ancienne', () => {
+  const envoi = demandeDeRepriseApresPanne({
+    motif: 'erreur-serveur',
+    essai: 1,
+    promptDuTour: PROMPT_DU_TOUR,
+    travailCommence: true,
+    filNeuf: false,
+  });
+  assert.ok(envoi.includes(SEPARATEUR_DEMANDE), 'la demande est annoncée par son intitulé');
+  assert.ok(envoi.includes(PROMPT_DU_TOUR), 'la demande du tour est recopiée en entier');
+  assert.match(envoi, /ET AUCUNE AUTRE/, 'la consigne interdit de reprendre une demande plus ancienne');
+  assert.ok(
+    envoi.indexOf(SEPARATEUR_DEMANDE) < envoi.indexOf(PROMPT_DU_TOUR),
+    'la demande vient APRÈS son intitulé, jamais mêlée à l’en-tête',
+  );
+});
+
+test('un fil NEUF (session expirée) reçoit tout, et ne s’entend pas dire de continuer un travail qu’il ne connaît plus', () => {
+  const envoi = demandeDeRepriseApresPanne({
+    motif: 'session-morte',
+    essai: 1,
+    promptDuTour: PROMPT_DU_TOUR,
+    travailCommence: true,
+    filNeuf: true,
+  });
+  assert.ok(envoi.includes(PROMPT_DU_TOUR), 'la demande repart en entier sur un fil vide');
+  assert.match(envoi, /TON FIL PRÉCÉDENT N'EXISTE PLUS/);
+  assert.doesNotMatch(envoi, /CONTINUE EXACTEMENT OÙ TU T'ES ARRÊTÉ/, 'rien à continuer : il ne se souvient de rien');
+});
+
+test('un moteur tombé AVANT d’avoir rien fait s’entend dire que tout est à faire', () => {
+  const envoi = demandeDeRepriseApresPanne({
+    motif: 'lien-coupe',
+    essai: 2,
+    promptDuTour: PROMPT_DU_TOUR,
+    travailCommence: false,
+    filNeuf: false,
+  });
+  assert.match(envoi, /TU ES TOMBÉ AVANT D'AVOIR TRAITÉ LA DEMANDE/);
+  assert.doesNotMatch(envoi, /reprends ta liste de tâches/);
+  assert.ok(envoi.includes(PROMPT_DU_TOUR));
 });
 
 test('une panne qui dure rend la main après un nombre borné d’essais, cause en clair', async () => {
