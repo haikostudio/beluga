@@ -49,6 +49,7 @@
     --accent-fg: 0 0% 3%;
     --success: 142 55% 55%;
     --warning: 38 90% 62%;
+    --nouveau: 50 90% 60%;
     --danger: 0 75% 65%;
     /* Enregistrement en cours : un état, pas une décoration. */
     --record: 213 85% 52%;
@@ -111,13 +112,13 @@
     /* LE BANDEAU D'ÉTAPE sous une carte (chronomètre, étape en cours) : un
        fond solide, un cran plus clair que le corps de la carte — jamais un
        trait, un fond qui se voit. */
-    --bandeau-etape: 0 0% 22%;
+    --bandeau-etape: 0 0% 18%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur (étape en cours, décompte
        des tâches, temps) : un dégradé vers `surface/0` le rendait transparent
        en bas, donc confondu avec ce qu'il y a DERRIÈRE — `--bg` (fond de
        conversation du chef) ou `--surface` (tiroir d'une carte). Un fond
        SOLIDE, dédié, nettement au-dessus des deux. */
-    --bloc-etapes: 0 0% 24%;
+    --bloc-etapes: 0 0% 20%;
     color-scheme: dark;
   }
 
@@ -133,6 +134,7 @@
     --accent-fg: 0 0% 100%;
     --success: 142 62% 28%;
     --warning: 32 90% 36%;
+    --nouveau: 50 90% 40%;
     --danger: 0 72% 42%;
     --record: 213 85% 45%;
     --record-fg: 0 0% 100%;
@@ -158,11 +160,11 @@
     --ligne-active: 0 0% 88%;
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, distinct
        du corps de la carte. */
-    --bandeau-etape: 0 0% 87%;
+    --bandeau-etape: 0 0% 82%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : distinct de `--bg`
        (100 %) et de `--surface` (95 %), sans se confondre avec les deux autres
        jetons dédiés ci-dessus. */
-    --bloc-etapes: 0 0% 84%;
+    --bloc-etapes: 0 0% 79%;
     color-scheme: light;
   }
 
@@ -201,6 +203,7 @@
        et assombris ce qu'il faut pour rester lisibles sur un fond clair. */
     --success: 148 42% 30%;
     --warning: 30 78% 37%;
+    --nouveau: 48 78% 38%;
     --danger: 6 62% 44%;
     --record: 212 66% 42%;
     --record-fg: 41 38% 97%;
@@ -226,10 +229,10 @@
     /* LE BANDEAU D'ÉTAPE sous une carte : `bg-border/30` s'y fondait avec le
        fond de la colonne, la bordure de ce thème étant volontairement proche
        des fonds. Un fond SOLIDE, assombri, dédié à ce pied de carte. */
-    --bandeau-etape: 40 22% 85%;
+    --bandeau-etape: 40 22% 80%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : plus sombre encore,
        distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 40 23% 82%;
+    --bloc-etapes: 40 23% 77%;
     color-scheme: light;
   }
 
@@ -255,6 +258,7 @@
     --accent-fg: 220 16% 12%;
     --success: 150 48% 58%;
     --warning: 36 85% 62%;
+    --nouveau: 50 85% 60%;
     --danger: 2 68% 64%;
     --record: 212 78% 56%;
     --record-fg: 210 30% 98%;
@@ -277,10 +281,10 @@
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, éclairci, dédié — la
        bordure de ce thème est volontairement proche des fonds, elle ne peut
        plus servir de repère ici. */
-    --bandeau-etape: 220 12% 31%;
+    --bandeau-etape: 220 12% 27%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
        distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 220 12% 33%;
+    --bloc-etapes: 220 12% 29%;
     color-scheme: dark;
   }
 
@@ -309,6 +313,7 @@
     --accent-fg: 210 40% 98%;
     --success: 152 55% 28%;
     --warning: 30 85% 38%;
+    --nouveau: 50 85% 40%;
     --danger: 355 70% 42%;
     --record: 213 85% 42%;
     --record-fg: 210 40% 98%;
@@ -331,10 +336,10 @@
        un navigateur en face. */
     --ligne-active: 210 22% 80%;
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, dédié. */
-    --bandeau-etape: 210 20% 81%;
+    --bandeau-etape: 210 20% 76%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
        distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 210 21% 76%;
+    --bloc-etapes: 210 21% 71%;
     color-scheme: light;
   }
 
@@ -360,6 +365,7 @@
     --accent-fg: 150 20% 10%;
     --success: 140 45% 55%;
     --warning: 36 80% 58%;
+    --nouveau: 50 80% 56%;
     --danger: 5 65% 60%;
     --record: 210 75% 55%;
     --record-fg: 150 20% 96%;
@@ -382,10 +388,10 @@
        17.08.2026 en même temps que « givre » et « contraste ». */
     --ligne-active: 148 16% 26%;
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, éclairci, dédié. */
-    --bandeau-etape: 148 15% 29%;
+    --bandeau-etape: 148 15% 25%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
        distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 148 13% 32%;
+    --bloc-etapes: 148 13% 28%;
     color-scheme: dark;
   }
 
@@ -412,6 +418,7 @@
     --accent-fg: 45 10% 99%;
     --success: 142 80% 22%;
     --warning: 28 100% 30%;
+    --nouveau: 50 100% 32%;
     --danger: 0 90% 34%;
     --record: 213 95% 34%;
     --record-fg: 45 10% 99%;
@@ -432,10 +439,10 @@
        17.08.2026. */
     --ligne-active: 45 10% 78%;
     /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, dédié. */
-    --bandeau-etape: 45 9% 79%;
+    --bandeau-etape: 45 9% 74%;
     /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
        distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 45 6% 77%;
+    --bloc-etapes: 45 6% 72%;
     color-scheme: light;
   }
 
@@ -452,6 +459,7 @@
     --accent-fg: 35 22% 10%;
     --success: 145 44% 57%;
     --warning: 34 88% 64%;
+    --nouveau: 50 88% 62%;
     --danger: 6 66% 63%;
     --record: 210 72% 59%;
     --record-fg: 40 30% 98%;
@@ -466,8 +474,8 @@
     --actif-fg: 40 30% 97%;
     --controle: 42 35% 96% / 0.065;
     --ligne-active: 34 17% 27%;
-    --bandeau-etape: 34 15% 30%;
-    --bloc-etapes: 33 14% 33%;
+    --bandeau-etape: 34 15% 26%;
+    --bloc-etapes: 33 14% 29%;
     color-scheme: dark;
   }
 
@@ -483,6 +491,7 @@
     --accent-fg: 220 30% 97%;
     --success: 150 50% 29%;
     --warning: 31 82% 37%;
+    --nouveau: 50 82% 38%;
     --danger: 358 66% 43%;
     --record: 214 78% 41%;
     --record-fg: 220 32% 99%;
@@ -497,8 +506,8 @@
     --actif-fg: 220 32% 98%;
     --controle: 222 30% 18% / 0.065;
     --ligne-active: 220 15% 79%;
-    --bandeau-etape: 220 14% 80%;
-    --bloc-etapes: 220 16% 75%;
+    --bandeau-etape: 220 14% 75%;
+    --bloc-etapes: 220 16% 70%;
     color-scheme: light;
   }
 
@@ -514,6 +523,7 @@
     --accent-fg: 212 30% 9%;
     --success: 153 46% 59%;
     --warning: 32 84% 66%;
+    --nouveau: 50 84% 64%;
     --danger: 354 67% 65%;
     --record: 206 82% 58%;
     --record-fg: 202 38% 99%;
@@ -528,8 +538,8 @@
     --actif-fg: 202 38% 98%;
     --controle: 198 45% 97% / 0.062;
     --ligne-active: 209 22% 26%;
-    --bandeau-etape: 209 20% 29%;
-    --bloc-etapes: 208 18% 32%;
+    --bandeau-etape: 209 20% 25%;
+    --bloc-etapes: 208 18% 28%;
     color-scheme: dark;
   }
 
@@ -545,6 +555,7 @@
     --accent-fg: 145 30% 98%;
     --success: 142 58% 27%;
     --warning: 29 84% 36%;
+    --nouveau: 50 84% 38%;
     --danger: 4 68% 41%;
     --record: 208 76% 40%;
     --record-fg: 145 34% 99%;
@@ -559,8 +570,8 @@
     --actif-fg: 145 34% 98%;
     --controle: 150 28% 16% / 0.064;
     --ligne-active: 145 16% 78%;
-    --bandeau-etape: 145 15% 79%;
-    --bloc-etapes: 145 17% 74%;
+    --bandeau-etape: 145 15% 74%;
+    --bloc-etapes: 145 17% 69%;
     color-scheme: light;
   }
 
@@ -576,6 +587,7 @@
     --accent-fg: 45 12% 5%;
     --success: 142 76% 64%;
     --warning: 30 100% 68%;
+    --nouveau: 50 100% 66%;
     --danger: 0 86% 70%;
     --record: 212 92% 65%;
     --record-fg: 45 20% 99%;
@@ -590,8 +602,8 @@
     --actif-fg: 45 20% 99%;
     --controle: 45 18% 98% / 0.075;
     --ligne-active: 45 7% 26%;
-    --bandeau-etape: 45 6% 30%;
-    --bloc-etapes: 45 5% 34%;
+    --bandeau-etape: 45 6% 26%;
+    --bloc-etapes: 45 5% 30%;
     color-scheme: dark;
   }
 

@@ -182,6 +182,48 @@ export function texteDuPromptEnvoye(contexte: SentContextSnapshot): string {
   ].join('\n\n---\n\n');
 }
 
+/** Une ligne du prompt complet, avec ce qu'elle vaut : déjà là, ou neuf. */
+export interface LigneDePrompt {
+  texte: string;
+  /** Vrai pour une ligne reprise du cache — DÉJÀ présente, pas facturée. */
+  cached: boolean;
+}
+
+/**
+ * LE PROMPT COMPLET, LIGNE PAR LIGNE, AVEC CE QUI EST DÉJÀ LÀ ET CE QUI EST NEUF.
+ *
+ * Même contenu que `texteDuPromptEnvoye`, rejoué ligne à ligne pour que
+ * l'affichage puisse colorer chaque ligne selon son morceau d'origine : gris
+ * pour un morceau relu au cache (`cached`), jaune pour un morceau écrit pour
+ * ce tour. L'en-tête et les séparateurs (`---`) ne portent ni l'un ni
+ * l'autre — ce ne sont pas des morceaux du prompt, ils balisent l'affichage.
+ *
+ * La reconstruction suit exactement le `join('\n\n---\n\n')` ci-dessus : entre
+ * deux morceaux, cette séparation produit toujours trois lignes (vide, `---`,
+ * vide), jamais mêlées aux lignes du texte qui les entoure.
+ */
+export function lignesDuPromptEnvoye(contexte: SentContextSnapshot): LigneDePrompt[] {
+  const entete = `${nomDuMoteurEnvoye(contexte.engine)}${contexte.model ? ` — ${contexte.model}` : ''}`;
+  const morceaux = morceauxDuPromptEnvoye(contexte).filter((morceau) => morceau.texte);
+
+  const segments: { texte: string; cached: boolean }[] = [
+    { texte: entete, cached: false },
+    ...morceaux.map((morceau) => ({
+      texte: `${morceau.label}${morceau.cached ? ' (relu au cache)' : ''}\n\n${morceau.texte}`,
+      cached: Boolean(morceau.cached),
+    })),
+  ];
+
+  const lignes: LigneDePrompt[] = [];
+  segments.forEach((segment, index) => {
+    if (index > 0) {
+      lignes.push({ texte: '', cached: false }, { texte: '---', cached: false }, { texte: '', cached: false });
+    }
+    segment.texte.split('\n').forEach((ligne) => lignes.push({ texte: ligne, cached: segment.cached }));
+  });
+  return lignes;
+}
+
 /**
  * CE QUE LA RECHERCHE A RAMENÉ DE LA MÉMOIRE, en un seul texte.
  *
@@ -222,6 +264,12 @@ export interface BulleDePrompt {
   isole?: boolean;
   /** Combien de lignes cette bulle montre avant qu'on la déroule. */
   lignesVisibles?: number;
+  /**
+   * Le texte, ligne par ligne, avec ce qui est déjà là et ce qui est neuf —
+   * posé seulement sur la bulle « Prompt complet » (`lignesDuPromptEnvoye`).
+   * Les autres bulles n'en ont pas besoin : rien n'y est jamais relu au cache.
+   */
+  lignes?: LigneDePrompt[];
 }
 
 /**
@@ -275,6 +323,7 @@ export function bullesDuPromptEnvoye(
       titre: 'Prompt complet envoyé à l’agent',
       texte: complet,
       noms: donneesParallelesDuPrompt(contexte),
+      lignes: lignesDuPromptEnvoye(contexte),
     });
   }
 

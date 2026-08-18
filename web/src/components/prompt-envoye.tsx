@@ -87,6 +87,12 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
     [bulle.texte, lignes],
   );
 
+  // LE PROMPT COMPLET SEUL porte `bulle.lignes` : gris pour un morceau relu au
+  // cache (déjà présent), jaune pour un morceau écrit pour ce tour (facturé).
+  // Ses lignes reconstruisent EXACTEMENT `bulle.texte` (même découpe par
+  // `\n`) : la coupe à « voir plus » (`tronque`, ci-dessus) reste donc valable.
+  const lignesAAfficher = bulle.lignes;
+
   React.useLayoutEffect(() => {
     const element = zone.current;
     // Déroulée, la bulle ne déborde plus par construction : on garde la mesure
@@ -184,7 +190,16 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
           bulle.isole && !deroule && aVoirPlus && 'cursor-pointer',
         )}
       >
-        {deroule ? bulle.texte : apercu}
+        {lignesAAfficher
+          ? (deroule ? lignesAAfficher : lignesAAfficher.slice(0, lignes)).map((ligne, index, tableau) => (
+              <span key={index} className={ligne.cached ? 'text-faint' : 'text-nouveau'}>
+                {ligne.texte}
+                {index < tableau.length - 1 ? '\n' : ''}
+              </span>
+            ))
+          : deroule
+            ? bulle.texte
+            : apercu}
       </pre>
 
       {aVoirPlus ? (
