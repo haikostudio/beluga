@@ -18,6 +18,8 @@ import {
   PlanDeMiseEnLigne,
   TravailSansCarte,
   alerteTravailSansCarte,
+  annonceDeHeurts,
+  selectionSansHeurts,
   libelleCartePorteuse,
   etapeDePublication,
   etapeDeLaColonne,
@@ -504,6 +506,7 @@ export function DeployPanel({
         projectId={projectId}
         cards={embarked}
         enAttente={enAttente}
+        conflicts={conflicts}
         selection={selection}
         onChangeSelection={setSelection}
         avertissements={avertissements}
@@ -527,12 +530,23 @@ export function DeployPanel({
  * dire ce qui coincerait avec CETTE sélection (fichiers communs avec une
  * carte laissée de côté) — un signal, pas un refus : on peut publier quand
  * même.
+ *
+ * ET IL DIT CE QUI VA SE HEURTER AVANT LE CLIC. La prévision existait déjà
+ * (`deploy.check` rend `conflicts`, lus par `git merge-tree` en mémoire) mais
+ * ne servait qu'à une ligne informative derrière le bouton « ! ». L'audit du
+ * 18/08/2026 a chiffré ce que coûte un gros lot — 0,11 conflit en moyenne
+ * pour une branche, 2,00 pour dix, et 370 s par fusion en conflit contre
+ * 2,1 s sans : entrer dans ce cas sans le savoir est le vrai défaut. L'écran
+ * l'annonce donc, et propose de PUBLIER EN DEUX FOIS — les tâches propres
+ * maintenant, les conflictuelles au coup suivant, seules et sans le cumul du
+ * lot.
  */
 function SelectionDeploiementDialog({
   open,
   projectId,
   cards,
   enAttente,
+  conflicts,
   selection,
   onChangeSelection,
   avertissements,
@@ -545,6 +559,8 @@ function SelectionDeploiementDialog({
   projectId: string;
   cards: Card[];
   enAttente: { nombre: number; titres: string[] };
+  /** Ce qui se heurte déjà à la branche d'accueil, prévu avant le clic. */
+  conflicts: Conflict[];
   selection: Set<string>;
   onChangeSelection: (selection: Set<string>) => void;
   avertissements: { cardId: string; message: string }[];
@@ -575,6 +591,22 @@ function SelectionDeploiementDialog({
     onChangeSelection(suite);
   };
 
+  /*
+   * L'ANNONCE DES HEURTS ne porte que sur les cartes AFFICHÉES : une prévision
+   * gardée d'un lot précédent annoncerait des tâches qui ne sont plus là. La
+   * phrase et le second lot sont des règles PURES (`shared/src/fusion-du-lot.ts`).
+   */
+  const idsAffiches = new Set(cards.map((card) => card.id));
+  const heurtent = conflicts.map((c) => c.cardId).filter((id) => idsAffiches.has(id));
+  const annonce = annonceDeHeurts(heurtent.length, cards.length);
+  const propres = selectionSansHeurts(cards, heurtent);
+  /* « Publier en deux fois » n'a de sens que s'il reste quelque chose au
+     premier lot, et si la sélection n'est pas DÉJÀ ce premier lot. */
+  const deuxFoisPossible =
+    !!annonce &&
+    propres.size > 0 &&
+    !(selection.size === propres.size && [...propres].every((id) => selection.has(id)));
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent data-selection-deploiement>
@@ -582,9 +614,34 @@ function SelectionDeploiementDialog({
         <DialogDescription>
           {t('Décochez les tâches à laisser de côté : elles resteront dans « À déployer » pour la prochaine fois.')}</DialogDescription>
 
+        {annonce ? (
+          <div
+            className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[12px] text-warning"
+            data-annonce-heurts
+          >
+            <p className="flex items-start gap-1.5">
+              <AlertTriangle className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+              <span>{annonce}</span>
+            </p>
+            {deuxFoisPossible ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => onChangeSelection(propres)}
+                data-publier-en-deux-fois
+              >
+                {t('Publier en deux fois ({v0} sans heurt maintenant)', { v0: propres.size })}</Button>
+            ) : null}
+          </div>
+        ) : null}
+
         <ul className="mt-3 space-y-1.5">
           {cards.map((card) => {
             const alertes = avertissements.filter((a) => a.cardId === card.id);
+            /* La tâche qui se heurte est NOMMÉE dans la liste : l'annonce
+               d'en-tête dit combien, la ligne dit lesquelles. */
+            const heurte = heurtent.includes(card.id);
             return (
               <li key={card.id} data-carte-selection={card.id}>
                 <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
@@ -596,6 +653,10 @@ function SelectionDeploiementDialog({
                     data-case-selection={card.id}
                   />
                   <span className="flex-1 truncate text-text">{card.title}</span>
+                  {heurte ? (
+                    <span className="shrink-0 text-[11px] text-warning" data-carte-heurte={card.id}>
+                      {t('se heurte')}</span>
+                  ) : null}
                 </label>
                 {alertes.length ? (
                   <ul className="mt-1 space-y-1 pl-2">

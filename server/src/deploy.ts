@@ -62,6 +62,11 @@ import {
   recitSansReparation,
   recitDepanneurEnEchec,
   journalDesReprises,
+  passesDeResolution,
+  ordreDeFusion,
+  mentionDeLOrdre,
+  detailDeLEtape,
+  lignesNouvelles,
   ajouterAuJournal,
   type EvenementDEtape,
   type GenreDEvenement,
@@ -88,6 +93,7 @@ import { log } from './logger.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
 import { createAgent, sendPrompt, agentsActifs, arreterLAgent } from './runtime.js';
+import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from './demon.js';
 import { executerCibleMiseEnProduction } from './cible-mise-en-production.js';
 import { moteurPourPublier } from './moteur-de-publication.js';
@@ -515,7 +521,8 @@ function raisonEchecAgent(err: unknown): string {
 async function agentDePublication(
   projectId: string,
   title: string,
-  run?: RunConfig,
+  // Partiel : une passe de fusion ne porte qu'un moteur, un modèle et un cran.
+  run?: Partial<RunConfig>,
 ): Promise<{ agent: Agent; raison: string } | { manque: string }> {
   const prefere = run?.engine ?? store.getProject(projectId)?.defaultEngine;
   const resultat = await moteurPourPublier(prefere);
@@ -573,6 +580,14 @@ function tourRefusePourQuota(agentId: string): string | null {
  * SA session, au lieu de celle du travail réel, par `startCard` ou par
  * l'onglet Conversation de la carte.
  *
+ * ET IL NE PART PLUS SUR LE MODÈLE DE LA CARTE. Recoller deux versions d'un
+ * même fichier est de la plomberie : la PREMIÈRE passe se fait sur le modèle
+ * léger du même moteur, réflexion moyenne (`passesDeResolution`,
+ * `shared/src/fusion-du-lot.ts`), et le modèle de la carte ne reprend la main
+ * qu'en SECONDE passe, si la légère n'a pas suffi. Mesure qui l'impose : 59
+ * des 99 résolutions de la période ont été faites par Opus 5, pour 102
+ * millions de jetons (`docs/audit-fusion-deploiement.md`).
+ *
  * Rend vrai si la branche a fini par se fusionner.
  */
 async function resoudreConflit(
@@ -584,9 +599,7 @@ async function resoudreConflit(
   files: string[],
 ): Promise<{ fusionnee: boolean; recit: string }> {
   const liste = files.length ? files.map((file) => `- ${file}`).join('\n') : '- (fichiers non identifiés)';
-  const pose = await agentDePublication(projectId, `Conflit de fusion — ${card.title}`, card.run);
-  if ('manque' in pose) return { fusionnee: false, recit: recitFauteDeQuota(pose.manque) };
-  const { agent } = pose;
+  const passes = passesDeResolution(card.run, await catalogueMoteurs());
 
   const prompt = [
     `La publication est EN COURS et bloque : la branche \`${branch}\` ne se fusionne plus sur \`${mainBranch}\`.`,
@@ -606,27 +619,59 @@ async function resoudreConflit(
 
   bus.toast('info', `Conflit sur « ${card.title} » : l’agent de publication le résout.`);
 
-  try {
-    await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'conflit' });
-  } catch (err) {
-    return { fusionnee: false, recit: `agent de résolution en échec (${raisonEchecAgent(err)})` };
-  }
-
-  const sansQuota = tourRefusePourQuota(agent.id);
-  if (sansQuota) return { fusionnee: false, recit: recitFauteDeQuota(sansQuota) };
-
   /*
-   * L'agent a pu laisser le dossier sur SA branche : on revient sur la
-   * principale avant de retenter, sinon la fusion partirait à l'envers.
+   * LES PASSES SE SUIVENT, DE LA PLUS ÉCONOME À LA PLUS FORTE, et la boucle
+   * s'arrête à la première qui fusionne. Chaque passe crée son agent : un
+   * changement de modèle ne se glisse pas dans une session déjà ouverte.
    */
-  const retour = await runCommand(cwd, `git checkout ${mainBranch}`);
-  if (!retour.ok) return { fusionnee: false, recit: 'retour sur la branche principale impossible' };
+  let dernierRecit = 'conflit non résolu';
+  for (const passe of passes) {
+    const legere = passe.nom === 'legere';
+    /*
+     * Le moteur se choisit ICI, sur la place restante : une passe posée sur un
+     * moteur saturé ne partirait pas, et la publication tournerait sur place.
+     * Faute de quota, on s'arrête et on le DIT — la passe suivante se
+     * heurterait au même mur.
+     */
+    const pose = await agentDePublication(
+      projectId,
+      `Conflit de fusion — ${card.title}${legere ? '' : ' (seconde passe)'}`,
+      passe.run,
+    );
+    if ('manque' in pose) return { fusionnee: false, recit: recitFauteDeQuota(pose.manque) };
+    const { agent } = pose;
 
-  const seconde = await runCommand(cwd, `git merge --no-edit ${branch}`);
-  if (seconde.ok) return { fusionnee: true, recit: 'conflit résolu par l’agent, branche fusionnée' };
+    try {
+      await sendPrompt(agent.id, prompt, { template: 'free', silent: true, motif: 'conflit' });
+    } catch (err) {
+      dernierRecit = `agent de résolution en échec (${raisonEchecAgent(err)})`;
+      continue;
+    }
 
-  await runCommand(cwd, 'git merge --abort');
-  return { fusionnee: false, recit: 'conflit toujours présent après passage de l’agent' };
+    const sansQuota = tourRefusePourQuota(agent.id);
+    if (sansQuota) return { fusionnee: false, recit: recitFauteDeQuota(sansQuota) };
+
+    /*
+     * L'agent a pu laisser le dossier sur SA branche : on revient sur la
+     * principale avant de retenter, sinon la fusion partirait à l'envers.
+     */
+    const retour = await runCommand(cwd, `git checkout ${mainBranch}`);
+    if (!retour.ok) return { fusionnee: false, recit: 'retour sur la branche principale impossible' };
+
+    const seconde = await runCommand(cwd, `git merge --no-edit ${branch}`);
+    if (seconde.ok) {
+      return {
+        fusionnee: true,
+        recit: `conflit résolu par l’agent${legere ? ' (modèle léger)' : ' (modèle de la carte)'}, branche fusionnée`,
+      };
+    }
+
+    await runCommand(cwd, 'git merge --abort');
+    dernierRecit = legere
+      ? 'conflit toujours présent après le modèle léger'
+      : 'conflit toujours présent après passage de l’agent';
+  }
+  return { fusionnee: false, recit: dernierRecit };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1049,7 +1094,19 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
       ? {
           ...step,
           state,
-          log: (step.log + (logText ? `\n${logText}` : '')).slice(-4000),
+          /*
+           * LE DÉTAIL S'AJOUTE — c'est voulu, une étape se raconte au fil de
+           * l'eau — MAIS IL NE SE COUPE PLUS PAR LA TÊTE. Il ne gardait que
+           * ses 4 000 derniers signes, donc un lot de dix branches perdait les
+           * premières, celles qu'on venait justement relire
+           * (`detailDeLEtape`, `shared/src/fusion-du-lot.ts`).
+           *
+           * L'appelant, lui, ne passe QUE la suite : lui repasser son journal
+           * entier à chaque conflit le recopiait autant de fois qu'il y avait
+           * eu de conflits (175 lignes « CONFLIT » relevées pour 78 conflits
+           * réels, audit du 18/08/2026).
+           */
+          log: detailDeLEtape(step.log, logText),
           // La progression n'a de sens que le temps de l'étape : dès qu'elle
           // s'achève, c'est la durée qui la remplace à l'écran.
           progress: state === 'running' ? step.progress : undefined,
@@ -2134,7 +2191,22 @@ export async function startDeploy(
       // 1. Fusion des branches des cartes du lot
       current = setStep(current, 'merge', 'running');
       if (isGit && cards.length) {
-        let mergeLog = '';
+        /*
+         * LE DÉTAIL DE L'ÉTAPE S'ÉCRIT UNE FOIS, ET UNE SEULE.
+         *
+         * `setStep` AJOUTE ce qu'on lui donne à `step.log` : cette boucle lui
+         * repassait son journal ENTIER à chaque conflit, d'où des lignes
+         * répétées autant de fois qu'il y avait eu de conflits. Les lignes
+         * sont donc gardées ici, et seule la SUITE part à `setStep`
+         * (`lignesNouvelles`, `shared/src/fusion-du-lot.ts`).
+         */
+        const lignesDeFusion: string[] = [];
+        let dejaEcrites = 0;
+        const aVerser = () => {
+          const suite = lignesNouvelles(lignesDeFusion, dejaEcrites);
+          dejaEcrites = lignesDeFusion.length;
+          return suite;
+        };
 
         /*
          * Le dossier de travail est PARTAGÉ : un agent peut avoir laissé des
@@ -2152,14 +2224,14 @@ export async function startDeploy(
             cwd,
             `git commit -m "Travaux en cours enregistrés avant publication" -m "Branche ${branche}"`,
           );
-          mergeLog += `\n${branche} : travaux en cours enregistrés${enregistre.ok ? '' : ' (échec)'}`;
+          lignesDeFusion.push(`${branche} : travaux en cours enregistrés${enregistre.ok ? '' : ' (échec)'}`);
           // La branche doit exister à distance pour être fusionnée plus tard.
           await runCommand(cwd, `git push -u origin ${branche}`, 60000).catch(() => undefined);
         }
 
         // Toutes les branches du lot vont sur la branche DE CETTE ÉTAPE.
         const mainBranch = brancheDuLot;
-        mergeLog += `\n${cibleBranche.raison}`;
+        lignesDeFusion.push(cibleBranche.raison);
         const checkout = await seposerSurLaBranche(cwd, mainBranch);
         if (!checkout.ok) {
           throw new Error(
@@ -2177,8 +2249,42 @@ export async function startDeploy(
         // « sur N » de la progression, jamais le total des cartes (certaines
         // n'ont pas de branche).
         const aFusionner = cards.filter((card) => card.github?.branch).length;
+
+        /*
+         * LES BRANCHES QUI NE SE HEURTENT À RIEN PASSENT D'ABORD.
+         *
+         * Fusionnées dans l'ordre des cartes, chacune se heurtait au cumul de
+         * toutes les précédentes : 0,11 conflit en moyenne pour un lot d'une
+         * branche, 2,00 pour un lot de dix (audit du 18/08/2026). La
+         * prévision se lit avec `git merge-tree`, qui fusionne EN MÉMOIRE —
+         * ni le dossier de travail ni la branche courante ne bougent. Une
+         * prévision illisible ne réordonne rien : `heurte` reste faux et
+         * l'ordre d'origine tient.
+         */
+        current = progresserEtape(current, 'merge', 'Prévision des heurts sur le lot…');
+        const prevision = await Promise.all(
+          cards.map(async (card) => {
+            const branche = card.github?.branch;
+            if (!branche) return { cardId: card.id, heurte: false, card };
+            const essai = await runCommand(
+              cwd,
+              `git merge-tree --write-tree --name-only ${mainBranch} ${branche}`,
+              60000,
+            );
+            const fichiers = essai.ok ? [] : fichiersEnConflit(essai.out);
+            const heurte = !essai.ok && (fichiers.length > 0 || essai.out.includes('CONFLICT'));
+            return { cardId: card.id, heurte, card };
+          }),
+        );
+        const heurts = prevision.filter((p) => p.heurte).length;
+        const mention = mentionDeLOrdre(heurts, aFusionner);
+        if (mention) {
+          lignesDeFusion.push(mention);
+          current = noterAuJournal(current, 'merge', mention, 'progression');
+        }
+
         let rang = 0;
-        for (const card of cards) {
+        for (const { card } of ordreDeFusion(prevision)) {
           const branch = card.github?.branch;
           if (!branch) continue;
           rang += 1;
@@ -2188,7 +2294,7 @@ export async function startDeploy(
           // doit pas faire échouer tout le lot : on le dit et on continue.
           const exists = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
           if (!exists.ok || !exists.out.trim()) {
-            mergeLog += `\n${branch} : branche absente, carte ignorée`;
+            lignesDeFusion.push(`${branch} : branche absente, carte ignorée`);
             current = noterAuJournal(
               current,
               'merge',
@@ -2204,7 +2310,7 @@ export async function startDeploy(
           const result = await commandeDuFil(current, 'merge', cwd, `git merge --no-edit ${branch}`);
           if (result.ok) {
             fusionnees += 1;
-            mergeLog += `\n${branch} : fusionnée`;
+            lignesDeFusion.push(`${branch} : fusionnée`);
             current = noterAuJournal(current, 'merge', `${branch} : fusionnée (« ${card.title} »).`, 'issue');
             continue;
           }
@@ -2217,8 +2323,11 @@ export async function startDeploy(
 
           // Le conflit se règle ICI, pendant la publication : plus de carte à
           // valider, chiffrer et lancer pour un geste de plomberie.
-          mergeLog += `\n${branch} : CONFLIT${enConflit.length ? ` (${enConflit.join(', ')})` : ''} — résolution en cours…`;
-          current = setStep(current, 'merge', 'running', mergeLog.trim());
+          lignesDeFusion.push(
+            `${branch} : CONFLIT${enConflit.length ? ` (${enConflit.join(', ')})` : ''} — résolution en cours…`,
+          );
+          // Seule la SUITE part au détail : le journal entier s'y recopiait.
+          current = setStep(current, 'merge', 'running', aVerser());
           current = noterAuJournal(
             current,
             'merge',
@@ -2229,12 +2338,12 @@ export async function startDeploy(
           const issue = await resoudreConflit(projectId, cwd, card, branch, mainBranch, enConflit);
           if (issue.fusionnee) {
             fusionnees += 1;
-            mergeLog += `\n${branch} : ${issue.recit}`;
+            lignesDeFusion.push(`${branch} : ${issue.recit}`);
             current = noterAuJournal(current, 'merge', `${branch} : ${issue.recit}`, 'depannage');
             continue;
           }
           ecartees.add(card.id);
-          mergeLog += `\n${branch} : ${issue.recit} — carte écartée de cette publication`;
+          lignesDeFusion.push(`${branch} : ${issue.recit} — carte écartée de cette publication`);
           current = noterAuJournal(
             current,
             'merge',
@@ -2252,7 +2361,12 @@ export async function startDeploy(
             `Toutes les branches du lot sont en conflit (${ecartees.size}). Rien n'a pu être fusionné : résolvez les conflits puis relancez.`,
           );
         }
-        current = setStep(current, 'merge', 'done', mergeLog.trim() || 'aucune branche à fusionner');
+        current = setStep(
+          current,
+          'merge',
+          'done',
+          aVerser() || (lignesDeFusion.length ? '' : 'aucune branche à fusionner'),
+        );
       } else {
         current = setStep(current, 'merge', 'skipped', isGit ? 'aucune carte à embarquer' : 'projet sans dépôt git');
       }

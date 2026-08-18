@@ -92,6 +92,7 @@ export * from './mise-en-ligne.js';
 export * from './regles.js';
 export * from './etapes-publication.js';
 export * from './journal-publication.js';
+export * from './fusion-du-lot.js';
 export * from './groupes-de-production.js';
 export * from './publication-confiee.js';
 export * from './procedure-publication.js';
