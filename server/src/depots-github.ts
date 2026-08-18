@@ -188,7 +188,8 @@ export async function monterDepuisGithub(
   // pour un projet neuf (voir createProjectFolder), on crée avec élévation puis
   // on se donne le dossier CIBLE — jamais son PARENT (souvent /root lui-même),
   // dont un chown -R récursif touchait tous les autres projets et fichiers du
-  // système qui y vivent, et échouait sur ceux que paseo ne peut pas toucher.
+  // système qui y vivent, et échouait sur ceux que le compte du démon ne peut
+  // pas toucher.
   const parent = path.dirname(cible);
   try {
     fs.accessSync(parent, fs.constants.W_OK);
