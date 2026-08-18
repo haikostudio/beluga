@@ -38,7 +38,7 @@ import {
   ecartDepuisLeDebut,
   etapeDePublication,
   filDeLEtape,
-  heureDeLEvenement,
+  heureExacte,
   mentionDesReprises,
   natureDeLEtat,
   natureDePublication,
@@ -51,7 +51,7 @@ import {
 } from '@haikodev/shared';
 import { Button, Drawer, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
-import { cn, duration, elapsed } from '@/lib/utils';
+import { cn, duration, elapsed, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /** L'ordre des sept étapes de la mise en ligne — le même que côté serveur. */
@@ -129,12 +129,14 @@ function bordureRond(etat: EtatEtape): string {
 }
 
 /**
- * La DATE sous le rond : l'heure à laquelle l'étape a commencé, en quatre
- * chiffres — « 12:58 ». Une étape pas encore commencée n'en porte aucune.
+ * LA DATE SOUS LE ROND : depuis quand l'étape a commencé, au format relatif
+ * (« il y a 2 min ») — la même lecture que sous un message du fil. L'heure
+ * exacte reste disponible en infobulle. Une étape pas encore commencée n'en
+ * porte aucune.
  */
-function dateSousLeRond(etape?: EtapeRun): string | null {
+function dateSousLeRond(etape?: EtapeRun): React.ReactNode {
   if (!etape?.startedAt) return null;
-  return heureDeLEvenement(etape.startedAt).slice(0, 5);
+  return <span title={heureExacte(etape.startedAt)}>{relativeTime(etape.startedAt)}</span>;
 }
 
 /**
@@ -317,7 +319,9 @@ function MomentDuFil({
   const ecart = moment.evenement ? ecartDepuisLeDebut(moment.evenement.at, depuis) : null;
   const dateSous = moment.evenement ? (
     <span className="flex flex-col items-center leading-tight">
-      <span data-heure-moment>{heureDeLEvenement(moment.evenement.at)}</span>
+      <span data-heure-moment title={heureExacte(moment.evenement.at)}>
+        {relativeTime(moment.evenement.at)}
+      </span>
       {ecart ? <span>{ecart}</span> : null}
     </span>
   ) : null;
