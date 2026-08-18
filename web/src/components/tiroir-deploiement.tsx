@@ -38,6 +38,7 @@ import {
   ecartDepuisLeDebut,
   etapeDePublication,
   filDeLEtape,
+  heureDeLEvenement,
   heureExacte,
   mentionDesReprises,
   natureDeLEtat,
@@ -129,14 +130,33 @@ function bordureRond(etat: EtatEtape): string {
 }
 
 /**
- * LA DATE SOUS LE ROND : depuis quand l'étape a commencé, au format relatif
- * (« il y a 2 min ») — la même lecture que sous un message du fil. L'heure
- * exacte reste disponible en infobulle. Une étape pas encore commencée n'en
- * porte aucune.
+ * LA DATE SOUS LE MESSAGE : l'heure du moment, posée SOUS le texte qu'elle
+ * date — jamais dans la colonne des ronds, qui est réservée aux TRAITS de la
+ * timeline (une date glissée là les coupait). Un moment du fil la donne à la
+ * SECONDE, une étape à la minute ; l'ancienneté (« il y a 2 min ») reste en
+ * infobulle, et l'écart depuis le début de l'étape suit l'heure.
  */
-function dateSousLeRond(etape?: EtapeRun): React.ReactNode {
-  if (!etape?.startedAt) return null;
-  return <span title={heureExacte(etape.startedAt)}>{relativeTime(etape.startedAt)}</span>;
+function DateSousLeMessage({
+  at,
+  ecart,
+  precision = 'seconde',
+  repere = 'moment',
+}: {
+  at?: number;
+  ecart?: string | null;
+  precision?: 'seconde' | 'minute';
+  repere?: string;
+}) {
+  if (!at) return null;
+  const heure = heureDeLEvenement(at);
+  return (
+    <p className="px-1.5 pt-0.5 text-[10.5px] tabular-nums text-faint">
+      <span data-heure-moment={repere} title={`${relativeTime(at)} · ${heureExacte(at)}`}>
+        {precision === 'minute' ? heure.slice(0, 5) : heure}
+      </span>
+      {ecart ? <span> · {ecart}</span> : null}
+    </p>
+  );
 }
 
 /**
@@ -256,7 +276,6 @@ function LigneTimeline({
   taille,
   bordure,
   icone,
-  dateSous,
   dernier,
   attrs,
   children,
@@ -264,7 +283,6 @@ function LigneTimeline({
   taille: 'grande' | 'petite';
   bordure: string;
   icone: React.ReactNode;
-  dateSous?: React.ReactNode;
   /** La dernière ligne affichée ne tire plus de trait vers le bas. */
   dernier: boolean;
   attrs?: Record<string, string | undefined>;
@@ -277,7 +295,12 @@ function LigneTimeline({
         {!dernier ? (
           <span
             className={cn(
-              'absolute left-1/2 bottom-[-1rem] w-px -translate-x-1/2 bg-border',
+              /* Le trait suit `--faint`, PAS `--border` : sur les thèmes plats
+                 la bordure vaut un point du fond, donc un fil de 1 px y était
+                 purement invisible — or ce trait porte une information (à
+                 quelle étape ce moment appartient). Même corollaire que
+                 l'ascenseur. */
+              'absolute left-1/2 bottom-[-1rem] w-px -translate-x-1/2 bg-faint/30',
               grande ? 'top-7' : 'top-5',
             )}
             aria-hidden="true"
@@ -292,7 +315,6 @@ function LigneTimeline({
         >
           {icone}
         </span>
-        {dateSous ? <span className="mt-1 text-[10px] tabular-nums text-faint">{dateSous}</span> : null}
       </div>
       <div className={cn('min-w-0 flex-1 overflow-hidden rounded-md', !dernier && (grande ? 'pb-4' : 'pb-2'))}>
         {children}
@@ -303,9 +325,10 @@ function LigneTimeline({
 
 /**
  * UN MOMENT DU FIL, une fois l'étape ouverte : son propre rond, petit, sur la
- * même ligne que les étapes. L'HEURE et l'ÉCART depuis le début restent
- * alignés dans une colonne fixe à droite, quelle que soit la longueur du
- * texte ; la COMMANDE se lit à part, dans un encart.
+ * ligne verticale de ses semblables. L'HEURE et l'ÉCART depuis le début se
+ * lisent SOUS le message, comme la date d'un message du fil — jamais dans la
+ * colonne des ronds, qu'ils couperaient ; la COMMANDE se lit à part, dans un
+ * encart.
  */
 function MomentDuFil({
   moment,
@@ -317,20 +340,11 @@ function MomentDuFil({
   dernier: boolean;
 }) {
   const ecart = moment.evenement ? ecartDepuisLeDebut(moment.evenement.at, depuis) : null;
-  const dateSous = moment.evenement ? (
-    <span className="flex flex-col items-center leading-tight">
-      <span data-heure-moment title={heureExacte(moment.evenement.at)}>
-        {relativeTime(moment.evenement.at)}
-      </span>
-      {ecart ? <span>{ecart}</span> : null}
-    </span>
-  ) : null;
   return (
     <LigneTimeline
       taille="petite"
       bordure={bordureRondMoment(moment.genre)}
       icone={<IconeMoment genre={moment.genre} />}
-      dateSous={dateSous}
       dernier={dernier}
       attrs={{ 'data-moment-fil': moment.genre }}
     >
@@ -348,6 +362,7 @@ function MomentDuFil({
           {moment.texte}
         </span>
       </div>
+      <DateSousLeMessage at={moment.evenement?.at} ecart={ecart} />
     </LigneTimeline>
   );
 }
@@ -378,7 +393,6 @@ function EtapeDuTiroir({
   const duree = dureeEtape(etape);
   const fil = etape ? filDeLEtape(etape) : [];
   const resume = resumeDuFil(etape?.journal);
-  const date = dateSousLeRond(etape);
   /* Une fois ouverte, l'étape traîne ses moments — et, si elle est tombée,
      son motif — comme autant de LIGNES qui continuent la même timeline. La
      dernière de ces lignes hérite du trait de l'étape elle-même. */
@@ -391,7 +405,6 @@ function EtapeDuTiroir({
         taille="grande"
         bordure={bordureRond(etat)}
         icone={<IconeEtape etat={etat} />}
-        dateSous={date}
         dernier={totalSuite === 0 ? dernier : false}
         attrs={{ 'data-etape-process': cle, 'data-etat-process': etat }}
       >
@@ -428,6 +441,10 @@ function EtapeDuTiroir({
             ) : null}
           </span>
         </button>
+
+        {/* DEPUIS QUAND : l'ancienneté de l'étape se lit sous sa ligne de
+            titre, du même œil que la date d'un message. */}
+        <DateSousLeMessage at={etape?.startedAt} precision="minute" repere="etape" />
 
         {/* PENDANT qu'une étape tourne, ce qu'elle fait à l'instant reste posé
             sous sa ligne, ouverte ou non : c'est le seul texte qu'on veut voir
@@ -466,9 +483,16 @@ function EtapeDuTiroir({
           commune de toute la timeline. */}
       {/* Les moments d'une étape sont ses SOUS-ACTIONS : un retrait net à
           gauche les distingue d'un coup d'œil des étapes principales, sur
-          leur propre ligne verticale. */}
+          leur propre ligne verticale — le SECOND niveau, tiré par le rond de
+          chaque moment. Le trait du PREMIER niveau, lui, continue derrière
+          elles dans l'axe des ronds d'étape : il dit à quelle étape ce bloc
+          appartient, et rejoint l'étape suivante quand il y en a une. */}
       {ouverte && (fil.length || avecLog) ? (
-        <li className="pl-8">
+        <li className="relative pl-8" data-sous-actions={cle}>
+          <span
+            className={cn('absolute left-[13.5px] top-0 w-px bg-faint/30', dernier ? 'bottom-0' : 'bottom-[-1rem]')}
+            aria-hidden="true"
+          />
           <ul data-fil-etape={cle}>
             {fil.map((moment, i) => (
               <MomentDuFil
