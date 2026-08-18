@@ -6,7 +6,7 @@
  *
  * Ce qu'il exige, un contrôle par promesse de la carte :
  *
- *  1. le bouton « Coffre-fort » est DANS le bandeau du haut, et il ouvre le tiroir ;
+ *  1. le bouton « Coffre-fort » est DANS la colonne de gauche, sous le tableau de bord, et il ouvre le tiroir ;
  *  2. un accès de CHAQUE type proposé se crée et se retrouve dans la liste ;
  *  3. la recherche trouve un accès par son NOM, par son PROJET et par son TYPE ;
  *  4. ouvrir un accès pose un SECOND tiroir PAR-DESSUS le premier, qui reste ouvert ;
@@ -192,10 +192,10 @@ async function main() {
     await page.waitForSelector('[data-column="notes"]', { timeout: 30000 });
     await page.waitForTimeout(600);
 
-    /* 1. Le bouton vit dans le BANDEAU DU HAUT, et il ouvre le tiroir. */
-    const bouton = page.locator('header [data-ouvrir-coffre]');
-    const dansLeBandeau = (await bouton.count()) === 1;
-    noter('Le bouton « Coffre-fort » est dans le bandeau du haut', dansLeBandeau);
+    /* 1. Le bouton vit dans la COLONNE DE GAUCHE, sous le tableau de bord, et il ouvre le tiroir. */
+    const bouton = page.locator('aside[data-zone="gauche"] [data-ouvrir-coffre]');
+    const dansLaColonne = (await bouton.count()) === 1;
+    noter('Le bouton « Coffre-fort » est dans la colonne de gauche', dansLaColonne);
     await bouton.click();
     const tiroirListe = page.locator('[role="dialog"][data-state="open"]', { has: page.locator('[data-coffre-recherche]') });
     await tiroirListe.waitFor({ state: 'visible', timeout: 15000 });
