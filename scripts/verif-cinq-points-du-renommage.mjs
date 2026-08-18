@@ -7,6 +7,10 @@
  * `git grep` — ce sont des fichiers hors du dépôt, des liens symboliques et des
  * réglages système —, d'où un script dédié.
  *
+ * S'y ajoute un SIXIÈME point, de la même famille : le dossier SSH de
+ * l'administrateur (`/root/.ssh`), qu'un `chown -R` trop large peut avoir donné
+ * au compte du démon — `ssh` refuse alors de lire sa configuration.
+ *
  * Il ne LIT que, n'écrit rien, ne dépense aucun jeton et ne pousse rien.
  *
  *   node scripts/verif-cinq-points-du-renommage.mjs
@@ -105,6 +109,49 @@ dit(`\n=== Les cinq points du renommage « ${ANCIEN} » → « ${NOUVEAU} »`);
   juge('aucune unit systemd ne nomme l’ancien compte', lignes.length === 0, lignes.join(' | ') || 'units propres');
 }
 
+// 6. Le dossier SSH de l'administrateur : `ssh` REFUSE de lire une
+// configuration qui n'appartient ni à celui qui l'ouvre, ni à root. Un
+// `chown -R <compte>:<compte> /root` — la façon dont le dossier des projets
+// était donné au démon avant d'être borné au dossier CIBLE — emportait
+// `/root/.ssh` avec lui : toute commande git passée en administrateur tombait
+// alors sur « Bad owner or permissions on /root/.ssh/config », sans qu'aucun
+// chemin ne nomme l'ancien compte. La bascule de compte ne le répare pas : elle
+// se contente de renommer le propriétaire fautif.
+{
+  const dossier = process.env.SSH_ADMINISTRATEUR ?? '/root/.ssh';
+  let etat;
+  try {
+    etat = fs.statSync(dossier);
+  } catch {
+    etat = null;
+  }
+  const aRoot = etat ? etat.uid === 0 && etat.gid === 0 : true;
+  // Les fichiers ne se lisent que si le contrôle tourne lui-même en
+  // administrateur ; sinon le dossier suffit à trancher.
+  const fautifs = [];
+  if (etat && aRoot) {
+    try {
+      for (const e of fs.readdirSync(dossier)) {
+        const st = fs.statSync(path.join(dossier, e));
+        if (st.uid !== 0 || st.gid !== 0) fautifs.push(e);
+      }
+    } catch {
+      /* dossier fermé au compte du démon : c'est justement ce qu'on veut */
+    }
+  }
+  juge(
+    'le dossier SSH de l’administrateur lui appartient encore',
+    aRoot && fautifs.length === 0,
+    !etat
+      ? 'aucun dossier /root/.ssh'
+      : !aRoot
+        ? `${dossier} appartient à un autre compte (uid ${etat.uid}) : « Bad owner or permissions » sur tout git en administrateur`
+        : fautifs.length
+          ? `fichiers à rendre à root : ${fautifs.join(', ')}`
+          : dossier,
+  );
+}
+
 // Le point de départ de tout : un envoi vers le dépôt part-il ? Essai à BLANC —
 // pousser pour de bon serait publier, et publier est un geste de l'utilisateur.
 {
@@ -123,5 +170,5 @@ dit(`\n=== Les cinq points du renommage « ${ANCIEN} » → « ${NOUVEAU} »`);
   juge('l’envoi vers le dépôt part (essai à blanc)', sortie === null, sortie ?? 'authentification SSH acceptée');
 }
 
-dit(echecs.length ? `\n${echecs.length} point(s) à reprendre.` : '\nLes cinq points sont propres.');
+dit(echecs.length ? `\n${echecs.length} point(s) à reprendre.` : '\nTous les points sont propres.');
 process.exit(echecs.length ? 1 : 0);
