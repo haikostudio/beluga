@@ -57,13 +57,3 @@ node scripts/nettoyer-essais.mjs            # À LANCER APRÈS : retire les cart
 > le tableau reste celui de votre travail.
 
 Les scripts de vérification `verify-agents*.mjs` demandent `HAIKODEV_USER` et `HAIKODEV_PASSWORD`.
-
-<!-- essai de suivi GitHub -->
-
-<!-- essai de suivi GitHub -->
-
-<!-- essai de suivi GitHub -->
-
-<!-- essai de suivi GitHub -->
-
-<!-- essai de suivi GitHub -->
