@@ -135,11 +135,11 @@ export function BandeauDeGroupe({
 /**
  * LE DÉCOR DE PILE : posé DERRIÈRE la vraie première carte d'un groupe
  * REPLIÉ, jamais à sa place — un groupe replié montre sa première carte, pas
- * une barre vide. Ce décor ne fait que suggérer les cartes qui suivent :
- * jusqu'à deux épaisseurs, jamais plus, pour qu'un groupe de vingt cartes ne
- * dessine pas une tour. Purement visuel (`aria-hidden`, aucun clic) : le
- * geste d'ouverture vit sur le titre du bandeau, la carte du dessus garde le
- * sien (l'ouvrir elle-même).
+ * une barre vide. Ce décor montre les VRAIES cartes qui suivent (leur titre,
+ * en réduit) : jusqu'à deux épaisseurs, jamais plus, pour qu'un groupe de
+ * vingt cartes ne dessine pas une tour. Purement visuel (`aria-hidden`,
+ * aucun clic) : le geste d'ouverture vit sur le titre du bandeau, la carte du
+ * dessus garde le sien (l'ouvrir elle-même).
  *
  * Avec la carte de devant (posée à 80% par `envelopper`), les trois
  * épaisseurs de la pile suivent le même dégradé progressif : 80 % → 50 % →
@@ -163,20 +163,24 @@ const PROFONDEURS_PILE = [
 /** Ce que la pile dépasse sous la carte de devant, en pixels. */
 export const DEBORD_PILE = 16;
 
-export function PileDeGroupe({ nombre }: { nombre: number }) {
-  const couches = Math.min(Math.max(nombre - 1, 1), 2);
+/** `cartes` : celles qui suivent la première du groupe, dans l'ordre — la
+ *  plus proche du dessus en tête. */
+export function PileDeGroupe({ cartes }: { cartes: Card[] }) {
+  const couches = Math.min(cartes.length, PROFONDEURS_PILE.length);
   return (
-    <div className="pointer-events-none absolute inset-0" data-pile-groupe={nombre} aria-hidden>
+    <div className="pointer-events-none absolute inset-0" data-pile-groupe={cartes.length} aria-hidden>
       {PROFONDEURS_PILE.slice(0, couches).map(({ decalage, echelle, opacite }, i) => (
         <span
-          key={i}
-          className="absolute inset-0 rounded-lg border border-border bg-raised transition-all duration-200 ease-out"
+          key={cartes[i].id}
+          className="absolute inset-0 flex items-center overflow-hidden rounded-lg border border-border bg-raised px-2.5 transition-all duration-200 ease-out"
           style={{
             transform: `translateY(${decalage}px) scale(${echelle})`,
             transformOrigin: 'top center',
             opacity: opacite,
           }}
-        />
+        >
+          <span className="truncate text-[11px] font-medium text-text">{cartes[i].title}</span>
+        </span>
       ))}
     </div>
   );
@@ -189,7 +193,9 @@ export function PileDeGroupe({ nombre }: { nombre: number }) {
  * La technique : une ligne de grille dont la hauteur (`grid-template-rows`)
  * passe de `0fr` à `1fr`, ce que les navigateurs savent transitionner en
  * douceur même quand le contenu a une hauteur inconnue à l'avance (titre,
- * étiquettes… qui varient d'une carte à l'autre).
+ * étiquettes… qui varient d'une carte à l'autre). Au-dessus, un `translateY`
+ * sur le contenu fait GLISSER la carte vers le bas pendant qu'elle se révèle,
+ * plutôt qu'un simple agrandissement de boîte.
  *
  * Le contenu reste MONTÉ pendant la fermeture (l'animation a besoin de le
  * voir), et ne se démonte qu'une fois la transition FINIE — sinon un script
@@ -207,14 +213,23 @@ function MembreDeGroupe({ plie, children }: { plie: boolean; children: React.Rea
         display: 'grid',
         gridTemplateRows: !plie && monte ? '1fr' : '0fr',
         marginTop: !plie ? '0.375rem' : '0px',
-        transition: 'grid-template-rows 220ms ease, margin-top 220ms ease, opacity 220ms ease',
-        opacity: !plie ? 1 : 0,
+        transition: 'grid-template-rows 220ms ease, margin-top 220ms ease',
       }}
       onTransitionEnd={(event) => {
         if (event.propertyName === 'grid-template-rows' && plie) setMonte(false);
       }}
     >
-      <div className="overflow-hidden">{monte ? children : null}</div>
+      <div className="overflow-hidden">
+        <div
+          style={{
+            transform: !plie ? 'translateY(0)' : 'translateY(-8px)',
+            opacity: !plie ? 1 : 0,
+            transition: 'transform 220ms ease, opacity 220ms ease',
+          }}
+        >
+          {monte ? children : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -314,7 +329,7 @@ export function useGroupesDeProduction(projectId: string, cartes: Card[], actif:
             }}
           >
             <div className="relative">
-              {enPile ? <PileDeGroupe nombre={premiere.cartes.length} /> : null}
+              {enPile ? <PileDeGroupe cartes={premiere.cartes.slice(1)} /> : null}
               <div
                 className="relative z-10 transition-opacity duration-200 ease-out"
                 style={{ opacity: enPile ? 0.8 : 1 }}
