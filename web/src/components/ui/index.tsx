@@ -736,7 +736,7 @@ export function SidePanel({
             aria-hidden
             className="absolute inset-y-0 right-0 flex w-3 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
           >
-            <span className="h-10 w-1 rounded-full bg-border" />
+            <span className="h-10 w-1 rounded-full bg-muted transition-colors hover:bg-text" />
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
@@ -896,7 +896,7 @@ export function DropdownMenuContent({
           onPointerCancel={poignee.onPointerUp}
           className="mb-1.5 flex shrink-0 cursor-grab touch-none justify-center py-1.5 active:cursor-grabbing sm:hidden"
         >
-          <span className="h-1 w-10 rounded-full bg-border" />
+          <span className="h-1 w-10 rounded-full bg-muted transition-colors hover:bg-text" />
         </div>
         {/* Le contenu défile seul : la poignée reste sous le doigt même quand la
             liste est longue. */}
