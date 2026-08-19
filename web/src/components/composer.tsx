@@ -418,10 +418,20 @@ export function Composer({
               c'est ce qui dégage la marge intérieure et l'écart avec le texte
               voisin, sans jamais élargir le dessin au-delà des caractères
               recouverts. La hauteur, elle, reste sous celle des caractères
-              recouverts (1,35 × 0,82 ≈ 1,1 em du champ). */}
+              recouverts (1,35 × 0,82 ≈ 1,1 em du champ).
+
+              LE DÉCALAGE VERTICAL DE 0,24 em (`translate-y-[calc(-50%+0.24em)]`,
+              au lieu d'un simple -50 %) N'EST PAS COSMÉTIQUE : le texte masqué
+              qui sert de repère de centrage occupe seulement sa propre boîte de
+              caractères (~1,1 em), collée au HAUT de la ligne, alors que la
+              ligne elle-même est plus haute (interligne 1,5 hérité de la page).
+              Centrer la pastille sur -50 % pur la collait donc au ras du haut de
+              la ligne, avec tout l'espace en trop RENVOYÉ EN DESSOUS. Ce
+              correctif la recentre sur la ligne réelle plutôt que sur le texte
+              masqué. */}
           <span
             data-prompt-file-pastille
-            className="absolute left-1/2 top-1/2 inline-flex h-[1.35em] max-w-full -translate-x-1/2 -translate-y-1/2 items-center gap-[0.35em] overflow-hidden whitespace-nowrap rounded-[0.5em] bg-accent/20 px-[0.55em] text-[0.82em] font-medium leading-none ring-1 ring-inset ring-accent/40 group-hover:bg-accent/30 group-data-[tag=coupe]:hidden"
+            className="absolute left-1/2 top-1/2 inline-flex h-[1.35em] max-w-full -translate-x-1/2 translate-y-[calc(-50%+0.24em)] items-center gap-[0.35em] overflow-hidden whitespace-nowrap rounded-[0.5em] bg-accent/20 px-[0.55em] text-[0.82em] font-medium leading-none ring-1 ring-inset ring-accent/40 group-hover:bg-accent/30 group-data-[tag=coupe]:hidden"
           >
             <Paperclip aria-hidden="true" className="h-[0.95em] w-[0.95em] shrink-0" />
             <span className="truncate">{nom}</span>
