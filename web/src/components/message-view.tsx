@@ -60,20 +60,23 @@ import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
-import { cn, duration, relativeTime } from '@/lib/utils';
+import { cn, duration, heureDuMessage, jetons } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /**
- * La ligne de repères sous un message : l'ancienneté, ce qui est propre à ce
- * message (durée de travail), puis le bouton « Copier ».
+ * La ligne de repères sous un message : l'heure d'envoi, les jetons, ce qui est
+ * propre à ce message (durée de travail), puis les boutons « Écouter » et
+ * « Copier ».
  *
  * Une SEULE règle pour les deux côtés du fil : toujours visible, mise au second
- * plan par la couleur et la taille, jamais par la transparence. L'ancienneté
- * est ce qu'on lit ; l'heure exacte se donne en infobulle, au survol.
+ * plan par la couleur et la taille, jamais par la transparence. L'heure COURTE
+ * est ce qu'on lit (`heureDuMessage`) ; l'heure exacte se donne en infobulle,
+ * au survol. Elle est là sous CHAQUE bulle : le regroupement à la minute la
+ * faisait disparaître dès qu'une réponse suivait dans la même minute.
  */
 function LigneReperes({
   at,
-  montrerHeure,
+  tokens,
   complements = [],
   texte,
   cle,
@@ -81,8 +84,8 @@ function LigneReperes({
   jointes = [],
 }: {
   at: number;
-  /** Faux pour un message d'une suite écrite dans la même minute (l'heure se pose sous le dernier). */
-  montrerHeure: boolean;
+  /** Les jetons de ce message : entrée moteur sous une demande, total du tour sous une réponse. */
+  tokens?: number;
   complements?: (string | null)[];
   texte: string;
   /** L'identifiant du message : sert au bouton d'écoute à savoir si c'est LUI qui parle. */
@@ -92,14 +95,23 @@ function LigneReperes({
   jointes?: Attachment[];
 }) {
   const visibles = complements.filter(Boolean) as string[];
+  const compteJetons = jetons(tokens);
   return (
     <div
       className={cn(
         'mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-faint',
         aDroite && 'justify-end',
       )}
+      data-ligne-reperes=""
     >
-      {montrerHeure ? <span title={heureExacte(at)}>{relativeTime(at)}</span> : null}
+      <span data-heure-message="" title={heureExacte(at)}>
+        {heureDuMessage(at)}
+      </span>
+      {/* LES JETONS DE CE MESSAGE, remis à la demande de l'utilisateur : ce que
+          la demande a coûté en entrée, ce que le tour a coûté en tout. Absents
+          d'un message qui n'a rien mesuré (un tour d'avant cette règle, une
+          bulle de service) : on n'écrit jamais un faux « 0 ». */}
+      {compteJetons ? <span data-jetons-message="">{compteJetons}</span> : null}
       {visibles.map((item, index) => (
         <span key={index}>{item}</span>
       ))}
@@ -113,7 +125,6 @@ export function MessageView({
   message,
   allMessages,
   projectId,
-  montrerHeure = true,
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
@@ -126,8 +137,6 @@ export function MessageView({
   allMessages: Message[];
   /** Pour déplier la mémoire du projet sous l'étape de lecture. */
   projectId?: string;
-  /** Faux quand le message suivant a été écrit dans la même minute : une heure suffit pour le groupe. */
-  montrerHeure?: boolean;
   pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
@@ -178,7 +187,7 @@ export function MessageView({
             </div>
             <LigneReperes
               at={message.createdAt}
-              montrerHeure={montrerHeure}
+              tokens={message.tokens}
               complements={[]}
               texte={message.content}
               cle={message.id}
@@ -303,7 +312,7 @@ export function MessageView({
             facturées, d'où la formulation « de travail ». */}
         <LigneReperes
           at={message.createdAt}
-          montrerHeure={montrerHeure}
+          tokens={message.tokens}
           complements={[
             message.durationMs && message.durationMs >= 1000
               ? `${duration(message.durationMs / 1000)} de travail`
@@ -535,7 +544,7 @@ function PlanBlock({
             <li key={v.id} className="flex items-center justify-between gap-2 text-[12.5px] text-muted">
               <span>{t('Version {v0}', { v0: numeroDeVersion(allMessages, v.id) })}</span>
               <span className="text-faint" title={heureExacte(v.createdAt)}>
-                {relativeTime(v.createdAt)}
+                {heureDuMessage(v.createdAt)}
               </span>
             </li>
           ))}

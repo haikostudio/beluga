@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { formeDeJour, formeHeureCourte } from '@haikodev/shared';
 import { formatRegional, t } from './langue';
 
 export function cn(...inputs: ClassValue[]): string {
@@ -26,6 +27,56 @@ export function relativeTime(timestamp?: number): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return t('{n}j', { n: days });
   return new Date(timestamp).toLocaleDateString(formatRegional());
+}
+
+/**
+ * L'HEURE SOUS UNE BULLE DU FIL, courte et jamais une phrase.
+ *
+ * La FORME est une règle pure (`formeHeureCourte`, `shared/src/heure-message.ts`) ;
+ * ici, on ne fait que l'écrire dans la langue en vigueur et au format régional.
+ * « il y a 5 min » dans l'heure qui suit, « 8:43 » le jour même,
+ * « 14/08/25 8:43 » au-delà.
+ */
+export function heureDuMessage(timestamp?: number): string {
+  if (!timestamp) return '—';
+  const forme = formeHeureCourte(timestamp);
+  if (forme.genre === 'instant') return t('à l’instant');
+  if (forme.genre === 'minutes') return t('il y a {n} min', { n: forme.minutes });
+  const date = new Date(timestamp);
+  const heure = date.toLocaleTimeString(formatRegional(), { hour: 'numeric', minute: '2-digit' });
+  if (forme.genre === 'heure') return heure;
+  const jour = date.toLocaleDateString(formatRegional(), {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  });
+  return `${jour} ${heure}`;
+}
+
+/**
+ * LA DATE CENTRÉE SUR LE SÉPARATEUR DE JOUR : « Aujourd'hui », « Hier », puis la
+ * date écrite en toutes lettres — c'est un titre, il a la place de se lire.
+ */
+export function jourDuMessage(timestamp: number): string {
+  const forme = formeDeJour(timestamp);
+  if (forme.genre === 'aujourdhui') return t('Aujourd’hui');
+  if (forme.genre === 'hier') return t('Hier');
+  return new Date(timestamp).toLocaleDateString(formatRegional(), {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/**
+ * LES JETONS D'UN MESSAGE, remis à la demande de l'utilisateur sous chaque
+ * bulle : l'entrée moteur sous une demande, le total du tour sous une réponse
+ * (`Message.tokens`). Le nombre passe par le format régional — « 12 480 » en
+ * français, « 12,480 » en anglais.
+ */
+export function jetons(nombre?: number): string | null {
+  if (!nombre || nombre < 1) return null;
+  return t('{n} jetons', { n: Math.round(nombre).toLocaleString(formatRegional()) });
 }
 
 export function duration(seconds?: number): string {
