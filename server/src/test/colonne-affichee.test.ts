@@ -22,9 +22,15 @@ test('une carte déjà en « En cours » ne bouge pas : rien à corriger', () =>
   assert.equal(colonneAffichee({ column: 'running', agentAuTravail: true }), 'running');
 });
 
-test('un tour de discussion sur une carte rendue ne la déplace pas', () => {
-  // Chiffrage discuté, publication, archive : l'agent tourne, la carte reste.
+test('une carte au travail se montre en « En cours » depuis n’importe quelle colonne', () => {
+  // Terminé, à déployer, en production, archivé : l'agent tourne, la carte se montre en cours.
   for (const column of ['done', 'to_deploy', 'in_production', 'archived'] as const) {
-    assert.equal(colonneAffichee({ column, agentAuTravail: true }), column);
+    assert.equal(colonneAffichee({ column, agentAuTravail: true }), 'running');
+  }
+});
+
+test('sans agent au travail, ces colonnes restent inchangées', () => {
+  for (const column of ['done', 'to_deploy', 'in_production', 'archived'] as const) {
+    assert.equal(colonneAffichee({ column }), column);
   }
 });

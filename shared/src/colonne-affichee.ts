@@ -17,10 +17,11 @@ import type { ColumnKey } from './columns.js';
  * carte par son agent ne bougent pas. La correction se dit en toutes lettres
  * sur la carte, pour ne rien masquer.
  *
- * La correction ne vaut QUE pour les colonnes d'AVANT le travail (« Notes »,
- * « Planifié ») : une carte « Terminé » dont on relance l'agent pour discuter
- * du chiffrage doit rester en « Terminé » — c'est la règle, un tour de
- * discussion ne déplace pas une carte.
+ * La correction vaut désormais pour TOUTE colonne, pas seulement celles
+ * d'AVANT le travail : une carte « Terminé », « À déployer » ou même
+ * « Archivé » dont un agent travaille encore doit se montrer en « En cours »,
+ * le temps que ce travail dure — sinon elle reste invisible dans la colonne où
+ * personne ne la cherche pendant qu'un agent la modifie.
  *
  * La correction reste MUETTE : elle ne pose plus de mention sur la carte
  * (l'encart jaune « un agent travaille : replacée dans En cours » ne disait
@@ -29,9 +30,6 @@ import type { ColumnKey } from './columns.js';
  *
  * La règle vit ici, sans base ni réseau : elle se teste seule.
  */
-
-/** Les colonnes d'où une carte au travail n'aurait jamais dû rester. */
-export const COLONNES_AVANT_TRAVAIL: ColumnKey[] = ['notes', 'planned'];
 
 /** Ce qu'il faut savoir d'une carte pour décider où la MONTRER. */
 export interface CartePourAffichage {
@@ -44,11 +42,11 @@ export interface CartePourAffichage {
 /**
  * La colonne où POSER la carte sur le tableau — jamais celle où l'enregistrer.
  *
- * Sans agent au travail, ou depuis une colonne d'après le travail, on rend la
- * colonne enregistrée telle quelle.
+ * Sans agent au travail, on rend la colonne enregistrée telle quelle. Avec un
+ * agent au travail, la carte se montre TOUJOURS en « En cours », quelle que
+ * soit sa colonne enregistrée.
  */
 export function colonneAffichee(carte: CartePourAffichage): ColumnKey {
   if (!carte.agentAuTravail) return carte.column;
-  if (!COLONNES_AVANT_TRAVAIL.includes(carte.column)) return carte.column;
   return 'running';
 }

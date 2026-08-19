@@ -9,8 +9,9 @@
  *    disparu) ;
  *  - la tête de « Planifié » ne la compte plus, celle de « En cours » la compte ;
  *  - une carte en « Planifié » SANS agent au travail ne bouge pas ;
- *  - une carte « Terminé » dont un agent tourne (chiffrage discuté) ne bouge
- *    pas non plus : un tour de discussion ne déplace pas une carte ;
+ *  - une carte « Terminé » dont un agent tourne encore (chiffrage discuté)
+ *    s'affiche elle aussi en « En cours » : un agent au travail prime sur
+ *    n'importe quelle colonne enregistrée ;
  *  - une requête isolée restée sans réponse n'affiche AUCUNE alerte, alors
  *    qu'un vrai refus métier s'affiche toujours.
  *
@@ -245,8 +246,8 @@ async function main() {
     (await colonneDe(auRepos.cardId)) ?? 'introuvable',
   );
   record(
-    'une carte « Terminé » dont l’agent tourne ne bouge pas',
-    (await colonneDe(discutee.cardId)) === 'done',
+    'une carte « Terminé » dont l’agent tourne s’affiche en « En cours »',
+    (await colonneDe(discutee.cardId)) === 'running',
     (await colonneDe(discutee.cardId)) ?? 'introuvable',
   );
   record(
