@@ -4,16 +4,26 @@
  * d'effacement au survol, une seule règle pour la demande et pour la réponse,
  * et le bouton « Copier » qui ne bouge pas d'un pixel.
  *
- *   node scripts/verif-heure-permanente.mjs
+ * CHAQUE message porte la sienne, sans exception : le regroupement à la minute
+ * (une seule heure sous le dernier d'une suite) a été retiré — il effaçait
+ * l'heure sous une demande dès qu'une réponse suivait dans la même minute.
  *
- * Contrôlé en thème sombre, en thème clair, puis sur écran de téléphone.
+ * Les heures se relèvent par leur REPÈRE TECHNIQUE (`data-heure-message`,
+ * `LigneReperes`), jamais par le texte affiché : celui-ci change avec la langue
+ * et avec l'âge du message.
+ *
+ *   HAIKO_HEURE_URL=http://localhost:7099 node scripts/verif-heure-permanente.mjs
+ *
+ * Contrôlé en thème sombre, en thème clair, puis sur écran de téléphone. Le
+ * serveur de DÉVELOPPEMENT est visé : un script de vérification ne reprend
+ * jamais HAIKODEV_URL, qui désigne l'application déjà publiée.
  */
 import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
-const BASE = process.env.HAIKODEV_URL || 'http://localhost:7101';
+const BASE = process.env.HAIKO_HEURE_URL || 'http://localhost:7099';
 const DB = '/root/haikodev/data/haikodev.db';
 const SHOTS = '/root/haikodev/data/verification';
 
@@ -68,15 +78,6 @@ function filEnregistre(db, cardId) {
     });
 }
 
-/** Combien d'heures DOIVENT s'afficher : une par minute entamée, en fin de groupe. */
-function heuresAttendues(fil) {
-  return fil.filter(
-    (message, index) =>
-      !fil[index + 1] ||
-      Math.floor(message.at / 60_000) !== Math.floor(fil[index + 1].at / 60_000),
-  ).length;
-}
-
 /** La luminance perçue d'une couleur « rgb(r, g, b) », pour juger du contraste. */
 function luminance(couleur) {
   const [r, g, b] = couleur.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
@@ -99,17 +100,17 @@ function contraste(avant, arriere) {
  */
 async function lireHeures(page) {
   return page.evaluate(() => {
-    const motif = /^(à l'instant|il y a |\d{2}\.\d{2} à \d{2}:\d{2}|\d{2}\/\d{2} à \d{2}:\d{2})/i;
     const trouvees = [];
     // On ne regarde QUE le fil de la conversation ouverte : le tableau et les
     // volets rangés affichent eux aussi des anciennetés, sans rapport ici.
     const fils = document.querySelectorAll('[role="dialog"]');
     const fil = fils[fils.length - 1] || document.body;
-    for (const span of fil.querySelectorAll('span')) {
+    for (const span of fil.querySelectorAll('[data-heure-message]')) {
       const texte = (span.textContent || '').trim();
-      if (!motif.test(texte) || span.children.length) continue;
+      if (!texte) continue;
       const style = getComputedStyle(span);
       const boite = span.getBoundingClientRect();
+      if (!boite.height) continue;
       // L'opacité effective : celle du span et celle de tous ses parents.
       let opacite = 1;
       let coupable = '';
@@ -142,15 +143,14 @@ async function lireReperes(page) {
   return page.evaluate(() => {
     const fils = document.querySelectorAll('[role="dialog"]');
     const fil = fils[fils.length - 1] || document.body;
-    // Le libellé d'ancienneté seul : ni « 31 s de travail », ni « 1 200 jetons ».
-    const motif = /^(à l'instant|il y a \d+ (min|h|j)|\d{1,2}\.\d{1,2}\.\d{4})$/i;
     const lignes = [];
-    for (const div of fil.querySelectorAll('div')) {
-      if (!/text-\[11\.5px\]/.test(div.className) || !/text-faint/.test(div.className)) continue;
+    for (const div of fil.querySelectorAll('[data-ligne-reperes]')) {
+      if (!div.getBoundingClientRect().height) continue;
       const spans = [...div.querySelectorAll(':scope > span')].map((s) => s.textContent.trim());
       lignes.push({
         aDroite: /justify-end/.test(div.className),
-        heure: spans.find((t) => motif.test(t)) || '',
+        heure: div.querySelector('[data-heure-message]')?.textContent.trim() || '',
+        jetons: div.querySelector('[data-jetons-message]')?.textContent.trim() || '',
         travail: spans.find((t) => / de travail$/.test(t)) || '',
         copier: !!div.querySelector('button'),
       });
@@ -299,16 +299,24 @@ async function main() {
     );
 
     /*
-     * Le groupement : une seule heure par minute entamée. On compare ce qui est
-     * à l'écran au fil enregistré en base, seule référence honnête.
+     * UNE HEURE SOUS CHAQUE MESSAGE, sans exception : c'est la règle qui a
+     * remplacé le groupement à la minute. On compare ce qui est à l'écran aux
+     * lignes de repères réellement posées.
      */
     const reperes = await lireReperes(page);
-    const attendu = heuresAttendues(filEnBase);
     const affichees = reperes.filter((r) => r.heure).length;
     record(
-      'Une seule heure par minute, posée en fin de groupe',
-      affichees === attendu,
-      `${affichees} heures pour ${reperes.length} messages (attendu ${attendu})`,
+      'Une heure sous chaque message, sans exception',
+      reperes.length > 0 && affichees === reperes.length,
+      `${affichees} heures pour ${reperes.length} messages`,
+    );
+    // Les jetons sont remis sous les bulles : au moins un message mesuré doit
+    // les montrer sur un fil réel (une conversation d'agent en a toujours).
+    const avecJetons = reperes.filter((r) => /jetons/.test(r.jetons));
+    record(
+      'Les jetons se lisent sous les messages mesurés',
+      avecJetons.length > 0,
+      avecJetons.length ? `ex. « ${avecJetons[0].jetons} »` : 'aucun jeton à l’écran',
     );
 
     // La durée de travail ne se dit que sous les réponses de l'agent.

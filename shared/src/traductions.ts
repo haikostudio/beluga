@@ -47,6 +47,10 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   '{v0} Mo': ['{v0} MB', '{v0} MB', '{v0} MB', '{v0} MB'],
   '{v0} CHF': ['CHF {v0}', '{v0} CHF', '{v0} CHF', '{v0} 瑞士法郎'],
   '{v0} h × {rate} CHF': ['{v0} h × CHF {rate}', '{v0} h × {rate} CHF', '{v0} Std. × {rate} CHF', '{v0} 小时 × {rate} 瑞士法郎'],
+  'il y a {n} min': ['{n} min ago', 'hace {n} min', 'vor {n} Min.', '{n} 分钟前'],
+  'Aujourd’hui': ['Today', 'Hoy', 'Heute', '今天'],
+  'Hier': ['Yesterday', 'Ayer', 'Gestern', '昨天'],
+  '{n} jetons': ['{n} tokens', '{n} tokens', '{n} Tokens', '{n} 个词元'],
   'Version {v0}': ['Version {v0}', 'Versión {v0}', 'Version {v0}', '版本 {v0}'],
   '· version {numero}': ['· version {numero}', '· versión {numero}', '· Version {numero}', '· 版本 {numero}'],
 

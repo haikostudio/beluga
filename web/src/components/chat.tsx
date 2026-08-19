@@ -12,7 +12,7 @@ import {
 import {
   Agent,
   Message,
-  afficherHeure,
+  separateurDeJour,
   temoinDeTravail,
   carteRangee,
   etatDuPlan,
@@ -36,7 +36,7 @@ import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { useAnimationsReduites } from '@/lib/animations-reduites';
-import { cn } from '@/lib/utils';
+import { cn, jourDuMessage } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 export function Chat({
@@ -258,6 +258,13 @@ export function Chat({
           {messages.length ? (
             messages.map((message, index) => (
               <React.Fragment key={message.id}>
+                {/* UN CHANGEMENT DE JOUR SE VOIT : un trait pleine largeur, la
+                    date centrée dessus. Sans lui, deux bulles collées pouvaient
+                    être écrites à trois jours d'écart sans que rien ne le dise
+                    (`separateurDeJour`, `shared/src/heure-message.ts`). */}
+                {separateurDeJour(messages, index) ? (
+                  <SeparateurDeJour date={message.createdAt} />
+                ) : null}
                 {/* Une carte a souvent eu plusieurs agents : un repère sépare le
                     compte rendu de l'analyse de celui de l'exécution. */}
                 {cardId && message.agentId !== messages[index - 1]?.agentId ? (
@@ -267,7 +274,6 @@ export function Chat({
                   message={message}
                   allMessages={messages}
                   projectId={projectId}
-                  montrerHeure={afficherHeure(messages, index)}
                   pickedEvolutions={picked}
                   onToggleEvolution={toggleEvolution}
                   onToggleAll={toggleAll}
@@ -441,6 +447,30 @@ function RepereReponseTexte() {
 }
 
 /** Le repère qui annonce quel agent parle à partir d'ici. */
+/**
+ * LE SÉPARATEUR DE JOUR : un trait qui traverse toute la largeur du fil, la date
+ * posée au milieu.
+ *
+ * Le trait est coupé DE PART ET D'AUTRE de la date plutôt que masqué par une
+ * pastille de fond : le fil s'affiche tantôt dans la zone de droite, tantôt
+ * dans le tiroir d'une carte, et ces deux fonds diffèrent — une pastille aurait
+ * dû deviner lequel, et se serait vue sur l'autre.
+ *
+ * Le trait suit `--faint` et jamais `--border` : il porte une information, et
+ * sur les thèmes plats `--border` ne dessine plus rien.
+ */
+function SeparateurDeJour({ date }: { date: number }) {
+  return (
+    <div className="flex items-center gap-2 py-1" data-separateur-jour="">
+      <span className="h-px flex-1 bg-faint/30" aria-hidden />
+      <span className="shrink-0 text-[11.5px] uppercase tracking-wide text-faint">
+        {jourDuMessage(date)}
+      </span>
+      <span className="h-px flex-1 bg-faint/30" aria-hidden />
+    </div>
+  );
+}
+
 function SeparateurAgent({ titre }: { titre: string }) {
   return (
     <div className="flex items-center gap-2 pt-1">

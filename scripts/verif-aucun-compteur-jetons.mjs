@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 /*
- * PLUS AUCUN COMPTEUR DE JETONS VISIBLE NULLE PART (`docs/plans/refonte-visualisation-prompts.md`,
- * plan validé). Contrôle STATIQUE, sans navigateur : il grep les fichiers web qui affichaient un
- * compteur de jetons et vérifie que le texte affiché à l'écran n'en montre plus — la mesure continue
- * d'exister côté serveur, elle ne doit simplement plus apparaître dans l'interface.
+ * AUCUN COMPTEUR DE JETONS, SAUF SOUS LES BULLES DE LA CONVERSATION
+ * (`docs/plans/refonte-visualisation-prompts.md`, plan validé, amendé à la demande de
+ * l'utilisateur). Contrôle STATIQUE, sans navigateur : il grep les fichiers web qui affichaient un
+ * compteur de jetons et vérifie que les écrans concernés n'en montrent plus — la mesure continue
+ * d'exister côté serveur.
+ *
+ * LA SEULE EXCEPTION, VOULUE : la ligne de repères sous chaque message du fil, qui redit les jetons
+ * du message (`LigneReperes`, `data-jetons-message`). Elle est vérifiée ICI comme une PRÉSENCE, pas
+ * comme une absence : la retirer par mégarde ferait échouer ce contrôle.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,7 +38,21 @@ verifier(
 const messageView = lire('web/src/components/message-view.tsx');
 verifier(
   'le tiroir Contexte envoyé n’affiche plus de tokens',
-  !messageView.includes('nombre(') && !/function Chiffre\(/.test(messageView) && !/\btokens\}/.test(messageView),
+  !messageView.includes('nombre(') && !/function Chiffre\(/.test(messageView),
+);
+verifier(
+  'la ligne sous chaque message porte SES jetons (exception voulue)',
+  messageView.includes('data-jetons-message') && messageView.includes('jetons(tokens)'),
+);
+verifier(
+  'la ligne sous chaque message porte son heure courte, sans condition',
+  messageView.includes('data-heure-message') && messageView.includes('heureDuMessage(at)'),
+);
+
+const chat = lire('web/src/components/chat.tsx');
+verifier(
+  'le fil pose un séparateur de date entre deux jours',
+  chat.includes('data-separateur-jour') && chat.includes('separateurDeJour(messages, index)'),
 );
 
 const settings = lire('web/src/components/settings-view.tsx');
