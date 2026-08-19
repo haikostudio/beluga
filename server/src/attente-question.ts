@@ -37,12 +37,33 @@ interface Attente {
 
 const attentes = new Map<string, Attente>();
 
+/**
+ * DEPUIS QUAND CET AGENT EST-IL ARRÊTÉ SUR UNE QUESTION ? Absent : il n'attend
+ * rien.
+ *
+ * Le registre est le MÊME pour tous les agents — celui d'une carte, le chef
+ * d'orchestre, celui d'un tiroir : tout appel de `ask_user` passe par
+ * `/internal/call`, donc par `poserLAttente`. Rendre l'INSTANT plutôt qu'un
+ * simple oui/non permet à n'importe quel témoin de travail de figer son
+ * chronomètre au bon endroit (`instantDuTemoin`, `shared/src/attente-question.ts`),
+ * au lieu de faire défiler le temps de réponse comme du temps de travail.
+ *
+ * Une attente dont l'issue est déjà posée ne compte plus : la réponse est
+ * donnée, l'agent est reparti, même si la tranche qui la portera au moteur ne
+ * l'a pas encore consommée.
+ */
+export function attenteDeLAgent(agentId: string): number | undefined {
+  let depuis: number | undefined;
+  for (const attente of attentes.values()) {
+    if (attente.agentId !== agentId || attente.issue) continue;
+    if (depuis === undefined || attente.poseeA < depuis) depuis = attente.poseeA;
+  }
+  return depuis;
+}
+
 /** L'agent attend-il une réponse ? Sert au repère de la barre d'écriture. */
 export function agentEnAttente(agentId: string): boolean {
-  for (const attente of attentes.values()) {
-    if (attente.agentId === agentId && !attente.issue) return true;
-  }
-  return false;
+  return attenteDeLAgent(agentId) !== undefined;
 }
 
 /**

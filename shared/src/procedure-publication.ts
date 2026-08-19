@@ -27,6 +27,7 @@
  */
 
 import type { CiblePublication } from './etapes-publication.js';
+import { TEXTE_TEMOIN_EN_ATTENTE, instantDuTemoin } from './attente-question.js';
 
 /** Ce qu'on garde d'une procédure écrite : au-delà, c'est de la documentation. */
 export const PROCEDURE_MAX = 8000;
@@ -367,6 +368,14 @@ export type EtatDeProcedure = {
   depuis?: number;
   /** La question posée par l'outil de l'agent, tant que personne n'y a répondu. */
   question?: QuestionDeProcedure;
+  /**
+   * DEPUIS QUAND L'AGENT EST ARRÊTÉ SUR SA QUESTION, lu dans le registre des
+   * attentes du serveur — le même pour tous les agents, quelle que soit leur
+   * origine (`shared/src/attente-question.ts`). Présent : le témoin dit
+   * l'attente et son chronomètre se fige ici. Absent : l'agent travaille
+   * vraiment, ou plus rien ne tourne.
+   */
+  attendDepuis?: number;
 };
 
 /** Au-delà, le projet a pu changer : on repose la question plutôt que la relire. */
@@ -407,16 +416,37 @@ export function repriseDuDialogue(
   return procedureEcrite ? 'proposer' : 'relancer';
 }
 
-/** Le témoin de travail : jamais un mot seul, toujours ce qui se passe et depuis quand. */
+/**
+ * Le témoin de travail : jamais un mot seul, toujours ce qui se passe et depuis
+ * quand.
+ *
+ * …SAUF QUAND L'AGENT ATTEND UNE RÉPONSE. Son appel d'outil est arrêté sur la
+ * question affichée juste au-dessus : il ne travaille plus, et l'étape que le
+ * moteur avait annoncée en dernier (« Outil ask_user ») ne décrit plus rien.
+ * Le témoin dit alors l'attente, et son chronomètre s'arrête à l'instant de la
+ * question — le temps de RÉPONDRE n'est pas du temps de travail
+ * (`instantDuTemoin`, `shared/src/attente-question.ts`).
+ */
 export function phraseDeTravail(
-  input: { depuis?: number; etape?: string },
+  input: { depuis?: number; etape?: string; attendDepuis?: number; attend?: boolean },
   maintenant: number,
 ): string {
-  const secondes = input.depuis ? Math.max(0, Math.round((maintenant - input.depuis) / 1000)) : 0;
+  /*
+   * Deux façons de savoir que l'agent attend, et la seconde est un FILET : le
+   * registre donne l'instant de la question (le cas normal), mais une question
+   * OUVERTE sous les yeux suffit à savoir qu'il ne travaille plus — l'appel
+   * d'outil qui l'a posée est arrêté dessus par construction. Sans instant, on
+   * dit l'attente sans durée : mieux vaut ne rien compter que compter faux.
+   */
+  const attend = input.attend === true || input.attendDepuis !== undefined;
+  if (attend && input.attendDepuis === undefined) return TEXTE_TEMOIN_EN_ATTENTE;
+  const arret = instantDuTemoin(maintenant, input.attendDepuis);
+  const secondes = input.depuis ? Math.max(0, Math.round((arret - input.depuis) / 1000)) : 0;
   const duree =
     secondes >= 60
       ? `${Math.floor(secondes / 60)} min ${String(secondes % 60).padStart(2, '0')} s`
       : `${secondes} s`;
+  if (attend) return `${TEXTE_TEMOIN_EN_ATTENTE} ${duree}`;
   const etape = (input.etape ?? '').trim().slice(0, 80);
   return etape ? `L’agent travaille… ${etape} · ${duree}` : `L’agent travaille… ${duree}`;
 }

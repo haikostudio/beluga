@@ -17,6 +17,7 @@ import { Markdown } from '@/lib/markdown';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { cn } from '@/lib/utils';
 
 /**
  * LE TIROIR QUI DÉFINIT UNE PROCÉDURE DE MISE EN LIGNE.
@@ -68,6 +69,17 @@ export function TiroirProcedure({
   /* La question posée par l'outil de l'agent : elle attend ICI, pas seulement
      dans la cloche du bandeau. Tant qu'elle est là, on répond à ELLE. */
   const question = etat?.question ?? null;
+  /*
+   * ET L'AGENT QUI ATTEND N'EST PAS UN AGENT QUI TRAVAILLE. Le serveur dit
+   * depuis quand il est arrêté sur sa question — même registre que pour un
+   * agent de carte : le témoin cesse de tourner, cesse de nommer l'étape figée
+   * (« Outil ask_user ») et son chronomètre s'arrête là
+   * (`shared/src/attente-question.ts`).
+   */
+  const attendDepuis = etat?.attendDepuis;
+  /* Une question OUVERTE suffit : l'appel d'outil qui l'a posée est arrêté
+     dessus. L'instant, lui, ne fait que figer le chronomètre. */
+  const attend = attendDepuis !== undefined || !!question;
   /* Une procédure est déjà écrite et rien ne tourne : le tiroir ne demande
      RIEN à un agent tant qu'on ne le lui dit pas. */
   const enAttenteDeGeste = !!actuelle && !enCours && !question && !bulles.length && !ecrite && !erreur;
@@ -140,7 +152,9 @@ export function TiroirProcedure({
    */
   React.useEffect(() => {
     if (!open || !cible || !enCours) return;
-    const horloge = window.setInterval(() => setMaintenant(Date.now()), 1000);
+    // Le chronomètre est FIGÉ pendant l'attente : la faire battre chaque
+    // seconde ne changerait rien à l'écran, ce serait un rendu pour rien.
+    const horloge = attend ? null : window.setInterval(() => setMaintenant(Date.now()), 1000);
     const veille = window.setInterval(async () => {
       try {
         const res: any = await client.call({ type: 'procedure.etat', projectId, cible });
@@ -151,10 +165,10 @@ export function TiroirProcedure({
       }
     }, 15000);
     return () => {
-      window.clearInterval(horloge);
+      if (horloge !== null) window.clearInterval(horloge);
       window.clearInterval(veille);
     };
-  }, [open, cible, projectId, enCours]);
+  }, [open, cible, projectId, enCours, attend]);
 
   if (!cible) return null;
 
@@ -269,9 +283,22 @@ export function TiroirProcedure({
               que l'agent fait et depuis combien de temps, et il s'éteint dès
               que plus rien ne tourne — réussite comme échec. */}
           {enCours ? (
-            <p className="flex items-center gap-1.5 text-[12.5px] text-faint" data-procedure-en-cours>
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-              <span className="truncate">{phraseDeTravail({ depuis: etat?.depuis, etape }, maintenant)}</span>
+            <p
+              className={cn(
+                'flex items-center gap-1.5 text-[12.5px]',
+                attend ? 'text-warning' : 'text-faint',
+              )}
+              data-procedure-en-cours
+              data-procedure-attente={attend ? 'oui' : undefined}
+            >
+              {attend ? (
+                <MessageCircleQuestion className="h-3 w-3 shrink-0" />
+              ) : (
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+              )}
+              <span className="truncate">
+                {phraseDeTravail({ depuis: etat?.depuis, etape, attendDepuis, attend }, maintenant)}
+              </span>
             </p>
           ) : null}
 

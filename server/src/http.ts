@@ -415,8 +415,16 @@ export function createHttpServer(): http.Server {
            * n'être lue qu'une fois tout le travail fini.
            */
           if (result.question) {
-            attachToCurrentMessage(agentId, { question: result.question });
+            /*
+             * L'ATTENTE EST POSÉE AVANT LA QUESTION, pas après. Attacher la
+             * question au message DIFFUSE aussitôt l'événement que les écrans
+             * écoutent (le tiroir de procédure, par exemple, y recalcule son
+             * témoin) : posée ensuite, l'attente arrivait trop tard et ces
+             * écrans concluaient que l'agent travaillait encore, chronomètre
+             * qui défile, devant la question qu'ils venaient d'afficher.
+             */
             poserLAttente(result.question.id, agentId);
+            attachToCurrentMessage(agentId, { question: result.question });
             return json(res, 200, {
               ok: result.ok,
               text: result.text,

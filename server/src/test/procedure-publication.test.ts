@@ -319,6 +319,69 @@ test('le témoin dit ce que l’agent fait et depuis quand, jamais un mot seul',
   );
 });
 
+/* ------------------------------------------------------------------ */
+/* UN AGENT ARRÊTÉ SUR SA QUESTION N'EST PAS EN TRAIN DE TRAVAILLER    */
+/*                                                                      */
+/* Le tiroir affichait « L'agent travaille… Outil ask_user · 2 min 17 s » */
+/* avec un chronomètre qui défilait, juste sous sa propre question       */
+/* restée sans réponse. La règle vaut pour TOUS les agents.             */
+/* ------------------------------------------------------------------ */
+
+test('le témoin d’un agent qui attend DIT l’attente et FIGE son chronomètre', () => {
+  // Le tour est parti à 1000, la question posée à 138 000 : 2 min 17 s. Une
+  // demi-heure plus tard, la durée affichée est toujours la même.
+  assert.equal(
+    phraseDeTravail({ depuis: 1000, etape: 'Outil ask_user', attendDepuis: 138_000 }, 200_000),
+    'L’agent attend votre réponse… 2 min 17 s',
+  );
+  assert.equal(
+    phraseDeTravail({ depuis: 1000, etape: 'Outil ask_user', attendDepuis: 138_000 }, 2_000_000),
+    'L’agent attend votre réponse… 2 min 17 s',
+    'le temps mis à répondre n’est pas du temps de travail',
+  );
+});
+
+test('sans instant connu, le témoin dit l’attente SANS compter faux', () => {
+  assert.equal(
+    phraseDeTravail({ depuis: 1000, etape: 'Outil ask_user', attend: true }, 200_000),
+    'L’agent attend votre réponse…',
+    'une question ouverte suffit à savoir qu’il ne travaille plus',
+  );
+});
+
+test('l’attente voyage dans l’état du dialogue, lue dans le registre commun', () => {
+  assert.match(SOURCE_TIROIR, /attenteDeLAgent/, 'le tiroir lit le registre des attentes, il ne devine pas');
+  const debut = SOURCE_TIROIR.indexOf('export function etatDeProcedure');
+  const corps = SOURCE_TIROIR.slice(debut, SOURCE_TIROIR.indexOf('\n}\n', debut));
+  assert.match(corps, /attendDepuis/, 'relue à chaque lecture, comme la question');
+  assert.match(
+    SOURCE_TIROIR,
+    /enCours: false, question: undefined, attendDepuis: undefined/,
+    'le tour fini, plus personne n’attend',
+  );
+});
+
+test('le tiroir arrête son témoin : plus de rotation, plus de seconde qui tombe', () => {
+  assert.match(SOURCE_PANNEAU, /const attend = attendDepuis !== undefined \|\| !!question/);
+  assert.match(SOURCE_PANNEAU, /data-procedure-attente/);
+  assert.match(
+    SOURCE_PANNEAU,
+    /const horloge = attend \? null : window\.setInterval/,
+    'un chronomètre figé n’a pas besoin de battre',
+  );
+  assert.match(SOURCE_PANNEAU, /phraseDeTravail\(\{ depuis: etat\?\.depuis, etape, attendDepuis, attend \}/);
+});
+
+test('l’attente est posée AVANT que la question ne parte à l’écran', () => {
+  const source = fs.readFileSync(path.resolve(ICI, '../../src/http.ts'), 'utf8');
+  const debut = source.indexOf('if (result.question) {');
+  const corps = source.slice(debut, debut + 900);
+  assert.ok(
+    corps.indexOf('poserLAttente') < corps.indexOf('attachToCurrentMessage'),
+    'sinon les écrans recalculent leur témoin avant de connaître l’attente',
+  );
+});
+
 test('le tour part en FOND et son issue est diffusée, jamais rendue à une requête retenue', () => {
   // La commande rend l'état tout de suite : rien n'attend le moteur.
   assert.match(SOURCE_TIROIR, /export function tourDeProcedure/, 'plus une commande qui attend le tour');

@@ -14,6 +14,7 @@ import {
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { agentsActifs, createAgent, sendPrompt } from './runtime.js';
+import { attenteDeLAgent } from './attente-question.js';
 
 /**
  * LE TIROIR QUI DÉFINIT UNE PROCÉDURE DE MISE EN LIGNE.
@@ -110,8 +111,16 @@ function questionDeLAgent(agentId: string | undefined): QuestionDeProcedure | un
 export function etatDeProcedure(projectId: string, cible: CiblePublication): EtatDeProcedure | null {
   const etat = dialogues.get(cleDuDialogue(projectId, cible));
   if (!etat) return null;
-  const question = questionDeLAgent(etat.agentId);
-  return question ? { ...etat, question } : { ...etat, question: undefined };
+  return { ...etat, question: questionDeLAgent(etat.agentId), attendDepuis: attenteDeLAgentDuDialogue(etat) };
+}
+
+/**
+ * DEPUIS QUAND L'AGENT DE CE DIALOGUE ATTEND-IL ? Lu dans le registre commun à
+ * TOUS les agents, jamais deviné ici : c'est ce qui fait que le tiroir arrête
+ * son témoin exactement comme la conversation d'une carte arrête le sien.
+ */
+function attenteDeLAgentDuDialogue(etat: EtatDeProcedure): number | undefined {
+  return etat.agentId ? attenteDeLAgent(etat.agentId) : undefined;
 }
 
 /**
@@ -144,7 +153,7 @@ bus.subscribe((event) => {
             { qui: 'moi' as const, texte: tranchee.answer },
           ]
         : etat.echanges;
-    poser({ ...etat, echanges, question });
+    poser({ ...etat, echanges, question, attendDepuis: attenteDeLAgentDuDialogue(etat) });
     return;
   }
 });
@@ -305,7 +314,7 @@ async function mener(depart: EtatDeProcedure, prompt: string, reponse: string): 
    * réponse qu'on lui a faite). Rendre `depart` les effacerait.
    */
   const courant = dialogues.get(cleDuDialogue(depart.projectId, depart.cible)) ?? depart;
-  const fini = { ...courant, enCours: false, question: undefined };
+  const fini = { ...courant, enCours: false, question: undefined, attendDepuis: undefined };
 
   if ('procedure' in issue) {
     if (!enregistrerProcedure(depart.projectId, depart.cible, issue.procedure, reponse)) {

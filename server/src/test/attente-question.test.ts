@@ -8,6 +8,7 @@ import {
   TRANCHE_ATTENTE_MS,
   attenteExpiree,
   delaiOutilMoteurMs,
+  instantDuTemoin,
   texteDeReponseALaQuestion,
 } from '@haikodev/shared';
 
@@ -29,6 +30,7 @@ process.env.HAIKODEV_DATA = bacASable;
 const store = await import('../store.js');
 const {
   agentEnAttente,
+  attenteDeLAgent,
   annulerLAttente,
   attendreUneTranche,
   libererLesAttentes,
@@ -76,6 +78,27 @@ test('le plafond se juge sur un temps donné, jamais sur l’horloge', () => {
   assert.equal(attenteExpiree(1000, 1000 + PLAFOND_ATTENTE_MS), true);
 });
 
+/* ------------------------------------------------------------------ */
+/* UN AGENT QUI ATTEND N'EST PAS UN AGENT QUI TRAVAILLE                 */
+/*                                                                      */
+/* La règle vaut pour TOUS les agents : le témoin dit l'attente et son   */
+/* chronomètre se fige à l'instant de la question — le temps mis à       */
+/* répondre n'est pas du temps de travail.                              */
+/* ------------------------------------------------------------------ */
+
+test('sans attente, le chronomètre d’un témoin lit l’instant présent', () => {
+  assert.equal(instantDuTemoin(5000), 5000);
+  assert.equal(instantDuTemoin(5000, undefined), 5000);
+});
+
+test('dès qu’une attente est posée, le chronomètre se fige sur la question', () => {
+  assert.equal(instantDuTemoin(900_000, 5000), 5000, 'une demi-heure plus tard, la durée n’a pas bougé');
+});
+
+test('une horloge de navigateur en retard ne rend jamais une durée négative', () => {
+  assert.equal(instantDuTemoin(4000, 5000), 4000);
+});
+
 /* ----------------------------- Le registre ----------------------------- */
 
 test('tant que personne ne répond, la tranche rend « attente »', async () => {
@@ -106,6 +129,37 @@ test('répondre deux fois à la même question ne réveille qu’une fois', asyn
   assert.equal(repondreALAttente('q3', 'seconde'), false, 'la seconde ne trouve plus rien');
   const issue = await attendreUneTranche('q3', 10);
   assert.match(issue.text, /première/);
+});
+
+test('le registre dit DEPUIS QUAND l’agent attend, quel que soit son type', async () => {
+  // Un agent de tiroir (rôle « deploy ») passe par le MÊME registre qu'un agent
+  // de carte : c'est cet instant-là qui fige le témoin du tiroir.
+  const agent = store.saveAgent({
+    id: store.newId(),
+    projectId: 'p1',
+    role: 'deploy',
+    title: 'Procédure — Déploiement',
+    run: { engine: 'claude', thinking: 'none', mode: 'direct' },
+    status: 'running',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  } as any);
+  assert.equal(attenteDeLAgent(agent.id), undefined, 'rien tant qu’aucune question n’est posée');
+  poserLAttente('q-deploy', agent.id, 1234);
+  assert.equal(attenteDeLAgent(agent.id), 1234, 'l’instant de la question, pas un oui/non');
+  // Répondre suffit à faire repartir le témoin : on n'attend pas que la tranche
+  // ait porté la réponse au moteur.
+  repondreALAttente('q-deploy', 'Reconstruire sur place');
+  assert.equal(attenteDeLAgent(agent.id), undefined, 'la réponse donnée, l’agent repart');
+  await attendreUneTranche('q-deploy', 10);
+});
+
+test('la plus ANCIENNE attente gagne quand un agent en porte deux', () => {
+  const agent = agentDEssai();
+  poserLAttente('q-a', agent.id, 5000);
+  poserLAttente('q-b', agent.id, 3000);
+  assert.equal(attenteDeLAgent(agent.id), 3000);
+  libererLesAttentes(agent.id);
 });
 
 test('une réponse à une question que plus personne n’attend rend faux', () => {

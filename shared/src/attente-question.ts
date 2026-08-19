@@ -133,5 +133,45 @@ export function texteSansAttente(): string {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* LE TÉMOIN DE TRAVAIL D'UN AGENT QUI ATTEND                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN AGENT ARRÊTÉ SUR SA QUESTION N'EST PAS EN TRAIN DE TRAVAILLER — ET CELA
+ * VAUT POUR TOUS LES AGENTS, QUELLE QUE SOIT LEUR ORIGINE.
+ *
+ * L'attente est posée par un registre UNIQUE (`server/src/attente-question.ts`),
+ * traversé par tout appel de l'outil `ask_user` : un agent de carte, le chef
+ * d'orchestre et l'agent d'un tiroir y passent tous. Ce qui manquait n'était
+ * donc pas l'arrêt, mais son AFFICHAGE : la conversation d'une carte lisait le
+ * drapeau `attendReponse` et disait « l'agent attend votre réponse », tandis
+ * que le tiroir de procédure, lui, continuait d'afficher « L'agent travaille…
+ * Outil ask_user » avec un chronomètre qui défilait — devant sa propre
+ * question restée sans réponse.
+ *
+ * La règle tient en deux gestes, et c'est ici qu'elle vit pour que tous les
+ * témoins la suivent à l'identique :
+ *  1. le témoin DIT l'attente au lieu de nommer l'étape figée ;
+ *  2. son chronomètre s'ARRÊTE à l'instant où la question est partie, il ne
+ *     compte pas le temps que l'utilisateur met à répondre.
+ */
+
+/** Ce qu'un témoin de travail dit quand l'agent est arrêté sur sa question. */
+export const TEXTE_TEMOIN_EN_ATTENTE = 'L’agent attend votre réponse…';
+
+/**
+ * L'INSTANT QUE LE CHRONOMÈTRE D'UN TÉMOIN DOIT LIRE.
+ *
+ * Sans attente, c'est l'instant présent — le temps défile. Dès qu'une attente
+ * est posée, c'est l'instant de la QUESTION : la durée affichée se fige là et
+ * n'avance plus, quel que soit le temps mis à répondre. Le repli sur le présent
+ * (`Math.min`) protège d'une horloge de navigateur en retard sur le serveur,
+ * qui donnerait une durée négative.
+ */
+export function instantDuTemoin(maintenant: number, attendDepuis?: number): number {
+  return attendDepuis === undefined ? maintenant : Math.min(maintenant, attendDepuis);
+}
+
 /** Ce que la barre d'écriture dit pendant que l'agent attend. */
 export const TEXTE_BARRE_EN_ATTENTE = 'L’agent attend votre réponse à sa question…';

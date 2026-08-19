@@ -581,6 +581,26 @@ const posee = await texteDe('[data-tiroir-procedure="dev"] [data-question-proced
 noter('la question de l’agent s’affiche DANS le tiroir', posee.includes('Quel service'), posee.slice(0, 80));
 noter('… avec ses choix cliquables', await present('[data-option-procedure]'));
 
+/*
+ * ET LE TÉMOIN NE DIT PLUS « L'AGENT TRAVAILLE ». Un agent arrêté sur sa
+ * question n'est pas au travail : le témoin dit l'attente, sa roue cesse de
+ * tourner et son chronomètre s'arrête. Il affichait juste sous la question
+ * « L'agent travaille… Outil ask_user » avec un temps qui défilait.
+ */
+const temoinDAttente = await page.textContent('[data-procedure-en-cours]');
+noter(
+  '… et le témoin dit l’ATTENTE, plus jamais « l’agent travaille »',
+  temoinDAttente.includes('attend votre réponse') && !temoinDAttente.includes('travaille'),
+  temoinDAttente.trim(),
+);
+noter('… la roue de travail est remplacée par le repère d’attente', await present('[data-procedure-attente]'));
+await page.waitForTimeout(2200);
+noter(
+  '… et le chronomètre n’avance plus pendant qu’on réfléchit',
+  (await page.textContent('[data-procedure-en-cours]')) === temoinDAttente,
+  temoinDAttente.trim(),
+);
+
 /* Un tour tourne encore : c'est justement de cette réponse qu'il a besoin. */
 await page.fill('[data-reponse-procedure]', 'le service haikodev');
 await page.waitForTimeout(200);
