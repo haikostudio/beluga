@@ -256,6 +256,7 @@ function descriptionDeProposition(
   exigence: ExigenceDescription,
 ): { description: string } | { refus: string } {
   const parties = {
+    intro: typeof args.intro === 'string' ? args.intro : '',
     constat: typeof args.constat === 'string' ? args.constat : '',
     attendu: typeof args.attendu === 'string' ? args.attendu : '',
     limites: typeof args.limites === 'string' ? args.limites : '',
@@ -365,6 +366,11 @@ export const TOOL_DEFS: ToolDef[] = [
       properties: {
         title: { type: 'string' },
         description: { type: 'string', description: CHAMP_DESCRIPTION },
+        intro: {
+          type: 'string',
+          description:
+            "Une ou deux phrases simples et ludiques, SANS jargon ni nom de fichier, qui disent en langage courant ce que la carte va changer et pourquoi. Affichée en tête de la description, avant le Constat technique.",
+        },
         constat: { type: 'string', description: "Ce que le projet fait aujourd'hui, avec un repère concret vu dans le projet" },
         attendu: { type: 'string', description: 'Ce que le projet doit faire une fois la carte terminée' },
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },

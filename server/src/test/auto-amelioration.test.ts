@@ -138,6 +138,12 @@ test('la consigne interdit de modifier quoi que ce soit et plafonne les proposit
   for (const axe of AXES_D_EXAMEN) assert.ok(consigne.includes(axe), `axe manquant : ${axe.slice(0, 40)}…`);
 });
 
+test('la consigne exige une intro simple et ludique avant le Constat technique', () => {
+  const consigne = consigneDAutoAmelioration('HaikoDev');
+  assert.match(consigne, /champ « intro »/, 'le champ à remplir est nommé');
+  assert.match(consigne, /sans jargon ni chemin de fichier/, 'l’intro doit rester lisible par un non-technicien');
+});
+
 test('la consigne autorise une nuit sans rien à proposer', () => {
   const consigne = consigneDAutoAmelioration('HaikoDev');
   assert.match(consigne, /sans rien à proposer est une nuit normale/, 'ne rien trouver ne doit pas forcer la main');

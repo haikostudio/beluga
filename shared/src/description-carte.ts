@@ -69,6 +69,13 @@ export type ManqueDescription =
   | PartieDescription;
 
 export interface PartiesCarte {
+  /**
+   * Une ou deux phrases simples et ludiques, SANS jargon ni nom de fichier,
+   * qui disent en langage courant ce que la carte va changer et pourquoi —
+   * avant le détail technique. Affichée telle quelle, sans intertitre, en
+   * tête de la description composée.
+   */
+  intro?: string;
   constat?: string;
   attendu?: string;
   limites?: string;
@@ -272,12 +279,14 @@ export function jugerDescription(
  * modèle : même carte, même allure, quel que soit le moteur.
  */
 export function composerDescription(parties: PartiesCarte): string {
-  return PARTIES_DESCRIPTION.map((partie) => {
+  const intro = String(parties.intro ?? '').trim();
+  const corps = PARTIES_DESCRIPTION.map((partie) => {
     const contenu = String(parties[partie] ?? '').trim();
     return contenu ? `**${INTERTITRES[partie]}** : ${contenu}` : '';
   })
     .filter(Boolean)
     .join('\n\n');
+  return [intro, corps].filter(Boolean).join('\n\n');
 }
 
 /**
