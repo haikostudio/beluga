@@ -35,6 +35,8 @@ import {
   DeployRun,
   DeployStepKey,
   LIBELLE_ETAT_TACHE,
+  avancementDeLaBranche,
+  avancementDuFlux,
   ecartDepuisLeDebut,
   etapeDePublication,
   filDeLEtape,
@@ -46,6 +48,8 @@ import {
   resumeDuFil,
   resumeDuLot,
   titreDeLaPublication,
+  type AvancementDuFlux,
+  type EtapePourAvancement,
   type EtatDeTache,
   type GenreDEvenement,
   type TacheDuLot,
@@ -210,6 +214,77 @@ function IconeTache({ etat }: { etat: EtatDeTache }) {
 }
 
 /**
+ * LE CHIFFRE DE TOUT LE FLUX, EN TÊTE DU TIROIR — la première chose qu'on lit,
+ * et la seule qui ne bouge pas quand on fait défiler.
+ *
+ * Le tiroir racontait tout, sauf ce qu'il RESTE : devant sept étapes et six
+ * branches, il fallait compter de tête. Une barre et un pourcentage y
+ * répondent d'un coup d'œil, avec la ligne qui dit d'où sort le chiffre — un
+ * pourcentage sans son décompte n'est qu'une opinion.
+ *
+ * La couleur suit la convention de toute l'application : orange tant que ça
+ * tourne, bleu une fois terminé — et l'orange d'alerte quand la publication
+ * s'est arrêtée en chemin, où le chiffre est FIGÉ.
+ */
+function AvancementDuFluxEnTete({ avancement }: { avancement: AvancementDuFlux }) {
+  const teinte = avancement.termine ? 'success' : avancement.arrete ? 'warning' : 'en-cours';
+  return (
+    <div className="mt-2" data-avancement-flux={avancement.pourcent} data-flux-arrete={avancement.arrete ? 'oui' : undefined}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[12px] text-faint" data-resume-flux>
+          {t('{v0} étape(s) sur {v1}', { v0: avancement.faites, v1: avancement.etapes })}
+          {avancement.arrete ? ` · ${t('arrêté ici')}` : ''}
+        </span>
+        <span
+          className={cn(
+            'shrink-0 text-[13px] font-semibold tabular-nums',
+            teinte === 'success' ? 'text-success' : teinte === 'warning' ? 'text-warning' : 'text-en-cours',
+          )}
+          data-pourcent-flux
+        >
+          {avancement.pourcent} %
+        </span>
+      </div>
+      {/* La piste suit `--faint`, jamais `--border` : sur les thèmes plats une
+          bordure vaut un point du fond, et cette piste porte une information. */}
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-faint/25">
+        <div
+          className={cn(
+            'h-full rounded-full transition-[width] duration-500',
+            teinte === 'success' ? 'bg-success' : teinte === 'warning' ? 'bg-warning' : 'bg-en-cours',
+          )}
+          style={{ width: `${avancement.pourcent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * LE CHIFFRE D'UNE BRANCHE, posé au bout de sa ligne : une pastille et une
+ * micro-barre. Une branche ÉCARTÉE n'en a pas — elle n'avance plus, et lui
+ * donner un chiffre la ferait passer pour en route.
+ */
+function PourcentDeLaBranche({ tache, etapes }: { tache: TacheDuLot; etapes: readonly EtapePourAvancement[] }) {
+  const avancement = avancementDeLaBranche(tache.etat, etapes);
+  if (!avancement) return null;
+  const teinte = avancement.termine ? 'text-success' : 'text-en-cours';
+  return (
+    <span className="flex shrink-0 items-center gap-1.5" data-avancement-branche={avancement.pourcent}>
+      <span className="hidden h-1 w-10 overflow-hidden rounded-full bg-faint/25 sm:block">
+        <span
+          className={cn('block h-full rounded-full', avancement.termine ? 'bg-success' : 'bg-en-cours')}
+          style={{ width: `${avancement.pourcent}%` }}
+        />
+      </span>
+      <span className={cn('w-[38px] text-right text-[11px] font-medium tabular-nums', teinte)}>
+        {avancement.pourcent} %
+      </span>
+    </span>
+  );
+}
+
+/**
  * OÙ EN EST CHAQUE TÂCHE DU LOT — en tête du tiroir, avant les sept étapes.
  *
  * Le déroulé racontait le PARCOURS et le compte de cartes ne disait qu'un
@@ -219,7 +294,14 @@ function IconeTache({ etat }: { etat: EtatDeTache }) {
  *
  * Rien à déplier, rien à cliquer : cette liste MONTRE, elle ne décide de rien.
  */
-function TachesDuLot({ taches }: { taches: TacheDuLot[] }) {
+function TachesDuLot({
+  taches,
+  etapes,
+}: {
+  taches: TacheDuLot[];
+  /** Les étapes de la publication : ce qui suit la fusion compte dans le chiffre de chaque branche. */
+  etapes: readonly EtapePourAvancement[];
+}) {
   const resume = resumeDuLot(taches);
 
   return (
@@ -255,6 +337,7 @@ function TachesDuLot({ taches }: { taches: TacheDuLot[] }) {
             >
               {t(LIBELLE_ETAT_TACHE[tache.etat])}
             </span>
+            <PourcentDeLaBranche tache={tache} etapes={etapes} />
           </li>
         ))}
       </ul>
@@ -582,6 +665,9 @@ export function TiroirDeploiement({
     (cle) => run?.steps.find((step) => step.key === cle)?.state !== 'skipped',
   );
   const etape = etapeDePublication(run?.cible);
+  /* LE CHIFFRE DE TOUT LE FLUX, calculé sur la publication réelle : sans
+     publication, il n'y a rien à chiffrer — et on n'invente pas un « 0 % ». */
+  const avancement = run ? avancementDuFlux(run) : null;
 
   return (
     <Drawer open={open} onClose={onClose} empile={empile}>
@@ -596,13 +682,17 @@ export function TiroirDeploiement({
                 ? t('{v0} tâche(s) embarquée(s)', { v0: run.cardIds.length })
                 : t('Le déroulé complet, étape par étape.'))}
           </p>
+          {/* OÙ EN EST TOUT LE FLUX : posé DANS l'en-tête, donc toujours
+              visible — c'est le premier coup d'œil, il ne doit pas partir
+              avec le défilement. */}
+          {avancement ? <AvancementDuFluxEnTete avancement={avancement} /> : null}
         </div>
 
         <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-2 pb-4">
           {/* CE QU'ON VIENT VOIR EN PREMIER : où en est chaque tâche du lot.
               Une publication d'avant cette liste n'en a pas — on n'en invente
               alors aucune, et le tiroir s'ouvre sur ses étapes comme avant. */}
-          {run?.taches?.length ? <TachesDuLot taches={run.taches} /> : null}
+          {run?.taches?.length ? <TachesDuLot taches={run.taches} etapes={run.steps} /> : null}
           <ul data-processus-etapes>
             {affichees.map((cle, i) => (
               <EtapeDuTiroir

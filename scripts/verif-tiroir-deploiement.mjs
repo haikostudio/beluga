@@ -103,6 +103,24 @@ function voletDuServeur() {
   const tiroir = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'tiroir-deploiement.tsx'), 'utf8');
   noter("c'est un vrai tiroir, pas un panneau posé sur les cartes", /<Drawer/.test(tiroir));
   noter('chaque étape porte son fil, horodaté', /filDeLEtape\(/.test(tiroir) && /heureDeLEvenement\(/.test(tiroir));
+
+  /* LE CHIFFRE : la règle vit dans `shared`, pure, et l'écran ne fait que
+     l'afficher — aucun pourcentage recalculé à la main dans le composant. */
+  const regleChiffre = fs.readFileSync(path.join(RACINE, 'shared', 'src', 'avancement-publication.ts'), 'utf8');
+  noter(
+    'le pourcentage est une règle PURE, sans base ni disque',
+    /export function avancementDuFlux/.test(regleChiffre) &&
+      /export function avancementDeLaBranche/.test(regleChiffre) &&
+      !/import .*(store|fs|better-sqlite3)/.test(regleChiffre),
+  );
+  noter(
+    'ce qui est ÉCARTÉ n’a pas de pourcentage : il n’avance plus',
+    /natureDeLEtat\(etat\) === 'ecart'\) return null/.test(regleChiffre),
+  );
+  noter(
+    'le tiroir affiche le chiffre du flux et celui de chaque branche',
+    /avancementDuFlux\(/.test(tiroir) && /avancementDeLaBranche\(/.test(tiroir),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -525,6 +543,38 @@ async function voletDeLEcran() {
         (await ecartee.count()) === 1 &&
           (await page.locator('[data-etat-tache="en-ligne"]').count()) === 1 &&
           (await page.locator('[data-etat-tache="recollee"]').count()) === 1,
+      );
+
+      /* ---------------------------------------------------------------- */
+      /* LE CHIFFRE : tout le flux en tête, chaque branche sur sa ligne     */
+      /* ---------------------------------------------------------------- */
+      const pourcentFlux = page.locator('[data-pourcent-flux]');
+      const texteFlux = (await pourcentFlux.count()) ? ((await pourcentFlux.first().textContent()) ?? '').trim() : '';
+      noter(
+        'le tiroir donne, EN TÊTE, le pourcentage de tout le flux',
+        /^100\s*%$/.test(texteFlux),
+        texteFlux,
+      );
+
+      const resumeFlux = page.locator('[data-resume-flux]');
+      const texteResumeFlux = (await resumeFlux.count())
+        ? ((await resumeFlux.first().textContent()) ?? '').trim()
+        : '';
+      noter(
+        'le pourcentage dit d’où il sort : les étapes comptées (la sautée ne pèse pas)',
+        /6.*sur 6/.test(texteResumeFlux),
+        texteResumeFlux,
+      );
+
+      const pastilles = page.locator('[data-avancement-branche]');
+      noter(
+        'chaque branche embarquée porte SON pourcentage — sauf celle qui est écartée',
+        (await pastilles.count()) === 2,
+        `${await pastilles.count()} pastille(s) pour 3 tâches`,
+      );
+      noter(
+        'une branche écartée ne se chiffre pas : elle n’avance plus',
+        (await page.locator('[data-etat-tache="ecartee"] [data-avancement-branche]').count()) === 0,
       );
 
       const resumeLot = page.locator('[data-resume-du-lot]');
