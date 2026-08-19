@@ -66,7 +66,7 @@ process.on('exit', () => fs.rmSync(TMP, { recursive: true, force: true }));
 /* ------------------------------------------------------------------ */
 
 process.env.HAIKODEV_DATA = DATA_LOCAL;
-const { procedureEnPlace } = await import(path.join(RACINE, 'shared/dist/index.js'));
+const { procedureEnPlace, procedureDeLEtape } = await import(path.join(RACINE, 'shared/dist/index.js'));
 const store = await import(path.join(RACINE, 'server/dist/store.js'));
 const { startDeploy } = await import(path.join(RACINE, 'server/dist/deploy.js'));
 const { enregistrerProcedure } = await import(path.join(RACINE, 'server/dist/procedure-publication.js'));
@@ -85,15 +85,10 @@ const neuf = store.saveProject({
 });
 
 noter(
-  'un projet neuf n’a de procédure ni pour le déploiement ni pour la production',
-  !procedureEnPlace(neuf, 'dev') && !procedureEnPlace(neuf, 'production'),
-);
-
-const refusDev = await startDeploy(neuf.id, { cible: 'dev' });
-noter(
-  'sans procédure, le déploiement est refusé et renvoie au bouton qui l’initie',
-  refusDev.ok === false && /Initier le déploiement/.test(refusDev.error ?? ''),
-  refusDev.error,
+  'un projet neuf se déploie sur CE serveur par défaut, et n’a aucune mise en production',
+  procedureEnPlace(neuf, 'dev') &&
+    procedureDeLEtape(neuf, 'dev') === '' &&
+    !procedureEnPlace(neuf, 'production'),
 );
 
 const refusProd = await startDeploy(neuf.id, { cible: 'production' });
@@ -107,7 +102,8 @@ enregistrerProcedure(neuf.id, 'dev', '1. Construire.\n2. Relancer le service.', 
 const apresDev = store.getProject(neuf.id);
 noter(
   'écrire la procédure de DÉPLOIEMENT ne touche que le déploiement',
-  procedureEnPlace(apresDev, 'dev') && !procedureEnPlace(apresDev, 'production'),
+  procedureDeLEtape(apresDev, 'dev') === '1. Construire.\n2. Relancer le service.' &&
+    !procedureEnPlace(apresDev, 'production'),
   JSON.stringify({ dev: !!apresDev.deploiement?.prompt, prod: !!apresDev.miseEnProduction?.prompt }),
 );
 
@@ -392,11 +388,15 @@ const etatColonnes = async () =>
 
 const avant = await etatColonnes();
 noter(
-  'les DEUX colonnes proposent d’initier, et aucun bouton de publication ne paraît',
-  avant.initierDev && avant.initierProd && avant.boutonAction === 0,
+  'un projet NEUF peut déjà déployer sur ce serveur : aucun « Initier » côté déploiement',
+  !avant.initierDev && avant.boutonAction === 1 && avant.reglages === 1,
   JSON.stringify(avant),
 );
-noter('aucune icône de réglages tant qu’aucune procédure n’existe', avant.reglages === 0);
+noter(
+  'la MISE EN PRODUCTION, elle, propose d’initier : rien ne sort d’ici sans décision',
+  avant.initierProd,
+  JSON.stringify(avant),
+);
 
 /* ------------------------------------------------------------------ */
 /* Le tour dure des MINUTES : le tiroir doit vivre, se rattraper, et    */
@@ -408,12 +408,32 @@ const texteDe = (selecteur) =>
 const present = (selecteur) => page.evaluate((s) => !!document.querySelector(s), selecteur);
 const compterTours = () => page.evaluate(() => window.__tours.length);
 
+/*
+ * L'ICÔNE DE RÉGLAGES DU DÉPLOIEMENT OUVRE SUR LA PROCÉDURE VPS PAR DÉFAUT,
+ * et ne paie AUCUN tour : le déroulé sur ce serveur est déjà là, il n'y a rien
+ * à demander à un agent tant qu'on ne veut rien y changer.
+ */
+await page.click('[data-reglages-procedure="dev"]');
+await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
+await page.waitForTimeout(900);
+const parDefaut = await texteDe('[data-tiroir-procedure="dev"] [data-procedure-actuelle]');
+noter(
+  'le tiroir du déploiement montre la procédure VPS par défaut, jamais du vide',
+  /par défaut/i.test(parDefaut) && /ce serveur/i.test(parDefaut),
+  parDefaut.trim().slice(0, 90),
+);
+noter('… et il ne paie AUCUN tour pour l’afficher', (await compterTours()) === 0);
+noter(
+  '… le tiroir dit la PORTÉE de l’étape : rien ne sort de ce serveur',
+  /FTP/.test(await texteDe('[data-portee-procedure="dev"]')),
+  await texteDe('[data-portee-procedure="dev"]'),
+);
+
 /* Un tour LENT, comme en vrai : l'agent lit tout le projet avant d'écrire. */
 await page.evaluate(() => {
   window.__delai = 2500;
 });
-await page.click('[data-initier-procedure="dev"]');
-await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
+await page.click('[data-refaire-analyse]');
 await page.waitForTimeout(1400);
 
 const temoin = await texteDe('[data-procedure-en-cours]');
@@ -439,7 +459,7 @@ await page.waitForTimeout(2400);
 
 const apresAnalyse = await etatColonnes();
 noter(
-  'le seul fait d’initier suffit : le déploiement est configuré, sans rien demander',
+  'l’analyse écrit une procédure de déploiement sur mesure, sans rien demander',
   !apresAnalyse.initierDev && apresAnalyse.boutonAction === 1 && apresAnalyse.reglages === 1,
   JSON.stringify(apresAnalyse),
 );
@@ -623,7 +643,8 @@ noter('la question répondue laisse sa trace dans le fil', !(await present('[dat
  * il vient, et il n'y en a pas UN de trop : l'ouverture « dev », qui suffit à
  * elle seule (la réouverture pendant le tour n'en repaie aucun), la production
  * tombée puis relancée à la main, le changement demandé sur « dev », puis
- * l'analyse refaite à la demande. L'icône de réglages, elle, n'en paie aucun.
+ * l'analyse refaite à la demande. L'icône de réglages, elle, n'en paie aucun —
+ * pas même sur un projet neuf, qui ouvre sur la procédure VPS par défaut.
  */
 const cibles = await page.evaluate(() => window.__tours.map((t) => t.cible).join(','));
 noter(

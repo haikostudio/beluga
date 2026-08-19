@@ -46,6 +46,8 @@ import {
   procedureDeLEtape,
   procedureEnPlace,
   refusSansProcedure,
+  refusPorteeDeLEtape,
+  mentionPortee,
   avertissementsSelection,
   moduleNatifMalCompile,
   commandeDEssaiDuModuleNatif,
@@ -246,9 +248,14 @@ function promptDeLEtape(project: Project, cible?: CiblePublication): string {
  * règle pour éteindre le bouton « Tout publier » et dire pourquoi.
  */
 export function blocageMiseEnProduction(projectId: string, cible?: CiblePublication): string | null {
-  if (cible !== 'production') return null;
   const project = store.getProject(projectId);
   if (!project) return null;
+  /*
+   * Le DÉPLOIEMENT n'est bloqué que par une chose : une procédure qui voudrait
+   * sortir de ce serveur. Le bouton s'éteint alors et le « ! » de la tête de
+   * colonne dit laquelle, plutôt que de laisser découvrir le refus au clic.
+   */
+  if (cible !== 'production') return refusPorteeDeLEtape('dev', procedureDeLEtape(project, 'dev'));
   return refusCibleMiseEnProduction(project.miseEnProduction);
 }
 
@@ -293,7 +300,12 @@ export async function moyenDeMiseEnLigne(
    * prompt, qui dit lui-même quoi contrôler : on ne lui ajoute que la branche.
    */
   if (cible !== 'production') {
-    return { ...plan, raison: annonceDeDeploiement(plan, project.devUrl, branche.raison) };
+    /* La PORTÉE se dit avec le moyen : « tout reste ici » n'est pas un détail,
+       c'est la règle d'or du déploiement, et elle s'annonce avant le clic. */
+    return {
+      ...plan,
+      raison: `${annonceDeDeploiement(plan, project.devUrl, branche.raison)} ${mentionPortee('dev')}`,
+    };
   }
   return { ...plan, raison: `${plan.raison} ${branche.raison}` };
 }
@@ -2184,6 +2196,17 @@ export async function startDeploy(
   if (!procedureEnPlace(project, etape.cible)) {
     return { ok: false, error: refusSansProcedure(etape.cible) };
   }
+
+  /*
+   * UN DÉPLOIEMENT NE SORT PAS DE CE SERVEUR. La procédure de déploiement est
+   * SUIVIE PAR UN AGENT : écrite avec un envoi par FTP ou par SSH, elle serait
+   * exécutée telle quelle et la règle d'or ne serait qu'un vœu. On refuse donc
+   * avant tout travail, en nommant ce qui a été repéré et en renvoyant à la
+   * mise en production — la seule étape qui a le droit de sortir d'ici
+   * (`shared/src/portee-publication.ts`).
+   */
+  const refusPortee = refusPorteeDeLEtape(etape.cible, promptProduction);
+  if (refusPortee) return { ok: false, error: refusPortee };
 
   /*
    * Une MISE EN PRODUCTION dont la CIBLE est réglée mais incomplète se refuse

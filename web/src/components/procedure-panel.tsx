@@ -8,6 +8,8 @@ import {
   libelleReglages,
   mentionProcedureEnPlace,
   phraseDeTravail,
+  mentionPortee,
+  procedureAffichee,
   procedureDeLEtape,
   repriseDuDialogue,
   titreDeLaProcedure,
@@ -67,7 +69,17 @@ export function TiroirProcedure({
   const bulles = etat?.echanges ?? [];
   const ecrite = etat?.procedure ?? null;
   const erreur = etat?.raison ?? erreurLocale;
-  const actuelle = cible ? procedureDeLEtape(projet, cible) : '';
+  /*
+   * LA PROCÉDURE MONTRÉE : celle qui est écrite, sinon — pour un DÉPLOIEMENT
+   * seulement — le déroulé VPS PAR DÉFAUT. Un projet neuf n'ouvre donc plus ce
+   * tiroir sur du vide (qui laissait croire que rien n'était prévu et faisait
+   * partir un agent aussitôt) : il montre ce qui s'appliquera, et attend un
+   * geste. La mise en production, elle, n'a pas de défaut : rien ne sort de ce
+   * serveur sans qu'on l'ait décidé.
+   */
+  const redigee = cible ? procedureDeLEtape(projet, cible) : '';
+  const actuelle = cible ? procedureAffichee(cible, redigee) : '';
+  const parDefaut = !!actuelle && !redigee;
   /* La question posée par l'outil de l'agent : elle attend ICI, pas seulement
      dans la cloche du bandeau. Tant qu'elle est là, on répond à ELLE. */
   const question = etat?.question ?? null;
@@ -209,16 +221,28 @@ export function TiroirProcedure({
     <Drawer open={open} onClose={onClose}>
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4" data-tiroir-procedure={cible}>
         <h2 className="shrink-0 text-[15px] font-medium text-text">
-          {titreDeLaProcedure(cible)} — {actuelle ? t('modifier la procédure') : t('définir la procédure')}
+          {titreDeLaProcedure(cible)} —{' '}
+          {parDefaut
+            ? t('adapter la procédure par défaut')
+            : actuelle
+              ? t('modifier la procédure')
+              : t('définir la procédure')}
         </h2>
         <p className="mt-1 shrink-0 text-[12.5px] text-faint">
           {t('Un agent analyse le projet et écrit lui-même la procédure la mieux adaptée : rien de technique ne vous est demandé. Elle ne vaut que pour cette colonne.')}</p>
+        {/* LA PORTÉE DE L'ÉTAPE, dite avant tout le reste : le déploiement
+            reste sur ce serveur, la mise en production est la seule à pouvoir
+            en sortir. */}
+        <p className="mt-1 shrink-0 text-[12.5px] text-faint" data-portee-procedure={cible}>
+          {t(mentionPortee(cible))}</p>
 
         <ZoneDefilement classeEnveloppe="mt-3 min-h-0 flex-1" className="space-y-2 pr-1">
           {/* La procédure DÉJÀ en place, quand on rouvre pour la modifier. */}
           {actuelle && !ecrite ? (
             <div className="rounded-md border border-border bg-raised p-2.5" data-procedure-actuelle>
-              <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">{t('Procédure en place')}</p>
+              <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">
+                {parDefaut ? t('Procédure par défaut') : t('Procédure en place')}
+              </p>
               <div className="whitespace-pre-wrap text-[13px] text-muted">{actuelle}</div>
             </div>
           ) : null}

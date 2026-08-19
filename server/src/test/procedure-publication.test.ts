@@ -48,11 +48,14 @@ const SOURCE_PANNEAU = fs.readFileSync(
 /* Une procédure est-elle en place ?                                    */
 /* ------------------------------------------------------------------ */
 
-test('un projet NEUF n’a de procédure ni pour l’une ni pour l’autre étape', () => {
-  assert.equal(procedureEnPlace({}, 'dev'), false);
+test('un projet NEUF se déploie sur CE serveur, et n’a aucune mise en production', () => {
+  // LA RÈGLE D'OR : le déploiement VPS vaut par défaut, pour tout le monde.
+  assert.equal(procedureEnPlace({}, 'dev'), true);
+  assert.equal(procedureEnPlace(undefined, 'dev'), true);
+  assert.equal(procedureEnPlace({ deploiement: {}, miseEnProduction: {} }, 'dev'), true);
+  // Sortir de ce serveur, en revanche, se décide : rien par défaut.
   assert.equal(procedureEnPlace({}, 'production'), false);
-  assert.equal(procedureEnPlace(undefined, 'dev'), false);
-  assert.equal(procedureEnPlace({ deploiement: {}, miseEnProduction: {} }, 'dev'), false);
+  assert.equal(procedureEnPlace(undefined, 'production'), false);
 });
 
 test('un projet d’AVANT, marqué « constaté », garde son déploiement', () => {
@@ -66,6 +69,7 @@ test('une procédure écrite met l’étape en place, et elle seule', () => {
   const projet = { deploiement: { prompt: 'Copier le dossier, relancer le service.' } };
   assert.equal(procedureEnPlace(projet, 'dev'), true);
   assert.equal(procedureEnPlace(projet, 'production'), false, 'l’une ne vaut jamais pour l’autre');
+  assert.equal(procedureDeLEtape(projet, 'production'), '', 'l’une ne vaut jamais pour l’autre');
   assert.equal(procedureDeLEtape(projet, 'dev'), 'Copier le dossier, relancer le service.');
   assert.equal(procedureDeLEtape(projet, 'production'), '');
 });
@@ -79,7 +83,8 @@ test('la mise en production est en place par son prompt OU par un type de cible 
 });
 
 test('un texte fait d’espaces n’est pas une procédure', () => {
-  assert.equal(procedureEnPlace({ deploiement: { prompt: '   \n ' } }, 'dev'), false);
+  // Le déploiement retombe sur le déroulé VPS par défaut, jamais sur ce vide.
+  assert.equal(procedureDeLEtape({ deploiement: { prompt: '   \n ' } }, 'dev'), '');
   assert.equal(procedureEnPlace({ miseEnProduction: { prompt: ' ' } }, 'production'), false);
 });
 
